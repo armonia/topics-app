@@ -62,6 +62,7 @@ import { formatMemoryOwners, type MemoryFamily } from "./memory-owners";
 export type { DispatchCapacity } from "../../shared/board";
 import type { DispatchCapacity, GlobalDispatchCap, GlobalDispatchCapExtras, MachineBudgetSample } from "../../shared/board";
 import { AGENT_COST_FLOOR_MEM_GB, BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, BUDGET_SHARE_MIN, clampGlobalCap, estimatedAgentCost, estimatedAgentMemCost, machineBudget } from "../../shared/board";
+import { CHECKS_MEM_FLOOR_DEFAULT_GB, checksMemFloorGB } from "../../shared/checks-memory-floor";
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
@@ -150,6 +151,32 @@ export function readSpendCaps(db: Database): { perTaskCents: number; perDayCents
   const clean = (v: number | null | undefined) =>
     Number.isFinite(v) && (v as number) > 0 ? Math.trunc(v as number) : 0;
   return { perTaskCents: clean(r?.agent_cost_cap_cents), perDayCents: clean(r?.agent_cost_cap_cents_24h) };
+}
+
+/**
+ * THE MEMORY FLOOR IN FRONT OF A CHECK COMMAND, from the same reserved row.
+ *
+ * Read every time the brake is about to wait, not once at boot: that is what
+ * makes the setting take effect on the next round instead of at the next
+ * restart. The query is one indexed row by primary key, and the brake polls
+ * every 5 s, so re-reading costs nothing worth a cache that could go stale.
+ *
+ * An absent column or an unreadable row is the DEFAULT, never zero: zero means
+ * "the owner switched the brake off", and a missing migration must not be able
+ * to say that on their behalf.
+ */
+export function readChecksMemFloorGB(db: Database): number {
+  let r: { checks_mem_floor_gb?: number | null } | undefined;
+  try {
+    r = db
+      .prepare("SELECT checks_mem_floor_gb FROM board_settings WHERE project_id = ?")
+      .get(GLOBAL_SETTINGS_KEY) as typeof r;
+  } catch {
+    return CHECKS_MEM_FLOOR_DEFAULT_GB;
+  }
+  // NULL = never set: `checksMemFloorGB` turns a non-number into the default,
+  // and clamps anything else with the same reader the panel applies.
+  return checksMemFloorGB({ checksMemFloorGB: r?.checks_mem_floor_gb ?? undefined });
 }
 
 /**

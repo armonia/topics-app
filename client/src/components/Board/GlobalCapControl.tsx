@@ -54,13 +54,15 @@ import {
   GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF,
   budgetShare, capMode, livePressureBand,
   BUDGET_SHARE_MIN, BUDGET_SHARE_MAX,
+  CHECKS_MEM_FLOOR_MIN_GB, CHECKS_MEM_FLOOR_MAX_GB, checksMemFloorIsOff,
 } from '../../lib/board';
 import type { DispatchAdmission, DispatchCapMode, ThresholdBand } from '../../lib/board';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { DispatchLoadSummary } from './DispatchLoadGauge';
-import { admissionVerdictText, gateCoreNumbers, type VerdictText } from './dispatchLoad';
+import { admissionVerdictText, checksFloorBoxValue, gateCoreNumbers, type VerdictText } from './dispatchLoad';
 import {
   currentCapLimit,
+  saveChecksFloor,
   saveGlobalCap,
   useGlobalDispatchCap,
 } from '../../state/globalDispatchCap';
@@ -108,6 +110,74 @@ export function GlobalCapControl() {
       </div>
 
       {brake === 'count' ? <CountBrake /> : <ResourcesBrake />}
+
+      {/* OUTSIDE the two brakes on purpose: this one does not gate agents, it
+          gates the check COMMANDS a delivery runs before review, and it applies
+          whichever question the brake above is asking. */}
+      <ChecksFloorField />
+    </div>
+  );
+}
+
+/**
+ * HOW MUCH FREE MEMORY A CHECK COMMAND NEEDS before the server spawns it.
+ *
+ * WHY IT IS A FIELD AT ALL, and not the constant it replaced. It used to be
+ * `DISPATCH_MEM_FLOOR_NATIVE_GB` = 6 GB, which is the floor for admitting an
+ * AGENT, borrowed by the checks brake and never measured against a check: three
+ * times the heaviest command on the machine (`lint` cold, 1.9 GB), it held the
+ * round back in 86.2% of 1828 readings and every delivery paid up to three
+ * minutes of valve for a shortage that never happened. A number nobody can see
+ * is a number nobody corrects when the load changes.
+ *
+ * SO IT SAYS WHAT IT IS CALIBRATED AGAINST, not just its own value. The hint
+ * names the most expensive measured command and its cost, which is the one fact
+ * that lets somebody move this knob on purpose instead of by feel.
+ */
+function ChecksFloorField() {
+  const tr = useT();
+  const s = useGlobalDispatchCap();
+  const [draft, setDraft] = useState<string | undefined>(undefined);
+  const floor = s.checksFloorGB;
+  const shown = checksFloorBoxValue(floor, draft);
+  const commit = (raw: string) => {
+    setDraft(undefined);
+    const n = Number(raw);
+    // An empty or unreadable box is not a write: it is somebody who cleared the
+    // field and clicked away, and the value that was there stays.
+    if (raw.trim() === '' || !Number.isFinite(n)) return;
+    void saveChecksFloor(n);
+  };
+
+  return (
+    <div className="space-y-1 pt-1.5" data-testid="checks-floor-control">
+      <p className="text-micro font-semibold uppercase tracking-wide text-app-text-muted">
+        {tr('board.checksFloor.title')}
+      </p>
+      <label className="flex items-center justify-between gap-3">
+        <span className="text-mini text-app-text-muted">{tr('board.checksFloor.field')}</span>
+        <input
+          type="number"
+          min={CHECKS_MEM_FLOOR_MIN_GB}
+          max={CHECKS_MEM_FLOOR_MAX_GB}
+          step={1}
+          data-testid="checks-floor-gb"
+          value={shown}
+          disabled={s.saving || floor == null}
+          onChange={(e) => { const v = e.target.value; setDraft(v); }}
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') commit((e.target as HTMLInputElement).value); }}
+          className="w-20 shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-right text-app-text outline-none"
+        />
+      </label>
+      {/* OFF IS A STATE WITH A NAME. A numeric field that changes meaning at one
+          end has to say so, or the only way to learn what 0 does is to read the
+          server. */}
+      <p className="text-mini leading-snug text-app-text-faint" data-testid="checks-floor-hint">
+        {floor != null && checksMemFloorIsOff(floor)
+          ? tr('board.checksFloor.off')
+          : tr('board.checksFloor.hint')}
+      </p>
     </div>
   );
 }

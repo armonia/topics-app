@@ -93,7 +93,7 @@ import { createExternalSessionsRouter } from "./server/routes/external-sessions"
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { isChecksHold as isChecksHoldOf, sweepStaleChecksLights as sweepStaleChecksLightsOf } from "./server/services/checks-lights";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceVerdict, probeVm } from "./server/services/dispatch-capacity";
+import { budgetSample, computeDispatchCapacity, dispatchResourceVerdict, probeVm } from "./server/services/dispatch-capacity";
 import { createMemSignal, fileMemSampleStore, formatMemorySignalLine } from "./server/services/mem-signal";
 import { OUR_APP_MARKERS } from "./server/services/memory-owners";
 import { createMemoryOwnersReader } from "./server/services/memory-owners-probe";
@@ -2572,10 +2572,14 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   },
   // The e2e row of a delivery is read from the pull request CI, never run here.
   ciEvidence: ({ onCiWait, ...input }) => awaitCiEvidence(input, { onCiWait }),
-  // No new pre-review command starts under the floor the admission uses, into
-  // sustained swap, or within 2 minutes of another delivery's release
-  // (15/09/2026: 5.9 GB free and 9.9 GB of swap, four commands on one poll).
-  checksMemoryFloor: { held: () => memSignal.held(), swap: () => memSignal.swap(), floorGB: DISPATCH_MEM_FLOOR_NATIVE_GB },
+  // No new pre-review command starts under the memory floor, into sustained
+  // swap, or within 2 minutes of another delivery's release (15/09/2026: 5.9 GB
+  // free and 9.9 GB of swap, four commands on one poll). The floor is READ HERE,
+  // at every poll, not captured: it is the owner's setting on the reserved '*'
+  // row, so moving it in the panel takes effect on the next round. It used to be
+  // `DISPATCH_MEM_FLOOR_NATIVE_GB` — the floor for admitting an AGENT, three
+  // times the heaviest check command ever measured on this machine.
+  checksMemoryFloor: { held: () => memSignal.held(), swap: () => memSignal.swap(), floorGB: () => dispatcherSvc.getChecksMemFloorGB() },
   // Same union the dispatcher resolves against — but trimmed to the dirs that
   // are actually SELECTABLE boards. Internal catch-all plumbing (the shared
   // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config

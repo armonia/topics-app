@@ -51,9 +51,16 @@ function globalCapFields(cap: GlobalDispatchCap): {
 } {
   return { maxAgentsAuto: cap.auto, maxAgents: cap.max, maxAgentsMode: capMode(cap), budgetShare: budgetShare(cap) };
 }
+
+/** The checks memory floor on the wire, in ONE place for the GET, the PATCH
+ *  answer and the broadcast — same reason as `globalCapFields` above. What
+ *  travels is the APPLIED value (clamped, defaulted), so a panel can never show
+ *  a floor the brake is not using. */
+const checksFloorFields = (svc: TaskService): { checksMemFloorGB: number } =>
+  ({ checksMemFloorGB: svc.getChecksMemFloorGB() });
 import { deliverAnswer } from "../lib/ask-user-bridge";
 import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
-import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task } from "../services/tasks";
+import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
 import { interceptBoardAction } from "../services/board-actions";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
 import { FRESH_SESSION_NOTE } from "../../shared/task-comment-service";
@@ -3334,6 +3341,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           return json({
             autoDispatch: svc.getGlobalAutoDispatch(),
             ...globalCapFields(svc.getGlobalCap()),
+            ...checksFloorFields(svc),
             ...spendSnapshot(svc),
           });
         } catch (e) { return fail(e); }
@@ -3348,9 +3356,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // applies, and the response carries the value that will actually rule.
         const hasCapMode = body?.maxAgentsMode === "count" || body?.maxAgentsMode === "resources";
         const hasBudget = Number.isFinite(body?.budgetShare);
+        // Out of range is not refused here either: `setChecksMemFloorGB` clamps
+        // with the same reader the brake applies, and the answer carries the
+        // value that will actually rule.
+        const hasFloor = Number.isFinite(body?.checksMemFloorGB);
         const hasSpend = hasSpendCapPatch(body);
-        if (!hasAuto && !hasCapAuto && !hasCapMax && !hasCapMode && !hasBudget && !hasSpend) {
-          return json({ error: "autoDispatch, maxAgentsAuto (boolean), maxAgents, maxAgentsMode ('count'|'resources'), budgetShare, agentCostCapCents and/or agentCostCapCents24h (number) required", code: "invalid_input" }, 400);
+        if (!hasAuto && !hasCapAuto && !hasCapMax && !hasCapMode && !hasBudget && !hasFloor && !hasSpend) {
+          return json({ error: "autoDispatch, maxAgentsAuto (boolean), maxAgents, maxAgentsMode ('count'|'resources'), budgetShare, checksMemFloorGB, agentCostCapCents and/or agentCostCapCents24h (number) required", code: "invalid_input" }, 400);
         }
         try {
           let autoDispatch = svc.getGlobalAutoDispatch();
@@ -3368,12 +3380,16 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               budgetShare: hasBudget ? body.budgetShare : undefined,
             });
           }
+          // The checks floor is written by a PERSON too, from the same panel.
+          // Zero switches the memory brake off in front of every check command.
+          if (hasFloor) svc.setChecksMemFloorGB(body.checksMemFloorGB);
           // The spend caps are written by a PERSON, from here. Zero clears a cap.
           if (hasSpend) applySpendCapPatch(svc, body);
           const capFields = globalCapFields(svc.getGlobalCap());
+          const floor = checksFloorFields(svc);
           const caps = spendCapFields(svc);
-          broadcastToAll({ type: "board:global-cap", ...capFields, ...caps });
-          return json({ autoDispatch, ...capFields, ...caps });
+          broadcastToAll({ type: "board:global-cap", ...capFields, ...floor, ...caps });
+          return json({ autoDispatch, ...capFields, ...floor, ...caps });
         } catch (e) { return fail(e); }
       }
       return null;

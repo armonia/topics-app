@@ -11,6 +11,7 @@ import { freezableRuns, type FreezableRun } from "./budget-governor";
 import { ChecksInterruptedError } from "./checks-gate";
 import { killProcessTree } from "../lib/process-tree";
 import { swapReasonIt, swapSigns, type HeldMemory, type SwapVerdict } from "./mem-signal";
+import { CHECKS_MEM_FLOOR_DEFAULT_GB } from "../../shared/checks-memory-floor";
 
 /**
  * NO NEW CHECK STARTS UNDER THE MEMORY FLOOR, INTO SUSTAINED SWAP, OR IN A HERD.
@@ -45,16 +46,44 @@ import { swapReasonIt, swapSigns, type HeldMemory, type SwapVerdict } from "./me
  * calm Mac under the floor started the command. An adversarial check ran it and
  * showed it did not weaken the floor, it deleted it: the sustained branch
  * already returns before the floor is read, so calm was the only state where the
- * floor had any force. Over 160 states (calm/sustained x held 0,1..20 and null x
- * spacing x turn x what the round had spent) `floorGB: 0` and `floorGB: 1000` gave the SAME
- * decision in every one - an unobservable parameter. And the floor still guards
- * somebody: `checksMemoryFloor` is mounted once for the whole server
- * (server.ts), not per board, and board `dancerooms-intq6i` declares
- * `pnpm verify:all --only typecheck,unit` as its only local check - exactly the
- * 4-11 GB tree this brake exists to keep off an empty Mac. On topics-app itself
- * nothing would catch it: `createSwapBrake` only interrupts trees over
- * `SWAP_VICTIM_MIN_GB` = 1 GB, while this file prices tsc at 460 MB and a vite
- * build at 316 MB.
+ * floor had any force.
+ *
+ * THE FLOOR IS A SETTING, NOT A CONSTANT, and what it is worth is measured.
+ * `MemoryFloor.floorGB` is a function read at every poll: the value lives on the
+ * reserved '*' settings row (`checks_mem_floor_gb`), defaults to 3 GB
+ * (`shared/checks-memory-floor.ts`) and `0` switches this whole branch off,
+ * "measuring" included. It used to be `DISPATCH_MEM_FLOOR_NATIVE_GB` = 6, which
+ * is the floor for ADMITTING AN AGENT - sized beside `GB_PER_AGENT_NATIVE` for
+ * how much room one more session needs - borrowed by this brake and never
+ * measured against a check. What a check actually costs, sampled every 250 ms on
+ * 17/09/2026, one command at a time: `bun run lint` cold 1.91 GB (the most
+ * expensive command on this machine), `typecheck` cold 1.31, `static-rails`
+ * 0.31, `check:deadcode` 0.33; cold is what counts, because `.cache/checks` is
+ * not tracked and an agent's worktree always starts without it. Six gigabytes
+ * held the round back in 86.2% of 1828 `[memsig]` readings while the lowest
+ * reading in the whole log was 2.7 GB: a brake that always fires is a timer in
+ * disguise.
+ *
+ * AND THE REASON WRITTEN HERE FOR THOSE 6 GB WAS FALSE, which is why the number
+ * is now a setting with its measurement beside it. This header used to argue
+ * that board `dancerooms-intq6i` declares `pnpm verify:all --only typecheck,unit`
+ * as its only local check, "exactly the 4-11 GB tree this brake exists to keep
+ * off an empty Mac". That script does not exist in that repo - it has `verify`
+ * and `verify:product` - so the command exits 254 in 275 ms holding 2 MB, and
+ * has been red every round for days. The same paragraph priced tsc at 460 MB and
+ * a vite build at 316 MB with no measurement behind either figure.
+ *
+ * TWO ROADS ARE CLOSED, and they are written down so they are not reopened.
+ * DELETING the floor was refuted by replaying the 1828 readings through
+ * `releaseDecision`: between `floorGB: 6` and `floorGB: 0` the decision differs
+ * in 1157 of them (63.3%), every one at `swap=calm`, and those states are
+ * measurably worse machines (swap used p50 7.8 GB against 3.4 where the floor
+ * lets through). This is the only brake that decides anything in the two thirds
+ * of the log where the swap verdict is silent. Making `swapVictim` read a run's
+ * PEAK instead of its latest sample was refuted too: what a SIGKILL gives back is
+ * the CURRENT footprint (`treeFootprintKB` sums `phys_footprint`, resident plus
+ * compressed), so a tsc that peaked at 1.31 GB and now sits at 0.4 returns 0.4 -
+ * killing it would burn one of a delivery's two interruptions for nothing.
  *
  * IT FAILS OPEN AFTER A BUDGET SPENT ACROSS THE ROUND, whatever holds it - swap
  * included, which it did not do before. A sustained verdict used to be
@@ -126,8 +155,16 @@ import { swapReasonIt, swapSigns, type HeldMemory, type SwapVerdict } from "./me
 export interface MemoryFloor {
   held: () => HeldMemory;
   swap: () => SwapVerdict;
-  /** Under this, a new command waits, calm or swapping. */
-  floorGB: number;
+  /**
+   * Under this, a new command waits, calm or swapping. `0` = no floor at all.
+   *
+   * A FUNCTION AND NOT A NUMBER, like `held` and `swap` beside it, because it is
+   * a SETTING now (`board_settings['*'].checks_mem_floor_gb`) and not a
+   * constant: read at every poll, so moving it in the panel takes effect on the
+   * next round instead of at the next restart. A number here would have been
+   * captured at mount and quietly ignored every change.
+   */
+  floorGB: () => number;
   /** What one round may wait on anything but the floor of a calm Mac, before
    *  running anyway. Default `MEMORY_WAIT_MAX_MS`; the calm floor's own budget is
    *  `MEMORY_WAIT_CALM_MAX_MS`, or this one when this one is shorter. */
@@ -209,9 +246,15 @@ interface DecisionInput {
 function holdReason(i: DecisionInput): WaitReason | null {
   if (i.swap.sustained) return "swap";
   if (i.otherRoundRelease?.running && i.now - i.otherRoundRelease.at < RELEASE_SPACING_MS) return "spacing";
-  // Still no release on a single reading: an empty window is not a roomy one.
-  if (i.held.heldGB == null) return "measuring";
-  if (i.held.heldGB < i.floorGB) return "room";
+  // FLOOR OFF: neither of the two memory reasons applies, and that includes
+  // "measuring". Waiting for a window to fill so it can be compared against a
+  // floor of zero is waiting for a number nobody will read - a switch that says
+  // off has to stop the whole branch, not only its last line.
+  if (i.floorGB > 0) {
+    // Still no release on a single reading: an empty window is not a roomy one.
+    if (i.held.heldGB == null) return "measuring";
+    if (i.held.heldGB < i.floorGB) return "room";
+  }
   return i.olderWaiter ? "turn" : null;
 }
 
@@ -325,9 +368,13 @@ export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSigna
         sinceAt = t;
         const held = read(floor.held, unmeasured);
         const swap = read(floor.swap, calm);
+        // ONE read per poll, shared by the decision and the line it prints: two
+        // reads could straddle a write from the panel and log a floor that is
+        // not the one that held the command.
+        const floorGB = read(floor.floorGB, CHECKS_MEM_FLOOR_DEFAULT_GB);
         const other = lastRelease && lastRelease.round !== round ? lastRelease : null;
         const olderWaiter = [...waitingSince].some(([r, since]) => r !== round && since < from);
-        const d = releaseDecision({ held, swap, floorGB: floor.floorGB, otherRoundRelease: other, olderWaiter, now: t, spent, maxWaitMs });
+        const d = releaseDecision({ held, swap, floorGB, otherRoundRelease: other, olderWaiter, now: t, spent, maxWaitMs });
         // A round being stopped starts nothing, so it holds no release either.
         if (signal?.aborted || stopping) return () => {};
         if (d.release) {
@@ -341,7 +388,7 @@ export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSigna
         spending = budgetOf(d.wait);
         if (d.wait !== said) {
           said = d.wait;
-          console.warn(waitLine(name, d.wait!, held, swap, floor.floorGB, t));
+          console.warn(waitLine(name, d.wait!, held, swap, floorGB, t));
         }
         await sleep(pollMs);
       }
@@ -420,11 +467,13 @@ export function _resetReviewChecksStop(): void {
  *  - less than 120 s since the last interruption: nothing, to see its effect
  *    (5 s SIGKILL grace, a beat, and a 60 s swap window still holding the
  *    samples from before the kill);
- *  - candidates: registered runs of a card whose tree holds >= 1 GB, interrupted
- *    fewer than 2 times on their delivery `taskId@commit`. Killing a tsc (460 MB),
- *    a vite build (316 MB) or the static rails gives nothing back and costs a
- *    round; a delivery interrupted twice runs to the end, or it could be killed
- *    forever;
+ *  - candidates: registered runs of a card whose tree holds >= 1 GB RIGHT NOW,
+ *    interrupted fewer than 2 times on their delivery `taskId@commit`. The
+ *    reading is the LATEST sample and not the run's peak, deliberately: what a
+ *    SIGKILL gives back is what the tree holds at that instant, so killing a tsc
+ *    that peaked at 1.31 GB and has since settled to 0.4 returns 0.4 and costs a
+ *    whole round. `static-rails` (0.31 GB measured) never qualifies at all. A
+ *    delivery interrupted twice runs to the end, or it could be killed forever;
  *  - victim: the youngest round, whose rerun wastes the least.
  * The round throws `ChecksInterruptedError("swap")` before the killed command
  * becomes a run, so no verdict and no card peak are recorded; the route re-issues
