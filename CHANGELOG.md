@@ -2,6 +2,30 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.341 — 2026-09-17
+
+### Sotto il cofano
+- La mia regola sul freno dei check era un no-op: la verifica l'ha eseguita
+
+## 2.2.340 — 2026-09-17
+
+### Sotto il cofano
+- Il freno dei check spara sempre la valvola: e' un timer, non un freno
+- 80 secondi di lavoro, 30 minuti di attesa: il numero del freno dei check
+- Un file di troppo nel checkout chiudeva la porta a OGNI land, per sempre
+- La catena ha girato intera: tre buchi osservati invece che dedotti
+
+## 2.2.339 — 2026-09-17
+
+### Correzioni
+- **chat** · don't pin to bottom on height growth inside a user gesture window
+
+### Sotto il cofano
+- Il filone engine alternativi si chiude: WKProcessPool e' inerte e Obscura non ha una finestra
+- Playwright WebKit e' PIU' PESANTE di Chromium headless: 140 MB contro 82 per pane
+- Il banco misurava il rumore della macchina: serve il filtro sul comando, non solo il pid
+- Il pavimento di memoria non aspetta una persona: aspetta per sempre
+
 ## 2.2.338 — 2026-09-16
 
 ### Sotto il cofano

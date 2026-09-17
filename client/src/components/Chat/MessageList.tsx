@@ -816,6 +816,15 @@ export function MessageList({
    *  geometria di Virtuoso — che durante l'apertura dice «non sei in fondo»
    *  senza che nessuno abbia mosso niente. */
   const userTouchedRef = useRef(false);
+  /** Until this timestamp, any height growth is under suspicion of being
+   *  caused by a user gesture (click, wheel, touch): opening a tool-call row
+   *  can jump the list height by thousands of px, and a pin latched onto
+   *  that growth scrolls away the very row the gesture just opened, so
+   *  Virtuoso drops it out of the overscan window and remounts it collapsed.
+   *  Written by `markGesture` in the scroll effect below, read by every
+   *  "anchored" pin that reacts to a growth not tied to new messages
+   *  (`totalListHeightChanged`, the general ResizeObserver). */
+  const gestureUntilRef = useRef(0);
   useEffect(() => {
     if (openPinnedForRef.current === topic.id) return;
     if (!scrollerEl || filteredMessages.length === 0) return;
@@ -1332,7 +1341,11 @@ export function MessageList({
   // Non decide niente: chiede a `shouldPin` (che include il veto del salto da
   // palette) e incolla. Il ri-controllo dentro il frame è dentro `pinToBottom`.
   useEffect(() => {
-    if (_currentStreaming) pinToBottom();
+    // Same guard as the "anonymous" growth below: if a token arrives inside
+    // a gesture window (click on a tool-call row, dragging the scrollbar)
+    // this pin scrolls the row out of Virtuoso's overscan, which unmounts
+    // and remounts it collapsed. See `gestureUntilRef`.
+    if (_currentStreaming && Date.now() >= gestureUntilRef.current) pinToBottom();
   }, [filteredMessages, _currentStreaming, pinToBottom]);
 
   // Detect a GENUINE user scroll-up so the streaming bottom-pin can yield to it.
@@ -1397,6 +1410,10 @@ export function MessageList({
     let gestureUntil = 0;
     const markGesture = () => {
       gestureUntil = Date.now() + GESTURE_WINDOW_MS;
+      // Shared with `totalListHeightChanged` and the general ResizeObserver
+      // below: both need to suspect a growth that follows this same gesture,
+      // not just the local scroll effect.
+      gestureUntilRef.current = gestureUntil;
       // Il primo input CHIUDE la finestra di apertura, e non è un dettaglio: il
       // ri-pin di apertura è forzato, quindi finché quella finestra è aperta
       // combatterebbe con chi scrolla. `userTouchedRef` da solo non basta —
@@ -1584,6 +1601,13 @@ export function MessageList({
         return;
       }
       if (r > AT_BOTTOM_TOLERANCE_PX) return;
+      // A growth inside a gesture window is never "the silent last growth":
+      // it's the row that was just opened by hand. Pinning here scrolls it
+      // out of Virtuoso's overscan, which unmounts and remounts it collapsed
+      // — the tool-call collapse. Nothing is lost by waiting: once the
+      // window ends, if the list is still at the bottom, this same observer
+      // passes through here again.
+      if (Date.now() < gestureUntilRef.current) return;
       // NOTA sull'anello, per chi passerà di qui a «ottimizzare».
       //
       // A riposo questo pin si autoalimenta: incollare al fondo fa smontare a
@@ -1949,6 +1973,14 @@ export function MessageList({
             // può spostare la vista al massimo di una tolleranza — cioè può solo
             // finire un movimento già quasi compiuto — e non può mai trascinare
             // giù chi sta leggendo indietro.
+            // A recent pointerdown (opening a row, dragging the scrollbar)
+            // can grow the height by thousands of px WITHOUT the user ever
+            // asking to follow the bottom — it's the row itself that grows.
+            // Pinning here pulls it out of Virtuoso's overscan, which
+            // unmounts and remounts it collapsed: the same collapse that
+            // `markGesture` closes off for the opening window must be
+            // respected here too. See `gestureUntilRef`.
+            if (Date.now() < gestureUntilRef.current) return;
             const el = scrollerElRef.current;
             if (!el) return;
             const distanza = el.scrollHeight - el.scrollTop - el.clientHeight;

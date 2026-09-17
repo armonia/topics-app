@@ -1,5 +1,90 @@
 [
   {
+    "version": "2.2.341",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La mia regola sul freno dei check era un no-op: la verifica l'ha eseguita",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.340",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il freno dei check spara sempre la valvola: e' un timer, non un freno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "80 secondi di lavoro, 30 minuti di attesa: il numero del freno dei check",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un file di troppo nel checkout chiudeva la porta a OGNI land, per sempre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La catena ha girato intera: tre buchi osservati invece che dedotti",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.339",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "don't pin to bottom on height growth inside a user gesture window",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il filone engine alternativi si chiude: WKProcessPool e' inerte e Obscura non ha una finestra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Playwright WebKit e' PIU' PESANTE di Chromium headless: 140 MB contro 82 per pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco misurava il rumore della macchina: serve il filtro sul comando, non solo il pid",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pavimento di memoria non aspetta una persona: aspetta per sempre",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.338",
     "date": "2026-09-16",
     "sections": {
