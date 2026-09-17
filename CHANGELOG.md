@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.353 — 2026-09-17
+
+### Sotto il cofano
+- La guardia rifiutava una SCRITTURA dell'indirizzo dei metadati, non l'indirizzo
+- Lo stesso punto cieco stava anche nella guardia che protegge la pane browser
+
 ## 2.2.352 — 2026-09-17
 
 ### Sotto il cofano

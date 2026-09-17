@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.353",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La guardia rifiutava una SCRITTURA dell'indirizzo dei metadati, non l'indirizzo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo stesso punto cieco stava anche nella guardia che protegge la pane browser",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.352",
     "date": "2026-09-17",
     "sections": {
