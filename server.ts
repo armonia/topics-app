@@ -1438,8 +1438,22 @@ let checksGateIsOffLane: ((taskId: string) => boolean) | null = null;
  * Is the task this session works on waiting on OUR pre-review checks? The
  * stall detector must not judge that silence: the agent asked for review, the
  * gate said 202 and is grinding typecheck/lint/test:unit, and the agent is
- * waiting on us. `checks_state='running'` covers the run; the gate covers the
- * queue behind another card (one run at a time, minutes each).
+ * waiting on us - running, or queued behind another card's run (minutes each).
+ *
+ * THE LIVE REGISTRY ANSWERS, NOT THE ROW. `checks_state === 'running'` stood
+ * here as an equal half of the OR, and it is a light that only a boot ever
+ * switched off (`clearStaleChecksRuns`, called from one place: the route's
+ * construction). Let `measure()` throw before the terminal record - the swap
+ * brake's `ChecksInterruptedError`, `throwIfStopping()`, any exception - and
+ * the gate drops its key while the row keeps saying "running": from there this
+ * predicate was true FOREVER for that session. Measured on 2026-09-17: 89 boots
+ * found at least one light on, and the two clocks that read this one paid for
+ * it - 1253 rearms of the stall judge (`stall-detector.ts`), and a StaleStream
+ * sweep that answers `extend` to every mute turn of that session, so a turn
+ * that died is never finalized.
+ *
+ * The row is now a confirmation, not a source: it is what the periodic sweep
+ * (`sweepStaleChecksLights`) reconciles against this same registry.
  */
 /**
  * Is this card's delivery parked on our pre-review checks with NOTHING of ours
@@ -1466,10 +1480,10 @@ function isChecksHold(sessionKey: string): boolean {
   if (!topicPrefix) return false;
   try {
     const row = db.prepare(
-      `SELECT id, checks_state FROM tasks WHERE status = 'in_progress' AND assigned_topic_id LIKE ? LIMIT 1`,
-    ).get(topicPrefix + "%") as { id: string; checks_state: string | null } | null;
+      `SELECT id FROM tasks WHERE status = 'in_progress' AND assigned_topic_id LIKE ? LIMIT 1`,
+    ).get(topicPrefix + "%") as { id: string } | null;
     if (!row) return false;
-    return row.checks_state === "running" || (checksGateIsRunning?.(row.id) ?? false);
+    return checksGateIsRunning?.(row.id) ?? false;
   } catch {
     return false;
   }
@@ -4908,7 +4922,46 @@ const staleStreamTimer = setInterval(() => {
   // A cut just happened, and its notice says "riprende da solo entro pochi
   // minuti": the resume sweep must not wait for its five-minute tick.
   if ([...sweepOutcomes.values()].includes("finalized")) nudgeResumeSweep();
+  sweepStaleChecksLights();
 }, STALE_STREAM_CHECK_INTERVAL_MS);
+
+/**
+ * THE «running» LIGHT THAT ONLY A BOOT EVER SWITCHED OFF.
+ *
+ * `clearStaleChecksRuns` had exactly one caller, the route's construction, and
+ * that is the one instant when the gate's registry is empty by construction -
+ * so every light in the database belongs to a dead process. It is not the only
+ * way one gets left on: a round whose `measure()` throws before recording the
+ * terminal state (swap brake, `throwIfStopping()`, any exception) makes the
+ * gate drop its key while the row keeps saying "running". 89 boots found at
+ * least one such light already lit (71 times 1, 16 times 2, once 4, once 6).
+ *
+ * Between two boots that row lied to everything that reads it: the stall judge
+ * rearmed forever, the StaleStream sweep answered `extend` to every mute turn
+ * of that session, and the card's chip said "check in corso" with nothing
+ * running. Here the two registries are crossed on the same 30-second beat the
+ * sweep above already pays for: the gate decides, the row follows, and a card
+ * whose run is alive or queued is never touched.
+ */
+function sweepStaleChecksLights(): void {
+  const live = checksGateIsRunning;
+  // The route is not built yet: no registry to cross, and every light is still
+  // the boot sweep's business.
+  if (!live) return;
+  try {
+    const spente = dispatcherSvc.clearStaleChecksRuns((taskId) => live(taskId));
+    if (!spente.length) return;
+    console.warn(`[checks] ${spente.length} spie 'running' spente: il gate non ha piu' quella corsa, e nessuno ne scrivera' il verdetto`);
+    // The board that has the card open must stop showing the spinner NOW: the
+    // next `task:updated` for a card whose round died may never come.
+    for (const id of spente) {
+      const task = dispatcherSvc.get(id)?.task;
+      if (task) broadcastToAll({ type: "task:updated", projectId: task.projectId, task });
+    }
+  } catch (err) {
+    console.warn("[checks] passata sulle spie 'running' fallita:", err);
+  }
+}
 
 // Task auto-dispatch reconciliation: on boot, requeue any in-progress task whose
 // agent turn died with the previous process; then poll to fill free slots on

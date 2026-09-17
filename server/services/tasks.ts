@@ -810,7 +810,7 @@ export interface TaskService {
     progress?: { done: number; total: number } | null;
   }): Task;
   /**
-   * Spegne le spie «running» rimaste accese, e si chiama UNA VOLTA all'avvio.
+   * Spegne le spie «running» rimaste accese.
    *
    * Una corsa di check vive nel processo (`services/checks-gate.ts`): se il
    * server muore mentre gira, nessuno scriverà mai il suo verdetto e la card
@@ -818,9 +818,19 @@ export interface TaskService {
    * processo morto, quindi al boot torna a «mai misurato»: chi riconsegna fa
    * ripartire i comandi, e nel frattempo la card non mente.
    *
-   * Ritorna quante ne ha spente (la riga di log al boot, e i test).
+   * WITHOUT `isLive` IT SWITCHES OFF EVERY LIGHT, which is the boot call: that
+   * is the one instant when the gate's registry is empty by construction. With
+   * `isLive` it only switches off the lights that registry does NOT know, which
+   * is the periodic sweep - a boot was never the only way to leave one on. When
+   * `measure()` (routes/tasks.ts) throws before the terminal record (the swap
+   * brake, `throwIfStopping()`, any exception) the gate drops its key while the
+   * row keeps saying "running" forever. Measured on 2026-09-17: 89 boots found
+   * at least one light already lit (71 times 1, 16 times 2, once 4, once 6).
+   *
+   * Returns the ids switched off: the boot prints their number, the periodic
+   * sweep needs the ids to refresh the boards that have those cards open.
    */
-  clearStaleChecksRuns(): number;
+  clearStaleChecksRuns(isLive?: (taskId: string) => boolean): string[];
   /**
    * Tasks worth auditing: alive, delivered (review/done), carrying a commit —
    * e SENZA un esito testimoniato. Un verdetto scritto dal land stesso è un
@@ -5500,14 +5510,27 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    clearStaleChecksRuns(): number {
+    clearStaleChecksRuns(isLive?: (taskId: string) => boolean): string[] {
+      const lit = (db.prepare(
+        "SELECT id FROM tasks WHERE checks_state = 'running'",
+      ).all() as Array<{ id: string }>).map((r) => r.id);
+      // The live registry decides, the row confirms: a light the gate still
+      // knows is a run that is going, or queued behind another card's run, and
+      // switching it off would tell the board nothing is being measured while
+      // `test:unit` has been running for six minutes.
+      const orphaned = isLive ? lit.filter((id) => !isLive(id)) : lit;
+      if (!orphaned.length) return [];
       // `checks_at` resta com'era (una corsa senza verdetto non ha un "quando"),
       // e `checks_commit`/`checks_json` pure: sono la traccia dell'ultima misura
       // vera, e cancellarli qui butterebbe via un esito valido.
-      const res = db.prepare(
-        "UPDATE tasks SET checks_state = NULL, updated_at = ? WHERE checks_state = 'running'",
-      ).run(now());
-      return Number(res.changes ?? 0);
+      const stmt = db.prepare(
+        "UPDATE tasks SET checks_state = NULL, updated_at = ? WHERE id = ? AND checks_state = 'running'",
+      );
+      const cleared: string[] = [];
+      for (const id of orphaned) {
+        if (Number(stmt.run(now(), id).changes ?? 0) > 0) cleared.push(id);
+      }
+      return cleared;
     },
 
     setLabels({ taskId, labels, actor, source, projectId }): Task {

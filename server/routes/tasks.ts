@@ -963,12 +963,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   // `runningCount` al dispatcher senza accoppiamenti circolari.
   try { opts?.onChecksGate?.(checksGate); } catch { /* best-effort */ }
 
-  // Qui, e non nel poll del dispatcher: questo è l'unico istante in cui il
-  // registro è VUOTO per costruzione, quindi ogni «running» rimasto nel db è di
-  // un processo morto. Nel poll la stessa riga spegnerebbe corse vive.
+  // WITHOUT A PREDICATE, and only here: this is the one instant when the gate's
+  // registry is EMPTY by construction, so every «running» left in the database
+  // belongs to a dead process. The periodic sweep (`sweepStaleChecksLights` in
+  // server.ts) asks the same question every 30 s, but it has to pass the live
+  // registry - the bare call there would switch off a run that is grinding.
   try {
     const spente = svc.clearStaleChecksRuns();
-    if (spente) console.warn(`[checks] ${spente} spie 'running' spente: erano di un processo morto`);
+    if (spente.length) console.warn(`[checks] ${spente.length} spie 'running' spente: erano di un processo morto`);
   } catch { /* una spia non deve poter impedire al server di partire */ }
 
   /**
