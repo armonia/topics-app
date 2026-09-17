@@ -5,16 +5,25 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.344 — 2026-09-17
 
 ### Sotto il cofano
+- Il rail typecheck:e2e era rosso su main: la meta' vuota non aveva un tipo
 - Un numero che avevo messo nel contratto era falso: 241 volte, non zero
+- Con due orologi l'ordine fra spaziatura e pavimento decide il budget
+- Il rail typecheck:e2e non era rosso su main: le due righe non riparavano niente
 
 ## 2.2.343 — 2026-09-17
 
 ### Sotto il cofano
 - **e2e** · aggiorna durate shard dal nightly del 2026-09-17 [skip ci]
+- Un episodio di thrash regalava l'esenzione dal pavimento per tutto il giro
 
 ## 2.2.342 — 2026-09-17
 
 ### Sotto il cofano
+- Il pavimento torna in vigore, a cambiare e' la valvola
+- Il cuore di T4.3 non aveva test, e la spia onesta lasciava la card ferma
+- Il reset dei giri saltava proprio la riga che i giri li brucia
+- Tre cose consegnate senza uno SHALL dietro: ora la spec le copre
+- I rail statici: un nome italiano nuovo e i commenti del test in inglese
 - Il giudice di fuori parcheggiava una card che su main parte
 - La guardia su `commentIds` copriva un chiamante su tre
 - Il ramo lo decideva il censimento, la cifra il listino: 7-9,9 GB fermi per niente
@@ -35,6 +44,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il filo fra reconcile e sweep non era coperto: si poteva tagliare a barra verde
 - Una bocciatura di tre commenti ne registrava uno solo
 - La mia regola sul freno dei check era un no-op: la verifica l'ha eseguita
+- La nota del muro provider ripartiva a ogni boot: ~300 paragrafi identici al giorno
 
 ## 2.2.340 — 2026-09-17
 
@@ -47,7 +57,12 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - I nomi e i commenti nuovi passano i due cancelli della lingua
 - 80 secondi di lavoro, 30 minuti di attesa: il numero del freno dei check
 - Un file di troppo nel checkout chiudeva la porta a OGNI land, per sempre
+- Il pavimento dei check vive dentro il verdetto sullo swap, non accanto
+- T5.1: la misura sta nei task, con la correzione alla premessa
 - La catena ha girato intera: tre buchi osservati invece che dedotti
+- La spia 'running' che solo un boot spegneva teneva isChecksHold vero per sempre
+- Il giro di consegna ripartiva da zero a ogni riavvio senza che nessuno lo contasse
+- Un hold di sei giorni si leggeva come uno di sei ore: l'etichetta era solo l'ora
 
 ## 2.2.339 — 2026-09-17
 

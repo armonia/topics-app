@@ -8,7 +8,7 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { providerHold, isProviderHeld, setProviderHold, clearProviderHold, onProviderHold, holdUntilLabel, configureProviderHoldStore, resetProviderHoldStore, planUsage, recordPlanUsage, onPlanUsage, clearPlanUsage } from "./provider-hold";
+import { providerHold, isProviderHeld, setProviderHold, clearProviderHold, onProviderHold, holdUntilLabel, holdAsksAPerson, HOLD_ASKS_A_PERSON_MS, configureProviderHoldStore, resetProviderHoldStore, planUsage, recordPlanUsage, onPlanUsage, clearPlanUsage } from "./provider-hold";
 import { PLAN_DISPATCH_HOLD_AT, PLAN_USAGE_WARN_AT } from "../../shared/provider-hold";
 
 const NOW = 1_800_000_000_000;
@@ -81,7 +81,27 @@ describe("provider hold", () => {
   });
 
   test("the label is an hour a person reads", () => {
-    expect(holdUntilLabel({ untilMs: NOW })).toMatch(/^\d{2}:\d{2}$/);
+    expect(holdUntilLabel({ untilMs: NOW }, NOW)).toMatch(/^\d{2}:\d{2}$/);
+  });
+
+  /**
+   * SIX HOURS AND SIX DAYS READ THE SAME when the label is an hour alone. The
+   * live memo on 2026-09-17 ended on 19/09 at 14:45 and the log said "resumes
+   * at 14:45" 43 times over three days, each line looking like this afternoon.
+   */
+  test("a wall that is not today carries its date", () => {
+    const sixDays = NOW + 6 * 24 * 3_600_000;
+    expect(holdUntilLabel({ untilMs: sixDays }, NOW)).toMatch(/^\d{2}\/\d{2} \d{2}:\d{2}$/);
+    // Same hour, today: the date would be noise, and the hour is the answer.
+    expect(holdUntilLabel({ untilMs: NOW + 60_000 }, NOW)).toMatch(/^\d{2}:\d{2}$/);
+  });
+
+  test("past a day the hold is a question, not a wait", () => {
+    expect(holdAsksAPerson({ untilMs: NOW + 5 * 3_600_000 }, NOW)).toBe(false);
+    expect(holdAsksAPerson({ untilMs: NOW + HOLD_ASKS_A_PERSON_MS }, NOW)).toBe(false);
+    expect(holdAsksAPerson({ untilMs: NOW + HOLD_ASKS_A_PERSON_MS + 1 }, NOW)).toBe(true);
+    // The measured one: a Codex wall six days out is a spent plan.
+    expect(holdAsksAPerson({ untilMs: NOW + 6 * 24 * 3_600_000 }, NOW)).toBe(true);
   });
 });
 

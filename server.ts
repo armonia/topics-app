@@ -91,6 +91,7 @@ import { createExternalSessionsService } from "./server/services/external-sessio
 import { createAgentWorktree, worktreeReadyMs, type AgentWorktreeDeps } from "./server/services/worktree-for-agent";
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
+import { isChecksHold as isChecksHoldOf, sweepStaleChecksLights as sweepStaleChecksLightsOf } from "./server/services/checks-lights";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
 import { budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceVerdict, probeVm } from "./server/services/dispatch-capacity";
 import { createMemSignal, fileMemSampleStore, formatMemorySignalLine } from "./server/services/mem-signal";
@@ -1434,13 +1435,9 @@ let checksGateRunningCount: (() => number) | null = null;
 let checksGateIsRunning: ((taskId: string) => boolean) | null = null;
 /** `checksGate.isOffLane(taskId)`: the run only waits on the pull request CI (KANBAN-84). */
 let checksGateIsOffLane: ((taskId: string) => boolean) | null = null;
-/**
- * Is the task this session works on waiting on OUR pre-review checks? The
- * stall detector must not judge that silence: the agent asked for review, the
- * gate said 202 and is grinding typecheck/lint/test:unit, and the agent is
- * waiting on us. `checks_state='running'` covers the run; the gate covers the
- * queue behind another card (one run at a time, minutes each).
- */
+/** `settleDelivery` of the tasks route: re-issues the PATCH this process is
+ *  still holding for a card. Null until the route is built. */
+let resumeHeldDelivery: ((taskId: string) => void) | null = null;
 /**
  * Is this card's delivery parked on our pre-review checks with NOTHING of ours
  * running for it?
@@ -1461,18 +1458,9 @@ function deliveryOnlyWaitsOnChecks(taskId: string): boolean {
   return !freezableRuns().some((run) => run.taskId === taskId);
 }
 
+/** The live registry answers, not the row: see `services/checks-lights.ts`. */
 function isChecksHold(sessionKey: string): boolean {
-  const topicPrefix = sessionKey.startsWith("topic:") ? sessionKey.slice("topic:".length) : sessionKey;
-  if (!topicPrefix) return false;
-  try {
-    const row = db.prepare(
-      `SELECT id, checks_state FROM tasks WHERE status = 'in_progress' AND assigned_topic_id LIKE ? LIMIT 1`,
-    ).get(topicPrefix + "%") as { id: string; checks_state: string | null } | null;
-    if (!row) return false;
-    return row.checks_state === "running" || (checksGateIsRunning?.(row.id) ?? false);
-  } catch {
-    return false;
-  }
+  return isChecksHoldOf(db, checksGateIsRunning, sessionKey);
 }
 
 /**
@@ -2573,10 +2561,14 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // Collega il gate dei check al freno del dispatcher: appena il gate esiste,
   // `checksGateRunningCount` punta al suo `runningCount()` e il dispatcher
   // lo usa in ogni tick e resume per sapere quante barre sono in volo.
-  onChecksGate: (gate) => {
+  onChecksGate: (gate, hooks) => {
     checksGateRunningCount = () => gate.runningCount();
     checksGateIsRunning = (taskId) => gate.isRunning(taskId);
     checksGateIsOffLane = (taskId) => gate.isOffLane(taskId);
+    // What `sweepStaleChecksLights` calls on a card whose light it just had to
+    // switch off: the round is gone, and this is the only thing left in this
+    // process that can start another one.
+    resumeHeldDelivery = (taskId) => hooks.settleDelivery(taskId);
   },
   // The e2e row of a delivery is read from the pull request CI, never run here.
   ciEvidence: ({ onCiWait, ...input }) => awaitCiEvidence(input, { onCiWait }),
@@ -4919,7 +4911,23 @@ const staleStreamTimer = setInterval(() => {
   // A cut just happened, and its notice says "riprende da solo entro pochi
   // minuti": the resume sweep must not wait for its five-minute tick.
   if ([...sweepOutcomes.values()].includes("finalized")) nudgeResumeSweep();
+  sweepStaleChecksLights();
 }, STALE_STREAM_CHECK_INTERVAL_MS);
+
+/** The periodic half of the light's honesty (`services/checks-lights.ts`): the
+ *  boot sweep is blind to a round that died with the process still up. */
+function sweepStaleChecksLights(): void {
+  sweepStaleChecksLightsOf({
+    clearStale: (isLive) => dispatcherSvc.clearStaleChecksRuns(isLive),
+    isRunning: checksGateIsRunning,
+    announce: (id) => {
+      const task = dispatcherSvc.get(id)?.task;
+      if (task) broadcastToAll({ type: "task:updated", projectId: task.projectId, task });
+    },
+    resume: (id) => resumeHeldDelivery?.(id),
+    warn: (line) => console.warn(line),
+  });
+}
 
 // Task auto-dispatch reconciliation: on boot, requeue any in-progress task whose
 // agent turn died with the previous process; then poll to fill free slots on

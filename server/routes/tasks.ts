@@ -70,7 +70,7 @@ import { MAX_CHECKS, STATIC_RAILS_CHECK, checksVerdict, formatChecksComment, for
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { ChecksInterruptedError, clampLegMs, createChecksGate, type ChecksLane, type ChecksLeg } from "../services/checks-gate";
 import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping, type MemoryFloor } from "../services/review-checks-brakes";
-import { forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
+import { bumpPendingDeliveryRound, forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
 import { ciNotMeasured } from "../services/ci-evidence";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
@@ -412,7 +412,19 @@ export interface TasksRouterOpts {
    * e non puo' riceverlo al costruttore. Con questo hook il wiring e' immediato
    * e senza accoppiamenti circolari.
    */
-  onChecksGate?: (gate: import("../services/checks-gate").ChecksGate) => void;
+  /**
+   * `hooks.settleDelivery` rides along because it answers the OTHER half of the
+   * same question: the periodic sweep that switches off an orphaned `running`
+   * light (`services/checks-lights.ts`) has the card ids in hand, and without
+   * this the honest light would just park the card - nothing in this process
+   * restarts a round whose gate key is gone, and the boot resume now gives up
+   * after three rounds (`MAX_DELIVERY_ROUNDS`). It is a no-op for a card this
+   * process holds no delivery for.
+   */
+  onChecksGate?: (
+    gate: import("../services/checks-gate").ChecksGate,
+    hooks: { settleDelivery: (taskId: string) => void },
+  ) => void;
   /**
    * The memory a pre-review command waits for before it starts: a delivery's
    * unit tree is 4-11 GB, and nothing else holds it back once the card was
@@ -965,14 +977,18 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const checksGate = createChecksGate({ maxConcurrent: checksLanes() });
   // Notifica il chiamante non appena il gate esiste, cosi' puo' passarne
   // `runningCount` al dispatcher senza accoppiamenti circolari.
-  try { opts?.onChecksGate?.(checksGate); } catch { /* best-effort */ }
+  // `settleDelivery` is a hoisted declaration below: the hook only stores the
+  // reference, and nothing calls it before the router is finished being built.
+  try { opts?.onChecksGate?.(checksGate, { settleDelivery: (taskId) => settleDelivery(taskId) }); } catch { /* best-effort */ }
 
-  // Qui, e non nel poll del dispatcher: questo è l'unico istante in cui il
-  // registro è VUOTO per costruzione, quindi ogni «running» rimasto nel db è di
-  // un processo morto. Nel poll la stessa riga spegnerebbe corse vive.
+  // WITHOUT A PREDICATE, and only here: this is the one instant when the gate's
+  // registry is EMPTY by construction, so every «running» left in the database
+  // belongs to a dead process. The periodic sweep (`sweepStaleChecksLights` in
+  // server.ts) asks the same question every 30 s, but it has to pass the live
+  // registry - the bare call there would switch off a run that is grinding.
   try {
     const spente = svc.clearStaleChecksRuns();
-    if (spente) console.warn(`[checks] ${spente} spie 'running' spente: erano di un processo morto`);
+    if (spente.length) console.warn(`[checks] ${spente.length} spie 'running' spente: erano di un processo morto`);
   } catch { /* una spia non deve poter impedire al server di partire */ }
 
   /**
@@ -1144,6 +1160,47 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   }
 
   /**
+   * How many times a boot restarts the SAME round before saying so instead.
+   *
+   * Three, and the arithmetic is the round's own: a round with the CI rows
+   * costs the local commands (typecheck measured at 73-177 s, plus lint,
+   * deadcode and the static rails) and then up to 65 minutes of polling
+   * GitHub, while a save under `server/` sends a SIGTERM that cuts it - 6
+   * restarts in the 14/09T23 hour, 4 in the T20 one, 1-2 an hour all through
+   * 16/09. Three whole rounds thrown away is already more wall clock than one
+   * round ever gets, so a fourth silent attempt is not patience, it is a loop.
+   */
+  const MAX_DELIVERY_ROUNDS = 3;
+
+  /**
+   * The round is not restarted a fourth time: the card is told, once.
+   *
+   * The row goes with it, because leaving it would restart the count at the
+   * next boot and write the same line again. Nothing else is touched - the card
+   * stays `in_progress`, the branch and the commit are where the agent left
+   * them - since what unblocks this is a person or a new delivery, not another
+   * round nobody watches.
+   */
+  function giveUpOnDelivery(taskId: string, rounds: number): void {
+    forgetPendingDelivery(ctx.db, taskId);
+    console.warn(`[Tasks] consegna di ${taskId.slice(0, 8)}: ${rounds} giri di check ripartiti da zero senza verdetto, il giro non riparte`);
+    try {
+      const task = svc.get(taskId)?.task;
+      if (!task) return;
+      svc.addComment({
+        taskId, author: "system", kind: "comment",
+        content:
+          `I check di questa consegna sono ripartiti da zero ${rounds} volte senza arrivare a un verdetto: ` +
+          "ogni riavvio del server taglia il giro (i comandi locali durano minuti, le righe CI aspettano la pull request) " +
+          "e ricominciarlo non ha misurato niente. Il giro non riparte piu' da solo: serve un commit nuovo da consegnare, " +
+          "oppure una persona che guardi perche' questo giro non arriva in fondo.",
+      });
+      const t = svc.get(taskId)?.task;
+      if (t) broadcastToAll({ type: "task:updated", projectId: t.projectId, task: t });
+    } catch { /* the card may have moved under us: the log line above stays */ }
+  }
+
+  /**
    * THE DELIVERIES THE PREVIOUS PROCESS WAS STILL WAITING ON.
    *
    * A planned reload no longer waits for a delivery whose checks are only
@@ -1176,6 +1233,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // is a question somebody asks, and the rows in flight at a shutdown are
         // a handful, not a stream.
         console.warn(`[Tasks] consegna di ${entry.taskId.slice(0, 8)} dimenticata al boot: la card non è più in lavorazione, nessun check lanciato`);
+        continue;
+      }
+      // COUNTED BEFORE IT RESTARTS, because the round that follows may well be
+      // cut by the next save under `server/` and never be counted at all.
+      const round = bumpPendingDeliveryRound(ctx.db, entry.taskId);
+      if (round > MAX_DELIVERY_ROUNDS) {
+        giveUpOnDelivery(entry.taskId, round);
         continue;
       }
       restoredDeliveries.set(entry.taskId, entry.commit);
