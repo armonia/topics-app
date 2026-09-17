@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.350 — 2026-09-17
+
+### Sotto il cofano
+- L'ultima riga aperta della tornata di stanotte si chiude, e quasi ogni sua premessa era sbagliata
+
 ## 2.2.349 — 2026-09-17
 
 ### Sotto il cofano
