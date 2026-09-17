@@ -22,20 +22,20 @@ import type { HeldMemory } from "./mem-signal";
 const held = (gb: number): (() => HeldMemory) => () =>
   ({ measurable: true, latestGB: gb, heldGB: gb, coveredMs: 120_000 });
 
-describe("il pavimento della memoria cede alla prima card, il disco no", () => {
-  const disco = () => 500;
-  const fermo: MemoryFloorHold = { cardGB: 4, reservedGB: 0, reservedCards: 0, spendingHere: false, ourWorkRunning: false };
-  const alLavoro: MemoryFloorHold = { ...fermo, spendingHere: true, ourWorkRunning: true };
+describe("il pavimento della memoria cede alla prima card, il disk no", () => {
+  const disk = () => 500;
+  const idle: MemoryFloorHold = { cardGB: 4, reservedGB: 0, reservedCards: 0, spendingHere: false, ourWorkRunning: false };
+  const atWork: MemoryFloorHold = { ...idle, spendingHere: true, ourWorkRunning: true };
 
-  test("a Topics fermo una card parte anche sotto il pavimento, e il verdetto lo dichiara", () => {
-    const v = dispatchResourceVerdict("/tmp", disco, held(4.8), false, fermo);
+  test("a Topics idle una card parte anche sotto il pavimento, e il verdetto lo dichiara", () => {
+    const v = dispatchResourceVerdict("/tmp", disk, held(4.8), false, idle);
     expect(v.reason).toBeNull();
     expect(v.kind).toBeNull();
     expect(v.memoryFirstCardExempt).toBe(true);
   });
 
   test("con un agente al lavoro il pavimento vale pieno", () => {
-    const v = dispatchResourceVerdict("/tmp", disco, held(4.8), false, alLavoro);
+    const v = dispatchResourceVerdict("/tmp", disk, held(4.8), false, atWork);
     expect(v.reason).toContain("Memoria quasi finita");
     expect(v.kind).toBe("memory");
     expect(v.memoryFirstCardExempt).toBe(false);
@@ -45,13 +45,13 @@ describe("il pavimento della memoria cede alla prima card, il disco no", () => {
     // Holding on "I do not know yet" while admitting on a reading that is
     // measured and bad would say the unknown is worse than the bad.
     const window = () => ({ measurable: true, latestGB: 20, heldGB: null, coveredMs: 40_000 });
-    expect(dispatchResourceVerdict("/tmp", disco, window, false, fermo).memoryFirstCardExempt).toBe(true);
-    const busy = dispatchResourceVerdict("/tmp", disco, window, false, alLavoro);
+    expect(dispatchResourceVerdict("/tmp", disk, window, false, idle).memoryFirstCardExempt).toBe(true);
+    const busy = dispatchResourceVerdict("/tmp", disk, window, false, atWork);
     expect(busy.kind).toBe("memory_warmup");
     expect(busy.reason).toContain("la sto misurando");
   });
 
-  test("il disco non ha esenzione: a macchina ferma resta chiuso", () => {
+  test("il disk non ha esenzione: a macchina ferma resta chiuso", () => {
     // A GUARD, NOT A PROOF, and it should be read that way: the disk did not
     // change with KANBAN-75 and this case passes identically on the code from
     // before the exemption. It demonstrates nothing new; it pins the asymmetry
@@ -60,7 +60,7 @@ describe("il pavimento della memoria cede alla prima card, il disco no", () => {
     //
     // A full disk does not reabsorb itself and SQLite's writes fail: it waits
     // for a person, and no count of agents opens it.
-    const v = dispatchResourceVerdict("/tmp", () => 1, held(50), false, fermo);
+    const v = dispatchResourceVerdict("/tmp", () => 1, held(50), false, idle);
     expect(v.kind).toBe("disk");
     expect(v.reason).toContain("Disco quasi pieno");
     expect(v.memoryFirstCardExempt).toBe(false);
@@ -69,7 +69,7 @@ describe("il pavimento della memoria cede alla prima card, il disco no", () => {
   test("memoria abbondante non è un'esenzione: non c'era niente da graziare", () => {
     // The boundary that keeps the declaration honest: above the floor the
     // verdict must say "nothing held", not "I waived one".
-    const v = dispatchResourceVerdict("/tmp", disco, held(20), false, fermo);
+    const v = dispatchResourceVerdict("/tmp", disk, held(20), false, idle);
     expect(v.reason).toBeNull();
     expect(v.memoryFirstCardExempt).toBe(false);
   });
@@ -88,15 +88,15 @@ describe("il pavimento della memoria cede alla prima card, il disco no", () => {
  * its local checks stopped the queue harder than an agent at work.
  */
 describe("un solo censimento: la riga la decide il listino", () => {
-  const disco = () => 500;
+  const disk = () => 500;
   /** Cards in flight, alive and resident, whose checks here are over. */
   const sullaCI: MemoryFloorHold = { cardGB: 4, reservedGB: 0, reservedCards: 0, spendingHere: false, ourWorkRunning: true };
   /** A turn still running commands here: the price list charges it. */
-  const cheSpende: MemoryFloorHold = { ...sullaCI, spendingHere: true };
+  const spending: MemoryFloorHold = { ...sullaCI, spendingHere: true };
 
   for (const gb of [7.0, 8.0, 9.9]) {
     test(`a ${gb.toFixed(1)} GB, sopra il pavimento e con solo card sulla CI, la prossima parte`, () => {
-      const v = dispatchResourceVerdict("/tmp", disco, held(gb), false, sullaCI);
+      const v = dispatchResourceVerdict("/tmp", disk, held(gb), false, sullaCI);
       expect(v.reason).toBeNull();
       // And NOT by derogation: the reading really is over the floor, not waived.
       expect(v.memoryFirstCardExempt).toBe(false);
@@ -106,20 +106,20 @@ describe("un solo censimento: la riga la decide il listino", () => {
   test("sotto il pavimento resta chiusa, e senza esenzione: le card sulla CI sono nostre", () => {
     // The census fix stands: an off-lane card is an agent alive and resident,
     // so the first-card derogation does NOT re-arm underneath it.
-    const v = dispatchResourceVerdict("/tmp", disco, held(4.8), false, sullaCI);
+    const v = dispatchResourceVerdict("/tmp", disk, held(4.8), false, sullaCI);
     expect(v.kind).toBe("memory");
     expect(v.reason).toContain("sotto il pavimento di 6 GB");
     expect(v.memoryFirstCardExempt).toBe(false);
   });
 
   test("un turno che spende ancora qui alza la riga a 10 GB, e la cifra è quella del listino", () => {
-    const v = dispatchResourceVerdict("/tmp", disco, held(9.9), false, cheSpende);
+    const v = dispatchResourceVerdict("/tmp", disk, held(9.9), false, spending);
     expect(v.reason).toContain("sotto i 10.0 GB");
-    expect(dispatchResourceVerdict("/tmp", disco, held(10.0), false, cheSpende).reason).toBeNull();
+    expect(dispatchResourceVerdict("/tmp", disk, held(10.0), false, spending).reason).toBeNull();
     // With a reservation (count mode) the figure rises with it, branch and
     // figure off the same list: 6 + 4 + 4.
-    const conRiserva = { ...cheSpende, reservedGB: 4, reservedCards: 1 };
-    expect(dispatchResourceVerdict("/tmp", disco, held(13.9), false, conRiserva).reason).toContain("sotto i 14.0 GB");
-    expect(dispatchResourceVerdict("/tmp", disco, held(14.0), false, conRiserva).reason).toBeNull();
+    const withReservation = { ...spending, reservedGB: 4, reservedCards: 1 };
+    expect(dispatchResourceVerdict("/tmp", disk, held(13.9), false, withReservation).reason).toContain("sotto i 14.0 GB");
+    expect(dispatchResourceVerdict("/tmp", disk, held(14.0), false, withReservation).reason).toBeNull();
   });
 });
