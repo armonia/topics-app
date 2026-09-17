@@ -526,7 +526,7 @@
     "  · ramo, Mac locale:              444.580 / 444.589  (due build)",
     "Due fatti che questo elenco rende leggibili e che una misura sola nasconde:",
     "il costo PROPRIO del ramo e' 66 byte gz (444.684 - 444.618) per 195 byte",
-    "raw — le sette voci italiane di `board.task.checks.*` del verdetto NON",
+    "raw — le quattro voci italiane di `board.task.checks.*` del verdetto NON",
     "MISURATO, che stanno nell'entry perche' `i18n-it.ts` e' la lingua di",
     "default (`i18n-en.ts` e' gia' un chunk a parte, e TaskDetail.tsx finisce in",
     "KanbanBoardPane, pigro). Non c'e' nessun import da rendere pigro: il",
