@@ -522,7 +522,7 @@ describe("closeCiDraft", () => {
         return { ok: true, value: { number: 78, url: "https://github.com/o/r/pull/78" } };
       },
     });
-    const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/delivered", reason: "landed" }, { port });
+    const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/delivered", reason: "landed", closePr: true }, { port });
     expect(seen).toEqual(["topics/delivered"]);
     expect(out.pr?.number).toBe(78);
     expect(out.branchDeleted).toBe(true);
@@ -531,23 +531,78 @@ describe("closeCiDraft", () => {
     expect(calls.deleted).toEqual(["topics/delivered"]);
   });
 
+  /**
+   * THE ORDER IS THE CONTRACT, and until this test nothing measured it: with the
+   * two halves swapped the whole suite stayed green (45 pass / 0 fail).
+   *
+   * The port below models the one GitHub behaviour that makes the order matter -
+   * deleting a head branch closes its pull request - and `openPullRequest` asks
+   * for `--state open`, exactly as the real one does. Delete first and the close
+   * finds nothing: the `reason`, the only line that says on GitHub why this
+   * branch ended, is never posted and the receipt loses the number.
+   */
+  test("the pull request is closed BEFORE the branch is deleted, or GitHub closes it first and the reason is never posted", async () => {
+    let prState: "open" | "closed" = "open";
+    const said: string[] = [];
+    const { port } = fakePort({
+      openPullRequest: async () => ({ ok: true, value: prState === "open" ? { number: 78, url: "u" } : null }),
+      closePullRequest: async (_cwd, _repo, _pr, comment) => {
+        if (prState === "closed") return { ok: false, error: "gh: pull request is already closed" };
+        prState = "closed";
+        said.push(comment);
+        return { ok: true, value: "closed" as const };
+      },
+      deleteRemoteBranch: async () => { prState = "closed"; return { ok: true, value: "deleted" as const }; },
+    });
+    const out = await closeCiDraft(
+      { cwd: "/tmp/wt", branch: "topics/delivered", reason: "Closed by the Topics board: superseded.", closePr: true },
+      { port },
+    );
+    expect(out.pr?.number).toBe(78);
+    expect(said).toEqual(["Closed by the Topics board: superseded."]);
+    expect(out.branchDeleted).toBe(true);
+  });
+
+  /**
+   * THE REGRESSION THIS FLAG EXISTS FOR. `confirmLandedOnMain` re-reads the LOCAL
+   * main and no code path in this server pushes main, so when the land's sweep
+   * runs `origin/main` does not carry the merge yet. GitHub marks that pull
+   * request MERGED itself once a person pushes - observed on #78, 17/09/2026, a
+   * minute after the land - and a `gh pr close` racing that push would stamp
+   * "Closed" on the ~32 cards that land in a week.
+   */
+  test("closePr false deletes the branch and never touches the pull request", async () => {
+    const { port, calls } = fakePort({
+      openPullRequest: async () => ({ ok: true, value: { number: 78, url: "u" } }),
+    });
+    const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/landed", reason: "landed", closePr: false }, { port });
+    expect(calls.closed).toEqual([]);
+    expect(out.pr).toBeNull();
+    expect(out.branchDeleted).toBe(true);
+    expect(calls.deleted).toEqual(["topics/landed"]);
+    expect(out.problems).toEqual([]);
+  });
+
   test("no open pull request is not a problem: the branch still goes", async () => {
     const { port, calls } = fakePort();
-    const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/delivered", reason: "archived" }, { port });
+    const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/delivered", reason: "archived", closePr: true }, { port });
     expect(out.pr).toBeNull();
     expect(out.branchDeleted).toBe(true);
     expect(calls.closed).toEqual([]);
     expect(out.problems).toEqual([]);
   });
 
-  // A card that ran in place records the checkout's own branch as its delivery
-  // branch, and here that branch is `main`: the one move that the Mac cannot undo.
+  // `select count(*) from tasks where delivery_branch='main'` is 0 on the live DB:
+  // this is a floor on an argument the function does not control - it arrives from
+  // the land result, the card's `delivery_branch` or an attempt row - not a fix
+  // for a row anyone has seen. Deleting `main` on origin is the one move here the
+  // Mac cannot undo, and the check is two string comparisons.
   test("main is refused, and so is the branch the checkout is sitting on", async () => {
     const { port, calls } = fakePort({ branch: async () => ({ ok: true, value: "topics/live" }) });
-    const onMain = await closeCiDraft({ cwd: "/tmp/wt", branch: "main", reason: "landed" }, { port });
+    const onMain = await closeCiDraft({ cwd: "/tmp/wt", branch: "main", reason: "landed", closePr: true }, { port });
     expect(onMain.branchDeleted).toBe(false);
     expect(onMain.problems[0]).toContain("integration branch");
-    const onLive = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/live", reason: "landed" }, { port });
+    const onLive = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/live", reason: "landed", closePr: true }, { port });
     expect(onLive.branchDeleted).toBe(false);
     expect(onLive.problems[0]).toContain("is itself on topics/live");
     expect(calls.deleted).toEqual([]);
@@ -556,7 +611,7 @@ describe("closeCiDraft", () => {
 
   test("a remote branch that is already gone is not a failure", async () => {
     const { port } = fakePort({ deleteRemoteBranch: async () => ({ ok: true, value: "absent" }) });
-    const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/delivered", reason: "landed" }, { port });
+    const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/delivered", reason: "landed", closePr: true }, { port });
     expect(out.branchDeleted).toBe(false);
     expect(out.problems).toEqual([]);
   });
@@ -567,11 +622,27 @@ describe("closeCiDraft", () => {
       openPullRequest: async () => ({ ok: true, value: { number: 9, url: "u" } }),
       closePullRequest: async () => ({ ok: false, error: "gh: not logged in" }),
     });
-    const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/delivered", reason: "landed" }, { port });
+    const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/delivered", reason: "landed", closePr: true }, { port });
     expect(out.pr).toBeNull();
     expect(out.problems.join(" ")).toContain("not logged in");
     expect(out.branchDeleted).toBe(true);
     expect(calls.deleted).toEqual(["topics/delivered"]);
+  });
+
+  /**
+   * `push --delete` is git against origin: it has nothing to do with `gh`, and a
+   * project of this board whose `origin` is not GitHub would otherwise lose the
+   * branch half too, because `port.repo` cannot name a repo for it.
+   */
+  test("an origin that is not GitHub still loses its branch: only the pull-request half is skipped", async () => {
+    const { port, calls } = fakePort({
+      repo: async () => ({ ok: false, error: "no GitHub repo for this remote" }),
+    });
+    const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/delivered", reason: "archived", closePr: true }, { port });
+    expect(out.branchDeleted).toBe(true);
+    expect(calls.deleted).toEqual(["topics/delivered"]);
+    expect(out.pr).toBeNull();
+    expect(out.problems.join(" ")).toContain("no GitHub repo");
   });
 
   test("the real port deletes a remote branch, and reads an already-absent one as absent", async () => {

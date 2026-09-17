@@ -523,13 +523,33 @@ export async function awaitCiEvidence(
 
 /** What the sweep actually did, for the receipt on the card. */
 export type DraftCleanup = {
-  /** The pull request that was closed, or null when there was none open. */
+  /** The pull request that was closed, or null when there was none open - or when the caller asked not to close one. */
   pr: PullRequestRef | null;
   /** True only when origin still had the branch and it is gone now. */
   branchDeleted: boolean;
   /** Why a half of it did not happen. Never thrown: this is housekeeping, not a gate. */
   problems: string[];
 };
+
+export interface CloseCiDraftInput {
+  cwd: string;
+  branch: string;
+  /** Posted as the closing comment on the pull request. Unused when `closePr` is false. */
+  reason: string;
+  /**
+   * Whether to close the pull request, on top of always deleting the branch.
+   *
+   * NO DEFAULT ON PURPOSE: the answer differs per door and getting it wrong is
+   * visible on every card. `false` is for a branch whose commits are on their way
+   * into `origin/main` - GitHub marks such a pull request MERGED by itself the
+   * moment main is pushed (observed on #78, 17/09/2026, closed as MERGED a minute
+   * after the land), and a `gh pr close` racing that push stamps it "Closed"
+   * instead, on the ~32 cards that land in a week. `true` is for a branch that
+   * will never land - a superseded approval, an archived card, a losing attempt -
+   * where nothing else will ever close it.
+   */
+  closePr: boolean;
+}
 
 /**
  * Close the draft this module opened and delete its remote branch.
@@ -543,23 +563,34 @@ export type DraftCleanup = {
  * review in 7 days the drafts would pile up at the same rate.
  *
  * WHAT IT DOES NOT DO. It never merges and never marks a draft ready: the board
- * merges locally and a person publishes. Closing keeps the commits reachable on
- * GitHub through `refs/pull/N/head`, which is why the pull request is closed
- * BEFORE the branch is deleted rather than after.
+ * merges locally and a person publishes.
+ *
+ * WHY CLOSE BEFORE DELETING. GitHub closes a pull request itself when its head
+ * branch is deleted. Delete first and the close arrives at a pull request that is
+ * already closed: `openPullRequest` filters `--state open` and finds none, so
+ * `reason` - the only line that says on GitHub why this branch ended - is never
+ * posted, and the card's receipt loses the number too.
+ *
+ * THE BRANCH HALF DOES NOT NEED `gh`. `push --delete` is git against origin, so a
+ * project whose `origin` is not GitHub (`port.repo` cannot name a repo) still
+ * gets its branch deleted; only the pull-request half is skipped.
  */
 export async function closeCiDraft(
-  input: { cwd: string; branch: string; reason: string },
+  input: CloseCiDraftInput,
   deps: { port?: GithubPort } = {},
 ): Promise<DraftCleanup> {
   const port = deps.port ?? githubPort();
   const out: DraftCleanup = { pr: null, branchDeleted: false, problems: [] };
   const branch = input.branch.trim();
   if (!branch) return out;
-  // THE GUARD THAT MATTERS. A card that ran in place, with no worktree of its
-  // own, records the checkout's own branch as its delivery branch - and that
-  // branch is `main`. Deleting it on origin is the one move here that cannot be
-  // undone from the Mac, so the integration branch and the branch this checkout
-  // is sitting on are both refused, whatever the card says.
+  // A FLOOR ON AN ARGUMENT THIS FUNCTION DOES NOT CONTROL - not a fix for a row
+  // anyone has seen: on the live DB `select count(*) from tasks where
+  // delivery_branch='main'` is 0, because a card that runs in place records no
+  // delivery branch at all. The branch reaching here comes from three different
+  // places (the land result, the card's `delivery_branch`, the attempt rows),
+  // deleting it on origin is the only move here the Mac cannot undo, and the
+  // check is two string comparisons - so the integration branch and the branch
+  // this checkout is sitting on are refused whatever the caller passed.
   if (branch === CI_BASE_BRANCH) {
     out.problems.push(`refused to touch ${CI_BASE_BRANCH}: that is the integration branch, not a delivery`);
     return out;
@@ -569,17 +600,18 @@ export async function closeCiDraft(
     out.problems.push(`refused: the checkout ${input.cwd} is itself on ${branch}`);
     return out;
   }
-  const repo = await port.repo(input.cwd);
-  if (!repo.ok) {
-    out.problems.push(repo.error);
-    return out;
-  }
-  const open = await port.openPullRequest(input.cwd, repo.value, branch);
-  if (!open.ok) out.problems.push(open.error);
-  else if (open.value) {
-    const closed = await port.closePullRequest(input.cwd, repo.value, open.value.number, input.reason);
-    if (closed.ok) out.pr = open.value;
-    else out.problems.push(closed.error);
+  if (input.closePr) {
+    const repo = await port.repo(input.cwd);
+    if (!repo.ok) out.problems.push(repo.error);
+    else {
+      const open = await port.openPullRequest(input.cwd, repo.value, branch);
+      if (!open.ok) out.problems.push(open.error);
+      else if (open.value) {
+        const closed = await port.closePullRequest(input.cwd, repo.value, open.value.number, input.reason);
+        if (closed.ok) out.pr = open.value;
+        else out.problems.push(closed.error);
+      }
+    }
   }
   const deleted = await port.deleteRemoteBranch(input.cwd, branch);
   if (!deleted.ok) out.problems.push(deleted.error);
