@@ -189,6 +189,31 @@ export function parseChecksProgress(raw: unknown): { done: number; total: number
 }
 
 /**
+ * The pull request and the CI run a delivery is waiting on, or `null`.
+ *
+ * Same lodging as the progress, and for the same reason: it is worth something
+ * for the minutes of the wait and nothing after it, so a column and a migration
+ * would be out of proportion. Only `https://` links are kept — the value is
+ * rendered as a link on the card, and the only writer is the CI reader, but a
+ * check on the shape costs one line and closes the question.
+ */
+export function parseChecksCi(raw: unknown): { prUrl: string; runUrl?: string } | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) || !parsed || typeof parsed !== "object") return null;
+    const ci = (parsed as { ci?: unknown }).ci;
+    if (!ci || typeof ci !== "object") return null;
+    const { prUrl, runUrl } = ci as { prUrl?: unknown; runUrl?: unknown };
+    const link = (v: unknown): string | null => (typeof v === "string" && v.startsWith("https://") ? v : null);
+    const pr = link(prUrl);
+    if (!pr) return null;
+    const runLink = link(runUrl);
+    return runLink ? { prUrl: pr, runUrl: runLink } : { prUrl: pr };
+  } catch { return null; }
+}
+
+/**
  * L'effort di board accetta anche `auto`, come il modello.
  *
  * Fissarlo per tutta una board significa pagare lo stesso sforzo su un typo e su
@@ -808,6 +833,10 @@ export interface TaskService {
      *  Serve alla card, che diceva «check in corso» senza dire quanto manca —
      *  segnalato: «se c'e' qualcosa in corso, dovrebbe esserci un progress». */
     progress?: { done: number; total: number } | null;
+    /** The pull request and the run a `github-ci:` row is waiting on, while it
+     *  waits: they exist within seconds and used to reach the card only with the
+     *  verdict, fifteen minutes later (run 35158365969, 22:34:48 → 22:49:48). */
+    ci?: { prUrl: string; runUrl?: string } | null;
   }): Task;
   /**
    * Spegne le spie «running» rimaste accese, e si chiama UNA VOLTA all'avvio.
@@ -2300,7 +2329,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ...(r.checks_state === "running"
         ? (() => {
             const p = parseChecksProgress(r.checks_json);
-            return p ? { checksProgress: p } : {};
+            const ci = parseChecksCi(r.checks_json);
+            return { ...(p ? { checksProgress: p } : {}), ...(ci ? { checksCi: ci } : {}) };
           })()
         : {}),
 
@@ -5472,7 +5502,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToTask(getTaskRow(taskId));
     },
 
-    recordChecks({ taskId, state, commit, runs, progress }): Task {
+    recordChecks({ taskId, state, commit, runs, progress, ci }): Task {
       const row = getTaskRow(taskId);
       if (!row) throw new TaskServiceError("not_found", `task ${taskId} not found`);
       /* IL PROGRESSO VIAGGIA DENTRO `checks_json`, non in una colonna nuova.
@@ -5483,7 +5513,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
        * `runs` e' un array, questo e' un oggetto, e il client distingue i due
        * casi guardando `Array.isArray`. */
       const json = progress
-        ? JSON.stringify({ progress, runs: runs ?? [] })
+        ? JSON.stringify({ progress, runs: runs ?? [], ...(ci ? { ci } : {}) })
         : (runs && runs.length ? JSON.stringify(runs) : null);
       db.prepare(
         "UPDATE tasks SET checks_state = ?, checks_at = ?, checks_commit = ?, checks_json = ?, updated_at = ? WHERE id = ?",
