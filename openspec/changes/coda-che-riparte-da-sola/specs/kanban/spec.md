@@ -22,6 +22,18 @@ Sette card ferme fra 45 e 51 ore, 314 commenti «Memoria quasi finita», una sol
 ripartenza in 26 ore e per merito di una persona che ha chiuso delle app. In ogni
 campione `inFlight = 0` e `checkRuns = 0`: la RAM non era di Topics.
 
+CORREZIONE A QUEL NUMERO, e vale la pena tenerla perche' rende il requisito piu'
+preciso, non meno. Una verifica avversaria ha rimisurato sul log INTERO (1584
+campioni, 16/09 07:27 - 17/09 12:28) e ha trovato `held2m >= 6 GB` **241 volte,
+il 15,2%**, di cui 238 a swap calmo. Le due misure non si contraddicono: lo zero
+descrive le 25,7 ore in cui altre applicazioni tenevano otto gigabyte, il 15%
+arriva dopo che una persona — non Topics — ha chiuso un server UAT parcheggiato
+da 3,3 GB e il compressore e' sceso da 12,1 a 7,0 GB. Il pavimento quindi NON e'
+strutturalmente irraggiungibile: e' raggiungibile solo quando qualcuno libera
+memoria a mano, che e' esattamente la frase «la coda aspetta una persona» scritta
+in un numero. Il tratto piu' lungo senza una sola lettura sopra la riga misura
+16,2 ore.
+
 Quando NESSUN lavoro di Topics e' in volo — zero agenti vivi e zero corse di
 check pre-review, lo stesso «zero» che `firstAgentExempt` conta gia' per l'asse
 budget — il pavimento sulla MEMORIA SHALL ammettere UNA card, e il verdetto SHALL
@@ -103,11 +115,13 @@ Un giro che aspetta il pavimento con lo swap calmo NON SHALL aspettare piu' di
 tre minuti prima di partire comunque; con lo swap sostenuto SHALL restare la
 valvola dei trenta minuti che c'e' oggi. La ragione e' che le due attese non
 comprano la stessa cosa: sotto thrash la macchina sta davvero restituendo memoria
-e aspettare serve, mentre a swap calmo la lettura non migliora da sola — su
-questa macchina il minimo su 2 minuti non ha toccato i 6 GB nemmeno una volta su
-1455 letture in 25,7 ore, quindi i trenta minuti e i tre finiscono identici
-tranne che per ventisette minuti buttati. Misurato sulla consegna del 17/09:
-ottanta secondi di esecuzione dentro un giro di trentadue minuti.
+e aspettare serve, mentre a swap calmo la lettura migliora solo se qualcuno
+libera memoria a mano — su questa macchina il minimo su 2 minuti ha superato i
+6 GB il 15,2% delle volte (241 su 1584 campioni), ma in un tratto continuo di
+16,2 ore non ci e' mai arrivato, e a riaprirlo e' stata una persona che ha chiuso
+un server parcheggiato. Dentro quel tratto i trenta minuti e i tre finiscono
+identici tranne che per ventisette minuti buttati. Misurato sulla consegna del
+17/09: ottanta secondi di esecuzione dentro un giro di trentadue minuti.
 
 Resta invariato tutto il resto: la spaziatura fra due rilasci, la regola che una
 lettura non disponibile non fa aspettare, e il fatto che la valvola si conta per
