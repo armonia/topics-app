@@ -1,5 +1,36 @@
 [
   {
+    "version": "2.2.339",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il filone engine alternativi si chiude: WKProcessPool e' inerte e Obscura non ha una finestra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Playwright WebKit e' PIU' PESANTE di Chromium headless: 140 MB contro 82 per pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco misurava il rumore della macchina: serve il filtro sul comando, non solo il pid",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pavimento di memoria non aspetta una persona: aspetta per sempre",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.338",
     "date": "2026-09-16",
     "sections": {
