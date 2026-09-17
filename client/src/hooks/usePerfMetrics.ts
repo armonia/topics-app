@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { isTauri } from '../lib/shell';
 import { tauriInvoke } from '../lib/shell/tauri';
+import { noteWebviewSample, type ShellWebviewRow } from '../lib/shell/heavyPanes';
 
 export interface PerfMetrics {
   version: string;
@@ -114,7 +115,11 @@ export function usePerfMetrics(active: boolean, intervalMs = 1500): PerfMetrics 
               cpu_pids?: number;
               process_count: number;
               partial: boolean;
+              webviews?: ShellWebviewRow[];
             }>('perf_metrics');
+            // The per-webview rows feed the heavy-pane verdict of this document.
+            // This reader already polls the shell, so the verdict costs no timer.
+            noteWebviewSample(m.webviews, Date.now());
             const partial = m.partial ?? true;
             return {
               version: m.version,

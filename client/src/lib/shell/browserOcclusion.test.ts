@@ -269,7 +269,7 @@ describe('useTauriBrowser rivaluta l’occlusione anche quando non cambia niente
   });
 
   test('la pane che TORNA visibile fa la stessa domanda', () => {
-    const visibility = src.slice(src.indexOf('void setNativeVisible(isVisible'), src.indexOf('// Create the native webview'));
+    const visibility = src.slice(src.indexOf('void setNativeVisible(nativeWanted'), src.indexOf('// Create the native webview'));
     expect(visibility).toContain('evaluateOcclusionRef.current()');
   });
 });

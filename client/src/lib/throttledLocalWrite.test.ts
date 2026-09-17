@@ -57,6 +57,34 @@ describe('throttled local writer', () => {
     expect(store.writes).toEqual(['c']);
   });
 
+  test('firstWriteImmediate: the first write lands at once, the ones after ride the window', () => {
+    const clock = fakeClock();
+    const store = countingStorage();
+    const writer = createThrottledLocalWriter({
+      key: 'board-rows-cache:all',
+      storage: store.storage,
+      schedule: clock.schedule,
+      cancel: clock.cancel,
+      firstWriteImmediate: true,
+    });
+
+    writer.write('first');
+    expect(store.writes).toEqual(['first']);
+    expect(clock.armed).toBe(0);
+
+    writer.write('b');
+    writer.write('c');
+    expect(store.writes).toEqual(['first']);
+    expect(clock.armed).toBe(1);
+    clock.tick();
+    expect(store.writes).toEqual(['first', 'c']);
+
+    // Only the FIRST write of the writer's life: a later quiet spell does not
+    // re-arm the immediate path.
+    writer.write('d');
+    expect(store.writes).toEqual(['first', 'c']);
+  });
+
   test('an unchanged value never reaches the journal', () => {
     const clock = fakeClock();
     const store = countingStorage({ 'topics-cache': 'same' });

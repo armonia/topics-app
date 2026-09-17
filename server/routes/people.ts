@@ -253,6 +253,7 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
     io: string | null,
     github: GitHubProfile | null,
     privacy?: ProfilePrivacy,
+    withStats = true,
   ): PersonCard {
     const isMe = io !== null && r.id === io;
     // The caller passes the switches it has already read: the address book
@@ -266,7 +267,7 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
       email: canSee(p.showEmail) ? r.email : null,
       githubLogin: r.github_login,
       github,
-      stats: canSee(p.showStats) ? statistichePersona(db as never, r.id) : null,
+      stats: withStats && canSee(p.showStats) ? statistichePersona(db as never, r.id) : null,
       // The viewer goes in: the two list routes exempt the viewer's own row
       // from the visibility filter, so the counter has to exempt the same one
       // or the header contradicts the list under it.
@@ -320,7 +321,7 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
    * A person who closed their profile is absent, not greyed out, and the
    * viewer is exempt from that filter as everywhere else here.
    */
-  function visibleCards(ids: string[], io: string | null): PersonCard[] {
+  function visibleCards(ids: string[], io: string | null, withStats = false): PersonCard[] {
     return peopleRows(ids)
       .map((r) => ({ r, privacy: privacyPersona(db as never, r.id) }))
       .filter(({ r, privacy }) => (io !== null && r.id === io) || privacy.showProfile)
@@ -328,7 +329,7 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
       // once somebody opens that person, and from then on it is there for
       // everybody.
       .map(({ r, privacy }) =>
-        personCard(r, io, r.github_login ? profiloInCache(db as never, r.github_login) : null, privacy));
+        personCard(r, io, r.github_login ? profiloInCache(db as never, r.github_login) : null, privacy, withStats));
   }
 
   /** Those people, each carrying the moment the relation reached its state. */
@@ -363,8 +364,24 @@ export function createPeopleRouter(ctx: AppContext, deps: DepsPeople = {}): Rout
       (reachableMemo ??= reachableIds(io, req));
 
     // GET /api/people: the address book.
+    //
+    // `?stats=0` SKIPS THE STATS. Two client hooks poll this list every 60 s
+    // for a name, a face and `isMe`, and each call used to run
+    // `statistichePersona` for every visible person: two all-time aggregates
+    // over `messages` that read about 46 MB of pages. Measured on 15/09/2026
+    // against the live server's [LAG] lines: 35% of all event-loop stall time
+    // since 07/09 fell inside this route, up to 11 s per call under memory
+    // pressure (46 MB read -> 0.45-11 s; 0.3 MB read -> under 45 ms).
+    //
+    // Opt-OUT and not opt-in, because of the deploy order: this file hot-reloads
+    // within seconds while the client runs its old bundle until a reload. An
+    // opt-in list would hand that old client `stats: null` on its own row, and
+    // the own profile would read "this person does not publish their stats",
+    // a false statement about privacy. An old client that does not send the
+    // flag keeps getting what it got before.
     if (method === "GET" && pathname === "/api/people") {
-      return json({ people: visibleCards([...reachable()], io) });
+      const withStats = new URL(req.url).searchParams.get("stats") !== "0";
+      return json({ people: visibleCards([...reachable()], io, withStats) });
     }
 
     // GET /api/friendships: my friends and the requests in both directions.

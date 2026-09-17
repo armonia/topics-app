@@ -112,8 +112,21 @@ export interface KillTreeDeps {
   defer(fn: () => void, ms: number): { unref?: () => void };
 }
 
+/**
+ * `group: true` for a root spawned `detached` (its own process group): the
+ * group is signalled too. The descendants are a snapshot, and a child forked
+ * after it is not in it: on macOS `sh -lc` sources the login profile and forks
+ * its command AFTER the `ps`, so the SIGTERM killed the shell alone and the
+ * command lived on under pid 1 holding the pipe the round reads, and its memory
+ * (seen 15/09/2026: `sleep 120` with ppid 1, the swap-brake route test red 4 of
+ * 4). A grandchild reparented before the snapshot is not in it either. Every
+ * one of them is still in the group. Without `detached` the pid leads no group
+ * and the group signal fails harmlessly.
+ */
+export interface KillTreeOpts { group?: boolean }
+
 /** Il corpo di `killProcessTree`, con le primitive iniettate (test). */
-export async function killProcessTreeWith(pid: number, graceMs: number, deps: KillTreeDeps): Promise<void> {
+export async function killProcessTreeWith(pid: number, graceMs: number, deps: KillTreeDeps, opts?: KillTreeOpts): Promise<void> {
   if (!pid || pid <= 0) return;
   let pids: number[];
   try {
@@ -126,6 +139,7 @@ export async function killProcessTreeWith(pid: number, graceMs: number, deps: Ki
   // puo' essere di un altro processo.
   const identity = await deps.startTimes(pids);
   for (const p of pids) { try { deps.signal(p, "SIGTERM"); } catch { /* gia' morto */ } }
+  if (opts?.group) { try { deps.signal(-pid, "SIGTERM"); } catch { /* no group left */ } }
   // UNREF. Il SIGKILL ritardato è una cortesia, non un impegno: un timer
   // referenziato tiene sveglio l'event loop per tutta la grazia a OGNI chiamata,
   // e `teardownAll()` allo spegnimento ne accende uno per anteprima — cinque
@@ -139,11 +153,17 @@ export async function killProcessTreeWith(pid: number, graceMs: number, deps: Ki
         try { deps.signal(p, "SIGKILL"); } catch { /* uscito nel grace */ }
       }
     }
+    // The group id is the leader's pid: skip it only when that pid now belongs
+    // to another process. A leader gone with members left is the orphan case.
+    const leader = identity.get(pid);
+    if (opts?.group && !(leader && still.has(pid) && still.get(pid) !== leader)) {
+      try { deps.signal(-pid, "SIGKILL"); } catch { /* the group is gone */ }
+    }
   }, graceMs);
   timer.unref?.();
 }
 
-export async function killProcessTree(pid: number, graceMs = 5000): Promise<void> {
+export async function killProcessTree(pid: number, graceMs = 5000, opts?: KillTreeOpts): Promise<void> {
   return killProcessTreeWith(pid, graceMs, {
     // FRESCA: un discendente nato negli ultimi 2 secondi non sta nella tabella
     // in cache, e senza questa riga non riceveva nessun segnale.
@@ -151,5 +171,5 @@ export async function killProcessTree(pid: number, graceMs = 5000): Promise<void
     startTimes: getPidStartTimes,
     signal: (p, sig) => { process.kill(p, sig); },
     defer: (fn, ms) => setTimeout(fn, ms),
-  });
+  }, opts);
 }

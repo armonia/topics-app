@@ -94,6 +94,13 @@ export function _resetFleetSockets(): void {
   scriptSource = null;
 }
 
+/** The socket paths of the registered sidecars: whoever reads a process table of
+ *  their own (the swap freezer) finds the bridge and the sidecars by the same
+ *  declaration this module already uses, instead of a second list that drifts. */
+export function registeredFleetSocketPaths(): string[] {
+  return [...sockets.values()];
+}
+
 /** Resolve the registered sockets to live pids using one `ps` snapshot. */
 export function resolveFleetRoots(rows: PsRow[], selfPid: number): { kind: FleetKind | "server"; pid: number }[] {
   const roots: { kind: FleetKind | "server"; pid: number }[] = [{ kind: "server", pid: selfPid }];
@@ -136,22 +143,22 @@ const FLEET_TTL_MS = 4000;
  * FFI): il chiamante ripiega su `rss`, che è impreciso ma esiste ovunque —
  * meglio la stima vecchia che nessun numero.
  */
-export const procFootprintKB: (pid: number) => number | null = (() => {
-  if (isWindows) return () => null;
+const rusageReader: (offset: number) => (pid: number) => number | null = (() => {
+  if (isWindows) return () => () => null;
   try {
     // rusage_info_v2: 16 byte di uuid, poi `uint64_t`; `ri_phys_footprint` è il
-    // settimo dopo l'uuid → offset 16 + 7*8 = 72.
+    // settimo dopo l'uuid → offset 16 + 7*8 = 72, `ri_resident_size` il sesto → 64.
     const { dlopen, FFIType } = require("bun:ffi") as typeof import("bun:ffi");
     const lib = dlopen("/usr/lib/libSystem.dylib", {
       proc_pid_rusage: { args: [FFIType.i32, FFIType.i32, FFIType.ptr], returns: FFIType.i32 },
     });
     const buf = new BigUint64Array(64);
     const view = new DataView(buf.buffer);
-    return (pid: number): number | null => {
+    return (offset: number) => (pid: number): number | null => {
       try {
         // RUSAGE_INFO_V2 = 2. Non-zero = pid morto o non interrogabile.
         if (lib.symbols.proc_pid_rusage(pid, 2, buf) !== 0) return null;
-        const bytes = view.getBigUint64(72, true);
+        const bytes = view.getBigUint64(offset, true);
         return bytes > 0n ? Number(bytes / 1024n) : null;
       } catch {
         return null;
@@ -159,9 +166,20 @@ export const procFootprintKB: (pid: number) => number | null = (() => {
     };
   } catch {
     // Nessuna FFI: si resta su `rss` senza far rumore.
-    return () => null;
+    return () => () => null;
   }
 })();
+
+export const procFootprintKB: (pid: number) => number | null = rusageReader(72);
+
+/**
+ * `ri_resident_size`: the pages a process holds in RAM RIGHT NOW, which is the
+ * number the thaw-on-room rule needs (how much of the floor a tree would take
+ * back when it wakes up). It is NOT the number the "heaviest" decision uses -
+ * `rss` reads small exactly while a tree thrashes, which is why that one is
+ * measured on the footprint.
+ */
+export const procResidentKB: (pid: number) => number | null = rusageReader(64);
 
 /**
  * `responsibility_get_pid_responsible_for_pid`: dato un pid, restituisce il pid
@@ -194,6 +212,18 @@ const { responsiblePidFn, responsiblePidAvailable } = (() => {
     return { responsiblePidFn: (_: number): number | null => null, responsiblePidAvailable: false };
   }
 })();
+
+/**
+ * The RESPONSIBLE pid of a pid, or `null` (off macOS, no FFI, dead pid).
+ *
+ * Exported because it has a second reader: `memory-owners-probe.ts` needs it to
+ * NOT hand somebody else's app the WebContent processes that are Topics' own
+ * browser panes (measured 16/09/2026 on this Mac: three of them, all
+ * responsible to `Topics.app`). 7 ms over 877 pids, no fork.
+ */
+export function responsiblePid(pid: number): number | null {
+  return responsiblePidAvailable ? responsiblePidFn(pid) : null;
+}
 
 /** Lettura precedente dei secondi di CPU per pid: e' la BASE da cui si ricava
  *  la percentuale istantanea. Senza, si potrebbe solo riportare la media di
@@ -421,15 +451,11 @@ async function readFleet(take: () => Promise<PsRow[]>, unsupported: FleetUsage):
  * Sessions whose CPU is `null` (just started, no base to measure a delta from)
  * are LEFT OUT rather than counted as zero: a zero here would pull the median
  * down and price the next agent as free.
+ *
+ * The memory price list does not come from here any more: a session's footprint
+ * cannot see a native card, whose tools and checks are children of the server.
+ * It is priced per card in `card-memory-peaks.ts`.
  */
-/** The per-session memory, in GB, for the sessions the probe can see. The
- *  median of this is what one more agent is priced at in memory: same rule as
- *  `fleetSessionCoreUnits`, other axis. */
-export function fleetSessionMemGB(): number[] {
-  if (!cached || !cached.supported) return [];
-  return cached.sessions.map((s) => s.memoryMB / 1024);
-}
-
 export function fleetSessionCoreUnits(): number[] {
   if (!cached || !cached.supported) return [];
   const cores = Math.max(1, cached.cpuCores);

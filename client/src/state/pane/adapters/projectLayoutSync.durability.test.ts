@@ -312,6 +312,18 @@ describe("project channel PUT durability", () => {
       return { ok: false, status: 409, json: async () => ({}) } as unknown as Response;
     };
     __flushAllProjectSyncForTests();
+    // THE LAST SLEEP IN A FILE THAT HAD ALREADY GIVEN UP SLEEPING.
+    //
+    // The comment on `settle` above says it: waiting for the condition beats
+    // waiting for the clock. This call site kept the fixed 2.5 s anyway, and
+    // on a shard that takes eighteen minutes the lagging timer had not even
+    // issued the ONE keepalive fetch by the time the sleep ran out, so the
+    // count was 0 and the red named a retry storm that never happened.
+    //
+    // Wait for the attempt to BE there, then sleep to see whether a second
+    // one follows. The assertion that matters is unchanged, and it still
+    // fails if the product retries: the straggler lands in that window.
+    await waitFor(() => fetchCalls.length >= 1, "the single post-409 keepalive PUT");
     await settle();
     // Exactly one attempt: re-sending a write the server already refused as
     // stale — because the row moved on — can only fail again or, worse, win

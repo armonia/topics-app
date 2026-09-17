@@ -20,8 +20,14 @@
  */
 import { getSessionCliPid } from "../providers/session-pids";
 import { killProcessTree } from "./process-tree";
+import { releaseSwapFreeze } from "./swap-freeze-hold";
 
 export async function killAgentProcessTree(sessionKey: string): Promise<void> {
+  // A STOPPED PROCESS HOLDS A SIGTERM UNTIL IT IS CONTINUED. If the swap freezer
+  // is holding a command of this session, killing the tree around it would leave
+  // the frozen part alive with a pending signal it can never act on, out of
+  // every tree and with its memory. So it is continued first, then killed.
+  await releaseSwapFreeze(sessionKey);
   const pid = getSessionCliPid(sessionKey);
   if (!pid) return;
   await killProcessTree(pid).catch(() => { /* best-effort: a dead tree is not a failure */ });

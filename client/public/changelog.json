@@ -1,5 +1,669 @@
 [
   {
+    "version": "2.2.339",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il filone engine alternativi si chiude: WKProcessPool e' inerte e Obscura non ha una finestra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Playwright WebKit e' PIU' PESANTE di Chromium headless: 140 MB contro 82 per pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco misurava il rumore della macchina: serve il filtro sul comando, non solo il pid",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pavimento di memoria non aspetta una persona: aspetta per sempre",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.338",
+    "date": "2026-09-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Le fixture di ps non portano piu' la home di chi lavora in un repo pubblico",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.336",
+    "date": "2026-09-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La parola nuda la tiene l'app installata, poi il bundle, poi il binario: e l'ordine delle righe non decide piu'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "bloat-baseline: la versione di main, rigenerata con le righe di questo ramo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il docstring della porta elencava tre casi su quattro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Con i magazzini pieni lo swap si dice sostenuto anche solo dalle pagine rilette dal disco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La seconda porta dello swap chiede anche che il debito non stia calando",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chi non tiene la parola dice DOVE gira, non «comando»: con tre famiglie sullo stesso nome un suffisso solo non bastava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La regola della consigliata sta anche nell'envelope di ripresa, con il cancello che la pretende",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.335",
+    "date": "2026-09-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La regola della consigliata arriva anche a chi mantiene l'envelope",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "senza la pulizia del layout salvato il giro phone non trova la voce Board",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "La coda del terminale scade AL limite, e l'avviso dice quale delle tre perdite",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una pane browser in una cella accanto e' gia' quella pagina, e la porta non ne fa una seconda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un debito che non puo' piu' crescere non e' un debito che non cresce: lo swap al soffitto e' la seconda porta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il layout salvato del progetto si azzera prima di ogni giro, e la voce Board torna nel menu",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La consigliata non tocca piu' le etichette che la board esegue, e il cancello di parita' la vede",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Input trattenuto adesso batte una perdita vecchia: la fascia non manda piu' a riscrivere una riga che si ricuce",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La configurazione si rilegge a ogni avvio del server, non solo alla partenza dello script",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "usePaneOrdering nel `_comment` del cancello: nuovo offender a 809, non +9",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una quota tarata su un denominatore mai letto non e' una misura, e un freno senza uscita non e' un freno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il nome nudo va all'app installata, non a qualunque cosa viva dentro un bundle",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello di parita' ancora anche la meta' della 5-bis che l'agente legge davvero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La porta di una chat-pane si apre solo su una finestra che c'e' gia'",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.334",
+    "date": "2026-09-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un `ps` che non risponde non e' un `ps` che risponde vuoto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-16 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Un comando in primo piano non si confonde con un altro, e un sondaggio muto non e' una misura",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tipo di `stdout` vive nella funzione che lo apre: annotare lo spawn lo riallargava",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "`capturing` non e' una parola del dizionario del cancello: il nome dice la pipe",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.333",
+    "date": "2026-09-16",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una consegna che aspetta i nostri check non trattiene il riavvio, e torna da sola dopo il boot",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto swap sostenuto il comando piu' pesante che un agente ha lanciato in background si ferma, e la sessione si copre di brina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La ripresa al boot riguarda solo una card ancora in lavorazione, e ricorda il commit del giro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il commento di `roundCommit` sta sulla mappa, non davanti a `rememberDelivery`",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La brina non monta e smonta la sua tela: un canvas a 0x0 che dipinge solo quando serve",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La riga «consegna ripresa» la stampa la ripresa, non il giro che la prepara",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il frame del congelamento entra nel registro WS, e i quattro contratti che descrivevano il server di ieri lo sanno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spec della brina apre la board dal menu \"+\" e semina la chat del progetto, invece di aspettare tab che nessuno ha aperto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.332",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Prova del rosso, secondo giro: la topic nuova si seleziona dalla sua tab, come in topic-browser-window.spec",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il freno sullo swap legge davvero lo swap: sysctl e lsof per percorso assoluto sotto launchd",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La fotografia forense dopo un SIGKILL legge chi tiene la 3333: lsof per percorso assoluto anche nel wrapper",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'inspector di una pane su Windows e' aperto finche' la sua finestra DevTools esiste, e la finestra del topic torna a passare il fuoco alla pagina",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.331",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un check interrotto dal freno o dallo spegnimento muore con tutto il suo gruppo, anche il figlio forkato dopo la foto dei discendenti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due giri in attesa dei check si alternano: un giro di tre comandi non si riprende piu' il rilascio a ogni uscita",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una pane in pausa dietro un'altra tab riprende nascosta, e la pausa rispetta agente, inspector e schermo intero anche dove prima non li vedeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Board options put the agent's pick first, marked (consigliata)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test del giro da tre comandi chiama sleep senza argomenti, come lo dichiara l'orologio finto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "reset persisted project panes before task-model-labels runs",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Prova del rosso: i test dell'inspector su Windows e della finestra del topic, contro la regola del primo piano e senza due props del montaggio",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.330",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Gli e2e degli agenti non girano piu' sul Mac: la consegna li legge dalla CI della PR",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pavimento che oscilla a 6,0 GB non riscrive piu' la card a ogni passaggio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La consegna non entra piu' in review su un verdetto e2e che non ha misurato quella testa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La card trattenuta riscritta da un altro torna in coda al retry dopo, e un test lo tiene",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una chiamata a git o gh si ferma davvero a 60 s, e Playwright sul Mac rifiuta prima di lanciare Chromium",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un push finito con un figlio ancora vivo non diventa un timeout, e il test che legge la config di Playwright passa sul Mac",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La suite unit di una consegna si legge dalla CI della PR, con la stessa spinta e la stessa attesa dell'e2e",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pavimento di memoria legge il minimo di 2 minuti invece di un istante, e la prenotazione di un turno si conta una volta sola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un pannello browser che consuma molto va in pausa senza il fuoco e torna vivo senza ricaricare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello del bloat torna verde su main: task-dispatcher.ts registrato a 5444",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto swap sostenuto Topics interrompe da solo il giro di check piu' giovane, mai rosso, e l'attesa dei check non rilascia piu' su una lettura sola ne' in branco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I test del guscio su macOS compilano con la firma nuova, e la guardia dell'occlusione legge l'effetto giusto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I test del freno sotto swap dichiarano il tipo delle righe di log lette dallo spy",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spec del pannello pesante apre il foglio della tab come fa la spec della tab: prima l'hover",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello del bloat torna verde su main dopo le tre PR fuse insieme",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pannello pesante apre il foglio dopo averlo chiuso, e la CPU di un processo Windows si confronta col suo stesso tempo di CPU",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.329",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Input queue: a partial loss is worse than none, so a loss takes the whole queue",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Take the wheel back on both shells, and stop trusting one testid",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La rubrica letta ogni minuto non ricalcola piu' le statistiche di tutti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le statistiche restano di serie, e sono i poll a rinunciarci con ?stats=0",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Change mac-usabile-sotto-carico: le misure del 15/09 e le quattro scelte approvate",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un resume trattenuto non riscrive piu' la card a ogni lettura di memoria",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.328",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-15 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.327",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La board di progetto ha il suo test sulla finestra, e i testi dicono della prima scrittura immediata",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.326",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il tetto sui done della board di progetto si ritira: KANBAN-29 vuole il totale e la coda sfogliabile",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "CHROME-10 e i doc del guscio dicono cio' che il codice fa: il verdetto degradato si pubblica solo senza demone vivo e si ritira",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il giornale di localStorage smette di crescere di 11 MB al minuto",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.325",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il riavvio non taglia piu' le card che il server sta proteggendo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello a budget ferma la corsa: prezzo per card, prenotazione per tutto il turno, una rampa sola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pannello del carico dice quello che il cancello decide, con i suoi numeri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pannello del carico: tre frasi che il cancello smentiva, e un test che non mordeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I check della board sotto carico: semaforo acceso con CI, niente check nuovi sotto il pavimento di memoria, alberi uccisi allo spegnimento senza mandare in review",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La frase del pavimento dice solo il vero, e la rampa ha il suo test sulla corsa fra due board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La frase del pavimento non stampa una prenotazione più grande della lettura, e l'import di CODE_GATES_RULE torna in testa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Uno spegnimento durante i check risponde come una gamba in volo, non con un 503 che l'agente deve gestire",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La change dice il vero sul raise: bracci cablati, misura ancora aperta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un resume trattenuto dice il blocco della sua attesa, non quello pubblicato dal tick",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Misura il raise del browser su WebView2, non solo su WKWebView",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il buco del raise su WebView2 si chiude: e' misurato, non piu' dedotto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I quattro rami del motore del carico insieme: test al prezzo misurato di una card, frasi del budget in un modulo loro",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La board di un progetto porta le 120 chiuse più recenti, come il feed",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.324",
+    "date": "2026-09-15",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Baseline bloat riallineata dopo il merge di main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra la crescita di topic-browser-window fra i due scenari nuovi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Registra dispatch-capacity.test.ts, cresciuto su main e mai iscritto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un cancello aspetta se stesso invece di partirgli accanto, e l'attesa non consuma la sua scadenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I due test del sync aspettano la scrittura, non l'orologio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le due prove a orologio dello shard 0 aspettano l'effetto, non il tempo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I test del freno della flotta in un file loro: CI di main rossa su check:bloat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Commenti del test del freno della flotta in inglese: CI di main rossa su comment-language",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.323",
     "date": "2026-09-14",
     "sections": {
@@ -9,6 +673,56 @@
       "internal": [
         {
           "it": "Il verdetto del pannello è quello del cancello, e zero core a disposizione è un tetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il commento del test non nomina Bun.serve: 'serve' e' una parola italiana per il banco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il marker degraded si ritira, e ora la barra se ne accorge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'agente guida e la pagina resta visibile: lo stato passa nell'icona della scheda",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Terminal input is queued until the reattach is proven",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il foglio dell'indirizzo non riapre da solo quando cambia il layout",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'asse memoria adesso c'e', e conta anche quello che ha appena ammesso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il wire porta l'asse che blocca: le fixture del client lo dichiarano",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il git del test dei checkpoint porta l'ambiente isolato del preload",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Point provider-picker and composer-model-memory E2E specs at the always-ready claude-code engine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le guardie che mancavano, e i due documenti che dicevano il contrario",
           "en": "",
           "scope": null
         }
@@ -24,7 +738,57 @@
       "perf": [],
       "internal": [
         {
+          "it": "Gli e2e delle aperture: il link va nella finestra, l'agente non muove il layout",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Solo il comando del composer va nella finestra: l'evento ha due produttori",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ripiego riprende il suo split: e' il ramo che la card chiama invariato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il budget dei due scenari 04 segue il lavoro vero che fanno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "TABLINK-09: il ripiego del permalink morto si guarda dove ora cade",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli scenari 04 misurano quello che dicono di misurare",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La stessa porta anche dentro una finestra di progetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "04d chiede il budget dei suoi fratelli: e' il piu' lento dei quattro",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "La quota è sul libero: chi non è nostro ha la precedenza",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il raise del browser smette di essere macOS-only: WebView2 e WebKitGTK hanno un braccio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto sul libero non salta piu' a ogni respiro della macchina",
           "en": "",
           "scope": null
         },
@@ -37,6 +801,17 @@
           "it": "Pannello del carico: una riga viva, il resto in «Come funziona» (card 01346d11)",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Il lucchetto prima di ogni effetto: un avvio che perde la corsa non tocca niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "stabilize task-model-labels add-menu click under load",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
         }
       ]
     }
@@ -112,6 +887,11 @@
         },
         {
           "it": "Scenario 01r falsificato: il commento e la baseline dello spec",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La porta la registra la chat, non la finestra montata",
           "en": "",
           "scope": null
         }

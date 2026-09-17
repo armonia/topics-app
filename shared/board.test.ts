@@ -6,15 +6,20 @@ import {
   ARCHIVE_PARKED_LABEL,
   LAND_ACTION_LABEL,
   PARKED_STOPPED,
+  PLAN_APPROVE_LABEL,
+  PLAN_REVISE_LABEL,
   PUBLISH_ACTION_LABEL,
   QUEUE_REASON_UNKNOWN,
   PROMOTE_PARKED_LABEL,
+  RECOMMENDED_OPTION_RULE,
   REQUEUE_PARKED_LABEL,
   STATUS_EVENT_REASON_MAX,
+  TAKE_OVER_PARKED_LABEL,
   deriveQueueReason,
   deriveSubtaskWork,
   formatStatusEvent,
   isAncestorAtWork,
+  hasPlanApproveOption,
   isBoardActionLabel,
   isUnattributedSubtask,
   parseQuestionBlock,
@@ -459,6 +464,41 @@ describe("perché questa card è ferma", () => {
     // «Serve a me» scrive l'assegnatario: lì «in corso» è vero, e un chip
     // «ferma» sarebbe un allarme addosso a chi sta lavorando.
     expect(deriveQueueReason({ ...base, status: "in_progress", assignedTo: "io" }, ctx)).toBeNull();
+  });
+
+  // A RESUME HELD BY THE MACHINE: `resume` writes `queued` on an In-progress card
+  // when the floor or the budget holds it. With the block known that chip is
+  // not "an agent about to be born", it is the same wait a Todo card has, and
+  // it says so in the same words; without a block it stays quiet as before.
+  test("in corso in coda con la macchina ferma: dice perché, come in Todo", () => {
+    const held = reason({ status: "in_progress", dispatchState: "queued" }, {
+      dispatchBlock: { kind: "resources", reason: "Memoria quasi finita: 4,1 GB disponibili." },
+    });
+    expect(held).toMatchObject({ kind: "resource_floor", tone: "stalled" });
+    expect(held.title).toContain("4,1 GB");
+    const pressure = deriveQueueReason(
+      { ...base, status: "in_progress", dispatchState: "queued" },
+      { ...ctx, dispatchBlock: { kind: "pressure" as never, reason: "Topics usa 6,5 dei 6,6 core." } },
+    );
+    expect(pressure).toMatchObject({ kind: "resource_pressure", tone: "waiting" });
+    // A step keeps its parent's sentence, and an agent at work has nothing to add.
+    const block = { dispatchBlock: { kind: "resources" as const, reason: "Disco quasi pieno." } };
+    expect(deriveQueueReason({ ...base, status: "in_progress", dispatchState: "queued", parentTaskId: "p1" }, { ...ctx, ...block, parentStatus: "in_progress" })).toBeNull();
+    expect(deriveQueueReason({ ...base, status: "in_progress", dispatchState: "working" }, { ...ctx, ...block })).toBeNull();
+  });
+
+  test("in corso in coda a dispatch spento: dice il blocco della SUA attesa, che riparte da sé", () => {
+    // The block a held resume receives is the one of its own hold, and `resume`
+    // re-evaluates that hold whatever the switch says. So with dispatch off it
+    // still starts the moment the floor clears: "nothing starts until you turn
+    // dispatch back on" would be the false sentence. The todo card on the same
+    // board does wait for the switch, and says so.
+    const floor = { dispatchBlock: { kind: "resources" as const, reason: "Memoria quasi finita: 4,1 GB disponibili." } };
+    const held = reason({ status: "in_progress", dispatchState: "queued" }, { ...floor, autoDispatch: false });
+    expect(held).toMatchObject({ kind: "resource_floor", tone: "stalled" });
+    expect(held.title).toContain("4,1 GB");
+    expect(reason({ status: "todo" }, { ...floor, autoDispatch: false }).kind).toBe("dispatch_off");
+    expect(reason({ status: "in_progress", dispatchState: "queued" }, floor).kind).toBe("resource_floor");
   });
 
   test("uno step fuori da todo tace: chi lo lavora lo dice `deriveSubtaskWork`", () => {
@@ -1010,5 +1050,62 @@ describe("questionAsksHuman", () => {
     expect(isBoardActionLabel("Approva il piano")).toBe(false);
     expect(isBoardActionLabel("Aspetta, ho un dubbio")).toBe(false);
     expect(isBoardActionLabel(null)).toBe(false);
+  });
+});
+
+/**
+ * @covers KANBAN-59
+ *
+ * The reserved labels and the "(consigliata)" mark are two rules that MEET on the
+ * same argument — `comment_task(options=[...])` — and the meeting is where they
+ * break each other. `RECOMMENDED_OPTION_RULE` is interpolated verbatim into the
+ * kickoff envelope AND into the `options` description of `comment_task` /
+ * `comment_global_task`, where nothing narrows it to free-form questions, while the
+ * very same envelope prescribes `options=["Landa su main"]` at every delivery and
+ * `["Approva il piano", "Da rivedere"]` in plan-first.
+ *
+ * Measured on the live DB on 2026-09-16: 1,166 of the 1,451 comments with a
+ * ```question fence carry `Landa su main` (80%) and 34 carry `Approva il piano`.
+ * So this is the ordinary path, and the first two tests below are what happens to
+ * it if an agent applies the mark literally — they are the reason the third test
+ * demands the carve-out inside the constant.
+ */
+describe("the recommended mark stops at the labels the board executes", () => {
+  test("the suffix switches the board action off: a delivery reads as a question again", () => {
+    expect(isBoardActionLabel(`${LAND_ACTION_LABEL} (consigliata)`)).toBe(false);
+    expect(questionAsksHuman({ options: [LAND_ACTION_LABEL] })).toBe(false);
+    // Clicking this one wakes the agent up instead of merging onto main.
+    expect(questionAsksHuman({ options: [`${LAND_ACTION_LABEL} (consigliata)`] })).toBe(true);
+  });
+
+  test("the suffix stops arming tasks.plan_comment_id", () => {
+    expect(hasPlanApproveOption([PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL])).toBe(true);
+    expect(hasPlanApproveOption([`${PLAN_APPROVE_LABEL} (consigliata)`, PLAN_REVISE_LABEL])).toBe(false);
+  });
+
+  /**
+   * The gate against drift. The labels are written out by hand inside the
+   * constant (they are declared further down the module, so interpolating them
+   * would read them in their temporal dead zone), which means renaming one
+   * without touching the string would leave the agent marking the new label.
+   * This test is the link between the two.
+   */
+  test("the constant quotes every reserved label VERBATIM, and says what to do instead", () => {
+    for (const label of [
+      LAND_ACTION_LABEL,
+      PUBLISH_ACTION_LABEL,
+      PLAN_APPROVE_LABEL,
+      PLAN_REVISE_LABEL,
+      REQUEUE_PARKED_LABEL,
+      ARCHIVE_PARKED_LABEL,
+      PROMOTE_PARKED_LABEL,
+      TAKE_OVER_PARKED_LABEL,
+    ]) {
+      expect(RECOMMENDED_OPTION_RULE).toContain(label);
+    }
+    // And it says what to do INSTEAD of the suffix: otherwise the carve-out reads
+    // as "recommend nothing on those" and the rule dies exactly where it is needed.
+    expect(RECOMMENDED_OPTION_RULE).toMatch(/verbatim/i);
+    expect(RECOMMENDED_OPTION_RULE).toMatch(/by ORDER/);
   });
 });

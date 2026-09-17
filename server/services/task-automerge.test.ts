@@ -110,6 +110,27 @@ describe("task-automerge", () => {
     expect(git.calls.some((c) => c[0] === "merge")).toBe(false);
   });
 
+  test("untracked files alone do NOT stop the land: the status call asks git to ignore them", async () => {
+    // A bare `status --porcelain` lists untracked files too, and counting them
+    // turned any stray file in the owner's checkout into a permanent stop for
+    // every land (17/09/2026: a spreadsheet in the repo root plus another
+    // session's openspec folder). A merge never folds an untracked file into
+    // anything — git refuses on its own if one would be overwritten — so the
+    // gate must ask about TRACKED changes only. The fake cannot model git's
+    // own filtering, so what is asserted is the flag that does it.
+    const git = fakeGit({
+      ...CLEAN_PRECONDITIONS,
+      "merge --no-ff": { code: 0 },
+      "rev-parse --short": { stdout: "abc1234\n" },
+    });
+    const am = createTaskAutoMerge({ resolveTaskMerge: () => TARGET, runGit: git.run });
+    const res = await am.tryMerge("t1", "x");
+    expect(res.status).toBe("merged");
+    const status = git.calls.find((c) => c[0] === "status");
+    expect(status).toBeDefined();
+    expect(status).toContain("--untracked-files=no");
+  });
+
   test("shared checkout on a dev branch → lands via a throwaway main worktree, landedNotLive", async () => {
     const git = fakeGit({
       "symbolic-ref --short": { stdout: "feature/x\n" },

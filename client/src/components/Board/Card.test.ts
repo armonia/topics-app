@@ -138,7 +138,9 @@ describe('the wait before a retry and the running tool', () => {
 
   test('the "what is it doing" line sits under the foot and goes out with the retry wait', () => {
     expect(src).toContain("live?.lastTool && !live.retry && task.dispatchState === 'working' && (");
-    expect(src).toContain('<LiveToolLine tool={live.lastTool} />');
+    // `frozen`: while the swap freezer holds the session's command STOPped the
+    // line stops ticking and says so (KANBAN-85), so the pin travels with it.
+    expect(src).toContain('<LiveToolLine tool={live.lastTool} frozen={!!swapFreeze} />');
     expect(live).toContain('data-testid="card-live-tool"');
   });
 });

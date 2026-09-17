@@ -152,6 +152,22 @@ describe("decidePark", () => {
     });
   });
 
+  /**
+   * F18. Parking kills the PTY, and killing the CLI of a session whose command
+   * Topics is holding STOPped strands that command: out of every tree, with its
+   * memory, and with a SIGTERM it can never act on. The freeze lasts ten minutes
+   * at most, so the park waits instead of being cancelled.
+   *
+   * @covers KANBAN-85
+   */
+  test("una sessione con un comando congelato non si parcheggia", () => {
+    expect(decidePark(parkable({ hasFrozenTree: true }), THRESHOLD)).toEqual({
+      park: false,
+      reason: "frozen-tree",
+    });
+    expect(decidePark(parkable({ hasFrozenTree: false }), THRESHOLD)).toEqual({ park: true });
+  });
+
   test("l'ordine dei rifiuti mette per primo il piu' grave", () => {
     // Una sessione senza transcript E occupata deve dire "no-transcript": e' il
     // motivo per cui non si potra' MAI parcheggiare, mentre "busy" e' passeggero.

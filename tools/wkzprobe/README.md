@@ -1,4 +1,4 @@
-# wkzprobe — two child WKWebViews in one window: who is on top, and can a drag move one of them live?
+# wkzprobe — two child webviews in one window: who is on top, and can a drag move one of them live?
 
 The instrument for the two unknowns of `openspec/changes/browser-della-topic`
 (card `e0821533`), before a floating browser window gets written. Two arms, one
@@ -61,11 +61,68 @@ machine that could not afford the build. Before trusting it, run the arm once
 as it is (expect exit 0), then put `view.removeFromSuperview();` back in front
 of the `addSubview` in `raise_role` (expect exit 1 on that verdict alone).
 
-This probe only speaks for WKWebView. On WebView2 the same hole is visible in
-the wry source (every child HWND is born with `SetWindowPos(HWND_TOP)`,
-`webview2/mod.rs:270`, and `set_bounds` passes `SWP_NOZORDER`, `:1456`); on
-WebKitGTK it has not been probed (`GtkFixed.put` appends,
-`webkitgtk/mod.rs:620`).
+On WebKitGTK none of this has been probed (`GtkFixed.put` appends,
+`webkitgtk/mod.rs:620`). WebView2 now has its own backend and its own run,
+below.
+
+## Arm `z` on Windows — the same six verdicts on WebView2
+
+`src/views_win.rs` is the second backend: same five functions, same meanings,
+Win32 instead of AppKit. wry gives every child webview a container window of
+class `WRY_WEBVIEW`, a direct child of the tao window, with the WebView2 render
+windows (`Chrome_WidgetWin_*`, `Chrome_RenderWidgetHostHWND`) underneath it in
+the browser processes. That container is the same handle
+`controller().ParentWindow()` gives `browser_win::raise`, so `raise_role` issues
+the production call verbatim: `SetWindowPos(hwnd, HWND_TOP, 0,0,0,0,
+SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)`.
+
+Measured 2026-09-15 on the Windows box (10.0.26200, WebView2 Evergreen), all six
+true, exit 0. The pile printed at each step shows the reorder directly: before
+the raise the order is host, pane, floater; after it, host, floater, pane.
+
+| question | answer |
+|---|---|
+| pane created first, floating view second | the **second** takes the hit test |
+| `set_bounds` on the lower view | **no reorder** — it stays underneath |
+| `SetWindowPos(HWND_TOP)` on the lower view's container | the raised view **wins** |
+| the raised view held the focus | it **keeps it** (`SWP_NOACTIVATE`) |
+| a third view created afterwards | **covers** the raised one |
+| the raised page | **survives** — same token it minted at birth |
+
+**Falsified, so the arm is not free.** With the `SetWindowPos` call commented
+out and nothing else changed, the same run prints `raise-wins=false` and exits 1,
+while the other five stay true and the pile stays host, pane, floater. The
+verdict tracks the production call and not the probe's own bookkeeping.
+
+**`first-responder-survives-the-raise` is the weak one here.** The WebView2
+render windows belong to other processes, so `SetFocus` across threads is
+refused and the only thing this process can focus is the container; the check is
+therefore "focus is on the container or under it", before and after. It says
+`SWP_NOACTIVATE` does not move focus, which is what the shell claims, but it
+does not exercise a page that is actually typing.
+
+### How to run it: a scheduled task, not ssh
+
+```
+schtasks /Create /TN "wkzprobez" /TR "C:\...\runz.cmd" /SC ONCE /ST 23:57 /RL LIMITED /F
+schtasks /Run /TN "wkzprobez"
+```
+where `runz.cmd` runs `wkzprobe.exe z` with stdout redirected to a file that is
+then read back over ssh.
+
+**A process launched over OpenSSH cannot run this arm at all.** It lands in a
+non-interactive window station and WebView2 refuses the window handle:
+`CreateCoreWebView2Controller` fails with `0x80070578`
+(`ERROR_INVALID_WINDOW_HANDLE`) before any child exists. The window itself is
+built fine, which makes the failure look like a wry problem and is not one. The
+build is fine over ssh; only the run needs the console session.
+
+**The tick comes from an `EventLoopProxy`, not from `ControlFlow::WaitUntil`.**
+Under that scheduled task tao's Windows loop dispatches `NewEvents(Init)` and
+the `DeviceEvent::Added` burst and then never calls the handler again, with
+`WaitUntil` or with `Poll` alike; `MainEventsCleared` never arrives. A user
+event posted from a thread does wake it. The macOS arm was re-run after the
+change and still exits 0 with all six true, so the change costs it nothing.
 
 ## Arm `drag` — one `set_bounds` per animation frame
 

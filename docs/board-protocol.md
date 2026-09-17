@@ -15,12 +15,13 @@ Chi lo riceve davvero, e quando:
   posto solo.
 
 **DUE LINGUE, e non e' una svista.** Dal 2026-08-15 l'ENVELOPE e' in inglese —
-`buildKickoff`, il kickoff di fan-out, il resume, il sollecito, e le tre costanti
-che ci finiscono dentro (`PREVIEW_RULE`, `CODE_GATES_RULE`, `VERSION_BUMP_RULE`
-in `shared/board.ts`). E' un contratto di RUNTIME letto da un modello, sta nel
-codice, e in questo repo il codice e' in inglese. QUESTA copia resta in italiano
-perche' il suo lettore e' una persona, e lo dice la prima riga. Cio' che deve
-restare allineato sono le REGOLE, non le parole: se cambi una regola in un posto,
+`buildKickoff`, il kickoff di fan-out, il resume, il sollecito, e le quattro
+costanti che ci finiscono dentro (`PREVIEW_RULE`, `CODE_GATES_RULE`,
+`VERSION_BUMP_RULE`, `RECOMMENDED_OPTION_RULE` in `shared/board.ts`). E' un
+contratto di RUNTIME letto da un modello, sta nel codice, e in questo repo il
+codice e' in inglese. QUESTA copia resta in italiano perche' il suo lettore e'
+una persona, e lo dice la prima riga. Cio' che deve restare allineato sono le
+REGOLE, non le parole: se cambi una regola in un posto,
 cambiala anche nell'altro.
 
 La lingua della RISPOSTA dell'agente non e' cambiata: `languageLine` mette sempre
@@ -55,16 +56,66 @@ alla consegna: con sei agent erano fino a tre suite in parallelo sui tre slot
 del gate, più le copie orfane lasciate da un turno tagliato — misurato load 115
 su 12 core alle 14:40 del 04/09. Il carico sono i cancelli, non gli agent.
 
-**Le e2e dei file toccati sono il sesto check (dal 06/09/2026).** Cinque cancelli
-su sei non contenevano nessun test end-to-end, e il land e' un merge locale che
-non passa dalla CI: la notte del 05/09 undici card sono arrivate verdi in review
-e la CI di main si e' svegliata con undici spec e2e rosse in piu' (sidebar,
-pannello git, drawer della board, permalink). `bun run check:e2e-touched`
-(`scripts/check-e2e-touched.ts`) sceglie le spec legate al DIFF del ramo (la spec
-stessa, chi importa il modulo, l'area, i testid) e ne fa girare al massimo otto;
-in un worktree costruisce da se' il bundle del client e prende la porta derivata
-dal path, quindi non tocca ne' `public/` ne' la 13334. Sta nella colonna
-`review_checks` del board come gli altri, dopo `test:unit`.
+**L'e2e di una consegna la misura la CI della PR, non questo Mac (dal 15/09/2026).**
+Perche' l'e2e sta nella consegna: cinque cancelli su sei non contenevano nessun
+test end-to-end, e la notte del 05/09 undici card sono arrivate verdi in review
+mentre la CI di main si svegliava con undici spec e2e rosse in piu'. Dal 06/09 il
+sesto check era `bun run check:e2e-touched` nel worktree dell'agente, cioe'
+Playwright con Chromium: la notte del 15/09 gli agenti hanno scaricato Chromium
+sul Mac per farlo girare, dove Chromium non deve esserci. Ora la riga della board
+e' `github-ci:e2e` (`E2E_CI_CHECK`, KANBAN-84) e non va a una shell: finiti verdi
+i comandi locali, il server (mai l'agente) spinge sul ramo il commit che ha
+misurato, apre o riusa una PR in bozza e legge i job `prepare-e2e` ed `e2e (1..4)`
+della run `pull_request` di QUEL commit (tier PR piu' le spec toccate nello shard
+1). Verde solo con tutti i job e2e verdi; rosso con un job `failure`, e il referto
+nomina il job e il comando `gh run view --job <id> --log-failed`; ogni altro esito
+(nessuna run, run annullata, `gh` non autenticato, conflitto con main, 60 minuti
+senza verdetto) e' NON MISURATO. L'attesa non tiene corsia ne' memoria. Il ramo
+diventa pubblico alla consegna, prima della review. `check:e2e-touched --list`
+resta il modo di vedere le spec toccate; sul Mac, senza `--list`, lo script esce
+97 senza lanciare niente.
+
+**Anche la suite unit di una consegna la legge la CI della PR, se la board lo
+dichiara (dal 15/09/2026, risposta «test:unit alla consegna: dalla CI della PR»).**
+Una card dentro `test:unit:shards` teneva un albero da 2,4 a 11 GB sul Mac, e la
+stessa suite gira gia' nel job `check` di ogni pull request. La riga e'
+`github-ci:unit` (`UNIT_CI_CHECK`, nome `unit-ci`) e sostituisce `test:unit` fra
+i check della board. Il verdetto e' la conclusione del passo `Unit + integration
+tests` del job `check`, nella stessa run `pull_request` del commit consegnato che
+la riga e2e legge: verde solo con quel passo `success` su quello sha; rosso con
+`failure`, e il referto porta `gh run view --job <id> --log-failed`; passo saltato,
+annullato, assente, o job `check` finito prima del passo (preparazione rossa) e'
+NON MISURATO, mai verde. Con entrambe le righe dichiarate c'e' UNA spinta, UNA PR
+in bozza e UN giro di sondaggi. L'envelope lo dice con la riga
+«UNIT TESTS RUN ON GITHUB CI, NEVER HERE»: niente `test:unit` o
+`test:unit:shards` sul Mac, `bun test <file>` mirato resta ammesso.
+
+**E durante il turno l'agente non lancia e2e su questa macchina, qualunque sia la
+board (dal 15/09/2026, scelta «Solo in CI» di `mac-usabile-sotto-carico`).** La riga
+qui sopra sposta solo il check della consegna; il lavoro piu' pesante partiva prima.
+In 15 ore del 15/09 gli agenti avevano lanciato da se' 21 `check:e2e-touched`, 71
+`playwright test` e 27 build del client, 99 su 119 in background con `&`, fuori
+dalla portata del kill del turno, mentre il Mac arrivava a load 253. La regola sta in
+`CODE_GATES_RULE` («E2E NEVER RUNS ON THIS MACHINE»): niente `check:e2e-touched`
+(tranne `--list`), niente `playwright test`, niente build del client fatte per gli
+e2e, nessun browser installato o avviato; l'agente scrive o cambia la spec.
+`bun test <file>` mirato resta ammesso. Chi misura quella spec dipende dalla board,
+e l'envelope lo dice con una riga sola: con `github-ci:e2e` la CI del ramo, letta
+alla consegna; senza (le board degli altri progetti) nessuno, e la riga
+«E2E IS NOT MEASURED BY THIS BOARD» chiede all'agente di scriverlo nel commento di
+consegna con il percorso della spec. Prima la regola affermava su ogni board che la board
+leggeva la CI del ramo, anche dove nessuno spinge e nessuno legge niente.
+
+Il passo della CI che sceglie le spec toccate misurava il vuoto fino al 15/09: il
+checkout della PR e' profondo un commit, `git merge-base` usciva 1 e lo script
+contava solo `git status` («1 changed file(s)» su una PR da 32 file, exit 0). Ora
+il passo fa `git fetch --unshallow` del base e del commit in prova, e senza merge
+base lo script esce 2. Due guardie sulla stessa strada: un'eccezione del lettore
+della CI e' NON MISURATO (prima diventava «nessun gate» e la card entrava in
+review), e un verdetto vale solo per il commit che ha misurato (una gamba arrivata
+su una head nuova durante l'attesa risponde pending e il giro riparte). Il push
+della consegna passa dalla guardia `pre-push` dei nomi tolti dalla storia anche da
+un worktree: l'elenco `.personal-terms` si legge dal checkout principale.
 
 **Il tetto vero e' il PIANO, non la CPU (dal 04/09/2026).** Otto agent nativi e
 le chat della persona stanno sulla stessa OAuth del piano Claude: alle 13:00Z
@@ -148,6 +199,17 @@ queste regole.
    EFFIMERA — muore col server che la serve: la prova che resta è l'anteprima.
    Un URL o una descrizione scritti solo nel thread non bastano.
 
+   **Su questo Mac nessuna clip nasce da un browser** (dal 15/09/2026: niente
+   Chromium qui). Una tab del task che nessuna finestra mostra gira in un browser
+   headless (`open_browser_pane` con `forceOpen:false`, poi `chromium.launch`), e
+   `screencapture -R` filmerebbe lo schermo di chi lavora, non quella pagina.
+   `PREVIEW_RULE` ammette `screencapture -V <secondi> -R <x,y,w,h> <file>.mov` solo
+   su una superficie GIA' a schermo, e per una pane browser solo dopo
+   `browser_focus_tab`; altrimenti la prova del comportamento e' la sua spec e2e,
+   nominata nel commento di consegna, con uno screenshot o un diagramma come
+   anteprima. La clip qui sotto resta per il PC Windows e la CI, e l'envelope non
+   la nomina.
+
    **Come nasce un video ≤20s, senza tagliarlo dopo.** `tests/e2e/helpers/clip.ts`:
    `clipDiConsegna` apre un contesto DEDICATO con `recordVideo` acceso sul solo
    tratto utile. Il setup — l'app che parte, il progetto che si apre — sta nel
@@ -170,6 +232,33 @@ queste regole.
    deploy in prod, uso di credenziali → prima si chiede. Le credenziali non si
    scrivono MAI in chiaro (thread, file, commit): se ne servono, ci si ferma e si
    chiede.
+
+5-bis. **Quando chiedi una decisione, la TUA scelta va per prima e lo dice.**
+   Il testo non sta scritto qui: e' la costante `RECOMMENDED_OPTION_RULE` in
+   `shared/board.ts`, la stessa stringa che leggono l'envelope di kickoff e le
+   descrizioni di `options` in `comment_task` e `comment_global_task`. L'opzione
+   che sceglieresti e' il primo elemento di `options` e la sua etichetta finisce
+   con « (consigliata)», o « (recommended)» se stai scrivendo in inglese; la
+   domanda su una riga dice in poche parole il perche'. Solo quando davvero non
+   hai una preferenza lo dichiari, e nomini cosa la scioglierebbe.
+   Misurato il 15/09/2026 su 2.486 commenti degli agenti in 45 giorni: 78
+   decisioni sono uscite come bottoni e solo 13 dicevano quale opzione avrebbe
+   preso l'agente. Un elenco neutro scarica sull'umano una decisione che chi
+   scriveva era nella posizione di prendere. Il pannello in chat ha il campo
+   `recommended` (un chip); le opzioni della board sono stringhe semplici, quindi
+   il segno vive nell'etichetta.
+   **E per questo il segno si ferma alle etichette riservate.** «Landa su main»,
+   «Landa e pubblica», «Approva il piano», «Da rivedere» e le quattro dei
+   sottotask parcheggiati sono un contratto che il server confronta PER VALORE
+   (`normalizeActionLabel`, §6 qui sotto): il suffisso e' fatto di lettere, quindi
+   sopravvive alla normalizzazione e cambia l'etichetta. Una «Landa su main
+   (consigliata)» smette di essere un'azione di board — il click risveglia
+   l'agente invece di fondere su main — e una «Approva il piano (consigliata)»
+   non arma piu' `tasks.plan_comment_id`. Su quelle si offre il testo esatto e la
+   propria scelta si dice con l'ORDINE, mettendola per prima. Misurato il
+   16/09/2026 sul DB vivo: 1.166 commenti su 1.451 con una fence `question`
+   portano «Landa su main», 34 «Approva il piano» — e' il ramo normale, non un
+   caso raro.
 
 6. **Approve = SOLO accettare il task** (review → done, sblocca i dipendenti). Non
    fa più merge/build/reap "da sotto": il landing è un passo ESPLICITO e separato

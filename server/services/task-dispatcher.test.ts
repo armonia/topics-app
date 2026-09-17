@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { commitIsIn } from "./own-commits";
 import { commitStatusFromRepo } from "./branch-status";
 import { classifyLanding } from "./landing-audit";
-import { PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
+import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
 import { createTaskDispatcher, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
@@ -2276,6 +2276,25 @@ describe("task-dispatcher", () => {
     restarted.shutdown();
   });
 
+  it("busySessionKeys names the session a card turn streams on, so the restart gate does not count it as a chat", async () => {
+    // A card turn runs through /api/chat, so its session is also a stream key.
+    // Without these keys the door of a pending restart reopened for every card
+    // in flight (2026-09-14: 12 cards started behind a restart, then cut by it).
+    const h = harness({ topicExists: () => true });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+
+    expect(h.turns).toHaveLength(1);
+    expect(h.dispatcher.busySessionKeys()).toEqual([h.turns[0]!.sessionKey]);
+    // The PAIR, for the gate that asks the checks registry by task id whether
+    // that card's delivery is only waiting, and then has to take the same
+    // card's stream out of the chat sources (RGATE-07).
+    expect(h.dispatcher.busyTurns()).toEqual([{ taskId: "t1", sessionKey: h.turns[0]!.sessionKey }]);
+    h.dispatcher.shutdown();
+  });
+
   it("un resume che parte EREDITA il messaggio dell'attesa che spegne", async () => {
     // Il registro tiene una attesa sola per task, quindi un resume che trova il
     // posto libero spegne il timer di quella pendente. Il timer aveva in mano un
@@ -2497,6 +2516,29 @@ describe("task-dispatcher", () => {
     expect(kickoff).toContain("bun run bump");
     expect(kickoff).toContain("bun run bump sync");
     expect(kickoff).toContain("lockfile");
+  });
+
+  /**
+   * The kickoff tells the agent to put its own pick first and mark it. Only 13 of
+   * 78 board decisions carried one before this line existed (measured 2026-09-15).
+   * The words are written out here, not interpolated from the constant, so a rule
+   * that silently loses its point also fails this test.
+   */
+  it("kickoff asks for the recommended option first, marked in the label", async () => {
+    const h = harness();
+    h.svc.updateBoardSettings(PID, { autoDispatch: true });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const kickoff = h.turns[0].content;
+    expect(kickoff).toContain("first element of `options`");
+    expect(kickoff).toContain("(consigliata)");
+    expect(kickoff).toContain("(recommended)");
+    // The carve-out ALWAYS travels with the rule, because this very envelope
+    // prescribes `options=[LAND_ACTION_LABEL]` at every delivery and the two plan
+    // labels in plan-first: the server matches those by value, and the suffix
+    // would break them.
+    expect(kickoff).toContain("NEVER MARK A LABEL THE BOARD EXECUTES ITSELF");
   });
 
   it("kickoff carries the OPEN subtasks already on the board (accorpare non fa sparire il lavoro)", async () => {
@@ -4011,9 +4053,18 @@ describe("l'envelope non parla italiano", () => {
    */
   const ITALIANO = /\b(?:il|lo|la|le|gli|un|una|uno|del|dello|della|dei|delle|degli|che|non|con|sul|sulla|nel|nella|dal|dalla|alla|questo|questa|quello|quella|quando|perché|perche|già|gia|senza|sempre|anche|ancora|adesso|quindi|invece|oppure|ogni|tutti|tutte|nessuno|niente|appena|subito|mentre|sotto|sono|essere|fare|fatto|deve|devi|puoi|può|puo|cosa|dove|più|piu|sei|tuo|tua|tuoi|suo|sua)\b|è/i;
 
-  /** L'envelope meno le etichette che il resto della app confronta per valore. */
+  /**
+   * The envelope minus the labels the rest of the app compares by value.
+   *
+   * EIGHT of them, not four, since 2026-09-16: `RECOMMENDED_OPTION_RULE` names
+   * them all, because a rule about where the "(consigliata)" suffix is forbidden
+   * has to spell out the labels it is forbidden on. They keep being removed BY
+   * NAME, from the constants: widening the Italian dictionary instead would have
+   * switched the gate off on the instruction lines too.
+   */
   function withoutLabels(envelope: string): string {
-    return [LAND_ACTION_LABEL, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, "Pubblica"]
+    return [LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL,
+      REQUEUE_PARKED_LABEL, ARCHIVE_PARKED_LABEL, PROMOTE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, "Pubblica"]
       .reduce((testo, etichetta) => testo.split(etichetta).join("<label>"), envelope);
   }
 
@@ -4027,11 +4078,11 @@ describe("l'envelope non parla italiano", () => {
    * descrizione in inglese perché sono DATI, e il dato lo scrive una persona
    * nella sua lingua: il cancello guarda le istruzioni, non il task.
    */
-  async function envelopeDiKickoff(fanOut?: number): Promise<{ h: ReturnType<typeof harness>; kickoff: string }> {
+  async function envelopeDiKickoff(fanOut?: number, extraChecks: { name: string; cmd: string }[] = []): Promise<{ h: ReturnType<typeof harness>; kickoff: string }> {
     const h = harness();
     h.svc.updateBoardSettings(PID, {
       autoDispatch: true,
-      reviewChecks: [{ name: "types", cmd: "bun run typecheck" }],
+      reviewChecks: [{ name: "types", cmd: "bun run typecheck" }, ...extraChecks],
       ...(fanOut ? { dispatchFanOut: fanOut } : {}),
     });
     if (fanOut) h.svc.setGlobalCap({ auto: false, max: 5 });
@@ -4061,6 +4112,88 @@ describe("l'envelope non parla italiano", () => {
     expect(kickoff).toContain("ATTEMPT 1 of 2");
     expect(italianRows(kickoff)).toEqual([]);
     h.dispatcher.shutdown();
+  });
+
+  it("with the CI e2e row: listed among no commands, and the CI rule said once (KANBAN-84)", async () => {
+    const { h, kickoff } = await envelopeDiKickoff(undefined, [E2E_CI_CHECK]);
+    const checksLine = kickoff.split("\n").find((r) => r.includes("PRE-REVIEW CHECKS")) ?? "";
+    expect(checksLine).toContain("`bun run typecheck`");
+    expect(checksLine).toContain("this declared gate");
+    expect(kickoff).not.toContain("github-ci:e2e");
+    expect(kickoff).toContain("E2E RUNS ON GITHUB CI, NEVER HERE");
+    expect(kickoff.split("\n").find((r) => r.includes("E2E RUNS ON GITHUB CI"))).toContain("CI of your branch, which the board reads when you deliver");
+    expect(kickoff).not.toContain("E2E IS NOT MEASURED BY THIS BOARD");
+    expect(italianRows(kickoff)).toEqual([]);
+    h.dispatcher.shutdown();
+    const plain = await envelopeDiKickoff();
+    expect(plain.kickoff).not.toContain("E2E RUNS ON GITHUB CI");
+    plain.h.dispatcher.shutdown();
+  });
+
+  it("without the CI row nothing claims the board reads a CI, and the agent is told to say so (15/09/2026)", async () => {
+    for (const fanOut of [undefined, 2]) {
+      const { h, kickoff } = await envelopeDiKickoff(fanOut);
+      expect(kickoff).not.toMatch(/which the board reads|board reads when you deliver/);
+      expect(kickoff).toMatch(fanOut ? /E2E is not measured by this board[^\n]*name it in your closing report/ : /E2E IS NOT MEASURED BY THIS BOARD[^\n]*delivery comment/);
+      h.dispatcher.shutdown();
+    }
+    const { h, kickoff } = await envelopeDiKickoff(2, [E2E_CI_CHECK]);
+    expect(kickoff).not.toContain("E2E is not measured by this board");
+    h.dispatcher.shutdown();
+  });
+
+  it("without the CI row too, the kickoff forbids local e2e and keeps targeted bun test (15/09/2026)", async () => {
+    for (const fanOut of [undefined, 2]) {
+      const { h, kickoff } = await envelopeDiKickoff(fanOut);
+      const rule = kickoff.split("\n").find((r) => r.includes("E2E NEVER RUNS ON THIS MACHINE")) ?? "";
+      for (const word of ["check:e2e-touched", "--list", "playwright test", "client build", "install or launch a browser", "Targeted `bun test <file>` stays allowed"]) {
+        expect(rule).toContain(word);
+      }
+      // The VIDEO branch names no browser-driven clip at all: not in any wording,
+      // not behind a clause about another machine.
+      const video = (extractPreviewRule(kickoff) ?? PREVIEW_RULE).split("\n").find((r) => r.startsWith("· VIDEO")) ?? "";
+      expect(video).toContain("screencapture -V");
+      expect(video).not.toMatch(/playwright|recordVideo|chromium/i);
+      const clip = video.slice(video.indexOf("A clip is"));
+      expect(clip.slice(0, clip.indexOf(". "))).toMatch(/ALREADY ON SCREEN[^.]*browser_focus_tab/);
+      expect(video).toContain("headless");
+      h.dispatcher.shutdown();
+    }
+  });
+
+  it("the fan-out kickoff with the CI e2e row runs no github-ci:e2e and says never here", async () => {
+    const { h, kickoff } = await envelopeDiKickoff(2, [E2E_CI_CHECK]);
+    expect(kickoff).toContain("ATTEMPT 1 of 2");
+    expect(kickoff).not.toContain("github-ci:e2e");
+    expect(kickoff).toContain("`bun run typecheck`: the server re-runs");
+    expect(kickoff).toContain("E2E runs on GitHub CI for the attempt that is chosen, never here");
+    expect(italianRows(kickoff)).toEqual([]);
+    h.dispatcher.shutdown();
+  });
+
+  it("with the CI unit row: the full suite is read from the PR CI, targeted bun test stays, and an e2e line is not invented", async () => {
+    const { h, kickoff } = await envelopeDiKickoff(undefined, [UNIT_CI_CHECK]);
+    expect(kickoff).not.toContain("github-ci:unit");
+    const unit = kickoff.split("\n").find((r) => r.includes("UNIT TESTS RUN ON GITHUB CI, NEVER HERE")) ?? "";
+    for (const word of ["`Unit + integration tests`", "`check` job", "Do not run `bun run test:unit`", "targeted `bun test <file>`", "NOT MEASURED, never green"]) {
+      expect(unit).toContain(word);
+    }
+    // A unit row alone reads no e2e: the e2e line stays the one of a board without it.
+    expect(kickoff).not.toContain("E2E RUNS ON GITHUB CI");
+    expect(kickoff).toContain("E2E IS NOT MEASURED BY THIS BOARD");
+    expect(italianRows(kickoff)).toEqual([]);
+    h.dispatcher.shutdown();
+    const both = await envelopeDiKickoff(undefined, [E2E_CI_CHECK, UNIT_CI_CHECK]);
+    expect(both.kickoff).toContain("E2E RUNS ON GITHUB CI, NEVER HERE");
+    expect(both.kickoff).toContain("UNIT TESTS RUN ON GITHUB CI, NEVER HERE");
+    both.h.dispatcher.shutdown();
+    const fan = await envelopeDiKickoff(2, [UNIT_CI_CHECK]);
+    expect(fan.kickoff).toContain("The full unit suite runs on GitHub CI for the attempt that is chosen, never here");
+    expect(fan.kickoff).not.toContain("github-ci:unit");
+    fan.h.dispatcher.shutdown();
+    const plain = await envelopeDiKickoff();
+    expect(plain.kickoff).not.toContain("UNIT TESTS RUN ON GITHUB CI");
+    plain.h.dispatcher.shutdown();
   });
 
   it("il resume: l'unico testo davanti a un agente che riparte", async () => {

@@ -2,17 +2,198 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.339 — 2026-09-17
+
+### Sotto il cofano
+- Il filone engine alternativi si chiude: WKProcessPool e' inerte e Obscura non ha una finestra
+- Playwright WebKit e' PIU' PESANTE di Chromium headless: 140 MB contro 82 per pane
+- Il banco misurava il rumore della macchina: serve il filtro sul comando, non solo il pid
+- Il pavimento di memoria non aspetta una persona: aspetta per sempre
+
+## 2.2.338 — 2026-09-16
+
+### Sotto il cofano
+- Le fixture di ps non portano piu' la home di chi lavora in un repo pubblico
+
+## 2.2.336 — 2026-09-16
+
+### Sotto il cofano
+- La parola nuda la tiene l'app installata, poi il bundle, poi il binario: e l'ordine delle righe non decide piu'
+- bloat-baseline: la versione di main, rigenerata con le righe di questo ramo
+- Il docstring della porta elencava tre casi su quattro
+- Con i magazzini pieni lo swap si dice sostenuto anche solo dalle pagine rilette dal disco
+- La seconda porta dello swap chiede anche che il debito non stia calando
+- Chi non tiene la parola dice DOVE gira, non «comando»: con tre famiglie sullo stesso nome un suffisso solo non bastava
+- La regola della consigliata sta anche nell'envelope di ripresa, con il cancello che la pretende
+
+## 2.2.335 — 2026-09-16
+
+### Sotto il cofano
+- La regola della consigliata arriva anche a chi mantiene l'envelope
+- senza la pulizia del layout salvato il giro phone non trova la voce Board
+- La coda del terminale scade AL limite, e l'avviso dice quale delle tre perdite
+- Una pane browser in una cella accanto e' gia' quella pagina, e la porta non ne fa una seconda
+- Un debito che non puo' piu' crescere non e' un debito che non cresce: lo swap al soffitto e' la seconda porta
+- Il layout salvato del progetto si azzera prima di ogni giro, e la voce Board torna nel menu
+- La consigliata non tocca piu' le etichette che la board esegue, e il cancello di parita' la vede
+- Input trattenuto adesso batte una perdita vecchia: la fascia non manda piu' a riscrivere una riga che si ricuce
+- La configurazione si rilegge a ogni avvio del server, non solo alla partenza dello script
+- usePaneOrdering nel `_comment` del cancello: nuovo offender a 809, non +9
+- Una quota tarata su un denominatore mai letto non e' una misura, e un freno senza uscita non e' un freno
+- Il nome nudo va all'app installata, non a qualunque cosa viva dentro un bundle
+- Il cancello di parita' ancora anche la meta' della 5-bis che l'agente legge davvero
+- La porta di una chat-pane si apre solo su una finestra che c'e' gia'
+
+## 2.2.334 — 2026-09-16
+
+### Sotto il cofano
+- Un `ps` che non risponde non e' un `ps` che risponde vuoto
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-16 [skip ci]
+- Un comando in primo piano non si confonde con un altro, e un sondaggio muto non e' una misura
+- Il tipo di `stdout` vive nella funzione che lo apre: annotare lo spawn lo riallargava
+- `capturing` non e' una parola del dizionario del cancello: il nome dice la pipe
+
+## 2.2.333 — 2026-09-16
+
+### Sotto il cofano
+- Una consegna che aspetta i nostri check non trattiene il riavvio, e torna da sola dopo il boot
+- Sotto swap sostenuto il comando piu' pesante che un agente ha lanciato in background si ferma, e la sessione si copre di brina
+- La ripresa al boot riguarda solo una card ancora in lavorazione, e ricorda il commit del giro
+- Il commento di `roundCommit` sta sulla mappa, non davanti a `rememberDelivery`
+- La brina non monta e smonta la sua tela: un canvas a 0x0 che dipinge solo quando serve
+- La riga «consegna ripresa» la stampa la ripresa, non il giro che la prepara
+- Il frame del congelamento entra nel registro WS, e i quattro contratti che descrivevano il server di ieri lo sanno
+- La spec della brina apre la board dal menu "+" e semina la chat del progetto, invece di aspettare tab che nessuno ha aperto
+
+## 2.2.332 — 2026-09-15
+
+### Sotto il cofano
+- Prova del rosso, secondo giro: la topic nuova si seleziona dalla sua tab, come in topic-browser-window.spec
+- Il freno sullo swap legge davvero lo swap: sysctl e lsof per percorso assoluto sotto launchd
+- La fotografia forense dopo un SIGKILL legge chi tiene la 3333: lsof per percorso assoluto anche nel wrapper
+- L'inspector di una pane su Windows e' aperto finche' la sua finestra DevTools esiste, e la finestra del topic torna a passare il fuoco alla pagina
+
+## 2.2.331 — 2026-09-15
+
+### Sotto il cofano
+- Un check interrotto dal freno o dallo spegnimento muore con tutto il suo gruppo, anche il figlio forkato dopo la foto dei discendenti
+- Due giri in attesa dei check si alternano: un giro di tre comandi non si riprende piu' il rilascio a ogni uscita
+- Una pane in pausa dietro un'altra tab riprende nascosta, e la pausa rispetta agente, inspector e schermo intero anche dove prima non li vedeva
+- Board options put the agent's pick first, marked (consigliata)
+- Il test del giro da tre comandi chiama sleep senza argomenti, come lo dichiara l'orologio finto
+- **e2e** · reset persisted project panes before task-model-labels runs
+- Prova del rosso: i test dell'inspector su Windows e della finestra del topic, contro la regola del primo piano e senza due props del montaggio
+
+## 2.2.330 — 2026-09-15
+
+### Sotto il cofano
+- Gli e2e degli agenti non girano piu' sul Mac: la consegna li legge dalla CI della PR
+- Il pavimento che oscilla a 6,0 GB non riscrive piu' la card a ogni passaggio
+- La consegna non entra piu' in review su un verdetto e2e che non ha misurato quella testa
+- La card trattenuta riscritta da un altro torna in coda al retry dopo, e un test lo tiene
+- Una chiamata a git o gh si ferma davvero a 60 s, e Playwright sul Mac rifiuta prima di lanciare Chromium
+- Un push finito con un figlio ancora vivo non diventa un timeout, e il test che legge la config di Playwright passa sul Mac
+- La suite unit di una consegna si legge dalla CI della PR, con la stessa spinta e la stessa attesa dell'e2e
+- Il pavimento di memoria legge il minimo di 2 minuti invece di un istante, e la prenotazione di un turno si conta una volta sola
+- Un pannello browser che consuma molto va in pausa senza il fuoco e torna vivo senza ricaricare
+- Il cancello del bloat torna verde su main: task-dispatcher.ts registrato a 5444
+- Sotto swap sostenuto Topics interrompe da solo il giro di check piu' giovane, mai rosso, e l'attesa dei check non rilascia piu' su una lettura sola ne' in branco
+- I test del guscio su macOS compilano con la firma nuova, e la guardia dell'occlusione legge l'effetto giusto
+- I test del freno sotto swap dichiarano il tipo delle righe di log lette dallo spy
+- La spec del pannello pesante apre il foglio della tab come fa la spec della tab: prima l'hover
+- Il cancello del bloat torna verde su main dopo le tre PR fuse insieme
+- Il pannello pesante apre il foglio dopo averlo chiuso, e la CPU di un processo Windows si confronta col suo stesso tempo di CPU
+
+## 2.2.329 — 2026-09-15
+
+### Sotto il cofano
+- Input queue: a partial loss is worse than none, so a loss takes the whole queue
+- Take the wheel back on both shells, and stop trusting one testid
+- La rubrica letta ogni minuto non ricalcola piu' le statistiche di tutti
+- Le statistiche restano di serie, e sono i poll a rinunciarci con ?stats=0
+- Change mac-usabile-sotto-carico: le misure del 15/09 e le quattro scelte approvate
+- Un resume trattenuto non riscrive piu' la card a ogni lettura di memoria
+
+## 2.2.328 — 2026-09-15
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-15 [skip ci]
+
+## 2.2.327 — 2026-09-15
+
+### Sotto il cofano
+- La board di progetto ha il suo test sulla finestra, e i testi dicono della prima scrittura immediata
+
+## 2.2.326 — 2026-09-15
+
+### Sotto il cofano
+- Il tetto sui done della board di progetto si ritira: KANBAN-29 vuole il totale e la coda sfogliabile
+- CHROME-10 e i doc del guscio dicono cio' che il codice fa: il verdetto degradato si pubblica solo senza demone vivo e si ritira
+- Il giornale di localStorage smette di crescere di 11 MB al minuto
+
+## 2.2.325 — 2026-09-15
+
+### Sotto il cofano
+- Il riavvio non taglia piu' le card che il server sta proteggendo
+- Il cancello a budget ferma la corsa: prezzo per card, prenotazione per tutto il turno, una rampa sola
+- Il pannello del carico dice quello che il cancello decide, con i suoi numeri
+- Pannello del carico: tre frasi che il cancello smentiva, e un test che non mordeva
+- I check della board sotto carico: semaforo acceso con CI, niente check nuovi sotto il pavimento di memoria, alberi uccisi allo spegnimento senza mandare in review
+- La frase del pavimento dice solo il vero, e la rampa ha il suo test sulla corsa fra due board
+- La frase del pavimento non stampa una prenotazione più grande della lettura, e l'import di CODE_GATES_RULE torna in testa
+- Uno spegnimento durante i check risponde come una gamba in volo, non con un 503 che l'agente deve gestire
+- La change dice il vero sul raise: bracci cablati, misura ancora aperta
+- Un resume trattenuto dice il blocco della sua attesa, non quello pubblicato dal tick
+- Misura il raise del browser su WebView2, non solo su WKWebView
+- Il buco del raise su WebView2 si chiude: e' misurato, non piu' dedotto
+- I quattro rami del motore del carico insieme: test al prezzo misurato di una card, frasi del budget in un modulo loro
+- La board di un progetto porta le 120 chiuse più recenti, come il feed
+
+## 2.2.324 — 2026-09-15
+
+### Sotto il cofano
+- Baseline bloat riallineata dopo il merge di main
+- Registra la crescita di topic-browser-window fra i due scenari nuovi
+- Registra dispatch-capacity.test.ts, cresciuto su main e mai iscritto
+- Un cancello aspetta se stesso invece di partirgli accanto, e l'attesa non consuma la sua scadenza
+- I due test del sync aspettano la scrittura, non l'orologio
+- Le due prove a orologio dello shard 0 aspettano l'effetto, non il tempo
+- I test del freno della flotta in un file loro: CI di main rossa su check:bloat
+- Commenti del test del freno della flotta in inglese: CI di main rossa su comment-language
+
 ## 2.2.323 — 2026-09-14
 
 ### Sotto il cofano
 - Il verdetto del pannello è quello del cancello, e zero core a disposizione è un tetto
+- Il commento del test non nomina Bun.serve: 'serve' e' una parola italiana per il banco
+- Il marker degraded si ritira, e ora la barra se ne accorge
+- L'agente guida e la pagina resta visibile: lo stato passa nell'icona della scheda
+- Terminal input is queued until the reattach is proven
+- Il foglio dell'indirizzo non riapre da solo quando cambia il layout
+- L'asse memoria adesso c'e', e conta anche quello che ha appena ammesso
+- Il wire porta l'asse che blocca: le fixture del client lo dichiarano
+- Il git del test dei checkpoint porta l'ambiente isolato del preload
+- Point provider-picker and composer-model-memory E2E specs at the always-ready claude-code engine
+- Le guardie che mancavano, e i due documenti che dicevano il contrario
 
 ## 2.2.322 — 2026-09-14
 
 ### Sotto il cofano
+- Gli e2e delle aperture: il link va nella finestra, l'agente non muove il layout
+- Solo il comando del composer va nella finestra: l'evento ha due produttori
+- Il ripiego riprende il suo split: e' il ramo che la card chiama invariato
+- Il budget dei due scenari 04 segue il lavoro vero che fanno
+- TABLINK-09: il ripiego del permalink morto si guarda dove ora cade
+- Gli scenari 04 misurano quello che dicono di misurare
+- La stessa porta anche dentro una finestra di progetto
+- 04d chiede il budget dei suoi fratelli: e' il piu' lento dei quattro
 - La quota è sul libero: chi non è nostro ha la precedenza
+- Il raise del browser smette di essere macOS-only: WebView2 e WebKitGTK hanno un braccio
+- Il tetto sul libero non salta piu' a ogni respiro della macchina
 - Commenti della quota sul libero in inglese: il rail comment-language su main era rosso
 - Pannello del carico: una riga viva, il resto in «Come funziona» (card 01346d11)
+- Il lucchetto prima di ogni effetto: un avvio che perde la corsa non tocca niente
+- **e2e** · stabilize task-model-labels add-menu click under load
 
 ## 2.2.321 — 2026-09-14
 
@@ -30,6 +211,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - La barra e non il contenitore: la finestra scansa i comandi del composer
 - Via i file di servizio finiti nel commit precedente
 - Scenario 01r falsificato: il commento e la baseline dello spec
+- La porta la registra la chat, non la finestra montata
 
 ## 2.2.320 — 2026-09-14
 

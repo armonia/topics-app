@@ -1,7 +1,9 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
+import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
+import { useSwapFreeze } from '../../state/swapFreeze';
 import { TopicBrowserReopen } from '../Browser/TopicBrowserReopen';
-import { TopicBrowserWindow, useTopicBrowserPresence, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, useTopicBrowserInset } from '../Browser/topicBrowserWindowLazy';
+import { TopicBrowserWindow, useTopicBrowserPresence, usePaneWindowDoor, hasTopicBrowserWindow, DEFAULT_EXPANDED_WIDTH, useTopicBrowserInset } from '../Browser/topicBrowserWindowLazy';
 import { isOwnFrame } from '@/state/wsIdentity';
 import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, updateTurn, useChatQueue } from '@/state/chatQueue';
 import { X } from 'lucide-react';
@@ -151,6 +153,8 @@ function ChatPaneComponent({
   aboveInputSlot, ownsBrowserWindow,
 }: ChatPaneProps) {
   const tr = useT();
+  /** A command of this chat is stopped: the pane says so above the composer. */
+  const swapFreeze = useSwapFreeze({ topicId: topic.id });
   const toast = useToast();
   const isGlobalOrchestrator = topic.isGlobalOrchestrator === true;
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -343,9 +347,15 @@ function ChatPaneComponent({
   // it. Expanded it takes width away from this pane ALONE: the padding lives
   // inside the pane, so the grid keeps tiling the columns it always tiled, and
   // the clamp is the chat minimum of THIS pane, not of the whole window.
-  const browserWindow = useTopicBrowserPresence(
-    ownsBrowserWindow && !isMobile && !isDraftTopicId(topic.id) ? topic.id : '',
-  );
+  // ONE expression, two consumers: how much room to cede, and whether the
+  // openings of this conversation land in the window instead of the layout.
+  // Two copies of this rule is how one of them ends up wrong.
+  const browserWindowTopicId = ownsBrowserWindow && !isMobile && !isDraftTopicId(topic.id) ? topic.id : '';
+  const browserWindow = useTopicBrowserPresence(browserWindowTopicId);
+  // The door, on the pane's own terms: a window that already exists. This pane
+  // is also the chat of a PROJECT window, whose layout is where a first link of
+  // that conversation belongs (`LINK-TAB-02`). See `usePaneWindowDoor`.
+  usePaneWindowDoor(browserWindowTopicId, browserWindow);
   const requestedBrowserInset = browserWindow.mode === 'exp'
     ? (browserWindow.expandedWidth ?? DEFAULT_EXPANDED_WIDTH)
     : 0;
@@ -1100,8 +1110,12 @@ function ChatPaneComponent({
       // Loosely-coupled signal: layout layer listens for browser:open-and-navigate
       // and ensureBrowserPane + navigates. Mirrors the existing browser:navigate
       // CustomEvent pattern used by server-driven detection.
+      // `source` is what tells this apart from the OTHER producer of the same
+      // event (the task drawer): only the command typed in the composer is an
+      // explicit request to LOOK, so only it opens the topic's window expanded.
+      // See the handler in `usePaneOrdering` (effect 8b).
       window.dispatchEvent(new CustomEvent('browser:open-and-navigate', {
-        detail: { topicId: topic.id, url: normalized },
+        detail: { topicId: topic.id, url: normalized, source: 'slash-command' },
       }));
       setCommandResult({ type: 'success', message: tr('chat.command.openingBrowser', { url: normalized }) });
       return true;
@@ -1661,7 +1675,11 @@ function ChatPaneComponent({
       // rises by the height of the chrome bar and has to be PAINTED up there,
       // not just laid out there. The horizontal containment is unchanged. See
       // the block on `.chrome-passthrough-y` in index.css.
-      className="relative flex flex-col min-w-0 min-h-0 chrome-passthrough-y flex-1 w-full max-w-full"
+      // `swap-ice-ring`: two pixels of ice along the pane's edge while one of
+      // its commands is stopped. A ring and not a veil: the pane stays usable,
+      // and it is the one surface where a person can still write.
+      className={`relative flex flex-col min-w-0 min-h-0 chrome-passthrough-y flex-1 w-full max-w-full${swapFreeze ? ' swap-ice-ring' : ''}`}
+      data-swap-frozen={swapFreeze ? 'true' : undefined}
       style={browserInset ? { paddingRight: `${browserInset}px` } : undefined}
       // Un clic QUALUNQUE dentro la pane la rende tua: da lì in poi una chat
       // nuova non si richiude più da sola. In cattura, perché deve valere anche
@@ -1789,6 +1807,11 @@ function ChatPaneComponent({
             coordinator, which by invariant has no project path and no worktree:
             its rows would have no tree to open a diff against. */}
         {!isGlobalOrchestrator && <ChangedFilesStrip key={topic.id} topic={topic} onWSMessage={onWSMessage} />}
+        {/* FROZEN: the line sits IN FLOW above the composer, never over it. An
+            overlaid strip would cover the one control a person can still use
+            while the command is stopped, and writing in the chat is exactly
+            what stays possible. */}
+        {swapFreeze && <SwapFreezeLabel freeze={swapFreeze} className="mx-3 mb-1 self-start" />}
         <ChatInput autonomy={autonomy} onAutonomyChange={handleAutonomyChange} isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { void stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError[topic.sessionKey] ?? null} sendMessageDirect={async (c: string) => {
           // Passa dall'imbuto degli slash: il bottone «Compact now» e
           // l'azione dell'anello mandavano `/compact` come messaggio nudo,

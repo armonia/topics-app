@@ -6,7 +6,7 @@
  * @covers BROWSER-CHAT-04
  */
 import { describe, test, expect, beforeEach } from 'bun:test';
-import { browserSingletonReducer, groupClaimsBrowserNavigate } from './usePaneOrdering';
+import { browserSingletonReducer, groupClaimsBrowserNavigate, paneForContext } from './usePaneOrdering';
 import { usePaneStore } from '../../../state/pane/store';
 import { DEFAULT_SPACE_ID } from '../../../state/pane/types';
 
@@ -136,5 +136,43 @@ describe('groupClaimsBrowserNavigate — la regola sta scritta una volta sola', 
     expect(groupClaimsBrowserNavigate({
       hasProjectPane: false, orderedIds: ['topic-a'],
     })).toBe(true);
+  });
+});
+
+/**
+ * WHERE THAT PAGE ALREADY IS, before the window's door gets to answer.
+ *
+ * `orderedIds` are the ids of ONE cell (PanelGrid hands one `panelIds` per
+ * grid cell), and the pane the agent opened is exactly the one
+ * `requestBrowserSolo` pushed OUT of the chat's cell. Asked of that cell alone
+ * the answer was "no pane" in precisely the layout this rule exists to protect:
+ * the door took the opening, `open` added a sheet on a contextId the layout was
+ * already showing, and the same page ended up in the pane AND in the window.
+ */
+describe('paneForContext — la pane si cerca in tutto il layout, non nella cella', () => {
+  beforeEach(resetPaneStore);
+
+  test('IL GUASTO: la pane sta in una cella ACCANTO ⇒ conta come già aperta', () => {
+    // The state left by `requestBrowserSolo`: the pane is in the store, and the
+    // chat cell's own list holds nothing but the chat.
+    usePaneStore.setState({
+      panes: { 'browser:topic-a': { id: 'browser:topic-a', type: 'browser' } },
+    });
+    expect(paneForContext(['topic-a'], 'topic-a')).toBe('browser:topic-a');
+  });
+
+  test('la pane è una tab di questa cella ⇒ la trova senza passare dallo store', () => {
+    expect(paneForContext(['topic-a', 'browser:topic-a'], 'topic-a')).toBe('browser:topic-a');
+  });
+
+  test('nessuna pane su quel contesto, da nessuna parte ⇒ la porta può prenderla', () => {
+    usePaneStore.setState({
+      panes: { 'browser:un-altro': { id: 'browser:un-altro', type: 'browser' } },
+    });
+    expect(paneForContext(['topic-a'], 'topic-a')).toBeNull();
+  });
+
+  test('senza contextId non c\'è nessuna domanda da fare', () => {
+    expect(paneForContext(['topic-a', 'browser:topic-a'], undefined)).toBeNull();
   });
 });

@@ -1,5 +1,30 @@
 # Engine alternativi per la pane browser — misure, non claim
 
+> **CHIUSA il 2026-09-16. Non riaprire senza un fatto nuovo.**
+>
+> Il filone e' stato riaperto tre volte (19/08, 20/08, 13/09) e ogni volta e' finito
+> nello stesso posto, perche' la risposta non dipende dai gusti ma da tre misure:
+>
+> 1. **WebKit e' gia' il motore giusto**: 37-46 MB a sessione, 3x sotto il miglior
+>    Chromium headless, render perfetto, zero dipendenze nuove. Il target e' raggiunto
+>    oggi, sulla pane nativa.
+> 2. **Obscura non e' un browser da guardare**: `--help` dice *"A lightweight headless
+>    browser for web scraping and automation"*. Nessuna finestra, nessun input da
+>    tastiera (solo CDP), nessun ciclo di ridisegno. Dipinge bene (layout identico a
+>    Chrome al pixel) ma a CPU con `tiny_skia`: 20 fps di screencast contro 92, e la UI
+>    di Topics dentro costa 68% di CPU per 12 fps. Vale ~28 MB a sessione in meno **solo
+>    dove nessuno guarda**.
+> 3. **Il renderer dell'app non e' la leva**: Servo vale 15 MB su 316, il 5%, e a 1000
+>    sessioni scende allo 0,6% perche' il renderer e' l'unico pezzo che non scala.
+>
+> **La decisione operativa** e' il task `bf04951a` (*Migrazione browser remoto a
+> Playwright WebKit su Mac*): togliere il Chromium server-side, 219 MB a pane -> ~40 MB,
+> col motore gia' integrato. Obscura resta fuori dal prodotto.
+>
+> Cosa riaprirebbe la domanda, e nient'altro: Obscura che acquisisce finestra e
+> compositor GPU, oppure un numero di pane contemporanee cosi' alto da rendere i 28 MB
+> di differenza piu' importanti dei 12 fps (a 1000 pane sarebbero 66 GB contro 363).
+
 **Domanda:** esiste un motore più leggero di Chromium (tipo Obscura) che regga la pane
 browser di Topics senza perdere niente?
 
@@ -816,3 +841,44 @@ hdiutil attach servo-aarch64-apple-darwin.dmg -nobrowse
 ```
 Senza `--enable-experimental-web-platform-features` il grid collassa. `-Z
 layout_grid_enabled` è elencato nell'help ma **il parser lo rifiuta**: usa il flag lungo.
+
+## Playwright WebKit contro Chromium headless — misurato il 2026-09-16
+
+**Questa misura ribalta la premessa del task `bf04951a`.** Riproduci con
+`node spike/browser-engine-alt/pw-webkit-vs-chromium.mjs`: **3 giri da 6 pane per motore,
+si tiene la mediana**, perche' una sola passata su una macchina viva non e' una misura.
+
+L'attribuzione ha **due** filtri e servono entrambi. Il pid dev'essere nuovo rispetto allo
+scatto iniziale (esclude Ora e Safari, che usano gli stessi binari WebKit di sistema ed
+erano gia' vivi) **e** il comando deve matchare il browser lanciato (esclude tutto cio' che
+nasce sulla macchina mentre il banco gira). Col solo diff di pid un giro dava 1212 MB alla
+prima pane e 1117 MB di "residuo": rumore puro. Col filtro doppio il residuo e' **0 MB** su
+entrambi i motori e i tre giri coincidono quasi alla cifra.
+
+Pagina locale, un context per pane, i flag veri del browser remoto
+(`server/browser-service.ts:718`):
+
+| | 1a pane | 6 pane | **marginale** | residuo dopo close |
+|---|---|---|---|---|
+| Playwright **WebKit** | 315 MB | 823 MB | **102 MB/pane** | 0 MB |
+| Chromium **headless** | 258 MB | 669 MB | **83 MB/pane** | 0 MB |
+
+**Chromium headless vince: 83 MB contro 102 per pane, e parte 57 MB piu' in basso.** Il
+margine e' piu' stretto di quanto sembrasse al primo giro rumoroso (82 contro 140), ma il
+verso non cambia mai: su quattro sessioni di misura con carichi diversi (pagina locale,
+react.dev, pagine nello stesso context contro context separati) WebKit non e' mai stato
+davanti.
+
+**Perche' i 219 MB di agosto non contraddicono questo.** Quel numero era del **sidecar
+headful con le 42 estensioni caricate** (`server/browser-chromium-sidecar.ts`), non del
+browser remoto, che e' `headless: true` da sempre. Confrontare i 219 MB del sidecar coi
+37-46 MB di `wkbench.swift` mette insieme due cose diverse: un Chromium headful con
+estensioni contro una `WKWebView` nuda dentro l'app. Il confronto onesto, a parita' di
+scenario e di flag, e' questa tabella.
+
+**Cosa resta vero di `wkbench.swift`:** i 37-46 MB della `WKWebView` **nativa**, dentro
+il processo dell'app, restano il numero piu' basso di tutti. Ma quella e' la pane che
+l'umano guarda in locale, e li' WebKit e' gia' il default. Non e' il percorso remoto.
+
+**Conseguenza:** non c'e' nessuna migrazione da fare sul browser remoto. La leva vera sul
+consumo e' il sidecar headful, non il motore.

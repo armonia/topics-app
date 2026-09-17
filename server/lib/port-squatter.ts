@@ -184,8 +184,9 @@ export function realProbeDeps(pidNostro: number): ProbePortDeps {
       try {
         // `-F` dà righe `p<pid>` e `c<comando>`: si legge senza spezzare a
         // colonne, che con un comando pieno di spazi sarebbe fragile.
+        // Absolute path: under launchd PATH has no /usr/sbin, where lsof lives.
         const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
-        const out = spawnSync("lsof", ["-nP", `-iTCP@127.0.0.1:${porta}`, "-sTCP:LISTEN", "-Fpc"], {
+        const out = spawnSync("/usr/sbin/lsof", ["-nP", `-iTCP@127.0.0.1:${porta}`, "-sTCP:LISTEN", "-Fpc"], {
           encoding: "utf-8", timeout: 3000,
         }).stdout ?? "";
         const pid = out.match(/^p(\d+)/m)?.[1];
