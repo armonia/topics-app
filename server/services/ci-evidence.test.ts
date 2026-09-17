@@ -13,6 +13,7 @@ import {
   CI_E2E_DEADLINE_MS,
   awaitCiEvidence,
   ciCheckRun,
+  closeCiDraft,
   githubPort,
   listField,
   readE2eEvidence,
@@ -172,10 +173,14 @@ describe("readUnitEvidence", () => {
   });
 });
 
-type Calls = { push: Array<{ sha: string; branch: string; lease?: string }>; runs: number; pr: number; merge: number };
+type Calls = {
+  push: Array<{ sha: string; branch: string; lease?: string }>;
+  runs: number; pr: number; merge: number;
+  closed: number[]; deleted: string[];
+};
 
 function fakePort(over: Partial<GithubPort> = {}): { port: GithubPort; calls: Calls } {
-  const calls: Calls = { push: [], runs: 0, pr: 0, merge: 0 };
+  const calls: Calls = { push: [], runs: 0, pr: 0, merge: 0, closed: [], deleted: [] };
   const port: GithubPort = {
     ownCommits: async () => ({ ok: true, value: 2 }),
     branch: async () => ({ ok: true, value: "topics/card" }),
@@ -183,7 +188,10 @@ function fakePort(over: Partial<GithubPort> = {}): { port: GithubPort; calls: Ca
     push: async (_cwd, sha, branch, lease) => { calls.push.push({ sha, branch, lease }); return { ok: true, value: "pushed" }; },
     remoteHead: async () => ({ ok: true, value: "c".repeat(40) }),
     inReflog: async () => ({ ok: true, value: false }),
+    openPullRequest: async () => ({ ok: true, value: null }),
     draftPullRequest: async () => { calls.pr += 1; return { ok: true, value: { number: 5, url: "https://github.com/o/r/pull/5" } }; },
+    closePullRequest: async (_cwd, _repo, pr) => { calls.closed.push(pr); return { ok: true, value: "closed" }; },
+    deleteRemoteBranch: async (_cwd, branch) => { calls.deleted.push(branch); return { ok: true, value: "deleted" }; },
     runs: async () => { calls.runs += 1; return { ok: true, value: [run()] }; },
     jobs: async () => ({ ok: true, value: green }),
     mergeState: async () => { calls.merge += 1; return { ok: true, value: "MERGEABLE" }; },
@@ -193,6 +201,8 @@ function fakePort(over: Partial<GithubPort> = {}): { port: GithubPort; calls: Ca
   if (over.runs) { const inner = over.runs; port.runs = async (...a) => { calls.runs += 1; return inner(...a); }; }
   if (over.push) { const inner = over.push; port.push = async (...a) => { calls.push.push({ sha: a[1], branch: a[2], lease: a[3] }); return inner(...a); }; }
   if (over.mergeState) { const inner = over.mergeState; port.mergeState = async (...a) => { calls.merge += 1; return inner(...a); }; }
+  if (over.closePullRequest) { const inner = over.closePullRequest; port.closePullRequest = async (...a) => { calls.closed.push(a[2]); return inner(...a); }; }
+  if (over.deleteRemoteBranch) { const inner = over.deleteRemoteBranch; port.deleteRemoteBranch = async (...a) => { calls.deleted.push(a[1]); return inner(...a); }; }
   return { port, calls };
 }
 
@@ -496,4 +506,100 @@ describe("contracts", () => {
     expect(CI_E2E_DEADLINE_MS + 30 * 60_000).toBeLessThanOrEqual(legsMs);
     expect(legsMs).toBeLessThan(ASK_TTL_MS + 5 * 60_000);
   });
+});
+
+/**
+ * Nothing ever closed a draft: no `gh pr close` and no `push --delete` existed
+ * in the tree, while origin carried 41 `topics/*` branches with 39 of them
+ * already inside `main`.
+ */
+describe("closeCiDraft", () => {
+  test("closes the draft found by the same lookup that opens it, then deletes the branch", async () => {
+    const seen: string[] = [];
+    const { port, calls } = fakePort({
+      openPullRequest: async (_cwd, _repo, branch) => {
+        seen.push(branch);
+        return { ok: true, value: { number: 78, url: "https://github.com/o/r/pull/78" } };
+      },
+    });
+    const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/delivered", reason: "landed" }, { port });
+    expect(seen).toEqual(["topics/delivered"]);
+    expect(out.pr?.number).toBe(78);
+    expect(out.branchDeleted).toBe(true);
+    expect(out.problems).toEqual([]);
+    expect(calls.closed).toEqual([78]);
+    expect(calls.deleted).toEqual(["topics/delivered"]);
+  });
+
+  test("no open pull request is not a problem: the branch still goes", async () => {
+    const { port, calls } = fakePort();
+    const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/delivered", reason: "archived" }, { port });
+    expect(out.pr).toBeNull();
+    expect(out.branchDeleted).toBe(true);
+    expect(calls.closed).toEqual([]);
+    expect(out.problems).toEqual([]);
+  });
+
+  // A card that ran in place records the checkout's own branch as its delivery
+  // branch, and here that branch is `main`: the one move that the Mac cannot undo.
+  test("main is refused, and so is the branch the checkout is sitting on", async () => {
+    const { port, calls } = fakePort({ branch: async () => ({ ok: true, value: "topics/live" }) });
+    const onMain = await closeCiDraft({ cwd: "/tmp/wt", branch: "main", reason: "landed" }, { port });
+    expect(onMain.branchDeleted).toBe(false);
+    expect(onMain.problems[0]).toContain("integration branch");
+    const onLive = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/live", reason: "landed" }, { port });
+    expect(onLive.branchDeleted).toBe(false);
+    expect(onLive.problems[0]).toContain("is itself on topics/live");
+    expect(calls.deleted).toEqual([]);
+    expect(calls.closed).toEqual([]);
+  });
+
+  test("a remote branch that is already gone is not a failure", async () => {
+    const { port } = fakePort({ deleteRemoteBranch: async () => ({ ok: true, value: "absent" }) });
+    const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/delivered", reason: "landed" }, { port });
+    expect(out.branchDeleted).toBe(false);
+    expect(out.problems).toEqual([]);
+  });
+
+  // Housekeeping, not a gate: a gh that is logged out must never throw into a land.
+  test("a gh failure is collected, never thrown, and does not stop the other half", async () => {
+    const { port, calls } = fakePort({
+      openPullRequest: async () => ({ ok: true, value: { number: 9, url: "u" } }),
+      closePullRequest: async () => ({ ok: false, error: "gh: not logged in" }),
+    });
+    const out = await closeCiDraft({ cwd: "/tmp/wt", branch: "topics/delivered", reason: "landed" }, { port });
+    expect(out.pr).toBeNull();
+    expect(out.problems.join(" ")).toContain("not logged in");
+    expect(out.branchDeleted).toBe(true);
+    expect(calls.deleted).toEqual(["topics/delivered"]);
+  });
+
+  test("the real port deletes a remote branch, and reads an already-absent one as absent", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ci-evidence-delete-"));
+    const wt = join(root, "wt");
+    const bare = join(root, "origin.git");
+    const env: Record<string, string | undefined> = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+    const git = (cwd: string, ...args: string[]): string => {
+      const p = Bun.spawnSync(["git", "-c", "commit.gpgsign=false", ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
+      if (p.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${p.stderr.toString()}`);
+      return p.stdout.toString().trim();
+    };
+    try {
+      mkdirSync(wt);
+      git(root, "init", "-q", "--bare", bare);
+      git(wt, "init", "-q", "-b", "main");
+      git(wt, "remote", "add", "origin", bare);
+      writeFileSync(join(wt, "a.txt"), "a\n");
+      git(wt, "add", "-A");
+      git(wt, "commit", "-q", "-m", "one");
+      git(wt, "push", "-q", "--no-verify", "origin", "HEAD:refs/heads/topics/delivered");
+      expect(git(wt, "ls-remote", "origin", "refs/heads/topics/delivered")).toContain("topics/delivered");
+      const port = githubPort();
+      expect(await port.deleteRemoteBranch(wt, "topics/delivered")).toEqual({ ok: true, value: "deleted" });
+      expect(git(wt, "ls-remote", "origin", "refs/heads/topics/delivered")).toBe("");
+      expect(await port.deleteRemoteBranch(wt, "topics/delivered")).toEqual({ ok: true, value: "absent" });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

@@ -222,11 +222,18 @@ export interface GithubPort {
   push(cwd: string, sha: string, branch: string, lease?: string): Promise<Got<"pushed" | "non-fast-forward">>;
   remoteHead(cwd: string, branch: string): Promise<Got<string | null>>;
   inReflog(cwd: string, branch: string, sha: string): Promise<Got<boolean>>;
-  draftPullRequest(cwd: string, repo: string, branch: string, title: string, body: string): Promise<Got<{ number: number; url: string }>>;
+  /** The open pull request whose head is `branch`, or null. The SAME lookup that opens the draft and the one that closes it. */
+  openPullRequest(cwd: string, repo: string, branch: string): Promise<Got<PullRequestRef | null>>;
+  draftPullRequest(cwd: string, repo: string, branch: string, title: string, body: string): Promise<Got<PullRequestRef>>;
+  closePullRequest(cwd: string, repo: string, pr: number, comment: string): Promise<Got<"closed">>;
+  /** `deleted`, or `absent` when the remote branch was already gone: both are "nothing left on origin". */
+  deleteRemoteBranch(cwd: string, branch: string): Promise<Got<"deleted" | "absent">>;
   runs(repo: string, sha: string): Promise<Got<GithubRun[]>>;
   jobs(repo: string, runId: number): Promise<Got<GithubJob[]>>;
   mergeState(repo: string, pr: number): Promise<Got<string>>;
 }
+
+export type PullRequestRef = { number: number; url: string };
 
 type Spawned = { code: number; out: string; err: string };
 
@@ -314,7 +321,14 @@ export function listField<T>(out: string, field: string): T[] {
 
 /** The real port: git and gh as argv spawns, never a shell string. */
 export function githubPort(): GithubPort {
+  // Hoisted out of the literal because `draftPullRequest` calls it: the draft is
+  // opened only when this lookup finds none, and the cleanup closes whatever it
+  // finds, so both doors ask GitHub the same question.
+  const openPullRequest: GithubPort["openPullRequest"] = (cwd, repo, branch) => call(
+    ["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "open", "--json", "number,url", "--limit", "1"], cwd,
+    (o) => (JSON.parse(o) as PullRequestRef[])[0] ?? null);
   return {
+    openPullRequest,
     ownCommits: (cwd, sha, base) => call(["git", "rev-list", "--count", `${base}..${sha}`], cwd, (o) => {
       const n = Number(o.trim());
       if (!Number.isInteger(n)) throw new Error("not a count");
@@ -340,11 +354,22 @@ export function githubPort(): GithubPort {
       (o) => o.trim().split(/\s+/)[0] || null),
     inReflog: (cwd, branch, sha) => call(["git", "reflog", "show", "--format=%H", `refs/heads/${branch}`], cwd,
       (o) => o.split("\n").some((l) => l.trim() === sha)),
+    closePullRequest: (cwd, repo, pr, comment) => call(
+      ["gh", "pr", "close", String(pr), "--repo", repo, "--comment", comment], cwd, () => "closed" as const),
+    deleteRemoteBranch: async (cwd, branch) => {
+      const argv = ["git", "push", "origin", "--delete", branch];
+      const r = await spawnCapped(argv, cwd);
+      if (r.code === 0) return { ok: true, value: "deleted" };
+      // Already gone is the outcome we wanted, not a failure: the sweep runs on
+      // the land, the superseded approval and the archive, and two of the three
+      // can reach the same card.
+      if (/remote ref does not exist/i.test(`${r.out}\n${r.err}`)) return { ok: true, value: "absent" };
+      return failed(argv, r);
+    },
     draftPullRequest: async (cwd, repo, branch, title, body) => {
-      const open = await call(["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "open", "--json", "number,url", "--limit", "1"], cwd,
-        (o) => JSON.parse(o) as { number: number; url: string }[]);
+      const open = await openPullRequest(cwd, repo, branch);
       if (!open.ok) return open;
-      if (open.value[0]) return { ok: true, value: open.value[0] };
+      if (open.value) return { ok: true, value: open.value };
       return call(["gh", "pr", "create", "--repo", repo, "--draft", "--base", CI_BASE_BRANCH, "--head", branch, "--title", title, "--body", body], cwd, (o) => {
         const url = o.trim().split("\n").pop() ?? "";
         const n = Number(url.match(/\/pull\/(\d+)/)?.[1]);
@@ -494,4 +519,70 @@ export async function awaitCiEvidence(
     }
     await pause(pollMs);
   }
+}
+
+/** What the sweep actually did, for the receipt on the card. */
+export type DraftCleanup = {
+  /** The pull request that was closed, or null when there was none open. */
+  pr: PullRequestRef | null;
+  /** True only when origin still had the branch and it is gone now. */
+  branchDeleted: boolean;
+  /** Why a half of it did not happen. Never thrown: this is housekeeping, not a gate. */
+  problems: string[];
+};
+
+/**
+ * Close the draft this module opened and delete its remote branch.
+ *
+ * WHY IT EXISTS. `awaitCiEvidence` opens a draft pull request for every delivery
+ * that reaches review, and until 17/09/2026 nothing ever closed one: the four
+ * `gh` calls of this file were `pr list`, `pr create`, `api .../runs|jobs` and
+ * `pr view`, with no `pr close` and no `push --delete` anywhere in the tree. The
+ * twin was already visible without the drafts - 41 `topics/*` branches on origin,
+ * 39 of them already inside `main`, none ever deleted - and with 121 entries into
+ * review in 7 days the drafts would pile up at the same rate.
+ *
+ * WHAT IT DOES NOT DO. It never merges and never marks a draft ready: the board
+ * merges locally and a person publishes. Closing keeps the commits reachable on
+ * GitHub through `refs/pull/N/head`, which is why the pull request is closed
+ * BEFORE the branch is deleted rather than after.
+ */
+export async function closeCiDraft(
+  input: { cwd: string; branch: string; reason: string },
+  deps: { port?: GithubPort } = {},
+): Promise<DraftCleanup> {
+  const port = deps.port ?? githubPort();
+  const out: DraftCleanup = { pr: null, branchDeleted: false, problems: [] };
+  const branch = input.branch.trim();
+  if (!branch) return out;
+  // THE GUARD THAT MATTERS. A card that ran in place, with no worktree of its
+  // own, records the checkout's own branch as its delivery branch - and that
+  // branch is `main`. Deleting it on origin is the one move here that cannot be
+  // undone from the Mac, so the integration branch and the branch this checkout
+  // is sitting on are both refused, whatever the card says.
+  if (branch === CI_BASE_BRANCH) {
+    out.problems.push(`refused to touch ${CI_BASE_BRANCH}: that is the integration branch, not a delivery`);
+    return out;
+  }
+  const here = await port.branch(input.cwd);
+  if (here.ok && here.value === branch) {
+    out.problems.push(`refused: the checkout ${input.cwd} is itself on ${branch}`);
+    return out;
+  }
+  const repo = await port.repo(input.cwd);
+  if (!repo.ok) {
+    out.problems.push(repo.error);
+    return out;
+  }
+  const open = await port.openPullRequest(input.cwd, repo.value, branch);
+  if (!open.ok) out.problems.push(open.error);
+  else if (open.value) {
+    const closed = await port.closePullRequest(input.cwd, repo.value, open.value.number, input.reason);
+    if (closed.ok) out.pr = open.value;
+    else out.problems.push(closed.error);
+  }
+  const deleted = await port.deleteRemoteBranch(input.cwd, branch);
+  if (!deleted.ok) out.problems.push(deleted.error);
+  else out.branchDeleted = deleted.value === "deleted";
+  return out;
 }

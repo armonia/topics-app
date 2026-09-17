@@ -13,7 +13,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { createTasksRouter } from "./tasks";
-import { createTaskService, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL } from "../services/tasks";
+import { createTaskService, LAND_ACTION_LABEL, projectIdForPath, PUBLISH_ACTION_LABEL } from "../services/tasks";
 import { parseStatusEvent } from "../../shared/board";
 import { t as label } from "../../client/src/lib/i18n";
 import { freshDb, makeCtx, call, SESSIONS } from "./tasks-test-support";
@@ -580,6 +580,9 @@ describe("approve decoupled from landing", () => {
     const rt = createTasksRouter(makeCtx(d, b), undefined, {
       autoMerge: { tryMerge: async () => merge, buildClient: async () => ({ code: 0, stderr: "" }) } as any,
       stampLanding: async (taskId: string, verdict: string) => { stamped.push([taskId, verdict]); },
+      // A confirmed land sweeps the draft and the origin branch: stubbed, or the
+      // run spawns a real `gh` at a path that does not exist here.
+      closeDelivery: async () => ({ pr: null, branchDeleted: false, problems: [] }),
       ...(confirm ? { confirmLandedOnMain: confirm } : {}),
     });
     d.run("INSERT INTO topics (id) VALUES ('top-a')");
@@ -674,6 +677,7 @@ describe("approve decoupled from landing", () => {
     const rt = createTasksRouter(makeCtx(d, b), undefined, {
       autoMerge: { tryMerge: async () => MERGED, buildClient: async () => ({ code: 0, stderr: "" }) } as any,
       confirmLandedOnMain: async () => true,
+      closeDelivery: async () => ({ pr: null, branchDeleted: false, problems: [] }),
       deleteTaskWorktree: async (taskId: string) => { reaped.push(taskId); return true; },
       taskBranchStatus: async () => "merged" as const,
       // Sonda fail-open: ok:false simula git status che non risponde
@@ -847,5 +851,100 @@ describe("una card chiusa senza landare puo' dirlo", () => {
       decision: "reject", comment: "rifai", superseded: true,
     });
     expect(stateLanding(id)).not.toBe("superseded");
+  });
+});
+
+/**
+ * THE OTHER HALF OF THE REAP, the remote one. `reapAfterLand` has always deleted
+ * the worktree and the local branch; nothing ever closed the draft pull request
+ * the delivery opens, nor deleted the branch it pushes. Measured on 17/09: 41
+ * `topics/*` branches on origin, 39 of them already inside `main`, none deleted,
+ * and 121 entries into review in 7 days now each opening a draft.
+ */
+describe("the draft and the origin branch are closed at the doors that end the branch", () => {
+  let db: Database;
+  const REPO = "/repo";
+  const PID = projectIdForPath(REPO);
+  let swept: Array<{ cwd: string; branch: string; reason: string }>;
+
+  const routerWith = (extra: Record<string, unknown> = {}) => {
+    const broadcasts: unknown[] = [];
+    return createTasksRouter(makeCtx(db, broadcasts), undefined, {
+      listProjectDirs: () => [REPO],
+      closeDelivery: async (i) => { swept.push(i); return { pr: { number: 78, url: "u" }, branchDeleted: true, problems: [] }; },
+      ...extra,
+    });
+  };
+
+  beforeEach(() => { db = freshDb(); swept = []; });
+
+  async function delivered(router: ReturnType<typeof createTasksRouter>): Promise<string> {
+    const t = await (await call(router, "POST", `/api/boards/${PID}/tasks`, { text: "feature" }))!.json();
+    db.prepare(
+      "UPDATE tasks SET status = 'review', delivery_branch = 'topics/scartato', delivery_commit = 'abc12345' WHERE id = ?",
+    ).run(t.id);
+    db.prepare("INSERT INTO task_comments (id, task_id, author, content, kind, created_at) VALUES (?, ?, 'claude', 'consegna', 'comment', ?)")
+      .run(`c-${t.id}`, t.id, new Date().toISOString());
+    return t.id;
+  }
+
+  test("archiviare una card chiude la bozza e cancella il ramo su origin", async () => {
+    const router = routerWith();
+    const id = await delivered(router);
+    await call(router, "DELETE", `/api/boards/${PID}/tasks/${id}`, undefined);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(swept).toHaveLength(1);
+    expect(swept[0]).toMatchObject({ cwd: REPO, branch: "topics/scartato" });
+    expect(swept[0]!.reason).toContain("archived");
+  });
+
+  test("un'approvazione `superseded` pure: e' il gesto che dice «questo ramo non atterrera'»", async () => {
+    const router = routerWith();
+    const id = await delivered(router);
+    await call(router, "POST", `/api/boards/${PID}/tasks/${id}/review`, { decision: "approve", force: true, superseded: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(swept).toHaveLength(1);
+    expect(swept[0]!.branch).toBe("topics/scartato");
+  });
+
+  test("un'approvazione normale e un rifiuto NON toccano niente", async () => {
+    const router = routerWith();
+    const first = await delivered(router);
+    await call(router, "POST", `/api/boards/${PID}/tasks/${first}/review`, { decision: "approve", force: true });
+    const second = await delivered(router);
+    db.prepare("UPDATE tasks SET status = 'review' WHERE id = ?").run(second);
+    await call(router, "POST", `/api/boards/${PID}/tasks/${second}/review`, { decision: "reject", comment: "rifai" });
+    await new Promise((r) => setTimeout(r, 20));
+    // An approval leaves real work on that branch, and a rejection sends the
+    // agent back to the SAME branch to deliver again. Deleting it, in either
+    // case, throws away work the card is still carrying.
+    expect(swept).toEqual([]);
+  });
+
+  test("il land spazza solo quando main ha CONFERMATO la fusione", async () => {
+    const MERGED = {
+      status: "merged", commit: "a5f83e0e", branch: "topics/wooly-saunter", repoPath: REPO,
+      touchedClient: false, touchedServer: false, touchedNative: false,
+      landedNotLive: false, checkoutBranch: "main", deliveryDrift: null, realigned: null,
+    };
+    const autoMerge = { tryMerge: async () => MERGED, buildClient: async () => ({ code: 0, stderr: "" }) } as any;
+
+    const unproven = routerWith({ autoMerge });
+    const a = await delivered(unproven);
+    await call(unproven, "POST", `/api/boards/${PID}/tasks/${a}/land`, {});
+    await new Promise((r) => setTimeout(r, 30));
+    // With no proof on main the merge merely exited zero: the branch stays on
+    // origin, because that is the case where the card asks a person to go and
+    // look.
+    expect(swept).toEqual([]);
+
+    const proven = routerWith({ autoMerge, confirmLandedOnMain: async () => true });
+    const b = await delivered(proven);
+    await call(proven, "POST", `/api/boards/${PID}/tasks/${b}/land`, {});
+    await new Promise((r) => setTimeout(r, 30));
+    expect(swept).toHaveLength(1);
+    // The MERGED branch, not the one the card remembers: it is the one the land
+    // actually carried onto main.
+    expect(swept[0]).toMatchObject({ cwd: REPO, branch: "topics/wooly-saunter" });
   });
 });
