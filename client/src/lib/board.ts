@@ -35,6 +35,10 @@ export type { DispatchCapMode, ThresholdBand, GlobalCapPatch } from '../../../sh
 // `Board/taskChoices.ts`). The other three reserved labels stay server-side:
 // they are matched, never drawn.
 export { normalizeActionLabel, LAND_ACTION_LABEL } from '../../../shared/board';
+// The exit code that says NOT MEASURED. The drawer reads it because a row
+// stored before `notMeasured` existed carries only the code, and `exit 97` on
+// screen sends whoever reviews looking for a failure that is not there.
+export { NOT_MEASURED_EXIT } from '../../../shared/board';
 export type {
   TaskStatus, TaskComment, CardComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, DispatchAdmission, BlockerRef,
   LandingTicket,
@@ -530,6 +534,9 @@ export interface BoardTask {
   /** A che punto e' la corsa dei controlli, mentre `checksState` e' `running`.
    *  Assente da un server piu' vecchio: la card torna a dire «check in corso». */
   checksProgress?: { done: number; total: number } | null;
+  /** The pull request and the run a `github-ci:` row is waiting on, while it
+   *  waits. Absent from an older server: the card stays without links. */
+  checksCi?: { prUrl: string; runUrl?: string } | null;
   previewImage: string | null;
   /** LE ALTRE evidenze allegate nel thread, per il carosello della card.
    *  Vuoto (o assente, da un server piu' vecchio) = una slide sola. */
