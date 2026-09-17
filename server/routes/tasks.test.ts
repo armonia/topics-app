@@ -2062,6 +2062,9 @@ describe("land in raffica: N chiamate ⇒ N esiti", () => {
         } as any,
         // confermato su main = proof true → verdict "landed" (non "unverifiable")
         confirmLandedOnMain: async () => true,
+        // A confirmed land also sweeps the draft and the origin branch: stubbed,
+        // or the run spawns a real `gh` at a path that does not exist here.
+        closeDelivery: async () => ({ pr: null, branchDeleted: false, problems: [] }),
         stampLanding: async (taskId: string, verdict: string) => { stamped2.push([taskId, verdict]); },
       } as any,
     );

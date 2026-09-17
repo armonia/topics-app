@@ -49,6 +49,14 @@ export function fakePort(over: Partial<GithubPort> = {}): { port: GithubPort; ca
     jobs: async () => ({ ok: true, value: green }),
     mergeState: async () => { calls.merge += 1; return { ok: true, value: "MERGEABLE" }; },
     rerun: async (_repo, runId) => { calls.rerun.push(runId); return { ok: true, value: undefined }; },
+    // The cleanup half of the port, added by the land round. The default is the
+    // land case: the merge is on LOCAL main and nobody has pushed it yet, so
+    // `origin/main` does not carry the branch and neither half fires. The tests
+    // that exercise the cleanup live in `ci-evidence.test.ts` with their own port.
+    contains: async () => ({ ok: true, value: false }),
+    openPullRequest: async () => ({ ok: true, value: null }),
+    closePullRequest: async () => ({ ok: true, value: "closed" }),
+    deleteRemoteBranch: async () => ({ ok: true, value: "deleted" }),
     ...over,
   };
   // Keep the counters when a test overrides a counted method.
