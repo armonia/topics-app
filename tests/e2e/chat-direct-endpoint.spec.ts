@@ -56,10 +56,10 @@ interface Recorder {
 async function startFakeEndpoint(opts: { hold: boolean }): Promise<{
   url: string;
   close: () => Promise<void>;
-  rec: Recorder;
+  recorder: Recorder;
 }> {
   let markStreaming: () => void = () => {};
-  const rec: Recorder = {
+  const recorder: Recorder = {
     requests: [],
     aborted: false,
     streaming: new Promise<void>((resolve) => { markStreaming = resolve; }),
@@ -77,7 +77,7 @@ async function startFakeEndpoint(opts: { hold: boolean }): Promise<{
       let raw = "";
       req.on("data", (c) => { raw += c; });
       req.on("end", async () => {
-        try { rec.requests.push(JSON.parse(raw)); } catch { /* body shape is asserted elsewhere */ }
+        try { recorder.requests.push(JSON.parse(raw)); } catch { /* body shape is asserted elsewhere */ }
 
         res.writeHead(200, {
           "content-type": "text/event-stream",
@@ -94,7 +94,7 @@ async function startFakeEndpoint(opts: { hold: boolean }): Promise<{
         });
 
         // The client hanging up is the whole point of the abort case.
-        req.on("close", () => { if (!res.writableEnded) rec.aborted = true; });
+        req.on("close", () => { if (!res.writableEnded) recorder.aborted = true; });
 
         send(frame({ role: "assistant" }));
         for (const word of ["ENDPOINT", "-", "ALIVE"]) {
@@ -137,7 +137,7 @@ async function startFakeEndpoint(opts: { hold: boolean }): Promise<{
 
   return {
     url: `http://127.0.0.1:${port}`,
-    rec,
+    recorder,
     close: () => new Promise<void>((resolve) => { server.close(() => resolve()); }),
   };
 }
@@ -175,8 +175,8 @@ test.describe("a configured endpoint serving a chat", () => {
 
       // 4. The far side got a streaming request for the right model, and asked
       //    for usage on the stream.
-      expect(fake.rec.requests.length).toBeGreaterThan(0);
-      const sent = fake.rec.requests[0];
+      expect(fake.recorder.requests.length).toBeGreaterThan(0);
+      const sent = fake.recorder.requests[0];
       expect(sent.model).toBe(MODEL);
       expect(sent.stream).toBe(true);
       expect(sent.stream_options).toEqual({ include_usage: true });
@@ -231,7 +231,7 @@ test.describe("a configured endpoint serving a chat", () => {
 
       // The endpoint saw the hang-up: an abort has to reach the far side, not
       // just hide the tokens in the UI while the generation keeps burning VRAM.
-      await expect.poll(() => fake.rec.aborted, { timeout: 30_000 }).toBe(true);
+      await expect.poll(() => fake.recorder.aborted, { timeout: 30_000 }).toBe(true);
     } finally {
       await request.delete(`${BASE}/api/providers/endpoints/${SLUG}`).catch(() => {});
       await deleteTopic(request, topic.id).catch(() => {});
