@@ -14,22 +14,11 @@
  * re-checked hop by hop.
  */
 import { lookup } from "node:dns/promises";
+import { ipv4MappedAddress, ipv4ToInt, ipv6Groups } from "./ipv6";
 
 export type AddressResolver = (host: string) => Promise<{ address: string; family: number }[]>;
 
 const MAX_REDIRECTS = 5;
-
-function ipv4ToInt(ip: string): number | null {
-  const parts = ip.split(".");
-  if (parts.length !== 4) return null;
-  let n = 0;
-  for (const part of parts) {
-    const octet = Number(part);
-    if (!Number.isInteger(octet) || octet < 0 || octet > 255 || (part.length > 1 && part[0] === "0")) return null;
-    n = ((n << 8) | octet) >>> 0;
-  }
-  return n >>> 0;
-}
 
 function inRange(value: number, base: string, bits: number): boolean {
   const start = ipv4ToInt(base);
@@ -50,49 +39,16 @@ export function isForbiddenEndpointIpv4(ip: string): boolean {
   );
 }
 
-/**
- * Expand an IPv6 literal into its eight 16-bit groups, or null when it is not
- * one. Spelling is why this exists: the same address has many, and a guard that
- * matches on text rather than on value only refuses the spellings it imagined.
- */
-function ipv6Groups(ip: string): number[] | null {
-  // A trailing dotted quad is legal IPv6 syntax (`::ffff:1.2.3.4`). Fold it
-  // into two groups first, so the rest of the parser sees one shape only.
-  let text = ip;
-  const dotted = text.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/);
-  if (dotted) {
-    const quad = ipv4ToInt(dotted[2]!);
-    if (quad === null) return null;
-    text = `${dotted[1]}${(quad >>> 16).toString(16)}:${(quad & 0xffff).toString(16)}`;
-  }
-  const halves = text.split("::");
-  if (halves.length > 2) return null;
-  const parse = (part: string): number[] =>
-    part === "" ? [] : part.split(":").map((g) => (/^[0-9a-f]{1,4}$/.test(g) ? parseInt(g, 16) : NaN));
-  const head = parse(halves[0]!);
-  const tail = halves.length === 2 ? parse(halves[1]!) : [];
-  if ([...head, ...tail].some((g) => Number.isNaN(g))) return null;
-  const gap = 8 - head.length - tail.length;
-  if (halves.length === 2 ? gap < 1 : gap !== 0) return null;
-  return [...head, ...new Array<number>(halves.length === 2 ? gap : 0).fill(0), ...tail];
-}
-
 export function isForbiddenEndpointIpv6(ip: string): boolean {
-  const parts = ipv6Groups(ip.toLowerCase().replace(/^\[|\]$/g, ""));
-  if (parts === null) return true; // unparseable, so unusable
-  if (parts.every((group) => group === 0)) return true; // the unspecified address
-  // An IPv4-MAPPED address dials the IPv4 host, so it has to answer to the IPv4
-  // rules. It cannot be recognised by its dotted spelling: `new URL()` folds
-  // `[::ffff:169.254.169.254]` down to `[::ffff:a9fe:a9fe]` before this function
-  // is ever called, so a check written against the dotted form never fires on
-  // the one path that matters and the metadata address walks straight through.
-  if (parts.slice(0, 5).every((group) => group === 0) && parts[5] === 0xffff) {
-    const high = parts[6]!;
-    const low = parts[7]!;
-    return isForbiddenEndpointIpv4([high >> 8, high & 0xff, low >> 8, low & 0xff].join("."));
-  }
-  if ((parts[0]! & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
-  if ((parts[0]! & 0xff00) === 0xff00) return true; // multicast
+  const groups = ipv6Groups(ip);
+  if (groups === null) return true; // unparseable, so unusable
+  if (groups.every((group) => group === 0)) return true; // the unspecified address
+  // An IPv4-mapped address dials the IPv4 host, so it answers to the IPv4 rules
+  // rather than to a rule of its own.
+  const mapped = ipv4MappedAddress(groups);
+  if (mapped) return isForbiddenEndpointIpv4(mapped);
+  if ((groups[0]! & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
+  if ((groups[0]! & 0xff00) === 0xff00) return true; // multicast
   return false;
 }
 
