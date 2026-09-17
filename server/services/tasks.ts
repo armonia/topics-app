@@ -508,6 +508,30 @@ export interface TaskService {
    */
   sweepParkedChildren(args?: { by?: string; eligible?: (projectId: string) => boolean }): Task[];
   /**
+   * THE DURATION CAP ON A WAIT SERIES, judged from OUTSIDE a turn.
+   *
+   * `WAIT_SERIES_MAX_MS` (4 hours) had exactly one reader in the whole repo,
+   * inside `deferForWait` — which runs only when another turn starts and
+   * re-declares the same wait. If the dispatcher stops admitting anybody, the
+   * series keeps growing and nothing looks at it: measured 2026-09-17 on the
+   * live DB, 2 cards past the cap by 45 and 31 hours, zero `waited_out` parks
+   * in the whole history, and `waited_out` is the only state that reaches a
+   * push notification.
+   *
+   * Returns the parked task, or null when the series is still inside the cap
+   * (the normal case). The STREAK cap stays where it is: it can only change
+   * when a turn declares a new wait, so it has no blind window.
+   */
+  waitedOutIfCapped(args: { taskId: string }): Task | null;
+  /**
+   * The same judgement over the whole board, for the pass that already walks
+   * card by card. `eligible` decides board by board, for the same reason as
+   * `sweepParkedChildren`; `busy` is the caller's own live-turn registry — a
+   * card whose turn is running right now is not waiting on anything, and
+   * parking it would cut that turn in half.
+   */
+  sweepWaitedOut(args?: { eligible?: (projectId: string) => boolean; busy?: (taskId: string) => boolean }): Task[];
+  /**
    * Esegue la risposta umana allo stallo. `requeue` manda i figli parcheggiati
    * in `todo`; `archive` li archivia; `promote` toglie loro il padre e li mette
    * in coda come task indipendenti. In tutti i casi il padre torna in coda col
@@ -3238,6 +3262,79 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     ).run(taskId, ts);
   }
 
+  /**
+   * THE PARK AT THE END OF A WAIT SERIES, shared by its two judges.
+   *
+   * It was inline in `deferForWait`, which made that function the ONLY reader
+   * of `WAIT_SERIES_MAX_MS` in the whole repo — and `deferForWait` runs only
+   * when another turn starts and re-declares the wait. With the dispatcher
+   * admitting nobody, the series simply grew and nobody looked: measured
+   * 2026-09-17 on the live DB, 2 cards past the 4-hour cap by 45 and 31 hours,
+   * zero `waited_out` parks ever, and `waited_out` is the only road that
+   * reaches a push notification (`push-triggers.ts`).
+   *
+   * `refundAttempt` is the one thing the two callers do not share. The turn
+   * that DECLARES a wait has already spent its attempt on the claim, so
+   * `deferForWait` gives it back; the periodic judge claimed nothing, and a
+   * refund there would silently hand a card an extra retry it never earned.
+   */
+  function parkWaitedOut(
+    svc: TaskService,
+    args: {
+      row: { id: string; status: TaskStatus };
+      streak: number;
+      serieMs: number;
+      chiave: string;
+      since: string;
+      detto: string;
+      ts: string;
+      refundAttempt: boolean;
+    },
+  ): Task {
+    const { row, streak, serieMs, chiave, since, detto, ts } = args;
+    const taskId = row.id;
+    // Un tetto sfondato: il task si ferma, ma NON come un fallimento. Non
+    // c'è niente da riparare nell'agent, c'è una condizione che non arriva.
+    // La durata detta come sta: il tetto sul CONTEGGIO può scattare in pochi
+    // minuti (attese corte una dietro l'altra), e scrivere «da un'ora» lì
+    // sarebbe una bugia sulla sola cosa che l'umano userà per decidere.
+    const ore = Math.round(serieMs / 3_600_000);
+    const minuti = Math.round(serieMs / 60_000);
+    const quanto = serieMs >= 3_600_000
+      ? `da circa ${ore} ${ore === 1 ? "ora" : "ore"}`
+      : minuti >= 1
+        ? `da ${minuti} ${minuti === 1 ? "minuto" : "minuti"}`
+        : "da meno di un minuto";
+    // La parola «fallito» non compare, e non per delicatezza: qui non è
+    // successa nessuna delle cose che quella parola descrive. Nemmeno
+    // negata («non è un fallimento») ci va, perché nominarla la mette in
+    // testa a chi legge la card. Si dice cosa è successo e cosa fare.
+    const nota =
+      `Sono ${streak} ${streak === 1 ? "attesa" : "attese"} di fila per la stessa ragione, ${quanto}` +
+      (detto ? `: ${detto}.` : ".") +
+      " La condizione non sta arrivando da sola, quindi la decisione torna a te. " +
+      "Rimetti il task in Todo per farlo riprovare, oppure sistema ciò che sta aspettando.";
+    try { svc.addComment({ taskId, author: "system", content: nota }); } catch { /* dedupe/best-effort */ }
+    const rimborso = args.refundAttempt ? "dispatch_attempts = MAX(dispatch_attempts - 1, 0)," : "";
+    // Parcheggiato in backlog senza finestra: non deve ripartire da solo,
+    // il punto è proprio che qualcuno lo guardi. I contatori restano scritti
+    // (li azzera il rientro in Todo) perché sono la ragione del parcheggio.
+    db.prepare(
+      `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL, ${rimborso}
+          status = 'backlog', dispatch_state = ?, dispatch_error = ?,
+          dispatch_deferred_until = NULL,
+          wait_streak = ?, wait_reason = ?, wait_since = ?, updated_at = ?
+        WHERE id = ?`,
+    ).run(PARKED_WAITED_OUT, nota, streak, chiave || null, since, ts, taskId);
+    // Firma di SISTEMA, non dell'agent: l'agent ha chiesto di aspettare
+    // ancora, il parcheggio è il tetto che glielo nega. Attribuirlo a lui
+    // direbbe che ha deciso di fermarsi, che è il contrario di quello che
+    // ha fatto. Stessa distinzione di `deliverToReviewBySystem`.
+    if (row.status !== "backlog") logStatus(taskId, row.status, "backlog", "dispatcher");
+    markReopened(taskId, row.status, "backlog", "system", "dispatcher");
+    return rowToTask(getTaskRow(taskId));
+  }
+
   return {
     create(input: CreateTaskInput): Task {
       const text = (input.text ?? "").trim();
@@ -4588,45 +4685,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const rimborso = "dispatch_attempts = MAX(dispatch_attempts - 1, 0),";
 
       if (streak > WAIT_STREAK_CAP || serieMs >= WAIT_SERIES_MAX_MS) {
-        // Sfondato un tetto: il task si ferma, ma NON come un fallimento. Non
-        // c'è niente da riparare nell'agent, c'è una condizione che non arriva.
-        // La durata detta come sta: il tetto sul CONTEGGIO può scattare in pochi
-        // minuti (attese corte una dietro l'altra), e scrivere «da un'ora» lì
-        // sarebbe una bugia sulla sola cosa che l'umano userà per decidere.
-        const ore = Math.round(serieMs / 3_600_000);
-        const minuti = Math.round(serieMs / 60_000);
-        const quanto = serieMs >= 3_600_000
-          ? `da circa ${ore} ${ore === 1 ? "ora" : "ore"}`
-          : minuti >= 1
-            ? `da ${minuti} ${minuti === 1 ? "minuto" : "minuti"}`
-            : "da meno di un minuto";
-        // La parola «fallito» non compare, e non per delicatezza: qui non è
-        // successa nessuna delle cose che quella parola descrive. Nemmeno
-        // negata («non è un fallimento») ci va, perché nominarla la mette in
-        // testa a chi legge la card. Si dice cosa è successo e cosa fare.
-        const nota =
-          `Sono ${streak} attese di fila per la stessa ragione, ${quanto}` +
-          (detto ? `: ${detto}.` : ".") +
-          " La condizione non sta arrivando da sola, quindi la decisione torna a te. " +
-          "Rimetti il task in Todo per farlo riprovare, oppure sistema ciò che sta aspettando.";
-        try { this.addComment({ taskId, author: "system", content: nota }); } catch { /* dedupe/best-effort */ }
-        // Parcheggiato in backlog senza finestra: non deve ripartire da solo,
-        // il punto è proprio che qualcuno lo guardi. I contatori restano scritti
-        // (li azzera il rientro in Todo) perché sono la ragione del parcheggio.
-        db.prepare(
-          `UPDATE tasks SET assigned_topic_id = NULL, assigned_agent_id = NULL, ${rimborso}
-              status = 'backlog', dispatch_state = ?, dispatch_error = ?,
-              dispatch_deferred_until = NULL,
-              wait_streak = ?, wait_reason = ?, wait_since = ?, updated_at = ?
-            WHERE id = ?`,
-        ).run(PARKED_WAITED_OUT, nota, streak, chiave || null, since, ts, taskId);
-        // Firma di SISTEMA, non dell'agent: l'agent ha chiesto di aspettare
-        // ancora, il parcheggio è il tetto che glielo nega. Attribuirlo a lui
-        // direbbe che ha deciso di fermarsi, che è il contrario di quello che
-        // ha fatto. Stessa distinzione di `deliverToReviewBySystem`.
-        if (row.status !== "backlog") logStatus(taskId, row.status, "backlog", "dispatcher");
-        markReopened(taskId, row.status, "backlog", "system", "dispatcher");
-        return rowToTask(getTaskRow(taskId));
+        return parkWaitedOut(this, { row, streak, serieMs, chiave, since, detto, ts, refundAttempt: true });
       }
 
       const note =
@@ -5028,6 +5087,83 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         } catch { /* una card può essersi mossa sotto: il giro dopo la ripesca */ }
       }
       return chiesti;
+    },
+
+    waitedOutIfCapped({ taskId }): Task | null {
+      const row = getTaskRow(taskId);
+      if (!row) return null;
+      if (row.archived === 1) return null;
+      // Only the two columns where a wait is still RUNNING. `review` and `done`
+      // clear the series on the way in (see `update`), and `backlog` is where
+      // this park already put it: re-parking would rewrite the note forever.
+      if (row.status !== "todo" && row.status !== "in_progress") return null;
+      const since = (row.wait_since ?? null) as string | null;
+      if (!since) return null;
+      const ts = now();
+      const serieMs = Date.parse(ts) - Date.parse(since);
+      if (!Number.isFinite(serieMs) || serieMs < WAIT_SERIES_MAX_MS) return null;
+      // THE REASON WE HAVE IS THE KEY, NOT THE PROSE. The row keeps
+      // `waitReasonKey(reason)` — lowercased, whitespace collapsed — because
+      // that is what decides whether a new wait continues the series. The
+      // original sentence lived in `dispatch_error`, which the dispatcher
+      // overwrites with its own hold text every 60 seconds, so the key is the
+      // only reason still on the row that describes THIS wait.
+      const detto = ((row.wait_reason ?? "") as string).trim();
+      return parkWaitedOut(this, {
+        row,
+        streak: Number(row.wait_streak) || 1,
+        serieMs,
+        chiave: detto,
+        since,
+        detto,
+        ts,
+        // Nothing was claimed here: no turn started, so there is no attempt to
+        // give back. Refunding would hand the card a retry it never spent.
+        refundAttempt: false,
+      });
+    },
+
+    sweepWaitedOut({ eligible, busy } = {}): Task[] {
+      // I CANDIDATI, non la decisione — stessa divisione di
+      // `sweepParkedChildren`: la query stringe il campo, `waitedOutIfCapped`
+      // applica le sue guardie una per una. Due predicati per la stessa
+      // domanda divergono, e qui divergerebbero parcheggiando una card che
+      // stava ancora dentro il tetto.
+      // Lo stesso orologio di `waitedOutIfCapped` (`now()`, iniettabile), non
+      // `Date.now()`: due orologi diversi fanno una query che seleziona card
+      // che il giudice poi scarta, e in un test con il tempo finto le due
+      // risposte non si incontrano mai.
+      const limite = new Date(Date.parse(now()) - WAIT_SERIES_MAX_MS).toISOString();
+      let candidati: Array<{ id: string; project_id: string }> = [];
+      try {
+        candidati = db.prepare(
+          `SELECT id, project_id FROM tasks
+            WHERE archived = 0
+              AND status IN ('todo', 'in_progress')
+              AND wait_since IS NOT NULL
+              AND wait_since <= ?
+            ORDER BY wait_since`,
+        ).all(limite) as Array<{ id: string; project_id: string }>;
+      } catch { return []; }
+      const parcheggiati: Task[] = [];
+      const ammessa = new Map<string, boolean>();
+      for (const c of candidati) {
+        if (busy) {
+          let occupata = false;
+          try { occupata = busy(c.id); } catch { occupata = true; }
+          if (occupata) continue;
+        }
+        if (eligible) {
+          let ok = ammessa.get(c.project_id);
+          if (ok === undefined) { try { ok = eligible(c.project_id); } catch { ok = false; } ammessa.set(c.project_id, ok); }
+          if (!ok) continue;
+        }
+        try {
+          const t = this.waitedOutIfCapped({ taskId: c.id });
+          if (t) parcheggiati.push(t);
+        } catch { /* una card può essersi mossa sotto: il giro dopo la ripesca */ }
+      }
+      return parcheggiati;
     },
 
     resolveParkedChildren({ taskId, decision, by }): { task: Task; children: Task[] } | null {

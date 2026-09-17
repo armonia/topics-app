@@ -5297,15 +5297,38 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     //    board dentro `sweepParkedChildren` e poi rifare il giro dei todo
     //    significava pagare quel cestino ogni 10 secondi.
     if (!(() => { try { return deps.svc.getGlobalAutoDispatch(); } catch { return false; } })()) return;
+    const acceso = (projectId: string): boolean => {
+      try { return deps.svc.getBoardSettings(projectId).autoDispatch; } catch { return false; }
+    };
     try {
-      const acceso = (projectId: string): boolean => {
-        try { return deps.svc.getBoardSettings(projectId).autoDispatch; } catch { return false; }
-      };
       for (const t of deps.svc.sweepParkedChildren({ by: "dispatcher", eligible: acceso })) {
         log(`checklist ferma: alzata la domanda su ${t.id}`);
         emit(t);
       }
     } catch (err) { log("sweep delle checklist ferme fallito", err); }
+    // 1-quater) LA SERIE DI ATTESE CHE NESSUNO CRONOMETRAVA.
+    //    `WAIT_SERIES_MAX_MS` had one reader, inside `deferForWait`: the cap
+    //    fired only if another turn started and re-declared the same wait. With
+    //    admissions held the series just grew — 2 cards past the 4-hour cap by
+    //    45 and 31 hours on 2026-09-17, zero `waited_out` parks in the whole
+    //    history, and `waited_out` is the only state that reaches a push
+    //    notification. This pass already walks card by card, so the clock is
+    //    read here.
+    //
+    //    Its own `try`, and not the one above: a sweep that throws must not take
+    //    the other one down with it — that is how a backstop stays a backstop.
+    //
+    //    `busy` is the whole difference between a park and a turn cut in half: a
+    //    card with a live turn, a queued resume, a scheduled retry or an open
+    //    grace window is OURS, whatever the row says.
+    try {
+      const nostra = (taskId: string): boolean =>
+        inFlight.has(taskId) || slotWaits.has(taskId) || retryWaits.has(taskId) || graceTimers.has(taskId);
+      for (const t of deps.svc.sweepWaitedOut({ eligible: acceso, busy: nostra })) {
+        log(`serie di attese oltre il tetto: ${t.id} parcheggiata`);
+        emit(t);
+      }
+    } catch (err) { log("sweep delle serie di attese fallito", err); }
     // 2) Opportunistically fill free slots on every board that has queued todos.
     //
     //    UNA PROIEZIONE, NON I TASK. Qui serve un insieme di id di board, e si
