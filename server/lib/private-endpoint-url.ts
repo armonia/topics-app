@@ -14,22 +14,11 @@
  * re-checked hop by hop.
  */
 import { lookup } from "node:dns/promises";
+import { ipv4MappedAddress, ipv4ToInt, ipv6Groups } from "./ipv6";
 
 export type AddressResolver = (host: string) => Promise<{ address: string; family: number }[]>;
 
 const MAX_REDIRECTS = 5;
-
-function ipv4ToInt(ip: string): number | null {
-  const parts = ip.split(".");
-  if (parts.length !== 4) return null;
-  let n = 0;
-  for (const part of parts) {
-    const octet = Number(part);
-    if (!Number.isInteger(octet) || octet < 0 || octet > 255 || (part.length > 1 && part[0] === "0")) return null;
-    n = ((n << 8) | octet) >>> 0;
-  }
-  return n >>> 0;
-}
 
 function inRange(value: number, base: string, bits: number): boolean {
   const start = ipv4ToInt(base);
@@ -51,12 +40,15 @@ export function isForbiddenEndpointIpv4(ip: string): boolean {
 }
 
 export function isForbiddenEndpointIpv6(ip: string): boolean {
-  const lower = ip.toLowerCase().replace(/^\[|\]$/g, "");
-  if (lower === "::") return true;
-  const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return isForbiddenEndpointIpv4(mapped[1]);
-  if (/^fe[89ab]/.test(lower)) return true; // fe80::/10 link-local
-  if (/^ff/.test(lower)) return true;       // multicast
+  const groups = ipv6Groups(ip);
+  if (groups === null) return true; // unparseable, so unusable
+  if (groups.every((group) => group === 0)) return true; // the unspecified address
+  // An IPv4-mapped address dials the IPv4 host, so it answers to the IPv4 rules
+  // rather than to a rule of its own.
+  const mapped = ipv4MappedAddress(groups);
+  if (mapped) return isForbiddenEndpointIpv4(mapped);
+  if ((groups[0]! & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
+  if ((groups[0]! & 0xff00) === 0xff00) return true; // multicast
   return false;
 }
 
@@ -128,14 +120,29 @@ export async function fetchCheckedEndpoint(
   doFetch: typeof fetch = fetch,
 ): Promise<Response> {
   let target = raw;
+  let carried = init;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     const verdict = await checkEndpointUrl(target, resolver);
     if (!verdict.ok) throw new EndpointUrlError(verdict.error);
-    const response = await doFetch(verdict.url.toString(), { ...init, redirect: "manual" });
+    const response = await doFetch(verdict.url.toString(), { ...carried, redirect: "manual" });
     if (response.status < 300 || response.status >= 400) return response;
     const location = response.headers.get("location");
     if (!location) return response;
-    target = new URL(location, verdict.url).toString();
+    const next = new URL(location, verdict.url);
+    // The guard clears a hop's ADDRESS; it does not vouch for who answers
+    // there, and most of the internet is an address it allows. So credentials
+    // stop at the origin they were meant for: otherwise one `302` is all an
+    // endpoint needs to hand a user's bearer token to a host of its choosing.
+    if (next.origin !== verdict.url.origin) carried = withoutCredentials(carried);
+    target = next.toString();
   }
   throw new EndpointUrlError("The endpoint redirected too many times.");
+}
+
+/** The same request with nothing on it that authenticates the caller. */
+function withoutCredentials(init: RequestInit): RequestInit {
+  const headers = new Headers(init.headers);
+  headers.delete("authorization");
+  headers.delete("cookie");
+  return { ...init, headers };
 }

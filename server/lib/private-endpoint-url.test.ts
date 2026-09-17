@@ -18,11 +18,22 @@ const allowed: string[] = [
   "http://100.92.197.74:18080/v1", // tailnet
   "http://[fd00::1]:8080",
   "http://[::1]:8080",
+  // Mapping an address into IPv6 must not COST reach either: a llama-server on
+  // the desk stays reachable however its address is written.
+  "http://[::ffff:127.0.0.1]:18080/v1",
+  "http://[::ffff:192.168.1.50]:1234/v1",
   "https://api.example.com/v1",
 ];
 
 const refused: [string, string][] = [
   ["cloud metadata", "http://169.254.169.254/latest/meta-data/"],
+  // The SAME address, spelled as an IPv4-mapped IPv6 literal. It is not a
+  // curiosity: `new URL()` normalises the dotted spelling into the hex one, so
+  // the hex one is what any guard actually receives, and it dials the IPv4 host
+  // exactly like the dotted form does.
+  ["cloud metadata mapped into IPv6", "http://[::ffff:169.254.169.254]/latest/meta-data/"],
+  ["cloud metadata mapped and written in hex", "http://[::ffff:a9fe:a9fe]/latest/meta-data/"],
+  ["cloud metadata mapped without the short form", "http://[0:0:0:0:0:ffff:a9fe:a9fe]/latest/meta-data/"],
   ["link-local IPv6", "http://[fe80::1]:8080"],
   ["the unspecified network", "http://0.0.0.0:8080"],
   ["IPv6 unspecified", "http://[::]:8080"],
@@ -108,6 +119,46 @@ describe("fetchCheckedEndpoint", () => {
     const response = await fetchCheckedEndpoint("http://127.0.0.1:18080/v1/models", {}, never, doFetch);
     expect(response.status).toBe(200);
     expect(seen).toEqual(["http://127.0.0.1:18080/v1/models", "http://10.0.0.9:8000/v1/models"]);
+  });
+
+  test("a redirect to another origin does not carry the token with it", async () => {
+    const sent: (string | null)[] = [];
+    const doFetch = (async (url: string, init: RequestInit) => {
+      sent.push(new Headers(init?.headers).get("authorization"));
+      return sent.length === 1
+        ? new Response(null, { status: 302, headers: { location: "https://api.example.com/steal" } })
+        : new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const response = await fetchCheckedEndpoint(
+      "http://10.0.0.5:8000/v1/models",
+      { headers: { Authorization: "Bearer tok-secret" } },
+      resolvesTo("93.184.216.34"),
+      doFetch,
+    );
+    expect(response.status).toBe(200);
+    // The address of the second hop is allowed — almost every public address
+    // is — so the ONLY thing standing between a configured endpoint and the
+    // user's token is that the header stops at the origin it was meant for.
+    expect(sent).toEqual(["Bearer tok-secret", null]);
+  });
+
+  test("a redirect that stays on the same origin keeps the token", async () => {
+    const sent: (string | null)[] = [];
+    const doFetch = (async (url: string, init: RequestInit) => {
+      sent.push(new Headers(init?.headers).get("authorization"));
+      return sent.length === 1
+        ? new Response(null, { status: 307, headers: { location: "/v1/models/" } })
+        : new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await fetchCheckedEndpoint(
+      "http://10.0.0.5:8000/v1/models",
+      { headers: { Authorization: "Bearer tok-secret" } },
+      never,
+      doFetch,
+    );
+    expect(sent).toEqual(["Bearer tok-secret", "Bearer tok-secret"]);
   });
 
   test("a redirect loop stops instead of spinning", async () => {
