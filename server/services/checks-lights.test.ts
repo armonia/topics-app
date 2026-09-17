@@ -8,7 +8,7 @@
  * stall judge, and a StaleStream sweep answering `extend` to every mute turn of
  * those sessions.
  *
- * @covers KANBAN-86
+ * @covers KANBAN-89
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";

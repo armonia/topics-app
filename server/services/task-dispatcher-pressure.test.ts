@@ -27,7 +27,17 @@ import { BUDGET_SHARE_DEFAULT, BUDGET_SHARE_MAX, budgetShare, capMode, type Mach
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { currentDispatchBlock, heldResumeBlock, setDispatchBlock } from "./dispatch-block-signal";
-import { readGlobalCap } from "./dispatch-capacity";
+import { readGlobalCap, type ResourceFloorVerdict } from "./dispatch-capacity";
+
+/**
+ * A sentence as the floor VERDICT the dispatcher now takes: these tests inject
+ * the text, and which floor it came from is read off its first word - the one
+ * place still allowed to, because here the text IS the fixture.
+ */
+function asFloor(reason: string | null): ResourceFloorVerdict {
+  return { reason, kind: reason ? (reason.startsWith("Disco") ? "disk" : "memory") : null, memoryFirstCardExempt: false };
+}
+
 import type { TurnEndInfo } from "../providers/stop-reason";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from "../db/test-schema";
 import { createTaskAttemptStore } from "./task-attempts";
@@ -275,7 +285,7 @@ describe("the cap by resources: over the budget nothing starts, under it it does
   // panel said in green that a new agent would start.
   it("the preview says the floor holds, in either mode, before the budget is asked", async () => {
     const floor = { reason: null as string | null };
-    const h = harness({ resourceBlock: () => floor.reason });
+    const h = harness({ resourceBlock: () => asFloor(floor.reason) });
     boardOn(h);
     h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.6 });
     h.machine.pressure = { ...QUIET, ourCoreUnits: 2, otherCoreUnits: 1, ourMemGB: 9, availableMemGB: 5.5, running: 3 };
@@ -368,7 +378,7 @@ describe("the cap by resources: over the budget nothing starts, under it it does
   it("a held resume says the block of its own hold, and stops the moment its hold says otherwise", async () => {
     const floor = { reason: FLOOR_TEXT as string | null };
     const gates = { n: 0 };
-    const h = harness({ resourceBlock: () => floor.reason, checksRunning: () => gates.n });
+    const h = harness({ resourceBlock: () => asFloor(floor.reason), checksRunning: () => gates.n });
     boardOn(h);
     inProgressCard(h, "rh1");
     try {
@@ -418,7 +428,7 @@ describe("the cap by resources: over the budget nothing starts, under it it does
     it(`a floor published and cleared with ${gesture} is not what a held resume says`, async () => {
       const floor = { reason: FLOOR_TEXT as string | null };
       const gates = { n: 0 };
-      const h = harness({ resourceBlock: () => floor.reason, checksRunning: () => gates.n });
+      const h = harness({ resourceBlock: () => asFloor(floor.reason), checksRunning: () => gates.n });
       boardOn(h);
       const todo = seedTask(h.db);
       try {
@@ -555,7 +565,7 @@ describe("the cap by resources: over the budget nothing starts, under it it does
   });
 
   it("the hard floor wins over the budget: a full disk is not a wait that passes", async () => {
-    const h = harness({ resourceBlock: () => "Disco quasi pieno: 2 GB liberi." });
+    const h = harness({ resourceBlock: () => asFloor("Disco quasi pieno: 2 GB liberi.") });
     boardOn(h);
     h.svc.setGlobalCap({ mode: "resources" });
     h.machine.pressure = { ...QUIET, ourCoreUnits: 30, running: 3 };

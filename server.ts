@@ -93,8 +93,8 @@ import { createExternalSessionsRouter } from "./server/routes/external-sessions"
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { isChecksHold as isChecksHoldOf, sweepStaleChecksLights as sweepStaleChecksLightsOf } from "./server/services/checks-lights";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceBlock, probeVm } from "./server/services/dispatch-capacity";
-import { createMemSignal, formatMemorySignalLine } from "./server/services/mem-signal";
+import { budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceVerdict, probeVm } from "./server/services/dispatch-capacity";
+import { createMemSignal, fileMemSampleStore, formatMemorySignalLine } from "./server/services/mem-signal";
 import { OUR_APP_MARKERS } from "./server/services/memory-owners";
 import { createMemoryOwnersReader } from "./server/services/memory-owners-probe";
 import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB, procResidentKB, registeredFleetSocketPaths } from "./server/lib/fleet-usage";
@@ -1524,7 +1524,18 @@ void thawLedgerAtBoot({
   log: (line) => console.warn(line),
 }).catch((err) => console.warn("[freeze] boot thaw failed:", err));
 
-const memSignal = createMemSignal({ probe: probeVm, measurable: process.platform === "darwin" });
+/**
+ * The 2-minute window is PARKED ON DISK between restarts (`fileMemSampleStore`).
+ * With `TOPICS_SERVER_WATCH=1` this server restarts on every save under
+ * `server/`, and a window born empty holds every admission and every resume for
+ * 120 s on a machine that may be completely free: 28 windows zeroed over 44
+ * restarts in 25.7 h of 16-17/09/2026, about 56 minutes a day of stopped queue.
+ */
+const memSignal = createMemSignal({
+  probe: probeVm,
+  measurable: process.platform === "darwin",
+  store: fileMemSampleStore(join(resolveStateDir(process.cwd()), "mem-samples.json")),
+});
 void memSignal.sample();
 
 /**
@@ -1756,7 +1767,7 @@ const taskDispatcher = createTaskDispatcher({
   // `hold` is the dispatcher's: the price of one card, the memory kept for the
   // turns in flight, and whether any of our work is on the machine.
   resourceBlock: (hold) =>
-    dispatchResourceBlock(
+    dispatchResourceVerdict(
       ctx.worktreeManager.worktreesDir(),
       undefined,
       () => memSignal.held(),

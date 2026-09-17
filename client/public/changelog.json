@@ -1,5 +1,140 @@
 [
   {
+    "version": "2.2.344",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un numero che avevo messo nel contratto era falso: 241 volte, non zero",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.343",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-17 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.342",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il giudice di fuori parcheggiava una card che su main parte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La guardia su `commentIds` copriva un chiamante su tre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ramo lo decideva il censimento, la cifra il listino: 7-9,9 GB fermi per niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il segno valeva in un verso solo: finestra scritta non vuol dire serie viva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La chiave di dedup non era guardata da nessun test: rimessa a mano, 469 verdi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La card diceva verde su una CI rossa: due consegne su tre, stanotte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due nomi in italiano fermavano il rail: lo standard e' l'inglese anche nei test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cinque nomi in italiano fermavano il rail: lo standard e' l'inglese anche nei test",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.341",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un agente che aspetta la CI vale zero: la deroga si ri-armava a ogni tick",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un non tracciato riscritto ogni 10 s nella radice, un giorno dopo l'incidente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A 600 s a tagliare e' KEEP_MS: il confine dei 30 s non era provato da nessuno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un replace cieco per i cancelli della lingua e' entrato in una frase che l'utente legge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il giudice di fuori parcheggiava un'attesa che l'agente aveva chiesto per otto ore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il filo fra reconcile e sweep non era coperto: si poteva tagliare a barra verde",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una bocciatura di tre commenti ne registrava uno solo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La mia regola sul freno dei check era un no-op: la verifica l'ha eseguita",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.340",
     "date": "2026-09-17",
     "sections": {
@@ -8,7 +143,32 @@
       "perf": [],
       "internal": [
         {
+          "it": "Una bocciatura umana ripartiva con «il tuo turno e' stato interrotto»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La finestra di memoria moriva a ogni salvataggio: 28 volte in 25,7 ore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pavimento della memoria non aveva uscita: held2m sopra 6 GB zero volte su 1455",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il freno dei check spara sempre la valvola: e' un timer, non un freno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riscaldamento e pavimento condividevano la chiave: 80 commenti su 80 con la frase sbagliata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I nomi e i commenti nuovi passano i due cancelli della lingua",
           "en": "",
           "scope": null
         },
@@ -62,6 +222,16 @@
         },
         {
           "it": "Il pavimento di memoria non aspetta una persona: aspetta per sempre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'inattivita' di un task la misurava il chip che il dispatcher riscrive ogni 60 s",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto sulla durata di un'attesa lo leggeva solo chi ridichiarava l'attesa",
           "en": "",
           "scope": null
         }
