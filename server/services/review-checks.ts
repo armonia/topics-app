@@ -724,6 +724,10 @@ export function formatChecksWait(args: {
 
 /** What a red CI evidence row measured, in the words of the card. */
 function ciRedWhy(row: CheckRun): string {
+  // The row read a SLICE of the run and that slice was green; what is red is the
+  // run itself, elsewhere (KANBAN-86). Saying "e2e rossi" here would send whoever
+  // reads it looking at four green shards.
+  if (row.ciRunRed) return `la CI della PR è rossa fuori da questa riga (${row.ciRunRed})`;
   return row.cmd.trim() === UNIT_CI_CHECK.cmd ? "test unit rossi sulla CI della PR" : "e2e rossi sulla CI della PR";
 }
 

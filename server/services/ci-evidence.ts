@@ -35,6 +35,19 @@
  * other row — the same rule the local commands follow — and a branch with no
  * commit of its own is NOT MEASURED, never two greens.
  *
+ * AND THE RERUN NEVER TOUCHES A RED (KANBAN-85, read with its own rule). One more
+ * attempt is for a run that ended with nothing to say; a row that failed for real
+ * has said it, and re-running it would throw that verdict away and answer with the
+ * next attempt instead: "retry until it passes" on a CI gate.
+ *
+ * A CARD DOES NOT SAY GREEN ON A COMMIT WHOSE CI IS RED (KANBAN-86). The rows read
+ * a SLICE of the run, which is right for what they measure and narrower than what
+ * the card then writes: on 17/09/2026 two deliveries closed `pass` with their own
+ * pull request `completed/failure` at a step no row looks at. When the run these
+ * rows read is over and its conclusion is not `success`, the round does not close
+ * green: every row keeps in its tail what it did measure and carries the job and
+ * step that failed. Nothing is re-measured here, it is a field of the same answer.
+ *
  * ONE RERUN PER RUN, AND `run_attempt` IS WHERE THAT IS WRITTEN. Nothing in this
  * process may count the rerun: the delivery is a row on `pending_deliveries`
  * that `resumePendingDeliveries` re-issues on the same commit after every
@@ -202,6 +215,43 @@ export function readUnitEvidence(sha: string, runs: GithubRun[], jobs: GithubJob
       ? `the ${UNIT_JOB} job concluded ${job.conclusion ?? "without a conclusion"} before the step "${UNIT_STEP}" finished`
       : `the ${UNIT_JOB} job concluded ${job.conclusion ?? "without a conclusion"} without running the step "${UNIT_STEP}"`,
   };
+}
+
+/**
+ * THE RUN THESE ROWS READ IS OVER AND IT IS RED SOMEWHERE ELSE (KANBAN-86), said
+ * with the job and the step that failed, or null when the run is still going or
+ * concluded `success`.
+ *
+ * The two rows read a SLICE of the proof — the step "Unit + integration tests"
+ * and the four e2e shards — which is the right slice for what they measure, and
+ * the card then writes a sentence wider than what they know. On 17/09/2026 two
+ * of the three real deliveries of the night (`topics/clumsy-wren` run 35168540957,
+ * `topics/imperial-canal` run 35169547221) had `checks_state = 'pass'` and a green
+ * chip while their own pull request run was `completed/failure`: the `check` job
+ * failed at the step "Bundle size budget", after the unit step, which no row reads.
+ *
+ * This is NOT a sixth gate: it re-measures nothing, it is a field of the same two
+ * answers (`runs`, `jobs`) the poll loop already has in hand.
+ */
+export function runRedElsewhere(run: GithubRun | null, jobs: GithubJob[]): string | null {
+  if (!run || run.status !== "completed" || run.conclusion === "success") return null;
+  const concluded = run.conclusion ?? "without a conclusion";
+  const broken = jobs.filter((j) => j.conclusion && j.conclusion !== "success" && j.conclusion !== "skipped");
+  const named = broken.map((j) => {
+    const step = j.steps?.find((s) => s.conclusion && s.conclusion !== "success" && s.conclusion !== "skipped");
+    return step ? `job ${j.name} at the step "${step.name}" (${step.conclusion})` : `job ${j.name} (${j.conclusion})`;
+  });
+  return `the CI run of this commit concluded ${concluded}: ${named.length ? named.join(", ") : "no job of it says where"}`;
+}
+
+/**
+ * The green row of a round the run itself contradicts: what it measured stays in
+ * the tail word for word — the unit step WAS green and saying so is correct — and
+ * the row stops being a green, because the card's verdict is the OR of its rows
+ * and a card cannot call itself green on a red CI.
+ */
+function contradictedByItsRun(row: CheckRun, why: string): CheckRun {
+  return { ...row, ok: false, code: 1, ciRunRed: why, tail: `${row.tail}\n${why}` };
 }
 
 const isUnitRow = (check: ReviewCheck): boolean => check.cmd.trim() === UNIT_CI_CHECK.cmd;
@@ -562,7 +612,7 @@ export async function awaitCiEvidence(
       else rerunAwaitedAttempt = 0; // the grace is spent: read the run as it is
     }
     if (page && rerunAwaitedAttempt === 0) {
-      const outcomes = open().map((check) => ({ check, outcome: readCiEvidence(check, sha, page.runs, page.jobs) }));
+      const readNow = (check: ReviewCheck) => readCiEvidence(check, sha, page.runs, page.jobs);
       // Rows with no verdict on this run, the ones already closed included: a
       // row read as not measured while the run was still going (a `prepare-e2e`
       // that failed, a `check` job that died before its unit step) used to be
@@ -571,8 +621,20 @@ export async function awaitCiEvidence(
       // Those are two of the three terminal cases KANBAN-85 names.
       const unmeasured = checks.filter((c) => {
         const done = settled.get(c);
-        return done ? done.notMeasured === true
-          : outcomes.find((o) => o.check === c)?.outcome.kind === "notMeasured";
+        return done ? done.notMeasured === true : readNow(c).kind === "notMeasured";
+      });
+      // A RED ALREADY MEASURED IS NOT RE-RUN. The rerun exists for a run that
+      // ended with NOTHING to say; a row that failed for real has said it, and
+      // asking for one more attempt throws that verdict away — the `continue`
+      // below jumps over the loop that closes the rows, so the second attempt
+      // overwrites the first one's red, and a green second attempt turns a red
+      // card into a green one. "Retry until it passes" on a CI gate, and the
+      // opposite of ONE RED ENDS THE ROUND a few lines down. Reachable: the
+      // `check` job dies before its unit step (Setup Bun, typecheck,
+      // `cancel-in-progress`) while an e2e shard fails for real.
+      const redAlready = checks.some((c) => {
+        const done = settled.get(c);
+        return done ? !done.ok && !done.notMeasured : readNow(c).kind === "fail";
       });
       // A RUN THAT ENDED WITHOUT A VERDICT: ONE MORE ATTEMPT, NOT ANOTHER GIRO.
       //
@@ -583,8 +645,17 @@ export async function awaitCiEvidence(
       // last 100 shas measured on 17/09/2026 were already parked there.
       // Only when the run itself is over, so a rerun cannot cut a shard still
       // running for the other row.
-      if (run && run.status === "completed" && !rerunTried && unmeasured.length > 0) {
+      if (run && run.status === "completed" && !rerunTried && unmeasured.length > 0 && !redAlready) {
         rerunTried = true;
+        // Every row with no verdict is read again from here. The new attempt
+        // re-measures it (a row already green or red measured something real on
+        // this commit and is left alone), and when there is no new attempt the
+        // re-read is what lets `deadEnd` say a new commit is needed: a row
+        // closed on an EARLIER poll, while the run was still going, carries the
+        // plain reason and `deadEnd` never saw it, so with the attempt already
+        // above 1 the round used to close on that plain reason and the dead end
+        // was mute again.
+        for (const [check, row] of [...settled]) if (row.notMeasured) settled.delete(check);
         // THE RERUN IS SPENT ONCE PER RUN, NOT ONCE PER CALL. `rerunTried` is a
         // local of this call, but the delivery it serves is a row on
         // `pending_deliveries` that `resumePendingDeliveries` re-issues on the
@@ -595,9 +666,6 @@ export async function awaitCiEvidence(
         if (runAttempt(run) === 1) {
           const again = await port.rerun(repo.value, run.id);
           if (again.ok) {
-            // The new attempt re-measures every row that has no verdict; a row
-            // already green or red measured something real on this commit.
-            for (const [check, row] of [...settled]) if (row.notMeasured) settled.delete(check);
             rerunAwaitedAttempt = runAttempt(run);
             rerunReadsLeft = CI_RERUN_READS_MAX;
             await pause(pollMs);
@@ -606,6 +674,7 @@ export async function awaitCiEvidence(
           rerunError = again.error;
         }
       }
+      const outcomes = open().map((check) => ({ check, outcome: readNow(check) }));
       for (const { check, outcome } of outcomes) {
         if (outcome.kind === "pending") {
           lastRun = outcome.run;
@@ -627,7 +696,14 @@ export async function awaitCiEvidence(
       // rerun above reopens it when the run completes, so leaving now would be
       // the dead end again with every row closed.
       const mayStillRerun = !rerunTried && !!run && run.status !== "completed" && unmeasured.length > 0;
-      if (open().length === 0 && !mayStillRerun) return checks.map((c) => settled.get(c)!);
+      if (open().length === 0 && !mayStillRerun) {
+        const rows = checks.map((c) => settled.get(c)!);
+        // A CARD DOES NOT SAY GREEN ON A COMMIT WHOSE CI IS RED (KANBAN-86).
+        // Only the all-green close can lie this way: a red row or a row with no
+        // verdict already keeps the card's verdict off `pass`.
+        const why = rows.every((r) => r.ok) ? runRedElsewhere(run, page.jobs) : null;
+        return why ? rows.map((r) => contradictedByItsRun(r, why)) : rows;
+      }
     }
     const waited = now() - pushedAt;
     if (noRun && !conflictProbed && waited >= graceMs) {

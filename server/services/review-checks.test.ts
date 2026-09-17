@@ -616,6 +616,27 @@ describe("checksVerdict: l'esito della barra in una parola", () => {
     expect(checksVerdict([], 0)).toBe("unknown");
   });
 
+  /**
+   * KANBAN-86. The CI row read a slice of the run and that slice was green; the
+   * run is red at a step no row looks at ("Bundle size budget", measured
+   * 17/09/2026 on two real deliveries). The row arrives `ok: false` carrying the
+   * note, so the card is not `pass`. The sentence names the run: the wording a
+   * plain red CI row gets would send whoever reads it to four green shards.
+   */
+  test("una riga CI verde su una run rossa altrove: la card non dice pass, e il testo nomina la run", () => {
+    const why = 'the CI run of this commit concluded failure: job check at the step "Bundle size budget" (failure)';
+    const contradicted: CheckRun = {
+      name: E2E_CI_CHECK.name, cmd: E2E_CI_CHECK.cmd, ok: false, code: 1, ms: 10, timedOut: false,
+      ciRunRed: why, tail: `e2e green on the pull request CI\nrun: https://github.com/o/r/actions/runs/10\n${why}`,
+    };
+    expect(checksVerdict([ok("typecheck"), contradicted], 2)).toBe("fail");
+    const comment = formatChecksComment([ok("typecheck"), contradicted]);
+    expect(comment).toContain("ROSSI");
+    expect(comment).toContain("Bundle size budget");
+    expect(comment).not.toContain("e2e rossi sulla CI della PR");
+    expect(formatChecksThreadSummary([ok("typecheck"), contradicted])).toContain("Bundle size budget");
+  });
+
   test("il TESTO e lo STATO dicono la stessa cosa: un predicato solo", () => {
     // E' la ragione per cui `checksVerdict` e' stata estratta invece di
     // duplicata: due copie che divergono rimetterebbero in piedi il difetto,

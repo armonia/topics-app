@@ -1670,6 +1670,15 @@ export interface CheckRun {
   tail: string;
   /** Valorizzato solo se il comando non è nemmeno partito (binario assente, cwd sparita). */
   spawnError?: string;
+  /**
+   * A CI evidence row (KANBAN-86) whose own reading was GREEN and whose run is
+   * red somewhere no row looks at: the job and the step that failed. The row
+   * keeps in `tail` what it measured and stops being a green, so the card's
+   * verdict is not `pass` on a commit whose CI is red. It is here and not in
+   * `ci-evidence.ts` because the comment of the card names the failure, and
+   * "e2e red on the pull request CI" would be the wrong sentence for it.
+   */
+  ciRunRed?: string;
 }
 
 /** Config di dispatch per board (riga `board_settings`). */

@@ -17,6 +17,8 @@ import {
   listField,
   readE2eEvidence,
   readUnitEvidence,
+  runRedElsewhere,
+  UNIT_JOB,
   UNIT_STEP,
   repoFromRemote,
   pushRejectedAsNonFastForward,
@@ -487,6 +489,71 @@ describe("a terminal run without a verdict", () => {
     expect(rows.map((r) => r.notMeasured)).toEqual([true, true]);
   });
 
+  /**
+   * A RED ALREADY MEASURED IS NOT RE-RUN, and this is the one that turns a red
+   * card green. The rerun fires for a run that ended with nothing to say; its
+   * `continue` jumps over the loop that closes the rows, so a red read on the
+   * first attempt is thrown away and a green second attempt answers in its
+   * place. Reachable as it stands: the `check` job dies before its unit step
+   * (Setup Bun, typecheck, `cancel-in-progress`) while an e2e shard fails for
+   * real.
+   */
+  test("a red row next to one with no verdict is not re-run, and the red is the answer", async () => {
+    let reads = 0;
+    const redShard = green.map((j) => (j.name === "e2e (2)" ? { ...j, id: 777, conclusion: "failure" } : j));
+    const died: GithubJob = { id: 4242, name: "check", status: "completed", conclusion: "failure", steps: [step("Setup Bun", "failure")] };
+    const { port, calls } = fakePort({
+      runs: async () => {
+        reads += 1;
+        return { ok: true, value: [reads <= 1 ? run({ conclusion: "failure" }) : run({ run_attempt: 2 })] };
+      },
+      // The second attempt would be all green: the round must never see it.
+      jobs: async () => ({
+        ok: true,
+        value: reads <= 1 ? [died, ...redShard] : [checkJob("success", { status: "completed", conclusion: "success" }), ...green],
+      }),
+    });
+    const rows = await awaitCiEvidence({ ...input, checks: [E2E_CI_CHECK, UNIT_CI_CHECK] },
+      { port, ...fakeClock(), stopping: () => false });
+    expect(calls.rerun).toEqual([]);
+    expect(rows[0]!.ok).toBe(false);
+    expect(rows[0]!.notMeasured).toBeUndefined();
+    expect(rows[0]!.code).toBe(1);
+    expect(rows[0]!.tail).toContain("e2e (2)");
+    expect(rows[1]!.notMeasured).toBe(true);
+  });
+
+  /**
+   * The sentence that says a new commit is needed is added when a row is CLOSED,
+   * and a row closed on an earlier poll — while the run was still going — was
+   * never read again once the rerun turned out to be spent (attempt already
+   * above 1: our own rerun from a previous process, since the delivery is
+   * re-issued at every boot). The round ended on the plain reason, which is the
+   * mute dead end KANBAN-85 exists to remove, and it ended THERE, not an hour later.
+   */
+  test("a row closed while the run went on still says a new commit is needed when the rerun is spent", async () => {
+    let reads = 0;
+    const lost = [job("prepare-e2e", "failure"), ...[1, 2, 3, 4].map((n) => job(`e2e (${n})`, "skipped"))];
+    const { port, calls } = fakePort({
+      runs: async () => {
+        reads += 1;
+        return {
+          ok: true,
+          value: [reads === 1 ? run({ status: "in_progress", conclusion: null, run_attempt: 2 }) : run({ conclusion: "failure", run_attempt: 2 })],
+        };
+      },
+      jobs: async () => ({ ok: true, value: lost }),
+    });
+    const clock = fakeClock();
+    const start = clock.now();
+    const row = await e2eRow(input, { port, now: clock.now, sleep: clock.sleep, stopping: () => false });
+    expect(calls.rerun).toEqual([]);
+    expect(row.notMeasured).toBe(true);
+    expect(row.tail).toContain("only a new commit can");
+    // The wait for a possible rerun is bounded by the run, not by the deadline.
+    expect(clock.now() - start).toBeLessThan(CI_E2E_DEADLINE_MS);
+  });
+
   test("a run still in progress for the other row is never re-run under it", async () => {
     const clock = fakeClock();
     const { port, calls } = fakePort({
@@ -517,6 +584,63 @@ describe("the round stops at the first red, like the local commands", () => {
     expect(rows[0]!.tail).toContain(UNIT_CI_CHECK.name);
     // The red was actionable at the first poll: it used to arrive an hour later.
     expect(clock.now() - start).toBeLessThan(5 * 60_000);
+  });
+});
+
+/**
+ * KANBAN-86. The rows read a SLICE of the proof, which is the right slice for
+ * what they measure; the card then writes a sentence wider than what they know.
+ * Measured on 17/09/2026 on two of the three real deliveries of that night
+ * (`topics/clumsy-wren` run 35168540957, `topics/imperial-canal` run 35169547221):
+ * `checks_state = 'pass'` and a green chip while the run of their own pull
+ * request was `completed/failure` at the step "Bundle size budget" of `check`.
+ * @covers KANBAN-86
+ */
+describe("a card does not call itself green on a commit whose CI run is red", () => {
+  const BUDGET = "Bundle size budget";
+  const budgetRed: GithubJob = {
+    id: 4242, name: "check", status: "completed", conclusion: "failure",
+    steps: [step("Setup Bun", "success"), step(UNIT_STEP, "success"), step(BUDGET, "failure")],
+  };
+
+  test("the unit step green, the shards green, the check job red at a later step: no row closes green", async () => {
+    const { port } = fakePort({
+      runs: async () => ({ ok: true, value: [run({ conclusion: "failure" })] }),
+      jobs: async () => ({ ok: true, value: [budgetRed, ...green] }),
+    });
+    const rows = await awaitCiEvidence({ ...input, checks: [E2E_CI_CHECK, UNIT_CI_CHECK] }, { port, ...fakeClock(), stopping: () => false });
+    expect(rows.map((r) => r.ok)).toEqual([false, false]);
+    // A real red, not a NOT MEASURED: the run said `failure` and named where.
+    expect(rows.map((r) => r.notMeasured)).toEqual([undefined, undefined]);
+    for (const row of rows) {
+      expect(row.ciRunRed).toContain(BUDGET);
+      expect(row.tail).toContain("job check");
+      expect(row.tail).toContain("actions/runs/10");
+    }
+    // Each row still says, word for word, what it did measure.
+    expect(rows[0]!.tail).toContain("e2e green on the pull request CI");
+    expect(rows[1]!.tail).toContain(`step "${UNIT_STEP}" of job ${UNIT_JOB}: success`);
+  });
+
+  test("the same run concluded success closes green, and no row carries the note", async () => {
+    const { port } = fakePort({ jobs: async () => ({ ok: true, value: [checkJob("success", { status: "completed", conclusion: "success" }), ...green] }) });
+    const rows = await awaitCiEvidence({ ...input, checks: [E2E_CI_CHECK, UNIT_CI_CHECK] }, { port, ...fakeClock(), stopping: () => false });
+    expect(rows.map((r) => r.ok)).toEqual([true, true]);
+    expect(rows.map((r) => r.ciRunRed)).toEqual([undefined, undefined]);
+  });
+
+  test("the reader names the failing job and step, and says nothing while the run is still going", () => {
+    expect(runRedElsewhere(run({ status: "in_progress", conclusion: null }), [budgetRed])).toBeNull();
+    expect(runRedElsewhere(run(), green)).toBeNull();
+    expect(runRedElsewhere(null, [])).toBeNull();
+    const why = runRedElsewhere(run({ conclusion: "failure" }), [budgetRed, ...green]);
+    expect(why).toContain("concluded failure");
+    expect(why).toContain(`job check at the step "${BUDGET}"`);
+    // A skipped job is not where a run broke, and a run red with no job to blame
+    // still says it is red instead of claiming a step it cannot see.
+    const mute = runRedElsewhere(run({ conclusion: "failure" }), [job("e2e (1)", "skipped")]);
+    expect(mute).toContain("concluded failure");
+    expect(mute).not.toContain("e2e (1)");
   });
 });
 
