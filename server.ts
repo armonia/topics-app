@@ -91,9 +91,10 @@ import { createExternalSessionsService } from "./server/services/external-sessio
 import { createAgentWorktree, worktreeReadyMs, type AgentWorktreeDeps } from "./server/services/worktree-for-agent";
 import { createExternalSessionsRouter } from "./server/routes/external-sessions";
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
+import { isChecksHold as isChecksHoldOf, sweepStaleChecksLights as sweepStaleChecksLightsOf } from "./server/services/checks-lights";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { budgetSample, computeDispatchCapacity, DISPATCH_MEM_FLOOR_NATIVE_GB, dispatchResourceBlock, probeVm } from "./server/services/dispatch-capacity";
-import { createMemSignal, formatMemorySignalLine } from "./server/services/mem-signal";
+import { budgetSample, computeDispatchCapacity, dispatchResourceVerdict, probeVm } from "./server/services/dispatch-capacity";
+import { createMemSignal, fileMemSampleStore, formatMemorySignalLine } from "./server/services/mem-signal";
 import { OUR_APP_MARKERS } from "./server/services/memory-owners";
 import { createMemoryOwnersReader } from "./server/services/memory-owners-probe";
 import { fleetLoadSync, fleetSessionCoreUnits, procFootprintKB, procResidentKB, registeredFleetSocketPaths } from "./server/lib/fleet-usage";
@@ -1434,13 +1435,9 @@ let checksGateRunningCount: (() => number) | null = null;
 let checksGateIsRunning: ((taskId: string) => boolean) | null = null;
 /** `checksGate.isOffLane(taskId)`: the run only waits on the pull request CI (KANBAN-84). */
 let checksGateIsOffLane: ((taskId: string) => boolean) | null = null;
-/**
- * Is the task this session works on waiting on OUR pre-review checks? The
- * stall detector must not judge that silence: the agent asked for review, the
- * gate said 202 and is grinding typecheck/lint/test:unit, and the agent is
- * waiting on us. `checks_state='running'` covers the run; the gate covers the
- * queue behind another card (one run at a time, minutes each).
- */
+/** `settleDelivery` of the tasks route: re-issues the PATCH this process is
+ *  still holding for a card. Null until the route is built. */
+let resumeHeldDelivery: ((taskId: string) => void) | null = null;
 /**
  * Is this card's delivery parked on our pre-review checks with NOTHING of ours
  * running for it?
@@ -1461,18 +1458,9 @@ function deliveryOnlyWaitsOnChecks(taskId: string): boolean {
   return !freezableRuns().some((run) => run.taskId === taskId);
 }
 
+/** The live registry answers, not the row: see `services/checks-lights.ts`. */
 function isChecksHold(sessionKey: string): boolean {
-  const topicPrefix = sessionKey.startsWith("topic:") ? sessionKey.slice("topic:".length) : sessionKey;
-  if (!topicPrefix) return false;
-  try {
-    const row = db.prepare(
-      `SELECT id, checks_state FROM tasks WHERE status = 'in_progress' AND assigned_topic_id LIKE ? LIMIT 1`,
-    ).get(topicPrefix + "%") as { id: string; checks_state: string | null } | null;
-    if (!row) return false;
-    return row.checks_state === "running" || (checksGateIsRunning?.(row.id) ?? false);
-  } catch {
-    return false;
-  }
+  return isChecksHoldOf(db, checksGateIsRunning, sessionKey);
 }
 
 /**
@@ -1536,7 +1524,18 @@ void thawLedgerAtBoot({
   log: (line) => console.warn(line),
 }).catch((err) => console.warn("[freeze] boot thaw failed:", err));
 
-const memSignal = createMemSignal({ probe: probeVm, measurable: process.platform === "darwin" });
+/**
+ * The 2-minute window is PARKED ON DISK between restarts (`fileMemSampleStore`).
+ * With `TOPICS_SERVER_WATCH=1` this server restarts on every save under
+ * `server/`, and a window born empty holds every admission and every resume for
+ * 120 s on a machine that may be completely free: 28 windows zeroed over 44
+ * restarts in 25.7 h of 16-17/09/2026, about 56 minutes a day of stopped queue.
+ */
+const memSignal = createMemSignal({
+  probe: probeVm,
+  measurable: process.platform === "darwin",
+  store: fileMemSampleStore(join(resolveStateDir(process.cwd()), "mem-samples.json")),
+});
 void memSignal.sample();
 
 /**
@@ -1768,7 +1767,7 @@ const taskDispatcher = createTaskDispatcher({
   // `hold` is the dispatcher's: the price of one card, the memory kept for the
   // turns in flight, and whether any of our work is on the machine.
   resourceBlock: (hold) =>
-    dispatchResourceBlock(
+    dispatchResourceVerdict(
       ctx.worktreeManager.worktreesDir(),
       undefined,
       () => memSignal.held(),
@@ -2562,17 +2561,25 @@ const tasksRouter = createTasksRouter(ctx, taskDispatcher, {
   // Collega il gate dei check al freno del dispatcher: appena il gate esiste,
   // `checksGateRunningCount` punta al suo `runningCount()` e il dispatcher
   // lo usa in ogni tick e resume per sapere quante barre sono in volo.
-  onChecksGate: (gate) => {
+  onChecksGate: (gate, hooks) => {
     checksGateRunningCount = () => gate.runningCount();
     checksGateIsRunning = (taskId) => gate.isRunning(taskId);
     checksGateIsOffLane = (taskId) => gate.isOffLane(taskId);
+    // What `sweepStaleChecksLights` calls on a card whose light it just had to
+    // switch off: the round is gone, and this is the only thing left in this
+    // process that can start another one.
+    resumeHeldDelivery = (taskId) => hooks.settleDelivery(taskId);
   },
   // The e2e row of a delivery is read from the pull request CI, never run here.
-  ciEvidence: (input) => awaitCiEvidence(input),
-  // No new pre-review command starts under the floor the admission uses, into
-  // sustained swap, or within 2 minutes of another delivery's release
-  // (15/09/2026: 5.9 GB free and 9.9 GB of swap, four commands on one poll).
-  checksMemoryFloor: { held: () => memSignal.held(), swap: () => memSignal.swap(), floorGB: DISPATCH_MEM_FLOOR_NATIVE_GB },
+  ciEvidence: ({ onCiWait, ...input }) => awaitCiEvidence(input, { onCiWait }),
+  // No new pre-review command starts under the memory floor, into sustained
+  // swap, or within 2 minutes of another delivery's release (15/09/2026: 5.9 GB
+  // free and 9.9 GB of swap, four commands on one poll). The floor is READ HERE,
+  // at every poll, not captured: it is the owner's setting on the reserved '*'
+  // row, so moving it in the panel takes effect on the next round. It used to be
+  // `DISPATCH_MEM_FLOOR_NATIVE_GB` — the floor for admitting an AGENT, three
+  // times the heaviest check command ever measured on this machine.
+  checksMemoryFloor: { held: () => memSignal.held(), swap: () => memSignal.swap(), floorGB: () => dispatcherSvc.getChecksMemFloorGB() },
   // Same union the dispatcher resolves against — but trimmed to the dirs that
   // are actually SELECTABLE boards. Internal catch-all plumbing (the shared
   // `generale` dir, the per-task `tasks/<id8>` cwds), the home dir, config
@@ -4908,7 +4915,23 @@ const staleStreamTimer = setInterval(() => {
   // A cut just happened, and its notice says "riprende da solo entro pochi
   // minuti": the resume sweep must not wait for its five-minute tick.
   if ([...sweepOutcomes.values()].includes("finalized")) nudgeResumeSweep();
+  sweepStaleChecksLights();
 }, STALE_STREAM_CHECK_INTERVAL_MS);
+
+/** The periodic half of the light's honesty (`services/checks-lights.ts`): the
+ *  boot sweep is blind to a round that died with the process still up. */
+function sweepStaleChecksLights(): void {
+  sweepStaleChecksLightsOf({
+    clearStale: (isLive) => dispatcherSvc.clearStaleChecksRuns(isLive),
+    isRunning: checksGateIsRunning,
+    announce: (id) => {
+      const task = dispatcherSvc.get(id)?.task;
+      if (task) broadcastToAll({ type: "task:updated", projectId: task.projectId, task });
+    },
+    resume: (id) => resumeHeldDelivery?.(id),
+    warn: (line) => console.warn(line),
+  });
+}
 
 // Task auto-dispatch reconciliation: on boot, requeue any in-progress task whose
 // agent turn died with the previous process; then poll to fill free slots on

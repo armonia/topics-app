@@ -137,7 +137,13 @@ async function startFakeEndpoint(opts: { hold: boolean }): Promise<{
   const { port } = server.address() as AddressInfo;
 
   return {
-    url: `http://127.0.0.1:${port}`,
+    // The `/v1` is part of the base URL, not something the server appends: the
+    // provider asks for `${baseUrl}/models` and `${baseUrl}/chat/completions`,
+    // and the Settings field ships `http://127.0.0.1:18080/v1` as its
+    // placeholder. Handing back a bare origin here registered an endpoint whose
+    // probe fetched `/models`, which this fake answers with a 404 — so the POST
+    // came back 502 and the spec died on its first assertion.
+    url: `http://127.0.0.1:${port}/v1`,
     recorder,
     close: () => new Promise<void>((resolve) => { server.close(() => resolve()); }),
   };
@@ -157,7 +163,7 @@ test.describe("a configured endpoint serving a chat", () => {
       const created = await request.post(`${BASE}/api/providers/endpoints`, {
         data: { id: SLUG, label: "E2E local", baseUrl: fake.url, auth: "none" },
       });
-      expect(created.ok()).toBeTruthy();
+      expect(created.ok(), await created.text()).toBeTruthy();
 
       // 2. Point the topic at it. This is the step that proves a configured
       //    endpoint is selectable for a chat at all.
@@ -209,9 +215,14 @@ test.describe("a configured endpoint serving a chat", () => {
     const topic = await createTopic(request, `direct-abort-${Date.now()}`);
 
     try {
-      await request.post(`${BASE}/api/providers/endpoints`, {
+      // Asserted, not fired and forgotten: an unregistered endpoint still lets
+      // the rest of the test run, and the failure then surfaces 30 seconds
+      // later as tokens that never arrive instead of as the refusal it is.
+      const created = await request.post(`${BASE}/api/providers/endpoints`, {
         data: { id: SLUG, label: "E2E local", baseUrl: fake.url, auth: "none" },
       });
+      expect(created.ok(), await created.text()).toBeTruthy();
+
       await patchTopic(request, topic.id, { provider: PROVIDER, model: MODEL });
       await resetPaneStore(request, [topic.id]);
 

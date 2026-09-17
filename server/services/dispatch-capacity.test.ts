@@ -6,12 +6,22 @@
 import { test, expect, describe } from "bun:test";
 import os from "os";
 import { Database } from "bun:sqlite";
-import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, effectiveDispatchCap, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages, probeVm } from "./dispatch-capacity";
+import { DISPATCH_DISK_FLOOR_GB, DISPATCH_MEM_FLOOR_GB, DISPATCH_MEM_FLOOR_NATIVE_GB, GB_PER_AGENT_CLI, GB_PER_AGENT_NATIVE, availableMemGB, computeDispatchCapacity, dispatchResourceBlock, dispatchResourceVerdict, effectiveDispatchCap, freeDiskGB, memoryTooTight, readGlobalCap, sizingDispatchCap, structuralDispatchCapacity, compressorGB, swapoutPages, probeVm, type MemoryFloorHold } from "./dispatch-capacity";
 import type { HeldMemory } from "./mem-signal";
 
 /** A full 2-minute window whose lowest reading is `gb`; `null` = memory not measurable here. */
 const held = (gb: number | null): (() => HeldMemory) => () =>
   gb == null ? { measurable: false, latestGB: null, heldGB: null, coveredMs: 0 } : { measurable: true, latestGB: gb, heldGB: gb, coveredMs: 120_000 };
+
+/**
+ * SOME OF OUR WORK ON THE MACHINE, which is what the memory floor now needs in
+ * order to hold at all: with none of it the first card goes through whatever the
+ * reading says (KANBAN-75), so a case about the SENTENCE has to say a turn is in
+ * flight or it is testing the exemption instead. `cardGB: 0` keeps the line at
+ * the floor itself, which is the number these cases are about.
+ */
+const working = (over: Partial<MemoryFloorHold> = {}): MemoryFloorHold =>
+  ({ cardGB: 0, reservedGB: 0, reservedCards: 0, spendingHere: true, ourWorkRunning: true, ...over });
 import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff } from "../../shared/board";
 import type { FleetLoadReading } from "../lib/fleet-usage";
 
@@ -246,7 +256,7 @@ describe("il pavimento sulla memoria", () => {
   });
 
   test("underCeiling il pavimento BLOCCA, e la frase porta il numero", () => {
-    const msg = dispatchResourceBlock("/qualunque", wideDisk, held(2.1));
+    const msg = dispatchResourceBlock("/qualunque", wideDisk, held(2.1), true, working());
     expect(msg).not.toBeNull();
     expect(msg!).toContain("ultimi 2 minuti è 2.1 GB");
     expect(msg!).toContain(String(DISPATCH_MEM_FLOOR_GB));
@@ -323,7 +333,7 @@ describe("il pavimento sulla memoria", () => {
     ].join("\n");
 
     const gate = (vm: string) => dispatchResourceBlock(
-      "/qualunque", () => 500, held(availableMemGB(() => vm)), true,
+      "/qualunque", () => 500, held(availableMemGB(() => vm)), true, working(),
     );
 
     expect(gate(thatNight)).not.toBeNull();   // the night of 2026-09-10: refuse
@@ -570,7 +580,7 @@ describe("il pavimento della memoria segue il runtime", () => {
   const ram = held;
 
   test("con le CLI: 8,7 GB non bastano, ed è giusto", () => {
-    const r = dispatchResourceBlock("/tmp", disco, ram(8.7), true);
+    const r = dispatchResourceBlock("/tmp", disco, ram(8.7), true, working());
     expect(r).toBeTruthy();
     expect(r).toContain("pavimento di 12 GB");
     expect(r).toContain("240 MB");
@@ -583,7 +593,7 @@ describe("il pavimento della memoria segue il runtime", () => {
     // nowhere. There is no derived threshold: `byMem` divides TOTAL memory, not
     // available, so the only rule on available memory is this one.
     const disk = () => 500;
-    const open = (gb: number) => dispatchResourceBlock("/tmp", disk, held(gb), false) === null;
+    const open = (gb: number) => dispatchResourceBlock("/tmp", disk, held(gb), false, working()) === null;
     expect(open(7.39)).toBe(true);   // worst healthy peak measured under load
     expect(open(6.01)).toBe(true);
     expect(open(5.99)).toBe(false);
@@ -607,7 +617,7 @@ describe("il pavimento della memoria segue il runtime", () => {
   test("il pavimento nativo esiste comunque: sotto la soglia si ferma anche lui", () => {
     // Non è zero: il server tiene le conversazioni in memoria e i tool leggono
     // file. Una macchina già in swap non deve peggiorare comunque.
-    const r = dispatchResourceBlock("/tmp", disco, ram(1.5), false);
+    const r = dispatchResourceBlock("/tmp", disco, ram(1.5), false, working());
     expect(r).toBeTruthy();
     // The number is READ from the constant, not copied: this test went red when
     // the floor moved from 2 to 6, and a test that has to be edited every time
@@ -628,33 +638,37 @@ describe("il pavimento della memoria segue il runtime", () => {
     // The dispatcher prices a card from the check peaks of the last cards (4 GB
     // with no history). A sentence still saying "~1,5 GB" sends whoever reads a
     // stopped queue to a number the gate stopped using.
-    const r = dispatchResourceBlock("/tmp", disco, ram(1.5), false, { cardGB: 5.2, reservedGB: 0, reservedCards: 0, ourWorkRunning: false });
+    const r = dispatchResourceBlock("/tmp", disco, ram(1.5), false, working({ cardGB: 5.2 }));
     expect(r).toContain("si prezza 5.2 GB");
     expect(r).not.toContain("1,5 GB");
   });
 
   test("C1: one line in both directions, the price only with our work on the machine, the kept memory only when charged", () => {
-    const hold = (over: Partial<{ cardGB: number; reservedGB: number; reservedCards: number; ourWorkRunning: boolean }> = {}) =>
-      ({ cardGB: 4, reservedGB: 0, reservedCards: 0, ourWorkRunning: false, ...over });
-    // Nothing of ours running: the floor alone.
+    const hold = (over: Partial<MemoryFloorHold> = {}): MemoryFloorHold =>
+      ({ cardGB: 4, reservedGB: 0, reservedCards: 0, spendingHere: false, ourWorkRunning: false, ...over });
+    /** A local turn that is still going to spend here: it is what lifts the line. */
+    const inFlight = (over: Partial<MemoryFloorHold> = {}) => hold({ spendingHere: true, ourWorkRunning: true, ...over });
+    // Nothing of ours running: the floor alone decides, and under it the first
+    // card goes through anyway - the sentence exists only with a turn in flight.
     expect(dispatchResourceBlock("/tmp", disco, ram(6.0), false, hold())).toBeNull();
-    expect(dispatchResourceBlock("/tmp", disco, ram(5.9), false, hold())).toContain("Memoria quasi finita");
+    expect(dispatchResourceBlock("/tmp", disco, ram(5.9), false, hold())).toBeNull();
+    expect(dispatchResourceBlock("/tmp", disco, ram(5.9), false, working())).toContain("Memoria quasi finita");
     // A turn in flight: floor + one card's price, 10 GB, and 9.9 is still under it.
-    const climbing = dispatchResourceBlock("/tmp", disco, ram(9.9), false, hold({ ourWorkRunning: true }));
+    const climbing = dispatchResourceBlock("/tmp", disco, ram(9.9), false, inFlight());
     expect(climbing).toContain("Memoria in risalita");
     expect(climbing).toContain("sotto i 10.0 GB che servono per una card in più");
     expect(climbing).toContain("resta sopra 10.0 GB per 2 minuti di fila");
-    expect(dispatchResourceBlock("/tmp", disco, ram(10.0), false, hold({ ourWorkRunning: true }))).toBeNull();
+    expect(dispatchResourceBlock("/tmp", disco, ram(10.0), false, inFlight())).toBeNull();
     // Count mode charges the turn in flight on the floor itself.
-    const kept = dispatchResourceBlock("/tmp", disco, ram(13.9), false, hold({ ourWorkRunning: true, reservedGB: 4, reservedCards: 1 }));
+    const kept = dispatchResourceBlock("/tmp", disco, ram(13.9), false, inFlight({ reservedGB: 4, reservedCards: 1 }));
     expect(kept).toContain("4.0 GB tenuti per l'agente al lavoro");
-    expect(dispatchResourceBlock("/tmp", disco, ram(14.0), false, hold({ ourWorkRunning: true, reservedGB: 4, reservedCards: 1 }))).toBeNull();
+    expect(dispatchResourceBlock("/tmp", disco, ram(14.0), false, inFlight({ reservedGB: 4, reservedCards: 1 }))).toBeNull();
     // Not measurable: memory never blocks, whatever the number would have been.
-    expect(dispatchResourceBlock("/tmp", disco, ram(null), false, hold({ ourWorkRunning: true }))).toBeNull();
+    expect(dispatchResourceBlock("/tmp", disco, ram(null), false, inFlight())).toBeNull();
   });
 
   test("C1b: the held sentence says WHO is holding the memory, and only when it is somebody else", () => {
-    const hold = { cardGB: 4, reservedGB: 0, reservedCards: 0, ourWorkRunning: false };
+    const hold = { cardGB: 4, reservedGB: 0, reservedCards: 0, spendingHere: true, ourWorkRunning: true };
     // 16/09/2026: seven cards held for hours by the Claude app, a Dia and a
     // `next-server` nobody had noticed. The chip said the number and no name.
     const who = [{ name: "Claude", gb: 8.1, procs: 12 }, { name: "next-server", gb: 2.9, procs: 1 }, { name: "Dia", gb: 2.6, procs: 21 }];
@@ -671,13 +685,13 @@ describe("il pavimento della memoria segue il runtime", () => {
   });
 
   test("C2: a window that is not full holds and says how long it has measured; every sentence starts with Memoria and has no long dash", () => {
-    const measuring = dispatchResourceBlock("/tmp", disco, () => ({ measurable: true, latestGB: 20, heldGB: null, coveredMs: 40_000 }), false);
+    const measuring = dispatchResourceBlock("/tmp", disco, () => ({ measurable: true, latestGB: 20, heldGB: null, coveredMs: 40_000 }), false, working());
     expect(measuring).toContain("la sto misurando da 40 s su 120");
     const sentences = [
       measuring,
-      dispatchResourceBlock("/tmp", disco, ram(2), false),
-      dispatchResourceBlock("/tmp", disco, ram(8), false, { cardGB: 4, reservedGB: 4, reservedCards: 2, ourWorkRunning: true }),
-      dispatchResourceBlock("/tmp", disco, ram(2), true),
+      dispatchResourceBlock("/tmp", disco, ram(2), false, working()),
+      dispatchResourceBlock("/tmp", disco, ram(8), false, { cardGB: 4, reservedGB: 4, reservedCards: 2, spendingHere: true, ourWorkRunning: true }),
+      dispatchResourceBlock("/tmp", disco, ram(2), true, working()),
     ];
     for (const r of sentences) {
       expect(r!.split(/[\s:]/)[0]).toBe("Memoria");

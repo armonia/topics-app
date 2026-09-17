@@ -1082,6 +1082,11 @@ const boardGlobalCapSchema = z.looseObject({
   // dropping the whole announcement.
   maxAgentsMode: z.optional(z.enum(['count', 'resources'])),
   budgetShare: z.optional(z.number()),
+  // How much free memory a new check command needs before it is spawned, in
+  // whole GB (`0` = the brake is off). Optional for the same reason again: a
+  // server that predates the setting sends nothing, and the panel keeps the
+  // default rather than reading the announcement as "switched off".
+  checksMemFloorGB: z.optional(z.number()),
 });
 
 const boardSettingsSchema = z.looseObject({
