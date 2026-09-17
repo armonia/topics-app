@@ -111,6 +111,103 @@ export interface WorktreeGcDeps {
   listOwnedScripts?: () => Array<{ processId: string; pid: number | null; projectPath: string; source?: string; status: string }>;
 }
 
+/**
+ * The transcript mtime of a task's topic, or null.
+ *
+ * It is the only trace of a session that writes without ever reaching our
+ * tables, and it is best-effort by design: a missing file, a topic without a
+ * Claude session id, an unreadable cwd — each one simply does not vote.
+ */
+function transcriptMtime(deps: Pick<WorktreeGcDeps, "db" | "getTopicBySessionKey" | "resolveTopicCwd">, topicId: string): number | null {
+  try {
+    const sk = (deps.db.prepare("SELECT session_key AS sk FROM topics WHERE id = ?")
+      .get(topicId) as { sk?: string } | undefined)?.sk;
+    const topic = sk ? deps.getTopicBySessionKey(sk) : null;
+    const csid = sk
+      ? (deps.db.prepare("SELECT claude_session_id AS id FROM claude_code_sessions WHERE session_key = ?")
+          .get(sk) as { id?: string } | undefined)?.id
+      : undefined;
+    const cwd = topic ? deps.resolveTopicCwd(topic) : null;
+    if (!cwd || !csid) return null;
+    const p = claudeTranscriptPath(cwd, csid);
+    return existsSync(p) ? statSync(p).mtimeMs : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Days since the LAST SIGN OF LIFE on a task, or null if we can't tell.
+ *
+ * "Life" is the union of every trace WORK leaves, because each one alone has a
+ * blind spot: comments miss a chat-only session, messages miss a turn that only
+ * committed, and both miss a CLI session whose only trace is the transcript
+ * growing on disk. The maximum is the honest answer; a query that blows up
+ * returns null, which the GC reads as "don't touch".
+ *
+ * WHAT IS NOT A SIGN OF LIFE, and this is the whole point of the function.
+ * `tasks.updated_at` used to vote here, and the dispatcher rewrites it every 60
+ * seconds through `setDispatchState` WHILE it holds the card (the queue-hold
+ * chip refresh, `HELD_RESUME_REFRESH_MS`). So the more thoroughly a card was
+ * stuck, the fresher it looked: measured 2026-09-17 on the live DB, all 8
+ * `in_progress` tasks had an `updated_at` less than 10 minutes old while 6 of
+ * them had not produced a single word of work in 2 days — idle ~0 for every
+ * one, `decideWorktreeReap` answering `keep` forever, and zero abandons in the
+ * whole history of the log. The dispatcher's own bookkeeping comments
+ * (`kind IN ('service','status')`) are out for the same reason: 314 "Memoria
+ * quasi finita" rows on cards where nobody was working.
+ */
+export function taskIdleDays(
+  db: Database,
+  taskId: string,
+  transcriptAt?: (topicId: string) => number | null,
+): number | null {
+  try {
+    const row = db
+      .prepare(
+        `SELECT (SELECT MAX(created_at) FROM task_comments
+                   WHERE task_id = t.id AND COALESCE(kind, 'comment') NOT IN ('service', 'status')) AS commentAt,
+                (SELECT MAX(m.timestamp) FROM messages m
+                   JOIN topics tp ON tp.session_key = m.session_key
+                  WHERE tp.id = t.assigned_topic_id) AS messageAt,
+                t.assigned_topic_id AS topicId
+           FROM tasks t WHERE t.id = ?`,
+      )
+      .get(taskId) as { commentAt?: string; messageAt?: string; topicId?: string } | undefined;
+    if (!row) return null;
+
+    let last = 0;
+    for (const ts of [row.commentAt, row.messageAt]) {
+      const ms = ts ? Date.parse(ts) : NaN;
+      if (Number.isFinite(ms)) last = Math.max(last, ms);
+    }
+
+    // An attempt is a turn that really ran, and it is the one trace a fan-out
+    // leaves when the losing agents said nothing. Its own query, because a DB
+    // without the table (an older test fixture) must cost this function a vote,
+    // never an answer of null — null reads as "don't touch" and would hide the
+    // very staleness we are measuring.
+    try {
+      const att = db
+        .prepare("SELECT MAX(MAX(COALESCE(ended_at, ''), COALESCE(created_at, ''))) AS at FROM task_attempts WHERE task_id = ?")
+        .get(taskId) as { at?: string } | undefined;
+      const ms = att?.at ? Date.parse(att.at) : NaN;
+      if (Number.isFinite(ms)) last = Math.max(last, ms);
+    } catch { /* one vote fewer, never a block */ }
+
+    if (row.topicId && transcriptAt) {
+      const ms = transcriptAt(row.topicId);
+      if (ms != null && Number.isFinite(ms)) last = Math.max(last, ms);
+    }
+
+    if (!last) return null;
+    return (Date.now() - last) / 86_400_000;
+  } catch (err) {
+    console.warn("[worktree-gc] idleDays failed", err);
+    return null;
+  }
+}
+
 export interface WorktreeGcRunner {
   runWorktreeGc: () => Promise<WorktreeGcSummary | null>;
   slimWorktreeOfTask: (taskId: string) => Promise<void>;
@@ -157,63 +254,8 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
     }
   }
 
-  /**
-   * Days since the LAST SIGN OF LIFE on a task, or null if we can't tell.
-   *
-   * "Life" is deliberately the union of every trace an agent or a human leaves,
-   * because each one alone has a blind spot: the task row misses work that only
-   * talked (a long turn commenting nothing), comments miss a chat-only session,
-   * and both miss a CLI session whose only trace is the transcript growing on
-   * disk. The maximum of the four is the honest answer; a query that blows up
-   * returns null, which the GC reads as "don't touch".
-   */
-  function taskIdleDays(taskId: string): number | null {
-    try {
-      const row = deps.db
-        .prepare(
-          `SELECT t.updated_at AS taskAt,
-                  (SELECT MAX(created_at) FROM task_comments WHERE task_id = t.id) AS commentAt,
-                  (SELECT MAX(m.timestamp) FROM messages m
-                     JOIN topics tp ON tp.session_key = m.session_key
-                    WHERE tp.id = t.assigned_topic_id) AS messageAt,
-                  t.assigned_topic_id AS topicId
-             FROM tasks t WHERE t.id = ?`,
-        )
-        .get(taskId) as { taskAt?: string; commentAt?: string; messageAt?: string; topicId?: string } | undefined;
-      if (!row) return null;
-
-      let last = 0;
-      for (const ts of [row.taskAt, row.commentAt, row.messageAt]) {
-        const ms = ts ? Date.parse(ts) : NaN;
-        if (Number.isFinite(ms)) last = Math.max(last, ms);
-      }
-
-      // The transcript: the only trace of a session that writes without ever
-      // reaching our tables. Best-effort — a missing file just doesn't vote.
-      if (row.topicId) {
-        try {
-          const sk = (deps.db.prepare("SELECT session_key AS sk FROM topics WHERE id = ?")
-            .get(row.topicId) as { sk?: string } | undefined)?.sk;
-          const topic = sk ? deps.getTopicBySessionKey(sk) : null;
-          const csid = sk
-            ? (deps.db.prepare("SELECT claude_session_id AS id FROM claude_code_sessions WHERE session_key = ?")
-                .get(sk) as { id?: string } | undefined)?.id
-            : undefined;
-          const cwd = topic ? deps.resolveTopicCwd(topic) : null;
-          if (cwd && csid) {
-            const p = claudeTranscriptPath(cwd, csid);
-            if (existsSync(p)) last = Math.max(last, statSync(p).mtimeMs);
-          }
-        } catch { /* il transcript è un voto in più, mai un blocco */ }
-      }
-
-      if (!last) return null;
-      return (Date.now() - last) / 86_400_000;
-    } catch (err) {
-      console.warn("[worktree-gc] idleDays failed", err);
-      return null;
-    }
-  }
+  const idleDaysOfTask = (taskId: string): number | null =>
+    taskIdleDays(deps.db, taskId, (topicId) => transcriptMtime(deps, topicId));
 
   /**
    * Un preview server non può sopravvivere alla cartella da cui serve: sia il
@@ -448,7 +490,7 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
         } catch { return false; }
       },
       abandonAfterDays: WORKTREE_ABANDON_DAYS,
-      idleDays: (taskId) => taskIdleDays(taskId),
+      idleDays: (taskId) => idleDaysOfTask(taskId),
       // «Il ramo non c'è più» va letto insieme a QUESTO, o dice il contrario del
       // vero. Il commit di consegna si guarda per CONTENUTO (`commitStatusFromRepo`
       // + `classifyLanding`, gli stessi dell'audit dei land): un land squashato non
