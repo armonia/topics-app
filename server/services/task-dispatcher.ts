@@ -5198,18 +5198,39 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             void reattachTask(t.id);
             continue;
           }
+          // UNA BOCCIATURA UMANA NON E' UN TURNO INTERROTTO.
+          //
+          // `buildContinueNudge` says "your previous turn was interrupted, no
+          // fault of yours, carry on ONLY with the work that is left" — which
+          // is the exact opposite of what happened when a person rejected the
+          // delivery with three objections. The rejection text lived in
+          // `slotWaits`, a Map in memory, because the floor was holding the
+          // resume: the first restart lost it and every restart after that
+          // handed the agent the interrupted-turn nudge instead. Measured
+          // 2026-09-17: 3 cards rejected on the 15th, stopped 45 hours, 44
+          // restarts each, and the words still sitting unread in the thread.
+          //
+          // The words themselves come from the service (`pendingHumanReopen`),
+          // which owns both the row that says who reopened and the record of
+          // which comments a resume envelope has already carried.
+          let bocciatura: { text: string; commentIds: string[] } | null = null;
+          try { bocciatura = deps.svc.pendingHumanReopen({ taskId: t.id }); }
+          catch { bocciatura = null; }
           try {
             deps.svc.claimInterruption({
               taskId: t.id,
-              note: reason === "boot"
-                ? (t.dispatchState === CHIP_QUEUED
-                  ? "Server ripartito mentre la card aspettava uno slot: riprendo la stessa sessione appena c'è posto, nessun tentativo consumato."
-                  : "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.")
-                : "Nessun turno vivo su questa card (riciclato o finito senza consegna): riprendo la stessa sessione, nessun tentativo consumato.",
+              note: bocciatura
+                ? "Riprendo la stessa sessione con la tua bocciatura, che il turno precedente non aveva ancora ricevuto: nessun tentativo consumato."
+                : reason === "boot"
+                  ? (t.dispatchState === CHIP_QUEUED
+                    ? "Server ripartito mentre la card aspettava uno slot: riprendo la stessa sessione appena c'è posto, nessun tentativo consumato."
+                    : "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.")
+                  : "Nessun turno vivo su questa card (riciclato o finito senza consegna): riprendo la stessa sessione, nessun tentativo consumato.",
             });
           } catch { /* dedupe/best-effort */ }
           // Sets inFlight synchronously → the 10s poll can never double-fire.
-          void resume(t.id, "", { continuation: true });
+          if (bocciatura) void resume(t.id, bocciatura.text, { commentIds: bocciatura.commentIds });
+          else void resume(t.id, "", { continuation: true });
           // COUNTED BY WHAT HAPPENED, not by the call. `resume` is synchronous up
           // to its start (`beginRun`) or its wait (`slotWaits`), so the two maps
           // already say which one it was. Counting the call wrote «riprese» for

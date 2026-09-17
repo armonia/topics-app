@@ -224,3 +224,72 @@ describe("il turno tagliato da un riavvio e' un fatto scritto", () => {
     expect(h.svc.get("t1")!.task.status).toBe("in_progress");
   });
 });
+
+/**
+ * UNA BOCCIATURA UMANA NON E' UN TURNO INTERROTTO.
+ *
+ * Il recupero qui sopra riprende ogni orfana con `buildContinueNudge`: «il tuo
+ * turno e' stato interrotto, non e' colpa tua, continua SOLO il lavoro
+ * rimasto». Su una card che una persona ha BOCCIATO con tre obiezioni quel
+ * testo dice il contrario di cio' che e' successo, e il testo vero viveva in
+ * una Map in memoria (`slotWaits`) perche' il pavimento tratteneva il resume:
+ * il primo riavvio lo perdeva. Misurato il 17/09/2026: 3 card bocciate il 15,
+ * ferme 45 ore, 44 riavvii ciascuna, e le parole ancora nel thread.
+ *
+ * @covers KANBAN-84
+ */
+describe("il recupero di una card che un umano ha bocciato", () => {
+  /** La card come la lascia un rifiuto in review: `reopened_actor = 'human'`. */
+  function seedBocciata(h: ReturnType<typeof harness>, id: string, testo: string): void {
+    seedOrfana(h.db, id, { chip: "working", interruptedAt: "2026-09-15T13:49:00.000Z" });
+    const c = h.svc.addComment({ taskId: id, author: "user", content: testo });
+    // LA TRAPPOLA, misurata sul DB vivo: la riga di stato e' scritta DOPO il
+    // commento, non prima. Su `f981f62c` sono 13:49:31.716 e 13:49:31.732,
+    // sedici millisecondi. Un filtro `created_at > reopened_at` non trova
+    // niente, e il fix sembra fatto mentre non fa nulla.
+    const dopo = new Date(Date.parse(c.createdAt) + 16).toISOString();
+    h.db.run("UPDATE tasks SET reopened_actor = 'human', reopened_at = ? WHERE id = ?", [dopo, id]);
+  }
+
+  it("riparte con le obiezioni della persona, non col sollecito da turno interrotto", async () => {
+    const h = harness();
+    seedBocciata(h, "t1", "Non si fonde ancora: il prefisso e' scaduto e il suffisso non e' quello consegnato.");
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    expect(h.turns.length).toBe(1);
+    const testo = h.turns[0]!.content;
+    expect(testo).toContain("Non si fonde ancora");
+    expect(testo).toContain("Human update on task");
+    expect(testo).not.toContain("was interrupted");
+    // E la card lo dice, invece di raccontare un riavvio a meta' turno.
+    expect(h.note("t1").some((c) => c.includes("con la tua bocciatura"))).toBe(true);
+  });
+
+  it("senza `reopened_actor = 'human'` resta il sollecito di prima", async () => {
+    const h = harness();
+    seedBocciata(h, "t1", "questo non conta: l'ha riaperta la macchina");
+    h.db.run("UPDATE tasks SET reopened_actor = 'system' WHERE id = 't1'");
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    expect(h.turns.length).toBe(1);
+    expect(h.turns[0]!.content).toContain("was interrupted");
+    expect(h.turns[0]!.content).not.toContain("Human update on task");
+  });
+
+  it("una nota di SERVIZIO non e' la voce di nessuno: non diventa un resume", async () => {
+    const h = harness();
+    seedOrfana(h.db, "t1", { chip: "working", interruptedAt: "2026-09-15T13:49:00.000Z" });
+    const c = h.svc.addComment({ taskId: "t1", author: "user", content: "contabilita'", kind: "service" });
+    h.db.run("UPDATE tasks SET reopened_actor = 'human', reopened_at = ? WHERE id = 't1'",
+      [new Date(Date.parse(c.createdAt) + 16).toISOString()]);
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    expect(h.turns[0]!.content).toContain("was interrupted");
+  });
+});

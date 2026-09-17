@@ -43,7 +43,7 @@ import { liveAgentCount } from "./agent-census";
 // the `TASK_STATUSES` list: whoever wants it takes it from `shared/board`.
 export type { TaskComment, BoardSettings, BoardSettingsPatch, ParkedChildrenDecision } from "../../shared/board";
 import {
-  ACTIVE_DISPATCH_STATES, ARCHIVE_PARKED_LABEL, DEPLOY_ACTION_LABEL, DISPATCH_CHIP_QUEUED, clampGlobalCap,
+  ACTIVE_DISPATCH_STATES, ARCHIVE_PARKED_LABEL, DEPLOY_ACTION_LABEL, DISPATCH_CHIP_QUEUED, HUMAN_AUTHOR, clampGlobalCap,
   MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PREVIEW_CARD_MAX_RATIO, QUEUE_REASON_UNKNOWN,
   PARKED_REQUEUE_NOTE_LIKE, PROMOTE_PARKED_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, TASK_STATUSES,
   WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP,
@@ -267,6 +267,22 @@ export { projectIdForPath } from "../../shared/board";
  */
 const INTERRUPT_CLAIM_MS = 3 * 60_000;
 
+/**
+ * How far BACK from `reopened_at` a human rejection's own words may sit.
+ *
+ * They are not written after the reopen, they are written just before it: the
+ * comment lands first, the status row an instant later. Measured 2026-09-17 on
+ * the live DB - `f981f62c` has the comment at 13:49:31.716 and the
+ * `review→in_progress` row at 13:49:31.732, sixteen milliseconds apart;
+ * `f68e46c9` and `cdc9f39b` are two and one millisecond apart. A filter that
+ * asks for words STRICTLY after the reopen finds nothing on all three, which
+ * is the worst possible failure here: the fix looks done and changes nothing.
+ *
+ * Five seconds is far wider than any of those gaps and far narrower than the
+ * gap to the turn before, which is minutes at the very least.
+ */
+const REOPEN_COMMENT_SLACK_MS = 5_000;
+
 interface ServiceOpts {
   now?: () => string;
   uuid?: () => string;
@@ -387,6 +403,34 @@ export interface TaskService {
    * l'interruzione è già raccontata.
    */
   claimInterruption(args: { taskId: string; note: string; by?: string }): TaskComment | null;
+  /**
+   * THE HUMAN REJECTION NOBODY EVER HANDED TO THE AGENT.
+   *
+   * When a person rejects a delivery, the words that say WHY live in the
+   * thread and the row records who reopened the card (`reopened_actor`). The
+   * dispatcher used to keep the text in a Map in memory, so a restart lost it
+   * and the card came back with "your turn was interrupted, carry on with the
+   * work that is left" - the opposite of "a human rejected this delivery with
+   * three objections". Measured 2026-09-17: 3 cards rejected on the 15th, still
+   * stopped 45 hours later, each one through 44 restarts.
+   *
+   * Returns the words still undelivered and their ids, or null.
+   *
+   * TWO TRAPS, both measured on the live DB, and both fatal to the naive query:
+   *
+   *  1. THE WORDS ARE OLDER THAN THE REOPEN, by milliseconds. The comment is
+   *     written first and the status row right after: on `f981f62c` they are
+   *     13:49:31.716 and 13:49:31.732, 16 ms apart (2 ms and 1 ms on the other
+   *     two cards). A `created_at > reopened_at` filter finds nothing at all
+   *     and the fix looks done while doing nothing. Hence the slack backwards.
+   *
+   *  2. "ALREADY SEEN" IS NOT "A TURN HAS RUN". A resume envelope records the
+   *     comments it carried (`dispatched-envelope` blocks on the message row),
+   *     and that - not the clock - is the honest answer to "did the agent ever
+   *     get these words". A turn that ran after the reopen with the WRONG text
+   *     did not deliver them; re-asking the clock would call that delivered.
+   */
+  pendingHumanReopen(args: { taskId: string }): { text: string; commentIds: string[] } | null;
   /**
    * Una interruzione, un SOLLECITO.
    *
@@ -2918,6 +2962,29 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   /**
+   * Third of the same family, for the row that says WHICH comments a resume
+   * envelope carried (`messages.blocks`). The task tables are this service's
+   * own; the message rows belong to the chat, and several test benches mount
+   * the first without the second. Probing keeps a query that reads the chat
+   * from throwing on a bench that never had one.
+   */
+  let messageBlocksColumn: boolean | null = null;
+  function supportsMessages(): boolean {
+    if (messageBlocksColumn === null) {
+      try {
+        const messaggi = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name?: string }>;
+        // Anche il PONTE va guardato, non solo la colonna: la query passa da
+        // `topics.session_key`, e una mezza verifica lascia in piedi proprio il
+        // caso che questa sonda esiste per escludere.
+        const topic = db.prepare("PRAGMA table_info(topics)").all() as Array<{ name?: string }>;
+        messageBlocksColumn = messaggi.some((c) => c.name === "blocks")
+          && topic.some((c) => c.name === "session_key");
+      } catch { messageBlocksColumn = false; }
+    }
+    return messageBlocksColumn;
+  }
+
+  /**
    * Append a status-transition event to the thread (kind='status'). Direct
    * INSERT — no dedupe, no question composing: transitions are deliberate
    * writes and each one IS the history entry ("chi l'ha spostato e quando").
@@ -4099,6 +4166,52 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const written = this.addComment({ taskId, author: by ?? "system", content: body, kind: "service" });
       db.prepare("UPDATE tasks SET interrupt_claimed_at = ? WHERE id = ?").run(now(), taskId);
       return written;
+    },
+
+    pendingHumanReopen({ taskId }): { text: string; commentIds: string[] } | null {
+      const row = getTaskRow(taskId);
+      if (!row) return null;
+      if (row.reopened_actor !== "human") return null;
+      const at = typeof row.reopened_at === "string" ? Date.parse(row.reopened_at) : NaN;
+      if (!Number.isFinite(at)) return null;
+      const da = new Date(at - REOPEN_COMMENT_SLACK_MS).toISOString();
+      // Stessa sonda dell'INSERT di `addComment`: la migration gira all'APERTURA
+      // del database, e un server gia' su serve lo schema vecchio finche' non
+      // ricarica. Nominare la colonna prima che esista fa esplodere la query, e
+      // qui l'esplosione si legge come «nessuna bocciatura da consegnare».
+      const nonSilenziosi = supportsCommentQuiet() ? "AND COALESCE(c.quiet, 0) = 0" : "";
+      // «Gia' consegnato» si legge sulla busta del resume, che registra gli id
+      // dei commenti che ha portato (`dispatched-envelope`). Senza la tabella
+      // dei messaggi — schemi di prova che non la montano — la domanda non si
+      // puo' fare, e la risposta onesta e' «nessuna consegna registrata».
+      const giaConsegnato = supportsMessages()
+        ? `AND NOT EXISTS (
+             SELECT 1 FROM messages m
+               JOIN topics tp ON tp.session_key = m.session_key
+              WHERE tp.id = ? AND m.blocks LIKE '%' || c.id || '%')`
+        : "";
+      const args: unknown[] = [taskId, HUMAN_AUTHOR, da];
+      if (supportsMessages()) args.push(row.assigned_topic_id ?? "");
+      let righe: Array<{ id: string; content: string }> = [];
+      try {
+        righe = db.prepare(
+          `SELECT c.id AS id, c.content AS content
+             FROM task_comments c
+            WHERE c.task_id = ?
+              AND c.author = ?
+              AND c.kind = 'comment'
+              ${nonSilenziosi}
+              AND TRIM(c.content) <> ''
+              AND c.created_at >= ?
+              ${giaConsegnato}
+            ORDER BY c.created_at, c.rowid`,
+        ).all(...(args as [])) as Array<{ id: string; content: string }>;
+      } catch { return null; }
+      if (righe.length === 0) return null;
+      return {
+        text: righe.map((r) => r.content.trim()).join("\n\n"),
+        commentIds: righe.map((r) => r.id),
+      };
     },
 
     claimNudge({ taskId, text }): string {
