@@ -23,12 +23,24 @@
  * With both rows declared the delivery pushes once, opens one draft and runs one
  * poll loop: both verdicts come from the same run of the same commit.
  *
+ * NOT MEASURED IS AN OUTCOME, NOT A DEAD END (KANBAN-85). A run that ENDED
+ * without a verdict — cancelled, superseded, finished without the job or the
+ * step a row reads — cannot be read again: re-delivering the same commit pushes
+ * nothing (the branch is already there), reuses the same draft and finds the
+ * same dead run. Measured on 17/09/2026: 15 of the last 100 shas with a
+ * `pull_request` run of ci.yml were already in that state. So the loop asks
+ * GitHub for ONE more attempt of that run (the rerun changes `run_attempt`, not
+ * the sha) and keeps polling; when it cannot, the row says that only a new
+ * commit unblocks it. It also leaves at the first red instead of waiting out the
+ * other row — the same rule the local commands follow — and a branch with no
+ * commit of its own is NOT MEASURED, never two greens.
+ *
  * Between two polls no child process is alive: each git/gh call is a short argv
  * spawn at agent priority with its own 60 s cap on its whole process group, and it
  * never throws.
  */
 import { spawn } from "node:child_process";
-import { UNIT_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
+import { NOT_MEASURED_EXIT, UNIT_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
 import { lowPriorityArgv } from "../lib/low-priority";
 import { ChecksInterruptedError } from "./checks-gate";
 import { reviewChecksStopping } from "./review-checks-brakes";
@@ -46,7 +58,10 @@ export const CI_CALL_TIMEOUT_MS = 60_000;
 export const CI_CONFIG_PATH = ".github/workflows/ci.yml";
 export const CI_BASE_BRANCH = "main";
 
-const NOT_MEASURED_CODE = 97;
+/** What unblocks a row whose run ended without a verdict, in the words of the card. */
+const NEEDS_A_NEW_COMMIT = "this same commit cannot be measured again, only a new commit can";
+const NO_OWN_COMMIT =
+  `no commit of its own beyond ${CI_BASE_BRANCH}: nothing was pushed and no CI run reads this delivery, so ${NEEDS_A_NEW_COMMIT}`;
 const E2E_JOB = /^e2e( \(\d+\))?$/;
 const PREPARE_JOB = "prepare-e2e";
 /** The job and step of ci.yml whose conclusion is the unit verdict. */
@@ -180,7 +195,7 @@ function contextLines(run: GithubRun | null, ctx: RunContext): string[] {
 /** A NOT MEASURED row: code 97, the reason first. Never `timedOut`. */
 export function ciNotMeasured(check: ReviewCheck, reason: string, extra: RunContext & { ms?: number; run?: GithubRun | null } = {}): CheckRun {
   return {
-    name: check.name, cmd: check.cmd, ok: false, code: NOT_MEASURED_CODE, ms: extra.ms ?? 0,
+    name: check.name, cmd: check.cmd, ok: false, code: NOT_MEASURED_EXIT, ms: extra.ms ?? 0,
     timedOut: false, notMeasured: true,
     tail: [`NOT MEASURED: ${reason}`, ...contextLines(extra.run ?? null, extra)].join("\n"),
   };
@@ -226,6 +241,8 @@ export interface GithubPort {
   runs(repo: string, sha: string): Promise<Got<GithubRun[]>>;
   jobs(repo: string, runId: number): Promise<Got<GithubJob[]>>;
   mergeState(repo: string, pr: number): Promise<Got<string>>;
+  /** One more attempt of a run that ended without a verdict: same sha, new `run_attempt`. */
+  rerun(repo: string, runId: number): Promise<Got<void>>;
 }
 
 type Spawned = { code: number; out: string; err: string };
@@ -358,6 +375,7 @@ export function githubPort(): GithubPort {
       (o) => listField<GithubJob>(o, "jobs")),
     mergeState: (repo, pr) => call(["gh", "pr", "view", String(pr), "--repo", repo, "--json", "mergeable"], process.cwd(),
       (o) => String((JSON.parse(o) as Record<string, unknown>).mergeable ?? "")),
+    rerun: (repo, runId) => call(["gh", "run", "rerun", String(runId), "--repo", repo], process.cwd(), () => undefined),
   };
 }
 
@@ -370,6 +388,15 @@ export type AwaitCiDeps = {
   deadlineMs?: number;
   noRunGraceMs?: number;
   apiErrorsMax?: number;
+  /**
+   * The links of the wait, as soon as they exist: the draft pull request right
+   * after it is opened, the run at the first poll that sees it. Both were born
+   * within seconds and reached the card only in the `tail` of the verdict, a
+   * quarter of an hour later (run 35158365969: 22:34:48 to 22:49:48), so while
+   * GitHub measured, the card had nothing to open. Called at most once per link
+   * and never allowed to throw into the loop.
+   */
+  onCiWait?: (links: { prUrl: string; runUrl?: string }) => void;
 };
 
 /**
@@ -412,12 +439,12 @@ export async function awaitCiEvidence(
   halt();
   const own = await port.ownCommits(cwd, sha, CI_BASE_BRANCH);
   if (!own.ok) return notMeasured(`cannot count the commits beyond ${CI_BASE_BRANCH}: ${own.error}`);
-  if (own.value === 0) {
-    return checks.map((check) => ({
-      name: check.name, cmd: check.cmd, ok: true, code: 0, ms: elapsed(), timedOut: false,
-      tail: `no commit of its own beyond ${CI_BASE_BRANCH}: nothing to push, no CI to read`,
-    }));
-  }
+  // A GREEN THAT MEASURED NOTHING IS NOT A GREEN (`review-checks.ts` says it of
+  // the local rails, and these rows exist for the same reason). Until 17/09/2026
+  // a branch with nothing of its own beyond main came back as TWO greens with a
+  // note in the tail — the shortest path there is to deliver a branch that
+  // measures nothing at all.
+  if (own.value === 0) return notMeasured(NO_OWN_COMMIT);
   const branch = await port.branch(cwd);
   if (!branch.ok || !branch.value) return notMeasured(`the worktree is not on a branch${branch.ok ? "" : `: ${branch.error}`}`);
   const repo = await port.repo(cwd);
@@ -445,11 +472,30 @@ export async function awaitCiEvidence(
   if (!pr.ok) return notMeasured(`cannot open or find the draft pull request: ${pr.error}`);
   const ctx: RunContext = { repo: repo.value, prUrl: pr.value.url };
   const pushedAt = now();
+  let toldRunUrl = "";
+  const tellWait = (runUrl?: string) => {
+    try { deps.onCiWait?.({ prUrl: pr.value.url, ...(runUrl ? { runUrl } : {}) }); }
+    catch { /* a link on the card: it must never stop the wait */ }
+  };
+  tellWait();
 
   let errors = 0;
   let lastError = "";
   let conflictProbed = false;
+  let rerunTried = false;
+  let rerunError = "";
   let lastRun: GithubRun | null = null;
+  /** A row whose run ended without a verdict says what unblocks it, once the rerun is spent. */
+  type Settled = Exclude<CiEvidence, { kind: "pending" }>;
+  const deadEnd = (outcome: Settled): Settled =>
+    outcome.kind === "notMeasured" && rerunTried
+      ? {
+        ...outcome,
+        reason: `${outcome.reason}; ${rerunError
+          ? `asking GitHub to re-run it failed (${rerunError})`
+          : "it was re-run once and still has no verdict"}: ${NEEDS_A_NEW_COMMIT}`,
+      }
+      : outcome;
   for (;;) {
     halt();
     const runs = await port.runs(repo.value, sha);
@@ -471,20 +517,62 @@ export async function awaitCiEvidence(
     if (errors >= errorsMax) return notMeasured(`${errors} GitHub reads failed in a row: ${lastError}`, { ...ctx, run: lastRun });
     let noRun = false;
     if (read) {
-      for (const check of open()) {
-        const outcome = readCiEvidence(check, sha, read.runs, read.jobs);
-        if (outcome.kind !== "pending") settled.set(check, ciCheckRun(check, outcome, elapsed(), ctx));
-        else {
+      const page = read;
+      const run = latestCiRun(sha, page.runs);
+      if (run && run.html_url !== toldRunUrl) {
+        toldRunUrl = run.html_url;
+        tellWait(run.html_url);
+      }
+      const outcomes = open().map((check) => ({ check, outcome: readCiEvidence(check, sha, page.runs, page.jobs) }));
+      // A RUN THAT ENDED WITHOUT A VERDICT: ONE MORE ATTEMPT, NOT ANOTHER GIRO.
+      //
+      // The readers answer `notMeasured` only when there is nothing left to wait
+      // for, so a completed run where EVERY open row is not measured has nothing
+      // more to give. Re-delivering the same commit would push nothing (the
+      // branch is already there), reuse the draft and find this same run: 15 of
+      // the last 100 shas measured on 17/09/2026 were already parked there.
+      // Only when the run itself is over, so a rerun cannot cut a shard still
+      // running for the other row.
+      if (run && run.status === "completed" && !rerunTried
+        && outcomes.length > 0 && outcomes.every((o) => o.outcome.kind === "notMeasured")) {
+        rerunTried = true;
+        const again = await port.rerun(repo.value, run.id);
+        if (again.ok) {
+          // The new attempt re-measures every row that has no verdict; a row
+          // already green or red measured something real on this commit.
+          for (const [check, row] of [...settled]) if (row.notMeasured) settled.delete(check);
+          await pause(pollMs);
+          continue;
+        }
+        rerunError = again.error;
+      }
+      for (const { check, outcome } of outcomes) {
+        if (outcome.kind === "pending") {
           lastRun = outcome.run;
           noRun ||= !outcome.run;
+          continue;
         }
+        settled.set(check, ciCheckRun(check, deadEnd(outcome), elapsed(), ctx));
+      }
+      // ONE RED ENDS THE ROUND, like the local commands (`review-checks.ts`:
+      // sequential, stop at the first red). An actionable red used to be
+      // delivered 60 minutes late because the loop kept waiting for the other
+      // row's verdict, which changes nothing about what the person has to do.
+      const red = checks.map((c) => settled.get(c)).find((r) => r && !r.ok && !r.notMeasured);
+      if (red) {
+        return notMeasured(`the round stopped at the first red (${red.name}), so this row was not waited for`,
+          { ...ctx, run: run ?? lastRun });
       }
       if (open().length === 0) return checks.map((c) => settled.get(c)!);
     }
     const waited = now() - pushedAt;
     if (noRun && !conflictProbed && waited >= graceMs) {
-      conflictProbed = true;
       const state = await port.mergeState(repo.value, pr.value.number);
+      // ONLY A CONCLUSIVE ANSWER SPENDS THE PROBE. `UNKNOWN` (GitHub is still
+      // computing the merge) and a failed read used to disarm it just the same,
+      // and with the single way this loop has of recognising a conflict burnt on
+      // the first try what was left was 55 minutes of mute waiting.
+      if (state.ok && (state.value === "CONFLICTING" || state.value === "MERGEABLE")) conflictProbed = true;
       if (state.ok && state.value === "CONFLICTING") {
         return notMeasured("the pull request conflicts with main, so no CI run starts", ctx);
       }

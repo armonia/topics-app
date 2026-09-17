@@ -1620,6 +1620,23 @@ export function isCiEvidenceCheck(check: { cmd: string }): boolean {
   return cmd === E2E_CI_CHECK.cmd || cmd === UNIT_CI_CHECK.cmd;
 }
 
+/**
+ * THE EXIT CODE THAT SAYS "I DID NOT MEASURE", not "you got it wrong".
+ *
+ * The gates that cannot even start use it: `typecheck-server.ts` when `tsc` is
+ * missing, `check-client-deps.ts` when `eslint` is. It happens in every dispatch
+ * worktree, because `git worktree add` copies the TRACKED files and
+ * `client/node_modules` is not one — measured on 18/08/2026: 95 worktrees out
+ * of 103 without it. Without this number those gates exited 1, indistinguishable
+ * from a real red, and the card wrote `checks_state = 'fail'` on branches that
+ * often had no commit at all.
+ *
+ * Here and not in `review-checks.ts` because the CARD reads it too: a row stored
+ * before `notMeasured` existed carries only this code, and drawn as `exit 97` it
+ * sends whoever reviews looking for a failure that is not there.
+ */
+export const NOT_MEASURED_EXIT = 97;
+
 /** Esito di UN comando. `tail` è la coda dell'output combinato (stdout+stderr). */
 export interface CheckRun {
   name: string;

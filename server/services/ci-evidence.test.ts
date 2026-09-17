@@ -172,10 +172,10 @@ describe("readUnitEvidence", () => {
   });
 });
 
-type Calls = { push: Array<{ sha: string; branch: string; lease?: string }>; runs: number; pr: number; merge: number };
+type Calls = { push: Array<{ sha: string; branch: string; lease?: string }>; runs: number; pr: number; merge: number; rerun: number[] };
 
 function fakePort(over: Partial<GithubPort> = {}): { port: GithubPort; calls: Calls } {
-  const calls: Calls = { push: [], runs: 0, pr: 0, merge: 0 };
+  const calls: Calls = { push: [], runs: 0, pr: 0, merge: 0, rerun: [] };
   const port: GithubPort = {
     ownCommits: async () => ({ ok: true, value: 2 }),
     branch: async () => ({ ok: true, value: "topics/card" }),
@@ -187,12 +187,14 @@ function fakePort(over: Partial<GithubPort> = {}): { port: GithubPort; calls: Ca
     runs: async () => { calls.runs += 1; return { ok: true, value: [run()] }; },
     jobs: async () => ({ ok: true, value: green }),
     mergeState: async () => { calls.merge += 1; return { ok: true, value: "MERGEABLE" }; },
+    rerun: async (_repo, runId) => { calls.rerun.push(runId); return { ok: true, value: undefined }; },
     ...over,
   };
   // Keep the counters when a test overrides a counted method.
   if (over.runs) { const inner = over.runs; port.runs = async (...a) => { calls.runs += 1; return inner(...a); }; }
   if (over.push) { const inner = over.push; port.push = async (...a) => { calls.push.push({ sha: a[1], branch: a[2], lease: a[3] }); return inner(...a); }; }
   if (over.mergeState) { const inner = over.mergeState; port.mergeState = async (...a) => { calls.merge += 1; return inner(...a); }; }
+  if (over.rerun) { const inner = over.rerun; port.rerun = async (...a) => { calls.rerun.push(a[1]); return inner(...a); }; }
   return { port, calls };
 }
 
@@ -314,11 +316,14 @@ describe("awaitCiEvidence with the e2e row", () => {
     await expect(e2eRow(input, { port, now: clock.now, sleep, stopping: () => stop })).rejects.toBeInstanceOf(ChecksInterruptedError);
   });
 
-  test("no commit beyond main is green with a note, and nothing is pushed or opened", async () => {
+  // A green that measured nothing is the lie these rows exist not to tell: until
+  // 17/09/2026 a branch with nothing of its own came back as two greens.
+  test("no commit beyond main is NOT MEASURED with its reason, and nothing is pushed or opened", async () => {
     const { port, calls } = fakePort({ ownCommits: async () => ({ ok: true, value: 0 }) });
-    const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false });
-    expect(row.ok).toBe(true);
-    expect(row.tail).toContain("no commit of its own");
+    const rows = await awaitCiEvidence({ ...input, checks: [E2E_CI_CHECK, UNIT_CI_CHECK] }, { port, ...fakeClock(), stopping: () => false });
+    expect(rows.map((r) => [r.ok, r.code, r.notMeasured])).toEqual([[false, 97, true], [false, 97, true]]);
+    expect(rows[0]!.tail).toContain("no commit of its own");
+    expect(rows[0]!.tail).toContain("only a new commit");
     expect(calls.push.length).toBe(0);
     expect(calls.pr).toBe(0);
   });
@@ -329,6 +334,120 @@ describe("awaitCiEvidence with the e2e row", () => {
     expect(row.ok).toBe(true);
     expect(calls.push).toEqual([{ sha: SHA, branch: "topics/card", lease: undefined }]);
     expect(row.tail).toContain("pull/5");
+  });
+});
+
+/**
+ * A run that ENDED without a verdict is a dead end: the same commit reads the
+ * same dead run forever (15 of the last 100 shas measured on 17/09/2026 were
+ * already there). One rerun, and if that is refused the row says what unblocks
+ * it. @covers KANBAN-85
+ */
+describe("a terminal run without a verdict", () => {
+  test("is re-run once, and the new attempt gives the verdict", async () => {
+    let attempt = 1;
+    const { port, calls } = fakePort({
+      runs: async () => ({ ok: true, value: [run(attempt === 1 ? { conclusion: "cancelled" } : { run_attempt: 2 })] }),
+      rerun: async () => { attempt = 2; return { ok: true, value: undefined }; },
+    });
+    const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false });
+    expect(calls.rerun).toEqual([10]);
+    expect(row.ok).toBe(true);
+  });
+
+  test("that cannot be re-run says a new commit is needed, and is asked only once", async () => {
+    const { port, calls } = fakePort({
+      runs: async () => ({ ok: true, value: [run({ conclusion: "cancelled" })] }),
+      rerun: async () => ({ ok: false, error: "gh: run not rerunnable" }),
+    });
+    const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false });
+    expect(row.notMeasured).toBe(true);
+    expect(row.tail).toContain("not rerunnable");
+    expect(row.tail).toContain("only a new commit can");
+    expect(calls.rerun.length).toBe(1);
+  });
+
+  test("re-run once and still mute says so, instead of another silent hour", async () => {
+    const { port, calls } = fakePort({ runs: async () => ({ ok: true, value: [run({ conclusion: "cancelled" })] }) });
+    const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false });
+    expect(calls.rerun.length).toBe(1);
+    expect(row.notMeasured).toBe(true);
+    expect(row.tail).toContain("re-run once");
+    expect(row.tail).toContain("only a new commit can");
+  });
+
+  test("a run still in progress for the other row is never re-run under it", async () => {
+    const clock = fakeClock();
+    const { port, calls } = fakePort({
+      runs: async () => ({ ok: true, value: [run({ status: "in_progress", conclusion: null })] }),
+      // The unit step is cut short while the e2e shards still run: the e2e row
+      // has everything to wait for, and a rerun would kill it.
+      jobs: async () => ({ ok: true, value: [checkJob("cancelled"), job("prepare-e2e", "success"), job("e2e (1)", null)] }),
+    });
+    const rows = await awaitCiEvidence({ ...input, checks: [E2E_CI_CHECK, UNIT_CI_CHECK] }, { port, now: clock.now, sleep: clock.sleep, stopping: () => false });
+    expect(calls.rerun.length).toBe(0);
+    expect(rows.map((r) => r.notMeasured)).toEqual([true, true]);
+    expect(rows[1]!.tail).not.toContain("only a new commit can");
+  });
+});
+
+describe("the round stops at the first red, like the local commands", () => {
+  test("a red unit row ends the wait, and the e2e row is NOT MEASURED naming it", async () => {
+    const clock = fakeClock();
+    const start = clock.now();
+    const { port } = fakePort({
+      runs: async () => ({ ok: true, value: [run({ status: "in_progress", conclusion: null })] }),
+      jobs: async () => ({ ok: true, value: [checkJob("failure", { status: "completed", conclusion: "failure" }), job("prepare-e2e", "success"), job("e2e (1)", null)] }),
+    });
+    const rows = await awaitCiEvidence({ ...input, checks: [E2E_CI_CHECK, UNIT_CI_CHECK] }, { port, now: clock.now, sleep: clock.sleep, stopping: () => false });
+    expect(rows[1]!.ok).toBe(false);
+    expect(rows[1]!.notMeasured).toBeUndefined();
+    expect(rows[0]!.notMeasured).toBe(true);
+    expect(rows[0]!.tail).toContain(UNIT_CI_CHECK.name);
+    // The red was actionable at the first poll: it used to arrive an hour later.
+    expect(clock.now() - start).toBeLessThan(5 * 60_000);
+  });
+});
+
+describe("the conflict probe", () => {
+  test("survives an unreadable and an UNKNOWN answer, and still finds the conflict", async () => {
+    let probes = 0;
+    const { port, calls } = fakePort({
+      runs: async () => ({ ok: true, value: [] }),
+      mergeState: async () => {
+        probes += 1;
+        if (probes === 1) return { ok: false, error: "HTTP 502" };
+        if (probes === 2) return { ok: true, value: "UNKNOWN" };
+        return { ok: true, value: "CONFLICTING" };
+      },
+    });
+    const clock = fakeClock();
+    const row = await e2eRow(input, { port, now: clock.now, sleep: clock.sleep, stopping: () => false });
+    expect(calls.merge).toBe(3);
+    expect(row.tail).toContain("conflicts");
+  });
+
+  test("is spent by a conclusive MERGEABLE: asked once, then the deadline", async () => {
+    const clock = fakeClock();
+    const { port, calls } = fakePort({ runs: async () => ({ ok: true, value: [] }) });
+    const row = await e2eRow(input, { port, now: clock.now, sleep: clock.sleep, stopping: () => false });
+    expect(calls.merge).toBe(1);
+    expect(row.notMeasured).toBe(true);
+    expect(row.tail).toContain("no CI verdict");
+  });
+});
+
+describe("the links of the wait", () => {
+  test("the pull request travels before any run, the run at the poll that sees it", async () => {
+    let polls = 0;
+    const seen: Array<{ prUrl: string; runUrl?: string }> = [];
+    const { port } = fakePort({ runs: async () => ({ ok: true, value: ++polls >= 2 ? [run()] : [] }) });
+    const row = await e2eRow(input, { port, ...fakeClock(), stopping: () => false, onCiWait: (l) => { seen.push(l); } });
+    expect(row.ok).toBe(true);
+    expect(seen).toEqual([
+      { prUrl: "https://github.com/o/r/pull/5" },
+      { prUrl: "https://github.com/o/r/pull/5", runUrl: "https://github.com/o/r/actions/runs/10" },
+    ]);
   });
 });
 
@@ -482,6 +601,26 @@ describe("contracts", () => {
     expect(e2e).toContain("E2E_TIER: pr");
     expect(e2e).toContain("if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' }}");
     expect(e2e).toContain("bun run check:e2e-touched --base=\"origin/${{ github.base_ref }}\"");
+  });
+
+  // THE SHAPE OF THE NAMES, not only the name of the step (its twin, below).
+  // `E2E_JOB` reads `e2e (N)`: GitHub spells a one-axis matrix that way and a
+  // two-axis one `e2e (1, chromium)`, which matches nothing — every delivery
+  // would come back NOT MEASURED with the CI green, and no gate would notice.
+  // Not theoretical: the install step of this very job already pulls "Chromium
+  // + WebKit", so a second axis is one line away.
+  test("the e2e matrix still has ONE axis, or the job names this reader matches change", () => {
+    const ci = readFileSync(join(import.meta.dir, "../../.github/workflows/ci.yml"), "utf8");
+    const from = ci.search(/^ {2}e2e:$/m);
+    const rest = ci.slice(from + 1);
+    const next = rest.search(/^ {2}[\w-]+:$/m);
+    const e2e = next >= 0 ? rest.slice(0, next) : rest;
+    const matrix = e2e.match(/^ {6}matrix:\n((?: {8}\S.*\n| {10}.*\n|\n)+)/m);
+    expect(matrix).not.toBeNull();
+    const axes = matrix![1]!.split("\n").filter((l) => /^ {8}\S/.test(l)).map((l) => l.trim().split(":")[0]);
+    expect(axes).toEqual(["shard"]);
+    // And the names that axis produces are the ones `E2E_JOB` accepts.
+    expect(e2e).toMatch(/^ {8}shard: \[(\d+(, )?)+\]$/m);
   });
 
   test("ci.yml still runs the unit suite in the step the unit row reads, inside the check job", () => {
