@@ -1,5 +1,37 @@
 [
   {
+    "version": "2.2.346",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Lo split ha spostato i commenti, e il cancello li ha contati come nuovi: 180 righe riscritte in inglese",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.345",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il file dei test del land aveva sfondato il cancello: sette argomenti, sette file",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.344",
     "date": "2026-09-17",
     "sections": {
@@ -43,6 +75,11 @@
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "Il flag che salvava la bozza la chiudeva lo stesso: bastava cancellarle il ramo",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Un episodio di thrash regalava l'esenzione dal pavimento per tutto il giro",
@@ -180,6 +217,11 @@
           "it": "La nota del muro provider ripartiva a ogni boot: ~300 paragrafi identici al giorno",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Una card consegna su PIU' rami: la spazzata ne puliva uno, e chiudeva la bozza sbagliata",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -248,12 +290,22 @@
           "scope": null
         },
         {
+          "it": "Il land riallinea DOPO il verdetto: la card diceva verde di un commit che non atterra",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "La spia 'running' che solo un boot spegneva teneva isChecksHold vero per sempre",
           "en": "",
           "scope": null
         },
         {
           "it": "Il giro di consegna ripartiva da zero a ogni riavvio senza che nessuno lo contasse",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nessuno chiudeva la bozza ne' cancellava il ramo: 39 rami su 41 gia' dentro main",
           "en": "",
           "scope": null
         },

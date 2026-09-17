@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.346 — 2026-09-17
+
+### Sotto il cofano
+- Lo split ha spostato i commenti, e il cancello li ha contati come nuovi: 180 righe riscritte in inglese
+
+## 2.2.345 — 2026-09-17
+
+### Sotto il cofano
+- Il file dei test del land aveva sfondato il cancello: sette argomenti, sette file
+
 ## 2.2.344 — 2026-09-17
 
 ### Sotto il cofano
@@ -14,6 +24,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - **e2e** · aggiorna durate shard dal nightly del 2026-09-17 [skip ci]
+- Il flag che salvava la bozza la chiudeva lo stesso: bastava cancellarle il ramo
 - Un episodio di thrash regalava l'esenzione dal pavimento per tutto il giro
 
 ## 2.2.342 — 2026-09-17
@@ -45,6 +56,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Una bocciatura di tre commenti ne registrava uno solo
 - La mia regola sul freno dei check era un no-op: la verifica l'ha eseguita
 - La nota del muro provider ripartiva a ogni boot: ~300 paragrafi identici al giorno
+- Una card consegna su PIU' rami: la spazzata ne puliva uno, e chiudeva la bozza sbagliata
 
 ## 2.2.340 — 2026-09-17
 
@@ -60,8 +72,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il pavimento dei check vive dentro il verdetto sullo swap, non accanto
 - T5.1: la misura sta nei task, con la correzione alla premessa
 - La catena ha girato intera: tre buchi osservati invece che dedotti
+- Il land riallinea DOPO il verdetto: la card diceva verde di un commit che non atterra
 - La spia 'running' che solo un boot spegneva teneva isChecksHold vero per sempre
 - Il giro di consegna ripartiva da zero a ogni riavvio senza che nessuno lo contasse
+- Nessuno chiudeva la bozza ne' cancellava il ramo: 39 rami su 41 gia' dentro main
 - Un hold di sei giorni si leggeva come uno di sei ore: l'etichetta era solo l'ora
 
 ## 2.2.339 — 2026-09-17
