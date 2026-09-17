@@ -224,3 +224,72 @@ describe("il turno tagliato da un riavvio e' un fatto scritto", () => {
     expect(h.svc.get("t1")!.task.status).toBe("in_progress");
   });
 });
+
+/**
+ * A HUMAN REJECTION IS NOT AN INTERRUPTED TURN.
+ *
+ * The recovery above resumes every orphan with `buildContinueNudge`: "your
+ * previous turn was interrupted, no fault of yours, continue ONLY the work
+ * that is left". On a card a person REJECTED with three objections that text
+ * says the opposite of what happened, and the real text lived in a Map in
+ * memory (`slotWaits`) because the floor was holding the resume: the first
+ * restart lost it. Measured 2026-09-17: 3 cards rejected on the 15th, stopped
+ * 45 hours, 44 restarts each, and the words still sitting in the thread.
+ *
+ * @covers KANBAN-84
+ */
+describe("il recupero di una card che un umano ha bocciato", () => {
+  /** The card as a review rejection leaves it: `reopened_actor = 'human'`. */
+  function seedRejected(h: ReturnType<typeof harness>, id: string, words: string): void {
+    seedOrfana(h.db, id, { chip: "working", interruptedAt: "2026-09-15T13:49:00.000Z" });
+    const c = h.svc.addComment({ taskId: id, author: "user", content: words });
+    // THE TRAP, measured on the live DB: the status row is written AFTER the
+    // comment, not before. On `f981f62c` they are 13:49:31.716 and
+    // 13:49:31.732, sixteen milliseconds. A `created_at > reopened_at` filter
+    // finds nothing, and the fix looks done while doing nothing.
+    const at = new Date(Date.parse(c.createdAt) + 16).toISOString();
+    h.db.run("UPDATE tasks SET reopened_actor = 'human', reopened_at = ? WHERE id = ?", [at, id]);
+  }
+
+  it("riparte con le obiezioni della persona, non col sollecito da turno interrotto", async () => {
+    const h = harness();
+    seedRejected(h, "t1", "Non si fonde ancora: il prefisso e' scaduto e il suffisso non e' quello consegnato.");
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    expect(h.turns.length).toBe(1);
+    const said = h.turns[0]!.content;
+    expect(said).toContain("Non si fonde ancora");
+    expect(said).toContain("Human update on task");
+    expect(said).not.toContain("was interrupted");
+    // And the card says so, instead of narrating a restart mid-turn.
+    expect(h.note("t1").some((c) => c.includes("con la tua bocciatura"))).toBe(true);
+  });
+
+  it("senza `reopened_actor = 'human'` resta il sollecito di prima", async () => {
+    const h = harness();
+    seedRejected(h, "t1", "questo non conta: l'ha riaperta la macchina");
+    h.db.run("UPDATE tasks SET reopened_actor = 'system' WHERE id = 't1'");
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    expect(h.turns.length).toBe(1);
+    expect(h.turns[0]!.content).toContain("was interrupted");
+    expect(h.turns[0]!.content).not.toContain("Human update on task");
+  });
+
+  it("una nota di SERVIZIO non e' la voce di nessuno: non diventa un resume", async () => {
+    const h = harness();
+    seedOrfana(h.db, "t1", { chip: "working", interruptedAt: "2026-09-15T13:49:00.000Z" });
+    const c = h.svc.addComment({ taskId: "t1", author: "user", content: "contabilita'", kind: "service" });
+    h.db.run("UPDATE tasks SET reopened_actor = 'human', reopened_at = ? WHERE id = 't1'",
+      [new Date(Date.parse(c.createdAt) + 16).toISOString()]);
+
+    await h.dispatcher.reconcile();
+    await flush();
+
+    expect(h.turns[0]!.content).toContain("was interrupted");
+  });
+});

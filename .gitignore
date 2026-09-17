@@ -429,3 +429,17 @@ tools/out/win/probe/
 # `git add -A` di un agente lo commiterebbe, e un hold di ieri riversato nel
 # repo e' esattamente il ricordo sbagliato da far viaggiare.
 provider-hold.json
+
+# La finestra di 2 minuti del segnale di memoria (server/services/mem-signal.ts),
+# parcheggiata su disco perche' con TOPICS_SERVER_WATCH=1 il processo non vive
+# due minuti. Stesso posto e stesso motivo di provider-hold.json qui sopra:
+# `resolveStateDir(process.cwd())` ripiega sulla cwd, che sotto
+# `scripts/start-prod.sh` e' la RADICE del repo. Sta li' e non in ~/.topics
+# apposta - il server di test isola lo stato con DATA_DIR e non deve condividere
+# la finestra con la produzione, come non condivide il DB - ma si riscrive ogni
+# 10 secondi, piu' un .tmp transitorio: il 17/09/2026 due file non tracciati
+# nella radice hanno tenuto chiusa la porta a ogni land della board
+# (server/services/task-automerge.ts), e `scripts/check-e2e-touched.ts` somma
+# ancora i non tracciati ai file cambiati.
+mem-samples.json
+mem-samples.json.tmp
