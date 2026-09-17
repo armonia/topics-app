@@ -169,7 +169,10 @@ test.describe("a configured endpoint serving a chat", () => {
       //    endpoint is selectable for a chat at all.
       await patchTopic(request, topic.id, { provider: PROVIDER, model: MODEL });
       const saved = await request.get(`${BASE}/api/topics/${topic.id}`);
-      expect((await saved.json()).provider).toBe(PROVIDER);
+      // `GET /api/topics/:id` answers `{ topic: {...} }`, not the bare row:
+      // reading `.provider` off the envelope gave undefined, which is a shape
+      // mistake wearing the costume of "the provider was not saved".
+      expect((await saved.json()).topic.provider).toBe(PROVIDER);
 
       await resetPaneStore(request, [topic.id]);
       await goToApp(page);
