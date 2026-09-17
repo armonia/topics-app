@@ -72,13 +72,17 @@ import { swapReasonIt, swapSigns, type HeldMemory, type SwapVerdict } from "./me
  * THAT BUDGET IS THREE MINUTES WHEN THE FLOOR HOLDS A CALM MAC, thirty when the
  * Mac is swapping, because the two waits do not buy the same thing. Under thrash
  * the machine is giving memory back and waiting works. On a calm Mac the reading
- * rarely improves on its own, and when it does not it does not for hours: over
- * the 1553 `[memsig]` windows of 16-17/09/2026 (07:27Z to 11:56Z, 28.5 hours)
- * `held2m >= 6 GB` reads 241 times, 15.5% of them, and the longest unbroken
- * stretch UNDER the floor is 854 samples, about fourteen hours. Thirty minutes
- * and three end identically inside a stretch like that, which is where this Mac
- * spends most of its day; the 15.5% is why the floor keeps a budget at all
- * instead of being read once and given up on. Measured on card c4f53a85
+ * improves only when somebody frees memory by hand, and until they do it does not
+ * improve for hours: over the 1589 `[memsig]` windows of 16-17/09/2026 that carry
+ * a reading (07:27Z to 12:33Z, 29.1 hours) `held2m >= 6 GB` reads 241 times,
+ * 15.2% of them, and the longest unbroken stretch UNDER the floor is 854 samples,
+ * 16.2 hours end to end - it reopened when a person closed a parked UAT server
+ * holding 3.3 GB. Thirty minutes and three end identically inside a stretch like
+ * that, which is where this Mac spends most of its day; the 15.2% is why the
+ * floor keeps a budget at all instead of being read once and given up on. An
+ * earlier draft of this paragraph said 15.5% of 1553 and "about fourteen hours":
+ * the share was counted against lines rather than readings and the stretch was
+ * converted from its sample count instead of its timestamps. Measured on card c4f53a85
  * (23:41:29Z-00:26Z of 16-17/09), the first delivery to go through the CI rows:
  * four local commands, 80 s of execution inside a 32-minute round, `swap=calm`
  * in 40 of the 42 samples that were under the floor - typecheck released by the
@@ -102,6 +106,22 @@ import { swapReasonIt, swapSigns, type HeldMemory, type SwapVerdict } from "./me
  * charged to the thirty-minute budget, time spent under the floor on a calm Mac
  * to the three-minute one, and each command's wait is charged to the condition in
  * force while it elapsed, not to the one it ends on.
+ *
+ * SO THE ROUND'S OWN CEILING IS THE TWO BUDGETS ADDED, and that is on purpose.
+ * With one clock the round could not wait longer than `maxWaitMs`; with a clock
+ * each it can wait `maxWaitMs` on everything else AND the calm floor's three
+ * minutes on top - 33 minutes in production, where the floor is mounted
+ * (`server.ts`) without a `maxWaitMs` and takes the 30-minute default. It is the
+ * price of not letting one condition pay for the other: a swap that ends at the
+ * twenty-ninth minute leaves a floor that has held the round for zero seconds,
+ * and charging it the swap's wait is exactly the exemption the two clocks exist
+ * to remove. Three minutes is what that costs in the worst case.
+ * And `maxWaitMs` can only SHORTEN the calm valve, never lengthen it: the budget
+ * is `Math.min(MEMORY_WAIT_CALM_MAX_MS, maxWaitMs)`, so a caller asking for an
+ * hour still gets three minutes on a calm Mac under the floor. There is no seam
+ * to raise it, and nobody has asked for one: the floor is mounted once for the
+ * whole server, and the three minutes are the answer to "how long is waiting for
+ * a calm Mac worth", which does not change with the caller.
  */
 export interface MemoryFloor {
   held: () => HeldMemory;
@@ -171,7 +191,21 @@ interface DecisionInput {
   maxWaitMs: number;
 }
 
-/** What holds the round back right now, budget aside - null = nothing does. */
+/**
+ * What holds the round back right now, budget aside - null = nothing does.
+ *
+ * SINCE THE TWO CLOCKS, THIS ORDER IS A BUDGET AND NOT JUST A LABEL: whichever
+ * reason answers first decides which valve the state is measured against. The
+ * spacing comes before the floor for that reason. A round under the floor while
+ * ANOTHER round's command is still running is held by the spacing, on the long
+ * budget it has not spent; read as "room" it would be measured against the calm
+ * three minutes, which this same round has usually just spent waiting for the
+ * floor - and it would start THROUGH the 120 s spacing, which is the herd of
+ * 15/09 (four commands of different deliveries released on one poll) that the
+ * spacing exists to prevent. With a single pooled `spentMs` the two orders were
+ * indistinguishable, and the test that holds this one down is the only thing
+ * that separates them now.
+ */
 function holdReason(i: DecisionInput): WaitReason | null {
   if (i.swap.sustained) return "swap";
   if (i.otherRoundRelease?.running && i.now - i.otherRoundRelease.at < RELEASE_SPACING_MS) return "spacing";

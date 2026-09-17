@@ -157,8 +157,14 @@ tutto il server, non per board, e la board `dancerooms-intq6i` ha come unico
 check locale una suite unit — l'albero che il freno esiste per non far partire su
 un Mac vuoto. Quindi resta, e quello che cambia e' quanto si aspetta: sotto
 thrash aspettare compra memoria, a Mac calmo la lettura migliora di rado e a
-tratti lunghissimi (`held2m >= 6 GB` nel 15,5% di 1553 letture in 28,5 ore, con
-854 campioni consecutivi — circa quattordici ore — sotto il pavimento).
+tratti lunghissimi (`held2m >= 6 GB` nel 15,2% delle 1589 letture con un valore
+in 29,1 ore, con 854 campioni consecutivi — 16,2 ore fra il primo e l'ultimo —
+sotto il pavimento). CORREZIONE: avevo scritto «15,5% di 1553 letture» e «circa
+quattordici ore». La percentuale era contata sulle righe invece che sulle letture
+con un valore, e le quattordici ore erano il conteggio dei campioni convertito a
+un campione al minuto invece della distanza fra i due timestamp. Rimisurato sul
+log intero (`~/.claude/jarvis/logs/topics-server*.log`, 1654 righe `[memsig]`,
+16/09 07:27Z - 17/09 12:33Z): 241 letture su 1589, tratto 07:27:57Z - 23:37:44Z.
 
 - [x] T5.1 MISURATO, sulla consegna di `c4f53a85` conclusa il 17/09 alle 00:46Z,
       leggendo i `ms` di `checks_json`:
@@ -200,6 +206,32 @@ tratti lunghissimi (`held2m >= 6 GB` nel 15,5% di 1553 letture in 28,5 ore, con
       posto della durata, cioe' «dopo 3 minuti» per tre comandi che avevano
       atteso tre, zero e zero. Il log degli errori non ha timestamp: quella riga
       e' l'unica traccia che resta del giro.
+- [x] T5.7 L'ORDINE DENTRO `holdReason` ERA UNA GUARDIA SCOPERTA. Con due
+      orologi quell'ordine non sceglie piu' l'etichetta del log ma il BUDGET:
+      spostando `room` prima di `spacing` la suite restava verde (29 pass / 0
+      fail) mentre il comportamento cambiava — un giro sotto il pavimento mentre
+      gira il comando di un altro giro passava da `heldBy: "spacing",
+      budgetMs: 1800000` a `heldBy: "room", budgetMs: 180000`, e con la valvola
+      calma gia' spesa partiva ATTRAVERSO i 120 s di spaziatura, cioe' la mandria
+      del 15/09. Nessun test teneva insieme `held < floorGB` e un rilascio altrui
+      in corso. Adesso due: uno sulla decisione e uno sul waiter con due giri,
+      dove il secondo parte a 300 s e non a 180.
+- [x] T5.8 DUE CAMBI CHE NON AVEVO DICHIARATO, scritti nel requisito e fissati da
+      un test ciascuno invece che annullati. (a) Il tetto di un giro e' la somma
+      delle due valvole, `maxWaitMs + min(3 min, maxWaitMs)`: 33 minuti in
+      produzione, dove `checksMemoryFloor` monta senza `maxWaitMs`. E' il prezzo
+      di non far pagare una condizione all'altra, e il caso peggiore vale tre
+      minuti. (b) `MEMORY_WAIT_CALM_MAX_MS` e' un soffitto duro: il tetto del
+      chiamante puo' solo accorciare la valvola calma. Nessun seam per alzarla,
+      perche' nessun chiamante ne ha chiesto uno — il pavimento e' montato una
+      volta per tutto il server.
+- [x] T5.9 PREMESSA MIA FALSA, ritirata: avevo scritto che il rail
+      `typecheck:e2e` era rosso su `origin/main` e avevo aggiunto due
+      annotazioni di tipo a `tests/unit/no-third-party-emails.test.ts` per
+      «ripararlo». Non era rosso: con il tsc pinnato dal repo,
+      `tsc -p tsconfig.e2e.json --ignoreDeprecations 5.0` esce 0 sul file
+      originale. Le due righe sono state annullate e il file e' tornato identico
+      a main.
 - [ ] T5.6 DA DECIDERE COL PROPRIETARIO, ancora aperta: il cancello cancellato
       insieme alla vecchia T5.2 riguardava il comportamento del pavimento a swap
       calmo, e la valvola da tre minuti lo cambia lo stesso — un `test:unit` da

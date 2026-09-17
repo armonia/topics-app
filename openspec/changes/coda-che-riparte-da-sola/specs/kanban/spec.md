@@ -137,6 +137,29 @@ l'esenzione dal pavimento per tutto il resto del giro, che e' il contrario di
 cio' che servono a fare i due freni. Il tempo SHALL essere addebitato alla
 condizione in vigore MENTRE passava, non a quella su cui l'attesa finisce.
 
+DUE CONSEGUENZE DEI DUE OROLOGI, dichiarate qui perche' nessuna delle due si
+legge nel requisito di prima. **Il tetto di un giro diventa la somma delle due
+valvole**, non piu' la sola valvola lunga: un giro puo' aspettare i trenta minuti
+su tutto il resto E i tre del pavimento a Mac calmo sopra, cioe' trentatre' minuti
+in produzione, dove il pavimento e' montato una volta per tutto il server senza un
+tetto suo. E' il prezzo di non far pagare una condizione all'altra: uno swap che
+finisce al ventinovesimo minuto lascia un pavimento che non ha trattenuto il giro
+un secondo, e addebitargli l'attesa dello swap sarebbe di nuovo l'esenzione che i
+due orologi tolgono. **E il tetto del chiamante puo' solo ACCORCIARE la valvola
+calma, mai allungarla**: la valvola vale `min(3 minuti, tetto del chiamante)`, non
+c'e' un seam per alzarla e nessuno ne ha chiesto uno — il pavimento e' montato una
+volta sola, e i tre minuti rispondono a «quanto vale aspettare un Mac calmo», che
+non cambia da chiamante a chiamante.
+
+E l'ORDINE con cui si sceglie la condizione SHALL mettere la spaziatura prima del
+pavimento, perche' con due orologi quell'ordine decide il BUDGET e non piu' solo
+l'etichetta del log. Un giro sotto il pavimento mentre gira il comando di un ALTRO
+giro SHALL essere trattenuto dalla spaziatura, sulla valvola lunga che non ha
+speso: misurato come pavimento verrebbe pesato sui tre minuti che quello stesso
+giro ha appena finito di spendere aspettando il pavimento, e partirebbe
+ATTRAVERSO i 120 secondi di spaziatura — che e' la mandria del 15/09, quattro
+comandi di consegne diverse rilasciati sullo stesso poll.
+
 E la riga che annuncia il fail-open SHALL dire quale delle due condizioni ha
 tenuto il comando fermo — «non c'e' spazio» su un Mac che ha scambiato per
 mezz'ora e' l'unica traccia che sopravvive, ed e' falsa — e SHALL dire quanto ha
@@ -166,6 +189,23 @@ e': cio' che il GIRO ha speso, non cio' che il comando ha atteso.
 - **GIVEN** un giro fermo dieci minuti sotto swap sostenuto, con il minimo su 2 minuti immobile a 5,2 GB sotto il pavimento di 6 GB
 - **WHEN** il verdetto sullo swap torna calmo e la memoria non cambia
 - **THEN** il comando NON SHALL partire in quell'istante, e SHALL partire tre minuti dopo, cioe' al tredicesimo
+
+#### Scenario: sotto il pavimento e dentro la spaziatura di un altro giro, tiene la spaziatura
+- **GIVEN** un giro che ha gia' speso i tre minuti della valvola calma, con il minimo su 2 minuti a 4,8 GB sotto il pavimento di 6 GB
+- **AND** il comando di un ALTRO giro rilasciato trenta secondi fa e ancora in esecuzione
+- **WHEN** il giro chiede di partire
+- **THEN** NON SHALL partire, e la condizione che lo trattiene SHALL essere la spaziatura sulla valvola da trenta minuti
+- **AND** quando quel comando esce, la stessa lettura SHALL essere di nuovo il pavimento, sulla valvola calma gia' spesa
+
+#### Scenario: il tetto del giro e' la somma delle due valvole
+- **GIVEN** un giro sotto swap sostenuto con il minimo su 2 minuti immobile a 5,2 GB, e un tetto di trenta minuti
+- **WHEN** il verdetto torna calmo a un poll dalla fine di quei trenta minuti
+- **THEN** il comando SHALL partire dopo altri tre minuti, cioe' al trentatreesimo, e la riga del fail-open SHALL nominare il pavimento
+
+#### Scenario: un tetto piu' lungo non allunga la valvola calma
+- **GIVEN** un chiamante che monta il pavimento con un tetto di un'ora
+- **WHEN** un giro a Mac calmo sotto il pavimento ha aspettato tre minuti
+- **THEN** SHALL partire comunque
 
 #### Scenario: la riga del fail-open dice l'attesa di quel comando
 - **GIVEN** un giro di tre comandi a swap calmo sotto il pavimento, dove il primo esaurisce la valvola e gli altri due non aspettano un poll

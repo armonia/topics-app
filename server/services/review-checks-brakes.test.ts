@@ -311,6 +311,85 @@ describe("the checks waiter: the window, the swap, one release per window", () =
   });
 
   /**
+   * THE ORDER INSIDE `holdReason` IS A BUDGET NOW, NOT THE LABEL OF A LOG LINE.
+   * With one pooled `spentMs` both reasons were measured against the same number
+   * and swapping them changed only the wording. With a clock each, a round under
+   * the floor while ANOTHER round's command runs must be held by the SPACING, on
+   * the thirty minutes it has not spent: read as "room" it is measured against
+   * the calm three minutes, which this same round has just spent waiting for the
+   * floor, and it starts THROUGH the 120 s spacing - four commands of different
+   * deliveries on one poll, the herd of 15/09 the spacing exists for.
+   */
+  test("under the floor AND inside another round's spacing, the spacing holds: the calm valve does not open the herd's door", () => {
+    const under = {
+      held: fullWindow(4.8), swap: CALM, floorGB: 6,
+      otherRoundRelease: { at: 0, running: true }, now: 30_000,
+      spent: spent({ calmFloor: 3 * 60_000 }), maxWaitMs: 30 * 60_000,
+    };
+    expect(releaseDecision(under))
+      .toEqual({ release: false, wait: "spacing", anyway: false, heldBy: "spacing", budgetMs: 30 * 60_000, spentMs: 0 });
+    // The command of the other round exits: the same reading is the floor's
+    // again, on the calm budget this round has already spent.
+    expect(releaseDecision({ ...under, otherRoundRelease: { at: 0, running: false } }))
+      .toEqual({ release: true, wait: null, anyway: true, heldBy: "room", budgetMs: 3 * 60_000, spentMs: 3 * 60_000 });
+  });
+
+  test("the herd, end to end: two rounds under the floor do not start on the same poll, the second waits out the 120 s", async () => {
+    const clock = steppedClock();
+    const floor: MemoryFloor = {
+      held: () => fullWindow(4.8), swap: () => CALM, floorGB: 6,
+      maxWaitMs: 30 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep,
+    };
+    const first = memoryWaiter(floor);
+    const second = memoryWaiter(floor);
+    const t0 = clock.now();
+    const at: Record<string, number> = {};
+    // The first round's command keeps running: its release holds the spacing.
+    void first("test:unit").then(() => { at.first = (clock.now() - t0) / 1000; });
+    await clock.settle();
+    void second("typecheck").then(() => { at.second = (clock.now() - t0) / 1000; });
+    await runUntil(clock, () => at.second !== undefined, 60 * 60_000);
+    // Both spend the calm valve at the same instant; only the first starts there.
+    expect(at.first).toBe(3 * 60);
+    expect(at.second).toBe(3 * 60 + 120);
+    expect(lines().some((l) => l.includes('"typecheck" waits: "test:unit" of another delivery started'))).toBe(true);
+  });
+
+  /**
+   * TWO CLOCKS MEAN THE ROUND'S CEILING IS THE TWO BUDGETS ADDED, which is a
+   * change nobody declared: `maxWaitMs` used to be the whole of it. A swap that
+   * ends one poll short of the thirty minutes leaves a floor that has held the
+   * round for zero seconds, and the three minutes it is owed start there - 33
+   * minutes in production, where the floor is mounted without a `maxWaitMs`.
+   */
+  test("the ceiling of a round is maxWaitMs PLUS the calm valve: 30 minutes of swap and then three of floor, 33 in all", async () => {
+    const clock = steppedClock();
+    const t0 = clock.now();
+    const held = windowOver(clock, t0 - 130_000, () => 5.2);
+    // Sustained until one poll before the thirty minutes are spent, then calm.
+    const swap = () => (clock.now() - t0 < 30 * 60_000 - 5_000 ? SUSTAINED : CALM);
+    const wait = memoryWaiter({ held, swap, floorGB: 6, maxWaitMs: 30 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
+    let released = false;
+    void wait("test:unit").then(() => { released = true; });
+    const waited = await runUntil(clock, () => released, 2 * 60 * 60_000);
+    expect(released).toBe(true);
+    expect(waited).toBe(30 * 60 - 5 + 3 * 60);
+    expect(waited).toBeGreaterThan(30 * 60);
+    expect(lines().filter((l) => l.includes("starts anyway")))
+      .toEqual(['[review-checks] no room after 33 min (round: 3 min of a 3 min budget): "test:unit" starts anyway']);
+  });
+
+  test("maxWaitMs only SHORTENS the calm valve: a caller asking an hour still gets three minutes, one asking a minute gets a minute", () => {
+    const under = { held: fullWindow(5.2), swap: CALM, floorGB: 6, otherRoundRelease: null, now: 0 };
+    const hour = releaseDecision({ ...under, spent: spent({ calmFloor: 3 * 60_000 }), maxWaitMs: 60 * 60_000 });
+    expect(hour).toEqual({ release: true, wait: null, anyway: true, heldBy: "room", budgetMs: 3 * 60_000, spentMs: 3 * 60_000 });
+    const minute = releaseDecision({ ...under, spent: spent({ calmFloor: 60_000 }), maxWaitMs: 60_000 });
+    expect(minute).toEqual({ release: true, wait: null, anyway: true, heldBy: "room", budgetMs: 60_000, spentMs: 60_000 });
+    // And the short one really is shorter: a second before it, it still waits.
+    expect(releaseDecision({ ...under, spent: spent({ calmFloor: 60_000 - 1 }), maxWaitMs: 60_000 }).release).toBe(false);
+  });
+
+  /**
    * THE FLOOR IS OBSERVABLE AGAIN, which is the whole point of putting it back.
    * The rule it replaces read the floor only inside the sustained branch, which
    * returns before it: over 160 states `floorGB` 0 and 1000 decided the same in
