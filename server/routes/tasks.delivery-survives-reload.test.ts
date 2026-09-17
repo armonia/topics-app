@@ -80,10 +80,11 @@ describe("a reload that cuts a delivery whose checks were only waiting", () => {
   }
 
   /** A machine that holds the round back, or one that lets it go, on a clock
-   *  this test owns. The floor is read only inside a sustained verdict
-   *  (review-checks-brakes.ts): on a calm Mac a reading under the floor starts
-   *  the command, so the two poses here are "swapping and under the floor" and
-   *  "calm and roomy" - what the machine looked like before and after the reload. */
+   *  this test owns: under the floor AND swapping, or roomy and calm - what the
+   *  machine looked like before and after the reload. Swapping, because the
+   *  round here must not start at all and the floor on a CALM Mac fails open
+   *  after three minutes (review-checks-brakes.ts), which this clock covers in
+   *  36 polls. */
   function memoryFloor(heldGB: () => number) {
     const clock = { now: 0 };
     return {
@@ -91,9 +92,9 @@ describe("a reload that cuts a delivery whose checks were only waiting", () => {
       swap: () => ({ sustained: heldGB() < 6, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, swapPct: null, coveredMs: 60_000 }),
       floorGB: 6,
       pollMs: 5_000,
-      // The waiter fails open on room after 30 minutes of ITS clock, and its
-      // clock is this one: with a real budget the fail-open would race the test
-      // and start the command we are proving never starts.
+      // The waiter fails open after 30 minutes of ITS clock, and its clock is
+      // this one: with a real budget the fail-open would race the test and start
+      // the command we are proving never starts.
       maxWaitMs: 24 * 60 * 60_000,
       now: () => clock.now,
       sleep: async (ms: number) => { clock.now += ms; await Bun.sleep(1); },

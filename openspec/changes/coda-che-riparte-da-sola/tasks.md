@@ -124,9 +124,13 @@ circa 30 di sola attesa**, su una macchina che nel frattempo `[memsig]` chiamava
 `swap=calm`. Il prezzo e' quindi mezz'ora per consegna, non tre ore; con 121
 ingressi in review in 7 giorni resta l'ordine delle decine di ore a settimana.
 
-Un freno che spara sempre la sua valvola non e' un freno, e' un timer. E il freno
-ha gia' la misura giusta accanto a quella sbagliata: il verdetto sullo swap
-misura il thrash vero, il pavimento misura un numero che qui non arriva mai.
+Un freno che spara sempre la sua valvola non e' un freno, e' un timer. La valvola
+pero' e' l'unico pezzo che si puo' toccare: il pavimento e' montato una volta per
+tutto il server, non per board, e la board `dancerooms-intq6i` ha come unico
+check locale una suite unit — l'albero che il freno esiste per non far partire su
+un Mac vuoto. Quindi resta, e quello che cambia e' quanto si aspetta: sotto
+thrash aspettare compra memoria, a Mac calmo la lettura non migliora da sola
+(`held2m >= 6 GB` zero volte su 1455 letture in 25,7 ore).
 
 - [x] T5.1 MISURATO, sulla consegna di `c4f53a85` conclusa il 17/09 alle 00:46Z,
       leggendo i `ms` di `checks_json`:
@@ -141,12 +145,21 @@ misura il thrash vero, il pavimento misura un numero che qui non arriva mai.
       **80 secondi di esecuzione in tutto.** Il giro ha impiegato 32 minuti dal
       primo comando all'ultimo, quindi circa 30 minuti e mezzo sono stati attesa
       del pavimento — 23 volte il lavoro che il freno stava proteggendo, su una
-      macchina che per tutta la durata leggeva `swap=calm`. Le due righe CI hanno
-      poi preso 624,7 s (unit) e 1065,8 s (e2e) di attesa della CI vera, che e'
-      tempo di GitHub e non si tocca.
-- [ ] T5.2 Da decidere col proprietario (non toccare prima): a swap calmo il
-      pavimento non trattiene un check, e resta guardia solo mentre lo swap e'
-      sostenuto.
+      macchina che nella finestra del giro leggeva `swap=calm` in 40 dei 42
+      campioni sotto il pavimento. Le due righe CI hanno poi preso 624,7 s (unit)
+      e 1065,8 s (e2e) di attesa della CI vera, che e' tempo di GitHub e non si
+      tocca. CORREZIONE ai numeri di questa riga: nella finestra 23:41-00:27 il
+      log ha 44 righe `[memsig]`, 2 sostenute, 42 sotto pavimento e 40 di quelle
+      calme — non 46/3/43/41 come avevo scritto prima, e non «calmo per tutta la
+      durata».
+- [x] T5.3 PRIMA STESURA SBAGLIATA e rifatta: «a swap calmo il pavimento non
+      trattiene» non indeboliva il pavimento, lo cancellava (sotto swap
+      sostenuto il freno usciva gia' prima di leggerlo, quindi calmo era l'unico
+      stato in cui decideva). Fatto invece: il pavimento resta in vigore calmo e
+      sostenuto, e cambia la VALVOLA — tre minuti quando a trattenere e' il
+      pavimento su un Mac calmo, i trenta di oggi sotto swap sostenuto. La riga
+      del fail-open nomina la condizione letta in quell'istante, non l'ultima che
+      quel comando aveva stampato (che per un comando mai in attesa e' nessuna).
 
 ## Barra
 

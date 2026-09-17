@@ -37,32 +37,27 @@ import { swapReasonIt, swapSigns, type HeldMemory, type SwapVerdict } from "./me
  *    next 5 s poll: without the turn a three-command round took the spacing
  *    back every time and the other round waited for its whole local phase
  *    (95 s instead of 35 with three 30 s commands);
- *  - a full 2-minute window whose lowest reading is over the floor, and ONLY
- *    while the swap verdict is sustained: see the paragraph below.
+ *  - a full 2-minute window whose lowest reading is over the floor.
  * The command's deadline is not running during the wait: it is armed at spawn.
  *
- * THE FLOOR IS A NUMBER, "GASPING" IS A VERDICT, and on this Mac only the
- * verdict ever changes. The floor used to hold on its own, and the reading it
- * compares against never comes back: `held2m >= 6 GB` zero times in 1455
- * `[memsig]` lines over 25.7 hours of 16-17/09/2026. So the brake did not brake,
- * it timed out: on the first delivery to go through the CI rows (card c4f53a85,
- * 23:41:29Z-00:26Z of 16-17/09) the four local commands spent the round's WHOLE
- * 30-minute budget waiting against some 195 s of running - typecheck released
- * after 372 s, `check:deadcode` and `static-rails` only by the fail-open, which
- * is why the same "no room after 30 min" line names two commands in a row. Over
- * the 46 `[memsig]` samples of that round `held2m` was under 6 GB in 43, and 41
- * of those 43 read `swap=calm`: the machine was not swapping, which is the
- * problem this brake exists to avoid. So the floor is read INSIDE the sustained
- * branch, where the round is held anyway and the GB tell you how deep it is;
- * with a calm verdict a reading under the floor starts the command. A brake that
- * always fires its own fail-open is a timer in disguise.
+ * THE FLOOR HOLDS, CALM OR SWAPPING; WHAT DEPENDS ON THE VERDICT IS THE VALVE.
+ * A first version of this moved the floor INSIDE the sustained branch, so that a
+ * calm Mac under the floor started the command. An adversarial check ran it and
+ * showed it did not weaken the floor, it deleted it: the sustained branch
+ * already returns before the floor is read, so calm was the only state where the
+ * floor had any force. Over 160 states (calm/sustained x held 0,1..20 and null x
+ * spacing x turn x spentMs) `floorGB: 0` and `floorGB: 1000` gave the SAME
+ * decision in every one - an unobservable parameter. And the floor still guards
+ * somebody: `checksMemoryFloor` is mounted once for the whole server
+ * (server.ts), not per board, and board `dancerooms-intq6i` declares
+ * `pnpm verify:all --only typecheck,unit` as its only local check - exactly the
+ * 4-11 GB tree this brake exists to keep off an empty Mac. On topics-app itself
+ * nothing would catch it: `createSwapBrake` only interrupts trees over
+ * `SWAP_VICTIM_MIN_GB` = 1 GB, while this file prices tsc at 460 MB and a vite
+ * build at 316 MB.
  *
- * There is no per-command price: with the unit suite read from the pull request
- * CI (`github-ci:unit`) no delivery command on topics-app holds more than 1 GB
- * (tsc 460 MB, a vite build 316 MB), so the floor alone is the line.
- *
- * IT FAILS OPEN AFTER `maxWaitMs` OF WAITING IN TOTAL, whatever holds the round
- * - swap included, which it did not do before. A sustained verdict used to be
+ * IT FAILS OPEN AFTER A BUDGET SPENT ACROSS THE ROUND, whatever holds it - swap
+ * included, which it did not do before. A sustained verdict used to be
  * self-limiting: it implied a debt growing by at least 0.5 GB/min, a state no
  * machine holds for long. The ceiling door (`mem-signal.ts`) removes that
  * invariant, and the ceiling is where this Mac LIVES: 566 of the 874 `[memsig]`
@@ -73,15 +68,34 @@ import { swapReasonIt, swapSigns, type HeldMemory, type SwapVerdict } from "./me
  * and a round that never starts records no verdict at all - the delivery just
  * goes round again (`checks-gate.ts`). Memory that cannot be measured (off
  * macOS) never waits.
+ *
+ * THAT BUDGET IS THREE MINUTES WHEN THE FLOOR HOLDS A CALM MAC, thirty when the
+ * Mac is swapping, because the two waits do not buy the same thing. Under thrash
+ * the machine is giving memory back and waiting works. On a calm Mac the reading
+ * does not improve on its own: `held2m >= 6 GB` happened zero times in 1455
+ * `[memsig]` lines over 25.7 hours of 16-17/09/2026, so thirty minutes and three
+ * end identically except for twenty-seven minutes. Measured on card c4f53a85
+ * (23:41:29Z-00:26Z of 16-17/09), the first delivery to go through the CI rows:
+ * four local commands, 80 s of execution inside a 32-minute round, `swap=calm`
+ * in 40 of the 42 samples that were under the floor - typecheck released by the
+ * budget, `check:deadcode` and `static-rails` never waiting at all because the
+ * round had already spent it.
+ * Not less than three: `swapVerdict` needs a base sample at least
+ * `SWAP_WINDOW_MS` (60 s) old, and the ceiling door a further window before it,
+ * so a thrash that starts right after a release is invisible for 60-120 s. Three
+ * minutes leaves the verdict one full window to see it, and stays clear of the
+ * 120 s release spacing, which is not cut short by this budget at all: the short
+ * valve applies only when what holds the round is the floor on a calm Mac.
  */
 export interface MemoryFloor {
   held: () => HeldMemory;
   swap: () => SwapVerdict;
-  /** Under this, a new command waits - but only while the swap verdict is
-   *  sustained: on a calm Mac the reading holds nothing. */
+  /** Under this, a new command waits, calm or swapping. */
   floorGB: number;
-  /** Total wait of one round before running anyway on room. Default `MEMORY_WAIT_MAX_MS`. */
+  /** Total wait of one round before running anyway. Default `MEMORY_WAIT_MAX_MS`. */
   maxWaitMs?: number;
+  /** The same budget while the floor holds a CALM Mac. Default `MEMORY_WAIT_CALM_MAX_MS`. */
+  calmMaxWaitMs?: number;
   /** How often the signal is read again while waiting. */
   pollMs?: number;
   /** Test seams. */
@@ -94,6 +108,9 @@ export interface MemoryFloor {
  *  minutes `update_task` polls; the verdict still lands, re-issued by the route
  *  (`pendingDeliveries`) once the client has given up. */
 const MEMORY_WAIT_MAX_MS = 30 * 60_000;
+/** The budget while the floor alone holds a Mac that is NOT swapping: see the
+ *  third paragraph of the header. */
+const MEMORY_WAIT_CALM_MAX_MS = 3 * 60_000;
 const MEMORY_POLL_MS = 5_000;
 /** One release per window across rounds: the herd of 15/09 (four commands on one poll) cannot recur. */
 export const RELEASE_SPACING_MS = 120_000;
@@ -106,7 +123,7 @@ let lastRelease: Release | null = null;
 /** Rounds waiting right now, with the moment their current wait began: the turn reads it. */
 const waitingSince = new Map<symbol, number>();
 
-export function releaseDecision(i: {
+interface DecisionInput {
   held: HeldMemory;
   swap: SwapVerdict;
   floorGB: number;
@@ -117,24 +134,43 @@ export function releaseDecision(i: {
   now: number;
   spentMs: number;
   maxWaitMs: number;
-}): { release: boolean; wait: WaitReason | null; anyway: boolean } {
-  if (!i.held.measurable) return { release: true, wait: null, anyway: false };
-  // The budget comes FIRST, before every reason to hold: see the fail-open
-  // paragraph above. Nothing here can hold a round longer than `maxWaitMs`.
-  if (i.spentMs >= i.maxWaitMs) return { release: true, wait: null, anyway: true };
-  // The floor lives here, inside the sustained verdict, and nowhere else: a Mac
-  // that is not swapping starts the command whatever the reading says. Both
-  // reasons hold the round the same, the difference is which line the log gets.
-  if (i.swap.sustained) {
-    const under = i.held.heldGB != null && i.held.heldGB < i.floorGB;
-    return { release: false, wait: under ? "room" : "swap", anyway: false };
-  }
-  if (i.otherRoundRelease?.running && i.now - i.otherRoundRelease.at < RELEASE_SPACING_MS) {
-    return { release: false, wait: "spacing", anyway: false };
-  }
-  // Still no release on a single reading: an empty window is not a calm one.
-  if (i.held.heldGB == null) return { release: false, wait: "measuring", anyway: false };
-  return i.olderWaiter ? { release: false, wait: "turn", anyway: false } : { release: true, wait: null, anyway: false };
+  /** Default `MEMORY_WAIT_CALM_MAX_MS`, never longer than `maxWaitMs`. */
+  calmMaxWaitMs?: number;
+}
+
+/** What holds the round back right now, budget aside - null = nothing does. */
+function holdReason(i: DecisionInput): WaitReason | null {
+  if (i.swap.sustained) return "swap";
+  if (i.otherRoundRelease?.running && i.now - i.otherRoundRelease.at < RELEASE_SPACING_MS) return "spacing";
+  // Still no release on a single reading: an empty window is not a roomy one.
+  if (i.held.heldGB == null) return "measuring";
+  if (i.held.heldGB < i.floorGB) return "room";
+  return i.olderWaiter ? "turn" : null;
+}
+
+export function releaseDecision(i: DecisionInput): {
+  release: boolean;
+  wait: WaitReason | null;
+  anyway: boolean;
+  /** What was holding the round when the budget let it go: the fail-open line
+   *  names it instead of guessing from the last reason it logged. */
+  heldBy: WaitReason | null;
+  /** The budget that applied to this decision, for that same line. */
+  budgetMs: number;
+} {
+  const held = holdReason(i);
+  // The short valve is for the floor on a calm Mac and for nothing else: the
+  // spacing and the turn resolve by themselves within 120 s, and cutting them
+  // short would bring back the herd of four commands on one poll (15/09).
+  const budgetMs = held === "room" && !i.swap.sustained
+    ? Math.min(i.calmMaxWaitMs ?? MEMORY_WAIT_CALM_MAX_MS, i.maxWaitMs)
+    : i.maxWaitMs;
+  if (!i.held.measurable) return { release: true, wait: null, anyway: false, heldBy: null, budgetMs };
+  // The budget comes before every reason to hold: see the fail-open paragraph
+  // above. Nothing here can hold a round longer than its budget.
+  if (i.spentMs >= budgetMs) return { release: true, wait: null, anyway: held != null, heldBy: held, budgetMs };
+  if (!held) return { release: true, wait: null, anyway: false, heldBy: null, budgetMs };
+  return { release: false, wait: held, anyway: false, heldBy: held, budgetMs };
 }
 
 function waitLine(name: string, reason: WaitReason, held: HeldMemory, swap: SwapVerdict, floorGB: number, now: number): string {
@@ -149,10 +185,27 @@ function waitLine(name: string, reason: WaitReason, held: HeldMemory, swap: Swap
     case "measuring":
       return `[review-checks] "${name}" waits: free memory measured for ${Math.round(held.coveredMs / 1000)} s of the 120 s window`;
     case "room":
-      // The floor only speaks under a sustained verdict, so the line carries
-      // both halves: the swap is the condition, the GB say how deep it is.
-      return `[review-checks] "${name}" waits: lowest free memory of the last 2 min ${gb(held.heldGB)} GB, under the ${floorGB} GB floor, and the Mac is in sustained swap (${swapSigns(swap)})`;
+      return `[review-checks] "${name}" waits: lowest free memory of the last 2 min ${gb(held.heldGB)} GB, under the ${floorGB} GB floor`;
   }
+}
+
+/**
+ * The fail-open line says which condition held the command, read from the state
+ * at that instant. It used to read the last reason THIS command had logged,
+ * which is null for a command that never waited: on 17/09 the round of card
+ * c4f53a85 printed "no room after 30 min" for `check:deadcode` and again for
+ * `static-rails`, neither of which had waited a poll, and the error log carries
+ * no timestamp - that line is the only trace left of the round.
+ */
+function failOpenLine(name: string, heldBy: WaitReason, budgetMs: number): string {
+  const said: Record<WaitReason, string> = {
+    swap: "still in swap",
+    room: "no room",
+    measuring: "still measuring free memory",
+    spacing: "still spaced from another delivery",
+    turn: "still waiting its turn",
+  };
+  return `[review-checks] ${said[heldBy]} after ${Math.round(budgetMs / 60_000)} min: "${name}" starts anyway`;
 }
 
 /**
@@ -163,6 +216,7 @@ function waitLine(name: string, reason: WaitReason, held: HeldMemory, swap: Swap
 export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSignal): (name: string) => Promise<() => void> {
   if (!floor) return async () => () => {};
   const maxWaitMs = floor.maxWaitMs ?? MEMORY_WAIT_MAX_MS;
+  const calmMaxWaitMs = floor.calmMaxWaitMs ?? MEMORY_WAIT_CALM_MAX_MS;
   const pollMs = Math.max(1, floor.pollMs ?? MEMORY_POLL_MS);
   const now = floor.now ?? Date.now;
   const sleep = floor.sleep ?? ((ms: number) => Bun.sleep(ms));
@@ -182,13 +236,13 @@ export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSigna
         const swap = read(floor.swap, calm);
         const other = lastRelease && lastRelease.round !== round ? lastRelease : null;
         const olderWaiter = [...waitingSince].some(([r, since]) => r !== round && since < from);
-        const d = releaseDecision({ held, swap, floorGB: floor.floorGB, otherRoundRelease: other, olderWaiter, now: t, spentMs: spentMs + (t - from), maxWaitMs });
+        const d = releaseDecision({ held, swap, floorGB: floor.floorGB, otherRoundRelease: other, olderWaiter, now: t, spentMs: spentMs + (t - from), maxWaitMs, calmMaxWaitMs });
         // A round being stopped starts nothing, so it holds no release either.
         if (signal?.aborted || stopping) return () => {};
         if (d.release) {
           const waited = t - from;
           spentMs += waited;
-          if (d.anyway) console.warn(`[review-checks] ${said === "swap" ? "still in swap" : "no room"} after ${Math.round(maxWaitMs / 60_000)} min: "${name}" starts anyway`);
+          if (d.anyway && d.heldBy) console.warn(failOpenLine(name, d.heldBy, d.budgetMs));
           else if (said) console.warn(`[review-checks] "${name}" starts after ${Math.round(waited / 1000)} s`);
           const mine: Release = { round, name, at: t, running: true };
           lastRelease = mine;
@@ -385,9 +439,7 @@ export function createSwapBrake(deps: {
       try {
         deps.note(taskId,
           `Check interrotti, non rossi: ${swapReasonIt(v)} e \`${victim.name}\` teneva ${gb(treeGB(victim))} GB. ` + // allow-italian: board notes are written in Italian like every other service comment
-          // The second half of this sentence ("and there is memory for the first command")
-          // was the floor holding on its own, which no longer happens: the swap is the condition.
-          "Nessun verdetto registrato: il giro riparte da solo quando il Mac è fuori dallo swap. " + // allow-italian: board notes are written in Italian like every other service comment
+          "Nessun verdetto registrato: il giro riparte da solo quando il Mac è fuori dallo swap e c'è memoria per il primo comando da 2 minuti. " + // allow-italian: board notes are written in Italian like every other service comment
           `Interruzione ${n} di ${SWAP_INTERRUPTS_PER_DELIVERY}: dopo la seconda il giro va fino in fondo comunque.`); // allow-italian: board notes are written in Italian like every other service comment
       } catch { /* a note that cannot be written must not stop the brake */ }
       return { interrupted: true, skipped: null };

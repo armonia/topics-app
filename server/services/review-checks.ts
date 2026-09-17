@@ -274,7 +274,7 @@ interface RunOpts {
   /** The card these checks belong to. It travels so a run frozen for load can
    *  say so in the right thread; absent = no note, everything else unchanged. */
   taskId?: string;
-  /** Wait before each declared command while the Mac is swapping (see `MemoryFloor`).
+  /** Wait for free memory before each declared command (see `MemoryFloor`).
    *  Absent = no wait: the tests stay independent of this machine's memory. */
   memoryFloor?: MemoryFloor;
   /** The commit the round measures: the swap brake counts its interruptions per `taskId@commit`. */

@@ -112,10 +112,8 @@ describe("a server shutdown during the pre-review checks of a delivery", () => {
     const marker = join(cwd, "started-after-stop");
     const d = await deliveryWith(`touch ${marker}`, {
       checksMemoryFloor: {
-        // Swapping AND under the floor: the floor is read only inside a sustained
-        // verdict, so a calm Mac at 1 GB would start the command (review-checks-brakes.ts).
         held: () => ({ measurable: true, latestGB: 1, heldGB: 1, coveredMs: 120_000 }),
-        swap: () => ({ sustained: true, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, swapPct: null, coveredMs: 60_000 }),
+        swap: () => ({ sustained: false, pagesReadBackPerS: 0, debtGBPerMin: 0, swapPct: null, coveredMs: 60_000 }),
         floorGB: 6, pollMs: 25,
       },
     });
