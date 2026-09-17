@@ -250,15 +250,21 @@ log intero (`~/.claude/jarvis/logs/topics-server*.log`, 1654 righe `[memsig]`,
       `tsc -p tsconfig.e2e.json --ignoreDeprecations 5.0` esce 0 sul file
       originale. Le due righe sono state annullate e il file e' tornato identico
       a main.
-- [ ] T5.6 DA DECIDERE COL PROPRIETARIO, ancora aperta: il cancello cancellato
-      insieme alla vecchia T5.2 riguardava il comportamento del pavimento a swap
-      calmo, e la valvola da tre minuti lo cambia lo stesso — un `test:unit` da
-      4-11 GB su questo Mac a 5,2 GB adesso parte dopo 3 minuti invece di 30. Il
-      numero non e' stato approvato da nessuno. La forma giusta, se si chiude, e'
-      un prezzo per COMANDO (l'albero unit non e' un typecheck) invece di un
-      pavimento unico montato una volta per tutto il server: oggi il freno swap
-      non ha nemmeno una vittima da interrompere, `SWAP_VICTIM_MIN_GB` = 1 GB
-      contro un tsc misurato a 460 MB.
+- [x] T5.6 CHIUSA il 17/09/2026 dalla change `pavimento-check-configurabile`,
+      e quasi ogni premessa di questa riga si e' rivelata sbagliata quando e'
+      stata misurata. L'albero «da 4-11 GB» non esiste piu': gli 11 GB erano un
+      numero di prima della correzione del 15/09 alla lettura delle pipe dei
+      worker, e uno shard unit oggi picca 0,84 GB. Il prezzo per COMANDO e' stato
+      progettato e scartato: il premio massimo di un prezzo esatto e' la valvola
+      calma, 3 minuti per giro, e non vale la macchina che servirebbe a
+      impararlo. E `SWAP_VICTIM_MIN_GB` = 1 GB non e' fuori scala contro «un tsc
+      da 460 MB», perche' quei 460 MB non avevano nessuna misura dietro: `lint` a
+      freddo costa 1,91 GB e `typecheck` 1,31. Quello che si e' fatto invece: il
+      pavimento smette di essere una costante presa in prestito dall'ammissione
+      di un agente e diventa un'impostazione della macchina, default 3 GB
+      (misurato: copre il comando piu' caro con un gigabyte di margine), 0 =
+      spento, configurabile dal pannello. Il numero adesso lo approva chi lo
+      guarda, che era il vero contenuto di questa riga.
 
 ## Barra
 
