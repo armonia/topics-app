@@ -22,6 +22,18 @@ Sette card ferme fra 45 e 51 ore, 314 commenti «Memoria quasi finita», una sol
 ripartenza in 26 ore e per merito di una persona che ha chiuso delle app. In ogni
 campione `inFlight = 0` e `checkRuns = 0`: la RAM non era di Topics.
 
+CORREZIONE A QUEL NUMERO, e vale la pena tenerla perche' rende il requisito piu'
+preciso, non meno. Una verifica avversaria ha rimisurato sul log INTERO (1584
+campioni, 16/09 07:27 - 17/09 12:28) e ha trovato `held2m >= 6 GB` **241 volte,
+il 15,2%**, di cui 238 a swap calmo. Le due misure non si contraddicono: lo zero
+descrive le 25,7 ore in cui altre applicazioni tenevano otto gigabyte, il 15%
+arriva dopo che una persona — non Topics — ha chiuso un server UAT parcheggiato
+da 3,3 GB e il compressore e' sceso da 12,1 a 7,0 GB. Il pavimento quindi NON e'
+strutturalmente irraggiungibile: e' raggiungibile solo quando qualcuno libera
+memoria a mano, che e' esattamente la frase «la coda aspetta una persona» scritta
+in un numero. Il tratto piu' lungo senza una sola lettura sopra la riga misura
+16,2 ore.
+
 Quando NESSUN lavoro di Topics e' in volo — zero agenti vivi e zero corse di
 check pre-review, lo stesso «zero» che `firstAgentExempt` conta gia' per l'asse
 budget — il pavimento sulla MEMORIA SHALL ammettere UNA card, e il verdetto SHALL
@@ -32,6 +44,26 @@ sette card ammesse insieme, non una.
 L'esenzione SHALL valere sia per le ammissioni nuove sia per il `resume` di una
 card gia' al lavoro, perche' oggi il pavimento e' valutato prima del budget e
 trattiene entrambi.
+
+**Due domande, due censimenti, e ognuno decide la sua riga per intero.** «C'e'
+del nostro VIVO qui?» decide l'esenzione, e una card parcheggiata sulla CI di
+GitHub conta: la sessione e' viva e residente. «C'e' del nostro che deve ancora
+SPENDERE qui?» decide la riga del pavimento, e quella stessa card non conta: ha
+gia' finito i suoi check locali, i suoi ~240 MB sono residenti adesso e sono
+gia' dentro la lettura, e non c'e' nessuna fiammata futura da coprire. Il RAMO
+della riga (pavimento da solo, oppure pavimento + prezzo di una card + riserva)
+e la sua CIFRA SHALL uscire dallo STESSO elenco: prendere il ramo dal censimento
+e la cifra dal listino chiedeva `pavimento + prezzo + 0` = 10 GB a una macchina
+su cui nessuno stava spendendo niente, cioe' la coda ferma per tutti i quindici
+minuti in cui una consegna aspetta la CI. Misurato con due card off-lane in volo
+e una terza in coda: `held2m` a 7,0 / 8,0 / 9,9 GB tratteneva, a 12,0 GB no.
+
+#### Scenario: con solo card sulla CI in volo la riga e' il pavimento
+- **GIVEN** due card in volo i cui check aspettano solo la CI della pull request
+- **AND** il minimo su 2 minuti a 7 GB, sopra il pavimento di 6 GB
+- **WHEN** il dispatcher valuta la card successiva
+- **THEN** la card SHALL essere ammessa, e NON per esenzione
+- **AND** con la stessa lettura e un turno che sta ancora girando comandi qui la card NON SHALL essere ammessa
 
 #### Scenario: a Topics fermo una card parte anche sotto il pavimento
 - **GIVEN** il minimo su 2 minuti a 4,8 GB, sotto il pavimento nativo di 6 GB
@@ -83,11 +115,13 @@ Un giro che aspetta il pavimento con lo swap calmo NON SHALL aspettare piu' di
 tre minuti prima di partire comunque; con lo swap sostenuto SHALL restare la
 valvola dei trenta minuti che c'e' oggi. La ragione e' che le due attese non
 comprano la stessa cosa: sotto thrash la macchina sta davvero restituendo memoria
-e aspettare serve, mentre a swap calmo la lettura non migliora da sola — su
-questa macchina il minimo su 2 minuti non ha toccato i 6 GB nemmeno una volta su
-1455 letture in 25,7 ore, quindi i trenta minuti e i tre finiscono identici
-tranne che per ventisette minuti buttati. Misurato sulla consegna del 17/09:
-ottanta secondi di esecuzione dentro un giro di trentadue minuti.
+e aspettare serve, mentre a swap calmo la lettura migliora solo se qualcuno
+libera memoria a mano — su questa macchina il minimo su 2 minuti ha superato i
+6 GB il 15,2% delle volte (241 su 1584 campioni), ma in un tratto continuo di
+16,2 ore non ci e' mai arrivato, e a riaprirlo e' stata una persona che ha chiuso
+un server parcheggiato. Dentro quel tratto i trenta minuti e i tre finiscono
+identici tranne che per ventisette minuti buttati. Misurato sulla consegna del
+17/09: ottanta secondi di esecuzione dentro un giro di trentadue minuti.
 
 Resta invariato tutto il resto: la spaziatura fra due rilasci, la regola che una
 lettura non disponibile non fa aspettare, e il fatto che la valvola si conta per
@@ -184,6 +218,33 @@ nessuno la guarda: misurate 2 card oltre il tetto da 45 e 31 ore, zero parcheggi
 giro che passa comunque card per card, e oltre il tetto la card SHALL essere
 parcheggiata come farebbe `deferForWait`.
 
+Quel giudice di fuori NON SHALL scavalcare la sveglia che l'agente ha chiesto.
+`deferForWait` accetta fino a 1440 minuti e la produzione li usa — fra le 78 note
+«riprovo tra ~N min» ci sono 240, 180 e 120 — quindi una singola attesa piu' lunga
+di quattro ore e' una card normale, non una card ferma. Finche'
+`dispatch_deferred_until` e' nel futuro nessun turno ha potuto guardare se la
+condizione e' arrivata, e li' il giudice SHALL tacere. Il tetto sulla DURATA resta
+un tetto su una SERIE: con una sola attesa dichiarata l'orologio SHALL partire
+dalla sveglia, non dalla dichiarazione, perche' il tempo in cui nessuno ha guardato
+la card comincia li'.
+
+E il tetto SHALL valere solo su una serie ANCORA IN CORSO. Un turno che e'
+ripartito dopo la dichiarazione e ha smesso di aspettare chiude la serie, e
+nessuna rimessa in coda del dispatcher azzera `wait_since` — solo umano→todo,
+review e done — quindi la colonna sopravvive proprio al turno che ha smesso.
+Misurato contro `origin/main` sulla forma che il DB vivo porta (`c4d48d3e`:
+`wait_streak` 1, `wait_since` di cinque ore fa, `dispatch_deferred_until` NULL):
+main la manda `in_progress` con un turno partito, il giudice di fuori la
+parcheggiava `backlog` / `waited_out` con zero turni, cioe' il contrario di cio'
+che questo requisito serve a fare. Il segno SHALL essere la finestra di rinvio:
+`deferForWait` la scrive a ogni dichiarazione e il claim la azzera, quindi su una
+riga che porta ancora `wait_since` una finestra NULL dice esattamente «un turno e'
+gia' ripartito e non ha ridichiarato l'attesa». NON SHALL essere l'istante
+dell'ultimo turno (`task_attempts.created_at`, `in_progress_at`) confrontato con
+`wait_since`: su una serie di due o piu' attese quell'istante e' SEMPRE successivo
+a `wait_since` — e' cio' che una serie e' — quindi quel confronto spegnerebbe il
+backstop invece di delimitarlo.
+
 Una card che un umano ha bocciato riparte oggi con «il tuo turno e' stato
 interrotto, continua il lavoro rimasto»: il testo del rifiuto viveva in una Map in
 memoria e muore al primo riavvio, mentre `tasks.reopened_actor` dice sulla riga
@@ -201,6 +262,21 @@ turno interrotto.
 #### Scenario: la serie di attese sfonda il tetto senza un turno nuovo
 - **GIVEN** una card con `wait_since` a cinque ore fa e nessun turno partito da allora
 - **WHEN** il giro periodico la valuta
+- **THEN** la card SHALL essere parcheggiata con lo stato `waited_out`
+
+#### Scenario: un'attesa sola e lunga non e' una serie sfondata
+- **GIVEN** una card che ha dichiarato UNA attesa di 480 minuti, quattro ore fa
+- **WHEN** il giro periodico la valuta
+- **THEN** la card NON SHALL essere parcheggiata, perche' la sveglia che ha chiesto e' ancora davanti
+
+#### Scenario: un turno gia' ripartito chiude la serie, e la card parte
+- **GIVEN** una card con `wait_streak` 1, `wait_since` a cinque ore fa e `dispatch_deferred_until` NULL perche' un turno l'ha gia' reclamata
+- **WHEN** il giro la valuta
+- **THEN** la card NON SHALL essere parcheggiata, e il giro successivo del dispatcher SHALL farla partire
+
+#### Scenario: un turno che RIDICHIARA l'attesa lascia la serie in corso
+- **GIVEN** la stessa card, il cui turno ha dichiarato di nuovo la stessa attesa
+- **WHEN** la serie supera le quattro ore e la sveglia e' passata
 - **THEN** la card SHALL essere parcheggiata con lo stato `waited_out`
 
 #### Scenario: una bocciatura umana riparte col suo testo
