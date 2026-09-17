@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.349 — 2026-09-17
+
+### Sotto il cofano
+- Il pavimento dei check era il pavimento di un'altra cosa: ora e' un'impostazione, e parte da 3
+- Un nome italiano copiato in un file NUOVO non e' piu' coperto dalla baseline
+- DROP-07 dava per scontato che un ricarico riportasse la stessa board, e non la riporta
+
 ## 2.2.348 — 2026-09-17
 
 ### Sotto il cofano
