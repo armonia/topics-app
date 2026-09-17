@@ -112,7 +112,11 @@
     "this date arrived with main and are recorded at main's sizes, not this branch's.",
     "16/09 (PR #59, instradamento dei link di topic): topic-browser-window.spec.ts 1182 -> 1645 sono i casi",
     "04a-04e piu' la variante che chiede zero finestre quando la pane vive in una cella accanto, e",
-    "usePaneOrdering.ts passa 800 righe perche' la porta unica verso la finestra sta li' con il suo commento."
+    "usePaneOrdering.ts passa 800 righe perche' la porta unica verso la finestra sta li' con il suo commento.",
+    "17/09 (loopback pane seed): RemoteBrowserPanel.tsx 1529 -> 1411, LOWERED not raised. The",
+    "seed moved out into useSeedPaneUrl.ts with its probe helper, so the panel ends up below the",
+    "1451 it had before this branch. One line changed here on purpose: an earlier attempt on this",
+    "card rewrote the whole file, which hid the number that mattered inside a full regeneration."
   ],
   "updated": "2026-09-17",
   "tolerance_pct": 5,
@@ -169,7 +173,7 @@
     "client/src/state/signals.ts": 1568,
     "client/src/hooks/useRemoteBrowser.ts": 1535,
     "client/src/types/index.ts": 1534,
-    "client/src/components/Browser/RemoteBrowserPanel.tsx": 1529,
+    "client/src/components/Browser/RemoteBrowserPanel.tsx": 1411,
     "server/services/task-automerge.ts": 1517,
     "shared/ws-outbound.ts": 1481,
     "shared/types.ts": 1467,

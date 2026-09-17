@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-15",
+  "generated": "2026-09-17",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -219,7 +219,6 @@
     ],
     "client/src/components/Browser/RemoteBrowserPanel.tsx": [
       "cancelled",
-      "isSeedableUrl",
       "kbdRef"
     ],
     "client/src/components/Browser/SelectElementOverlay.tsx": [

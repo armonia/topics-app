@@ -404,6 +404,16 @@ the chat, and SHALL close the pane in live clients on a remote close.
 - **THEN** no iframe is rendered — the retired localhost force-frame does not return
 - **AND** the pane falls back to the streaming WebRTC surface rather than a dead pane
 
+#### Scenario: The seed never reloads a context that is already showing a page
+- **GIVEN** a pane whose stored url is `X` and whose server-side context is already loaded on `X`, as happens after a web-client reload or when a second device opens the same pane
+- **WHEN** the pane mounts and the seed decides whether to navigate
+- **THEN** the seed SHALL ask whether the CONTEXT has already loaded, not whether two url strings are equal, which after the pane persists its url they always are
+- **AND** no navigation SHALL be sent, because `page.goto` on the same url is a real reload that would discard scroll, a half-filled form and session state, and would do so for every viewer of a shared session
+- **AND** when the answer cannot be obtained the seed SHALL leave the context alone, a skipped seed being recoverable from the address bar while a reload under someone's hands is not
+
+> The url comparison is the trap this scenario exists to keep shut: it reads
+> "not loaded yet" for a context that has been live for hours.
+
 #### Scenario: A remote close removes the pane in live clients
 - **GIVEN** a mounted browser pane whose context id is the topic id
 - **WHEN** `POST /api/topics/:id/browser/close-pane` is called

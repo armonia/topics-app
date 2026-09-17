@@ -12,8 +12,8 @@ import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 import { ParkedPane } from './ParkedPane';
 import { NewTabPage } from './NewTabPage';
 import { BrowserNoticeStrip } from './BrowserNoticeStrip';
-import { deadLoopbackNotice, isLoopbackUrl } from './navErrorMessage';
-import { loopbackAlive } from '../../lib/loopbackAlive';
+import { deadLoopbackNotice } from './navErrorMessage';
+import { useSeedPaneUrl } from './useSeedPaneUrl';
 import { ForgetSiteDialog } from './ForgetSiteDialog';
 import { siteHostOf, nativeSiteData, sharedSiteData } from '../../lib/browserForgetSite';
 import { recordSiteVisit, noteSiteMeta } from '../../state/browserSiteHistory';
@@ -138,35 +138,6 @@ function writeShareMode(contextId: string, mode: ShareMode): void {
     if (mode === 'auto') localStorage.removeItem(sharedStorageKey(contextId));
     else localStorage.setItem(sharedStorageKey(contextId), mode === 'shared' ? '1' : '0');
   } catch { /* private mode / no storage — in-memory state still drives the switch */ }
-}
-
-
-/**
- * Whether a persisted pane url is safe to auto-seed into a blank server-side
- * browser context (streaming path). A pane's url can point at a host reachable
- * ONLY from the machine that owns the native pane — a bare hostname ("macbook"),
- * a *.local name, loopback, or a private-LAN IP. Seeding those hangs the headless
- * goto → ERR_CONNECTION_REFUSED, worse than an honest blank pane. Only public
- * http(s) hosts (a registrable dotted name or a public IP) are seedable.
- */
-function isSeedableUrl(raw: string | undefined): raw is string {
-  if (!raw || !/^https?:\/\//i.test(raw)) return false;
-  let host: string;
-  try { host = new URL(raw).hostname; } catch { return false; }
-  if (!host) return false;
-  const lower = host.toLowerCase();
-  if (lower === 'localhost' || lower === '0.0.0.0' || lower === '::1') return false;
-  if (lower.endsWith('.local') || lower.endsWith('.localhost')) return false;
-  // Bare single-label hostname (no dot) → not publicly resolvable (e.g. "macbook").
-  const isIPv6 = host.includes(':');
-  if (!isIPv6 && !host.includes('.')) return false;
-  // Private / link-local IPv4 ranges.
-  if (/^127\./.test(host)) return false;
-  if (/^10\./.test(host)) return false;
-  if (/^192\.168\./.test(host)) return false;
-  if (/^169\.254\./.test(host)) return false;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
-  return true;
 }
 
 export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible: isVisibleProp = true, onFocusPanel, topics, onSelfFocus, hasFocus }: RemoteBrowserPanelProps) {
@@ -932,101 +903,12 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     return () => clearTimeout(t);
   }, [isVisible, browser.url, knownPaneUrl, focusUrlBar]);
 
-  // Seed a blank server context with the pane's persisted URL (initialUrl). A
-  // browser pane's page can live entirely on ANOTHER client — most notably the
-  // Mac's NATIVE WKWebView pane (Tauri path), which never touches this server
-  // context. Without this, a web/mobile client connecting to that context finds
-  // it blank and sits at "Browser ready" instead of showing the page. The Tauri
-  // path already navigates to initialUrl on mount (useTauriBrowser); this is its
-  // streaming-path counterpart. Fire once, and only when the server context is
-  // genuinely blank — never clobber a context already on a live page.
-  //
-  // LOOPBACK IS SEEDED TOO, AFTER ASKING WHETHER ANYONE IS THERE.
-  //
-  // The defect this closes (card 30f55ca9): on the web client a pane opened
-  // from the chat on a loopback address stayed on the new-tab page forever. The
-  // framable probe refuses every loopback by design (its SSRF guard must not be
-  // loosened), so there is no iframe; and this seed — the streaming fallback the
-  // requirement asks for — refused loopback wholesale, so nothing navigated at
-  // all. The pane held the right URL in its store and showed a blank new tab.
-  //
-  // The original refusal was not wrong about its own case: a DEAD preview port
-  // hangs the server-side goto for 30s and then fails. But "dead" is a question
-  // with an answer, `/api/browsers/port-listening`, which is loopback-only and
-  // costs one TCP connect. So the rule splits in two, and neither half is a
-  // silence: the port answers and the pane loads it through the server (which
-  // runs on the same machine, so it CAN reach it); nothing answers and the pane
-  // says which port is dead and when it looked.
-  const [deadLoopback, setDeadLoopback] = useState<{ url: string; checkedAt: Date } | null>(null);
-  // The live url, readable from inside the timeout without making it a dep.
-  const browserUrlRef = useRef(browser.url);
-  browserUrlRef.current = browser.url;
-  const seededRef = useRef(false);
-  useEffect(() => {
-    if (seededRef.current || !browser.connected) return;
-    // The url the pane IS on, from the store or from the mount seed. Reading
-    // `initialUrl` alone missed the case this card is about: a chat-opened pane
-    // gets its url through the pane store, and its `initialUrl` is empty.
-    const seedUrl = knownPaneUrl;
-    if (!seedUrl || !/^https?:\/\//i.test(seedUrl)) return;
-    const loopback = isLoopbackUrl(seedUrl);
-    // Every OTHER not-publicly-reachable host keeps the old refusal: a bare
-    // hostname, a .local name, a private-LAN address can be reachable from the
-    // machine that owns the native pane and from nowhere else, and there is no
-    // cheap probe that can tell.
-    if (!loopback && !isSeedableUrl(seedUrl)) return;
-    let cancelled = false;
-    // Let fetchInfo() (fired in ws.onopen) report the context's real url first,
-    // so a context that already holds a page is left untouched.
-    //
-    // "STILL NEEDS THE SEED" IS NOT THE SAME AS "BLANK", and the difference is
-    // the whole bug the first version of this fix still had. `browser.url` also
-    // holds the url the pane was OPENED on, before anything has loaded it: a
-    // chat-opened pane reads its own target back within milliseconds. Bailing on
-    // "not blank" therefore skipped the navigation precisely in this card's
-    // case, and the pane sat on a context the server had never been told to
-    // load - the same dead pane, now with the right url in the address bar.
-    // So the url we are about to seed counts as "not loaded yet" too; only a
-    // DIFFERENT page means somebody got there first and must not be clobbered.
-    const needsSeed = (): boolean => {
-      const current = browserUrlRef.current;
-      return !current || current === 'about:blank' || current === seedUrl;
-    };
-    const t = setTimeout(() => {
-      if (seededRef.current) return;
-      if (!needsSeed()) { seededRef.current = true; return; }
-      if (!loopback) {
-        seededRef.current = true;
-        browser.navigate(seedUrl);
-        return;
-      }
-      void loopbackAlive(seedUrl).then((alive) => {
-        // Re-read: the probe is a round trip, and a real navigation may have
-        // landed meanwhile. Seeding over that one would be a reload.
-        if (cancelled || seededRef.current || !needsSeed()) return;
-        seededRef.current = true;
-        if (alive) browser.navigate(seedUrl);
-        else setDeadLoopback({ url: seedUrl, checkedAt: new Date() });
-      });
-    }, 400);
-    return () => { cancelled = true; clearTimeout(t); };
-    // Fine-grained on the specific browser fields this seed reacts to — depending
-    // on the whole `browser` object would re-run (and risk a re-seed) on every
-    // unrelated browser-state change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [browser.connected, browser.url, knownPaneUrl, browser.navigate]);
-
-  // Looking again is the whole point of the button: the port that was dead a
-  // minute ago is the dev server you have just restarted.
-  const retryDeadLoopback = useCallback(() => {
-    const url = deadLoopback?.url;
-    if (!url) return;
-    setDeadLoopback(null);
-    void loopbackAlive(url).then((alive) => {
-      if (alive) browser.navigate(url);
-      else setDeadLoopback({ url, checkedAt: new Date() });
-    });
-  }, [deadLoopback, browser]);
+  const { deadLoopback, retryDeadLoopback, dismissDeadLoopback } = useSeedPaneUrl({
+    contextId,
+    connected: browser.connected,
+    knownPaneUrl,
+    navigate: browser.navigate,
+  });
 
   // React to external navigateUrl prop
   useEffect(() => {
@@ -1412,7 +1294,7 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
                 testId="browser-loopback-down"
                 {...deadLoopbackNotice(deadLoopback.url, deadLoopback.checkedAt, tr)}
                 action={{ label: tr('common.retry'), onClick: retryDeadLoopback }}
-                onDismiss={() => setDeadLoopback(null)}
+                onDismiss={dismissDeadLoopback}
               />
             )}
             <NewTabPage onNavigate={(u) => { browser.navigate(u); }} />

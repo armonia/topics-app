@@ -129,23 +129,60 @@ test.describe("BROWSER-CHAT-04 — a loopback URL from the chat never dies on th
           return "none";
         });
 
+      // AND "error" IS NOT AN ACCEPTED OUTCOME HERE.
+      //
+      // The strip that names a dead port is the right answer to a dead port,
+      // and this test's port is alive by construction: the server serving it is
+      // started by this file and is still running. So "gave up, explained why"
+      // would be exactly the failure the card is about, wearing an excuse.
+      // Only a navigation passes.
       await expect
         .poll(surface, { timeout: 90_000, message: "the pane never left the new-tab page" })
-        .toMatch(/^(dom|video|error)$/);
+        .toMatch(/^(dom|video)$/);
 
       // No iframe, ever: the probe said non-framable and that verdict stands.
       await expect(page.locator('[data-testid="browser-iframe"]')).toHaveCount(0);
 
-      const ended = await surface();
-      if (ended === "error") {
-        // The honest second outcome: the pane could not reach the port, and it
-        // SAYS so. An empty strip would be the same silence in another shape.
-        const text = await page
-          .locator('[data-testid="browser-nav-error"], [data-testid="browser-loopback-down"]')
+      // THE PROOF THAT THE PAGE WAS REALLY FETCHED, and not merely that some
+      // surface replaced the new tab. Two independent witnesses, either of
+      // which is conclusive, because they say the same thing by different
+      // routes:
+      //   - the server-side context reports the loopback url, or
+      //   - the mirrored DOM contains the marker only this test's server serves.
+      // It accepts EITHER rather than insisting on the first because the id the
+      // service files the context under is not always the pane's id, and that
+      // lookup answered 404 for a context that had demonstrably navigated. A
+      // proof that depends on guessing the filing key is not a stronger proof,
+      // only a flakier one. What neither witness can be produced by is the
+      // failure this card is about: a pane sitting on the new tab, or a strip
+      // apologising for not having tried.
+      const host = new URL(loopbackUrl).host;
+      const navigated = async (): Promise<boolean> => {
+        const paneContextId = await page
+          .locator("[data-browser-pane]")
           .first()
-          .innerText();
-        expect(text.trim().length).toBeGreaterThan(0);
-      } else if (ended === "dom") {
+          .getAttribute("data-browser-pane");
+        if (paneContextId) {
+          const res = await request.get(`/api/browsers/${encodeURIComponent(paneContextId)}`);
+          if (res.ok() && (((await res.json()) as { url?: string }).url ?? "").includes(host)) {
+            return true;
+          }
+        }
+        return await page
+          .frameLocator("[data-browser-pane] iframe")
+          .locator("#marker")
+          .isVisible()
+          .catch(() => false);
+      };
+      await expect
+        .poll(navigated, {
+          timeout: 90_000,
+          message: "neither the server context nor the mirrored DOM ever showed the loopback page",
+        })
+        .toBe(true);
+
+      const ended = await surface();
+      if (ended === "dom") {
         // Co-browse mirrors the real DOM into the pane, so the marker - text
         // only THIS test's server can have produced - is the end-to-end proof
         // that the page was fetched, not merely that a surface appeared.
