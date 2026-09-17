@@ -33,6 +33,26 @@ L'esenzione SHALL valere sia per le ammissioni nuove sia per il `resume` di una
 card gia' al lavoro, perche' oggi il pavimento e' valutato prima del budget e
 trattiene entrambi.
 
+**Due domande, due censimenti, e ognuno decide la sua riga per intero.** «C'e'
+del nostro VIVO qui?» decide l'esenzione, e una card parcheggiata sulla CI di
+GitHub conta: la sessione e' viva e residente. «C'e' del nostro che deve ancora
+SPENDERE qui?» decide la riga del pavimento, e quella stessa card non conta: ha
+gia' finito i suoi check locali, i suoi ~240 MB sono residenti adesso e sono
+gia' dentro la lettura, e non c'e' nessuna fiammata futura da coprire. Il RAMO
+della riga (pavimento da solo, oppure pavimento + prezzo di una card + riserva)
+e la sua CIFRA SHALL uscire dallo STESSO elenco: prendere il ramo dal censimento
+e la cifra dal listino chiedeva `pavimento + prezzo + 0` = 10 GB a una macchina
+su cui nessuno stava spendendo niente, cioe' la coda ferma per tutti i quindici
+minuti in cui una consegna aspetta la CI. Misurato con due card off-lane in volo
+e una terza in coda: `held2m` a 7,0 / 8,0 / 9,9 GB tratteneva, a 12,0 GB no.
+
+#### Scenario: con solo card sulla CI in volo la riga e' il pavimento
+- **GIVEN** due card in volo i cui check aspettano solo la CI della pull request
+- **AND** il minimo su 2 minuti a 7 GB, sopra il pavimento di 6 GB
+- **WHEN** il dispatcher valuta la card successiva
+- **THEN** la card SHALL essere ammessa, e NON per esenzione
+- **AND** con la stessa lettura e un turno che sta ancora girando comandi qui la card NON SHALL essere ammessa
+
 #### Scenario: a Topics fermo una card parte anche sotto il pavimento
 - **GIVEN** il minimo su 2 minuti a 4,8 GB, sotto il pavimento nativo di 6 GB
 - **AND** zero agenti vivi e zero corse di check pre-review

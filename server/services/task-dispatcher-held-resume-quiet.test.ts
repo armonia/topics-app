@@ -124,7 +124,7 @@ function harness() {
       () => floor.diskGB,
       floor.warming ? () => ({ measurable: true, latestGB: 20, heldGB: null, coveredMs: 11_000 }) : windowAt(floor.memGB),
       false,
-      { ...hold, ourWorkRunning: true },
+      { ...hold, spendingHere: true, ourWorkRunning: true },
     ),
   };
   const dispatcher = createTaskDispatcher(deps);
@@ -171,7 +171,7 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     // The swing is really there: the composer wrote both sentences on these readings.
     const sentences = new Set<string>();
     for (const gb of READINGS) {
-      sentences.add(dispatchResourceBlock("/", () => 100, windowAt(gb), false, { cardGB: 4, reservedGB: 0, reservedCards: 0, ourWorkRunning: true })!.split(":")[0]!);
+      sentences.add(dispatchResourceBlock("/", () => 100, windowAt(gb), false, { cardGB: 4, reservedGB: 0, reservedCards: 0, spendingHere: true, ourWorkRunning: true })!.split(":")[0]!);
     }
     expect([...sentences].sort()).toEqual(["Memoria in risalita", "Memoria quasi finita"]);
     for (const id of ids) {

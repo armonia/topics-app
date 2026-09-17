@@ -598,11 +598,26 @@ export function memoryTooTight(availableGB: number | null, floorGB = DISPATCH_ME
  * on the machine. With none, the floor asks for itself alone: this Mac reads
  * 6.1-11.7 GB with no Topics work at all, so "floor + price" (10-12 GB) would
  * keep an idle board shut for good.
+ *
+ * TWO QUESTIONS, TWO CENSUSES, and each one decides its own line end to end.
  */
 export interface MemoryFloorHold {
   cardGB: number;
   reservedGB: number;
   reservedCards: number;
+  /**
+   * Is any of our work going to SPEND here memory the reading cannot see yet -
+   * the SAME list `reservedGB` is priced from, so branch and figure agree. A
+   * card parked on the pull request CI keeps a session alive but runs no
+   * commands: its ~240 MB is resident NOW, already inside the window, with no
+   * later burst to cover. Read off `ourWorkRunning` instead, the line asked
+   * `floor + cardGB + 0` = 10 GB of a machine where nothing was spending.
+   */
+  spendingHere: boolean;
+  /** Is any of our work ALIVE here, the cards parked on the CI included. It
+   *  decides the EXEMPTION and nothing else: "none of our work on this machine"
+   *  is the whole condition for one card under the floor, and an off-lane agent
+   *  resident on this Mac is not none. */
   ourWorkRunning: boolean;
 }
 
@@ -697,7 +712,7 @@ export function dispatchResourceVerdict(
    *  from `agent_runtime`, and this file measures the machine without setting policy. */
   agentsAreProcesses = true,
   /** What the dispatcher knows and the reading cannot see (see `MemoryFloorHold`). */
-  hold: MemoryFloorHold = { cardGB: AGENT_COST_FLOOR_MEM_GB, reservedGB: 0, reservedCards: 0, ourWorkRunning: false },
+  hold: MemoryFloorHold = { cardGB: AGENT_COST_FLOOR_MEM_GB, reservedGB: 0, reservedCards: 0, spendingHere: false, ourWorkRunning: false },
   /** Who is holding the memory outside Topics (`memory-owners.ts`), heaviest first.
    *  Only the MEMORY sentence carries it: a full disk is not somebody's app. */
   foreign: readonly MemoryFamily[] = [],
@@ -729,11 +744,13 @@ export function dispatchResourceVerdict(
   }
   const cardGB = Math.max(0, hold.cardGB);
   const reservedGB = Math.max(0, hold.reservedGB);
-  // The "floor alone" line stays here and is not dead: it is what decides
-  // whether the exemption below has anything to waive. Reading it as
-  // floor + price on an idle machine would declare an exemption on a Mac with
-  // 8 GB free and nothing running, where no floor ever held.
-  const line = hold.ourWorkRunning ? floor + cardGB + reservedGB : floor;
+  // The "floor alone" branch is not dead: it decides whether the exemption
+  // below has anything to waive, and reading the line as floor + price on an
+  // idle machine would declare one on a Mac with 8 GB free and nothing
+  // running. Its condition is the PRICE LIST, the same list the figure comes
+  // from (see `spendingHere`): taking the branch from the census instead held
+  // at 7.0, 8.0 and 9.9 GB with two cards parked on the CI and a third asking.
+  const line = hold.spendingHere ? floor + cardGB + reservedGB : floor;
   const low = mem.heldGB;
   if (low >= line) return NOTHING_HOLDS;
   if (exempt) return { reason: null, kind: null, memoryFirstCardExempt: true };

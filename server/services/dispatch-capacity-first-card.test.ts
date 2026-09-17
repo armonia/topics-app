@@ -24,8 +24,8 @@ const held = (gb: number): (() => HeldMemory) => () =>
 
 describe("il pavimento della memoria cede alla prima card, il disco no", () => {
   const disco = () => 500;
-  const fermo: MemoryFloorHold = { cardGB: 4, reservedGB: 0, reservedCards: 0, ourWorkRunning: false };
-  const alLavoro: MemoryFloorHold = { ...fermo, ourWorkRunning: true };
+  const fermo: MemoryFloorHold = { cardGB: 4, reservedGB: 0, reservedCards: 0, spendingHere: false, ourWorkRunning: false };
+  const alLavoro: MemoryFloorHold = { ...fermo, spendingHere: true, ourWorkRunning: true };
 
   test("a Topics fermo una card parte anche sotto il pavimento, e il verdetto lo dichiara", () => {
     const v = dispatchResourceVerdict("/tmp", disco, held(4.8), false, fermo);
@@ -52,6 +52,12 @@ describe("il pavimento della memoria cede alla prima card, il disco no", () => {
   });
 
   test("il disco non ha esenzione: a macchina ferma resta chiuso", () => {
+    // A GUARD, NOT A PROOF, and it should be read that way: the disk did not
+    // change with KANBAN-75 and this case passes identically on the code from
+    // before the exemption. It demonstrates nothing new; it pins the asymmetry
+    // the requirement decided, and goes red only if somebody extends the
+    // memory derogation to the disk.
+    //
     // A full disk does not reabsorb itself and SQLite's writes fail: it waits
     // for a person, and no count of agents opens it.
     const v = dispatchResourceVerdict("/tmp", () => 1, held(50), false, fermo);
@@ -66,5 +72,54 @@ describe("il pavimento della memoria cede alla prima card, il disco no", () => {
     const v = dispatchResourceVerdict("/tmp", disco, held(20), false, fermo);
     expect(v.reason).toBeNull();
     expect(v.memoryFirstCardExempt).toBe(false);
+  });
+});
+
+/**
+ * THE 6-10 GB BAND, which is where this Mac lives while it frees up.
+ *
+ * The census ("is any of ours alive here?") and the price list ("is any of ours
+ * still going to spend here?") answer differently about the cards parked on
+ * GitHub's CI, and the line took its BRANCH from the first and its FIGURE from
+ * the second: branch "floor + price + reservation", reservation 0, so 10 GB
+ * asked of a machine where nothing of ours was spending. With two off-lane
+ * cards in flight - the normal state of a delivery for about fifteen minutes -
+ * 7.0, 8.0 and 9.9 GB of `held2m` all held, so a delivery that had just passed
+ * its local checks stopped the queue harder than an agent at work.
+ */
+describe("un solo censimento: la riga la decide il listino", () => {
+  const disco = () => 500;
+  /** Cards in flight, alive and resident, whose checks here are over. */
+  const sullaCI: MemoryFloorHold = { cardGB: 4, reservedGB: 0, reservedCards: 0, spendingHere: false, ourWorkRunning: true };
+  /** A turn still running commands here: the price list charges it. */
+  const cheSpende: MemoryFloorHold = { ...sullaCI, spendingHere: true };
+
+  for (const gb of [7.0, 8.0, 9.9]) {
+    test(`a ${gb.toFixed(1)} GB, sopra il pavimento e con solo card sulla CI, la prossima parte`, () => {
+      const v = dispatchResourceVerdict("/tmp", disco, held(gb), false, sullaCI);
+      expect(v.reason).toBeNull();
+      // And NOT by derogation: the reading really is over the floor, not waived.
+      expect(v.memoryFirstCardExempt).toBe(false);
+    });
+  }
+
+  test("sotto il pavimento resta chiusa, e senza esenzione: le card sulla CI sono nostre", () => {
+    // The census fix stands: an off-lane card is an agent alive and resident,
+    // so the first-card derogation does NOT re-arm underneath it.
+    const v = dispatchResourceVerdict("/tmp", disco, held(4.8), false, sullaCI);
+    expect(v.kind).toBe("memory");
+    expect(v.reason).toContain("sotto il pavimento di 6 GB");
+    expect(v.memoryFirstCardExempt).toBe(false);
+  });
+
+  test("un turno che spende ancora qui alza la riga a 10 GB, e la cifra è quella del listino", () => {
+    const v = dispatchResourceVerdict("/tmp", disco, held(9.9), false, cheSpende);
+    expect(v.reason).toContain("sotto i 10.0 GB");
+    expect(dispatchResourceVerdict("/tmp", disco, held(10.0), false, cheSpende).reason).toBeNull();
+    // With a reservation (count mode) the figure rises with it, branch and
+    // figure off the same list: 6 + 4 + 4.
+    const conRiserva = { ...cheSpende, reservedGB: 4, reservedCards: 1 };
+    expect(dispatchResourceVerdict("/tmp", disco, held(13.9), false, conRiserva).reason).toContain("sotto i 14.0 GB");
+    expect(dispatchResourceVerdict("/tmp", disco, held(14.0), false, conRiserva).reason).toBeNull();
   });
 });

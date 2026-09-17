@@ -1145,16 +1145,28 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const checks = (() => { try { return deps.checksRunning?.() ?? 0; } catch { return 0; } })();
     const resources = inResourcesMode();
     const reserved = resources ? 0 : reservedCost(launches, { coreUnits: 0, memGB: price }, Date.now()).memGB;
+    // TWO QUESTIONS, AND EACH GETS ITS OWN CENSUS WHOLE.
+    //
     // `ourWorkRunning` is the SAME "zero" the budget axis counts for
     // `firstAgentExempt`: `sample.running` (= `busyCount()`) plus pre-review
     // check runs. A run riding on a node holds nothing on this machine, and a
     // board behind an 11 GB shard is not a board that never starts - but a card
     // waiting on the pull request CI IS an agent alive on this Mac, so it is
     // counted by `localTurns()` and not by the reservation's `launches`.
+    //
+    // `spendingHere` is the PRICE LIST, the same `launches` `reservedGB` is
+    // computed from, plus the check runs (a shard spends 4-11 GB while it
+    // runs). It decides the line, branch and figure alike. Mixing the two - the
+    // census for the branch, the price list for the figure - put the line at
+    // `floor + cardGB + 0` = 10 GB whenever the only thing in flight was a card
+    // parked on GitHub's CI, which is the normal state of a delivery for about
+    // fifteen minutes: measured 7.0, 8.0 and 9.9 GB of `held2m` all held with
+    // nothing on this Mac to spend them.
     return deps.resourceBlock?.({
       cardGB: price,
       reservedGB: reserved,
       reservedCards: resources ? 0 : launches.length,
+      spendingHere: launches.length + Math.max(0, checks) > 0,
       ourWorkRunning: localTurns() + Math.max(0, checks) > 0,
     }) ?? { reason: null, kind: null, memoryFirstCardExempt: false };
   }

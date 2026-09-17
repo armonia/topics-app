@@ -470,6 +470,38 @@ describe("the memory window on the floor and on the budget axis", () => {
     expect(w.h.startedAt).toHaveLength(1);
   });
 
+  it("E6, COUNT MODE: with only cards parked on the CI in flight the line is the floor, so 7 GB starts the next one", async () => {
+    // THE BAND 6-10 GB, which is where this Mac lives while it frees up, and
+    // the state the delivery cycle parks in for about fifteen minutes.
+    //
+    // Counting the off-lane card in the census (E3) is right, and reserving
+    // nothing for it is right too - but the LINE took its branch from the first
+    // and its figure from the second: `floor + cardGB + 0` = 10 GB asked of a
+    // machine where nothing of ours was spending. Measured before the fix with
+    // two off-lane cards and a third asking: `held2m` at 7.0, 8.0 and 9.9 all
+    // held, while the same states on origin/main all started.
+    const offLane = new Set<string>();
+    const w = windowHarness("count", { checksOffLane: (id) => offLane.has(id) });
+    for (let i = 0; i < 3; i++) seedTodo(w.h.db, `e6-${i}`);
+    await w.beats(repeat(4.8, 14));
+    expect(w.h.startedAt).toHaveLength(1);
+    // Its local checks passed: from here GitHub measures, and the session is
+    // alive and resident but runs no commands. Only the card that actually
+    // started goes off-lane - the next one to start is a turn spending here.
+    const started = w.h.db.query<{ id: string }, []>("SELECT id FROM tasks WHERE status = 'in_progress'").all();
+    expect(started).toHaveLength(1);
+    offLane.add(started[0]!.id);
+    // The machine frees up to 7 GB: over the 6 GB floor, under the 10 the
+    // mixed line asked for. Fourteen beats to flush the 4.8 out of the window.
+    await w.beats(repeat(7, 14));
+    expect(w.h.startedAt).toHaveLength(2);
+    // And the uplift is NOT gone: the card that just started is spending here,
+    // so the line is 6 + 4 + 4 and the third one waits at the same 7 GB.
+    await w.beats(repeat(7, 20));
+    expect(w.h.startedAt).toHaveLength(2);
+    expect(currentDispatchBlock()?.reason ?? "").toContain("sotto i 14.0 GB");
+  });
+
   it("E4: the log says the queue moved BY DEROGATION, and says it once", async () => {
     // The line the board's history is read from: the 16/09 audit dated "the
     // queue restarted at 23:38" from it, while `held2m` was 4.8 GB against a
@@ -502,6 +534,12 @@ describe("the memory window on the floor and on the budget axis", () => {
   });
 
   it("E2: a full disk has no exemption - nothing starts even with the machine idle", async () => {
+    // A GUARD, NOT A PROOF, and it should be read that way: the disk did not
+    // change with KANBAN-75 and this case passes identically on the code from
+    // before the exemption. It demonstrates nothing new; it pins the asymmetry
+    // the requirement decided, and goes red only if somebody extends the
+    // memory derogation to the disk.
+    //
     // A full disk does not reabsorb itself: SQLite's writes fail and the wait
     // ends when a person frees space, so no count of agents opens it.
     const w = windowHarness("resources", {

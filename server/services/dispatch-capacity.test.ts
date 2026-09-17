@@ -21,7 +21,7 @@ const held = (gb: number | null): (() => HeldMemory) => () =>
  * the floor itself, which is the number these cases are about.
  */
 const working = (over: Partial<MemoryFloorHold> = {}): MemoryFloorHold =>
-  ({ cardGB: 0, reservedGB: 0, reservedCards: 0, ourWorkRunning: true, ...over });
+  ({ cardGB: 0, reservedGB: 0, reservedCards: 0, spendingHere: true, ourWorkRunning: true, ...over });
 import { GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF, clampGlobalCap, isGlobalCapOff } from "../../shared/board";
 import type { FleetLoadReading } from "../lib/fleet-usage";
 
@@ -644,29 +644,31 @@ describe("il pavimento della memoria segue il runtime", () => {
   });
 
   test("C1: one line in both directions, the price only with our work on the machine, the kept memory only when charged", () => {
-    const hold = (over: Partial<{ cardGB: number; reservedGB: number; reservedCards: number; ourWorkRunning: boolean }> = {}) =>
-      ({ cardGB: 4, reservedGB: 0, reservedCards: 0, ourWorkRunning: false, ...over });
+    const hold = (over: Partial<MemoryFloorHold> = {}): MemoryFloorHold =>
+      ({ cardGB: 4, reservedGB: 0, reservedCards: 0, spendingHere: false, ourWorkRunning: false, ...over });
+    /** A local turn that is still going to spend here: it is what lifts the line. */
+    const inFlight = (over: Partial<MemoryFloorHold> = {}) => hold({ spendingHere: true, ourWorkRunning: true, ...over });
     // Nothing of ours running: the floor alone decides, and under it the first
     // card goes through anyway - the sentence exists only with a turn in flight.
     expect(dispatchResourceBlock("/tmp", disco, ram(6.0), false, hold())).toBeNull();
     expect(dispatchResourceBlock("/tmp", disco, ram(5.9), false, hold())).toBeNull();
     expect(dispatchResourceBlock("/tmp", disco, ram(5.9), false, working())).toContain("Memoria quasi finita");
     // A turn in flight: floor + one card's price, 10 GB, and 9.9 is still under it.
-    const climbing = dispatchResourceBlock("/tmp", disco, ram(9.9), false, hold({ ourWorkRunning: true }));
+    const climbing = dispatchResourceBlock("/tmp", disco, ram(9.9), false, inFlight());
     expect(climbing).toContain("Memoria in risalita");
     expect(climbing).toContain("sotto i 10.0 GB che servono per una card in più");
     expect(climbing).toContain("resta sopra 10.0 GB per 2 minuti di fila");
-    expect(dispatchResourceBlock("/tmp", disco, ram(10.0), false, hold({ ourWorkRunning: true }))).toBeNull();
+    expect(dispatchResourceBlock("/tmp", disco, ram(10.0), false, inFlight())).toBeNull();
     // Count mode charges the turn in flight on the floor itself.
-    const kept = dispatchResourceBlock("/tmp", disco, ram(13.9), false, hold({ ourWorkRunning: true, reservedGB: 4, reservedCards: 1 }));
+    const kept = dispatchResourceBlock("/tmp", disco, ram(13.9), false, inFlight({ reservedGB: 4, reservedCards: 1 }));
     expect(kept).toContain("4.0 GB tenuti per l'agente al lavoro");
-    expect(dispatchResourceBlock("/tmp", disco, ram(14.0), false, hold({ ourWorkRunning: true, reservedGB: 4, reservedCards: 1 }))).toBeNull();
+    expect(dispatchResourceBlock("/tmp", disco, ram(14.0), false, inFlight({ reservedGB: 4, reservedCards: 1 }))).toBeNull();
     // Not measurable: memory never blocks, whatever the number would have been.
-    expect(dispatchResourceBlock("/tmp", disco, ram(null), false, hold({ ourWorkRunning: true }))).toBeNull();
+    expect(dispatchResourceBlock("/tmp", disco, ram(null), false, inFlight())).toBeNull();
   });
 
   test("C1b: the held sentence says WHO is holding the memory, and only when it is somebody else", () => {
-    const hold = { cardGB: 4, reservedGB: 0, reservedCards: 0, ourWorkRunning: true };
+    const hold = { cardGB: 4, reservedGB: 0, reservedCards: 0, spendingHere: true, ourWorkRunning: true };
     // 16/09/2026: seven cards held for hours by the Claude app, a Dia and a
     // `next-server` nobody had noticed. The chip said the number and no name.
     const who = [{ name: "Claude", gb: 8.1, procs: 12 }, { name: "next-server", gb: 2.9, procs: 1 }, { name: "Dia", gb: 2.6, procs: 21 }];
@@ -688,7 +690,7 @@ describe("il pavimento della memoria segue il runtime", () => {
     const sentences = [
       measuring,
       dispatchResourceBlock("/tmp", disco, ram(2), false, working()),
-      dispatchResourceBlock("/tmp", disco, ram(8), false, { cardGB: 4, reservedGB: 4, reservedCards: 2, ourWorkRunning: true }),
+      dispatchResourceBlock("/tmp", disco, ram(8), false, { cardGB: 4, reservedGB: 4, reservedCards: 2, spendingHere: true, ourWorkRunning: true }),
       dispatchResourceBlock("/tmp", disco, ram(2), true, working()),
     ];
     for (const r of sentences) {
