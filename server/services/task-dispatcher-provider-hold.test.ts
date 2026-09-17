@@ -1,4 +1,4 @@
-/** @covers MP-DISPATCH-01, MP-TASK-01, USAGE-21, RESUME-04 */
+/** @covers MP-DISPATCH-01, MP-TASK-01, USAGE-21, RESUME-04, KANBAN-88 */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskAttemptStore } from "./task-attempts";

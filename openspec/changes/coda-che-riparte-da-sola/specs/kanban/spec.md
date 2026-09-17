@@ -176,6 +176,16 @@ misurata solo su segni che il LAVORO lascia — commenti d'agente, messaggi del
 topic, tentativi, mtime del transcript — mai su una colonna che il dispatcher
 riscrive mentre aspetta.
 
+**E nemmeno su un commento che ha scritto una macchina.** `MAX(created_at) FROM
+task_comments` (`worktree-gc-runner.ts`) non filtra autore ne' `kind`, quindi
+ogni nota di servizio (`author = 'system'`) azzera l'orologio esattamente come
+farebbe una parola d'agente. Non e' teorico: le note che KANBAN-86 e KANBAN-87
+aggiungono nascono proprio sulle card che nessuno sta piu' lavorando — una
+consegna che ha smesso di ripartire, una coda ferma dietro il muro di un
+provider — cioe' le uniche che l'abbandono dovrebbe raggiungere. Il segno di vita
+SHALL essere una parola di un agente o di una persona; una riga scritta dal
+server NON SHALL contare.
+
 Il tetto sulla DURATA di una serie di attese (`WAIT_SERIES_MAX_MS`, 4 ore) e'
 letto in un solo punto, dentro `deferForWait`, cioe' solo se un altro turno parte
 e ridichiara l'attesa. Se il dispatcher non ammette piu' nessuno la serie cresce e
@@ -197,6 +207,11 @@ turno interrotto.
 - **GIVEN** una card il cui ultimo commento d'agente ha nove giorni e il cui chip e' stato riscritto un minuto fa
 - **WHEN** il giro delle worktree la valuta
 - **THEN** l'inattivita' SHALL essere di nove giorni
+
+#### Scenario: una nota del server non e' un segno di vita
+- **GIVEN** la stessa card, con una nota di servizio scritta dal server un minuto fa
+- **WHEN** il giro delle worktree la valuta
+- **THEN** l'inattivita' SHALL restare di nove giorni
 
 #### Scenario: la serie di attese sfonda il tetto senza un turno nuovo
 - **GIVEN** una card con `wait_since` a cinque ore fa e nessun turno partito da allora
@@ -274,3 +289,126 @@ due verdetti opposti sulla stessa card sono peggio di nessuno dei due.
 - **GIVEN** una consegna il cui sha non ha commit propri oltre `main`
 - **WHEN** le righe CI vengono valutate
 - **THEN** SHALL essere non misurate, e il referto SHALL dirne la ragione
+
+### Requirement: KANBAN-86 — La spia «check in corso» la accende il registro vivo, non la riga
+
+Una corsa di check vive nel processo (`checks-gate.ts`). La riga dice
+`checks_state = 'running'` per tutta la sua durata, e a spegnerla c'era un solo
+chiamante: la costruzione della rotta, cioe' l'unico istante in cui il registro
+del cancello e' vuoto per costruzione e ogni spia nel database e' quindi di un
+processo morto.
+
+Un boot non e' mai stato l'unico modo di lasciarne una accesa. Se `measure()`
+finisce senza scrivere lo stato terminale — il freno dello swap,
+`throwIfStopping()`, una qualunque eccezione che il cancello registra come
+`corsa … esplosa` — il cancello lascia la chiave e la riga continua a dire
+«running». Misurato il 17/09/2026: 89 boot hanno trovato almeno una spia gia'
+accesa (71 volte 1, 16 volte 2, una volta 4, una volta 6). Fra due boot quella
+riga mentiva a tutti i suoi lettori: 1253 riarmi del giudice di stallo, e una
+passata StaleStream che rispondeva `extend` a ogni turno muto di quella sessione,
+quindi un turno morto non veniva mai finalizzato.
+
+Il predicato che dice «questa sessione aspetta i NOSTRI check» SHALL leggere il
+registro vivo del cancello, e la riga SHALL essere una conferma, non una fonte.
+
+Una passata periodica SHALL riconciliare le due, tenendo in mano il registro
+vivo: spegne le spie che il cancello non conosce piu', e NON SHALL toccare una
+corsa viva ne' una in coda dietro la corsa di un'altra card. Finche' la rotta non
+esiste — nessun registro da incrociare — la passata NON SHALL spegnere niente:
+li' ogni spia e' ancora affare della passata del boot.
+
+Spegnere la spia non basta: la card resta ferma senza giro, perche' in-processo
+solo un `ChecksInterruptedError` con motivo `swap` fa ripartire la consegna, e il
+boot ormai ci rinuncia dopo tre giri (KANBAN-87). Per ogni spia spenta la passata
+SHALL riemettere la consegna che questo processo sta ancora tenendo per quella
+card, se ne tiene una, e SHALL annunciare la card alle board che ce l'hanno
+aperta.
+
+#### Scenario: una riga «running» senza corsa viva non trattiene nessun orologio
+- **GIVEN** una card `in_progress` con `checks_state = 'running'` e il cancello che non conosce piu' quella corsa
+- **WHEN** il giudice di stallo chiede se la sessione aspetta i nostri check
+- **THEN** la risposta SHALL essere no
+
+#### Scenario: la passata spegne l'orfana e lascia stare la viva
+- **GIVEN** due card con la spia accesa, di cui una con la corsa ancora nel registro
+- **WHEN** la passata periodica gira
+- **THEN** SHALL spegnere solo quella che il registro non conosce, annunciarla, e riemetterne la consegna
+
+#### Scenario: prima che la rotta esista non si spegne niente
+- **GIVEN** una spia accesa e nessun registro del cancello ancora disponibile
+- **WHEN** la passata periodica gira
+- **THEN** NON SHALL spegnere niente
+
+### Requirement: KANBAN-87 — Lo stesso giro di consegna non riparte all'infinito, e i giri si contano per consegna
+
+Riemettere una consegna al boot vale solo finche' il giro che avvia puo' arrivare
+a un verdetto. Con `TOPICS_SERVER_WATCH=1` un SIGTERM arriva a ogni salvataggio
+sotto `server/` — 6 riavvii nell'ora 14/09T23, 4 nell'ora T20, 1-2 all'ora per
+tutto il 16/09 — mentre un giro con le righe CI costa minuti di comandi locali
+piu' fino a 65 minuti di attesa della CI. Senza un conteggio lo stesso giro
+ripartiva da zero a ogni boot, senza misurare niente e senza dirlo.
+
+I giri di una consegna SHALL essere contati sulla riga che la ricorda, e oltre un
+tetto il boot NON SHALL rifare il giro: SHALL scriverlo sulla card, una volta, e
+dimenticare la riga. Nient'altro SHALL essere toccato — la card resta
+`in_progress`, il ramo e il commit dove l'agente li ha lasciati — perche' a
+sbloccarla e' una persona o una consegna nuova.
+
+IL CONTO E' DELLA CONSEGNA, NON DELLA CARD. Una consegna su un commit DIVERSO
+SHALL ripartire da zero: l'agente che ha committato una correzione sta facendo
+lavoro nuovo, ed ereditare i giri bruciati lo zittirebbe prima del suo primo
+giro. Un commit memorizzato NULL vuol dire «non l'abbiamo mai saputo», non
+«stessa consegna» — ed e' proprio il caso che brucia i giri piu' facilmente,
+perche' la gamba interrotta scrive la riga prima che il checkout sia risolto.
+
+La tabella SHALL degradare come se il conteggio non esistesse quando la colonna
+non c'e' (un database ripristinato da un backup precedente alla migration): la
+riga SHALL essere scritta lo stesso, e il conteggio SHALL rispondere zero.
+Perdere la riga costa un riallineamento, perdere la scrittura costa la consegna.
+
+#### Scenario: oltre il tetto la card riceve una riga invece di un giro muto
+- **GIVEN** una consegna il cui giro e' stato tagliato dal riavvio tre volte
+- **WHEN** il boot successivo la riprende
+- **THEN** NON SHALL partire nessun comando, la riga SHALL essere dimenticata, e la card SHALL dire che serve un commit nuovo o una persona
+
+#### Scenario: una consegna su un commit nuovo non eredita i giri bruciati
+- **GIVEN** una riga che ha bruciato tre giri senza mai conoscere il suo commit
+- **WHEN** arriva una consegna con un commit
+- **THEN** il conto SHALL tornare a zero
+
+#### Scenario: senza la colonna dei giri la consegna si ricorda lo stesso
+- **GIVEN** un database senza la colonna del conteggio
+- **WHEN** una consegna viene ricordata
+- **THEN** la riga SHALL esserci, e il conteggio SHALL rispondere zero
+
+### Requirement: KANBAN-88 — Un muro di giorni si dichiara come tale, e lo dice UNA volta per card
+
+L'etichetta di un hold del provider era la sola ora locale, e un'ora sola non
+distingue sei ore da sei giorni. Misurato il 17/09/2026: `provider-hold.json`
+portava un muro Codex scritto il 13/09 alle 17:39 e in scadenza il 19/09 alle
+14:45, mentre il log ripeteva «resumes at 14:45» 43 volte fra il 13/09T15:38 e il
+16/09T22:28 — e la board manda ogni card a quel provider.
+
+L'etichetta SHALL portare anche la data quando l'attesa non finisce oggi. Oltre
+un giorno l'attesa NON SHALL essere raccontata come il reset di una finestra: e'
+un piano esaurito, e a muovere le card e' una persona che cambia il modello della
+board o l'account. La card SHALL riceverlo nel suo thread, non solo nel chip.
+
+UNA VOLTA PER CARD, E ATTRAVERSO I RIAVVII. Un registro «gia' detto» che vive nel
+processo non e' una difesa qui: il processo riparte ogni ~35 minuti (44 riavvii
+in 25,7 ore) mentre l'attesa dura giorni, e la finestra di dedup dei commenti e'
+di 10 secondi. Con 7 card in coda dietro un muro di 6 giorni fanno circa 300
+paragrafi identici al giorno, cioe' la stessa pila che KANBAN-83 esiste per
+chiudere. E la frase CAMBIA da sola — conta i giorni che restano — quindi la
+difesa sul testo identico non basta: la nota SHALL occupare uno slot nel thread,
+e quella nuova SHALL sostituire la vecchia invece di aggiungersi.
+
+#### Scenario: cinque boot su tre giorni lasciano un paragrafo, non cinque
+- **GIVEN** una card in coda dietro un muro di sei giorni
+- **WHEN** il server riparte cinque volte, due a 35 minuti e due a un giorno di distanza
+- **THEN** il thread SHALL portare una sola nota, e SHALL essere quella corrente
+
+#### Scenario: un muro di ore resta un'attesa
+- **GIVEN** un hold che finisce fra un'ora
+- **WHEN** il dispatcher valuta la card
+- **THEN** il chip SHALL dire l'ora del reset, e il thread NON SHALL ricevere niente
