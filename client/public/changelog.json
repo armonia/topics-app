@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.351",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La spec canonica smette di dire che il pavimento e' 6 GB e una costante",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.350",
     "date": "2026-09-17",
     "sections": {

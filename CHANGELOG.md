@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.351 — 2026-09-17
+
+### Sotto il cofano
+- La spec canonica smette di dire che il pavimento e' 6 GB e una costante
+
 ## 2.2.350 — 2026-09-17
 
 ### Sotto il cofano
