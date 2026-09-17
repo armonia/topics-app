@@ -353,6 +353,15 @@ function loadSamples(store: MemSampleStore | undefined, now: number): MemSample[
  * is machine telemetry with a 180 s lifetime, and rewriting a row every 10 s
  * would put that churn in the WAL every other service reads, on top of needing
  * the DB open before the first sample, which at boot it is not.
+ *
+ * WHICH MEANS IT LANDS IN THE REPO ROOT IN PRODUCTION, because `start-prod.sh`
+ * runs from there and nothing exports `DATA_DIR`, so the fallback is the cwd -
+ * exactly where `provider-hold.json` already sits. That is why this file and
+ * its `.tmp` have their own two lines in `.gitignore`, with the reason written
+ * beside them: on 17/09/2026 two UNTRACKED files in that root held the door shut
+ * on every land the board attempted, and `scripts/check-e2e-touched.ts` still
+ * sums untracked files into the changed ones. An untracked file rewritten every
+ * ten seconds is not something to leave outside the ignore list.
  */
 export function fileMemSampleStore(path: string): MemSampleStore {
   return {
