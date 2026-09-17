@@ -33,7 +33,17 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange }
   );
   const activeModelId = effective?.model ?? override?.model ?? null;
   const { name: modelName } = splitModelId(activeModelId ?? '');
-  const activeWindow = useMemo(() => contextWindowFor(activeModelId), [activeModelId]);
+  // The window the provider DECLARES, when there is one, ahead of the table:
+  // for a configured endpoint it is the only honest source, and the table of
+  // known models cannot possibly know about it.
+  const declaredWindow = useMemo(() => {
+    const entry = entries.find((candidate) => candidate.name === effective?.provider);
+    return activeModelId ? entry?.modelContextWindows?.[activeModelId] : undefined;
+  }, [entries, effective?.provider, activeModelId]);
+  const activeWindow = useMemo(
+    () => contextWindowFor(activeModelId, declaredWindow),
+    [activeModelId, declaredWindow],
+  );
   const matchesProv = (entry: (typeof entries)[number]) => entry.name === effective?.provider;
   const effectiveProviderLabel = entries.find(matchesProv)?.label ?? effective?.provider;
   const prefetchMenu = () => { loadAiExecutionMenu().catch(() => {}); };

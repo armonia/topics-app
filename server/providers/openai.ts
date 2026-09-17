@@ -18,6 +18,13 @@ import type {
   StreamHandler,
 } from "./types";
 import { toOpenAIFunctions } from "../browser-tools-adapters";
+import {
+  asRecord,
+  buildChatCompletionBody,
+  consumeChatCompletionStream,
+  readCompletionPayload,
+  type WireErrorVoice,
+} from "./openai-wire";
 import { resolveOpenaiMaxTokens, resolveOpenaiModel } from "../services/app-settings";
 
 const API_BASE = "https://api.openai.com/v1";
@@ -30,11 +37,6 @@ interface ModelsProbe {
   status: ProviderDiagnostic["status"];
   models: string[];
   lastError?: string;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown> : undefined;
 }
 
 /** This transport serves text Chat Completions, not specialized Responses models. */
@@ -56,6 +58,15 @@ function sanitizeUpstreamError(status: number): string {
   if (status >= 500) return `OpenAI service error (HTTP ${status})`;
   return `OpenAI request failed (HTTP ${status})`;
 }
+
+/** How this provider words an upstream stream failure. */
+const ERROR_VOICE: WireErrorVoice = {
+  invalidKey: sanitizeUpstreamError(401),
+  rateLimited: sanitizeUpstreamError(429),
+  generic: "OpenAI stream failed. Try again shortly.",
+  incomplete: "OpenAI returned an incomplete stream event.",
+  truncated: "OpenAI stream ended before the response completed.",
+};
 
 export class OpenAIProvider implements AIProvider {
   readonly name = "openai";
@@ -143,20 +154,16 @@ export class OpenAIProvider implements AIProvider {
     let fullText = "";
 
     try {
-      const body: Record<string, unknown> = {
+      // Phase 30 BROWSER-CHAT-04 - Anthropic Tool[] travel in OpenAI
+      // function-calling format; tool_choice='auto' lets the model decide
+      // if and when to call any of the registered tools.
+      const body = buildChatCompletionBody({
         model,
         messages: apiMessages,
-        max_completion_tokens: maxTokens,
+        maxTokens,
         stream: true,
-      };
-
-      // Phase 30 BROWSER-CHAT-04 — wrap Anthropic Tool[] into OpenAI
-      // function-calling format and forward. tool_choice='auto' lets the
-      // model decide if/when to call any of the registered tools.
-      if (options?.tools && options.tools.length > 0) {
-        body.tools = toOpenAIFunctions(options.tools);
-        body.tool_choice = "auto";
-      }
+        tools: options?.tools && options.tools.length > 0 ? toOpenAIFunctions(options.tools) : undefined,
+      });
 
       const resp = await fetch(`${API_BASE}/chat/completions`, {
         method: "POST",
@@ -174,13 +181,16 @@ export class OpenAIProvider implements AIProvider {
         return { runId };
       }
 
-      await this.consumeSSE(
+      await consumeChatCompletionStream(
         resp.body,
-        (delta) => {
-          fullText += delta;
-          handler.onTextDelta(delta, fullText);
+        {
+          onDelta: (delta) => {
+            fullText += delta;
+            handler.onTextDelta(delta, fullText);
+          },
+          onToolStart: (id, name, args) => handler.onToolStart(id, name, args),
         },
-        (id, name, args) => handler.onToolStart(id, name, args),
+        ERROR_VOICE,
       );
 
       handler.onDone();
@@ -219,12 +229,12 @@ export class OpenAIProvider implements AIProvider {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this.config.apiKey}`,
       },
-      body: JSON.stringify({
+      body: JSON.stringify(buildChatCompletionBody({
         model,
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
-        max_completion_tokens: maxTokens,
+        maxTokens,
         stream: true,
-      }),
+      })),
       signal: options?.signal,
     });
 
@@ -269,11 +279,12 @@ export class OpenAIProvider implements AIProvider {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this.config.apiKey}`,
       },
-      body: JSON.stringify({
+      body: JSON.stringify(buildChatCompletionBody({
         model,
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
-        max_completion_tokens: maxTokens,
-      }),
+        maxTokens,
+        stream: false,
+      })),
     });
 
     if (!resp.ok) {
@@ -281,16 +292,7 @@ export class OpenAIProvider implements AIProvider {
       return { content: sanitizeUpstreamError(resp.status) };
     }
 
-    const data: any = await resp.json();
-    const content = data?.choices?.[0]?.message?.content ?? "";
-    const usage = data?.usage;
-    return {
-      content,
-      usage: usage ? {
-        promptTokens: usage.prompt_tokens ?? 0,
-        completionTokens: usage.completion_tokens ?? 0,
-      } : undefined,
-    };
+    return readCompletionPayload(await resp.json());
   }
 
   // --- Abort ---
@@ -383,100 +385,6 @@ export class OpenAIProvider implements AIProvider {
       return { status: "ready", models: [...new Set(models)].sort() };
     } catch {
       return { status: "unavailable", models: [], lastError: "OpenAI model catalog is unavailable. Try again shortly." };
-    }
-  }
-
-  // --- Internals ---
-
-  private async consumeSSE(
-    body: ReadableStream<Uint8Array>,
-    onDelta: (text: string) => void,
-    onToolStart?: (toolCallId: string, name: string, args: Record<string, unknown>) => void,
-  ): Promise<void> {
-    const reader = body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let eventData: string[] = [];
-    let done = false;
-    let finished = false;
-    const toolCalls: Record<number, { id: string; name: string; args: string }> = {};
-    const emittedTools = new Set<number>();
-
-    const dispatch = () => {
-      if (!eventData.length) return;
-      const payload = eventData.join("\n");
-      eventData = [];
-      if (payload === "[DONE]") { done = true; return; }
-      let decoded: unknown;
-      try { decoded = JSON.parse(payload); }
-      catch { throw new Error("OpenAI returned an invalid stream event."); }
-      const event = asRecord(decoded);
-      if (event?.error) {
-        const error = asRecord(event.error);
-        const code = error?.code ?? error?.type;
-        throw new Error(code === "invalid_api_key" ? sanitizeUpstreamError(401)
-          : code === "rate_limit_exceeded" || code === "insufficient_quota" ? sanitizeUpstreamError(429)
-            : "OpenAI stream failed. Try again shortly.");
-      }
-      const choice = Array.isArray(event?.choices) ? asRecord(event.choices[0]) : undefined;
-      const delta = asRecord(choice?.delta);
-      for (const text of [delta?.content, delta?.refusal]) {
-        if (typeof text === "string" && text.length > 0) onDelta(text);
-      }
-      if (Array.isArray(delta?.tool_calls) && onToolStart) {
-        for (const value of delta.tool_calls) {
-          const tc = asRecord(value);
-          if (!tc || typeof tc.index !== "number" || !Number.isInteger(tc.index) || tc.index < 0) continue;
-          const current = toolCalls[tc.index] ??= { id: "", name: "", args: "" };
-          const fn = asRecord(tc.function);
-          if (typeof tc.id === "string") current.id = tc.id;
-          if (typeof fn?.name === "string") current.name += fn.name;
-          if (typeof fn?.arguments === "string") current.args += fn.arguments;
-        }
-      }
-      if (typeof choice?.finish_reason === "string") {
-        finished = true;
-        if (choice.finish_reason === "tool_calls" && onToolStart) {
-          for (const [index, tc] of Object.entries(toolCalls)) {
-            const key = Number(index);
-            if (emittedTools.has(key)) continue;
-            let args: Record<string, unknown> | undefined;
-            try { args = tc.args ? asRecord(JSON.parse(tc.args)) : {}; }
-            catch { /* Report incomplete arguments instead of executing a broken call. */ }
-            if (!tc.id || !tc.name || !args) throw new Error("OpenAI returned an incomplete tool call.");
-            emittedTools.add(key);
-            onToolStart(tc.id, tc.name, args);
-          }
-        }
-      }
-    };
-    const line = (value: string) => {
-      const text = value.endsWith("\r") ? value.slice(0, -1) : value;
-      if (!text) dispatch();
-      else if (text.startsWith("data:")) eventData.push(text.slice(5).replace(/^ /, ""));
-    };
-
-    try {
-      while (!done) {
-        const { done: ended, value } = await reader.read();
-        if (ended) {
-          buffer += decoder.decode();
-          if (buffer) line(buffer);
-          dispatch();
-          break;
-        }
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const value of lines) {
-          line(value);
-          if (done) break;
-        }
-      }
-      if (!done && !finished) throw new Error("OpenAI stream ended before the response completed.");
-    } finally {
-      try { await reader.cancel(); } catch {}
-      try { reader.releaseLock(); } catch {}
     }
   }
 }

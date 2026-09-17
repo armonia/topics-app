@@ -1,5 +1,47 @@
 [
   {
+    "version": "2.2.352",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il terzo difetto della stessa spec: /api/topics/:id risponde con una busta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quarto difetto: la finestra la porta /api/providers/snapshot, non /api/providers",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.351",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La spec canonica smette di dire che il pavimento e' 6 GB e una costante",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riempire la Verification che era rimasta \"Filled at delivery\"",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.350",
     "date": "2026-09-17",
     "sections": {
@@ -154,10 +196,36 @@
       "perf": [],
       "internal": [
         {
+          "it": "La finestra dichiarata arriva anche all'assembler",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "aggiorna durate shard dal nightly del 2026-09-17 [skip ci]",
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "Alzare il tetto del bundle dei 363 byte che la feature costa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "un endpoint configurato che serve davvero una chat",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "rec non e' una parola: recorder",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spec nuova non era ermetica",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Il flag che salvava la bozza la chiudeva lo stesso: bastava cancellarle il ramo",
@@ -878,6 +946,11 @@
       "perf": [],
       "internal": [
         {
+          "it": "Togliere il test che dipendeva dall'ordine di arrivo",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Input queue: a partial loss is worse than none, so a loss takes the whole queue",
           "en": "",
           "scope": null
@@ -983,6 +1056,11 @@
           "scope": null
         },
         {
+          "it": "Il mio finto fetch restava addosso a chi correva dopo",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il cancello a budget ferma la corsa: prezzo per card, prenotazione per tutto il turno, una rampa sola",
           "en": "",
           "scope": null
@@ -994,6 +1072,11 @@
         },
         {
           "it": "Pannello del carico: tre frasi che il cancello smentiva, e un test che non mordeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il picker di chat vuole una chat aperta",
           "en": "",
           "scope": null
         },
@@ -1059,6 +1142,12 @@
       "perf": [],
       "internal": [
         {
+          "it": "il giro completo di un endpoint, e il confine che non si vede",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Baseline bloat riallineata dopo il merge di main",
           "en": "",
           "scope": null
@@ -1084,7 +1173,23 @@
           "scope": null
         },
         {
+          "it": "un default nello snapshot, e via il test che non poteva fallire",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Scrivere i due requisiti che i test gia' provavano",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Le due prove a orologio dello shard 0 aspettano l'effetto, non il tempo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togliere da types.ts il tipo che lo portava oltre la riga",
           "en": "",
           "scope": null
         },
@@ -1095,6 +1200,11 @@
         },
         {
           "it": "Commenti del test del freno della flotta in inglese: CI di main rossa su comment-language",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spuntare i passi fatti nella change",
           "en": "",
           "scope": null
         }
@@ -1116,6 +1226,11 @@
         },
         {
           "it": "Il commento del test non nomina Bun.serve: 'serve' e' una parola italiana per il banco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Endpoint configurabili: CRUD REST e finestra per modello nello snapshot",
           "en": "",
           "scope": null
         },
@@ -1145,6 +1260,11 @@
           "scope": null
         },
         {
+          "it": "La finestra la dichiara il provider, non la indovina una tabella",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il wire porta l'asse che blocca: le fixture del client lo dichiarano",
           "en": "",
           "scope": null
@@ -1161,6 +1281,17 @@
         },
         {
           "it": "Le guardie che mancavano, e i due documenti che dicevano il contrario",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiungere, provare e togliere un endpoint",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "I cancelli: inglese nei commenti nuovi, tre parole dichiarate, un export morto in meno",
           "en": "",
           "scope": null
         }
@@ -1250,6 +1381,11 @@
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "Endpoint OpenAI-compatibili configurabili: nucleo server",
+          "en": "",
+          "scope": null
         }
       ]
     }

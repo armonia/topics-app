@@ -14,6 +14,7 @@
 
 export * from "./types";
 
+import { syncDirectEndpointProviders } from "./direct-endpoint-registry";
 import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, OpenAIProviderConfig, AcpProviderConfig } from "./types";
 import { providerNameForConfig } from "./types";
 import { readApiProviderKey } from "../services/api-provider-credentials";
@@ -81,6 +82,11 @@ export function createProvider(config: ProviderConfig): AIProvider {
     case "openai": {
       const { OpenAIProvider } = require("./openai");
       return new OpenAIProvider(config);
+    }
+    case "openai-compatible": {
+      // N endpoints, one class: each registers under `direct-<id>`.
+      const { OpenAICompatibleProvider } = require("./openai-compatible");
+      return new OpenAICompatibleProvider(config);
     }
     case "acp": {
       // ONE provider for EVERY agent that speaks ACP: `config.name` picks which.
@@ -473,6 +479,21 @@ export async function initProviders(): Promise<AIProvider[]> {
     } catch (err: any) {
       console.warn(`[Providers] Failed to init openai: ${err.message}`);
     }
+  }
+
+  // Endpoints somebody configured in Settings. Chat only, and deliberately
+  // absent from the task pickers: this transport has no tools (MP-TASK-01).
+  try {
+    for (const name of syncDirectEndpointProviders({
+      listProviders: () => [..._providers.keys()].map((key) => ({ name: key })),
+      registerProvider: (config) => registerProvider(config),
+      removeProvider,
+    })) {
+      const provider = _providers.get(name);
+      if (provider) started.push(provider);
+    }
+  } catch (err: any) {
+    console.warn(`[Providers] Failed to init configured endpoints: ${err?.message ?? err}`);
   }
 
   // Agenti ACP — la tabella nota più quelli dichiarati in ACP_AGENTS. Si
