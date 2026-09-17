@@ -616,8 +616,18 @@ Il legame fra sessione e card passa dal topic, e SHALL sopravvivere a una card
 ripartita da capo: la storia dei tentativi tiene il topic di ogni lancio, quindi
 una sessione vecchia sa ancora di chi era.
 
-Una sessione che non appartiene a nessuna card, o una card che non porta nessuno
-dei tre fatti, SHALL mostrare il velo di oggi, invariato. Nessun testo inventato.
+Sotto le tre, e solo li', il CODICE DI USCITA: un processo uscito da se' non
+lascia nessun fatto sulla card e lascia un numero, e il numero e' l'unica cosa
+su cui si possa agire. Sta ultimo perche' un 143 scritto sotto un riavvio che ha
+tagliato il turno descriverebbe l'uccisione, non la causa. Il codice SHALL
+viaggiare sul MOTIVO della chiusura del socket, sia nell'uscita che la pane
+vede accadere sia in un aggancio a una riga parcheggiata prima che la pane
+esistesse; e SHALL essere assente, non zero, quando il ponte non ne ha dato
+nessuno.
+
+Una sessione che non appartiene a nessuna card, che non porta nessuno dei tre
+fatti e senza codice di uscita, SHALL mostrare il velo di oggi, invariato.
+Nessun testo inventato.
 
 #### Scenario: la card è stata tagliata da un riavvio
 - **GIVEN** una sessione dormiente la cui card porta l'istante dell'interruzione
@@ -632,8 +642,12 @@ dei tre fatti, SHALL mostrare il velo di oggi, invariato. Nessun testo inventato
 - **THEN** la riga SHALL dire che è ripresa in una sessione nuova
 - **AND** SHALL offrire il collegamento che apre quella sessione
 
+#### Scenario: il processo è uscito da sé
+- **GIVEN** una sessione finita col suo codice di uscita e nessun fatto sulla card
+- **THEN** la riga SHALL dire il codice di uscita
+
 #### Scenario: la sessione non appartiene a nessuna card
-- **GIVEN** una sessione dormiente il cui topic non è di nessuna card
+- **GIVEN** una sessione dormiente il cui topic non è di nessuna card e senza codice
 - **THEN** il velo SHALL restare quello di oggi
 
 ### Requirement: TERM-WARM-01 — "Not Yet" And "Gone" SHALL NOT Look The Same To The Client

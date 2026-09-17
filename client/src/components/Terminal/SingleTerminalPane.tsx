@@ -24,6 +24,7 @@ import { copyText } from '../../lib/clipboard';
 import { useToast } from '../Shared/Toast';
 import { readTerminalScrollback, writeTerminalScrollback } from '../../lib/terminalScrollbackCache';
 import { causeClock, dormantCause } from './dormantCause';
+import { decodeExitReason } from '../../../../shared/terminal-messages';
 import { STATUS_LABEL, type BoardTask } from '../../lib/board';
 import { queueReasonText } from '../../../../shared/queue-reason-text';
 import { openTopicInApp } from '../../lib/deepLinkEntry';
@@ -254,6 +255,11 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   const [causeTask, setCauseTask] = useState<BoardTask | null>(null);
   const [endedCleanly, setEndedCleanly] = useState(false);
   const causeAskedRef = useRef(false);
+  // The exit code, when the process left one. It arrives on the WS close
+  // reason (`encodeExitReason`), from the exit the pane witnessed and from a
+  // handshake against a row parked earlier alike. Null means «no code
+  // recorded», which is what a park or a restart writes: not a zero.
+  const [exitCode, setExitCode] = useState<number | null>(null);
 
   // THE FOURTH SILENCE: the keys that went nowhere.
   // When the PTY bridge is down the server drops the keystroke on purpose (see
@@ -744,6 +750,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           // Clean end — the PTY exited (`exit`, process finished). Not a
           // reconnect candidate; the session drops from the list on its own.
           coalescer.push(`\r\n\x1b[90m[${sayRef.current('terminal.banner.ended')}]\x1b[0m\r\n`);
+          setExitCode(decodeExitReason(event.reason));
           setEndedCleanly(true);
           return;
         }
@@ -755,6 +762,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
           // being looked at, the revive effect below takes it from there, and
           // a pane in the background waits for its click (TERM-05).
           coalescer.push(`\r\n\x1b[90m[${sayRef.current('terminal.banner.expired')}]\x1b[0m\r\n`);
+          setExitCode(decodeExitReason(event.reason));
           expiredShownRef.current = true;
           setStale(true);
           onStale?.();
@@ -919,7 +927,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
   // 200 with `{ task: null }` when this topic belongs to no card, and that
   // answer is a legitimate one - the overlay then stays exactly as it was.
   useEffect(() => {
-    if (!dormantEmpty && !endedCleanly) return;
+    if (!dormantEmpty && !endedCleanly && !stale) return;
     if (causeAskedRef.current) return;
     const topicId = lastInfoRef.current?.topicId;
     if (!topicId) return;
@@ -936,9 +944,12 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       }
     })();
     return () => { cancelled = true; };
-  }, [dormantEmpty, endedCleanly]);
+  }, [dormantEmpty, endedCleanly, stale]);
 
-  const cause = useMemo(() => dormantCause(lastInfoRef.current?.topicId, causeTask), [causeTask]);
+  const cause = useMemo(
+    () => dormantCause(lastInfoRef.current?.topicId, causeTask, exitCode),
+    [causeTask, exitCode],
+  );
 
   /** The cause as ONE line of prose, or null. Shared by the overlay and the
    *  scrollback banner, so the two cannot drift into two different sentences. */
@@ -949,10 +960,32 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
       const { head, detail } = queueReasonText(cause.reason, t);
       return t('terminal.cause.queued', { head, detail });
     }
+    if (cause.kind === 'exited') return t('terminal.cause.exited', { code: String(cause.code) });
     const clock = causeClock(cause.at);
     if (!clock) return null;
     return `${t('terminal.cause.interrupted', { time: clock })} · ${STATUS_LABEL[cause.status]}`;
   }, [cause, t]);
+
+  /** The line as it is rendered, shared by BOTH veils. The dormant one and the
+   *  stale one are two spellings of the same silence, and a cause shown in one
+   *  and missing from the other is the bug this file already had once. */
+  const causeBlock = causeLine ? (
+    <div
+      data-testid="terminal-dormant-cause"
+      className="flex max-w-full flex-wrap items-center justify-center gap-1.5 px-2 text-center text-compact text-app-text-muted"
+      title={cause?.kind === 'queued' ? queueReasonText(cause.reason, t).title : undefined}
+    >
+      <span>{causeLine}</span>
+      {cause?.kind === 'resumed' && (
+        <button
+          type="button"
+          data-testid="terminal-dormant-resumed-link"
+          onClick={() => { openTopicInApp({ topicId: cause.topicId }); }}
+          className="underline decoration-dotted underline-offset-2 hover:text-app-text"
+        >{t('terminal.cause.resumedOpen')}</button>
+      )}
+    </div>
+  ) : null;
 
   // The same sentence, written into the SCROLLBACK under the "session ended"
   // banner. A terminal that exited cleanly shows no overlay at all, so without
@@ -1287,6 +1320,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
                 </div>
               );
             })()}
+            {causeBlock}
             {/* Self-service recovery: the same in-place reload as the tab's
                 "Ricarica" menu item — for claude/codex this resumes the
                 conversation (--resume), so the session isn't a dead-end. */}
@@ -1353,23 +1387,7 @@ export function SingleTerminalPane({ sessionId, onStale, isActive = true }: Sing
             {/* THE CAUSE, one line, above the button. It is the difference
                 between "it stopped" and "the restart cut it at 23:03 and the
                 card is waiting for memory": the second one you can act on. */}
-            {causeLine && (
-              <div
-                data-testid="terminal-dormant-cause"
-                className="flex max-w-full flex-wrap items-center justify-center gap-1.5 px-2 text-center text-compact text-app-text-muted"
-                title={cause?.kind === 'queued' ? queueReasonText(cause.reason, t).title : undefined}
-              >
-                <span>{causeLine}</span>
-                {cause?.kind === 'resumed' && (
-                  <button
-                    type="button"
-                    data-testid="terminal-dormant-resumed-link"
-                    onClick={() => { openTopicInApp({ topicId: cause.topicId }); }}
-                    className="underline decoration-dotted underline-offset-2 hover:text-app-text"
-                  >{t('terminal.cause.resumedOpen')}</button>
-                )}
-              </div>
-            )}
+            {causeBlock}
             <button
               type="button"
               disabled={reloading}

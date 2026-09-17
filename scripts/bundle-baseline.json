@@ -507,13 +507,29 @@
     "voci. Nessuna dipendenza nuova: node_modules dentro l'entry 88.652 -> 88.691,",
     "e i 39 byte sono rumore di minificazione su react-virtuoso, 19 file per lato.",
     "Siti `lazy(`/`lazyWarm(` 55 -> 56: il nuovo e' il confine qui sopra.",
-    "`state/topicBrowserWindow.ts` resta fuori dall'entry su entrambi i lati."
+    "`state/topicBrowserWindow.ts` resta fuori dall'entry su entrambi i lati.",
+    "",
+    "2026-09-16 (card e1c9fe07): la riga di causa sulla pane dormiente. entry",
+    "eager +25.560 raw / +8.740 gz (+1,84% / +2,00%) dal numero del 14/09: il gz",
+    "e' esattamente sul filo della tolleranza, ed e' per questo che il cancello e'",
+    "diventato rosso per ventotto byte su una consegna piccola. La quota di questa",
+    "carta e' minuscola e misurabile: dormantCause.ts, la riga nell'overlay e le",
+    "sei voci di dizionario (IT eager + EN nel suo chunk) stanno sotto i 2 KB raw.",
+    "Il resto e' deriva di main arrivata col riallineamento, non comprata qui.",
+    "I soliti tre controlli, tutti puliti:",
+    "  \u00b7 nessuna dipendenza nuova: `client/package.json` non cambia di una riga.",
+    "  \u00b7 nessun `lazy(`/`lazyWarm(` diventato statico; il modulo nuovo e' importato",
+    "    da SingleTerminalPane, che e' gia' un chunk suo.",
+    "  \u00b7 critical_path ancora a 5 file, e il suo numero NON lo alzo: e' dentro",
+    "    tolleranza, e lasciarlo basso tiene il cricchetto stretto la'.",
+    "Il numero registrato scende al MISURATO di oggi, non al tetto: il margine",
+    "riparte da un valore vero invece che da quello gia' speso."
   ],
-  "updated": "2026-09-14",
+  "updated": "2026-09-16",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1386056,
-    "gz": 435937
+    "raw": 1411616,
+    "gz": 444677
   },
   "critical_path": {
     "raw": 2012478,

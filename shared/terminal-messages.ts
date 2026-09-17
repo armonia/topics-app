@@ -95,3 +95,28 @@ export const TERMINAL_ROSTER_WARMING_CODE = "terminal-roster-warming";
  * client's own backoff is what covers the long tail.
  */
 export const TERMINAL_ROSTER_WARMING_RETRY_AFTER_S = 1;
+
+/**
+ * The exit code, carried on the WebSocket CLOSE REASON.
+ *
+ * Why the reason and not a message. At the moment the code is known the socket
+ * is being closed: the `"exit"` case of the bridge handler closes every socket
+ * of that session, and a handshake against an already parked row closes it
+ * before anything can be sent. A frame pushed a tick earlier would race the
+ * close and be dropped by the browser; the reason travels WITH the close and
+ * cannot arrive after it.
+ *
+ * The shape is `<word>:<code>` so the two situations stay distinguishable
+ * ("ended" is the exit the pane witnessed, "dormant" is one it reads off a row
+ * written before it opened) and an absent code leaves the bare word, which is
+ * what a park or a restart writes: no number invented for them.
+ */
+export function encodeExitReason(word: 'ended' | 'dormant', exitCode: number | null | undefined): string {
+  return typeof exitCode === 'number' && Number.isFinite(exitCode) ? `${word}:${exitCode}` : word;
+}
+
+/** The number out of `encodeExitReason`, or null when there was none. */
+export function decodeExitReason(reason: string | null | undefined): number | null {
+  const match = /^(?:ended|dormant):(-?\d+)$/.exec(reason ?? '');
+  return match ? Number(match[1]) : null;
+}

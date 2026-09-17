@@ -1,6 +1,6 @@
 import type { AppContext, RouteHandler } from "../types";
 import type { TerminalSessionType } from "../../shared/terminal-session-types";
-import { ROSTER_RECONCILED_HEADER, STANDALONE_NO_PTY_CODE, TERMINAL_INPUT_DROPPED, TERMINAL_ROSTER_WARMING_CODE, TERMINAL_ROSTER_WARMING_RETRY_AFTER_S, TERMINAL_WS_CLOSE_DORMANT } from "../../shared/terminal-messages";
+import { encodeExitReason, ROSTER_RECONCILED_HEADER, STANDALONE_NO_PTY_CODE, TERMINAL_INPUT_DROPPED, TERMINAL_ROSTER_WARMING_CODE, TERMINAL_ROSTER_WARMING_RETRY_AFTER_S, TERMINAL_WS_CLOSE_DORMANT } from "../../shared/terminal-messages";
 import { spawn } from "child_process";
 import { resolve, basename, dirname, join } from "path";
 import { createInterface } from "readline";
@@ -1157,8 +1157,11 @@ function handleBridgeMessage(msg: any) {
       }
       const sockets = sessionSockets.get(msg.id);
       if (sockets) {
+        // The code rides the close reason: see `encodeExitReason`. Without it
+        // the pane can say the session ended and nothing about how.
+        const reason = encodeExitReason('ended', msg.exitCode);
         for (const ws of sockets) {
-          try { ws.close(1000, "Session ended"); } catch {}
+          try { ws.close(1000, reason); } catch {}
         }
         sessionSockets.delete(msg.id);
       }
@@ -1180,7 +1183,11 @@ function handleBridgeMessage(msg: any) {
           && !failedQuickly;
         try {
           if (canResume) {
-            getDatabase().run("UPDATE terminal_sessions SET status = 'dormant' WHERE id = ?", [msg.id]);
+            // The code is kept WITH the parked row, so a pane opened after the
+            // fact reads it too. NULL when the bridge gave none: an unknown
+            // code is not a zero.
+            const code = typeof msg.exitCode === 'number' ? msg.exitCode : null;
+            getDatabase().run("UPDATE terminal_sessions SET status = 'dormant', exit_code = ? WHERE id = ?", [code, msg.id]);
           } else {
             if (failedQuickly) {
               console.warn(`[Terminal] Session ${msg.id} exited in ${ageMs}ms with code ${msg.exitCode} — deleting (failed launch).`);
@@ -2788,7 +2795,7 @@ export function orphanTerminalSession(id: string, type: TerminalSessionType = "c
  *
  * Returns `false` when there was nothing live to park.
  */
-export function parkTerminalSession(id: string): boolean {
+export function parkTerminalSession(id: string, exitCode: number | null = null): boolean {
   if (!sessions.has(id)) return false;
   sessions.delete(id);
   const sockets = sessionSockets.get(id);
@@ -2797,7 +2804,9 @@ export function parkTerminalSession(id: string): boolean {
     sessionSockets.delete(id);
   }
   clearTerminalActivity(id);
-  try { getDatabase().run("UPDATE terminal_sessions SET status = 'dormant' WHERE id = ?", [id]); } catch {}
+  // `exitCode` is what the bridge would have reported had the process quit by
+  // itself: NULL for a park (a restart kills, it does not diagnose).
+  try { getDatabase().run("UPDATE terminal_sessions SET status = 'dormant', exit_code = ? WHERE id = ?", [exitCode, id]); } catch {}
   try { sendToBridge({ type: "kill", id }); } catch { /* bridge down: the PTY is already gone */ }
   broadcastTerminalSessions();
   return true;
@@ -3499,13 +3508,15 @@ export function handleTerminalWebSocket(ws: any, sessionId: string) {
     // distinction the pane looped forever on a dormant id: open, resize (404),
     // close, 500 ms, again (see TERMINAL_WS_CLOSE_DORMANT).
     let dormant = false;
+    let dormantExitCode: number | null = null;
     try {
       const row = getDatabase()
-        .query("SELECT status FROM terminal_sessions WHERE id = ?")
-        .get(sessionId) as { status?: string } | null;
+        .query("SELECT status, exit_code FROM terminal_sessions WHERE id = ?")
+        .get(sessionId) as { status?: string; exit_code?: number | null } | null;
       dormant = row?.status === "dormant";
+      dormantExitCode = typeof row?.exit_code === "number" ? row.exit_code : null;
     } catch { /* no row readable: the not-found answer below is still right */ }
-    if (dormant) ws.close(TERMINAL_WS_CLOSE_DORMANT, "Session dormant");
+    if (dormant) ws.close(TERMINAL_WS_CLOSE_DORMANT, encodeExitReason('dormant', dormantExitCode));
     else ws.close(1008, "Session not found");
     return;
   }

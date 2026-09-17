@@ -1858,6 +1858,7 @@ const EN = {
   'terminal.cause.queued': 'In the queue: {head}, {detail}',
   'terminal.cause.resumed': 'Resumed in a new session',
   'terminal.cause.resumedOpen': 'Open it',
+  'terminal.cause.exited': 'The process exited on its own, code {code}',
   'terminal.copyResume': 'Copy to the clipboard: claude --resume {id}',
   'terminal.reloadTitle': 'Restart the session in place (resumes the conversation for claude/codex)',
   'terminal.resumeTitle': 'Resume the session (--resume): brings the sub-agent conversation back to life',

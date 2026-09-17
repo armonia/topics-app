@@ -85,3 +85,18 @@ describe('causeClock', () => {
     expect(causeClock('not an instant')).toBe('');
   });
 });
+
+describe('the exit code', () => {
+  it('speaks when no card fact does', () => {
+    expect(dormantCause('topic-a', null, 137)).toEqual({ kind: 'exited', code: 137 });
+  });
+
+  it('yields to a card that was cut by a restart', () => {
+    const task = { id: 't', status: 'in_progress', interruptedAt: '2026-09-14T23:03:00Z' } as never;
+    expect(dormantCause('topic-a', task, 143)).toMatchObject({ kind: 'interrupted' });
+  });
+
+  it('is absent, not zero, when the bridge recorded none', () => {
+    expect(dormantCause('topic-a', null, null)).toBeNull();
+  });
+});

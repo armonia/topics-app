@@ -20,6 +20,8 @@ export type DormantCause =
   | { kind: 'queued'; reason: QueueReason }
   /** A server shutdown cut this turn in half. */
   | { kind: 'interrupted'; at: string; status: TaskStatus }
+  /** Nothing to say about a card, but the process left a code behind. */
+  | { kind: 'exited'; code: number }
   /** Nothing can be said honestly: the pane keeps the overlay it has today. */
   | null;
 
@@ -38,13 +40,20 @@ export type DormantCause =
  *     the sentence saying what it waits on and that it restarts by itself.
  *  3. `interrupted` — the last turn was cut and nothing has moved since.
  *
- * No card, or a card with none of the three: `null`. Nothing is invented here.
+ * Below all three, and only there, the EXIT CODE: a process that quit by itself
+ * left a number and no card fact, and the number is the only thing anyone can
+ * act on. It sits last because a code of 143 under a restart that cut the turn
+ * would describe the kill, not the cause.
+ *
+ * No card and no code: `null`. Nothing is invented here.
  */
 export function dormantCause(
   topicId: string | null | undefined,
   task: BoardTask | null,
+  exitCode?: number | null,
 ): DormantCause {
-  if (!task) return null;
+  const exited: DormantCause = typeof exitCode === 'number' ? { kind: 'exited', code: exitCode } : null;
+  if (!task) return exited;
   if (topicId && task.assignedTopicId && task.assignedTopicId !== topicId) {
     return { kind: 'resumed', topicId: task.assignedTopicId };
   }
@@ -52,7 +61,7 @@ export function dormantCause(
   if (task.interruptedAt) {
     return { kind: 'interrupted', at: task.interruptedAt, status: task.status };
   }
-  return null;
+  return exited;
 }
 
 /** HH:MM of an ISO instant, in the reader's own clock. Empty on an unparsable

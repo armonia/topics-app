@@ -84,7 +84,7 @@ test.describe("The cause line on a dormant pane", () => {
   }
 
   test("a card cut by the restart: the line carries the hour and the card state", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "TERM-11" });
+    test.info().annotations.push({ type: "spec", description: "TERM-12" });
     test.slow();
     await stubCard(page, card({ assignedTopicId: topicId, interruptedAt: "2026-09-14T23:03:00.000Z" }));
     await openPane(page);
@@ -98,7 +98,7 @@ test.describe("The cause line on a dormant pane", () => {
   });
 
   test("a card waiting on memory: the line carries the queue reason", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "TERM-11" });
+    test.info().annotations.push({ type: "spec", description: "TERM-12" });
     test.slow();
     await stubCard(page, card({
       assignedTopicId: topicId,
@@ -123,7 +123,7 @@ test.describe("The cause line on a dormant pane", () => {
   });
 
   test("a card that restarted elsewhere: the link opens the new session", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "TERM-11" });
+    test.info().annotations.push({ type: "spec", description: "TERM-12" });
     test.slow();
     await stubCard(page, card({ assignedTopicId: otherTopicId, interruptedAt: "2026-09-14T23:03:00.000Z" }));
     await openPane(page);
@@ -135,8 +135,25 @@ test.describe("The cause line on a dormant pane", () => {
     await expect(page.getByRole("region", { name: "E2E resumed topic panel" })).toBeVisible({ timeout: 20_000 });
   });
 
+  test("a process that quit by itself: the line carries its exit code", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "TERM-12" });
+    test.slow();
+    // No card behind this one: the exit code is the only thing anybody can act
+    // on, and it is what the veil showed nothing of before.
+    await stubCard(page, null);
+    const parked = await request.post(`${E2E_BASE}/api/test/terminal/${sessionId}/park`, {
+      data: { exitCode: 137 },
+    });
+    expect(parked.ok(), "the park seam must find the live session").toBe(true);
+    await page.goto(`/tab/terminal/${sessionId}`);
+    await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15_000 });
+    const line = page.getByTestId("terminal-dormant-cause");
+    await expect(line).toBeVisible({ timeout: 30_000 });
+    await expect(line).toContainText("137");
+  });
+
   test("a session no card ever worked: the overlay stays exactly as it was", async ({ page }) => {
-    test.info().annotations.push({ type: "spec", description: "TERM-11" });
+    test.info().annotations.push({ type: "spec", description: "TERM-12" });
     test.slow();
     await stubCard(page, null);
     await openPane(page);

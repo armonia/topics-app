@@ -261,7 +261,11 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       const m = pathname.match(/^\/api\/test\/terminal\/([^/]+)\/park$/);
       if (m && method === "POST") {
         const id = decodeURIComponent(m[1]!);
-        if (!parkTerminalSession(id)) return json({ error: "no live session with this id" }, 404);
+        // `exitCode` reproduces a process that quit BY ITSELF and left a number
+        // behind; omitted, it is the park proper, which leaves none.
+        const body = (await req.json().catch(() => null)) as { exitCode?: number } | null;
+        const code = typeof body?.exitCode === "number" ? body.exitCode : null;
+        if (!parkTerminalSession(id, code)) return json({ error: "no live session with this id" }, 404);
         return json({ ok: true, id });
       }
     }
