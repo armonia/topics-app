@@ -41,6 +41,11 @@ describe("a reload that cuts a delivery whose checks were only waiting", () => {
 
   type Extra = Record<string, unknown>;
 
+  /** `MAX_DELIVERY_ROUNDS` in routes/tasks.ts: raising it there turns the test
+   *  below red, which is the point - the cap is a promise about how long a mute
+   *  delivery can go on. */
+  const MAX_ROUNDS = 3;
+
   /** A card in progress with its summary said, and a server that can be booted again. */
   async function delivery(checks: Array<{ name: string; cmd: string }>, base: Extra) {
     const counts = { realigns: 0 };
@@ -242,6 +247,52 @@ describe("a reload that cuts a delivery whose checks were only waiting", () => {
     d.boot({ checksMemoryFloor: memoryFloor(() => 8) });
     db.prepare("UPDATE tasks SET status = 'todo', dispatch_state = 'queued' WHERE id = ?").run(d.id);
     await nothingRan(d, started, "todo");
+  }, 60_000);
+
+  /**
+   * THE SAME ROUND DOES NOT RESTART FOREVER.
+   *
+   * The re-issue above is only worth its cost while the round it starts can
+   * reach a verdict. With `TOPICS_SERVER_WATCH=1` a SIGTERM arrives at every
+   * save under `server/` - 6 restarts in the 14/09T23 hour, 4 in the T20 one,
+   * 1-2 an hour all through 16/09 - and a round with the CI rows needs minutes
+   * of local commands plus up to 65 of polling GitHub. Nothing counted the
+   * rounds, so the boot restarted the same one from zero every time: no
+   * verdict, no command finished, and nothing on the card to say it.
+   */
+  test("past the third round the boot writes on the card instead of running it again", async () => {
+    const started = join(cwd, `rounds-${Date.now()}`);
+    const floor = { checksMemoryFloor: memoryFloor(() => 1) };
+    const d = await delivery([{ name: "bar", cmd: `touch ${started}` }], floor);
+    const leg = d.deliver();
+    await until(async () => (await d.read()).checksState === "running", "the first round is waiting for memory");
+    await stopReviewChecks();
+    expect((await leg)!.status).toBe(202);
+    expect(d.remembered()).toHaveLength(1);
+
+    // Three boots, three rounds restarted from scratch and cut again: exactly
+    // what a working day of saves under `server/` does to one delivery.
+    for (let giro = 2; giro <= MAX_ROUNDS + 1; giro++) {
+      _resetReviewChecksStop();
+      d.boot(floor);
+      await until(async () => (await d.read()).checksState === "running", `round ${giro} restarted`);
+      await stopReviewChecks();
+      await until(() => !d.gate().isRunning(d.id), `round ${giro} was cut`);
+      expect(d.remembered()).toHaveLength(1);
+    }
+
+    // The boot after those: the row goes, no round starts, and the card says
+    // what happened instead of staying silent with a spinner.
+    _resetReviewChecksStop();
+    d.boot(floor);
+    await until(() => d.remembered().length === 0, "the row is forgotten");
+    await Bun.sleep(150);
+    expect((await d.read()).checksState ?? null).toBeNull();
+    expect((await d.read()).status).toBe("in_progress");
+    expect(await Bun.file(started).exists()).toBe(false);
+    const said = await d.comments();
+    expect(said).toContain("ripartiti da zero");
+    expect(said).toContain("commit nuovo");
   }, 60_000);
 
   test("a delivery cut before it ever realigned realigns at the boot, instead of inheriting an old commit", async () => {

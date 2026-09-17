@@ -19,6 +19,14 @@
  * moment a verdict is recorded (or the card moves on). Rows are read once, at
  * boot; from there on the in-memory map is the fast path, exactly as before.
  *
+ * AND IT COUNTS ITS ROUNDS, since 2026-09-17. Re-issuing the delivery is only
+ * worth something if the round it starts can finish: with the CI rows a round
+ * costs minutes of local commands plus up to 65 minutes of polling GitHub,
+ * while every save under `server/` sends the SIGTERM that cuts it. Without a
+ * count the same round restarted from zero at every boot, measuring nothing and
+ * saying nothing; `bumpPendingDeliveryRound` is what lets the resume stop and
+ * write on the card instead (`MAX_DELIVERY_ROUNDS` in routes/tasks.ts).
+ *
  * Best-effort by construction: every call swallows its own error. A database
  * that cannot write this row must not refuse a delivery - the cost of losing it
  * is one extra realign after a restart, the cost of throwing here is a card
@@ -48,9 +56,36 @@ export function savePendingDelivery(db: Database, entry: PendingDelivery): void 
          body_json = excluded.body_json,
          -- A commit read later in the round is the one that counts; a leg that
          -- arrives before the checkout is known must not erase it with NULL.
-         commit_sha = COALESCE(excluded.commit_sha, pending_deliveries.commit_sha)`,
+         commit_sha = COALESCE(excluded.commit_sha, pending_deliveries.commit_sha),
+         -- A DELIVERY ON A NEW COMMIT STARTS ITS COUNT AGAIN. The rounds are
+         -- counted to spot the SAME round restarting forever; an agent that
+         -- committed a fix and re-delivered is doing new work, and inheriting
+         -- the burnt count would silence it before its first round.
+         rounds = CASE
+           WHEN excluded.commit_sha IS NOT NULL
+            AND pending_deliveries.commit_sha IS NOT NULL
+            AND excluded.commit_sha <> pending_deliveries.commit_sha THEN 0
+           ELSE pending_deliveries.rounds
+         END`,
     ).run(entry.taskId, entry.pathname, JSON.stringify(entry.body), entry.commit);
   } catch { /* see the docstring: losing the row costs a realign, throwing costs the delivery */ }
+}
+
+/**
+ * One more round for this delivery, and the count after it. Called by the boot
+ * resume, the only thing that restarts a round nobody asked for again.
+ *
+ * Zero when the row is gone or unwritable: a counter that cannot be read must
+ * not be the reason a delivery is refused - the failure mode of this table is
+ * always "carry on as before the table existed".
+ */
+export function bumpPendingDeliveryRound(db: Database, taskId: string): number {
+  try {
+    const row = db.prepare(
+      "UPDATE pending_deliveries SET rounds = rounds + 1 WHERE task_id = ? RETURNING rounds",
+    ).get(taskId) as { rounds: number } | null;
+    return row?.rounds ?? 0;
+  } catch { return 0; }
 }
 
 export function forgetPendingDelivery(db: Database, taskId: string): void {
