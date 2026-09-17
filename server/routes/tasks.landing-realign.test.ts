@@ -1,18 +1,17 @@
 /**
- * IL RIALLINEAMENTO PRIMA DEL LAND SI DICHIARA.  @covers LAND-03, LAND-05
+ * A REALIGN BEFORE THE LAND IS DECLARED.  @covers LAND-03, LAND-05
  *
- * Il land che trova il ramo indietro ci riporta main dentro, e quel che atterra
- * e' un commit che nessuno ha misurato: i check — i comandi locali e le due righe
- * di CI — hanno girato sul commit CONSEGNATO, ore prima (1,93 h di media in
- * review, 32 land in 7 giorni). 22 di quei 32 portavano la riga del
- * riallineamento e solo 4 avvisavano anche che il land differiva dalla consegna:
- * 18 non dicevano niente, mentre `checks_commit` continuava a nominare un commit
- * che non e' quello atterrato.
+ * A land that finds the branch behind pulls main back into it, and what lands
+ * is a commit nobody measured: the checks — the local commands and the two CI
+ * rows — ran on the DELIVERED commit, hours earlier (1.93 h in review on
+ * average, 32 lands over 7 days). 22 of those 32 carried the realign line and
+ * only 4 also warned that the land differed from the delivery: 18 said nothing,
+ * while `checks_commit` kept naming a commit that is not the one that landed.
  *
- * Un argomento solo: cosa finisce nel thread quando il land riallinea, e cosa
- * succede quando e' il riallineamento stesso a fare conflitto — due conflitti
- * diversi, due lavori diversi. Spezzato da `tasks.landing.test.ts` il 17/09,
- * quando quel file aveva sfondato `check:bloat` a 1.076 righe.
+ * One subject: what reaches the thread when the land realigns, and what happens
+ * when the realign is itself the thing that conflicts — two different
+ * conflicts, two different jobs. Split out of `tasks.landing.test.ts` on 17/09,
+ * when that file had blown through `check:bloat` at 1,076 lines.
  */
 import { test, expect, describe } from "bun:test";
 import { createTasksRouter } from "./tasks";
@@ -21,7 +20,7 @@ import { parseStatusEvent } from "../../shared/board";
 import { freshDb, makeCtx, call } from "./tasks-test-support";
 
 describe("il riallineamento prima del land finisce nel thread", () => {
-  /** Un merge andato a buon fine, nella forma che `tryMerge` restituisce. */
+  /** A merge that worked, in the shape `tryMerge` hands back. */
   const MERGED = {
     status: "merged", commit: "a5f83e0e", branch: "topics/wooly-saunter", repoPath: "/repo",
     touchedClient: false, touchedServer: false, touchedNative: false,
@@ -29,8 +28,9 @@ describe("il riallineamento prima del land finisce nel thread", () => {
   };
 
   test("il ramo riallineato dal land finisce nel thread, PRIMA del «Mergiato»", async () => {
-    // Sul ramo compare un commit di fusione che nessun umano ha fatto: se il
-    // thread non lo dice, chi rilegge la storia del ramo non sa da dove venga.
+    // A merge commit no human made shows up on the branch: if the thread does
+    // not say so, whoever reads that branch's history later cannot tell where
+    // it came from.
     const d = freshDb(); const b: any[] = [];
     const rt = createTasksRouter(makeCtx(d, b), undefined, {
       autoMerge: {
@@ -52,12 +52,9 @@ describe("il riallineamento prima del land finisce nel thread", () => {
   });
 
   /**
-   * The realign makes what LANDS a commit nobody measured: the checks - the
-   * local commands and the two CI rows - ran on the delivered commit, hours
-   * earlier (1,93 h in review on average, 32 lands in 7 days). 22 of those 32
-   * lands carried the realign line and only 4 also warned that the land differed
-   * from the delivery: 18 said nothing at all, while `checks_commit` kept naming
-   * a commit that is not the one that landed.
+   * The note has to name the commit the checks actually ran on, and the verdict
+   * has to stop claiming it describes what landed. Those are the 18 silent
+   * lands of the header, turned into one assertion.
    */
   test("un land che riallinea dice che cosa i check hanno misurato, e azzera checks_commit", async () => {
     const d = freshDb(); const b: any[] = [];
@@ -104,9 +101,10 @@ describe("il riallineamento prima del land finisce nel thread", () => {
   });
 
   test("conflitto nel RIALLINEAMENTO: nomina i file e chiede una fusione, non una rebase", async () => {
-    // Due conflitti diversi, due lavori diversi. Dire «rifai la base sul main
-    // aggiornato» a chi ha appena visto fallire quel merge lo manda a rifare a
-    // mano il tentativo che la macchina ha già fatto — senza dirgli su cosa.
+    // Two different conflicts, two different jobs. Telling «rebase onto the
+    // updated main» to someone who just watched that merge fail sends them to
+    // redo by hand the attempt the machine already made — without telling them
+    // on which files.
     const d = freshDb(); const b: any[] = []; const r: Array<[string, string]> = [];
     const dispatcher = {
       onEnterTodo() {}, onLeaveTodo() {}, onBlockerDone() {},
@@ -128,15 +126,15 @@ describe("il riallineamento prima del land finisce nel thread", () => {
 
     const after = createTaskService(d).get(t.id)!;
     expect(after.task.status).toBe("in_progress");
-    // Il thread dice quali file, e che NON è stato landato niente.
+    // The thread names the files, and says that NOTHING was landed.
     const thread = after.comments.map((c) => c.content).join("\n");
     expect(thread).toContain("server/db.ts");
     expect(thread).toContain("client/src/App.tsx");
     expect(thread).toContain("Non ho landato niente");
-    // La riga di storico distingue le due cause.
+    // The history line tells the two causes apart.
     const ev = after.comments.filter((c) => c.kind === "status").at(-1)!;
     expect(parseStatusEvent(ev.content)?.reason).toContain("riportare main nel ramo");
-    // E l'istruzione all'agente parla di `git merge main`, non di rebase.
+    // And the instruction to the agent says `git merge main`, not rebase.
     expect(r).toHaveLength(1);
     expect(r[0][1]).toContain("git merge main");
     expect(r[0][1]).toContain("server/db.ts");

@@ -1,9 +1,9 @@
 /**
- * UNA CARD CHIUSA APPOSTA SENZA LANDARE PUO' DIRLO.  @covers LAND-05
+ * A CARD CLOSED ON PURPOSE WITHOUT LANDING CAN SAY SO.  @covers LAND-05
  *
- * Spezzato da `tasks.landing.test.ts` il 17/09, quando quel file aveva sfondato
- * `check:bloat` a 1.076 righe: qui sta il gesto `superseded` e le due porte che
- * NON devono scriverlo.
+ * Split out of `tasks.landing.test.ts` on 17/09, when that file had blown
+ * through `check:bloat` at 1,076 lines: here live the `superseded` gesture and
+ * the two doors that must NOT write it.
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import type { Database } from "bun:sqlite";
@@ -11,18 +11,18 @@ import { createTasksRouter } from "./tasks";
 import { freshDb, makeCtx, call } from "./tasks-test-support";
 
 /**
- * CHIUSA APPOSTA SENZA LANDARE — un debito che nessuno intende pagare.
+ * CLOSED ON PURPOSE WITHOUT LANDING — a debt nobody intends to pay.
  *
- * Un `approve` che non atterra lascia la card `unlanded` con un commit vero, e
- * da fuori quello e' identico a una dimenticanza: chip «non su main» sulla card
- * e contatore rosso in cima alla board, per sempre. Misurato il 18/08/2026: tre
- * card chiuse deliberatamente — due il cui ramo portava il doppione di un
- * cancello gia' su main, una in cui fra due rimedi allo stesso guasto era stato
- * scelto l'altro — tutte e tre contate come debito. Il rumore su un contatore
- * lo rende inguardabile, e allora smette di servire anche per i debiti veri.
+ * An `approve` that does not land leaves the card `unlanded` with a real
+ * commit, and from outside that is indistinguishable from an oversight: a «not
+ * on main» chip on the card and a red counter at the top of the board, forever.
+ * Measured 18/08/2026: three cards closed deliberately — two whose branch
+ * carried a duplicate of a gate already on main, one where of two fixes for the
+ * same failure the other was chosen — all three counted as debt. Noise on a
+ * counter makes it unwatchable, and then it stops serving the real debts too.
  *
- * `superseded` non si DEDUCE: dal repo, un ramo fuori da main e' fuori da main,
- * scartato o dimenticato che sia. Lo dice chi rivede, una volta.
+ * `superseded` is not DERIVED: from the repo, a branch outside main is outside
+ * main, discarded or forgotten alike. The reviewer says it, once.
  */
 describe("una card chiusa senza landare puo' dirlo", () => {
   let db: Database;
@@ -34,7 +34,7 @@ describe("una card chiusa senza landare puo' dirlo", () => {
     router = createTasksRouter(makeCtx(db, broadcasts), undefined, {});
   });
 
-  /** Una card in review con una consegna vera: e' il caso in cui il chip si accende. */
+  /** A card in review with a real delivery: the case where the chip lights up. */
   async function deliveredCard(): Promise<string> {
     const t = await (await call(router, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
     db.prepare(
@@ -58,10 +58,10 @@ describe("una card chiusa senza landare puo' dirlo", () => {
   });
 
   test("senza il gesto NON si inventa niente: resta un debito da guardare", async () => {
-    // Il caso che tiene onesto quello sopra. Se `approve` marcasse da solo, ogni
-    // card chiusa senza landare sparirebbe dal contatore — cioe' il difetto
-    // opposto, e molto peggiore: il lavoro dimenticato non lo direbbe piu'
-    // nessuno.
+    // The case that keeps the one above honest. If `approve` stamped it on its
+    // own, every card closed without landing would drop off the counter — the
+    // opposite defect, and a far worse one: forgotten work would have nobody
+    // left to report it.
     const id = await deliveredCard();
     const r = await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, {
       decision: "approve", force: true,
@@ -71,9 +71,9 @@ describe("una card chiusa senza landare puo' dirlo", () => {
   });
 
   test("un rifiuto non lo scrive nemmeno se glielo chiedi", async () => {
-    // `superseded` parla di una card CHIUSA. Su un rifiuto la card torna a
-    // lavorare, e un timbro «non atterrera' mai» sopra un lavoro che riparte
-    // sarebbe una bugia con la forma di una decisione.
+    // `superseded` speaks about a CLOSED card. On a rejection the card goes
+    // back to work, and a «will never land» stamp on work that is restarting
+    // would be a lie shaped like a decision.
     const id = await deliveredCard();
     await call(router, "POST", `/api/boards/pX/tasks/${id}/review`, {
       decision: "reject", comment: "rifai", superseded: true,

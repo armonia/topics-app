@@ -1,9 +1,9 @@
 /**
- * LA BOZZA E IL RAMO SU ORIGIN SI CHIUDONO ALLE PORTE CHE CHIUDONO IL RAMO.  @covers LAND-05
+ * THE DRAFT AND THE ORIGIN BRANCH CLOSE AT THE DOORS THAT CLOSE THE BRANCH.  @covers LAND-05
  *
- * Spezzato da `tasks.landing.test.ts` il 17/09, quando quel file aveva sfondato
- * `check:bloat` a 1.076 righe: qui sta la meta' REMOTA della potatura, che non
- * ha niente in comune col verdetto di atterraggio se non la porta da cui parte.
+ * Split out of `tasks.landing.test.ts` on 17/09, when that file had blown
+ * through `check:bloat` at 1,076 lines. The remote half of the reap shares
+ * nothing with the landing verdict except the door it starts from.
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import type { Database } from "bun:sqlite";
