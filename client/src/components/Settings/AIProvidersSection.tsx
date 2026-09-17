@@ -11,6 +11,7 @@ import { AGENT_RUNTIMES, DEFAULT_AGENT_RUNTIME } from '../../../../shared/types'
 import { SettingSelect } from './SettingSelect';
 import { AgentRuntimeChoice } from './AgentRuntimeChoice';
 import { ApiKeyForm, ApiProviderSetup } from './ApiProviderSetup';
+import { DirectEndpointsPanel } from './DirectEndpointsPanel';
 import { TurnCheckpointsChoice } from './TurnCheckpointsChoice';
 import { CliAgentsPanel } from './CliAgentsPanel';
 import {
@@ -226,6 +227,10 @@ export function AIProvidersSection() {
             );
           })}
         </div>}
+      </div>
+
+      <div className="border-t border-app-border pt-3">
+        <DirectEndpointsPanel onChanged={() => { void refresh(); }} />
       </div>
 
       {entries.some((entry) => !isApiProvider(entry.name)) && <div className="border-t border-app-border pt-3 space-y-2">

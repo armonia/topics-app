@@ -525,6 +525,19 @@ export interface ProviderSnapshotEntry {
      *  probe a ogni giro (vedi `snapshot-manager.ts`). */
     checkedAt?: string;
   };
+  /**
+   * The context window of EACH model, as the provider DECLARES it.
+   *
+   * Same rule as `fastMode` and `languages`: nothing is guessed here. The
+   * static table of known models has never heard of a local llama, and for a
+   * model it does not know it falls back to a generic value: a 200k model then
+   * wears a badge announcing a 1M window, a number nobody measured, shown to a
+   * person. A value present here BEATS the table; absent means "I do not know"
+   * and the table keeps the last word.
+   *
+   * Key = model id, value = tokens.
+   */
+  modelContextWindows?: Record<string, number>;
   /** ISO 8601 timestamp of when this entry was last refreshed. */
   fetchedAt: string;
 }

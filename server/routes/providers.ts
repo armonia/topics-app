@@ -16,6 +16,8 @@ import { updateAppSettings } from "../services/app-settings";
 import { detectAgents, resetAgentBinCaches } from "../lib/detect-agents";
 import { isCliAgentId } from "../lib/agent-bin-paths";
 import { configureAgentBin } from "../lib/configure-agent-bin";
+import { createDirectEndpointsRouter } from "./direct-endpoints";
+import { syncDirectEndpointProviders } from "../providers/direct-endpoint-registry";
 
 // Slice 9 removed the per-route `diagnoseCache` / `modelsCache` Maps that the
 // old `/api/providers/diagnose` + `/api/providers/models` endpoints used. The
@@ -26,12 +28,27 @@ import { configureAgentBin } from "../lib/configure-agent-bin";
 export function createProvidersRouter(ctx: AppContext): RouteHandler {
   const { json } = ctx;
 
+  const endpointsRouter = createDirectEndpointsRouter({
+    json,
+    stateDir: ctx.STATE_DIR,
+    sync: () => syncDirectEndpointProviders({
+      listProviders,
+      registerProvider,
+      removeProvider,
+    }, ctx.STATE_DIR),
+  });
+
   return async function providersRouter(
     req: Request,
     url: URL,
     pathname: string,
     method: string,
   ): Promise<Response | null> {
+    // Configured OpenAI-compatible endpoints get their own module: this file
+    // is already past the size the bloat ratchet freezes.
+    const endpointResponse = await endpointsRouter(req, url, pathname, method);
+    if (endpointResponse) return endpointResponse;
+
     // GET /api/providers — list all providers with status
     if (method === "GET" && pathname === "/api/providers") {
       const providers = listProviders();

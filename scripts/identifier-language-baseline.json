@@ -2657,11 +2657,7 @@
     "server/browser-framing.ts": [
       "addrs",
       "csp",
-      "ipv4ToInt",
-      "isPrivateIpv4",
-      "isPrivateIpv6",
       "loc",
-      "mapped",
       "xfo"
     ],
     "server/browser-native-delegate.test.ts": [
@@ -2903,8 +2899,6 @@
       "passa"
     ],
     "server/lib/auth-gate.ts": [
-      "IPV4",
-      "IPV6",
       "MUTATING"
     ],
     "server/lib/boot-catena-ripresa.test.ts": [
@@ -3369,9 +3363,6 @@
     "server/lib/project-icon.test.ts": [
       "fav",
       "ico"
-    ],
-    "server/lib/project-ref.test.ts": [
-      "slugify"
     ],
     "server/lib/project-ref.ts": [
       "basename"
@@ -4649,7 +4640,6 @@
       "NON_PROJECT_DOTDIR"
     ],
     "server/services/project-store.ts": [
-      "slugify",
       "stmt",
       "stmts"
     ],
@@ -5282,7 +5272,6 @@
       "osservatori",
       "riusabile",
       "serializzati",
-      "slugify",
       "stmts",
       "subtree"
     ],

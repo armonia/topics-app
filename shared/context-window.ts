@@ -154,8 +154,24 @@ export interface ContextWindow {
   known: boolean;
 }
 
-/** Finestra di contesto per un nome di modello (fuzzy, mai lancia). Pura. */
-export function contextWindowFor(model: string | null | undefined): ContextWindow {
+/**
+ * Context window for a model name (fuzzy, never throws). Pure.
+ *
+ * `declared` is the window the PROVIDER states for that model, when it states
+ * one, and it beats the table below without arguing. The table is a hand
+ * written list of hosted models: it has never heard of a local llama, and for
+ * a name it does not recognise it falls back to a default. With a configured
+ * endpoint that fallback is visible to the naked eye, because a 200k model
+ * shows up wearing the badge of a 1M window: a number nobody measured, put in
+ * front of a person.
+ */
+export function contextWindowFor(
+  model: string | null | undefined,
+  declared?: number,
+): ContextWindow {
+  if (typeof declared === "number" && Number.isFinite(declared) && declared > 0) {
+    return { tokens: declared, known: true };
+  }
   if (!model || typeof model !== "string") return { tokens: DEFAULT_CONTEXT_WINDOW, known: false };
   const lower = model.toLowerCase();
 
