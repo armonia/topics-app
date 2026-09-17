@@ -6,6 +6,8 @@
  *   - ClaudeProvider:   uses Anthropic SDK directly (standalone mode)
  */
 
+import { providerNameForEndpoint } from "../../shared/direct-endpoints";
+import type { DirectEndpointProviderConfig } from "./openai-compatible-config";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import type { CompactionMarker } from "./claude/compaction";
 import type { TurnEndInfo } from "./stop-reason";
@@ -772,6 +774,7 @@ export type ProviderConfig =
   | ClaudeCodeProviderConfig
   | CodexProviderConfig
   | OpenAIProviderConfig
+  | DirectEndpointProviderConfig
   | AcpProviderConfig
   | NativeProviderConfig;
 
@@ -784,6 +787,7 @@ export function providerNameForConfig(config: ProviderConfig): string {
   // Il runtime nativo si chiama `topics` e non `native`: il nome lo legge chi
   // sceglie un provider nel picker, e «native» non dice niente a nessuno.
   if (config.type === "native") return "topics";
+  if (config.type === "openai-compatible") return providerNameForEndpoint(config.endpoint);
   return config.type === "acp" ? config.name : config.type;
 }
 

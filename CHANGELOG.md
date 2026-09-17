@@ -2,6 +2,23 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.352 — 2026-09-17
+
+### Sotto il cofano
+- Il terzo difetto della stessa spec: /api/topics/:id risponde con una busta
+- Quarto difetto: la finestra la porta /api/providers/snapshot, non /api/providers
+
+## 2.2.351 — 2026-09-17
+
+### Sotto il cofano
+- La spec canonica smette di dire che il pavimento e' 6 GB e una costante
+- Riempire la Verification che era rimasta "Filled at delivery"
+
+## 2.2.350 — 2026-09-17
+
+### Sotto il cofano
+- L'ultima riga aperta della tornata di stanotte si chiude, e quasi ogni sua premessa era sbagliata
+
 ## 2.2.349 — 2026-09-17
 
 ### Sotto il cofano
@@ -40,7 +57,12 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.343 — 2026-09-17
 
 ### Sotto il cofano
+- La finestra dichiarata arriva anche all'assembler
 - **e2e** · aggiorna durate shard dal nightly del 2026-09-17 [skip ci]
+- Alzare il tetto del bundle dei 363 byte che la feature costa
+- un endpoint configurato che serve davvero una chat
+- rec non e' una parola: recorder
+- La spec nuova non era ermetica
 - Il flag che salvava la bozza la chiudeva lo stesso: bastava cancellarle il ramo
 - Un episodio di thrash regalava l'esenzione dal pavimento per tutto il giro
 
@@ -209,6 +231,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.329 — 2026-09-15
 
 ### Sotto il cofano
+- Togliere il test che dipendeva dall'ordine di arrivo
 - Input queue: a partial loss is worse than none, so a loss takes the whole queue
 - Take the wheel back on both shells, and stop trusting one testid
 - La rubrica letta ogni minuto non ricalcola piu' le statistiche di tutti
@@ -237,9 +260,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - Il riavvio non taglia piu' le card che il server sta proteggendo
+- Il mio finto fetch restava addosso a chi correva dopo
 - Il cancello a budget ferma la corsa: prezzo per card, prenotazione per tutto il turno, una rampa sola
 - Il pannello del carico dice quello che il cancello decide, con i suoi numeri
 - Pannello del carico: tre frasi che il cancello smentiva, e un test che non mordeva
+- Il picker di chat vuole una chat aperta
 - I check della board sotto carico: semaforo acceso con CI, niente check nuovi sotto il pavimento di memoria, alberi uccisi allo spegnimento senza mandare in review
 - La frase del pavimento dice solo il vero, e la rampa ha il suo test sulla corsa fra due board
 - La frase del pavimento non stampa una prenotazione più grande della lettura, e l'import di CODE_GATES_RULE torna in testa
@@ -254,29 +279,38 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.324 — 2026-09-15
 
 ### Sotto il cofano
+- il giro completo di un endpoint, e il confine che non si vede
 - Baseline bloat riallineata dopo il merge di main
 - Registra la crescita di topic-browser-window fra i due scenari nuovi
 - Registra dispatch-capacity.test.ts, cresciuto su main e mai iscritto
 - Un cancello aspetta se stesso invece di partirgli accanto, e l'attesa non consuma la sua scadenza
 - I due test del sync aspettano la scrittura, non l'orologio
+- un default nello snapshot, e via il test che non poteva fallire
+- Scrivere i due requisiti che i test gia' provavano
 - Le due prove a orologio dello shard 0 aspettano l'effetto, non il tempo
+- Togliere da types.ts il tipo che lo portava oltre la riga
 - I test del freno della flotta in un file loro: CI di main rossa su check:bloat
 - Commenti del test del freno della flotta in inglese: CI di main rossa su comment-language
+- Spuntare i passi fatti nella change
 
 ## 2.2.323 — 2026-09-14
 
 ### Sotto il cofano
 - Il verdetto del pannello è quello del cancello, e zero core a disposizione è un tetto
 - Il commento del test non nomina Bun.serve: 'serve' e' una parola italiana per il banco
+- Endpoint configurabili: CRUD REST e finestra per modello nello snapshot
 - Il marker degraded si ritira, e ora la barra se ne accorge
 - L'agente guida e la pagina resta visibile: lo stato passa nell'icona della scheda
 - Terminal input is queued until the reattach is proven
 - Il foglio dell'indirizzo non riapre da solo quando cambia il layout
 - L'asse memoria adesso c'e', e conta anche quello che ha appena ammesso
+- La finestra la dichiara il provider, non la indovina una tabella
 - Il wire porta l'asse che blocca: le fixture del client lo dichiarano
 - Il git del test dei checkpoint porta l'ambiente isolato del preload
 - Point provider-picker and composer-model-memory E2E specs at the always-ready claude-code engine
 - Le guardie che mancavano, e i due documenti che dicevano il contrario
+- aggiungere, provare e togliere un endpoint
+- I cancelli: inglese nei commenti nuovi, tre parole dichiarate, un export morto in meno
 
 ## 2.2.322 — 2026-09-14
 
@@ -296,6 +330,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Pannello del carico: una riga viva, il resto in «Come funziona» (card 01346d11)
 - Il lucchetto prima di ogni effetto: un avvio che perde la corsa non tocca niente
 - **e2e** · stabilize task-model-labels add-menu click under load
+- Endpoint OpenAI-compatibili configurabili: nucleo server
 
 ## 2.2.321 — 2026-09-14
 

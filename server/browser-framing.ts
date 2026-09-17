@@ -18,6 +18,7 @@
  */
 import { lookup } from 'dns/promises';
 import { isIP } from 'net';
+import { ipv4MappedAddress, ipv4ToInt, ipv6Groups } from './lib/ipv6';
 
 const FRAMING_TTL_MS = 5 * 60 * 1000; // per-URL cache (per-path: framing varies by path)
 const PROBE_TIMEOUT_MS = 3000;
@@ -56,18 +57,6 @@ export function isFramable(headers: HeaderGetter): boolean {
   return true;
 }
 
-function ipv4ToInt(ip: string): number | null {
-  const parts = ip.split('.');
-  if (parts.length !== 4) return null;
-  let n = 0;
-  for (const p of parts) {
-    const o = Number(p);
-    if (!Number.isInteger(o) || o < 0 || o > 255 || (p.length > 1 && p[0] === '0')) return null;
-    n = ((n << 8) | o) >>> 0;
-  }
-  return n >>> 0;
-}
-
 /** True if an IPv4 literal is in a private / loopback / link-local / reserved /
  *  CGNAT / metadata range — i.e. NOT a safe public SSRF target. */
 export function isPrivateIpv4(ip: string): boolean {
@@ -94,14 +83,24 @@ export function isPrivateIpv4(ip: string): boolean {
   );
 }
 
-/** True if an IPv6 literal is loopback / ULA / link-local / v4-mapped-private. */
+/**
+ * True if an IPv6 literal is loopback / ULA / link-local / v4-mapped-private.
+ *
+ * Decided on the VALUE, never on the spelling. This used to match a v4-mapped
+ * address by its dotted form, which `new URL()` has already folded into hex
+ * before `isSafePublicUrl` runs: `http://[::ffff:127.0.0.1]/` was therefore
+ * reported PUBLIC and the framing probe fetched loopback, the LAN and the
+ * metadata address it exists to refuse.
+ */
 export function isPrivateIpv6(ip: string): boolean {
-  const lower = ip.toLowerCase().replace(/^\[|\]$/g, '');
-  if (lower === '::1' || lower === '::') return true;
-  const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return isPrivateIpv4(mapped[1]);
-  if (/^f[cd]/.test(lower)) return true;   // fc00::/7 unique-local
-  if (/^fe[89ab]/.test(lower)) return true; // fe80::/10 link-local
+  const groups = ipv6Groups(ip);
+  if (groups === null) return true; // unparseable → treat as unsafe
+  if (groups.every((group) => group === 0)) return true;                  // ::
+  if (groups.slice(0, 7).every((group) => group === 0) && groups[7] === 1) return true; // ::1
+  const mapped = ipv4MappedAddress(groups);
+  if (mapped) return isPrivateIpv4(mapped);
+  if ((groups[0]! & 0xfe00) === 0xfc00) return true; // fc00::/7 unique-local
+  if ((groups[0]! & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
   return false;
 }
 

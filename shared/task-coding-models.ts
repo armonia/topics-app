@@ -13,6 +13,13 @@ export interface TaskExecutionOption {
   label: string;
   status: ProvidersSnapshot['providers'][number]['status'];
   models: string[];
+  /**
+   * Windows declared by the provider, per model id. Always absent here, since
+   * every coding runtime serves models that the static table already knows. It
+   * exists so the one menu component can read it on either surface without a
+   * cast, and it stays absent on this side on purpose.
+   */
+  contextWindows?: Record<string, number>;
   supportsAutomatic: boolean;
   reason?: string;
 }

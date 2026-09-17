@@ -12,6 +12,7 @@
 import { EventEmitter } from "node:events";
 import { listProviders, getProvider, getDefaultProviderName } from "./index";
 import type { ProvidersSnapshot, ProviderSnapshotEntry, ProviderRequirement } from "./types";
+import { publishDeclaredWindows } from "../usage/declared-windows";
 
 const SNAPSHOT_TTL_MS = 5 * 60 * 1000;
 
@@ -139,7 +140,9 @@ export class ProviderSnapshotManager extends EventEmitter {
       const requirements: ProviderRequirement[] = diag?.requirements ?? [];
       entry = {
         name,
-        label: labelFor(name),
+        // A configured endpoint carries the label whoever added it typed:
+        // `labelFor` could only hand back `direct-<slug>`.
+        label: (provider as { label?: string }).label ?? labelFor(name),
         status: diag ? diag.status : provider.connected ? "ready" : "unavailable",
         isDefault: name === defaultName,
         binaryPath: diag?.binaryPath,
@@ -161,6 +164,12 @@ export class ProviderSnapshotManager extends EventEmitter {
         languages:
           (provider as { languages?: () => ProviderSnapshotEntry["languages"] | null }).languages?.() ??
           undefined,
+        // Windows are declared by the provider, same as above. It matters
+        // because a configured endpoint knows its own `n_ctx` and the table of
+        // known models does not: without this line a local 200k model shows up
+        // wearing a 1M window, a number nobody measured.
+        modelContextWindows:
+          (provider as { contextWindows?: () => Record<string, number> }).contextWindows?.() ?? undefined,
         requirements,
         lastError: diag?.lastError,
         effortTier: provider.effortTier?.(),
@@ -197,6 +206,10 @@ export class ProviderSnapshotManager extends EventEmitter {
       return;
     }
 
+    // The assembler budgets against a model name, and it reads what was
+    // published here: a declared window has to reach it the moment the snapshot
+    // learns it, not at the next restart.
+    publishDeclaredWindows(name, entry.modelContextWindows);
     this.entries.set(name, entry);
     this.emit("change");
   }
@@ -222,6 +235,7 @@ export class ProviderSnapshotManager extends EventEmitter {
   invalidate(name: string): void {
     this.revisions.set(name, (this.revisions.get(name) ?? 0) + 1);
     this.inflight.delete(name);
+    publishDeclaredWindows(name, null);
     if (this.entries.delete(name)) this.emit("change");
   }
 

@@ -51,7 +51,8 @@ import {
   worseLevel,
 } from "../../shared/context-thresholds";
 import type { ContextLevel } from "../../shared/context-thresholds";
-import { contextWindowFor, windowCoveringMeasure } from "../../shared/context-window";
+import { contextWindowFor as sharedContextWindowFor, windowCoveringMeasure } from "../../shared/context-window";
+import { declaredWindowForModel } from "./declared-windows";
 import type { ContextWindow } from "../../shared/context-window";
 
 // Si ri-esporta SOLO ciò che qualcuno importa da qui (i test di questo modulo e
@@ -60,7 +61,24 @@ import type { ContextWindow } from "../../shared/context-window";
 // (`formatContextWindow`) si prendono da `shared/context-window`: è dove sono
 // dichiarati ed è già da lì che li importa chi li usa davvero (la UI del picker).
 export { DEFAULT_CONTEXT_WINDOW } from "../../shared/context-thresholds";
-export { contextWindowFor, windowCoveringMeasure, windowModelFor } from "../../shared/context-window";
+export { windowCoveringMeasure, windowModelFor } from "../../shared/context-window";
+
+/**
+ * The window to budget against, with a provider's own declaration winning over
+ * the static table.
+ *
+ * Deliberately NOT a bare re-export of the shared function any more. Server
+ * callers ask this question about a model that may come from an endpoint
+ * somebody configured, and for those the table has nothing but the 1M default.
+ * Passing the declared value through `contextWindowFor` also marks the result
+ * `known`, so the UI stops prefixing it with the tilde it was showing.
+ */
+export function contextWindowFor(
+  model: string | null | undefined,
+  declared?: number,
+): ContextWindow {
+  return sharedContextWindowFor(model, declared ?? declaredWindowForModel(model));
+}
 export type { ContextWindow } from "../../shared/context-window";
 
 /**
@@ -114,7 +132,7 @@ export function windowForMeasure(
     const current = contextWindowFor(currentModel);
     if (current.known) return covering(current, currentModel);
   }
-  const fromMeasure = contextWindowFor(measure.model);
+  const fromMeasure = sharedContextWindowFor(measure.model);
   if (fromMeasure.known) return covering(fromMeasure, measure.model);
   return covering(
     { tokens: measure.windowTokens, known: !measure.estimated },
