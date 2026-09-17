@@ -46,28 +46,65 @@ export interface PendingDelivery {
 
 type Row = { task_id: string; pathname: string; body_json: string; commit_sha: string | null };
 
+const KEEP = `INSERT INTO pending_deliveries (task_id, pathname, body_json, commit_sha, created_at)
+   VALUES (?, ?, ?, ?, datetime('now'))
+   ON CONFLICT(task_id) DO UPDATE SET
+     pathname = excluded.pathname,
+     body_json = excluded.body_json,
+     -- A commit read later in the round is the one that counts; a leg that
+     -- arrives before the checkout is known must not erase it with NULL.
+     commit_sha = COALESCE(excluded.commit_sha, pending_deliveries.commit_sha)`;
+
+/**
+ * A DELIVERY ON A NEW COMMIT STARTS ITS COUNT AGAIN. The rounds are counted to
+ * spot the SAME round restarting forever; an agent that committed a fix and
+ * re-delivered is doing new work, and inheriting the burnt count would silence
+ * it before its first round.
+ *
+ * A STORED NULL IS "WE NEVER KNEW", NOT "THE SAME DELIVERY". The `interrupted`
+ * arm of the route writes the row before the checkout is resolved - that is the
+ * very case its docstring describes - so the row that burns rounds most easily
+ * is exactly the one with `commit_sha IS NULL`. Requiring the stored side to be
+ * non-null meant those burnt rounds were then inherited by the NEXT delivery,
+ * the one carrying a real commit: three boots later it was given up on without
+ * ever having run a round of its own, which is the opposite of what the clause
+ * above promises.
+ */
+const RESET_ON_NEW_COMMIT = `,
+     rounds = CASE
+       WHEN excluded.commit_sha IS NOT NULL
+        AND (pending_deliveries.commit_sha IS NULL
+             OR excluded.commit_sha <> pending_deliveries.commit_sha) THEN 0
+       ELSE pending_deliveries.rounds
+     END`;
+
+/**
+ * Does this database have the `rounds` column (migration 20260917003149)?
+ *
+ * Asked instead of assumed, because naming a column that is not there makes
+ * SQLite throw at PREPARE time, and the catch around the write would then eat
+ * the whole delivery: on a database restored from a backup older than the
+ * migration, every row would silently fail to be remembered and every restart
+ * would lose its deliveries. The promise in the docstring - losing the row
+ * costs a realign, throwing costs the delivery - has to hold there too.
+ */
+const roundsColumn = new WeakMap<Database, boolean>();
+function hasRoundsColumn(db: Database): boolean {
+  const known = roundsColumn.get(db);
+  if (known !== undefined) return known;
+  let has = false;
+  try {
+    has = (db.prepare("PRAGMA table_info(pending_deliveries)").all() as Array<{ name: string }>)
+      .some((c) => c.name === "rounds");
+  } catch { has = false; }
+  roundsColumn.set(db, has);
+  return has;
+}
+
 export function savePendingDelivery(db: Database, entry: PendingDelivery): void {
   try {
-    db.prepare(
-      `INSERT INTO pending_deliveries (task_id, pathname, body_json, commit_sha, created_at)
-       VALUES (?, ?, ?, ?, datetime('now'))
-       ON CONFLICT(task_id) DO UPDATE SET
-         pathname = excluded.pathname,
-         body_json = excluded.body_json,
-         -- A commit read later in the round is the one that counts; a leg that
-         -- arrives before the checkout is known must not erase it with NULL.
-         commit_sha = COALESCE(excluded.commit_sha, pending_deliveries.commit_sha),
-         -- A DELIVERY ON A NEW COMMIT STARTS ITS COUNT AGAIN. The rounds are
-         -- counted to spot the SAME round restarting forever; an agent that
-         -- committed a fix and re-delivered is doing new work, and inheriting
-         -- the burnt count would silence it before its first round.
-         rounds = CASE
-           WHEN excluded.commit_sha IS NOT NULL
-            AND pending_deliveries.commit_sha IS NOT NULL
-            AND excluded.commit_sha <> pending_deliveries.commit_sha THEN 0
-           ELSE pending_deliveries.rounds
-         END`,
-    ).run(entry.taskId, entry.pathname, JSON.stringify(entry.body), entry.commit);
+    db.prepare(hasRoundsColumn(db) ? KEEP + RESET_ON_NEW_COMMIT : KEEP)
+      .run(entry.taskId, entry.pathname, JSON.stringify(entry.body), entry.commit);
   } catch { /* see the docstring: losing the row costs a realign, throwing costs the delivery */ }
 }
 
