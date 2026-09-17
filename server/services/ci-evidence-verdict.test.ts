@@ -308,6 +308,10 @@ describe("a card does not call itself green on a commit whose CI run is red", ()
     expect(rows.map((r) => r.ok)).toEqual([false, false]);
     // A real red, not a NOT MEASURED: the run said `failure` and named where.
     expect(rows.map((r) => r.notMeasured)).toEqual([undefined, undefined]);
+    // And the exit code moves with `ok`. Left at 0 the row is red and labelled
+    // "exit 0" in the drawer, which reads as a gate that passed and stopped
+    // anyway - a second small lie inside the row that exists to stop one.
+    expect(rows.map((r) => r.code)).toEqual([1, 1]);
     for (const row of rows) {
       expect(row.ciRunRed).toContain(BUDGET);
       expect(row.tail).toContain("job check");
