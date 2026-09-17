@@ -43,6 +43,7 @@ import { Z_CONTEXT_MENU, Z_POPOVER_SCRIM } from '@/lib/popoverStyles';
 import { Plus, X, Maximize2, Minimize2, ExternalLink } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { RemoteBrowserPanel } from './RemoteBrowserPanel';
+import { useSurfaceFocus } from './useSurfaceFocus';
 import {
   EMPTY_TOPIC_BROWSER_WINDOW,
   MIN_WINDOW_SIZE,
@@ -69,7 +70,6 @@ import {
   newBrowserContextId,
 } from '../../state/pane/adapters/paneConfig';
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../lib/openLink';
-import { registerTopicWindowDoor } from '../../lib/topicWindowDoor';
 import { tauriInvoke } from '../../lib/shell/tauri';
 import { DEFAULT_EXPANDED_WIDTH, expandedInsetFor, canExpandInArea } from './topicBrowserWindowLazy';
 /** A promotion younger than this is not yet expected to have a pane on screen,
@@ -232,6 +232,9 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   const state = useTopicWindowState(topicId);
   const area = useAreaRect(areaRef);
   const band = useComposerBand(areaRef);
+  // The chat beside it and this window take turns: a heavy page pauses while
+  // the person types in the chat.
+  const focus = useSurfaceFocus();
   const [addOpen, setAddOpen] = useState(false);
   const addButtonRef = useRef<HTMLButtonElement | null>(null);
   // Where the "+" menu is drawn, in viewport coordinates: it is a portal on the
@@ -279,19 +282,11 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   }, [topicId, state.promoted, panes, projectBrowsers]);
 
 
-  // The links of THIS conversation land in THIS window: a page read in the chat
-  // belongs beside the chat. Registered rather than listened for, because the
-  // claim has to be answered before the layout hooks see the event at all (see
-  // `topicWindowDoor`). A sheet already promoted keeps its tab: `open` refuses a
-  // promoted contextId, and a fresh contextId per click is never one.
-  useEffect(() => registerTopicWindowDoor(topicId, (detail) => {
-    topicBrowserWindow.open(topicId, {
-      contextId: detail.contextId,
-      url: detail.url,
-      openedBy: 'link',
-    });
-    return true;
-  }), [topicId]);
+  // The door of this conversation is NOT registered here. It belongs to the
+  // chat, which is eager and on screen before any click: registered from a
+  // window that has to be mounted first, the rule read "a topic that ALREADY
+  // has a window keeps its own links", and the first link of a topic still
+  // tiled a pane in the layout. See `topicWindowDoor`.
 
   const active = state.tabs.find((t) => t.contextId === state.activeContextId) ?? state.tabs[0] ?? null;
 
@@ -483,6 +478,7 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   return createPortal(
     <div
       data-testid="topic-browser-window"
+      {...focus.captureProps}
       data-mode={barOnly ? 'loaned' : (expanded ? 'exp' : 'min')}
       // The window is not an overlay for the native views it contains, and it
       // declares the corner radius the shell rounds its page to.
@@ -633,6 +629,8 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
               isVisible={!parked && t.contextId === active?.contextId}
               onUrlChange={(url) => topicBrowserWindow.updateSheet(topicId, t.contextId, { url })}
               onTitleChange={(title) => topicBrowserWindow.updateSheet(topicId, t.contextId, { title })}
+              hasFocus={focus.focused}
+              onSelfFocus={focus.claim}
             />
           </div>
         ))}

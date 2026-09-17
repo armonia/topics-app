@@ -445,6 +445,20 @@ Gli SNAPSHOT dello stato dell'interfaccia SHALL seguire le stesse regole —
 atomici, leggibili solo dal proprietario, con una RITENZIONE che tiene i più
 recenti e toglie gli altri — e l'elenco SHALL essere ordinato dal più recente.
 
+Il lucchetto SHALL essere preso PRIMA di ogni effetto: database, migrazioni,
+riparazioni, ponti, riaggancio delle sessioni. Un avvio che PERDE la corsa SHALL
+uscire senza aver toccato niente. Stava in fondo all'avvio, e un secondo processo
+apriva il database, migrava, si collegava ai ponti e riagganciava le sessioni
+prima di accorgersi del lucchetto: l'unica cosa che SHALL precederlo e' la scelta
+della CASA (l'isolamento della copia di lavoro), perche' decide dove il lucchetto
+vive.
+
+#### Scenario: un avvio che perde la corsa
+- **GIVEN** un lucchetto vivo
+- **WHEN** un secondo processo parte
+- **THEN** SHALL uscire con errore
+- **AND** NON SHALL aver creato il file del database
+
 #### Scenario: un identificativo riciclato
 - **GIVEN** un lucchetto il cui processo è vivo ma precede l'ultimo avvio
 - **THEN** SHALL essere recuperato
@@ -614,7 +628,10 @@ misurata. Un server che esce da solo durante il rinvio SHALL interrompere
 l'attesa: non c'è più niente da ricaricare.
 
 Il SIGTERM SHALL restare raggiungibile per un server che tace ANCHE dopo aver
-superato la soglia: quello è davvero muto, e lì tagliare è la risposta giusta.
+superato la soglia, ma solo dopo averlo richiesto per tutta la finestra che il
+server stesso si concederebbe (vedi RGATE-05): un server maturo che non risponde
+è quasi sempre un server in swap, non uno muto, e il 14/09/2026 tagliarlo dopo
+due minuti di richieste corte ha interrotto tre card a metà turno.
 
 #### Scenario: evento di ricaricamento su un server appena nato
 - **GIVEN** un server vivo da meno della soglia dichiarata
@@ -622,7 +639,7 @@ superato la soglia: quello è davvero muto, e lì tagliare è la risposta giusta
 
 #### Scenario: evento di ricaricamento su un server maturo che non risponde
 - **GIVEN** un server vivo da più della soglia dichiarata
-- **THEN** il sorvegliante SHALL procedere, e il SIGTERM SHALL restare disponibile
+- **THEN** il sorvegliante SHALL procedere a richiederlo, e il SIGTERM SHALL restare disponibile allo scadere della finestra
 
 #### Scenario: il server esce da solo mentre si aspetta la sua nascita
 - **GIVEN** un rinvio in corso
@@ -994,3 +1011,31 @@ il comportamento gia' specificato.
 - **GIVEN** il watcher ripristinato e contenuto dei sorgenti invariato
 - **WHEN** arriva un evento del filesystem
 - **THEN** NON SHALL essere richiesto alcun riavvio del server
+
+### Requirement: BOOT-ENV-01 — La configurazione si rilegge a ogni avvio del server
+
+Il file di configurazione fuori dal repo (`~/.topics-server-env`, sorgiato da
+`scripts/start-prod.sh`) SHALL essere riletto a ogni avvio del processo del
+server, non solo alla partenza dello script. Il 16/09/2026 le variabili della
+posta e di Google, scritte nel file mentre il supervisore girava gia', non sono
+mai arrivate al server: il `source` stava sopra il loop, e il ricarico del
+watcher ripartiva con l'ambiente di ore prima. Chi modifica quel file si
+aspetta che basti un ricarico; chiedere un riavvio di launchd e' una trappola,
+e per accorgersene servivano `ps eww` e mezz'ora.
+
+Una variabile TOLTA dal file SHALL poter restare nell'ambiente fino al prossimo
+avvio dello script: il `source` aggiunge, non azzera, e la frase del requisito
+non promette il contrario. Un file illeggibile o con un errore di sintassi NON
+SHALL impedire il riavvio del server: si tiene l'ambiente di prima e lo si dice
+nel log.
+
+#### Scenario: una variabile aggiunta mentre il server gira
+- **GIVEN** il supervisore gia' avviato e una variabile nuova scritta nel file
+- **WHEN** il server viene ricaricato dal watcher
+- **THEN** il processo nuovo SHALL avere quella variabile nel suo ambiente
+
+#### Scenario: il file non si legge
+- **GIVEN** un file di configurazione con un errore
+- **WHEN** il server viene riavviato
+- **THEN** il riavvio SHALL avvenire lo stesso, con l'ambiente di prima e una riga di log
+

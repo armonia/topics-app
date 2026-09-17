@@ -118,6 +118,59 @@ export function unadoptableStreams(
   return out;
 }
 
+/** A card turn in flight, and the session it streams on. */
+export interface CardTurn {
+  taskId: string;
+  sessionKey: string;
+}
+
+/**
+ * A CARD TURN THAT IS ONLY WAITING ON OUR OWN CHECKS HOLDS NOTHING.
+ *
+ * The gate counts a card turn as work that a restart would lose, and for a turn
+ * that is writing files that is true. It is false for the shape this gate met on
+ * 2026-09-15 at 23:10: card cdc9f39b had delivered, its `update_task` was
+ * parked on our pre-review checks, and those checks were themselves WAITING —
+ * in the memory waiter, under the floor, on a Mac that was swapping. Nothing
+ * of ours was running. The gate read "1 turno/i di card della board non  allow-italian: quoting the log line the reader will grep for
+ * tornerebbe se lo tagliassi" and deferred the reload for 31 minutes
+ * («riavvio RINVIATO da 1924s»), while `drain` kept every other card queued  allow-italian: quoting the log line the reader will grep for
+ * behind «Riavvio del server in arrivo».  allow-italian: quoting the banner the board showed
+ *
+ * The two waits were holding each other: the reload waited for the checks, the
+ * checks waited for memory that a swapping Mac was not giving back, and at the
+ * waiter's 30-minute fail-open they would have started heavy commands on that
+ * same Mac. The lead ended it with a SIGTERM.
+ *
+ * Cutting such a turn loses nothing that is not re-issued: the delivery is
+ * remembered and comes back by itself after the boot, on the same commit, with
+ * no second realign on main (`pending-delivery-store.ts`). So a delivery whose
+ * round is only WAITING — memory floor, release spacing, sustained swap, the
+ * gate's own queue, or the off-lane poll of the pull request CI — does not hold
+ * the reload. A round with a command actually RUNNING still does: that command
+ * is measuring, and killing it throws its minutes away.
+ *
+ * The caller says which of the two it is (`onlyWaiting`), because the answer
+ * lives in two registries that are not this file's business: the checks gate
+ * (a live run) and the governor's registry of spawned trees (a running command).
+ */
+export function cardTurnsHoldingReload(
+  turns: Iterable<CardTurn>,
+  onlyWaiting: (taskId: string) => boolean,
+): { holding: CardTurn[]; waiting: CardTurn[] } {
+  const holding: CardTurn[] = [];
+  const waiting: CardTurn[] = [];
+  for (const turn of turns) {
+    // THE DOUBT HOLDS THE RESTART. A predicate that throws (a registry being
+    // rebuilt, a probe that failed) must not turn into "cut it": the direction
+    // of every other doubt in this file is to protect work in flight.
+    let idle = false;
+    try { idle = onlyWaiting(turn.taskId); } catch { idle = false; }
+    (idle ? waiting : holding).push(turn);
+  }
+  return { holding, waiting };
+}
+
 /**
  * Of the entries in the register, the ones whose TURN is still open.
  *
@@ -267,6 +320,33 @@ export function quiescenceVerdict(args: {
  */
 export function dispatchDoor(args: { cards: number; chatsHolding: number }): "open" | "closed" {
   return args.chatsHolding > 0 ? "open" : "closed";
+}
+
+/**
+ * HOW MANY HOLDERS ARE CHATS, for `dispatchDoor`.
+ *
+ * A card turn is not only a card: it runs through `/api/chat` like any chat,
+ * so its session is ALSO a key in the stream register. Counting every stream
+ * key as a chat made each card in flight hold the door open by itself: on
+ * 2026-09-14 "drain: 3 in volo" was followed by "drain tolto" with only the
+ * three card topics streaming and no person anywhere, the cards kept starting
+ * behind a pending restart (4, 8, 15 turns at 208, 268, 328 s), and twelve of
+ * them were cut when that restart finally came.
+ *
+ * `cardSessionKeys` is required on purpose: a caller that forgets it does not
+ * compile, instead of silently reopening the door for every card.
+ */
+export function chatsHolding(args: {
+  streamKeys: readonly string[];
+  brokerOpenKeys: readonly string[];
+  parkedKeys: readonly string[];
+  cardSessionKeys: Iterable<string>;
+}): number {
+  const cards = new Set(args.cardSessionKeys);
+  const notCard = (key: string) => !cards.has(key);
+  return args.streamKeys.filter(notCard).length
+    + args.brokerOpenKeys.filter(notCard).length
+    + args.parkedKeys.filter(notCard).length;
 }
 
 /**

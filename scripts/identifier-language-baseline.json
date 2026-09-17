@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-14",
+  "generated": "2026-09-15",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -1673,13 +1673,6 @@
       "accendi",
       "agganciato",
       "spegni"
-    ],
-    "client/src/lib/paneUsage.ts": [
-      "ShellWebview",
-      "byWebviewLabel",
-      "fetchWebviews",
-      "paneIdFromWebviewLabel",
-      "webviewSnapshot"
     ],
     "client/src/lib/path-utils.ts": [
       "basename",
@@ -3368,7 +3361,6 @@
       "soloIlFerro"
     ],
     "server/lib/process-tree.ts": [
-      "_childrenByPpid",
       "arr"
     ],
     "server/lib/process-wait.ts": [
@@ -4204,9 +4196,6 @@
       "mia",
       "primo",
       "secondo"
-    ],
-    "server/routes/processes.readopt.test.ts": [
-      "LSTART"
     ],
     "server/routes/processes.session-run.test.ts": [
       "multiCtx"

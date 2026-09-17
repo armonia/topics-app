@@ -6,10 +6,10 @@
  * l'implementazione vecchia (`while (busyCount() > 0)`) per costruzione — con
  * `cards: 0` quel predicato usciva subito, cioè `null`, cioè «riavvia pure».
  *
- * @covers HOLD-05, RGATE-01, RGATE-02, RGATE-03, RGATE-04
+ * @covers HOLD-05, RGATE-01, RGATE-02, RGATE-03, RGATE-04, RGATE-07
  */
 import { test, expect, describe } from "bun:test";
-import { describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, providerSurvivesRestart, quiescenceVerdict, reloadHeldNotice } from "./quiescence";
+import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, providerSurvivesRestart, quiescenceVerdict, reloadHeldNotice } from "./quiescence";
 
 describe("dispatchDoor: the door follows who is holding the restart (RGATE-04)", () => {
   test("a chat holds: open, whatever the cards - refusing card turns buys the restart nothing", () => {
@@ -20,6 +20,23 @@ describe("dispatchDoor: the door follows who is holding the restart (RGATE-04)",
   test("only cards hold, or nothing: closed - that wait is bounded, the restart is minutes away", () => {
     expect(dispatchDoor({ cards: 2, chatsHolding: 0 })).toBe("closed");
     expect(dispatchDoor({ cards: 0, chatsHolding: 0 })).toBe("closed");
+  });
+
+  test("a card turn's own stream is not a chat: three cards streaming keep the door closed", () => {
+    // The live state of 2026-09-15 01:50: the three streaming sessions were the
+    // three working cards, no person anywhere, and the door read "open".
+    const cardSessionKeys = ["topic:9b97a46c", "topic:c37ff82f", "topic:c6a076d5"];
+    const chats = chatsHolding({ streamKeys: cardSessionKeys, brokerOpenKeys: [], parkedKeys: [], cardSessionKeys });
+    expect(chats).toBe(0);
+    expect(dispatchDoor({ cards: 4, chatsHolding: chats })).toBe("closed");
+  });
+
+  test("a person's chat beside the cards still opens the door, from every source", () => {
+    const cardSessionKeys = ["topic:card0001"];
+    expect(chatsHolding({ streamKeys: ["topic:card0001", "topic:human001"], brokerOpenKeys: [], parkedKeys: [], cardSessionKeys })).toBe(1);
+    // The broker list is a cache that can still name a card's session.
+    expect(chatsHolding({ streamKeys: [], brokerOpenKeys: ["topic:card0001", "topic:human002"], parkedKeys: [], cardSessionKeys })).toBe(1);
+    expect(chatsHolding({ streamKeys: [], brokerOpenKeys: [], parkedKeys: ["topic:human003"], cardSessionKeys })).toBe(1);
   });
 });
 
@@ -625,5 +642,86 @@ describe("sharedWait — chiedere due volte non aspetta due volte", () => {
     await expect(p).rejects.toThrow("boom");
     expect(wait.inProgress()).toBeNull();
     await expect(wait.join(() => Promise.resolve())).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * RGATE-07 - THE 2026-09-15 WAIT: TWO WAITS HOLDING EACH OTHER.
+ *
+ * 23:10 to 23:45. Card cdc9f39b had delivered; its `update_task` was parked on
+ * our pre-review checks, and the checks were parked in the memory waiter
+ * («[review-checks] ... waits: lowest free memory of the last 2 min ... under
+ * the 6 GB floor») on a Mac that was swapping. Nothing of ours was running.
+ *
+ * The gate read one card turn in flight, called it work that would not come
+ * back, and deferred: «riavvio RINVIATO da 1924s». Behind the drain  allow-italian: quoting the log line the reader will grep for
+ * («[dispatcher] drain: nessun turno nuovo fino al riavvio (restart-when-idle);  allow-italian: quoting the log line the reader will grep for
+ * 1 in volo») seven other cards sat on «Riavvio del server in arrivo». The  allow-italian: quoting the banner the board showed
+ * reload was waiting for the checks, the checks were waiting for memory that a
+ * swapping Mac would not give back, and the waiter's 30-minute fail-open would
+ * then have started heavy commands on it. A person ended it with a SIGTERM.
+ *
+ * These tests compose the sources the way `whatIsStillWorking` does, because
+ * the verdict is the only thing that matters: what changes is WHICH turns reach
+ * it. Red before `cardTurnsHoldingReload` existed: with the card counted,
+ * `unrecoverable` is 1 and the verdict is "rinvia" at every instant.
+ */
+describe("cardTurnsHoldingReload: a delivery that is only WAITING holds nothing (RGATE-07)", () => {
+  const CHAT = 60_000;
+  const card = { taskId: "cdc9f39b", sessionKey: "topic:cdc9f39b" };
+  /** The wait as the gate sees it: sources in, verdict out. */
+  function verdict(i: {
+    turns: Array<{ taskId: string; sessionKey: string }>;
+    onlyWaiting: (taskId: string) => boolean;
+    streams?: Array<{ sessionKey: string; survivesRestart: boolean }>;
+    now?: number;
+  }) {
+    const { holding, waiting } = cardTurnsHoldingReload(i.turns, i.onlyWaiting);
+    const parked = new Set(waiting.map((t) => t.sessionKey));
+    const streams = (i.streams ?? i.turns.map((t) => ({ sessionKey: t.sessionKey, survivesRestart: false })))
+      .filter((s) => !parked.has(s.sessionKey));
+    const streamKeys = streams.map((s) => s.sessionKey);
+    const busy = describeInFlight({ cards: holding.length, streamKeys, brokerOpenKeys: [] });
+    return quiescenceVerdict({
+      busy,
+      unrecoverable: holding.length + unadoptableStreams(streams).length,
+      now: i.now ?? 0, startedAt: 0, chatCapMs: CHAT,
+    });
+  }
+
+  test("the delivery waits in the memory waiter, seven cards are queued behind the drain: the reload goes", () => {
+    // The queued seven are not turns: they hold nothing, and the point of the
+    // reload going is that they start again in the new process.
+    expect(verdict({ turns: [card], onlyWaiting: () => true })).toBe("procedi");
+  });
+
+  test("its own stream does not hold it either: a card turn streams like a chat, and dies like a native one", () => {
+    // Left in the stream sources the card would hold the reload a second time,
+    // as an unadoptable chat - which defers from the first loop, forever.
+    const { waiting } = cardTurnsHoldingReload([card], () => true);
+    expect(waiting.map((t) => t.sessionKey)).toEqual(["topic:cdc9f39b"]);
+  });
+
+  test("a command actually RUNNING still defers: those minutes are a measurement", () => {
+    expect(verdict({ turns: [card], onlyWaiting: () => false })).toBe("rinvia");
+  });
+
+  test("one delivery waiting, one grinding: the one that is measuring holds the reload", () => {
+    const other = { taskId: "88ffaa11", sessionKey: "topic:88ffaa11" };
+    const { holding } = cardTurnsHoldingReload([card, other], (id) => id === card.taskId);
+    expect(holding).toEqual([other]);
+    expect(verdict({ turns: [card, other], onlyWaiting: (id) => id === card.taskId })).toBe("rinvia");
+  });
+
+  test("a person's chat beside the waiting delivery is still waited for", () => {
+    const human = { sessionKey: "topic:human001", survivesRestart: false };
+    expect(verdict({
+      turns: [card], onlyWaiting: () => true,
+      streams: [{ sessionKey: card.sessionKey, survivesRestart: false }, human],
+    })).toBe("rinvia");
+  });
+
+  test("a predicate that throws holds the restart: the doubt protects work in flight", () => {
+    expect(verdict({ turns: [card], onlyWaiting: () => { throw new Error("gate rebuilt"); } })).toBe("rinvia");
   });
 });

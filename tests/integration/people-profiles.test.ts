@@ -450,6 +450,32 @@ describe("i follow e la privacy del profilo", () => {
     expect(rubrica.people.find((p) => p.id === "mircea")!.stats).toBeNull();
   });
 
+  test("the list polled every minute (`?stats=0`) does not run the stats aggregates", async () => {
+    turno(db, ioPersonId, 1000, 200);
+    turno(db, "mircea", 30, 4);
+    // Every query that reaches `messages` goes through this counter: the
+    // aggregates are the only ones in this route that do.
+    let messagesReads = 0;
+    const originalQuery = db.query.bind(db);
+    (db as unknown as { query: typeof db.query }).query = ((sql: string) => {
+      if (/\bmessages\b/.test(sql)) messagesReads++;
+      return originalQuery(sql);
+    }) as typeof db.query;
+
+    const polled = await jsonOf<{ people: Array<{ id: string; stats: unknown }> }>(
+      await chiama(router(db, null, finto), "/api/people?stats=0"),
+    );
+    expect(polled.people.length).toBeGreaterThan(1);
+    for (const p of polled.people) expect(p.stats).toBeNull();
+    expect(messagesReads).toBe(0);
+
+    const asked = await jsonOf<{ people: Array<{ id: string; stats: { prompts: number } | null }> }>(
+      await chiama(router(db, null, finto), "/api/people"),
+    );
+    expect(asked.people.find((p) => p.id === ioPersonId)!.stats!.prompts).toBe(1);
+    expect(messagesReads).toBeGreaterThan(0);
+  });
+
   test("l'email NON esce di default, e esce solo se la persona lo ha scelto", async () => {
     db.run("UPDATE people SET email = 'mircea@example.invalid' WHERE id = 'mircea'");
 

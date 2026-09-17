@@ -33,6 +33,14 @@ export interface StallDetectorOptions {
    *  re-posting the delivery. Same contract as the human hold: that time never
    *  counts against the idle clock. */
   isWaitingForChecks?: () => boolean;
+  /**
+   * A command this session launched is FROZEN by the swap freezer
+   * (`services/swap-freeze.ts`): the transcript is silent because Topics itself
+   * stopped the process the turn is waiting on. Same contract as the two holds
+   * above - our own wait never counts against the idle clock (memory note
+   * `our-own-wait-is-not-a-stall`). Bounded by the freeze's own ten minutes.
+   */
+  isFrozen?: () => boolean;
   /** The tail of the transcript to hand the judge. `null` = nothing readable
    *  right now — treated as "alive": never recycle on ignorance. */
   getTail: () => string | null;
@@ -43,7 +51,7 @@ export interface StallDetectorOptions {
   onStuck: () => void;
   /** Fires on every rearm (a human in the loop, or an "alive" verdict) —
    *  logging only, mirrors `TurnDeadlineOptions.onRearm`. */
-  onRearm?: (reason: "human" | "checks" | "alive") => void;
+  onRearm?: (reason: "human" | "checks" | "freeze" | "alive") => void;
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (handle: unknown) => void;
@@ -63,12 +71,15 @@ export function armStallDetector(opts: StallDetectorOptions): StallDetector {
     if (stopped) return;
     inner = armTurnDeadline({
       ms: opts.idleMs,
-      isWaitingForHuman: () => opts.isWaitingForHuman() || (opts.isWaitingForChecks?.() ?? false),
+      isWaitingForHuman: () =>
+        opts.isWaitingForHuman() || (opts.isWaitingForChecks?.() ?? false) || (opts.isFrozen?.() ?? false),
       now: opts.now,
       setTimer: opts.setTimer,
       clearTimer: opts.clearTimer,
       // The inner watch only knows "somebody is holding": name who, for the log.
-      onRearm: () => opts.onRearm?.(opts.isWaitingForHuman() ? "human" : "checks"),
+      onRearm: () => opts.onRearm?.(
+        opts.isWaitingForHuman() ? "human" : opts.isFrozen?.() ? "freeze" : "checks",
+      ),
       onExpired: () => {
         // Fire-and-continue: the inner timer has already stopped ticking (it
         // is single-shot on expiry), so nothing races `startInner` below.

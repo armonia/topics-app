@@ -5,7 +5,7 @@ import type { SidebarCommands } from './ProfileMenu';
 import { SEGNALE_ATTESA, SEGNALE_GUASTO } from './chromeSignals';
 import type { ConnectionStatus } from '@/types';
 import { ROW_INSET } from '@/lib/selectionStyles';
-import { clearBootDegraded, degradedNotice, fetchBootDegraded, type BootDegraded } from '@/lib/shell/bootDegraded';
+import { clearBootDegraded, degradedNotice, watchBootDegraded, type BootDegraded } from '@/lib/shell/bootDegraded';
 import { useMobile } from '@/hooks/useMobile';
 import { useT } from '@/hooks/useT';
 import { useProviderHold } from '@/state/providerHold';
@@ -92,18 +92,20 @@ export function TransportAlarms({ wsStatus, dataNotice, inset, hidden = false }:
   const [degraded, setDegraded] = useState<BootDegraded | null>(null);
   const [degradedFixFailed, setDegradedFixFailed] = useState(false);
   const connected = wsStatus === 'connected';
+  // IT KEEPS ASKING, AND IT BELIEVES THE LAST ANSWER. Stopping at the first yes
+  // left the sentence and its button up after the shell had retracted the
+  // verdict, and the button then answered "not degraded" (card c0faad1d): the
+  // shell publishes the marker path before the search and takes it back on the
+  // branch where deleting the marker changes nothing.
   useEffect(() => {
-    if (degraded || connected) return;
-    let alive = true;
-    const ask = () => {
-      void fetchBootDegraded().then((d) => {
-        if (alive && d) setDegraded(d);
-      });
-    };
-    ask();
-    const t = window.setInterval(ask, 5000);
-    return () => { alive = false; window.clearInterval(t); };
-  }, [degraded, connected]);
+    if (connected) return;
+    return watchBootDegraded((d) => {
+      setDegraded(d);
+      // A failure message about a marker the shell no longer names would outlive
+      // its subject.
+      if (!d) setDegradedFixFailed(false);
+    });
+  }, [connected]);
   const degradedLines = degradedNotice(degraded, wsStatus);
 
   if (hidden) return null;

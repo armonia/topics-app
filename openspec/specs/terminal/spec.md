@@ -649,3 +649,147 @@ sentence it shows.
 - **GIVEN** a retry that inspected the envelope to recognise a warming 503
 - **WHEN** the final answer is handed to the caller
 - **THEN** that response body SHALL still be unread
+
+### Requirement: TERM-11 — I tasti battuti prima dell'aggancio si mettono in coda, non si perdono
+
+Ricaricare la pagina rimonta la pane: xterm ridisegna, il ponte rimanda lo
+scrollback e il cursore si muove. Sembra pronta, e non lo è. Fino al 14/09 la
+porta dell'input era un `if (ws.readyState === OPEN) ws.send(data)` e basta,
+quindi ogni tasto battuto prima dell'apertura del socket spariva in silenzio.
+Misurato in questo worktree con `scripts/terminal-attach-latency.ts`: con il
+server già caldo l'aggancio costa 27 ms in mediana (450 ms sotto carico), ma
+quando è il SERVER a ripartire non risponde per ~11,5 s, e in quella finestra il
+client ritenta a backoff fino a 3 s per tentativo. Il cancello di riscaldamento
+del roster non è una seconda causa: nelle due corse ha respinto 0 richieste,
+perché il roster è riconciliato prima che l'HTTP risponda.
+
+Il client SHALL trattenere l'input finché l'aggancio non è PROVATO, cioè fino a
+`replay-end` — non fino all'apertura del socket, che il server concede a
+qualunque id e rifiuta solo dopo. All'aggancio SHALL svuotare la coda nell'ORDINE
+di battitura e UNA VOLTA SOLA.
+
+La coda SHALL avere due limiti, e superarli SHALL essere detto invece che
+taciuto: un tetto di byte (8 KB) e una scadenza (15 s, sopra la finestra
+misurata di ~11,5 s più il backoff di riaggancio), oltre i quali l'input si
+scarta. Un comando consegnato mezzo minuto dopo, contro un prompt che chi
+scriveva non sta più guardando, è peggio di un tasto perso.
+
+Quando si scarta, SHALL scartare TUTTA la coda, e SHALL rifiutare quanto viene
+dopo finché non c'è un aggancio (o la pane muore). I tasti trattenuti sono una
+RIGA DI COMANDO, non eventi indipendenti: consegnare quel che sopravvive a una
+perdita parziale è peggio che non consegnare niente. Scadere i più vecchi e
+tenere i giovani consegna la CODA della riga senza la testa (`sudo ` scade,
+`rm -rf build\r` arriva, e parte); scartare per il tetto e tenere il resto
+lascia un BUCO in mezzo e consegna lo stesso l'Invio finale. Entrambi
+riprodotti sulla PR #55.
+
+Tutte e tre le porte SHALL passare di qui: la tastiera fisica (`term.onData`),
+quella virtuale delle pane touch (`sendToTerminal`) e l'incolla di un'immagine,
+che manda il suo `\x16` per la stessa strada.
+
+Finché l'aggancio non è provato la pane SHALL dirlo con un segno visibile, che
+SHALL sparire da solo a `replay-end`. La scadenza SHALL essere sorvegliata da un
+TIMER e non solo riletta al prossimo tasto: senza, una pane lasciata sola
+continua a promettere la consegna di input che è già troppo vecchio per partire.
+Il timer SHALL scattare AL limite, non un millisecondo dopo, e se si sveglia
+prima che l'attesa sia compiuta SHALL riarmarsi: `setTimeout` conta millisecondi
+monotoni mentre la coda legge l'orologio di parete, e una sveglia anticipata
+senza riarmo lascia la coda in attesa per sempre con la fascia che promette una
+consegna impossibile.
+
+La perdita SHALL avere una frase PROPRIA, distinta da «il terminale non è
+connesso», e SHALL sopravvivere al primo byte di output: quando la perdita si
+scopre il terminale è vivo e sta per stampare un prompt, e un avviso che se ne
+va su quel prompt non lo legge nessuno.
+
+
+#### Scenario: tre tasti battuti a socket caduto
+- **GIVEN** una pane il cui socket è caduto e si sta riagganciando
+- **WHEN** si battono tre caratteri e poi l'aggancio riesce
+- **THEN** i tre caratteri SHALL arrivare alla pseudo-terminale nell'ordine battuto
+- **AND** un secondo aggancio NON SHALL riconsegnarli
+
+#### Scenario: socket aperto ma sessione non ancora provata
+- **GIVEN** un socket in stato OPEN che non ha ancora mandato `replay-end`
+- **WHEN** si batte un tasto
+- **THEN** il tasto SHALL restare in coda, non essere spedito
+
+#### Scenario: oltre i limiti si scarta e si avvisa
+- **GIVEN** una coda che supera il tetto di byte o la scadenza
+- **WHEN** l'aggancio riesce
+- **THEN** l'input scaduto o eccedente NON SHALL essere consegnato
+- **AND** la pane SHALL mostrare che quello che si è scritto è andato perso
+
+#### Scenario: una riga a cavallo della scadenza non consegna la sua coda
+- **GIVEN** `sudo ` battuto e, nove secondi dopo, `rm -rf build` con l'Invio
+- **WHEN** l'aggancio riesce dopo che il primo pezzo è scaduto
+- **THEN** NON SHALL essere consegnato nulla, nemmeno il pezzo ancora giovane
+
+#### Scenario: dopo uno scarto i tasti successivi non vengono ricuciti
+- **GIVEN** una coda al tetto di byte, un pezzo scartato e poi un Invio battuto
+- **WHEN** l'aggancio riesce
+- **THEN** il flush SHALL consegnare zero byte
+
+#### Scenario: la scadenza si vede senza battere un tasto
+- **GIVEN** input in coda e nessuno che tocca la tastiera
+- **WHEN** passa la scadenza
+- **THEN** la pane NON SHALL più promettere la consegna, di sua iniziativa
+
+#### Scenario: la scadenza scatta AL limite, non dopo
+- **GIVEN** input in coda da esattamente la durata del limite
+- **WHEN** il timer si sveglia sul proprio istante di scadenza
+- **THEN** l'input SHALL essere scartato in quel momento
+- **AND** la fascia «in coda» NON SHALL restare su a promettere una consegna
+
+#### Scenario: una sveglia anticipata non spegne la sorveglianza
+- **GIVEN** un timer che scatta un millisecondo prima che l'input sia scaduto
+- **WHEN** non trova nulla da scartare
+- **THEN** NON SHALL scartare niente
+- **AND** SHALL riarmarsi, così che la scadenza vera arrivi lo stesso
+
+### Requirement: TERM-11b — L'avviso della perdita dice la causa, e invita a riscrivere solo quando si può
+
+Le tre perdite di TERM-11 finivano in una sola frase, «era troppo vecchio per
+partire»: falsa per un incolla oltre gli 8 KB, rifiutato nello stesso
+millisecondo in cui è stato battuto, e falsa per un aggancio che non trova più
+un socket. La pane SHALL dire quale delle tre è stata, con una frase propria per
+ciascuna e nelle due lingue.
+
+L'invito a riscrivere SHALL essere una stringa a parte, mostrata SOLO quando
+l'aggancio è tornato. Fra la perdita e l'aggancio la coda è avvelenata e rifiuta
+ogni tasto: invitare a riscrivere lì chiede esattamente l'input che viene
+buttato, e la seconda perdita è su invito della pane.
+
+Lo stato della coda SHALL arrivare alle fasce passando per `nextInputBands`: è
+l'unico posto che alza la fascia della perdita, quindi una pane che smette di
+chiamarla torna a perdere input in silenzio con la coda ancora perfettamente
+corretta.
+
+La fascia della perdita resta su finché un tasto non arriva davvero alla
+pseudo-terminale, quindi input TRATTENUTO ADESSO SHALL avere la precedenza su
+una perdita vecchia: byte in coda sono la prova che il lettore sta battendo di
+nuovo. Senza questa precedenza, un secondo distacco prima che il lettore abbia
+consegnato un tasto lasciava la pane a dire «era troppo vecchio per partire»
+mentre la coda tratteneva per davvero i tasti nuovi, senza fascia «in coda» e
+senza invito: chi crede alla fascia riscrive, quell'episodio NON è avvelenato e
+l'aggancio consegna alla shell le due copie attaccate (`who` battuto e poi
+`whoami\r` = `whowhoami\r`), cioè la ricucitura che TERM-11 chiama peggiore di
+un tasto perso. La precedenza non tocca l'episodio in corso: dopo uno scarto la
+coda è vuota e rifiuta i tasti, quindi la fascia della perdita resta.
+
+#### Scenario: l'avviso dice quale delle tre cause
+- **GIVEN** una perdita per scadenza, una per tetto di byte e una per aggancio senza socket
+- **WHEN** la pane mostra l'avviso
+- **THEN** ciascuna causa SHALL avere la propria frase, nelle due lingue
+
+#### Scenario: un secondo distacco trattiene davvero, e la pane lo dice
+- **GIVEN** una fascia di perdita ancora su, perché nessun tasto è arrivato alla pseudo-terminale
+- **WHEN** il socket cade di nuovo e si battono tasti nuovi, che la coda trattiene
+- **THEN** la pane SHALL mostrare che l'input è in coda
+- **AND** la fascia della perdita vecchia SHALL scendere, invece di invitare a una riscrittura che si ricuce alla copia trattenuta
+
+#### Scenario: l'invito a riscrivere aspetta l'aggancio
+- **GIVEN** una perdita mentre la coda è ancora avvelenata
+- **WHEN** l'avviso compare
+- **THEN** NON SHALL invitare a riscrivere
+- **AND** SHALL invitare a riscrivere solo dopo che l'aggancio è tornato

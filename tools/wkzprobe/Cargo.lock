@@ -2524,6 +2524,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "tao",
+ "windows",
  "wry",
 ]
 

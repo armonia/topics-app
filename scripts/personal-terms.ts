@@ -16,11 +16,30 @@
  * gate a list of their own invented names: a gate whose only input is a file
  * that must not exist in CI could never be shown to turn red.
  */
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
+/**
+ * A LINKED WORKTREE READS THE LIST OF ITS MAIN CHECKOUT. The file is untracked,
+ * so a worktree never has its own copy, and the push guard resolves `root` as
+ * the worktree's top level: until 15/09/2026 every push from a worktree looked
+ * for the list where it cannot be, found nothing and exited 0. That includes
+ * the push the board makes on delivery (server/services/ci-evidence.ts), which
+ * publishes the intermediate commits of a card before anyone reviews them.
+ */
 export function personalTermsPath(root: string): string {
-  return process.env.TOPICS_PERSONAL_TERMS || join(root, ".personal-terms");
+  if (process.env.TOPICS_PERSONAL_TERMS) return process.env.TOPICS_PERSONAL_TERMS;
+  const own = join(root, ".personal-terms");
+  if (existsSync(own)) return own;
+  try {
+    const common = execFileSync("git", ["-C", root, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    const shared = join(dirname(common), ".personal-terms");
+    if (common && existsSync(shared)) return shared;
+  } catch { /* not a git checkout: only the root's own file can exist */ }
+  return own;
 }
 
 export function personalTerms(root: string): string[] {

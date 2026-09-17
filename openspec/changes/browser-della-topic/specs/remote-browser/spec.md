@@ -270,6 +270,11 @@ project windows, task drawers, and every origin on a narrower viewport.
 - **WHEN** a link in that chat is opened
 - **THEN** no split is created and the topic's browser window shows the link as its active tab
 
+#### Scenario: A link in a chat hosted by a project window stays in that layout
+- **GIVEN** a project window whose layout holds only the chat of one of its topics, and that topic has no browser window yet
+- **WHEN** a link in that chat is opened
+- **THEN** a browser pane appears in the project's layout and no sheet is added to the topic's window
+
 #### Scenario: The first link from a terminal splits a browser out beside it
 - **GIVEN** a window whose focused group holds a chat and a terminal, and no browser pane
 - **WHEN** a link is opened from the terminal

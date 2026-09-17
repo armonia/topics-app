@@ -17,7 +17,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
-import { setDispatchBlock } from "./dispatch-block-signal";
+import { setDispatchBlock, setHeldResumeBlock } from "./dispatch-block-signal";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 import { freshDb as schemaDb } from "./tasks-test-db";
 
@@ -100,6 +100,32 @@ describe("la ragione della coda arriva dal server, con la card", () => {
 
     setDispatchBlock(null);
     expect(s.get(t.id)!.task.queueReason!.kind).toBe("slot");
+  });
+
+  test("un resume trattenuto in In corso dice il blocco della SUA attesa, non quello pubblicato", () => {
+    const floor = "Memoria quasi finita: 4,1 GB disponibili.";
+    const t = s.create({ projectId: PID, text: "Ripresa trattenuta" });
+    mv(s, t.id, "in_progress");
+    s.setDispatchState({ taskId: t.id, state: "queued", error: floor });
+    try {
+      // The published block is the tick's, refreshed only on boards it reaches:
+      // alone it says nothing about this card.
+      setDispatchBlock({ kind: "resources", reason: floor });
+      expect(s.get(t.id)!.task.queueReason).toBeNull();
+      // The hold's own block, with the row saying the same sentence: the reason.
+      setHeldResumeBlock(t.id, { kind: "resources", reason: floor });
+      expect(s.get(t.id)!.task.queueReason).toMatchObject({ kind: "resource_floor", tone: "stalled" });
+      // The row says another sentence (the cap alone, or another writer of the
+      // chip): the leftover entry does not speak.
+      s.setDispatchState({ taskId: t.id, state: "queued", error: null });
+      expect(s.get(t.id)!.task.queueReason).toBeNull();
+      // An agent really at work on the same card is untouched by the block.
+      s.setDispatchState({ taskId: t.id, state: "working", error: floor });
+      expect(s.get(t.id)!.task.queueReason).toBeNull();
+    } finally {
+      setDispatchBlock(null);
+      setHeldResumeBlock(t.id, null);
+    }
   });
 
   test("la fila si conta su TUTTE le board: il tetto agenti è machine-wide", () => {

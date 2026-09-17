@@ -14,6 +14,7 @@
  * does NOT expose setVisible. setBounds with zero dimensions is the
  * documented hide pattern (verified via context7 + Electron docs).
  */
+import { PausedPane } from './PausedPane';
 import { useEffect, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { Loader2 } from 'lucide-react';
@@ -493,6 +494,21 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
           by normal z-index; animations stretch a cheap bitmap instead of moving
           the native view per-frame. pointer-events-none — it's a non-interactive
           stand-in, and the live view is parked while it shows. */}
+      {/* A paused heavy pane (Tauri only): its 1x still under the overlay still,
+          and the paused card over both. */}
+      {browser.pausedImage && (
+        <img
+          src={browser.pausedImage}
+          alt=""
+          aria-hidden
+          draggable={false}
+          className="absolute inset-0 w-full h-full object-cover object-left-top select-none"
+          data-testid="browser-paused-still"
+        />
+      )}
+      {browser.paused && (
+        <PausedPane cpu={browser.heavy?.cpu ?? 0} hasStill={!!browser.pausedImage} onResume={browser.resume} />
+      )}
       {browser.frozenImage && (
         <img
           src={browser.frozenImage}

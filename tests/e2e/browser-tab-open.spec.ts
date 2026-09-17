@@ -9,6 +9,7 @@ import {
   closeAllBrowserContexts,
 } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { expectNothingOverThePage } from "./helpers/browser-geometry";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -267,7 +268,7 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
     }
   });
 
-  test("BROWSER-CHAT-04d (3b): agent-controlling-overlay appears+disappears on agent_active=true/false WS broadcast [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
+  test("BROWSER-CHAT-04d (3b): l'agente al volante non oscura la pagina: strato senza inchiostro + icona nella scheda [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
@@ -292,18 +293,50 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       await browserProcessPageV2.waitForWsConnected();
 
       // Inject agent_active=true via mock WS — overlay must appear within ~5s.
-      browserProcessPageV2.broadcastAgentActive(true);
+      browserProcessPageV2.broadcastAgentActive(true, "Naviga su example.com");
       await expect(overlay).toBeVisible({ timeout: 5000 });
+
+      // AND IT PAINTS NOTHING. That is the whole point: the layer is left only
+      // to swallow clicks, and the page underneath stays readable. A dark wash
+      // or a blur here would be exactly the defect that was reported.
+      const paint = await overlay.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { opacity: cs.opacity, filter: cs.backdropFilter, pointer: cs.pointerEvents };
+      });
+      expect(Number(paint.opacity)).toBeLessThan(0.02);
+      expect(paint.filter === "none" || paint.filter === "").toBe(true);
+      expect(paint.pointer).not.toBe("none");
+
+      // AND NOTHING ELSE IS OVER THE PAGE EITHER. Measuring only the element
+      // with this testid left a hole wide enough to drive the defect back
+      // through: a sibling `<div class="absolute inset-0 bg-black/40">` would
+      // darken the page again with every assertion above still green. This one
+      // looks at what is GEOMETRICALLY over the page area, whatever it is
+      // called, so the wash comes back NAMED in the failure.
+      await expectNothingOverThePage(
+        page,
+        "mentre l'agente guida sopra la pagina non si disegna niente",
+      );
+
+      // AND THE FACT IS STILL LEGIBLE: the tab's icon says who is at the wheel.
+      // Without this assertion, "remove the overlay" would be indistinguishable
+      // from hiding the state altogether.
+      const agentIcon = page.locator('[data-testid="browser-tab-type-icon"][data-kind="agent"]');
+      await expect(agentIcon).toHaveCount(1, { timeout: 5000 });
+      // The action rides in the title: it is the one thing the removed box
+      // carried that an 11px glyph cannot say by itself.
+      await expect(agentIcon).toHaveAttribute("title", /Naviga su example\.com/);
 
       // Inject agent_active=false — overlay must disappear within ~5s.
       browserProcessPageV2.broadcastAgentActive(false);
       await expect(overlay).toBeHidden({ timeout: 5000 });
+      await expect(agentIcon).toHaveCount(0, { timeout: 5000 });
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }
   });
 
-  test("BROWSER-CHAT-04e: Take control button releases agent lock + sends WS take_control [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
+  test("BROWSER-CHAT-04e: un clic sulla pagina riprende il controllo e manda take_control [@plan-30-05]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockBrowserContexts([]);
     await browserProcessPageV2.mockRemoteBrowserPane({
@@ -329,10 +362,11 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       const overlay = page.locator('[data-testid="agent-controlling-overlay"]');
       await expect(overlay).toBeVisible({ timeout: 5000 });
 
-      // Click Take control button.
-      const takeBtn = page.locator('[data-testid="browser-take-control-button"]');
-      await expect(takeBtn).toBeVisible({ timeout: 5000 });
-      await takeBtn.click();
+      // THE BUTTON IS GONE: the gesture is a click on the page, which is what a
+      // person does anyway when they want to step in. The transparent layer is
+      // what catches it.
+      await expect(page.locator('[data-testid="browser-take-control-button"]')).toHaveCount(0);
+      await overlay.click({ position: { x: 20, y: 20 } });
 
       // Verify outbound take_control message recorded (eventually).
       await expect
@@ -341,16 +375,32 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
           expect.arrayContaining([expect.objectContaining({ type: "take_control" })]),
         );
 
-      // Overlay should disappear (the eager broadcast path: take_control ->
-      // server -> agent_active=false re-broadcast -> overlay hides). With
-      // mockBrowserWs we don't have the server side, so the overlay will
-      // only hide if the client optimistically clears it. Check both
-      // possibilities tolerantly.
-      // The current useRemoteBrowser implementation does NOT optimistically
-      // clear agentActive on takeControl — it relies on the server's
-      // agent_active=false broadcast. Simulate it explicitly here.
-      browserProcessPageV2.broadcastAgentActive(false);
+      // AND IT SAYS SO. The state that just ended was invisible by design, so
+      // ending it has to be announced or the click reads as ignored: a short
+      // toast, not a dialog - the darkening box must not come back with a
+      // shorter life.
+      await expect(page.getByText(/hai ripreso il controllo/i).first()).toBeVisible({ timeout: 5000 });
+
+      // The client clears the state under the gesture (the server's
+      // agent_active=false follows and is idempotent): no mock re-broadcast is
+      // needed for the layer and the glyph to go.
       await expect(overlay).toBeHidden({ timeout: 5000 });
+      await expect(page.locator('[data-testid="browser-tab-type-icon"][data-kind="agent"]')).toHaveCount(0);
+
+      // THE OTHER HANDLE: the tab's agent glyph is a button, and it pulls the
+      // same wire. It is the only handle on the shells where the page cannot
+      // carry one (the native pane composites above the DOM), so it is checked
+      // here rather than trusted.
+      browserProcessPageV2.broadcastAgentActive(true);
+      const agentIcon = page.locator('[data-testid="browser-tab-type-icon"][data-kind="agent"]');
+      await expect(agentIcon).toBeVisible({ timeout: 5000 });
+      browserProcessPageV2.drainInputMessages();
+      await agentIcon.click();
+      await expect
+        .poll(() => browserProcessPageV2.drainInputMessages(), { timeout: 5000 })
+        .toEqual(
+          expect.arrayContaining([expect.objectContaining({ type: "take_control" })]),
+        );
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
     }

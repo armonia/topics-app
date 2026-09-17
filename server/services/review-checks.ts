@@ -22,15 +22,17 @@
 // Le FORME (comando dichiarato, esito) stanno in `shared/board.ts`: le legge
 // anche il client per renderizzare il gate. Qui resta l'esecuzione.
 export type { ReviewCheck, CheckRun } from "../../shared/board";
-import type { ReviewCheck, CheckRun } from "../../shared/board";
+import { UNIT_CI_CHECK, isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
 import { hasSlotWaiting, parseSlotAcquired } from "../../shared/slot-acquired";
-import { registerFreezableRun } from "./budget-governor";
+import { registerFreezableRun, type FreezableRun } from "./budget-governor";
+import { killCheckTree, memoryWaiter, throwIfInterrupted, throwIfStopping, type MemoryFloor } from "./review-checks-brakes";
+import { slotCount } from "../../scripts/gate-slot";
 import { parseGateSlowdown } from "../../shared/gate-slowdown";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../../shared/test-time-slack";
 import { cpus, loadavg } from "node:os";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { killProcessTree } from "../lib/process-tree";
+import { recordCardMemPeak, treeFootprintKB } from "../lib/card-memory-peaks";
 import { lowPriorityArgv } from "../lib/low-priority";
 
 /**
@@ -272,6 +274,38 @@ interface RunOpts {
   /** The card these checks belong to. It travels so a run frozen for load can
    *  say so in the right thread; absent = no note, everything else unchanged. */
   taskId?: string;
+  /** Wait for free memory before each declared command (see `MemoryFloor`).
+   *  Absent = no wait: the tests stay independent of this machine's memory. */
+  memoryFloor?: MemoryFloor;
+  /** The commit the round measures: the swap brake counts its interruptions per `taskId@commit`. */
+  commit?: string | null;
+  /** The footprint of a command's whole process tree, in KB. Injected by the
+   *  tests; the default is the kernel's (`treeFootprintKB`). */
+  sampleTreeKB?: (pid: number) => Promise<number | null>;
+  /** How often the tree is sampled while a command runs. */
+  treeSampleMs?: number;
+}
+
+/**
+ * Three seconds: a unit shard or a tsc holds its peak for tens of seconds, and
+ * one sample costs a shared `ps` table plus one `proc_pid_rusage` per process.
+ */
+const TREE_SAMPLE_MS = 3_000;
+
+/** Options one command is run with, the round's plus the tree sampler. */
+interface RunOneOpts {
+  cwd: string;
+  timeoutMs: number;
+  signal?: AbortSignal;
+  env?: Record<string, string>;
+  taskId?: string;
+  /** When the round started and what it measures, for the swap brake's registry entry. */
+  roundStartedAt?: number;
+  commit?: string | null;
+  sampleTreeKB?: (pid: number) => Promise<number | null>;
+  treeSampleMs?: number;
+  /** Called with every tree reading, so the round can keep its peak. */
+  onTreeKB?: (kb: number) => void;
 }
 
 /**
@@ -350,8 +384,10 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
   // warm worktree pays nothing.
   const probe = opts.missingInstallRoots ?? missingInstallRootsOnDisk;
   const missing = checks.length ? probe(opts.cwd) : [];
+  throwIfStopping();
   if (missing.length && !opts.signal?.aborted) {
     const prep = await installMissingDeps(missing, { cwd: opts.cwd, timeoutMs, signal: opts.signal }, exec);
+    throwIfStopping();
     // A green install is plumbing, not a verdict: it stays out of the report so
     // the reviewer keeps reading the gates they declared. A red one is the whole
     // story, and stops the round.
@@ -371,13 +407,38 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
   const slack = timeSlack({ load: load1, cores, forced: process.env[TIME_SLACK_ENV] });
   const env = { [TIME_SLACK_ENV]: String(slack) };
   if (slack > 1) console.log(`[review-checks] ${timeSlackNote(slack, load1, cores)}`);
+  const waitForMemory = memoryWaiter(opts.memoryFloor, opts.signal);
+  // THE ROUND'S MEMORY PEAK, which is what the admission gate prices one more
+  // card at (`server/lib/card-memory-peaks.ts`). The commands run one after the
+  // other, so the highest reading of any of them is the card's peak.
+  let peakKB = 0;
+  const onTreeKB = (kb: number) => { if (kb > peakKB) peakKB = kb; };
+  const roundStartedAt = Date.now();
   for (const [i, check] of checks.entries()) {
-    if (opts.signal?.aborted) break;
-    const run = await exec(check, { cwd: opts.cwd, timeoutMs, signal: opts.signal, env, taskId: opts.taskId });
+    const released = await waitForMemory(check.name);
+    let run: CheckRun;
+    try {
+      throwIfStopping();
+      throwIfInterrupted(opts.taskId);
+      if (opts.signal?.aborted) break;
+      run = await exec(check, {
+        cwd: opts.cwd, timeoutMs, signal: opts.signal, env, taskId: opts.taskId,
+        roundStartedAt, commit: opts.commit,
+        sampleTreeKB: opts.sampleTreeKB, treeSampleMs: opts.treeSampleMs, onTreeKB,
+      });
+    } finally {
+      released();
+    }
+    // Killed by the shutdown or by the swap brake: what came back is not a measurement.
+    throwIfStopping();
+    throwIfInterrupted(opts.taskId);
     runs.push(run);
     opts.onProgress?.(run, i, checks.length);
     if (!run.ok) break;
   }
+  // An aborted round measured a card cut in half: its peak would price the
+  // next agent low, so it is not recorded. KB to the gate's gigabytes (1e9).
+  if (opts.taskId && peakKB > 0 && !opts.signal?.aborted) recordCardMemPeak(opts.taskId, (peakKB * 1024) / 1e9);
   return runs;
 }
 
@@ -390,14 +451,12 @@ export async function runReviewChecks(checks: ReviewCheck[], opts: RunOpts): Pro
  * della macchina nelle impostazioni della board, e gli agenti che girano qui
  * hanno già una shell.
  */
-async function runOne(
-  check: ReviewCheck,
-  opts: { cwd: string; timeoutMs: number; signal?: AbortSignal; env?: Record<string, string>; taskId?: string },
-): Promise<CheckRun> {
+async function runOne(check: ReviewCheck, opts: RunOneOpts): Promise<CheckRun> {
   const started = Date.now();
   let proc: ReturnType<typeof Bun.spawn> | null = null;
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let sampler: ReturnType<typeof setInterval> | null = null;
   /** Deregistration from the freeze registry, hoisted so the `finally` can call
    *  it: a registry entry that outlives its process would send signals to a
    *  recycled pid. */
@@ -412,15 +471,18 @@ async function runOne(
    */
   const killTree = () => {
     const pid = proc?.pid;
-    if (pid) void killProcessTree(pid).catch(() => { /* gia' morto */ });
+    if (pid) void killCheckTree(pid).catch(() => { /* gia' morto */ });
   };
   const onAbort = () => { killTree(); };
   try {
     // At agent priority (nice 15, `utility` QoS on macOS): five tsc, an
-    // eslint, four unit shards and a Chromium per delivery must never outrank
+    // eslint and four unit shards per delivery must never outrank
     // the person using this machine. See server/lib/low-priority.ts.
     proc = Bun.spawn(lowPriorityArgv(["/bin/sh", "-lc", check.cmd]), {
       cwd: opts.cwd,
+      // Its own process group, so a kill reaches what the shell forks after
+      // the descendants snapshot (`killCheckTree`).
+      detached: true,
       stdout: "pipe",
       // stderr NELLO stesso flusso di stdout: il messaggio di un compilatore sta
       // di là, l'ordine fra i due conta, e due code separate lo perdono.
@@ -432,7 +494,21 @@ async function runOne(
       // the WHOLE tail - the failing spec and its error had scrolled out of the
       // 40 lines the report keeps. `NO_COLOR` alone is the standard every tool
       // here honours (Bun, Node, Playwright, tsc), and stdout is a pipe anyway.
-      env: { ...process.env, CI: "1", NO_COLOR: "1", ...opts.env },
+      //
+      // THE SLOT COUNT GOES EXPLICITLY, because `CI` alone switches the gate
+      // semaphore off: `slotCount` returns 0 under `CI` when no count is set,
+      // and `slot.ts` then takes neither a slot nor the one-run-per-name lock.
+      // `CI` stays (Playwright reads it), so the count has to win over it.
+      // Measured 15/09/2026: two cards' `test:unit:shards` ran 741 s and 744 s
+      // side by side, both "0 s in the queue", on a server whose env had no
+      // `TOPICS_GATE_SLOTS`. An explicit value, "0" included, is kept.
+      env: {
+        ...process.env,
+        CI: "1",
+        TOPICS_GATE_SLOTS: process.env.TOPICS_GATE_SLOTS || String(slotCount({})),
+        NO_COLOR: "1",
+        ...opts.env,
+      },
     });
     // stdout is collected whole; stderr is read as it arrives, because two of
     // its lines move the clock. `slot.ts` prints `SLOT_ACQUIRED_PREFIX` the
@@ -466,13 +542,15 @@ async function runOne(
      * Same rule the board already applies to the slot queue, which is why
      * `clockFrom` exists here at all. */
     let frozenAt = 0;
-    releaseFreezable = proc.pid
-      ? registerFreezableRun({
+    const entry: FreezableRun | null = proc.pid
+      ? {
           id: `${opts.taskId ?? "check"}:${check.name}:${proc.pid}`,
           pid: proc.pid,
           name: check.name,
           taskId: opts.taskId,
           startedAt: started,
+          roundStartedAt: opts.roundStartedAt,
+          commit: opts.commit,
           onFreeze: () => { frozenAt = Date.now(); },
           onThaw: () => {
             if (!frozenAt) return;
@@ -480,8 +558,24 @@ async function runOne(
             frozenAt = 0;
             armTimer();
           },
-        })
-      : () => {};
+        }
+      : null;
+    releaseFreezable = entry ? registerFreezableRun(entry) : () => {};
+    // The tree, not the shell: the memory is in the grandchildren (bun test,
+    // tsc). A reading that fails is skipped, never a reason to stop the gate.
+    // The registry entry carries the latest reading too (`[memsig]`, the swap brake).
+    const rootPid = proc.pid;
+    if (rootPid && opts.onTreeKB) {
+      const read = opts.sampleTreeKB ?? treeFootprintKB;
+      const report = opts.onTreeKB;
+      sampler = setInterval(() => {
+        void read(rootPid).then((kb) => {
+          if (kb == null || kb <= 0) return;
+          if (entry) entry.treeKB = kb;
+          report(kb);
+        }).catch(() => {});
+      }, opts.treeSampleMs ?? TREE_SAMPLE_MS);
+    }
     opts.signal?.addEventListener("abort", onAbort, { once: true });
     const outP = new Response(proc.stdout as ReadableStream<Uint8Array>).text();
     let err = "";
@@ -549,6 +643,7 @@ async function runOne(
     };
   } finally {
     if (timer) clearTimeout(timer);
+    if (sampler) clearInterval(sampler);
     releaseFreezable();
     opts.signal?.removeEventListener("abort", onAbort);
   }
@@ -628,6 +723,11 @@ export function formatChecksWait(args: {
   return `${parts.join(" · ")}. ${footer}`;
 }
 
+/** What a red CI evidence row measured, in the words of the card. */
+function ciRedWhy(row: CheckRun): string {
+  return row.cmd.trim() === UNIT_CI_CHECK.cmd ? "test unit rossi sulla CI della PR" : "e2e rossi sulla CI della PR";
+}
+
 export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string | null }): string {
   if (!runs.length) return "Checks pre-review: nessun comando dichiarato.";
   const failed = runs.find((r) => !r.ok);
@@ -656,13 +756,16 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
   // arrivato in fondo, un cancello che non parte non ha guardato niente. Mandare
   // «rilancia quando c'e' meno traffico» a chi ha un worktree senza dipendenze
   // sarebbe una caccia a un guasto che non esiste.
+  // The CI evidence row (KANBAN-84) never starts a process: its reason is in the tail.
+  const ci = isCiEvidenceCheck(failed);
   if (failed.notMeasured) {
     return [
-      `**Checks pre-review NON MISURATI**${where}: \`${failed.name}\` non e' partito.`,
+      `**Checks pre-review NON MISURATI**${where}: \`${failed.name}\` ${ci ? "non ha un esito della CI per questo commit" : "non e' partito"}.`,
       runs.map(line).join("\n"),
       `Comando: \`${failed.cmd}\``,
       failed.tail ? "```\n" + failed.tail + "\n```" : "(nessun output)",
-      "Non e' un fallimento del codice: e' un cancello che non ha potuto guardare. " +
+      ci ? "Non e' un rosso del codice: il motivo e' qui sopra, e la card resta fuori dalla review finche' la CI non da' un esito."
+        : "Non e' un fallimento del codice: e' un cancello che non ha potuto guardare. " +
         "Quasi sempre e' un worktree senza le dipendenze del client (`cd client && bun install`).",
     ].join("\n\n");
   }
@@ -676,7 +779,7 @@ export function formatChecksComment(runs: CheckRun[], opts?: { commit?: string |
         "Rimetti il task in review quando c'è meno traffico, oppure fallo girare a mano e allega l'esito.",
     ].join("\n\n");
   }
-  const why = failed.spawnError ? `non è partito: ${failed.spawnError}` : `exit ${failed.code}`;
+  const why = ci ? ciRedWhy(failed) : failed.spawnError ? `non è partito: ${failed.spawnError}` : `exit ${failed.code}`;
   return [
     `**Checks pre-review ROSSI**${where}: \`${failed.name}\` ${why}.`,
     runs.map(line).join("\n"),
@@ -697,10 +800,11 @@ export function formatChecksThreadSummary(runs: CheckRun[], opts?: { commit?: st
   if (!failed) return `Checks pre-review verdi${where}.`;
   const position = runs.indexOf(failed) + 1;
   const check = failed.name !== failed.cmd && failed.name.length <= 64 ? `\`${failed.name}\`` : `check ${position}`;
-  if (failed.notMeasured) return `Checks pre-review non misurati${where}: ${check} non è partito.`;
+  const ci = isCiEvidenceCheck(failed);
+  if (failed.notMeasured) return `Checks pre-review non misurati${where}: ${check} ${ci ? "non ha un esito della CI per questo commit" : "non è partito"}.`;
   if (checksVerdict(runs) === "unknown") {
     return `Checks pre-review non misurati${where}: ${check} è scaduto.`;
   }
-  const why = failed.spawnError ? "non è partito" : `exit ${failed.code}`;
+  const why = ci ? ciRedWhy(failed) : failed.spawnError ? "non è partito" : `exit ${failed.code}`;
   return `Consegna fermata dai controlli automatici${where}: ${check} ${why}. Apri i dettagli dei check per comando e log.`;
 }

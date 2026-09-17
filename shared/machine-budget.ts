@@ -29,7 +29,7 @@
  * whose owner is compiling something else, ours shrinks, and it shrinks BY THE
  * SHARE, so the part we leave behind grows with the part they took.
  *
- * Decided by Attilio on 14/09/2026: the percentage of the PC is a percentage of
+ * Decided by the owner of the machine on 14/09/2026: the percentage of the PC is a percentage of
  * what is free, so processes Topics did not open come first. The rule before
  * was `min(share x cores, free)`: at 80% on 12 cores with 7.3 taken by others,
  * Topics could take ALL 4.7 cores left. Now it takes 3.8 and leaves 0.9 to
@@ -96,7 +96,10 @@ export interface MachineBudgetSample {
   ourMemGB: number;
   /** Gigabytes really available to the machine, or `null` when not measured. */
   availableMemGB: number | null;
-  /** Agents already in flight. Zero is the case that keeps the door open. */
+  /** Agents already in flight. Zero is the case that keeps the door open. The
+   *  dispatcher adds our pre-review check runs before asking: a shard run with
+   *  no agent next to it is still our work on this machine (see
+   *  `firstAgentExempt`). */
   running: number;
   /**
    * THE RESERVATION, and it is the term that stops the queue from draining.
@@ -109,9 +112,10 @@ export interface MachineBudgetSample {
    * swap at 11.7 GB of 13.3, load 145: that is the measured shape of it.
    *
    * So what has been admitted and is not yet visible in the measure is counted
-   * at its ESTIMATE, on both axes, until the warm-up window closes
-   * (`ADMISSION_WARM_UP_MS`). Absent or zero means "nothing pending", which is
-   * the normal state of an idle board.
+   * at its ESTIMATE: on the CPU axis until the warm-up window closes
+   * (`ADMISSION_WARM_UP_MS`), on the memory axis for as long as the agent is in
+   * flight (see `reservedCost`). Absent or zero means "nothing pending", which
+   * is the normal state of an idle board.
    */
   reservedCoreUnits?: number;
   reservedMemGB?: number;
@@ -201,17 +205,25 @@ export function estimatedAgentCost(recentCoreUnits: readonly number[]): number {
 /**
  * THE SAME PRICE LIST, IN GIGABYTES, and this axis was the empty one.
  *
- * The floor is the measured peak of a card that runs its gates: a unit shard, a
- * tsc and an eslint together ask around a gigabyte and a half, and that is the
- * number the native-runtime floor elsewhere in this repo already uses
- * (`GB_PER_AGENT_NATIVE`). Below it the admission would price an agent at the
- * few megabytes the session itself holds, which is true of the session and
- * false of the work: the session is not what fills the RAM.
+ * WHAT IS PRICED IS THE CARD, NOT THE SESSION. The samples are the peak
+ * footprint of the whole process tree of each card's pre-review checks
+ * (`server/lib/card-memory-peaks.ts`), one number per card. They used to be the
+ * per-session footprint of the fleet probe, and on the native runtime a card has
+ * no session process at all: its bash tool and its checks are children of the
+ * server. The median therefore ran over the person's own terminals and sat on
+ * the floor for good, and on 14/09/2026 the memory axis never fired while one
+ * `test:unit:shards` alone held 11 GB.
+ *
+ * THE FLOOR IS FOUR GIGABYTES, and it is what an unmeasured card costs: after a
+ * reload the ledger is empty, and the old 1.5 GB (a shard, a tsc and an eslint
+ * on a quiet day) let 15 agents in on 24 GB free. Four is the measured peak of a
+ * card whose gates overlap, and with the whole-life reservation it admits four
+ * or five agents on that same machine, the count that was actually holding.
  *
  * The ceiling stops one delivery that ran four shards at once from pricing
  * every future agent out of the machine.
  */
-export const AGENT_COST_FLOOR_MEM_GB = 1.5;
+export const AGENT_COST_FLOOR_MEM_GB = 4;
 export const AGENT_COST_CEILING_MEM_GB = 6;
 
 export function estimatedAgentMemCost(recentMemGB: readonly number[]): number {
@@ -249,22 +261,47 @@ export interface AgentCost {
 export const ADMISSION_WARM_UP_MS = 90_000;
 
 /**
- * What the agents admitted but not yet measured are holding, at the estimate.
+ * THE RAMP, as a spacing between two admissions, dispatcher-wide.
  *
- * `admittedAt` is the epoch-ms list of the recent admissions; the caller drops
- * an entry as soon as that agent has a sample of its own, and this drops
- * whatever is older than the warm-up window even if nobody ever did.
+ * `admit` answers for one card, and the caller asks again once the measure can
+ * include it. That used to be counted per `tick(projectId)`, so three boards
+ * admitted three in one round, three overlapping reconcile passes claimed three,
+ * and a resume did not count at all: a boot with sixteen cut turns started
+ * twelve at the same instant. A spacing on the wall clock covers every door at
+ * once. Nine seconds and not the ten of the poll: two passes ten seconds apart
+ * reach their claim a few milliseconds early or late, and a spacing equal to
+ * the poll would turn the ramp into one card every twenty seconds at random.
+ */
+export const ADMISSION_SPACING_MS = 9_000;
+
+/**
+ * What the admitted agents are holding at the estimate, on the two axes.
+ *
+ * `admittedAt` is the epoch-ms launch instant of every LOCAL turn in flight.
+ *
+ * CPU: only the ones younger than the warm-up window. Past it the measure has
+ * caught up, and an agent waiting on the API really does cost a tenth of a core.
+ *
+ * MEMORY: every one of them, for the whole life of the turn. An agent's memory
+ * does not arrive once and stay: it arrives in bursts, when the card runs its
+ * gates, and the first burst lands two to six minutes after the admission
+ * (median 160 s, measured on 14/09/2026). A window that ends before it, as the
+ * 90 s one did, prices the queue against a quiet reading that is about to
+ * change: 20 cards in 4 minutes on 24 GB free, in the replay of that night.
+ * Reserving the price for the whole turn double counts the burst that is
+ * already visible, and that is the direction that does not end in swap.
  */
 export function reservedCost(
   admittedAt: readonly number[],
   cost: AgentCost,
   now: number,
 ): { coreUnits: number; memGB: number; pending: number } {
-  const pending = admittedAt.filter((at) => Number.isFinite(at) && now - at < ADMISSION_WARM_UP_MS).length;
+  const live = admittedAt.filter((at) => Number.isFinite(at));
+  const pending = live.filter((at) => now - at < ADMISSION_WARM_UP_MS).length;
   return {
     pending,
     coreUnits: pending * Math.max(0, cost.coreUnits),
-    memGB: pending * Math.max(0, cost.memGB),
+    memGB: live.length * Math.max(0, cost.memGB),
   };
 }
 
@@ -319,7 +356,10 @@ export interface AdmissionVerdict {
  * THE EXCEPTION, inherited from the previous contract and still the point: with
  * zero agents alive it admits however loaded the machine is. Without that line
  * whoever keeps their own Mac busy owns a board that never starts, and the way
- * that gets discovered is somebody deciding the dispatcher is broken.
+ * that gets discovered is somebody deciding the dispatcher is broken. "Zero" is
+ * zero of OUR work, check runs included (the caller adds them to `running`): a
+ * board whose cards are all in review running an 11 GB shard is not a board
+ * that never starts, it is a board that starts when the shard ends.
  */
 export function admissionVerdict(
   sample: MachineBudgetSample,
@@ -471,6 +511,30 @@ export function freezePlan(
     return { state: { overSamples: 0, underSamples: 0, frozen: frozen.slice(0, -1) }, freeze: null, thaw: id };
   }
   return { state: { overSamples, underSamples, frozen }, freeze: null, thaw: null };
+}
+
+/**
+ * WHAT THE GOVERNOR READS: our CPU against the usable CPU budget, and NOTHING
+ * about memory. That is a decision, and it was tried the other way.
+ *
+ * On 15/09/2026 the reading took the worse of the CPU and `floor / free memory`,
+ * because under thrash the CPU reads ~0 (0.4 of 3.5 core-units with 9.9 GB of
+ * swap). A memory freeze has no way out. A SIGSTOP gives back none of the memory
+ * the frozen tree holds, so the reading that froze it cannot come back by
+ * itself; the freeze also stops the run's own deadline and the `slot.ts` timer
+ * in the same tree. Probed with the real governor: two runs frozen at 5.5 GB
+ * stayed frozen for 1080 samples, and 1080 more at 8.0 GB, above the floor the
+ * dispatcher admits at. Two frozen runs hold both lanes of the checks gate, so
+ * no card is measured again and the brake never opens: against the rule that
+ * every brake fails open.
+ *
+ * The memory lever is the wait BEFORE a check starts (`MemoryFloor` in the
+ * check runner), which costs nothing already running and fails open on a
+ * limit. Here a check frozen for the CPU thaws when the CPU comes down,
+ * whatever the memory says.
+ */
+export function governorReading(sample: MachineBudgetSample, share: number): { used: number; budget: number } {
+  return { used: sample.ourCoreUnits, budget: machineBudget(sample, share).usableCoreUnits };
 }
 
 /** Checks before agents; inside a kind, the one that started last. */

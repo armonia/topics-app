@@ -10,10 +10,10 @@
 # rilanciare (`scripts/server-watch.sh <APP_DIR> [<pidfile>]`) mentre il
 # server continua a servire.
 #
-# Cosa fa, in una riga: quando un file sotto server/ o server.ts cambia DI
-# CONTENUTO, chiede al server di riavviarsi quando i turni sono finiti
-# (`/__daemon/restart-when-idle`), con il cancello di compilazione davanti e
-# il SIGTERM come ultima spiaggia. I commenti lunghi stanno dove sta la logica.
+# What it does, in one line: when a file under server/, server.ts, or a shared/
+# file the server imports changes CONTENT, it asks the server to restart once
+# its turns are done (`/__daemon/restart-when-idle`), with the build gate in
+# front and the SIGTERM as the last resort. Long comments live with the logic.
 #
 # Una sola istanza per macchina: il pidfile sotto /tmp ferma la seconda.
 set -uo pipefail
@@ -80,9 +80,50 @@ diagnose_stall() {
   )
 }
 
+BUN_BIN="${BUN:-$(exec 9>&-; command -v bun 2>/dev/null || echo "$HOME/.bun/bin/bun")}"
+
+# The shared/ files the SERVER imports, one per line, relative to APP_DIR.
+#
+# server.ts reaches into shared/ (shared/board.ts re-exports
+# shared/machine-budget.ts, the admission rule of the dispatcher), and a land
+# that touched only shared/ produced no event and no fingerprint change: the
+# old rule kept running with nothing pending, while the commit looked landed.
+# Not the whole of shared/, though: most of it is client code, and every
+# client-only save would ask a restart that cuts turns for nothing. The module
+# graph is the answer to "which of these does the server load": the same
+# `bun build` the reload gate already runs (0.1 s, 677 inputs measured on
+# 2026-09-15). When the tree does not build, every shared file counts: an
+# extra reload is the safe side, and the gate stops it anyway.
+server_shared_inputs() {
+  (exec 9>&-; cd "$APP_DIR" || exit 0
+    [ -d shared ] || exit 0
+    if meta=$("$BUN_BIN" build server.ts --target=bun --packages=external --outfile=/dev/null --metafile=/dev/stdout 2>/dev/null); then
+      printf '%s\n' "$meta" | sed -n 's/^    "\(shared\/[^"]*\)": {$/\1/p'
+    else
+      find shared -type f ! -path '*/node_modules/*'
+    fi)
+}
+
+# Every file the running server is made of, NUL-separated, relative to APP_DIR.
+server_sources() {
+  (exec 9>&-; cd "$APP_DIR" || exit 0
+    find server server.ts -type f ! -path '*/node_modules/*' -print0 2>/dev/null
+    server_shared_inputs | tr '\n' '\0')
+}
+
 src_hash() {
-  (exec 9>&-; cd "$APP_DIR" && find server server.ts -type f ! -path '*/node_modules/*' -print0 2>/dev/null \
-    | sort -z | xargs -0 shasum -a 1 2>/dev/null | shasum -a 1 | cut -c1-40)
+  (exec 9>&-; cd "$APP_DIR" && server_sources | sort -z | xargs -0 shasum -a 1 2>/dev/null | shasum -a 1 | cut -c1-40)
+}
+
+# Print the first server source NOT older than the reference file $1, if any.
+# "Not older" and not "newer": with one-second mtimes a file saved in the same
+# second as the reference may not have been loaded, and that doubt must end in
+# a restart, never in a skipped one. A missing reference makes every file count.
+first_source_not_older_than() {
+  (exec 9>&-; cd "$APP_DIR" || exit 0
+    server_sources | while IFS= read -r -d '' f; do
+      if ! [ "$1" -nt "$f" ]; then printf '%s\n' "$f"; break; fi
+    done)
 }
 
 # Every age check below is arithmetic on an mtime, so the mtime must be a bare
@@ -103,14 +144,125 @@ fi
 # so the first form that fails prints nothing and the other one answers.
 epoch_clock() { date -d "@$1" +%H:%M:%S 2>/dev/null || date -r "$1" +%H:%M:%S 2>/dev/null; }
 
+# ─── How long the watcher is patient with a server ─────────────────────────
+#
+# THE WINDOW IS DERIVED, NOT REWRITTEN. The server's own cap
+# (`TOPICS_QUIESCENCE_CAP_MS`, default 25 minutes) plus a margin for its
+# graceful shutdown. It used to be 330 s fixed, two numbers in two files that
+# contradicted each other at the first change (task 235afe11, 20/08: SIGTERM at
+# 27 minutes three times in a row, a live agent turn each time).
+QCAP_S=$(( ${TOPICS_QUIESCENCE_CAP_MS:-1500000} / 1000 ))
+QWAIT=$(( QCAP_S + ${TOPICS_SERVER_WATCH_EXIT_MARGIN_S:-60} ))
+# How often a server that does not answer is asked again, and how long one
+# answer may take. The route awaits `whatIsStillWorking()` before its 202, so on
+# a machine in swap one answer takes as long as one event-loop stall.
+ASK_EVERY_S="${TOPICS_SERVER_WATCH_ASK_EVERY_S:-10}"
+ASK_TIMEOUT_S=30
+# Between SIGTERM and SIGKILL. `gracefulShutdown` detaches the broker children,
+# stops the providers (3.5 s grace) and closes the DB; a SIGKILL before it ends
+# resets turns that would have been re-adopted. It was 15 s (six premature
+# kills on 18/08), then 60 s, and on 14/09 a server stalled 87 s by swap took
+# the SIGKILL 54 s into a shutdown that was still running.
+SIGKILL_WINDOW_S=300
+
+# THE SERVER'S DEFERRAL BEATS THE WATCHER'S CLOCK (2026-08-28).
+#
+# A server that will not cut work nobody would re-adopt DEFERS the restart and
+# says so by touching $TOPICS_HOME/reload-deferred on every loop (twice a
+# second). A heartbeat, not a flag: a file left behind by a dead server ages
+# and stops holding.
+#
+# It is defined HERE, once, for every path that got a 202. It used to live
+# inside the first branch only: a fresh watcher whose first ask timed out had
+# no such function (exit 127, read as "not deferring"), and the third branch
+# never looked at it at all. On 14/09 that third branch SIGTERMed server 34310
+# after a flat 1560 s while it was writing "RINVIATO da 1557s, 12 turno/i di
+# card": twelve cards cut mid-turn.
+#
+# THE STALENESS IS COUNTED IN STALLS, not in heartbeats. The loop touches the
+# file every 500 ms, but under swap the whole loop stops: 7, 12, 25 and 87 s
+# measured on 14/09. With 30 s a single long stall read as "no longer
+# deferring" and the SIGTERM hit the turns the server was protecting. A server
+# that is really gone is caught by `kill -0` long before this, so the threshold
+# only separates "stalled" from "hung", and a hung server gains nothing from
+# being signalled five minutes sooner.
+DEFER_FILE="${TOPICS_HOME:-$HOME/.topics}/reload-deferred"
+DEFER_STALE_S=300
+deferring() {
+  [ -f "$DEFER_FILE" ] || return 1
+  _m=$(exec 9>&-; file_mtime "$DEFER_FILE")
+  [ $(( $(exec 9>&-; date +%s) - _m )) -lt "$DEFER_STALE_S" ]
+}
+
+# POST /__daemon/restart-when-idle once. Exit 0 only on a 202. The token and the
+# port are read again on every call: a token read while the file was being
+# written is the most common reason a first ask fails (2026-08-18).
+ask_restart_when_idle() {
+  local dstate="${TOPICS_HOME:-$HOME/.topics}/daemon-state.json" token port scheme resp
+  [ -r "$dstate" ] || return 1
+  command -v curl >/dev/null 2>&1 || return 1
+  token=$(exec 9>&-; sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p' "$dstate" | head -1)
+  port=$(exec 9>&-; sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\{1,5\}\).*/\1/p' "$dstate" | head -1)
+  [ -n "$token" ] && [ -n "$port" ] || return 1
+  for scheme in https http; do
+    resp=$(exec 9>&-; curl -sk -m "$ASK_TIMEOUT_S" -o /dev/null -w "%{http_code}" -X POST \
+      -H "Authorization: Bearer $token" \
+      "$scheme://127.0.0.1:$port/__daemon/restart-when-idle" 9>&- 2>/dev/null)
+    [ "$resp" = "202" ] && return 0
+  done
+  return 1
+}
+
+# The server accepted: it will SIGTERM itself when its turns are done. Wait for
+# that, and do not count the time while it declares a deferral. Exit 0 when it
+# exited, 1 when the window ran out with no deferral (WAITED holds the seconds).
+wait_for_server_exit() {
+  local pid="$1" said=0
+  WAITED=0
+  while kill -0 "$pid" 2>/dev/null; do
+    if deferring; then
+      if [ "$said" = 0 ]; then
+        echo "[start-prod]   il server RINVIA il riavvio: sta proteggendo un turno che non tornerebbe. Aspetto lui, non l'orologio."
+        said=1
+      fi
+    elif [ "$WAITED" -ge "$QWAIT" ]; then
+      return 1
+    fi
+    sleep 2 9>&-
+    WAITED=$((WAITED + 2))
+  done
+  return 0
+}
+
+# SIGTERM, then SIGKILL only if the process is still there after the window.
+# An orphan left alive keeps the DB open and its timers running (measured
+# 2026-08-15: a server alive for 4h18m, reparented to pid 1, beside the new one).
+terminate_server() {
+  local pid="$1" waited=0
+  kill -TERM "$pid" 2>/dev/null
+  while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt "$SIGKILL_WINDOW_S" ]; do
+    sleep 1 9>&-
+    waited=$((waited + 1))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "[start-prod] ATTENZIONE: il server $pid ha ignorato SIGTERM per ${waited}s: SIGKILL."
+    echo "[start-prod]   Un orfano lasciato vivo tiene il DB aperto e i suoi timer accesi."
+    kill -KILL "$pid" 2>/dev/null
+  fi
+}
+
 LAST_HASH=$(exec 9>&-; src_hash)
 BOOT_SEEN=$(exec 9>&-; file_mtime "${TOPICS_HOME:-$HOME/.topics}/daemon-state.json")
 echo "[start-prod] server hot-reload watch ON (graceful, debounce 2s, impronta ${LAST_HASH:0:8}, pid $$)"
 
 rm -f "$EVENT_PIPE" 9>&-
 mkfifo "$EVENT_PIPE" 9>&-
+# shared/ is watched whole; the fingerprint decides which of its files matter
+# to the server (see `server_shared_inputs`).
+FSWATCH_PATHS=("$APP_DIR/server/" "$APP_DIR/server.ts")
+[ -d "$APP_DIR/shared" ] && FSWATCH_PATHS+=("$APP_DIR/shared/")
 fswatch -o -l 2 --event Updated --event Created --event Removed --event Renamed \
-  "$APP_DIR/server/" "$APP_DIR/server.ts" 9>&- > "$EVENT_PIPE" 2>/dev/null &
+  "${FSWATCH_PATHS[@]}" 9>&- > "$EVENT_PIPE" 2>/dev/null &
 FSWATCH_PID=$!
 WATCH_OWNER_PID="$$"
 (
@@ -167,7 +319,7 @@ while read -r _; do
           #    A file newer than the boot stamp cannot have been loaded by it:
           #    when there is one, the impronta is NOT re-read, so the normal
           #    comparison below sees the change and asks the restart.
-          _newer=$(exec 9>&-; cd "$APP_DIR" && find server server.ts -type f ! -path '*/node_modules/*' -newer "$DSTATE_BOOT" 2>/dev/null | head -1)
+          _newer=$(exec 9>&-; first_source_not_older_than "$DSTATE_BOOT")
           if [ -z "$_newer" ]; then
             LAST_HASH=$(exec 9>&-; src_hash)
             echo "[start-prod] server (ri)partito alle $(exec 9>&-; epoch_clock "$BOOT_NOW"): impronta dei sorgenti riletta, nessun riavvio per modifiche gia' caricate"
@@ -206,7 +358,7 @@ while read -r _; do
           # compia BIRTH_GRACE_S si garantisce che l'attesa di nascita piu'
           # sotto parta da un server che la porta l'ha gia' aperta, e il
           # SIGTERM resta raggiungibile solo per un server davvero muto.
-          # mtime del pidfile = istante di nascita: la riga 542 lo riscrive a
+          # mtime del pidfile = istante di nascita: start-prod.sh lo riscrive a
           # ogni rilancio, subito dopo lo spawn.
           while :; do
             _born=$(exec 9>&-; file_mtime "$SERVER_PIDFILE")
@@ -216,6 +368,22 @@ while read -r _; do
             echo "[start-prod] reload RINVIATO — il server ha ${_age}s, sta ancora nascendo (soglia ${BIRTH_GRACE_S}s)"
             sleep 2 9>&-
           done
+          # A SERVER BORN AFTER THE LAST EDIT ALREADY RUNS IT.
+          #
+          # The boot guard above reads daemon-state.json, which a new server
+          # writes seconds after it is spawned. An event read in that gap (the
+          # events queued while the watcher waited for the previous server to
+          # leave) saw the old stamp, skipped the guard, and asked a restart of
+          # a server that had loaded the very same tree: on 2026-09-15 01:51
+          # server 41467 was spawned at :10, wrote its state at :18, and got a
+          # restart for two merges older than its birth, which then held the
+          # 13 cards the boot had just resumed. The pidfile is written right
+          # after the spawn, so every source not newer than it was loaded.
+          if [ -z "$(exec 9>&-; first_source_not_older_than "$SERVER_PIDFILE")" ]; then
+            LAST_HASH=$NOW_HASH
+            echo "[start-prod] il server $SP e' nato dopo l'ultima modifica ai sorgenti: gira gia' su questo codice, nessun riavvio"
+            continue
+          fi
           # Cancello (2026-08-04): una modifica di più file è incoerente per
           # qualche secondo — l'import c'è, il modulo che lo soddisfa no. Far
           # ripartire il server proprio lì dentro l'ha già ucciso due volte il
@@ -230,321 +398,59 @@ while read -r _; do
             sleep 2 9>&-
             continue
           fi
-          # PRIMA SI CHIEDE AL SERVER, e solo se non risponde si taglia.
-          #
-          # Il SIGTERM secco taglia i TURNI DEGLI AGENTI in volo. Misurato il
-          # 18/08 mentre cinque card della board lavoravano: «Turno annullato:
-          # riprovo tra 60s» tre volte in un minuto sulla stessa card, con il
-          # budget dei tentativi che si svuotava e nessun lavoro che arrivava
-          # mai in fondo. La causa erano i salvataggi su `server/` di chi stava
-          # sviluppando: sviluppare e dispacciare insieme era impossibile.
-          #
-          # `/__daemon/restart-when-idle` esiste esattamente per questo: risponde
-          # 202 subito, ASPETTA che i turni finiscano (cap suo) e poi si manda da
-          # solo il SIGTERM, cosi' `gracefulShutdown` gira per intero. Lo dice
-          # anche il commento della rotta: «use this instead of kickstart -k,
-          # which SIGKILLs mid-turn».
-          #
-          # Se il server non risponde — non e' su, token illeggibile, curl
-          # assente — si ricade sul SIGTERM di prima: un reload che non parte
-          # sarebbe peggio.
           LAST_HASH=$NOW_HASH
+          # ASK FIRST, AND KEEP ASKING. Cut only a server that never answers.
+          #
+          # A bare SIGTERM cuts the agent turns in flight (18/08: «Turno
+          # annullato: riprovo tra 60s» three times a minute on one card while
+          # someone was saving under server/). `restart-when-idle` answers 202,
+          # waits for the turns, and SIGTERMs its own process so that
+          # `gracefulShutdown` runs whole.
+          #
+          # A missing 202 is almost never a broken server. It used to be a
+          # newborn one (the birth gate above handles that now), and today it
+          # is a server in swap: the route answers after `whatIsStillWorking()`,
+          # and with the event loop stopped for 7, 12, 23 and 87 s (14/09,
+          # load 111) every short ask timed out. The old last resort gave up
+          # after ~140 s, SIGTERMed three cards mid-turn and SIGKILLed the
+          # shutdown 60 s later, while the server was answering HTTP again.
+          # So the watcher asks again every ASK_EVERY_S, each ask allowed
+          # ASK_TIMEOUT_S, for the whole window the server itself would take:
+          # a reload is never urgent enough to cut live turns over a stall.
+          ASK_T0=$(exec 9>&-; date +%s)
+          ASK_SAID=0
           RELOAD_ASKED=0
-          DSTATE="${TOPICS_HOME:-$HOME/.topics}/daemon-state.json"
-          if [ -r "$DSTATE" ] && command -v curl >/dev/null 2>&1; then
-            DTOKEN=$(exec 9>&-; sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p' "$DSTATE" | head -1)
-            DPORT=$(exec 9>&-; sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\{1,5\}\).*/\1/p' "$DSTATE" | head -1)
-            if [ -n "$DTOKEN" ] && [ -n "$DPORT" ]; then
-              for SCHEME in https http; do
-                RESP=$(exec 9>&-; curl -sk -m 5 -o /dev/null -w "%{http_code}" -X POST \
-                  -H "Authorization: Bearer $DTOKEN" \
-                  "$SCHEME://127.0.0.1:$DPORT/__daemon/restart-when-idle" 9>&- 2>/dev/null)
-                if [ "$RESP" = "202" ]; then
-                  echo "[start-prod] server source changed → riavvio quando i turni finiscono (restart-when-idle)"
-                  RELOAD_ASKED=1
-                  break
-                fi
-              done
+          while kill -0 "$SP" 2>/dev/null; do
+            if ask_restart_when_idle; then
+              RELOAD_ASKED=1
+              break
             fi
-          fi
+            ASKED_FOR=$(( $(exec 9>&-; date +%s) - ASK_T0 ))
+            [ "$ASKED_FOR" -ge "$QWAIT" ] && break
+            if [ "$ASK_SAID" = 0 ]; then
+              echo "[start-prod] restart-when-idle non risponde (server $SP lento o in swap): richiedo ogni ${ASK_EVERY_S}s, per al massimo ${QWAIT}s, prima di tagliare"
+              ASK_SAID=1
+            fi
+            sleep "$ASK_EVERY_S" 9>&-
+          done
           if [ "$RELOAD_ASKED" = 1 ]; then
-            # NON SI UCCIDE CHI NON HA ANCORA RICEVUTO IL SEGNALE.
-            #
-            # Su questo ramo il SIGTERM non l'abbiamo mandato noi: se lo manda il
-            # server, DA SOLO, quando i turni finiscono (cap suo: 5 minuti).
-            # L'escalation dell'altro ramo — sleep 10, cinque secondi di grazia,
-            # SIGKILL a 15s — e' scritta per il caso opposto: segnale partito,
-            # processo che lo ignora. Applicata anche qui ammazzava un server che
-            # stava semplicemente ASPETTANDO, e un SIGKILL salta
-            # `gracefulShutdown`: niente detach dei figli nel broker, i turni
-            # tagliati a meta' — esattamente il danno che restart-when-idle
-            # esiste per evitare. Misurato nel log il 2026-08-18: tutte e cinque
-            # le volte in cui il cancello ha davvero atteso ([quiescence]
-            # waiting…) il server e' uscito con code 137. Il cancello non ha mai
-            # potuto arrivare in fondo nemmeno una volta.
-            #
-            # Qui si aspetta la SUA finestra, piu' un margine. Se la sfora,
-            # allora si' che e' appeso — ma si comincia dal SIGTERM, non dal
-            # martello.
-            #
-            # LA FINESTRA SI DERIVA, NON SI RISCRIVE. Era 330 fissi, cioe' i 5
-            # minuti che il server usava allora: due numeri in due file che
-            # devono dire la stessa cosa, e che al primo cambio da una parte si
-            # sarebbero contraddetti. Adesso li decide la stessa variabile
-            # (`TOPICS_QUIESCENCE_CAP_MS`, default 25 minuti = il tetto di un
-            # turno d'agente piu' margine), e qui si aggiunge solo il margine
-            # per il commiato.
-            #
-            # IL MARGINE E' 30s + LO SPEGNIMENTO, non 30s soli. Derivare lo
-            # stesso NUMERO non basta se i due lo usano in modo diverso, ed e'
-            # esattamente cosa e' successo al task 235afe11 il 20/08: il server
-            # rinnovava la sua scadenza a ogni giro con del lavoro in volo,
-            # quindi non scadeva mai; qui si contavano 1530s dall'inizio e poi
-            # partiva il SIGTERM. Tre volte di fila, a 27 minuti esatti, con un
-            # turno d'agente vivo ogni volta — worktree buttato e task rimesso
-            # in coda.
-            #
-            # Il rinnovo e' stato tolto (il tetto del server ora e' vero), ma il
-            # margine resta piu' largo: quando il server DECIDE di uscire deve
-            # ancora eseguire `gracefulShutdown` per intero — fermare i
-            # provider con la loro finestra di grazia (3,5s), staccare il
-            # broker, chiudere il DB. Trenta secondi coprivano il commiato solo
-            # se lo spegnimento fosse istantaneo, e non lo e'. Qui si concede
-            # un minuto: se il server sfonda ANCHE questo, allora e' appeso
-            # davvero ed e' giusto insistere.
-            QCAP_S=$(( ${TOPICS_QUIESCENCE_CAP_MS:-1500000} / 1000 ))
-            QWAIT=$(( QCAP_S + 60 ))
+            echo "[start-prod] server source changed → riavvio quando i turni finiscono (restart-when-idle)"
             echo "[start-prod]   aspetto che il server $SP si chiuda da solo (cap suo: $((QCAP_S / 60)) min)"
-            #
-            # IL RINVIO DEL SERVER BATTE QUESTO OROLOGIO (2026-08-28).
-            #
-            # Il server non taglia piu' un turno che nessuno riadotterebbe:
-            # quando il tetto scade e c'e' ancora lavoro di quel tipo in volo,
-            # RINVIA il riavvio e lo dichiara scrivendo un battito in
-            # $TOPICS_HOME/reload-deferred. Senza guardarlo, questo `while`
-            # scadrebbe comunque e manderebbe il SIGTERM: cioe' ucciderebbe il
-            # turno proprio mentre il server lo sta proteggendo, e il rinvio
-            # sarebbe la stessa morte di prima con un log piu' gentile.
-            #
-            # Il battito e' un ISTANTE, non una bandiera: un file rimasto li'
-            # da un server morto invecchia e smette di trattenere, quindi un
-            # server davvero appeso prende il SIGTERM come prima.
-            DEFER_FILE="${TOPICS_HOME:-$HOME/.topics}/reload-deferred"
-            DEFER_STALE_S=30
-            deferring() {
-              [ -f "$DEFER_FILE" ] || return 1
-              _m=$(exec 9>&-; file_mtime "$DEFER_FILE")
-              [ $(( $(exec 9>&-; date +%s) - _m )) -lt "$DEFER_STALE_S" ]
-            }
-            WAITED=0
-            DEFER_SAID=0
-            while kill -0 "$SP" 2>/dev/null; do
-              if deferring; then
-                if [ "$DEFER_SAID" = 0 ]; then
-                  echo "[start-prod]   il server RINVIA il riavvio: sta proteggendo un turno che non tornerebbe. Aspetto lui, non l'orologio."
-                  DEFER_SAID=1
-                fi
-              elif [ "$WAITED" -ge "$QWAIT" ]; then
-                break
-              fi
-              sleep 2 9>&-
-              WAITED=$((WAITED + 2))
-            done
-            if kill -0 "$SP" 2>/dev/null; then
-              echo "[start-prod] ATTENZIONE: restart-when-idle accettato, ma il server $SP e' ancora vivo dopo ${WAITED}s — SIGTERM."
-              kill -TERM "$SP" 2>/dev/null
-              for _ in 1 2 3 4 5 6 7 8 9 10; do
-                sleep 1 9>&-
-                kill -0 "$SP" 2>/dev/null || break
-              done
-              if kill -0 "$SP" 2>/dev/null; then
-                echo "[start-prod] ATTENZIONE: ha ignorato anche il SIGTERM per 10s — SIGKILL."
-                echo "[start-prod]   Un orfano lasciato vivo tiene il DB aperto e i suoi timer accesi."
-                kill -KILL "$SP" 2>/dev/null
-              fi
+            # The SIGTERM is the server's own, sent when its turns are done.
+            # Only a server that outlives its window WITHOUT declaring a
+            # deferral is hung, and even then it starts from SIGTERM.
+            if ! wait_for_server_exit "$SP"; then
+              echo "[start-prod] ATTENZIONE: restart-when-idle accettato, ma il server $SP e' ancora vivo dopo ${WAITED}s e non rinvia: SIGTERM."
+              terminate_server "$SP"
             fi
-            # Il vecchio e' uscito: la finestra di settle serve lo stesso, perche'
-            # il secondo batch di fswatch non deve colpire il server FRESCO a
-            # meta' init (il perche' sta nel ramo qui sotto).
-            sleep 5 9>&-
-          else
-            # RAMO FALLBACK: restart-when-idle non ha risposto (server non
-            # raggiungibile via HTTP, token mancante, curl assente).
-            #
-            # Prima di mandare SIGTERM, si controlla ancora una volta se il
-            # server e' accessibile: potrebbe essersi avviato nel frattempo o
-            # il token potrebbe essere diventato leggibile. Se risponde 202,
-            # si passa al ramo paziente (come sopra). Questo copre il caso
-            # principale del 2026-08-18: una modifica successiva ha sparato il
-            # fallback mentre restart-when-idle era gia' pendente sul primo
-            # evento — il server era vivo e raggiungibile, solo il primo curl
-            # era fallito (es. token letto a meta' scrittura).
-            RELOAD_ASKED2=0
-            if [ -r "$DSTATE" ] && command -v curl >/dev/null 2>&1; then
-              DTOKEN2=$(exec 9>&-; sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p' "$DSTATE" | head -1)
-              DPORT2=$(exec 9>&-; sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\{1,5\}\).*/\1/p' "$DSTATE" | head -1)
-              if [ -n "$DTOKEN2" ] && [ -n "$DPORT2" ]; then
-                for SCHEME2 in https http; do
-                  RESP2=$(exec 9>&-; curl -sk -m 5 -o /dev/null -w "%{http_code}" -X POST \
-                    -H "Authorization: Bearer $DTOKEN2" \
-                    "$SCHEME2://127.0.0.1:$DPORT2/__daemon/restart-when-idle" 9>&- 2>/dev/null)
-                  if [ "$RESP2" = "202" ]; then
-                    echo "[start-prod] fallback → restart-when-idle raggiunto al secondo tentativo (aspetto i turni)"
-                    RELOAD_ASKED2=1
-                    break
-                  fi
-                done
-              fi
-            fi
-            if [ "$RELOAD_ASKED2" = 1 ]; then
-              # Stesso ramo paziente: il server si mandera' il SIGTERM da solo
-              # quando i turni finiscono. Si aspetta la sua finestra (5 min + margine).
-              echo "[start-prod]   aspetto che il server $SP si chiuda da solo (cap suo: 5 min)"
-              # Same patience as the first branch: while the server says it is
-              # protecting work that would not come back (the defer file is
-              # fresh), the clock does not count. This branch had a flat 330 s
-              # and on 2026-09-04 it SIGTERMed a server in the middle of a land.
-              FWAIT=0
-              while kill -0 "$SP" 2>/dev/null; do
-                if deferring 2>/dev/null; then
-                  :
-                elif [ "$FWAIT" -ge 330 ]; then
-                  break
-                fi
-                sleep 2 9>&-
-                FWAIT=$((FWAIT + 2))
-              done
-              if kill -0 "$SP" 2>/dev/null; then
-                echo "[start-prod] ATTENZIONE: restart-when-idle (2° tentativo) accettato, server $SP ancora vivo dopo ${FWAIT}s — SIGTERM."
-                kill -TERM "$SP" 2>/dev/null
-                for _ in 1 2 3 4 5 6 7 8 9 10; do
-                  sleep 1 9>&-
-                  kill -0 "$SP" 2>/dev/null || break
-                done
-                if kill -0 "$SP" 2>/dev/null; then
-                  echo "[start-prod] ATTENZIONE: ha ignorato anche il SIGTERM per 10s — SIGKILL."
-                  echo "[start-prod]   Un orfano lasciato vivo tiene il DB aperto e i suoi timer accesi."
-                  kill -KILL "$SP" 2>/dev/null
-                fi
-              fi
-              sleep 5 9>&-
-            else
-              # NON SI UCCIDE UN SERVER CHE NON HA ANCORA POTUTO RISPONDERE.
-              #
-              # Si arriva qui quando `restart-when-idle` non ha risposto 202, e
-              # per mesi la conclusione e' stata «allora non e' raggiungibile:
-              # SIGTERM secco». Ma la causa piu' frequente non e' un server
-              # rotto: e' un server APPENA NATO, ancora dentro l'init, che la
-              # porta HTTP non l'ha ancora aperta. Un salvataggio emette due
-              # batch di fswatch (write + rename) e il secondo arriva proprio
-              # in quella finestra.
-              #
-              # Misurato sul log del 20/08: su 300 riavvii, 214 sono passati dal
-              # cancello e 86 da qui — e nel campione guardato da vicino ognuno
-              # colpiva un server nato da 11-18 secondi, che infatti moriva con
-              # «SIGTERM received during init — nothing owned yet». Il server
-              # ripartiva, un fswatch lo riuccideva, e via cosi': 151 uscite su
-              # 200 sotto il minuto. In quella raffica i turni delle card non
-              # avevano nessuna protezione, perche' il cancello che li tutela
-              # sta DIETRO la porta che nessuno riusciva ad aprire.
-              #
-              # Dal lato delle CARD, contando una uccisione per evento (il
-              # commento di requeue, non anche quello di chiusura): 93 turni
-              # tagliati su 67 task. Fra due uccisioni dello stesso task ci sono
-              # 26 intervalli — 7 sotto i cinque minuti, cioe' la raffica che
-              # nasce QUI, contro 1 solo nella finestra 25-30 minuti, che era la
-              # firma del cancello che non scadeva mai. Il difetto corretto
-              # prima di questo era reale ma raro; questo e' quello che fa i
-              # numeri.
-              #
-              # Quindi prima di rassegnarsi si concede al server il tempo di
-              # nascere e si RIPROVA a chiedere il riavvio pulito. Trenta
-              # secondi coprono un init tipico (2-4s) con margine largo su una
-              # macchina carica. Solo se anche questo fallisce e' un server
-              # davvero muto, e allora il SIGTERM e' la risposta giusta.
-              RELOAD_ASKED3=0
-              if [ -r "$DSTATE" ] && command -v curl >/dev/null 2>&1; then
-                for _try in $(exec 9>&-; seq 1 15); do
-                  sleep 2 9>&-
-                  kill -0 "$SP" 2>/dev/null || break   # e' gia' uscito da solo
-                  DTOKEN3=$(exec 9>&-; sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p' "$DSTATE" | head -1)
-                  DPORT3=$(exec 9>&-; sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]\{1,5\}\).*/\1/p' "$DSTATE" | head -1)
-                  [ -n "$DTOKEN3" ] && [ -n "$DPORT3" ] || continue
-                  for SCHEME3 in https http; do
-                    RESP3=$(exec 9>&-; curl -sk -m 3 -o /dev/null -w "%{http_code}" -X POST \
-                      -H "Authorization: Bearer $DTOKEN3" \
-                      "$SCHEME3://127.0.0.1:$DPORT3/__daemon/restart-when-idle" 9>&- 2>/dev/null)
-                    if [ "$RESP3" = "202" ]; then
-                      echo "[start-prod] il server stava ancora nascendo: ora risponde → riavvio quando i turni finiscono"
-                      RELOAD_ASKED3=1
-                      break
-                    fi
-                  done
-                  [ "$RELOAD_ASKED3" = 1 ] && break
-                done
-              fi
-              if [ "$RELOAD_ASKED3" = 1 ]; then
-                # Ramo paziente: aspetta la finestra del server, come sopra.
-                QCAP_S3=$(( ${TOPICS_QUIESCENCE_CAP_MS:-1500000} / 1000 ))
-                QWAIT3=$(( QCAP_S3 + 60 ))
-                W3=0
-                while kill -0 "$SP" 2>/dev/null && [ "$W3" -lt "$QWAIT3" ]; do
-                  sleep 2 9>&-
-                  W3=$((W3 + 2))
-                done
-                if kill -0 "$SP" 2>/dev/null; then
-                  echo "[start-prod] ATTENZIONE: il server $SP non e' uscito dopo ${W3}s — SIGTERM."
-                  kill -TERM "$SP" 2>/dev/null
-                fi
-                sleep 5 9>&-
-                continue
-              fi
-              echo "[start-prod] server source changed → graceful hot-reload (SIGTERM $SP): non risponde nemmeno dopo l'attesa di nascita"
-              diagnose_stall "$SP"
-              kill -TERM "$SP" 2>/dev/null
-              # Settle window: one save can emit TWO fswatch batches (write +
-              # rename straddling the 2s latency). Without this pause the second
-              # batch SIGTERMs the FRESH server mid-init — before server.ts has
-              # registered its signal handlers — killing it with code 143 and
-              # skipping gracefulShutdown. Sleeping here just delays the next
-              # batch's reload until the new process is fully up (init is ~2-4s),
-              # so every reload stays graceful.
-              sleep 10 9>&-
-              # …E POI SI CONTROLLA CHE SIA MORTO DAVVERO.
-              #
-              # Prima qui c'era solo lo `sleep 10`: si mandava SIGTERM e si andava
-              # avanti, dando per scontato che fosse bastato. Se il vecchio processo
-              # NON esce — un `gracefulShutdown` che resta appeso su un turno in
-              # volo, un handler che non ritorna — nessuno se ne accorge, e quello
-              # resta su. Misurato il 2026-08-15: un `bun run server.ts` vivo da
-              # 4h18m, reparentato a pid 1, senza piu' un socket in ascolto, che
-              # teneva 89 MB per niente mentre il server nuovo lavorava accanto.
-              # Non e' solo memoria sprecata: finche' e' vivo puo' ancora avere il
-              # DB aperto e i suoi timer accesi.
-              #
-              # La finestra SIGKILL e' 60s (non 15): gracefulShutdown deve
-              # distaccare i figli dal broker (stopAllProviders 3.5s + close
-              # browserService + webrtcBridge.shutdown). Se l'operazione richiede
-              # piu' di 15s — normale sotto carico — un SIGKILL prematuro salta
-              # il detach e i figli nel broker non vengono staccati: la chat che
-              # stava lavorando viene uccisa invece di essere riadottata al
-              # riavvio. Misurato il 2026-08-18: sei SIGKILL in un giorno, ogni
-              # volta dopo esattamente 15s, con partial sweep che diceva «reset 1»
-              # invece di «kept 1».
-              SIGKILL_WINDOW=60
-              SIGKILL_WAITED=0
-              if kill -0 "$SP" 2>/dev/null; then
-                while kill -0 "$SP" 2>/dev/null && [ "$SIGKILL_WAITED" -lt "$SIGKILL_WINDOW" ]; do
-                  sleep 1 9>&-
-                  SIGKILL_WAITED=$((SIGKILL_WAITED + 1))
-                done
-                if kill -0 "$SP" 2>/dev/null; then
-                  echo "[start-prod] ATTENZIONE: il server $SP ha ignorato SIGTERM per ${SIGKILL_WAITED}s — SIGKILL."
-                  echo "[start-prod]   Un orfano lasciato vivo tiene il DB aperto e i suoi timer accesi."
-                  kill -KILL "$SP" 2>/dev/null
-                fi
-              fi
-            fi
+          elif kill -0 "$SP" 2>/dev/null; then
+            echo "[start-prod] server source changed → graceful hot-reload (SIGTERM $SP): non risponde nemmeno dopo l'attesa di nascita e ${ASKED_FOR:-0}s di richieste"
+            diagnose_stall "$SP"
+            terminate_server "$SP"
           fi
+          # Settle window: one save can emit TWO fswatch batches (write +
+          # rename straddling the 2 s latency), and the second one must not
+          # find the fresh server mid-init.
+          sleep 5 9>&-
         fi
 done < "$EVENT_PIPE"

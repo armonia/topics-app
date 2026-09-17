@@ -28,7 +28,7 @@ import {
   READ_ONLY_BROWSER_ENDPOINTS,
   type McpToolAnnotations,
 } from "../browser-tool-spec";
-import { PARKED_WAITED_OUT, PREVIEW_RULE, TASK_STATUSES } from "../../shared/board";
+import { PARKED_WAITED_OUT, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, TASK_STATUSES } from "../../shared/board";
 import { GOAL_STEP_STATUSES } from "../../shared/types";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
@@ -424,7 +424,7 @@ const TOOLS = [
       properties: {
         task_id: { type: "string", description: "Task id from list_tasks." },
         content: { type: "string", description: "Markdown comment body — or, with `options`, the one-line question." },
-        options: { type: "array", items: { type: "string" }, description: "Answer choices for a human decision (renders quick-reply buttons on the board card). Omit for a plain comment." },
+        options: { type: "array", items: { type: "string" }, description: `Answer choices for a human decision (renders quick-reply buttons on the board card). Omit for a plain comment. ${RECOMMENDED_OPTION_RULE}` },
         media: { type: "array", items: { type: "string" }, description: "Absolute file paths to attach (screenshots, artifacts you produced) — rendered inline on the board." },
         mentions: { type: "array", items: { type: "string" }, description: "Optional @-mentions." },
       },
@@ -507,7 +507,7 @@ const TOOLS = [
       properties: {
         task_id: { type: "string", description: "Task id from list_global_tasks." },
         content: { type: "string", description: "Concise progress note, handoff, or question." },
-        options: { type: "array", items: { type: "string" }, description: "Optional human quick-reply choices." },
+        options: { type: "array", items: { type: "string" }, description: `Optional human quick-reply choices. ${RECOMMENDED_OPTION_RULE}` },
       },
       required: ["task_id", "content"],
     },
@@ -1954,11 +1954,15 @@ export async function callUpdateTask(
  * A dire che i check sono finiti e' il SERVER, che risponde con l'esito (verde:
  * il task passa in review; rosso: un 409 con l'output). Questo numero esiste
  * solo perche' un server incastrato che risponde `pending` per sempre non faccia
- * girare qui dentro un ciclo eterno. 120 gambe da 25s fanno 50 minuti, cioe'
- * cinque volte il giro piu' lento misurato (~10 minuti di `test:unit` a macchina
- * carica).
+ * girare qui dentro un ciclo eterno.
+ *
+ * 240 legs of 25 s are 100 minutes (15/09/2026): above the 60-minute deadline of
+ * the pull request CI wait (`CI_E2E_DEADLINE_MS`, KANBAN-84) plus the slowest
+ * local round measured between 08/09 and 15/09 (29.2 minutes), and below the
+ * `MCP_TOOL_TIMEOUT` that `buildSafeEnv` gives the CLI (`ASK_TTL_MS` + 5 min), so
+ * the agent gets the bridge's "it completes by itself" message, not a transport error.
  */
-export const CHECKS_MAX_LEGS = 120;
+export const CHECKS_MAX_LEGS = 240;
 
 export async function callCreateTask(
   args: ParsedArgs,

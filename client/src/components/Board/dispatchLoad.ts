@@ -18,9 +18,13 @@
  * Nothing here decides the cap: the cap is `currentCapLimit`, the machine is the
  * probe, and this only turns the pair into something a person reads.
  */
-import { capMode } from '../../lib/board';
+import { ADMIT_RESUME_FRACTION, capMode } from '../../lib/board';
+import type { DispatchAdmission, DispatchCapacity } from '../../lib/board';
 import type { GlobalDispatchCapState } from '../../state/globalDispatchCap';
 import { currentCapLimit } from '../../state/globalDispatchCap';
+
+/** Which brake is holding new agents right now, as the gate said it. */
+export type HeldBy = NonNullable<DispatchAdmission['blockedBy']>;
 
 /** Neutral until the limit is reached, amber at it, rose past it. */
 export type LoadTone = 'idle' | 'full' | 'over';
@@ -59,14 +63,57 @@ export interface DispatchLoadReading {
   budgetShare: number | null;
   /** Check runs frozen for load right now (see the budget governor). */
   frozen: number;
+  /**
+   * THE GATE IS HOLDING, and on which axis: `admission` said no. The ring used
+   * to fill with the CPU alone and say "a budget" (or "3 of 4") whatever held,
+   * so memory or the 6 GB floor holding the queue drew a ring with room in it.
+   * When set, the ring is full, the tone is at least `full` (`over` for the
+   * floor and a drain, which do not wait for a share to free up) and the word
+   * names the axis. `null` = nothing holds, or no verdict on the wire.
+   */
+  heldBy: HeldBy | null;
+}
+
+/**
+ * THE CORES AS THE GATE COUNTED THEM: the probe plus the turns admitted in the
+ * last ninety seconds, against the ceiling it admitted against. The capacity's
+ * own `usedCoreUnits` is the bare probe, and printing it next to the gate's
+ * verdict drew "2.0 of 6.6" beside "new ones wait" while the card said "6.5 of
+ * 6.6". Without the gate's numbers (an old server, count mode, the floor) the
+ * probe is what there is, and nothing is said as pending.
+ */
+export function gateCoreNumbers(c: DispatchCapacity | null): { used: number | null; usable: number; pending: number } {
+  const a = c?.admission;
+  if (a && a.usedCoreUnits != null && a.usableCoreUnits != null) {
+    return { used: a.usedCoreUnits, usable: Math.max(0, a.usableCoreUnits), pending: Math.max(0, a.pendingAdmissions ?? 0) };
+  }
+  return { used: c?.usedCoreUnits ?? null, usable: Math.max(0, c?.usableCoreUnits ?? 0), pending: 0 };
+}
+
+/** Who is holding, from the verdict on the wire. A pass is not a hold. */
+function heldByOf(c: DispatchCapacity | null): HeldBy | null {
+  const a = c?.admission;
+  return a && !a.admit && a.blockedBy ? a.blockedBy : null;
+}
+
+/** The reading, once the gate says it holds: full ring, a tone that says so. */
+function withHold(r: DispatchLoadReading): DispatchLoadReading {
+  if (!r.heldBy || r.loading) return r;
+  const hard = r.heldBy === 'floor' || r.heldBy === 'drain';
+  return { ...r, fill: 1, tone: hard || r.tone === 'over' ? 'over' : 'full' };
 }
 
 export function dispatchLoadReading(s: GlobalDispatchCapState): DispatchLoadReading {
+  return withHold(bareReading(s));
+}
+
+function bareReading(s: GlobalDispatchCapState): DispatchLoadReading {
   const running = Math.max(0, s.capacity?.running ?? 0);
   const base = {
     running, fill: 0, tone: 'idle' as LoadTone, loading: false, unbounded: false, byResources: false,
     usedShare: null as number | null, budgetShare: null as number | null,
     frozen: Math.max(0, s.capacity?.frozen ?? 0),
+    heldBy: heldByOf(s.capacity),
   };
   if (s.cap && capMode(s.cap) === 'resources') {
     const c = s.capacity;
@@ -75,7 +122,8 @@ export function dispatchLoadReading(s: GlobalDispatchCapState): DispatchLoadRead
     // was a gauge that said nothing precisely in the mode whose whole point is
     // "how full is it". The fraction is use over budget; over the budget it
     // stays full and the tone is what says "past it".
-    if (!c || c.usedCoreUnits == null || !(c.cores > 0)) {
+    const gate = gateCoreNumbers(c);
+    if (!c || gate.used == null || !(c.cores > 0)) {
       return { ...base, limit: null, byResources: true, loading: !c };
     }
     // Against the USABLE ceiling, the one the gate admits against: the share
@@ -83,9 +131,10 @@ export function dispatchLoadReading(s: GlobalDispatchCapState): DispatchLoadRead
     // budget drew a half-empty ring while the gate was already saying "wait".
     // A measured ZERO is a real ceiling (the others hold the whole machine),
     // not a missing one: falling back to the budget there drew an almost empty
-    // ring while the gate refused every card.
-    const ceiling = Math.max(0, c.usableCoreUnits);
-    const used = c.usedCoreUnits;
+    // ring while the gate refused every card. Use and ceiling are the gate's
+    // own when it sent them (`gateCoreNumbers`).
+    const ceiling = gate.usable;
+    const used = gate.used;
     const fill = ceiling > 0 ? Math.min(1, used / ceiling) : used > 0 ? 1 : 0;
     const tone: LoadTone = used > ceiling
       ? 'over'
@@ -96,7 +145,7 @@ export function dispatchLoadReading(s: GlobalDispatchCapState): DispatchLoadRead
       byResources: true,
       fill,
       tone,
-      usedShare: c.usedCoreUnits / c.cores,
+      usedShare: used / c.cores,
       budgetShare: c.budgetShare,
     };
   }
@@ -111,6 +160,9 @@ export function dispatchLoadReading(s: GlobalDispatchCapState): DispatchLoadRead
 /** The i18n key of the ONE word beside the ring. */
 export function loadWordKey(r: DispatchLoadReading): string {
   if (r.loading) return 'board.gauge.reading';
+  // The axis that holds, before the name of the brake: "a budget" beside a ring
+  // while memory held the queue was the one word that answered nothing.
+  if (r.heldBy) return `board.gauge.wait.${r.heldBy}`;
   if (r.byResources) return 'board.gauge.byResources';
   if (r.unbounded) return 'board.gauge.noLimit';
   if (r.tone === 'over') return 'board.gauge.over';
@@ -121,10 +173,99 @@ export function loadWordKey(r: DispatchLoadReading): string {
 /** Ring stroke + word colour, one per tone. Kept next to the reading so a new
  *  tone can never be added without a colour. */
 export function loadToneClass(r: DispatchLoadReading): string {
-  if (r.loading || r.unbounded) return 'text-app-text-muted';
+  if (r.loading) return 'text-app-text-muted';
+  // Tone before "unbounded": no ceiling is neutral only while nothing holds, and
+  // an unbounded reading has no tone of its own except the one a hold gives it.
   if (r.tone === 'over') return 'text-rose-300';
   if (r.tone === 'full') return 'text-amber-300';
+  if (r.unbounded) return 'text-app-text-muted';
   return 'text-app-text-secondary';
+}
+
+/**
+ * THE VERDICT, IN WORDS WITH ITS NUMBERS: the one sentence the panel and the
+ * popover print for `admission`. It names the axis and the two numbers that
+ * axis compared, so "new ones wait" is never a bare claim beside a reading
+ * that shows room. Every branch has a fallback without numbers, for a server
+ * that sends only the verdict.
+ */
+export interface VerdictText {
+  key: string;
+  params?: Record<string, string | number>;
+  /** `go` green, `first` amber (a pass owed only to an empty fleet), `wait` red. */
+  tone: 'go' | 'first' | 'wait';
+  /** The whole sentence the brake composed, for a hover title. */
+  title?: string;
+}
+
+/** One decimal, the way the live line prints its cores. */
+const oneDecimal = (n: number): string => n.toFixed(1);
+
+/** The first sentence of a composed reason, shaped to follow the verdict's own
+ *  colon: initial lowered, and its colon turned into a comma so the line does
+ *  not read "wait: memory low: 5.5 GB". A decimal point is never followed by a
+ *  space ("5.5 GB"), so it does not split there. */
+function headline(reason: string): string {
+  const first = reason.split(/\.\s/)[0]!.trim().replace(/\.$/, '').replace(': ', ', ');
+  return first.charAt(0).toLowerCase() + first.slice(1);
+}
+
+export function admissionVerdictText(a: DispatchAdmission): VerdictText {
+  if (a.admit) {
+    return a.firstAgentExempt
+      ? { key: 'board.dispatch.verdictFirst', tone: 'first' }
+      : { key: 'board.dispatch.verdictGo', tone: 'go' };
+  }
+  const wait = (key: string, params?: Record<string, string | number>): VerdictText =>
+    ({ key, params, tone: 'wait', title: a.reason ?? undefined });
+  if (a.blockedBy === 'floor') {
+    return a.reason ? wait('board.dispatch.verdictWaitFloor', { reason: headline(a.reason) }) : wait('board.dispatch.verdictWaitFloorBare');
+  }
+  if (a.blockedBy === 'drain') return wait('board.dispatch.verdictWaitDrain');
+  if (a.blockedBy === 'memory') {
+    if (a.memClause === 'footprint' && a.ourMemGB != null && a.usableMemGB != null) {
+      return wait('board.dispatch.verdictWaitMemoryFootprint', { ours: oneDecimal(a.ourMemGB), ceiling: oneDecimal(a.usableMemGB) });
+    }
+    if (a.costMemGB != null && a.freeQuotaMemGB != null) {
+      return wait('board.dispatch.verdictWaitMemory', { cost: oneDecimal(a.costMemGB), free: oneDecimal(a.freeQuotaMemGB) });
+    }
+    return wait('board.dispatch.verdictWaitMemoryBare');
+  }
+  // Held on the CPU while one more agent would fit under the ceiling: that is
+  // the resume line (once holding, the gate restarts under 80% of it), and the
+  // cost alone would read as a contradiction of the numbers beside it.
+  // The number printed is the one the USE beside it has to reach. The gate
+  // compares use PLUS the cost of one more agent with 80% of the usable, so the
+  // use resumes at that line minus the cost, not at the line itself: printing
+  // the bare 80% said "under 4.4" next to a use of 3.5 that was still holding.
+  const { usedCoreUnits: used, usableCoreUnits: usable } = a;
+  if (used != null && usable != null && used + a.costCoreUnits <= usable) {
+    const resume = Math.max(0, usable * ADMIT_RESUME_FRACTION - a.costCoreUnits);
+    return wait('board.dispatch.verdictWaitCpuResume', { resume: oneDecimal(resume) });
+  }
+  return wait('board.dispatch.verdictWaitCpu', { cost: oneDecimal(a.costCoreUnits) });
+}
+
+/**
+ * THE ADVICE CHIP'S ARITHMETIC ("stop N"), and the one brake it applies to.
+ *
+ * `running - recommended` is a question about the COUNT brake: in "per
+ * risorse" the number does not apply (KANBAN-75), `recommended` is still the
+ * count-mode figure, and the chip drew a red "Fermane 12" on a machine whose
+ * gate was admitting the next agent. There the gauge names the axis that holds,
+ * so the chip says nothing. An unread mode says nothing either: advice on a
+ * brake that may not be the one in force is the same false alarm.
+ */
+export function loadAdvice(s: GlobalDispatchCapState): { over: number; severe: boolean } | null {
+  const cap = s.capacity;
+  if (!cap || !s.cap || capMode(s.cap) === 'resources') return null;
+  const over = (cap.running ?? 0) - cap.recommended;
+  if (over <= 0) return null;
+  // The fleet's own CPU is the honest signal (dispatch-capacity.ts): the load
+  // average of the whole machine speaks mostly of the person's own apps.
+  const beyondQuota = cap.oursCores != null && cap.budgetCores > 0 && cap.oursCores >= cap.budgetCores;
+  const severe = beyondQuota || over >= 2 || (cap.oursCores == null && cap.cores > 0 && cap.load1 / cap.cores >= 1.3);
+  return { over, severe };
 }
 
 /**

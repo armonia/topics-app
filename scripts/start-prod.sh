@@ -234,7 +234,8 @@ fi
 # (SIGKILL → bypasses gracefulShutdown, races the lock) and NOT the old
 # fswatch-on-every-save (no debounce → pane flap): fswatch is debounced 2s so a
 # multi-file merge coalesces into ONE graceful reload. Only server/** + server.ts
-# are watched (source-only; runtime writes go to data/, ai-bridge/, /tmp, public/).
+# and the shared/ files the server imports count (source-only; runtime writes go
+# to data/, ai-bridge/, /tmp, public/).
 # Un server piu' giovane di questa soglia sta ancora dentro l'init: la porta
 # HTTP non e' aperta, quindi non puo' rispondere a `restart-when-idle`.
 BIRTH_GRACE_S=25
@@ -277,6 +278,18 @@ BACKOFF_MAX=30      # tetto del backoff (secondi)
 _backoff_cur=0      # ritardo corrente; 0 = primo giro / nessun boot-failure recente
 
 while [ "$SHUTTING_DOWN" != 1 ]; do
+  # LA CONFIGURAZIONE SI RILEGGE A OGNI AVVIO DEL SERVER, non solo la prima
+  # volta. Il 16/09/2026 il proprietario ha aggiunto a ~/.topics-server-env le
+  # variabili della posta e di Google; il `source` stava solo sopra questo loop,
+  # quindi il server ricaricato dal watcher continuava a girare con l'ambiente
+  # di ore prima e quelle variabili non esistevano per lui. Chi scrive nel file
+  # si aspetta che un ricarico basti: gli serviva invece un riavvio di launchd.
+  # Una variabile TOLTA dal file resta comunque in questo ambiente fino al
+  # prossimo avvio dello script: il source aggiunge, non azzera.
+  if [ -f "$HOME/.topics-server-env" ]; then
+    # shellcheck source=/dev/null
+    source "$HOME/.topics-server-env" || echo "[start-prod] ~/.topics-server-env non si legge: tengo l'ambiente di prima"
+  fi
   _boot_t="$(date +%s)"
   "$BUN" run "$APP_DIR/server.ts" &
   SERVER_PID=$!
@@ -300,7 +313,7 @@ while [ "$SHUTTING_DOWN" != 1 ]; do
   if [ "$code" -eq 137 ]; then
     echo "[$(date +%H:%M:%S)] server pid $SERVER_PID got SIGKILL (exit 137) after ${_lived}s — forensic snapshot:"
     ps -eo pid,ppid,etime,args 2>/dev/null | grep -Ei 'kill|kickstart|bootout' | grep -v grep | sed 's/^/    [ps] /' | head -20
-    lsof -nP -iTCP:3333 2>/dev/null | sed 's/^/    [3333] /' | head -12
+    /usr/sbin/lsof -nP -iTCP:3333 2>/dev/null | sed 's/^/    [3333] /' | head -12
   fi
 
   if [ "$_lived" -lt "$BOOT_THRESHOLD" ]; then
