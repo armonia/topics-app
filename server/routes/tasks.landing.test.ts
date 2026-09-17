@@ -438,6 +438,58 @@ describe("approve decoupled from landing", () => {
     expect(comments[riallineato]).toContain("indietro di 2 commit");
   });
 
+  /**
+   * The realign makes what LANDS a commit nobody measured: the checks - the
+   * local commands and the two CI rows - ran on the delivered commit, hours
+   * earlier (1,93 h in review on average, 32 lands in 7 days). 22 of those 32
+   * lands carried the realign line and only 4 also warned that the land differed
+   * from the delivery: 18 said nothing at all, while `checks_commit` kept naming
+   * a commit that is not the one that landed.
+   */
+  test("un land che riallinea dice che cosa i check hanno misurato, e azzera checks_commit", async () => {
+    const d = freshDb(); const b: any[] = [];
+    const rt = createTasksRouter(makeCtx(d, b), undefined, {
+      autoMerge: {
+        tryMerge: async () => ({ ...MERGED, realigned: "il ramo era indietro di 2 commit su 'main': ci ho riportato main dentro" }),
+        buildClient: async () => ({ code: 0, stderr: "" }),
+      } as any,
+    });
+    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
+    d.prepare("UPDATE tasks SET status='review' WHERE id = ?").run(t.id);
+    createTaskService(d).recordChecks({
+      taskId: t.id, state: "pass", commit: "abc1234def",
+      runs: [{ name: "unit-ci", cmd: "gh", ok: true, code: 0, ms: 10, timedOut: false, tail: "" }],
+    });
+    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    await new Promise((res) => setTimeout(res, 20));
+
+    const after = createTaskService(d).get(t.id)!;
+    const note = after.comments.map((c) => c.content).find((c) => c.includes("Riallineato prima del land"))!;
+    expect(note).toContain("abc1234d");
+    expect(note).toContain("non la fusione che sta atterrando");
+    // The verdict itself stays: it was really measured, on the commit the note
+    // now names. Only the claim that it describes what landed goes.
+    expect(after.task.checksCommit).toBeNull();
+    expect(after.task.checksState).toBe("pass");
+    expect(after.task.checks).toHaveLength(1);
+  });
+
+  test("senza riallineamento la nota non c'e' e il commit dei check resta", async () => {
+    const d = freshDb(); const b: any[] = [];
+    const rt = createTasksRouter(makeCtx(d, b), undefined, {
+      autoMerge: { tryMerge: async () => MERGED, buildClient: async () => ({ code: 0, stderr: "" }) } as any,
+    });
+    const t = await (await call(rt, "POST", "/api/boards/pX/tasks", { text: "feature" }))!.json();
+    d.prepare("UPDATE tasks SET status='review' WHERE id = ?").run(t.id);
+    createTaskService(d).recordChecks({ taskId: t.id, state: "pass", commit: "abc1234def", runs: [] });
+    await call(rt, "POST", `/api/boards/pX/tasks/${t.id}/land`, {});
+    await new Promise((res) => setTimeout(res, 20));
+
+    const after = createTaskService(d).get(t.id)!;
+    expect(after.comments.some((c) => c.content.includes("Riallineato prima del land"))).toBe(false);
+    expect(after.task.checksCommit).toBe("abc1234def");
+  });
+
   test("conflitto nel RIALLINEAMENTO: nomina i file e chiede una fusione, non una rebase", async () => {
     // Due conflitti diversi, due lavori diversi. Dire «rifai la base sul main
     // aggiornato» a chi ha appena visto fallire quel merge lo manda a rifare a

@@ -1621,8 +1621,31 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // Il ramo era vecchio e il land l'ha riportato al passo con main da sé: è
       // un commit che nessun umano ha fatto, quindi lo si dice — e per PRIMO,
       // perché è successo prima di tutto il resto.
+      // ...and what that costs. What landed is C2 = merge(C, main), and the
+      // checks - the local commands AND the two CI rows - measured C. Nobody
+      // reads the CI of C2: the push, the draft and the poll loop all happened
+      // once, on C, hours earlier (1,93 h in review on average, 32 lands in 7
+      // days). So the note says which commit those verdicts describe, and
+      // `checks_commit` stops naming a commit as if it were the one that landed.
+      // Measured on 17/09: 22 of those 32 lands carry this line and only 4 also
+      // warned that the land differed from the delivery - 18 said nothing.
+      //
+      // NOT a merge queue. Re-pushing C2 and re-reading its CI costs 15-40
+      // minutes per land and is the owner's call, not this line's: what changes
+      // here is only that the card stops claiming more than it measured.
       if (res.status === "merged" && res.realigned) {
-        svc.addComment({ taskId, author: "system", kind: "service", content: `Riallineato prima del land: ${res.realigned}.` });
+        const before = svc.get(taskId, { projectId })?.task;
+        const measured = before?.checksState && before.checksState !== "running"
+          ? before.checksCommit ? `\`${before.checksCommit.slice(0, 8)}\`` : "il commit consegnato"
+          : null;
+        svc.addComment({
+          taskId, author: "system", kind: "service",
+          content: `Riallineato prima del land: ${res.realigned}.`
+            + (measured
+              ? ` I check (comandi locali e righe CI) hanno misurato ${measured}, non la fusione che sta atterrando: nessuno li ha rimisurati su quest'ultima.`
+              : ""),
+        });
+        try { svc.clearChecksCommit(taskId); } catch (err) { console.warn(`[land] checks_commit non azzerato per ${taskId}:`, err); }
       }
       // Ciò che è atterrato non era lo scatto approvato: chi ha cliccato «Landa»
       // deve leggerlo, altrimenti crede di aver pubblicato quello che ha visto.
