@@ -198,8 +198,15 @@ test.describe("a configured endpoint serving a chat", () => {
       //    for a name it has never seen.
       // Polled, not read once: the snapshot is refreshed in the background
       // after the endpoint is registered, so a single read races the refresh.
+      // `/api/providers/snapshot`, NOT `/api/providers`: the latter is
+      // `listProviders()`, four fields wide (name, connected, capabilities,
+      // isDefault) and no snapshot data at all, so asking it for a window
+      // returned undefined forever and looked exactly like a window that never
+      // arrived. Measured against a running test server: the snapshot route
+      // goes status=loading -> status=ready with
+      // `modelContextWindows: {"qwen38-27b-200k": 200192}` inside two seconds.
       await expect.poll(async () => {
-        const snapshot = await request.get(`${BASE}/api/providers`);
+        const snapshot = await request.get(`${BASE}/api/providers/snapshot`);
         const entry = (await snapshot.json()).providers
           .find((p: { name: string }) => p.name === PROVIDER);
         return entry?.modelContextWindows?.[MODEL];
