@@ -53,7 +53,7 @@ import {
   type TurnEndInfo,
 } from "../providers/stop-reason";
 import { createRemoteNodeLane, isNodeSessionKey, type NodeDeps, type NodeSlot } from "./task-dispatcher-remote-node";
-import { providerHold, holdUntilLabel, planUsage } from "../lib/provider-hold";
+import { providerHold, holdAsksAPerson, holdUntilLabel, planUsage } from "../lib/provider-hold";
 import { PLAN_DISPATCH_HOLD_AT, providerHoldKey, providerHoldLabel } from "../../shared/provider-hold";
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { resolveOutputLanguage } from "./app-settings";
@@ -1328,6 +1328,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** The reset instant of the plan window already logged by `tick`: once per window. */
   let planWindowAnnounced = 0;
 
+  /** Whole days between now and the end of a hold, rounded up: past
+   *  `HOLD_ASKS_A_PERSON_MS` this is always two or more, so both sentences that
+   *  use it stay plural. */
+  function holdDays(hold: { untilMs: number }): number {
+    return Math.max(1, Math.ceil((hold.untilMs - clock()) / 86_400_000));
+  }
+
   /**
    * The memo belongs to whichever PROVIDER the task would actually run on,
    * never to the whole machine — AGPT-01 extended: a Codex wall must not wait
@@ -1335,7 +1342,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * 31be77d3). The approaching-limit early warning stays Claude-only: it
    * comes from the five-hour usage window, which only Claude's plan reports.
    */
-  function taskPlanWait(task: Task, model?: string | null, starting = false): { untilMs: number; reason: string } | null {
+  function taskPlanWait(task: Task, model?: string | null, starting = false): { untilMs: number; reason: string; asksAPerson?: true } | null {
     const claudeHold = providerHold();
     const codexHold = providerHold(Date.now(), "codex");
     const window = starting ? planUsage()?.fiveHour : null;
@@ -1362,15 +1369,31 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (!hold && !applicableNearLimit) return null;
     const label = providerHoldLabel(holdKey);
     if (hold) {
+      // A WALL OF DAYS IS NOT A WINDOW ROTATING. Held for longer than a day,
+      // the queue is not waiting for a reset: the plan is spent, and the only
+      // thing that moves the cards is a person changing the board's model or
+      // the account. Saying "resumes at 14:45" for six days running (43 such
+      // lines between 13/09 and 16/09) is how that stays invisible.
+      const asksAPerson = holdAsksAPerson(hold, clock());
+      const endsAt = holdUntilLabel(hold, clock());
       if (holdAnnounced !== hold.sinceMs) {
         holdAnnounced = hold.sinceMs;
-        log(`${label} dispatch waiting: ${hold.reason}, resumes at ${holdUntilLabel(hold)}`);
+        log(asksAPerson
+          ? `${label} dispatch waiting: ${hold.reason}, and the wall is ${holdDays(hold)} days away (until ${endsAt}): this is a spent plan, not a window reset`
+          : `${label} dispatch waiting: ${hold.reason}, resumes at ${endsAt}`);
       }
-      return { untilMs: hold.untilMs, reason: `${label}: ${hold.reason}. Ripresa dopo il reset delle ${holdUntilLabel(hold)}.` }; // allow-italian: task queue reason
+      if (asksAPerson) {
+        return {
+          untilMs: hold.untilMs, asksAPerson: true,
+          reason: `${label}: ${hold.reason}. L'attesa arriva al ${endsAt}, fra ${holdDays(hold)} giorni: non e' il reset di una finestra, e' il piano esaurito. ` // allow-italian: task queue reason
+            + "Le card non ripartono da sole: serve cambiare il modello della board o l'account.", // allow-italian: task queue reason
+        };
+      }
+      return { untilMs: hold.untilMs, reason: `${label}: ${hold.reason}. Ripresa dopo il reset delle ${endsAt}.` }; // allow-italian: task queue reason
     }
     const untilMs = window!.resetsAtMs!;
     const pct = Math.round(window!.utilization);
-    const at = holdUntilLabel({ untilMs });
+    const at = holdUntilLabel({ untilMs }, clock());
     if (planWindowAnnounced !== untilMs) {
       planWindowAnnounced = untilMs;
       log(`${label} dispatch waiting: five-hour window at ${pct}%, resumes at ${at}`);
@@ -1648,6 +1671,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // one per 10s poll - a full disk would otherwise write a thousand rows in the
   // thread. Emptied in the round the block lifts, so the next one speaks again.
   const floorHeldNoted = new Set<string>();
+  // Tasks already told "the provider's wall is days away, this is a spent plan".
+  // Same discipline as `spendHeldNoted`, and for the same reason: this wait does
+  // not end by itself inside any horizon a person would wait through, so the
+  // note is forgotten only when that card's hold really lifts.
+  const planHeldNoted = new Set<string>();
   // Da QUANDO un task pesante è trattenuto dal carico (ms). Serve al tetto
   // dell'attesa (`HEAVY_HOLD_MAX_MS`): senza un istante di inizio «trattenuto da
   // troppo» non è una condizione misurabile, è un'impressione. Si azzera appena
@@ -4212,7 +4240,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       .filter((t) => { try { return !deps.svc.isDispatchBlocked(t.id); } catch { return true; } })
       .filter((t) => {
         const wait = taskPlanWait(t, t.model ?? (settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined), true);
-        if (!wait) return true;
+        if (!wait) { planHeldNoted.delete(t.id); return true; }
+        // THE CHIP IS NOT A QUESTION. A wall of days needs a person, and the
+        // chip is read by whoever already has the board open on that card: the
+        // line goes in the thread once per episode, like the spend cap's -
+        // the other wait here that no amount of patience ends.
+        //
+        // BEFORE the chip, not after: `noteHold` writes the `queued` state with
+        // no reason, so the other order left the card with an empty
+        // `dispatch_error` - the queue's own chip blanked by the line that was
+        // meant to explain it.
+        if (wait.asksAPerson) noteHold(planHeldNoted, t, wait.reason);
         markPlanWait(t, wait.reason);
         return false;
       })

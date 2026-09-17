@@ -215,6 +215,51 @@ describe("Codex hold (AGPT-01 extended)", () => {
   });
 });
 
+/**
+ * A WALL OF DAYS IS A QUESTION, NOT A WAIT.
+ *
+ * Measured on 2026-09-17: `provider-hold.json` held a Codex wall written on
+ * 13/09 at 17:39 and ending on 19/09 at 14:45, the log repeated "resumes at
+ * 14:45" 43 times over three days, and the board's `dispatch_model` sends every
+ * card through that provider. Six days are not a window rotating, and the only
+ * thing that moves those cards is a person.
+ */
+describe("a hold longer than a day", () => {
+  const sixDays = () => setProviderHold({
+    untilMs: Date.now() + 6 * 24 * 3_600_000, window: "usage_limit",
+    reason: "Codex plan usage limit reached", provider: "codex",
+  });
+
+  test("says the date, calls it a spent plan, and writes it on the card once", async () => {
+    const h = harness();
+    h.task("held-for-days", codingModel);
+    sixDays();
+    await h.dispatcher.tick(PID); await flush();
+
+    const chip = h.svc.get("held-for-days")!.task.dispatchError ?? "";
+    // The date, because an hour alone reads as "later this afternoon".
+    expect(chip).toMatch(/\d{2}\/\d{2} \d{2}:\d{2}/);
+    expect(chip).toContain("piano esaurito");
+    const said = () => (h.svc.get("held-for-days")!.comments ?? []).map(c => c.content).filter(c => c.includes("piano esaurito"));
+    expect(said()).toHaveLength(1);
+    // One per EPISODE: a 10 s poll must not write the same paragraph again.
+    await h.dispatcher.tick(PID); await flush();
+    expect(said()).toHaveLength(1);
+    expect(h.starts).toHaveLength(0);
+  });
+
+  test("a wall of hours stays a wait: the hour alone, and nothing in the thread", async () => {
+    const h = harness();
+    h.task("held-for-hours", codingModel);
+    codexLimit();
+    await h.dispatcher.tick(PID); await flush();
+    const chip = h.svc.get("held-for-hours")!.task.dispatchError ?? "";
+    expect(chip).toContain("Ripresa dopo il reset");
+    expect(chip).not.toContain("piano esaurito");
+    expect((h.svc.get("held-for-hours")!.comments ?? []).filter(c => c.content.includes("piano esaurito"))).toHaveLength(0);
+  });
+});
+
 test("resume follows the bound provider and retains human updates while Claude waits", async () => {
   const h = harness("codex");
   h.task("claude", CLAUDE, "topics"); h.task("gpt", codingModel, "codex");
