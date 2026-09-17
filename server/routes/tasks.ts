@@ -412,7 +412,19 @@ export interface TasksRouterOpts {
    * e non puo' riceverlo al costruttore. Con questo hook il wiring e' immediato
    * e senza accoppiamenti circolari.
    */
-  onChecksGate?: (gate: import("../services/checks-gate").ChecksGate) => void;
+  /**
+   * `hooks.settleDelivery` rides along because it answers the OTHER half of the
+   * same question: the periodic sweep that switches off an orphaned `running`
+   * light (`services/checks-lights.ts`) has the card ids in hand, and without
+   * this the honest light would just park the card - nothing in this process
+   * restarts a round whose gate key is gone, and the boot resume now gives up
+   * after three rounds (`MAX_DELIVERY_ROUNDS`). It is a no-op for a card this
+   * process holds no delivery for.
+   */
+  onChecksGate?: (
+    gate: import("../services/checks-gate").ChecksGate,
+    hooks: { settleDelivery: (taskId: string) => void },
+  ) => void;
   /**
    * The memory a pre-review command waits for before it starts: a delivery's
    * unit tree is 4-11 GB, and nothing else holds it back once the card was
@@ -961,7 +973,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   const checksGate = createChecksGate({ maxConcurrent: checksLanes() });
   // Notifica il chiamante non appena il gate esiste, cosi' puo' passarne
   // `runningCount` al dispatcher senza accoppiamenti circolari.
-  try { opts?.onChecksGate?.(checksGate); } catch { /* best-effort */ }
+  // `settleDelivery` is a hoisted declaration below: the hook only stores the
+  // reference, and nothing calls it before the router is finished being built.
+  try { opts?.onChecksGate?.(checksGate, { settleDelivery: (taskId) => settleDelivery(taskId) }); } catch { /* best-effort */ }
 
   // WITHOUT A PREDICATE, and only here: this is the one instant when the gate's
   // registry is EMPTY by construction, so every «running» left in the database
