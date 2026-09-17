@@ -294,6 +294,14 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     const notes = h.serviceNotes("boot");
     expect(notes.length).toBe(1);
     expect(notes[0]).toStartWith("Memoria quasi finita: la lettura più bassa degli ultimi 2 minuti è 4.8 GB");
+    // AND THE CHIP MOVES WITH IT, which is the half the dedup key decides and
+    // the only half a mutation can reach: the warm-up writes no thread line at
+    // all, so with the old key - the reason's first word, shared by "Memoria:
+    // la sto misurando" and "Memoria quasi finita" - the note above still got
+    // through and nothing here failed. What stayed wrong was the row: the wait
+    // was believed unchanged, so the chip kept saying "I am measuring it" for up
+    // to HELD_RESUME_REFRESH_MS (60 s) after the floor had already bitten.
+    expect(h.task("boot").dispatchError).toStartWith("Memoria quasi finita");
 
     // And it stays one: the same wait is not re-said at every retry.
     setSystemTime(new Date(t0 + 12_000));
