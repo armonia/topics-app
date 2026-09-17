@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "2.2.324"
+version = "2.2.339"
 description = "Topics — low-footprint desktop shell (Tauri)"
 authors = ["Armonia <hi@armonia.io>"]
 license = "MIT"
@@ -99,12 +99,16 @@ webview2-com = "0.38"
 # happens to enable it: cargo unifies features, so the build would compile
 # either way, and a call that depends on somebody else's feature list breaks the
 # day they drop it.
+# `Win32_System_Threading` (`OpenProcess`, `GetProcessTimes`) and
+# `Win32_System_ProcessStatus` (`K32GetProcessMemoryInfo`) are the per-pane CPU
+# and memory of a native browser pane (`src/pane_process_win.rs`): each pane has
+# its own WebView2 environment, so its processes are read one by one.
 # `Win32_Graphics_Gdi` is here for ONE thing: asking the window whether it
 # actually painted, before paying for the repaint remedy (see
 # `src/windows_repaint.rs`). PrintWindow + GetDIBits is the only signal that
 # distinguishes "came back blank" from "came back fine" — every API-level check
 # reports healthy in both cases.
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_System_Com", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_System_Com", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
 
 # Linux e i BSD: stessa storia, ma con WebKitGTK. `cairo-rs` arriva gia da gtk,
 # qui si aggiunge solo la feature `png`, che serve a `write_to_png` per lo
@@ -113,6 +117,11 @@ windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gd
 # `java_script_core` ma non lo ri-esporta, quindi va dichiarato qui).
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
 webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
+# GTK itself, for the z order of the pane inside its window: `webkit2gtk`
+# re-exports gio and glib but NOT gtk, and a WebKitWebView is stacked as a GTK
+# widget, not as a WebKit object. Same 0.18 the rest of the tree resolves, so no
+# second copy of gtk enters the build.
+gtk = "0.18"
 javascriptcore-rs = "=1.1.2"
 cairo-rs = { version = "0.18", features = ["png"] }
 glib = "0.18"

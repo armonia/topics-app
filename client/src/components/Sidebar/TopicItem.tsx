@@ -14,6 +14,9 @@ import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { TopicSubline } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
 import { TopicStreamingSpinner } from '@/components/Layout/StreamingIndicator';
+import { SwapIce } from '@/components/Shared/SwapIce';
+import { SwapFreezeLabel } from '@/components/Shared/SwapFreezeLabel';
+import { useSwapFreeze } from '@/state/swapFreeze';
 import { rowCommandSequence } from '@/lib/rowCommandOrder';
 import { sidebarRowCard, ROW_PX, ROW_GAP, ROW_H, ROW_INSET, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_CHEVRON, ROW_CHEVRON_SLOT, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, ARCHIVED_ROW, TAB_LABEL_TYPE, SIDEBAR_INDENT_STEP, ON_FILL_TEXT, ON_FILL_TEXT_SOFT } from '@/lib/selectionStyles';
 import { RowSplitMap } from './RowSplitMap';
@@ -127,6 +130,8 @@ export const TopicItem = memo(function TopicItem({
   // upstream prop needed; deduplicates the wiring across surfaces.
   const tr = useT();
   const isStreaming = useTopicLoading(topic.id);
+  /** Topics is holding a command of this chat stopped: the row frosts over. */
+  const swapFreeze = useSwapFreeze({ topicId: topic.id });
   // Attention TIER — amber 'input' (a permission gate, act now) vs blue 'done'
   // (turn finished, look when ready), or null. Same signal/look the chat tab
   // uses, so the sidebar row and the tab can't drift (tabbar ≡ sidebar
@@ -327,6 +332,10 @@ export const TopicItem = memo(function TopicItem({
       {/* "Awaiting feedback" is the row's own electric-blue background now
           (see sidebarRowCard awaiting flag), not an overlay. */}
 
+      {/* THE ROW'S FROST: rime on the edges, never over the name. First child,
+          under everything else (`.swap-ice-host`). */}
+      <SwapIce freeze={swapFreeze} size="mini" />
+
       {/* THE ACCORDION COLUMN, RESERVED EVEN WHEN THERE IS NO ACCORDION.
           The toggle only exists on a row with children, but the SLOT exists on
           every row: without the empty branch a chat without children started
@@ -491,7 +500,10 @@ export const TopicItem = memo(function TopicItem({
             so the sidebar chat row and its tab can't drift in glyph, animation
             or size. Read-only on both: stopping is a command now, not a hover
             state of a status glyph. */}
-        {isStreaming && (
+        {/* Frozen: the snowflake takes the working glyph's place, because a
+            command Topics has stopped is not working. */}
+        {swapFreeze && <SwapFreezeLabel freeze={swapFreeze} compact className="flex-shrink-0" />}
+        {isStreaming && !swapFreeze && (
           <TopicStreamingSpinner
             topicId={topic.id}
             variant="labeled"

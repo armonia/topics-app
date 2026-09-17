@@ -11,7 +11,10 @@
  * one that had actually gone red.
  */
 import { describe, expect, test } from "bun:test";
-import { areaTokens, childEnv, nodeIsRecentEnough, ownBundleDir, parseNodeVersion, pickNodeBin, selectSpecs, testIdsOf } from "./check-e2e-touched.ts";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { areaTokens, changedFiles, childEnv, nodeIsRecentEnough, ownBundleDir, parseNodeVersion, pickNodeBin, refusesToRunSpecs, selectSpecs, testIdsOf } from "./check-e2e-touched.ts";
 
 const spec = (file: string, text: string) => ({ file: `tests/e2e/${file}`, text });
 
@@ -122,5 +125,101 @@ describe("ownBundleDir", () => {
     const linked = `${main}/worktrees/sandy-anchor`;
     expect(ownBundleDir({}, linked, main, "/tmp")).toBe("/tmp/topics-e2e-touched/sandy-anchor");
     expect(ownBundleDir({ TOPICS_E2E_BUNDLE_DIR: "  " }, linked, main, "/tmp")).toBe("/tmp/topics-e2e-touched/sandy-anchor");
+  });
+});
+
+describe("the Mac only lists (15/09/2026: Chromium downloaded onto the owner's Mac)", () => {
+  test("refuses only on darwin, outside GitHub Actions, without --list", () => {
+    expect(refusesToRunSpecs({ platform: "darwin", githubActions: false, listOnly: false })).toBe(true);
+    expect(refusesToRunSpecs({ platform: "darwin", githubActions: false, listOnly: true })).toBe(false);
+    expect(refusesToRunSpecs({ platform: "darwin", githubActions: true, listOnly: false })).toBe(false);
+    expect(refusesToRunSpecs({ platform: "linux", githubActions: false, listOnly: false })).toBe(false);
+    expect(refusesToRunSpecs({ platform: "win32", githubActions: false, listOnly: false })).toBe(false);
+  });
+
+  test("the real script in a repo with no node_modules: --list prints, the run exits 97 on a Mac", () => {
+    // No node_modules in the temp repo: even with the guard gone no browser can start.
+    const dir = mkdtempSync(join(tmpdir(), "e2e-touched-guard-"));
+    const script = join(import.meta.dir, "check-e2e-touched.ts");
+    const env = { ...process.env, GITHUB_ACTIONS: "", GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+    const git = (...args: string[]) => {
+      const p = Bun.spawnSync(["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", ...args], { cwd: dir, env, stdout: "pipe", stderr: "pipe" });
+      if (p.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${p.stderr.toString()}`);
+    };
+    try {
+      git("init", "-q", "-b", "main");
+      mkdirSync(join(dir, "tests/e2e"), { recursive: true });
+      writeFileSync(join(dir, "tests/e2e/a.spec.ts"), "// v1\n");
+      git("add", "-A");
+      git("commit", "-q", "-m", "base");
+      git("checkout", "-q", "-b", "card");
+      writeFileSync(join(dir, "tests/e2e/a.spec.ts"), "// v2\n");
+      git("commit", "-q", "-am", "change");
+      const run = (...args: string[]) => Bun.spawnSync([process.execPath, script, ...args], { cwd: dir, env, stdout: "pipe", stderr: "pipe" });
+      const listed = run("--list");
+      expect(listed.exitCode).toBe(0);
+      expect(listed.stdout.toString()).toContain("tests/e2e/a.spec.ts");
+      const ran = run();
+      if (process.platform === "darwin") expect(ran.exitCode).toBe(97);
+      else expect(ran.exitCode).not.toBe(97);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("changedFiles on the pull request checkout (run 34969697363: 32 files changed, 1 seen)", () => {
+  const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+  const gitIn = (cwd: string, ...args: string[]): string => {
+    const p = Bun.spawnSync(["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", "protocol.file.allow=always", ...args], { cwd, env, stdout: "pipe", stderr: "pipe" });
+    if (p.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${p.stderr.toString()}`);
+    return p.stdout.toString().trim();
+  };
+
+  /** The fetch line of the CI step, with the GitHub expressions filled in. */
+  function ciFetchArgs(baseRef: string, sha: string): string[] {
+    const config = readFileSync(join(import.meta.dir, "../.github/workflows/ci.yml"), "utf8");
+    const line = config.split("\n").map((l) => l.trim()).find((l) => l.startsWith("git fetch") && l.includes("github.base_ref"));
+    if (!line) throw new Error("no `git fetch ... github.base_ref` line in ci.yml");
+    const filled = line.replaceAll("${{ github.base_ref }}", baseRef).replaceAll("${{ github.sha }}", sha);
+    return filled.split(/\s+/).slice(1).map((a) => a.replace(/^"|"$/g, ""));
+  }
+
+  test("a one-commit-deep merge checkout has no merge base: null, and the CI fetch makes it readable", () => {
+    const root = mkdtempSync(join(tmpdir(), "e2e-touched-shallow-"));
+    const origin = join(root, "origin");
+    const clone = join(root, "clone");
+    try {
+      mkdirSync(origin);
+      gitIn(origin, "init", "-q", "-b", "main");
+      gitIn(origin, "config", "uploadpack.allowReachableSHA1InWant", "true");
+      writeFileSync(join(origin, "base.ts"), "export const a = 1;\n");
+      gitIn(origin, "add", "-A");
+      gitIn(origin, "commit", "-q", "-m", "base");
+      gitIn(origin, "checkout", "-q", "-b", "card");
+      for (const f of ["one.ts", "two.ts", "three.ts"]) writeFileSync(join(origin, f), `export const ${f.split(".")[0]} = 1;\n`);
+      gitIn(origin, "add", "-A");
+      gitIn(origin, "commit", "-q", "-m", "card work");
+      gitIn(origin, "checkout", "-q", "main");
+      writeFileSync(join(origin, "base.ts"), "export const a = 2;\n");
+      gitIn(origin, "commit", "-q", "-am", "main moves on");
+      // What GitHub tests on a pull request: the merge of the card into main.
+      gitIn(origin, "checkout", "-q", "-b", "pull-merge");
+      gitIn(origin, "merge", "-q", "--no-ff", "-m", "merge", "card");
+      const sha = gitIn(origin, "rev-parse", "HEAD");
+      gitIn(origin, "checkout", "-q", "main");
+
+      // actions/checkout: one commit deep, plus the old --depth=100 fetch of the base.
+      gitIn(root, "clone", "-q", "--depth=1", "--branch", "pull-merge", `file://${origin}`, clone);
+      gitIn(clone, "fetch", "-q", "--no-tags", "--depth=100", "origin", "main");
+      expect(changedFiles("FETCH_HEAD", clone)).toBeNull();
+
+      gitIn(clone, ...ciFetchArgs("main", sha));
+      const diff = changedFiles("origin/main", clone);
+      expect(diff?.committed).toBe(3);
+      expect(diff?.files.sort()).toEqual(["one.ts", "three.ts", "two.ts"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

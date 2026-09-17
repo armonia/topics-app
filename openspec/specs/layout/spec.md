@@ -2483,8 +2483,16 @@ ordinaria resta il pallino e basta, o l'avviso diventa rumore che si impara a
 ignorare.
 
 #### Scenario: la macchina possiede un server che oggi non c'è
-- **GIVEN** il marcatore presente e nessun server che risponde
+- **GIVEN** il marcatore presente, nessun server che risponde e nessun pid di
+  demone vivo
 - **THEN** la fascia di stato SHALL portare la causa e il percorso del marcatore
+
+#### Scenario: il marcatore c'è, ma il demone che l'ha scritto è vivo
+- **GIVEN** il marcatore presente e il pid del lucchetto del demone vivo, con il
+  server che non risponde ancora
+- **THEN** la fascia SHALL mostrare solo lo stato: si sta aspettando un server
+  noto, e offrire di eliminare il marcatore sarebbe falso (il comando
+  risponderebbe che non c'è niente da togliere)
 
 #### Scenario: una disconnessione qualunque
 - **GIVEN** nessun marcatore, e il server semplicemente non risponde adesso
@@ -2507,10 +2515,13 @@ La spiegazione SHALL comparire mentre l'attesa e' in corso, non alla sua fine.
 Misurato due volte il 28/08/2026 su Windows, col cronometro avviato dentro la
 sessione utente: il giro di sonde impiega 141 e 142 secondi a concludere, non i
 «~42s» che il messaggio calcola assumendo rifiuti istantanei, e per tutto quel
-tempo a schermo c'era solo il pallino rosso. Nulla nella frase dipende pero' dal
-verdetto: il marcatore esiste gia' all'avvio, e «questa macchina ha un marcatore
-e sto aspettando la porta» e' vero dal primo tentativo fallito. Il verdetto
-decide se AVVIARE un server, non se la frase e' vera.
+tempo a schermo c'era solo il pallino rosso. La frase SHALL quindi essere
+pubblicata all'inizio dell'attesa, ma SOLO dove il marcatore è la ragione
+dell'attesa, cioè quando nessun pid di demone è vivo: con il pid del lucchetto
+vivo il guscio sta aspettando un server noto che riparte, il marcatore sta
+facendo il suo lavoro, e il comando che lo elimina risponderebbe di non poter
+fare niente (misurato il 15/09/2026: la fascia offriva «cancella il marcatore»
+per tutta la sessione e il pulsante falliva).
 
 Di conseguenza il fatto SHALL essere RITRATTABILE: se il server risponde a un
 giro qualunque, il guscio lo ritira, cosi' una disconnessione ordinaria piu'
@@ -2522,6 +2533,13 @@ suo lavoro.
 - **WHEN** il server risponde prima della fine del giro di sonde
 - **THEN** il guscio SHALL ritirare la spiegazione, e una disconnessione
   successiva SHALL mostrare solo lo stato
+
+#### Scenario: il guscio ritira il verdetto mentre l'app è ancora scollegata
+- **GIVEN** la fascia mostra l'avviso e l'app è scollegata
+- **WHEN** il guscio ritira il verdetto prima che l'app si ricolleghi
+- **THEN** la fascia SHALL togliere frase e pulsante al giro successivo in cui
+  chiede, senza aspettare una riconnessione: il client continua a chiedere il
+  verdetto finché è scollegato, e crede all'ultima risposta
 
 #### Scenario: la via d'uscita si percorre da lì
 - **GIVEN** la fascia mostra l'avviso perché questo avvio è quello degradato

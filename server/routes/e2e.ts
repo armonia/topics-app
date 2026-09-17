@@ -125,6 +125,8 @@ import { holdDispatchReconcile, releaseDispatchHold } from "../lib/e2e-dispatch-
 import { clearPlanUsage, clearProviderHold } from "../lib/provider-hold";
 import { observePlanUsage } from "../providers/native/usage-window";
 import { partialTurnRows } from "../lib/partial-turn-fixture";
+import { setInjectedSwapFreezeViews } from "../lib/swap-freeze-hold";
+import type { SwapFreezeView } from "../../shared/swap-freeze";
 
 /** Attivo solo dove `start-test-server.sh` lo dichiara. */
 export function e2eRoutesEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -350,6 +352,21 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
         });
       }
       return json({ ok: true, processId: shellProcessKey(body.sessionKey, body.shellId) });
+    }
+
+    // POST /api/test/swap-freeze — pushes frozen trees through the REAL frame.
+    //
+    // The frost is drawn from `swap-freeze:state`, and the only thing that emits
+    // it in production is a freezer that needs a Mac in sustained swap, an agent
+    // with a heavy background command, and two minutes of patience. The verb
+    // writes the same views into the same publisher (`lib/swap-freeze-hold.ts`),
+    // so what the test looks at is the production store and the production
+    // socket. `{ views: [] }` clears them, which is what a thaw looks like.
+    if (method === "POST" && pathname === "/api/test/swap-freeze") {
+      const body = (await req.json().catch(() => null)) as { views?: SwapFreezeView[] } | null;
+      const views = Array.isArray(body?.views) ? body!.views! : [];
+      setInjectedSwapFreezeViews(views);
+      return json({ ok: true, views: views.length });
     }
 
     // POST /api/test/dispatch-hold {ms} — holds the periodic reconcile.

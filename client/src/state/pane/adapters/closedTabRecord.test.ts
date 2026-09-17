@@ -13,14 +13,32 @@ import {
  * same live session. See RESEARCH.md pitfall #4 — timers must live
  * outside Immer state.
  *
- * We use short real delays (50 ms) + a slightly longer wait (120 ms) to
- * avoid depending on bun's fake-timer flag. Test runtime stays well
- * under a second overall.
+ * We use short real delays (50 ms) and real timers, to avoid depending on
+ * bun's fake-timer flag. What the test waits for is the EFFECT, not a span of
+ * clock: see `waitUntil` below. On a quiet machine it all ends in well under
+ * a second.
  *
  * @covers CMD-03, CMD-04
  */
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * A DEADLINE IS NOT A SLEEP.
+ *
+ * "Did it fire within 120 ms" is a question about this machine's clock, not
+ * about the code: on a shard running for eighteen minutes the callback of a
+ * 50 ms timer can be queued and simply not get its turn in time, and the red
+ * says the timer never fired. Wait for the thing to become true instead, with
+ * room to spare. The test that checks it does NOT fire early is the `cancel`
+ * one below, and that half stays a sleep, because a sleep is the right tool
+ * for proving something did not happen.
+ */
+async function waitUntil(ready: () => boolean, what: string, budgetMs = 5000): Promise<void> {
+  const deadline = Date.now() + budgetMs;
+  while (!ready() && Date.now() < deadline) await wait(10);
+  if (!ready()) throw new Error(`waited ${budgetMs} ms for ${what} and it never came`);
+}
 
 describe("scheduleTerminalCleanup / cancelTerminalCleanup", () => {
   test("fires the callback after the given delay", async () => {
@@ -29,7 +47,7 @@ describe("scheduleTerminalCleanup / cancelTerminalCleanup", () => {
       fired = true;
     });
     expect(fired).toBe(false);
-    await wait(120);
+    await waitUntil(() => fired, "the cleanup callback of a 50 ms timer");
     expect(fired).toBe(true);
   });
 

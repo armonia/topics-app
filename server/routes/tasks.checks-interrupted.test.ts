@@ -19,13 +19,14 @@
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTasksRouter } from "./tasks";
 import { freshDb, makeCtx, call } from "./tasks-test-support";
 import { freezableRuns } from "../services/budget-governor";
-import { _resetReviewChecksStop, stopReviewChecks } from "../services/review-checks-brakes";
+import { _resetReviewChecksStop, _resetSwapBrake, createSwapBrake, killCheckTree, stopReviewChecks } from "../services/review-checks-brakes";
+import { getDescendantPids } from "../lib/process-tree";
 import { callUpdateTask } from "../mcp/topics-mcp-server";
 
 describe("a server shutdown during the pre-review checks of a delivery", () => {
@@ -35,7 +36,7 @@ describe("a server shutdown during the pre-review checks of a delivery", () => {
   afterAll(() => { rmSync(cwd, { recursive: true, force: true }); });
   beforeEach(() => { db = freshDb(); broadcasts = []; });
   // A stop is for the life of the process; every other file must see a server that runs.
-  afterEach(() => { _resetReviewChecksStop(); });
+  afterEach(() => { _resetReviewChecksStop(); _resetSwapBrake(); });
 
   /** A card in progress with its summary said, checks declared, and a counter on the realign. */
   async function deliveryWith(cmd: string, over: Record<string, unknown> = {}) {
@@ -110,7 +111,11 @@ describe("a server shutdown during the pre-review checks of a delivery", () => {
   test("a round stopped while it waits for memory answers the same, and its command never starts", async () => {
     const marker = join(cwd, "started-after-stop");
     const d = await deliveryWith(`touch ${marker}`, {
-      checksMemoryFloor: { read: () => 1, floorGB: 6, pollMs: 25 },
+      checksMemoryFloor: {
+        held: () => ({ measurable: true, latestGB: 1, heldGB: 1, coveredMs: 120_000 }),
+        swap: () => ({ sustained: false, pagesReadBackPerS: 0, debtGBPerMin: 0, swapPct: null, coveredMs: 60_000 }),
+        floorGB: 6, pollMs: 25,
+      },
     });
     const leg = d.deliver();
     await until(async () => (await d.read()).checksState === "running", "the round is waiting");
@@ -119,6 +124,32 @@ describe("a server shutdown during the pre-review checks of a delivery", () => {
     await expectLegInFlight((await leg)!);
     expect((await d.read()).status).toBe("in_progress");
     expect(await Bun.file(marker).exists()).toBe(false);
+  }, 60_000);
+
+  test("R1: a round the swap brake interrupts records no verdict, and the server restarts the delivery by itself without realigning again", async () => {
+    // Slow the first time, so the brake lands on it; green once measured again.
+    const measured = join(cwd, "measured-after-swap");
+    const d = await deliveryWith(`[ -f ${measured} ] || { touch ${measured}; sleep 120; }`);
+    const leg = d.deliver();
+    await until(() => freezableRuns().some((r) => r.taskId === d.id), "the check tree is running");
+    const run = freezableRuns().find((r) => r.taskId === d.id)!;
+    // The first run has marked itself and forked its sleep: a brake landing
+    // before the `touch` would leave no mark, and the restarted round would sleep.
+    await until(async () => existsSync(measured) && (await getDescendantPids(run.pid, { fresh: true })).size > 1, "the first run is sleeping");
+    run.treeKB = 8e9 / 1024;
+    createSwapBrake({ kill: killCheckTree, note: () => {}, log: () => {} })
+      .tick({ sustained: true, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, swapPct: null, coveredMs: 60_000 }, freezableRuns());
+
+    await expectLegInFlight((await leg)!);
+    // No client leg comes back: the server re-issues the remembered delivery.
+    await until(async () => (await d.read()).status === "review", "the restarted round let the card into review");
+    const task = await d.read();
+    expect(task.checksState).toBe("pass");
+    expect(d.realigns.count).toBe(1);
+    const said = (await (await call(d.router, "GET", `/api/sessions/s1/tasks/${d.id}`))!.json()).comments
+      .map((c: { content: string }) => c.content).join("\n");
+    expect(said).not.toContain("ROSSI");
+    expect(said).not.toContain("Consegna fermata");
   }, 60_000);
 
   test("the MCP client rides the reload: [202, interrupted, ECONNREFUSED, 200] ends in review", async () => {

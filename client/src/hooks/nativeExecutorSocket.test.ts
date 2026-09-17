@@ -24,6 +24,7 @@ import {
   startNativeExecutorSocket,
   type DelegatedOpOutcome,
   type ExecutorSocketHandlers,
+  type NativeExecutorSocketRun,
 } from './nativeExecutorSocket';
 
 /** A socket whose lifetime the test decides, so a "server restart" is one call. */
@@ -50,7 +51,7 @@ interface Harness {
   tick(): number;
   ops: Array<{ tool: string; args: unknown }>;
   pill: boolean[];
-  run: { stop(): void };
+  run: NativeExecutorSocketRun;
 }
 
 function harness(runOp?: (tool: string, args: unknown) => Promise<DelegatedOpOutcome>): Harness {
@@ -95,6 +96,28 @@ function harness(runOp?: (tool: string, args: unknown) => Promise<DelegatedOpOut
 }
 
 describe('native pane executor socket', () => {
+  test('the native pane can take the wheel back: the glyph pulls a take_control frame', () => {
+    // The native shell has NO layer over the page (a child webview composites
+    // above the DOM), so the tab's agent glyph is the only handle there is. If
+    // it pulled nothing, the person would watch an agent drive with no way to
+    // stop it - which is the whole reason the darkening box was allowed to
+    // exist in the first place.
+    const h = harness();
+    h.sockets[0].open();
+    h.run.takeControl();
+    expect(h.sockets[0].types()).toEqual(['register_native_executor', 'take_control']);
+  });
+
+  test('take_control on a dead socket is dropped, not queued', () => {
+    const h = harness();
+    h.sockets[0].open();
+    h.sockets[0].die();
+    h.run.takeControl();
+    // Nothing was written to the corpse; the reconnect re-registers and the
+    // agent state is already false (the die() above reported it).
+    expect(h.sockets[0].types()).toEqual(['register_native_executor']);
+  });
+
   test('the pane registers as executor as soon as the socket opens', () => {
     const h = harness();
     expect(h.sockets).toHaveLength(1);

@@ -29,7 +29,7 @@
  * whose owner is compiling something else, ours shrinks, and it shrinks BY THE
  * SHARE, so the part we leave behind grows with the part they took.
  *
- * Decided by Attilio on 14/09/2026: the percentage of the PC is a percentage of
+ * Decided by the owner of the machine on 14/09/2026: the percentage of the PC is a percentage of
  * what is free, so processes Topics did not open come first. The rule before
  * was `min(share x cores, free)`: at 80% on 12 cores with 7.3 taken by others,
  * Topics could take ALL 4.7 cores left. Now it takes 3.8 and leaves 0.9 to
