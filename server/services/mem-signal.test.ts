@@ -470,13 +470,25 @@ describe("createMemSignal: the 2-minute window across a restart", () => {
     expect(held.coveredMs).toBeGreaterThanOrEqual(120_000);
   });
 
-  test("a ten-minute pause starts from zero: the answer is «I am measuring it»", async () => {
+  test("the cut on reload is MEM_SAMPLE_GAP_MS: at 30 s the window is inherited, at 31 s it is not", async () => {
+    // THE BOUNDARY THE SPEC NAMES, and the only reading that proves WHICH cut
+    // fires. A ten-minute pause also answers "I am measuring it", but at 600 s
+    // the cut is `KEEP_MS` (180 s) - the sample is gone from the list before
+    // the gap is ever consulted, so that case cannot tell the two rules apart.
+    // One store, both sides of 30 s, and the long pause on top.
     const store = memStore();
-    store.write(JSON.stringify({ v: 1, samples: full(0) }));
-    // The gap to the newest sample is 600 s, twenty times MEM_SAMPLE_GAP_MS.
-    const signal = createMemSignal({ probe: async () => null, now: () => at(600), measurable: true, store });
-    expect(signal.held().heldGB).toBeNull();
-    expect(signal.samples().length).toBe(0);
+    store.write(JSON.stringify({ v: 1, samples: full(0, 4.8) }));
+    expect(createMemSignal({ probe: async () => null, now: () => at(30), measurable: true, store }).held().heldGB).toBe(4.8);
+    const far = createMemSignal({ probe: async () => null, now: () => at(31), measurable: true, store });
+    expect(far.held().heldGB).toBeNull();
+    expect(far.held().latestGB).toBeNull();
+    // What the gap cuts is the RUN, not the list: the readings are still here,
+    // and the next live sample rebuilds a window from them in 120 s, not 300.
+    expect(far.samples()).toHaveLength(13);
+    // The spec's own long pause, which `KEEP_MS` empties outright.
+    const old = createMemSignal({ probe: async () => null, now: () => at(600), measurable: true, store });
+    expect(old.held().heldGB).toBeNull();
+    expect(old.samples()).toHaveLength(0);
   });
 
   test("the rule «I do not start on a single reading» is untouched: one inherited sample is not a window", async () => {
