@@ -117,15 +117,33 @@ davvero, non in teoria.
       bozza quando la card esce da review senza un land — rifiuto definitivo,
       archiviazione — oppure quando main non viene spinto. Il fix vada su quelle
       due, non sul caso che si sistema da se'.
-- [ ] T4.3 `isChecksHold` incrocia il registro vivo del cancello invece di fidarsi
+- [x] T4.3 `isChecksHold` incrocia il registro vivo del cancello invece di fidarsi
       della spia `running` nel DB, che solo un boot spegne. (89 boot hanno trovato
-      una spia accesa; 1253 riarmi del giudice di stallo)
-- [ ] T4.4 `pending_deliveries` conta i giri, e oltre N lo dice sulla card invece
-      di rifare il giro muto.
-- [ ] T4.5 L'etichetta di un hold del provider dice la data quando non e' oggi, e
+      una spia accesa; 1253 riarmi del giudice di stallo) → KANBAN-86.
+      Il predicato e la passata stanno in `server/services/checks-lights.ts` e non
+      piu' in `server.ts`, che non ha file di test: prima la meta' che decide
+      davvero era coperta da niente. La passata riemette anche la consegna che
+      questo processo tiene per la card di cui spegne la spia — senza, T4.3 e T4.4
+      spingevano in direzioni opposte (spia onesta, card ferma, e tre soli boot
+      prima di rinunciare).
+- [x] T4.4 `pending_deliveries` conta i giri, e oltre N lo dice sulla card invece
+      di rifare il giro muto. → KANBAN-87.
+      Due difetti trovati dalla verifica avversaria e chiusi: il reset su commit
+      nuovo saltava le righe nate con `commit_sha` NULL — cioe' proprio quelle che
+      bruciano i giri, perche' la gamba interrotta scrive prima del checkout — e
+      la clausola nominava `rounds` senza sondare la colonna, quindi su un DB
+      ripristinato da backup il `catch` si mangiava la consegna intera.
+- [x] T4.5 L'etichetta di un hold del provider dice la data quando non e' oggi, e
       oltre una durata diventa una domanda. (43 righe «resumes at 14:45» per un
-      hold di 6 giorni)
-- [ ] T4.6 Test per ciascuno.
+      hold di 6 giorni) → KANBAN-88.
+      La nota nel thread ha uno slot: il registro «gia' detto» vive nella closure
+      del dispatcher e rinasce vuoto a ogni boot (~35 min), mentre l'attesa dura
+      giorni — circa 300 paragrafi identici al giorno su 7 card.
+- [x] T4.6 Test per ciascuno: `checks-lights.test.ts` (7),
+      `pending-delivery-store.test.ts` (6, il file non esisteva),
+      `tasks.delivery-survives-reload.test.ts` (il tetto dei giri),
+      `task-dispatcher-provider-hold.test.ts` (cinque boot su tre giorni).
+      Ogni guardia e' stata mutata e ha reso rossa la suite.
 
 ## Tornata 5 — il gemello: lo stesso pavimento frena ogni check
 

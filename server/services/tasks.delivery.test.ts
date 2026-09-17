@@ -304,13 +304,34 @@ describe("recordChecks (evidenza dei checks pre-review)", () => {
     s.recordChecks({ taskId: verde.id, state: "pass", commit: "abc", runs: [{ name: "t", cmd: "true", ok: true, code: 0, ms: 5, timedOut: false, tail: "" }] });
     s.recordChecks({ taskId: rosso.id, state: "fail", commit: "abc", runs: [{ name: "t", cmd: "false", ok: false, code: 1, ms: 5, timedOut: false, tail: "boom" }] });
 
-    expect(s.clearStaleChecksRuns()).toBe(1);
+    expect(s.clearStaleChecksRuns()).toEqual([gira.id]);
     expect(read(gira.id).checksState).toBeNull();
     expect(read(verde.id).checksState).toBe("pass");
     expect(read(rosso.id).checksState).toBe("fail");
     // L'ultima misura vera resta: si spegne la spia, non l'evidenza.
     expect(read(rosso.id).checks).toHaveLength(1);
-    expect(s.clearStaleChecksRuns()).toBe(0);
+    expect(s.clearStaleChecksRuns()).toEqual([]);
+  });
+
+  /**
+   * THE PERIODIC SWEEP, which the boot does not replace.
+   *
+   * When `measure()` throws before the terminal state (the swap brake,
+   * `throwIfStopping()`, any exception) the gate drops its key and the row
+   * keeps saying "running": from there `isChecksHold` is true forever, the
+   * stall judge rearms without end, and the StaleStream sweep answers `extend`
+   * to every mute turn of that session. Holding the live registry, the sweep
+   * switches off the orphaned light and leaves a live run's light alone.
+   */
+  test("con il registro vivo si spegne solo la spia che il gate non conosce", () => {
+    const viva = s.create({ projectId: PID, text: "gira davvero" });
+    const orphan = s.create({ projectId: PID, text: "la corsa è morta senza verdetto" });
+    s.recordChecks({ taskId: viva.id, state: "running", commit: "abc", runs: null });
+    s.recordChecks({ taskId: orphan.id, state: "running", commit: "abc", runs: null });
+
+    expect(s.clearStaleChecksRuns((id) => id === viva.id)).toEqual([orphan.id]);
+    expect(read(viva.id).checksState).toBe("running");
+    expect(read(orphan.id).checksState).toBeNull();
   });
 });
 
