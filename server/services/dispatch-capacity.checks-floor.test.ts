@@ -16,7 +16,7 @@ import { CHECKS_MEM_FLOOR_DEFAULT_GB, CHECKS_MEM_FLOOR_MAX_GB } from "../../shar
 
 /** The two columns every reader of this row assumes, and nothing else: a harness
  *  that is missing the floor column is one of the cases under test. */
-function dbConImpostazioni(): Database {
+function settingsDb(): Database {
   const db = new Database(":memory:");
   db.run(`CREATE TABLE board_settings (project_id TEXT PRIMARY KEY, max_agents INTEGER, max_agents_auto INTEGER)`);
   return db;
@@ -30,7 +30,7 @@ function dbConImpostazioni(): Database {
  */
 describe("readChecksMemFloorGB — the checks floor as it is written", () => {
   const dbWithFloor = (): Database => {
-    const db = dbConImpostazioni();
+    const db = settingsDb();
     db.run(`ALTER TABLE board_settings ADD COLUMN checks_mem_floor_gb REAL`);
     return db;
   };
@@ -40,7 +40,7 @@ describe("readChecksMemFloorGB — the checks floor as it is written", () => {
     // a fresh one. Reading a missing column as 0 would switch the brake off on
     // nobody's authority, and the round would never wait again.
     expect(readChecksMemFloorGB(dbWithFloor())).toBe(CHECKS_MEM_FLOOR_DEFAULT_GB);
-    expect(readChecksMemFloorGB(dbConImpostazioni())).toBe(CHECKS_MEM_FLOOR_DEFAULT_GB);
+    expect(readChecksMemFloorGB(settingsDb())).toBe(CHECKS_MEM_FLOOR_DEFAULT_GB);
   });
 
   test("NULL is 'never set' and reads as the default, 0 is 'off' and survives", () => {
