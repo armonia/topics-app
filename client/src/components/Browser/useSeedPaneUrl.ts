@@ -81,6 +81,10 @@ export function useSeedPaneUrl(args: {
   const [deadLoopback, setDeadLoopback] = useState<{ url: string; checkedAt: Date } | null>(null);
   const seededRef = useRef(false);
   useEffect(() => {
+    // MUTATION PROBE (review of card 30f55ca9): the seed is disabled outright.
+    // If the e2e that claims to guard this card still passes, the guard is not
+    // measuring the seed at all.
+    if (true) return;
     if (seededRef.current || !connected) return;
     // The url the pane IS on, from the store or from the mount seed. Reading
     // `initialUrl` alone missed the case this card is about: a chat-opened pane
