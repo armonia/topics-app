@@ -224,7 +224,42 @@ export function clearPlanUsage(): void {
   for (const cb of usageListeners) { try { cb(null); } catch { /* idem */ } }
 }
 
-/** The hour a hold ends, as HH:MM in the machine's local time, for logs and notices. */
-export function holdUntilLabel(hold: Pick<ProviderHold, "untilMs">): string {
-  return new Date(hold.untilMs).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+/**
+ * When a hold ends, in the machine's local time: HH:MM while it ends today,
+ * DD/MM HH:MM when it does not.
+ *
+ * The hour alone was the whole label, and an hour alone cannot tell six hours
+ * from six days apart. Measured on 2026-09-17: `provider-hold.json` carried
+ * `{"codex":{"untilMs":1789821900000}}`, written on 13/09 at 17:39 and ending
+ * on 19/09 at 14:45, while the log repeated "resumes at 14:45" 43 times between
+ * 13/09T15:38 and 16/09T22:28. Every one of those lines read like "later this
+ * afternoon", and the board dispatches every card through that provider.
+ */
+export function holdUntilLabel(hold: Pick<ProviderHold, "untilMs">, nowMs: number = Date.now()): string {
+  const until = new Date(hold.untilMs);
+  const time = until.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+  const now = new Date(nowMs);
+  const sameDay = until.getFullYear() === now.getFullYear()
+    && until.getMonth() === now.getMonth()
+    && until.getDate() === now.getDate();
+  if (sameDay) return time;
+  return `${until.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" })} ${time}`;
+}
+
+/**
+ * Past this, a hold is not a window rotating: it is a plan that is spent, and
+ * the queue behind it needs a person, not more patience.
+ *
+ * Twenty-four hours, because that is the first duration no reset explains. The
+ * Claude plan's short window is five hours; the one wall that legitimately
+ * reaches days is a seven-day window at 100%, and that is precisely the case
+ * this threshold exists to surface - waiting it out silently means a board
+ * whose `dispatch_model` points at that provider dispatches nothing for days
+ * while its cards say "in coda".
+ */
+export const HOLD_ASKS_A_PERSON_MS = 24 * 60 * 60 * 1000;
+
+/** Is this hold long enough that it should be a question instead of a wait? */
+export function holdAsksAPerson(hold: Pick<ProviderHold, "untilMs">, nowMs: number = Date.now()): boolean {
+  return hold.untilMs - nowMs > HOLD_ASKS_A_PERSON_MS;
 }

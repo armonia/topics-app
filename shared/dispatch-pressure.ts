@@ -82,4 +82,8 @@ export interface GlobalCapPatch {
   max?: number;
   mode?: DispatchCapMode;
   budgetShare?: number;
+  /** Free memory a new check command needs before it is spawned, in whole GB.
+   *  `0` switches that brake off. Same reserved row, same PATCH: a floor written
+   *  through another door would be a second writer. */
+  checksMemFloorGB?: number;
 }

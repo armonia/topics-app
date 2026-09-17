@@ -2,18 +2,107 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.350 — 2026-09-17
+
+### Sotto il cofano
+- L'ultima riga aperta della tornata di stanotte si chiude, e quasi ogni sua premessa era sbagliata
+
+## 2.2.349 — 2026-09-17
+
+### Sotto il cofano
+- Il pavimento dei check era il pavimento di un'altra cosa: ora e' un'impostazione, e parte da 3
+- Un nome italiano copiato in un file NUOVO non e' piu' coperto dalla baseline
+- DROP-07 dava per scontato che un ricarico riportasse la stessa board, e non la riporta
+
+## 2.2.348 — 2026-09-17
+
+### Sotto il cofano
+- Sei tornate atterrate: 24 voci su 25, resta una decisione tua
+
+## 2.2.346 — 2026-09-17
+
+### Sotto il cofano
+- Sette voci erano quattro: un numero falso dentro il contratto del bundle
+- Lo split ha spostato i commenti, e il cancello li ha contati come nuovi: 180 righe riscritte in inglese
+
+## 2.2.345 — 2026-09-17
+
+### Sotto il cofano
+- Il ramo contro i verdi bugiardi ne consegnava uno suo, e KANBAN-86 era chiuso a meta'
+- Il codice di uscita di una riga contraddetta dalla sua run non era guardato
+- Il tetto del bundle non misurava il ramo: misurava quanto poco avesse lasciato quello prima
+- Il file dei test del land aveva sfondato il cancello: sette argomenti, sette file
+
+## 2.2.344 — 2026-09-17
+
+### Sotto il cofano
+- Il rerun rifaceva un rosso vero, e una card diceva verde su una CI rossa
+- Il rail typecheck:e2e era rosso su main: la meta' vuota non aveva un tipo
+- Un numero che avevo messo nel contratto era falso: 241 volte, non zero
+- Con due orologi l'ordine fra spaziatura e pavimento decide il budget
+- Il rail typecheck:e2e non era rosso su main: le due righe non riparavano niente
+
+## 2.2.343 — 2026-09-17
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-17 [skip ci]
+- Il flag che salvava la bozza la chiudeva lo stesso: bastava cancellarle il ramo
+- Un episodio di thrash regalava l'esenzione dal pavimento per tutto il giro
+
+## 2.2.342 — 2026-09-17
+
+### Sotto il cofano
+- Il pavimento torna in vigore, a cambiare e' la valvola
+- Il cuore di T4.3 non aveva test, e la spia onesta lasciava la card ferma
+- Il reset dei giri saltava proprio la riga che i giri li brucia
+- Tre cose consegnate senza uno SHALL dietro: ora la spec le copre
+- I rail statici: un nome italiano nuovo e i commenti del test in inglese
+- Il giudice di fuori parcheggiava una card che su main parte
+- La guardia su `commentIds` copriva un chiamante su tre
+- Il ramo lo decideva il censimento, la cifra il listino: 7-9,9 GB fermi per niente
+- Il segno valeva in un verso solo: finestra scritta non vuol dire serie viva
+- La chiave di dedup non era guardata da nessun test: rimessa a mano, 469 verdi
+- La card diceva verde su una CI rossa: due consegne su tre, stanotte
+- Due nomi in italiano fermavano il rail: lo standard e' l'inglese anche nei test
+- Cinque nomi in italiano fermavano il rail: lo standard e' l'inglese anche nei test
+
 ## 2.2.341 — 2026-09-17
 
 ### Sotto il cofano
+- Un agente che aspetta la CI vale zero: la deroga si ri-armava a ogni tick
+- Un non tracciato riscritto ogni 10 s nella radice, un giorno dopo l'incidente
+- A 600 s a tagliare e' KEEP_MS: il confine dei 30 s non era provato da nessuno
+- Un replace cieco per i cancelli della lingua e' entrato in una frase che l'utente legge
+- Il giudice di fuori parcheggiava un'attesa che l'agente aveva chiesto per otto ore
+- Il filo fra reconcile e sweep non era coperto: si poteva tagliare a barra verde
+- Una bocciatura di tre commenti ne registrava uno solo
 - La mia regola sul freno dei check era un no-op: la verifica l'ha eseguita
+- La nota del muro provider ripartiva a ogni boot: ~300 paragrafi identici al giorno
+- Una card consegna su PIU' rami: la spazzata ne puliva uno, e chiudeva la bozza sbagliata
+- Il rerun era speso una volta per chiamata, e il server riparte 44 volte al giorno
 
 ## 2.2.340 — 2026-09-17
 
 ### Sotto il cofano
+- Una bocciatura umana ripartiva con «il tuo turno e' stato interrotto»
+- La finestra di memoria moriva a ogni salvataggio: 28 volte in 25,7 ore
+- Il pavimento della memoria non aveva uscita: held2m sopra 6 GB zero volte su 1455
 - Il freno dei check spara sempre la valvola: e' un timer, non un freno
+- Riscaldamento e pavimento condividevano la chiave: 80 commenti su 80 con la frase sbagliata
+- I nomi e i commenti nuovi passano i due cancelli della lingua
 - 80 secondi di lavoro, 30 minuti di attesa: il numero del freno dei check
 - Un file di troppo nel checkout chiudeva la porta a OGNI land, per sempre
+- Il pavimento dei check vive dentro il verdetto sullo swap, non accanto
+- T5.1: la misura sta nei task, con la correzione alla premessa
 - La catena ha girato intera: tre buchi osservati invece che dedotti
+- Una run morta non da' mai un verdetto: riconsegnare lo stesso commit rilegge la stessa run
+- Quindici minuti di attesa muta: la PR e la run esistono in pochi secondi e arrivavano solo col verdetto
+- Il chip della card dice ambra e il drawer dice rosso: due verdetti opposti sulla stessa card
+- Il land riallinea DOPO il verdetto: la card diceva verde di un commit che non atterra
+- La spia 'running' che solo un boot spegneva teneva isChecksHold vero per sempre
+- Il giro di consegna ripartiva da zero a ogni riavvio senza che nessuno lo contasse
+- Nessuno chiudeva la bozza ne' cancellava il ramo: 39 rami su 41 gia' dentro main
+- Un hold di sei giorni si leggeva come uno di sei ore: l'etichetta era solo l'ora
 
 ## 2.2.339 — 2026-09-17
 
@@ -25,6 +114,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Playwright WebKit e' PIU' PESANTE di Chromium headless: 140 MB contro 82 per pane
 - Il banco misurava il rumore della macchina: serve il filtro sul comando, non solo il pid
 - Il pavimento di memoria non aspetta una persona: aspetta per sempre
+- L'inattivita' di un task la misurava il chip che il dispatcher riscrive ogni 60 s
+- Il tetto sulla durata di un'attesa lo leggeva solo chi ridichiarava l'attesa
 
 ## 2.2.338 — 2026-09-16
 

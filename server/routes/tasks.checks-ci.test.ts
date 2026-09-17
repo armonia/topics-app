@@ -20,7 +20,10 @@ import { ciNotMeasured } from "../services/ci-evidence";
 import { _resetReviewChecksStop } from "../services/review-checks-brakes";
 import { E2E_CI_CHECK, UNIT_CI_CHECK, type CheckRun, type ReviewCheck } from "../../shared/board";
 
-type CiReader = (input: { cwd: string; sha: string; taskId: string; checks: ReviewCheck[] }) => Promise<CheckRun | CheckRun[]>;
+type CiReader = (input: {
+  cwd: string; sha: string; taskId: string; checks: ReviewCheck[];
+  onCiWait?: (links: { prUrl: string; runUrl?: string }) => void;
+}) => Promise<CheckRun | CheckRun[]>;
 
 const greenCi: CheckRun = { name: E2E_CI_CHECK.name, cmd: E2E_CI_CHECK.cmd, ok: true, code: 0, ms: 5, timedOut: false, tail: "e2e green" };
 const redCi: CheckRun = {
@@ -131,6 +134,31 @@ describe("a delivery on a board that declares the CI e2e row", () => {
     settle(greenCi);
     const done = (await d.deliver())!;
     expect(done.status).toBe(200);
+  }, 30_000);
+
+  // The pull request and its run exist within seconds of the push; they used to
+  // reach the card only inside the tail of the verdict, a quarter of an hour
+  // later (run 35158365969, 22:34:48 to 22:49:48).
+  test("while GitHub measures, the card carries the pull request and the run", async () => {
+    const prUrl = "https://github.com/o/r/pull/5";
+    const runUrl = "https://github.com/o/r/actions/runs/10";
+    let settle: (run: CheckRun) => void = () => {};
+    const d = await deliveryWith(["true", E2E_CI_CHECK.cmd], (input) => {
+      input.onCiWait?.({ prUrl });
+      input.onCiWait?.({ prUrl, runUrl });
+      return new Promise<CheckRun>((r) => { settle = r; });
+    });
+    expect((await d.deliver(300))!.status).toBe(202);
+    for (let i = 0; i < 200 && d.calls.ci === 0; i++) await Bun.sleep(10);
+    const waiting = await d.read();
+    expect(waiting.checksCi).toEqual({ prUrl, runUrl });
+    expect(waiting.checksProgress).toEqual({ done: 1, total: 2 });
+    settle(greenCi);
+    let last = (await d.deliver())!;
+    for (let i = 0; i < 20 && last.status === 202; i++) last = (await d.deliver())!;
+    expect(last.status).toBe(200);
+    // The links belong to the wait: with a verdict on the card they are gone.
+    expect((await d.read()).checksCi).toBeUndefined();
   }, 30_000);
 
   test("a reader that throws anything but a shutdown is NOT MEASURED, and the card stays out of review", async () => {

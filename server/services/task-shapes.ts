@@ -292,6 +292,11 @@ export interface Task {
    *  would say "no command done", which is a different claim, and an explicit
    *  `null` would cost bytes on every task for a rare case. */
   checksProgress?: { done: number; total: number } | null;
+  /** The pull request and the CI run a `github-ci:` row is waiting on, while it
+   *  waits. They exist within seconds of the push and used to reach the card
+   *  only inside the verdict's tail, a quarter of an hour later. ABSENT for the
+   *  same reason as `checksProgress`: no wait, nothing to say. */
+  checksCi?: { prUrl: string; runUrl?: string } | null;
   checksAt: string | null;
   /** The commit they ran on: if the branch moved on, a 'pass' has expired. */
   checksCommit: string | null;

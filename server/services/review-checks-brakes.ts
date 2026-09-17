@@ -11,6 +11,7 @@ import { freezableRuns, type FreezableRun } from "./budget-governor";
 import { ChecksInterruptedError } from "./checks-gate";
 import { killProcessTree } from "../lib/process-tree";
 import { swapReasonIt, swapSigns, type HeldMemory, type SwapVerdict } from "./mem-signal";
+import { CHECKS_MEM_FLOOR_DEFAULT_GB } from "../../shared/checks-memory-floor";
 
 /**
  * NO NEW CHECK STARTS UNDER THE MEMORY FLOOR, INTO SUSTAINED SWAP, OR IN A HERD.
@@ -40,12 +41,52 @@ import { swapReasonIt, swapSigns, type HeldMemory, type SwapVerdict } from "./me
  *  - a full 2-minute window whose lowest reading is over the floor.
  * The command's deadline is not running during the wait: it is armed at spawn.
  *
- * There is no per-command price: with the unit suite read from the pull request
- * CI (`github-ci:unit`) no delivery command on topics-app holds more than 1 GB
- * (tsc 460 MB, a vite build 316 MB), so the floor alone is the line.
+ * THE FLOOR HOLDS, CALM OR SWAPPING; WHAT DEPENDS ON THE VERDICT IS THE VALVE.
+ * A first version of this moved the floor INSIDE the sustained branch, so that a
+ * calm Mac under the floor started the command. An adversarial check ran it and
+ * showed it did not weaken the floor, it deleted it: the sustained branch
+ * already returns before the floor is read, so calm was the only state where the
+ * floor had any force.
  *
- * IT FAILS OPEN AFTER `maxWaitMs` OF WAITING IN TOTAL, whatever holds the round
- * - swap included, which it did not do before. A sustained verdict used to be
+ * THE FLOOR IS A SETTING, NOT A CONSTANT, and what it is worth is measured.
+ * `MemoryFloor.floorGB` is a function read at every poll: the value lives on the
+ * reserved '*' settings row (`checks_mem_floor_gb`), defaults to 3 GB
+ * (`shared/checks-memory-floor.ts`) and `0` switches this whole branch off,
+ * "measuring" included. It used to be `DISPATCH_MEM_FLOOR_NATIVE_GB` = 6, which
+ * is the floor for ADMITTING AN AGENT - sized beside `GB_PER_AGENT_NATIVE` for
+ * how much room one more session needs - borrowed by this brake and never
+ * measured against a check. What a check actually costs, sampled every 250 ms on
+ * 17/09/2026, one command at a time: `bun run lint` cold 1.91 GB (the most
+ * expensive command on this machine), `typecheck` cold 1.31, `static-rails`
+ * 0.31, `check:deadcode` 0.33; cold is what counts, because `.cache/checks` is
+ * not tracked and an agent's worktree always starts without it. Six gigabytes
+ * held the round back in 86.2% of 1828 `[memsig]` readings while the lowest
+ * reading in the whole log was 2.7 GB: a brake that always fires is a timer in
+ * disguise.
+ *
+ * AND THE REASON WRITTEN HERE FOR THOSE 6 GB WAS FALSE, which is why the number
+ * is now a setting with its measurement beside it. This header used to argue
+ * that board `dancerooms-intq6i` declares `pnpm verify:all --only typecheck,unit`
+ * as its only local check, "exactly the 4-11 GB tree this brake exists to keep
+ * off an empty Mac". That script does not exist in that repo - it has `verify`
+ * and `verify:product` - so the command exits 254 in 275 ms holding 2 MB, and
+ * has been red every round for days. The same paragraph priced tsc at 460 MB and
+ * a vite build at 316 MB with no measurement behind either figure.
+ *
+ * TWO ROADS ARE CLOSED, and they are written down so they are not reopened.
+ * DELETING the floor was refuted by replaying the 1828 readings through
+ * `releaseDecision`: between `floorGB: 6` and `floorGB: 0` the decision differs
+ * in 1157 of them (63.3%), every one at `swap=calm`, and those states are
+ * measurably worse machines (swap used p50 7.8 GB against 3.4 where the floor
+ * lets through). This is the only brake that decides anything in the two thirds
+ * of the log where the swap verdict is silent. Making `swapVictim` read a run's
+ * PEAK instead of its latest sample was refuted too: what a SIGKILL gives back is
+ * the CURRENT footprint (`treeFootprintKB` sums `phys_footprint`, resident plus
+ * compressed), so a tsc that peaked at 1.31 GB and now sits at 0.4 returns 0.4 -
+ * killing it would burn one of a delivery's two interruptions for nothing.
+ *
+ * IT FAILS OPEN AFTER A BUDGET SPENT ACROSS THE ROUND, whatever holds it - swap
+ * included, which it did not do before. A sustained verdict used to be
  * self-limiting: it implied a debt growing by at least 0.5 GB/min, a state no
  * machine holds for long. The ceiling door (`mem-signal.ts`) removes that
  * invariant, and the ceiling is where this Mac LIVES: 566 of the 874 `[memsig]`
@@ -56,13 +97,77 @@ import { swapReasonIt, swapSigns, type HeldMemory, type SwapVerdict } from "./me
  * and a round that never starts records no verdict at all - the delivery just
  * goes round again (`checks-gate.ts`). Memory that cannot be measured (off
  * macOS) never waits.
+ *
+ * THAT BUDGET IS THREE MINUTES WHEN THE FLOOR HOLDS A CALM MAC, thirty when the
+ * Mac is swapping, because the two waits do not buy the same thing. Under thrash
+ * the machine is giving memory back and waiting works. On a calm Mac the reading
+ * improves only when somebody frees memory by hand, and until they do it does not
+ * improve for hours: over the 1589 `[memsig]` windows of 16-17/09/2026 that carry
+ * a reading (07:27Z to 12:33Z, 29.1 hours) `held2m >= 6 GB` reads 241 times,
+ * 15.2% of them, and the longest unbroken stretch UNDER the floor is 854 samples,
+ * 16.2 hours end to end - it reopened when a person closed a parked UAT server
+ * holding 3.3 GB. Thirty minutes and three end identically inside a stretch like
+ * that, which is where this Mac spends most of its day; the 15.2% is why the
+ * floor keeps a budget at all instead of being read once and given up on. An
+ * earlier draft of this paragraph said 15.5% of 1553 and "about fourteen hours":
+ * the share was counted against lines rather than readings and the stretch was
+ * converted from its sample count instead of its timestamps. Measured on card c4f53a85
+ * (23:41:29Z-00:26Z of 16-17/09), the first delivery to go through the CI rows:
+ * four local commands, 80 s of execution inside a 32-minute round, `swap=calm`
+ * in 40 of the 42 samples that were under the floor - typecheck released by the
+ * budget, `check:deadcode` and `static-rails` never waiting at all because the
+ * round had already spent it.
+ * Not less than three: `swapVerdict` needs a base sample at least
+ * `SWAP_WINDOW_MS` (60 s) old, and the ceiling door a further window before it,
+ * so a thrash that starts right after a release is invisible for 60-120 s. Three
+ * minutes leaves the verdict one full window to see it, and stays clear of the
+ * 120 s release spacing, which is not cut short by this budget at all: the short
+ * valve applies only when what holds the round is the floor on a calm Mac.
+ *
+ * AND THE TWO BUDGETS ARE SPENT APART, one clock each. Pooled in a single
+ * `spentMs`, the wait of one condition paid for the other: a round that spent ten
+ * minutes in sustained swap, with its reading unchanged at 5.2 GB under a 6 GB
+ * floor, was released THE INSTANT the verdict turned calm - the ten minutes it
+ * had spent waiting for the swap already covered the three-minute valve, so the
+ * floor never held it at all. An episode of thrash bought the round its exemption
+ * from the floor for the rest of the round, which is the opposite of what either
+ * brake is for. What a wait buys is what it waited FOR: time spent on the swap is
+ * charged to the thirty-minute budget, time spent under the floor on a calm Mac
+ * to the three-minute one, and each command's wait is charged to the condition in
+ * force while it elapsed, not to the one it ends on.
+ *
+ * SO THE ROUND'S OWN CEILING IS THE TWO BUDGETS ADDED, and that is on purpose.
+ * With one clock the round could not wait longer than `maxWaitMs`; with a clock
+ * each it can wait `maxWaitMs` on everything else AND the calm floor's three
+ * minutes on top - 33 minutes in production, where the floor is mounted
+ * (`server.ts`) without a `maxWaitMs` and takes the 30-minute default. It is the
+ * price of not letting one condition pay for the other: a swap that ends at the
+ * twenty-ninth minute leaves a floor that has held the round for zero seconds,
+ * and charging it the swap's wait is exactly the exemption the two clocks exist
+ * to remove. Three minutes is what that costs in the worst case.
+ * And `maxWaitMs` can only SHORTEN the calm valve, never lengthen it: the budget
+ * is `Math.min(MEMORY_WAIT_CALM_MAX_MS, maxWaitMs)`, so a caller asking for an
+ * hour still gets three minutes on a calm Mac under the floor. There is no seam
+ * to raise it, and nobody has asked for one: the floor is mounted once for the
+ * whole server, and the three minutes are the answer to "how long is waiting for
+ * a calm Mac worth", which does not change with the caller.
  */
 export interface MemoryFloor {
   held: () => HeldMemory;
   swap: () => SwapVerdict;
-  /** Under this, a new command waits. */
-  floorGB: number;
-  /** Total wait of one round before running anyway on room. Default `MEMORY_WAIT_MAX_MS`. */
+  /**
+   * Under this, a new command waits, calm or swapping. `0` = no floor at all.
+   *
+   * A FUNCTION AND NOT A NUMBER, like `held` and `swap` beside it, because it is
+   * a SETTING now (`board_settings['*'].checks_mem_floor_gb`) and not a
+   * constant: read at every poll, so moving it in the panel takes effect on the
+   * next round instead of at the next restart. A number here would have been
+   * captured at mount and quietly ignored every change.
+   */
+  floorGB: () => number;
+  /** What one round may wait on anything but the floor of a calm Mac, before
+   *  running anyway. Default `MEMORY_WAIT_MAX_MS`; the calm floor's own budget is
+   *  `MEMORY_WAIT_CALM_MAX_MS`, or this one when this one is shorter. */
   maxWaitMs?: number;
   /** How often the signal is read again while waiting. */
   pollMs?: number;
@@ -76,11 +181,28 @@ export interface MemoryFloor {
  *  minutes `update_task` polls; the verdict still lands, re-issued by the route
  *  (`pendingDeliveries`) once the client has given up. */
 const MEMORY_WAIT_MAX_MS = 30 * 60_000;
+/** The budget while the floor alone holds a Mac that is NOT swapping: see the
+ *  third paragraph of the header. */
+const MEMORY_WAIT_CALM_MAX_MS = 3 * 60_000;
 const MEMORY_POLL_MS = 5_000;
 /** One release per window across rounds: the herd of 15/09 (four commands on one poll) cannot recur. */
 export const RELEASE_SPACING_MS = 120_000;
 
 export type WaitReason = "swap" | "measuring" | "room" | "spacing" | "turn";
+
+/**
+ * The two budgets, and the two clocks that spend them. `calmFloor` is the floor
+ * on a Mac that is not swapping - the only state the short valve is for; `other`
+ * is every other reason to hold, the swap included. Separate because a wait buys
+ * what it waited FOR: see the last paragraph of the header.
+ */
+export type WaitBudget = "calmFloor" | "other";
+
+/** Which of the two a reason spends. `room` reaches here only on a calm Mac:
+ *  `holdReason` answers "swap" first, so a sustained verdict is never the floor. */
+function budgetOf(reason: WaitReason | null): WaitBudget {
+  return reason === "room" ? "calmFloor" : "other";
+}
 
 type Release = { round: symbol; name: string; at: number; running: boolean };
 /** The last command released by any round: the spacing reads it. */
@@ -88,7 +210,7 @@ let lastRelease: Release | null = null;
 /** Rounds waiting right now, with the moment their current wait began: the turn reads it. */
 const waitingSince = new Map<symbol, number>();
 
-export function releaseDecision(i: {
+interface DecisionInput {
   held: HeldMemory;
   swap: SwapVerdict;
   floorGB: number;
@@ -97,20 +219,74 @@ export function releaseDecision(i: {
   /** Another round has been waiting since before this wait began. */
   olderWaiter?: boolean;
   now: number;
-  spentMs: number;
+  /**
+   * What this round has already waited, ONE CLOCK PER BUDGET. Pooled in a single
+   * number the clocks paid for each other, and ten minutes of swap released the
+   * next command from a floor it had never waited a second for.
+   */
+  spent: Record<WaitBudget, number>;
   maxWaitMs: number;
-}): { release: boolean; wait: WaitReason | null; anyway: boolean } {
-  if (!i.held.measurable) return { release: true, wait: null, anyway: false };
-  // The budget comes FIRST, before every reason to hold: see the fail-open
-  // paragraph above. Nothing here can hold a round longer than `maxWaitMs`.
-  if (i.spentMs >= i.maxWaitMs) return { release: true, wait: null, anyway: true };
-  if (i.swap.sustained) return { release: false, wait: "swap", anyway: false };
-  if (i.otherRoundRelease?.running && i.now - i.otherRoundRelease.at < RELEASE_SPACING_MS) {
-    return { release: false, wait: "spacing", anyway: false };
+}
+
+/**
+ * What holds the round back right now, budget aside - null = nothing does.
+ *
+ * SINCE THE TWO CLOCKS, THIS ORDER IS A BUDGET AND NOT JUST A LABEL: whichever
+ * reason answers first decides which valve the state is measured against. The
+ * spacing comes before the floor for that reason. A round under the floor while
+ * ANOTHER round's command is still running is held by the spacing, on the long
+ * budget it has not spent; read as "room" it would be measured against the calm
+ * three minutes, which this same round has usually just spent waiting for the
+ * floor - and it would start THROUGH the 120 s spacing, which is the herd of
+ * 15/09 (four commands of different deliveries released on one poll) that the
+ * spacing exists to prevent. With a single pooled `spentMs` the two orders were
+ * indistinguishable, and the test that holds this one down is the only thing
+ * that separates them now.
+ */
+function holdReason(i: DecisionInput): WaitReason | null {
+  if (i.swap.sustained) return "swap";
+  if (i.otherRoundRelease?.running && i.now - i.otherRoundRelease.at < RELEASE_SPACING_MS) return "spacing";
+  // FLOOR OFF: neither of the two memory reasons applies, and that includes
+  // "measuring". Waiting for a window to fill so it can be compared against a
+  // floor of zero is waiting for a number nobody will read - a switch that says
+  // off has to stop the whole branch, not only its last line.
+  if (i.floorGB > 0) {
+    // Still no release on a single reading: an empty window is not a roomy one.
+    if (i.held.heldGB == null) return "measuring";
+    if (i.held.heldGB < i.floorGB) return "room";
   }
-  const room: WaitReason | null = i.held.heldGB == null ? "measuring" : i.held.heldGB < i.floorGB ? "room" : null;
-  if (!room) return i.olderWaiter ? { release: false, wait: "turn", anyway: false } : { release: true, wait: null, anyway: false };
-  return { release: false, wait: room, anyway: false };
+  return i.olderWaiter ? "turn" : null;
+}
+
+export function releaseDecision(i: DecisionInput): {
+  release: boolean;
+  wait: WaitReason | null;
+  anyway: boolean;
+  /** What was holding the round when the budget let it go: the fail-open line
+   *  names it instead of guessing from the last reason it logged. */
+  heldBy: WaitReason | null;
+  /** The budget that applied to this decision, for that same line. */
+  budgetMs: number;
+  /** And what the round had spent OF THAT budget, the other half of the line. */
+  spentMs: number;
+} {
+  const held = holdReason(i);
+  // The short valve is for the floor on a calm Mac and for nothing else: the
+  // spacing and the turn resolve by themselves within 120 s, and cutting them
+  // short would bring back the herd of four commands on one poll (15/09).
+  const budget = budgetOf(held);
+  const budgetMs = budget === "calmFloor"
+    ? Math.min(MEMORY_WAIT_CALM_MAX_MS, i.maxWaitMs)
+    : i.maxWaitMs;
+  // Each budget answers to its own clock: what the round spent waiting for
+  // something else is not spent here.
+  const spentMs = i.spent[budget];
+  if (!i.held.measurable) return { release: true, wait: null, anyway: false, heldBy: null, budgetMs, spentMs };
+  // The budget comes before every reason to hold: see the fail-open paragraph
+  // above. Nothing here can hold a round longer than its budget.
+  if (spentMs >= budgetMs) return { release: true, wait: null, anyway: held != null, heldBy: held, budgetMs, spentMs };
+  if (!held) return { release: true, wait: null, anyway: false, heldBy: null, budgetMs, spentMs };
+  return { release: false, wait: held, anyway: false, heldBy: held, budgetMs, spentMs };
 }
 
 function waitLine(name: string, reason: WaitReason, held: HeldMemory, swap: SwapVerdict, floorGB: number, now: number): string {
@@ -129,10 +305,39 @@ function waitLine(name: string, reason: WaitReason, held: HeldMemory, swap: Swap
   }
 }
 
+/** Seconds up to 90, minutes above: a command that waited nothing must not read
+ *  as "0 min", which is what a budget printed as a duration made it say. */
+const duration = (ms: number): string =>
+  (ms < 90_000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60_000)} min`);
+
 /**
- * One waiter per round: its budget of `maxWaitMs` is spent across the round.
- * The promise resolves with the callback to call when the released command
- * exits, which ends its hold on the spacing.
+ * The fail-open line says which condition held the command AND HOW LONG THIS
+ * COMMAND ACTUALLY WAITED, both read from the state at that instant. It used to
+ * read the last reason THIS command had logged, which is null for a command that
+ * never waited, and to print the round's BUDGET where the duration goes: on
+ * 17/09 the round of card c4f53a85 printed "no room after 30 min" for
+ * `check:deadcode` and again for `static-rails`, neither of which had waited a
+ * poll. The error log carries no timestamp, so that line is the only trace left
+ * of the round: it says what this command waited, and then what the round had
+ * spent of the budget that let it go - which is how a wait of 0 s explains
+ * itself.
+ */
+function failOpenLine(name: string, heldBy: WaitReason, waitedMs: number, spentMs: number, budgetMs: number): string {
+  const said: Record<WaitReason, string> = {
+    swap: "still in swap",
+    room: "no room",
+    measuring: "still measuring free memory",
+    spacing: "still spaced from another delivery",
+    turn: "still waiting its turn",
+  };
+  return `[review-checks] ${said[heldBy]} after ${duration(waitedMs)} (round: ${duration(spentMs)} of a ${duration(budgetMs)} budget): "${name}" starts anyway`;
+}
+
+/**
+ * One waiter per round: its two budgets are spent across the round, a clock
+ * each, and every stretch of wait is charged to the condition that was in force
+ * while it elapsed. The promise resolves with the callback to call when the
+ * released command exits, which ends its hold on the spacing.
  */
 export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSignal): (name: string) => Promise<() => void> {
   if (!floor) return async () => () => {};
@@ -141,36 +346,49 @@ export function memoryWaiter(floor: MemoryFloor | undefined, signal?: AbortSigna
   const now = floor.now ?? Date.now;
   const sleep = floor.sleep ?? ((ms: number) => Bun.sleep(ms));
   const round = Symbol("round");
-  let spentMs = 0;
+  const spent: Record<WaitBudget, number> = { calmFloor: 0, other: 0 };
   const read = <T>(f: () => T, fallback: T): T => { try { return f(); } catch { return fallback; } };
   const unmeasured: HeldMemory = { measurable: false, latestGB: null, heldGB: null, coveredMs: 0 };
   const calm: SwapVerdict = { sustained: false, pagesReadBackPerS: null, debtGBPerMin: null, swapPct: null, coveredMs: 0 };
   return async (name) => {
     const from = now();
     let said: WaitReason | null = null;
+    /** The start of the stretch not yet charged, and the budget it is spending. */
+    let sinceAt = from;
+    let spending: WaitBudget | null = null;
     waitingSince.set(round, from);
     try {
       for (;;) {
         const t = now();
+        // The stretch that just elapsed belongs to the condition in force WHILE
+        // it elapsed, not to the one read now: a wait that begins in sustained
+        // swap and ends on a calm Mac pays the swap, and the floor's three
+        // minutes start from zero the moment the verdict turns.
+        if (spending) spent[spending] += t - sinceAt;
+        sinceAt = t;
         const held = read(floor.held, unmeasured);
         const swap = read(floor.swap, calm);
+        // ONE read per poll, shared by the decision and the line it prints: two
+        // reads could straddle a write from the panel and log a floor that is
+        // not the one that held the command.
+        const floorGB = read(floor.floorGB, CHECKS_MEM_FLOOR_DEFAULT_GB);
         const other = lastRelease && lastRelease.round !== round ? lastRelease : null;
         const olderWaiter = [...waitingSince].some(([r, since]) => r !== round && since < from);
-        const d = releaseDecision({ held, swap, floorGB: floor.floorGB, otherRoundRelease: other, olderWaiter, now: t, spentMs: spentMs + (t - from), maxWaitMs });
+        const d = releaseDecision({ held, swap, floorGB, otherRoundRelease: other, olderWaiter, now: t, spent, maxWaitMs });
         // A round being stopped starts nothing, so it holds no release either.
         if (signal?.aborted || stopping) return () => {};
         if (d.release) {
           const waited = t - from;
-          spentMs += waited;
-          if (d.anyway) console.warn(`[review-checks] ${said === "swap" ? "still in swap" : "no room"} after ${Math.round(maxWaitMs / 60_000)} min: "${name}" starts anyway`);
+          if (d.anyway && d.heldBy) console.warn(failOpenLine(name, d.heldBy, waited, d.spentMs, d.budgetMs));
           else if (said) console.warn(`[review-checks] "${name}" starts after ${Math.round(waited / 1000)} s`);
           const mine: Release = { round, name, at: t, running: true };
           lastRelease = mine;
           return () => { mine.running = false; };
         }
+        spending = budgetOf(d.wait);
         if (d.wait !== said) {
           said = d.wait;
-          console.warn(waitLine(name, d.wait!, held, swap, floor.floorGB, t));
+          console.warn(waitLine(name, d.wait!, held, swap, floorGB, t));
         }
         await sleep(pollMs);
       }
@@ -249,11 +467,13 @@ export function _resetReviewChecksStop(): void {
  *  - less than 120 s since the last interruption: nothing, to see its effect
  *    (5 s SIGKILL grace, a beat, and a 60 s swap window still holding the
  *    samples from before the kill);
- *  - candidates: registered runs of a card whose tree holds >= 1 GB, interrupted
- *    fewer than 2 times on their delivery `taskId@commit`. Killing a tsc (460 MB),
- *    a vite build (316 MB) or the static rails gives nothing back and costs a
- *    round; a delivery interrupted twice runs to the end, or it could be killed
- *    forever;
+ *  - candidates: registered runs of a card whose tree holds >= 1 GB RIGHT NOW,
+ *    interrupted fewer than 2 times on their delivery `taskId@commit`. The
+ *    reading is the LATEST sample and not the run's peak, deliberately: what a
+ *    SIGKILL gives back is what the tree holds at that instant, so killing a tsc
+ *    that peaked at 1.31 GB and has since settled to 0.4 returns 0.4 and costs a
+ *    whole round. `static-rails` (0.31 GB measured) never qualifies at all. A
+ *    delivery interrupted twice runs to the end, or it could be killed forever;
  *  - victim: the youngest round, whose rerun wastes the least.
  * The round throws `ChecksInterruptedError("swap")` before the killed command
  * becomes a run, so no verdict and no card peak are recorded; the route re-issues

@@ -12,9 +12,12 @@
  *
  * The functions here are pure over a list of samples; `createMemSignal` keeps
  * the list, fed on the dispatcher's 10 s beat by an async probe. Nothing here
- * reads the machine itself.
+ * reads the machine itself - the only IO is `fileMemSampleStore`, the disk the
+ * window is parked on across a restart, and it is injected.
  */
 
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
+import { dirname } from "path";
 import { memoryOwnersLogField, type MemoryFamily } from "./memory-owners";
 
 export interface MemSample {
@@ -237,14 +240,58 @@ export interface MemSignal {
   samples(): readonly MemSample[];
 }
 
+/**
+ * WHERE THE WINDOW SURVIVES A RESTART. Two calls, so a test can hold it in a
+ * variable and the server can point it at a file.
+ */
+export interface MemSampleStore {
+  read(): string | null;
+  write(text: string): void;
+}
+
+interface MemSampleFile { v: 1; samples: MemSample[] }
+
+/**
+ * THE 2-MINUTE WINDOW OUTLIVES THE PROCESS, because on this machine the process
+ * does not outlive two minutes.
+ *
+ * `TOPICS_SERVER_WATCH=1` restarts the server on every save under `server/`, and
+ * the sample list was born empty in the new process: for 120 s `heldMemory()`
+ * answered `null` and every admission and every resume was held, on a free Mac
+ * exactly as on a full one. Measured on 25.7 h of 16-17/09/2026: 28 windows
+ * zeroed across 44 restarts, about 56 minutes a day of queue stopped for a
+ * reason that was not memory.
+ *
+ * THE RELOAD APPLIES THE SAME CUT AS TWO LIVE SAMPLES (`MEM_SAMPLE_GAP_MS`, 30
+ * s) and it does so for free: `newestRun` already breaks on a hole bigger than
+ * the gap and on a newest sample older than it, measured against `now`. A
+ * process back up in three seconds inherits a valid window; one back after ten
+ * minutes starts from zero exactly as today. The rule "I do not start on a
+ * single reading" is untouched - what is restored is readings, not a verdict.
+ *
+ * WRITTEN AT EVERY SAMPLE, and the alternative is what makes it necessary. The
+ * file is ~17 samples of about 120 bytes, some 2 KB, tmp + rename, no fsync (a
+ * sample lost to a machine crash costs a warm-up, which is what happens today
+ * anyway; an fsync every 10 s on the disk the floor is there to protect is the
+ * wrong trade). Throttling the write to 30 s instead would leave the newest
+ * persisted sample up to 30 s old at the restart, and the reload cut would then
+ * drop it in exactly the case this exists for - the three-second restart.
+ */
 export function createMemSignal(deps: {
   probe: () => Promise<Omit<MemSample, "at"> | null>;
   now?: () => number;
   measurable: boolean;
+  /** Absent = nothing survives the restart, the behaviour before KANBAN-82. */
+  store?: MemSampleStore;
 }): MemSignal {
   const now = deps.now ?? Date.now;
-  const list: MemSample[] = [];
+  const list: MemSample[] = loadSamples(deps.store, now());
   let inFlight: Promise<void> | null = null;
+  const persist = () => {
+    if (!deps.store) return;
+    try { deps.store.write(JSON.stringify({ v: 1, samples: list } satisfies MemSampleFile)); }
+    catch { /* the window still works in memory: a store that cannot write must not stop the beat */ }
+  };
   return {
     // Single-flight: under thrash a fork takes seconds, and the 10 s beat would
     // otherwise stack probes on the machine that is already short of memory.
@@ -258,6 +305,7 @@ export function createMemSignal(deps: {
           const at = now();
           list.push({ ...got, at });
           while (list.length && list[0]!.at < at - KEEP_MS) list.shift();
+          persist();
         } catch { /* same as a failed probe */ } finally {
           inFlight = null;
         }
@@ -268,6 +316,62 @@ export function createMemSignal(deps: {
     swap: () => swapVerdict(list, now()),
     latestAvailGB: () => heldMemory(list, now(), deps.measurable).latestGB,
     samples: () => list,
+  };
+}
+
+/**
+ * The samples left by the previous process, or an empty list.
+ *
+ * Three things are dropped here and nothing else is judged: anything older than
+ * `KEEP_MS` (the list's own horizon), anything dated in the FUTURE (a clock that
+ * moved back would otherwise pin `newestRun` on a sample that never ages), and
+ * a file that does not parse. The 30 s gap is NOT applied here: it belongs to
+ * `heldMemory`, which reads it against the instant of the question, not the
+ * instant of the boot.
+ */
+function loadSamples(store: MemSampleStore | undefined, now: number): MemSample[] {
+  if (!store) return [];
+  try {
+    const raw = store.read();
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Partial<MemSampleFile>;
+    if (!Array.isArray(parsed.samples)) return [];
+    return parsed.samples
+      .filter((s): s is MemSample => !!s && typeof s.at === "number" && Number.isFinite(s.at)
+        && s.at <= now && s.at >= now - KEEP_MS)
+      .sort((a, b) => a.at - b.at);
+  } catch { return []; }
+}
+
+/**
+ * The production store: one small JSON file under the state dir, tmp + rename.
+ *
+ * The state dir and not `~/.topics`: a test server and the production server
+ * must not share the window, for the same reason they do not share the DB, and
+ * `resolveStateDir` is the one door that already answers that (it is where
+ * `swap-freeze.json` and `provider-hold.json` live). Not a DB row either - this
+ * is machine telemetry with a 180 s lifetime, and rewriting a row every 10 s
+ * would put that churn in the WAL every other service reads, on top of needing
+ * the DB open before the first sample, which at boot it is not.
+ *
+ * WHICH MEANS IT LANDS IN THE REPO ROOT IN PRODUCTION, because `start-prod.sh`
+ * runs from there and nothing exports `DATA_DIR`, so the fallback is the cwd -
+ * exactly where `provider-hold.json` already sits. That is why this file and
+ * its `.tmp` have their own two lines in `.gitignore`, with the reason written
+ * beside them: on 17/09/2026 two UNTRACKED files in that root held the door shut
+ * on every land the board attempted, and `scripts/check-e2e-touched.ts` still
+ * sums untracked files into the changed ones. An untracked file rewritten every
+ * ten seconds is not something to leave outside the ignore list.
+ */
+export function fileMemSampleStore(path: string): MemSampleStore {
+  return {
+    read: () => (existsSync(path) ? readFileSync(path, "utf8") : null),
+    write: (text) => {
+      mkdirSync(dirname(path), { recursive: true });
+      const tmp = `${path}.tmp`;
+      writeFileSync(tmp, text);
+      renameSync(tmp, path);
+    },
   };
 }
 

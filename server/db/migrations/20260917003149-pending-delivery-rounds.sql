@@ -1,0 +1,19 @@
+-- 20260917003149-pending-delivery-rounds.sql
+--
+-- QUANTE VOLTE QUESTA CONSEGNA HA GIA' RIFATTO IL GIRO DA ZERO.
+--
+-- `pending_deliveries` fa tornare al boot la consegna che il riavvio ha
+-- tagliato, e non contava niente: ogni giro ripartiva come il primo. Un giro
+-- con le righe CI costa i comandi locali (typecheck misurato 73-177 s, piu'
+-- lint, deadcode e i rail statici) piu' fino a 65 minuti di poll su GitHub, e
+-- un SIGTERM lo taglia senza aspettare la quiescenza: con
+-- TOPICS_SERVER_WATCH=1 il SIGTERM arriva a ogni salvataggio sotto server/
+-- (misurati 6 riavvii nell'ora del 14/09T23, 4 in quella T20, 1-2 all'ora per
+-- tutto il 16/09). Dopo il #70 una consegna che aspetta solo la CI e' proprio
+-- quella che il cancello del riavvio lascia tagliare, quindi il giro puo'
+-- ricominciare all'infinito senza mai arrivare a un verdetto e senza che
+-- nessuno lo veda.
+--
+-- Il contatore rende quella ripetizione un numero: oltre il tetto il boot
+-- scrive sulla card invece di rifare l'ennesimo giro muto.
+ALTER TABLE pending_deliveries ADD COLUMN rounds INTEGER NOT NULL DEFAULT 0;
