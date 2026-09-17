@@ -226,50 +226,50 @@ describe("il turno tagliato da un riavvio e' un fatto scritto", () => {
 });
 
 /**
- * UNA BOCCIATURA UMANA NON E' UN TURNO INTERROTTO.
+ * A HUMAN REJECTION IS NOT AN INTERRUPTED TURN.
  *
- * Il recupero qui sopra riprende ogni orfana con `buildContinueNudge`: «il tuo
- * turno e' stato interrotto, non e' colpa tua, continua SOLO il lavoro
- * rimasto». Su una card che una persona ha BOCCIATO con tre obiezioni quel
- * testo dice il contrario di cio' che e' successo, e il testo vero viveva in
- * una Map in memoria (`slotWaits`) perche' il pavimento tratteneva il resume:
- * il primo riavvio lo perdeva. Misurato il 17/09/2026: 3 card bocciate il 15,
- * ferme 45 ore, 44 riavvii ciascuna, e le parole ancora nel thread.
+ * The recovery above resumes every orphan with `buildContinueNudge`: "your
+ * previous turn was interrupted, no fault of yours, continue ONLY the work
+ * that is left". On a card a person REJECTED with three objections that text
+ * says the opposite of what happened, and the real text lived in a Map in
+ * memory (`slotWaits`) because the floor was holding the resume: the first
+ * restart lost it. Measured 2026-09-17: 3 cards rejected on the 15th, stopped
+ * 45 hours, 44 restarts each, and the words still sitting in the thread.
  *
  * @covers KANBAN-84
  */
 describe("il recupero di una card che un umano ha bocciato", () => {
-  /** La card come la lascia un rifiuto in review: `reopened_actor = 'human'`. */
-  function seedBocciata(h: ReturnType<typeof harness>, id: string, testo: string): void {
+  /** The card as a review rejection leaves it: `reopened_actor = 'human'`. */
+  function seedRejected(h: ReturnType<typeof harness>, id: string, words: string): void {
     seedOrfana(h.db, id, { chip: "working", interruptedAt: "2026-09-15T13:49:00.000Z" });
-    const c = h.svc.addComment({ taskId: id, author: "user", content: testo });
-    // LA TRAPPOLA, misurata sul DB vivo: la riga di stato e' scritta DOPO il
-    // commento, non prima. Su `f981f62c` sono 13:49:31.716 e 13:49:31.732,
-    // sedici millisecondi. Un filtro `created_at > reopened_at` non trova
-    // niente, e il fix sembra fatto mentre non fa nulla.
-    const dopo = new Date(Date.parse(c.createdAt) + 16).toISOString();
-    h.db.run("UPDATE tasks SET reopened_actor = 'human', reopened_at = ? WHERE id = ?", [dopo, id]);
+    const c = h.svc.addComment({ taskId: id, author: "user", content: words });
+    // THE TRAP, measured on the live DB: the status row is written AFTER the
+    // comment, not before. On `f981f62c` they are 13:49:31.716 and
+    // 13:49:31.732, sixteen milliseconds. A `created_at > reopened_at` filter
+    // finds nothing, and the fix looks done while doing nothing.
+    const at = new Date(Date.parse(c.createdAt) + 16).toISOString();
+    h.db.run("UPDATE tasks SET reopened_actor = 'human', reopened_at = ? WHERE id = ?", [at, id]);
   }
 
   it("riparte con le obiezioni della persona, non col sollecito da turno interrotto", async () => {
     const h = harness();
-    seedBocciata(h, "t1", "Non si fonde ancora: il prefisso e' scaduto e il suffisso non e' quello consegnato.");
+    seedRejected(h, "t1", "Non si fonde ancora: il prefisso e' scaduto e il suffisso non e' quello consegnato.");
 
     await h.dispatcher.reconcile();
     await flush();
 
     expect(h.turns.length).toBe(1);
-    const testo = h.turns[0]!.content;
-    expect(testo).toContain("Non si fonde ancora");
-    expect(testo).toContain("Human update on task");
-    expect(testo).not.toContain("was interrupted");
-    // E la card lo dice, invece di raccontare un riavvio a meta' turno.
+    const said = h.turns[0]!.content;
+    expect(said).toContain("Non si fonde ancora");
+    expect(said).toContain("Human update on task");
+    expect(said).not.toContain("was interrupted");
+    // And the card says so, instead of narrating a restart mid-turn.
     expect(h.note("t1").some((c) => c.includes("con la tua bocciatura"))).toBe(true);
   });
 
   it("senza `reopened_actor = 'human'` resta il sollecito di prima", async () => {
     const h = harness();
-    seedBocciata(h, "t1", "questo non conta: l'ha riaperta la macchina");
+    seedRejected(h, "t1", "questo non conta: l'ha riaperta la macchina");
     h.db.run("UPDATE tasks SET reopened_actor = 'system' WHERE id = 't1'");
 
     await h.dispatcher.reconcile();

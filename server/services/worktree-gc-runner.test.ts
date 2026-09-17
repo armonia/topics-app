@@ -478,7 +478,7 @@ describe("le righe pending stantie", () => {
  * @covers KANBAN-84
  */
 describe("l'inattivita' di un task si misura sul lavoro, non sul chip", () => {
-  const GIORNO = 86_400_000;
+  const DAY = 86_400_000;
 
   function dbConTask(opts: { updatedAt: string; topicId?: string }): Database {
     const db = new Database(":memory:");
@@ -492,71 +492,71 @@ describe("l'inattivita' di un task si misura sul lavoro, non sul chip", () => {
     return db;
   }
 
-  function commento(db: Database, id: string, kind: string, at: string): void {
+  function comment(db: Database, id: string, kind: string, at: string): void {
     db.run("INSERT INTO task_comments (id, task_id, kind, created_at) VALUES (?, 't1', ?, ?)", [id, kind, at]);
   }
 
   it("ultimo commento a 9 giorni e chip riscritto adesso: l'inattivita' e' 9 giorni", () => {
-    const adesso = Date.now();
-    const db = dbConTask({ updatedAt: new Date(adesso).toISOString() });
-    commento(db, "c1", "comment", new Date(adesso - 9 * GIORNO).toISOString());
+    const now = Date.now();
+    const db = dbConTask({ updatedAt: new Date(now).toISOString() });
+    comment(db, "c1", "comment", new Date(now - 9 * DAY).toISOString());
     // The chip rewritten while the card is held: this is the row that used to
     // zero the measure, and it is the one that must stop voting.
-    commento(db, "c2", "service", new Date(adesso - 60_000).toISOString());
-    commento(db, "c3", "status", new Date(adesso - 60_000).toISOString());
-    const giorni = taskIdleDays(db, "t1");
-    expect(giorni).not.toBeNull();
-    expect(giorni!).toBeGreaterThan(8.9);
-    expect(giorni!).toBeLessThan(9.1);
+    comment(db, "c2", "service", new Date(now - 60_000).toISOString());
+    comment(db, "c3", "status", new Date(now - 60_000).toISOString());
+    const days = taskIdleDays(db, "t1");
+    expect(days).not.toBeNull();
+    expect(days!).toBeGreaterThan(8.9);
+    expect(days!).toBeLessThan(9.1);
   });
 
   it("un messaggio del topic vale come lavoro, e vince sul commento piu' vecchio", () => {
-    const adesso = Date.now();
-    const db = dbConTask({ updatedAt: new Date(adesso).toISOString(), topicId: "tp1" });
+    const now = Date.now();
+    const db = dbConTask({ updatedAt: new Date(now).toISOString(), topicId: "tp1" });
     db.run("INSERT INTO topics (id, session_key, worktree_id) VALUES ('tp1', 'topic:tp1', NULL)");
-    commento(db, "c1", "comment", new Date(adesso - 9 * GIORNO).toISOString());
-    db.run("INSERT INTO messages (session_key, timestamp) VALUES ('topic:tp1', ?)", [new Date(adesso - 2 * GIORNO).toISOString()]);
-    const giorni = taskIdleDays(db, "t1")!;
-    expect(giorni).toBeGreaterThan(1.9);
-    expect(giorni).toBeLessThan(2.1);
+    comment(db, "c1", "comment", new Date(now - 9 * DAY).toISOString());
+    db.run("INSERT INTO messages (session_key, timestamp) VALUES ('topic:tp1', ?)", [new Date(now - 2 * DAY).toISOString()]);
+    const days = taskIdleDays(db, "t1")!;
+    expect(days).toBeGreaterThan(1.9);
+    expect(days).toBeLessThan(2.1);
   });
 
   it("un tentativo finito e' un turno che e' girato davvero", () => {
-    const adesso = Date.now();
-    const db = dbConTask({ updatedAt: new Date(adesso).toISOString() });
-    commento(db, "c1", "comment", new Date(adesso - 9 * GIORNO).toISOString());
+    const now = Date.now();
+    const db = dbConTask({ updatedAt: new Date(now).toISOString() });
+    comment(db, "c1", "comment", new Date(now - 9 * DAY).toISOString());
     db.run("INSERT INTO task_attempts (id, task_id, created_at, ended_at) VALUES ('a1', 't1', ?, ?)",
-      [new Date(adesso - 9 * GIORNO).toISOString(), new Date(adesso - 3 * GIORNO).toISOString()]);
-    const giorni = taskIdleDays(db, "t1")!;
-    expect(giorni).toBeGreaterThan(2.9);
-    expect(giorni).toBeLessThan(3.1);
+      [new Date(now - 9 * DAY).toISOString(), new Date(now - 3 * DAY).toISOString()]);
+    const days = taskIdleDays(db, "t1")!;
+    expect(days).toBeGreaterThan(2.9);
+    expect(days).toBeLessThan(3.1);
   });
 
   it("senza tabella dei tentativi si perde un voto, non la risposta", () => {
     // A `null` here is not caution: the GC reads it as "don't touch", so a
     // missing table would hide the very staleness this function measures.
-    const adesso = Date.now();
-    const db = dbConTask({ updatedAt: new Date(adesso).toISOString() });
+    const now = Date.now();
+    const db = dbConTask({ updatedAt: new Date(now).toISOString() });
     db.run("DROP TABLE task_attempts");
-    commento(db, "c1", "comment", new Date(adesso - 9 * GIORNO).toISOString());
-    const giorni = taskIdleDays(db, "t1")!;
-    expect(giorni).toBeGreaterThan(8.9);
+    comment(db, "c1", "comment", new Date(now - 9 * DAY).toISOString());
+    const days = taskIdleDays(db, "t1")!;
+    expect(days).toBeGreaterThan(8.9);
   });
 
   it("nessun segno di lavoro: la risposta e' null, e il GC non tocca niente", () => {
-    const adesso = Date.now();
-    const db = dbConTask({ updatedAt: new Date(adesso).toISOString() });
-    commento(db, "c1", "service", new Date(adesso - 60_000).toISOString());
+    const now = Date.now();
+    const db = dbConTask({ updatedAt: new Date(now).toISOString() });
+    comment(db, "c1", "service", new Date(now - 60_000).toISOString());
     expect(taskIdleDays(db, "t1")).toBeNull();
   });
 
   it("il transcript sul disco vota anche quando le tabelle tacciono", () => {
-    const adesso = Date.now();
-    const db = dbConTask({ updatedAt: new Date(adesso).toISOString(), topicId: "tp1" });
+    const now = Date.now();
+    const db = dbConTask({ updatedAt: new Date(now).toISOString(), topicId: "tp1" });
     db.run("INSERT INTO topics (id, session_key, worktree_id) VALUES ('tp1', 'topic:tp1', NULL)");
-    commento(db, "c1", "comment", new Date(adesso - 9 * GIORNO).toISOString());
-    const giorni = taskIdleDays(db, "t1", () => adesso - 4 * GIORNO)!;
-    expect(giorni).toBeGreaterThan(3.9);
-    expect(giorni).toBeLessThan(4.1);
+    comment(db, "c1", "comment", new Date(now - 9 * DAY).toISOString());
+    const days = taskIdleDays(db, "t1", () => now - 4 * DAY)!;
+    expect(days).toBeGreaterThan(3.9);
+    expect(days).toBeLessThan(4.1);
   });
 });

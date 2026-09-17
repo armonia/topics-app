@@ -5213,13 +5213,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // The words themselves come from the service (`pendingHumanReopen`),
           // which owns both the row that says who reopened and the record of
           // which comments a resume envelope has already carried.
-          let bocciatura: { text: string; commentIds: string[] } | null = null;
-          try { bocciatura = deps.svc.pendingHumanReopen({ taskId: t.id }); }
-          catch { bocciatura = null; }
+          let rejection: { text: string; commentIds: string[] } | null = null;
+          try { rejection = deps.svc.pendingHumanReopen({ taskId: t.id }); }
+          catch { rejection = null; }
           try {
             deps.svc.claimInterruption({
               taskId: t.id,
-              note: bocciatura
+              note: rejection
                 ? "Riprendo la stessa sessione con la tua bocciatura, che il turno precedente non aveva ancora ricevuto: nessun tentativo consumato."
                 : reason === "boot"
                   ? (t.dispatchState === CHIP_QUEUED
@@ -5229,7 +5229,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             });
           } catch { /* dedupe/best-effort */ }
           // Sets inFlight synchronously → the 10s poll can never double-fire.
-          if (bocciatura) void resume(t.id, bocciatura.text, { commentIds: bocciatura.commentIds });
+          if (rejection) void resume(t.id, rejection.text, { commentIds: rejection.commentIds });
           else void resume(t.id, "", { continuation: true });
           // COUNTED BY WHAT HAPPENED, not by the call. `resume` is synchronous up
           // to its start (`beginRun`) or its wait (`slotWaits`), so the two maps
@@ -5343,9 +5343,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     //    card with a live turn, a queued resume, a scheduled retry or an open
     //    grace window is OURS, whatever the row says.
     try {
-      const nostra = (taskId: string): boolean =>
+      const ours = (taskId: string): boolean =>
         inFlight.has(taskId) || slotWaits.has(taskId) || retryWaits.has(taskId) || graceTimers.has(taskId);
-      for (const t of deps.svc.sweepWaitedOut({ eligible: acceso, busy: nostra })) {
+      for (const t of deps.svc.sweepWaitedOut({ eligible: acceso, busy: ours })) {
         log(`serie di attese oltre il tetto: ${t.id} parcheggiata`);
         emit(t);
       }

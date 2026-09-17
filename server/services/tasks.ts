@@ -576,7 +576,7 @@ export interface TaskService {
    */
   sweepWaitedOut(args?: { eligible?: (projectId: string) => boolean; busy?: (taskId: string) => boolean }): Task[];
   /**
-   * Esegue la risposta umana allo stallo. `requeue` manda i figli parcheggiati
+   * Esegue la risposta umana allo stallo. `requeue` manda i figli parkedCards
    * in `todo`; `archive` li archivia; `promote` toglie loro il padre e li mette
    * in coda come task indipendenti. In tutti i casi il padre torna in coda col
    * chip `queued` e col budget dei tentativi azzerato — la risposta è un
@@ -2775,14 +2775,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   }
 
   /**
-   * La domanda sui parcheggiati è GIÀ sulla card, e ancora senza risposta?
+   * La domanda sui parkedCards è GIÀ sulla card, e ancora senza risposta?
    *
    * Serve solo al padre che sta in review, dove la domanda si posa nel thread
    * senza muovere la card: lì non c'è nessun `delivered_reason` a fare da
    * marchio, e senza questo controllo la stessa domanda tornerebbe a ogni
    * figlio che chiude.
    *
-   * Il confronto è con l'ultimo movimento dei figli parcheggiati, non con
+   * Il confronto è con l'ultimo movimento dei figli parkedCards, non con
    * l'orologio: una domanda più vecchia del parcheggio più recente parla di
    * una configurazione che non c'è più, e va rifatta. Rispondere ai due
    * bottoni muove i figli, quindi la risposta si vede da qui senza bisogno di
@@ -2820,9 +2820,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    *    c'è una decisione umana in attesa e adesso approvare funziona davvero.
    *    Si toglie solo il chip stantio, che dice di aspettare figli che non
    *    esistono più.
-   *  - restano solo parcheggiati e il padre non è in review: `askParkedChildren`,
+   *  - restano solo parkedCards e il padre non è in review: `askParkedChildren`,
    *    che fa già tutto (domanda, review, due bottoni).
-   *  - restano solo parcheggiati e il padre è GIÀ in review: la domanda si posa
+   *  - restano solo parkedCards e il padre è GIÀ in review: la domanda si posa
    *    nel thread e basta. Muoverlo scriverebbe `delivered_by = 'system'` sopra
    *    una consegna vera, e sulla card quella è la riga che dice al reviewer se
    *    sotto c'è un deliverable.
@@ -2867,7 +2867,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       svc.addComment({
         taskId: parentId, author: "system",
         content:
-          `Chiuso l'ultimo sottotask in lavorazione, e restano ${parked.length} passi parcheggiati in backlog (${elenco}): ` +
+          `Chiuso l'ultimo sottotask in lavorazione, e restano ${parked.length} passi parkedCards in backlog (${elenco}): ` +
           `nessun dispatcher li prende da solo, e con un sottotask aperto questa card non si può approvare. ` +
           (withWork > 0
             ? `${withWork} hanno lavoro proprio: promuoverli a task li rende servibili dalla coda. `
@@ -2972,13 +2972,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
   function supportsMessages(): boolean {
     if (messageBlocksColumn === null) {
       try {
-        const messaggi = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name?: string }>;
-        // Anche il PONTE va guardato, non solo la colonna: la query passa da
-        // `topics.session_key`, e una mezza verifica lascia in piedi proprio il
-        // caso che questa sonda esiste per escludere.
-        const topic = db.prepare("PRAGMA table_info(topics)").all() as Array<{ name?: string }>;
-        messageBlocksColumn = messaggi.some((c) => c.name === "blocks")
-          && topic.some((c) => c.name === "session_key");
+        const messageCols = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name?: string }>;
+        // The BRIDGE is probed too, not just the column: the query goes through
+        // `topics.session_key`, and half a check leaves standing exactly the
+        // case this probe exists to rule out.
+        const topicCols = db.prepare("PRAGMA table_info(topics)").all() as Array<{ name?: string }>;
+        messageBlocksColumn = messageCols.some((c) => c.name === "blocks")
+          && topicCols.some((c) => c.name === "session_key");
       } catch { messageBlocksColumn = false; }
     }
     return messageBlocksColumn;
@@ -3281,7 +3281,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * annidare uno step sotto una card in Done costruisce un vicolo cieco con una
    * chiamata perfettamente legittima. Nessun dispatcher prende gli step, il
    * padre è chiuso quindi nessuno ne apre più l'albero, e la sonda dei figli
-   * parcheggiati esce subito su un padre `done`. Il cancello su `done` impedisce
+   * parkedCards esce subito su un padre `done`. Il cancello su `done` impedisce
    * di CHIUDERE un padre con figli aperti; senza questo, la stessa coppia si
    * otteneva dall'altro verso — prima chiudi, poi attacca.
    */
@@ -4175,16 +4175,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const at = typeof row.reopened_at === "string" ? Date.parse(row.reopened_at) : NaN;
       if (!Number.isFinite(at)) return null;
       const da = new Date(at - REOPEN_COMMENT_SLACK_MS).toISOString();
-      // Stessa sonda dell'INSERT di `addComment`: la migration gira all'APERTURA
-      // del database, e un server gia' su serve lo schema vecchio finche' non
-      // ricarica. Nominare la colonna prima che esista fa esplodere la query, e
-      // qui l'esplosione si legge come «nessuna bocciatura da consegnare».
-      const nonSilenziosi = supportsCommentQuiet() ? "AND COALESCE(c.quiet, 0) = 0" : "";
-      // «Gia' consegnato» si legge sulla busta del resume, che registra gli id
-      // dei commenti che ha portato (`dispatched-envelope`). Senza la tabella
-      // dei messaggi — schemi di prova che non la montano — la domanda non si
-      // puo' fare, e la risposta onesta e' «nessuna consegna registrata».
-      const giaConsegnato = supportsMessages()
+      // The same probe the INSERT in `addComment` uses: the migration runs when
+      // the database is OPENED, and a server already up serves the old shape
+      // until it reloads. Naming a column the file has not got yet throws, and
+      // here a throw reads as "no rejection to deliver".
+      const notQuiet = supportsCommentQuiet() ? "AND COALESCE(c.quiet, 0) = 0" : "";
+      // "Already delivered" is read off the resume envelope, which records the
+      // ids of the comments it carried (`dispatched-envelope`). Without the
+      // message table - test benches that do not mount one - the question
+      // cannot be asked, and the honest answer is "no delivery on record".
+      const alreadyDelivered = supportsMessages()
         ? `AND NOT EXISTS (
              SELECT 1 FROM messages m
                JOIN topics tp ON tp.session_key = m.session_key
@@ -4192,25 +4192,25 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         : "";
       const args: unknown[] = [taskId, HUMAN_AUTHOR, da];
       if (supportsMessages()) args.push(row.assigned_topic_id ?? "");
-      let righe: Array<{ id: string; content: string }> = [];
+      let rows: Array<{ id: string; content: string }> = [];
       try {
-        righe = db.prepare(
+        rows = db.prepare(
           `SELECT c.id AS id, c.content AS content
              FROM task_comments c
             WHERE c.task_id = ?
               AND c.author = ?
               AND c.kind = 'comment'
-              ${nonSilenziosi}
+              ${notQuiet}
               AND TRIM(c.content) <> ''
               AND c.created_at >= ?
-              ${giaConsegnato}
+              ${alreadyDelivered}
             ORDER BY c.created_at, c.rowid`,
         ).all(...(args as [])) as Array<{ id: string; content: string }>;
       } catch { return null; }
-      if (righe.length === 0) return null;
+      if (rows.length === 0) return null;
       return {
-        text: righe.map((r) => r.content.trim()).join("\n\n"),
-        commentIds: righe.map((r) => r.id),
+        text: rows.map((r) => r.content.trim()).join("\n\n"),
+        commentIds: rows.map((r) => r.id),
       };
     },
 
@@ -5029,7 +5029,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // La domanda sta su UNA riga: il blocco `question` appiattisce gli a capo
       // (contratto del parser delle risposte rapide), quindi l'elenco dei figli
       // viaggia in linea e non come lista.
-      // «fermi», non «parcheggiati in backlog»: da quando il predicato conta
+      // «fermi», non «parkedCards in backlog»: da quando il predicato conta
       // anche i figli in `todo`, la colonna non è più la notizia — lo è il fatto
       // che nessun turno li muoverà. Nominare una colonna sbagliata manderebbe a
       // cercarli dove non sono.
@@ -5237,16 +5237,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     },
 
     sweepWaitedOut({ eligible, busy } = {}): Task[] {
-      // I CANDIDATI, non la decisione — stessa divisione di
-      // `sweepParkedChildren`: la query stringe il campo, `waitedOutIfCapped`
-      // applica le sue guardie una per una. Due predicati per la stessa
-      // domanda divergono, e qui divergerebbero parcheggiando una card che
-      // stava ancora dentro il tetto.
-      // Lo stesso orologio di `waitedOutIfCapped` (`now()`, iniettabile), non
-      // `Date.now()`: due orologi diversi fanno una query che seleziona card
-      // che il giudice poi scarta, e in un test con il tempo finto le due
-      // risposte non si incontrano mai.
-      const limite = new Date(Date.parse(now()) - WAIT_SERIES_MAX_MS).toISOString();
+      // THE CANDIDATES, not the decision - the same split as
+      // `sweepParkedChildren`: the query narrows the field, `waitedOutIfCapped`
+      // applies its guards one by one. Two predicates answering one question
+      // drift apart, and here they would drift by parking a card that was
+      // still inside the cap.
+      //
+      // The same clock as `waitedOutIfCapped` (`now()`, injectable), never
+      // `Date.now()`: two clocks make a query that selects cards the judge then
+      // discards, and under a fake clock the two answers never meet.
+      const cutoff = new Date(Date.parse(now()) - WAIT_SERIES_MAX_MS).toISOString();
       let candidati: Array<{ id: string; project_id: string }> = [];
       try {
         candidati = db.prepare(
@@ -5256,15 +5256,15 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
               AND wait_since IS NOT NULL
               AND wait_since <= ?
             ORDER BY wait_since`,
-        ).all(limite) as Array<{ id: string; project_id: string }>;
+        ).all(cutoff) as Array<{ id: string; project_id: string }>;
       } catch { return []; }
-      const parcheggiati: Task[] = [];
+      const parkedCards: Task[] = [];
       const ammessa = new Map<string, boolean>();
       for (const c of candidati) {
         if (busy) {
-          let occupata = false;
-          try { occupata = busy(c.id); } catch { occupata = true; }
-          if (occupata) continue;
+          let busyNow = false;
+          try { busyNow = busy(c.id); } catch { busyNow = true; }
+          if (busyNow) continue;
         }
         if (eligible) {
           let ok = ammessa.get(c.project_id);
@@ -5273,10 +5273,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         }
         try {
           const t = this.waitedOutIfCapped({ taskId: c.id });
-          if (t) parcheggiati.push(t);
-        } catch { /* una card può essersi mossa sotto: il giro dopo la ripesca */ }
+          if (t) parkedCards.push(t);
+        } catch { /* a card may have moved underneath: the next pass picks it up */ }
       }
-      return parcheggiati;
+      return parkedCards;
     },
 
     resolveParkedChildren({ taskId, decision, by }): { task: Task; children: Task[] } | null {
@@ -5903,7 +5903,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // that reach review without going through the end of a turn. Nobody
       // redrew, so the card kept the old sheet. Measured 2026-09-01 on
       // `dec39cd3`: the sheet read zero files and zero lines both ways — its
-      // own words: «file toccati 0, +0 righe aggiunte, -0 righe tolte». allow-italian: the sheet's own labels, quoted.
+      // own words: «file toccati 0, +0 rows aggiunte, -0 rows tolte». allow-italian: the sheet's own labels, quoted.
       // While the column held
       // 4 files and +157 lines. Not an empty box —
       // a box declaring the opposite of the truth, and the only thing that card

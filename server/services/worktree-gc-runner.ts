@@ -188,10 +188,10 @@ export function taskIdleDays(
     // never an answer of null — null reads as "don't touch" and would hide the
     // very staleness we are measuring.
     try {
-      const att = db
+      const attempt = db
         .prepare("SELECT MAX(MAX(COALESCE(ended_at, ''), COALESCE(created_at, ''))) AS at FROM task_attempts WHERE task_id = ?")
         .get(taskId) as { at?: string } | undefined;
-      const ms = att?.at ? Date.parse(att.at) : NaN;
+      const ms = attempt?.at ? Date.parse(attempt.at) : NaN;
       if (Number.isFinite(ms)) last = Math.max(last, ms);
     } catch { /* one vote fewer, never a block */ }
 
