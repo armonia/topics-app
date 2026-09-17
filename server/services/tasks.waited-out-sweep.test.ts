@@ -119,3 +119,103 @@ describe("la serie di attese sfonda il tetto senza che nessun turno riparta", ()
     expect(s.waitedOutIfCapped({ taskId: id })!.dispatchState).toBe(PARKED_WAITED_OUT);
   });
 });
+
+/**
+ * ONE LONG WAIT IS NOT A SERIES PAST ITS CAP.
+ *
+ * `deferForWait` clamps `minutes` to 1440 and production uses that room: of
+ * the 78 retry notes on the live DB the top figures are 240, 180 and 120
+ * minutes. Inside `deferForWait` a lone wait could never trip the duration cap
+ * — `serieMs` is 0 on the first declaration — so the cap has only ever judged
+ * a SERIES. Reading `wait_since` from outside turned it into something else:
+ * an 8-hour wait parked after 4 hours, four hours before the wake-up the agent
+ * itself had asked for, with a note claiming one wait in a row four hours old
+ * on a wait that is neither a series nor expired.
+ */
+describe("il tetto sulla durata non scavalca la sveglia che l'agente ha chiesto", () => {
+  let db: Database; let s: TaskService;
+  const clock = { t: T0 };
+  beforeEach(() => { clock.t = T0; db = freshDb(); s = svc(db, clock); });
+
+  /** One long wait, the shape production asks for up to 240 minutes. */
+  function longWait(minutes: number, reason = "aspetto la finestra di manutenzione"): string {
+    const t = s.create({ projectId: PID, text: "consegna bloccata", status: "todo" });
+    s.claim({ taskId: t.id, cap: 5, maxAttempts: 2 });
+    s.deferForWait({ taskId: t.id, reason, minutes, by: "claude" });
+    return t.id;
+  }
+
+  test("480 minuti chiesti, 241 passati: la card non si tocca", () => {
+    const id = longWait(480);
+    expect(s.get(id)!.task.waitStreak).toBe(1);
+
+    clock.t += 241 * 60_000;
+    expect(241 * 60_000).toBeGreaterThan(WAIT_SERIES_MAX_MS);
+
+    expect(s.sweepWaitedOut()).toEqual([]);
+    expect(s.waitedOutIfCapped({ taskId: id })).toBeNull();
+    const after = s.get(id)!.task;
+    expect(after.status).toBe("todo");
+    expect(after.dispatchState).toBe("waiting");
+    // And nobody wrote the wrong sentence on it.
+    expect(s.get(id)!.comments.map((c) => c.content).join("\n")).not.toContain("la decisione torna a te");
+  });
+
+  test("scaduta la sveglia e passato il tetto SOPRA di essa, la card si parcheggia", () => {
+    const id = longWait(480);
+    // 8 hours asked for plus the 4 of the cap: the time nobody looked at the
+    // card starts at the wake-up, not at the declaration.
+    clock.t += 8 * ORA + 4 * ORA + 60_000;
+    expect(s.sweepWaitedOut().map((t) => t.id)).toEqual([id]);
+    expect(s.get(id)!.task.dispatchState).toBe(PARKED_WAITED_OUT);
+  });
+
+  test("appena scaduta la sveglia il turno vince: il tetto parte da li'", () => {
+    const id = longWait(480);
+    clock.t += 8 * ORA;
+    // The two conditions never come true in the same instant on a lone
+    // wait: here the wake-up has arrived and the cap is still 4 hours away.
+    expect(s.sweepWaitedOut()).toEqual([]);
+    expect(s.get(id)!.task.status).toBe("todo");
+  });
+
+  test("una SERIE oltre il tetto si parcheggia, e la nota dice due attese", () => {
+    const id = longWait(15, "aspetto che la CI finisca");
+    clock.t += 3 * ORA;
+    s.claim({ taskId: id, cap: 5, maxAttempts: 2 });
+    s.deferForWait({ taskId: id, reason: "aspetto che la CI finisca", minutes: 15, by: "claude" });
+    expect(s.get(id)!.task.waitStreak).toBe(2);
+
+    clock.t += 61 * 60_000; // series: 4h01 old, wake-up 46 minutes past
+    expect(s.sweepWaitedOut().map((t) => t.id)).toEqual([id]);
+    const note = s.get(id)!.task.dispatchError ?? "";
+    expect(note).toContain("Sono 2 attese di fila");
+    expect(note).toContain("da circa 4 ore");
+  });
+
+  test("una serie oltre il tetto ma con la sveglia ancora davanti aspetta la sveglia", () => {
+    const id = longWait(15, "aspetto che la CI finisca");
+    clock.t += 3 * ORA;
+    s.claim({ taskId: id, cap: 5, maxAttempts: 2 });
+    // The second wait asks for two hours: the series tops the cap at 4h, but
+    // at 5h there is a turn the agent has already booked to look.
+    s.deferForWait({ taskId: id, reason: "aspetto che la CI finisca", minutes: 120, by: "claude" });
+
+    clock.t += 61 * 60_000; // 4h01 of series, wake-up in 59 minutes
+    expect(s.sweepWaitedOut()).toEqual([]);
+    expect(s.get(id)!.task.status).toBe("todo");
+
+    clock.t += 60 * 60_000; // the wake-up is past, the cap was topped an hour ago
+    expect(s.sweepWaitedOut().map((t) => t.id)).toEqual([id]);
+    expect(s.get(id)!.task.dispatchState).toBe(PARKED_WAITED_OUT);
+  });
+
+  test("senza finestra di rinvio il tetto torna a leggere `wait_since`", () => {
+    // The claim clears the column, so a row without a window is a card a
+    // turn has already seen: there the cap measures the series, as always.
+    const id = longWait(480);
+    db.run("UPDATE tasks SET dispatch_deferred_until = NULL WHERE id = ?", [id]);
+    clock.t += 5 * ORA;
+    expect(s.sweepWaitedOut().map((t) => t.id)).toEqual([id]);
+  });
+});

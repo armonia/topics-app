@@ -565,6 +565,18 @@ export interface TaskService {
    * Returns the parked task, or null when the series is still inside the cap
    * (the normal case). The STREAK cap stays where it is: it can only change
    * when a turn declares a new wait, so it has no blind window.
+   *
+   * TWO THINGS THIS JUDGE MUST NOT DO, and both are about a SINGLE long wait.
+   * `deferForWait` clamps `minutes` to 1440, and production asks for a lot:
+   * of the 78 retry notes on the live DB the top figures are 240, 180 and 120
+   * minutes. So a lone wait can legitimately outlive the 4-hour cap, and
+   * inside `deferForWait` it never tripped it — there `serieMs` is 0 on the
+   * first declaration, and the cap only ever judged a SERIES. From outside,
+   * reading `wait_since` alone, a single 8-hour wait gets parked after 4 hours
+   * and the note it receives claims one wait in a row, four hours old —
+   * neither a series nor an expired one. Hence: the wake-up the agent asked
+   * for (`dispatch_deferred_until`) is never overtaken, and for a streak of
+   * one the cap's clock starts at that wake-up instead of at the declaration.
    */
   waitedOutIfCapped(args: { taskId: string }): Task | null;
   /**
@@ -5213,8 +5225,34 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const since = (row.wait_since ?? null) as string | null;
       if (!since) return null;
       const ts = now();
-      const serieMs = Date.parse(ts) - Date.parse(since);
-      if (!Number.isFinite(serieMs) || serieMs < WAIT_SERIES_MAX_MS) return null;
+      const nowMs = Date.parse(ts);
+      // `serieMs` is what the NOTE reports — how long the series has actually
+      // been running — and it stays measured from `wait_since` whatever the
+      // cap decides below. The two must not be the same number: reporting the
+      // overdue time instead would claim four hours on a series that has been
+      // alive for twelve.
+      const serieMs = nowMs - Date.parse(since);
+      if (!Number.isFinite(serieMs)) return null;
+      // THE WAKE-UP THE AGENT ASKED FOR IS NEVER OVERTAKEN. While
+      // `dispatch_deferred_until` is still ahead, no turn has had the chance
+      // to look at whether the condition arrived, so there is nothing to judge
+      // yet. `deferForWait` clamps `minutes` to 1440 and production asks for
+      // up to 240, so a lone wait outliving the 4-hour cap is a normal card,
+      // not a stuck one. The column is cleared by the claim, so a window in
+      // the PAST means the wake-up came and nobody answered it — which is
+      // exactly what this backstop exists to catch.
+      const wakeMs = Date.parse((row.dispatch_deferred_until ?? "") as string);
+      if (Number.isFinite(wakeMs) && wakeMs > nowMs) return null;
+      // THE DURATION CAP IS A CAP ON A SERIES. With a streak of one there is
+      // no series: there is one wait the agent asked for, and the only time
+      // nobody looked at the card is the time since its wake-up. Measuring
+      // from the declaration instead parks a wait that has not even come due
+      // (480 minutes requested, parked at 241) and tells the reader it is one
+      // wait in a row. From two waits up the clock is the series itself,
+      // which is the quantity `WAIT_SERIES_MAX_MS` was written for.
+      const streak = Number(row.wait_streak) || 1;
+      const capFrom = streak >= 2 || !Number.isFinite(wakeMs) ? Date.parse(since) : wakeMs;
+      if (nowMs - capFrom < WAIT_SERIES_MAX_MS) return null;
       // THE REASON WE HAVE IS THE KEY, NOT THE PROSE. The row keeps
       // `waitReasonKey(reason)` — lowercased, whitespace collapsed — because
       // that is what decides whether a new wait continues the series. The
@@ -5224,7 +5262,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const detto = ((row.wait_reason ?? "") as string).trim();
       return parkWaitedOut(this, {
         row,
-        streak: Number(row.wait_streak) || 1,
+        streak,
         serieMs,
         chiave: detto,
         since,
@@ -5246,7 +5284,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // The same clock as `waitedOutIfCapped` (`now()`, injectable), never
       // `Date.now()`: two clocks make a query that selects cards the judge then
       // discards, and under a fake clock the two answers never meet.
-      const cutoff = new Date(Date.parse(now()) - WAIT_SERIES_MAX_MS).toISOString();
+      //
+      // `dispatch_deferred_until` is in the query for the same reason and not
+      // as an optimisation: a card whose wake-up is still ahead is the single
+      // most common shape here (a 240-minute wait is a normal note on the live
+      // DB), and leaving it in the candidate list means offering the judge, ten
+      // seconds at a time, every card that is simply not due yet.
+      const ts = now();
+      const cutoff = new Date(Date.parse(ts) - WAIT_SERIES_MAX_MS).toISOString();
       let candidati: Array<{ id: string; project_id: string }> = [];
       try {
         candidati = db.prepare(
@@ -5255,8 +5300,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
               AND status IN ('todo', 'in_progress')
               AND wait_since IS NOT NULL
               AND wait_since <= ?
+              AND (dispatch_deferred_until IS NULL OR dispatch_deferred_until <= ?)
             ORDER BY wait_since`,
-        ).all(cutoff) as Array<{ id: string; project_id: string }>;
+        ).all(cutoff, ts) as Array<{ id: string; project_id: string }>;
       } catch { return []; }
       const parkedCards: Task[] = [];
       const ammessa = new Map<string, boolean>();

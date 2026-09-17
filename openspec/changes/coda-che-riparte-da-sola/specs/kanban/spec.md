@@ -120,6 +120,16 @@ nessuno la guarda: misurate 2 card oltre il tetto da 45 e 31 ore, zero parcheggi
 giro che passa comunque card per card, e oltre il tetto la card SHALL essere
 parcheggiata come farebbe `deferForWait`.
 
+Quel giudice di fuori NON SHALL scavalcare la sveglia che l'agente ha chiesto.
+`deferForWait` accetta fino a 1440 minuti e la produzione li usa — fra le 78 note
+«riprovo tra ~N min» ci sono 240, 180 e 120 — quindi una singola attesa piu' lunga
+di quattro ore e' una card normale, non una card ferma. Finche'
+`dispatch_deferred_until` e' nel futuro nessun turno ha potuto guardare se la
+condizione e' arrivata, e li' il giudice SHALL tacere. Il tetto sulla DURATA resta
+un tetto su una SERIE: con una sola attesa dichiarata l'orologio SHALL partire
+dalla sveglia, non dalla dichiarazione, perche' il tempo in cui nessuno ha guardato
+la card comincia li'.
+
 Una card che un umano ha bocciato riparte oggi con «il tuo turno e' stato
 interrotto, continua il lavoro rimasto»: il testo del rifiuto viveva in una Map in
 memoria e muore al primo riavvio, mentre `tasks.reopened_actor` dice sulla riga
@@ -138,6 +148,11 @@ turno interrotto.
 - **GIVEN** una card con `wait_since` a cinque ore fa e nessun turno partito da allora
 - **WHEN** il giro periodico la valuta
 - **THEN** la card SHALL essere parcheggiata con lo stato `waited_out`
+
+#### Scenario: un'attesa sola e lunga non e' una serie sfondata
+- **GIVEN** una card che ha dichiarato UNA attesa di 480 minuti, quattro ore fa
+- **WHEN** il giro periodico la valuta
+- **THEN** la card NON SHALL essere parcheggiata, perche' la sveglia che ha chiesto e' ancora davanti
 
 #### Scenario: una bocciatura umana riparte col suo testo
 - **GIVEN** una card con `reopened_actor = 'human'` e tre obiezioni scritte dall'umano
