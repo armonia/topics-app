@@ -43,10 +43,13 @@
  * A CARD DOES NOT SAY GREEN ON A COMMIT WHOSE CI IS RED (KANBAN-86). The rows read
  * a SLICE of the run, which is right for what they measure and narrower than what
  * the card then writes: on 17/09/2026 two deliveries closed `pass` with their own
- * pull request `completed/failure` at a step no row looks at. When the run these
- * rows read is over and its conclusion is not `success`, the round does not close
- * green: every row keeps in its tail what it did measure and carries the job and
- * step that failed. Nothing is re-measured here, it is a field of the same answer.
+ * pull request `completed/failure` at a step no row looks at. So the round does
+ * not close all-green while the run it read is red: every row keeps in its tail
+ * what it did measure and carries the job and step that failed. The red is read
+ * from the JOBS, not only from the run's conclusion, because the all-green close
+ * does not wait for the run to end and a job of it can already be red while
+ * `status` still says `in_progress`. Nothing is re-measured here, it is a field
+ * of the same answer.
  *
  * ONE RERUN PER RUN, AND `run_attempt` IS WHERE THAT IS WRITTEN. Nothing in this
  * process may count the rerun: the delivery is a row on `pending_deliveries`
@@ -72,18 +75,18 @@ export const CI_E2E_DEADLINE_MS = 60 * 60_000;
 export const CI_POLL_MS = 60_000;
 /** A run is created within seconds; past this, a missing run asks whether the PR conflicts. */
 export const CI_NO_RUN_GRACE_MS = 5 * 60_000;
-/** Consecutive failed GitHub reads that end the wait. */
-export const CI_API_ERRORS_MAX = 5;
 /**
- * Reads granted to a rerun before it counts as never happened. `gh run rerun`
- * exits 0 the moment GitHub accepts the request, but `actions/runs?head_sha=`
- * kept answering with the old attempt for a while, and `cancel-in-progress` can
- * cancel the new one straight away. Every other GitHub read of this loop already
- * has `CI_API_ERRORS_MAX` tries before it concludes; this one had exactly one,
- * and a single stale read closed the round with "only a new commit can" while
- * the new attempt was running and would go green.
+ * Consecutive failed GitHub reads that end the wait, and the reads a rerun is
+ * granted before it counts as never happened. One number, because it answers one
+ * question: how many times this loop reads GitHub before calling an answer
+ * final. `gh run rerun` exits 0 the moment GitHub accepts the request, but
+ * `actions/runs?head_sha=` kept answering with the old attempt for a while, and
+ * `cancel-in-progress` can cancel the new one straight away. Every other read
+ * here already had these tries; the rerun had exactly one, and a single stale
+ * read closed the round with "only a new commit can" while the new attempt was
+ * running and would go green.
  */
-export const CI_RERUN_READS_MAX = CI_API_ERRORS_MAX;
+export const CI_API_ERRORS_MAX = 5;
 /** A git or gh call that hangs is an error, not a wait. */
 export const CI_CALL_TIMEOUT_MS = 60_000;
 export const CI_CONFIG_PATH = ".github/workflows/ci.yml";
@@ -91,8 +94,25 @@ export const CI_BASE_BRANCH = "main";
 
 /** What unblocks a row whose run ended without a verdict, in the words of the card. */
 const NEEDS_A_NEW_COMMIT = "this same commit cannot be measured again, only a new commit can";
+/**
+ * A DELIVERY WITH NOTHING OF ITS OWN STAYS NOT MEASURED, and the sentence names
+ * BOTH ways out because only one of them belongs to an agent.
+ *
+ * The verdict was weighed again on 17/09/2026: three real cards of that night
+ * had exactly this shape (their work was already in `main`, nothing left to
+ * land), and NOT MEASURED sends the delivery back to its agent instead of into
+ * review. Kept anyway. This shape is indistinguishable, from here, from the ones
+ * that are real damage: a commit made on the wrong branch, a worktree reset onto
+ * `main`, a branch whose commits a rebase dropped. Two green rows would be the
+ * exact lie these rows exist not to tell, on the one input where NOTHING was
+ * measured. What was wrong was the advice: "only a new commit can" told an agent
+ * whose work is already merged to invent a commit that does not exist, so the
+ * reason now says the other exit first, the one a person takes.
+ */
 const NO_OWN_COMMIT =
-  `no commit of its own beyond ${CI_BASE_BRANCH}: nothing was pushed and no CI run reads this delivery, so ${NEEDS_A_NEW_COMMIT}`;
+  `no commit of its own beyond ${CI_BASE_BRANCH}: nothing was pushed and no CI run reads this delivery. ` +
+  `Either the work of this card is already in ${CI_BASE_BRANCH}, and then there is nothing to land and a person closes it, ` +
+  `or this branch lost the commits it had, and then ${NEEDS_A_NEW_COMMIT}`;
 const E2E_JOB = /^e2e( \(\d+\))?$/;
 const PREPARE_JOB = "prepare-e2e";
 /** The job and step of ci.yml whose conclusion is the unit verdict. */
@@ -218,9 +238,8 @@ export function readUnitEvidence(sha: string, runs: GithubRun[], jobs: GithubJob
 }
 
 /**
- * THE RUN THESE ROWS READ IS OVER AND IT IS RED SOMEWHERE ELSE (KANBAN-86), said
- * with the job and the step that failed, or null when the run is still going or
- * concluded `success`.
+ * THE RUN THESE ROWS READ IS RED SOMEWHERE ELSE (KANBAN-86), said with the job
+ * and the step that failed, or null when nothing in it is red yet.
  *
  * The two rows read a SLICE of the proof — the step "Unit + integration tests"
  * and the four e2e shards — which is the right slice for what they measure, and
@@ -232,16 +251,37 @@ export function readUnitEvidence(sha: string, runs: GithubRun[], jobs: GithubJob
  *
  * This is NOT a sixth gate: it re-measures nothing, it is a field of the same two
  * answers (`runs`, `jobs`) the poll loop already has in hand.
+ *
+ * THE ANSWER IS IN `jobs` BEFORE IT IS IN `run`, and waiting for the run is a
+ * hole this guard cannot afford. The all-green close does not wait for the run:
+ * it fires the moment the last row it declares has a verdict. Probed: run
+ * `in_progress` with one job still alive, `check` ALREADY `completed/failure` at
+ * the step "Bundle size budget", the unit step green and the four shards green
+ * gave `rows.ok = [true, true]` and `ciRunRed = [null, null]` while reading the
+ * run's own conclusion. The likelier shape is narrower and just as green: every
+ * job finished and the run not yet flipped to `completed` between the `runs()`
+ * and the `jobs()` of the same poll. On the 33 runs of `ci.yml` measured on
+ * 17/09/2026 the last job is always an e2e shard and `check` ends 2.8 to 10.7
+ * minutes earlier, so today that window is seconds wide; it opens as soon as
+ * `check`, or `tauri` with a cold Rust cache, outlasts the shards. So: while the
+ * run is still going, a job of it that is already red IS the answer. Once the
+ * run has concluded, its own conclusion is the truth (GitHub computed it over
+ * all the jobs, `continue-on-error` included) and the jobs only say where.
  */
 export function runRedElsewhere(run: GithubRun | null, jobs: GithubJob[]): string | null {
-  if (!run || run.status !== "completed" || run.conclusion === "success") return null;
-  const concluded = run.conclusion ?? "without a conclusion";
+  if (!run) return null;
+  const over = run.status === "completed";
+  if (over && run.conclusion === "success") return null;
   const broken = jobs.filter((j) => j.conclusion && j.conclusion !== "success" && j.conclusion !== "skipped");
+  if (!over && broken.length === 0) return null;
   const named = broken.map((j) => {
     const step = j.steps?.find((s) => s.conclusion && s.conclusion !== "success" && s.conclusion !== "skipped");
     return step ? `job ${j.name} at the step "${step.name}" (${step.conclusion})` : `job ${j.name} (${j.conclusion})`;
   });
-  return `the CI run of this commit concluded ${concluded}: ${named.length ? named.join(", ") : "no job of it says where"}`;
+  const head = over
+    ? `the CI run of this commit concluded ${run.conclusion ?? "without a conclusion"}`
+    : "the CI run of this commit is already red while it is still going";
+  return `${head}: ${named.length ? named.join(", ") : "no job of it says where"}`;
 }
 
 /**
@@ -667,7 +707,7 @@ export async function awaitCiEvidence(
           const again = await port.rerun(repo.value, run.id);
           if (again.ok) {
             rerunAwaitedAttempt = runAttempt(run);
-            rerunReadsLeft = CI_RERUN_READS_MAX;
+            rerunReadsLeft = errorsMax;
             await pause(pollMs);
             continue;
           }
