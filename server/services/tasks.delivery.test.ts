@@ -223,6 +223,33 @@ describe("recordChecks (evidenza dei checks pre-review)", () => {
     expect(got.checks).toBeNull();
   });
 
+  // The links live as long as the wait: a `github-ci:` row waits on GitHub for
+  // some fifteen minutes and the card had nothing to open. @covers KANBAN-85
+  test("running: i link della CI viaggiano con la spia, e muoiono col verdetto", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    const ci = { prUrl: "https://github.com/o/r/pull/5", runUrl: "https://github.com/o/r/actions/runs/10" };
+    s.recordChecks({ taskId: t.id, state: "running", commit: "abc1234", runs: null, progress: { done: 1, total: 2 }, ci });
+    expect(read(t.id).checksCi).toEqual(ci);
+    s.recordChecks({ taskId: t.id, state: "pass", commit: "abc1234", runs: [{ name: "t", cmd: "true", ok: true, code: 0, ms: 5, timedOut: false, tail: "" }] });
+    expect(read(t.id).checksCi).toBeUndefined();
+  });
+
+  test("running: un link che non è https non arriva alla card", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    // The only writer is the CI reader, but the value ends up inside an `href`:
+    // checking its shape costs one line and closes the question.
+    s.recordChecks({
+      taskId: t.id, state: "running", commit: "abc", runs: null, progress: { done: 1, total: 2 },
+      ci: { prUrl: "javascript:alert(1)" } as { prUrl: string },
+    });
+    expect(read(t.id).checksCi).toBeUndefined();
+    s.recordChecks({
+      taskId: t.id, state: "running", commit: "abc", runs: null, progress: { done: 1, total: 2 },
+      ci: { prUrl: "https://github.com/o/r/pull/5", runUrl: "http://o/r" },
+    });
+    expect(read(t.id).checksCi).toEqual({ prUrl: "https://github.com/o/r/pull/5" });
+  });
+
   test("fail: la coda dell'output sopravvive al giro in DB (è l'unica prova che resta)", () => {
     const t = s.create({ projectId: PID, text: "x" });
     s.recordChecks({
@@ -248,6 +275,25 @@ describe("recordChecks (evidenza dei checks pre-review)", () => {
     expect(got.checksCommit).toBe("new");
     expect(got.checks).toHaveLength(1);
     expect(got.checks![0].ok).toBe(true);
+  });
+
+  // A land that realigns merges C2 = merge(C, main) while the checks measured C:
+  // the verdict stays true, the claim that it describes what landed does not.
+  // Measured on 17/09: 22 of 32 lands realign, 18 of them without saying so.
+  test("clearChecksCommit toglie il commit e lascia in piedi verdetto, ora ed evidenza", () => {
+    const t = s.create({ projectId: PID, text: "x" });
+    const runs = [{ name: "unit-ci", cmd: "gh", ok: true, code: 0, ms: 10, timedOut: false, tail: "verde" }];
+    s.recordChecks({ taskId: t.id, state: "pass", commit: "abc1234", runs });
+    const at = read(t.id).checksAt;
+    expect(s.clearChecksCommit(t.id)).toBe(true);
+    const got = read(t.id);
+    expect(got.checksCommit).toBeNull();
+    expect(got.checksState).toBe("pass");
+    expect(got.checksAt).toBe(at);
+    expect(got.checks).toEqual(runs);
+    // Nothing to take away means no write at all: `updated_at` is the column the
+    // dispatcher's clocks measure inactivity on (KANBAN-84).
+    expect(s.clearChecksCommit(t.id)).toBe(false);
   });
 
   test("reset a null: 'mai girati' è uno stato raggiungibile", () => {
@@ -285,13 +331,34 @@ describe("recordChecks (evidenza dei checks pre-review)", () => {
     s.recordChecks({ taskId: verde.id, state: "pass", commit: "abc", runs: [{ name: "t", cmd: "true", ok: true, code: 0, ms: 5, timedOut: false, tail: "" }] });
     s.recordChecks({ taskId: rosso.id, state: "fail", commit: "abc", runs: [{ name: "t", cmd: "false", ok: false, code: 1, ms: 5, timedOut: false, tail: "boom" }] });
 
-    expect(s.clearStaleChecksRuns()).toBe(1);
+    expect(s.clearStaleChecksRuns()).toEqual([gira.id]);
     expect(read(gira.id).checksState).toBeNull();
     expect(read(verde.id).checksState).toBe("pass");
     expect(read(rosso.id).checksState).toBe("fail");
     // L'ultima misura vera resta: si spegne la spia, non l'evidenza.
     expect(read(rosso.id).checks).toHaveLength(1);
-    expect(s.clearStaleChecksRuns()).toBe(0);
+    expect(s.clearStaleChecksRuns()).toEqual([]);
+  });
+
+  /**
+   * THE PERIODIC SWEEP, which the boot does not replace.
+   *
+   * When `measure()` throws before the terminal state (the swap brake,
+   * `throwIfStopping()`, any exception) the gate drops its key and the row
+   * keeps saying "running": from there `isChecksHold` is true forever, the
+   * stall judge rearms without end, and the StaleStream sweep answers `extend`
+   * to every mute turn of that session. Holding the live registry, the sweep
+   * switches off the orphaned light and leaves a live run's light alone.
+   */
+  test("con il registro vivo si spegne solo la spia che il gate non conosce", () => {
+    const viva = s.create({ projectId: PID, text: "gira davvero" });
+    const orphan = s.create({ projectId: PID, text: "la corsa è morta senza verdetto" });
+    s.recordChecks({ taskId: viva.id, state: "running", commit: "abc", runs: null });
+    s.recordChecks({ taskId: orphan.id, state: "running", commit: "abc", runs: null });
+
+    expect(s.clearStaleChecksRuns((id) => id === viva.id)).toEqual([orphan.id]);
+    expect(read(viva.id).checksState).toBe("running");
+    expect(read(orphan.id).checksState).toBeNull();
   });
 });
 

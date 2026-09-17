@@ -17,14 +17,16 @@
  */
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import {
+  adoptChecksFloor,
   adoptDispatchCapacity,
   adoptGlobalCap,
   currentCapLimit,
   getGlobalDispatchCapState,
+  saveChecksFloor,
   saveGlobalCap,
   subscribeGlobalDispatchCap,
 } from './globalDispatchCap';
-import { clampGlobalCap, type DispatchCapacity } from '../lib/board';
+import { CHECKS_MEM_FLOOR_DEFAULT_GB, clampGlobalCap, type DispatchCapacity } from '../lib/board';
 import { dispatchFrame } from '../lib/wsFrameBus';
 
 const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
@@ -81,7 +83,7 @@ function stubFetch(
         if (typeof body.maxAgentsAuto === 'boolean') auto = body.maxAgentsAuto;
         if (typeof body.maxAgents === 'number') max = clampGlobalCap(body.maxAgents);
         if (opts.knowsMode) {
-          for (const k of ['maxAgentsMode', 'budgetShare']) if (k in body) extras[k] = body[k];
+          for (const k of ['maxAgentsMode', 'budgetShare', 'checksMemFloorGB']) if (k in body) extras[k] = body[k];
         }
       }
       return new Response(
@@ -127,7 +129,7 @@ describe('currentCapLimit', () => {
     // Il numero fisso resta scritto sotto, ma in auto non è lui a valere:
     // mostrarlo sarebbe una bugia comoda, e il dispatcher applicherebbe altro.
     adoptGlobalCap({ maxAgentsAuto: true, maxAgents: 5 });
-    expect(currentCapLimit({ cap: { auto: true, max: 5 }, capacity: null, saving: false, spend: null })).toBe(null);
+    expect(currentCapLimit({ cap: { auto: true, max: 5 }, capacity: null, saving: false, spend: null, checksFloorGB: CHECKS_MEM_FLOOR_DEFAULT_GB })).toBe(null);
   });
 });
 
@@ -325,5 +327,40 @@ describe('the brake by budget', () => {
     (globalThis as unknown as { fetch: unknown }).fetch = async () => new Response('{"error":"nope"}', { status: 500 });
     await saveGlobalCap({ mode: 'resources' });
     expect(getGlobalDispatchCapState().cap?.mode).toBe('count');
+  });
+  test('the checks floor goes through the same PATCH, in the wire name, clamped before it leaves', async () => {
+    const { patched } = stubFetch(undefined, { knowsMode: true });
+    await saveChecksFloor(40);
+    // Clamped HERE, not only by the server: the field must never show, even for
+    // one round trip, a floor the brake would not apply.
+    expect(patched).toEqual([{ checksMemFloorGB: 16 }]);
+    expect(getGlobalDispatchCapState().checksFloorGB).toBe(16);
+  });
+
+  test('zero reaches the server: switching the brake off is a write, not a missing field', async () => {
+    const { patched } = stubFetch(undefined, { knowsMode: true });
+    await saveChecksFloor(0);
+    expect(patched).toEqual([{ checksMemFloorGB: 0 }]);
+    expect(getGlobalDispatchCapState().checksFloorGB).toBe(0);
+  });
+
+  test('a frame WITHOUT the floor keeps the one it has: an old server never reads as "off"', () => {
+    adoptChecksFloor({ checksMemFloorGB: 5 });
+    expect(getGlobalDispatchCapState().checksFloorGB).toBe(5);
+    adoptChecksFloor({});
+    adoptGlobalCap({ maxAgentsAuto: false, maxAgents: 4 });
+    expect(getGlobalDispatchCapState().checksFloorGB).toBe(5);
+  });
+
+  test('an unreadable floor never overwrites the one in hand', () => {
+    // The store is a module store and lives between tests, so "still null" is
+    // only observable at the very first read; what IS observable here, and is
+    // the same contract, is that a value that cannot be read changes nothing.
+    // The panel side of it — null paints an EMPTY box and not a 0, because 0
+    // means "the brake is off" — is held down in GlobalCapControl.test.tsx.
+    adoptChecksFloor({ checksMemFloorGB: 5 });
+    adoptChecksFloor({ checksMemFloorGB: Number.NaN });
+    adoptChecksFloor({ checksMemFloorGB: '2' as unknown as number });
+    expect(getGlobalDispatchCapState().checksFloorGB).toBe(5);
   });
 });

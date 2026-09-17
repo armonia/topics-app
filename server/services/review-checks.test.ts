@@ -24,6 +24,7 @@ import {
   type CheckRun,
   checksVerdict,
 } from "./review-checks";
+import { E2E_CI_CHECK } from "../../shared/board";
 
 /**
  * THE WINDOWS BELOW ARE RATIOS, AND THE RATIO IS WHAT THEY PROVE.
@@ -615,6 +616,27 @@ describe("checksVerdict: l'esito della barra in una parola", () => {
     expect(checksVerdict([], 0)).toBe("unknown");
   });
 
+  /**
+   * KANBAN-86. The CI row read a slice of the run and that slice was green; the
+   * run is red at a step no row looks at ("Bundle size budget", measured
+   * 17/09/2026 on two real deliveries). The row arrives `ok: false` carrying the
+   * note, so the card is not `pass`. The sentence names the run: the wording a
+   * plain red CI row gets would send whoever reads it to four green shards.
+   */
+  test("una riga CI verde su una run rossa altrove: la card non dice pass, e il testo nomina la run", () => {
+    const why = 'the CI run of this commit concluded failure: job check at the step "Bundle size budget" (failure)';
+    const contradicted: CheckRun = {
+      name: E2E_CI_CHECK.name, cmd: E2E_CI_CHECK.cmd, ok: false, code: 1, ms: 10, timedOut: false,
+      ciRunRed: why, tail: `e2e green on the pull request CI\nrun: https://github.com/o/r/actions/runs/10\n${why}`,
+    };
+    expect(checksVerdict([ok("typecheck"), contradicted], 2)).toBe("fail");
+    const comment = formatChecksComment([ok("typecheck"), contradicted]);
+    expect(comment).toContain("ROSSI");
+    expect(comment).toContain("Bundle size budget");
+    expect(comment).not.toContain("e2e rossi sulla CI della PR");
+    expect(formatChecksThreadSummary([ok("typecheck"), contradicted])).toContain("Bundle size budget");
+  });
+
   test("il TESTO e lo STATO dicono la stessa cosa: un predicato solo", () => {
     // E' la ragione per cui `checksVerdict` e' stata estratta invece di
     // duplicata: due copie che divergono rimetterebbero in piedi il difetto,
@@ -683,10 +705,10 @@ describe("uscita 97: non misurato, e si legge diverso da scaduto", () => {
 
 
 describe("formatChecksWait: la riga che la chat mostra mentre i check girano", () => {
-  const names = ["typecheck", "lint", "check:deadcode", "static-rails", "test:unit"];
+  const checks = ["typecheck", "lint", "check:deadcode", "static-rails", "test:unit"].map((name) => ({ name, cmd: `bun run ${name}` }));
 
   test("a metà barra dice quanti sono passati, quale gira e quali aspettano", () => {
-    const line = formatChecksWait({ done: 2, total: 5, names, elapsedMs: 71_000 });
+    const line = formatChecksWait({ done: 2, total: 5, checks, elapsedMs: 71_000 });
     expect(line).toContain("Check pre-review 2/5 (1m11s)");
     expect(line).toContain("verdi: typecheck, lint");
     expect(line).toContain("in corso: check:deadcode");
@@ -696,17 +718,30 @@ describe("formatChecksWait: la riga che la chat mostra mentre i check girano", (
   });
 
   test("in coda dietro un'altra card lo dice, senza inventare un comando in corso", () => {
-    const line = formatChecksWait({ done: null, total: 5, names, elapsedMs: 9_000 });
+    const line = formatChecksWait({ done: null, total: 5, checks, elapsedMs: 9_000 });
     expect(line).toContain("in coda dietro un'altra card (9s)");
     expect(line).not.toContain("in corso:");
   });
 
   test("all'ultimo comando non resta niente «poi», e un done oltre il totale non sfonda", () => {
-    const last = formatChecksWait({ done: 4, total: 5, names, elapsedMs: 600_000 });
+    const last = formatChecksWait({ done: 4, total: 5, checks, elapsedMs: 600_000 });
     expect(last).toContain("4/5 (10m00s)");
     expect(last).toContain("in corso: test:unit");
     expect(last).not.toContain("poi:");
-    expect(formatChecksWait({ done: 9, total: 5, names, elapsedMs: 0 })).toContain("5/5 (0s)");
+    expect(formatChecksWait({ done: 9, total: 5, checks, elapsedMs: 0 })).toContain("5/5 (0s)");
+  });
+
+  // On a `github-ci:` row nothing runs on this Mac: the gate has given its lane
+  // back and GitHub is measuring, for about fifteen minutes. Saying "the board's
+  // gate measures" there names the wrong machine to whoever reads the thread.
+  test("sulla riga CI la misura è della pull request, non del cancello della board", () => {
+    const withCi = [...checks, E2E_CI_CHECK];
+    const line = formatChecksWait({ done: 5, total: 6, checks: withCi, elapsedMs: 60_000 });
+    expect(line).toContain("in corso: e2e-ci");
+    expect(line).toContain("CI della pull request");
+    expect(line).not.toContain("cancello della board");
+    // The local half of the same bar keeps its own words.
+    expect(formatChecksWait({ done: 1, total: 6, checks: withCi, elapsedMs: 0 })).toContain("cancello della board");
   });
 });
 
