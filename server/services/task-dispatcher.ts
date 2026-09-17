@@ -741,16 +741,27 @@ const HELD_RESUME_REFRESH_MS = 60_000;
  *
  * Figures never count: "5.9 GB" and "6.0 GB" say the same thing. And for the
  * machine floor (`resources`) the words do not count either, only the RESOURCE,
- * the first word ("Memoria", "Disco"), the same key `admissionBlock` logs by. One
- * memory episode goes through three sentences (under the floor, reserved for
- * the agents starting, climbing back towards the restart line), and with the
- * hysteresis holding the composer turns "under" into "climbing" exactly at the
- * floor: on the 15/09 readings (5.7, 5.9, 6.0, 5.8) a key on the words still
- * rewrote the card about every other retry.
+ * the same key `admissionBlock` logs by. One memory episode goes through three
+ * sentences (under the floor, reserved for the agents starting, climbing back
+ * towards the restart line), and with the hysteresis holding the composer turns
+ * "under" into "climbing" exactly at the floor: on the 15/09 readings (5.7, 5.9,
+ * 6.0, 5.8) a key on the words still rewrote the card about every other retry.
+ *
+ * THE RESOURCE COMES FROM THE VERDICT, NOT FROM THE FIRST WORD, and that is the
+ * whole of KANBAN-83. "Memoria: la sto misurando da 11 s su 120" and "Memoria
+ * quasi finita: la lettura più bassa…" share their first word, so they shared
+ * this key - and the warm-up is a 120 s state guaranteed at every boot, so it
+ * always wrote first and the real reason never reached the card at all: 80
+ * comments out of 80 after 15/09/2026 17:49 carried the warm-up, zero carried
+ * the floor, while `dispatch_error` beside them was refreshed every 60 s with
+ * the right text. Reading the resource from `ResourceFloorVerdict.kind` splits
+ * the two WITHOUT going back to keying on the words, which PR #63 removed
+ * because the app names inside the memory sentence rewrote the card at every
+ * retry.
  */
-function holdKey(kind: DispatchBlockKind | null, reason: string | null): string {
+function holdKey(kind: DispatchBlockKind | null, reason: string | null, floor: ResourceFloorKind | null = null): string {
   if (reason == null) return `${kind}:`;
-  if (kind === "resources") return `${kind}:${reason.split(/[\s:]/)[0]}`;
+  if (kind === "resources") return `${kind}:${floor ?? "?"}`;
   return `${kind}:${reason.replace(/\d+(?:[.,]\d+)*/g, "#")}`;
 }
 
@@ -1009,8 +1020,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
 
   // Pending debounced launches, keyed by taskId (the grace window).
   const graceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  /** Chi ha già detto nel thread che sta aspettando uno slot: una volta basta. */
-  const waitingForSlot = new Set<string>();
+  /** Chi ha già detto nel thread che sta aspettando uno slot, e per QUALE attesa
+   *  (`holdKey`): una volta basta finché l'attesa è la stessa. */
+  const waitingForSlot = new Map<string, string>();
   /** What each held resume last wrote on its chip, and when (clock ms): see `HELD_RESUME_REFRESH_MS`. */
   const heldWritten = new Map<string, { at: number; key: string; reason: string | null }>();
   /** Da quale board comincia il prossimo giro: vedi `reconcile` (turnazione). */
@@ -1671,10 +1683,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // not repeated at every poll.
   const spendHeldNoted = new Set<string>();
   // Tasks already told "the machine is under the floor" / "the daily spend cap
-  // is reached". Same discipline as the sets above: one line per EPISODE, not
-  // one per 10s poll - a full disk would otherwise write a thousand rows in the
-  // thread. Emptied in the round the block lifts, so the next one speaks again.
-  const floorHeldNoted = new Set<string>();
+  // is reached", and WHICH wait they were told about (`holdKey`). Same
+  // discipline as the sets above: one line per EPISODE, not one per 10s poll - a
+  // full disk would otherwise write a thousand rows in the thread. Emptied in
+  // the round the block lifts, and the entry decays when the wait CHANGES: a
+  // card noted under the 120 s warm-up used to get nothing when the real floor
+  // sentence replaced it, so the reason never arrived.
+  const floorHeldNoted = new Map<string, string>();
   // Da QUANDO un task pesante è trattenuto dal carico (ms). Serve al tetto
   // dell'attesa (`HEAVY_HOLD_MAX_MS`): senza un istante di inizio «trattenuto da
   // troppo» non è una condizione misurabile, è un'impressione. Si azzera appena
@@ -3820,11 +3835,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * provider hold, the per-card spend cap): the machine sentences on the card
    * do not describe them.
    */
-  function resumeHold(t: Task): { reason: string; kind: DispatchBlockKind | null } | null {
+  function resumeHold(t: Task): { reason: string; kind: DispatchBlockKind | null; floor?: ResourceFloorKind | null } | null {
     const own = taskPlanWait(t)?.reason ?? drainBlock();
     if (own) return { reason: own, kind: null };
-    const floor = admissionBlock();
-    if (floor) return { reason: floor, kind: "resources" };
+    // The floor VERDICT, because the resume keys its wait on the resource and
+    // decides on it whether the sentence is worth a line in the thread.
+    const floor = admissionVerdictNow();
+    if (floor.reason) return { reason: floor.reason, kind: "resources", floor: floor.kind };
     const day = spendBrake.dayBlock();
     if (day) return { reason: daySpendSentence(day), kind: "spend" };
     const card = spendBrake.taskBlock(t.agentCostCents);
@@ -3917,7 +3934,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // `heldResumeBlock` believes it only while it matches the sentence the row
       // still carries; refreshing it alone would blank the card's reason.
       const kind = hold?.kind ?? null;
-      const key = holdKey(kind, floorBlock);
+      const key = holdKey(kind, floorBlock, hold?.floor ?? null);
       const last = heldWritten.get(taskId);
       const sameHold = last != null
         && clock() - last.at < HELD_RESUME_REFRESH_MS
@@ -3929,8 +3946,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED, error: floorBlock })); } catch { /* best-effort */ }
         heldWritten.set(taskId, { at: clock(), key, reason: floorBlock });
       }
-      if (!rampWait && !waitingForSlot.has(taskId)) {
-        waitingForSlot.add(taskId);
+      // THE WARM-UP NEVER GOES IN THE THREAD. It lasts 120 s, it is guaranteed
+      // at every boot, and the chip already carries it: what a comment adds is
+      // one permanent line saying the window was empty, on a card whose real
+      // reason arrives a minute later. It is also what held the key.
+      //
+      // AND THE REGISTER DECAYS ON THE KEY, not only when the block lifts: a
+      // card already noted under one wait got nothing when the wait BECAME
+      // another one, which is how a card held at boot never read its floor.
+      const noteKey = hold?.floor === "memory_warmup" ? null : key;
+      if (!rampWait && noteKey && waitingForSlot.get(taskId) !== noteKey) {
+        waitingForSlot.set(taskId, noteKey);
         try {
           deps.svc.addComment({
             taskId, author: "system", kind: "service",
@@ -4454,6 +4480,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // the line for the thread. Called every tick, `null` included, so the
     // signal never outlives the block it describes.
     const floorNote = publishDispatchBlock(resourceFloor, daySpendBlock, pressure);
+    // WHICH wait the thread line describes, and whether it deserves a line at
+    // all. The 120 s warm-up of the memory window gets none: it is guaranteed at
+    // every boot, the chip already says it, and a permanent comment saying "the
+    // window is empty" on a card whose real reason lands a minute later is the
+    // wrong half of the story. Everything else is keyed so the note is rewritten
+    // when the wait CHANGES, not only when the block finally lifts.
+    const floorNoteKey = resourceFloor
+      ? (floorNow.kind === "memory_warmup" ? null : `resources:${floorNow.kind}`)
+      : daySpendBlock ? "spend" : pressure ? "pressure" : null;
     // The spend caps, read ONCE per tick from the same '*' row that carries the
     // concurrency cap. With the caps off (zero = unlimited, the state of a fresh
     // install) this is the only extra read of the loop: no sum over the spend
@@ -4548,8 +4583,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // like the twin path of the resume already does - that discipline was
         // missing here entirely.
         try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
-        if (floorNote && !floorHeldNoted.has(t.id)) {
-          floorHeldNoted.add(t.id);
+        if (floorNote && floorNoteKey && floorHeldNoted.get(t.id) !== floorNoteKey) {
+          floorHeldNoted.set(t.id, floorNoteKey);
           try {
             deps.svc.addComment({ taskId: t.id, author: "system", kind: "service", content: floorNote });
           } catch { /* il task può essersi mosso sotto i piedi */ }

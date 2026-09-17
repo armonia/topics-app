@@ -97,8 +97,10 @@ function harness() {
   const db = freshDb();
   const svc: TaskService = createTaskService(db);
   const frames: string[] = [];
-  /** The injected probes; `null` memory = no reading, the composer holds nothing. */
-  const floor = { memGB: null as number | null, diskGB: 100 };
+  /** The injected probes; `null` memory = no reading, the composer holds nothing.
+   *  `warming` is the state of the first 120 s of a process: readings arriving,
+   *  no full window yet. */
+  const floor = { memGB: null as number | null, diskGB: 100, warming: false };
   const deps: DispatcherDeps = {
     svc,
     attempts: createTaskAttemptStore(db),
@@ -117,7 +119,13 @@ function harness() {
     // A full window at the injected reading, with a turn of ours on the machine
     // (the held cards' own), so the floor's line is floor + price and the
     // readings swing between its two sentences.
-    resourceBlock: (hold) => dispatchResourceVerdict("/", () => floor.diskGB, windowAt(floor.memGB), false, { ...hold, ourWorkRunning: true }),
+    resourceBlock: (hold) => dispatchResourceVerdict(
+      "/",
+      () => floor.diskGB,
+      floor.warming ? () => ({ measurable: true, latestGB: 20, heldGB: null, coveredMs: 11_000 }) : windowAt(floor.memGB),
+      false,
+      { ...hold, ourWorkRunning: true },
+    ),
   };
   const dispatcher = createTaskDispatcher(deps);
   dispatchers.push(dispatcher);
@@ -127,6 +135,7 @@ function harness() {
     db, svc, dispatcher, frames, floor,
     task: (id: string) => svc.get(id)!.task,
     framesOf: (id: string) => frames.filter((f) => f === id).length,
+    serviceNotes: (id: string) => svc.get(id)!.comments.filter((c) => c.kind === "service").map((c) => c.content),
   };
 }
 
@@ -253,4 +262,51 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     expect(h.task("rewritten").queueReason).toMatchObject({ kind: "resource_floor" });
   });
 
+  /**
+   * KANBAN-83: THE WARM-UP DOES NOT OWN THE KEY OF THE REAL FLOOR.
+   *
+   * "Memoria: la sto misurando da 11 s su 120" and "Memoria quasi finita: …"
+   * share their first word, which was the whole dedup key for a machine-floor
+   * wait. The warm-up is a 120 s state guaranteed at every boot, so it always
+   * wrote first and the real reason NEVER reached the thread: 80 comments out of
+   * 80 after 15/09/2026 17:49 carried the warm-up and zero carried the floor,
+   * while `dispatch_error` beside them was refreshed every 60 s with the right
+   * text - chip and conversation saying two different things.
+   */
+  it("the warm-up writes no line in the thread, and the floor's reason arrives when the window fills", async () => {
+    const h = harness();
+    h.floor.warming = true;
+    heldCard(h.db, "boot");
+    const t0 = Date.now();
+
+    await h.dispatcher.resume("boot", "continua");
+    // The chip says it - that channel is not the one that was broken.
+    expect(h.task("boot").dispatchError).toContain("la sto misurando");
+    // The thread does not: it lasts 120 s, the chip already says it, and a
+    // permanent line about an empty window is the wrong half of the story.
+    expect(h.serviceNotes("boot")).toEqual([]);
+
+    // The window fills and the floor bites: another wait, so the card gets it.
+    h.floor.warming = false;
+    h.floor.memGB = 4.8;
+    setSystemTime(new Date(t0 + 6_000));
+    await h.dispatcher.resume("boot", "");
+    const notes = h.serviceNotes("boot");
+    expect(notes.length).toBe(1);
+    expect(notes[0]).toStartWith("Memoria quasi finita: la lettura più bassa degli ultimi 2 minuti è 4.8 GB");
+
+    // And it stays one: the same wait is not re-said at every retry.
+    setSystemTime(new Date(t0 + 12_000));
+    h.floor.memGB = 4.9;
+    await h.dispatcher.resume("boot", "");
+    expect(h.serviceNotes("boot").length).toBe(1);
+
+    // Another resource IS another wait: the disk speaks in its own line.
+    setSystemTime(new Date(t0 + 18_000));
+    h.floor.memGB = null;
+    h.floor.diskGB = 2;
+    await h.dispatcher.resume("boot", "");
+    expect(h.serviceNotes("boot").length).toBe(2);
+    expect(h.serviceNotes("boot")[1]).toStartWith("Disco quasi pieno");
+  });
 });
