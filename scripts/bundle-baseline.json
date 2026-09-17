@@ -508,12 +508,24 @@
     "e i 39 byte sono rumore di minificazione su react-virtuoso, 19 file per lato.",
     "Siti `lazy(`/`lazyWarm(` 55 -> 56: il nuovo e' il confine qui sopra.",
     "`state/topicBrowserWindow.ts` resta fuori dall'entry su entrambi i lati."
-  ],
+  ,
+    "",
+    "2026-09-14: entry eager gz 435.937 -> 436.300 (+363 byte, +0,08%).",
+    "Sono le stringhe i18n del pannello degli endpoint configurabili (una",
+    "dozzina di chiavi per due lingue). NON e' un import che andrebbe pigro, ed e'",
+    "la prima cosa che ho verificato perche' e' la causa solita: il pannello sta",
+    "sotto GlobalSettings, che App.tsx carica gia' con lazy(), quindi il",
+    "componente nell'entry eager non c'e' mai entrato. Misurato: mettendo un",
+    "lazy() anche sul pannello il numero passa da 444.903 a 444.898, cinque byte,",
+    "cioe' rumore. I dizionari i18n invece sono eager per costruzione e li' le",
+    "chiavi pesano. Alzo di 363 byte: e' quanto costa la feature, ed e' scritto",
+    "qui perche' il prossimo che legge sappia che il lazy e' gia' stato provato."
+],
   "updated": "2026-09-14",
   "tolerance_pct": 2,
   "entry_eager": {
     "raw": 1386056,
-    "gz": 435937
+    "gz": 436300
   },
   "critical_path": {
     "raw": 2012478,
