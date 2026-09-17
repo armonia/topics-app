@@ -8,7 +8,22 @@
       "perf": [],
       "internal": [
         {
+          "it": "Il rail typecheck:e2e era rosso su main: la meta' vuota non aveva un tipo",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Un numero che avevo messo nel contratto era falso: 241 volte, non zero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Con due orologi l'ordine fra spaziatura e pavimento decide il budget",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il rail typecheck:e2e non era rosso su main: le due righe non riparavano niente",
           "en": "",
           "scope": null
         }
@@ -28,6 +43,11 @@
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "Un episodio di thrash regalava l'esenzione dal pavimento per tutto il giro",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -40,6 +60,11 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Il pavimento torna in vigore, a cambiare e' la valvola",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Il giudice di fuori parcheggiava una card che su main parte",
           "en": "",
@@ -179,6 +204,16 @@
         },
         {
           "it": "Un file di troppo nel checkout chiudeva la porta a OGNI land, per sempre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pavimento dei check vive dentro il verdetto sullo swap, non accanto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "T5.1: la misura sta nei task, con la correzione alla premessa",
           "en": "",
           "scope": null
         },
