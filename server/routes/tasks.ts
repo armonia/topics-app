@@ -2787,8 +2787,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // it is dormant (`dormantCause.ts`): without this door the pane knows its
     // topic and nothing else, and "Session ended" is all it can say.
     //
-    // Declared BEFORE `/api/all-boards/tasks/:taskId`, which would otherwise
-    // swallow `by-topic` as a task id and answer `{ task: null }` forever.
+    // It does NOT collide with `/api/all-boards/tasks/:taskId` below, and the
+    // order of the two is therefore free: `matchRoute` compares the number of
+    // segments FIRST (`server/utils.ts`), and six can never match five. Pinned
+    // by `tasks.by-topic.test.ts`, which seeds a card whose id is literally
+    // "by-topic" and still gets this handler's answer.
     //
     // Always 200: "no card for this topic" is a legitimate answer from a
     // resolver, and the caller draws its plain overlay on it. Same reasoning as
