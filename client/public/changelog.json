@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.348",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Sei tornate atterrate: 24 voci su 25, resta una decisione tua",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.346",
     "date": "2026-09-17",
     "sections": {
@@ -7,6 +23,11 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Sette voci erano quattro: un numero falso dentro il contratto del bundle",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Lo split ha spostato i commenti, e il cancello li ha contati come nuovi: 180 righe riscritte in inglese",
           "en": "",
@@ -24,6 +45,21 @@
       "perf": [],
       "internal": [
         {
+          "it": "Il ramo contro i verdi bugiardi ne consegnava uno suo, e KANBAN-86 era chiuso a meta'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il codice di uscita di una riga contraddetta dalla sua run non era guardato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto del bundle non misurava il ramo: misurava quanto poco avesse lasciato quello prima",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il file dei test del land aveva sfondato il cancello: sette argomenti, sette file",
           "en": "",
           "scope": null
@@ -39,6 +75,11 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Il rerun rifaceva un rosso vero, e una card diceva verde su una CI rossa",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Il rail typecheck:e2e era rosso su main: la meta' vuota non aveva un tipo",
           "en": "",
@@ -222,6 +263,11 @@
           "it": "Una card consegna su PIU' rami: la spazzata ne puliva uno, e chiudeva la bozza sbagliata",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Il rerun era speso una volta per chiamata, e il server riparte 44 volte al giorno",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -286,6 +332,21 @@
         },
         {
           "it": "La catena ha girato intera: tre buchi osservati invece che dedotti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una run morta non da' mai un verdetto: riconsegnare lo stesso commit rilegge la stessa run",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quindici minuti di attesa muta: la PR e la run esistono in pochi secondi e arrivavano solo col verdetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il chip della card dice ambra e il drawer dice rosso: due verdetti opposti sulla stessa card",
           "en": "",
           "scope": null
         },

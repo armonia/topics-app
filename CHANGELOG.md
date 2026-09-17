@@ -2,19 +2,29 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.348 — 2026-09-17
+
+### Sotto il cofano
+- Sei tornate atterrate: 24 voci su 25, resta una decisione tua
+
 ## 2.2.346 — 2026-09-17
 
 ### Sotto il cofano
+- Sette voci erano quattro: un numero falso dentro il contratto del bundle
 - Lo split ha spostato i commenti, e il cancello li ha contati come nuovi: 180 righe riscritte in inglese
 
 ## 2.2.345 — 2026-09-17
 
 ### Sotto il cofano
+- Il ramo contro i verdi bugiardi ne consegnava uno suo, e KANBAN-86 era chiuso a meta'
+- Il codice di uscita di una riga contraddetta dalla sua run non era guardato
+- Il tetto del bundle non misurava il ramo: misurava quanto poco avesse lasciato quello prima
 - Il file dei test del land aveva sfondato il cancello: sette argomenti, sette file
 
 ## 2.2.344 — 2026-09-17
 
 ### Sotto il cofano
+- Il rerun rifaceva un rosso vero, e una card diceva verde su una CI rossa
 - Il rail typecheck:e2e era rosso su main: la meta' vuota non aveva un tipo
 - Un numero che avevo messo nel contratto era falso: 241 volte, non zero
 - Con due orologi l'ordine fra spaziatura e pavimento decide il budget
@@ -57,6 +67,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - La mia regola sul freno dei check era un no-op: la verifica l'ha eseguita
 - La nota del muro provider ripartiva a ogni boot: ~300 paragrafi identici al giorno
 - Una card consegna su PIU' rami: la spazzata ne puliva uno, e chiudeva la bozza sbagliata
+- Il rerun era speso una volta per chiamata, e il server riparte 44 volte al giorno
 
 ## 2.2.340 — 2026-09-17
 
@@ -72,6 +83,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il pavimento dei check vive dentro il verdetto sullo swap, non accanto
 - T5.1: la misura sta nei task, con la correzione alla premessa
 - La catena ha girato intera: tre buchi osservati invece che dedotti
+- Una run morta non da' mai un verdetto: riconsegnare lo stesso commit rilegge la stessa run
+- Quindici minuti di attesa muta: la PR e la run esistono in pochi secondi e arrivavano solo col verdetto
+- Il chip della card dice ambra e il drawer dice rosso: due verdetti opposti sulla stessa card
 - Il land riallinea DOPO il verdetto: la card diceva verde di un commit che non atterra
 - La spia 'running' che solo un boot spegneva teneva isChecksHold vero per sempre
 - Il giro di consegna ripartiva da zero a ogni riavvio senza che nessuno lo contasse
