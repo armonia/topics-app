@@ -49,6 +49,11 @@ davvero, non in teoria.
 - [ ] T3.2 Il giro esce al primo rosso accertato, le altre righe CI diventano non
       misurate con quella ragione.
 - [ ] T3.3 La sonda del conflitto si consuma solo su una risposta conclusiva.
+      OSSERVATO IL 17/09, non piu' teorico: la bozza #78 aperta dalla consegna di
+      `c4f53a85` ha risposto `mergeable UNKNOWN` alla prima lettura, 15 secondi
+      dopo l'apertura. GitHub calcola la mergeability in modo pigro, quindi
+      `UNKNOWN` e' la risposta NORMALE nei primi secondi, non un caso raro — ed e'
+      proprio quella che oggi arma `conflictProbed` senza aver letto niente.
 - [ ] T3.4 `ownCommits === 0` e' non misurato, non due verdi.
 - [ ] T3.5 Il contratto fissa anche la forma dei nomi dei job e2e (un solo asse
       nella matrice).
@@ -107,8 +112,22 @@ Un freno che spara sempre la sua valvola non e' un freno, e' un timer. E il fren
 ha gia' la misura giusta accanto a quella sbagliata: il verdetto sullo swap
 misura il thrash vero, il pavimento misura un numero che qui non arriva mai.
 
-- [ ] T5.1 Misurare, su questa consegna, quanto tempo e' stato speso in attesa
-      contro quanto in esecuzione: e' il numero che decide se vale la pena.
+- [x] T5.1 MISURATO, sulla consegna di `c4f53a85` conclusa il 17/09 alle 00:46Z,
+      leggendo i `ms` di `checks_json`:
+
+      | riga | esecuzione | coda |
+      |---|---|---|
+      | typecheck | 12,7 s | 0 s |
+      | lint | 55,3 s | 0 s |
+      | check:deadcode | 4,4 s | 0 s |
+      | static-rails | 7,8 s | 0 s |
+
+      **80 secondi di esecuzione in tutto.** Il giro ha impiegato 32 minuti dal
+      primo comando all'ultimo, quindi circa 30 minuti e mezzo sono stati attesa
+      del pavimento — 23 volte il lavoro che il freno stava proteggendo, su una
+      macchina che per tutta la durata leggeva `swap=calm`. Le due righe CI hanno
+      poi preso 624,7 s (unit) e 1065,8 s (e2e) di attesa della CI vera, che e'
+      tempo di GitHub e non si tocca.
 - [ ] T5.2 Da decidere col proprietario (non toccare prima): a swap calmo il
       pavimento non trattiene un check, e resta guardia solo mentre lo swap e'
       sostenuto.
