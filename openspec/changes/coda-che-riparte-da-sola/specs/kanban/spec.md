@@ -65,22 +65,53 @@ lettura oscillava fra 4,8 e 5,9 GB contro una riga a 6. Il giro e' uscito dalla
 valvola dei 30 minuti, non dalla condizione: un freno che spara sempre la sua
 valvola e' un timer travestito.
 
-Con il verdetto sullo swap CALMO il pavimento NON SHALL trattenere un comando di
-check: la macchina che non sta scambiando non ha il problema che il freno esiste
-per evitare. Con lo swap SOSTENUTO il pavimento SHALL valere pieno, e resta
-l'attesa che gia' c'e'. La valvola dei 30 minuti per giro NON cambia, e nemmeno
-la regola che una lettura non disponibile non fa aspettare.
+PRIMA STESURA SBAGLIATA, e la correzione e' il punto. Avevo scritto «a swap calmo
+il pavimento non trattiene, a swap sostenuto vale pieno». Una verifica avversaria
+l'ha smentita eseguendola: sotto swap SOSTENUTO il freno gia' usciva prima di
+guardare il pavimento, quindi l'unico momento in cui il pavimento aveva forza era
+proprio lo swap calmo. Quella regola non lo indeboliva, lo CANCELLAVA — provato
+su 160 stati, con `floorGB` a 0 contro `floorGB` a 1000 il comportamento non
+cambia in nessuno. E il pavimento serve ancora a qualcuno: e' montato una volta
+per tutto il server, non per board, e un'altra board di questa macchina
+(`dancerooms-intq6i`) ha come unico check locale una suite unit, cioe' proprio
+l'albero da 4-11 GB che il freno esiste per non far partire su un Mac vuoto.
 
-#### Scenario: a swap calmo il comando parte
+Quindi il pavimento SHALL restare in vigore com'e', a swap calmo come a swap
+sostenuto. Cio' che cambia e' la VALVOLA, e solo quando lo swap e' calmo.
+
+Un giro che aspetta il pavimento con lo swap calmo NON SHALL aspettare piu' di
+tre minuti prima di partire comunque; con lo swap sostenuto SHALL restare la
+valvola dei trenta minuti che c'e' oggi. La ragione e' che le due attese non
+comprano la stessa cosa: sotto thrash la macchina sta davvero restituendo memoria
+e aspettare serve, mentre a swap calmo la lettura non migliora da sola — su
+questa macchina il minimo su 2 minuti non ha toccato i 6 GB nemmeno una volta su
+1455 letture in 25,7 ore, quindi i trenta minuti e i tre finiscono identici
+tranne che per ventisette minuti buttati. Misurato sulla consegna del 17/09:
+ottanta secondi di esecuzione dentro un giro di trentadue minuti.
+
+Resta invariato tutto il resto: la spaziatura fra due rilasci, la regola che una
+lettura non disponibile non fa aspettare, e il fatto che la valvola si conta per
+GIRO e non per comando.
+
+E la riga che annuncia il fail-open SHALL dire quale delle due condizioni ha
+tenuto il comando fermo: «non c'e' spazio» su un Mac che ha scambiato per mezz'ora
+e' l'unica traccia che sopravvive, ed e' falsa.
+
+#### Scenario: a swap calmo si aspetta tre minuti, non trenta
 - **GIVEN** il minimo su 2 minuti a 5,2 GB, sotto il pavimento di 6 GB
-- **AND** il verdetto sullo swap calmo
+- **AND** il verdetto sullo swap calmo per tutta l'attesa
 - **WHEN** un comando di check chiede di partire
-- **THEN** SHALL partire subito, senza attesa
+- **THEN** SHALL aspettare, e SHALL partire comunque dopo tre minuti di giro
 
-#### Scenario: sotto swap sostenuto il pavimento vale
+#### Scenario: sotto swap sostenuto la valvola resta a trenta minuti
 - **GIVEN** il minimo su 2 minuti a 5,2 GB e il verdetto sullo swap sostenuto
 - **WHEN** un comando di check chiede di partire
-- **THEN** SHALL aspettare, e dopo 30 minuti di giro SHALL partire comunque
+- **THEN** SHALL aspettare, e SHALL partire comunque dopo trenta minuti di giro
+
+#### Scenario: la riga del fail-open nomina la condizione vera
+- **GIVEN** un giro rilasciato dalla valvola con lo swap sostenuto
+- **WHEN** la riga viene scritta
+- **THEN** SHALL nominare lo swap, non la mancanza di spazio
 
 ## ADDED Requirements
 

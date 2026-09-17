@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.2.339",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "don't pin to bottom on height growth inside a user gesture window",
+          "scope": "chat"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.319",
     "date": "2026-09-14",
     "sections": {

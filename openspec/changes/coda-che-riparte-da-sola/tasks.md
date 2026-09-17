@@ -49,6 +49,11 @@ davvero, non in teoria.
 - [ ] T3.2 Il giro esce al primo rosso accertato, le altre righe CI diventano non
       misurate con quella ragione.
 - [ ] T3.3 La sonda del conflitto si consuma solo su una risposta conclusiva.
+      OSSERVATO IL 17/09, non piu' teorico: la bozza #78 aperta dalla consegna di
+      `c4f53a85` ha risposto `mergeable UNKNOWN` alla prima lettura, 15 secondi
+      dopo l'apertura. GitHub calcola la mergeability in modo pigro, quindi
+      `UNKNOWN` e' la risposta NORMALE nei primi secondi, non un caso raro — ed e'
+      proprio quella che oggi arma `conflictProbed` senza aver letto niente.
 - [ ] T3.4 `ownCommits === 0` e' non misurato, non due verdi.
 - [ ] T3.5 Il contratto fissa anche la forma dei nomi dei job e2e (un solo asse
       nella matrice).
@@ -65,10 +70,26 @@ davvero, non in teoria.
 - [ ] T4.1 Un land che riallinea azzera `checks_commit` e dice che i verdetti CI
       si riferivano al commit misurato, non a quello fuso. (22 land su 32 negli
       ultimi 7 giorni hanno la riga di riallineamento, 18 muti)
+      OSSERVATO IL 17/09 sul land di `c4f53a85`: il land ha creato `596e828dd`
+      («Riporta main nel ramo prima del land») e poi il merge `20a271a11`, mentre
+      `checks_commit` e `delivery_commit` sono rimasti entrambi `71e96ec13f`. La
+      card dichiara quindi «CI verde» su un albero diverso da quello atterrato,
+      alla prima consegna che quella frase l'ha potuta dire.
 - [ ] T4.2 La bozza di PR e il ramo remoto si chiudono dopo il land, il rifiuto
       definitivo e l'archiviazione. (regime atteso: circa 94 card a settimana che
       lascerebbero la bozza aperta; gia' oggi 41 rami `topics/*` su origin, 39
       dentro `main`, nessuno cancellato)
+      OSSERVATO IL 17/09 sul land di `c4f53a85`, e la forma del buco e' piu'
+      stretta di come l'avevo scritta. La bozza #78 si e' chiusa DA SOLA come
+      MERGED alle 00:37:56Z, un minuto dopo il land: il land fonde con
+      `merge --no-ff`, quindi i commit del ramo diventano antenati di main, e
+      appena main viene spinto GitHub marca la PR come fusa. Quindi la PR NON
+      perde quando il land va a buon fine e main viene spinto. Perdono due cose:
+      il RAMO remoto, sempre (dopo questo land i rami `topics/*` gia' dentro main
+      erano 40, nessuno cancellato; l'ho tolto a mano e sono tornati 39), e la
+      bozza quando la card esce da review senza un land — rifiuto definitivo,
+      archiviazione — oppure quando main non viene spinto. Il fix vada su quelle
+      due, non sul caso che si sistema da se'.
 - [ ] T4.3 `isChecksHold` incrocia il registro vivo del cancello invece di fidarsi
       della spia `running` nel DB, che solo un boot spegne. (89 boot hanno trovato
       una spia accesa; 1253 riarmi del giudice di stallo)
@@ -107,8 +128,22 @@ Un freno che spara sempre la sua valvola non e' un freno, e' un timer. E il fren
 ha gia' la misura giusta accanto a quella sbagliata: il verdetto sullo swap
 misura il thrash vero, il pavimento misura un numero che qui non arriva mai.
 
-- [ ] T5.1 Misurare, su questa consegna, quanto tempo e' stato speso in attesa
-      contro quanto in esecuzione: e' il numero che decide se vale la pena.
+- [x] T5.1 MISURATO, sulla consegna di `c4f53a85` conclusa il 17/09 alle 00:46Z,
+      leggendo i `ms` di `checks_json`:
+
+      | riga | esecuzione | coda |
+      |---|---|---|
+      | typecheck | 12,7 s | 0 s |
+      | lint | 55,3 s | 0 s |
+      | check:deadcode | 4,4 s | 0 s |
+      | static-rails | 7,8 s | 0 s |
+
+      **80 secondi di esecuzione in tutto.** Il giro ha impiegato 32 minuti dal
+      primo comando all'ultimo, quindi circa 30 minuti e mezzo sono stati attesa
+      del pavimento — 23 volte il lavoro che il freno stava proteggendo, su una
+      macchina che per tutta la durata leggeva `swap=calm`. Le due righe CI hanno
+      poi preso 624,7 s (unit) e 1065,8 s (e2e) di attesa della CI vera, che e'
+      tempo di GitHub e non si tocca.
 - [ ] T5.2 Da decidere col proprietario (non toccare prima): a swap calmo il
       pavimento non trattiene un check, e resta guardia solo mentre lo swap e'
       sostenuto.
