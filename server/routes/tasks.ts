@@ -71,7 +71,7 @@ import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { ChecksInterruptedError, clampLegMs, createChecksGate, type ChecksLane, type ChecksLeg } from "../services/checks-gate";
 import { forgetDelivery, reviewChecksStopping, swapInterruptedDelivery, throwIfStopping, type MemoryFloor } from "../services/review-checks-brakes";
 import { bumpPendingDeliveryRound, forgetPendingDelivery, loadPendingDeliveries, savePendingDelivery, type PendingDelivery } from "../services/pending-delivery-store";
-import { ciNotMeasured } from "../services/ci-evidence";
+import { ciNotMeasured, closeCiDraft, type CloseCiDraftInput, type DraftCleanup } from "../services/ci-evidence";
 import { createTaskAttemptStore, type TaskAttempt } from "../services/task-attempts";
 import { linkNotes, proposeLink, type LinkKind } from "../services/task-intake";
 import { recordRetirement } from "../services/retirement";
@@ -372,6 +372,13 @@ export interface TasksRouterOpts {
    * `unverifiable`. Un verdetto `landed` lo scrive SOLO questa prova.
    */
   confirmLandedOnMain?: (repoPath: string, commit: string) => Promise<boolean | null>;
+  /**
+   * Close the delivery's draft pull request and delete its branch on origin.
+   * Absent ⇒ the real `gh`/`git` (`closeCiDraft`); the seam exists so the three
+   * doors that call it can be proved without a GitHub account, the same way
+   * `deleteTaskWorktree` and `confirmLandedOnMain` are.
+   */
+  closeDelivery?: (input: CloseCiDraftInput) => Promise<DraftCleanup>;
   /**
    * Delete the task's worktree + branch + store row (the worktree-manager
    * path). Called after a landing: once merged, the worktree has no value and
@@ -865,6 +872,88 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     }
     const reaped = await opts.deleteTaskWorktree(taskId).catch(() => false);
     if (reaped) svc.addComment({ taskId, author: "system", kind: "service", content: "Worktree e branch del task ripuliti." });
+  }
+
+  /**
+   * The same reap, on the OTHER side: the draft pull requests the card's
+   * deliveries opened and the branches they pushed to origin.
+   *
+   * `reapAfterLand` above has always cleaned the local half - worktree and local
+   * branch - and nothing ever cleaned the remote one: until 17/09/2026 the whole
+   * tree had no `gh pr close` and no `push --delete`, so origin carried 41
+   * `topics/*` branches with 39 of them already inside `main`. Now that every
+   * delivery into review opens a draft (121 entries in 7 days) the drafts pile up
+   * at the same rate, so the three doors where the branch is finished for good -
+   * a confirmed land, an approval marked `superseded`, an archived card - sweep it.
+   *
+   * PLURAL, because a card delivers on MORE THAN ONE BRANCH. Every delivery that
+   * goes through the checks gate pushes the branch of ITS OWN worktree and opens
+   * its own draft (`awaitCiEvidence` takes `port.branch(cwd)`), while the card
+   * remembers only the last one in `delivery_branch`. On the live DB: 151 cards
+   * carry two or more distinct attempt branches, 104 of them also have a
+   * `delivery_branch`, and 83 branches belong to a `delivered` attempt that is
+   * NOT the card's delivery branch. Sweeping one branch per card would leave
+   * exactly those 83 behind - the very loss T4.2 exists to stop.
+   *
+   * `landed` - the branch the merge actually carried onto main - is the ONLY one
+   * whose pull request is left alone: GitHub marks it MERGED itself once main is
+   * pushed. Every other branch of the card will never land, so its draft is
+   * closed here or never.
+   *
+   * NOT on a plain approval and NOT on a rejection: an approval that does not land
+   * leaves real work on that branch and a rejection sends the agent back to the
+   * same branch to deliver again.
+   *
+   * Best-effort by contract. A `gh` that is logged out, rate-limited or missing
+   * must never turn a land into a failure: the problems go to the log, and the
+   * card gets a receipt only for what actually happened.
+   */
+  async function sweepRemoteDelivery(
+    projectId: string, taskId: string, reason: string,
+    over?: { cwd?: string | null; landed?: string | null; extra?: Array<string | null | undefined> },
+  ): Promise<void> {
+    const task = svc.get(taskId, { projectId })?.task;
+    const landed = (over?.landed ?? "").trim();
+    let tried: Array<string | null | undefined> = [];
+    try { tried = attempts.list(taskId).map((a) => a.branch); } catch { /* best-effort */ }
+    const branches: string[] = [];
+    for (const raw of [landed, task?.deliveryBranch, ...(over?.extra ?? []), ...tried]) {
+      const b = (raw ?? "").trim();
+      if (b && !branches.includes(b)) branches.push(b);
+    }
+    if (!branches.length) return;
+    let cwd = over?.cwd ?? null;
+    if (!cwd) {
+      let dirs: string[] = [];
+      try { dirs = opts?.listProjectDirs?.() ?? []; } catch { /* best-effort */ }
+      cwd = dirs.find((d) => projectIdForPath(d) === projectId) ?? null;
+    }
+    if (!cwd) return;
+    const close = opts?.closeDelivery ?? ((i: CloseCiDraftInput) => closeCiDraft(i));
+    const did: string[] = [];
+    for (const branch of branches) {
+      const done = await close({ cwd, branch, reason, closePr: branch !== landed }).catch((err) => {
+        console.warn(`[land] remote cleanup threw for ${taskId} on ${branch}:`, err);
+        return null;
+      });
+      if (!done) continue;
+      if (done.problems.length) console.warn(`[land] remote cleanup for ${taskId} on ${branch}: ${done.problems.join("; ")}`);
+      const half = [
+        done.pr ? `chiusa la bozza #${done.pr.number}` : null,
+        done.branchDeleted ? `cancellato il ramo \`${branch}\` su origin` : null,
+      ].filter(Boolean).join(" e ");
+      if (half) did.push(half);
+    }
+    // THE RECEIPT SAYS ONLY WHAT HAPPENED. With `gh` logged out both halves come
+    // back false and the card would otherwise read «Pulizia su GitHub: .» - a
+    // line that claims a cleanup nobody did, on the one path this code is built
+    // to survive.
+    if (!did.length) return;
+    try {
+      svc.addComment({ taskId, author: "system", kind: "service", content: `Pulizia su GitHub: ${did.join("; ")}.` });
+      const fresh = svc.get(taskId, { projectId })?.task;
+      if (fresh) broadcastToAll({ type: "task:updated", projectId, task: fresh });
+    } catch (err) { console.warn(`[land] remote cleanup receipt not written for ${taskId}:`, err); }
   }
 
   /**
@@ -1685,8 +1774,31 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // Il ramo era vecchio e il land l'ha riportato al passo con main da sé: è
       // un commit che nessun umano ha fatto, quindi lo si dice — e per PRIMO,
       // perché è successo prima di tutto il resto.
+      // ...and what that costs. What landed is C2 = merge(C, main), and the
+      // checks - the local commands AND the two CI rows - measured C. Nobody
+      // reads the CI of C2: the push, the draft and the poll loop all happened
+      // once, on C, hours earlier (1,93 h in review on average, 32 lands in 7
+      // days). So the note says which commit those verdicts describe, and
+      // `checks_commit` stops naming a commit as if it were the one that landed.
+      // Measured on 17/09: 22 of those 32 lands carry this line and only 4 also
+      // warned that the land differed from the delivery - 18 said nothing.
+      //
+      // NOT a merge queue. Re-pushing C2 and re-reading its CI costs 15-40
+      // minutes per land and is the owner's call, not this line's: what changes
+      // here is only that the card stops claiming more than it measured.
       if (res.status === "merged" && res.realigned) {
-        svc.addComment({ taskId, author: "system", kind: "service", content: `Riallineato prima del land: ${res.realigned}.` });
+        const before = svc.get(taskId, { projectId })?.task;
+        const measured = before?.checksState && before.checksState !== "running"
+          ? before.checksCommit ? `\`${before.checksCommit.slice(0, 8)}\`` : "il commit consegnato"
+          : null;
+        svc.addComment({
+          taskId, author: "system", kind: "service",
+          content: `Riallineato prima del land: ${res.realigned}.`
+            + (measured
+              ? ` I check (comandi locali e righe CI) hanno misurato ${measured}, non la fusione che sta atterrando: nessuno li ha rimisurati su quest'ultima.`
+              : ""),
+        });
+        try { svc.clearChecksCommit(taskId); } catch (err) { console.warn(`[land] checks_commit non azzerato per ${taskId}:`, err); }
       }
       // Ciò che è atterrato non era lo scatto approvato: chi ha cliccato «Landa»
       // deve leggerlo, altrimenti crede di aver pubblicato quello che ha visto.
@@ -1784,6 +1896,39 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           });
         }
         await reapAfterLand(taskId, "landed");
+        // The remote half of that same reap. Here, and not at the approval, for
+        // the reason the whole land path is built on: the branch is finished only
+        // once main has been RE-READ and confirms it. `proof === null` - the
+        // merge exited zero and main could not be re-read - keeps the branch on
+        // origin, because that is the one case where the comment above already
+        // asks a person to go and look.
+        //
+        // `landed: res.branch` LEAVES THAT ONE PULL REQUEST ALONE, and this is
+        // the whole reason the flag exists. `confirmLandedOnMain` re-reads the
+        // LOCAL main (`server.ts`), and nothing in this server ever pushes main:
+        // when the sweep runs, `origin/main` does not have the merge yet and a
+        // person pushes it seconds to hours later. GitHub then marks that pull
+        // request MERGED by itself - measured on #78, 17/09/2026, a minute after
+        // the land. A `gh pr close` racing that push would stamp "Closed" on the
+        // ~32 cards that land in a week instead. The card's OTHER branches, which
+        // no push will ever merge, are closed here.
+        //
+        // NOT AWAITED, and that is the difference between housekeeping and a
+        // stop-the-world. `landTask` runs inside `landings.enqueue`, ONE land at
+        // a time per project, while this sweep is `gh pr list` + `git push
+        // --delete` per branch with a 60 s cap each. On the live DB the worst
+        // card carries 11 branches: with `gh` logged out or rate-limited an
+        // awaited sweep turned a 3-minute queue into a 22-minute one for every
+        // OTHER card waiting behind it, and 124 archived cards carry attempt
+        // branches that never delivered, so those calls buy nothing at all.
+        // Nothing downstream reads its result - the receipt it writes is its own
+        // comment - and the two other doors (superseded approval, archive)
+        // already call it exactly like this.
+        if (proof === true) {
+          void sweepRemoteDelivery(projectId, taskId, `Closed by the Topics board: the card landed on main as ${res.commit} from another branch, this one will not land.`,
+            { cwd: res.repoPath, landed: res.branch })
+            .catch((err) => console.warn(`[land] remote cleanup after a land failed for ${taskId}:`, err));
+        }
         if (res.landedNotLive) {
           // Landed on main, but the shared checkout (the live server's cwd) is parked
           // on another branch — so the code is on main yet NOT running. Say it loudly:
@@ -3860,6 +4005,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
                 taskId: bReview.taskId, state: "superseded", checkedAt: new Date().toISOString(),
               });
             } catch { /* la decisione conta piu' del suo timbro */ }
+            // The one review door that says out loud "these branches will never
+            // land": the drafts they opened and the branches they pushed go with
+            // them, all of them, with no `landed` to spare.
+            // A plain approval does not come through here, and must not - its
+            // branch still holds work nobody has merged.
+            void sweepRemoteDelivery(bReview.projectId, bReview.taskId,
+              "Closed by the Topics board: the card was approved as superseded, this branch will not land.")
+              .catch((err) => console.warn(`[land] remote cleanup after a superseded approval failed for ${bReview.taskId}:`, err));
           }
           if (dispatcher && decision === "approve" && task.status === "done") {
             dispatcher.onBlockerDone(bReview.taskId);
@@ -4234,8 +4387,19 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             if (got) {
               detachLiveAgent(got.task, NOTE_ARCHIVED_BY_HUMAN);
             }
+            // Read BEFORE the archive: the sweep needs the delivery branch, and
+            // it runs after, when the card is already off the board.
+            const deliveryBranch = got?.task.deliveryBranch ?? null;
             const task = svc.archive({ taskId, projectId });
             void opts?.teardownPreview?.(taskId).catch(() => {}); // reap preview on close
+            // A card that leaves the board leaves its draft pull requests and its
+            // origin branches too: nothing will ever land them, and nobody will
+            // ever look at them again. No `landed` here - not one of these
+            // branches is on its way into main, so every draft gets closed.
+            void sweepRemoteDelivery(projectId, taskId,
+              "Closed by the Topics board: the card was archived, this branch will not land.",
+              { extra: [deliveryBranch] })
+              .catch((err) => console.warn(`[land] remote cleanup after an archive failed for ${taskId}:`, err));
             // Le tab del task se ne vanno con lui: un task archiviato è fuori
             // dalla board e la sua evidenza durevole è l'anteprima, non la tab
             // viva. DOPO l'archiviazione perché il sottoalbero è quello che

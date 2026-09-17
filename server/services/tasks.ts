@@ -918,6 +918,23 @@ export interface TaskService {
    */
   clearStaleChecksRuns(isLive?: (taskId: string) => boolean): string[];
   /**
+   * Take the commit away from a checks verdict, leaving its state, its time and
+   * its command-by-command evidence exactly as they are.
+   *
+   * FOR THE LAND THAT REALIGNS. The delivery measures C, the local commands and
+   * the pull request CI go green on C, the card then sits in review (1,93 h on
+   * average) while main moves on - 32 lands in 7 days - and at the land
+   * `tryMerge` merges C2 = merge(C, main). Nobody reads the CI of C2, and
+   * `checks_commit` kept naming C as if it were what landed. Measured on 17/09:
+   * 22 of those 32 lands carry the realign line and only 4 also warned that the
+   * land differed from the delivery, so 18 went through silently. The verdict on
+   * C stays true and stays readable; the claim that it describes the commit that
+   * landed is the part that is no longer true, so it goes.
+   *
+   * Answers `true` when there was a commit to take away.
+   */
+  clearChecksCommit(taskId: string): boolean;
+  /**
    * Tasks worth auditing: alive, delivered (review/done), carrying a commit —
    * e SENZA un esito testimoniato. Un verdetto scritto dal land stesso è un
    * fatto osservato mentre il ramo esisteva ancora: la passata periodica non ha
@@ -5846,6 +5863,18 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         taskId,
       );
       return rowToTask(getTaskRow(taskId));
+    },
+
+    clearChecksCommit(taskId): boolean {
+      // `checks_at` and `checks_json` stay: a verdict that was really measured
+      // keeps its hour and its output tails. Only the commit pointer goes, and
+      // only when there is one - a card that never ran the checks must not get
+      // an `updated_at` bump out of this (the dispatcher's clocks read that
+      // column, KANBAN-84).
+      const res = db.prepare(
+        "UPDATE tasks SET checks_commit = NULL, updated_at = ? WHERE id = ? AND checks_commit IS NOT NULL",
+      ).run(now(), taskId);
+      return Number(res.changes ?? 0) > 0;
     },
 
     clearStaleChecksRuns(isLive?: (taskId: string) => boolean): string[] {
