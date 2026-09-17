@@ -95,7 +95,7 @@ describe("a reload that cuts a delivery whose checks were only waiting", () => {
     return {
       held: () => ({ measurable: true, latestGB: heldGB(), heldGB: heldGB(), coveredMs: 120_000 }),
       swap: () => ({ sustained: heldGB() < 6, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8, swapPct: null, coveredMs: 60_000 }),
-      floorGB: 6,
+      floorGB: () => 6,
       pollMs: 5_000,
       // The waiter fails open after 30 minutes of ITS clock, and its clock is
       // this one: with a real budget the fail-open would race the test and start

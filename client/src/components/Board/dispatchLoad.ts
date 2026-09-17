@@ -282,3 +282,21 @@ export function limitDerivation(s: GlobalDispatchCapState): { cores: number; lim
   if (!s.capacity || !(s.capacity.cores > 0)) return null;
   return { cores: s.capacity.cores, limit };
 }
+
+/**
+ * What the checks-floor box shows. A draft under the finger wins, empty draft
+ * included: somebody clearing the box to type must not have a value put back
+ * under them.
+ *
+ * `null` is "not read yet", and it must NOT paint as 0: zero is "the brake is
+ * off", and telling the owner their brake is disabled while the first GET is
+ * still in flight is a lie that looks like a setting. It lives here rather than
+ * in the component both because a component file that exports a function loses
+ * fast refresh, and because the store is a module store: once anything has
+ * adopted a value no mounted component can be put back to "never read", so this
+ * rule is only testable as a function.
+ */
+export function checksFloorBoxValue(floor: number | null, draft?: string): string {
+  if (draft !== undefined) return draft;
+  return floor == null ? '' : String(floor);
+}

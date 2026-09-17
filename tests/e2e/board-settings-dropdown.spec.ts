@@ -370,4 +370,43 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await expect(page.getByTestId("global-cap-mode-auto")).toBeVisible();
     await expect(page.getByTestId("global-cap-budget-slider")).toHaveCount(0);
   });
+
+  test("DROP-07: il pavimento memoria dei check si scrive, torna dopo il ricarico, e a 0 dice che il freno e' spento", async ({ page }) => {
+    // NO STUB, same reason as DROP-05: what is being claimed is that the number
+    // reaches the '*' row and comes back, not that the client re-reads its own
+    // optimistic value. This one matters more than most settings because it
+    // decides whether a delivery's check commands wait before they are spawned:
+    // a field that looked saved and was not would be a wait nobody can explain.
+    await page.goto("/");
+    await openBoard(page);
+    await gear(page).click();
+    const floor = page.getByTestId("checks-floor-gb");
+    await expect(floor).toBeVisible();
+    // The default a fresh row is born with, and the change this round landed.
+    await expect(floor).toHaveValue("3");
+    await floor.fill("5");
+    await floor.blur();
+
+    await page.reload();
+    await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
+    await gear(page).click();
+    await expect(page.getByTestId("checks-floor-gb")).toHaveValue("5");
+
+    // Zero is a setting, not an empty box: it survives the round trip AND the
+    // hint changes to say the brake is off, which is the only place that fact
+    // is written for whoever is looking at the panel.
+    await page.getByTestId("checks-floor-gb").fill("0");
+    await page.getByTestId("checks-floor-gb").blur();
+    await expect(page.getByTestId("checks-floor-hint")).toContainText("Freno spento");
+    await page.reload();
+    await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
+    await gear(page).click();
+    await expect(page.getByTestId("checks-floor-gb")).toHaveValue("0");
+    await expect(page.getByTestId("checks-floor-hint")).toContainText("Freno spento");
+
+    // Put it back, so the isolated test server does not carry a switched-off
+    // brake into whatever runs next in the same file.
+    await page.getByTestId("checks-floor-gb").fill("3");
+    await page.getByTestId("checks-floor-gb").blur();
+  });
 });

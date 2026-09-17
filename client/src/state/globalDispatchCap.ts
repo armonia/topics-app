@@ -26,7 +26,7 @@
  * girava una per ogni chip del carico montato.
  */
 import { useSyncExternalStore } from 'react';
-import { boardApi, budgetShare, capMode, clampGlobalCap, effectiveDispatchCap } from '../lib/board';
+import { boardApi, budgetShare, capMode, checksMemFloorGB, clampGlobalCap, effectiveDispatchCap } from '../lib/board';
 import type { DispatchCapacity, DispatchCapMode, GlobalCapPatch, GlobalDispatchCap } from '../lib/board';
 import { subscribeFrames } from '../lib/wsFrameBus';
 
@@ -44,6 +44,14 @@ export interface GlobalDispatchCapState {
    * not "no cap".
    */
   spend: SpendState | null;
+  /**
+   * HOW MUCH FREE MEMORY A CHECK COMMAND NEEDS before the server spawns it, in
+   * whole GB, from the same '*' row and therefore from the same store. `0` = the
+   * brake is off. `null` = not read yet, which is NOT "off": a panel that
+   * painted zero while waiting for the first answer would tell the owner their
+   * brake is disabled every time a window opens.
+   */
+  checksFloorGB: number | null;
 }
 
 /** What the server says about the spend: the two caps and the two ledger cuts. */
@@ -63,7 +71,7 @@ export interface SpendState {
  *  ora legge di qui invece di sondare per conto suo. */
 const CAPACITY_POLL_MS = 15000;
 
-const EMPTY: GlobalDispatchCapState = { cap: null, capacity: null, saving: false, spend: null };
+const EMPTY: GlobalDispatchCapState = { cap: null, capacity: null, saving: false, spend: null, checksFloorGB: null };
 
 /** L'IDENTITÀ conta: `useSyncExternalStore` richiama lo snapshot a ogni render e
  *  un oggetto nuovo ogni volta è un ciclo infinito. Si sostituisce solo quando
@@ -109,6 +117,19 @@ export function adoptGlobalCap(next: {
  *  surface that mounts the control. */
 function sameCap(a: GlobalDispatchCap, b: GlobalDispatchCap): boolean {
   return a.auto === b.auto && a.max === b.max && a.mode === b.mode && a.budgetShare === b.budgetShare;
+}
+
+/**
+ * The AUTHORITATIVE checks floor: the server's answer, or the frame from
+ * another window. Optional on the wire like the mode and the budget, and an
+ * announcement that omits it KEEPS what is here - a server that predates the
+ * setting must not be read as "the owner switched the brake off".
+ */
+export function adoptChecksFloor(next: { checksMemFloorGB?: number }): void {
+  if (typeof next.checksMemFloorGB !== 'number' || !Number.isFinite(next.checksMemFloorGB)) return;
+  const gb = checksMemFloorGB({ checksMemFloorGB: next.checksMemFloorGB });
+  if (state.checksFloorGB === gb) return;
+  publish({ ...state, checksFloorGB: gb });
 }
 
 /**
@@ -221,12 +242,32 @@ export async function saveGlobalCap(patch: GlobalCapPatch): Promise<void> {
   }
 }
 
+/**
+ * Writes the checks memory floor. Optimistic like the cap above, clamped HERE
+ * with the same reader the brake applies, and rolled back on failure rather than
+ * left on a local lie: this number decides whether a delivery's commands wait,
+ * so a field showing 3 while the server holds 6 is a wait nobody can explain.
+ */
+export async function saveChecksFloor(gb: number): Promise<void> {
+  const before = state.checksFloorGB;
+  const next = checksMemFloorGB({ checksMemFloorGB: gb });
+  publish({ ...state, checksFloorGB: next, saving: true });
+  try {
+    const g = await boardApi.setGlobalCap({ checksMemFloorGB: next });
+    publish({ ...state, saving: false });
+    adoptChecksFloor(g);
+  } catch {
+    publish({ ...state, checksFloorGB: before, saving: false });
+  }
+}
+
 /** Rilegge il tetto scritto. Volontariamente muta sull'errore: il valore che c'è
  *  resta, e il prossimo giro riprova. */
 async function refreshCap(): Promise<void> {
   try {
     const g = await boardApi.getGlobalSettings();
     adoptGlobalCap(g);
+    adoptChecksFloor(g);
     adoptSpend(g);
   } catch { /* si tiene l'ultimo */ }
 }
@@ -246,10 +287,12 @@ function start(): void {
       const f = frame as {
         type?: string; maxAgentsAuto?: boolean; maxAgents?: number;
         maxAgentsMode?: DispatchCapMode; budgetShare?: number;
+        checksMemFloorGB?: number;
         agentCostCapCents?: number; agentCostCapCents24h?: number;
       } | null;
       if (!f || f.type !== 'board:global-cap') return;
       adoptGlobalCap(f);
+      adoptChecksFloor(f);
       adoptSpend(f);
     },
     { types: ['board:global-cap'] },

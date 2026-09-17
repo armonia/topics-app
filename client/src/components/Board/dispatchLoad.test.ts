@@ -14,6 +14,7 @@ import { admissionVerdictText, dispatchLoadReading, gateCoreNumbers, limitDeriva
 import type { GlobalDispatchCapState } from '../../state/globalDispatchCap';
 import type { DispatchAdmission, DispatchCapacity } from '../../lib/board';
 import { admissionVerdict } from '../../../../shared/machine-budget';
+import { CHECKS_MEM_FLOOR_DEFAULT_GB } from '../../lib/board';
 
 const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
   recommended: 4,
@@ -39,6 +40,7 @@ const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
 
 const stateWith = (running: number, over: Partial<GlobalDispatchCapState> = {}): GlobalDispatchCapState => ({
   cap: { auto: true, max: 3, mode: 'count', budgetShare: 0.8 },
+  checksFloorGB: CHECKS_MEM_FLOOR_DEFAULT_GB,
   capacity: machine({ running }),
   saving: false,
   spend: null,
@@ -70,7 +72,7 @@ describe('dispatchLoadReading', () => {
   });
 
   test('no probe yet in auto: nothing is drawn as full, and nothing is invented', () => {
-    const r = dispatchLoadReading({ cap: { auto: true, max: 3, mode: 'count', budgetShare: 0.8 }, capacity: null, saving: false, spend: null });
+    const r = dispatchLoadReading({ cap: { auto: true, max: 3, mode: 'count', budgetShare: 0.8 }, capacity: null, saving: false, spend: null, checksFloorGB: CHECKS_MEM_FLOOR_DEFAULT_GB });
     expect(r.loading).toBe(true);
     expect(r.fill).toBe(0);
     expect(loadWordKey(r)).toBe('board.gauge.reading');

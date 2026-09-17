@@ -32,7 +32,8 @@ import { imageShape } from "./image-shape";
 import { renderDeliverySheet } from "./delivery-sheet";
 import { isAutoCapturedPreview, isDeliverySheetPath } from "../../shared/media-kind";
 import { NUDGE_CLAIM_MS, gateNudge } from "./nudge-gate";
-import { readGlobalCap, readSpendCaps } from "./dispatch-capacity";
+import { readChecksMemFloorGB, readGlobalCap, readSpendCaps } from "./dispatch-capacity";
+import { checksMemFloorGB } from "../../shared/checks-memory-floor";
 import { currentDispatchBlock, heldResumeBlock } from "./dispatch-block-signal";
 import { liveAgentCount } from "./agent-census";
 
@@ -1027,6 +1028,16 @@ export interface TaskService {
   getSpendCaps(): { perTaskCents: number; perDayCents: number };
   /** Write the caps (a PERSON does this, from the settings). Zero clears one. */
   setSpendCaps(patch: { perTaskCents?: number; perDayCents?: number }): { perTaskCents: number; perDayCents: number };
+  /**
+   * HOW MUCH FREE MEMORY A NEW CHECK COMMAND NEEDS, in whole GB, from the same
+   * reserved row '*'. It used to be a constant borrowed from the agent admission
+   * floor and three times the heaviest command it guards; it is a setting now so
+   * that whoever measures a different load can move it instead of inheriting it.
+   * `0` switches the brake off. Applied value, clamped and defaulted.
+   */
+  getChecksMemFloorGB(): number;
+  /** Write the floor (a PERSON does this, from the settings). */
+  setChecksMemFloorGB(gb: number): number;
   /**
    * Agent spend on this machine: the rolling 24h window and the whole book, with
    * the share that could NOT be priced beside each. The unpriced number travels
@@ -6313,6 +6324,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           .run(clean(patch.perDayCents), GLOBAL_SETTINGS_KEY);
       }
       return this.getSpendCaps();
+    },
+
+    getChecksMemFloorGB(): number {
+      // Same row and same read as the concurrency cap. NULL (and a db without
+      // the column) reads as the DEFAULT and never as zero: zero is the owner
+      // switching the brake off, and a missing migration must not say that for
+      // them — see `readChecksMemFloorGB`.
+      return readChecksMemFloorGB(db);
+    },
+
+    setChecksMemFloorGB(gb: number): number {
+      db.prepare("INSERT OR IGNORE INTO board_settings (project_id, max_agents) VALUES (?, 3)").run(GLOBAL_SETTINGS_KEY);
+      // Clamped on the way IN with the same reader the brake and the field use,
+      // so the value on disk is the value that applies: a field that accepts 40
+      // and enforces 16 lies to whoever filled it in.
+      db.prepare("UPDATE board_settings SET checks_mem_floor_gb = ? WHERE project_id = ?")
+        .run(checksMemFloorGB({ checksMemFloorGB: gb }), GLOBAL_SETTINGS_KEY);
+      return this.getChecksMemFloorGB();
     },
 
     agentSpend(): { cents24h: number; centsTotal: number; unpricedCostTokens24h: number; unpricedCostTokensTotal: number } {

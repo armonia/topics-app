@@ -17,6 +17,10 @@ export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, PARKED_STOPPED, PARK
 // applica questo calcolo, il pannello impostazioni della board lo scrive sotto
 // gli occhi di una persona, e due copie inizierebbero a dire numeri diversi.
 export { GLOBAL_CAP_MIN, GLOBAL_CAP_MAX, GLOBAL_CAP_OFF, clampGlobalCap, effectiveDispatchCap } from '../../../shared/board';
+export {
+  CHECKS_MEM_FLOOR_MIN_GB, CHECKS_MEM_FLOOR_MAX_GB, CHECKS_MEM_FLOOR_DEFAULT_GB,
+  checksMemFloorGB, checksMemFloorIsOff,
+} from '../../../shared/checks-memory-floor';
 export type { GlobalDispatchCap } from '../../../shared/board';
 // The OTHER way to say "enough" (KANBAN-75): the brake that measures what
 // Topics is taking of this computer instead of counting agents. The mode, the
@@ -811,6 +815,11 @@ export interface GlobalSettings {
   maxAgentsMode?: DispatchCapMode;
   /** How much of this computer Topics may use, 0..1, in `resources` mode. */
   budgetShare?: number;
+  /** Free memory a check command needs before the server spawns it, in whole
+   *  GB; `0` = that brake is off. Optional on the wire for the same reason as
+   *  the two above: a server without it must read as "keep the default", never
+   *  as "switched off". */
+  checksMemFloorGB?: number;
   /**
    * THE TWO SPEND CAPS in USD cents, and they are born at ZERO: zero means
    * unlimited, i.e. no brake, which is the state of a fresh install. The client
@@ -1158,6 +1167,7 @@ export const boardApi = {
         ...(patch.max !== undefined ? { maxAgents: patch.max } : {}),
         ...(patch.mode !== undefined ? { maxAgentsMode: patch.mode } : {}),
         ...(patch.budgetShare !== undefined ? { budgetShare: patch.budgetShare } : {}),
+        ...(patch.checksMemFloorGB !== undefined ? { checksMemFloorGB: patch.checksMemFloorGB } : {}),
       }),
     }),
   /** Write the SPEND caps (a person, from the settings). Zero clears a cap: it

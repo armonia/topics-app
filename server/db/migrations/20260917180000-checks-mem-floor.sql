@@ -1,0 +1,30 @@
+-- 20260917180000-checks-mem-floor.sql
+--
+-- The prefix is a UTC timestamp (YYYYMMDDHHMMSS), not a counter: that is what
+-- makes a collision between parallel cards impossible. Do not rename it.
+--
+-- THE MEMORY FLOOR IN FRONT OF A CHECK COMMAND STOPS BEING A CONSTANT.
+--
+-- Until now the brake that holds a check command back compared free memory with
+-- `DISPATCH_MEM_FLOOR_NATIVE_GB` (6 GB), hard-coded and mounted once for the
+-- whole server. That constant is the floor for ADMITTING AN AGENT, sized next to
+-- `GB_PER_AGENT_NATIVE = 1.5` for how much room one more session needs; the
+-- checks brake borrowed it, and nobody had ever measured it against a check.
+--
+-- Measured 2026-09-17 by sampling the process tree every 250 ms, one command at
+-- a time: `bun run lint` cold 1.91 GB, `typecheck` cold 1.31, `static-rails`
+-- 0.31, `check:deadcode` 0.33. Six gigabytes is three times the heaviest thing
+-- it guards, and on 1828 `[memsig]` readings the floor held the round back in
+-- 86.2% of them while the lowest reading in the whole log was 2.7 GB. Every
+-- round paid up to three minutes of valve for a shortage that never happened.
+--
+-- NULL stays "never touched" and reads as the default (3 GB, `shared/
+-- checks-memory-floor.ts`), so an install that predates this column behaves like
+-- a fresh one rather than like a floor of zero. The value is clamped on read to
+-- 0..16 whole gigabytes, so a hand-written row cannot produce a floor no machine
+-- can ever clear - which is the failure mode the 6 GB already had.
+--
+-- Machine-wide, on the reserved '*' row, beside `machine_budget_share`: the
+-- brake is mounted once per server, so a per-board floor would be a setting it
+-- has no way to honour.
+ALTER TABLE board_settings ADD COLUMN checks_mem_floor_gb REAL;

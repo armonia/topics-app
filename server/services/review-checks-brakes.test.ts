@@ -117,7 +117,7 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
     const runs = await runReviewChecks([{ name: "dopo la memoria", cmd: "true" }], {
       cwd,
       timeoutMs: stretched(1000),
-      memoryFloor: { held: () => fullWindow(Date.now() < releaseAt ? 2 : 20), swap: () => CALM, floorGB: 6, pollMs: 25 },
+      memoryFloor: { held: () => fullWindow(Date.now() < releaseAt ? 2 : 20), swap: () => CALM, floorGB: () => 6, pollMs: 25 },
     });
     expect(Date.now() - started).toBeGreaterThanOrEqual(stretched(1500));
     expect(runs[0].ok).toBe(true);
@@ -128,7 +128,7 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
     const started = Date.now();
     const runs = await runReviewChecks(
       [{ name: "a", cmd: "true" }, { name: "b", cmd: "true" }, { name: "c", cmd: "true" }],
-      { cwd, memoryFloor: { held: () => fullWindow(1), swap: () => CALM, floorGB: 6, maxWaitMs: stretched(800), pollMs: 25 } },
+      { cwd, memoryFloor: { held: () => fullWindow(1), swap: () => CALM, floorGB: () => 6, maxWaitMs: stretched(800), pollMs: 25 } },
     );
     expect(runs.map((r) => r.ok)).toEqual([true, true, true]);
     // One limit for the round (0.8 s), not one per command (2.4 s). Both sides
@@ -200,7 +200,16 @@ describe("checks under load: the semaphore, the memory floor, the shutdown", () 
     expect(stop).toBeGreaterThan(thaw);
     // The production server hands the real probe to the route, and the route
     // hands it to the round. The route tests pass none, so they never wait.
-    expect(server).toMatch(/checksMemoryFloor:\s*\{\s*held:\s*\(\)\s*=>\s*memSignal\.held\(\),\s*swap:\s*\(\)\s*=>\s*memSignal\.swap\(\),\s*floorGB:\s*DISPATCH_MEM_FLOOR_NATIVE_GB\s*\}/);
+    //
+    // THE FLOOR IS A CALL AND NOT A VALUE, and that is the half of this
+    // assertion that carries weight. It used to pin the mount to the constant
+    // `DISPATCH_MEM_FLOOR_NATIVE_GB`; it is the owner's setting now, and a
+    // number written here instead of a call would be read ONCE at boot, so
+    // moving the field in the panel would change nothing until the next restart
+    // and nothing would say so.
+    expect(server).toMatch(/checksMemoryFloor:\s*\{\s*held:\s*\(\)\s*=>\s*memSignal\.held\(\),\s*swap:\s*\(\)\s*=>\s*memSignal\.swap\(\),\s*floorGB:\s*\(\)\s*=>\s*dispatcherSvc\.getChecksMemFloorGB\(\)\s*\}/);
+    // And it does not go back to a constant by another name.
+    expect(server).not.toMatch(/floorGB:\s*DISPATCH_MEM_FLOOR/);
     // The brake reads the verdict of the sample just taken on the same beat.
     const beat = server.slice(server.indexOf("const dispatchTimer = setInterval("));
     expect(beat.indexOf("memSignal.sample()")).toBeGreaterThan(-1);
@@ -337,7 +346,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
   test("the herd, end to end: two rounds under the floor do not start on the same poll, the second waits out the 120 s", async () => {
     const clock = steppedClock();
     const floor: MemoryFloor = {
-      held: () => fullWindow(4.8), swap: () => CALM, floorGB: 6,
+      held: () => fullWindow(4.8), swap: () => CALM, floorGB: () => 6,
       maxWaitMs: 30 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep,
     };
     const first = memoryWaiter(floor);
@@ -368,7 +377,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     const held = windowOver(clock, t0 - 130_000, () => 5.2);
     // Sustained until one poll before the thirty minutes are spent, then calm.
     const swap = () => (clock.now() - t0 < 30 * 60_000 - 5_000 ? SUSTAINED : CALM);
-    const wait = memoryWaiter({ held, swap, floorGB: 6, maxWaitMs: 30 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
+    const wait = memoryWaiter({ held, swap, floorGB: () => 6, maxWaitMs: 30 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
     let released = false;
     void wait("test:unit").then(() => { released = true; });
     const waited = await runUntil(clock, () => released, 2 * 60 * 60_000);
@@ -396,7 +405,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
    * every one. Here they must differ, and they do - on a calm Mac and on a
    * swapping one alike, in the decision and not only in the log line.
    */
-  test("floorGB 0 against floorGB 1000: nine states START or WAIT differently, and they are the calm ones", () => {
+  test("floorGB 0 against floorGB 1000: ten states START or WAIT differently, and they are the calm ones", () => {
     const base = { otherRoundRelease: null, olderWaiter: false, now: 0, spent: NOTHING_SPENT, maxWaitMs: 30 * 60_000 };
     const readings = [0, 1, 2, 5.2, 5.9, 6, 8, 11, 20, null];
     const differ = { calm: 0, sustained: 0 };
@@ -417,7 +426,14 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     // Every calm reading with a window: started by a floor of 0, held by one of
     // 1000. Under a sustained verdict the swap holds the round whatever the
     // floor says, which is why calm was the only state the floor ever decided.
-    expect(differ).toEqual({ calm: 9, sustained: 0 });
+    //
+    // TEN AND NOT NINE SINCE THE FLOOR BECAME A SETTING, and the tenth is the
+    // empty window. `0` is now the owner switching the memory branch OFF, and a
+    // switch that says off has to stop the whole branch: waiting for a 2-minute
+    // window to fill so it can be compared against a floor of zero is waiting
+    // for a number nobody will read. At 1000 that same state still answers
+    // "measuring", so the two decisions differ where before they agreed.
+    expect(differ).toEqual({ calm: 10, sustained: 0 });
   });
 
   test("W1, the 15/09 deadcode: one reading at 6.0 after 5.2 does not release; 120 s of readings at 6.6 do, and the release is logged", async () => {
@@ -425,7 +441,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     const start = clock.now();
     // 5.2 for two minutes, 6.0 at 130 s (now), then 6.6.
     const held = windowOver(clock, start - 130_000, (sec) => (sec < 130 ? 5.2 : sec === 130 ? 6.0 : 6.6));
-    const wait = memoryWaiter({ held, swap: () => CALM, floorGB: 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
+    const wait = memoryWaiter({ held, swap: () => CALM, floorGB: () => 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
     let released = false;
     void wait("deadcode").then(() => { released = true; });
     await clock.settle();
@@ -454,7 +470,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
       const held = windowOver(clock, clock.now() - 130_000, () => 5.2);
       const wait = memoryWaiter({
         held, swap: () => (swapping ? SUSTAINED : CALM),
-        floorGB: 6, maxWaitMs: 30 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep,
+        floorGB: () => 6, maxWaitMs: 30 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep,
       });
       let released = false;
       void wait("check:deadcode").then(() => { released = true; });
@@ -487,7 +503,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     // The memory never moves; only the verdict does, at ten minutes.
     const held = windowOver(clock, t0 - 130_000, () => 5.2);
     const swap = () => ((clock.now() - t0) / 60_000 < 10 ? SUSTAINED : CALM);
-    const wait = memoryWaiter({ held, swap, floorGB: 6, maxWaitMs: 30 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
+    const wait = memoryWaiter({ held, swap, floorGB: () => 6, maxWaitMs: 30 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
     let released = false;
     void wait("test:unit").then(() => { released = true; });
     const waited = await runUntil(clock, () => released, 60 * 60_000);
@@ -512,7 +528,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     const clock = steppedClock();
     const wait = memoryWaiter({
       held: () => fullWindow(5.2), swap: () => CALM,
-      floorGB: 6, maxWaitMs: 30 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep,
+      floorGB: () => 6, maxWaitMs: 30 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep,
     });
     const t0 = clock.now();
     const at: Record<string, number> = {};
@@ -538,7 +554,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     const clock = steppedClock();
     const wait = memoryWaiter({
       held: () => fullWindow(5.2), swap: () => SUSTAINED,
-      floorGB: 6, maxWaitMs: 10 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep,
+      floorGB: () => 6, maxWaitMs: 10 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep,
     });
     const t0 = clock.now();
     const at: Record<string, number> = {};
@@ -565,7 +581,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     for (const exitsAfterSec of [30, 300]) {
       _resetReleaseSpacing();
       const clock = steppedClock();
-      const floor: MemoryFloor = { held: () => fullWindow(11), swap: () => CALM, floorGB: 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep };
+      const floor: MemoryFloor = { held: () => fullWindow(11), swap: () => CALM, floorGB: () => 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep };
       const first = memoryWaiter(floor);
       const second = memoryWaiter(floor);
       const releasedAt: Record<string, number> = {};
@@ -597,7 +613,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     for (const secondRunsSec of [40, 300]) {
       _resetReleaseSpacing();
       const clock = steppedClock();
-      const floor: MemoryFloor = { held: () => fullWindow(11), swap: () => CALM, floorGB: 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep };
+      const floor: MemoryFloor = { held: () => fullWindow(11), swap: () => CALM, floorGB: () => 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep };
       const first = memoryWaiter(floor);
       const second = memoryWaiter(floor);
       const t0 = clock.now();
@@ -638,7 +654,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
 
   test("a round's own next command is not spaced from its predecessor, which has exited", async () => {
     const clock = steppedClock();
-    const wait = memoryWaiter({ held: () => fullWindow(11), swap: () => CALM, floorGB: 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
+    const wait = memoryWaiter({ held: () => fullWindow(11), swap: () => CALM, floorGB: () => 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
     const t0 = clock.now();
     (await wait("typecheck"))();
     await wait("lint");
@@ -653,7 +669,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     // unbroken sustained episode goes from 4 minutes to 19. A round that never
     // starts records no verdict at all and the delivery just goes round again.
     const clock = steppedClock();
-    const wait = memoryWaiter({ held: () => fullWindow(11), swap: () => AT_CEILING, floorGB: 6, maxWaitMs: 5 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
+    const wait = memoryWaiter({ held: () => fullWindow(11), swap: () => AT_CEILING, floorGB: () => 6, maxWaitMs: 5 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
     let released = false;
     void wait("test:unit").then(() => { released = true; });
     const waited = await runUntil(clock, () => released, 60 * 60_000);
@@ -683,7 +699,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     const clock = steppedClock();
     const t0 = clock.now();
     const swap = () => ((clock.now() - t0) / 60_000 < 9 ? SUSTAINED : CALM);
-    const wait = memoryWaiter({ held: () => fullWindow(11), swap, floorGB: 6, maxWaitMs: 20 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
+    const wait = memoryWaiter({ held: () => fullWindow(11), swap, floorGB: () => 6, maxWaitMs: 20 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
     let released = false;
     void wait("test:unit").then(() => { released = true; });
     const waited = await runUntil(clock, () => released, 30 * 60_000);
@@ -697,7 +713,7 @@ describe("the checks waiter: the window, the swap, one release per window", () =
     const start = clock.now() - 120_000;
     // Two minutes at 4.0 (the kill came at the end of them), then 14.0.
     const held = windowOver(clock, start, (sec) => (sec < 120 ? 4.0 : 14.0));
-    const wait = memoryWaiter({ held, swap: () => CALM, floorGB: 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
+    const wait = memoryWaiter({ held, swap: () => CALM, floorGB: () => 6, pollMs: 5_000, now: clock.now, sleep: clock.sleep });
     let released = false;
     void wait("test:unit").then(() => { released = true; });
     const waited = await runUntil(clock, () => released, 10 * 60_000);
@@ -864,4 +880,94 @@ describe("the swap brake: the youngest heavy round, 1 per 120 s, 2 per delivery,
       rmSync(cwd, { recursive: true, force: true });
     }
   }, 60_000);
+});
+
+/**
+ * THE FLOOR IS A SETTING NOW, and these are the three things that has to mean.
+ *
+ * The number itself moved from 6 to 3 because 6 was the AGENT admission floor,
+ * borrowed and never measured against a check: the heaviest command on this
+ * machine is `lint` from cold at 1.91 GB, and 6 held the round back in 86.2% of
+ * 1828 `[memsig]` readings whose lowest was 2.7 GB. What these tests hold down
+ * is not the number - the owner moves that - but that the decision SEES it, that
+ * zero really switches the branch off, and that the value is re-read.
+ */
+describe("the checks floor as a setting", () => {
+  const base = { swap: CALM, otherRoundRelease: null, now: 0, spent: NOTHING_SPENT, maxWaitMs: 30 * 60_000 };
+  let warn: ReturnType<typeof spyOn>;
+  const warnedLines = (): string[] => warn.mock.calls.map((c: unknown[]) => String(c[0]));
+  beforeAll(() => { warn = spyOn(console, "warn").mockImplementation(() => {}); });
+  // The release spacing is process-wide and a test file is not: without this the
+  // second waiter test would be held by the first one's release, not by the floor.
+  afterEach(() => { _resetReleaseSpacing(); warn.mockClear(); });
+  afterAll(() => { warn.mockRestore(); });
+
+  test("the same state decides differently at 3 and at 6: the floor is observable", () => {
+    // 4.5 GB is the median of the 1828 readings. Under the old borrowed floor
+    // every one of those rounds waited; against the measured cost of the
+    // commands it guards (0.31-1.91 GB) there is room and to spare.
+    const held = fullWindow(4.5);
+    expect(releaseDecision({ ...base, held, floorGB: 6 }).wait).toBe("room");
+    expect(releaseDecision({ ...base, held, floorGB: 3 }).release).toBe(true);
+    // And it still holds where holding is the point: the lowest reading ever
+    // recorded, 2.7 GB, does not clear a 3 GB floor.
+    expect(releaseDecision({ ...base, held: fullWindow(2.7), floorGB: 3 }).wait).toBe("room");
+  });
+
+  test("zero switches the WHOLE memory branch off, 'measuring' included", () => {
+    // Not just the last line of the branch. Waiting for a 2-minute window to
+    // fill so it can be compared against a floor of zero is waiting for a number
+    // nobody will read, and a switch that says off has to mean off.
+    const empty: HeldMemory = { measurable: true, latestGB: 20, heldGB: null, coveredMs: 40_000 };
+    expect(releaseDecision({ ...base, held: empty, floorGB: 3 }).wait).toBe("measuring");
+    expect(releaseDecision({ ...base, held: empty, floorGB: 0 }).release).toBe(true);
+    expect(releaseDecision({ ...base, held: fullWindow(0.1), floorGB: 0 }).release).toBe(true);
+    // Off is the memory branch only: the swap, the spacing and the turn are
+    // other brakes and this field does not speak for them.
+    expect(releaseDecision({ ...base, held: fullWindow(0.1), floorGB: 0, swap: SUSTAINED }).wait).toBe("swap");
+    expect(releaseDecision({
+      ...base, held: fullWindow(0.1), floorGB: 0,
+      otherRoundRelease: { at: 0, running: true }, now: 60_000,
+    }).wait).toBe("spacing");
+  });
+
+  test("the waiter RE-READS the floor: moving it in the panel releases the round that is already waiting", async () => {
+    // The reason `MemoryFloor.floorGB` is a function and not a number. Captured
+    // at mount, a change made in the settings would do nothing until the next
+    // server restart, and nothing anywhere would say so.
+    const clock = steppedClock();
+    let floorGB = 6;
+    const wait = memoryWaiter({
+      held: () => fullWindow(4.5), swap: () => CALM, floorGB: () => floorGB,
+      maxWaitMs: 30 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep,
+    });
+    let released = false;
+    void wait("typecheck").then(() => { released = true; });
+    await clock.settle();
+    await clock.step(5_000);
+    expect(released).toBe(false);
+    floorGB = 3;
+    await clock.step(5_000);
+    expect(released).toBe(true);
+  });
+
+  test("a floor that cannot be read is the DEFAULT, never zero", async () => {
+    // A throwing reader is a db closed mid-reload or a column that is not there
+    // yet. Reading that as zero would switch the owner's brake off on their
+    // behalf, which is the one answer the code must not invent.
+    const clock = steppedClock();
+    const wait = memoryWaiter({
+      held: () => fullWindow(1), swap: () => CALM,
+      floorGB: () => { throw new Error("db closed"); },
+      maxWaitMs: 30 * 60_000, pollMs: 5_000, now: clock.now, sleep: clock.sleep,
+    });
+    let released = false;
+    void wait("typecheck").then(() => { released = true; });
+    await clock.settle();
+    await clock.step(5_000);
+    expect(released).toBe(false);
+    // 1 GB is under the 3 GB default, so it waits — and the line says which
+    // floor held it, not "0".
+    expect(warnedLines().some((l) => l.includes("under the 3 GB floor"))).toBe(true);
+  });
 });
