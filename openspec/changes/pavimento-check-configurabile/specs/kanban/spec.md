@@ -1,5 +1,20 @@
 # Delta: kanban (pavimento-check-configurabile)
 
+> **STATO DELL'ARCHIVIAZIONE (17/09/2026).** Le sezioni **MODIFIED** di questo
+> delta sono gia' state fuse nella spec canonica (`openspec/specs/kanban/spec.md`):
+> KANBAN-15 e KANBAN-75 la' dentro dicono adesso quello che dice il codice
+> atterrato. Le sezioni **ADDED** NON sono state fuse, e il motivo non e' pigrizia:
+> gli id si scontrano. `KANBAN-83` esiste gia' nella spec canonica con un altro
+> significato («Un allegato durevole valido precede la fotografia automatica»), e
+> `KANBAN-84` e `KANBAN-85` sono rivendicati con significati diversi ANCHE dalla
+> change `mac-usabile-sotto-carico`, anch'essa non archiviata — la' KANBAN-84 e'
+> «l'e2e lo misura la CI della PR» e KANBAN-85 e' il congelamento sotto swap.
+> Nel codice atterrato ci sono gia' annotazioni `@covers` per entrambi i
+> significati. Rinumerare richiede una passata coordinata sulle due change piu' le
+> annotazioni di una quarantina di file, ed e' un lavoro deliberato, non un
+> effetto collaterale di un'archiviazione.
+
+
 ## MODIFIED Requirements
 
 ### Requirement: KANBAN-15 — Prima della review i comandi girano, e un rosso che non ha misurato niente non è un rosso
