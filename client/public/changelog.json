@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.2.354",
+    "date": "2026-09-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-18 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "devalue 5.9.0 -> 5.9.2 nella landing: un avviso nuovo teneva rosso il cancello di TUTTI",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.353",
     "date": "2026-09-17",
     "sections": {
@@ -51,6 +73,11 @@
       "internal": [
         {
           "it": "La spec canonica smette di dire che il pavimento e' 6 GB e una costante",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ponte fra la card e la pane non lo attraversava nessun test",
           "en": "",
           "scope": null
         },
@@ -217,6 +244,11 @@
       "perf": [],
       "internal": [
         {
+          "it": "Say the exit code when the process quit by itself",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "La finestra dichiarata arriva anche all'assembler",
           "en": "",
           "scope": null
@@ -233,6 +265,11 @@
           "scope": null
         },
         {
+          "it": "Keep the veil up when the process reported its own exit",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "un endpoint configurato che serve davvero una chat",
           "en": "",
           "scope": null,
@@ -245,6 +282,16 @@
         },
         {
           "it": "La spec nuova non era ermetica",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Ask the server whether the context is in use, not two equal strings",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Rename the two identifiers the language gate flagged, instead of widening its baseline",
           "en": "",
           "scope": null
         },
@@ -382,6 +429,11 @@
         },
         {
           "it": "La mia regola sul freno dei check era un no-op: la verifica l'ha eseguita",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Renumber the dormant cause requirement to TERM-12, main took 11",
           "en": "",
           "scope": null
         },
@@ -1082,6 +1134,11 @@
           "scope": null
         },
         {
+          "it": "Scale the last two fixed test waits with the runner's time slack",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il cancello a budget ferma la corsa: prezzo per card, prenotazione per tutto il turno, una rampa sola",
           "en": "",
           "scope": null
@@ -1108,6 +1165,11 @@
         },
         {
           "it": "La frase del pavimento dice solo il vero, e la rampa ha il suo test sulla corsa fra due board",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Scale syncServer's wait budget and its per-test ceiling with the slack too",
           "en": "",
           "scope": null
         },
@@ -1147,6 +1209,16 @@
           "scope": null
         },
         {
+          "it": "Name the clock string in English in the dormant cause spec",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Record the e2e route file crossing 800 lines for the orphan endpoint",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "La board di un progetto porta le 120 chiuse più recenti, come il feed",
           "en": "",
           "scope": null
@@ -1167,6 +1239,16 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "Rename the warm-up handle to a word the identifier gate knows",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Say why a pane went dormant instead of just that it did",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Baseline bloat riallineata dopo il merge di main",
@@ -1206,6 +1288,11 @@
         },
         {
           "it": "Le due prove a orologio dello shard 0 aspettano l'effetto, non il tempo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Record the bloat the dispatch-budget merge brought in",
           "en": "",
           "scope": null
         },
@@ -1271,6 +1358,11 @@
           "scope": null
         },
         {
+          "it": "A loopback URL opened from the chat navigates instead of dying on the new tab",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il foglio dell'indirizzo non riapre da solo quando cambia il layout",
           "en": "",
           "scope": null
@@ -1310,6 +1402,11 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "The loopback seed fires even when the pane already shows its target url",
+          "en": "",
+          "scope": null
         },
         {
           "it": "I cancelli: inglese nei commenti nuovi, tre parole dichiarate, un export morto in meno",

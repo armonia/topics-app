@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.354 — 2026-09-18
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-18 [skip ci]
+- devalue 5.9.0 -> 5.9.2 nella landing: un avviso nuovo teneva rosso il cancello di TUTTI
+
 ## 2.2.353 — 2026-09-17
 
 ### Sotto il cofano
@@ -18,6 +24,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - La spec canonica smette di dire che il pavimento e' 6 GB e una costante
+- Il ponte fra la card e la pane non lo attraversava nessun test
 - Riempire la Verification che era rimasta "Filled at delivery"
 
 ## 2.2.350 — 2026-09-17
@@ -63,12 +70,16 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.343 — 2026-09-17
 
 ### Sotto il cofano
+- Say the exit code when the process quit by itself
 - La finestra dichiarata arriva anche all'assembler
 - **e2e** · aggiorna durate shard dal nightly del 2026-09-17 [skip ci]
 - Alzare il tetto del bundle dei 363 byte che la feature costa
+- Keep the veil up when the process reported its own exit
 - un endpoint configurato che serve davvero una chat
 - rec non e' una parola: recorder
 - La spec nuova non era ermetica
+- Ask the server whether the context is in use, not two equal strings
+- Rename the two identifiers the language gate flagged, instead of widening its baseline
 - Il flag che salvava la bozza la chiudeva lo stesso: bastava cancellarle il ramo
 - Un episodio di thrash regalava l'esenzione dal pavimento per tutto il giro
 
@@ -100,6 +111,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il filo fra reconcile e sweep non era coperto: si poteva tagliare a barra verde
 - Una bocciatura di tre commenti ne registrava uno solo
 - La mia regola sul freno dei check era un no-op: la verifica l'ha eseguita
+- Renumber the dormant cause requirement to TERM-12, main took 11
 - La nota del muro provider ripartiva a ogni boot: ~300 paragrafi identici al giorno
 - Una card consegna su PIU' rami: la spazzata ne puliva uno, e chiudeva la bozza sbagliata
 - Il rerun era speso una volta per chiamata, e il server riparte 44 volte al giorno
@@ -267,12 +279,14 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ### Sotto il cofano
 - Il riavvio non taglia piu' le card che il server sta proteggendo
 - Il mio finto fetch restava addosso a chi correva dopo
+- Scale the last two fixed test waits with the runner's time slack
 - Il cancello a budget ferma la corsa: prezzo per card, prenotazione per tutto il turno, una rampa sola
 - Il pannello del carico dice quello che il cancello decide, con i suoi numeri
 - Pannello del carico: tre frasi che il cancello smentiva, e un test che non mordeva
 - Il picker di chat vuole una chat aperta
 - I check della board sotto carico: semaforo acceso con CI, niente check nuovi sotto il pavimento di memoria, alberi uccisi allo spegnimento senza mandare in review
 - La frase del pavimento dice solo il vero, e la rampa ha il suo test sulla corsa fra due board
+- Scale syncServer's wait budget and its per-test ceiling with the slack too
 - La frase del pavimento non stampa una prenotazione più grande della lettura, e l'import di CODE_GATES_RULE torna in testa
 - Uno spegnimento durante i check risponde come una gamba in volo, non con un 503 che l'agente deve gestire
 - La change dice il vero sul raise: bracci cablati, misura ancora aperta
@@ -280,12 +294,16 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Misura il raise del browser su WebView2, non solo su WKWebView
 - Il buco del raise su WebView2 si chiude: e' misurato, non piu' dedotto
 - I quattro rami del motore del carico insieme: test al prezzo misurato di una card, frasi del budget in un modulo loro
+- Name the clock string in English in the dormant cause spec
+- Record the e2e route file crossing 800 lines for the orphan endpoint
 - La board di un progetto porta le 120 chiuse più recenti, come il feed
 
 ## 2.2.324 — 2026-09-15
 
 ### Sotto il cofano
 - il giro completo di un endpoint, e il confine che non si vede
+- Rename the warm-up handle to a word the identifier gate knows
+- Say why a pane went dormant instead of just that it did
 - Baseline bloat riallineata dopo il merge di main
 - Registra la crescita di topic-browser-window fra i due scenari nuovi
 - Registra dispatch-capacity.test.ts, cresciuto su main e mai iscritto
@@ -294,6 +312,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - un default nello snapshot, e via il test che non poteva fallire
 - Scrivere i due requisiti che i test gia' provavano
 - Le due prove a orologio dello shard 0 aspettano l'effetto, non il tempo
+- Record the bloat the dispatch-budget merge brought in
 - Togliere da types.ts il tipo che lo portava oltre la riga
 - I test del freno della flotta in un file loro: CI di main rossa su check:bloat
 - Commenti del test del freno della flotta in inglese: CI di main rossa su comment-language
@@ -308,6 +327,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il marker degraded si ritira, e ora la barra se ne accorge
 - L'agente guida e la pagina resta visibile: lo stato passa nell'icona della scheda
 - Terminal input is queued until the reattach is proven
+- A loopback URL opened from the chat navigates instead of dying on the new tab
 - Il foglio dell'indirizzo non riapre da solo quando cambia il layout
 - L'asse memoria adesso c'e', e conta anche quello che ha appena ammesso
 - La finestra la dichiara il provider, non la indovina una tabella
@@ -316,6 +336,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Point provider-picker and composer-model-memory E2E specs at the always-ready claude-code engine
 - Le guardie che mancavano, e i due documenti che dicevano il contrario
 - aggiungere, provare e togliere un endpoint
+- The loopback seed fires even when the pane already shows its target url
 - I cancelli: inglese nei commenti nuovi, tre parole dichiarate, un export morto in meno
 
 ## 2.2.322 — 2026-09-14
