@@ -337,7 +337,7 @@ function defaultLauncher(): SidecarLauncher {
         }
       };
       try {
-        const cdpEndpoint = await waitForCdpEndpoint(port);
+        const cdpEndpoint = await waitForCdpEndpoint(port, 10000, child.pid);
         return { cdpEndpoint, kill };
       } catch (err) {
         // `child.kill()` ALONE IS NOT ENOUGH HERE, and the difference showed.
@@ -420,24 +420,132 @@ const defaultPsReader: PsReader = () => {
   }
 };
 
-/** Poll the DevTools version endpoint until it yields a browser ws:// URL. */
-async function waitForCdpEndpoint(port: number, timeoutMs = 10000): Promise<string> {
+/**
+ * Poll the DevTools version endpoint until it yields a browser ws:// URL.
+ *
+ * WHOEVER ANSWERS ON 19333 IS NOT AUTOMATICALLY OURS, and the port is fixed.
+ *
+ * MEASURED on 2026-09-18 on this machine: `acquire()` returned in 0,3 s with a
+ * perfectly good endpoint, and it belonged to **Dia**, the user's own browser,
+ * listening on 19333 with its own remote debugging on. The sidecar reported
+ * `engine: Dia` and would have driven somebody's real browsing session: their
+ * tabs, their cookies, their logged-in sessions. `/json/version` cannot tell
+ * them apart, it answers `Chrome/153.0.8010.53` for Dia too.
+ *
+ * The question that separates the two cases is not "is something listening"
+ * (something was, that was the problem) but "is what answers MINE". This module
+ * can ask it in the strongest form available: it just spawned a process, so it
+ * knows the pid, and it waits for THAT pid to own the port. `server/lib/
+ * port-squatter.ts` already carries this doctrine for the HTTP port, arrived at
+ * after nine hours of a foreign server answering on 3333; the sidecar was the
+ * one door still unguarded.
+ *
+ * `ownerPid` optional and a missing `lsof` treated as "cannot tell, accept":
+ * the check must not turn a working launch into a failed one on a machine where
+ * the tool is absent. It removes a silent hijack, it does not add a new way to
+ * be down.
+ */
+async function waitForCdpEndpoint(
+  port: number,
+  timeoutMs = 10000,
+  ownerPid?: number,
+  ownsPort: (port: number, pid: number) => boolean | null = portOwnedBy,
+): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   let lastErr: unknown;
+  let foreign = false;
   while (Date.now() < deadline) {
     try {
       const res = await fetch(`http://127.0.0.1:${port}/json/version`);
       if (res.ok) {
         const json = (await res.json()) as { webSocketDebuggerUrl?: string };
-        if (json.webSocketDebuggerUrl) return json.webSocketDebuggerUrl;
+        if (json.webSocketDebuggerUrl) {
+          if (ownerPid === undefined) return json.webSocketDebuggerUrl;
+          const ours = ownsPort(port, ownerPid);
+          // `null` = we could not tell (no lsof, no permission). Accepting is
+          // the conservative choice: see the note above.
+          if (ours !== false) return json.webSocketDebuggerUrl;
+          foreign = true;
+        }
       }
     } catch (err) {
       lastErr = err;
     }
     await new Promise((r) => setTimeout(r, 150));
   }
+  if (foreign) {
+    throw new Error(
+      `Port ${port} is answering DevTools, but the process holding it is not the browser this sidecar spawned ` +
+        `(pid ${ownerPid}). Refusing to drive a browser that belongs to somebody else: close whatever is using ` +
+        `that port, or pass a different one.`,
+    );
+  }
   throw new Error(
     `Chromium sidecar did not expose a CDP endpoint on port ${port} within ${timeoutMs}ms` +
       (lastErr ? ` (last error: ${String(lastErr)})` : ""),
   );
+}
+
+/**
+ * Is `pid` (or a descendant of it) the ONLY thing listening on `port`?
+ *
+ * "Only" and not "among them", and the difference is the whole guard. Measured
+ * while building this: with a foreign server already on the port, our browser
+ * still starts and binds too (the kernel hands the connection to one of them),
+ * so `lsof` reports TWO holders. Asking "is one of them ours" answers yes and
+ * accepts the endpoint the FOREIGN one served, which is exactly the hijack this
+ * function exists to stop. Two holders means we cannot know whose reply we got,
+ * and not knowing is a refusal.
+ *
+ * The descendant part is not optional either: Chromium re-execs, and the
+ * process that ends up owning the socket is routinely a child of the one we
+ * spawned. Comparing pids alone would reject our own browser.
+ *
+ * `null` means the question could not be answered, which the caller treats as
+ * "accept": see the note on `waitForCdpEndpoint`.
+ */
+export function portOwnedBy(
+  port: number,
+  pid: number,
+  deps: { lsof?: () => string | null; ps?: PsReader } = {},
+): boolean | null {
+  const lsof =
+    deps.lsof ??
+    (() => {
+      try {
+        const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
+        return execFileSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+      } catch {
+        return null;
+      }
+    });
+  const out = lsof();
+  if (out === null) return null;
+  const holders = out
+    .split("\n")
+    .map((l) => Number(l.trim()))
+    .filter((n) => Number.isSafeInteger(n) && n > 0);
+  if (holders.length === 0) return null;
+
+  // Somebody else is on the port together with us: whoever answered, we cannot
+  // prove it was ours. See the note above.
+  if (holders.length > 1) return false;
+
+  const holder = holders[0]!;
+  if (holder === pid) return true;
+
+  const snapshot = (deps.ps ?? defaultPsReader)();
+  if (!snapshot) return null;
+  const rows = parseProcSnapshot(snapshot);
+  const parent = new Map(rows.map((r) => [r.pid, r.ppid]));
+  let cur: number | undefined = holder;
+  for (let hop = 0; cur !== undefined && hop < 12; hop++) {
+    if (cur === pid) return true;
+    cur = parent.get(cur);
+    if (cur === 1 || cur === 0) break;
+  }
+  return false;
 }
