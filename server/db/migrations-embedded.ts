@@ -167,6 +167,7 @@ import m20260915230316_pending_deliveries from "./migrations/20260915230316-pend
 import m20260916003000_terminal_exit_code from "./migrations/20260916003000-terminal-exit-code.sql" with { type: "text" };
 import m20260917003149_pending_delivery_rounds from "./migrations/20260917003149-pending-delivery-rounds.sql" with { type: "text" };
 import m20260917180000_checks_mem_floor from "./migrations/20260917180000-checks-mem-floor.sql" with { type: "text" };
+import m20260918134053_registro_senza_righe_fantasma from "./migrations/20260918134053-registro-senza-righe-fantasma.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -338,4 +339,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260916003000, name: "20260916003000-terminal-exit-code.sql", sql: m20260916003000_terminal_exit_code },
   { version: 20260917003149, name: "20260917003149-pending-delivery-rounds.sql", sql: m20260917003149_pending_delivery_rounds },
   { version: 20260917180000, name: "20260917180000-checks-mem-floor.sql", sql: m20260917180000_checks_mem_floor },
+  { version: 20260918134053, name: "20260918134053-registro-senza-righe-fantasma.sql", sql: m20260918134053_registro_senza_righe_fantasma },
 ];
