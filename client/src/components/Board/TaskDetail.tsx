@@ -41,7 +41,7 @@ import { emptyThreadKey } from './emptyThread';
 import { LandingNotice } from './LandingNotice';
 import { landingBand } from './landingBand';
 import { useLandingTicket } from './useLandingTicket';
-import { boardApi, commentAuthorLabel, diffTotals, hasCodeQuestion, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type CheckRun, type TaskAttempt } from '../../lib/board';
+import { boardApi, commentAuthorLabel, diffTotals, NOT_MEASURED_EXIT, hasCodeQuestion, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type CheckRun, type TaskAttempt } from '../../lib/board';
 import { ZoomableImage } from '../Shared/ImageLightbox';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths, hasConversationMedia } from './taskMedia';
@@ -238,12 +238,31 @@ function ChecksSection({ task }: { task: BoardTask }) {
 
   if (task.checksState === 'running') {
     const progress = task.checksProgress;
+    const ci = task.checksCi;
     return (
-      <div className="flex items-center gap-1.5 rounded bg-white/5 px-2 py-1.5 text-mini text-app-text-heading">
-        <Spinner size="sm" tone="current" className="shrink-0 text-app-text-secondary" />
-        {progress
-          ? tr('board.task.checks.runningProgress', { done: progress.done, total: progress.total })
-          : tr('board.task.checks.running')}
+      <div className="rounded bg-white/5 px-2 py-1.5 text-mini text-app-text-heading">
+        <div className="flex items-center gap-1.5">
+          <Spinner size="sm" tone="current" className="shrink-0 text-app-text-secondary" />
+          {progress
+            ? tr('board.task.checks.runningProgress', { done: progress.done, total: progress.total })
+            : tr('board.task.checks.running')}
+        </div>
+        {/* I link della CI appena esistono. Una riga `github-ci:` aspetta
+            GitHub per una quindicina di minuti e finora la card non aveva
+            niente da aprire: la PR e la run comparivano solo nel tail del
+            verdetto, cioè quando l'attesa era già finita. */}
+        {ci && (
+          <div className="mt-1 flex flex-wrap items-center gap-2 pl-5 text-app-text-secondary">
+            <a href={ci.prUrl} target="_blank" rel="noreferrer" className="underline hover:text-app-text-heading">
+              {tr('board.task.checks.ciPr')}
+            </a>
+            {ci.runUrl && (
+              <a href={ci.runUrl} target="_blank" rel="noreferrer" className="underline hover:text-app-text-heading">
+                {tr('board.task.checks.ciRun')}
+              </a>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -256,10 +275,13 @@ function ChecksSection({ task }: { task: BoardTask }) {
       ? failed.name
       : tr('board.task.checks.numbered', { n: failedIndex + 1 })
     : null;
+  // «exit 97» non è un esito da leggere: è il codice che il gate usa per dire
+  // NON MISURATO, e scritto così mandava chi rivede a cercare un guasto.
   const short = (r: CheckRun) =>
     r.spawnError ? tr('board.task.checks.notStarted')
       : r.timedOut ? tr('board.task.checks.timedOut')
-        : `exit ${r.code}`;
+        : r.notMeasured || r.code === NOT_MEASURED_EXIT ? tr('board.task.checks.notMeasured')
+          : `exit ${r.code}`;
   // L'ora resta in formato italiano perché `2-digit`/`2-digit` la rende `14:05`
   // in ogni lingua che questa app parla: nessun testo, nessun 12h/24h da
   // decidere. Il giorno in cui il drawer avrà date vere, il formato diventa una
@@ -278,23 +300,40 @@ function ChecksSection({ task }: { task: BoardTask }) {
     );
   }
 
+  /* TRE ESITI, NON DUE — e il terzo non è una sfumatura del secondo.
+   *
+   * Una riga NON MISURATA (uscita 97) arriva qui come `checksVerdict = 'unknown'`
+   * e cadeva nel blocco rosso con la parola «Checks ROSSI»: rosso dice «il codice
+   * è rotto, non approvare», non misurato dice «non lo sappiamo», e chi rivede
+   * decide diversamente nei due casi. Il chip della card lo distingue già in
+   * ambra (`Card.tsx`, `board.card.checksUnknown`): due verdetti opposti sulla
+   * stessa card sono peggio di nessuno dei due. Con le righe CI, che leggono
+   * GitHub e non misurano niente quando la run muore, è la casella più probabile
+   * dopo il verde. */
+  const unmeasured = task.checksState === 'unknown';
+  const box = unmeasured ? 'bg-amber-500/10 text-amber-200' : 'bg-rose-500/10 text-rose-200';
+  const headline = unmeasured ? tr('board.task.checks.unknown') : tr('board.task.checks.fail');
   return (
-    <div className="rounded bg-rose-500/10 text-mini text-rose-200">
+    <div className={`rounded text-mini ${box}`}>
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left hover:bg-white/5"
       >
         {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
         <span className="min-w-0 flex-1 truncate">
-          {tr('board.task.checks.fail')}{at}{failed ? `: ${failedLabel} (${short(failed)})` : ''}
+          {headline}{at}{failed ? `: ${failedLabel} (${short(failed)})` : ''}
         </span>
       </button>
       {open && (
         <div className="space-y-1.5 px-2 pb-2">
           {runs.map((r, i) => (
             <div key={i}>
-              <div className={r.ok ? 'text-emerald-300' : 'text-rose-200'}>
-                {r.ok ? <Check size={14} className="inline-block text-emerald-300" aria-hidden="true" /> : <X size={14} className="inline-block text-rose-300" aria-hidden="true" />} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : `: ${short(r)}`}
+              <div className={r.ok ? 'text-emerald-300' : r.notMeasured || r.code === NOT_MEASURED_EXIT ? 'text-amber-200' : 'text-rose-200'}>
+                {r.ok
+                  ? <Check size={14} className="inline-block text-emerald-300" aria-hidden="true" />
+                  : r.notMeasured || r.code === NOT_MEASURED_EXIT
+                    ? <Hourglass size={14} className="inline-block text-amber-300" aria-hidden="true" />
+                    : <X size={14} className="inline-block text-rose-300" aria-hidden="true" />} <code className="font-mono">{r.cmd}</code>{r.ok ? '' : `: ${short(r)}`}
               </div>
               {!r.ok && (r.tail || r.spawnError) && (
                 <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-1.5 font-mono text-micro leading-snug text-app-text-heading">

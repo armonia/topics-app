@@ -1,5 +1,563 @@
 [
   {
+    "version": "2.2.353",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La guardia rifiutava una SCRITTURA dell'indirizzo dei metadati, non l'indirizzo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo stesso punto cieco stava anche nella guardia che protegge la pane browser",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.352",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il terzo difetto della stessa spec: /api/topics/:id risponde con una busta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quarto difetto: la finestra la porta /api/providers/snapshot, non /api/providers",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.351",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La spec canonica smette di dire che il pavimento e' 6 GB e una costante",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riempire la Verification che era rimasta \"Filled at delivery\"",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.350",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "L'ultima riga aperta della tornata di stanotte si chiude, e quasi ogni sua premessa era sbagliata",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.349",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il pavimento dei check era il pavimento di un'altra cosa: ora e' un'impostazione, e parte da 3",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un nome italiano copiato in un file NUOVO non e' piu' coperto dalla baseline",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "DROP-07 dava per scontato che un ricarico riportasse la stessa board, e non la riporta",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.348",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Sei tornate atterrate: 24 voci su 25, resta una decisione tua",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.346",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Sette voci erano quattro: un numero falso dentro il contratto del bundle",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo split ha spostato i commenti, e il cancello li ha contati come nuovi: 180 righe riscritte in inglese",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.345",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il ramo contro i verdi bugiardi ne consegnava uno suo, e KANBAN-86 era chiuso a meta'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il codice di uscita di una riga contraddetta dalla sua run non era guardato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto del bundle non misurava il ramo: misurava quanto poco avesse lasciato quello prima",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il file dei test del land aveva sfondato il cancello: sette argomenti, sette file",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.344",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il rerun rifaceva un rosso vero, e una card diceva verde su una CI rossa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il rail typecheck:e2e era rosso su main: la meta' vuota non aveva un tipo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un numero che avevo messo nel contratto era falso: 241 volte, non zero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Con due orologi l'ordine fra spaziatura e pavimento decide il budget",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il rail typecheck:e2e non era rosso su main: le due righe non riparavano niente",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.343",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La finestra dichiarata arriva anche all'assembler",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-17 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Alzare il tetto del bundle dei 363 byte che la feature costa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "un endpoint configurato che serve davvero una chat",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "rec non e' una parola: recorder",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spec nuova non era ermetica",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il flag che salvava la bozza la chiudeva lo stesso: bastava cancellarle il ramo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un episodio di thrash regalava l'esenzione dal pavimento per tutto il giro",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.342",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il pavimento torna in vigore, a cambiare e' la valvola",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cuore di T4.3 non aveva test, e la spia onesta lasciava la card ferma",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il reset dei giri saltava proprio la riga che i giri li brucia",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tre cose consegnate senza uno SHALL dietro: ora la spec le copre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I rail statici: un nome italiano nuovo e i commenti del test in inglese",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il giudice di fuori parcheggiava una card che su main parte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La guardia su `commentIds` copriva un chiamante su tre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il ramo lo decideva il censimento, la cifra il listino: 7-9,9 GB fermi per niente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il segno valeva in un verso solo: finestra scritta non vuol dire serie viva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La chiave di dedup non era guardata da nessun test: rimessa a mano, 469 verdi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La card diceva verde su una CI rossa: due consegne su tre, stanotte",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due nomi in italiano fermavano il rail: lo standard e' l'inglese anche nei test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Cinque nomi in italiano fermavano il rail: lo standard e' l'inglese anche nei test",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.341",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un agente che aspetta la CI vale zero: la deroga si ri-armava a ogni tick",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un non tracciato riscritto ogni 10 s nella radice, un giorno dopo l'incidente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A 600 s a tagliare e' KEEP_MS: il confine dei 30 s non era provato da nessuno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un replace cieco per i cancelli della lingua e' entrato in una frase che l'utente legge",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il giudice di fuori parcheggiava un'attesa che l'agente aveva chiesto per otto ore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il filo fra reconcile e sweep non era coperto: si poteva tagliare a barra verde",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una bocciatura di tre commenti ne registrava uno solo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La mia regola sul freno dei check era un no-op: la verifica l'ha eseguita",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La nota del muro provider ripartiva a ogni boot: ~300 paragrafi identici al giorno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una card consegna su PIU' rami: la spazzata ne puliva uno, e chiudeva la bozza sbagliata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il rerun era speso una volta per chiamata, e il server riparte 44 volte al giorno",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.340",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Una bocciatura umana ripartiva con «il tuo turno e' stato interrotto»",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La finestra di memoria moriva a ogni salvataggio: 28 volte in 25,7 ore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pavimento della memoria non aveva uscita: held2m sopra 6 GB zero volte su 1455",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il freno dei check spara sempre la valvola: e' un timer, non un freno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Riscaldamento e pavimento condividevano la chiave: 80 commenti su 80 con la frase sbagliata",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I nomi e i commenti nuovi passano i due cancelli della lingua",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "80 secondi di lavoro, 30 minuti di attesa: il numero del freno dei check",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un file di troppo nel checkout chiudeva la porta a OGNI land, per sempre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pavimento dei check vive dentro il verdetto sullo swap, non accanto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "T5.1: la misura sta nei task, con la correzione alla premessa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La catena ha girato intera: tre buchi osservati invece che dedotti",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una run morta non da' mai un verdetto: riconsegnare lo stesso commit rilegge la stessa run",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Quindici minuti di attesa muta: la PR e la run esistono in pochi secondi e arrivavano solo col verdetto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il chip della card dice ambra e il drawer dice rosso: due verdetti opposti sulla stessa card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il land riallinea DOPO il verdetto: la card diceva verde di un commit che non atterra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spia 'running' che solo un boot spegneva teneva isChecksHold vero per sempre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il giro di consegna ripartiva da zero a ogni riavvio senza che nessuno lo contasse",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nessuno chiudeva la bozza ne' cancellava il ramo: 39 rami su 41 gia' dentro main",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un hold di sei giorni si leggeva come uno di sei ore: l'etichetta era solo l'ora",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.339",
+    "date": "2026-09-17",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "don't pin to bottom on height growth inside a user gesture window",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il filone engine alternativi si chiude: WKProcessPool e' inerte e Obscura non ha una finestra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Playwright WebKit e' PIU' PESANTE di Chromium headless: 140 MB contro 82 per pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il banco misurava il rumore della macchina: serve il filtro sul comando, non solo il pid",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il pavimento di memoria non aspetta una persona: aspetta per sempre",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'inattivita' di un task la misurava il chip che il dispatcher riscrive ogni 60 s",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il tetto sulla durata di un'attesa lo leggeva solo chi ridichiarava l'attesa",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.338",
     "date": "2026-09-16",
     "sections": {
@@ -409,6 +967,11 @@
       "perf": [],
       "internal": [
         {
+          "it": "Togliere il test che dipendeva dall'ordine di arrivo",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Input queue: a partial loss is worse than none, so a loss takes the whole queue",
           "en": "",
           "scope": null
@@ -514,6 +1077,11 @@
           "scope": null
         },
         {
+          "it": "Il mio finto fetch restava addosso a chi correva dopo",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il cancello a budget ferma la corsa: prezzo per card, prenotazione per tutto il turno, una rampa sola",
           "en": "",
           "scope": null
@@ -525,6 +1093,11 @@
         },
         {
           "it": "Pannello del carico: tre frasi che il cancello smentiva, e un test che non mordeva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il picker di chat vuole una chat aperta",
           "en": "",
           "scope": null
         },
@@ -590,6 +1163,12 @@
       "perf": [],
       "internal": [
         {
+          "it": "il giro completo di un endpoint, e il confine che non si vede",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Baseline bloat riallineata dopo il merge di main",
           "en": "",
           "scope": null
@@ -615,7 +1194,23 @@
           "scope": null
         },
         {
+          "it": "un default nello snapshot, e via il test che non poteva fallire",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Scrivere i due requisiti che i test gia' provavano",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Le due prove a orologio dello shard 0 aspettano l'effetto, non il tempo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Togliere da types.ts il tipo che lo portava oltre la riga",
           "en": "",
           "scope": null
         },
@@ -626,6 +1221,11 @@
         },
         {
           "it": "Commenti del test del freno della flotta in inglese: CI di main rossa su comment-language",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spuntare i passi fatti nella change",
           "en": "",
           "scope": null
         }
@@ -647,6 +1247,11 @@
         },
         {
           "it": "Il commento del test non nomina Bun.serve: 'serve' e' una parola italiana per il banco",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Endpoint configurabili: CRUD REST e finestra per modello nello snapshot",
           "en": "",
           "scope": null
         },
@@ -676,6 +1281,11 @@
           "scope": null
         },
         {
+          "it": "La finestra la dichiara il provider, non la indovina una tabella",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il wire porta l'asse che blocca: le fixture del client lo dichiarano",
           "en": "",
           "scope": null
@@ -692,6 +1302,17 @@
         },
         {
           "it": "Le guardie che mancavano, e i due documenti che dicevano il contrario",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiungere, provare e togliere un endpoint",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "I cancelli: inglese nei commenti nuovi, tre parole dichiarate, un export morto in meno",
           "en": "",
           "scope": null
         }
@@ -781,6 +1402,11 @@
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "Endpoint OpenAI-compatibili configurabili: nucleo server",
+          "en": "",
+          "scope": null
         }
       ]
     }

@@ -115,7 +115,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { restoreDb, snapshotDb, type DbSnapshot } from "../services/db-snapshot";
 import { createTaskService } from "../services/tasks";
 import { createTaskAttemptStore } from "../services/task-attempts";
-import { parkIdleClaudeSessions, parkTerminalSession } from "./terminal";
+import { orphanTerminalSession, parkIdleClaudeSessions, parkTerminalSession } from "./terminal";
 import { noteBackgroundShellOutput, registerBackgroundShell } from "./processes";
 import { shellProcessKey } from "../../shared/background-shell-registry";
 import { setSessionCliPid } from "../providers/session-pids";
@@ -261,7 +261,24 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       const m = pathname.match(/^\/api\/test\/terminal\/([^/]+)\/park$/);
       if (m && method === "POST") {
         const id = decodeURIComponent(m[1]!);
-        if (!parkTerminalSession(id)) return json({ error: "no live session with this id" }, 404);
+        // `exitCode` reproduces a process that quit BY ITSELF and left a number
+        // behind; omitted, it is the park proper, which leaves none.
+        const body = (await req.json().catch(() => null)) as { exitCode?: number } | null;
+        const code = typeof body?.exitCode === "number" ? body.exitCode : null;
+        if (!parkTerminalSession(id, code)) return json({ error: "no live session with this id" }, 404);
+        return json({ ok: true, id });
+      }
+    }
+
+    // POST /api/test/terminal/:id/orphan - the state a server restart leaves on
+    // a resumable pane: listed in the roster, no PTY behind it. The pane then
+    // attaches, replays nothing and shows the "session ended" overlay, which is
+    // where the cause line under test is drawn. See `orphanTerminalSession`.
+    {
+      const m = pathname.match(/^\/api\/test\/terminal\/([^/]+)\/orphan$/);
+      if (m && method === "POST") {
+        const id = decodeURIComponent(m[1]!);
+        if (!orphanTerminalSession(id)) return json({ error: "no live session with this id" }, 404);
         return json({ ok: true, id });
       }
     }

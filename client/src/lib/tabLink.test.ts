@@ -25,6 +25,7 @@ import { buildTabPath, type TabTarget } from '../../../shared/tab-link';
 import { usePaneStore } from '../state/pane/store';
 import { useProjectFocusStore } from '../state/projectFocus';
 import { projectPanesKey } from '../../../shared/project-keys';
+import { TIME_SLACK_ENV, parseForcedSlack } from '../../../shared/test-time-slack';
 
 // jsdom-less, come `openTaskLink.test.ts`: una vista minima e tipata della
 // superficie globale che il modulo tocca, così gli stub non hanno bisogno di
@@ -129,7 +130,22 @@ const settle = () => new Promise((r) => setTimeout(r, 5));
  * processi vivi) no, e il caso cadeva a intermittenza misurando il carico
  * invece del codice. Qui il tempo e' solo il TETTO di pazienza.
  */
-const settleUntil = async (ready: () => boolean, timeoutMs = 2_000) => {
+/**
+ * AND THE CEILING IS SCALED WITH THE MACHINE.
+ *
+ * The comment above is right that the time here is only a ceiling, but the
+ * ceiling was a constant sized on a quiet box: under a fleet the retry chain
+ * these cases wait for (a backoff plus its fetch) can still be in flight at
+ * 2 s, the wait gives up silently, and the assertion reads a state that has
+ * not happened yet. Two cases here went red that way on card 30f55ca9
+ * (2026-09-15, sharded round at 13m23 with the plan already reduced), both
+ * green run alone straight after, on a diff that loads neither of them.
+ * Same factor the runner hands every shard of the round: see
+ * `shared/test-time-slack.ts`.
+ */
+const SETTLE_CEILING_MS = Math.round(2_000 * (parseForcedSlack(process.env[TIME_SLACK_ENV]) ?? 1));
+
+const settleUntil = async (ready: () => boolean, timeoutMs = SETTLE_CEILING_MS) => {
   const deadline = Date.now() + timeoutMs;
   while (!ready() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 1));
   await new Promise((r) => setTimeout(r, 1));

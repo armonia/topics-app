@@ -381,6 +381,21 @@ const IT: Dict = {
   'ai.status.loading': 'Connessione…',
   'ai.status.error': 'Da verificare',
   'ai.status.unavailable': 'Da configurare',
+  'ai.endpoints.title': 'I tuoi endpoint',
+  'ai.endpoints.hint': 'Un server OpenAI-compatibile che fai girare tu: llama-server, vLLM, LM Studio, un gateway. Si usa nelle chat, non per gli agenti che lavorano sui file.',
+  'ai.endpoints.add': 'Aggiungi un endpoint',
+  'ai.endpoints.label': 'Nome',
+  'ai.endpoints.labelPlaceholder': 'Llama locale',
+  'ai.endpoints.url': 'URL di base',
+  'ai.endpoints.token': 'Token bearer',
+  'ai.endpoints.tokenPlaceholder': 'Lascia vuoto se l\'endpoint non chiede un token',
+  'ai.endpoints.tokenSet': 'token impostato',
+  'ai.endpoints.test': 'Prova',
+  'ai.endpoints.save': 'Salva',
+  'ai.endpoints.cancel': 'Annulla',
+  'ai.endpoints.remove': 'Rimuovi questo endpoint',
+  'ai.endpoints.reachable': 'Raggiungibile, {n} modelli.',
+  'ai.endpoints.unreachable': 'L\'endpoint non ha risposto.',
   'ai.api.notConnected': 'Da collegare',
   'ai.api.key': 'Chiave API',
   'ai.api.replaceKey': 'Sostituisci chiave API',
@@ -1073,6 +1088,13 @@ const IT: Dict = {
   'board.task.checks.at': 'alle {t}',
   'board.task.checks.notStarted': 'non è partito',
   'board.task.checks.timedOut': 'oltre il tempo massimo',
+  // NOT MEASURED is the third outcome, not a shade of red: "the code is broken"
+  // and "we do not know" are decided differently. The card's chip already tells
+  // them apart in amber; the drawer painted this one red.
+  'board.task.checks.unknown': 'Checks NON MISURATI',
+  'board.task.checks.notMeasured': 'non misurato',
+  'board.task.checks.ciPr': 'pull request',
+  'board.task.checks.ciRun': 'run della CI',
   // The hint is split in two because the send-back word goes in the middle, in
   // bold. It is the SAME word as the button (`board.action.sendBack`, read
   // through `taskActionWord`): spelling it inside a whole sentence would mean
@@ -1364,6 +1386,13 @@ const IT: Dict = {
   // Detto per esteso e non in una nota a piè di pagina: il numero qui sopra non
   // è «di questa board», è quello di tutta la macchina.
   'board.dispatch.oneMachine': 'Un tetto solo, per tutta la macchina: vale su ogni board.',
+  // The memory floor in front of a check command. The hint names the most
+  // expensive MEASURED command: without that figure the number is a threshold
+  // nobody dares touch, which is how the previous 6 GB stayed up for so long.
+  'board.checksFloor.title': 'Memoria per i controlli',
+  'board.checksFloor.field': 'Memoria libera richiesta (GB)',
+  'board.checksFloor.hint': 'Un controllo della consegna parte solo se la macchina ha almeno questa memoria libera da 2 minuti. Il comando più caro misurato qui è lint a freddo: 1,9 GB. A 0 il freno è spento.',
+  'board.checksFloor.off': 'Freno spento: i controlli partono subito, qualunque sia la memoria libera.',
   // The brake "by resources" (KANBAN-75): two thresholds on the whole machine
   // instead of a count. The coloured band is a judgement on the chosen
   // THRESHOLD, not on the machine: it can be wrong both ways, and the sentences
@@ -2122,6 +2151,11 @@ const IT: Dict = {
   //    `/^Riavvia la sessione/`) resta verde; l'inglese è il nuovo.
   'terminal.stale.title': 'Sessione scaduta',
   'terminal.dormant.title': 'Sessione terminata',
+  'terminal.cause.interrupted': 'Interrotta dal riavvio del server alle {time}',
+  'terminal.cause.queued': 'In coda: {head}, {detail}',
+  'terminal.cause.resumed': 'Ripresa in una sessione nuova',
+  'terminal.cause.resumedOpen': 'Aprila',
+  'terminal.cause.exited': 'Il processo è uscito da sé, codice {code}',
   'terminal.copyResume': 'Copia negli appunti: claude --resume {id}',
   'terminal.reloadTitle': 'Riavvia la sessione in-place (riprende la conversazione per claude/codex)',
   'terminal.resumeTitle': 'Riprendi la sessione (--resume): riporta viva la conversazione del sotto-agente',

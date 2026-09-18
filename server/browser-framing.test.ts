@@ -68,6 +68,32 @@ describe('SSRF guard', () => {
     expect(isPrivateIpv6('::ffff:8.8.8.8')).toBe(false);
   });
 
+  it('flags a v4-mapped address however it is spelled, not just dotted', () => {
+    // The test above passes a DOTTED v4-mapped address. The production path
+    // never produces one: `isSafePublicUrl` reads `new URL(...).hostname`, and
+    // that folds `::ffff:127.0.0.1` into `::ffff:7f00:1` first. So the dotted
+    // assertion stayed green while every real caller went straight through.
+    for (const ip of ['::ffff:7f00:1', '::ffff:a00:1', '0:0:0:0:0:ffff:a9fe:a9fe', '::FFFF:C0A8:1']) {
+      expect(isPrivateIpv6(ip)).toBe(true);
+    }
+    expect(isPrivateIpv6('::ffff:808:808')).toBe(false); // 8.8.8.8, still public
+  });
+
+  it('refuses a private address reached through the URL door, in either spelling', async () => {
+    // THE LOAD-BEARING CHECK: it goes through `isSafePublicUrl`, which is what
+    // `probeFraming` calls, rather than poking the predicate with a string the
+    // URL parser would have rewritten.
+    for (const url of [
+      'http://[::ffff:127.0.0.1]:8080/',
+      'http://[::ffff:10.0.0.5]/',
+      'http://[::ffff:192.168.1.50]/',
+      'http://[::ffff:169.254.169.254]/latest/meta-data/',
+    ]) {
+      expect(await isSafePublicUrl(url, pub)).toBe(false);
+    }
+    expect(await isSafePublicUrl('http://[::ffff:8.8.8.8]/', pub)).toBe(true);
+  });
+
   const pub = async () => [{ address: '93.184.216.34', family: 4 }];
   const internal = async () => [{ address: '10.0.0.5', family: 4 }];
 

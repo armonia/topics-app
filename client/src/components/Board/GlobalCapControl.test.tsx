@@ -26,8 +26,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { GlobalCapControl } from './GlobalCapControl';
+import { checksFloorBoxValue } from './dispatchLoad';
 import { GlobalOnlySettingsPanel, GlobalSettingsSection } from './BoardSettingsSections';
-import { adoptDispatchCapacity, adoptGlobalCap } from '../../state/globalDispatchCap';
+import { adoptChecksFloor, adoptDispatchCapacity, adoptGlobalCap } from '../../state/globalDispatchCap';
 import type { DispatchCapacity } from '../../lib/board';
 
 const machine = (over: Partial<DispatchCapacity> = {}): DispatchCapacity => ({
@@ -474,5 +475,52 @@ describe('both surfaces mount it, and neither writes on its own', () => {
     for (const file of ['TaskDetail.tsx', 'KanbanBoardPane.tsx', 'GlobalCapControl.tsx']) {
       expect(src(file).includes('setGlobalCap')).toBe(false);
     }
+  });
+});
+
+describe('the checks memory floor field', () => {
+  test('the value comes from the store, and 0 is drawn as 0 and not as an empty box', () => {
+    // 0 is a setting — the brake off — so it has to paint as a number. An empty
+    // box is reserved for "not read yet", which is a different state entirely.
+    adoptChecksFloor({ checksMemFloorGB: 4 });
+    expect(renderToStaticMarkup(<GlobalCapControl />)).toContain('data-testid="checks-floor-gb"');
+    expect(renderToStaticMarkup(<GlobalCapControl />)).toContain('value="4"');
+    adoptChecksFloor({ checksMemFloorGB: 0 });
+    expect(renderToStaticMarkup(<GlobalCapControl />)).toContain('value="0"');
+  });
+
+  test('at 0 the hint says the brake is OFF, in words', () => {
+    // A numeric field that changes meaning at one end has to say so. Without
+    // this line the only way to learn what 0 does is to read the server.
+    adoptChecksFloor({ checksMemFloorGB: 0 });
+    const off = words(renderToStaticMarkup(<GlobalCapControl />));
+    expect(off).toContain('Freno spento');
+    adoptChecksFloor({ checksMemFloorGB: 3 });
+    const on = words(renderToStaticMarkup(<GlobalCapControl />));
+    expect(on).not.toContain('Freno spento');
+    // And the hint names the load the number is calibrated against, which is
+    // the one fact that lets somebody move it on purpose instead of by feel.
+    expect(on).toContain('lint a freddo: 1,9 GB');
+  });
+
+  test('not read yet paints an EMPTY box, 0 paints a zero', () => {
+    // The distinction the store cannot show once it has adopted anything: the
+    // module store lives between tests, so this is held down on the function
+    // the box calls rather than on a mounted component.
+    expect(checksFloorBoxValue(null)).toBe('');
+    expect(checksFloorBoxValue(0)).toBe('0');
+    expect(checksFloorBoxValue(3)).toBe('3');
+    // A draft under the finger wins over both, empty draft included: somebody
+    // clearing the box to type must not have a value put back under them.
+    expect(checksFloorBoxValue(3, '')).toBe('');
+    expect(checksFloorBoxValue(null, '7')).toBe('7');
+  });
+
+  test('the field is drawn whichever brake the cap is on: it gates checks, not agents', () => {
+    adoptChecksFloor({ checksMemFloorGB: 3 });
+    adoptGlobalCap({ maxAgentsMode: 'count' });
+    expect(renderToStaticMarkup(<GlobalCapControl />)).toContain('data-testid="checks-floor-gb"');
+    adoptGlobalCap({ maxAgentsMode: 'resources' });
+    expect(renderToStaticMarkup(<GlobalCapControl />)).toContain('data-testid="checks-floor-gb"');
   });
 });

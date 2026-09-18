@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-16",
+  "generated": "2026-09-17",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -219,7 +219,6 @@
     ],
     "client/src/components/Browser/RemoteBrowserPanel.tsx": [
       "cancelled",
-      "isSeedableUrl",
       "kbdRef"
     ],
     "client/src/components/Browser/SelectElementOverlay.tsx": [
@@ -2657,11 +2656,7 @@
     "server/browser-framing.ts": [
       "addrs",
       "csp",
-      "ipv4ToInt",
-      "isPrivateIpv4",
-      "isPrivateIpv6",
       "loc",
-      "mapped",
       "xfo"
     ],
     "server/browser-native-delegate.test.ts": [
@@ -2903,8 +2898,6 @@
       "passa"
     ],
     "server/lib/auth-gate.ts": [
-      "IPV4",
-      "IPV6",
       "MUTATING"
     ],
     "server/lib/boot-catena-ripresa.test.ts": [
@@ -3369,9 +3362,6 @@
     "server/lib/project-icon.test.ts": [
       "fav",
       "ico"
-    ],
-    "server/lib/project-ref.test.ts": [
-      "slugify"
     ],
     "server/lib/project-ref.ts": [
       "basename"
@@ -4254,11 +4244,6 @@
     "server/routes/task-patch.ts": [
       "expr"
     ],
-    "server/routes/tasks.landing.test.ts": [
-      "cardConsegnata",
-      "mergiato",
-      "riallineato"
-    ],
     "server/routes/tasks.test.ts": [
       "NUOVI",
       "archivio",
@@ -4653,7 +4638,6 @@
       "NON_PROJECT_DOTDIR"
     ],
     "server/services/project-store.ts": [
-      "slugify",
       "stmt",
       "stmts"
     ],
@@ -5286,7 +5270,6 @@
       "osservatori",
       "riusabile",
       "serializzati",
-      "slugify",
       "stmts",
       "subtree"
     ],

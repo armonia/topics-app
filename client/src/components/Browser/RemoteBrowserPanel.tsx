@@ -12,6 +12,8 @@ import { NativeBrowserPlaceholder } from './NativeBrowserPlaceholder';
 import { ParkedPane } from './ParkedPane';
 import { NewTabPage } from './NewTabPage';
 import { BrowserNoticeStrip } from './BrowserNoticeStrip';
+import { deadLoopbackNotice } from './navErrorMessage';
+import { useSeedPaneUrl } from './useSeedPaneUrl';
 import { ForgetSiteDialog } from './ForgetSiteDialog';
 import { siteHostOf, nativeSiteData, sharedSiteData } from '../../lib/browserForgetSite';
 import { recordSiteVisit, noteSiteMeta } from '../../state/browserSiteHistory';
@@ -136,35 +138,6 @@ function writeShareMode(contextId: string, mode: ShareMode): void {
     if (mode === 'auto') localStorage.removeItem(sharedStorageKey(contextId));
     else localStorage.setItem(sharedStorageKey(contextId), mode === 'shared' ? '1' : '0');
   } catch { /* private mode / no storage — in-memory state still drives the switch */ }
-}
-
-
-/**
- * Whether a persisted pane url is safe to auto-seed into a blank server-side
- * browser context (streaming path). A pane's url can point at a host reachable
- * ONLY from the machine that owns the native pane — a bare hostname ("macbook"),
- * a *.local name, loopback, or a private-LAN IP. Seeding those hangs the headless
- * goto → ERR_CONNECTION_REFUSED, worse than an honest blank pane. Only public
- * http(s) hosts (a registrable dotted name or a public IP) are seedable.
- */
-function isSeedableUrl(raw: string | undefined): raw is string {
-  if (!raw || !/^https?:\/\//i.test(raw)) return false;
-  let host: string;
-  try { host = new URL(raw).hostname; } catch { return false; }
-  if (!host) return false;
-  const lower = host.toLowerCase();
-  if (lower === 'localhost' || lower === '0.0.0.0' || lower === '::1') return false;
-  if (lower.endsWith('.local') || lower.endsWith('.localhost')) return false;
-  // Bare single-label hostname (no dot) → not publicly resolvable (e.g. "macbook").
-  const isIPv6 = host.includes(':');
-  if (!isIPv6 && !host.includes('.')) return false;
-  // Private / link-local IPv4 ranges.
-  if (/^127\./.test(host)) return false;
-  if (/^10\./.test(host)) return false;
-  if (/^192\.168\./.test(host)) return false;
-  if (/^169\.254\./.test(host)) return false;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
-  return true;
 }
 
 export function RemoteBrowserPanel({ contextId, initialUrl, navigateUrl, onUrlChange, onTitleChange, onNavigateConsumed, isVisible: isVisibleProp = true, onFocusPanel, topics, onSelfFocus, hasFocus }: RemoteBrowserPanelProps) {
@@ -930,38 +903,12 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     return () => clearTimeout(t);
   }, [isVisible, browser.url, knownPaneUrl, focusUrlBar]);
 
-  // Seed a blank server context with the pane's persisted URL (initialUrl). A
-  // browser pane's page can live entirely on ANOTHER client — most notably the
-  // Mac's NATIVE WKWebView pane (Tauri path), which never touches this server
-  // context. Without this, a web/mobile client connecting to that context finds
-  // it blank and sits at "Browser ready" instead of showing the page. The Tauri
-  // path already navigates to initialUrl on mount (useTauriBrowser); this is its
-  // streaming-path counterpart. Fire once, and only when the server context is
-  // genuinely blank — never clobber a context already on a live page.
-  const seededRef = useRef(false);
-  useEffect(() => {
-    if (seededRef.current || !browser.connected) return;
-    // Only seed PUBLICLY-reachable urls. A pane's persisted url can point at a
-    // host only reachable from the machine that owns the native pane (the Mac):
-    // a bare hostname ("macbook"), a .local name, loopback, or a private-LAN IP.
-    // Seeding those makes the server-side headless hang on the goto (30s) then
-    // ERR_CONNECTION_REFUSED — worse than the honest blank "Browser ready". So
-    // skip them; public sites (e.g. google.com) still seed.
-    if (!isSeedableUrl(initialUrl)) return;
-    // Let fetchInfo() (fired in ws.onopen) report the context's real url first,
-    // so a context that already holds a page is left untouched.
-    const t = setTimeout(() => {
-      if (seededRef.current) return;
-      seededRef.current = true;
-      const blank = !browser.url || browser.url === 'about:blank';
-      if (blank) browser.navigate(initialUrl!);
-    }, 400);
-    return () => clearTimeout(t);
-    // Fine-grained on the specific browser fields this seed reacts to — depending
-    // on the whole `browser` object would re-run (and risk a re-seed) on every
-    // unrelated browser-state change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [browser.connected, browser.url, initialUrl, browser.navigate]);
+  const { deadLoopback, retryDeadLoopback, dismissDeadLoopback } = useSeedPaneUrl({
+    contextId,
+    connected: browser.connected,
+    knownPaneUrl,
+    navigate: browser.navigate,
+  });
 
   // React to external navigateUrl prop
   useEffect(() => {
@@ -1337,6 +1284,19 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
           // lo spinner): la scheda nuova prende lo stesso rettangolo, o dentro
           // un genitore senza flex non avrebbe altezza.
           <div className="absolute inset-0 flex flex-col">
+            {/* A pane opened on a local port nobody answers on: the new tab
+                below is still the right surface to type into, but on its own it
+                was a silence — the pane looked like it had never been asked to
+                go anywhere. The strip names the port and the time of the check.
+                Same shape as the native path (useTauriBrowser). */}
+            {deadLoopback && (
+              <BrowserNoticeStrip
+                testId="browser-loopback-down"
+                {...deadLoopbackNotice(deadLoopback.url, deadLoopback.checkedAt, tr)}
+                action={{ label: tr('common.retry'), onClick: retryDeadLoopback }}
+                onDismiss={dismissDeadLoopback}
+              />
+            )}
             <NewTabPage onNavigate={(u) => { browser.navigate(u); }} />
           </div>
         ) : (browser.webrtcActive || browser.renderMode === 'dom') ? null : (

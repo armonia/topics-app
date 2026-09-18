@@ -114,3 +114,40 @@ describe('la conversazione e\' UNA lista', () => {
     expect(src).toContain('data-testid="task-session-item"');
   });
 });
+
+/**
+ * THE DRAWER PAINTS THREE VERDICTS, LIKE THE CHIP OF THE CARD.
+ *
+ * `ChecksSection` had a branch for `running` and one for `pass`, and everything
+ * else fell into the rose block with the word «Checks ROSSI». A NOT MEASURED row
+ * (exit 97) arrives there as `checksVerdict = 'unknown'`, which `Card.tsx`
+ * already tells apart in amber: two opposite verdicts on the same card are worse
+ * than either of them. With the CI rows, which measure nothing whenever the run
+ * dies, it is the most likely box after green.
+ *
+ * On the source, same method and same reason as the rest of this file.
+ * @covers KANBAN-85
+ */
+describe('il dettaglio dei checks tiene i tre esiti separati', () => {
+  const section = src.slice(src.indexOf('function ChecksSection'), src.indexOf('function TaskChangesSection'));
+
+  test('esiste il ramo «non misurato», e non e\' dipinto di rosso', () => {
+    expect(section).toContain("const unmeasured = task.checksState === 'unknown';");
+    const box = section.slice(section.indexOf('const box = unmeasured'), section.indexOf('const box = unmeasured') + 200);
+    expect(box).toContain('amber');
+    expect(section).toContain("tr('board.task.checks.unknown')");
+  });
+
+  test('«exit 97» non arriva a schermo: si legge «non misurato»', () => {
+    expect(section).toContain("r.notMeasured || r.code === NOT_MEASURED_EXIT ? tr('board.task.checks.notMeasured')");
+    // The number keeps ONE spelling, shared with the server that writes it.
+    expect(section).not.toContain('=== 97');
+  });
+
+  test('i link della CI si disegnano mentre si aspetta, non dopo il verdetto', () => {
+    const running = section.slice(section.indexOf("checksState === 'running'"), section.indexOf('const runs = task.checks'));
+    expect(running).toContain('task.checksCi');
+    expect(running).toContain("tr('board.task.checks.ciPr')");
+    expect(running).toContain("tr('board.task.checks.ciRun')");
+  });
+});

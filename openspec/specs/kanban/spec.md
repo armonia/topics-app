@@ -1081,13 +1081,180 @@ check SHALL quindi passare il numero di slot in modo esplicito (quello
 dell'ambiente del server se c'è, altrimenti il default della macchina), e un
 valore esplicito, `0` compreso, SHALL arrivare intatto.
 
-Un comando NUOVO NON SHALL partire con la memoria libera sotto il pavimento
-(`DISPATCH_MEM_FLOOR_NATIVE_GB`, 6 GB). Nessun freno davanti a un check leggeva
-la memoria, e l'ammissione non ne vede il costo: la card entra a memoria libera
-e consegna decine di minuti dopo un albero unit da 4-11 GB. Il comando SHALL
-aspettare PRIMA di partire, e l'attesa NON SHALL consumare il suo tetto. SHALL
-fallire aperto: un giro aspetta al massimo 30 minuti IN TOTALE, poi i comandi
-rimasti partono comunque; una lettura non disponibile non fa aspettare.
+Un comando NUOVO NON SHALL partire con la memoria libera sotto il pavimento.
+Nessun freno davanti a un check leggeva la memoria, e l'ammissione non ne vede il
+costo: la card entra a memoria libera e consegna decine di minuti dopo. Il
+comando SHALL aspettare PRIMA di partire, e l'attesa NON SHALL consumare il suo
+tetto. SHALL fallire aperto: passata la valvola i comandi rimasti partono
+comunque; una lettura non disponibile non fa aspettare.
+
+**Il pavimento SHALL essere un'impostazione della macchina, non una costante.**
+Vive sulla riga riservata `board_settings['*']` accanto a
+`machine_budget_share`, perche' il freno e' montato una volta per tutto il server
+e non per board: una board che ne chiedesse uno proprio chiederebbe una cosa che
+il freno non sa fare. Default **3 GB**, intervallo **0-16 GB**, passo 1 GB. **`0`
+SHALL spegnere il freno**: nessuna attesa per memoria, e nemmeno l'attesa che la
+finestra di 2 minuti si riempia, perche' aspettare una misura per confrontarla
+con zero e' aspettare un numero che nessuno leggera'. Un valore fuori intervallo
+o non numerico SHALL essere stretto con la STESSA funzione condivisa fra freno,
+rotta e campo, mai con tre copie della regola. Il valore SHALL essere riletto a
+ogni attesa e non catturato all'avvio, cosi' che spostarlo dal pannello valga sul
+giro successivo; la decisione pura SHALL continuare a ricevere un NUMERO, cosi'
+resta provabile su stati sintetici.
+
+**Il default e' 3 GB perche' e' misurato, e la misura sta qui perche' la prossima
+persona possa correggerlo invece di ereditarlo.** Campionando l'albero di processi
+ogni 250 ms, un comando alla volta (17/09/2026): `lint` a freddo **1,91 GB** — il
+piu' caro di tutta la macchina — `typecheck` a freddo 1,31, `static-rails` 0,31,
+`check:deadcode` 0,33. Il freddo e' il valore che conta: `.cache/checks` non e'
+tracciata, quindi la worktree di un agente parte sempre senza cache. Prima era
+`DISPATCH_MEM_FLOOR_NATIVE_GB` = 6, che e' il pavimento dell'AMMISSIONE di un
+agente — tarato accanto a `GB_PER_AGENT_NATIVE` su quanto spazio serve per una
+sessione in piu' — preso in prestito da questo freno e mai misurato contro un
+check. Su 1828 letture `[memsig]` quel 6 tratteneva l'86,2% del tempo, con la
+lettura piu' bassa dell'intero log a 2,7 GB: ogni giro pagava la valvola per una
+penuria che non e' mai successa. A 3 GB le letture trattenute sono l'1,0%.
+
+**E la ragione scritta per tenere i 6 era falsa**, il che e' il motivo per cui il
+numero non torna a essere una costante. Si sosteneva che la board
+`dancerooms-intq6i` dichiarasse una suite unit come unico check locale, «proprio
+l'albero da 4-11 GB che il freno esiste per non far partire su un Mac vuoto». Quel
+comando (`pnpm verify:all --only typecheck,unit`) in quel repo non esiste — ci
+sono solo `verify` e `verify:product` — quindi usciva 254 in 275 ms consumando 2
+MB, rosso a ogni giro da giorni; la riga e' stata tolta dalla board il 17/09.
+Anche gli «11 GB» erano un numero di PRIMA della correzione del 15/09 alla
+lettura delle pipe dei worker: uno shard unit oggi picca 0,84 GB. Un numero
+difeso da una ragione inventata dopo e' un numero che nessuno corregge quando il
+carico cambia.
+
+**DUE STRADE SONO STATE CHIUSE DA UNA VERIFICA AVVERSARIA, e restano chiuse.**
+*Cancellare il pavimento* e' stato refutato eseguendolo: rigiocando le 1828
+letture dentro la decisione, fra pavimento 6 e pavimento 0 l'esito cambia in
+**1157 casi, il 63,3%**, tutti a swap calmo, e quegli stati hanno uno stato
+macchina misurabilmente peggiore (swap usato p50 7,8 GB contro 3,4 dove il
+pavimento lascia passare). E' l'unico freno che decide qualcosa nei due terzi di
+log in cui il verdetto sullo swap tace. *Far leggere al freno swap il PICCO del
+run invece dell'ultimo campione* e' stato refutato a sua volta: quello che un
+SIGKILL restituisce e' il footprint CORRENTE, quindi un `tsc` che ha piccato 1,31
+GB e ora sta a 0,4 ne restituisce 0,4 — ucciderlo brucerebbe uno dei due
+tentativi della consegna per niente.
+
+**LA VALVOLA DIPENDE DAL VERDETTO SULLO SWAP; IL PAVIMENTO NO.** Una prima
+stesura diceva «a swap calmo il pavimento non trattiene, a swap sostenuto vale
+pieno». Una verifica avversaria l'ha smentita eseguendola: sotto swap SOSTENUTO
+il freno gia' usciva prima di guardare il pavimento, quindi l'unico momento in cui
+il pavimento aveva forza era proprio lo swap calmo. Quella regola non lo
+indeboliva, lo CANCELLAVA — provato su 160 stati, con pavimento 0 contro pavimento
+1000 l'esito non cambiava in nessuno.
+
+Quindi il pavimento SHALL valere a swap calmo come a swap sostenuto. Cio' che
+cambia e' la VALVOLA. Un giro che aspetta il pavimento con lo swap calmo NON
+SHALL aspettare piu' di **tre minuti** prima di partire comunque; con lo swap
+sostenuto SHALL restare la valvola dei **trenta minuti**. Le due attese non
+comprano la stessa cosa: sotto thrash la macchina sta davvero restituendo memoria
+e aspettare serve, mentre a swap calmo la lettura migliora solo se qualcuno libera
+memoria a mano — su questa macchina il minimo su 2 minuti ha superato i 6 GB il
+15,2% delle volte (241 su 1584 campioni), ma in un tratto continuo di 16,2 ore non
+ci e' mai arrivato, e a riaprirlo e' stata una persona che ha chiuso un server
+parcheggiato. Dentro quel tratto i trenta minuti e i tre finiscono identici
+tranne che per ventisette minuti buttati.
+
+**Le due valvole SHALL avere un orologio ciascuna.** Con un contatore solo, il
+tempo passato ad aspettare una condizione paga l'altra: un giro fermo dieci minuti
+sotto swap sostenuto, con la lettura immobile sotto il pavimento, partiva
+NELL'ISTANTE in cui il verdetto tornava calmo — i dieci minuti spesi sullo swap
+avevano gia' coperto la valvola da tre, e il pavimento non l'aveva trattenuto per
+un secondo. Un episodio di thrash comprava cosi' l'esenzione dal pavimento per
+tutto il resto del giro. Il tempo SHALL essere addebitato alla condizione in
+vigore MENTRE passava, non a quella su cui l'attesa finisce.
+
+DUE CONSEGUENZE DEI DUE OROLOGI, dichiarate perche' non si leggono altrove. **Il
+tetto di un giro diventa la somma delle due valvole**: un giro puo' aspettare i
+trenta minuti su tutto il resto E i tre del pavimento a Mac calmo sopra, cioe'
+trentatre' minuti in produzione. E' il prezzo di non far pagare una condizione
+all'altra: uno swap che finisce al ventinovesimo minuto lascia un pavimento che
+non ha trattenuto il giro un secondo. **E il tetto del chiamante puo' solo
+ACCORCIARE la valvola calma, mai allungarla**: vale `min(3 minuti, tetto del
+chiamante)`, non c'e' un seam per alzarla e nessuno ne ha chiesto uno.
+
+E l'ORDINE con cui si sceglie la condizione SHALL mettere la spaziatura prima del
+pavimento, perche' con due orologi quell'ordine decide il BUDGET e non piu' solo
+l'etichetta del log. Un giro sotto il pavimento mentre gira il comando di un ALTRO
+giro SHALL essere trattenuto dalla spaziatura, sulla valvola lunga che non ha
+speso: misurato come pavimento verrebbe pesato sui tre minuti che quello stesso
+giro ha appena finito di spendere, e partirebbe ATTRAVERSO i 120 secondi di
+spaziatura — che e' la mandria del 15/09, quattro comandi di consegne diverse
+rilasciati sullo stesso poll.
+
+E la riga che annuncia il fail-open SHALL dire quale delle due condizioni ha
+tenuto il comando fermo — «non c'e' spazio» su un Mac che ha scambiato per
+mezz'ora e' l'unica traccia che sopravvive, ed e' falsa — e SHALL dire quanto ha
+aspettato DAVVERO quel comando, non il budget del giro. Il log degli errori non ha
+timestamp: una riga che scrive «dopo 3 minuti» per tre comandi che hanno atteso
+zero, zero e tre minuti non traccia la meta' temporale di niente. Il budget del
+giro SHALL comparire accanto, come cio' che il GIRO ha speso.
+
+Resta invariato tutto il resto: la spaziatura fra due rilasci, la regola che una
+lettura non disponibile non fa aspettare, e il fatto che la valvola si conta per
+GIRO e non per comando.
+
+#### Scenario: a swap calmo si aspetta tre minuti, non trenta
+- **GIVEN** il pavimento montato a 6 GB e il minimo su 2 minuti a 5,2 GB
+- **AND** il verdetto sullo swap calmo per tutta l'attesa
+- **WHEN** un comando di check chiede di partire
+- **THEN** SHALL aspettare, e SHALL partire comunque dopo tre minuti di giro
+
+#### Scenario: sotto swap sostenuto la valvola resta a trenta minuti
+- **GIVEN** il pavimento montato a 6 GB, il minimo su 2 minuti a 5,2 GB e il verdetto sullo swap sostenuto
+- **WHEN** un comando di check chiede di partire
+- **THEN** SHALL aspettare, e SHALL partire comunque dopo trenta minuti di giro
+
+#### Scenario: la riga del fail-open nomina la condizione vera
+- **GIVEN** un giro rilasciato dalla valvola con lo swap sostenuto
+- **WHEN** la riga viene scritta
+- **THEN** SHALL nominare lo swap, non la mancanza di spazio
+
+#### Scenario: il tempo speso sullo swap non paga la valvola del pavimento
+- **GIVEN** un giro fermo dieci minuti sotto swap sostenuto, con il minimo su 2 minuti immobile a 5,2 GB sotto un pavimento di 6 GB
+- **WHEN** il verdetto sullo swap torna calmo e la memoria non cambia
+- **THEN** il comando NON SHALL partire in quell'istante, e SHALL partire tre minuti dopo, cioe' al tredicesimo
+
+#### Scenario: sotto il pavimento e dentro la spaziatura di un altro giro, tiene la spaziatura
+- **GIVEN** un giro che ha gia' speso i tre minuti della valvola calma, con il minimo su 2 minuti a 4,8 GB sotto un pavimento di 6 GB
+- **AND** il comando di un ALTRO giro rilasciato trenta secondi fa e ancora in esecuzione
+- **WHEN** il giro chiede di partire
+- **THEN** NON SHALL partire, e la condizione che lo trattiene SHALL essere la spaziatura sulla valvola da trenta minuti
+- **AND** quando quel comando esce, la stessa lettura SHALL essere di nuovo il pavimento, sulla valvola calma gia' spesa
+
+#### Scenario: il tetto del giro e' la somma delle due valvole
+- **GIVEN** un giro sotto swap sostenuto con il minimo su 2 minuti immobile a 5,2 GB, e un tetto di trenta minuti
+- **WHEN** il verdetto torna calmo a un poll dalla fine di quei trenta minuti
+- **THEN** il comando SHALL partire dopo altri tre minuti, cioe' al trentatreesimo, e la riga del fail-open SHALL nominare il pavimento
+
+#### Scenario: un tetto piu' lungo non allunga la valvola calma
+- **GIVEN** un chiamante che monta il pavimento con un tetto di un'ora
+- **WHEN** un giro a Mac calmo sotto il pavimento ha aspettato tre minuti
+- **THEN** SHALL partire comunque
+
+#### Scenario: la riga del fail-open dice l'attesa di quel comando
+- **GIVEN** un giro di tre comandi a swap calmo sotto il pavimento, dove il primo esaurisce la valvola e gli altri due non aspettano un poll
+- **WHEN** le tre righe vengono scritte
+- **THEN** la prima SHALL dire tre minuti e le altre due SHALL dire zero secondi, e tutte e tre SHALL riportare accanto i tre minuti spesi dal GIRO
+
+#### Scenario: lo stesso stato decide diversamente a pavimenti diversi
+- **GIVEN** il minimo su 2 minuti a 4,5 GB e lo swap calmo
+- **WHEN** il pavimento vale 6 GB, e poi 3 GB
+- **THEN** nel primo caso il comando SHALL aspettare e nel secondo SHALL partire subito
+
+#### Scenario: a zero il freno della memoria non si presenta mai
+- **GIVEN** il pavimento a 0
+- **WHEN** un comando chiede di partire con il minimo su 2 minuti a 0,1 GB, o con la finestra non ancora piena
+- **THEN** SHALL partire in entrambi i casi, e lo swap e la spaziatura SHALL continuare a valere
+
+#### Scenario: un pavimento illeggibile vale il default, mai zero
+- **GIVEN** la lettura dell'impostazione che fallisce (DB chiuso, colonna assente)
+- **WHEN** un comando chiede di partire con il minimo su 2 minuti a 1 GB
+- **THEN** SHALL aspettare contro il default di 3 GB, e la riga d'attesa SHALL nominare quel pavimento
 
 Uno spegnimento del server SHALL portarsi via gli alberi dei check in corso, e
 NON SHALL scriverne un verdetto. `slot.ts` lancia il comando in un gruppo di
@@ -3561,12 +3728,70 @@ check pre-review in volo: una coda ferma dietro uno shard da 11 GB non è una co
 che non parte mai, parte quando lo shard finisce.
 
 **Il pavimento resta sopra a tutto.** `dispatchResourceBlock` (disco e RAM sotto
-il pavimento) vale in ENTRAMBE le modalità e vince sul budget: un disco pieno non
-si riassorbe da solo, il carico sì. Per questo il motivo di coda del budget è un
-tipo A SÉ (`resource_pressure`, tono `waiting`) e non il pavimento
-(`resource_floor`, tono `stalled`): il primo riparte da solo, il secondo aspetta
-una persona, e chiamarli con la stessa parola è la bugia che il chip esiste per
-non dire. Lo stesso motivo SHALL comparire su una card In corso il cui `resume`
+il pavimento) vale in ENTRAMBE le modalità e vince sul budget. Per questo il
+motivo di coda del budget è un tipo A SÉ (`resource_pressure`, tono `waiting`) e
+non il pavimento (`resource_floor`, tono `stalled`), e chiamarli con la stessa
+parola è la bugia che il chip esiste per non dire.
+
+**Ma il disco aspetta una persona e la memoria no**, e prima le due cose erano
+scritte in una frase sola. Un disco pieno non si riassorbe da solo: nessuna
+esenzione, nessun tetto di attesa, il motivo resta `resource_floor` con tono
+`stalled`. La memoria si riassorbe eccome — sono le altre applicazioni a tenerla
+e la riaprono quando finiscono — ma il pavimento non aveva nessuna uscita, e su
+un Mac che qualcuno sta usando questo NON produce un'attesa: produce una coda che
+non riparte mai. Misurato il 16-17/09/2026 su 25,7 ore di `[memsig]`: sette card
+ferme fra 45 e 51 ore, 314 commenti «Memoria quasi finita», una sola ripartenza in
+26 ore e per merito di una persona che ha chiuso delle app. In ogni campione
+`inFlight = 0` e `checkRuns = 0`: la RAM non era di Topics. Sul log INTERO (1584
+campioni) `held2m >= 6 GB` legge 241 volte, il 15,2%, di cui 238 a swap calmo —
+quindi il pavimento non è strutturalmente irraggiungibile, è raggiungibile solo
+quando qualcuno libera memoria a mano, che è la stessa frase scritta in un numero.
+Il tratto più lungo senza una sola lettura sopra la riga misura 16,2 ore.
+
+Quando NESSUN lavoro di Topics è in volo — zero agenti vivi e zero corse di check
+pre-review, lo stesso «zero» che `firstAgentExempt` conta già per l'asse budget —
+il pavimento sulla MEMORIA SHALL ammettere UNA card, e il verdetto SHALL
+dichiararlo come lo dichiara il budget. Con anche un solo agente o una sola corsa
+di check in volo il pavimento SHALL valere pieno: l'incidente del 10/09 erano
+sette card ammesse insieme, non una. L'esenzione SHALL valere sia per le
+ammissioni nuove sia per il `resume` di una card già al lavoro, perché il
+pavimento è valutato prima del budget e trattiene entrambi.
+
+**Due domande, due censimenti, e ognuno decide la sua riga per intero.** «C'è del
+nostro VIVO qui?» decide l'esenzione, e una card parcheggiata sulla CI di GitHub
+conta: la sessione è viva e residente. «C'è del nostro che deve ancora SPENDERE
+qui?» decide la riga del pavimento, e quella stessa card non conta: ha già finito
+i suoi check locali, i suoi ~240 MB sono residenti adesso e sono già dentro la
+lettura, e non c'è nessuna fiammata futura da coprire. Il RAMO della riga
+(pavimento da solo, oppure pavimento + prezzo di una card + riserva) e la sua
+CIFRA SHALL uscire dallo STESSO elenco: prendere il ramo dal censimento e la cifra
+dal listino chiedeva `pavimento + prezzo + 0` = 10 GB a una macchina su cui
+nessuno stava spendendo niente, cioè la coda ferma per tutti i quindici minuti in
+cui una consegna aspetta la CI. Misurato con due card off-lane in volo e una terza
+in coda: `held2m` a 7,0 / 8,0 / 9,9 GB tratteneva, a 12,0 GB no.
+
+#### Scenario: con solo card sulla CI in volo la riga è il pavimento
+- **GIVEN** due card in volo i cui check aspettano solo la CI della pull request
+- **AND** il minimo su 2 minuti a 7 GB, sopra il pavimento di 6 GB
+- **WHEN** il dispatcher valuta la card successiva
+- **THEN** la card SHALL essere ammessa, e NON per esenzione
+- **AND** con la stessa lettura e un turno che sta ancora girando comandi qui la card NON SHALL essere ammessa
+
+#### Scenario: a Topics fermo una card parte anche sotto il pavimento
+- **GIVEN** il minimo su 2 minuti a 4,8 GB, sotto il pavimento nativo di 6 GB
+- **AND** zero agenti vivi e zero corse di check pre-review
+- **WHEN** il dispatcher valuta la prima card in coda
+- **THEN** la card SHALL essere ammessa, e il motivo SHALL dire che è passata perché Topics non stava facendo niente
+
+#### Scenario: con un agente al lavoro il pavimento vale pieno
+- **GIVEN** il minimo su 2 minuti a 4,8 GB e un agente vivo
+- **WHEN** il dispatcher valuta la card successiva
+- **THEN** la card NON SHALL essere ammessa, e il motivo SHALL restare quello del pavimento
+
+#### Scenario: il disco non ha esenzione
+- **GIVEN** meno di 12 GB liberi sul disco delle worktree e zero lavoro in volo
+- **WHEN** il dispatcher valuta la prima card in coda
+- **THEN** la card NON SHALL essere ammessa Lo stesso motivo SHALL comparire su una card In corso il cui `resume`
 è trattenuto da pavimento, spesa delle 24 ore o budget (chip `queued`): il motivo
 SHALL viaggiare anche sulla riga (`dispatch_error`), e un «in coda» senza perché
 su una card che non partirà è la stessa bugia in un'altra colonna. Quel motivo

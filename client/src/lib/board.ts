@@ -17,6 +17,10 @@ export { MAX_FANOUT, TASK_STATUSES, ACTIVE_DISPATCH_STATES, PARKED_STOPPED, PARK
 // applica questo calcolo, il pannello impostazioni della board lo scrive sotto
 // gli occhi di una persona, e due copie inizierebbero a dire numeri diversi.
 export { GLOBAL_CAP_MIN, GLOBAL_CAP_MAX, GLOBAL_CAP_OFF, clampGlobalCap, effectiveDispatchCap } from '../../../shared/board';
+export {
+  CHECKS_MEM_FLOOR_MIN_GB, CHECKS_MEM_FLOOR_MAX_GB, CHECKS_MEM_FLOOR_DEFAULT_GB,
+  checksMemFloorGB, checksMemFloorIsOff,
+} from '../../../shared/checks-memory-floor';
 export type { GlobalDispatchCap } from '../../../shared/board';
 // The OTHER way to say "enough" (KANBAN-75): the brake that measures what
 // Topics is taking of this computer instead of counting agents. The mode, the
@@ -35,6 +39,10 @@ export type { DispatchCapMode, ThresholdBand, GlobalCapPatch } from '../../../sh
 // `Board/taskChoices.ts`). The other three reserved labels stay server-side:
 // they are matched, never drawn.
 export { normalizeActionLabel, LAND_ACTION_LABEL } from '../../../shared/board';
+// The exit code that says NOT MEASURED. The drawer reads it because a row
+// stored before `notMeasured` existed carries only the code, and `exit 97` on
+// screen sends whoever reviews looking for a failure that is not there.
+export { NOT_MEASURED_EXIT } from '../../../shared/board';
 export type {
   TaskStatus, TaskComment, CardComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, DispatchAdmission, BlockerRef,
   LandingTicket,
@@ -530,6 +538,9 @@ export interface BoardTask {
   /** A che punto e' la corsa dei controlli, mentre `checksState` e' `running`.
    *  Assente da un server piu' vecchio: la card torna a dire «check in corso». */
   checksProgress?: { done: number; total: number } | null;
+  /** The pull request and the run a `github-ci:` row is waiting on, while it
+   *  waits. Absent from an older server: the card stays without links. */
+  checksCi?: { prUrl: string; runUrl?: string } | null;
   previewImage: string | null;
   /** LE ALTRE evidenze allegate nel thread, per il carosello della card.
    *  Vuoto (o assente, da un server piu' vecchio) = una slide sola. */
@@ -549,6 +560,10 @@ export interface BoardTask {
   planCommentId?: string;
   /** When the current claim started — anchors the live "ci sta mettendo" ticker. */
   inProgressAt?: string;
+  /** When a server shutdown cut this card's turn in half. Absent = it never
+   *  happened, which is the normal case. Read by the terminal pane of the
+   *  session that died with it (`Terminal/dormantCause.ts`). */
+  interruptedAt?: string;
   /** Cumulative agent effort across every turn (dispatcher-recorded).
    *  agentTokens = input+output+cacheWrite (dedup by API message id); cache
    *  READS ride separately — the context re-read pressure, not "work" tokens. */
@@ -804,6 +819,11 @@ export interface GlobalSettings {
   maxAgentsMode?: DispatchCapMode;
   /** How much of this computer Topics may use, 0..1, in `resources` mode. */
   budgetShare?: number;
+  /** Free memory a check command needs before the server spawns it, in whole
+   *  GB; `0` = that brake is off. Optional on the wire for the same reason as
+   *  the two above: a server without it must read as "keep the default", never
+   *  as "switched off". */
+  checksMemFloorGB?: number;
   /**
    * THE TWO SPEND CAPS in USD cents, and they are born at ZERO: zero means
    * unlimited, i.e. no brake, which is the state of a fresh install. The client
@@ -1156,6 +1176,7 @@ export const boardApi = {
         ...(patch.max !== undefined ? { maxAgents: patch.max } : {}),
         ...(patch.mode !== undefined ? { maxAgentsMode: patch.mode } : {}),
         ...(patch.budgetShare !== undefined ? { budgetShare: patch.budgetShare } : {}),
+        ...(patch.checksMemFloorGB !== undefined ? { checksMemFloorGB: patch.checksMemFloorGB } : {}),
       }),
     }),
   /** Write the SPEND caps (a person, from the settings). Zero clears a cap: it
