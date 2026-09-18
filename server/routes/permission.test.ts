@@ -21,12 +21,15 @@
  */
 import { describe, test, expect } from "bun:test";
 import { createPermissionRouter } from "./permission";
-import { deliverAnswer, hasPendingAsk, cancelAsk } from "../lib/ask-user-bridge";
+import { beginAsk, deliverAnswer, hasPendingAsk, cancelAsk, waitForAnswer } from "../lib/ask-user-bridge";
 import { cancelPermission, hasPendingPermission, sessionHasPendingPermission } from "../lib/permission-bridge";
+import { _resetRoutedAsks, pendingRoutedAsk, routeAskToTaskThread } from "../services/board-ask-routing";
+import { confirmOutbound, confirmQuestion, CONFIRM_LABEL, _resetOutboundHolds, type OutboundGateDeps } from "../lib/outbound-gate";
 
 type Row = { tool_calls?: string | null; blocks?: string | null } | undefined;
 
-function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterable<string> } = {}) {
+function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterable<string>; card?: { id: string; project_id: string; assigned_topic_id: string } } = {}) {
+  const threadComments: Array<{ taskId: string; content: string }> = [];
   const broadcasts: Array<{ type: string } & Record<string, unknown>> = [];
   const toolCallWrites: Array<{ sessionKey: string; toolCallId: string; fields: Record<string, unknown> }> = [];
   const rawGlobalSessions = new Set(options.rawGlobalSessions ?? []);
@@ -50,7 +53,10 @@ function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterab
 
   const ctx = {
     db: {
-      prepare: () => ({ get: () => row }),
+      // `boardTaskForSession` and the tool-row lookup share this one stub: a
+      // test that declares a card gets the card row, the others get the chat
+      // row they asked for.
+      prepare: () => ({ get: () => (options.card ?? row) }),
       // This deliberately models only the raw registry lookup. A coordinator
       // with corrupt provider/project fields is still a registry role and must
       // be rejected before any generic bridge side effect.
@@ -84,7 +90,7 @@ function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterab
     },
   } as any;
 
-  const router = createPermissionRouter(ctx);
+  const router = createPermissionRouter(ctx, options.card ? { comment: (a) => { threadComments.push({ taskId: a.taskId, content: a.content }); return `c-${threadComments.length}`; } } : {});
   const call = (method: string, path: string, body?: unknown) => {
     const url = new URL(`http://topics.test${path}`);
     const req = new Request(url.toString(), {
@@ -94,7 +100,7 @@ function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterab
     });
     return router(req, url, url.pathname, method) as Promise<Response | null>;
   };
-  return { call, broadcasts, toolCallWrites, topicFor };
+  return { call, broadcasts, toolCallWrites, topicFor, threadComments, db: ctx.db as never };
 }
 
 const callRow = (id: string, extra: Record<string, unknown> = {}) =>
@@ -134,6 +140,233 @@ describe("POST /api/sessions/:sessionKey/ask-user", () => {
     const resp = (await inFlight)!;
     expect(await resp.json()).toEqual({ answers: { colore: "blu" } });
     expect(hasPendingAsk(sk)).toBe(false);
+  });
+});
+
+describe("la domanda che esce nel THREAD della card", () => {
+  const CARD = { id: "task-1", project_id: "project-1", assigned_topic_id: "topic-abcd1234" };
+
+  test("dopo una risposta arrivata dal PANNELLO, la domanda DOPO esce ancora sulla card", async () => {
+    // The `routeAskToTaskThread` registry is keyed by TASK and exists so the
+    // same comment is not rewritten on every leg. Nobody cleared it when the
+    // answer came from the tab: the two existing clears are the TTL expiry and
+    // an answer written in the thread. So the NEXT question found the entry
+    // still there and stopped reaching the card - "waiting on you" with no text
+    // of what it wants, which is the defect that module exists to close.
+    _resetRoutedAsks();
+    const h = makeHarness(undefined, { card: CARD });
+    const sk = "topic:abcd1234";
+    try {
+      const first = h.call("POST", `/api/sessions/${sk}/ask-user`, {
+        questions: [{ key: "k1", question: "Prima domanda?", options: ["Sì", "No"] }],
+        legMs: 5_000,
+      });
+      await Bun.sleep(20);
+      expect(h.threadComments).toHaveLength(1);
+      // The person answers from the tab PANEL, not from the thread.
+      expect(deliverAnswer(sk, { k1: "Sì" })).toBe(true);
+      expect(await (await first)!.json()).toEqual({ answers: { k1: "Sì" } });
+
+      const second = h.call("POST", `/api/sessions/${sk}/ask-user`, {
+        questions: [{ key: "k2", question: "Seconda domanda?", options: ["Sì", "No"] }],
+        legMs: 5_000,
+      });
+      await Bun.sleep(20);
+      expect(h.threadComments).toHaveLength(2);
+      expect(h.threadComments[1].content).toContain("Seconda domanda?");
+      deliverAnswer(sk, { k2: "No" });
+      await second;
+    } finally {
+      cancelAsk(sk);
+      _resetRoutedAsks();
+    }
+  });
+
+  /**
+   * A GENERIC QUESTION DOES NOT KILL THE SEND CONFIRMATION UNDER IT.
+   *
+   * The rendez-vous is keyed by SESSION and `waitForAnswer` supersedes whatever
+   * waiter it finds there, on purpose - the CLI blocks its turn on one built-in
+   * ask. But the MCP bridge does not await its handlers, so an
+   * `ask_user_question` and a `send_mail` of the SAME turn are both in flight on
+   * one session, and this leg used to register anyway: measured with both real
+   * routes, the send came back "superseded by a newer question", took its own
+   * registry entry with it, and left its confirmation on the card with buttons
+   * that reached nobody. The card is taken and this ask waits its turn, which
+   * means spending the leg WITHOUT registering: nothing of the question on the
+   * card is touched.
+   *
+   * @covers OUTBOUND-03
+   */
+  test("una domanda generica NON supera l'attesa di una conferma della stessa sessione", async () => {
+    _resetRoutedAsks();
+    const h = makeHarness(undefined, { card: CARD });
+    const sk = "topic:abcd1234";
+    const routing = {
+      // The same stub the route reads the card through: the registry has to
+      // land on the same task the leg below resolves to.
+      db: h.db,
+      comment: (a: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => {
+        h.threadComments.push({ taskId: a.taskId, content: a.content });
+        return `c-${h.threadComments.length}`;
+      },
+      deliver: () => true,
+    };
+    try {
+      // The send: its question is on the card and its leg is on the rendez-vous.
+      beginAsk(sk);
+      const confirmation = routeAskToTaskThread(routing, {
+        sessionKey: sk,
+        questions: [{ key: "outbound:aaa", question: "Preventivo -> cliente@esempio.test. Confermi?", options: ["Conferma", "Annulla"] }],
+      })!;
+      const sendLeg = waitForAnswer(sk, { timeoutMs: 3_000 });
+      let sendDied: string | null = null;
+      sendLeg.catch((err) => { sendDied = err instanceof Error ? err.message : String(err); });
+
+      const startedAt = Date.now();
+      const genericLeg = (await h.call("POST", `/api/sessions/${sk}/ask-user`, {
+        questions: [{ key: "piano", question: "Procedo col piano B?", options: ["Si", "No"] }],
+        legMs: 120,
+      }))!;
+      expect(await genericLeg.json()).toEqual({ pending: true });
+      // AND IT SPENT THE LEG. Answering `pending` without waiting is not
+      // cosmetic: the MCP client comes STRAIGHT back on `pending` with no delay
+      // of its own, so the question would burn its 600 legs in an instant and
+      // die with "gave up after 600 poll legs" instead of waiting its turn.
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(110);
+      // Nothing written: the card keeps ONE block to read...
+      expect(h.threadComments).toHaveLength(1);
+      // ...the registry still names the confirmation...
+      expect(pendingRoutedAsk(CARD.id)?.askId).toBe(confirmation.askId!);
+      // ...and the send is still waiting, which is the fact that was false.
+      expect(sendDied).toBeNull();
+
+      // And the yes reaches it.
+      expect(deliverAnswer(sk, { "outbound:aaa": "Conferma" })).toBe(true);
+      expect(await sendLeg).toEqual({ "outbound:aaa": "Conferma" });
+    } finally {
+      cancelAsk(sk);
+      _resetRoutedAsks();
+    }
+  });
+
+  /**
+   * ANOTHER SESSION'S QUESTION IS ANOTHER RENDEZ-VOUS, and this leg registers.
+   *
+   * The branch above spends its leg WITHOUT registering, and getting it wrong
+   * the other way costs a question nobody ever sees: two sessions of one task
+   * exist by construction (the coordinator and its children), and one of them
+   * can hold the card for hours. The "SAME session" condition is what keeps the
+   * two apart, and nothing measured it - removing it left the suite green.
+   *
+   * @covers OUTBOUND-03
+   */
+  test("la domanda di un'ALTRA sessione sulla stessa card non ferma questa", async () => {
+    _resetRoutedAsks();
+    const h = makeHarness(undefined, { card: CARD });
+    const otherSession = "topic:abcd1234";
+    const mine = "topic:abcd7777";
+    const routing = {
+      db: h.db,
+      comment: (a: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => {
+        h.threadComments.push({ taskId: a.taskId, content: a.content });
+        return `c-${h.threadComments.length}`;
+      },
+      deliver: () => true,
+    };
+    try {
+      // The other session holds the card and is waiting on it.
+      beginAsk(otherSession);
+      const held = routeAskToTaskThread(routing, {
+        sessionKey: otherSession,
+        questions: [{ key: "k-altra", question: "Domanda dell'altra sessione?", options: ["Si", "No"] }],
+      })!;
+      const otherLeg = waitForAnswer(otherSession, { timeoutMs: 3_000 });
+      let otherDied: string | null = null;
+      otherLeg.catch((err) => { otherDied = err instanceof Error ? err.message : String(err); });
+
+      // Mine registers anyway: the rendez-vous is keyed by SESSION, and this one
+      // is mine.
+      const inFlight = h.call("POST", `/api/sessions/${mine}/ask-user`, {
+        questions: [{ key: "mia", question: "E la mia?", options: ["Si", "No"] }],
+        legMs: 2_000,
+      });
+      await Bun.sleep(20);
+      expect(deliverAnswer(mine, { mia: "Si" })).toBe(true);
+      expect(await (await inFlight)!.json()).toEqual({ answers: { mia: "Si" } });
+
+      // And the other session's question is untouched: not rewritten, not
+      // replaced, not cancelled.
+      expect(pendingRoutedAsk(CARD.id)?.askId).toBe(held.askId!);
+      expect(otherDied).toBeNull();
+    } finally {
+      cancelAsk(otherSession);
+      cancelAsk(mine);
+      _resetRoutedAsks();
+    }
+  });
+
+  /**
+   * OFF THE BOARD THE RULE IS THE SAME, AND THERE THE RACE WAS STILL INTACT.
+   *
+   * The branch above hangs on `routed.busy`, which only exists when the session
+   * belongs to a task: in a chat `routeAskToTaskThread` returns null, so this leg
+   * registered and the send confirmation of the same session died "superseded by
+   * a newer question". Reproduced with both real routes and no card: the yes the
+   * person gave on the SEND panel was delivered to the generic question. Here the
+   * fact comes from the gate's own lock, whose key for a session with no card is
+   * exactly `session:<k>`.
+   *
+   * @covers OUTBOUND-03
+   */
+  test("senza card: una domanda generica NON supera la conferma d'invio della stessa sessione", async () => {
+    const sk = "chat:abcd1301";
+    const row = {
+      tool_calls: JSON.stringify([{ id: "tool-91", name: "mcp__topics__send_mail", status: "running" }]),
+      blocks: null,
+    };
+    const h = makeHarness(row);
+    const paints: Array<{ toolCallId: string }> = [];
+    const gate: OutboundGateDeps = {
+      db: h.db,
+      // No card: there is no thread, and the comment has nowhere to go.
+      comment: () => null,
+      deliver: (sessionKey, answers) => deliverAnswer(sessionKey, answers),
+      lastToolRow: () => row,
+      paint: (args) => { paints.push({ toolCallId: args.toolCallId }); },
+    };
+    try {
+      // The send: its panel is on the tool row and its leg is on the rendez-vous.
+      const send = confirmOutbound(gate, {
+        sessionKey: sk,
+        toolName: "mcp__topics__send_mail",
+        header: "Posta",
+        summary: "Invio una mail dall'account primo.",
+        digest: "abcd1234",
+        legMs: 3_000,
+      });
+      await Bun.sleep(20);
+      expect(paints).toHaveLength(1);
+
+      const startedAt = Date.now();
+      const generic = (await h.call("POST", `/api/sessions/${sk}/ask-user`, {
+        questions: [{ key: "piano", question: "Procedo col piano B?", options: ["Si", "No"] }],
+        legMs: 120,
+      }))!;
+      expect(await generic.json()).toEqual({ pending: true });
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(110);
+      // No second panel: the person keeps reading the confirmation.
+      expect(paints).toHaveLength(1);
+
+      // And the yes read on the SEND panel pays the send, not the generic one.
+      expect(deliverAnswer(sk, {
+        [confirmQuestion("Invio una mail dall'account primo.", "abcd1234")]: CONFIRM_LABEL,
+      })).toBe(true);
+      expect((await send).state).toBe("granted");
+    } finally {
+      cancelAsk(sk);
+      _resetOutboundHolds();
+    }
   });
 });
 

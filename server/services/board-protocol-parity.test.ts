@@ -79,6 +79,10 @@ const REGOLE_CHE_PARLANO_ALL_AGENTE: Array<{ n: string; nel_doc: string; nell_en
   { n: "4", nel_doc: "Anteprima = evidenza DUREVOLE", nell_envelope: /PREVIEW/ },
   { n: "5", nel_doc: "Azioni sull'ambiente dell'umano: mai senza ok esplicito", nell_envelope: /HUMAN'S ENVIRONMENT/i },
   { n: "5-bis", nel_doc: "Quando chiedi una decisione, la TUA scelta va per prima", nell_envelope: /`  \$\{RECOMMENDED_OPTION_RULE\}`/, in_constant: "first element of `options`", in_mcp: { tools: ["comment_task", "comment_global_task"], nella_descrizione: /\$\{RECOMMENDED_OPTION_RULE\}/ } },
+  // 5-ter speaks to the agent like the preview rule does, and like it the
+  // envelope IMPORTS the string instead of rewriting it: two copies of a rule
+  // become two rules the moment somebody edits one.
+  { n: "5-ter", nel_doc: "Posta e Google sono STRUMENTI", nell_envelope: /\$\{OUTBOUND_TOOLS_RULE\}/, in_constant: "MAIL AND GOOGLE ARE TOOLS" },
   { n: "7", nel_doc: "Lavoro futuro fuori scope → task top-level nel backlog", nell_envelope: /top-level task with NO parent/i },
 ];
 
@@ -113,15 +117,15 @@ describe("docs/board-protocol.md e l'envelope dicono le stesse regole", () => {
     // they decide who it speaks to: to the agent means the list above plus the
     // envelope, to the server means a note saying it does not belong there. It
     // counts `N-bis` too, because one of those has already walked under the gate.
-    const numerate = [...doc.matchAll(/^(\d+(?:-bis)?)\. \*\*/gm)].map((m) => m[1]);
-    expect(numerate).toEqual(["1", "1-bis", "2", "3", "4", "5", "5-bis", "6", "7", "8"]);
+    const numerate = [...doc.matchAll(/^(\d+(?:-bis|-ter)?)\. \*\*/gm)].map((m) => m[1]);
+    expect(numerate).toEqual(["1", "1-bis", "2", "3", "4", "5", "5-bis", "5-ter", "6", "7", "8"]);
   });
 
   test("ogni regola del documento che parla all'agente e' ancorata, o e' annotata come non sua", () => {
     // The list above is the DECISION; this is the proof that no rule of the
     // document is left without one. The three exclusions are named one by one in
     // the file header, each with the gate that covers it instead of this one.
-    const numerate = [...doc.matchAll(/^(\d+(?:-bis)?)\. \*\*/gm)].map((m) => m[1]);
+    const numerate = [...doc.matchAll(/^(\d+(?:-bis|-ter)?)\. \*\*/gm)].map((m) => m[1]);
     const anchored = new Set(REGOLE_CHE_PARLANO_ALL_AGENTE.map((r) => r.n));
     const NOT_FOR_THE_AGENT = ["1-bis", "6", "8"];
     expect(numerate.filter((n) => !anchored.has(n))).toEqual(NOT_FOR_THE_AGENT);

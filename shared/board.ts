@@ -268,6 +268,23 @@ export const CODE_GATES_RULE = [
 // end-allow-emdash
 
 /**
+ * THE TWO ACTIONS THAT LEAVE THE MACHINE, and how they are asked for.
+ *
+ * A dispatched agent reads ONLY the envelope: no CLAUDE.md, no docs/. So two
+ * tools that are not named here do not exist for it, and it will hand a draft
+ * email back to the person in a comment because it does not know it could send
+ * it.
+ *
+ * The line also says the thing a model would get wrong on its own: the
+ * confirmation is NOT a step it performs (ask in the thread, wait for a
+ * comment, then send). The SERVER stops and opens the question, one per
+ * message. An agent that "asks first" by itself makes the person answer twice,
+ * and the second wait is the real one.
+ */
+export const OUTBOUND_TOOLS_RULE =
+  "MAIL AND GOOGLE ARE TOOLS, and the confirmation is NOT yours to run. `send_mail(to, subject, body, account?, attachments?)` sends from one of the mailboxes this installation declares; `google_call(service, resource, method, params?, body?)` reads and writes Drive, Calendar, Sheets, Docs, Tasks, People and Gmail through one door. Call them with the FINAL text: the server opens the confirmation itself, in this card's thread, and nothing is spawned until a person answers, ONE answer per message (a yes never covers the next one). So do not ask in the thread first and do not wait for a comment before calling: that makes the person answer twice. Google reads run with no question; anything that writes asks. Every send and every write leaves a one-line trace on the card, without the body. Attachments must be paths inside your workspace, and their BYTES are frozen when the question is asked: the person is shown name, size and fingerprint, changing the file afterwards changes nothing except that you are asked again, and a frozen copy that does not match what was confirmed stops the send instead of leaving. That check runs right before the spawn and does NOT make the send tamper-proof: anything running as this machine's user is already inside the boundary and can call the mail CLI without Topics at all, so the confirmation is worth exactly two things - it stops MISTAKES and it leaves a trace on the card. ONE CONFIRMATION PER CARD AT A TIME: if another session of this task already has one open, yours is refused with that reason - come back when it is closed, do not open a second one. SENDING MAIL IS NOT ON THE GOOGLE DOOR: every Gmail call that puts a message on the wire is refused there, use `send_mail`; that door takes API names (letters, digits, dot, underscore) in its four fields and nothing else.";
+
+/**
  * Il bump di versione è UN GESTO, non quattro modifiche a mano.
  *
  * Misurato nella notte dell'11-12/08: due card diverse (`d18b2db5`, `b1f4d6ff`)
@@ -1542,6 +1559,13 @@ export interface TaskComment {
    * The note stayed readable, the three choices stayed written, and there was
    * no longer anything to click.
    *
+   * A MACHINE writes it too, and for the same sentence. The outbound trace
+   * («Mail inviata…», «Invio NON partito…») is a fact of the card that can land
+   * under a confirmation another request is still waiting on, and unmarked it
+   * took that question's buttons away exactly as the note above did - with
+   * them, the `answerTo` the drawer sends, so the yes stopped naming anything.
+   * See `trace` in `server/routes/outbound.ts`.
+   *
    * Absent means NOT QUIET — everything written before the column existed, and
    * every ordinary reply. The unknown must never read as quiet: that would
    * revive questions a real answer had closed.
@@ -2254,6 +2278,34 @@ export function pendingQuestionComment<T extends PendingQuestionComment>(
     delivery ??= comment;
   }
   return null;
+}
+
+/**
+ * DID THIS COMMENT PRESS A QUICK REPLY OF A BLOCK THAT IS ALREADY OVER?
+ *
+ * The drawer sends `answerTo` on every reply typed under a question block, so
+ * `answerTo` alone cannot tell a press from a sentence somebody wrote: it is the
+ * CONTENT matching one of that block's own options that says the person clicked.
+ * The distinction is the whole point of the caller - a note under a dead block
+ * stays a note, a press gets told it reached nobody - and it is also what keeps
+ * this away from the board's own labels («Landa su main» and the parked
+ * answers), which are quick replies too and are intercepted before this is read.
+ *
+ * Pure and here rather than in the route because it is a rule about the shape of
+ * a thread, and the same shape the buttons are drawn from.
+ */
+export function pressedADeadQuickReply(
+  comments: readonly (PendingQuestionComment & { id?: string })[] | null | undefined,
+  answerTo: string,
+  content: string,
+): boolean {
+  const said = content.trim().toLowerCase();
+  if (!said || !answerTo) return false;
+  const row = comments?.find((c) => c?.id === answerTo);
+  if (!row) return false;
+  const parsed = parseQuestionBlock(row.content ?? '');
+  if (!parsed) return false;
+  return parsed.options.some((o) => o.trim().toLowerCase() === said);
 }
 
 /**

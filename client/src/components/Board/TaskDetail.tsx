@@ -1132,7 +1132,16 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     try {
       // The comments route owns notes, answers and review continuations. Its
       // acknowledgement is the saved row, independent of a later detail GET.
-      const saved = await boardApi.comment(projectId, taskId, v || '(allegato)', { media, quiet });
+      //
+      // `answerTo` NAMES THE QUESTION ON SCREEN. The server's registry of open
+      // questions is keyed by TASK, and two sessions of one task (a coordinator
+      // and its child) can both want it: without the id a yes read on one
+      // message was delivered to whichever question was open at that instant,
+      // and a confirmed send left for a different recipient. With it, a reply
+      // to a question that is no longer the open one stays a note.
+      const saved = await boardApi.comment(projectId, taskId, v || '(allegato)', {
+        media, quiet, answerTo: !quiet && pending ? lastThreadComment?.id : undefined,
+      });
       if (saved?.id && saved.taskId === taskId) {
         loadGeneration.current++;
         acknowledgedComments.current.set(saved.id, saved);

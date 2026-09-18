@@ -23,6 +23,7 @@ import {
   isBoardActionLabel,
   isUnattributedSubtask,
   parseQuestionBlock,
+  pressedADeadQuickReply,
   parseStatusEvent,
   pendingQuestion,
   pendingQuestionComment,
@@ -894,6 +895,40 @@ describe("pendingQuestion, la contabilita' non e' l'ultima parola", () => {
   });
 });
 
+/**
+ * A PRESS AND A SENTENCE ARE NOT THE SAME GESTURE, and the drawer cannot tell
+ * them apart on its own: it sends `answerTo` on every reply typed under a
+ * question block. What says "the person clicked" is the content BEING one of
+ * that block's own options - and the caller needs to know, because a note under
+ * a block that is already over stays a note while a press has to be told it
+ * reached nobody.
+ *
+ * @covers OUTBOUND-03
+ */
+describe('pressedADeadQuickReply', () => {
+  const rows = [
+    { id: 'c-1', content: '```question\nConfermi? (abc123)\n- Conferma\n- Annulla\n```' },
+    { id: 'c-2', content: 'Invio NON partito: nessuno ha confermato.', quiet: true },
+  ];
+
+  test('the content of a quick reply of that very row is a press', () => {
+    expect(pressedADeadQuickReply(rows, 'c-1', 'Conferma')).toBe(true);
+    expect(pressedADeadQuickReply(rows, 'c-1', '  annulla ')).toBe(true);
+  });
+
+  test('a sentence under the same block is not', () => {
+    expect(pressedADeadQuickReply(rows, 'c-1', 'aspetta, ricontrollo il destinatario')).toBe(false);
+    expect(pressedADeadQuickReply(rows, 'c-1', '   ')).toBe(false);
+  });
+
+  test('a row that is not a question block, or is not there at all, is not', () => {
+    expect(pressedADeadQuickReply(rows, 'c-2', 'Conferma')).toBe(false);
+    expect(pressedADeadQuickReply(rows, 'c-9', 'Conferma')).toBe(false);
+    expect(pressedADeadQuickReply(rows, '', 'Conferma')).toBe(false);
+    expect(pressedADeadQuickReply(null, 'c-1', 'Conferma')).toBe(false);
+  });
+});
+
 describe('pendingQuestionComment: a delivery from the same message preserves its question', () => {
   const question = {
     author: 'agent:topic-one', messageId: 'assistant-message-one', kind: 'comment',
@@ -951,6 +986,28 @@ describe('pendingQuestionComment: a delivery from the same message preserves its
     expect(pendingQuestionComment([question, note])).toBe(question);
     // More than one, and above the machine's own bookkeeping too.
     expect(pendingQuestionComment([question, { kind: 'status', content: 'backlog→review' }, note, { ...note, content: 'and a second note' }])).toBe(question);
+  });
+
+  /**
+   * THE SAME COLLISION, WRITTEN BY THE MACHINE. A send refused because the card
+   * already had a confirmation open leaves its own line on that card, and the
+   * line lands UNDER the live question of the request that got there first:
+   * two `send_mail` of one message run together, measured 120 ms apart.
+   * Unmarked, that line is an agent row which is neither a question nor a
+   * delivery, so the scan stopped on it: no buttons, and no `answerTo` from the
+   * drawer, exactly in the state the race produces. The trace is written
+   * `quiet` (`server/routes/outbound.ts`) because it answers nothing.
+   */
+  test('a QUIET trace written by an agent does not silence the question above it', () => {
+    const trace = {
+      ...question,
+      kind: 'comment',
+      quiet: true,
+      content: 'Invio NON partito (primo a attaccante@esempio.test, oggetto "Credenziali"): this card already has a confirmation waiting for an answer',
+    };
+    expect(pendingQuestionComment([question, trace])).toBe(question);
+    // And without the flag it is the defect: the question stops being pending.
+    expect(pendingQuestionComment([question, { ...trace, quiet: undefined }])).toBeNull();
   });
 
   test('without the flag a human word closes the question as it always did', () => {

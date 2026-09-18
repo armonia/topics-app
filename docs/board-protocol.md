@@ -260,6 +260,57 @@ queste regole.
    portano «Landa su main», 34 «Approva il piano» — e' il ramo normale, non un
    caso raro.
 
+5-ter. **Posta e Google sono STRUMENTI, e la conferma la impone il server.**
+   `send_mail(to, subject, body, account?, attachments?)` manda da una delle
+   caselle che questa installazione dichiara; `google_call(service, resource,
+   method, params?, body?)` legge e scrive Drive, Calendario, Fogli, Documenti,
+   Attivita', Contatti e Gmail da una porta sola sopra la CLI `gws`. Il testo
+   della regola nell'envelope e' `OUTBOUND_TOOLS_RULE` in `shared/board.ts`: e'
+   quella stringa che legge l'agente, non questo paragrafo.
+
+   - **La conferma non e' un passo dell'agente.** Prima di ogni invio e di ogni
+     scrittura il SERVER apre la domanda (commento con risposte rapide nel
+     thread della card; pannello sulla riga dello strumento in una chat) e non
+     spawna niente finche' non arriva la risposta. Un agente che «chiede prima»
+     per conto suo nel thread fa aspettare la persona due volte.
+   - **Un si' vale per QUEL messaggio.** La domanda porta un digest del
+     contenuto: una risposta che non lo porta non e' un consenso, e nessuna
+     regola di «consenti sempre» puo' coprire un invio. E' anche il motivo per
+     cui non passa dal canale dei permessi, che e' fatto apposta per poter
+     smettere di chiedere.
+   - **Le letture Google non chiedono niente**, le scritture si', e un metodo
+     che il server non sa classificare conta come scrittura. La posta pero' NON
+     passa da li': `gmail users messages send` e `gmail users drafts send` sono
+     rifiutati con un rimando a `send_mail`, perche' un atto ha una porta sola e
+     quella che sa mostrare il messaggio esiste gia'. Le altre scritture si
+     leggono in parole: un `raw` in base64 viene decodificato in mittente,
+     destinatario, oggetto e testo.
+   - **Gli allegati si congelano quando si chiede.** Il server ne legge i byte e
+     ne manda una copia sua: nella domanda ci sono nome, peso e impronta, e
+     sostituire il file mentre la persona legge non cambia cio' che parte - fa
+     solo ripartire la domanda. Il ricontrollo gira subito prima dello spawn e
+     NON rende l'invio a prova di manomissione: chi gira come l'utente di questa
+     macchina e' gia' dentro il confine e puo' chiamare la CLI della posta senza
+     passare da Topics. La conferma vale per due cose oneste - impedire gli
+     errori e lasciare una traccia - e il testo dell'envelope non promette di
+     piu'. La misura della finestra che resta sta in `server/lib/outbound-staging.ts`.
+   - **Una conferma per card alla volta.** Il registro delle domande instradate
+     e' chiavato sul TASK, e il coordinatore e le sue figlie stanno sullo stesso
+     task: se una sessione ha gia' una conferma aperta, la seconda viene
+     RIFIUTATA con quella ragione invece di prenderle il posto. La card disegna
+     un blocco di risposta rapida solo, e un si' letto su un messaggio non deve
+     poterne far partire un altro. Una `ask_user_question` generica invece
+     aspetta il suo turno: il bridge ripassa ogni 25 secondi e la sua domanda
+     esce appena la prima e' chiusa.
+   - **Ogni azione riuscita, rifiutata o fallita lascia una riga sulla card**:
+     chi, cosa, a chi, esito. Mai il corpo del messaggio.
+   - **La configurazione sta solo nell'ambiente** (`~/.topics-server-env`,
+     sorgiato da `scripts/start-prod.sh`): `TOPICS_MAIL_*` e `TOPICS_GOOGLE_*`.
+     Nel repo, che e' pubblico, non c'e' un indirizzo ne' un nome di account; la
+     casella Exchange si riconosce per indirizzo (`TOPICS_MAIL_EDM_FROM`) e usa
+     la CLI sua. Una variabile mancante e' un errore che la nomina, mai un
+     ripiego su un'altra casella.
+
 6. **Approve = SOLO accettare il task** (review → done, sblocca i dipendenti). Non
    fa più merge/build/reap "da sotto": il landing è un passo ESPLICITO e separato
    (scorporato 2026-07-19). Le azioni sono tre, ognuna un click umano deliberato:

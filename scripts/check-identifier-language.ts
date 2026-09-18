@@ -530,6 +530,15 @@ export const PROJECT_WORDS = new Set([
   // frost's ragged front is built from, and `falloff` is what the same
   // literature calls the decay at the edge of a brush.
   "fbm", "falloff",
+  // `google` is the name of the company whose APIs the outbound door calls, and
+  // `subresource` is the shape of the CLI it calls them through: `gws <service>
+  // <resource> [sub-resource] <method>`. Renaming either would mean naming the
+  // tool's own arguments something the tool does not call them.
+  "google", "subresource",
+  // `gmail` is the name of the product, and it is the literal the CLI expects
+  // as its service (`gws gmail ...`): the list of its methods that SEND mail
+  // has no other honest name than the service it belongs to.
+  "gmail",
 ]);
 
 function trackedFiles(): string[] {

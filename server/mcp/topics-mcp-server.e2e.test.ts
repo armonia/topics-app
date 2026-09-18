@@ -126,6 +126,9 @@ describe("MCP stdio server (subprocess)", () => {
       "read_process_output", "wait_for_process", "stop_process",
       "list_tasks", "create_task", "get_task", "get_goal", "close_goal", "set_goal", "update_goal_steps",
       "update_task", "wait_for_condition", "label_task", "comment_task",
+      // The two doors that leave the machine. Their schemas live in
+      // `outbound-tools.ts` and are spread into the list here.
+      "send_mail", "google_call",
       "ask_user_question",
       // Il canale di permesso, pubblicato sempre: lo designa
       // `--permission-prompt-tool` e la CLI lo toglie da sé dall'elenco che

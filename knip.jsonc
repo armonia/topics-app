@@ -404,7 +404,11 @@
   // `vm_stat` e' la sonda della memoria disponibile del pavimento sul dispatch
   // (server/services/dispatch-capacity.ts): esiste solo su macOS e li' e' di
   // sistema, quindi non e' una dipendenza da dichiarare da nessuna parte.
-  "ignoreBinaries": ["pkill", "du", "tsc", "sqlite3", "ffmpeg", "vm_stat"],
+  // `mkfifo` sta qui per un test, non per uno script: e' l'unico modo di
+  // FABBRICARE il caso che `outbound-staging` deve rifiutare (un allegato che
+  // non e' un file regolare), e senza di esso la prova sarebbe una FIFO
+  // descritta a parole. Node non sa crearne una.
+  "ignoreBinaries": ["pkill", "du", "tsc", "sqlite3", "ffmpeg", "vm_stat", "mkfifo"],
   // NON è un import: è il primo argomento di
   // `spawnSync("bun", ["scripts/board-cases.ts", "--case", …], { cwd: ROOT })`
   // in scripts/board-cases.ts:1624 — il rilancio di sé stesso che genera la

@@ -27,7 +27,7 @@ import type { AIProvider } from "../providers";
 import { resolvePrincipals } from "../lib/principals";
 import { liveAgentStartCapability, queueDelegatedRun } from "../lib/delegated-agent-start";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
+import { budgetShare, capMode, isAgentWorking, isCiEvidenceCheck, type CheckRun, isLandedWork, isThreadSpeech, NOTE_ARCHIVED_BY_HUMAN, NOTE_STOPPED_BY_HUMAN, NOTE_UNQUEUED_BY_HUMAN, PARKED_STOPPED, PARKED_WAITED_OUT, pendingQuestion, pressedADeadQuickReply, TASK_STATUSES, type DispatchAdmission, type GlobalDispatchCap, type PendingQuestionComment, type TaskStatus } from "../../shared/board";
 import { AGENT_AUTHOR, AGENT_AUTHOR_PREFIX } from "../../shared/comment-author";
 import { findDuplicateGroups } from "../../shared/task-similarity";
 import { isPreviewablePath } from "../../shared/media-kind";
@@ -59,7 +59,7 @@ function globalCapFields(cap: GlobalDispatchCap): {
 const checksFloorFields = (svc: TaskService): { checksMemFloorGB: number } =>
   ({ checksMemFloorGB: svc.getChecksMemFloorGB() });
 import { deliverAnswer } from "../lib/ask-user-bridge";
-import { answerRoutedAsk, pendingRoutedAsk } from "../services/board-ask-routing";
+import { answerRoutedAsk, pendingRoutedAsk, DEAD_QUESTION_LINE } from "../services/board-ask-routing";
 import { AUTO_PROJECT_ID, commentAsksHuman, createTaskService, isPublishActionLabel, projectIdForPath, TaskServiceError, UNASSIGNED_PROJECT_ID, type Task, type TaskService } from "../services/tasks";
 import { interceptBoardAction } from "../services/board-actions";
 import { computeDispatchCapacity } from "../services/dispatch-capacity";
@@ -764,7 +764,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   // sponda, la gamba dell'attesa in routes/permission.ts.
   const askRouting = {
     db,
-    comment: () => false,
+    comment: () => null,
     deliver: (sessionKey: string, answers: Record<string, string>) => deliverAnswer(sessionKey, answers),
   };
 
@@ -4279,11 +4279,59 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           // su una sessione che sta già aspettando questa risposta sarebbe un
           // secondo canale che dice la stessa cosa in un altro modo, cioè la
           // risposta consegnata due volte.
+          //
+          // AND THE ANSWER NAMES THE QUESTION. `answerTo` is the id of the
+          // comment the person clicked: if that is no longer the open question,
+          // the yes is NOT delivered. Without this comparison a consent read on
+          // one message sent another - two sessions of one task open two
+          // confirmations, and the registry is keyed by TASK. A caller that
+          // sends no `answerTo` (an older route, a comment written by hand)
+          // answers the open question, which is the only one there can be: a
+          // second question on a card that already has a live one is refused
+          // upstream.
+          //
+          // AND A CLICK ON A BLOCK THAT IS NO LONGER ANSWERABLE IS NOT SILENCE.
+          // When there is no open question at all, `answerTo` still names a
+          // quick-reply block the person could see and press: the rendez-vous
+          // behind it died (the send was refused and took its entry, the turn
+          // was interrupted) while the comment kept its buttons. Left to fall
+          // through, "Conferma" became an ordinary comment that re-kicked the
+          // agent, and the card said nothing - measured, the person had every
+          // reason to believe they had confirmed. Decided here, said after the
+          // board actions below, which are quick replies of their own.
+          let deadQuestionClick = false;
           {
             const root = dispatcher ? svc.boundRootOf(bComments.taskId) : null;
             const target = root?.id ?? bComments.taskId;
-            if (pendingRoutedAsk(target) && answerRoutedAsk(askRouting, target, String(body?.content ?? ""))) {
-              return json({ ...comment, delivery: 'answered' });
+            const answerTo = typeof body?.answerTo === "string" ? body.answerTo : undefined;
+            const open = pendingRoutedAsk(target);
+            if (!open && answerTo) {
+              deadQuestionClick = pressedADeadQuickReply(
+                svc.get(bComments.taskId, { projectId: bComments.projectId })?.comments,
+                answerTo,
+                typeof body?.content === "string" ? body.content : "",
+              );
+            }
+            if (open) {
+              const outcome = answerRoutedAsk(askRouting, target, String(body?.content ?? ""), { askId: answerTo });
+              if (outcome.delivered) return json({ ...comment, delivery: 'answered' });
+              if (outcome.stale) {
+                // THE CARD SAYS SO. The comment is already saved, so without
+                // this line the person clicked "Conferma" and nothing visible
+                // happened: they would believe they had confirmed.
+                try {
+                  svc.addComment({
+                    taskId: bComments.taskId,
+                    author: "agent",
+                    content: "Questa risposta era per una domanda che non e' piu' quella aperta su questa card: non e' stata consegnata e non e' partito niente. La domanda aperta adesso e' un'altra.",
+                    projectId: bComments.projectId,
+                    origin: actionOrigin,
+                  });
+                  const aggiornata = svc.get(bComments.taskId, { projectId: bComments.projectId })?.task;
+                  if (aggiornata) broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: aggiornata });
+                } catch { /* the line is an explanation: it never fails the saved comment */ }
+                return json({ ...comment, delivery: 'note' });
+              }
             }
           }
           // A SYSTEM LABEL CLICKED FROM THE DRAWER IS AN UPDATE, NEVER A TURN.
@@ -4302,6 +4350,20 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               { force: body?.force },
             );
             if (intercepted) return intercepted;
+          }
+          if (deadQuestionClick) {
+            try {
+              svc.addComment({
+                taskId: bComments.taskId,
+                author: "agent",
+                content: DEAD_QUESTION_LINE,
+                projectId: bComments.projectId,
+                origin: actionOrigin,
+              });
+              const aggiornata = svc.get(bComments.taskId, { projectId: bComments.projectId })?.task;
+              if (aggiornata) broadcastToAll({ type: "task:updated", projectId: bComments.projectId, task: aggiornata });
+            } catch { /* the line is an explanation: it never fails the saved comment */ }
+            return json({ ...comment, delivery: 'note' });
           }
           // Answering on a STEP is answering the agent: when the subtree's
           // dispatch root sits in review ("serve te"), a human comment anywhere

@@ -1,7 +1,8 @@
 import type { AppContext, RouteHandler } from "../types";
-import { waitForAnswer, cancelAsk, beginAsk, deliverAnswer, AskWaitError } from "../lib/ask-user-bridge";
+import { waitForAnswer, cancelAsk, beginAsk, deliverAnswer, AskWaitError, ASK_LEG_MS } from "../lib/ask-user-bridge";
 import { createTaskService } from "../services/tasks";
-import { routeAskToTaskThread, clearRoutedAskForSession } from "../services/board-ask-routing";
+import { routeAskToTaskThread, clearRoutedAsk, closeRoutedAsk, clearRoutedAsksOfEndedSession, ENDED_LINE } from "../services/board-ask-routing";
+import { outboundHoldOfSession } from "../lib/outbound-gate";
 import {
   beginPermission,
   waitForDecision,
@@ -45,7 +46,16 @@ import type { PermissionDecision, ToolPermissionOutcome, ToolPermissionRequest }
  * comunque montato da lì, alla stessa posizione che il blocco aveva nel
  * dispatch — l'ordine fra rotte è comportamento, non stile.
  */
-export function createPermissionRouter(ctx: AppContext): RouteHandler {
+export interface PermissionRouterOptions {
+  /**
+   * The board writer. Defaults to the real task service; injected by the test,
+   * which has no board to write on and everything to check about WHEN a
+   * question reaches the card thread and when it silently stops reaching it.
+   */
+  comment?: (args: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => string | null;
+}
+
+export function createPermissionRouter(ctx: AppContext, options: PermissionRouterOptions = {}): RouteHandler {
   const { json, readJSON, matchRoute, broadcastToAll, getTopicBySessionKey, saveSingleTopic, updateToolCallFields } = ctx;
 
   // The registry role remains recognizable even after a backing Topic has been
@@ -67,10 +77,10 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
   // la stessa vista.
   const askRouting = {
     db: ctx.db,
-    comment: (a: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => {
+    comment: options.comment ?? ((a: { taskId: string; projectId: string; content: string; options: string[]; sessionKey?: string }) => {
       try {
         const svc = createTaskService(ctx.db);
-        svc.addComment({
+        const written = svc.addComment({
           taskId: a.taskId,
           author: "agent",
           content: a.content,
@@ -83,14 +93,17 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
         });
         const task = svc.get(a.taskId, { projectId: a.projectId })?.task;
         if (task) broadcastToAll({ type: "task:updated", projectId: a.projectId, task });
-        return true;
+        // THE ROW ID, not a boolean: it is what the card sends back when
+        // somebody clicks the quick reply, and it is how the registry knows
+        // which question that yes belonged to.
+        return written?.id ?? null;
       } catch {
         // Il thread non ha accolto la domanda: il pannello nel tab resta, ed è
         // il ripiego giusto. Meglio una domanda raggiungibile in un posto solo
         // che una domanda che non esiste da nessuna parte.
-        return false;
+        return null;
       }
-    },
+    }),
     deliver: (sessionKey: string, answers: Record<string, string>) => deliverAnswer(sessionKey, answers),
   };
 
@@ -136,7 +149,10 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
           // The ask outlived its TTL. Close it here rather than letting the
           // bridge poll on into the CLI child's own lifetime cap.
           cancelAsk(sk, "no answer: the question expired");
-          clearRoutedAskForSession(sk);
+          // The rendez-vous of this session is over for good, so every question
+          // of its on the board is unanswerable: this is the one caller allowed
+          // to clear by SESSION, and the line above is what makes it true.
+          clearRoutedAsksOfEndedSession(sk);
           return json({ cancelled: true, reason: "ask_user_question: the question expired with no answer" });
         }
         // LA DOMANDA ESCE NEL THREAD DEL TASK, se questa sessione ne ha uno.
@@ -150,10 +166,76 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
         // vede la domanda dove già risponde ai commenti, chi ha il tab aperto
         // continua a rispondere da lì, e la prima risposta che arriva chiude il
         // rendez-vous per entrambe le strade.
-        try { routeAskToTaskThread(askRouting, { sessionKey: sk, questions: body.questions as never[] }); }
-        catch { /* il pannello nel tab resta comunque */ }
+        //
+        // IF THE CARD IS TAKEN by a question somebody is still waiting on -
+        // another session of this task, or another request of this one -
+        // `routeAskToTaskThread` returns `busy` and writes nothing. This ask
+        // WAITS ITS TURN: the leg comes back in 25 seconds with the same
+        // question, so the queue has a visible head and as soon as somebody
+        // answers the first one the second comes out by itself. The turn was
+        // parked on a person either way, and the panel in the tab stays its
+        // other road.
+        //
+        // WAITING IS NOT `waitForAnswer` WHEN THE HOLDER IS THIS SAME SESSION,
+        // and that is the whole of the second half of this fix. The rendez-vous
+        // is keyed by SESSION and a second `waitForAnswer` on it SUPERSEDES the
+        // first: a send confirmation of this session, already on the card and
+        // polling, was killed by an unrelated `ask_user_question` opened from
+        // the same turn (measured with both real routes - the send came back
+        // "superseded by a newer question", took its own registry entry with it,
+        // and left the confirmation on screen with buttons that reached
+        // nothing). So the leg is spent WITHOUT registering a waiter and answers
+        // `pending`: nothing of the question on the card is touched. A holder on
+        // another session is a different rendez-vous and nothing to fear.
+        //
+        // The id of the thread row this ask owns, kept so the clears below name
+        // THIS question instead of "everything this session has open": two
+        // requests of one session share the rendez-vous, and a clear by session
+        // deletes the entry of the one still waiting (measured on the send
+        // gate, same registry). Only an id THIS ask wrote goes in it: an entry
+        // the routing merely handed back belongs to whoever created it.
+        let askId: string | undefined;
+        // A CONFIRMATION OF THIS SESSION IS WAITING - AND THAT IS THE SAME FACT
+        // WITH OR WITHOUT A CARD.
+        //
+        // `routed.busy` can only report it when the session belongs to a task:
+        // a chat has no thread, `routeAskToTaskThread` returns null, and this
+        // leg went straight on to `waitForAnswer` and superseded the send.
+        // Measured with both real routes and no card: the generic question was
+        // delivered the yes the person gave on the SEND panel, and the send came
+        // back "superseded by a newer question". The gate's own lock is the fact
+        // being asked about, and for a session with no card its key is exactly
+        // `session:<k>` - so the answer comes from there, not from the card.
+        //
+        // Held means this leg touches NOTHING: no comment, no registry entry, no
+        // waiter. It spends its time and comes back, and the confirmation on
+        // screen is still the one the person is reading.
+        let heldByThisSession = outboundHoldOfSession(sk);
+        if (!heldByThisSession) {
+          try {
+            const routed = routeAskToTaskThread(askRouting, { sessionKey: sk, questions: body.questions as never[] });
+            if (routed && routed.created === true && routed.askId) askId = routed.askId;
+            if (routed && routed.busy !== undefined && routed.busy.sessionKey === sk) heldByThisSession = true;
+          } catch { /* il pannello nel tab resta comunque */ }
+        }
+        if (heldByThisSession) {
+          await new Promise((r) => setTimeout(r, legMs ?? ASK_LEG_MS));
+          return json({ pending: true });
+        }
         try {
           const answers = await waitForAnswer(sk, legMs !== undefined ? { timeoutMs: legMs } : {});
+          // THIS QUESTION IS OVER, and this is where the registry is cleared.
+          //
+          // The `routeAskToTaskThread` registry is keyed by TASK and does not
+          // look at the text: the entry exists only so the same comment is not
+          // rewritten on every leg. Leaving it behind after an answer that came
+          // from the tab PANEL means the NEXT question silently stops reaching
+          // the card - the board shows "waiting on you" and what it wants
+          // appears nowhere, which is the exact defect that module exists to
+          // close. The two existing clears do not cover this case: one is the
+          // TTL expiry (above), the other is an answer written IN the thread
+          // (`answerRoutedAsk`, which deletes its own entry).
+          if (askId) clearRoutedAsk(askId);
           return json({ answers });
         } catch (err: any) {
           // A leg expiring is the NORMAL case — the human is still reading.
@@ -161,6 +243,12 @@ export function createPermissionRouter(ctx: AppContext): RouteHandler {
           if (err instanceof AskWaitError && err.code === "timeout") {
             return json({ pending: true });
           }
+          // Cancelled or superseded: the question is gone, so is the entry. If
+          // another question took the card meanwhile, this names ours and
+          // leaves that one alone. The block in the thread is closed with a line
+          // of its own, because a quick-reply nobody can answer any more is a
+          // person clicking into silence.
+          if (askId) closeRoutedAsk(askRouting, askId, ENDED_LINE);
           // Uses `reason`, not `error`, so the bridge's httpJson passes it
           // through instead of auto-throwing on `error`.
           return json({ cancelled: true, reason: err?.message ?? String(err) });

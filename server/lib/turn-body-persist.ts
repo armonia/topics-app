@@ -46,6 +46,11 @@ export interface TurnBodyPersist {
    * worth, near enough (it decides when, never what). `force` writes now.
    */
   request(withText: boolean, sizeBytes: number, force?: boolean): void;
+  /**
+   * Write what is still owed, now. For a reader that is about to open the ROW
+   * instead of following the stream - see lib/turn-body-flush.ts.
+   */
+  flush(): void;
   /** Drop a write still owed. Every caller rewrites the row whole right after. */
   dispose(): void;
 }
@@ -87,6 +92,7 @@ export function createTurnBodyPersist(opts: TurnBodyPersistOptions): TurnBodyPer
       if (withText) owesText = true;
       throttle.persist(sizeBytes, force);
     },
+    flush() { throttle.flush(); },
     dispose() { throttle.dispose(); },
   };
 }

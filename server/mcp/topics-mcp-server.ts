@@ -32,6 +32,9 @@ import { PARKED_WAITED_OUT, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, TASK_STATUSES
 import { GOAL_STEP_STATUSES } from "../../shared/types";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
+import { OUTBOUND_TOOLS, callGoogleCall, callSendMail } from "./outbound-tools";
+import { httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
+import type { ParsedArgs } from "./topics-http";
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -513,6 +516,7 @@ const TOOLS = [
     },
     annotations: MODIFICA,
   },
+  ...OUTBOUND_TOOLS,
   {
     name: "ask_user_question",
     description:
@@ -768,13 +772,7 @@ const TOOLS = [
   },
 ];
 
-export interface ParsedArgs {
-  baseUrl: string;
-  sessionKey: string;
-  gatewayToken?: string;
-  /** Tool profile. "dispatch" scopes Claude task agents; "codex-dispatch" omits Claude-only spawning; "global-orchestrator" is the registry-gated global board surface. */
-  profile?: string;
-}
+export type { ParsedArgs } from "./topics-http";
 
 /**
  * Tools a dispatched board agent never needs — every schema here would ride
@@ -941,17 +939,6 @@ function error(id: number | string | null, code: number, message: string, data?:
   return { jsonrpc: "2.0", id, error: { code, message, ...(data !== undefined ? { data } : {}) } };
 }
 
-/**
- * Extra fetch init that disables TLS cert verification. topics-app serves a
- * self-signed cert over https on a loopback origin (127.0.0.1); the default
- * verifier would reject it with "self signed certificate in certificate
- * chain". We only ever connect to that single local origin, so skipping
- * verification is safe. `tls` is a Bun-specific fetch extension; cast to keep
- * the standard fetch types happy.
- */
-function loopbackTlsInit(): RequestInit {
-  return { tls: { rejectUnauthorized: false } } as RequestInit;
-}
 
 export async function callOpenBrowserPane(
   args: ParsedArgs,
@@ -981,7 +968,7 @@ export async function callOpenBrowserPane(
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       // topics-app serves a self-signed cert on this loopback origin; skip
       // verification (Bun fetch extension). Safe: we only ever talk to 127.0.0.1.
-      ...loopbackTlsInit(),
+      ...loopbackInit(),
     });
   } catch (err: unknown) {
     throw lostRequestError(err, "POST", "/browser/open-pane");
@@ -1142,17 +1129,6 @@ interface CommentResp { id?: string }
  * instead of passing `any` across the trust boundary.
  * `callOpenBrowserPane` keeps its own bespoke impl for backwards compatibility.
  */
-/**
- * How long ONE bridge request may stay open before we call it lost.
- *
- * `fetch` has no timeout of its own: a server that accepts the connection and
- * then says nothing (paused process, half-open socket after a sleep/wake) held
- * the call open forever, and with it the turn of whoever was waiting for the
- * answer. Generous on purpose - it is the "this will never arrive" line, not a
- * latency budget. The calls that stay open BY CONSTRUCTION (waiting on a
- * process, on a human's answer) pass their own signal and keep it.
- */
-const REQUEST_TIMEOUT_MS = 45_000;
 
 /**
  * The one call that legitimately takes minutes: a spawn with `isolation:
@@ -1163,90 +1139,7 @@ const REQUEST_TIMEOUT_MS = 45_000;
  */
 const SPAWN_WORKTREE_TIMEOUT_MS = 240_000;
 
-async function httpJson<T>(
-  args: ParsedArgs,
-  method: string,
-  path: string,
-  body: unknown | undefined,
-  fetchImpl: typeof fetch,
-  /** Solo per le chiamate che restano APERTE per costruzione (l'attesa di un
-   *  processo): il trasporto deve mollare dopo il nostro timer, mai prima. */
-  signal?: AbortSignal,
-  /**
-   * `retryOnLostRequest`: send it a SECOND time (once) if the first attempt
-   * never got an answer. Only for requests that change nothing - a GET, or a
-   * browser endpoint the tool spec calls read-only. A reply that arrived, even
-   * a 500, is an answer and is never retried: repeating a request the server
-   * did receive is how one comment becomes two.
-   */
-  opts?: { retryOnLostRequest?: boolean },
-): Promise<T | undefined> {
-  const headers: Record<string, string> = {};
-  if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
-  // Assigned at the adapter boundary: a direct caller of the same session API
-  // is still API traffic and must not inherit MCP attribution from the path.
-  headers["X-Topics-Action-Origin"] = "mcp";
 
-  const send = (): Promise<Response> => fetchImpl(`${args.baseUrl}${path}`, {
-    method,
-    headers,
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    // Our own deadline, unless the caller brought a longer one of its own.
-    signal: signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    ...loopbackTlsInit(),
-  });
-
-  // A caller-supplied signal is a budget somebody already reasoned about: it is
-  // not ours to spend twice.
-  const mayRetry = !signal && (opts?.retryOnLostRequest ?? method === "GET");
-  let resp: Response;
-  try {
-    resp = await send();
-  } catch (err: unknown) {
-    if (!mayRetry) throw lostRequestError(err, method, path);
-    try {
-      resp = await send();
-    } catch (err2: unknown) {
-      throw lostRequestError(err2, method, path);
-    }
-  }
-
-  const text = await resp.text().catch(() => "");
-  let parsed: (T & { error?: unknown; available?: unknown; duplicates?: unknown }) | undefined;
-  try { parsed = text ? JSON.parse(text) : undefined; } catch { parsed = undefined; }
-
-  if (!resp.ok) {
-    const msg = parsed?.error || text || resp.statusText;
-    const extra = Array.isArray(parsed?.available) ? ` (available: ${parsed.available.join(", ")})` : "";
-    // `error` è l'unica cosa che l'agente legge: tutto il resto del corpo
-    // finisce nel cestino. Un 409 sui doppioni che dice «commenta quella card»
-    // senza dire QUALE lascia una sola mossa praticabile, riscrivere il titolo
-    // finché passa. Gli id vanno nella stringa, come già si fa con `available`.
-    const dupes = Array.isArray(parsed?.duplicates)
-      ? (parsed.duplicates as Array<{ id?: unknown; text?: unknown }>)
-          .map((d) => (typeof d?.id === "string" ? `${d.id}${typeof d?.text === "string" ? ` «${d.text}»` : ""}` : null))
-          .filter((s): s is string => !!s)
-      : [];
-    const twins = dupes.length ? `. Card già aperte: ${dupes.join("; ")}` : "";
-    throw new Error(`HTTP ${resp.status}: ${msg}${extra}${twins}`);
-  }
-  if (parsed?.error) throw new Error(String(parsed.error));
-  return parsed;
-}
-
-/**
- * A request that never came back, said as such. Bare, an aborted fetch reads
- * "The operation was aborted", which names the mechanism and hides both the
- * cause and the call - and it is the message the agent reads.
- */
-function lostRequestError(err: unknown, method: string, path: string): Error {
-  const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
-  const detail = timedOut
-    ? `no answer in ${Math.round(REQUEST_TIMEOUT_MS / 1000)}s`
-    : err instanceof Error ? err.message : String(err);
-  return new Error(`${method} ${path}: ${detail} (topics-app unreachable?)`);
-}
 
 interface GoalRow {
   id: string;
@@ -1567,7 +1460,7 @@ async function postChatReadSSE(
     method: "POST",
     headers,
     body: JSON.stringify({ sessionKey: targetSessionKey, messages: [{ role: "user", content: message }] }),
-    ...loopbackTlsInit(),
+    ...loopbackInit(),
   });
   if (!resp.ok || !resp.body) {
     const t = await resp.text().catch(() => "");
@@ -2600,6 +2493,18 @@ export const TOOL_HANDLERS: Record<
     }),
   comment_task: (a, t) => callCommentTask(a, t),
   label_task: (a, t) => callLabelTask(a, t),
+  send_mail: (a, t, ctx) =>
+    callSendMail(a, t, fetch, {
+      onProgress: ctx?.onProgress
+        ? (leg) => ctx.onProgress?.(leg, "in attesa della conferma dell'umano")
+        : undefined,
+    }),
+  google_call: (a, t, ctx) =>
+    callGoogleCall(a, t, fetch, {
+      onProgress: ctx?.onProgress
+        ? (leg) => ctx.onProgress?.(leg, "in attesa della conferma dell'umano")
+        : undefined,
+    }),
   ask_user_question: (a, t, ctx) =>
     callAskUserQuestion(a, t as { questions?: unknown }, fetch, {
       onProgress: ctx?.onProgress
