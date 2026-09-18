@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.355 — 2026-09-18
+
+### Sotto il cofano
+- Un workflow che produce la clip di consegna dove la macchina non e' in swap
+
 ## 2.2.354 — 2026-09-18
 
 ### Sotto il cofano

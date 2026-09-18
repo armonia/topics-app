@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.355",
+    "date": "2026-09-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un workflow che produce la clip di consegna dove la macchina non e' in swap",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.354",
     "date": "2026-09-18",
     "sections": {
