@@ -1,0 +1,123 @@
+name: Clip di consegna (una spec, video)
+
+# LA PROVA FILMATA DI UNA SPEC, SU UNA MACCHINA SCARICA.
+#
+# Il protocollo board chiede un .webm per le card di comportamento, e il Mac non
+# e' il posto dove produrlo: la card 8d9e2ebc e' rimasta aperta esattamente per
+# questo, con la macchina fra 2,7 e 5 GB liberi contro i 6 del pavimento e load
+# fra 74 e 99. Playwright in quelle condizioni da' un timeout, e un timeout non
+# e' una prova. Un runner GitHub e' scarico per definizione.
+#
+# Non duplica la nightly: quella misura la suite, questo produce UN filmato di
+# UNA spec, su richiesta. Gli interruttori esistono gia' in playwright.config.ts
+# (E2E_EVIDENCE accende il trace, E2E_VIDEO aggiunge la clip, E2E_SLOWMO mette i
+# 300 ms davanti a ogni azione perche' sia guardabile da un umano): qui si
+# accendono, non si reinventano.
+on:
+  workflow_dispatch:
+    inputs:
+      spec:
+        description: "La spec da filmare (percorso, con o senza :riga)"
+        required: true
+        default: "tests/e2e/terminal-input-queue.spec.ts"
+      grep:
+        description: "Filtro sul titolo, per filmare UN test invece di tutto il file"
+        required: false
+        default: ""
+      slowmo:
+        description: "300 ms davanti a ogni azione: il filmato diventa guardabile, la spec piu' lenta"
+        required: false
+        default: "true"
+
+concurrency:
+  group: clip-${{ github.ref }}-${{ inputs.spec }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  clip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node (node-pty native bridge used by the server)
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install server deps (root)
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild node-pty (Linux)
+        run: npm rebuild node-pty
+
+      # Stessa ragione scritta per esteso nella nightly: `--ignore-scripts` salta
+      # anche il postinstall della RADICE, e senza il bit +x sugli spawn-helper
+      # il terminale non parte affatto - che per QUESTA spec e' tutto.
+      - name: Rimetti il bit +x sugli spawn-helper (il postinstall e' stato saltato)
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
+      - name: Install client deps
+        run: bun install --frozen-lockfile
+        working-directory: client
+
+      - name: Build client
+        run: bun run build:client
+
+      - name: Install Playwright browsers (Chromium + WebKit)
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Resolve Chromium path (Linux)
+        id: chromium
+        run: |
+          bin="$(find "$HOME/.cache/ms-playwright" -maxdepth 3 -type f -name chrome -path '*chrome-linux*' | sort -V | tail -1)"
+          test -x "$bin"
+          echo "path=$bin" >> "$GITHUB_OUTPUT"
+
+      - name: Gira la spec con trace e video
+        run: |
+          ARGS=("${{ inputs.spec }}")
+          if [ -n "${{ inputs.grep }}" ]; then
+            ARGS+=(--grep "${{ inputs.grep }}")
+          fi
+          npx playwright test "${ARGS[@]}" --reporter=line,json
+        env:
+          CHROMIUM_PATH: ${{ steps.chromium.outputs.path }}
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/results.json
+          E2E_EVIDENCE: "1"
+          E2E_VIDEO: "1"
+          # La config legge `E2E_SLOWMO=1` in positivo (`E2E_NO_SLOWMO` esiste
+          # solo nel commento che descrive una forma mai implementata): messo
+          # cosi' perche' l'interruttore vero e' questo, verificato sulla riga
+          # `const SLOWMO = process.env.E2E_SLOWMO === "1"`.
+          E2E_SLOWMO: ${{ inputs.slowmo == 'true' && '1' || '0' }}
+
+      # Le clip sono l'OGGETTO di questo workflow, quindi si caricano anche se la
+      # spec e' rossa: il filmato di un rosso e' la cosa piu' utile che ci sia.
+      - name: Carica le clip
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clip-webm
+          path: |
+            test-results/**/*.webm
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Carica il trace e il report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clip-trace
+          path: |
+            test-results/**/trace.zip
+            test-results/html-report
+          if-no-files-found: ignore
+          retention-days: 7
