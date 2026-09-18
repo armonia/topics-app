@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.358",
+    "date": "2026-09-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il sidecar pilotava il browser di un'altra app, e lo dichiarava come proprio motore",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.357",
     "date": "2026-09-18",
     "sections": {

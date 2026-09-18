@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.358 — 2026-09-19
+
+### Sotto il cofano
+- Il sidecar pilotava il browser di un'altra app, e lo dichiarava come proprio motore
+
 ## 2.2.357 — 2026-09-18
 
 ### Sotto il cofano
