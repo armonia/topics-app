@@ -16,7 +16,7 @@
  * machine is unit-testable without a real browser.
  */
 
-import { browserMarkArg } from "./lib/browser-orphan-sweep";
+import { browserMarkArg, parseProcSnapshot, userDataDirOf } from "./lib/browser-orphan-sweep";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -340,12 +340,85 @@ function defaultLauncher(): SidecarLauncher {
         const cdpEndpoint = await waitForCdpEndpoint(port);
         return { cdpEndpoint, kill };
       } catch (err) {
+        // `child.kill()` ALONE IS NOT ENOUGH HERE, and the difference showed.
+        //
+        // Chromium forks its helpers (renderer, GPU, utility, zygote) and those
+        // are not children of this process: killing the top one leaves them
+        // alive with ppid 1, and the sidecar's profile is FIXED, so the leftover
+        // holding it open makes the NEXT launch fail too. The mark comment above
+        // already says this for the "server died dirty" case; this is the same
+        // fault for a failed launch, which is far more frequent (see below).
+        //
+        // MEASURED on 2026-09-18 while measuring the extension boot cost: ten
+        // orphaned `Chrome for Testing` with ppid 1, two of them alive 18
+        // minutes after a kill that succeeded on the top process.
+        //
+        // AND THIS BRANCH IS NOT RARE: `waitForCdpEndpoint` waits 10 s, but
+        // booting with this machine's 42 extensions takes 288 (already 28,8 s
+        // at five). On the default configuration of this Mac the sidecar launch
+        // always ends here, and every attempt used to leave one more tree. The
+        // `--user-data-dir` the children carry is what lets us collect them.
+        killByUserDataDir(userDataDir);
         kill();
         throw err;
       }
     },
   };
 }
+
+/**
+ * Kills every process declaring this profile: the top one and its helpers.
+ *
+ * Chromium helpers do not carry the mark (Chromium does not forward switches it
+ * does not know) but they do carry their browser's `--user-data-dir`: it is the
+ * same key `planBootSweep` rests on, used here on a profile we know is ours
+ * because we just created it.
+ *
+ * Never throws: this is cleanup on a path that is already failing, and an error
+ * here would bury the real one the caller is about to propagate.
+ *
+ * Returns how many it signalled, which is what the test reads.
+ */
+export function killByUserDataDir(
+  userDataDir: string,
+  deps: { ps?: PsReader; kill?: (pid: number) => void } = {},
+): number {
+  const ps = deps.ps ?? defaultPsReader;
+  const kill = deps.kill ?? ((pid: number) => process.kill(pid, "SIGKILL"));
+  let killed = 0;
+  try {
+    const out = ps();
+    if (!out) return 0;
+    for (const row of parseProcSnapshot(out)) {
+      if (row.pid === process.pid) continue;
+      if (userDataDirOf(row.command) !== userDataDir) continue;
+      try {
+        kill(row.pid);
+        killed++;
+      } catch {
+        /* already gone, or not ours */
+      }
+    }
+  } catch {
+    /* no ps, no cleanup: the launch fails anyway, just dirtier */
+  }
+  return killed;
+}
+
+/** The process snapshot, injectable: tests never call `ps`. */
+export type PsReader = () => string | null;
+
+// `require` and not a top-of-file import: this module deliberately avoids
+// `child_process` at module level, so the unit tests that inject a launcher
+// never load it (the comment on `defaultLauncher` says so).
+const defaultPsReader: PsReader = () => {
+  try {
+    const { execFileSync } = require("node:child_process") as typeof import("node:child_process");
+    return execFileSync("ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8" });
+  } catch {
+    return null;
+  }
+};
 
 /** Poll the DevTools version endpoint until it yields a browser ws:// URL. */
 async function waitForCdpEndpoint(port: number, timeoutMs = 10000): Promise<string> {
