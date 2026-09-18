@@ -25,9 +25,19 @@ on:
         required: false
         default: ""
       slowmo:
-        description: "300 ms davanti a ogni azione: il filmato diventa guardabile, la spec piu' lenta"
+        # DEFAULT `false`, ed e' una lezione pagata: la prima corsa di questo
+        # workflow (run 35395057769) e' uscita ROSSA con slowMo acceso, su una
+        # spec che verde lo e'. `terminal-input-queue` tiene la riconnessione
+        # ferma 2 s e batte 14 tasti dentro quella finestra: a 300 ms per tasto
+        # ci vogliono oltre 4 s, il riattacco arriva a meta' battitura e
+        # l'asserzione «nessuna connessione nuova mentre scrivo» cade. Il
+        # rallentatore non e' neutro, sposta il TEMPO che la spec misura, e un
+        # rosso cosi' fa perdere mezz'ora a cercare un difetto che non c'e'.
+        # La stessa spec, stesso workflow, slowmo=false: verde, run 35396299152,
+        # video.webm da 127 KB.
+        description: "300 ms davanti a ogni azione. Rende il filmato guardabile, ma puo' far cadere le spec che misurano il tempo"
         required: false
-        default: "true"
+        default: "false"
 
 concurrency:
   group: clip-${{ github.ref }}-${{ inputs.spec }}
