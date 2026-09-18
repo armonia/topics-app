@@ -364,6 +364,17 @@ export interface TaskService {
    */
   boardsWithQueuedTodos(): string[];
   /**
+   * The card a chat topic belongs to, or `null`.
+   *
+   * Two links, in this order, and the second one is why this lives here instead
+   * of being a filter over the board feed: `tasks.assigned_topic_id` is the
+   * CURRENT binding, and it moves to a new topic the day a card is released and
+   * re-claimed from scratch. `task_attempts.topic_id` is the HISTORY (every
+   * launch writes its row), so a session whose card has already restarted
+   * elsewhere can still say whose it was.
+   */
+  taskIdOfTopic(topicId: string): string | null;
+  /**
    * `agentTopicId` (session surface only) identifies the calling agent's chat
    * topic: it unlocks the "own steps" carve-out — an agent MAY mark `done` a
    * strict descendant of the task bound to its topic (its own checklist),
@@ -1743,9 +1754,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
    * Not unit-tested on purpose: asserting the fields are absent from a listed
    * Task passes with the filter removed too, because `rowsToTasks` decides what a
    * Task carries. The measurement is the evidence.
+   *
+   * `interrupted_at` LEFT this list on 2026-09-14: a terminal pane whose session
+   * was cut mid-turn reads it to say WHY it is dormant instead of showing a bare
+   * "Session ended" (see `client/src/components/Terminal/dormantCause.ts`). One
+   * column back in, with its reader, which is exactly the deal above.
    */
   const COLUMNS_WITH_NO_READER = [
-    "interrupted_at",
     "interrupted_by",
     "interrupted_notified_at",
     "nudge_claimed_at",
@@ -2491,6 +2506,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       ...(r.completed_at ? { completedAt: r.completed_at } : {}),
       ...(r.plan_comment_id ? { planCommentId: r.plan_comment_id } : {}),
       ...(r.in_progress_at ? { inProgressAt: r.in_progress_at } : {}),
+      ...(r.interrupted_at ? { interruptedAt: r.interrupted_at } : {}),
       ...(r.output_url ? { outputUrl: r.output_url } : {}),
 
       previewRetiredAt: r.preview_retired_at ?? null,
@@ -6251,6 +6267,23 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         `SELECT DISTINCT project_id FROM tasks
           WHERE archived = 0 AND status = 'todo' AND parent_task_id IS NULL`,
       ).all() as Array<{ project_id: string }>).map((r) => r.project_id);
+    },
+
+    taskIdOfTopic(topicId: string): string | null {
+      if (!topicId) return null;
+      const bound = db.prepare(
+        "SELECT id FROM tasks WHERE assigned_topic_id = ? ORDER BY updated_at DESC LIMIT 1",
+      ).get(topicId) as { id?: string } | undefined;
+      if (bound?.id) return bound.id;
+      // The history table may not exist on a schema older than the fan-out
+      // migration: no attempt row is the same answer as no table, which is
+      // "nobody can tell", and the pane falls back to its plain overlay.
+      try {
+        const attempt = db.prepare(
+          "SELECT task_id FROM task_attempts WHERE topic_id = ? ORDER BY created_at DESC LIMIT 1",
+        ).get(topicId) as { task_id?: string } | undefined;
+        return attempt?.task_id ?? null;
+      } catch { return null; }
     },
 
     getGlobalAutoDispatch(): boolean {

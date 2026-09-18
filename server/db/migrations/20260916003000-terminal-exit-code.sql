@@ -1,0 +1,12 @@
+-- A pane that outlived its process could say IT ended, never with what code.
+--
+-- The bridge already hands the number over (`msg.exitCode` in the `"exit"` case
+-- of server/routes/terminal.ts), and it died there: the row was flipped to
+-- 'dormant' and the number dropped on the floor. So a session that quit by
+-- itself showed the same veil as one a restart had cut, and the one fact that
+-- tells the two apart -- «it exited, with 137» -- was never on screen.
+--
+-- NULL is the honest unknown, and it is what every row written before this
+-- column says: no code recorded, so the overlay shows no code. A zero is NOT
+-- the same thing and must not be written in its place.
+ALTER TABLE terminal_sessions ADD COLUMN exit_code INTEGER DEFAULT NULL;
