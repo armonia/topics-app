@@ -2,6 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.357 — 2026-09-18
+
+### Sotto il cofano
+- Il rallentatore non e' neutro: default a false, con il rosso che lo ha insegnato
+- Il profilo finto dei test e' un dato, e il cancello dei path in /tmp vuole saperlo
+
+## 2.2.356 — 2026-09-18
+
+### Sotto il cofano
+- Il sidecar ci mette 288 s ad avviarsi e la produzione lo aspetta per dieci
+
 ## 2.2.355 — 2026-09-18
 
 ### Sotto il cofano

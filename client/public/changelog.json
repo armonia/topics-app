@@ -1,5 +1,42 @@
 [
   {
+    "version": "2.2.357",
+    "date": "2026-09-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il rallentatore non e' neutro: default a false, con il rosso che lo ha insegnato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il profilo finto dei test e' un dato, e il cancello dei path in /tmp vuole saperlo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.356",
+    "date": "2026-09-18",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il sidecar ci mette 288 s ad avviarsi e la produzione lo aspetta per dieci",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.355",
     "date": "2026-09-18",
     "sections": {
