@@ -8,6 +8,7 @@
  * @covers TAB-SYNC-01
  */
 import { describe, test, expect, beforeEach, afterEach, afterAll } from "bun:test";
+import { TIME_SLACK_ENV, parseForcedSlack } from "../../../../../shared/test-time-slack";
 
 // Minimal browser-ish globals so the module imports without blowing up under
 // bun:test. syncCrossTab is imported by syncServer (for getTabId), and it
@@ -325,7 +326,27 @@ describe("syncServer — re-arm the push after a WS drop", () => {
    * 289391a3: red on the board, green everywhere else). Polling ends the
    * moment the push lands and only spends the budget on the way to a red.
    */
-  const waitFor = async (ready: () => boolean, budgetMs = 10_000): Promise<void> => {
+  /*
+   * AND THE BUDGET IS SCALED WITH THE MACHINE.
+   *
+   * The polling above is right, but the ceiling was still a constant sized on
+   * a quiet box, and it gives up SILENTLY: when the budget runs out the loop
+   * just returns and the assertion reads a push that never landed, blaming
+   * the code for what was only a slow machine. That is how "one edit is one
+   * PUT" went red in the sharded round on card 30f55ca9 (13m29, plan already
+   * reduced) on a diff that does not load this file, and green on its own.
+   * The runner measures how far behind the machine is and hands the factor
+   * down; see shared/test-time-slack.ts.
+   */
+  /* `?? 1`: parseForcedSlack answers null when the env is unset, and a missing
+   * factor means "this machine is fine", not "wait zero". */
+  const SLACK = parseForcedSlack(process.env[TIME_SLACK_ENV]) ?? 1;
+  const WAIT_BUDGET_MS = Math.round(10_000 * SLACK);
+  /* The per-test ceiling moves with the budget, or the widened wait would just
+   * trade a clean red for a timeout at the old 20 s. */
+  const TEST_CEILING_MS = Math.round(20_000 * SLACK);
+
+  const waitFor = async (ready: () => boolean, budgetMs = WAIT_BUDGET_MS): Promise<void> => {
     const deadline = Date.now() + budgetMs;
     while (!ready() && Date.now() < deadline) await sleep(25);
   };
@@ -381,7 +402,7 @@ describe("syncServer — re-arm the push after a WS drop", () => {
     // "at least one", so the second one has to have room to NOT happen.
     await sleep(200);
     expect(putCount).toBe(1);
-  }, 20_000);
+  }, TEST_CEILING_MS);
 
   test("an edit made just before the drop is pushed on the next open", async () => {
     editLocally();
@@ -395,7 +416,7 @@ describe("syncServer — re-arm the push after a WS drop", () => {
     await waitFor(() => putCount >= 1);
     await sleep(200);
     expect(putCount).toBe(1);
-  }, 20_000);
+  }, TEST_CEILING_MS);
 
   test("an open with nothing owed does not push", async () => {
     // No edit at all: a plain reconnect must stay silent, or every WS blip
@@ -420,5 +441,5 @@ describe("syncServer — re-arm the push after a WS drop", () => {
     await waitFor(() => ourCalls().length >= 2);
     expect(ourCalls().length).toBe(2);
     expect(ourCalls()[1].aborted).toBe(false);
-  }, 20_000);
+  }, TEST_CEILING_MS);
 });

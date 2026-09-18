@@ -117,7 +117,18 @@ const layout = (paneId: string) => ({
 // naive "debounce plus a bit" because under a busy fleet (many agents'
 // test:unit shards sharing the machine) the event loop can lag the clock
 // by seconds, not milliseconds, and a too-tight wait flakes.
-const settle = () => new Promise((r) => setTimeout(r, 2500));
+//
+// AND THE MARGIN IS SCALED, like the budget below it.
+//
+// This was the last fixed sleep in the file: `BUDGET_MS` already multiplies
+// its base by the factor the runner measures, this one did not, so under a
+// fleet the 500 ms debounce timer could still be pending when the 2500 ms
+// elapsed and the assertion read a state that had not happened yet. Three
+// tests here went red that way on card 30f55ca9 (2026-09-15, sharded round
+// at 13m23 with the plan already reduced), all green run alone straight
+// after, on a diff that touches no file they load.
+const SETTLE_MS = Math.round(2500 * (parseForcedSlack(process.env[TIME_SLACK_ENV]) ?? 1));
+const settle = () => new Promise((r) => setTimeout(r, SETTLE_MS));
 
 /**
  * WAITING FOR THE CONDITION BEATS WAITING FOR THE CLOCK.
