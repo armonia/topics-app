@@ -14,7 +14,17 @@
           "breaking": false
         },
         {
+          "it": "Un EPIPE sul socket dell'AI Bridge uccideva il server, e sembrava una suite rossa",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "devalue 5.9.0 -> 5.9.2 nella landing: un avviso nuovo teneva rosso il cancello di TUTTI",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una riga del registro non era una migration, e la scopa cercava il numero sbagliato",
           "en": "",
           "scope": null
         }
@@ -577,7 +587,22 @@
       "perf": [],
       "internal": [
         {
+          "it": "Una conferma per CARD, e la traccia di un invio rifiutato non e' una risposta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La descrizione del cancello parlava ancora solo di altre sessioni",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Il filone engine alternativi si chiude: WKProcessPool e' inerte e Obscura non ha una finestra",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Due richieste di invio potevano essere in volo sulla stessa card",
           "en": "",
           "scope": null
         },
@@ -588,6 +613,11 @@
         },
         {
           "it": "Il banco misurava il rumore della macchina: serve il filtro sul comando, non solo il pid",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fuori dalla board la domanda generica uccideva ancora la conferma",
           "en": "",
           "scope": null
         },
@@ -605,6 +635,11 @@
           "it": "Il tetto sulla durata di un'attesa lo leggeva solo chi ridichiarava l'attesa",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "In chat il si' arrivava alla sessione, non alla domanda che l'aveva chiesto",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -618,7 +653,62 @@
       "perf": [],
       "internal": [
         {
+          "it": "Una domanda vecchia nel registro rendeva muta ogni conferma dopo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La riga su cui si dipinge la domanda si scrive con 15 s di ritardo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chi conferma vincola i BYTE, e sulla porta di Google non legge base64",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il delta diceva una proprieta' che il codice non aveva",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un base64 che non e' un messaggio non e' una domanda vuota",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'envelope non diceva ne' i byte congelati ne' la porta chiusa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La traccia di una scrittura Google che porta un messaggio ora ha il suo test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello della lingua legge la traccia citata come prosa italiana",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il congelamento non vincolava i byte, e la porta di Google aveva quattro slot liberi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello del codice morto non conosceva mkfifo, che il test della FIFO usa per esistere",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Le fixture di ps non portano piu' la home di chi lavora in un repo pubblico",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il si' era legato al task, e la finestra dopo il si' non era microsecondi",
           "en": "",
           "scope": null
         }
@@ -635,6 +725,11 @@
       "internal": [
         {
           "it": "La parola nuda la tiene l'app installata, poi il bundle, poi il binario: e l'ordine delle righe non decide piu'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un ciclo di import che oggi funziona e' una proprieta' del codice, non del disegno",
           "en": "",
           "scope": null
         },
@@ -665,6 +760,31 @@
         },
         {
           "it": "La regola della consigliata sta anche nell'envelope di ripresa, con il cancello che la pretende",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un link simbolico esce dalla cartella con un percorso impeccabile",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il runtime nativo registra i tool col nome NUDO, e il cancello cercava il prefisso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Una risposta del server non e' un socket caduto, e ri-mandarla e' un secondo messaggio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il difetto ereditato non era riparato: il cancello lo aggirava solo per se'",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le regole che i quattro difetti hanno scoperto, scritte nel delta",
           "en": "",
           "scope": null
         }
@@ -731,7 +851,27 @@
           "scope": null
         },
         {
+          "it": "Un invio non parte perche' l'agente lo ha deciso: parte perche' una persona ha detto si' a QUEL messaggio",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Una quota tarata su un denominatore mai letto non e' una misura, e un freno senza uscita non e' un freno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Senza USER la CLI non chiede la Keychain: aspetta, e un'attesa non si distingue da una rete lenta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La variabile del client OAuth e' un FILE, e la variabile della CLI che prende un file vuole un altro file",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Chi conferma deve poter LEGGERE il messaggio, e `watch` non e' una lettura",
           "en": "",
           "scope": null
         },

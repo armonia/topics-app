@@ -6,7 +6,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - **e2e** · aggiorna durate shard dal nightly del 2026-09-18 [skip ci]
+- Un EPIPE sul socket dell'AI Bridge uccideva il server, e sembrava una suite rossa
 - devalue 5.9.0 -> 5.9.2 nella landing: un avviso nuovo teneva rosso il cancello di TUTTI
+- Una riga del registro non era una migration, e la scopa cercava il numero sbagliato
 
 ## 2.2.353 — 2026-09-17
 
@@ -145,28 +147,50 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **chat** · don't pin to bottom on height growth inside a user gesture window
 
 ### Sotto il cofano
+- Una conferma per CARD, e la traccia di un invio rifiutato non e' una risposta
+- La descrizione del cancello parlava ancora solo di altre sessioni
 - Il filone engine alternativi si chiude: WKProcessPool e' inerte e Obscura non ha una finestra
+- Due richieste di invio potevano essere in volo sulla stessa card
 - Playwright WebKit e' PIU' PESANTE di Chromium headless: 140 MB contro 82 per pane
 - Il banco misurava il rumore della macchina: serve il filtro sul comando, non solo il pid
+- Fuori dalla board la domanda generica uccideva ancora la conferma
 - Il pavimento di memoria non aspetta una persona: aspetta per sempre
 - L'inattivita' di un task la misurava il chip che il dispatcher riscrive ogni 60 s
 - Il tetto sulla durata di un'attesa lo leggeva solo chi ridichiarava l'attesa
+- In chat il si' arrivava alla sessione, non alla domanda che l'aveva chiesto
 
 ## 2.2.338 — 2026-09-16
 
 ### Sotto il cofano
+- Una domanda vecchia nel registro rendeva muta ogni conferma dopo
+- La riga su cui si dipinge la domanda si scrive con 15 s di ritardo
+- Chi conferma vincola i BYTE, e sulla porta di Google non legge base64
+- Il delta diceva una proprieta' che il codice non aveva
+- Un base64 che non e' un messaggio non e' una domanda vuota
+- L'envelope non diceva ne' i byte congelati ne' la porta chiusa
+- La traccia di una scrittura Google che porta un messaggio ora ha il suo test
+- Il cancello della lingua legge la traccia citata come prosa italiana
+- Il congelamento non vincolava i byte, e la porta di Google aveva quattro slot liberi
+- Il cancello del codice morto non conosceva mkfifo, che il test della FIFO usa per esistere
 - Le fixture di ps non portano piu' la home di chi lavora in un repo pubblico
+- Il si' era legato al task, e la finestra dopo il si' non era microsecondi
 
 ## 2.2.336 — 2026-09-16
 
 ### Sotto il cofano
 - La parola nuda la tiene l'app installata, poi il bundle, poi il binario: e l'ordine delle righe non decide piu'
+- Un ciclo di import che oggi funziona e' una proprieta' del codice, non del disegno
 - bloat-baseline: la versione di main, rigenerata con le righe di questo ramo
 - Il docstring della porta elencava tre casi su quattro
 - Con i magazzini pieni lo swap si dice sostenuto anche solo dalle pagine rilette dal disco
 - La seconda porta dello swap chiede anche che il debito non stia calando
 - Chi non tiene la parola dice DOVE gira, non «comando»: con tre famiglie sullo stesso nome un suffisso solo non bastava
 - La regola della consigliata sta anche nell'envelope di ripresa, con il cancello che la pretende
+- Un link simbolico esce dalla cartella con un percorso impeccabile
+- Il runtime nativo registra i tool col nome NUDO, e il cancello cercava il prefisso
+- Una risposta del server non e' un socket caduto, e ri-mandarla e' un secondo messaggio
+- Il difetto ereditato non era riparato: il cancello lo aggirava solo per se'
+- Le regole che i quattro difetti hanno scoperto, scritte nel delta
 
 ## 2.2.335 — 2026-09-16
 
@@ -181,7 +205,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Input trattenuto adesso batte una perdita vecchia: la fascia non manda piu' a riscrivere una riga che si ricuce
 - La configurazione si rilegge a ogni avvio del server, non solo alla partenza dello script
 - usePaneOrdering nel `_comment` del cancello: nuovo offender a 809, non +9
+- Un invio non parte perche' l'agente lo ha deciso: parte perche' una persona ha detto si' a QUEL messaggio
 - Una quota tarata su un denominatore mai letto non e' una misura, e un freno senza uscita non e' un freno
+- Senza USER la CLI non chiede la Keychain: aspetta, e un'attesa non si distingue da una rete lenta
+- La variabile del client OAuth e' un FILE, e la variabile della CLI che prende un file vuole un altro file
+- Chi conferma deve poter LEGGERE il messaggio, e `watch` non e' una lettura
 - Il nome nudo va all'app installata, non a qualunque cosa viva dentro un bundle
 - Il cancello di parita' ancora anche la meta' della 5-bis che l'agente legge davvero
 - La porta di una chat-pane si apre solo su una finestra che c'e' gia'
