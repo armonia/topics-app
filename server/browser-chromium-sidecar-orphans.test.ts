@@ -28,7 +28,10 @@ import { killByUserDataDir } from "./browser-chromium-sidecar";
 const row = (pid: number, ppid: number, command: string) => `${pid} ${ppid} ${command}`;
 
 const CHROME = "/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
-const PROFILE = "/tmp/topics-sidecar-profile";
+// DATA, not a directory: it appears inside fake `ps` lines and is only compared
+// with the one on other, equally fake lines. These tests create nothing on disk,
+// so there is nothing to isolate between two parallel runs.
+const PROFILE = "/tmp/topics-sidecar-profile"; // allow-shared-tmp: a string in fake ps lines, no directory is created
 
 describe("the cleanup of a failed launch", () => {
   test("takes the top process AND the helpers, which killing the child misses", () => {
