@@ -325,6 +325,22 @@ export class AiBridgeClient {
     // «daemon morto» — per i waiter (vedi `arm`) e per il watchdog.
     socket.on("data", () => { this.lastByteAt = Date.now(); });
     const rl = createInterface({ input: socket });
+    // THE READLINE RE-EMITS THE SOCKET'S ERROR, AND NOBODY WAS LISTENING.
+    //
+    // Bun from 1.3.8, like Node since v20, forwards every `error` of the input
+    // stream onto the `Interface` itself. An `error` with no listener is
+    // rethrown from `emit`, and this process has no `uncaughtException`
+    // handler: a single `write EPIPE` here, the daemon hanging up while a
+    // frame is in flight, took the server down instead of starting the
+    // reconnect that `close` ten lines below already knows how to do.
+    //
+    // Measured, not deduced: CI run 35269750073, job 105366102078 of
+    // 2026-09-17 at 20:20:37, test server dead with exit code 1 one line after
+    // `[AI Bridge] socket closed - reconnecting`. Playwright reported it as
+    // 68 failed and 235 never run, i.e. a crash wearing a red suite's costume.
+    // The PTY bridge had already been cured of this (routes/terminal.ts), this
+    // client had not.
+    rl.on("error", () => { /* handled on the socket itself, see below */ });
     rl.on("line", (line: string) => {
       let msg: any;
       try { msg = JSON.parse(line); } catch { return; }

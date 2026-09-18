@@ -161,6 +161,11 @@ export function createWebrtcBridge(): WebrtcBridge {
       peers.clear();
     });
     const rl = createInterface({ input: s });
+    // Same reason spelled out in full in `lib/ai-bridge-client.ts`: the
+    // readline re-emits the socket's error on itself, and an `error` with no
+    // listener is rethrown from `emit` all the way out of the process. The
+    // line above absorbs the original, this one absorbs the copy.
+    rl.on("error", () => {}); // the copy of the error already handled on the socket
     rl.on("line", onLine);
     // The sidecar emits {"t":"ready"} itself, but mark connected so the queue can
     // flush even if that line is missed after a reconnect.
