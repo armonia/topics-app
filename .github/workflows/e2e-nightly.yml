@@ -307,6 +307,40 @@ jobs:
     steps:
       # `always()` sopra + questa condizione: si segnala su qualunque esito non verde,
       # `cancelled` incluso — una nightly cancellata a meta' non e' una nightly passata.
+      # I NOMI DEI ROSSI, non il link a un run da aprire.
+      #
+      # La segnalazione funzionava e nessuno la leggeva: la issue #31 e' rimasta
+      # aperta dal 01/09 e ha accumulato DICIOTTO commenti identici, uno per
+      # notte, ognuno dei quali diceva «apri il run e guarda i job per shard».
+      # Diciotto inviti a fare un lavoro, e nessuno che dicesse QUALE test cade
+      # - che poi era sempre lo stesso, `bench-streaming.spec.ts`, scoperto solo
+      # il 19/09 da un censimento fatto a mano.
+      #
+      # I `results.json` degli shard sono gia' caricati come artifact per le
+      # durate: qui si scaricano e si legge chi e' rosso. Costa uno step e
+      # trasforma un invito in una risposta.
+      - name: Scarica i results.json degli shard
+        if: needs.e2e-full.result != 'success'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: e2e-results-nightly-shard-*
+          path: nightly-results
+        continue-on-error: true
+
+      - name: Estrai i nomi dei test rossi
+        if: needs.e2e-full.result != 'success'
+        id: rossi
+        continue-on-error: true
+        run: |
+          # `|| true` ovunque: questo step INFORMA, e un suo guasto non deve
+          # impedire alla issue di essere aperta. Meglio una segnalazione senza
+          # elenco che nessuna segnalazione.
+          {
+            echo "elenco<<FINE"
+            bun run scripts/e2e-failed-titles.ts nightly-results 2>/dev/null || echo "(elenco non disponibile: vedi il run)"
+            echo "FINE"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Segnala la nightly rossa (apri/aggiorna issue)
         if: needs.e2e-full.result != 'success'
         uses: actions/github-script@v7
@@ -314,14 +348,18 @@ jobs:
           # Via env e non interpolato nello script: `${{ }}` viene sostituito PRIMA che il
           # JS esista, quindi un valore col carattere sbagliato romperebbe la sintassi.
           NIGHTLY_RESULT: ${{ needs.e2e-full.result }}
+          NIGHTLY_FAILED: ${{ steps.rossi.outputs.elenco }}
         with:
           script: |
             const title = "E2E nightly rossa";
+            const falliti = (process.env.NIGHTLY_FAILED || "").trim();
             const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = [
               `La E2E nightly (suite completa, 4 shard) è fallita sul run [${context.runId}](${run}) — commit ${context.sha.slice(0, 7)}, esito \`${process.env.NIGHTLY_RESULT}\`.`,
               "",
-              "Quali scenari sono rossi si legge aprendo il run e guardando i job per shard. Il report HTML dei soli falliti è negli artifact `playwright-report-nightly-shard-N` (3 giorni di retention).",
+              falliti ? `**Rossi di stanotte:**\n\n\`\`\`\n${falliti}\n\`\`\`` : "Quali scenari sono rossi si legge aprendo il run e guardando i job per shard.",
+              "",
+              "Il report HTML dei soli falliti è negli artifact `playwright-report-nightly-shard-N` (3 giorni di retention).",
               "",
               "Questa suite copre ciò che il gate della PR esclude di proposito (`E2E_TIER=pr` con `grepInvert: /@nightly/`): crescita di heap/DOM/listener sulla sessione lunga, frame time del drag in kanban, latenza AI, sincronizzazione fra due finestre. Un rosso qui è coperto da nessun altro gate.",
               "",
