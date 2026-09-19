@@ -69,6 +69,9 @@
         // `build-client-publish.ts`, which its test does import.
         "scripts/build-client.ts!",
         "scripts/compose-release-manifest.ts!", // invoked by .github/workflows/tauri-release.yml
+        // Same shape: only .github/workflows/e2e-nightly.yml runs it, to name the
+        // red tests inside the issue instead of sending the reader to the run.
+        "scripts/e2e-failed-titles.ts!",
         "scripts/typecheck-*.ts!",
         // I banchi: uno per asse, si lanciano a mano (`bun run bench` li chiama
         // tutti, ma ognuno vive anche da solo) e nessuno li importa, quindi per
