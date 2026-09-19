@@ -1,10 +1,12 @@
 /**
- * The gate that counts the leftovers, tested on what it actually reported.
+ * The gate that counts the leftovers, tested on what it actually reports.
  *
- * `collect` is the whole gate: it reads the repo and returns one entry per
- * kind of leftover. The tests below run it against THIS repo, so they assert
- * the shape of what it finds rather than a fixture that could drift away from
- * git's real output.
+ * @covers RUNTIME-22
+ *
+ * `collect` is the whole gate: it reads the repo and returns one entry per kind
+ * of leftover. Each case below builds a throwaway repo, plants exactly one
+ * leftover and checks the gate sees it, so what is asserted is "it goes red
+ * when something is there" and not merely "it runs".
  */
 import { describe, expect, test } from "bun:test";
 import { $ } from "bun";

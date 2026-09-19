@@ -1039,3 +1039,45 @@ nel log.
 - **WHEN** il server viene riavviato
 - **THEN** il riavvio SHALL avvenire lo stesso, con l'ambiente di prima e una riga di log
 
+
+### Requirement: RUNTIME-22 — «Pulito» è un conteggio, non un giudizio di chi ha lavorato
+
+Il checkout SHALL poter essere dichiarato pulito solo da una MISURA, e la misura
+SHALL contare: rami oltre `main`, **stash**, worktree oltre il checkout
+principale, file non committati, commit non spinti.
+
+Gli stash SHALL essere contati esplicitamente. `git status` li dichiara puliti,
+quindi un controllo a occhio non li vede: è il buco da cui sono passati nove
+stash di agosto sopravvissuti a tre giri di «ho pulito tutto» nella stessa
+sessione del 19/09.
+
+Per ogni residuo il referto SHALL dire COSA c'è e COME toglierlo, e il rimedio
+SHALL archiviare (`git tag archive/<nome>`) invece di cancellare: la lista si
+pulisce e il lavoro resta raggiungibile. Un referto che dice solo «il repo è
+sporco» rimanda l'indagine a chi legge, che è il difetto di segnalazione già
+visto sulla nightly (issue #31, diciotto commenti «apri il run»).
+
+Il cancello NON SHALL dire niente sulle pull request aperte: una PR in attesa di
+review è lavoro in volo, non un residuo, e spingere a fonderla spingerebbe dalla
+parte sbagliata.
+
+NON SHALL girare nella catena dei cancelli statici né in CI: in CI il checkout è
+usa e getta e sarebbe sempre verde, in una worktree di consegna i rami esistono
+per forza e sarebbe sempre rosso. SHALL girare a fine turno, dove la domanda «è
+rimasto qualcosa» ha senso.
+
+#### Scenario: un repo senza residui
+- **WHEN** non ci sono rami oltre main, stash, worktree in più o file non committati
+- **THEN** il cancello SHALL uscire zero e non stampare nessun reperto
+
+#### Scenario: uno stash che git status non vede
+- **WHEN** esiste uno stash e `git status --porcelain` non stampa niente
+- **THEN** il cancello SHALL comunque uscire non-zero e nominare lo stash
+
+#### Scenario: il checkout principale non è un residuo
+- **WHEN** il repo ha una sola worktree, quella principale
+- **THEN** il cancello NON SHALL contarla: `git worktree list` la stampa sempre
+
+#### Scenario: il rimedio non perde lavoro
+- **WHEN** viene segnalato un ramo oltre main
+- **THEN** il rimedio SHALL nominare `git tag archive/...` prima della cancellazione
