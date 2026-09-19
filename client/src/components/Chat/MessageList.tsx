@@ -879,16 +879,16 @@ export function MessageList({
     for (const ritardo of OPEN_VERIFY_MS) {
       openVerifyTimersRef.current.push(window.setTimeout(() => {
         if (userTouchedRef.current) return;
-        // Un input dentro la lista ha già chiuso l'apertura (`markGesture`
-        // azzera la finestra su wheel, touch, pointerdown e tasti di scroll), e
-        // gli altri due pin dell'apertura lo rispettano; questi tre no. L'input
-        // che conta qui è il CLICK che apre una riga tool: il suo corpo fa
-        // crescere la lista, il residuo sotto legge migliaia di pixel, e un pin
-        // forzato 700 ms dopo l'apertura della chat buttava il lettore in fondo
-        // a ciò che aveva appena aperto. Peggio: quando il pin cadeva nel frame
-        // fra la crescita del DOM e l'aggiornamento delle misure di Virtuoso,
-        // Virtuoso calcolava un range vuoto per quell'offset, smontava la riga
-        // e la rimontava CHIUSA, cioè si richiudeva sotto il dito.
+        // An input inside the list already closed the opening (`markGesture`
+        // zeroes the window on wheel, touch, pointerdown and scroll keys), and
+        // the other two opening pins honour that; these three did not. The
+        // input that matters here is the CLICK that opens a tool row: its body
+        // grows the list, the residual below reads thousands of pixels, and a
+        // forced pin up to 1.4 s after the chat opened threw the reader to the
+        // end of what they had just opened. Worse, when the pin landed in the
+        // frame between the DOM growth and Virtuoso's size update, Virtuoso
+        // computed an empty range for that offset, unmounted the row and
+        // mounted it again closed: it snapped shut under the finger.
         if (openingUntilRef.current === 0) return;
         if (openPinnedForRef.current !== apertura) return;
         const el = scrollerElRef.current;

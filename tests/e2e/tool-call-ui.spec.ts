@@ -345,8 +345,32 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
     const fresh = await createTopic(request, "Tool Stay Open " + Date.now());
     const sk = `topic:${fresh.id.slice(0, 8)}`;
     try {
+      // A LONG transcript, and that is the whole point of the fixture. With two
+      // messages the list is shorter than the viewport, the residual below
+      // reads zero and the pin returns on its own `residuo <= 1` guard: the
+      // regression cannot show up and the test would pass with or without the
+      // fix (measured: it did, run 35455309731 on the branch without it).
+      // Forty messages put real scroll under the row, so an opening pin has
+      // somewhere to jump to.
+      const BACKLOG = 40;
+      let parent = "";
+      for (let i = 0; i < BACKLOG; i++) {
+        const u = await seedMessage(request, {
+          sessionKey: sk, role: "user", content: `Question number ${i}`,
+          timestamp: new Date(Date.now() - (BACKLOG - i) * 4000).toISOString(),
+        });
+        const a = await seedMessage(request, {
+          sessionKey: sk, role: "assistant", parentId: u.id,
+          content: `Answer number ${i}. ${"Filler text. ".repeat(12)}`,
+          timestamp: new Date(Date.now() - (BACKLOG - i) * 4000 + 1000).toISOString(),
+        });
+        parent = a.id;
+      }
+      // The row under test is the LAST one, the one a reader opens at the
+      // bottom of a long history.
       const u = await seedMessage(request, {
         sessionKey: sk, role: "user", content: "Hi",
+        parentId: parent || undefined,
         timestamp: new Date(Date.now() - 3000).toISOString(),
       });
       await seedMessage(request, {
