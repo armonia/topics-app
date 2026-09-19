@@ -24,6 +24,8 @@ use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tao::window::WindowBuilder;
 use wry::dpi::{LogicalPosition, LogicalSize};
 use wry::{Rect, WebView, WebViewBuilder};
+#[cfg(all(unix, not(target_os = "macos")))]
+use tao::platform::unix::WindowExtUnix;
 
 #[cfg(target_os = "macos")]
 #[path = "views_mac.rs"]
@@ -31,6 +33,10 @@ mod views;
 
 #[cfg(windows)]
 #[path = "views_win.rs"]
+mod views;
+
+#[cfg(all(unix, not(target_os = "macos")))]
+#[path = "views_gtk.rs"]
 mod views;
 
 const PANE: Rect = rect(80.0, 80.0, 420.0, 300.0);
@@ -111,12 +117,12 @@ fn tick_every(proxy: tao::event_loop::EventLoopProxy<u32>, every: Duration) {
 
 fn main() {
     let arm = std::env::args().nth(1).unwrap_or_else(|| "z".to_string());
-    #[cfg(not(any(target_os = "macos", windows)))]
+    #[cfg(not(any(target_os = "macos", windows, all(unix, not(target_os = "macos")))))]
     {
-        println!("wkzprobe measures child webviews: macOS and Windows only (arm={arm})");
+        println!("wkzprobe measures child webviews: macOS, Windows and GTK only (arm={arm})");
         std::process::exit(2);
     }
-    #[cfg(any(target_os = "macos", windows))]
+    #[cfg(any(target_os = "macos", windows, all(unix, not(target_os = "macos"))))]
     {
         std::thread::spawn(|| {
             std::thread::sleep(Duration::from_secs(40));
@@ -297,10 +303,28 @@ fn child(
     born: Rc<RefCell<Vec<String>>>,
     bounds: Rect,
 ) -> WebView {
-    WebViewBuilder::new()
+    let builder = WebViewBuilder::new()
         .with_html(html(color, label))
         .with_ipc_handler(move |req| born.borrow_mut().push(req.body().to_string()))
-        .with_bounds(bounds)
-        .build_as_child(window)
-        .expect("child webview")
+        .with_bounds(bounds);
+
+    // THE SHELL'S ROAD, NOT A LOOKALIKE, and on Linux they are different roads.
+    //
+    // `build_as_child` gives a child window on macOS and Windows, which is what
+    // the shell gets there. On Linux the shell calls `window.add_child`, and
+    // tauri-runtime-wry 2.11.3 translates it to `build_gtk(default_vbox())`:
+    // wry `pack_start`s the webview into that GtkBox with NO child X11 window.
+    // A probe using `build_as_child` here would measure a road production never
+    // takes - that is the mistake that made the previous GTK probe worthless,
+    // and it is written down in `views_gtk.rs`.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        use wry::WebViewBuilderExtUnix;
+        let vbox = window.default_vbox().expect("tao window has a default vbox");
+        builder.build_gtk(vbox).expect("child webview")
+    }
+    #[cfg(not(all(unix, not(target_os = "macos"))))]
+    {
+        builder.build_as_child(window).expect("child webview")
+    }
 }
