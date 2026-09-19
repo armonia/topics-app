@@ -76,7 +76,7 @@ import { createCronRouter } from "./server/routes/cron";
 import { createContextRouter } from "./server/routes/context";
 import { createUsageRouter } from "./server/routes/usage";
 import { createOrphanCensusRunner } from "./server/services/orphan-census";
-import { createTerminalRouter, handleTerminalWebSocket, disconnectBridge, getAgentPtyCliPids, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds } from "./server/routes/terminal";
+import { createTerminalRouter, setTerminalMemPressure, handleTerminalWebSocket, disconnectBridge, getAgentPtyCliPids, getClaudeSessionsForDetection, getClaudeSessionPtyIdleMs, setTerminalBrowserCloser, countAttachedTerminalSessions, countBusyAgentTerminals, listTerminalSessionSnapshot, parkOrphanSessions, retireTerminalSession, liveTerminalCwds } from "./server/routes/terminal";
 import { createStatusRouter } from "./server/routes/status";
 import { createMemoryRouter } from "./server/routes/memory";
 import { createMcpRouter } from "./server/routes/mcp";
@@ -1537,6 +1537,13 @@ const memSignal = createMemSignal({
   store: fileMemSampleStore(join(resolveStateDir(process.cwd()), "mem-samples.json")),
 });
 void memSignal.sample();
+
+// La passata di parcheggio dei terminali stringe la soglia quando la macchina e'
+// al soffitto. `sustained` e' gia' la misura di «lo swap morde davvero» (due
+// porte, tarate sul log vero: vedi mem-signal.ts), quindi non se ne inventa una
+// seconda qui. Iniettato con un setter perche' questo segnale nasce dopo il
+// router; senza, la passata usa la soglia normale come sempre.
+setTerminalMemPressure(() => ({ atCeiling: memSignal.swap().sustained }));
 
 /**
  * CHI tiene la memoria quando non e' Topics: un solo `/bin/ps` al minuto, sul
