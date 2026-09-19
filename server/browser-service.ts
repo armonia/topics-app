@@ -25,6 +25,18 @@ import {
 } from "./browser-dom-walker";
 import { browserMarkArg } from "./lib/browser-orphan-sweep";
 import { reapOrphanBrowsersAtBoot } from "./services/browser-orphan-reap";
+import {
+  openCdpSession,
+  captureTargetId,
+  clearOriginStorage,
+  evaluateInPageGlobalScope,
+  onScreencastFrame,
+  ackScreencastFrame,
+  screencastParams,
+  startScreencast as cdpStartScreencast,
+  stopScreencast as cdpStopScreencast,
+  type ScreencastFramePayload,
+} from "./browser-cdp-surface";
 import { setBackgroundTree, type AgentOwnerTest, type BrowserContextOwner } from "./lib/low-priority";
 import { createBrowserQosGovernor, markedBrowserPid } from "./lib/browser-qos";
 
@@ -925,32 +937,21 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
   }
 
   // T1 DOM co-browse: (re)inject the rrweb record bundle + start into the CURRENT
-  // document via CDP Runtime.evaluate — NOT addScriptTag. addScriptTag inserts a
-  // real inline <script>, which the page's Content-Security-Policy refuses on most
-  // of the modern web (GitHub, Google, …: `script-src 'self'` with no
-  // 'unsafe-inline') → the bundle silently never runs, no rrweb events flow, and
-  // DOM mode falls back to video. Runtime.evaluate runs the code at page-global
-  // scope AS THE DEBUGGER (CSP-exempt), so the bundle's top-level `var rrweb`
-  // still becomes a real page global and recording starts everywhere. The recorder
-  // world matches the exposed __rrwebEmit binding (both main-world). Best-effort:
-  // about:blank / a mid-navigation page can reject — the next 'load' re-injects.
+  // document at page-global scope AS THE DEBUGGER — NOT addScriptTag, whose real
+  // inline <script> the page's Content-Security-Policy refuses on most of the
+  // modern web (GitHub, Google, …: `script-src 'self'` with no 'unsafe-inline'),
+  // so the bundle would silently never run, no rrweb events would flow, and DOM
+  // mode would fall back to video. The recorder world matches the exposed
+  // __rrwebEmit binding (both main-world). Best-effort: about:blank / a
+  // mid-navigation page can reject — the next 'load' re-injects.
+  // Engine portability of this injection: see browser-cdp-surface.ts, verdict (4).
   async function startRecordingNow(entry: BrowserContextEntry): Promise<void> {
     if (!entry.recorderCdp) {
-      entry.recorderCdp = await entry.context.newCDPSession(entry.page);
+      entry.recorderCdp = await openCdpSession(entry.context, entry.page);
     }
     const cdp = entry.recorderCdp;
-    const run = async (expression: string) => {
-      const res = (await cdp.send("Runtime.evaluate", {
-        expression,
-        returnByValue: false,
-        awaitPromise: false,
-      })) as { exceptionDetails?: { text?: string; exception?: { description?: string } } };
-      if (res.exceptionDetails) {
-        throw new Error(res.exceptionDetails.exception?.description || res.exceptionDetails.text || "rrweb eval error");
-      }
-    };
-    await run(RRWEB_RECORD_BUNDLE);
-    await run(RRWEB_RECORD_START);
+    await evaluateInPageGlobalScope(cdp, RRWEB_RECORD_BUNDLE);
+    await evaluateInPageGlobalScope(cdp, RRWEB_RECORD_START);
   }
 
   // Bind the rrweb host plumbing to a context's page — ONCE. Deliberately does NOT
@@ -1110,21 +1111,13 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     // 2. localStorage e IndexedDB, un origin alla volta. Via CDP e non con una
     //    evaluate, perché l'origin da svuotare quasi mai è quello della pagina
     //    aperta: `Storage.clearDataForOrigin` ci arriva senza doverci navigare.
+    // What dropping the CDP call would cost: browser-cdp-surface.ts, verdict (5).
     const origins = originsOfSilos(state, names);
     if (origins.length > 0) {
-      let session: Awaited<ReturnType<BrowserContext["newCDPSession"]>> | null = null;
       try {
-        session = await entry.context.newCDPSession(entry.page);
-        for (const origin of origins) {
-          await session.send("Storage.clearDataForOrigin", {
-            origin,
-            storageTypes: "local_storage,indexeddb",
-          });
-        }
+        await clearOriginStorage(entry.context, entry.page, origins);
       } catch (err: any) {
         console.warn(`[BrowserService] purgeLiveSilos origins failed:`, err?.message ?? err);
-      } finally {
-        if (session) await session.detach().catch(() => {});
       }
     }
     // 3. La pagina APERTA su uno dei silo. Il renderer tiene la sua copia di
@@ -1212,13 +1205,8 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
           const page = await context.newPage();
           // Capture the CDP targetId (agent routing) — same as the default path.
           try {
-            const session = await context.newCDPSession(page);
-            try {
-              const info = (await session.send("Target.getTargetInfo")) as { targetInfo: { targetId: string } };
-              if (info?.targetInfo?.targetId) targetIds.set(id, info.targetInfo.targetId);
-            } finally {
-              await session.detach().catch(() => {});
-            }
+            const targetId = await captureTargetId(context, page);
+            if (targetId) targetIds.set(id, targetId);
           } catch (err: any) {
             console.warn(`[BrowserService] chromium targetId capture failed for ${id}:`, err.message);
           }
@@ -1294,19 +1282,13 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         const page = await context.newPage();
 
         // Capture explicit targetId via CDP (replaces the legacy DOM title-marker hack).
+        // Who consumes it, and why it does not need a non-Chromium equivalent:
+        // browser-cdp-surface.ts, verdict (6).
         try {
-          const session = await context.newCDPSession(page);
-          try {
-            const info = await session.send("Target.getTargetInfo") as { targetInfo: { targetId: string } };
-            if (info?.targetInfo?.targetId) {
-              targetIds.set(id, info.targetInfo.targetId);
-              console.log(`[BrowserService] Captured targetId for ${id}: ${info.targetInfo.targetId}`);
-            }
-          } finally {
-            // This session exists only to read the targetId — detach it so it
-            // doesn't linger attached to the page for the whole context lifetime.
-            // Detach failure is non-fatal (the context may already be closing).
-            await session.detach().catch(() => {});
+          const targetId = await captureTargetId(context, page);
+          if (targetId) {
+            targetIds.set(id, targetId);
+            console.log(`[BrowserService] Captured targetId for ${id}: ${targetId}`);
           }
         } catch (err: any) {
           // Non-fatal: getTargetId() will fall back to /json/list query.
@@ -1783,15 +1765,11 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       const session = screencastSessions.get(id);
       if (session) {
         try {
-          await session.cdpSession.send("Page.stopScreencast");
-          await session.cdpSession.send("Page.startScreencast", {
-            format: session.opts?.format ?? "jpeg",
-            // At >1× the frame carries ~4× the pixels — trim quality to hold the band.
-            quality: session.opts?.quality ?? (effectiveDsf > 1 ? 60 : 70),
-            maxWidth: session.opts?.maxWidth ?? Math.round(width * effectiveDsf),
-            maxHeight: session.opts?.maxHeight ?? Math.round(height * effectiveDsf),
-            everyNthFrame: session.opts?.everyNthFrame ?? 2,
-          });
+          await cdpStopScreencast(session.cdpSession);
+          await cdpStartScreencast(
+            session.cdpSession,
+            screencastParams(session.opts, width, height, effectiveDsf),
+          );
         } catch (err: any) {
           // Page/browser closing mid-resize — non-fatal, the old stream (or its
           // teardown path) still owns cleanup.
@@ -1946,12 +1924,12 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       }
 
       const entry = await service.getOrCreate(id);
-      const cdpSession = await entry.context.newCDPSession(entry.page);
+      const cdpSession = await openCdpSession(entry.context, entry.page);
 
-      cdpSession.on("Page.screencastFrame", async (payload: { data: string; sessionId: number; metadata: { timestamp?: number; pageScaleFactor?: number; deviceWidth?: number; deviceHeight?: number } }) => {
+      onScreencastFrame(cdpSession, async (payload: ScreencastFramePayload) => {
         // ACK first to keep frames flowing.
         try {
-          await cdpSession.send("Page.screencastFrameAck", { sessionId: payload.sessionId });
+          await ackScreencastFrame(cdpSession, payload.sessionId);
         } catch (err: any) {
           // ACK can fail if the session/page closed mid-frame — non-fatal.
           console.warn(`[BrowserService] screencastFrameAck failed for ${id}:`, err.message);
@@ -1975,25 +1953,13 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         }
       });
 
-      // Defaults match BROWSER-CHAT-02 budget:
-      //   - format jpeg + quality 70 → ~500kbps - 1.5Mbps (target band)
-      //   - everyNthFrame 2 → effective 30 → 15 FPS (Nyquist floor)
-      //   - maxWidth/maxHeight clamp to viewport (no upscale)
+      // Defaults match the BROWSER-CHAT-02 budget (jpeg q70, everyNthFrame=2 → a
+      // 15 FPS floor) and the HiDPI clamp — both live in screencastParams, which
+      // resize() reuses so a restarted stream keeps the same shape.
       const viewport = entry.page.viewportSize() || { width: 1280, height: 720 };
-      // HiDPI: the page is rendered at deviceScaleFactor backing-store size;
-      // clamping to viewport.width (CSS) would downscale that retina detail away.
-      // Clamp to width×dsf so the first frames are already sharp (resize() keeps
-      // them so on later size changes). deviceWidth in frame metadata stays CSS
-      // px (DIP), so click mapping is unaffected.
       const dsf = clampDsf(entry.deviceScaleFactor);
       try {
-        await cdpSession.send("Page.startScreencast", {
-          format: opts?.format ?? "jpeg",
-          quality: opts?.quality ?? (dsf > 1 ? 60 : 70),
-          maxWidth: opts?.maxWidth ?? Math.round(viewport.width * dsf),
-          maxHeight: opts?.maxHeight ?? Math.round(viewport.height * dsf),
-          everyNthFrame: opts?.everyNthFrame ?? 2,
-        });
+        await cdpStartScreencast(cdpSession, screencastParams(opts, viewport.width, viewport.height, dsf));
       } catch (err) {
         // startScreencast failed (page closed / browser disconnected in the
         // window between newCDPSession and this send) — detach the orphaned
@@ -2010,7 +1976,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       const winner = screencastSessions.get(id);
       if (winner) {
         winner.subscribers.add(onFrame);
-        try { await cdpSession.send("Page.stopScreencast"); } catch { /* best effort */ }
+        try { await cdpStopScreencast(cdpSession); } catch { /* best effort */ }
         await cdpSession.detach().catch(() => {});
         return;
       }
@@ -2029,7 +1995,7 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
       }
       // No viewers left (or a full teardown was requested): stop + detach.
       try {
-        await session.cdpSession.send("Page.stopScreencast");
+        await cdpStopScreencast(session.cdpSession);
       } catch (err: any) {
         console.warn(`[BrowserService] Page.stopScreencast failed for ${id}:`, err.message);
       }

@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-17",
+  "generated": "2026-09-19",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -2680,7 +2680,6 @@
       "buf"
     ],
     "server/browser-service.ts": [
-      "ScreencastOnFrame",
       "buf",
       "clampDsf",
       "dbs",
@@ -2688,7 +2687,6 @@
       "editable",
       "effectiveDsf",
       "handoff",
-      "screencastSessions",
       "txt"
     ],
     "server/browser-session-handoff.heavy.test.ts": [

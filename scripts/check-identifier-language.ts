@@ -108,6 +108,15 @@ export const PROJECT_WORDS = new Set([
   // (2026-09-12, `components/Browser/hostedIframe.ts`).
   "iframe",
   "iframes",
+  // `screencast` is the name of the DevTools Protocol feature the remote
+  // browser pane streams with: the methods are literally `Page.startScreencast`,
+  // `Page.stopScreencast`, `Page.screencastFrameAck` and the event is
+  // `Page.screencastFrame`. A type or a variable holding one of those payloads
+  // has no other honest name, and the baseline already grandfathered two of them
+  // (`ScreencastOnFrame`, `screencastSessions`) rather than face the question.
+  // Naming it here retires that debt instead of extending it
+  // (2026-09-19, `server/browser-cdp-surface.ts`).
+  "screencast",
   // `ipv`: the prefix of the two internet protocol versions, as every RFC, the
   // Node API (`net.isIPv4`) and this project's own `isPrivateIpv4` already
   // spell it. A guard that tells the two apart has no other honest name
