@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.362",
+    "date": "2026-09-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il server non aveva rete sotto gli errori di I/O, e un EPIPE lo uccideva",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.361",
     "date": "2026-09-19",
     "sections": {

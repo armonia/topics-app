@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.362 — 2026-09-19
+
+### Sotto il cofano
+- Il server non aveva rete sotto gli errori di I/O, e un EPIPE lo uccideva
+
 ## 2.2.361 — 2026-09-19
 
 ### Sotto il cofano
