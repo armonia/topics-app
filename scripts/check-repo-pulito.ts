@@ -66,8 +66,14 @@ async function collect(): Promise<Leftover[]> {
     found.push({
       what: `${branches.length} ramo/i oltre main`,
       lines: branches,
+      // `report:branches` (scripts/branch-audit.ts) is the tool that decides
+      // WHICH of these can go: it compares content file by file, because
+      // delivery lands as a squash and `git branch --merged` calls a landed
+      // branch alive forever. This gate only counts them, and hands over.
       remedy:
-        "archivialo e toglilo:\n" +
+        "chiedi a chi sa quali sono davvero dentro:\n" +
+        "    bun run report:branches\n" +
+        "  poi, per ognuno da togliere, archivia prima di cancellare:\n" +
         "    git tag archive/$(echo <ramo> | tr / -) <ramo> && git branch -D <ramo>\n" +
         "  il lavoro resta raggiungibile: git branch <nome> archive/<nome>",
     });
