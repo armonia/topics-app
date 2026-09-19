@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * scripts/check-repo-pulito.ts - il lavoro e' finito quando NON RESTA NIENTE.
+ * scripts/check-repo-pulito.ts - the work is done when NOTHING IS LEFT.
  *
  * WHY IT EXISTS. On 19/09 the same instruction had to be repeated three times
  * in one session: "close and merge or clean up EVERYTHING". Each round ended
@@ -36,7 +36,7 @@
  */
 import { $ } from "bun";
 
-/** Un reperto trovato nel repo, con il modo di toglierlo. */
+/** One leftover found in the repo, with the way to remove it. */
 interface Reperto {
   cosa: string;
   righe: string[];
@@ -53,7 +53,7 @@ async function sh(cmd: string): Promise<string> {
   }
 }
 
-/** Ogni riga non vuota, senza spazi ai bordi. */
+/** Every non-empty line, trimmed. */
 function righe(s: string): string[] {
   return s.split("\n").map((r) => r.trim()).filter(Boolean);
 }
@@ -86,7 +86,7 @@ async function raccogli(): Promise<Reperto[]> {
     });
   }
 
-  // `git worktree list` stampa sempre il checkout principale: solo le altre contano.
+  // `git worktree list` always prints the main checkout: only the others count.
   const wt = righe(await sh("git worktree list")).slice(1);
   if (wt.length > 0) {
     trovati.push({
@@ -105,7 +105,7 @@ async function raccogli(): Promise<Reperto[]> {
     });
   }
 
-  // Solo se un upstream c'e': un main senza remoto non e' un reperto.
+  // Only when an upstream exists: a main without a remote is not a leftover.
   const upstream = await sh("git rev-parse --abbrev-ref main@{upstream} 2>/dev/null");
   if (upstream) {
     const avanti = await sh(`git rev-list --count ${upstream}..main`);
