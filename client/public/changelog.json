@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.360",
+    "date": "2026-09-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il terzo backend di wkzprobe e il workflow che lo misura dove GTK vive",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.359",
     "date": "2026-09-19",
     "sections": {
@@ -15,6 +31,11 @@
         },
         {
           "it": "Le due patch Obscura sono proposte upstream: il manifest lo dice",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto pressione di memoria una sessione ferma si parcheggia prima",
           "en": "",
           "scope": null
         }

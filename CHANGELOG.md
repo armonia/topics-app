@@ -2,11 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.360 — 2026-09-19
+
+### Sotto il cofano
+- Il terzo backend di wkzprobe e il workflow che lo misura dove GTK vive
+
 ## 2.2.359 — 2026-09-19
 
 ### Sotto il cofano
 - **e2e** · aggiorna durate shard dal nightly del 2026-09-19 [skip ci]
 - Le due patch Obscura sono proposte upstream: il manifest lo dice
+- Sotto pressione di memoria una sessione ferma si parcheggia prima
 
 ## 2.2.358 — 2026-09-18
 
