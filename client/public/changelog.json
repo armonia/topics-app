@@ -1,7 +1,29 @@
 [
   {
-    "version": "2.2.358",
+    "version": "2.2.359",
     "date": "2026-09-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-19 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Le due patch Obscura sono proposte upstream: il manifest lo dice",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.358",
+    "date": "2026-09-18",
     "sections": {
       "new": [],
       "fixes": [],
