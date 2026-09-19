@@ -358,7 +358,7 @@ function defaultLauncher(): SidecarLauncher {
         // at five). On the default configuration of this Mac the sidecar launch
         // always ends here, and every attempt used to leave one more tree. The
         // `--user-data-dir` the children carry is what lets us collect them.
-        killByUserDataDir(userDataDir);
+        killByUserDataDir(userDataDir, child.pid);
         kill();
         throw err;
       }
@@ -367,12 +367,23 @@ function defaultLauncher(): SidecarLauncher {
 }
 
 /**
- * Kills every process declaring this profile: the top one and its helpers.
+ * Kills OUR tree on this profile: the process we spawned and its descendants.
  *
  * Chromium helpers do not carry the mark (Chromium does not forward switches it
- * does not know) but they do carry their browser's `--user-data-dir`: it is the
- * same key `planBootSweep` rests on, used here on a profile we know is ours
- * because we just created it.
+ * does not know) but they do carry their browser's `--user-data-dir`, which is
+ * how they get collected.
+ *
+ * THE PROFILE ALONE IS NOT OWNERSHIP, and the first version of this function
+ * assumed it was. The sidecar profile is FIXED (`resolveAppDataDir()` +
+ * "chromium-sidecar") and so is the port, so two server instances share both by
+ * construction. Reproduced with two real Chromiums: the second one fails to get
+ * the port, enters this error path, and SIGKILLs the nine live processes of the
+ * first one's tree - somebody's browsing, closed by a launch that failed. The
+ * ownership guard on the port (`portOwnedBy`) is what sends the second instance
+ * down here, so the two guards together were worse than either alone.
+ *
+ * The ancestry check is the fix: same profile AND descended from the process we
+ * just spawned.
  *
  * Never throws: this is cleanup on a path that is already failing, and an error
  * here would bury the real one the caller is about to propagate.
@@ -381,17 +392,38 @@ function defaultLauncher(): SidecarLauncher {
  */
 export function killByUserDataDir(
   userDataDir: string,
+  ownPid: number | undefined,
   deps: { ps?: PsReader; kill?: (pid: number) => void } = {},
 ): number {
   const ps = deps.ps ?? defaultPsReader;
   const kill = deps.kill ?? ((pid: number) => process.kill(pid, "SIGKILL"));
+  // No pid, no sweep. The profile alone cannot tell our tree from somebody
+  // else's, and guessing here kills a live browser: see the note above.
+  if (ownPid === undefined) return 0;
   let killed = 0;
   try {
     const out = ps();
     if (!out) return 0;
-    for (const row of parseProcSnapshot(out)) {
+    const rows = parseProcSnapshot(out);
+    const parent = new Map(rows.map((r) => [r.pid, r.ppid]));
+    /** Is `pid` `ownPid`, or a descendant of it? Bounded: a recycled pid can
+     *  make the parent chain into a cycle, and a walk without a ceiling would
+     *  hang the cleanup path of a launch that is already failing. */
+    const isOurs = (pid: number): boolean => {
+      let cur: number | undefined = pid;
+      for (let hop = 0; cur !== undefined && hop < 12; hop++) {
+        if (cur === ownPid) return true;
+        cur = parent.get(cur);
+        if (cur === 1 || cur === 0) break;
+      }
+      return false;
+    };
+    for (const row of rows) {
       if (row.pid === process.pid) continue;
       if (userDataDirOf(row.command) !== userDataDir) continue;
+      // BOTH conditions, and the second one is the whole fix: the profile says
+      // "same profile", only the ancestry says "mine".
+      if (!isOurs(row.pid)) continue;
       try {
         kill(row.pid);
         killed++;
