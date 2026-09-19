@@ -2100,3 +2100,48 @@ fuori: li' non c'e' piu' un'interfaccia a cui consegnare niente.
 #### Scenario: se ne va la finestra che ospitava le pane
 - **GIVEN** una finestra in chiusura con le sue pane
 - **THEN** lo sgombero NON SHALL spostare il fuoco
+
+### Requirement: BROWSER-SIDECAR-EXT-01 — Il sidecar parte, anche quando l'utente ha quaranta estensioni
+
+Il numero di estensioni caricate nel sidecar SHALL avere un TETTO, e il tetto
+SHALL essere un numero assoluto piccolo, non una frazione delle installate.
+
+La ragione è il costo di avvio misurato il 18/09/2026
+(`spike/browser-engine-alt/sidecar-extension-cost.mjs`), con gli args veri di
+`defaultLauncher()`:
+
+    headless  ext= 0   CDP pronto in    1,5 s
+    headful   ext= 0   CDP pronto in    1,8 s
+    headful   ext= 1   CDP pronto in    2,4 s
+    headful   ext= 5   CDP pronto in   28,8 s
+    headful   ext=42   CDP pronto in  288,0 s
+
+`waitForCdpEndpoint` aspetta DIECI secondi. La crescita non è lineare: a cinque
+estensioni l'avvio ne prende già 28. Su una macchina con 42 estensioni
+installate il lancio NON falliva ogni tanto, non poteva mai riuscire, e ogni
+tentativo finiva nel ramo d'errore che uccide l'albero.
+
+Le estensioni escluse dal tetto NON SHALL sparire in silenzio: chi carica SHALL
+poter sapere quali sono rimaste fuori, e il registro SHALL nominarle invece di
+dire solo quante.
+
+Il contatore mostrato all'utente (`GET /api/browsers/engines`) SHALL riportare
+le estensioni che verranno CARICATE, non quelle installate: prima del tetto i
+due numeri coincidevano, ora no, e mostrare quello sbagliato prometterebbe
+estensioni che il sidecar non porta.
+
+#### Scenario: più estensioni del tetto
+- **WHEN** sulla macchina ce ne sono 42 e il tetto è 4
+- **THEN** ne SHALL essere caricate 4, e le altre 38 SHALL essere riportate come escluse
+
+#### Scenario: meno estensioni del tetto
+- **WHEN** ce ne sono 2 e il tetto è 4
+- **THEN** SHALL essere caricate tutte e 2, e nessuna SHALL risultare esclusa
+
+#### Scenario: tetto a zero
+- **WHEN** il tetto è 0
+- **THEN** NON SHALL essere caricata nessuna estensione, e il sidecar SHALL comunque poter partire
+
+#### Scenario: il badge non promette ciò che non arriva
+- **WHEN** 42 sono installate e 4 caricate
+- **THEN** il contatore dell'API SHALL dire 4

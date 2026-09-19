@@ -18,7 +18,7 @@
 
 import { browserMarkArg, parseProcSnapshot, userDataDirOf } from "./lib/browser-orphan-sweep";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
+import { cpus, homedir, loadavg } from "node:os";
 import { join } from "node:path";
 import { resolveAppDataDir } from "./lib/data-dir";
 
@@ -337,7 +337,7 @@ function defaultLauncher(): SidecarLauncher {
         }
       };
       try {
-        const cdpEndpoint = await waitForCdpEndpoint(port, 10000, child.pid);
+        const cdpEndpoint = await waitForCdpEndpoint(port, cdpWaitMs(), child.pid);
         return { cdpEndpoint, kill };
       } catch (err) {
         // `child.kill()` ALONE IS NOT ENOUGH HERE, and the difference showed.
@@ -477,6 +477,45 @@ const defaultPsReader: PsReader = () => {
  * the tool is absent. It removes a silent hijack, it does not add a new way to
  * be down.
  */
+/**
+ * HOW LONG TO WAIT FOR THE CDP ENDPOINT, given the machine we are on.
+ *
+ * It used to be a flat 10 s, and that number was a promise this machine could
+ * not keep. Measured on 19/09/2026 with the real launcher args and ZERO
+ * extensions, three runs back to back: 13.1 s, 21.2 s, 3.6 s. The spread is
+ * not the browser being erratic, it is the box: loadavg was 12.5 with Xcode
+ * compiling. Under the flat ceiling two of those three launches failed, and a
+ * failed launch is not free — it goes down the error path that kills the tree.
+ *
+ * So the wait grows with the load, and the shape is deliberately boring: the
+ * base for a quiet machine, doubled around one job per core, capped at four
+ * times. A ceiling that grows without limit is not a ceiling, and the point of
+ * having one is refusing a browser that is never coming.
+ *
+ * NOT `slackMs`: that one says in its own comment it is for tests only, and a
+ * product timer that grows with the load is a different decision from a test
+ * window. This is that decision, taken here, for this one wait.
+ *
+ * The base stays 10 s because on an idle machine the endpoint answers in about
+ * two (1.8 s headful with no extensions, measured 18/09): the base was never
+ * the problem, the rigidity was.
+ */
+const CDP_WAIT_BASE_MS = 10_000;
+const CDP_WAIT_MAX_FACTOR = 4;
+
+export function cdpWaitFactor(load: number, cores: number): number {
+  const perCore = load / Math.max(1, cores);
+  // 1x up to half a job per core, then linear, capped. `Number.isFinite`
+  // because loadavg() returns 0 on some platforms and NaN would silently
+  // become a wait of NaN ms, i.e. no wait at all.
+  if (!Number.isFinite(perCore) || perCore <= 0.5) return 1;
+  return Math.min(CDP_WAIT_MAX_FACTOR, 1 + perCore);
+}
+
+function cdpWaitMs(): number {
+  return Math.round(CDP_WAIT_BASE_MS * cdpWaitFactor(loadavg()[0] ?? 0, cpus().length));
+}
+
 async function waitForCdpEndpoint(
   port: number,
   timeoutMs = 10000,

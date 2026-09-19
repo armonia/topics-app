@@ -21,7 +21,7 @@
  */
 
 import { createChromiumSidecar, discoverChromiumEngines, type SidecarHandle } from "./browser-chromium-sidecar";
-import { discoverInstalledExtensions } from "./browser-chromium-extensions";
+import { discoverInstalledExtensions, pickSidecarExtensions } from "./browser-chromium-extensions";
 
 export type BrowserEngine = "native" | "chromium";
 
@@ -152,8 +152,30 @@ export function createBrowserEngineRegistry(deps: {
 // Chrome-family extensions (code) into its dedicated, PERSISTENT profile — the
 // user logs into them once inside the pane and the login sticks. Discovery is a
 // thunk → runs only when the first chromium pane actually launches, not at import.
+//
+// CAPPED SINCE 19/09/2026, and without the cap this feature was simply dead.
+// This thunk used to hand over EVERY extension it found: 42 on this machine,
+// which is a 288-second boot against the ten seconds `waitForCdpEndpoint`
+// waits (measured, see MAX_SIDECAR_EXTENSIONS). The launch did not fail
+// occasionally, it could never succeed — and every attempt went down the error
+// path that kills the tree. Four extensions that boot beat forty-two that
+// never do.
 export const chromiumSidecar = createChromiumSidecar({
-  loadExtensions: () => discoverInstalledExtensions().map((e) => e.path),
+  loadExtensions: () => {
+    const { load, skipped } = pickSidecarExtensions(discoverInstalledExtensions());
+    if (skipped.length > 0) {
+      // Said out loud, because the alternative is a user wondering where their
+      // extensions went. The names, not just the count: "38 skipped" sends the
+      // reader digging, which is the reporting failure issue #31 was made of.
+      console.log(
+        `[sidecar] ${load.length} estensioni caricate, ${skipped.length} lasciate fuori dal tetto ` +
+        `(avvio: 1 estensione 2,4s, 5 estensioni 28,8s, e il CDP si aspetta 10s). ` +
+        `Fuori: ${skipped.slice(0, 4).map((s) => `${s.ext.name || s.ext.id} (${s.why})`).join("; ")}` +
+        `${skipped.length > 6 ? ` e altre ${skipped.length - 6}` : ""}`,
+      );
+    }
+    return load.map((e) => e.path);
+  },
 });
 export const browserEngineRegistry = createBrowserEngineRegistry({ sidecar: chromiumSidecar });
 
@@ -175,7 +197,11 @@ export function chromiumEngineInfo(): ChromiumEngineInfo {
       chromium: {
         available: engines.length > 0,
         engine: engines[0]?.name ?? null,
-        extensions: discoverInstalledExtensions().length,
+        // The number the badge shows is the number that will actually LOAD,
+        // not the number installed. Before the cap the two were the same; now
+        // they differ (42 found, 4 loaded here) and showing the wrong one
+        // would promise the user extensions the sidecar never carries.
+        extensions: pickSidecarExtensions(discoverInstalledExtensions()).load.length,
       },
     };
   }
