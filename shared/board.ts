@@ -1645,6 +1645,20 @@ export function isCiEvidenceCheck(check: { cmd: string }): boolean {
 }
 
 /**
+ * How many check slots a board has. The reasoning for the NUMBER lives with the
+ * code that enforces it (`server/services/review-checks.ts`, which re-exports
+ * this); what lives here is the fact that the CARD AND THE PANEL read it too.
+ *
+ * It is here since 2026-09-19 because `BoardSettingsPanel` could not import it
+ * from the server and wrote `{checks.length}/5` by hand. The cap became six on
+ * 12/08/2026 and that literal did not: the live board declares six checks, so
+ * the counter next to the field has been reading "6/5" ever since - a limit the
+ * panel shows one BELOW the one actually enforced, on the exact field whose
+ * silent truncation is why the cap is written down at all.
+ */
+export const MAX_CHECKS = 6;
+
+/**
  * THE EXIT CODE THAT SAYS "I DID NOT MEASURE", not "you got it wrong".
  *
  * The gates that cannot even start use it: `typecheck-server.ts` when `tsc` is

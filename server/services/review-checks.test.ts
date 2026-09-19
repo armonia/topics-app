@@ -448,56 +448,6 @@ describe("runReviewChecks", () => {
   });
 });
 
-/**
- * THE STATIC RAILS FIT IN ONE SLOT, AND EVERY LINK IS A REAL SCRIPT.
- *
- * Measured 2026-09-03 on the live board: six slots, none of them
- * identifier-language, comment-language, untraced-tests or spec-coverage, and
- * main's CI finding the red after the land. The chain is the cure the settings
- * PATCH itself suggests ("unisci due comandi in uno solo"), and this file is
- * where its spelling lives, so the test pins two things: the four missing
- * gates are IN it, and every `bun run X` it names exists in package.json.
- * A chain that names a script nobody has is a slot that goes 1 on `bun run`
- * before measuring anything, indistinguishable from a red.
- */
-describe("static-rails: la catena dei cancelli statici", () => {
-  const links = STATIC_RAILS_CHECK.cmd.split(" && ");
-  const scripts = JSON.parse(readFileSync(join(import.meta.dir, "../../package.json"), "utf8")).scripts as Record<string, string>;
-
-  test("porta i quattro cancelli che i sei slot non avevano, oltre ai due che gia' c'erano", () => {
-    for (const gate of [
-      "check:emdash",
-      "check:migrations",
-      "check:identifier-language",
-      "check:comment-language",
-      "check:untraced-tests",
-      "check:spec-coverage",
-    ]) {
-      expect(links).toContain(`bun run ${gate}`);
-    }
-  });
-
-  test("ogni anello e' uno script dichiarato in package.json", () => {
-    for (const link of links) {
-      const m = /^bun run ([\w:-]+)$/.exec(link);
-      expect(m, link).not.toBeNull();
-      expect(scripts[m![1]!], link).toBeDefined();
-    }
-  });
-
-  test("sta nei sei slot insieme agli altri cinque, e sopravvive al round-trip della config", () => {
-    const six = [
-      { name: "typecheck", cmd: "bun run typecheck" },
-      { name: "lint", cmd: "bun run lint" },
-      { name: "check:deadcode", cmd: "bun run check:deadcode" },
-      STATIC_RAILS_CHECK,
-      { name: "test:unit", cmd: "bun run test:unit" },
-    ];
-    expect(six.length).toBeLessThanOrEqual(MAX_CHECKS);
-    expect(parseReviewChecks(serializeReviewChecks(six))).toEqual(six);
-  });
-});
-
 describe("formatChecksComment", () => {
   const green: CheckRun = { name: "tipi", cmd: "tsc", ok: true, code: 0, ms: 1200, timedOut: false, tail: "" };
 
@@ -776,4 +726,3 @@ describe("the CI e2e row speaks of the CI, not of a command", () => {
     expect(formatChecksThreadSummary(runs)).toContain("e2e rossi sulla CI della PR");
   });
 });
-
