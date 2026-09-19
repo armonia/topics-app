@@ -9,6 +9,18 @@ Thanks for your interest in contributing! Here's how you can help.
 3. Install dependencies: `bun install --frozen-lockfile`, then `(cd client && bun install --frozen-lockfile)`
 4. Build the client: `bun run build:client`
 5. Start the server: `bun run start`
+6. Install the git hooks: `bun run hooks:git`
+
+The hooks in step 6 are not optional decoration. `pre-push` refuses to publish
+commits carrying the client names that were removed from the history, and it
+prints what is still left in your checkout — branches beyond `main`, **stashes**,
+extra worktrees, uncommitted files. Stashes are the ones that bite: `git status`
+calls a repo with nine of them perfectly clean, which is how nine survived from
+August to 19/09 across three separate rounds of "everything is cleaned up".
+
+Run the count on its own with `bun run check:repo-pulito`. To find out which
+branches are genuinely already in `main` (delivery lands as a squash, so
+`git branch --merged` calls them alive forever), use `bun run report:branches`.
 
 ### Se il terminale non parte: `posix_spawnp failed`
 

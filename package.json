@@ -50,6 +50,7 @@
     "check:nul": "bun run scripts/check-nul-bytes.ts",
     "check:emdash": "bun run scripts/check-emdash.ts",
     "check:repo-pulito": "bun run scripts/check-repo-pulito.ts",
+    "hooks:git": "bash scripts/install-graphify-hooks.sh",
     "check:sidecars": "bun run scripts/check-tauri-sidecars.ts",
     "sidecars:sync": "bun run scripts/check-tauri-sidecars.ts --fix",
     "check:typography": "bun run scripts/check-typography.ts",
