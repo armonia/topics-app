@@ -1,9 +1,36 @@
 #!/usr/bin/env bash
 # Auto-installed by scripts/install-graphify-hooks.sh.
-# Refuse to publish commits carrying the names removed from the history.
-# The real logic is in scripts/check-push-clean.ts (tracked, and testable).
+#
+# Two things happen here, in this order, and only the first can refuse:
+#
+#  1. REFUSE to publish commits carrying the names removed from the history.
+#     The real logic is in scripts/check-push-clean.ts (tracked, and testable).
+#
+#  2. COUNT what is left in the checkout (scripts/check-repo-pulito.ts) and
+#     print it. It never blocks: a push is not the moment to argue, and a gate
+#     that blocks gets disabled. It prints because a push is the moment someone
+#     is about to say "done", and on 19/09 that claim was wrong three times in
+#     one session - nine stashes from August survived all three, since
+#     `git status` calls them clean.
+#
+# STDIN BELONGS TO THE FIRST ONE. git feeds the refs being pushed on stdin and
+# `check-push-clean.ts` reads them with `Bun.stdin.text()`; anything else that
+# runs before it, or inherits the same stdin, eats the list and leaves the
+# guard deciding on nothing. So the counter runs AFTER, with stdin closed.
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
-guard="$root/scripts/check-push-clean.ts"
-[ -f "$guard" ] || exit 0
 command -v bun >/dev/null 2>&1 || exit 0
-exec bun run "$guard" "${1:-origin}"
+
+guard="$root/scripts/check-push-clean.ts"
+if [ -f "$guard" ]; then
+  bun run "$guard" "${1:-origin}" || exit $?
+fi
+
+conta="$root/scripts/check-repo-pulito.ts"
+if [ -f "$conta" ] && [ "${TOPICS_PULITO_OK:-}" != "1" ]; then
+  if ! esito="$(cd "$root" && bun run "$conta" 2>&1 </dev/null)"; then
+    echo "── il push passa, ma nel checkout resta roba ──" >&2
+    echo "$esito" >&2
+  fi
+fi
+
+exit 0

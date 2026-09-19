@@ -35,7 +35,7 @@
   * @covers GATE-10
  */
 import { describe, it, expect } from "bun:test";
-import { readdirSync, readFileSync } from "fs";
+import { existsSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
 
 const REPO_ROOT = join(import.meta.dir, "../..");
@@ -59,8 +59,8 @@ const MOTIVI: Record<string, string> = {
     "committati. In CI `actions/checkout` costruisce un checkout usa e getta dove " +
     "niente di tutto cio' puo' esistere, quindi in CI sarebbe sempre verde e non " +
     "direbbe niente; in una worktree di consegna i rami ci sono per forza, quindi in " +
-    "`static-rails` sarebbe sempre rosso. Gira dove la domanda ha senso: a fine turno, " +
-    "dall'hook `~/.claude/hooks/repo-pulito.sh`, e a mano.",
+    "`static-rails` sarebbe sempre rosso. Gira da `scripts/git-hooks/pre-push`, cioe' " +
+    "nel momento in cui qualcuno sta per dire fatto, e stampa senza mai bloccare.",
   "check:lockfile":
     "versione «una botta sola» per l'umano (root, client, landing). In CI gli stessi tre " +
     "lockfile sono gia' coperti dai due install piu' il passo landing/ dedicato.",
@@ -220,6 +220,34 @@ describe("nomi degli script: cancelli e referti", () => {
       if (motivo.trim().length < 20) scadute.push(`${name}: il motivo e' troppo corto per essere un motivo`);
     }
     expect(scadute.join("\n")).toBe("");
+  });
+
+  it("a reason that names a file names an EXISTING one", () => {
+    // THE EXCUSE THAT TELLS ITSELF. On 19/09 the entry for `check:repo-pulito`
+    // claimed it ran "from the hook ~/.claude/hooks/repo-pulito.sh", and that
+    // hook was registered nowhere: file written, zero references in
+    // settings.json, zero anywhere else. The gate did not run and the
+    // derogation said the opposite - exactly the class of defect this file
+    // exists to catch, only moved inside the escape hatch.
+    //
+    // A reason is a promise about WHERE something runs. When it names a path
+    // inside the repo, that path must exist: it is the only part of the
+    // promise checkable from here.
+    const broken: string[] = [];
+    for (const [name, motivo] of Object.entries(MOTIVI)) {
+      // Repo paths quoted in backticks: `scripts/...`, `.github/...`.
+      for (const m of motivo.matchAll(/`((?:scripts|\.github|tests|server|client)\/[^`\s]+)`/g)) {
+        const rel = m[1];
+        if (!existsSync(join(REPO_ROOT, rel))) {
+          broken.push(
+            `${name}: il motivo dice che gira da \`${rel}\`, che non esiste.\n` +
+              `      O il file e' stato spostato e il motivo va aggiornato, o il motivo\n` +
+              `      non e' mai stato vero: in entrambi i casi il check non gira dove dice.`,
+          );
+        }
+      }
+    }
+    expect(broken.join("\n")).toBe("");
   });
 
   it("nessun referto entra in un workflow", () => {
