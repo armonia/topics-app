@@ -37,13 +37,13 @@
 import { $ } from "bun";
 
 /** One leftover found in the repo, with the way to remove it. */
-interface Reperto {
-  cosa: string;
-  righe: string[];
-  rimedio: string;
+interface Leftover {
+  what: string;
+  lines: string[];
+  remedy: string;
 }
 
-const TETTO_ELENCO = 12;
+const MAX_LISTED = 12;
 
 async function sh(cmd: string): Promise<string> {
   try {
@@ -54,31 +54,31 @@ async function sh(cmd: string): Promise<string> {
 }
 
 /** Every non-empty line, trimmed. */
-function righe(s: string): string[] {
+function lines(s: string): string[] {
   return s.split("\n").map((r) => r.trim()).filter(Boolean);
 }
 
-async function raccogli(): Promise<Reperto[]> {
-  const trovati: Reperto[] = [];
+async function collect(): Promise<Leftover[]> {
+  const found: Leftover[] = [];
 
-  const rami = righe(await sh("git branch --format='%(refname:short)'")).filter((b) => b !== "main");
-  if (rami.length > 0) {
-    trovati.push({
-      cosa: `${rami.length} ramo/i oltre main`,
-      righe: rami,
-      rimedio:
+  const branches = lines(await sh("git branch --format='%(refname:short)'")).filter((b) => b !== "main");
+  if (branches.length > 0) {
+    found.push({
+      what: `${branches.length} ramo/i oltre main`,
+      lines: branches,
+      remedy:
         "archivialo e toglilo:\n" +
         "    git tag archive/$(echo <ramo> | tr / -) <ramo> && git branch -D <ramo>\n" +
         "  il lavoro resta raggiungibile: git branch <nome> archive/<nome>",
     });
   }
 
-  const stash = righe(await sh("git stash list"));
+  const stash = lines(await sh("git stash list"));
   if (stash.length > 0) {
-    trovati.push({
-      cosa: `${stash.length} stash`,
-      righe: stash,
-      rimedio:
+    found.push({
+      what: `${stash.length} stash`,
+      lines: stash,
+      remedy:
         "archiviali e svuota la lista:\n" +
         "    git tag archive/stash-$(date +%Y%m%d)-$(git rev-parse --short stash@{0}) stash@{0}\n" +
         "    git stash clear\n" +
@@ -87,21 +87,21 @@ async function raccogli(): Promise<Reperto[]> {
   }
 
   // `git worktree list` always prints the main checkout: only the others count.
-  const wt = righe(await sh("git worktree list")).slice(1);
+  const wt = lines(await sh("git worktree list")).slice(1);
   if (wt.length > 0) {
-    trovati.push({
-      cosa: `${wt.length} worktree oltre il checkout principale`,
-      righe: wt,
-      rimedio: "git worktree remove --force <percorso>",
+    found.push({
+      what: `${wt.length} worktree oltre il checkout principale`,
+      lines: wt,
+      remedy: "git worktree remove --force <percorso>",
     });
   }
 
-  const sporchi = righe(await sh("git status --porcelain"));
-  if (sporchi.length > 0) {
-    trovati.push({
-      cosa: `${sporchi.length} file non committati`,
-      righe: sporchi,
-      rimedio: "committa, oppure mettili in .gitignore se non devono stare qui",
+  const uncommitted = lines(await sh("git status --porcelain"));
+  if (uncommitted.length > 0) {
+    found.push({
+      what: `${uncommitted.length} file non committati`,
+      lines: uncommitted,
+      remedy: "committa, oppure mettili in .gitignore se non devono stare qui",
     });
   }
 
@@ -110,15 +110,15 @@ async function raccogli(): Promise<Reperto[]> {
   if (upstream) {
     const avanti = await sh(`git rev-list --count ${upstream}..main`);
     if (avanti && avanti !== "0") {
-      trovati.push({
-        cosa: `main ha ${avanti} commit non spinti`,
-        righe: righe(await sh(`git log --oneline ${upstream}..main | head -5`)),
-        rimedio: "git push",
+      found.push({
+        what: `main ha ${avanti} commit non spinti`,
+        lines: lines(await sh(`git log --oneline ${upstream}..main | head -5`)),
+        remedy: "git push",
       });
     }
   }
 
-  return trovati;
+  return found;
 }
 
 if (import.meta.main) {
@@ -127,19 +127,19 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const trovati = await raccogli();
+  const found = await collect();
 
-  if (trovati.length === 0) {
+  if (found.length === 0) {
     console.log("[check-repo-pulito] solo main, niente stash, una worktree, niente da committare.");
     process.exit(0);
   }
 
   console.error("[check-repo-pulito] il repo non e' pulito:\n");
-  for (const r of trovati) {
-    console.error(`  ${r.cosa}`);
-    for (const riga of r.righe.slice(0, TETTO_ELENCO)) console.error(`      ${riga}`);
-    if (r.righe.length > TETTO_ELENCO) console.error(`      ... e altri ${r.righe.length - TETTO_ELENCO}`);
-    console.error(`    -> ${r.rimedio}\n`);
+  for (const r of found) {
+    console.error(`  ${r.what}`);
+    for (const line of r.lines.slice(0, MAX_LISTED)) console.error(`      ${line}`);
+    if (r.lines.length > MAX_LISTED) console.error(`      ... e altri ${r.lines.length - MAX_LISTED}`);
+    console.error(`    -> ${r.remedy}\n`);
   }
   console.error(
     "Niente di tutto questo va cancellato e basta: si archivia come tag `archive/...`,\n" +
@@ -149,4 +149,4 @@ if (import.meta.main) {
   process.exit(1);
 }
 
-export { raccogli, type Reperto };
+export { collect, type Leftover };
