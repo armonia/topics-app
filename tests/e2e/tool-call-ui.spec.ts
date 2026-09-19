@@ -328,6 +328,85 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
     }
   });
 
+  test("a row opened during the opening window does NOT snap shut under the finger", async ({ page, request }) => {
+    // THE REGRESSION THIS TEST EXISTS TO STOP. Opening a chat fires three
+    // delayed verification pins (`OPEN_VERIFY_MS` in MessageList.tsx), which
+    // bring the list back to the bottom when a piece of history lands late.
+    // They did not read `openingUntilRef`, the flag `markGesture` zeroes on the
+    // first input: a CLICK that opens a tool row grows the list body, the
+    // forced pin arrived while Virtuoso had not re-measured yet, Virtuoso
+    // computed an empty range for that offset and UNMOUNTED the row, mounting
+    // it again closed. The row snapped shut under the finger of the person who
+    // had just opened it.
+    //
+    // The click happens INSIDE the window and the assertion waits past the
+    // pins: the bug is invisible to a click-and-assert, because it strikes
+    // after. Without the guard in MessageList.tsx this lands on a closed row.
+    const fresh = await createTopic(request, "Tool Stay Open " + Date.now());
+    const sk = `topic:${fresh.id.slice(0, 8)}`;
+    try {
+      const u = await seedMessage(request, {
+        sessionKey: sk, role: "user", content: "Hi",
+        timestamp: new Date(Date.now() - 3000).toISOString(),
+      });
+      await seedMessage(request, {
+        sessionKey: sk,
+        role: "assistant",
+        parentId: u.id,
+        content: "Done.",
+        timestamp: new Date(Date.now() - 2000).toISOString(),
+        toolCalls: [{
+          id: "tc-stay",
+          name: "Bash",
+          args: { command: "echo hello" },
+          status: "success",
+          result: "hello",
+        }],
+      });
+
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(fresh.name));
+
+      const row = page.locator('[data-testid="tool-call-row-tc-stay"]');
+      await row.waitFor({ state: "visible", timeout: RENDER });
+      await row.locator("button").first().click();
+      await expect(row.locator('[data-testid="tool-call-result"]')).toContainText("hello");
+
+      // WHAT IS BEING MEASURED: the body is still open AFTER the opening pins
+      // have acted. The pins sit at 250, 700 and 1400 ms from the chat opening
+      // (`OPEN_VERIFY_MS` in MessageList.tsx), so the bug strikes AFTER the
+      // click: asserting straight away misses it, which is exactly why the test
+      // above stayed green while the row really did snap shut.
+      //
+      // This does NOT wait a duration, it waits for the FACT that a pin went
+      // through. A pin writes `scrollTop` on the scroller, so `expect.poll`
+      // watches that value until it has settled, the same handle
+      // `wheel-scroll.ts` uses. When the guard in MessageList is missing, it is
+      // this very movement that unmounts the row, and that is what the count
+      // below catches. If no pin ever comes (fast machine, list already at the
+      // bottom) the poll stops on the first stable value and the test carries
+      // on: the assertion holds either way.
+      const scroller = page.locator('[data-testid="chat-scroll-container"]').first();
+      let previous = -1;
+      let stable = 0;
+      await expect.poll(async () => {
+        const now = await scroller.evaluate((el) => el.scrollTop);
+        stable = now === previous ? stable + 1 : 0;
+        previous = now;
+        return stable;
+      }, { timeout: RENDER, intervals: [200] }).toBeGreaterThanOrEqual(8);
+      // Now the question means something: did the body survive the pins?
+      await expect(
+        row.locator('[data-testid="tool-call-result"]'),
+        "the row closed itself after the click: an opening pin unmounted it",
+      ).toHaveCount(1);
+      await expect(row).toContainText("$ echo hello");
+    } finally {
+      await deleteTopic(request, fresh.id);
+    }
+  });
+
   test("a tool call with 30 KB of args arrives as its head and opens whole", async ({ page, request }) => {
     // WIRE-09: the history wire carries of a tool call only what the CLOSED
     // row draws. A 30 KB script travels as its first 512 characters (the
