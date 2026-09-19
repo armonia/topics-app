@@ -54,6 +54,13 @@ const REFERTO_PREFIXES = ["report:", "probe:", "measure:", "bench:"];
  * (una voce che nel frattempo E' stata cablata fa rosso quanto un orfano).
  */
 const MOTIVI: Record<string, string> = {
+  "check:repo-pulito":
+    "misura il CHECKOUT, non il codice: rami oltre main, stash, worktree, file non " +
+    "committati. In CI `actions/checkout` costruisce un checkout usa e getta dove " +
+    "niente di tutto cio' puo' esistere, quindi in CI sarebbe sempre verde e non " +
+    "direbbe niente; in una worktree di consegna i rami ci sono per forza, quindi in " +
+    "`static-rails` sarebbe sempre rosso. Gira dove la domanda ha senso: a fine turno, " +
+    "dall'hook `~/.claude/hooks/repo-pulito.sh`, e a mano.",
   "check:lockfile":
     "versione «una botta sola» per l'umano (root, client, landing). In CI gli stessi tre " +
     "lockfile sono gia' coperti dai due install piu' il passo landing/ dedicato.",
