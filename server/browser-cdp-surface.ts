@@ -65,8 +65,8 @@
  *                               The portable route is a throwaway page navigated
  *                               to each origin running a clear script, which is
  *                               precisely what the CDP call was chosen to avoid
- *                               ("l'origin da svuotare quasi mai è quello della
- *                               pagina aperta"). Cost: one navigation per origin
+ *                               ("l'origin da svuotare quasi mai è quello della // allow-italian: quoting the existing comment in browser-service.ts
+ *                               pagina aperta"). Cost: one navigation per origin // allow-italian: same quotation, second line
  *                               on "forget this site", and origins that no longer
  *                               resolve cannot be cleared at all. Equivalent in
  *                               outcome, not in cost or in reliability.
