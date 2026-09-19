@@ -43,6 +43,10 @@ export { normalizeActionLabel, LAND_ACTION_LABEL } from '../../../shared/board';
 // stored before `notMeasured` existed carries only the code, and `exit 97` on
 // screen sends whoever reviews looking for a failure that is not there.
 export { NOT_MEASURED_EXIT } from '../../../shared/board';
+// How many check slots a board has. The settings panel wrote `/5` by hand and
+// the cap has been six since 12/08/2026, so the counter next to the field read
+// "6/5" on a board declaring six checks.
+export { MAX_CHECKS } from '../../../shared/board';
 export type {
   TaskStatus, TaskComment, CardComment, ReviewCheck, CheckRun, BoardSettings, BoardSettingsPatch, DispatchCapacity, DispatchAdmission, BlockerRef,
   LandingTicket,

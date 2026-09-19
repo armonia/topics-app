@@ -18,7 +18,7 @@ import { ChevronDown, PauseCircle, Sparkles } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { Select } from '../Shared/Select';
 import { Menu } from '../Shared/Menu';
-import { boardApi, type BoardSettings, type BoardSettingsPatch, type ReviewCheck } from '../../lib/board';
+import { MAX_CHECKS, boardApi, type BoardSettings, type BoardSettingsPatch, type ReviewCheck } from '../../lib/board';
 import { NightModeCard } from './NightModeCard';
 import { EFFORTS, FANOUT_CHOICES } from './constants';
 import { friendlyModelLabel } from './format';
@@ -357,7 +357,9 @@ function ReviewChecksField({ checks, onSave }: { checks: ReviewCheck[]; onSave: 
         title={tr('board.settings.checksTitle')}
       >
         <span>{tr('board.settings.checks')} <span className="text-app-text-muted">{tr('board.settings.oneCmdPerLine')}</span></span>
-        {checks.length > 0 && <span className="text-micro text-app-text-muted">{checks.length}/5</span>}
+        {/* The cap comes from `shared/board.ts`: written here by hand it said 5
+            while the server enforced 6, so a board with six checks showed 6/5. */}
+        {checks.length > 0 && <span className="text-micro text-app-text-muted">{checks.length}/{MAX_CHECKS}</span>}
       </label>
       <textarea
         value={text}

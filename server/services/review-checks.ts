@@ -22,7 +22,7 @@
 // Le FORME (comando dichiarato, esito) stanno in `shared/board.ts`: le legge
 // anche il client per renderizzare il gate. Qui resta l'esecuzione.
 export type { ReviewCheck, CheckRun } from "../../shared/board";
-import { NOT_MEASURED_EXIT, UNIT_CI_CHECK, isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
+import { MAX_CHECKS, NOT_MEASURED_EXIT, UNIT_CI_CHECK, isCiEvidenceCheck, type ReviewCheck, type CheckRun } from "../../shared/board";
 import { hasSlotWaiting, parseSlotAcquired } from "../../shared/slot-acquired";
 import { registerFreezableRun, type FreezableRun } from "./budget-governor";
 import { killCheckTree, memoryWaiter, throwIfInterrupted, throwIfStopping, type MemoryFloor } from "./review-checks-brakes";
@@ -49,8 +49,13 @@ import { lowPriorityArgv } from "../lib/low-priority";
  * Il costo si regge perche' i check sono SEQUENZIALI e ci si ferma al primo
  * rosso: la suite, che e' l'ultima e la sola lenta, gira solo quando le cinque
  * veloci sono passate.
+ *
+ * The number itself now lives in `shared/board.ts` and is re-exported here, so
+ * this doc stays next to the code that enforces it while the PANEL can show the
+ * same figure: it used to write `/5` by hand and had been showing a cap one
+ * below the real one since the day this became six.
  */
-export const MAX_CHECKS = 6;
+export { MAX_CHECKS };
 
 /**
  * THE STATIC RAILS, CHAINED INTO ONE SLOT.
@@ -77,16 +82,79 @@ export const MAX_CHECKS = 6;
  * is inferred). This constant is the ONE spelling of the chain, so the
  * settings hint, the tests and whoever fills a board's slots say the same
  * string instead of six drifting copies.
+ *
+ * THE SAME HOLE, FOUND AGAIN AT A DIFFERENT WIDTH (2026-09-19). The chain grew
+ * from six links to eleven on the live board while this constant stayed at six,
+ * and eleven is still not what the CI measures: the `Static guard rails` step of
+ * the `check` job runs EIGHTEEN `check:*`. Counted, name by name, the eight this
+ * chain did not have were `check:any`, `check:any-budget`,
+ * `check:ref-callbacks`, `check:nul`, `check:eslint-disable`,
+ * `check:typography`, `check:tmp-canonical` and `check:module-mock-restore`.
+ * Every one of them is a pure scan of the tracked files, deterministic, with no
+ * bundle, no browser, no database and no network: a card could deliver green on
+ * all eleven and turn main red on any of the eight, which is the same failure
+ * the paragraph above describes and the same reason it is not a choice.
+ *
+ * SO ALL EIGHT ARE IN, and the chain is nineteen links. The two the CI step runs
+ * and this chain will NOT repeat are named here so nobody adds them back
+ * thinking they were forgotten:
+ *  · `check:deadcode` is already a slot of its own on the board. Inside the
+ *    chain it would run twice per delivery, and it is the single slowest static
+ *    gate there is (a full knip pass).
+ *  · `check:security` is here as `--only=data,home,secrets` and in CI as
+ *    `--only=secrets,dependencies`, and that difference is deliberate on both
+ *    ends: `data`/`home` look for the name and home path of whoever commits, so
+ *    they mean something on this machine and nothing on a runner called
+ *    `runner`, while `dependencies` is the one piece that needs the network.
+ *    See the comment on that step in `.github/workflows/ci.yml`.
+ * Everything else in the `check` job is out for a reason that is not about this
+ * chain: `typecheck`, `lint` and the unit suite are slots of their own,
+ * `check:migrations` is here and a separate CI step, and the rest
+ * (`check:deadcode-blindspots`, `verify:phase30-strip`, `check:bundle`,
+ * `check:route-latency`, `check:scroll-fluidity`, `check:ink`, `check:drag`,
+ * `check:growth`) needs a built bundle or a bench, which is exactly the "CI
+ * pipeline in disguise" the cap exists to refuse.
+ *
+ * THE ORDER IS THE COST, ASCENDING, and that is the whole reason the eight were
+ * not simply appended. The chain stops at the first red, so the order decides
+ * how long an agent waits to be told which rail broke. Measured on 2026-09-19 in
+ * a worktree of this repo, on a Mac at load 24-38 (so these are ceilings, not
+ * typical): tmp-canonical 0.3s, module-mock-restore 0.6s, any 1.5s,
+ * ref-callbacks 6s, any-budget 11s, eslint-disable 11s, nul 58s,
+ * typography 68s. The eleven that were already here cost 167s together on the
+ * same machine, and they keep their relative order inside the tail: they are the
+ * ones a delivery breaks most often, and re-timing eleven links to shuffle them
+ * would be a change this measurement does not support.
+ *
+ * `review-checks.test.ts` pins the list, because a list that changes in silence
+ * is the thing that produced this comment twice.
  */
 export const STATIC_RAILS_CHECK: ReviewCheck = {
   name: "static-rails",
   cmd: [
+    // The eight the CI measured and the board did not, cheapest first: a red
+    // here comes back in under a second instead of after the slow tail.
+    "bun run check:tmp-canonical",
+    "bun run check:module-mock-restore",
+    "bun run check:any",
+    "bun run check:ref-callbacks",
+    "bun run check:any-budget",
+    "bun run check:eslint-disable",
+    // The eleven that were already on the live board, in the order they had.
     "bun run check:emdash",
     "bun run check:migrations",
     "bun run check:identifier-language",
     "bun run check:comment-language",
     "bun run check:untraced-tests",
     "bun run check:spec-coverage",
+    "bun run check:sleeps",
+    "bun run check:test-skips",
+    "bun run check:ui-language",
+    "bun run check:bloat",
+    "bun run check:security --only=data,home,secrets",
+    // The two slowest of the eight, last: by here everything cheap is green.
+    "bun run check:nul",
+    "bun run check:typography",
   ].join(" && "),
 };
 /** Righe di output tenute per ogni check. Bastano a vedere l'errore, non riempiono il DB. */
