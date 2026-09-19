@@ -50,14 +50,38 @@ fn packed(window: &tao::window::Window) -> Vec<gtk::Widget> {
         .collect()
 }
 
-/// Views are named by their width, which the probe chose to be different for
-/// each one, exactly as the other two backends do.
-fn role_of(width: i32) -> &'static str {
-    match width {
-        420 => "pane",
-        360 => "floater",
-        300 => "late",
+/// Views are named by the width the probe ASKED for, not by the width they got.
+///
+/// The other two backends read the allocated width, because on macOS and
+/// Windows a child webview is a window and has its size from birth. Under GTK
+/// it does not: until the box has run a layout pass every packed widget reads
+/// `-1 x -1` at `1x1`, and the first run of this probe on CI proved it - two
+/// views found, both `unknown`, every verdict `false` for a reason that had
+/// nothing to do with z order. That is a measurement artefact wearing the
+/// costume of a result, which is worse than no measurement.
+///
+/// So the role is taken from the ORDER the probe creates them in, which it
+/// controls: pane first, floater second, late third. `packed()` returns them in
+/// packing order, so the index IS the identity.
+fn role_at(index: usize) -> &'static str {
+    match index {
+        0 => "pane",
+        1 => "floater",
+        2 => "late",
         _ => "unknown",
+    }
+}
+
+/// Fa girare il main loop di GTK finche' ha eventi in coda, cosi' il layout
+/// esiste prima che qualcuno legga le allocazioni. Bounded: `events_pending`
+/// puo' restare vero per sempre se qualcosa continua a produrre eventi, e un
+/// ciclo senza tetto qui appenderebbe la sonda invece di misurarla.
+fn pump_layout() {
+    for _ in 0..200 {
+        if !gtk::events_pending() {
+            break;
+        }
+        gtk::main_iteration_do(false);
     }
 }
 
@@ -70,6 +94,13 @@ fn alloc(w: &gtk::Widget) -> (f64, f64, f64, f64) {
 /// Prints what is packed and where, so a reader can see the geometry that
 /// produced the verdict instead of trusting the verdict.
 pub fn report(window: &tao::window::Window, point: (f64, f64)) {
+    // Un giro di main loop PRIMA di leggere, e non e' scaramanzia: sotto GTK le
+    // allocazioni valgono `-1 x -1` a `1x1` finche' il box non ha fatto un
+    // passaggio di layout, e la prima corsa di questa sonda su CI ha letto
+    // esattamente quello - due view trovate, sei verdetti `false` per un motivo
+    // che non c'entrava niente con lo z order. Un artefatto di misura travestito
+    // da risultato e' peggio di nessuna misura.
+    pump_layout();
     let views = packed(window);
     if views.is_empty() {
         println!("   (no webview packed in the vbox)");
@@ -79,7 +110,7 @@ pub fn report(window: &tao::window::Window, point: (f64, f64)) {
         let (x, y, cw, ch) = alloc(w);
         println!(
             "   [{i}] {:<8} allocation x={x:.0} y={y:.0} w={cw:.0} h={ch:.0}",
-            role_of(cw as i32)
+            role_at(i)
         );
     }
     println!("   point {:?} lands on: {}", point, top_at(window, point));
@@ -92,10 +123,14 @@ pub fn report(window: &tao::window::Window, point: (f64, f64)) {
 /// contain the point. When none does, the point fell on the box itself, which
 /// is the honest answer and not "nobody is on top".
 pub fn top_at(window: &tao::window::Window, point: (f64, f64)) -> String {
-    for w in packed(window) {
+    // Anche qui, e non solo in `report`: questa funzione e' chiamata
+    // direttamente da ogni verdetto, e leggere un'allocazione non ancora
+    // calcolata darebbe `none` per tutti.
+    pump_layout();
+    for (i, w) in packed(window).into_iter().enumerate() {
         let (x, y, cw, ch) = alloc(&w);
         if point.0 >= x && point.0 < x + cw && point.1 >= y && point.1 < y + ch {
-            return role_of(cw as i32).to_string();
+            return role_at(i).to_string();
         }
     }
     "none".to_string()
@@ -118,7 +153,9 @@ pub fn top_at(window: &tao::window::Window, point: (f64, f64)) -> String {
 pub fn raise_role(window: &tao::window::Window, which: &str) {
     let Some(target) = packed(window)
         .into_iter()
-        .find(|w| role_of(alloc(w).2 as i32) == which)
+        .enumerate()
+        .find(|(i, _)| role_at(*i) == which)
+        .map(|(_, w)| w)
     else {
         println!("   raise: no widget for role {which}");
         return;
@@ -151,7 +188,9 @@ pub fn raise_role(window: &tao::window::Window, which: &str) {
 pub fn focus_role(window: &tao::window::Window, which: &str) -> bool {
     let Some(target) = packed(window)
         .into_iter()
-        .find(|w| role_of(alloc(&w).2 as i32) == which)
+        .enumerate()
+        .find(|(i, _)| role_at(*i) == which)
+        .map(|(_, w)| w)
     else {
         return false;
     };
@@ -163,5 +202,6 @@ pub fn focus_role(window: &tao::window::Window, which: &str) -> bool {
 pub fn first_responder_is(window: &tao::window::Window, which: &str) -> bool {
     packed(window)
         .into_iter()
-        .any(|w| role_of(alloc(&w).2 as i32) == which && w.has_focus())
+        .enumerate()
+        .any(|(i, w)| role_at(i) == which && w.has_focus())
 }

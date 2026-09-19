@@ -140,7 +140,7 @@ fn main() {
     }
 }
 
-#[cfg(any(target_os = "macos", windows))]
+#[cfg(any(target_os = "macos", windows, all(unix, not(target_os = "macos"))))]
 fn run_z() {
     let event_loop = EventLoopBuilder::<u32>::with_user_event().build();
     tick_every(event_loop.create_proxy(), Duration::from_millis(400));
@@ -238,7 +238,7 @@ fn run_z() {
     });
 }
 
-#[cfg(any(target_os = "macos", windows))]
+#[cfg(any(target_os = "macos", windows, all(unix, not(target_os = "macos"))))]
 fn run_drag() {
     let event_loop = EventLoopBuilder::<u32>::with_user_event().build();
     let window = WindowBuilder::new()
@@ -295,7 +295,7 @@ fn run_drag() {
     });
 }
 
-#[cfg(any(target_os = "macos", windows))]
+#[cfg(any(target_os = "macos", windows, all(unix, not(target_os = "macos"))))]
 fn child(
     window: &tao::window::Window,
     color: &str,
