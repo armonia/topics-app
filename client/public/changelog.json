@@ -1,5 +1,52 @@
 [
   {
+    "version": "2.2.364",
+    "date": "2026-09-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La board diceva verde su otto cancelli che la CI boccia, e il pannello mostrava un tetto piu' basso di quello vero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo script lo lancia solo un workflow, e knip non legge lo YAML",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il fondo lo definisce la lista, non il banco: 96px erano gia' \"in fondo\"",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.363",
+    "date": "2026-09-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il banco chiedeva la bolla viva stando in cima a duemila righe",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La nightly diceva «apri il run e guarda», diciotto volte, e nessuno guardava",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.362",
     "date": "2026-09-19",
     "sections": {

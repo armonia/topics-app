@@ -2,6 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.364 — 2026-09-19
+
+### Sotto il cofano
+- La board diceva verde su otto cancelli che la CI boccia, e il pannello mostrava un tetto piu' basso di quello vero
+- Lo script lo lancia solo un workflow, e knip non legge lo YAML
+- Il fondo lo definisce la lista, non il banco: 96px erano gia' "in fondo"
+
+## 2.2.363 — 2026-09-19
+
+### Sotto il cofano
+- Il banco chiedeva la bolla viva stando in cima a duemila righe
+- La nightly diceva «apri il run e guarda», diciotto volte, e nessuno guardava
+
 ## 2.2.362 — 2026-09-19
 
 ### Sotto il cofano
