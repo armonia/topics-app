@@ -111,6 +111,14 @@ const CALIBRATION_MS = 600;
 const BURST_DEADLINE_MS = Number(process.env.TOPICS_BENCH_STREAM_DEADLINE_MS || 20_000);
 /** Microseconds of per-chunk work per transcript message. 0 = the knob is off. */
 const ON2_US_PER_MESSAGE = Number(process.env.TOPICS_STREAM_ON2_US_PER_MSG || 0);
+/**
+ * "No scroll left underneath", in pixels. Same value and same reason as
+ * `chat-scroll.spec.ts`: on a virtualized list `scrollHeight` includes the
+ * ESTIMATE of the rows that are not mounted, so it dances by a few pixels
+ * (measured: 6) while they get measured. Below ~8 px the assertion goes red on
+ * a list that is perfectly at the bottom; well above it, a real gap hides.
+ */
+const TRUE_BOTTOM_PX = 8;
 
 const OUT_PATH = resolve(
   process.env.TOPICS_BENCH_STREAM_OUT?.trim() || "test-results/bench-streaming.json",
@@ -400,6 +408,56 @@ async function measureTranscript(
   const runPx = await scroller.evaluate((el) => el.scrollHeight - el.clientHeight);
   witness[`${o.label}_scroll_run_px`] = Math.round(runPx);
   witness[`${o.label}_transcript_messages`] = o.messages;
+
+  // AND THEN THE READER GOES BACK DOWN, because the burst lands at the BOTTOM.
+  //
+  // The ask above leaves the viewport at the TOP of two thousand rows, and the
+  // wheel that got there is a GESTURE: it raises the reader's hold
+  // (`userTouchedRef` / `userHeld` in MessageList.tsx), and from then on
+  // `reduceScroll` answers `stream-start` with `{ pin: false }` when the list
+  // is not anchored (`scrollAuthority.ts`, case 'stream-start'). That is the
+  // product keeping its promise — a turn started by the board, an agent or
+  // another window must not yank someone out of what they are reading, and
+  // `scrollAuthority.test.ts` asserts exactly that — so the live bubble is
+  // created in the store by `stream:start` and simply is not MOUNTED: it is
+  // appended at the END of a list whose viewport is parked at the START, and
+  // Virtuoso draws the viewport plus 400 px (`increaseViewportBy` in
+  // MessageList.tsx) — the tail is tens of thousands of pixels past that.
+  //
+  // Which is what made this file red every night from 09/09: the ask landed on
+  // 08/09 (eca5bbfec) and left the bench measuring from the top, so the
+  // `toHaveCount(1)` on the live bubble below waited 30 s for a row that
+  // virtualization had no reason to draw. Nothing was wrong with the client,
+  // and nothing about the measurement needs the viewport up here: the run was
+  // read one line above and is already in the witness. So the reader does the
+  // one thing that re-anchors the list — the "scroll to bottom" button, the
+  // same affordance `chat-scroll.spec.ts` drives — and the burst is measured
+  // where a burst is actually watched.
+  //
+  // The BUTTON and not a wheel back down: the button dispatches
+  // `scroll-to-bottom`, the one event that re-anchors a list the reader had
+  // deliberately held (`reduceScroll` → `reanchor(now, true)`). Wheeling down
+  // would land near the bottom with the hold still raised, and the next
+  // re-measure would leave the tail unmounted again.
+  if (o.label === "long") {
+    const backToBottom = page.getByTestId("scroll-to-bottom");
+    await expect(
+      backToBottom,
+      "the arrow back to the bottom is the precondition of the burst, not a convenience: " +
+        "without it the live bubble stays unmounted and the measurement cannot start",
+    ).toBeVisible({ timeout: 30_000 });
+    await backToBottom.click();
+    // The true bottom, measured and not tolerated: on a virtualized list
+    // `scrollHeight` carries the ESTIMATE of the rows it has not mounted and
+    // dances by a few pixels while they are measured. 8 px is the threshold
+    // `chat-scroll.spec.ts` derived for exactly this reason.
+    await expect
+      .poll(() => scroller.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight), {
+        timeout: 30_000,
+        message: "the list never reached the true bottom, so the live tail would not be mounted",
+      })
+      .toBeLessThanOrEqual(TRUE_BOTTOM_PX);
+  }
 
   // The zero of every main-thread number below, taken on THIS page while it is
   // idle and BEFORE the knob is switched on: a baseline measured under the
