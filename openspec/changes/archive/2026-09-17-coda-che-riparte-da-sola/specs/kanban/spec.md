@@ -1,18 +1,13 @@
 # Delta: kanban (coda-che-riparte-da-sola)
 
-> **STATO DELL'ARCHIVIAZIONE (17/09/2026).** Le sezioni **MODIFIED** di questo
-> delta sono gia' state fuse nella spec canonica (`openspec/specs/kanban/spec.md`):
-> KANBAN-15 e KANBAN-75 la' dentro dicono adesso quello che dice il codice
-> atterrato. Le sezioni **ADDED** NON sono state fuse, e il motivo non e' pigrizia:
-> gli id si scontrano. `KANBAN-83` esiste gia' nella spec canonica con un altro
-> significato («Un allegato durevole valido precede la fotografia automatica»), e
-> `KANBAN-84` e `KANBAN-85` sono rivendicati con significati diversi ANCHE dalla
-> change `mac-usabile-sotto-carico`, anch'essa non archiviata — la' KANBAN-84 e'
-> «l'e2e lo misura la CI della PR» e KANBAN-85 e' il congelamento sotto swap.
-> Nel codice atterrato ci sono gia' annotazioni `@covers` per entrambi i
-> significati. Rinumerare richiede una passata coordinata sulle due change piu' le
-> annotazioni di una quarantina di file, ed e' un lavoro deliberato, non un
-> effetto collaterale di un'archiviazione.
+> **ARCHIVIATA il 19/09/2026.** Le sezioni **MODIFIED** erano gia' fuse nella
+> spec canonica; le **ADDED** ci sono entrate adesso. Lo scontro di id che
+> bloccava l'archiviazione e' stato sciolto rinumerando QUESTA change, che e' la
+> piu' giovane delle due: `KANBAN-83` resta il significato gia' vivo
+> («allegato durevole») e la chiave di dedup diventa **KANBAN-91**; `KANBAN-84` e
+> `KANBAN-85` restano a `mac-usabile-sotto-carico`, che li ha rivendicati per
+> prima (16/09 contro 17/09), e qui diventano **KANBAN-92** e **KANBAN-93**.
+> Le annotazioni `@covers` nel codice sono state spostate con loro.
 
 
 ## MODIFIED Requirements
@@ -254,7 +249,7 @@ oggi. La regola «non parto su una lettura sola» NON cambia.
 - **WHEN** il processo riparte e chiede il minimo su 2 minuti
 - **THEN** la risposta SHALL essere «la sto misurando»
 
-### Requirement: KANBAN-83 — Due blocchi diversi non condividono la chiave di dedup
+### Requirement: KANBAN-91 — Due blocchi diversi non condividono la chiave di dedup
 
 La chiave che evita di riscrivere la stessa attesa e' la prima parola del motivo.
 «Memoria: la sto misurando da 11 s su 120» e «Memoria quasi finita: la lettura
@@ -276,7 +271,7 @@ frase, non solo alla fine del blocco.
 - **WHEN** la finestra si riempie e il blocco diventa quello del pavimento
 - **THEN** la conversazione della card SHALL portare il motivo del pavimento
 
-### Requirement: KANBAN-84 — Gli orologi che reclamano una card non guardano cio' che il dispatcher riscrive
+### Requirement: KANBAN-92 — Gli orologi che reclamano una card non guardano cio' che il dispatcher riscrive
 
 Tre backstop esistono per reclamare una card che nessuno sta lavorando, e tutti e
 tre oggi non scattano.
@@ -379,7 +374,7 @@ turno interrotto.
 - **WHEN** il server riparte e la riadotta
 - **THEN** il messaggio di ripresa SHALL contenere le obiezioni, e NON SHALL essere il sollecito da turno interrotto
 
-### Requirement: KANBAN-85 — Un verdetto letto dalla CI finisce sempre in qualcosa su cui si puo' agire
+### Requirement: KANBAN-93 — Un verdetto letto dalla CI finisce sempre in qualcosa su cui si puo' agire
 
 Le righe `unit-ci` ed `e2e-ci` leggono la CI della pull request invece di girare
 sul Mac. Il verdetto NON MISURATO e' l'esito giusto quando la prova non c'e', ma
@@ -621,7 +616,7 @@ UNA VOLTA PER CARD, E ATTRAVERSO I RIAVVII. Un registro «gia' detto» che vive 
 processo non e' una difesa qui: il processo riparte ogni ~35 minuti (44 riavvii
 in 25,7 ore) mentre l'attesa dura giorni, e la finestra di dedup dei commenti e'
 di 10 secondi. Con 7 card in coda dietro un muro di 6 giorni fanno circa 300
-paragrafi identici al giorno, cioe' la stessa pila che KANBAN-83 esiste per
+paragrafi identici al giorno, cioe' la stessa pila che KANBAN-91 esiste per
 chiudere. E la frase CAMBIA da sola — conta i giorni che restano — quindi la
 difesa sul testo identico non basta: la nota SHALL occupare uno slot nel thread,
 e quella nuova SHALL sostituire la vecchia invece di aggiungersi.

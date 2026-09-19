@@ -4054,7 +4054,7 @@ describe("il reconcile non idrata la board per contare le board", () => {
  * `tick` on the very next line claims it, so the test does not die by a hair —
  * it dies saying `in_progress` with a live turn.
  *
- * @covers KANBAN-84
+ * @covers KANBAN-92
  */
 describe("il reconcile cronometra le attese, non solo il servizio", () => {
   /** A card waiting for FIVE hours, its wake-up long past. */

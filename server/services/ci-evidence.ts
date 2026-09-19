@@ -23,7 +23,7 @@
  * With both rows declared the delivery pushes once, opens one draft and runs one
  * poll loop: both verdicts come from the same run of the same commit.
  *
- * NOT MEASURED IS AN OUTCOME, NOT A DEAD END (KANBAN-85). A run that ENDED
+ * NOT MEASURED IS AN OUTCOME, NOT A DEAD END (KANBAN-93). A run that ENDED
  * without a verdict — cancelled, superseded, finished without the job or the
  * step a row reads — cannot be read again: re-delivering the same commit pushes
  * nothing (the branch is already there), reuses the same draft and finds the
@@ -35,7 +35,7 @@
  * other row — the same rule the local commands follow — and a branch with no
  * commit of its own is NOT MEASURED, never two greens.
  *
- * AND THE RERUN NEVER TOUCHES A RED (KANBAN-85, read with its own rule). One more
+ * AND THE RERUN NEVER TOUCHES A RED (KANBAN-93, read with its own rule). One more
  * attempt is for a run that ended with nothing to say; a row that failed for real
  * has said it, and re-running it would throw that verdict away and answer with the
  * next attempt instead: "retry until it passes" on a CI gate.
@@ -698,7 +698,7 @@ export async function awaitCiEvidence(
       // that failed, a `check` job that died before its unit step) used to be
       // closed on the spot and never looked at again, so the run reaching
       // `completed` found nothing left open and the rerun below never fired.
-      // Those are two of the three terminal cases KANBAN-85 names.
+      // Those are two of the three terminal cases KANBAN-93 names.
       const unmeasured = checks.filter((c) => {
         const done = settled.get(c);
         return done ? done.notMeasured === true : readNow(c).kind === "notMeasured";

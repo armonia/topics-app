@@ -19,7 +19,10 @@
  *     between the sentences of one memory episode waits for the minute refresh.
  *  3. Quiet only while the row still says what we wrote: when another writer
  *     rewrites the chip between two retries, the next retry puts the hold back.
+ *  4. The warm-up does not own the dedup key of the real floor, so the reason
+ *     that matters reaches the thread (KANBAN-91).
  * @covers KANBAN-75
+ * @covers KANBAN-91
  */
 import { describe, it, expect, setSystemTime, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -263,7 +266,7 @@ describe("a held resume writes its chip when the hold changes, not at every retr
   });
 
   /**
-   * KANBAN-83: THE WARM-UP DOES NOT OWN THE KEY OF THE REAL FLOOR.
+   * KANBAN-91: THE WARM-UP DOES NOT OWN THE KEY OF THE REAL FLOOR.
    *
    * "Memoria: la sto misurando da 11 s su 120" and "Memoria quasi finita: …"
    * share their first word, which was the whole dedup key for a machine-floor

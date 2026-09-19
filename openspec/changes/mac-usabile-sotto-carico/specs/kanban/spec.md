@@ -1,5 +1,11 @@
 # Delta: kanban (mac-usabile-sotto-carico)
 
+> **KANBAN-84 e KANBAN-85 sono di questa change, e adesso lo sono da soli**
+> (19/09/2026). Li rivendicava anche `coda-che-riparte-da-sola` con altri due
+> significati; nell'archiviarla si e' rinumerata quella, che li aveva presi per
+> seconda (17/09 contro 16/09), in KANBAN-92 e KANBAN-93. Qui non cambia niente:
+> 84 resta «l'e2e lo misura la CI della PR» e 85 il congelamento sotto swap.
+
 ## MODIFIED Requirements
 
 ### Requirement: KANBAN-15 — Prima della review i comandi girano, e un rosso che non ha misurato niente non è un rosso

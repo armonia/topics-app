@@ -13,7 +13,7 @@
  * (one function, `parkWaitedOut`), without the attempt refund, and with the
  * guards that keep its hands off a card that is really working.
  *
- * @covers KANBAN-84
+ * @covers KANBAN-92
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -278,7 +278,7 @@ describe("il tetto sulla durata non scavalca la sveglia che l'agente ha chiesto"
  * `wait_since` (that is what a series is), so comparing them against
  * `wait_since` would switch the whole backstop off.
  *
- * @covers KANBAN-84
+ * @covers KANBAN-92
  */
 describe("un turno ripartito senza ridichiarare l'attesa chiude la serie", () => {
   let db: Database; let s: TaskService;

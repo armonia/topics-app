@@ -475,7 +475,7 @@ describe("le righe pending stantie", () => {
  * abandons in the whole history of the log. These tests pin the two halves:
  * the chip does not count, the work does.
  *
- * @covers KANBAN-84
+ * @covers KANBAN-92
  */
 describe("l'inattivita' di un task si misura sul lavoro, non sul chip", () => {
   const DAY = 86_400_000;

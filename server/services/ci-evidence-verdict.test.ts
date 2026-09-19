@@ -3,7 +3,7 @@
  * say, the stop at the first red, the delivery with nothing of its own, and the
  * rule that a card never calls itself green on a commit whose CI is red.
  *
- * @covers KANBAN-85
+ * @covers KANBAN-93
  * @covers KANBAN-86
  */
 import { describe, expect, test } from "bun:test";
@@ -15,7 +15,7 @@ import { checkJob, e2eRow, fakeClock, fakePort, green, input, job, run, step } f
  * A run that ENDED without a verdict is a dead end: the same commit reads the
  * same dead run forever (15 of the last 100 shas measured on 17/09/2026 were
  * already there). One rerun, and if that is refused the row says what unblocks
- * it. @covers KANBAN-85
+ * it. @covers KANBAN-93
  */
 describe("a terminal run without a verdict", () => {
   test("is re-run once, and the new attempt gives the verdict", async () => {
@@ -90,7 +90,7 @@ describe("a terminal run without a verdict", () => {
   });
 
   /**
-   * The third terminal case of KANBAN-85: a run that COMPLETES without the job
+   * The third terminal case of KANBAN-93: a run that COMPLETES without the job
    * or the step a row reads. The row falls to NOT MEASURED while the run is
    * still going, and closing it there left nothing open when the run completed,
    * so the rerun never fired and the card got the dead end with no way out.
@@ -201,7 +201,7 @@ describe("a terminal run without a verdict", () => {
    * never read again once the rerun turned out to be spent (attempt already
    * above 1: our own rerun from a previous process, since the delivery is
    * re-issued at every boot). The round ended on the plain reason, which is the
-   * mute dead end KANBAN-85 exists to remove, and it ended THERE, not an hour later.
+   * mute dead end KANBAN-93 exists to remove, and it ended THERE, not an hour later.
    */
   test("a row closed while the run went on still says a new commit is needed when the rerun is spent", async () => {
     let reads = 0;

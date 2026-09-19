@@ -10,7 +10,7 @@
  * What is pinned here is the reader, `pendingHumanReopen`, and above all the
  * two traps a naive query does not survive.
  *
- * @covers KANBAN-84
+ * @covers KANBAN-92
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";

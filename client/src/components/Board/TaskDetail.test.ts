@@ -126,7 +126,7 @@ describe('la conversazione e\' UNA lista', () => {
  * dies, it is the most likely box after green.
  *
  * On the source, same method and same reason as the rest of this file.
- * @covers KANBAN-85
+ * @covers KANBAN-93
  */
 describe('il dettaglio dei checks tiene i tre esiti separati', () => {
   const section = src.slice(src.indexOf('function ChecksSection'), src.indexOf('function TaskChangesSection'));

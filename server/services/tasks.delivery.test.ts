@@ -224,7 +224,7 @@ describe("recordChecks (evidenza dei checks pre-review)", () => {
   });
 
   // The links live as long as the wait: a `github-ci:` row waits on GitHub for
-  // some fifteen minutes and the card had nothing to open. @covers KANBAN-85
+  // some fifteen minutes and the card had nothing to open. @covers KANBAN-93
   test("running: i link della CI viaggiano con la spia, e muoiono col verdetto", () => {
     const t = s.create({ projectId: PID, text: "x" });
     const ci = { prUrl: "https://github.com/o/r/pull/5", runUrl: "https://github.com/o/r/actions/runs/10" };

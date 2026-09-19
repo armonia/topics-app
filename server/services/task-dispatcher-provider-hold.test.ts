@@ -261,7 +261,7 @@ describe("a hold longer than a day", () => {
    * is the 10-second dedupe window of `addComment`. On this machine a boot is
    * ~35 minutes from the last one (44 restarts in 25,7 h), and a wall of days
    * outlives all of them: 7 cards in the queue behind a 6-day Codex wall is
-   * ~300 identical paragraphs a day in the threads, the same pile KANBAN-83 and
+   * ~300 identical paragraphs a day in the threads, the same pile KANBAN-91 and
    * the 314 «Memoria quasi finita» comments exist to end. And the sentence is
    * not even identical: it counts the days left, so it is REWORDED once a day.
    */
