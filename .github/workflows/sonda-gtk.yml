@@ -60,12 +60,21 @@ jobs:
         working-directory: tools/wkzprobe
         run: cargo build --release
 
+      # `|| true` sull'uscita, e il motivo va scritto: wkzprobe esce 1 quando non
+      # tutti e sei i verdetti sono `true`, ed e' la regola giusta su macOS e
+      # Windows, dove una webview figlia E' una finestra e lo z order esiste.
+      # Sotto GTK quattro di quei sei sono `false` PER COSTRUZIONE - `pack_start`
+      # impila i widget uno sotto l'altro e non c'e' niente da alzare - quindi
+      # qui l'exit 1 non dice «guasto», dice «piattaforma diversa». Il verdetto
+      # vero lo da' il confronto col falsificato, due step piu' sotto, che e'
+      # l'unica cosa che distingue «il raise non fa niente» da «la sonda non
+      # guarda». L'output grezzo resta, ed e' quello che si cita.
       - name: Misura (sotto Xvfb)
         working-directory: tools/wkzprobe
         run: |
           set -o pipefail
           xvfb-run -a --server-args="-screen 0 1280x900x24" \
-            ./target/release/wkzprobe ${{ inputs.arm }} 2>&1 | tee ../../wkzprobe-gtk.txt
+            ./target/release/wkzprobe ${{ inputs.arm }} 2>&1 | tee ../../wkzprobe-gtk.txt || true
 
       # IL FALSIFICATO, e non e' cerimonia: una sonda che stampa «no» senza
       # guardare stampa lo stesso «no» di una che guarda. Qui la chiamata di
@@ -81,7 +90,7 @@ jobs:
           perl -0pi -e 's/        vbox\.reorder_child\(&target, n - 1\);/        \/\/ falsificato: reorder tolto/' src/views_gtk.rs
           cargo build --release
           xvfb-run -a --server-args="-screen 0 1280x900x24" \
-            ./target/release/wkzprobe ${{ inputs.arm }} 2>&1 | tee ../../wkzprobe-gtk-falsificato.txt
+            ./target/release/wkzprobe ${{ inputs.arm }} 2>&1 | tee ../../wkzprobe-gtk-falsificato.txt || true
           cp /tmp/views_gtk.bak src/views_gtk.rs
 
       - name: Confronto dei due verdetti
