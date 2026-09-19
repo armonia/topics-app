@@ -57,6 +57,13 @@ import { goToApp, openTopic } from "./helpers";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { wheelUpUntilVisible } from "./helpers/wheel-scroll";
 import { E2E_BASE } from "./helpers/test-server";
+// The list's OWN definition of "at the bottom", imported and not copied: it is
+// the same constant `MessageList.tsx` hands to Virtuoso as `atBottomThreshold`,
+// so the band this bench waits for cannot drift away from the band the client
+// actually mounts against. Other specs import from `client/src` the same way
+// (`identity-chips.spec.ts`, `sidebar-label-gutter.spec.ts`); this module is
+// pure and imports nothing, so it costs no browser.
+import { AT_BOTTOM_TOLERANCE_PX } from "../../client/src/components/Chat/scrollAuthority";
 import {
   installOn2Knob,
   installProbe,
@@ -401,6 +408,74 @@ async function measureTranscript(
   witness[`${o.label}_scroll_run_px`] = Math.round(runPx);
   witness[`${o.label}_transcript_messages`] = o.messages;
 
+  // AND THEN THE READER GOES BACK DOWN, because the burst lands at the BOTTOM.
+  //
+  // The ask above leaves the viewport at the TOP of two thousand rows, and the
+  // wheel that got there is a GESTURE: it raises the reader's hold
+  // (`userTouchedRef` / `userHeld` in MessageList.tsx), and from then on
+  // `reduceScroll` answers `stream-start` with `{ pin: false }` when the list
+  // is not anchored (`scrollAuthority.ts`, case 'stream-start'). That is the
+  // product keeping its promise — a turn started by the board, an agent or
+  // another window must not yank someone out of what they are reading, and
+  // `scrollAuthority.test.ts` asserts exactly that — so the live bubble is
+  // created in the store by `stream:start` and simply is not MOUNTED: it is
+  // appended at the END of a list whose viewport is parked at the START, and
+  // Virtuoso draws the viewport plus 400 px (`increaseViewportBy` in
+  // MessageList.tsx) — the tail is tens of thousands of pixels past that.
+  //
+  // Which is what made this file red every night from 09/09: the ask landed on
+  // 08/09 (eca5bbfec) and left the bench measuring from the top, so the
+  // `toHaveCount(1)` on the live bubble below waited 30 s for a row that
+  // virtualization had no reason to draw. Nothing was wrong with the client,
+  // and nothing about the measurement needs the viewport up here: the run was
+  // read one line above and is already in the witness. So the reader does the
+  // one thing that re-anchors the list — the "scroll to bottom" button, the
+  // same affordance `chat-scroll.spec.ts` drives — and the burst is measured
+  // where a burst is actually watched.
+  //
+  // The BUTTON and not a wheel back down: the button dispatches
+  // `scroll-to-bottom`, the one event that re-anchors a list the reader had
+  // deliberately held (`reduceScroll` → `reanchor(now, true)`). Wheeling down
+  // would land near the bottom with the hold still raised, and the next
+  // re-measure would leave the tail unmounted again.
+  if (o.label === "long") {
+    const backToBottom = page.getByTestId("scroll-to-bottom");
+    await expect(
+      backToBottom,
+      "the arrow back to the bottom is the precondition of the burst, not a convenience: " +
+        "without it the live bubble stays unmounted and the measurement cannot start",
+    ).toBeVisible({ timeout: 30_000 });
+    await backToBottom.click();
+    // AND WHAT GETS ASSERTED IS THE LIST'S OWN DEFINITION OF "AT THE BOTTOM",
+    // not a tighter one invented here. The first version of this check demanded
+    // <= 8 px and went red at a DEAD STABLE 96 px (twice, first try and retry,
+    // held for the whole 30 s, run 35445954751) while the SAME code reached
+    // <= 8 px on the nightly shard (run 35446386245, three tests green). The
+    // arrow had done its job in both: it carried the view from ~50 000 px of
+    // backlog down to the last screen. Where the settle stops inside that last
+    // screen is not something this bench gets to legislate — the Footer
+    // reserves the composer's height plus a gutter, and how much of it is left
+    // under the final row depends on what the pin managed to re-measure.
+    //
+    // 8 px is `chat-scroll.spec.ts`'s threshold and it is right THERE, where
+    // the question is "does the arrow leave visible scroll underneath". Here
+    // the question is different: is the live tail going to be MOUNTED. The
+    // list's answer to that is `AT_BOTTOM_TOLERANCE_PX` — the same constant it
+    // hands to Virtuoso as `atBottomThreshold`, and the band inside which it
+    // keeps the tail anchored — so 96 px is a list that is at the bottom by
+    // its own rule. Importing the constant is what keeps the two from drifting
+    // apart; copying 150 here would just be the 8 px mistake with a bigger
+    // number.
+    await expect
+      .poll(() => scroller.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight), {
+        timeout: 30_000,
+        message:
+          "the arrow did not bring the list back to its own at-bottom band, " +
+          "so the live tail stays out of the mounted window",
+      })
+      .toBeLessThanOrEqual(AT_BOTTOM_TOLERANCE_PX);
+  }
+
   // The zero of every main-thread number below, taken on THIS page while it is
   // idle and BEFORE the knob is switched on: a baseline measured under the
   // defect would widen exactly as the defect got worse.
@@ -428,7 +503,18 @@ async function measureTranscript(
   const toolCallId = `bench-tool-${o.label}-${Date.now()}`;
   ws.send({ type: "stream:start", sessionKey: o.sessionKey, topicId: o.topicId, messageId });
   const bubble = page.locator(`[data-testid="chat-message"][data-message-id="${messageId}"]`);
-  await expect(bubble).toHaveCount(1, { timeout: 30_000 });
+  // A row that is not here is TWO different accidents, and they used to look
+  // the same: the turn never started (the frame was dropped, the session key
+  // moved), or it started and the row is simply outside the mounted window
+  // because the view is parked up in the backlog. The nightly spent eleven
+  // nights on the second one reading like the first. The distance from the
+  // bottom is what tells them apart, so it travels with the failure.
+  await expect(
+    bubble,
+    `the live bubble never mounted. Distance from the bottom when the burst was sent: ` +
+      `${Math.round(await scroller.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))} px ` +
+      `(inside ${AT_BOTTOM_TOLERANCE_PX} px the list mounts its tail, so a failure here is the TURN, not the scroll)`,
+  ).toHaveCount(1, { timeout: 30_000 });
 
   // ---- text deltas -------------------------------------------------------
   // One chunk must paint before the probe can count: `.prose` does not exist
