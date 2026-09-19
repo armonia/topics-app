@@ -260,6 +260,48 @@ let onTermSignal: (signal: string) => void = (signal) => {
 process.on("SIGTERM", () => onTermSignal("SIGTERM"));
 process.on("SIGINT", () => onTermSignal("SIGINT"));
 
+// ─── The last net: an I/O error must not take the server down ──────────────
+//
+// WHAT HAPPENED WITHOUT THIS. 2026-09-17, CI run 35269750073 job 105366102078:
+// the test server died with exit code 1 on `error: write EPIPE ... at failWrite
+// (node:net:60:30)`, one line after `[AI Bridge] socket closed`. Playwright
+// reported it as 68 failed and 235 never run, and those reds were charged to
+// the card under review. A crash wearing a red suite's costume costs the rerun
+// AND a wrong diagnosis.
+//
+// The specific hole was closed at the source (`lib/ai-bridge-client.ts` now
+// listens on its readline, PR #93), and that fix is the right one: a known
+// failure gets handled where it happens, not swallowed globally. This handler
+// is for the ones NOT known yet. The server holds PTYs, provider children and
+// live sessions; dying because a socket hung up throws all of that away over an
+// event that has nothing to do with the work in flight.
+//
+// WHY IT RE-THROWS ANYTHING THAT IS NOT I/O, and this is the part that makes it
+// a net rather than a blindfold. A `TypeError` or a failed assertion is a BUG:
+// swallowing it would leave the process alive in a state nobody designed, and
+// the next symptom would surface somewhere unrelated, hours later. Only the
+// error codes that mean "the other end went away" are absorbed, because for
+// those the correct behaviour is exactly what the reconnect paths already do.
+//
+// It is deliberately NOT a general safety net for unhandled rejections: those
+// stay untouched, since a rejected promise is almost always a logic error and
+// this file already learned once that a too-wide guard is worse than none.
+const SURVIVABLE_IO = new Set(["EPIPE", "ECONNRESET", "ECONNABORTED", "ERR_STREAM_DESTROYED", "ERR_STREAM_WRITE_AFTER_END"]);
+process.on("uncaughtException", (err: NodeJS.ErrnoException) => {
+  const code = err?.code ?? "";
+  if (!SURVIVABLE_IO.has(code)) {
+    // Not ours to absorb: restore the default disposition and let it kill the
+    // process with the original stack, instead of a second-hand report of it.
+    console.error("[Shutdown] uncaught exception that is not a socket hang-up - rethrowing:", err);
+    throw err;
+  }
+  console.error(
+    `[Shutdown] uncaught ${code} absorbed (${err.syscall ?? "unknown syscall"}): ` +
+      `a peer hung up on a socket nobody was listening to. The server stays up; ` +
+      `if this repeats, the fix belongs where that socket is created, not here.`,
+  );
+});
+
 // Solid singleton: a server booted from a DISPATCH WORKTREE (e.g. an agent that
 // ran `bun run server.ts` inside its isolation checkout under ~/.topics/worktrees)
 // must NOT hijack production. Sharing the ~/.topics daemon lock + the prod port
