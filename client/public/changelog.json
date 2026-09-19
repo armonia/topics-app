@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.361",
+    "date": "2026-09-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il raise su GTK non alza niente, e in piu' butta via il focus",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.360",
     "date": "2026-09-19",
     "sections": {
@@ -9,6 +25,26 @@
       "internal": [
         {
           "it": "Il terzo backend di wkzprobe e il workflow che lo misura dove GTK vive",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Lo screencast su WebKit non ha il CDP, e misurato non serve",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I tre cfg della sonda non conoscevano il backend GTK appena aggiunto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La sonda GTK leggeva le allocazioni prima che il layout esistesse",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Sotto GTK quattro verdetti su sei sono false per costruzione, non per guasto",
           "en": "",
           "scope": null
         }

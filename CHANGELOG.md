@@ -2,10 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.361 — 2026-09-19
+
+### Sotto il cofano
+- Il raise su GTK non alza niente, e in piu' butta via il focus
+
 ## 2.2.360 — 2026-09-19
 
 ### Sotto il cofano
 - Il terzo backend di wkzprobe e il workflow che lo misura dove GTK vive
+- Lo screencast su WebKit non ha il CDP, e misurato non serve
+- I tre cfg della sonda non conoscevano il backend GTK appena aggiunto
+- La sonda GTK leggeva le allocazioni prima che il layout esistesse
+- Sotto GTK quattro verdetti su sei sono false per costruzione, non per guasto
 
 ## 2.2.359 — 2026-09-19
 
