@@ -382,7 +382,14 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
         toolCalls: [{
           id: "tc-stay",
           name: "Bash",
-          args: { command: "echo hello" },
+          // A BIG body, and it matters that it is big. The wire carries only
+          // the head of a large tool call: the rest comes back from the detail
+          // route the first time the row opens (WIRE-09, the test below). That
+          // late arrival is the growth that lands AFTER the pointerdown gesture
+          // window has expired, which is exactly the frame where an opening pin
+          // could unmount the row. A two-line body grows nothing and arrives
+          // synchronously: the regression has no room to happen.
+          args: { command: ["echo stay-open-head", ...Array.from({ length: 700 }, (_, i) => `echo filler-${i} ${"x".repeat(32)}`), "echo stay-open-tail"].join("\n") },
           status: "success",
           result: "hello",
         }],
@@ -395,7 +402,10 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
       const row = page.locator('[data-testid="tool-call-row-tc-stay"]');
       await row.waitFor({ state: "visible", timeout: RENDER });
       await row.locator("button").first().click();
-      await expect(row.locator('[data-testid="tool-call-result"]')).toContainText("hello");
+      // The TAIL, not the head: the head is already on the closed row, the tail
+      // only exists once the late body has landed. Waiting for it is what puts
+      // the assertion below after the growth, not before it.
+      await expect(row).toContainText("echo stay-open-tail", { timeout: RENDER });
 
       // WHAT IS BEING MEASURED: the body is still open AFTER the opening pins
       // have acted. The pins sit at 250, 700 and 1400 ms from the chat opening
@@ -425,7 +435,7 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
         row.locator('[data-testid="tool-call-result"]'),
         "the row closed itself after the click: an opening pin unmounted it",
       ).toHaveCount(1);
-      await expect(row).toContainText("$ echo hello");
+      await expect(row).toContainText("echo stay-open-tail");
     } finally {
       await deleteTopic(request, fresh.id);
     }
