@@ -748,7 +748,7 @@ const HELD_RESUME_REFRESH_MS = 60_000;
  * 6.0, 5.8) a key on the words still rewrote the card about every other retry.
  *
  * THE RESOURCE COMES FROM THE VERDICT, NOT FROM THE FIRST WORD, and that is the
- * whole of KANBAN-83. "Memoria: la sto misurando da 11 s su 120" and "Memoria
+ * whole of KANBAN-91. "Memoria: la sto misurando da 11 s su 120" and "Memoria
  * quasi finita: la lettura più bassa…" share their first word, so they shared
  * this key - and the warm-up is a 120 s state guaranteed at every boot, so it
  * always wrote first and the real reason never reached the card at all: 80
@@ -1110,7 +1110,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * checks are off-lane, which is every card waiting on GitHub's CI - the
    * NORMAL state of a delivery for about fifteen minutes, since
    * `server/routes/tasks.ts` releases the lane the moment the local checks pass
-   * (KANBAN-85). That agent is alive and resident; counting it zero re-arms the
+   * (KANBAN-93). That agent is alive and resident; counting it zero re-arms the
    * memory floor's exemption on every 10 s tick, which is the 10/09 incident
    * again at the speed of a delivery cycle. Measured against this dispatcher
    * with `held2m` at 4.8 GB: one off-lane card plus two todos started 2 cards,
@@ -1492,7 +1492,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // window of `addComment` lets through one per BOOT (35 minutes apart
           // on this machine: 44 restarts in 25,7 h, 7 cards in the queue, a
           // Codex wall of 6 days = ~300 identical paragraphs a day, the exact
-          // pile KANBAN-83 exists to end).
+          // pile KANBAN-91 exists to end).
           slot: `${label}: `,
           reason: `${label}: ${hold.reason}. L'attesa arriva al ${endsAt}, fra ${holdDays(hold)} giorni: non e' il reset di una finestra, e' il piano esaurito. ` // allow-italian: task queue reason
             + "Le card non ripartono da sole: serve cambiare il modello della board o l'account.", // allow-italian: task queue reason

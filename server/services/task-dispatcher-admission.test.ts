@@ -454,7 +454,7 @@ describe("the memory window on the floor and on the budget axis", () => {
     // THE STATE THIS REOPENS THE 10/09 INCIDENT FROM, and it is the normal state
     // of a delivery: `routes/tasks.ts` releases the lane the moment the local
     // checks pass, so a card spends about fifteen minutes with its checks
-    // off-lane while GitHub measures (KANBAN-85). The agent is alive and
+    // off-lane while GitHub measures (KANBAN-93). The agent is alive and
     // resident the whole time. Deciding the exemption on the reservation - which
     // subtracts exactly those cards - counted it zero and re-armed the
     // derogation on every 10 s tick: one off-lane card plus two todos started 2,

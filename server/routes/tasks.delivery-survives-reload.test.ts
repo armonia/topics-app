@@ -17,7 +17,7 @@
  * The clocks are injected: the memory wait is not measured in real seconds, and
  * a test that slept through one would be measuring the machine it runs on.
  *
- * @covers RGATE-07, RGATE-08, KANBAN-15, KANBAN-84
+ * @covers RGATE-07, RGATE-08, KANBAN-15, KANBAN-92
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";

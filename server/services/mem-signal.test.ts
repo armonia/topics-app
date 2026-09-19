@@ -4,6 +4,7 @@
  * sustained swap. Fixtures from the live probes of 15/09/2026 and 11/09/2026.
  *
  * @covers KANBAN-75
+ * @covers KANBAN-82
  */
 import { describe, expect, test } from "bun:test";
 import {

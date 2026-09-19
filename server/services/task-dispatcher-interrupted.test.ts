@@ -236,7 +236,7 @@ describe("il turno tagliato da un riavvio e' un fatto scritto", () => {
  * restart lost it. Measured 2026-09-17: 3 cards rejected on the 15th, stopped
  * 45 hours, 44 restarts each, and the words still sitting in the thread.
  *
- * @covers KANBAN-84
+ * @covers KANBAN-92
  */
 describe("il recupero di una card che un umano ha bocciato", () => {
   /** The card as a review rejection leaves it: `reopened_actor = 'human'`. */
