@@ -6,6 +6,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - Il server non aveva rete sotto gli errori di I/O, e un EPIPE lo uccideva
+- **browser** · raccogli le sei chiamate CDP nude in un confine solo
+- Tre change finite restavano aperte per uno scontro di id, e lo scontro era vero
+- La citazione italiana e una citazione, e il cancello vuole saperlo
+- Il profilo condiviso non e' proprieta': la pulizia uccideva il browser di un'altra istanza
 
 ## 2.2.361 — 2026-09-19
 

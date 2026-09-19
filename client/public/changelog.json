@@ -11,6 +11,27 @@
           "it": "Il server non aveva rete sotto gli errori di I/O, e un EPIPE lo uccideva",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "raccogli le sei chiamate CDP nude in un confine solo",
+          "en": "",
+          "scope": "browser",
+          "breaking": false
+        },
+        {
+          "it": "Tre change finite restavano aperte per uno scontro di id, e lo scontro era vero",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La citazione italiana e una citazione, e il cancello vuole saperlo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il profilo condiviso non e' proprieta': la pulizia uccideva il browser di un'altra istanza",
+          "en": "",
+          "scope": null
         }
       ]
     }
