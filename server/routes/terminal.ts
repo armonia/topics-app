@@ -33,7 +33,7 @@ import { registerFleetSocket, registerFleetSessionSource } from "../lib/fleet-us
 import type { FleetSessionRef } from "../lib/fleet-usage";
 import { resolveSessionProjects } from "../lib/session-project-map";
 import { listSessionCliPids } from "../providers/session-pids";
-import { decidePark, idleParkThresholdMs, summarizeRefusals } from "../lib/terminal-idle-park";
+import { decidePark, idleParkThresholdMs, summarizeRefusals, thresholdUnderPressure } from "../lib/terminal-idle-park";
 import { isSwapFreezeHold } from "../lib/swap-freeze-hold";
 import type { ParkRefusal } from "../lib/terminal-idle-park";
 import { decideOnRestart } from "../lib/terminal-restart-policy";
@@ -167,6 +167,19 @@ export function setSubAgentExitHandler(fn: ((info: SubAgentExitInfo) => void) | 
 let terminalBrowserCloser: ((contextId: string) => void) | null = null;
 export function setTerminalBrowserCloser(fn: ((contextId: string) => void) | null): void {
   terminalBrowserCloser = fn;
+}
+
+/**
+ * The memory-pressure signal, injected by `server.ts`.
+ *
+ * A setter and not a constructor argument, for an ordering reason: `memSignal`
+ * is created hundreds of lines AFTER `createTerminalRouter`, and moving it up
+ * would mean relocating the memory probe for this file's convenience. Absent =
+ * the sweep uses the normal threshold, which is the previous behaviour.
+ */
+let terminalMemPressure: (() => { atCeiling: boolean }) | null = null;
+export function setTerminalMemPressure(fn: (() => { atCeiling: boolean }) | null): void {
+  terminalMemPressure = fn;
 }
 
 /** Read a just-exited sub-agent's final assistant message from its OWN on-disk
@@ -2849,7 +2862,20 @@ export function createTerminalRouter(ctx: AppContext, tracker?: ClaudeSessionTra
     // Si guarda ogni minuto, non ogni soglia: la soglia è quanto una sessione
     // dev'essere ferma, non ogni quanto la si controlla.
     const timer = setInterval(() => {
-      try { parkIdleClaudeSessions(parkThresholdMs); }
+      try {
+        // The threshold tightens when the machine is at the ceiling: an idle
+        // session costs swap by then, not just RAM. See `thresholdUnderPressure`.
+        let pressure: { atCeiling: boolean } | null = null;
+        try { pressure = terminalMemPressure?.() ?? null; }
+        catch { pressure = null; } // a broken probe must not speed up the reaper
+        const threshold = thresholdUnderPressure(parkThresholdMs, pressure);
+        if (threshold !== parkThresholdMs) {
+          console.log(
+            `[Terminal] Macchina al soffitto: soglia di parcheggio ${Math.round(parkThresholdMs / 60_000)} -> ${Math.round(threshold / 60_000)} min per questa passata.`,
+          );
+        }
+        parkIdleClaudeSessions(threshold);
+      }
       catch (err) { console.warn(`[Terminal] sweep di parcheggio fallito:`, (err as Error).message); }
     }, 60_000);
     timer.unref?.();

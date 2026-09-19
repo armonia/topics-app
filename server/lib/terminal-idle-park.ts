@@ -170,3 +170,38 @@ export function idleParkThresholdMs(env: Record<string, string | undefined>): nu
   const MIN_MS = 60_000;
   return Math.max(MIN_MS, n);
 }
+
+
+/**
+ * WHEN THE MACHINE IS AT THE CEILING, AN IDLE SESSION COSTS MORE.
+ *
+ * The threshold above is tuned for comfort: a parked session shows the
+ * «Sessione scaduta» overlay until the pane revives it, so we wait a long time // allow-italian: the overlay's own Italian label
+ * before touching one. That arithmetic changes when RAM runs out: keeping it
+ * alive stops being theoretical and becomes swap, while parking it still costs
+ * the same overlay as always.
+ *
+ * MEASURED on 2026-09-18 on the live server: two chat CLIs idle for 9h45, zero
+ * topics streaming, 232 and 229 MB plus their child MCP servers - 452 MB for
+ * sessions doing nothing, on a 16 GB Mac that was sitting at 45 GB of swap.
+ *
+ * THIS FUNCTION PARKS NOTHING: it returns the threshold to use right now, and
+ * `decidePark` stays the only place that decides WHO. Every one of its guards
+ * still holds; the ceiling changes exactly one of them.
+ *
+ * `null` in means the normal threshold out, because the rule at the top of this
+ * file applies here too: with no data we do not park FASTER. A memory signal
+ * that is not there is not a ceiling.
+ */
+export function thresholdUnderPressure(
+  normalMs: number,
+  pressure: { atCeiling: boolean } | null,
+  /** How hard it tightens at the ceiling. A quarter, with a one-minute floor:
+   *  enough to free the genuinely abandoned sessions, not enough to catch the
+   *  one belonging to somebody who went for a coffee. */
+  squeeze = 0.25,
+): number {
+  if (!pressure?.atCeiling) return normalMs;
+  const MIN_MS = 60_000;
+  return Math.max(MIN_MS, Math.round(normalMs * squeeze));
+}
