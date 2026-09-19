@@ -1,5 +1,42 @@
 [
   {
+    "version": "2.2.365",
+    "date": "2026-09-19",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-19 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "«Pulisci tutto» ha dovuto essere ripetuto tre volte in una sessione",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello doveva passare dai cancelli: commenti in inglese e motivo scritto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nomi in inglese: un file nuovo nasce a baseline zero anche sui NOMI",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "RUNTIME-22: il requisito che questo cancello prova",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.364",
     "date": "2026-09-19",
     "sections": {

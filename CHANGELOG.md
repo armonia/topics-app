@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.365 — 2026-09-19
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-19 [skip ci]
+- «Pulisci tutto» ha dovuto essere ripetuto tre volte in una sessione
+- Il cancello doveva passare dai cancelli: commenti in inglese e motivo scritto
+- Nomi in inglese: un file nuovo nasce a baseline zero anche sui NOMI
+- RUNTIME-22: il requisito che questo cancello prova
+
 ## 2.2.364 — 2026-09-19
 
 ### Sotto il cofano
