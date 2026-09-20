@@ -145,8 +145,14 @@ const SKIP_DIRS = new Set(["node_modules", "test-results"]);
  * account's exhausted window, not the code. It is now opt-in
  * (`TOPICS_REAL_API_TESTS=1`) and skips by default: that skip is the honest
  * shape of "this test costs money and can fail for the account's sake".
+ *
+ * 23 (2026-09-20): due skip spariti senza che nessuno abbassasse il numero, e
+ * un cricchetto che non si stringe smette di essere un cricchetto: lascia sul
+ * tavolo due posti liberi dove un nuovo skip puo' entrare restando verde. Il
+ * guadagno era gia' stato misurato dal cancello stesso, che stampa la riga
+ * "abbassa BASELINE" proprio per questo caso.
  */
-const BASELINE = 25;
+const BASELINE = 23;
 
 /** `test.skip(` e `test.fixme(` — non `test.describe.skip`, che disattiva un blocco intero. */
 const SKIP_CALL = /\btest\.(skip|fixme)\s*\(/g;
