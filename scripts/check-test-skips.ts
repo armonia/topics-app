@@ -146,11 +146,11 @@ const SKIP_DIRS = new Set(["node_modules", "test-results"]);
  * (`TOPICS_REAL_API_TESTS=1`) and skips by default: that skip is the honest
  * shape of "this test costs money and can fail for the account's sake".
  *
- * 23 (2026-09-20): due skip spariti senza che nessuno abbassasse il numero, e
- * un cricchetto che non si stringe smette di essere un cricchetto: lascia sul
- * tavolo due posti liberi dove un nuovo skip puo' entrare restando verde. Il
- * guadagno era gia' stato misurato dal cancello stesso, che stampa la riga
- * "abbassa BASELINE" proprio per questo caso.
+ * 23 (2026-09-20): two skips had gone without anyone lowering the number, and
+ * a ratchet that never tightens stops being a ratchet: it leaves two free seats
+ * where a new skip can land and still be green. The gain had already been
+ * measured by the gate itself, which prints the "lower BASELINE" line for
+ * exactly this case.
  */
 const BASELINE = 23;
 

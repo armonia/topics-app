@@ -16,18 +16,30 @@
 # STDIN BELONGS TO THE FIRST ONE. git feeds the refs being pushed on stdin and
 # `check-push-clean.ts` reads them with `Bun.stdin.text()`; anything else that
 # runs before it, or inherits the same stdin, eats the list and leaves the
-# guard deciding on nothing. So the counter runs AFTER, with stdin closed.
+# guard deciding on nothing. So stdin is captured ONCE here, replayed into the
+# guard, and the counter runs AFTER with stdin closed.
+#
+# The counter also needs those refs, for a different reason: mid-push the
+# commits being published are still "unpushed", so without them every push
+# reported its own payload as a leftover. It gets them as `--in-push <sha>`,
+# never on stdin - see the head of check-repo-pulito.ts.
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 command -v bun >/dev/null 2>&1 || exit 0
 
+refs="$(cat)"
+
 guard="$root/scripts/check-push-clean.ts"
 if [ -f "$guard" ]; then
-  bun run "$guard" "${1:-origin}" || exit $?
+  printf '%s\n' "$refs" | bun run "$guard" "${1:-origin}" || exit $?
 fi
+
+# Campo 2 del protocollo: "<local ref> <local sha> <remote ref> <remote sha>".
+in_push="$(printf '%s\n' "$refs" | awk 'NF>=2 {print $2}' | tr '\n' ' ')"
 
 conta="$root/scripts/check-repo-pulito.ts"
 if [ -f "$conta" ] && [ "${TOPICS_PULITO_OK:-}" != "1" ]; then
-  if ! esito="$(cd "$root" && bun run "$conta" 2>&1 </dev/null)"; then
+  # shellcheck disable=SC2086 # sha separati da spazi, filtrati dallo script
+  if ! esito="$(cd "$root" && bun run "$conta" --in-push $in_push 2>&1 </dev/null)"; then
     echo "── il push passa, ma nel checkout resta roba ──" >&2
     echo "$esito" >&2
   fi

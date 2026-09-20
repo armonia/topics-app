@@ -33,6 +33,15 @@
  *
  * DEROGATION: `TOPICS_PULITO_OK=1` skips it, for the middle of a rebase where
  * a backup branch is the point. It is not meant for "I will tidy up later".
+ *
+ * `--in-push <sha...>`: INSIDE the pre-push hook the commits git is about to
+ * publish are still "unpushed" as far as `git rev-list` is concerned, so every
+ * push printed the very work it was delivering as a leftover (seen 20/09: two
+ * commits reported by the same command that was pushing them). A warning that
+ * shows up ALWAYS teaches people not to read it, and that is how this gate
+ * dies. Given the incoming shas the count looks at `main` MINUS those commits:
+ * if something unpushed is still left - a branch the push does not touch - it
+ * still says so.
  */
 import { $ } from "bun";
 import { existsSync } from "node:fs";
@@ -45,6 +54,22 @@ interface Leftover {
 }
 
 const MAX_LISTED = 12;
+
+/** A git object and nothing else: these values end up inside `sh -c`. */
+const SHA = /^[0-9a-f]{7,40}$/i;
+
+/**
+ * The shas this push is publishing, from `--in-push`. Anything that is not a
+ * sha is dropped: the value comes from git's hook protocol and goes through a
+ * shell. An all-zero sha (a branch deletion) publishes nothing.
+ */
+function inPushShas(): string[] {
+  const at = process.argv.indexOf("--in-push");
+  if (at === -1) return [];
+  return process.argv
+    .slice(at + 1)
+    .filter((a) => SHA.test(a) && !/^0+$/.test(a));
+}
 
 async function sh(cmd: string): Promise<string> {
   try {
@@ -145,11 +170,20 @@ async function collect(): Promise<Leftover[]> {
   // Only when an upstream exists: a main without a remote is not a leftover.
   const upstream = await sh("git rev-parse --abbrev-ref main@{upstream} 2>/dev/null");
   if (upstream) {
-    const avanti = await sh(`git rev-list --count ${upstream}..main`);
+    // `--not <sha>` drops what the push is publishing RIGHT NOW: without it the
+    // pre-push hook reports its own payload as a leftover (see the head).
+    const excluded = inPushShas().flatMap((sha) => ["--not", sha]);
+    const avanti = await sh(
+      `git rev-list --count ${upstream}..main ${excluded.join(" ")}`.trim(),
+    );
     if (avanti && avanti !== "0") {
       found.push({
         what: `main ha ${avanti} commit non spinti`,
-        lines: lines(await sh(`git log --oneline ${upstream}..main | head -5`)),
+        lines: lines(
+          await sh(
+            `git log --oneline ${upstream}..main ${excluded.join(" ")} | head -5`.trim(),
+          ),
+        ),
         remedy: "git push",
       });
     }
