@@ -22,6 +22,11 @@
           "it": "38 secondi con ZERO estensioni: non erano le estensioni, e' la macchina",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "Il log del sidecar citava 10 secondi, e non erano piu' veri",
+          "en": "",
+          "scope": null
         }
       ]
     }

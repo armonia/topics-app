@@ -8,6 +8,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - **e2e** · aggiorna durate shard dal nightly del 2026-09-20 [skip ci]
 - L'attesa che avevo appena scritto era ancora troppo stretta
 - 38 secondi con ZERO estensioni: non erano le estensioni, e' la macchina
+- Il log del sidecar citava 10 secondi, e non erano piu' veri
 
 ## 2.2.367 — 2026-09-20
 
