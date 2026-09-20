@@ -1,7 +1,9 @@
 /**
  * @covers ENGREG-01
  */
-import { test, expect } from "bun:test";
+import { describe, it, test, expect } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   createBrowserEngineRegistry,
   type EngineSidecar,
@@ -118,4 +120,22 @@ test("a failed cold start leaves the pane native and holds no ref", async () => 
   expect(reg.getEngine("ctx-1")).toBe("native");
   expect(fake.refCount).toBe(0);
   expect(reg.listChromium()).toEqual([]);
+});
+
+describe("the registry does not quote numbers that stopped being true", () => {
+  it("no wait time HARDCODED into the sidecar message", () => {
+    // FOUND IN THE PRODUCT, not by reading the code: starting the real
+    // sidecar, the log said "il CDP si aspetta 10s" when the base was already  allow-italian: the quoted log line IS the subject
+    // 30. A message quoting a wrong number is worse than no message: the next
+    // person to read it reasons on top of it.
+    //
+    // This does not check the wording, it checks that the wording carries no
+    // wait seconds SEWN into the source: if they are there, they will lie.
+    const src = readFileSync(join(import.meta.dir, "browser-engine-registry.ts"), "utf-8");
+    const line = src.split("\n").find((l) => l.includes("il CDP aspetta"));
+    expect(line).toBeDefined();
+    // It has to interpolate the constant, not spell the number out.
+    expect(line).toContain("CDP_WAIT_BASE_MS");
+    expect(line).not.toMatch(/aspetta \d+s/);
+  });
 });

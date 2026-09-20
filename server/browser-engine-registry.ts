@@ -20,7 +20,7 @@
  * launching a browser.
  */
 
-import { createChromiumSidecar, discoverChromiumEngines, type SidecarHandle } from "./browser-chromium-sidecar";
+import { createChromiumSidecar, discoverChromiumEngines, CDP_WAIT_BASE_MS, type SidecarHandle } from "./browser-chromium-sidecar";
 import { discoverInstalledExtensions, pickSidecarExtensions } from "./browser-chromium-extensions";
 
 export type BrowserEngine = "native" | "chromium";
@@ -169,7 +169,7 @@ export const chromiumSidecar = createChromiumSidecar({
       // reader digging, which is the reporting failure issue #31 was made of.
       console.log(
         `[sidecar] ${load.length} estensioni caricate, ${skipped.length} lasciate fuori dal tetto ` +
-        `(avvio: 1 estensione 2,4s, 5 estensioni 28,8s, e il CDP si aspetta 10s). ` +
+        `(avvio: 1 estensione 2,4s, 5 estensioni 28,8s, e il CDP aspetta ${Math.round(CDP_WAIT_BASE_MS/1000)}s a macchina scarica). ` +
         `Fuori: ${skipped.slice(0, 4).map((s) => `${s.ext.name || s.ext.id} (${s.why})`).join("; ")}` +
         `${skipped.length > 6 ? ` e altre ${skipped.length - 6}` : ""}`,
       );
