@@ -1,13 +1,14 @@
 /**
  * @covers SIDECAR-01
  */
-import { test, expect } from "bun:test";
+import { describe, test, expect, it } from "bun:test";
 import {
   discoverChromiumEngines,
   pickChromiumEngine,
   createChromiumSidecar,
   type ChromiumEngine,
   type SidecarLauncher,
+  cdpWaitFactor,
 } from "./browser-chromium-sidecar";
 
 // ── Discovery ──────────────────────────────────────────────────────────────
@@ -199,4 +200,37 @@ test("a static loadExtensions array still works (back-compat)", async () => {
   await sidecar.acquire();
   expect(captured).toEqual([["/only/one"]]);
   sidecar.dispose();
+});
+
+describe("cdpWaitFactor: the wait grows with the load, but stays a wait", () => {
+  // THE DEFECT THIS CLOSES. The ceiling was a flat 10 s. Measured on
+  // 19/09/2026 with zero extensions, three launches back to back on the same
+  // machine: 13.1 s / 21.2 s / 3.6 s, at loadavg 12.5 (Xcode compiling). Two
+  // launches out of three failed, and a failed launch is not free: it takes
+  // the branch that kills the tree.
+  it("quiet machine: no widening at all", () => {
+    expect(cdpWaitFactor(0, 10)).toBe(1);
+    expect(cdpWaitFactor(5, 10)).toBe(1); // half a job per core is idle
+  });
+
+  it("the load that failed the real launches now fits inside the wait", () => {
+    // loadavg 12.5 on 10 cores: the measured 21.2 s has to fit.
+    const ms = 10_000 * cdpWaitFactor(12.5, 10);
+    expect(ms).toBeGreaterThan(21_200);
+  });
+
+  it("still a CEILING: it does not grow without bound", () => {
+    // A wait that grows without limit is not a ceiling, and the point of
+    // having one is refusing a browser that is never coming.
+    expect(cdpWaitFactor(1000, 10)).toBe(cdpWaitFactor(10_000, 10));
+    expect(10_000 * cdpWaitFactor(1000, 10)).toBeLessThanOrEqual(40_000);
+  });
+
+  it("an unreadable load does not zero the wait", () => {
+    // `loadavg()` returns 0 on some platforms, and a NaN propagating through
+    // would become a wait of NaN ms, i.e. no wait at all: the launch would
+    // ALWAYS fail instead of waiting.
+    expect(cdpWaitFactor(NaN, 10)).toBe(1);
+    expect(cdpWaitFactor(5, 0)).toBeGreaterThanOrEqual(1);
+  });
 });

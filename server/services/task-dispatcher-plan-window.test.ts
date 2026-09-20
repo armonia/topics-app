@@ -118,6 +118,25 @@ function board(h: ReturnType<typeof harness>): void {
 
 const HOUR = 3_600_000;
 
+/**
+ * A RESET THAT LANDS TODAY, whatever time the suite happens to run.
+ *
+ * `Date.now() + HOUR` looks harmless and is not: `holdUntilLabel` prints bare
+ * `hh:mm` when the reset is on the same day, and `dd/mm hh:mm` when it spills
+ * over. Run at 23:54 the CI read "resumes at 21/09 00:54" and the assertion on
+ * `/resumes at \d{2}:\d{2}/` failed: a red that only shows up in the last hour
+ * of the day and then clears on its own, which is the worst kind. Found
+ * exactly that way, on the 23:54 run of 19/09.
+ *
+ * At noon it is +1 hour as before; in the last hour of the day it is the
+ * instant just before midnight, which stays today and is still in the future.
+ */
+function resetToday(nowMs: number = Date.now()): number {
+  const endOfDay = new Date(nowMs);
+  endOfDay.setHours(23, 59, 0, 0);
+  return Math.min(nowMs + HOUR, endOfDay.getTime());
+}
+
 describe("il freno della finestra del piano", () => {
   beforeEach(() => { clearPlanUsage(); });
   afterEach(() => { clearPlanUsage(); });
@@ -127,7 +146,7 @@ describe("il freno della finestra del piano", () => {
     const h = harness({ log: (m: string) => logs.push(m) });
     board(h);
     seedTask(h.db, "w1");
-    recordPlanUsage({ fiveHour: { utilization: 95, resetsAtMs: Date.now() + HOUR }, sevenDay: null });
+    recordPlanUsage({ fiveHour: { utilization: 95, resetsAtMs: resetToday() }, sevenDay: null });
 
     for (let i = 0; i < 3; i++) { await h.dispatcher.tick(PID); await flush(); }
 
@@ -144,7 +163,7 @@ describe("il freno della finestra del piano", () => {
     const h = harness();
     board(h);
     seedTask(h.db, "w2");
-    recordPlanUsage({ fiveHour: { utilization: 40, resetsAtMs: Date.now() + HOUR }, sevenDay: null });
+    recordPlanUsage({ fiveHour: { utilization: 40, resetsAtMs: resetToday() }, sevenDay: null });
 
     await h.dispatcher.tick(PID);
     await flush();
@@ -183,7 +202,7 @@ describe("il freno della finestra del piano", () => {
     seedTask(h.db, "w5");
     // The measured case: seven_day at 92% while the five-hour window is fresh.
     // Braking on it would hold the queue for days for a wall nobody hits today.
-    recordPlanUsage({ fiveHour: { utilization: 10, resetsAtMs: Date.now() + HOUR }, sevenDay: { utilization: 92, resetsAtMs: Date.now() + 48 * HOUR } });
+    recordPlanUsage({ fiveHour: { utilization: 10, resetsAtMs: resetToday() }, sevenDay: { utilization: 92, resetsAtMs: Date.now() + 48 * HOUR } });
 
     await h.dispatcher.tick(PID);
     await flush();
