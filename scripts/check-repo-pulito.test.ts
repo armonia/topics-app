@@ -136,3 +136,37 @@ describe("check-repo-pulito: come lo riporta", () => {
     }
   });
 });
+
+describe("check-repo-pulito: fantasma contro worktree vere", () => {
+  test("tells a GHOST worktree from a real one", async () => {
+    // The free half of the problem. A worktree whose folder is gone still sits
+    // in git's registration: no disk, no work, and `git worktree prune` clears
+    // it with no decision to make. Reported together with the real ones it
+    // would hide a free fix behind one that needs thought - on 20/09 six of
+    // eight worktrees on this box were ghosts, five of them in one repo.
+    const dir = await throwawayRepo();
+    const wt = join(dir, "wt");
+    await $`git worktree add -q ${wt} -b altro`.cwd(dir).quiet();
+    await $`rm -rf ${wt}`.quiet(); // the folder goes, the registration stays
+
+    const found = await inside(dir, collect);
+    const ghost = found.find((r) => r.what.includes("FANTASMA"));
+    expect(ghost).toBeDefined();
+    expect(ghost!.remedy).toContain("git worktree prune");
+    // And it must NOT also show up among the real ones.
+    expect(found.find((r) => r.what.includes("oltre il checkout"))).toBeUndefined();
+  });
+
+  test("a real worktree says ARCHIVE before remove", async () => {
+    // Measured reason: of the 16 removed on 20/09, ten carried commits that
+    // were NOT in main (up to six each). "The agent finished" is not "the work
+    // landed", so the advice cannot lead with a removal.
+    const dir = await throwawayRepo();
+    await $`git worktree add -q ${join(dir, "viva")} -b viva`.cwd(dir).quiet();
+    const found = await inside(dir, collect);
+    const real = found.find((r) => r.what.includes("oltre il checkout"));
+    expect(real).toBeDefined();
+    expect(real!.remedy).toContain("git tag archive/wt-");
+    expect(real!.remedy).toContain("main..HEAD");
+  });
+});
