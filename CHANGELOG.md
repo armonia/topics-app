@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.370 — 2026-09-20
+
+### Sotto il cofano
+- Le worktree fantasma sono la meta' gratis del problema
+
+## 2.2.369 — 2026-09-20
+
+### Sotto il cofano
+- Un browser morto aspettava 60 secondi come uno lento
+
 ## 2.2.368 — 2026-09-20
 
 ### Sotto il cofano

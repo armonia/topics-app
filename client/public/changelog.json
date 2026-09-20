@@ -1,5 +1,37 @@
 [
   {
+    "version": "2.2.370",
+    "date": "2026-09-20",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Le worktree fantasma sono la meta' gratis del problema",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.369",
+    "date": "2026-09-20",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un browser morto aspettava 60 secondi come uno lento",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.368",
     "date": "2026-09-20",
     "sections": {
