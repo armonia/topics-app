@@ -35,6 +35,7 @@
  * a backup branch is the point. It is not meant for "I will tidy up later".
  */
 import { $ } from "bun";
+import { existsSync } from "node:fs";
 
 /** One leftover found in the repo, with the way to remove it. */
 interface Leftover {
@@ -94,11 +95,41 @@ async function collect(): Promise<Leftover[]> {
 
   // `git worktree list` always prints the main checkout: only the others count.
   const wt = lines(await sh("git worktree list")).slice(1);
-  if (wt.length > 0) {
+
+  // GHOSTS FIRST, because they are the free half of the problem. A worktree
+  // whose folder is gone is a registration git still carries: it costs no disk
+  // and holds no work, and `git worktree prune` removes it without a decision.
+  // Lumping it in with the real ones hides a fix that needs no thought behind
+  // one that does - found on 20/09, when six of eight worktrees across the box
+  // were ghosts (tdh had five).
+  const ghosts: string[] = [];
+  const real: string[] = [];
+  for (const line of wt) {
+    const path = line.split(/\s+/)[0] ?? "";
+    (path && !existsSync(path) ? ghosts : real).push(line);
+  }
+
+  if (ghosts.length > 0) {
     found.push({
-      what: `${wt.length} worktree oltre il checkout principale`,
-      lines: wt,
-      remedy: "git worktree remove --force <percorso>",
+      what: `${ghosts.length} worktree FANTASMA (cartella sparita, registrazione rimasta)`,
+      lines: ghosts,
+      remedy: "gratis, non c'e' niente da salvare:\n    git worktree prune",
+    });
+  }
+
+  if (real.length > 0) {
+    found.push({
+      what: `${real.length} worktree oltre il checkout principale`,
+      lines: real,
+      // ARCHIVE BEFORE REMOVING, and the reason is measured: of the 16 removed
+      // on 20/09, ten carried commits that were NOT in main (up to 6 each).
+      // "The agent finished" does not mean "the work landed".
+      remedy:
+        "prima guarda se dentro c'e' lavoro:\n" +
+        "    cd <percorso> && git log --oneline main..HEAD && git status --porcelain\n" +
+        "  poi archivia e rimuovi:\n" +
+        "    git tag archive/wt-<nome> $(cd <percorso> && git rev-parse HEAD)\n" +
+        "    git worktree remove --force <percorso>",
     });
   }
 
