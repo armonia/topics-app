@@ -292,3 +292,39 @@ describe("the candidate list: the sidecar must not drive a person's own browser"
     expect(candidateIdsFor("linux")).toContain("helium");
   });
 });
+
+describe("un browser morto non si aspetta come uno lento", () => {
+  test("a binary that does not exist fails in well under a second", async () => {
+    // MEASURED, and it is why this exists: before the `error`/`exit` listeners
+    // a path that does not exist took SIXTY SECONDS to fail, because the wait
+    // only ever ended on the clock. The ceiling is there for a browser that is
+    // still coming; one that is already gone is not coming late.
+    //
+    // The port is a throwaway one on purpose: the sidecar's real port is FIXED
+    // (19333), so a leftover browser holding it would answer DevTools and this
+    // test would pass for the wrong reason. Found exactly that way while
+    // measuring - a live Helium on 19333 made `acquire` succeed on a binary
+    // that does not exist.
+    const sidecar = createChromiumSidecar({
+      discover: () => [{ id: "x", name: "X", executablePath: "/non/esiste/mai" }],
+      loadExtensions: () => [],
+      port: 45931,
+    });
+    const t0 = Date.now();
+    let message = "";
+    try {
+      await sidecar.acquire();
+    } catch (err) {
+      message = String((err as Error).message ?? err);
+    }
+    const elapsed = Date.now() - t0;
+    // Either signal is a correct answer, and WHICH one depends on how the
+    // browser dies: a path that does not exist never starts (`error`,
+    // ENOENT), a browser that refuses its profile starts and returns
+    // (`exit`). The test pins "it said why", not which of the two.
+    expect(message).toMatch(/cannot start|exited before exposing CDP/);
+    // Generous by a lot: the measurement says 0.4-0.7 s, and the point is that
+    // it is not the ceiling (30 s and up).
+    expect(elapsed).toBeLessThan(5_000);
+  });
+});
