@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.366 — 2026-09-20
+
+### Sotto il cofano
+- L'hook che avevo scritto non lo eseguiva nessuno
+- Il motivo diceva il falso: adesso un test lo verifica
+- Gli hook non arrivavano a chi clona: nessuno lanciava l'installatore
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-19 [skip ci]
+- Il sidecar non poteva partire: 42 estensioni contro un'attesa di 10 secondi
+- Un test rosso solo nell'ultima ora del giorno
+
 ## 2.2.365 — 2026-09-19
 
 ### Sotto il cofano

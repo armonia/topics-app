@@ -1,5 +1,47 @@
 [
   {
+    "version": "2.2.366",
+    "date": "2026-09-20",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "L'hook che avevo scritto non lo eseguiva nessuno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il motivo diceva il falso: adesso un test lo verifica",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Gli hook non arrivavano a chi clona: nessuno lanciava l'installatore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-19 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "Il sidecar non poteva partire: 42 estensioni contro un'attesa di 10 secondi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un test rosso solo nell'ultima ora del giorno",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.365",
     "date": "2026-09-19",
     "sections": {
