@@ -228,6 +228,22 @@ describe("cdpWaitFactor: the wait grows with the load, but stays a wait", () => 
     expect(CDP_WAIT_BASE_MS * cdpWaitFactor(12.5, 10)).toBeGreaterThan(28_000);
   });
 
+  it("covers every slow launch actually measured, not just the worst one", () => {
+    // The table, so a future change to base or factor has to answer to all of
+    // them at once instead of to the single number somebody remembered.
+    // Seconds to CDP, and the loadavg the box was at, all on 12 cores:
+    const measured: [number, number][] = [
+      [28.0, 9.9],   // cold start, 2 extensions, 20/09
+      [38.0, 18.0],  // cold start, ZERO extensions - so it is the box, not the extensions
+      [21.2, 12.5],  // 19/09, zero extensions
+      [13.1, 12.5],
+      [12.8, 12.0],
+    ];
+    for (const [seconds, load] of measured) {
+      expect(CDP_WAIT_BASE_MS * cdpWaitFactor(load, 12)).toBeGreaterThan(seconds * 1000);
+    }
+  });
+
   it("a quiet machine already gets more than the slowest launch", () => {
     // The base alone has to cover it: on an idle box the factor is 1, and a
     // cold first start there is still a cold first start.
