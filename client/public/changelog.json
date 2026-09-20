@@ -1,5 +1,41 @@
 [
   {
+    "version": "2.2.371",
+    "date": "2026-09-20",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Un cricchetto che non si stringe lascia due posti liberi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Incasso tre sonni fissi spariti, sennò il tetto resta quello di due settimane fa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il cancello di pulizia segnalava il carico del push che lo stava eseguendo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'hook installato era una fotocopia, e girava il codice di ieri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "GATE-15: i due difetti del pre-push diventano un requisito",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.370",
     "date": "2026-09-20",
     "sections": {

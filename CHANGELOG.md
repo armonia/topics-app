@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.371 — 2026-09-20
+
+### Sotto il cofano
+- Un cricchetto che non si stringe lascia due posti liberi
+- Incasso tre sonni fissi spariti, sennò il tetto resta quello di due settimane fa
+- Il cancello di pulizia segnalava il carico del push che lo stava eseguendo
+- L'hook installato era una fotocopia, e girava il codice di ieri
+- GATE-15: i due difetti del pre-push diventano un requisito
+
 ## 2.2.370 — 2026-09-20
 
 ### Sotto il cofano
