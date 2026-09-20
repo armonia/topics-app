@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.367 — 2026-09-20
+
+### Sotto il cofano
+- Il sidecar pilotava Dia, cioe' il browser personale dell'utente
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-20 [skip ci]
+
 ## 2.2.366 — 2026-09-20
 
 ### Sotto il cofano

@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.2.367",
+    "date": "2026-09-20",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il sidecar pilotava Dia, cioe' il browser personale dell'utente",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-20 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.366",
     "date": "2026-09-20",
     "sections": {
