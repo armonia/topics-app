@@ -1,22 +1,22 @@
 /**
- * IL CANCELLO CHE SEGNALAVA SE STESSO.
+ * THE GATE THAT REPORTED ITSELF.
  *
- * Il 20/09 un `git push` di due commit ha stampato, dentro lo stesso comando
- * che li stava pubblicando, "main ha 2 commit non spinti -> git push". Non e'
- * un falso positivo qualsiasi: e' un avviso che compare a OGNI push, perche'
- * durante il pre-push i commit in arrivo non sono ancora sul remoto e
- * `git rev-list upstream..main` li conta per forza. Un cancello che parla
- * sempre insegna a non leggerlo, e il giorno che ha qualcosa di vero da dire
- * nessuno lo guarda.
+ * On 20/09 a `git push` of two commits printed, inside the very command that
+ * was publishing them, this line:
+ *   main ha 2 commit non spinti -> git push   allow-italian: the gate's own output, asserted verbatim below
+ * This is not any old false positive: it is a warning that shows up on EVERY
+ * push, because during pre-push the incoming commits are not on the remote yet
+ * and `git rev-list upstream..main` is bound to count them. A gate that always
+ * talks teaches people not to read it, and the day it is right nobody looks.
  *
- * Qui si misura su un repo vero con un remoto vero (un clone `--bare` su
- * disco), perche' il difetto sta proprio nel rapporto fra `main` e il suo
- * upstream: con un finto non esisterebbe.
+ * Measured here on a real repo with a real remote (a `--bare` clone on disk),
+ * because the defect lives exactly in the relation between `main` and its
+ * upstream: with a fake one it would not exist.
  *
- * LE DUE META' DELLA STESSA PROVA, e servono entrambe:
- *  - senza `--in-push` il conteggio DEVE ancora vedere i commit (altrimenti il
- *    rimedio sarebbe "smetti di contare", e il cancello morirebbe zitto);
- *  - con `--in-push <sha>` deve tacere su QUEL carico e non su altro.
+ * THE TWO HALVES OF THE SAME PROOF, and both are needed:
+ *  - without `--in-push` the count MUST still see the commits (otherwise the
+ *    cure would be "stop counting", and the gate would die quietly);
+ *  - with `--in-push <sha>` it must go silent about THAT payload and nothing else.
  */
 import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -25,8 +25,8 @@ import { join } from "node:path";
 
 const SCRIPT = join(import.meta.dir, "..", "..", "scripts", "check-repo-pulito.ts");
 
-const lavoro = mkdtempSync(join(tmpdir(), "pulito-push-"));
-afterAll(() => rmSync(lavoro, { recursive: true, force: true }));
+const work = mkdtempSync(join(tmpdir(), "pulito-push-"));
+afterAll(() => rmSync(work, { recursive: true, force: true }));
 
 function git(cwd: string, ...args: string[]): string {
   const r = Bun.spawnSync(["git", ...args], {
@@ -37,7 +37,7 @@ function git(cwd: string, ...args: string[]): string {
       GIT_AUTHOR_EMAIL: "t@t",
       GIT_COMMITTER_NAME: "t",
       GIT_COMMITTER_EMAIL: "t@t",
-      // Gli hook del repo vero non devono girare dentro il banco di prova.
+      // The real repo's hooks must not run inside the test bed.
       GIT_CONFIG_GLOBAL: "/dev/null",
       GIT_CONFIG_SYSTEM: "/dev/null",
     },
@@ -48,12 +48,12 @@ function git(cwd: string, ...args: string[]): string {
   return r.stdout.toString().trim();
 }
 
-/** Un repo con upstream e due commit locali non spinti, come al momento del push. */
-function bancoDiProva(): { repo: string; shas: string[] } {
-  const remoto = join(lavoro, "remoto.git");
-  const repo = join(lavoro, "lavoro");
-  git(lavoro, "init", "--bare", "--initial-branch=main", remoto);
-  git(lavoro, "clone", remoto, repo);
+/** A repo with an upstream and two local unpushed commits, as at push time. */
+function testBed(): { repo: string; shas: string[] } {
+  const remote = join(work, "remote.git");
+  const repo = join(work, "work");
+  git(work, "init", "--bare", "--initial-branch=main", remote);
+  git(work, "clone", remote, repo);
 
   writeFileSync(join(repo, "a.txt"), "uno\n");
   git(repo, "add", "a.txt");
@@ -69,7 +69,7 @@ function bancoDiProva(): { repo: string; shas: string[] } {
   return { repo, shas };
 }
 
-function conta(repo: string, ...args: string[]): { code: number; out: string } {
+function count(repo: string, ...args: string[]): { code: number; out: string } {
   const r = Bun.spawnSync(["bun", "run", SCRIPT, ...args], {
     cwd: repo,
     env: { ...process.env, TOPICS_PULITO_OK: "" },
@@ -80,24 +80,24 @@ function conta(repo: string, ...args: string[]): { code: number; out: string } {
   };
 }
 
-const { repo, shas } = bancoDiProva();
+const { repo, shas } = testBed();
 
-test("senza --in-push i commit non spinti si vedono ancora", () => {
-  const { code, out } = conta(repo);
+test("without --in-push the unpushed commits are still reported", () => {
+  const { code, out } = count(repo);
   expect(out).toContain("commit non spinti");
   expect(code).not.toBe(0);
 });
 
-test("con --in-push il carico del push non viene segnalato come avanzo", () => {
-  // git passa la PUNTA del ramo: `--not <punta>` esclude anche i suoi antenati.
-  const { code, out } = conta(repo, "--in-push", shas[shas.length - 1]!);
+test("with --in-push the push payload is not reported as a leftover", () => {
+  // git passes the branch TIP: `--not <tip>` excludes its ancestors too.
+  const { code, out } = count(repo, "--in-push", shas[shas.length - 1]!);
   expect(out).not.toContain("commit non spinti");
   expect(code).toBe(0);
 });
 
-test("uno sha finto non spegne il conteggio", () => {
-  // Una cancellazione di ramo arriva come sha di zeri: non pubblica niente, e
-  // se venisse passata a `--not` il conteggio tacerebbe per il motivo sbagliato.
-  const { out } = conta(repo, "--in-push", "0000000000000000000000000000000000000000");
+test("a zero sha does not silence the count", () => {
+  // A branch deletion arrives as an all-zero sha: it publishes nothing, and if
+  // it reached `--not` the count would go quiet for the wrong reason.
+  const { out } = count(repo, "--in-push", "0000000000000000000000000000000000000000");
   expect(out).toContain("commit non spinti");
 });
