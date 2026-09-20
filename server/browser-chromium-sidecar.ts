@@ -523,12 +523,25 @@ const defaultPsReader: PsReader = () => {
  * product timer that grows with the load is a different decision from a test
  * window. This is that decision, taken here, for this one wait.
  *
- * The base stays 10 s because on an idle machine the endpoint answers in about
- * two (1.8 s headful with no extensions, measured 18/09): the base was never
- * the problem, the rigidity was.
+ * THE BASE IS 30 s, AND 10 WAS NOT ENOUGH. The first version of this kept the
+ * historical 10 s base and only scaled it. Measured again on 20/09 on a
+ * QUIETER machine (loadavg 9.9, which scales the wait to 18.3 s): a cold start
+ * with two extensions took 28.0 s. It would still have failed. Warm starts
+ * right after were 4.1 and 3.9 s, so the slow case is the first launch on a
+ * profile Chromium has not seen yet - which happens exactly once per install,
+ * and is precisely the launch a user waits for.
+ *
+ * A base nobody ever waits out costs nothing: the endpoint answers in about
+ * two seconds on an idle machine (1.8 s headful, no extensions, 18/09), and
+ * the wait ends the moment CDP replies. The only thing a bigger base changes
+ * is how long we hold on before declaring a browser dead - and declaring it
+ * dead is not free, it takes the branch that kills the tree.
  */
-const CDP_WAIT_BASE_MS = 10_000;
-const CDP_WAIT_MAX_FACTOR = 4;
+export const CDP_WAIT_BASE_MS = 30_000;
+// TWO, not four. With a 30 s base a factor of 4 would mean two minutes, and
+// at that point it is no longer a ceiling: a browser silent after a minute is
+// not arriving late, it is not arriving. The worst ever measured is 28 s.
+const CDP_WAIT_MAX_FACTOR = 2;
 
 export function cdpWaitFactor(load: number, cores: number): number {
   const perCore = load / Math.max(1, cores);

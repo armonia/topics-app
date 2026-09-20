@@ -9,6 +9,7 @@ import {
   type ChromiumEngine,
   type SidecarLauncher,
   cdpWaitFactor,
+  CDP_WAIT_BASE_MS,
   candidateIdsFor,
 } from "./browser-chromium-sidecar";
 
@@ -214,17 +215,32 @@ describe("cdpWaitFactor: the wait grows with the load, but stays a wait", () => 
     expect(cdpWaitFactor(5, 10)).toBe(1); // half a job per core is idle
   });
 
-  it("the load that failed the real launches now fits inside the wait", () => {
-    // loadavg 12.5 on 10 cores: the measured 21.2 s has to fit.
-    const ms = 10_000 * cdpWaitFactor(12.5, 10);
-    expect(ms).toBeGreaterThan(21_200);
+  it("the slowest launch ever measured fits inside the wait", () => {
+    // THE NUMBER TO BEAT IS 28.0 s: a cold start with two extensions on
+    // 20/09, at loadavg 9.9 on 12 cores. Warm starts right after were 4.1 and
+    // 3.9 s, so the slow case is the first launch on a fresh profile - which
+    // is exactly the one a user waits for.
+    //
+    // The base is checked here too, not just the factor: with the old 10 s
+    // base this very load scaled to 18.3 s and that launch would still have
+    // failed. A test on the factor alone would have stayed green through it.
+    expect(CDP_WAIT_BASE_MS * cdpWaitFactor(9.9, 12)).toBeGreaterThan(28_000);
+    expect(CDP_WAIT_BASE_MS * cdpWaitFactor(12.5, 10)).toBeGreaterThan(28_000);
+  });
+
+  it("a quiet machine already gets more than the slowest launch", () => {
+    // The base alone has to cover it: on an idle box the factor is 1, and a
+    // cold first start there is still a cold first start.
+    expect(CDP_WAIT_BASE_MS).toBeGreaterThan(28_000);
   });
 
   it("still a CEILING: it does not grow without bound", () => {
     // A wait that grows without limit is not a ceiling, and the point of
     // having one is refusing a browser that is never coming.
     expect(cdpWaitFactor(1000, 10)).toBe(cdpWaitFactor(10_000, 10));
-    expect(10_000 * cdpWaitFactor(1000, 10)).toBeLessThanOrEqual(40_000);
+    // And the ceiling stays a ceiling in absolute terms: a browser silent for
+    // a minute is not late, it is not coming.
+    expect(CDP_WAIT_BASE_MS * cdpWaitFactor(1000, 10)).toBeLessThanOrEqual(60_000);
   });
 
   it("an unreadable load does not zero the wait", () => {
