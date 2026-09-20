@@ -16,6 +16,8 @@
  * reads the refs being pushed from it, and a guard reading an empty stdin
  * blocks nothing), and the exit code must come back unchanged (that guard
  * REFUSES by exiting non-zero).
+ *
+ * @covers GATE-15
  */
 import { afterAll, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";

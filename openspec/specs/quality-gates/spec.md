@@ -671,3 +671,42 @@ mi contiene», che nessun gradino fisso può dire.
 #### Scenario: colori, allineamenti e misure relative restano verdi
 - **GIVEN** un file con `text-app-text-muted`, `text-center` e `text-[0.92em]`
 - **THEN** `check:typography` SHALL uscire zero
+
+### Requirement: GATE-15 — Un cancello non segnala il lavoro che lo sta eseguendo, e l'hook installato è quello del repo
+
+Il contatore del checkout gira dentro il `pre-push`, cioè nel momento in cui
+qualcuno sta per dire «fatto». Lì i commit in arrivo non sono ancora sul remoto,
+quindi contarli significa stampare come avanzo esattamente il carico che il push
+sta consegnando: misurato il 20/09, due commit segnalati dallo stesso comando che
+li pubblicava. Un avviso che compare a OGNI push non è un avviso, è il rumore che
+insegna a non leggere il cancello il giorno che ha ragione.
+
+Il contatore SHALL ricevere le punte in pubblicazione (`--in-push <sha>`) e SHALL
+escluderle dal conteggio del non spinto. Ciò che il push NON tocca — un ramo
+rimasto indietro, uno stash, una worktree — SHALL restare rosso: la cura di un
+falso allarme non è smettere di guardare. Uno sha di soli zeri, cioè una
+cancellazione di ramo, non pubblica niente e NON SHALL spegnere il conteggio.
+
+L'hook INSTALLATO SHALL essere il file VERSIONATO, non una sua copia. Una
+fotocopia smette di somigliare al sorgente al primo cambiamento e nessuno lo
+dice: il 20/09 la correzione al `pre-push` è stata scritta, committata e spinta,
+e il push ha eseguito la versione della notte prima. L'installazione SHALL quindi
+INOLTRARE al file tracciato, passando ARGOMENTI e STDIN e restituendo il CODICE DI
+USCITA immutato — stdin porta i ref che la guardia legge per decidere, e la
+guardia rifiuta uscendo non-zero. Se il file tracciato non c'è (un commit
+vecchio, un checkout parziale) l'inoltro SHALL uscire zero: un hook assente è
+meglio di un hook che esplode.
+
+#### Scenario: il push segnala il proprio carico
+- **GIVEN** `main` con commit non ancora sul remoto
+- **WHEN** il contatore riceve quelle punte in `--in-push`
+- **THEN** NON SHALL nominarli come non spinti
+
+#### Scenario: resta dello sporco che il push non tocca
+- **GIVEN** un ramo oltre `main` durante lo stesso push
+- **THEN** il contatore SHALL dirlo
+
+#### Scenario: l'hook versionato cambia
+- **GIVEN** una modifica a `scripts/git-hooks/pre-push`
+- **WHEN** parte un push senza reinstallare gli hook
+- **THEN** SHALL essere eseguita la versione NUOVA

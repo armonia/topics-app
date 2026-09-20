@@ -17,6 +17,8 @@
  *  - without `--in-push` the count MUST still see the commits (otherwise the
  *    cure would be "stop counting", and the gate would die quietly);
  *  - with `--in-push <sha>` it must go silent about THAT payload and nothing else.
+ *
+ * @covers GATE-15
  */
 import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
