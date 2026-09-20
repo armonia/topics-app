@@ -53,6 +53,18 @@ function macCandidates(): Candidate[] {
     paths: [app(appName, bin), userApp(appName, bin)],
   });
   return [
+    // HELIUM FIRST, and the reason is not taste: it is the only one on this
+    // list that is NOT a browser somebody lives in. On this machine the only
+    // two present are Helium and Dia, and Dia is the user's personal
+    // browser: `pickChromiumEngine` takes the first that exists, so without
+    // this line the sidecar drives the tabs, cookies and sessions of whoever
+    // is working (verified on 20/09: `SCELTO: dia`).
+    //
+    // Helium is ungoogled-chromium, so plain CDP and no Google services.
+    // Measured the same day: CDP ready in 1.5 s against the 1.8 s of
+    // Playwright's Chrome for Testing, and on Chrome 153 instead of 147.
+    // Preferring it costs nothing and removes the worst risk.
+    mk("helium", "Helium", "Helium", "Helium"),
     mk("chrome", "Google Chrome", "Google Chrome", "Google Chrome"),
     mk("edge", "Microsoft Edge", "Microsoft Edge", "Microsoft Edge"),
     mk("brave", "Brave", "Brave Browser", "Brave Browser"),
@@ -73,6 +85,8 @@ function windowsCandidates(): Candidate[] {
     paths: [join(pf, ...rel), join(pf86, ...rel), join(local, ...rel)],
   });
   return [
+    // Same preference as the Mac, same reason: see the comment above.
+    mk("helium", "Helium", "Helium", "Application", "helium.exe"),
     mk("chrome", "Google Chrome", "Google", "Chrome", "Application", "chrome.exe"),
     mk("edge", "Microsoft Edge", "Microsoft", "Edge", "Application", "msedge.exe"),
     mk("brave", "Brave", "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
@@ -89,11 +103,24 @@ function linuxCandidates(): Candidate[] {
   });
   return [
     bins("chrome", "Google Chrome", "google-chrome", "google-chrome-stable"),
+    bins("helium", "Helium", "helium", "helium-browser"),
     bins("edge", "Microsoft Edge", "microsoft-edge", "microsoft-edge-stable"),
     bins("brave", "Brave", "brave-browser", "brave"),
     bins("vivaldi", "Vivaldi", "vivaldi", "vivaldi-stable"),
     bins("chromium", "Chromium", "chromium", "chromium-browser"),
   ];
+}
+
+/**
+ * THE CANDIDATE IDS, in the order they get looked at.
+ *
+ * Exposed because the ORDER is a security decision, not a detail:
+ * `pickChromiumEngine` takes the first that exists, and before 20/09 on this
+ * machine that was Dia, the user's own browser. A test pins it, and to do so
+ * it needs to read the list without touching the disk.
+ */
+export function candidateIdsFor(platform: NodeJS.Platform): string[] {
+  return candidatesForPlatform(platform).map((c) => c.id);
 }
 
 function candidatesForPlatform(platform: NodeJS.Platform): Candidate[] {

@@ -9,6 +9,7 @@ import {
   type ChromiumEngine,
   type SidecarLauncher,
   cdpWaitFactor,
+  candidateIdsFor,
 } from "./browser-chromium-sidecar";
 
 // ── Discovery ──────────────────────────────────────────────────────────────
@@ -232,5 +233,30 @@ describe("cdpWaitFactor: the wait grows with the load, but stays a wait", () => 
     // ALWAYS fail instead of waiting.
     expect(cdpWaitFactor(NaN, 10)).toBe(1);
     expect(cdpWaitFactor(5, 0)).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("the candidate list: the sidecar must not drive a person's own browser", () => {
+  it("Helium comes before Dia, and not as a matter of taste", () => {
+    // THE RISK THIS ORDER REMOVES. `pickChromiumEngine` takes the first
+    // candidate that exists on disk. On this machine, of the seven historical
+    // candidates, the only one installed was Dia: the user's own browser,
+    // with their tabs, their cookies, their sessions. Verified on 20/09
+    // before the change: `SCELTO: dia`.
+    //
+    // Helium is ungoogled-chromium (plain CDP, no Google services) and is not
+    // a browser somebody lives in, so it gets looked at first.
+    const ids = candidateIdsFor("darwin");
+    expect(ids).toContain("helium");
+    expect(ids.indexOf("helium")).toBeLessThan(ids.indexOf("dia"));
+    expect(ids.indexOf("helium")).toBe(0);
+  });
+
+  it("Helium is present on all three platforms", () => {
+    // A candidate added only on the Mac leaves the risk in place on Windows
+    // and Linux, and nobody notices until somebody works there.
+    expect(candidateIdsFor("darwin")).toContain("helium");
+    expect(candidateIdsFor("win32")).toContain("helium");
+    expect(candidateIdsFor("linux")).toContain("helium");
   });
 });
