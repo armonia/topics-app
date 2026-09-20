@@ -1,5 +1,32 @@
 [
   {
+    "version": "2.2.368",
+    "date": "2026-09-20",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-20 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "L'attesa che avevo appena scritto era ancora troppo stretta",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "38 secondi con ZERO estensioni: non erano le estensioni, e' la macchina",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.367",
     "date": "2026-09-20",
     "sections": {
