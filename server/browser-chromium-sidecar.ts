@@ -356,6 +356,30 @@ function defaultLauncher(): SidecarLauncher {
         args.push(`--load-extension=${loadExtensions.join(",")}`);
       }
       const child = spawn(engine.executablePath, args, { stdio: "ignore" });
+
+      // A DEAD BROWSER IS NOT A SLOW BROWSER, and waiting the full ceiling for
+      // one is time nobody gets back. Without this, a missing or broken
+      // executable is indistinguishable from a machine under load: measured on
+      // 20/09, a path that does not exist took SIXTY SECONDS to fail, because
+      // the wait only ever ended on the clock.
+      //
+      // Two signals, and they are different failures: `error` is "could not
+      // even start it" (ENOENT on a browser uninstalled between discovery and
+      // launch), `exit` is "started and gave up" (a profile it refuses, a flag
+      // it does not know). Both mean the endpoint is never coming, and both
+      // are knowable in milliseconds.
+      let died: Error | null = null;
+      child.on("error", (err) => {
+        died = new Error(`cannot start ${engine.name} (${engine.executablePath}): ${err.message}`);
+      });
+      child.on("exit", (code, signal) => {
+        // A clean exit is still an exit: a browser doing its job does not
+        // return while we are waiting for its endpoint.
+        died ??= new Error(
+          `${engine.name} exited before exposing CDP (code ${code ?? "-"}, signal ${signal ?? "-"})`,
+        );
+      });
+
       const kill = () => {
         try {
           child.kill();
@@ -364,7 +388,7 @@ function defaultLauncher(): SidecarLauncher {
         }
       };
       try {
-        const cdpEndpoint = await waitForCdpEndpoint(port, cdpWaitMs(), child.pid);
+        const cdpEndpoint = await waitForCdpEndpoint(port, cdpWaitMs(), child.pid, undefined, () => died);
         return { cdpEndpoint, kill };
       } catch (err) {
         // `child.kill()` ALONE IS NOT ENOUGH HERE, and the difference showed.
@@ -561,11 +585,19 @@ async function waitForCdpEndpoint(
   timeoutMs = 10000,
   ownerPid?: number,
   ownsPort: (port: number, pid: number) => boolean | null = portOwnedBy,
+  /**
+   * Asks, each round, whether the browser has already died. Returning an Error
+   * ends the wait NOW: the deadline is there for a browser still coming, and
+   * one that is gone is not coming late.
+   */
+  died: () => Error | null = () => null,
 ): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   let lastErr: unknown;
   let foreign = false;
   while (Date.now() < deadline) {
+    const gone = died();
+    if (gone) throw gone;
     try {
       const res = await fetch(`http://127.0.0.1:${port}/json/version`);
       if (res.ok) {
