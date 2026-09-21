@@ -547,32 +547,28 @@ describe("fleet cache · la valanga a freddo", () => {
 
 
 /**
- * LO `ps` CHE NON TORNA.
+ * A `ps` PROCESS THAT NEVER RETURNS.
  *
- * Il 21/09/2026 Topics e' sembrato spento: rispondeva HTTP solo dopo minuti e
- * da fuori era indistinguibile da un server morto. Era vivo. Uno `next dev` in
- * loop aveva riempito lo swap al 98%, e lo `ps -axo` di questo modulo veniva
- * lanciato SENZA scadenza: restava appeso finche' il kernel non lo schedulava,
- * e l'await si portava dietro l'intero loop di Bun. Misurato nel log del
- * server: `GET /api/system/status` **399 secondi**, `GET /api/system/presence`
- * 165 s, con il loop fermo fino a 115 s di fila.
+ * On 21/09/2026 Topics appeared offline: HTTP responses took minutes. A looping
+ * `next dev` process had filled swap to 98%, and this module launched `ps -axo`
+ * with no deadline. It hung until the kernel scheduled it and held Bun's loop
+ * with it. Server logs measured 399 seconds for `GET /api/system/status`, 165
+ * seconds for `GET /api/system/presence`, and loop stalls up to 115 seconds.
  *
- * Il danno peggiore non era la latenza: il freno anti-swap di questo stesso
- * server decide su questa misura, e quando serviva di piu' non arrivava. Nel
- * log 84 righe «ps did not answer with a process table: nothing measured,
- * nothing signalled» — cieco esattamente durante l'emergenza che doveva
- * gestire.
+ * Worse, the same reading drives the server's swap guard, so it disappeared
+ * exactly when needed. The log contained 84 "ps did not answer" entries,
+ * leaving the guard blind throughout the incident.
  *
- * Qui lo `ps` appeso e' finto ma il blocco e' reale: uno stdout che non si
- * chiude mai. Senza la scadenza questi test non fallirebbero, resterebbero
- * appesi per sempre, che e' precisamente il guasto.
+ * The hanging `ps` here is fake, but the blocked stream is real: stdout never
+ * closes. Without the deadline these tests would hang forever, reproducing the
+ * actual failure rather than reporting it.
  */
 describe("fleet · lo `ps` che non torna", () => {
   beforeEach(() => _resetFleetUsageCache());
 
-  /** Un `ps` che non chiude mai stdout e non esce mai: il thrash, in provetta. */
+  /** A `ps` process that never closes stdout or exits: controlled thrashing. */
   const hangingPs = (killed: { yes: boolean }): PsSpawner => () => ({
-    stdout: new ReadableStream({ start() { /* mai enqueue, mai close */ } }),
+    stdout: new ReadableStream({ start() { /* never enqueue or close */ } }),
     exited: new Promise<number>(() => {}),
     kill: () => { killed.yes = true; },
   });
@@ -602,8 +598,8 @@ describe("fleet · lo `ps` che non torna", () => {
     const killed = { yes: false };
     const started = Date.now();
 
-    // `getFleetUsage` degrada a «non lo so» (cache o unsupported): quello che
-    // NON deve fare e' propagare l'attesa a chi sta servendo una richiesta.
+    // `getFleetUsage` degrades to unknown (cached or unsupported). It must not
+    // propagate the wait to the request handler.
     const usage = await getFleetUsage(() => snapshot(hangingPs(killed), 80));
 
     expect(usage.supported === false || usage.processCount >= 0).toBe(true);

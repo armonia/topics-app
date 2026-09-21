@@ -193,29 +193,28 @@ describe("avvisoPerTurno — la coda dice il vero", () => {
   });
 
   /**
-   * «QUI SOTTO» INDICAVA IL VUOTO.
+   * "BELOW" POINTED AT EMPTY SPACE.
    *
-   * Il cartello e' l'ULTIMO blocco della bolla, quindi cio' che il turno aveva
-   * gia' prodotto sta SOPRA. Su topic:a5c4a915 (21/09) erano 18 blocchi sopra
-   * e zero sotto, e la frase mandava a cercare dalla parte sbagliata.
+   * The notice is the LAST block in the bubble, so the work already produced
+   * is above it. The reported turn had 18 blocks above and none below, making
+   * the old direction point the reader the wrong way.
    */
   test("rifiuto con lavoro gia' prodotto: indica SOPRA, dove il lavoro sta davvero", () => {
-    const rifiuto: TurnEndInfo = { end: "refusal", detail: "violative cyber content" };
-    const out = avvisoPerTurno(rifiuto, { haProdotto: true })!;
+    const refusalInfo: TurnEndInfo = { end: "refusal", detail: "violative cyber content" };
+    const out = avvisoPerTurno(refusalInfo, { haProdotto: true })!;
     expect(out).toContain("qui sopra");
     expect(out).not.toContain("qui sotto");
   });
 
   /**
-   * La via d'uscita si dice ANCHE a chi ha ricevuto del lavoro parziale: un
-   * rifiuto non si sblocca aspettando, e rimandare ricompra lo stesso no.
-   * Prima quel ramo si fermava a «resta qui sotto» e lasciava senza risposta
-   * l'unica domanda che conta, «e adesso?».
+   * The recovery path also belongs on a partially productive turn: waiting
+   * cannot clear a refusal, and retrying buys the same result. Previously this
+   * branch stopped after pointing below and never explained what to do next.
    */
   test("rifiuto: la via d'uscita c'e' in entrambi i rami", () => {
-    const rifiuto: TurnEndInfo = { end: "refusal", detail: "violative cyber content" };
+    const refusalInfo: TurnEndInfo = { end: "refusal", detail: "violative cyber content" };
     for (const haProdotto of [true, false]) {
-      expect(avvisoPerTurno(rifiuto, { haProdotto })!).toContain("riformula");
+      expect(avvisoPerTurno(refusalInfo, { haProdotto })!).toContain("riformula");
     }
   });
 

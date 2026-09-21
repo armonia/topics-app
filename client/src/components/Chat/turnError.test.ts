@@ -148,25 +148,24 @@ describe('interruptedTurnOf — chi accende il banner', () => {
   });
 
   /**
-   * IL RIFIUTO SEGNALATO IL 21/09 su topic:a5c4a915.
+   * THE REFUSAL REPORTED ON 21/09 in the referenced topic.
    *
-   * Il modello disse no, il server scrisse il verdetto, e la chat sembrava
-   * «bloccata senza nessun feedback». Il cartello c'era: era il 19° blocco di
-   * 19, in coda a una pila di tool call, dove nessuno scorre. Non si accendeva
-   * perche' `refusal` non era una `StopCause` e il blocco usciva senza `cause`
-   * — e questo banner rende solo i blocchi che ne portano una.
+   * The model refused, the server wrote the verdict, and the chat looked
+   * stuck. The notice existed as block 19 of 19, after a tool-call stack where
+   * nobody scrolls. The banner stayed off because `refusal` was not a
+   * `StopCause`, so the block had no `cause` for the banner to render.
    *
-   * La riga sotto e' la forma ESATTA che il turno aveva: il verdetto ultimo,
-   * dopo il lavoro gia' prodotto.
+   * The row below matches that turn exactly: the verdict came last, after the
+   * work already produced.
    */
   test('un rifiuto accende: e\' l\'unico segnale che si vede senza scorrere', () => {
-    const rifiutato = {
+    const refusedTurn = {
       blocks: [
         testo('Verifico invece di rispondere a memoria'),
         { kind: 'error' as const, text: 'Richiesta rifiutata dal modello: violative cyber content', cause: 'refusal' as const, at: '2026-09-21T18:29:44.000Z' },
       ],
     };
-    expect(interruptedTurnOf(rifiutato)).toEqual({
+    expect(interruptedTurnOf(refusedTurn)).toEqual({
       cause: 'refusal',
       text: 'Richiesta rifiutata dal modello: violative cyber content',
       at: '2026-09-21T18:29:44.000Z',

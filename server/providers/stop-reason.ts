@@ -143,20 +143,15 @@ export type StopCause =
    */
   | "rate-limit"
   /**
-   * IL MODELLO SI È RIFIUTATO, e il rifiuto ha bisogno di un nome proprio.
+   * A MODEL REFUSAL NEEDS ITS OWN CAUSE.
    *
-   * `refusal` è sempre stato un `TurnEnd` (l'API risponde 200 con zero blocchi
-   * di contenuto e una spiegazione in `stop_details`), ma non era una
-   * `StopCause`: il verdetto veniva scritto sulla riga come blocco `error`
-   * senza causa, e il banner ambra — che rende solo le cause dichiarate — non
-   * compariva. Segnalato il 21/09 su topic:a5c4a915: il cartello era il 19°
-   * blocco di 19, sotto una pila di tool call, e la chat sembrava «bloccata
-   * senza nessun feedback».
+   * `refusal` was already a `TurnEnd`: the API responds with no content blocks
+   * and an explanation in `stop_details`. It was not a `StopCause`, so the
+   * verdict became an unattributed error block and the cause-driven banner did
+   * not appear.
    *
-   * SEPARATO DA `provider-error` PERCHÉ LA POLITICA È OPPOSTA. Un errore del
-   * provider è transitorio e si riprova; un rifiuto è deterministico e
-   * rimandare la stessa richiesta ricompra lo stesso no. È la ragione per cui
-   * `meritaRipresaAutomatica` deve poterli distinguere leggendo un campo solo.
+   * It stays separate from `provider-error` because their retry policies are
+   * opposite. Provider errors are transient; refusals are deterministic.
    */
   | "refusal";
 

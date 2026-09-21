@@ -1751,8 +1751,8 @@ const IT: Dict = {
   'chat.turnInterrupted.providerError': 'il provider ha risposto con un errore',
   'chat.turnInterrupted.rateLimit': "il limite di richieste dell'API è rimasto saturo per tutti i tentativi; riprende da solo",
   'chat.turnInterrupted.toolBudget': 'il turno ha esaurito i giri di tool concessi dal server; riprende da solo una volta',
-  // Niente «riprende da solo»: un rifiuto e' deterministico, e rimandare lo
-  // stesso messaggio ricompra lo stesso no. La via d'uscita e' riformulare.
+  // A refusal is deterministic, so retrying the same message buys the same
+  // result. Rephrasing is the useful recovery path.
   'chat.turnInterrupted.refusal': 'il modello ha rifiutato la richiesta',
   'git.noRepoInitialized': 'Nessun repository git inizializzato',
   'git.noRepo': 'Nessun repository git',

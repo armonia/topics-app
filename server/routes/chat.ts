@@ -2016,18 +2016,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // Same shape as the cancelled notice below: the verdict goes in
               // the BLOCKS, and in the text only when there is no text.
               //
-              // E LA CAUSA VIAGGIA COL CARTELLO, o il cartello non si vede.
+              // THE CAUSE TRAVELS WITH THE NOTICE, otherwise it stays hidden.
               //
-              // Il banner sopra il compositore rende solo i blocchi che portano
-              // una `cause` (vedi `interruptedTurnOf`): senza, il verdetto resta
-              // un blocco in fondo alla bolla. Su topic:a5c4a915, il 21/09, era
-              // il 19° di 19 sotto una pila di tool call, e la chat sembrava
-              // «bloccata senza nessun feedback» — la spiegazione c'era, nel
-              // posto dove nessuno guarda.
+              // The banner above the composer renders only blocks carrying a
+              // `cause`. Without it, the verdict remains buried after the
+              // tool-call stack even though the explanation exists.
               //
-              // `max_tokens` non ne ha una: il taglio non è una FINE attribuita
-              // a qualcuno, è un limite di lunghezza, e il suo cartello dice già
-              // l'unica cosa che cambia l'esito (chiedere il resto a pezzi).
+              // `max_tokens` has no cause because it is a length limit, not an
+              // attributed termination. Its notice already explains recovery.
               const cutCause = endInfo.end === "refusal" ? ("refusal" as const) : undefined;
               blocks.push({
                 kind: "error",
