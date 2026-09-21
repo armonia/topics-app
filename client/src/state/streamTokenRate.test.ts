@@ -25,7 +25,7 @@ describe('stream token rate', () => {
   test('publishes at a fixed cadence instead of once per streamed chunk', () => {
     beginStreamTokenRate(SESSION);
     let notifications = 0;
-    const unsubscribe = subscribeStreamTokenRate(SESSION, () => { notifications += 1; });
+    const stopListening = subscribeStreamTokenRate(SESSION, () => { notifications += 1; });
 
     for (let i = 0; i < 100; i += 1) recordStreamText(SESSION, 'word', 0);
 
@@ -33,7 +33,7 @@ describe('stream token rate', () => {
     refreshStreamTokenRate(SESSION, 250);
     expect(notifications).toBe(2);
     expect(getStreamTokenRate(SESSION).tokensPerSecond).toBe(400);
-    unsubscribe();
+    stopListening();
   });
 
   test('uses a 2.5 second moving window for the live text estimate', () => {
