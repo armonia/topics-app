@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.372",
+    "date": "2026-09-21",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La corsa seriale dei test non diceva ai figli quanto e' lenta la macchina",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il presidio della parita' guardava package.json, dove le radici non stanno piu'",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.371",
     "date": "2026-09-20",
     "sections": {

@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.372 — 2026-09-21
+
+### Sotto il cofano
+- La corsa seriale dei test non diceva ai figli quanto e' lenta la macchina
+- Il presidio della parita' guardava package.json, dove le radici non stanno piu'
+
 ## 2.2.371 — 2026-09-20
 
 ### Sotto il cofano
