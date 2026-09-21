@@ -768,3 +768,24 @@ affiancarlo. La riga SHALL scadere da sé al reset, con la regola di USAGE-20.
 - **GIVEN** una lettura registrata
 - **WHEN** passa il suo istante di reset
 - **THEN** SHALL leggersi come assente
+
+### Requirement: USAGE-23: Generation speed distinguishes live estimate from final usage
+
+While a turn streams, the bottom status row SHALL show an explicitly marked
+token-per-second estimate derived from generated text over a moving window of
+approximately 2 to 3 seconds. Publishing SHALL be throttled so transport chunks
+do not cause one render each. When provider output usage is available at the end
+of the turn, the row SHALL replace the estimate with a visibly distinct measured
+rate and SHALL keep the estimate-to-usage difference readable.
+
+#### Scenario: Live text is an estimate
+- **GIVEN** generated text is arriving for a turn
+- **WHEN** the bottom status row updates
+- **THEN** it SHALL mark the token rate as estimated
+- **AND** it SHALL publish no more often than the configured throttle cadence
+
+#### Scenario: Final provider usage wins
+- **GIVEN** a tool-heavy turn whose generated-text estimate differs from output usage
+- **WHEN** the terminal stream event reports output tokens
+- **THEN** the row SHALL show a measured usage-based token rate
+- **AND** the estimate-to-usage difference SHALL remain readable

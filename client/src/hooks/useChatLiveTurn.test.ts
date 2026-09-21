@@ -18,7 +18,7 @@
  *    the content chunks (its `openTopicIds` does not list the topic) kept an
  *    EMPTY bubble: the closing persisted row was its only chance to be filled.
  *
- * @covers CHAT-01, SUBAGENT-07
+ * @covers CHAT-01, SUBAGENT-07, USAGE-23
  */
 import { afterAll, describe, expect, test } from 'bun:test';
 import * as React from 'react';

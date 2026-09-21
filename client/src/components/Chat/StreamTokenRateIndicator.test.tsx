@@ -1,3 +1,4 @@
+/** @covers USAGE-23 */
 import { afterEach, beforeEach, describe, expect, jest, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { StreamTokenRateIndicator } from './StreamTokenRateIndicator';
