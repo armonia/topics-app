@@ -69,6 +69,11 @@
         // `build-client-publish.ts`, which its test does import.
         "scripts/build-client.ts!",
         "scripts/compose-release-manifest.ts!", // invoked by .github/workflows/tauri-release.yml
+        // `bun run test:unit`: the serial unit run. It exists as a file and not
+        // as a command line in package.json because it has to MEASURE the load
+        // before bun starts, to hand the slack factor down (GATE-16). Nobody
+        // imports it: it is a command, like the two above.
+        "scripts/test-unit-serial.ts!",
         // Same shape: only .github/workflows/e2e-nightly.yml runs it, to name the
         // red tests inside the issue instead of sending the reader to the run.
         "scripts/e2e-failed-titles.ts!",

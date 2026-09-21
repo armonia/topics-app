@@ -8,6 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { SUITE_ROOTS } from "./test-unit-shards.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const RUNNER = join(ROOT, "scripts/test-unit-shards.ts");
@@ -135,10 +136,15 @@ describe("unit shards CLI", () => {
     expect(parallel.length).toBeLessThanOrEqual(2);
     expect(result.calls.filter(call => call.phase === 2)).toHaveLength(1);
     expect(result.calls.every(call => call.timeout === "30000")).toBe(true);
-    // Derive roots from the authoritative serial command and include Bun's
-    // other accepted test names: a new .spec/.js must not silently disappear.
-    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-    const roots = [...String(pkg.scripts["test:unit"]).matchAll(/\.\/([\w./-]+?)\/?(?=[\s'])/g)].map(match => match[1]);
+    // Derive roots from the authoritative list and include Bun's other
+    // accepted test names: a new .spec/.js must not silently disappear.
+    //
+    // The list used to be scraped out of the `test:unit` command line in
+    // package.json. It moved into `scripts/test-unit-serial.ts` on 20/09, when
+    // the serial run had to measure the load before bun starts (GATE-16), and
+    // that script imports `SUITE_ROOTS` from here - so the two runs cannot
+    // drift, and this test reads the same constant instead of a command string.
+    const roots = [...SUITE_ROOTS];
     expect(roots.length).toBeGreaterThan(0);
     const expected = roots.flatMap(root => [...new Bun.Glob(`${root}/**/*`).scanSync({ cwd: ROOT, onlyFiles: true })])
       .filter(file => /[._](test|spec)\.[cm]?[jt]sx?$/.test(file)).sort();

@@ -119,7 +119,7 @@
     "test:ui": "npx playwright test --ui",
     "test:evidence": "E2E_EVIDENCE=1 npx playwright test",
     "test:report": "npx playwright show-report test-results/html-report",
-    "test:unit": "bun run scripts/slot.ts test:unit -- 'bun test --timeout ${TOPICS_TEST_TIMEOUT_MS:-30000} ./client/src ./server/ ./shared ./relay ./tests/unit ./tests/integration ./scripts ./cli'",
+    "test:unit": "bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-serial.ts'",
     "test:unit:shards": "bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-shards.ts'",
     "test:unit:durations": "bun run scripts/slot.ts test:unit -- 'bun run scripts/test-unit-shards.ts --record'",
     "test:unit:junit": "bun run scripts/test-junit.ts",

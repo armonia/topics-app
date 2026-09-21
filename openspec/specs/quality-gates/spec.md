@@ -710,3 +710,43 @@ meglio di un hook che esplode.
 - **GIVEN** una modifica a `scripts/git-hooks/pre-push`
 - **WHEN** parte un push senza reinstallare gli hook
 - **THEN** SHALL essere eseguita la versione NUOVA
+
+### Requirement: GATE-16 — Chi lancia i test decide UNA volta quanto è lenta la macchina, e lo tramanda
+
+Le finestre d'attesa dei test si scrivono per una macchina scarica e si
+moltiplicano per un fattore (`GATE`: `shared/test-time-slack.ts`, tetto 4x). Il
+fattore SHALL essere misurato da CHI LANCIA la corsa e passato ai figli in
+`TOPICS_TEST_TIME_SLACK`: se non lo passa nessuno, ogni file lo ricalcola al
+proprio import, e in una corsa da mezz'ora il primo file vede una macchina
+quieta mentre l'ultimo vede il carico che la corsa stessa sta producendo. Due
+test della stessa suite finiscono con due idee diverse di quanto è lenta la
+macchina.
+
+Misurato il 20/09: una barra intera a carico 26 è uscita rossa su ESATTAMENTE
+due test su 16.991, entrambi in attesa dentro una finestra, entrambi verdi da
+soli e verdi in coppia subito dopo.
+
+OGNI runner SHALL tramandarlo — quello a shard, quello e2e e quello SERIALE che
+`bun run test:unit` avvia, usato dalla barra locale e dalla CI. Un valore già
+presente nell'ambiente SHALL vincere sulla misura: chi lo ha forzato sa qualcosa
+che lo script non sa.
+
+Il fattore NON SHALL allargare il limite per singolo test
+(`TOPICS_TEST_TIMEOUT_MS`): quello serve a prendere un blocco, e allargarlo
+nasconderebbe proprio i blocchi che esiste per trovare.
+
+Percorsi espliciti passati a un runner SHALL SOSTITUIRE quelli predefiniti, non
+sommarsi: restringere l'indagine a un file deve eseguire quel file, non l'intera
+suite.
+
+#### Scenario: la corsa seriale parte
+- **GIVEN** `bun run test:unit`
+- **THEN** i test figli SHALL leggere il fattore dall'ambiente
+
+#### Scenario: un fattore forzato a mano
+- **GIVEN** `TOPICS_TEST_TIME_SLACK` già valorizzato
+- **THEN** SHALL restare quello
+
+#### Scenario: un solo file sulla riga di comando
+- **GIVEN** un percorso esplicito
+- **THEN** SHALL essere eseguito solo quello
