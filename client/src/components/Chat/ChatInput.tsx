@@ -24,6 +24,7 @@ import { errMessage } from '../../lib/errMessage';
 import { topicsApi, uploadApi, slashCommandsApi, type CustomSlashCommand } from '../../lib/api';
 import { SessionConfigPopover } from './SessionConfigPopover';
 import { ProviderModelPicker } from './ProviderModelPicker';
+import { StreamTokenRateIndicator } from './StreamTokenRateIndicator';
 import { ContextRing } from '../Shared/ContextRing';
 import { useContextInspector } from '../../hooks/useContextInspector';
 import { useRealContext, formatTokens } from '../../hooks/useRealContext';
@@ -1624,6 +1625,7 @@ export function ChatInput({
                   )}
                 </button>
               )}
+              <StreamTokenRateIndicator sessionKey={topic.sessionKey} />
               {onProviderOverrideChange && (
                 <ProviderModelPicker
                   override={providerOverride ?? null}

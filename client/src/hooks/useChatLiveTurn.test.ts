@@ -25,6 +25,7 @@ import * as React from 'react';
 import { mount } from '../test/reactHarness';
 import { useChat } from './useChat';
 import type { WSMessage } from '../types';
+import { getStreamTokenRate, refreshStreamTokenRate } from '../state/streamTokenRate';
 
 /** localStorage stand-in: bun:test runs without a DOM. */
 class MemStorage {
@@ -389,6 +390,38 @@ describe('la copia ottimistica prende il nome vero', () => {
 
     expect(d.ids()).toEqual([SRV_U1, SRV_U2]);
     expect(d.texts()).toEqual(['beeper', 'beeper']);
+    d.unmount();
+  });
+});
+
+describe('stream token rate wiring', () => {
+  test('tool-call payloads diverge from the live text estimate and final usage wins', () => {
+    const d = drive();
+    const sk = keyOf();
+    const startedAt = Date.now();
+    d.ws({ type: 'stream:start', messageId: LIVE });
+    d.ws({ type: 'stream:content_chunk', content: 'x'.repeat(100) });
+    refreshStreamTokenRate(sk, startedAt + 1_000);
+
+    expect(getStreamTokenRate(sk).estimatedTokens).toBe(25);
+    d.ws({
+      type: 'stream:tool_call',
+      toolCall: {
+        id: 'tool-rate-test',
+        name: 'example_tool',
+        args: { payload: 'y'.repeat(1_000) },
+        status: 'running',
+      },
+    });
+    expect(getStreamTokenRate(sk).estimatedTokens).toBe(25);
+
+    d.ws({ type: 'stream:end', usageCompletionTokens: 200 });
+    expect(getStreamTokenRate(sk)).toMatchObject({
+      mode: 'actual',
+      estimatedTokens: 25,
+      actualTokens: 200,
+      differencePercent: 87.5,
+    });
     d.unmount();
   });
 });

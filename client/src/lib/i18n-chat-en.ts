@@ -91,6 +91,11 @@ const CHAT_EN: Dict = {
   'chat.branch.next': 'Next branch',
 
   'chat.picker.title': 'Provider & model',
+  'chat.tokenRate.estimatedAria': 'Estimated generation speed: {rate} tokens per second',
+  'chat.tokenRate.actualAria': 'Measured generation speed: {rate} tokens per second',
+  'chat.tokenRate.estimatedTitle': 'Estimate from generated text, averaged over 2.5 seconds',
+  'chat.tokenRate.finalEstimateTitle': 'Final estimate from generated text; provider usage was unavailable',
+  'chat.tokenRate.actualTitle': 'Provider usage: {tokens} output tokens in {seconds}s. The live text estimate was {estimated} tokens ({difference}% difference).',
   'chat.picker.search': 'Search provider or model',
   'chat.picker.clearSearch': 'Clear search',
   'chat.picker.refresh': 'Refresh provider status',
