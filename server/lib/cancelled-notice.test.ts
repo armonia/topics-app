@@ -191,6 +191,38 @@ describe("avvisoPerTurno — la coda dice il vero", () => {
     expect(avvisoPerTurno({ end: "cancelled", cause: "user" }, { haProdotto: false })).toBeNull();
     expect(avvisoPerTurno({ end: "end_turn" }, { haProdotto: true })).toBeNull();
   });
+
+  /**
+   * «QUI SOTTO» INDICAVA IL VUOTO.
+   *
+   * Il cartello e' l'ULTIMO blocco della bolla, quindi cio' che il turno aveva
+   * gia' prodotto sta SOPRA. Su topic:a5c4a915 (21/09) erano 18 blocchi sopra
+   * e zero sotto, e la frase mandava a cercare dalla parte sbagliata.
+   */
+  test("rifiuto con lavoro gia' prodotto: indica SOPRA, dove il lavoro sta davvero", () => {
+    const rifiuto: TurnEndInfo = { end: "refusal", detail: "violative cyber content" };
+    const out = avvisoPerTurno(rifiuto, { haProdotto: true })!;
+    expect(out).toContain("qui sopra");
+    expect(out).not.toContain("qui sotto");
+  });
+
+  /**
+   * La via d'uscita si dice ANCHE a chi ha ricevuto del lavoro parziale: un
+   * rifiuto non si sblocca aspettando, e rimandare ricompra lo stesso no.
+   * Prima quel ramo si fermava a «resta qui sotto» e lasciava senza risposta
+   * l'unica domanda che conta, «e adesso?».
+   */
+  test("rifiuto: la via d'uscita c'e' in entrambi i rami", () => {
+    const rifiuto: TurnEndInfo = { end: "refusal", detail: "violative cyber content" };
+    for (const haProdotto of [true, false]) {
+      expect(avvisoPerTurno(rifiuto, { haProdotto })!).toContain("riformula");
+    }
+  });
+
+  test("il rifiuto riporta la spiegazione dell'API, che e' l'unica parte utile", () => {
+    const out = avvisoPerTurno({ end: "refusal", detail: "violative cyber content" }, { haProdotto: false })!;
+    expect(out).toContain("violative cyber content");
+  });
 });
 
 /**

@@ -115,6 +115,7 @@ export const TURN_CAUSE_KEY: Record<TurnEndCause, string> = {
   'provider-error': 'chat.turnInterrupted.providerError',
   'rate-limit': 'chat.turnInterrupted.rateLimit',
   'tool-budget': 'chat.turnInterrupted.toolBudget',
+  'refusal': 'chat.turnInterrupted.refusal',
 };
 
 /**
