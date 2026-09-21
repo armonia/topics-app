@@ -192,21 +192,34 @@ describe("enumerateTestFiles (parità con bun test)", () => {
     expect(new Set(files).size).toBe(files.length);
   });
 
-  test("SUITE_ROOTS coincide con le radici di `test:unit` in package.json", () => {
+  test("SUITE_ROOTS coincide con le radici che la corsa seriale esegue", () => {
     // The sharded gate (`test:unit:shards`) and the serial one (`test:unit`,
     // authoritative in CI) must cover THE SAME files: a root added to only one
     // of the two makes the pre-review more permissive than CI without anybody
-    // noticing. The serial roots are the `./x` tokens of the script.
+    // noticing.
+    //
+    // Until 20/09 the serial roots were the `./x` tokens of the command line in
+    // package.json, and this test scraped them from there. They now live in
+    // `scripts/test-unit-serial.ts`, which had to become a file to measure the
+    // load before bun starts (GATE-16). The check survives the move because
+    // that script does not re-list them: it derives them from SUITE_ROOTS, and
+    // what is pinned here is exactly that - the `./` prefix bun expects, and no
+    // second copy to drift.
+    const serial = readFileSync(resolve(REPO_ROOT, "scripts/test-unit-serial.ts"), "utf8");
+    expect(serial).toContain("SUITE_ROOTS.map");
+    // No hand-written copy of the roots next to it: that is what this test
+    // exists for. Each root by name, so an `import "./x.ts"` is not mistaken
+    // for a suite root.
+    const handWritten = SUITE_ROOTS.filter((root) => serial.includes(`"./${root}"`));
+    expect(handWritten).toEqual([]);
+
     const pkg = JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf8"));
-    const script: string = pkg.scripts["test:unit"];
-    const serialRoots = [...script.matchAll(/\.\/([\w./-]+?)\/?(?=[\s'])/g)].map((m) => m[1]);
-    expect(serialRoots.length).toBeGreaterThan(0);
-    expect([...serialRoots].sort()).toEqual([...SUITE_ROOTS].sort());
+    expect(pkg.scripts["test:unit"]).toContain("scripts/test-unit-serial.ts");
   });
 
   test("ogni voce di SERIAL_GLOBS corrisponde a un file reale", () => {
-    // Un racer rinominato uscirebbe in silenzio dalla fase seriale e finirebbe
-    // in uno shard concorrente, dove le sue asserzioni di tempistica cedono.
+    // A renamed racer would quietly drop out of the serial phase and land in a
+    // concurrent shard, where its timing assertions give way.
     const files = enumerateTestFiles(SUITE_ROOTS, REPO_ROOT);
     const { serial } = partitionTiers(files);
     for (const glob of SERIAL_GLOBS) {
