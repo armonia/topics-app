@@ -1,22 +1,22 @@
 /**
- * board-layout-toggle.spec.ts — la vista lista è un'alternativa al kanban, non
- * un secondo pannello.
+ * board-layout-toggle.spec.ts — the list view is an alternative to kanban,
+ * not a second panel.
  *
- * Il tasto accanto alla ricerca non apre niente: RISCRIVE la board. In vista
- * kanban le colonne stanno affiancate, una corsia di carosello ciascuna; in
- * vista lista si impilano verticali a piena larghezza, e una colonna senza
- * card e senza bozza in corso non disegna nemmeno l'intestazione — è il
- * difetto che la vista lista esiste per correggere (in vista kanban quella
- * stessa colonna vuota resta un bersaglio di drop visibile).
+ * The toggle next to search does not open anything: it REWRITES the board.
+ * In kanban view the columns sit side by side, each its own carousel lane;
+ * in list view they stack vertically at full width, and a column with no
+ * card and no draft in flight does not even draw its header — that is the
+ * defect the list view exists to fix (in kanban view that same empty column
+ * stays a visible drop target).
  *
- * Un solo task, in una sola colonna: con card in ogni stato «la lista non
- * mostra le vuote» sarebbe indistinguibile da «la lista mostra tutto». Qui
- * quattro colonne su cinque SONO vuote, quindi la loro assenza è il segnale,
- * non il rumore.
+ * One task, in one column: with a card in every status "the list hides the
+ * empty ones" would be indistinguishable from "the list shows everything".
+ * Here four columns out of five ARE empty, so their absence is the signal,
+ * not the noise.
  *
- * Il ricaricamento della pagina è la prova che la scelta persiste: un
- * `aria-pressed` che torna a "false" dopo un F5 sarebbe uno stato del
- * componente, non una preferenza di chi guarda la board.
+ * Reloading the page is the proof the choice persists: an `aria-pressed`
+ * that reverts to "false" after an F5 would be component state, not a
+ * preference of whoever is looking at the board.
  *
  * @covers KANBAN-94
  */
@@ -113,13 +113,13 @@ test.describe("Vista lista della board · toggle, forma, persistenza", () => {
     const backlogCol = page.getByTestId("kanban-column-backlog");
     const card = page.locator(`[data-task-card="${task.id}"]`);
 
-    // ── 1. Kanban di default: tutte le colonne ci sono, anche le vuote ──────
+    // ── 1. Kanban by default: every column is there, even the empty ones ────
     await expect(todoCol).toBeVisible({ timeout: 10000 });
     await expect(backlogCol).toBeVisible();
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await beat(page, 1200);
 
-    // ── 2. Un click: la board diventa lista, le colonne vuote spariscono ────
+    // ── 2. One click: the board becomes a list, empty columns vanish ────────
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await expect(backlogCol).toHaveCount(0, { timeout: 10000 });
@@ -127,7 +127,7 @@ test.describe("Vista lista della board · toggle, forma, persistenza", () => {
     await expect(todoCol.locator(`[data-task-card="${task.id}"]`)).toContainText(SOLA_CARD);
     await beat(page, 1400);
 
-    // ── 3. Reload: la vista lista non era solo stato del componente ─────────
+    // ── 3. Reload: list view was not just component state ───────────────────
     await page.reload();
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
@@ -135,7 +135,7 @@ test.describe("Vista lista della board · toggle, forma, persistenza", () => {
     await expect(todoCol).toBeVisible();
     await beat(page, 1400);
 
-    // ── 4. Torna a kanban: le colonne vuote ricompaiono ──────────────────────
+    // ── 4. Back to kanban: the empty columns reappear ────────────────────────
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(backlogCol).toBeVisible({ timeout: 10000 });
