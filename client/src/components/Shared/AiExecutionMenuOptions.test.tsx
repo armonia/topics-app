@@ -22,7 +22,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { AiExecutionMenuOptions } from './AiExecutionMenuOptions';
+import { AiExecutionMenuOptions, selectedModelMissingIn } from './AiExecutionMenuOptions';
 import type { ProvidersSnapshot } from '../../types';
 
 const ROUTABLE_SNAPSHOT: ProvidersSnapshot = {
@@ -134,5 +134,21 @@ describe('the AICTRL-01 routing switch', () => {
       />,
     );
     expect(routingRow(runtimes)).toBeNull();
+  });
+});
+
+// Drilling into a provider listed the model picked on ANOTHER one as
+// "unavailable" (seen in WebKit: Claude Code / Sonnet 5 selected, drill-in on
+// Codex or Gemini). The selection belongs to its own provider panel.
+describe('the selected model belongs to its own provider panel only', () => {
+  const codex = { name: 'codex', status: 'ready' as const, models: ['gpt-5.5'] };
+  test('another provider panel does not claim the selection as missing', () => {
+    expect(selectedModelMissingIn(codex, { provider: 'claude-code', model: 'claude-sonnet-5' })).toBe(false);
+  });
+  test('the owning panel still flags a model it no longer lists', () => {
+    expect(selectedModelMissingIn(codex, { provider: 'codex', model: 'gpt-4' })).toBe(true);
+  });
+  test('a model with no provider (legacy pin) is judged against the open panel', () => {
+    expect(selectedModelMissingIn(codex, { provider: null, model: 'gpt-4' })).toBe(true);
   });
 });

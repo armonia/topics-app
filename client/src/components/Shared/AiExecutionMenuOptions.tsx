@@ -92,6 +92,20 @@ function chatExecutions(snapshot: ProvidersSnapshot | null): ExecutionRow[] {
   }));
 }
 
+// The selection belongs to ITS provider: drilling into another one must not
+// list it there as "unavailable". A model with no provider (legacy pin) is
+// judged against whichever panel is open.
+function ownsSelection(active: Pick<ExecutionRow, 'name'>, value: AiExecutionSelection): boolean {
+  return !value.provider || value.provider === active.name;
+}
+
+export function selectedModelMissingIn(
+  active: Pick<ExecutionRow, 'name' | 'models'>,
+  value: AiExecutionSelection,
+): boolean {
+  return ownsSelection(active, value) && !!value.model && !active.models.includes(value.model);
+}
+
 export function AiExecutionMenuOptions({
   snapshot,
   surface,
@@ -190,7 +204,7 @@ export function AiExecutionMenuOptions({
 
   if (active) {
     const ready = active.status === 'ready';
-    const missingSelectedModel = !!value.model && !active.models.includes(value.model);
+    const missingSelectedModel = selectedModelMissingIn(active, value);
     const unavailableReason = active.reason || tr('ai.selector.noLongerAvailable');
     return (
       <div ref={panelRef} className="w-[min(22rem,calc(100vw-1rem))] max-w-full py-1" data-testid="ai-selector-models">
@@ -206,7 +220,7 @@ export function AiExecutionMenuOptions({
           <span className="min-w-0 flex-1 truncate">{active.label}</span>
           <span className={`h-1.5 w-1.5 rounded-full ${ready ? 'bg-emerald-400' : 'bg-amber-400'}`} />
         </button>
-        {value.model && (!ready || missingSelectedModel) && (
+        {value.model && ownsSelection(active, value) && (!ready || missingSelectedModel) && (
           <button
             role="option"
             aria-selected="true"
