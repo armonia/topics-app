@@ -45,13 +45,16 @@ import { useToast } from '../Shared/Toast';
 import { copyText } from '../../lib/clipboard';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import {
+  autonomyKey,
   effortKey,
   isDraftTopicId,
   providerOverrideKey,
+  rememberAutonomySelection,
   rememberEffort,
   rememberProviderSelection,
   safeStore,
   sameSelection,
+  seedAutonomy,
   seedEffort,
   seedProviderOverride,
 } from '../../lib/composerMemory';
@@ -557,14 +560,8 @@ function ChatPaneComponent({
   // l'autonomia» a ogni tentativo di scegliere prima di scrivere il primo
   // messaggio. Misurato nel log di prod: `PATCH /api/topics/draft:a7bfeee2-…`.
   const [autonomy, setAutonomy] = useState<import('../../types').AutonomyLevel | null>(() => {
-    if (topic.autonomyLevel) return topic.autonomyLevel;
-    if (topic.id.startsWith('draft:')) {
-      try {
-        const raw = localStorage.getItem(`autonomy:${topic.id}`);
-        if (raw === 'ask' || raw === 'auto-apply' || raw === 'yolo') return raw;
-      } catch { /* storage negato: si resta sul default */ }
-    }
-    return null;
+    const seeded = seedAutonomy({ topicId: topic.id, topicAutonomy: topic.autonomyLevel, store: safeStore() });
+    return seeded === 'ask' || seeded === 'auto-apply' || seeded === 'yolo' ? seeded : null;
   });
   const autonomyRef = useRef(autonomy);
   useEffect(() => { autonomyRef.current = autonomy; }, [autonomy]);
@@ -635,8 +632,8 @@ function ChatPaneComponent({
       if (autonomyRef.current) {
         void onUpdateTopic(topic.id, { autonomyLevel: autonomyRef.current });
         try {
-          localStorage.setItem(`autonomy:${topic.id}`, autonomyRef.current);
-          localStorage.removeItem(`autonomy:${prevId}`);
+          localStorage.setItem(autonomyKey(topic.id), autonomyRef.current);
+          localStorage.removeItem(autonomyKey(prevId));
         } catch {}
       }
       return;
@@ -1245,11 +1242,15 @@ function ChatPaneComponent({
    *  vale dal turno successivo — è il server a occuparsene. */
   const handleAutonomyChange = useCallback(async (level: import('../../types').AutonomyLevel) => {
     setAutonomy(level);
+    // Ricordata come ultima scelta di QUALUNQUE chat, stesso schema di
+    // provider/modello ed effort: cosi' una chat nuova la eredita invece di
+    // ripartire sempre dal default dell'app.
+    rememberAutonomySelection(safeStore(), level);
     if (isDraftTopic) {
       // Nessuna riga sul server da PATCHare: la bozza esiste solo qui. Si
       // persiste device-locale come provider/model, Fast Mode ed effort, e
       // l'effetto di promozione qui sopra la porta sul topic vero.
-      try { localStorage.setItem(`autonomy:${topic.id}`, level); } catch { /* storage negato */ }
+      try { localStorage.setItem(autonomyKey(topic.id), level); } catch { /* storage negato */ }
       return;
     }
     try {

@@ -6,12 +6,15 @@
  */
 import { describe, it, expect } from 'bun:test';
 import {
+  autonomyKey,
   effortKey,
   providerOverrideKey,
   readLastProviderSelection,
+  rememberAutonomySelection,
   rememberEffort,
   rememberProviderSelection,
   sameSelection,
+  seedAutonomy,
   seedEffort,
   seedProviderOverride,
   type KeyValueStore,
@@ -103,6 +106,35 @@ describe('seedEffort', () => {
     const store = fakeStore({ 'effort:last': 'low' });
     rememberEffort(store, null);
     expect(seedEffort({ topicId: 'draft:n', store })).toBeNull();
+  });
+});
+
+describe('seedAutonomy', () => {
+  it('il valore del topic vince', () => {
+    const store = fakeStore({ 'autonomy:last': 'ask' });
+    expect(seedAutonomy({ topicId: 't1', topicAutonomy: 'yolo', store })).toBe('yolo');
+  });
+
+  it('la bozza riprende la sua, poi l\'ultima usata', () => {
+    const own = fakeStore({ [autonomyKey('draft:a')]: 'ask', 'autonomy:last': 'yolo' });
+    expect(seedAutonomy({ topicId: 'draft:a', store: own })).toBe('ask');
+    expect(seedAutonomy({ topicId: 'draft:z', store: own })).toBe('yolo');
+  });
+
+  it('una chat reale senza autonomia non eredita', () => {
+    expect(seedAutonomy({ topicId: 't2', store: fakeStore({ 'autonomy:last': 'yolo' }) })).toBeNull();
+  });
+
+  it('rimettere il default cancella la memoria', () => {
+    const store = fakeStore({ 'autonomy:last': 'yolo' });
+    rememberAutonomySelection(store, null);
+    expect(seedAutonomy({ topicId: 'draft:n', store })).toBeNull();
+  });
+
+  it('la scelta appena fatta è quella che la chat dopo eredita', () => {
+    const store = fakeStore();
+    rememberAutonomySelection(store, 'yolo');
+    expect(seedAutonomy({ topicId: 'draft:e', store })).toBe('yolo');
   });
 });
 
