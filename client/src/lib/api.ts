@@ -42,6 +42,49 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * A non-ok response body, read the way a person would read it.
+ *
+ * Every endpoint on this server refuses the same way, `{ error, code, ...rest }`,
+ * so the envelope is opened ONCE here. `error` becomes the sentence and the
+ * rest rides along on the `ApiError`: callers branch on `code`, not on the
+ * wording, and the banner prints a sentence instead of a wall of escaped
+ * quotes. `chatApi.sendMessage` used to skip this and throw the raw body.
+ *
+ * A body that is not JSON is passed through untouched: a proxy's plain-text
+ * 502 is still the most informative thing anyone has.
+ */
+function readErrorBody(
+  text: string,
+  statusText: string,
+): { message: string; extra?: Record<string, unknown> } {
+  let message = text || statusText;
+  let extra: Record<string, unknown> | undefined;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed && typeof parsed === 'object') {
+      const obj = parsed as Record<string, unknown>;
+      if (typeof obj.error === 'string') message = obj.error;
+      const { error: _, ...rest } = obj;
+      if (Object.keys(rest).length) extra = rest;
+    }
+  } catch {}
+  return { message, extra };
+}
+
+/**
+ * The server's refusal code, for callers that must BRANCH on the refusal.
+ *
+ * It reads the property the envelope put there, never the sentence: the
+ * sentence is written for a person and is free to change wording, and a caller
+ * that greps it takes a different decision the day somebody rephrases it.
+ */
+export function apiErrorCode(err: unknown): string | undefined {
+  if (!err || typeof err !== 'object') return undefined;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const headers = {
     'Content-Type': 'application/json',
@@ -58,27 +101,16 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    let message = text || response.statusText;
-    let extra: Record<string, unknown> | undefined;
-    try {
-      const parsed: unknown = JSON.parse(text);
-      if (parsed && typeof parsed === 'object') {
-        const obj = parsed as Record<string, unknown>;
-        // Il server rifiuta per IDENTITÀ: questo dispositivo non è appaiato, o
-        // è stato revocato, o la sessione è scaduta. Va detto una volta e a voce
-        // alta — senza, l'unico sintomo sarebbe un «Reconnecting…» eterno,
-        // perché il WebSocket non può leggere lo stato HTTP del proprio upgrade
-        // e nessun altro guarda il 401. È il difetto per cui il pairing
-        // precedente non è mai servito a nessuno.
-        if (response.status === 401 && typeof obj.code === 'string' && obj.code !== 'forbidden') {
-          markUnpaired(obj.code);
-        }
-        if (typeof obj.error === 'string') message = obj.error;
-        const { error: _, ...rest } = obj;
-        if (Object.keys(rest).length) extra = rest;
-      }
-    } catch {}
+    const { message, extra } = readErrorBody(await response.text(), response.statusText);
+    // Il server rifiuta per IDENTITÀ: questo dispositivo non è appaiato, o
+    // è stato revocato, o la sessione è scaduta. Va detto una volta e a voce
+    // alta — senza, l'unico sintomo sarebbe un «Reconnecting…» eterno,
+    // perché il WebSocket non può leggere lo stato HTTP del proprio upgrade
+    // e nessun altro guarda il 401. È il difetto per cui il pairing
+    // precedente non è mai servito a nessuno.
+    if (response.status === 401 && typeof extra?.code === 'string' && extra.code !== 'forbidden') {
+      markUnpaired(extra.code);
+    }
     throw new ApiError(response.status, message, extra);
   }
 
@@ -226,8 +258,12 @@ export const chatApi = {
     });
 
     if (!response.ok) {
-      const text = await response.text();
-      throw new ApiError(response.status, text || response.statusText);
+      // The same envelope `request()` opens. A turn that never starts is never
+      // stored, so this throw IS the verdict the chat shows: the raw body used
+      // to land in the banner with its quotes escaped. `extra` carries `code`,
+      // which `useChat` reads to tell `duplicate_message` from `stream_in_flight`.
+      const { message, extra } = readErrorBody(await response.text(), response.statusText);
+      throw new ApiError(response.status, message, extra);
     }
 
     return response.body;
