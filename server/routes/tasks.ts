@@ -116,6 +116,10 @@ const ERROR_STATUS: Record<string, number> = {
   agent_cannot_complete: 409,
   open_subtasks: 409,
   review_needs_summary: 409,
+  // A card the board ALREADY labelled `visibile` has a surface someone will
+  // look at, so it delivers with a preview. 409 like the other review gates:
+  // the delivery is refused for its state, not for a missing permission.
+  review_needs_preview: 409,
   // The task was taken away from the agent (park/requeue): 409 like the other
   // ownership refusals, not 403. This is not a permissions problem, it is a
   // state that changed underneath in the meantime.
@@ -2686,6 +2690,36 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       } catch { /* best-effort: a git/store hiccup must never block a delivery */ }
     }
 
+    // THE PREVIEW GATE, and it runs BEFORE the commands because it costs a
+    // field read while they cost minutes: a delivery that cannot pass should
+    // learn it now, not after the suite.
+    //
+    // It only ever looks at cards the board has ALREADY labelled `visibile`
+    // (`deriveCloser`: they touch `client/src/**` outside the tests), which is
+    // the narrow reading on purpose. A card whose label has not been derived
+    // yet — the derivation happens further down the same delivery — is NOT
+    // held back: the gate answers about what is written, never about what it
+    // guesses will be written. `decisione` and `invisibile` pass untouched,
+    // and so does a human moving a card by hand.
+    //
+    // Why only that class: asking every card for a preview manufactures
+    // artefacts on deliveries with nothing to show, which is how a gate starts
+    // producing evidence for itself instead of for the person reading it.
+    const reviewLabels = reviewGateTask?.task.labels ?? [];
+    if (reviewLabels.some((l) => l.label === "visibile")) {
+      const preview = (reviewGateTask?.task.previewImage ?? "").trim();
+      if (!preview) {
+        return json({
+          error:
+            "this card is labelled `visibile` (it touches client/src), so the reviewer " +
+            "opens it to LOOK at something. attach the durable evidence with " +
+            "update_task(previewImage=<absolute path>) — a screenshot of one state, a " +
+            "clip of a behaviour, or a diagram — THEN set status='review'",
+          code: "review_needs_preview",
+        }, 409);
+      }
+    }
+
     // Second gate, AFTER the commit one: the commands run on committed code,
     // so it only makes sense once there is some. A red goes back to the agent
     // with the command output, the real reason, so the repair starts there.
@@ -3569,7 +3603,14 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               const path = dirs.find((d) => projectIdForPath(d) === projectId);
               if (path) deployCommandSuggestion = deploySuggestionFromPackageJson(path);
             }
-            return json({ ...settings, worktreeReady: opts?.worktreeReady?.(projectId) ?? true, deployCommandSuggestion });
+            // `admissionHolds`: same nature as the two above - a fact, not a
+            // setting. It says how many times the resource floor held the queue
+            // and for how long, so "the board is slow" can be told apart from
+            // "the board is stopped" without reading the log by hand. `null`
+            // when there is no dispatcher: absent is not zero.
+            let admissionHolds: ReturnType<NonNullable<typeof dispatcher>["admissionHolds"]> | null = null;
+            try { admissionHolds = dispatcher?.admissionHolds?.() ?? null; } catch { /* best-effort: una misura non blocca le impostazioni */ }
+            return json({ ...settings, worktreeReady: opts?.worktreeReady?.(projectId) ?? true, deployCommandSuggestion, admissionHolds });
           } catch (e) { return fail(e); }
         }
         if (method === "PATCH") {

@@ -230,10 +230,65 @@ export function responsiblePid(pid: number): number | null {
  *  vita di `ps pcpu`, che e' il difetto che questo modulo aveva. */
 let prevSample: { at: number; byPid: Map<number, number> } | null = null;
 
-async function snapshot(): Promise<PsRow[]> {
-  const proc = Bun.spawn(["ps", "-axo", "pid=,ppid=,rss=,pcpu=,time=,command="], { stdout: "pipe", stderr: "ignore" });
-  const text = await new Response(proc.stdout).text();
-  await proc.exited;
+/**
+ * Oltre questo, `ps` non sta rispondendo: sta annegando insieme alla macchina.
+ *
+ * Il 21/09/2026 uno `next dev` in loop ha riempito lo swap al 98% e QUESTO
+ * `Bun.spawn` e' rimasto appeso per minuti: `GET /api/system/status` ha
+ * impiegato **399 secondi**, e siccome l'await bloccava il loop di Bun, Topics
+ * smetteva di rispondere anche a tutto il resto. Da fuori sembrava spento, ed
+ * era invece in attesa di un `ps` che non tornava.
+ *
+ * La beffa e' che il freno anti-swap di questo stesso server e' rimasto cieco
+ * per lo stesso motivo (84 righe «ps did not answer with a process table»):
+ * proprio mentre serviva di piu', la misura su cui decide non arrivava.
+ *
+ * 5s e' la stessa soglia gia' usata da `readProcessProbe` in `routes/
+ * processes.ts`. Fuori emergenza `ps` costa ~0,1s su ~870 processi (misurato),
+ * quindi il timeout non puo' scattare per lentezza ordinaria.
+ */
+const PS_TIMEOUT_MS = 5000;
+
+/** Il comando lanciato da `snapshot`. Iniettabile SOLO dal test: per provare
+ *  che un `ps` appeso non blocca il server serve un `ps` che si appende
+ *  davvero, e non si puo' chiedere alla macchina di andare in swap-thrash su
+ *  richiesta. In produzione nessuno passa questo parametro. */
+export type PsSpawner = () => {
+  stdout: ReadableStream | null;
+  exited: Promise<number>;
+  // La firma e' quella di Bun (`Signals`, non `string`): il finto del test deve
+  // combaciare con il vero, o il tipo smette di dire qualcosa sul codice reale.
+  kill: (exitCode?: number | NodeJS.Signals) => void;
+};
+
+const defaultPsSpawner: PsSpawner = () =>
+  Bun.spawn(["ps", "-axo", "pid=,ppid=,rss=,pcpu=,time=,command="], { stdout: "pipe", stderr: "ignore" });
+
+export async function snapshot(spawn: PsSpawner = defaultPsSpawner, timeoutMs = PS_TIMEOUT_MS): Promise<PsRow[]> {
+  const proc = spawn();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      // Ucciderlo e' parte del rimedio: un `ps` appeso mentre la macchina
+      // soffoca e' esso stesso un processo in piu' che compete per la RAM.
+      try { proc.kill("SIGKILL"); } catch { /* puo' essere gia' uscito */ }
+      reject(new Error("ps probe timed out"));
+    }, timeoutMs);
+    if (typeof timer.unref === "function") timer.unref();
+  });
+  let text: string;
+  try {
+    text = await Promise.race([
+      (async () => {
+        const out = await new Response(proc.stdout).text();
+        await proc.exited;
+        return out;
+      })(),
+      deadline,
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
   const rows = parsePsRows(text);
   // Footprint dove il kernel lo sa dire; `rssKB` resta il ripiego (vedi
   // `procFootprintKB`). Si arricchisce QUI, non dentro `parsePsRows`, perche'

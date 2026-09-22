@@ -67,6 +67,20 @@ export const STOP_CAUSES = [
   'provider-error',
   'rate-limit',
   'tool-budget',
+  // IL MODELLO HA DETTO NO, ed è una fine come le altre.
+  //
+  // Stava fuori da questa lista pur essendo un `TurnEnd` da sempre, e la
+  // conseguenza era precisa: il verdetto finiva sulla riga come blocco `error`
+  // SENZA `cause`, e il banner ambra — che disegna solo le cause qui elencate —
+  // non si accendeva mai. Segnalato il 21/09 su topic:a5c4a915: il rifiuto era
+  // il 19° blocco di 19, in coda a una pila di tool call, e la chat sembrava
+  // «bloccata senza nessun feedback». La spiegazione c'era, nel posto dove
+  // nessuno guarda.
+  //
+  // Non è `provider-error`: un errore del provider si riprova, un rifiuto no —
+  // rimandare la stessa richiesta ricompra lo stesso no. È la distinzione che
+  // `consumesAttempt` e `meritaRipresaAutomatica` leggono, e merita un nome suo.
+  'refusal',
 ] as const;
 
 

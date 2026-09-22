@@ -10,6 +10,8 @@ import {
   _resetFleetSockets,
   _resetFleetUsageCache,
   getFleetUsage,
+  snapshot,
+  type PsSpawner,
 } from "./fleet-usage";
 import {
   parseCpuTimeSeconds,
@@ -540,5 +542,74 @@ describe("fleet cache · la valanga a freddo", () => {
     const take = async (): Promise<PsRow[]> => { readings++; return ROWS; };
     await getFleetUsage(take);
     expect(readings, "la sonda iniettata non e' stata chiamata: le prove qui sopra non misurano nulla").toBeGreaterThan(0);
+  });
+});
+
+
+/**
+ * LO `ps` CHE NON TORNA.
+ *
+ * Il 21/09/2026 Topics e' sembrato spento: rispondeva HTTP solo dopo minuti e
+ * da fuori era indistinguibile da un server morto. Era vivo. Uno `next dev` in
+ * loop aveva riempito lo swap al 98%, e lo `ps -axo` di questo modulo veniva
+ * lanciato SENZA scadenza: restava appeso finche' il kernel non lo schedulava,
+ * e l'await si portava dietro l'intero loop di Bun. Misurato nel log del
+ * server: `GET /api/system/status` **399 secondi**, `GET /api/system/presence`
+ * 165 s, con il loop fermo fino a 115 s di fila.
+ *
+ * Il danno peggiore non era la latenza: il freno anti-swap di questo stesso
+ * server decide su questa misura, e quando serviva di piu' non arrivava. Nel
+ * log 84 righe «ps did not answer with a process table: nothing measured,
+ * nothing signalled» — cieco esattamente durante l'emergenza che doveva
+ * gestire.
+ *
+ * Qui lo `ps` appeso e' finto ma il blocco e' reale: uno stdout che non si
+ * chiude mai. Senza la scadenza questi test non fallirebbero, resterebbero
+ * appesi per sempre, che e' precisamente il guasto.
+ */
+describe("fleet · lo `ps` che non torna", () => {
+  beforeEach(() => _resetFleetUsageCache());
+
+  /** Un `ps` che non chiude mai stdout e non esce mai: il thrash, in provetta. */
+  const hangingPs = (killed: { yes: boolean }): PsSpawner => () => ({
+    stdout: new ReadableStream({ start() { /* mai enqueue, mai close */ } }),
+    exited: new Promise<number>(() => {}),
+    kill: () => { killed.yes = true; },
+  });
+
+  it("molla la presa invece di restare appeso per sempre", async () => {
+    const killed = { yes: false };
+    const started = Date.now();
+
+    await expect(snapshot(hangingPs(killed), 80)).rejects.toThrow(/timed out/);
+
+    expect(
+      Date.now() - started,
+      "ha aspettato oltre la scadenza: e' il comportamento che ha tenuto Topics muto per 399 s",
+    ).toBeLessThan(2000);
+  });
+
+  it("uccide lo `ps` appeso, che altrimenti resta a competere per la RAM", async () => {
+    const killed = { yes: false };
+    await snapshot(hangingPs(killed), 80).catch(() => {});
+    expect(
+      killed.yes,
+      "lasciarlo vivo aggiunge un processo bloccato alla macchina che sta gia' soffocando",
+    ).toBe(true);
+  });
+
+  it("chi chiede la flotta riceve una risposta, non un blocco", async () => {
+    const killed = { yes: false };
+    const started = Date.now();
+
+    // `getFleetUsage` degrada a «non lo so» (cache o unsupported): quello che
+    // NON deve fare e' propagare l'attesa a chi sta servendo una richiesta.
+    const usage = await getFleetUsage(() => snapshot(hangingPs(killed), 80));
+
+    expect(usage.supported === false || usage.processCount >= 0).toBe(true);
+    expect(
+      Date.now() - started,
+      "la richiesta HTTP e' rimasta incollata allo `ps`: e' cosi' che il server sembrava spento",
+    ).toBeLessThan(2000);
   });
 });

@@ -560,6 +560,92 @@ describe("the memory window on the floor and on the budget axis", () => {
     await w.beats(Array.from({ length: 30 }, (_, i) => (i % 2 ? 14 : 10.5)));
     expect(w.h.startedAt).toHaveLength(2);
   });
+
+  /**
+   * THE HOLDS ARE COUNTED, so "the board is slow" can be told apart from "the
+   * board is stopped" without reading the log by hand. The invariant does not
+   * change here and no card starts that would not have started before: this
+   * only makes the existing brake legible.
+   */
+  it("counts the holds by EPISODE, not by tick, and keeps the invariant", async () => {
+    const w = windowHarness("resources");
+    for (let i = 0; i < 2; i++) seedTodo(w.h.db, `hold-${i}`);
+
+    // Nothing has held yet: no episode, and the counter says so instead of
+    // pretending it never looked.
+    expect(w.h.dispatcher.admissionHolds()).toMatchObject({ episodes: 0, heldMs: 0, holding: false });
+
+    // THE FIRST EPISODE OF EVERY BOOT IS THE WARM-UP, and this pins it rather
+    // than hiding it: the memory window starts empty, so the floor holds the
+    // queue until it has readings to look at. It is a real hold - no card
+    // started - but it is guaranteed at every start, so whoever reads
+    // `episodes` has to know the first one is free. That is what `since` is
+    // for, and it is why the counter is not a promise.
+    await w.beats(repeat(30, 15));
+    expect(w.h.startedAt).toHaveLength(2);
+    expect(w.h.dispatcher.admissionHolds()).toMatchObject({ episodes: 1, holding: false });
+
+    // The machine goes under the floor with a card still queued. SIX beats,
+    // one episode: the floor is re-read every ten seconds and counting the
+    // READINGS would say how often we look, not how long we were stopped.
+    seedTodo(w.h.db, "hold-blocked");
+    const startedBefore = w.h.startedAt.length;
+    await w.beats(repeat(1.5, 18));
+    const held = w.h.dispatcher.admissionHolds();
+    expect(held.episodes).toBe(2); // the boot warm-up, then this one
+    expect(held.holding).toBe(true);
+    // THE INVARIANT: under the floor nothing started. The counter measures the
+    // brake, it does not loosen it.
+    expect(w.h.startedAt).toHaveLength(startedBefore);
+    // The episode in flight is already in the total, because the only moment
+    // anyone reads this is while the queue is stuck.
+    expect(held.heldMs).toBeGreaterThan(0);
+
+    // It comes back up: the episode closes and the time is banked.
+    await w.beats(repeat(30, 15));
+    const after = w.h.dispatcher.admissionHolds();
+    expect(after.holding).toBe(false);
+    expect(after.episodes).toBe(2);
+    expect(after.heldMs).toBeGreaterThanOrEqual(held.heldMs);
+
+    // A SECOND dip is a second episode, not a continuation of the first.
+    seedTodo(w.h.db, "hold-again");
+    await w.beats(repeat(1.5, 4));
+    expect(w.h.dispatcher.admissionHolds().episodes).toBe(3);
+  });
+
+  /**
+   * AN OPEN EPISODE STOPS AT THE LAST LOOK, found by an adversarial review.
+   *
+   * `tick` returns before reading the floor when auto-dispatch is off, the
+   * board is paused, a drain is running or a heavy job is in flight. An
+   * episode opened before one of those exits never closes, and charging
+   * wall-clock time to it made the counter report 460 s of "the floor is
+   * holding the queue" with 30 GB free and the queue simply switched off - on
+   * the settings route, under the eyes of whoever reads it. On a number meant
+   * to carry an SLO that is not a rounding error, it is the wrong quantity.
+   */
+  it("with the queue switched off mid-hold, the time stops at the last look", async () => {
+    const w = windowHarness("resources");
+    seedTodo(w.h.db, "off-0");
+    await w.beats(repeat(30, 15));
+    seedTodo(w.h.db, "off-blocked");
+    await w.beats(repeat(1.5, 6));
+    const blocked = w.h.dispatcher.admissionHolds();
+    expect(blocked.holding).toBe(true);
+
+    // Auto-dispatch goes off mid-episode, and the machine recovers right after.
+    w.h.svc.updateBoardSettings(PID, { autoDispatch: false });
+    await w.beats(repeat(30, 30)); // 300 s of wall clock, 30 GB free, nobody asking
+    const after = w.h.dispatcher.admissionHolds();
+
+    // The 300 s the floor was never asked about are NOT charged to it.
+    expect(after.heldMs).toBe(blocked.heldMs);
+    // And the reading stays honest about itself: still open, but the timestamp
+    // says when we stopped watching, so nobody reads it as "held right now".
+    expect(after.holding).toBe(true);
+    expect(after.lastSeenAt).toBe(blocked.lastSeenAt);
+  });
 });
 
 describe("a card waiting on the pull request CI holds no memory here (KANBAN-84)", () => {

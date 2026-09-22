@@ -147,6 +147,32 @@ describe('interruptedTurnOf — chi accende il banner', () => {
     expect(interruptedTurnOf({ blocks: [errore('ack timeout')] })).toBeNull();
   });
 
+  /**
+   * IL RIFIUTO SEGNALATO IL 21/09 su topic:a5c4a915.
+   *
+   * Il modello disse no, il server scrisse il verdetto, e la chat sembrava
+   * «bloccata senza nessun feedback». Il cartello c'era: era il 19° blocco di
+   * 19, in coda a una pila di tool call, dove nessuno scorre. Non si accendeva
+   * perche' `refusal` non era una `StopCause` e il blocco usciva senza `cause`
+   * — e questo banner rende solo i blocchi che ne portano una.
+   *
+   * La riga sotto e' la forma ESATTA che il turno aveva: il verdetto ultimo,
+   * dopo il lavoro gia' prodotto.
+   */
+  test('un rifiuto accende: e\' l\'unico segnale che si vede senza scorrere', () => {
+    const rifiutato = {
+      blocks: [
+        testo('Verifico invece di rispondere a memoria'),
+        { kind: 'error' as const, text: 'Richiesta rifiutata dal modello: violative cyber content', cause: 'refusal' as const, at: '2026-09-21T18:29:44.000Z' },
+      ],
+    };
+    expect(interruptedTurnOf(rifiutato)).toEqual({
+      cause: 'refusal',
+      text: 'Richiesta rifiutata dal modello: violative cyber content',
+      at: '2026-09-21T18:29:44.000Z',
+    });
+  });
+
   test('un turno sano no', () => {
     expect(interruptedTurnOf({ blocks: [testo('tutto bene')] })).toBeNull();
     expect(interruptedTurnOf({})).toBeNull();

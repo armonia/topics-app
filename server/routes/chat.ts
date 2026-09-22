@@ -2015,7 +2015,25 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (cutNotice) {
               // Same shape as the cancelled notice below: the verdict goes in
               // the BLOCKS, and in the text only when there is no text.
-              blocks.push({ kind: "error", text: cutNotice.replace(/^⚠️\s*/, "") });
+              //
+              // E LA CAUSA VIAGGIA COL CARTELLO, o il cartello non si vede.
+              //
+              // Il banner sopra il compositore rende solo i blocchi che portano
+              // una `cause` (vedi `interruptedTurnOf`): senza, il verdetto resta
+              // un blocco in fondo alla bolla. Su topic:a5c4a915, il 21/09, era
+              // il 19° di 19 sotto una pila di tool call, e la chat sembrava
+              // «bloccata senza nessun feedback» — la spiegazione c'era, nel
+              // posto dove nessuno guarda.
+              //
+              // `max_tokens` non ne ha una: il taglio non è una FINE attribuita
+              // a qualcuno, è un limite di lunghezza, e il suo cartello dice già
+              // l'unica cosa che cambia l'esito (chiedere il resto a pezzi).
+              const cutCause = endInfo.end === "refusal" ? ("refusal" as const) : undefined;
+              blocks.push({
+                kind: "error",
+                text: cutNotice.replace(/^⚠️\s*/, ""),
+                ...(cutCause ? { cause: cutCause, at: new Date().toISOString() } : {}),
+              });
               if (!fullContent.trim()) fullContent = cutNotice;
               // AND THE END MUST SAY IT WENT WRONG, or `stream:end` carries no
               // `reason: "error"` and the push gate mutes the cut turn.

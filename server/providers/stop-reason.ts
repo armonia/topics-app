@@ -141,7 +141,24 @@ export type StopCause =
    * and it is not deterministic - the same message succeeds once the account's
    * limit frees - so it is resumed like a restart and it costs no attempt.
    */
-  | "rate-limit";
+  | "rate-limit"
+  /**
+   * IL MODELLO SI È RIFIUTATO, e il rifiuto ha bisogno di un nome proprio.
+   *
+   * `refusal` è sempre stato un `TurnEnd` (l'API risponde 200 con zero blocchi
+   * di contenuto e una spiegazione in `stop_details`), ma non era una
+   * `StopCause`: il verdetto veniva scritto sulla riga come blocco `error`
+   * senza causa, e il banner ambra — che rende solo le cause dichiarate — non
+   * compariva. Segnalato il 21/09 su topic:a5c4a915: il cartello era il 19°
+   * blocco di 19, sotto una pila di tool call, e la chat sembrava «bloccata
+   * senza nessun feedback».
+   *
+   * SEPARATO DA `provider-error` PERCHÉ LA POLITICA È OPPOSTA. Un errore del
+   * provider è transitorio e si riprova; un rifiuto è deterministico e
+   * rimandare la stessa richiesta ricompra lo stesso no. È la ragione per cui
+   * `meritaRipresaAutomatica` deve poterli distinguere leggendo un campo solo.
+   */
+  | "refusal";
 
 /**
  * THE TWO LISTS MUST MATCH, and the compiler is what checks it.

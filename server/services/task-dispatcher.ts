@@ -536,6 +536,24 @@ export interface TaskDispatcher {
    * lettura, e passa dallo STESSO calcolo del gate del `tick`: la card delle
    * impostazioni non può dire una cosa diversa da quella che il dispatcher fa.
    */
+  /**
+   * How many times the resource floor held the queue, and for how long in
+   * total. Read-only and without effects: it states the invariant that already
+   * holds ("under the floor no card starts") by making it measurable, it does
+   * not change it. `heldMs` includes the episode in flight.
+   *
+   * The numbers belong to THIS process: `since` says when the count began,
+   * because a restart zeroes them and a count without its window reads like a
+   * time series it is not.
+   */
+  admissionHolds(): {
+    episodes: number;
+    heldMs: number;
+    holding: boolean;
+    /** When the floor was last really consulted (see `heldMs`). */
+    lastSeenAt: string;
+    since: string;
+  };
   nightStatus(projectId: string): {
     enabled: boolean;
     until: string | null;
@@ -1086,6 +1104,36 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    *  still under the line, and saying "le risorse sono rientrate" there is a lie
    *  on the one line the board's history is read from. */
   let lastAdmissionBlock: ResourceFloorKind | "exempt" | null = null;
+  /**
+   * HOW LONG THE QUEUE WAS HELD, so it can be said with a number. It MEASURES
+   * and nothing else: under the floor no card starts and `dispatchFanOut`
+   * stays what it is. Until now a held queue left a log line, so telling a
+   * one-minute stop from an hour-long one meant reading the log by hand, and
+   * an SLO written without that number is a promise made by feel.
+   *
+   * EPISODES, not ticks, off the same transition that decides whether to log:
+   * the floor is re-read every ten seconds, and counting readings would say
+   * how often we look. The derogation (`exempt`) lets a card through, so it
+   * closes the episode. In memory, zeroed by a restart - hence `since`.
+   *
+   * THE FIRST EPISODE OF EVERY BOOT IS THE WARM-UP: the memory window starts
+   * empty, so the floor holds until it has readings. A real hold, but free at
+   * every boot: pinned by the test rather than quietly subtracted, since
+   * removing it means telling apart two states the floor itself does not.
+   */
+  let admissionHoldEpisodes = 0;
+  let admissionHeldMs = 0;
+  let admissionHoldSince: number | null = null;
+  const admissionCountingSince = Date.now();
+  /**
+   * WHEN THE FLOOR WAS LAST ACTUALLY READ: an episode in flight is measured up
+   * to here, never to `Date.now()`. The floor is only consulted while the
+   * queue is worked, so auto-dispatch off or a paused board mid-episode means
+   * nobody asks again and it never closes - wall-clock time would then report
+   * hours of "held" that nobody looked at once. `lastSeenAt` is what tells a
+   * live stop from an abandoned one.
+   */
+  let admissionLastSeenAt = admissionCountingSince;
   /** What one more agent is priced at in memory: the same price list the budget reads. */
   function agentMemPrice(): number {
     return estimatedAgentMemCost((() => { try { return deps.agentMemSamples?.() ?? []; } catch { return []; } })());
@@ -1216,8 +1264,22 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         if (state === "exempt") log("pavimento memoria ancora sotto la riga, ma nessun lavoro di Topics è in volo: passa UNA card per deroga, e il pavimento torna pieno appena è partita");
         else if (state) log(`coda ferma — ${reason}`);
         else if (lastAdmissionBlock) log("coda ripartita: le risorse sono rientrate sopra il pavimento");
+        // The same comparison that decides the log line counts the episode:
+        // two truths off one transition cannot drift apart. A real block
+        // opens it, anything else (the derogation included) closes it.
+        const blocking = !!state && state !== "exempt";
+        if (blocking && admissionHoldSince === null) {
+          admissionHoldSince = Date.now();
+          admissionHoldEpisodes += 1;
+        } else if (!blocking && admissionHoldSince !== null) {
+          admissionHeldMs += Math.max(0, Date.now() - admissionHoldSince);
+          admissionHoldSince = null;
+        }
       }
       lastAdmissionBlock = state;
+      // The floor was really consulted just now: this is the watermark an
+      // episode in flight is measured up to.
+      admissionLastSeenAt = Date.now();
       return verdict;
     } catch { return { reason: null, kind: null, memoryFirstCardExempt: false }; }
   }
@@ -5721,6 +5783,26 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   return {
     tick, onEnterTodo, onLeaveTodo, deferWait, onBlockerDone, resume, reconcile, markInterrupted,
     revokeDelegatedCapability, shutdown, nightStatus, admissionPreview,
+    // The episode IN FLIGHT is added at read time, not on every tick: a
+    // counter that only grows when an episode closes would read zero exactly
+    // while the queue is stuck, which is the one moment anyone looks at it.
+    admissionHolds: () => ({
+      episodes: admissionHoldEpisodes,
+      // UP TO THE LAST LOOK, never up to now. The floor is only consulted while
+      // the queue is being worked: auto-dispatch off, a paused board, a drain
+      // or a heavy job in flight all return before it is read
+      // (`task-dispatcher.ts` early exits in `tick`). Charging wall-clock time
+      // to the open episode reported 460 s of "floor holding the queue" while
+      // the floor was free and the queue was simply switched off - measured on
+      // a probe, 30 GB available throughout.
+      heldMs: admissionHeldMs + (admissionHoldSince === null ? 0 : Math.max(0, admissionLastSeenAt - admissionHoldSince)),
+      holding: admissionHoldSince !== null,
+      // WHEN WE LAST LOOKED, which is what tells a live stop from an abandoned
+      // one: `holding: true` with an old `lastSeenAt` means "the queue was held
+      // when we stopped watching", not "it is held now".
+      lastSeenAt: new Date(admissionLastSeenAt).toISOString(),
+      since: new Date(admissionCountingSince).toISOString(),
+    }),
     isInFlight: (id) => inFlight.has(id),
     // THE REMOTE LANE DOES NOT SPEND THIS MACHINE'S CAP (KANBAN-76): a card
     // running on a node costs no process, no worktree and no CPU here, and the
