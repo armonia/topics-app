@@ -14,7 +14,7 @@
  * of length N, `heights[0]` belonging to the primary.
  */
 import type { PanelGridRow, PanelGridCellStack } from '../../types';
-import { MAX_STACK_DEPTH } from './constants';
+import { MAX_ROWS, MAX_STACK_DEPTH } from './constants';
 import { equalizeWidths, splitSlotWidths } from './gridWidths';
 
 export type VerticalEdge = 'top' | 'bottom';
@@ -89,4 +89,60 @@ export function addKeysToCellStack(
  *  to move a whole cell, sub-stack included, into another column. */
 export function flattenCellColumn(row: PanelGridRow, key: string): string[] {
   return [key, ...(row.cellStacks?.[key]?.items ?? [])];
+}
+
+/** A whole cell on the move: its key plus the sub-stack it was hosting. */
+export interface MovedCell {
+  key: string;
+  stack?: PanelGridCellStack;
+}
+
+export interface VerticalDropArgs {
+  /** Rows with the moved cell ALREADY removed. */
+  rows: readonly PanelGridRow[];
+  /** Index (in `rows`) of the row holding the drop target. */
+  targetRowIdx: number;
+  /** Top-level cell key the drop landed on. */
+  targetKey: string;
+  moved: MovedCell;
+  edge: VerticalEdge;
+  /**
+   * True only for the full-width strips and the row dividers, which mean "a
+   * row spanning every column". A bare cell edge never means that.
+   */
+  fullRowIntent: boolean;
+}
+
+/**
+ * Where a top/bottom drop puts the moved cell: a new row spanning the grid
+ * (strips only) or a slot inside the target's own column (every other case).
+ *
+ * This is the ONE answer for both drop sources. PanelGrid used to decide it
+ * twice: a tab dragged out of the pool built a column stack, while a tab that
+ * already owned a cell fell through to the whole-cell reorder and built a
+ * FULL-WIDTH row instead. Same gesture, same preview (half of the target
+ * cell), two layouts depending only on where the tab happened to live.
+ *
+ * Returns null when the drop must be refused (grid caps, or a target that
+ * isn't a top-level cell of `rows[targetRowIdx]`).
+ */
+export function applyVerticalDrop(args: VerticalDropArgs): PanelGridRow[] | null {
+  const { rows, targetRowIdx, targetKey, moved, edge, fullRowIntent } = args;
+  const row = rows[targetRowIdx];
+  if (!row) return null;
+
+  if (fullRowIntent) {
+    if (rows.length >= MAX_ROWS) return null;
+    const newRow: PanelGridRow = {
+      itemKeys: [moved.key],
+      widths: [1],
+      ...(moved.stack ? { cellStacks: { [moved.key]: moved.stack } } : {}),
+    };
+    const insertIdx = edge === 'top' ? targetRowIdx : targetRowIdx + 1;
+    return [...rows.slice(0, insertIdx), newRow, ...rows.slice(insertIdx)];
+  }
+
+  const stacked = addKeysToCellStack(row, targetKey, [moved.key, ...(moved.stack?.items ?? [])], edge);
+  if (!stacked) return null;
+  return rows.map((r, i) => (i === targetRowIdx ? stacked : r));
 }

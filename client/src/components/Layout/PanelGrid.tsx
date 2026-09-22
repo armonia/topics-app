@@ -33,7 +33,7 @@ import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH, MIN_PANE_FRACTION, TAB_BAR
 import { detectDropZone, type DropZone } from '../../lib/dropZone';
 import { SplitRegion, CenterRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths, equalizeWidths } from './gridWidths';
-import { addKeysToCellStack } from './panelGridStacks';
+import { addKeysToCellStack, applyVerticalDrop } from './panelGridStacks';
 import { notifyPaneReflow } from './paneReflow';
 import { applyZoomWeights, cellKeysForPanes, liveCellKeys } from './paneZoom';
 import { computeZoomPaneIds, resolveEntryScope, resolveZoomAnchor, resolveZoomCells, type ZoomPane, type ZoomScope } from './zoomScope';
@@ -2198,21 +2198,25 @@ export function PanelGrid({
       }
       if (tRow === -1) return rows;
 
-      // Enforce grid limits
-      if ((zone === 'top' || zone === 'bottom') && rows.length >= MAX_ROWS) return rows;
+      // Enforce grid limits (the vertical caps live inside applyVerticalDrop)
       if ((zone === 'left' || zone === 'right' || zone === 'center') && rows[tRow].itemKeys.length >= MAX_COLS_PER_ROW) return rows;
 
       // Insert source based on zone (immutably). The detached sub-stack
       // re-attaches under the moved key at its new home.
       if (zone === 'top' || zone === 'bottom') {
-        // Create new row above/below target
-        const newRow: PanelGridRow = {
-          itemKeys: [effectiveKey],
-          widths: [1],
-          ...(movedStack ? { cellStacks: { [effectiveKey]: movedStack } } : {}),
-        };
-        const insertIdx = zone === 'top' ? tRow : tRow + 1;
-        rows = [...rows.slice(0, insertIdx), newRow, ...rows.slice(insertIdx)];
+        // Same resolver the pool path uses, so where the tab HAPPENED to live
+        // no longer changes the result: a bare cell edge stacks in the target's
+        // column, only a strip's `fullRow` intent inserts a spanning row.
+        const next = applyVerticalDrop({
+          rows,
+          targetRowIdx: tRow,
+          targetKey,
+          moved: { key: effectiveKey, stack: movedStack },
+          edge: zone,
+          fullRowIntent: !!explicitTarget?.fullRow,
+        });
+        if (!next) return rows;
+        rows = next;
       } else {
         // left/right/center — insert as column in target's row
         const row = rows[tRow];

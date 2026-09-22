@@ -6,8 +6,8 @@
  */
 import { describe, it, expect } from 'bun:test';
 import type { PanelGridRow } from '../../types';
-import { addKeysToCellStack, cellStackDepth, flattenCellColumn } from './panelGridStacks';
-import { MAX_STACK_DEPTH } from './constants';
+import { addKeysToCellStack, applyVerticalDrop, cellStackDepth, flattenCellColumn } from './panelGridStacks';
+import { MAX_ROWS, MAX_STACK_DEPTH } from './constants';
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 const row = (itemKeys: string[], cellStacks?: PanelGridRow['cellStacks']): PanelGridRow => ({
@@ -103,5 +103,89 @@ describe('addKeysToCellStack — refusals', () => {
     const next = addKeysToCellStack(r, 'A', ['NEW'], 'bottom')!;
     expect(next.cellStacks?.A.heights.length).toBe(3);
     expect(sum(next.cellStacks!.A.heights)).toBeCloseTo(1, 6);
+  });
+});
+
+describe('applyVerticalDrop — the same gesture gives the same layout', () => {
+  // Grid [A, C]; the tab is dropped on C's bottom edge, no strip involved.
+  const grid = () => [row(['A', 'C'])];
+
+  it('a bare bottom edge stacks in the column, whatever the source was', () => {
+    // Source in the pool: nothing to remove from the grid, one new key.
+    const fromPool = applyVerticalDrop({
+      rows: grid(), targetRowIdx: 0, targetKey: 'C',
+      moved: { key: 'B' }, edge: 'bottom', fullRowIntent: false,
+    })!;
+    // Source already a cell of its own: its slot is gone from the row by the
+    // time we get here, so the grid it lands in has one column less.
+    const fromCell = applyVerticalDrop({
+      rows: [row(['C'])], targetRowIdx: 0, targetKey: 'C',
+      moved: { key: 'B' }, edge: 'bottom', fullRowIntent: false,
+    })!;
+    expect(fromPool[0].cellStacks?.C.items).toEqual(['B']);
+    expect(fromPool.length).toBe(1);
+    // The shape of the target's column is identical in both: a stack, never a row.
+    expect(fromCell[0].cellStacks?.C).toEqual(fromPool[0].cellStacks!.C);
+    expect(fromCell.length).toBe(1);
+  });
+
+  it('a bare top edge makes the dropped cell the column primary', () => {
+    const next = applyVerticalDrop({
+      rows: grid(), targetRowIdx: 0, targetKey: 'C',
+      moved: { key: 'B' }, edge: 'top', fullRowIntent: false,
+    })!;
+    expect(next[0].itemKeys).toEqual(['A', 'B']);
+    expect(next[0].cellStacks?.B.items).toEqual(['C']);
+  });
+
+  it('only a strip intent inserts a full-width row', () => {
+    const next = applyVerticalDrop({
+      rows: grid(), targetRowIdx: 0, targetKey: 'C',
+      moved: { key: 'B' }, edge: 'bottom', fullRowIntent: true,
+    })!;
+    expect(next.length).toBe(2);
+    expect(next[1]).toEqual({ itemKeys: ['B'], widths: [1] });
+    expect(next[0].cellStacks).toBeUndefined();
+  });
+
+  it('a full-width row keeps the moved cell sub-stack verbatim', () => {
+    const next = applyVerticalDrop({
+      rows: grid(), targetRowIdx: 0, targetKey: 'C',
+      moved: { key: 'B', stack: { items: ['B2'], heights: [0.7, 0.3] } },
+      edge: 'top', fullRowIntent: true,
+    })!;
+    expect(next[0].cellStacks?.B.heights).toEqual([0.7, 0.3]);
+    expect(next[1]).toEqual(grid()[0]);
+  });
+
+  it('a moved cell carrying a sub-stack lands whole in the column', () => {
+    const next = applyVerticalDrop({
+      rows: grid(), targetRowIdx: 0, targetKey: 'C',
+      moved: { key: 'B', stack: { items: ['B2'], heights: [0.7, 0.3] } },
+      edge: 'bottom', fullRowIntent: false,
+    })!;
+    expect(next[0].cellStacks?.C.items).toEqual(['B', 'B2']);
+    expect(next.length).toBe(1);
+  });
+
+  it('refuses a full-width row past MAX_ROWS instead of silently stacking', () => {
+    const rows = Array.from({ length: MAX_ROWS }, () => row(['C']));
+    const next = applyVerticalDrop({
+      rows, targetRowIdx: 0, targetKey: 'C',
+      moved: { key: 'B' }, edge: 'bottom', fullRowIntent: true,
+    });
+    expect(next).toBeNull();
+  });
+
+  it('refuses a target that is not a top-level cell', () => {
+    const rows = [row(['A'], { A: { items: ['A2'], heights: [0.5, 0.5] } })];
+    expect(applyVerticalDrop({
+      rows, targetRowIdx: 0, targetKey: 'A2',
+      moved: { key: 'B' }, edge: 'bottom', fullRowIntent: false,
+    })).toBeNull();
+    expect(applyVerticalDrop({
+      rows, targetRowIdx: 9, targetKey: 'A',
+      moved: { key: 'B' }, edge: 'bottom', fullRowIntent: false,
+    })).toBeNull();
   });
 });
