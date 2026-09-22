@@ -6,8 +6,8 @@
  */
 import { describe, it, expect } from 'bun:test';
 import type { PanelGridRow } from '../../types';
-import { addKeysToCellStack, applyVerticalDrop, cellStackDepth, flattenCellColumn } from './panelGridStacks';
-import { MAX_ROWS, MAX_STACK_DEPTH } from './constants';
+import { addKeysToCellStack, applyVerticalDrop, cellStackDepth, flattenCellColumn, standaloneSplitFitsCaps } from './panelGridStacks';
+import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH } from './constants';
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 const row = (itemKeys: string[], cellStacks?: PanelGridRow['cellStacks']): PanelGridRow => ({
@@ -187,5 +187,41 @@ describe('applyVerticalDrop — the same gesture gives the same layout', () => {
       rows, targetRowIdx: 9, targetKey: 'A',
       moved: { key: 'B' }, edge: 'bottom', fullRowIntent: false,
     })).toBeNull();
+  });
+});
+
+describe('standaloneSplitFitsCaps — the twin question on the grid', () => {
+  it('accepts an ordinary split in every direction', () => {
+    const rows = [row(['A', 'B'])];
+    for (const zone of ['left', 'right', 'top', 'bottom'] as const) {
+      expect(standaloneSplitFitsCaps(rows, 0, 'A', zone, false)).toBe(true);
+    }
+  });
+
+  it('refuses left/right once the row is full of columns', () => {
+    const rows = [row(Array.from({ length: MAX_COLS_PER_ROW }, (_, i) => `C${i}`))];
+    expect(standaloneSplitFitsCaps(rows, 0, 'C0', 'right', false)).toBe(false);
+    expect(standaloneSplitFitsCaps(rows, 0, 'C0', 'bottom', false)).toBe(true);
+  });
+
+  it('refuses top/bottom once the column is at stack depth', () => {
+    const items = Array.from({ length: MAX_STACK_DEPTH - 1 }, (_, i) => `A${i + 2}`);
+    const heights = Array.from({ length: MAX_STACK_DEPTH }, () => 1 / MAX_STACK_DEPTH);
+    const rows = [row(['A', 'B'], { A: { items, heights } })];
+    expect(standaloneSplitFitsCaps(rows, 0, 'A', 'top', false)).toBe(false);
+    expect(standaloneSplitFitsCaps(rows, 0, 'A', 'bottom', false)).toBe(false);
+    expect(standaloneSplitFitsCaps(rows, 0, 'B', 'bottom', false)).toBe(true);
+    expect(standaloneSplitFitsCaps(rows, 0, 'A', 'left', false)).toBe(true);
+  });
+
+  it('refuses a full-width row once the grid is out of rows', () => {
+    const rows = Array.from({ length: MAX_ROWS }, () => row(['A']));
+    expect(standaloneSplitFitsCaps(rows, 0, 'A', 'bottom', true)).toBe(false);
+    expect(standaloneSplitFitsCaps(rows.slice(1), 0, 'A', 'bottom', true)).toBe(true);
+  });
+
+  it('says yes for a row or a cell it cannot see, leaving the drop to decide', () => {
+    expect(standaloneSplitFitsCaps([row(['A'])], 9, 'A', 'right', false)).toBe(true);
+    expect(standaloneSplitFitsCaps([row(['A'])], 0, 'ZZ', 'bottom', false)).toBe(true);
   });
 });

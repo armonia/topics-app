@@ -2,7 +2,7 @@ import { useRef, useMemo, useState, useCallback, useEffect, useLayoutEffect } fr
 import type { Pane, PaneGroup, PaneGroupType, PaneType, GroupLayoutRow } from '../../types';
 import { PaneTabBar, type TabLinkContext } from './PaneTabBar';
 import { CellSubStack } from './CellSubStack';
-import { setColumnStackHeights, columnDepth, columnSplitPreviewHost, rowGapWouldReshape, slotEdges } from './groupLayoutStacks';
+import { setColumnStackHeights, columnDepth, columnSplitPreviewHost, rowGapWouldReshape, slotEdges, splitFitsCaps } from './groupLayoutStacks';
 import { flattenGroupRows } from './flattenLayout';
 import { startDragPreview } from '../../lib/dragPreview';
 import { equalizeWidths, weightedWidths } from './gridWidths';
@@ -459,6 +459,18 @@ export function GroupLayout({
       return;
     }
 
+    // D6: the runaway caps used to be read only by the drop, which returns
+    // without mutating when one is hit. At the cap the band lit up all the same
+    // and the release did nothing, which is the one thing this whole system is
+    // not allowed to do. Same predicate, both sides.
+    if (edge && edge !== 'center' && !splitFitsCaps(rows, groupId, edge, false)) {
+      if (edgeDropTargetRef.current?.groupId === groupId) {
+        edgeDropTargetRef.current = null;
+        setEdgeDropTarget(null);
+      }
+      return;
+    }
+
     if (edge) {
       // DEDUP: dragover fires ~60fps+; only re-render when the target edge/group
       // actually changes, else the project window re-rendered every frame of the
@@ -475,7 +487,7 @@ export function GroupLayout({
         setEdgeDropTarget(null);
       }
     }
-  }, [onSplitGroup, edgeDropTargetRef, dndScope, groupMap, contentGutters]);
+  }, [onSplitGroup, edgeDropTargetRef, dndScope, groupMap, contentGutters, rows]);
 
   // When a cross-group tab drag moves over THIS group's tab bar (a sibling of
   // the content area), the user is aiming to drop the tab INTO the bar — not to
@@ -636,6 +648,9 @@ export function GroupLayout({
   const handleFullRowDragOver = useCallback((side: 'top' | 'bottom') => (e: React.DragEvent) => {
     if (!onSplitGroup || !isPaneTabDrag(e)) return;
     if (!fullRowWouldReshape(draggedGroupSize())) return;
+    // D6: a row the surface has no room for. The strip is the row cap's other
+    // face, so it asks the same predicate the cell bands do.
+    if (!splitFitsCaps(rows, '', side, true)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move'; // WKWebView: signal acceptance (see handleGroupContentDragOver)
@@ -643,7 +658,7 @@ export function GroupLayout({
     // only ONE intent (full-width) shows while the pointer is on the strip.
     if (edgeDropTargetRef.current) { edgeDropTargetRef.current = null; setEdgeDropTarget(null); }
     if (fullRowDropRef.current !== side) { fullRowDropRef.current = side; setFullRowDrop(side); }
-  }, [onSplitGroup, isPaneTabDrag, edgeDropTargetRef, fullRowDropRef, fullRowWouldReshape, draggedGroupSize]);
+  }, [onSplitGroup, isPaneTabDrag, edgeDropTargetRef, fullRowDropRef, fullRowWouldReshape, draggedGroupSize, rows]);
 
   const handleFullRowDragLeave = useCallback((e: React.DragEvent) => {
     const rt = e.relatedTarget as Node | null;
@@ -692,6 +707,8 @@ export function GroupLayout({
     const src = draggedGroup();
     if (!fullRowWouldReshape(src?.paneIds.length)) return;
     if (!rowGapWouldReshape(rows, gapIdx, src?.id, src?.paneIds.length)) return;
+    // D6: and the row cap, which a gap insert spends exactly like a strip does.
+    if (!splitFitsCaps(rows, '', 'bottom', true)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move'; // WKWebView: signal acceptance

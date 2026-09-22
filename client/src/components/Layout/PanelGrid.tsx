@@ -34,7 +34,7 @@ import { detectDropZone, type DropZone, type EdgeGutters } from '../../lib/dropZ
 import { edgeStripGutters } from '../../lib/dropFeedback';
 import { SplitRegion, CenterRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths, equalizeWidths } from './gridWidths';
-import { addKeysToCellStack, applyVerticalDrop } from './panelGridStacks';
+import { addKeysToCellStack, applyVerticalDrop, standaloneSplitFitsCaps } from './panelGridStacks';
 import { standaloneEdgeDropSplits, standaloneCenterDropMerges, centerMergeTargetKey } from './splitRules';
 import { draggedPaneId } from '../../lib/dragPayload';
 import { notifyPaneReflow } from './paneReflow';
@@ -1784,6 +1784,18 @@ export function PanelGrid({
       }
     }
 
+    // D6: the runaway caps were read only at drop time, where hitting one is a
+    // bare `return`. At the cap the band lit up and the release did nothing.
+    // The bare cell edge never carries the full-row intent, so `false`: the
+    // strips ask the same predicate with `true` where they are painted.
+    if (zone !== 'center') {
+      const capKey = gridRowsRef.current[rowIdx]?.itemKeys[colIdx];
+      if (capKey && !standaloneSplitFitsCaps(gridRowsRef.current, rowIdx, capKey, zone, false)) {
+        if (gridDropTargetRef.current) { setGridDropTarget(null); gridDropTargetRef.current = null; }
+        return;
+      }
+    }
+
     // Edge zone (or any GRID_ITEM drag): handle at grid level
     e.stopPropagation(); // Prevent children from also handling this edge drag
     // WKWebView (Tauri) does NOT infer dropEffect from preventDefault the way
@@ -2401,6 +2413,9 @@ export function PanelGrid({
     // target at all (their only row-insert gesture was the dishonest
     // half-cell top/bottom preview).
     if (!isStandaloneTabDrag(e) && !e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM)) return;
+    // D6: a row the grid has no room for. Same predicate the cell bands ask,
+    // with the full-row intent these strips carry.
+    if (!standaloneSplitFitsCaps(gridRowsRef.current, 0, '', 'bottom', true)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move'; // WKWebView: signal acceptance (see cell dragover)
@@ -2408,7 +2423,7 @@ export function PanelGrid({
     // only ONE intent (full-width row) shows while the pointer is on it.
     if (gridDropTargetRef.current) { setGridDropTarget(null); gridDropTargetRef.current = null; }
     if (fullRowDropRef.current !== strip) { fullRowDropRef.current = strip; setFullRowDrop(strip); }
-  }, [isStandaloneTabDrag, gridDropTargetRef, fullRowDropRef]);
+  }, [isStandaloneTabDrag, gridDropTargetRef, fullRowDropRef, gridRowsRef]);
 
   const handleFullRowDragLeave = useCallback((e: React.DragEvent) => {
     const rt = e.relatedTarget as Node | null;

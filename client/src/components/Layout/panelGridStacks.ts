@@ -14,7 +14,7 @@
  * of length N, `heights[0]` belonging to the primary.
  */
 import type { PanelGridRow, PanelGridCellStack } from '../../types';
-import { MAX_ROWS, MAX_STACK_DEPTH } from './constants';
+import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH } from './constants';
 import { equalizeWidths, splitSlotWidths } from './gridWidths';
 
 export type VerticalEdge = 'top' | 'bottom';
@@ -145,4 +145,32 @@ export function applyVerticalDrop(args: VerticalDropArgs): PanelGridRow[] | null
   const stacked = addKeysToCellStack(row, targetKey, [moved.key, ...(moved.stack?.items ?? [])], edge);
   if (!stacked) return null;
   return rows.map((r, i) => (i === targetRowIdx ? stacked : r));
+}
+
+/**
+ * The standalone twin of `groupLayoutStacks.splitFitsCaps`: would a split on
+ * this cell's `zone` fit inside the runaway caps, i.e. will the drop build it?
+ *
+ * Same reason for existing. The caps were read only at drop time, where hitting
+ * one is a bare `return`, so at the cap the band lit up and the release did
+ * nothing. The branches mirror the drop's own guards: a `fullRow` intent caps
+ * the row count, a bare top/bottom caps the target column's stack depth
+ * (primary included, which is why the `+ 1`), left/right cap the row's columns.
+ *
+ * A row or a cell this function cannot see answers yes: the drop holds the
+ * authoritative rows, and refusing on a guess would kill a working gesture.
+ */
+export function standaloneSplitFitsCaps(
+  rows: readonly PanelGridRow[],
+  targetRowIdx: number,
+  targetKey: string,
+  zone: 'left' | 'right' | 'top' | 'bottom',
+  fullRowIntent: boolean,
+): boolean {
+  const vertical = zone === 'top' || zone === 'bottom';
+  if (vertical && fullRowIntent) return rows.length < MAX_ROWS;
+  const row = rows[targetRowIdx];
+  if (!row || !row.itemKeys.includes(targetKey)) return true;
+  if (vertical) return cellStackDepth(row, targetKey) + 1 <= MAX_STACK_DEPTH;
+  return row.itemKeys.length < MAX_COLS_PER_ROW;
 }

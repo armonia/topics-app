@@ -16,7 +16,7 @@
  * state. Every function returns NEW arrays/objects — callers stay immutable.
  */
 import type { GroupLayoutRow, GroupCellStack } from '../../types';
-import { MAX_STACK_DEPTH } from './constants';
+import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH } from './constants';
 import { normalizeWidths, equalizeWidths, splitColumnWidths } from './gridWidths';
 
 export type VerticalEdge = 'top' | 'bottom';
@@ -349,4 +349,37 @@ export function slotEdges(
     atColumnTop: loc.isPrimary,
     atColumnBottom: members.length === 0 ? loc.isPrimary : gid === members[members.length - 1],
   };
+}
+
+/**
+ * Would a split on `targetGroupId`'s `edge` fit inside the runaway caps, i.e.
+ * will the drop actually build it?
+ *
+ * The caps (`MAX_COLS_PER_ROW`, `MAX_ROWS`, `MAX_STACK_DEPTH`) used to be read
+ * only by the drop, which returns without mutating anything when one is hit.
+ * The dragover knew nothing of them, so at the cap the band still lit up and
+ * the release did nothing: the same "a promised gesture must succeed" law the
+ * rest of this system now obeys, broken by silence. This is that question,
+ * asked by both sides so they cannot answer differently.
+ *
+ * The branches mirror `useProjectLayout.handleSplitGroup` line for line:
+ * left/right cap the target's HOST row (a stacked member counts its host, which
+ * a bare `groupIds.includes` walk would miss), a bare top/bottom caps the
+ * target column's stack depth, and a `fullRow` intent caps the row count.
+ *
+ * A target that cannot be located answers yes: the honest answer is "not mine
+ * to refuse", and the drop is the one with the authoritative rows.
+ */
+export function splitFitsCaps(
+  rows: readonly GroupLayoutRow[],
+  targetGroupId: string,
+  edge: 'left' | 'right' | 'top' | 'bottom',
+  fullRow: boolean,
+): boolean {
+  const vertical = edge === 'top' || edge === 'bottom';
+  if (vertical && fullRow) return rows.length < MAX_ROWS;
+  const loc = locateGroup(rows, targetGroupId);
+  if (!loc) return true;
+  if (vertical) return columnDepth(rows[loc.rowIdx], loc.primaryId) < MAX_STACK_DEPTH;
+  return rows[loc.rowIdx].groupIds.length < MAX_COLS_PER_ROW;
 }
