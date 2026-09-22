@@ -415,7 +415,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             ? resolveProviderByName(overrideProvider)
             : resolveProvider(matchedTopic);
           if (!explicitProvider.connected) throw new Error("unavailable");
-        } catch {
+        } catch (err) {
+          // AICTRL-01: this is the resolver call that actually runs whenever a
+          // topic has a pinned provider (the common case) — the generic catch
+          // below used to erase TopicsRoutingIncompatibleError into a plain
+          // "provider_unavailable", losing its reason and code before the turn
+          // even had a chance to be blocked correctly. Caught here, before the
+          // user message is persisted, with the pinned provider/model untouched.
+          if (err instanceof TopicsRoutingIncompatibleError) {
+            return json({ error: err.message, code: err.code, provider: err.provider }, 409);
+          }
           return json({
             error: `Provider "${requestedProviderId}" is unavailable. Connect it in Settings or choose another provider.`,
             code: "provider_unavailable", provider: requestedProviderId,
