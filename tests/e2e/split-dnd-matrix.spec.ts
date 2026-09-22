@@ -928,8 +928,8 @@ test.describe("Drag-and-drop and split: the case table", () => {
     const leaf = await leafOfPane(page, paneFrag);
     let axis: string | null = null;
     let at = -1;
-    const walk = (node: TreeNode): void => {
-      if (node.kind !== "split") return;
+    const walk = (node: TreeNode | null): void => {
+      if (!node || node.kind !== "split") return;
       const idx = node.children.findIndex((c) => c.kind === "leaf" && c.id === leaf);
       if (idx >= 0) {
         axis = node.dir;
@@ -1272,8 +1272,8 @@ test.describe("Drag-and-drop and split: the case table", () => {
     const poolTree = await readTree(page);
     const poolHost = await leafOfPane(page, idA);
     let fromPool = "none";
-    const walkPool = (node: TreeNode): void => {
-      if (node.kind !== "split") return;
+    const walkPool = (node: TreeNode | null): void => {
+      if (!node || node.kind !== "split") return;
       if (node.children.some((c) => c.kind === "leaf" && c.id === poolHost)) fromPool = skeleton(node);
       for (const c of node.children) walkPool(c);
     };
@@ -1286,7 +1286,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
     await openStandalone(page, request, [idA, idB, idC]);
     const cellA2 = await splitOff(page, idA, "Dividi a destra");
     const rootBefore = await readTree(page);
-    const rootChildrenBefore = rootBefore.kind === "split" ? rootBefore.children.length : 0;
+    const rootChildrenBefore = rootBefore?.kind === "split" ? rootBefore.children.length : 0;
     const boxA2 = await boxOf(page, cellA2);
     await dragTabTo(page, `[data-pane-id="${idC}"]`, {
       x: boxA2.x + boxA2.width - 10,
@@ -1319,8 +1319,8 @@ test.describe("Drag-and-drop and split: the case table", () => {
       const tree = await readTree(page);
       const leafId = await leafOfPane(page, idA);
       let found = "none";
-      const walk = (node: TreeNode): void => {
-        if (node.kind !== "split") return;
+      const walk = (node: TreeNode | null): void => {
+        if (!node || node.kind !== "split") return;
         if (node.children.some((c) => c.kind === "leaf" && c.id === leafId)) found = skeleton(node);
         for (const c of node.children) walk(c);
       };
@@ -1335,8 +1335,9 @@ test.describe("Drag-and-drop and split: the case table", () => {
       .toBe(fromPool);
     // Named separately because it is the actual symptom: a full-width row is a
     // new child of the ROOT, and the root must not have gained one.
+    const rootAfter = await readTree(page);
     expect(
-      (await readTree(page)).kind === "split" ? (await readTree(page)).children.length : 0,
+      rootAfter?.kind === "split" ? rootAfter.children.length : 0,
       "no full-width row was created",
     ).toBe(rootChildrenBefore);
   });
