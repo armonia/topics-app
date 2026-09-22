@@ -200,8 +200,8 @@ describe("avvisoPerTurno — la coda dice il vero", () => {
    * e zero sotto, e la frase mandava a cercare dalla parte sbagliata.
    */
   test("rifiuto con lavoro gia' prodotto: indica SOPRA, dove il lavoro sta davvero", () => {
-    const rifiuto: TurnEndInfo = { end: "refusal", detail: "violative cyber content" };
-    const out = avvisoPerTurno(rifiuto, { haProdotto: true })!;
+    const refusal: TurnEndInfo = { end: "refusal", detail: "violative cyber content" };
+    const out = avvisoPerTurno(refusal, { haProdotto: true })!;
     expect(out).toContain("qui sopra");
     expect(out).not.toContain("qui sotto");
   });
@@ -213,9 +213,9 @@ describe("avvisoPerTurno — la coda dice il vero", () => {
    * l'unica domanda che conta, «e adesso?».
    */
   test("rifiuto: la via d'uscita c'e' in entrambi i rami", () => {
-    const rifiuto: TurnEndInfo = { end: "refusal", detail: "violative cyber content" };
+    const refusal: TurnEndInfo = { end: "refusal", detail: "violative cyber content" };
     for (const haProdotto of [true, false]) {
-      expect(avvisoPerTurno(rifiuto, { haProdotto })!).toContain("riformula");
+      expect(avvisoPerTurno(refusal, { haProdotto })!).toContain("riformula");
     }
   });
 

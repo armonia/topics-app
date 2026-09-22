@@ -160,13 +160,13 @@ describe('interruptedTurnOf — chi accende il banner', () => {
    * dopo il lavoro gia' prodotto.
    */
   test('un rifiuto accende: e\' l\'unico segnale che si vede senza scorrere', () => {
-    const rifiutato = {
+    const refused = {
       blocks: [
         testo('Verifico invece di rispondere a memoria'),
         { kind: 'error' as const, text: 'Richiesta rifiutata dal modello: violative cyber content', cause: 'refusal' as const, at: '2026-09-21T18:29:44.000Z' },
       ],
     };
-    expect(interruptedTurnOf(rifiutato)).toEqual({
+    expect(interruptedTurnOf(refused)).toEqual({
       cause: 'refusal',
       text: 'Richiesta rifiutata dal modello: violative cyber content',
       at: '2026-09-21T18:29:44.000Z',
