@@ -499,14 +499,8 @@ export function StandaloneChatGroup({
   }, [onAcceptSoloDrop, onMergeIntoCell, topicIds, gridItemKey]);
 
   // Handle drops from solo groups (cross-panel-type)
-  //
-  // This handler keeps the drop PLUMBING (preventDefault is what makes a drop
-  // event fire at all) and paints NOTHING. It used to light a `data-drop-active`
-  // ring around the whole card, and that ring was always a second indicator:
-  // PanelGrid's own capture-phase dragover already paints this cell's centre
-  // region for a PANE_TAB drag, and its split region on the edges. Every case
-  // where the grid deliberately paints nothing — the tab bar's own band, a
-  // gesture the drop will refuse — is a case where the ring re-promised it.
+  const [panelDragOver, setPanelDragOver] = useState(false);
+
   const handleStandaloneDragOver = useCallback((e: React.DragEvent) => {
     if (!onAcceptSoloDrop && !onMergeIntoCell) return;
     // Accept PANEL_ID drops that also have PANE_TAB (from project tab bars or solo groups)
@@ -514,24 +508,31 @@ export function StandaloneChatGroup({
     if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
     // Don't accept grid item drags
     if (e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM)) return;
-    // Scope guard, the one PanelGrid has always applied and this handler never
-    // did: a PROJECT window's tab drag belongs to that project, and the grid
-    // ignores it outright. Accepting it here offered a cell that would not take
-    // it — and, while the pointer merely crossed a standalone cell, lit that
-    // cell up on a drag it had nothing to do with.
-    if (!dragMatchesScope(e.dataTransfer.types, STANDALONE_SCOPE)) return;
     e.preventDefault();
     // WKWebView (Tauri) needs an explicit dropEffect or the source dragend reads
     // 'none' and the pop-out path closes the dragged pane (this merge drop has
     // its own handler, so PanelGrid's dropConsumedRef guard doesn't cover it).
     e.dataTransfer.dropEffect = 'move';
+    // ONE indicator, and this card owns it only when nobody else does. For a tab
+    // of the GRID's own scope, PanelGrid already paints this cell's centre
+    // region (and its edge regions) from a capture-phase dragover, so the ring
+    // on top of it was simply the second feedback. A tab from a PROJECT window
+    // is the case the grid deliberately ignores while the drop below still
+    // takes it — pulling a chat out into the workspace — and there the ring is
+    // the only thing that says the release will land.
+    setPanelDragOver(!dragMatchesScope(e.dataTransfer.types, STANDALONE_SCOPE));
   }, [onAcceptSoloDrop, onMergeIntoCell]);
+
+  const handleStandaloneDragLeave = useCallback(() => {
+    setPanelDragOver(false);
+  }, []);
 
   const handleStandaloneDrop = useCallback((e: React.DragEvent) => {
     const topicId = e.dataTransfer.getData(DND_TYPES.PANEL_ID);
     if (!topicId) return;
     e.preventDefault();
     e.stopPropagation();
+    setPanelDragOver(false);
 
     // If the topic is already in this group, skip
     if (topicIds.includes(topicId)) return;
@@ -922,6 +923,10 @@ export function StandaloneChatGroup({
     <>
       <div
         data-split-card
+        // DOVE CADRA': `into`, perche' il rilascio aggiunge la pane a QUESTO
+        // gruppo. Acceso solo per un drag che la griglia ignora e questo
+        // gestore accetta: vedi `handleStandaloneDragOver`.
+        data-drop-active={panelDragOver ? 'into' : undefined}
         className="relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden transition-shadow"
         style={CHROME_BAR_H_VAR}
         onMouseDownCapture={() => {
@@ -930,6 +935,7 @@ export function StandaloneChatGroup({
           }
         }}
         onDragOver={handleStandaloneDragOver}
+        onDragLeave={handleStandaloneDragLeave}
         onDrop={handleStandaloneDrop}
       >
         {/* Single shared header — tab bar + (optional) sidebar toggle.
