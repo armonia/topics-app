@@ -122,26 +122,26 @@ let cachedAt = 0;
 const FLEET_TTL_MS = 4000;
 
 /**
- * `phys_footprint` di un pid in KB — la stessa cifra che Monitoraggio Attività
- * mostra nella colonna "Memoria", e la stessa che la shell Tauri già usa per la
- * sua metà (`proc_pid_rusage` in `desktop-tauri/src-tauri/src/lib.rs`).
+ * `phys_footprint` of a pid in KB — the same figure Activity Monitor shows
+ * in the "Memory" column, and the same one the Tauri shell already uses for
+ * its half (`proc_pid_rusage` in `desktop-tauri/src-tauri/src/lib.rs`).
  *
- * IL DIFETTO CHE CHIUDE, misurato il 2026-08-04: la barra sommava il footprint
- * della shell con la somma di `ps rss` del lato server — DUE METRICHE DIVERSE
- * presentate come un totale unico. Il punto non è che una sia più bassa: è che
- * sommarle non significa niente. Misurato sull'albero server (19 processi):
- * 2,07 GB di `rss` contro 1,17 GB di footprint, il 44% in meno.
+ * THE BUG THAT CLOSED THIS, measured on 2026-08-04: the bar was adding the
+ * shell's footprint to the server side's `ps rss` sum — TWO DIFFERENT
+ * METRICS shown as one total. The point isn't that one is lower: it's that
+ * adding them means nothing. Measured on the server tree (19 processes):
+ * 2.07 GB of `rss` against 1.17 GB of footprint, 44% less.
  *
- * Le due divergono in ENTRAMBI i versi, quindi non aspettarsi un segno fisso:
- * `rss` conta ogni pagina CONDIVISA una volta per processo (e il lato server è
- * un albero di processi che condividono lo stesso runtime Bun — di qui il -44%
- * qui), ma NON conta ciò che il kernel ha compresso o mandato in swap, che il
- * footprint invece include. Sulla stessa macchina, sommando TUTTI i processi,
- * il footprint risultava 3x l'`rss` proprio per la memoria compressa.
+ * The two diverge in BOTH directions, so don't expect a fixed sign: `rss`
+ * counts every SHARED page once per process (and the server side is a tree
+ * of processes sharing the same Bun runtime — hence the -44% here), but it
+ * does NOT count what the kernel has compressed or swapped out, which the
+ * footprint does include. On the same machine, summing ALL processes, the
+ * footprint came out 3x the `rss`, precisely because of compressed memory.
  *
- * `null` quando la piattaforma non sa rispondere (non-macOS, o un Bun senza
- * FFI): il chiamante ripiega su `rss`, che è impreciso ma esiste ovunque —
- * meglio la stima vecchia che nessun numero.
+ * `null` when the platform can't answer (non-macOS, or a Bun without FFI):
+ * the caller falls back to `rss`, which is imprecise but exists everywhere
+ * — a stale estimate beats no number at all.
  */
 const rusageReader: (offset: number) => (pid: number) => number | null = (() => {
   if (isWindows) return () => () => null;
@@ -462,19 +462,19 @@ async function readFleet(take: () => Promise<PsRow[]>, unsupported: FleetUsage):
     const rows = await take();
     if (!rows.length) return cached ?? unsupported;
 
-    // CPU ISTANTANEA, non la media di vita.
+    // INSTANTANEOUS CPU, not the lifetime average.
     //
-    // Prima si sommava `ps pcpu`, che su macOS e' la media sull'INTERA VITA del
-    // processo: un CLI che ha macinato per un'ora resta alto per sempre anche a
-    // riposo, e la somma sulla flotta non scende piu'. Dopo una sessione lunga
-    // la status bar arrivava a segnare 318% con l'app ferma — misurato il
-    // 2026-08-02, con `top` che dava l'8% per lo stesso processo.
+    // This used to sum `ps pcpu`, which on macOS is the average over the
+    // process's ENTIRE LIFETIME: a CLI that churned for an hour stays high
+    // forever even at rest, and the fleet sum never comes back down. After a
+    // long session the status bar climbed to 318% with the app idle —
+    // measured on 2026-08-02, with `top` giving 8% for the same process.
     //
-    // Si misura per DIFFERENZA: `ps time` e' la CPU cumulata, quindi
-    // (Δsecondi di CPU / Δtempo reale) × 100 e' la percentuale nella finestra
-    // fra due letture. Alla primissima lettura non c'e' una base, quindi se ne
-    // prendono due ravvicinate: meglio 200 ms di attesa una tantum che un
-    // numero inventato.
+    // It's measured by DIFFERENCE instead: `ps time` is cumulative CPU, so
+    // (Δseconds of CPU / Δwall time) × 100 is the percentage over the window
+    // between two readings. On the very first reading there's no base yet,
+    // so two close-together readings are taken: a one-time 200 ms wait beats
+    // a made-up number.
     let base = prevSample;
     if (!base) {
       await new Promise((r) => setTimeout(r, 200));
