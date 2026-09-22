@@ -16,6 +16,8 @@
  * These tests look at the SOURCE of the cause. Further downstream are the
  * banner tests (`client/src/components/Chat/turnError.test.ts`) and the
  * copy tests (`server/lib/cancelled-notice.test.ts`).
+ *
+ * @covers CHAT-REL-01
  */
 import { describe, test, expect } from "bun:test";
 import { roundEnd } from "./agent-loop";
