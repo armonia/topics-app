@@ -392,6 +392,15 @@ test.describe("Drag-and-drop and split: the case table", () => {
   let nameC = "";
   /** A chat that lives INSIDE the project, so its window has something to draw. */
   let projectId = "";
+  /**
+   * Two MORE chats of the project. They cannot be `idB`/`idC`: a project window
+   * draws the chats whose topic belongs to THAT project, so a pool topic seeded
+   * into `openChatTopicIds` never materialises a pane and the drag finds no
+   * source. Measured on WebKit, where every project row failed with exactly
+   * that message before these existed.
+   */
+  let prjB = "";
+  let prjC = "";
 
   test.beforeAll(async ({ request }) => {
     topic = await createTopic(request, `dnd-matrix-${Date.now()}`);
@@ -405,10 +414,12 @@ test.describe("Drag-and-drop and split: the case table", () => {
     // opens on the empty state and draws no tree to assert against.
     mkdirSync(PROJECT_PATH, { recursive: true });
     projectId = (await createTopic(request, `dnd-matrix-prj-${Date.now()}`, { projectPath: PROJECT_PATH })).id;
+    prjB = (await createTopic(request, `dnd-matrix-prj-b-${Date.now()}`, { projectPath: PROJECT_PATH })).id;
+    prjC = (await createTopic(request, `dnd-matrix-prj-c-${Date.now()}`, { projectPath: PROJECT_PATH })).id;
   });
 
   test.afterAll(async ({ request }) => {
-    for (const id of [idA, idB, idC, idPin]) if (id) await deleteTopic(request, id).catch(() => {});
+    for (const id of [idA, idB, idC, idPin, prjB, prjC]) if (id) await deleteTopic(request, id).catch(() => {});
     await resetProjectPanes(request, PROJECT_PATH).catch(() => {});
   });
 
@@ -866,6 +877,25 @@ test.describe("Drag-and-drop and split: the case table", () => {
       .catch(() => {});
     await seedProjectPane(request, PROJECT_PATH);
     await seedProjectInnerChats(request, PROJECT_PATH, chatIds);
+    // The project's GEOMETRY (rows, columns, stacks) is device-local: it lives
+    // in localStorage, not in the ui-state the reset above clears. Without this
+    // the second case of a table-driven row opens on the split the first one
+    // built, and its precondition fails on a surface that is not dirty so much
+    // as remembered. Measured on WebKit: case 1 green, case 2 red every time.
+    //
+    // ARMED, not unconditional. An init script runs on EVERY navigation, this
+    // page's own `page.reload()` included -- and PRJ-8 reloads on purpose to
+    // check the arrangement comes BACK. An unconditional clear wiped exactly
+    // what that row measures, and the failure read like a product one. The flag
+    // is set here, consumed by the first load after it, and gone by the reload.
+    await page.evaluate(() => sessionStorage.setItem("topics-e2e-clear-project-layout", "1")).catch(() => {});
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem("topics-e2e-clear-project-layout") !== "1") return;
+      sessionStorage.removeItem("topics-e2e-clear-project-layout");
+      for (const k of Object.keys(localStorage)) {
+        if (k.startsWith("topics-project-layout-")) localStorage.removeItem(k);
+      }
+    });
     await goToApp(page);
     await page.locator('[data-pane-id^="project:"]').first().click();
     await expect
@@ -881,11 +911,34 @@ test.describe("Drag-and-drop and split: the case table", () => {
     return projectSurface;
   }
 
-  /** Where the dragged pane ended up among the leaves, and how many there are. */
+  /**
+   * Where the dragged pane ended up: the axis of the split that HOLDS it, and
+   * its index among that split's children.
+   *
+   * The axis is read from the PARENT split and not from the root, and that is
+   * not a detail. A project surface is always a root `col` of rows, so a right
+   * split builds `col(row(A,B))` and the root says `col` for a horizontal
+   * gesture: measured on WebKit, where the first run of this row failed with
+   * exactly that tree printed next to an expected `row`. The parent split is
+   * the one the gesture actually created, at any depth, which is also what
+   * makes this usable on a nested target.
+   */
   async function landing(page: Page, projectSurface: number, paneFrag: string) {
     const tree = await readTree(page, projectSurface);
-    const ids = leaves(tree);
-    return { tree, ids, axis: rootAxis(tree), at: ids.indexOf(await leafOfPane(page, paneFrag)) };
+    const leaf = await leafOfPane(page, paneFrag);
+    let axis: string | null = null;
+    let at = -1;
+    const walk = (node: TreeNode): void => {
+      if (node.kind !== "split") return;
+      const idx = node.children.findIndex((c) => c.kind === "leaf" && c.id === leaf);
+      if (idx >= 0) {
+        axis = node.dir;
+        at = idx;
+      }
+      for (const c of node.children) walk(c);
+    };
+    walk(tree);
+    return { tree, ids: leaves(tree), axis, at };
   }
 
   test("PRJ-4: a ROOT pane splits in all four directions, four trees", async ({ page, request }) => {
@@ -901,11 +954,11 @@ test.describe("Drag-and-drop and split: the case table", () => {
     ];
 
     for (const c of cases) {
-      const projectSurface = await openProject(page, request, [projectId, idB]);
+      const projectSurface = await openProject(page, request, [projectId, prjB]);
       expect(leaves(await readTree(page, projectSurface)), `${c.edge}: one group before the split`).toHaveLength(1);
 
       const body = await paneBodyBox(page, projectId);
-      const res = await dragTabTo(page, `[data-pane-id*="${idB}"]`, edgePoint(body, c.edge), { scope: PROJECT_PATH });
+      const res = await dragTabTo(page, `[data-pane-id*="${prjB}"]`, edgePoint(body, c.edge), { scope: PROJECT_PATH });
       expect(res.previewed, `${c.edge}: the band must accept the drop it previews`).toBe(true);
 
       await expect
@@ -915,7 +968,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
         })
         .toBe(2);
 
-      const got = await landing(page, projectSurface, idB);
+      const got = await landing(page, projectSurface, prjB);
       // The axis is the direction, and the INDEX is the side: a right split
       // that lands the pane on the left is the same tree read backwards, and
       // only the position tells them apart.
@@ -953,8 +1006,8 @@ test.describe("Drag-and-drop and split: the case table", () => {
       { edge: "bottom" as const, at: 2 },
       { edge: "top" as const, at: 1 },
     ]) {
-      const projectSurface = await stackedProject(page, request, [projectId, idB, idC]);
-      const lower = await leafOfPane(page, idB);
+      const projectSurface = await stackedProject(page, request, [projectId, prjB, prjC]);
+      const lower = await leafOfPane(page, prjB);
       const upper = await leafOfPane(page, projectId);
 
       // The flex-grow the stack slots carry. `CellSubStack` writes it on the
@@ -969,7 +1022,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
         return out;
       });
 
-      const res = await dragTabTo(page, `[data-pane-id*="${idC}"]`, edgePoint(await paneBodyBox(page, idB), c.edge), {
+      const res = await dragTabTo(page, `[data-pane-id*="${prjC}"]`, edgePoint(await paneBodyBox(page, prjB), c.edge), {
         scope: PROJECT_PATH,
       });
       expect(res.previewed, `${c.edge}: a nested band must accept the drop it previews`).toBe(true);
@@ -981,7 +1034,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
         }, { timeout: 8000, message: `${c.edge}: the slot lands INSIDE the pointed column, not beside it` })
         .toBe(1);
 
-      const got = await landing(page, projectSurface, idC);
+      const got = await landing(page, projectSurface, prjC);
       expect(got.ids, `${c.edge}: the column is still the whole surface -- ${shape(got.tree)}`).toHaveLength(3);
       expect(got.at, `${c.edge}: the new slot is adjacent to the pane pointed at -- ${shape(got.tree)}`).toBe(c.at);
       expect(got.ids.indexOf(lower) >= 0, `${c.edge}: the pointed member is still there`).toBe(true);
@@ -1005,11 +1058,11 @@ test.describe("Drag-and-drop and split: the case table", () => {
 
   test("PRJ-6: on a NESTED pane the side band draws the COLUMN, and builds it", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "DNDSPLIT-04" });
-    const projectSurface = await stackedProject(page, request, [projectId, idB, idC]);
-    const lower = await leafOfPane(page, idB);
+    const projectSurface = await stackedProject(page, request, [projectId, prjB, prjC]);
+    const lower = await leafOfPane(page, prjB);
 
-    await startDrag(page, `[data-pane-id*="${idC}"]`, { scope: PROJECT_PATH });
-    const point = edgePoint(await paneBodyBox(page, idB), "right");
+    await startDrag(page, `[data-pane-id*="${prjC}"]`, { scope: PROJECT_PATH });
+    const point = edgePoint(await paneBodyBox(page, prjB), "right");
     expect(await dragOverPoint(page, point), "the side band of a nested pane must offer the gesture").toBe(true);
 
     // THE ONE PLACE A RECT IS THE RIGHT PROOF, and it is here because the claim
@@ -1062,9 +1115,9 @@ test.describe("Drag-and-drop and split: the case table", () => {
 
   test("PRJ-7: a tab moved between two groups is in exactly one of them", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "DNDSPLIT-04" });
-    const projectSurface = await openProject(page, request, [projectId, idB, idC]);
-    // Two groups first: idC leaves for a column of its own.
-    await dragTabTo(page, `[data-pane-id*="${idC}"]`, edgePoint(await paneBodyBox(page, projectId), "right"), {
+    const projectSurface = await openProject(page, request, [projectId, prjB, prjC]);
+    // Two groups first: prjC leaves for a column of its own.
+    await dragTabTo(page, `[data-pane-id*="${prjC}"]`, edgePoint(await paneBodyBox(page, projectId), "right"), {
       scope: PROJECT_PATH,
     });
     await expect
@@ -1072,31 +1125,31 @@ test.describe("Drag-and-drop and split: the case table", () => {
       .toBe(2);
 
     const before = await readTree(page, projectSurface);
-    const label = await page.locator(`[data-pane-id*="${idB}"] [data-testid="pane-tab-label"]`).first().textContent();
-    const home = await leafOfPane(page, idC);
+    const label = await page.locator(`[data-pane-id*="${prjB}"] [data-testid="pane-tab-label"]`).first().textContent();
+    const home = await leafOfPane(page, prjC);
 
     // The CENTRE of the other group's body: merge-as-tab, the one gesture that
     // moves a pane without touching the tree.
-    const target = await paneBodyBox(page, idC);
-    const res = await dragTabTo(page, `[data-pane-id*="${idB}"]`, center(target), { scope: PROJECT_PATH });
+    const target = await paneBodyBox(page, prjC);
+    const res = await dragTabTo(page, `[data-pane-id*="${prjB}"]`, center(target), { scope: PROJECT_PATH });
     expect(res.previewed, "the centre of ANOTHER group accepts the merge it previews").toBe(true);
 
     await expect
-      .poll(() => leafOfPane(page, idB).catch(() => ""), { timeout: 8000, message: "the pane must live in the group it was dropped into" })
+      .poll(() => leafOfPane(page, prjB).catch(() => ""), { timeout: 8000, message: "the pane must live in the group it was dropped into" })
       .toBe(home);
 
     // NOT DUPLICATED: one tab, once, in the whole document. A move that copies
     // is the failure this row exists for, and counting inside one bar cannot
     // see it.
     expect(
-      await page.locator(`[data-pane-id*="${idB}"]`).count(),
+      await page.locator(`[data-pane-id*="${prjB}"]`).count(),
       "the moved tab exists once across every bar on screen",
     ).toBe(1);
     // NOT DEMOTED: same pane id, same label. This proves the pane arrived as
     // itself -- it does NOT prove the in-pane scroll or buffer survived, which
     // a cross-group move re-parents and this file has no honest probe for.
     expect(
-      await page.locator(`[data-pane-id*="${idB}"] [data-testid="pane-tab-label"]`).first().textContent(),
+      await page.locator(`[data-pane-id*="${prjB}"] [data-testid="pane-tab-label"]`).first().textContent(),
       "and it is still the same chat, not a fresh draft",
     ).toBe(label);
     expect(shape(await readTree(page, projectSurface)), "a move between groups creates no leaf").toBe(shape(before));
@@ -1104,10 +1157,10 @@ test.describe("Drag-and-drop and split: the case table", () => {
 
   test("PRJ-8: the tree survives a reload", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "DNDSPLIT-04" });
-    const projectSurface = await stackedProject(page, request, [projectId, idB, idC]);
+    const projectSurface = await stackedProject(page, request, [projectId, prjB, prjC]);
     // A column beside the stack, so the shape under test has both axes: a
     // single-axis tree would come back right by accident.
-    await dragTabTo(page, `[data-pane-id*="${idC}"]`, edgePoint(await paneBodyBox(page, idB), "right"), {
+    await dragTabTo(page, `[data-pane-id*="${prjC}"]`, edgePoint(await paneBodyBox(page, prjB), "right"), {
       scope: PROJECT_PATH,
     });
     await expect
@@ -1141,7 +1194,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
 
   test("PRJ-9: Escape during a drag leaves the tree and the console alone", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "DNDSPLIT-06" });
-    const projectSurface = await openProject(page, request, [projectId, idB]);
+    const projectSurface = await openProject(page, request, [projectId, prjB]);
     const before = shape(await readTree(page, projectSurface));
 
     // Listening only for the WINDOW of the gesture: the noise a page makes
@@ -1155,7 +1208,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
     page.on("console", onConsole);
     page.on("pageerror", onPageError);
 
-    await startDrag(page, `[data-pane-id*="${idB}"]`, { scope: PROJECT_PATH });
+    await startDrag(page, `[data-pane-id*="${prjB}"]`, { scope: PROJECT_PATH });
     const point = edgePoint(await paneBodyBox(page, projectId), "right");
     expect(await dragOverPoint(page, point), "the band lit up before the cancel").toBe(true);
     // Escape, then the `dragend` a real browser sends on the source when it
@@ -1177,11 +1230,11 @@ test.describe("Drag-and-drop and split: the case table", () => {
 
   test("PRJ-10: the centre of your OWN group paints nothing", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "DNDSPLIT-06" });
-    const projectSurface = await openProject(page, request, [projectId, idB]);
+    const projectSurface = await openProject(page, request, [projectId, prjB]);
     const before = shape(await readTree(page, projectSurface));
 
-    await startDrag(page, `[data-pane-id*="${idB}"]`, { scope: PROJECT_PATH });
-    const point = center(await paneBodyBox(page, idB));
+    await startDrag(page, `[data-pane-id*="${prjB}"]`, { scope: PROJECT_PATH });
+    const point = center(await paneBodyBox(page, prjB));
     await dragOverPoint(page, point);
 
     // The assertion is the PAINT, not the acceptance. The dragover still calls
@@ -1216,21 +1269,39 @@ test.describe("Drag-and-drop and split: the case table", () => {
         message: "a pool tab on the bottom band stacks the pointed column",
       })
       .toBe(1);
-    const fromPool = skeleton(await readTree(page));
+    const poolTree = await readTree(page);
+    const poolHost = await leafOfPane(page, idA);
+    let fromPool = "none";
+    const walkPool = (node: TreeNode): void => {
+      if (node.kind !== "split") return;
+      if (node.children.some((c) => c.kind === "leaf" && c.id === poolHost)) fromPool = skeleton(node);
+      for (const c of node.children) walkPool(c);
+    };
+    walkPool(poolTree);
+    expect(fromPool, "run one really built a column of two").toBe("col(leaf,leaf)");
 
     // Run two: the SAME tab, but it already has a cell of its own. This is the
     // divergence the row exists for -- the old code routed it down the
     // whole-cell path, where the same band built a FULL-WIDTH row instead.
     await openStandalone(page, request, [idA, idB, idC]);
     const cellA2 = await splitOff(page, idA, "Dividi a destra");
+    const rootBefore = await readTree(page);
+    const rootChildrenBefore = rootBefore.kind === "split" ? rootBefore.children.length : 0;
     const boxA2 = await boxOf(page, cellA2);
     await dragTabTo(page, `[data-pane-id="${idC}"]`, {
       x: boxA2.x + boxA2.width - 10,
       y: boxA2.y + boxA2.height / 2,
     });
+    // The precondition is an IDENTITY, not a count: idC must sit in a cell that
+    // is not A's. A leaf count would also answer "how many other cells does the
+    // grid happen to have", which is not what this row is about -- and on
+    // WebKit it answered 4 where the shape under test was already right.
     await expect
-      .poll(async () => leaves(await readTree(page)).length, { timeout: 5000, message: "idC gets a cell of its own" })
-      .toBe(3);
+      .poll(async () => (await cellOf(page, idC)) !== (await cellOf(page, idA)), {
+        timeout: 5000,
+        message: "idC gets a cell of its own",
+      })
+      .toBe(true);
 
     const boxA3 = await boxOf(page, await cellOf(page, idA));
     expect(
@@ -1240,14 +1311,33 @@ test.describe("Drag-and-drop and split: the case table", () => {
       })).previewed,
       "from its own cell, the same band accepts the same way",
     ).toBe(true);
+    // Compared on the COLUMN the gesture pointed at, not on the whole grid: the
+    // requirement is about what that band builds, and the rest of the surface
+    // is somebody else's business. `columnShape` is the skeleton of the split
+    // that holds A -- `col(leaf,leaf)` when the tab stacked under it.
+    const columnShape = async () => {
+      const tree = await readTree(page);
+      const leafId = await leafOfPane(page, idA);
+      let found = "none";
+      const walk = (node: TreeNode): void => {
+        if (node.kind !== "split") return;
+        if (node.children.some((c) => c.kind === "leaf" && c.id === leafId)) found = skeleton(node);
+        for (const c of node.children) walk(c);
+      };
+      walk(tree);
+      return found;
+    };
     await expect
-      .poll(async () => skeleton(await readTree(page)), {
+      .poll(columnShape, {
         timeout: 5000,
-        message: "same pointer, same band: the arrangement must be the one the pool source built",
+        message: "same pointer, same band: the column must be the one the pool source built",
       })
       .toBe(fromPool);
     // Named separately because it is the actual symptom: a full-width row is a
-    // `col` at the ROOT, and there must not be one.
-    expect(rootAxis(await readTree(page)), "no full-width row was created").toBe("row");
+    // new child of the ROOT, and the root must not have gained one.
+    expect(
+      (await readTree(page)).kind === "split" ? (await readTree(page)).children.length : 0,
+      "no full-width row was created",
+    ).toBe(rootChildrenBefore);
   });
 });
