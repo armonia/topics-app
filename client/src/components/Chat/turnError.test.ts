@@ -6,11 +6,12 @@ import it from '../../lib/i18n-it';
 import en from '../../lib/i18n-en';
 
 /**
- * «Questo turno è finito male?» e «c'è SOLO l'errore?».
+ * "Did this turn end badly?" and "is the error ALL there is?".
  *
- * Due domande diverse, e confonderle costa: la prima accende il cartello, la
- * seconda il bottone che RIMANDA il messaggio. Su un turno che ha risposto e poi
- * è inciampato, rimandare non ripara niente — ne fa un secondo, a pagamento.
+ * Two different questions, and confusing them costs: the first lights the
+ * banner, the second the button that RESENDS the message. On a turn that
+ * answered and then stumbled, resending fixes nothing — it just runs a
+ * second one, at a cost.
  *
  * @covers CHAT-REL-01
  */
@@ -73,18 +74,17 @@ describe('turnIsOnlyError — il cancello del bottone Riprova', () => {
 });
 
 /**
- * «NESSUNA RISPOSTA» NON SI DICE A UN TURNO CHE STA RISPONDENDO.
+ * "NO ANSWER" IS NOT SAID OF A TURN THAT IS STILL ANSWERING.
  *
- * Il caso riportato il 19/08: messaggio inviato, finestra ricaricata, e la
- * scatola ambra «la connessione può essersi interrotta» compariva su un turno
- * che stava lavorando. Il banner leggeva solo la mappa `streaming` di `useChat`
- * — memoria di processo, azzerata da ogni reload — e ignorava il registro del
- * server (`GET /api/topics/streaming` → `hydratedStreamTopics`), che invece
- * sopravvive.
+ * The case reported on 19/08: message sent, window reloaded, and the amber
+ * box "the connection may have dropped" showed up on a turn that was still
+ * working. The banner only read `useChat`'s `streaming` map — process
+ * memory, zeroed by every reload — and ignored the server's registry
+ * (`GET /api/topics/streaming` → `hydratedStreamTopics`), which survives.
  *
- * Questi test tengono ferme entrambe le direzioni, e non sono simmetriche: un
- * banner mancante costa un'attesa, un banner di troppo invita a rimandare il
- * messaggio e a pagare un SECONDO turno mentre il primo è ancora in corso.
+ * These tests hold both directions steady, and they are not symmetric: a
+ * missing banner costs a wait, an extra banner invites resending the
+ * message and paying for a SECOND turn while the first is still in flight.
  */
 describe('turnLooksUnanswered — il banner tace se qualcuno dice che il turno è vivo', () => {
   const caso = (p: Partial<Parameters<typeof turnLooksUnanswered>[0]>) =>
