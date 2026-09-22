@@ -2,7 +2,7 @@ import { useRef, useMemo, useState, useCallback, useEffect, useLayoutEffect } fr
 import type { Pane, PaneGroup, PaneGroupType, PaneType, GroupLayoutRow } from '../../types';
 import { PaneTabBar, type TabLinkContext } from './PaneTabBar';
 import { CellSubStack } from './CellSubStack';
-import { setColumnStackHeights, columnDepth, columnSplitPreviewHost } from './groupLayoutStacks';
+import { setColumnStackHeights, columnDepth, columnSplitPreviewHost, rowGapWouldReshape } from './groupLayoutStacks';
 import { flattenGroupRows } from './flattenLayout';
 import { startDragPreview } from '../../lib/dragPreview';
 import { equalizeWidths, weightedWidths } from './gridWidths';
@@ -595,13 +595,16 @@ export function GroupLayout({
       totalGroups: groups.length,
     }), [groups.length]);
 
-  /** Size of the group the pane in flight left, or undefined when the drag came
-   *  from another window (the shelf is empty there — only the drop can tell). */
-  const draggedGroupSize = useCallback((): number | undefined => {
+  /** The group the pane in flight left, or undefined when the drag came from
+   *  another window (the shelf is empty there — only the drop can tell). */
+  const draggedGroup = useCallback(() => {
     const paneId = draggedPaneId();
     if (!paneId) return undefined;
-    return groups.find(g => g.paneIds.includes(paneId))?.paneIds.length;
+    return groups.find(g => g.paneIds.includes(paneId));
   }, [groups]);
+
+  const draggedGroupSize = useCallback((): number | undefined =>
+    draggedGroup()?.paneIds.length, [draggedGroup]);
 
   const handleFullRowDragOver = useCallback((side: 'top' | 'bottom') => (e: React.DragEvent) => {
     if (!onSplitGroup || !isPaneTabDrag(e)) return;
@@ -655,12 +658,19 @@ export function GroupLayout({
 
   const handleRowGapDragOver = useCallback((gapIdx: number) => (e: React.DragEvent) => {
     if (!onSplitGroup || !isPaneTabDrag(e)) return;
+    // D5: same two questions the extreme strips ask, so the band never fills
+    // for a release that redraws the very same tree — the shared one
+    // (`fullRowWouldReshape`), plus the one only a GAP has: the new row lands
+    // exactly where a single-pane, single-group neighbouring row would vanish.
+    const src = draggedGroup();
+    if (!fullRowWouldReshape(src?.paneIds.length)) return;
+    if (!rowGapWouldReshape(rows, gapIdx, src?.id, src?.paneIds.length)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move'; // WKWebView: signal acceptance
     if (edgeDropTargetRef.current) { edgeDropTargetRef.current = null; setEdgeDropTarget(null); }
     if (rowGapDropRef.current !== gapIdx) { rowGapDropRef.current = gapIdx; setRowGapDrop(gapIdx); }
-  }, [onSplitGroup, isPaneTabDrag, edgeDropTargetRef, rowGapDropRef]);
+  }, [onSplitGroup, isPaneTabDrag, edgeDropTargetRef, rowGapDropRef, fullRowWouldReshape, draggedGroup, rows]);
 
   const handleRowGapDragLeave = useCallback((e: React.DragEvent) => {
     const rt = e.relatedTarget as Node | null;
@@ -680,12 +690,17 @@ export function GroupLayout({
     if (dndScope && sourceScope && sourceScope !== dndScope) return;
     const anchor = rows[gapIdx]?.groupIds[0];
     if (!anchor) return;
+    // Same pair of predicates the band's dragover used to decide whether to
+    // light up — read off the dataTransfer here, off the shelf there.
+    const sourceSize = groupMap.get(sourceGroupId)?.paneIds.length;
+    if (!fullRowWouldReshape(sourceSize)) return;
+    if (!rowGapWouldReshape(rows, gapIdx, sourceGroupId, sourceSize)) return;
     e.preventDefault();
     e.stopPropagation();
     // 'bottom' + fullRow anchored on the row above the gap → the new row
     // lands exactly in this gap.
     onSplitGroup?.(sourceGroupId, sourcePaneId, anchor, 'bottom', { fullRow: true });
-  }, [onSplitGroup, dndScope, rows, rowGapDropRef]);
+  }, [onSplitGroup, dndScope, rows, rowGapDropRef, fullRowWouldReshape, groupMap]);
 
   /* ---- Row drag reordering (Phase 5) ---- */
   const [draggingRowIdx, setDraggingRowIdx] = useState<number | null>(null);

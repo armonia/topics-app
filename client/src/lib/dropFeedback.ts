@@ -155,30 +155,38 @@ export function fullRowZoneStyle(side: 'top' | 'bottom', active: boolean, edgeOf
 }
 
 /**
- * An INTERIOR row-gap drop band, centered on the boundary between two rows
- * (`topPct` = the boundary's cumulative height, in % of the container).
- * Same visual language as the top/bottom `fullRowZoneStyle` strips — it IS
- * the same intent (insert a full-width row), just BETWEEN two existing rows
- * instead of at the container's extremes. Drag-only, like the extreme strips.
- * Idle = a centered hairline on the boundary; active = the filled band.
+ * An INTERIOR row-gap drop band, sitting entirely ABOVE the boundary between
+ * two rows (`topPct` = the boundary's cumulative height, in % of the
+ * container), with its bottom edge ON that boundary. Same visual language as
+ * the top/bottom `fullRowZoneStyle` strips — it IS the same intent (insert a
+ * full-width row), just BETWEEN two existing rows instead of at the
+ * container's extremes. Drag-only, like the extreme strips.
+ *
+ * It used to be CENTERED on the boundary, which put half its 26px on the tab
+ * bar of the row BELOW: the band has `pointer-events: auto` and outranks the
+ * cells (`Z_DROP_FULLROW`), so aiming at that bar to move a tab into it landed
+ * a whole new row instead. `edgeOffset = TAB_BAR_H` fixed the same collision
+ * for the container's extreme strips; the interior bands were left on it.
+ * Living wholly in the row above keeps every tab bar reachable.
+ *
+ * Idle = a hairline on the boundary (the band's bottom edge); active = the
+ * filled band.
  */
 export function rowGapZoneStyle(topPct: number, active: boolean): CSSProperties {
   return {
     position: 'absolute',
     left: 0,
     right: 0,
-    top: `calc(${topPct}% - ${FULL_ROW_GUTTER_PX / 2}px)`,
+    top: `calc(${topPct}% - ${FULL_ROW_GUTTER_PX}px)`,
     height: FULL_ROW_GUTTER_PX,
     zIndex: Z_DROP_FULLROW,
-    background: active
-      ? DROP_REGION_FILL
-      : // Idle: hairline centered on the row boundary itself.
-        `linear-gradient(to bottom, transparent calc(50% - 1px), color-mix(in srgb, ${DROP_ACCENT} 45%, transparent) calc(50% - 1px), color-mix(in srgb, ${DROP_ACCENT} 45%, transparent) calc(50% + 1px), transparent calc(50% + 1px))`,
-    // Seam on BOTH edges when active — the band sits between two rows, so both
-    // edges face content; a single seam would read as belonging to one row only.
+    background: active ? DROP_REGION_FILL : 'transparent',
+    // Active: seam on BOTH edges — the band still previews an insertion between
+    // two rows, so both edges face content. Idle: a reduced-strength hairline on
+    // the bottom edge alone, which is the boundary the release aims at.
     boxShadow: active
       ? `inset 0 ${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}, inset 0 -${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`
-      : 'none',
+      : `inset 0 -${DROP_SEAM_PX}px 0 0 color-mix(in srgb, ${DROP_ACCENT} 45%, transparent)`,
     transition: 'background 140ms ease, box-shadow 140ms ease',
   };
 }
