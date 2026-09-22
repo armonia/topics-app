@@ -153,3 +153,28 @@ describe("PUT /api/ui-state/:key — CAS gate", () => {
     expect(res.status).toBe(200);
   });
 });
+
+// `navigator.sendBeacon` only POSTs. The `pagehide` flush in syncServer.ts
+// targets this very route, which answered PUT only: every beacon got a 404
+// (seen in WebKit on each reload) and the last layout change died with the tab.
+describe("POST /api/ui-state/:key — the pagehide beacon", () => {
+  async function beacon(snapshot: unknown, base: number) {
+    const url = new URL(`http://x/api/ui-state/${KEY}?base=${base}&cid=tab-1`);
+    const req = new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(snapshot) });
+    const res = await router(req, url, url.pathname, "POST");
+    return res?.status ?? 404;
+  }
+
+  test("a fresh beacon lands like a PUT", async () => {
+    const first = await put({ panes: { a: 1 } });
+    expect(await beacon({ panes: { b: 2 } }, first.body.server_seq)).toBe(200);
+    expect(storedValue().panes).toEqual({ b: 2 });
+  });
+
+  test("a stale beacon is still refused by the CAS gate", async () => {
+    const first = await put({ panes: { a: 1 } });
+    await put({ panes: { c: 3 } });
+    expect(await beacon({ panes: { stale: true } }, first.body.server_seq)).toBe(409);
+    expect(storedValue().panes).toEqual({ c: 3 });
+  });
+});
