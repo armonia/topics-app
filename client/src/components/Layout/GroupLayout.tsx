@@ -14,7 +14,7 @@ import { paneShellOrder } from './paneShellOrder';
 import { useLayoutMobile } from '../../hooks/useMobile';
 import { usePaneResidency } from './hooks/usePaneResidency';
 import { PaneAliveContext, usePaneAlive } from '../../state/paneLiveness';
-import { canSplitPane, canDropSplit } from './splitRules';
+import { canSplitPane, canDropSplit, centerDropMerges } from './splitRules';
 import { draggedPaneId } from '../../lib/dragPayload';
 import { pushUndo } from '../../contexts/UndoContext';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
@@ -416,6 +416,22 @@ export function GroupLayout({
     // pane body.
     const edge = detectDropZone(e, rect, 'edges+center') as EdgeZone | 'center' | null;
 
+    // D4: the centre MERGES the tab into this group, so it does nothing when
+    // the tab already lives here — and the drop says so too
+    // (`sourceGroupId !== groupId`). A dragover cannot read payload VALUES, but
+    // the drag shelf knows who is in flight, so the preview can ask the same
+    // question the drop will. The edge bands stay live: a self-split is real.
+    if (edge === 'center' && !centerDropMerges({
+      draggedPaneId: draggedPaneId(),
+      targetMemberIds: groupMap.get(groupId)?.paneIds ?? [],
+    })) {
+      if (edgeDropTargetRef.current?.groupId === groupId) {
+        edgeDropTargetRef.current = null;
+        setEdgeDropTarget(null);
+      }
+      return;
+    }
+
     if (edge) {
       // DEDUP: dragover fires ~60fps+; only re-render when the target edge/group
       // actually changes, else the project window re-rendered every frame of the
@@ -432,7 +448,7 @@ export function GroupLayout({
         setEdgeDropTarget(null);
       }
     }
-  }, [onSplitGroup, edgeDropTargetRef, dndScope]);
+  }, [onSplitGroup, edgeDropTargetRef, dndScope, groupMap]);
 
   // When a cross-group tab drag moves over THIS group's tab bar (a sibling of
   // the content area), the user is aiming to drop the tab INTO the bar — not to

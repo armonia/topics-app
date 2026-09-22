@@ -34,7 +34,7 @@ import { detectDropZone, type DropZone } from '../../lib/dropZone';
 import { SplitRegion, CenterRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths, equalizeWidths } from './gridWidths';
 import { addKeysToCellStack, applyVerticalDrop } from './panelGridStacks';
-import { standaloneEdgeDropSplits } from './splitRules';
+import { standaloneEdgeDropSplits, standaloneCenterDropMerges } from './splitRules';
 import { draggedPaneId } from '../../lib/dragPayload';
 import { notifyPaneReflow } from './paneReflow';
 import { applyZoomWeights, cellKeysForPanes, liveCellKeys } from './paneZoom';
@@ -1702,6 +1702,20 @@ export function PanelGrid({
     // it to the bar, making "split up" unreachable from a tab drag).
     if (isTabDrag && !isGridDrag && zone === 'center') {
       e.dataTransfer.dropEffect = 'move';
+      // D4's twin: the merge does nothing when this cell already hosts the tab
+      // (re-landing it where it is, or un-soloing a tab that is already in the
+      // pool). Paint nothing rather than promise it; `preventDefault` above
+      // stays so the release still fires a drop and the pop-out path can't read
+      // it as a drag-out.
+      const centerKey = gridRowsRef.current[rowIdx]?.itemKeys[colIdx];
+      if (centerKey && !standaloneCenterDropMerges({
+        targetCellKey: centerKey,
+        draggedPaneId: draggedPaneId(),
+        soloCells: soloCellsRef.current,
+      })) {
+        if (gridDropTargetRef.current) { setGridDropTarget(null); gridDropTargetRef.current = null; }
+        return;
+      }
       commitTarget({ rowIdx, colIdx, zone, centerSide, isTab: true });
       return;
     }

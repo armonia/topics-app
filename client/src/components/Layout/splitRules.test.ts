@@ -4,7 +4,7 @@
  * @covers LAYOUT-01
  */
 import { describe, it, expect } from 'bun:test';
-import { canSplitPane, canDropSplit, standaloneSplitSurface, standaloneEdgeDropSplits } from './splitRules';
+import { canSplitPane, canDropSplit, standaloneSplitSurface, standaloneEdgeDropSplits, centerDropMerges, standaloneCenterDropMerges } from './splitRules';
 
 describe('canSplitPane', () => {
   it('standalone pool is always splittable (single tab auto-spawns a draft companion)', () => {
@@ -106,5 +106,45 @@ describe('standaloneEdgeDropSplits — the preview asks what the drop will answe
     expect(standaloneEdgeDropSplits({
       targetCellKey: 'solo:A', draggedPaneId: null, targetCellSize: 1,
     })).toBe(true);
+  });
+});
+
+describe('centerDropMerges — the centre of your OWN group', () => {
+  it('refuses the centre of the group the tab already lives in', () => {
+    expect(centerDropMerges({ draggedPaneId: 'p1', targetMemberIds: ['p1', 'p2'] })).toBe(false);
+  });
+
+  it('accepts the centre of any other group', () => {
+    expect(centerDropMerges({ draggedPaneId: 'p1', targetMemberIds: ['p2'] })).toBe(true);
+    expect(centerDropMerges({ draggedPaneId: 'p1', targetMemberIds: [] })).toBe(true);
+  });
+
+  it('accepts a drag from another window, where the shelf cannot answer', () => {
+    expect(centerDropMerges({ draggedPaneId: null, targetMemberIds: ['p1'] })).toBe(true);
+  });
+});
+
+describe('standaloneCenterDropMerges — the same question on the grid', () => {
+  const cells = [['a', 'b'], ['c']];
+
+  it('refuses a cell that already hosts the tab, primary or member', () => {
+    expect(standaloneCenterDropMerges({ targetCellKey: 'solo:a', draggedPaneId: 'chat:a', soloCells: cells })).toBe(false);
+    expect(standaloneCenterDropMerges({ targetCellKey: 'solo:a', draggedPaneId: 'chat:b', soloCells: cells })).toBe(false);
+  });
+
+  it('accepts a cell that does not host it', () => {
+    expect(standaloneCenterDropMerges({ targetCellKey: 'solo:c', draggedPaneId: 'chat:a', soloCells: cells })).toBe(true);
+  });
+
+  it('refuses the pool for a tab that is already in the pool', () => {
+    expect(standaloneCenterDropMerges({ targetCellKey: 'standalone', draggedPaneId: 'chat:z', soloCells: cells })).toBe(false);
+  });
+
+  it('accepts the pool for a tab that a solo cell holds', () => {
+    expect(standaloneCenterDropMerges({ targetCellKey: 'standalone', draggedPaneId: 'chat:a', soloCells: cells })).toBe(true);
+  });
+
+  it('accepts a drag from another window', () => {
+    expect(standaloneCenterDropMerges({ targetCellKey: 'solo:a', draggedPaneId: null, soloCells: cells })).toBe(true);
   });
 });
