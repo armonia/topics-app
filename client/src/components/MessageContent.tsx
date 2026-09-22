@@ -5,7 +5,7 @@ import { copyText } from '../lib/clipboard';
 import { type Components } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
 import { highlightCode, subscribeHighlighter, highlighterReady } from '../lib/syntaxHighlight';
-import { Copy, Check, CheckCheck, Download, Layers, ChevronRight, ImageOff, MicOff, Music, TriangleAlert, Bell, X } from 'lucide-react';
+import { Copy, Check, CheckCheck, Download, Layers, ChevronRight, ImageOff, MicOff, Music, Bell, X } from 'lucide-react';
 import { splitCompactionSummary } from '../lib/compactionSummary';
 import { CompactionHoistContext } from './Chat/compactionHoist';
 import type { PlanDecisionHandler } from './Chat/planDetection';
@@ -19,6 +19,7 @@ import { ReasoningRow } from './Chat/ReasoningRow';
 import { Spinner } from './Shared/Spinner';
 import { useToast } from './Shared/Toast';
 import { SlashCommandChip } from './Chat/SlashCommandChip';
+import { TurnErrorBanner } from './Chat/TurnErrorBanner';
 import type { ToolCall } from '../types';
 import { LEGACY_ERROR_PREFIX, turnErrorOf } from './Chat/turnError';
 import { releaseAudio } from '../lib/releaseAudio';
@@ -969,27 +970,6 @@ type BlockGroup =
   | { kind: 'text'; idx: number; text: string }
   | { kind: 'media'; idx: number; path: string; seq: number }
   | { kind: 'tools'; startIdx: number; tools: ToolCall[] };
-
-/**
- * Il verdetto sul turno, come elemento SUO.
- *
- * Prima era il contenitore di tutta la bolla a diventare giallo — e con lui la
- * prosa, la cronologia dei tool, i media. Un turno riuscito che inciampa alla
- * fine veniva incorniciato per intero come se fosse tutto sbagliato, e il testo
- * che spiegava il perché non si vedeva nemmeno. Qui la riga d'errore sta in
- * cima e basta: quello che il turno ha prodotto le sta sotto, reso come sempre.
- */
-function TurnErrorBanner({ text }: { text: string }) {
-  return (
-    <div
-      data-testid="turn-error"
-      className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-2.5 py-1.5 text-compact leading-snug text-amber-900 dark:text-amber-200"
-    >
-      <span aria-hidden className="flex-shrink-0 leading-snug"><TriangleAlert className="w-4 h-4" /></span>
-      <span className="min-w-0 break-words">{text}</span>
-    </div>
-  );
-}
 
 /**
  * DA DOVE VIENE QUESTA RISPOSTA.

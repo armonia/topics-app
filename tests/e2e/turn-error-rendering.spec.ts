@@ -152,6 +152,41 @@ test.describe.serial("Il verdetto di un turno finito male", () => {
     expect(await classesContainer(page)).not.toContain("amber");
   });
 
+  /**
+   * THE PROVIDER'S JSON, which the banner used to print as it came.
+   *
+   * On the reference database the banner's own route, `turnErrorOf`, counts
+   * 1996 rows and 123 payloads inline (88 whole, 35 truncated). The wider
+   * scan over every row carrying the ⚠️ marker anywhere gives 2101 and 126,
+   * same 35 truncated. Either way the chat showed a wall of escaped quotes
+   * with the one sentence that mattered buried in the middle. The sentence is
+   * now the banner; the payload is a fold that starts closed and can be copied.
+   */
+  test("il payload del provider sta in un dettaglio richiudibile, non nella frase", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-REL-07" });
+    const RAW = 'API 401: {"type":"error","error":{"type":"authentication_error","message":"OAuth access token has been revoked."},"request_id":null}. Il token non si è potuto rinnovare.';
+    await seedMessage(request, { sessionKey, role: "user", content: "e il 401?" });
+    await seedMessage(request, { sessionKey, role: "assistant", content: `⚠️ ${RAW}` });
+
+    await goToApp(page);
+    await openTopic(page, topicName);
+
+    const verdetto = page.locator('[data-testid="turn-error"]').last();
+    await expect(verdetto).toBeVisible();
+    await expect(verdetto).toContainText("OAuth access token has been revoked");
+    await expect(verdetto).toContainText("Il token non si è potuto rinnovare");
+
+    // The fold exists, starts closed, and the payload is not on screen until
+    // somebody asks for it.
+    const details = verdetto.locator('[data-testid="turn-error-details"]');
+    await expect(details).toBeVisible();
+    expect(await details.evaluate((el) => (el as HTMLDetailsElement).open)).toBe(false);
+    await expect(verdetto.getByText("authentication_error")).toBeHidden();
+
+    await details.locator("summary").click();
+    await expect(verdetto.getByText("authentication_error")).toBeVisible();
+  });
+
   test("una riga di solo errore si legge una volta sola, e porta il suo Riprova", async ({ page, request }) => {
     await seedMessage(request, { sessionKey, role: "user", content: "e adesso?" });
     await seedMessage(request, {
