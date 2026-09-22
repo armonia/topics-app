@@ -16,8 +16,7 @@
  *
  * Vale finché il drag è vivo: si pulisce da solo al `dragend`, che il browser
  * emette SEMPRE sull'elemento sorgente — anche se il drop è caduto fuori dalla
- * finestra, o è stato annullato con Escape — e al `drop`, che è l'unico che
- * arriva quando il gestore smonta la sorgente prima del `dragend`.
+ * finestra, o è stato annullato con Escape.
  */
 
 let draggedPane: string | null = null;
@@ -38,12 +37,11 @@ export function rememberDraggedPane(paneId: string): void {
   // si accumulano e sparano tutti al primo `dragend` successivo. Uno solo,
   // registrato una volta, non ha stati intermedi da sbagliare.
   //
-  // E si ascolta anche `drop`, non solo `dragend`: se il gestore del drop
-  // smonta l'elemento sorgente (uno spostamento fra gruppi lo fa), il
-  // `dragend` non arriva mai e il ripiano resta sporco. Il drag dopo, che
-  // magari viene da un'altra finestra, si legge come interno: PaneTabBar
-  // sbaglia `isCrossGroupDrag` e la dimensione del gruppo in volo. Ogni altro
-  // reset del repo ascolta gia' la coppia, per lo stesso motivo.
+  // And `drop` as well as `dragend`: a drop handler that unmounts the dragged
+  // source (a cross-group move does) swallows the `dragend` that would clear
+  // the shelf, so the NEXT drag reads as same-window even when it came from
+  // another one, and PaneTabBar gets `isCrossGroupDrag` and the dragged
+  // group's size wrong. Every other reset in the repo listens for the pair.
   if (!listening) {
     window.addEventListener('dragend', forgetDraggedPane);
     window.addEventListener('drop', forgetDraggedPane);
