@@ -47,6 +47,10 @@ l'anteprima disegna la colonna ospite.
   l'anteprima. Erano noti al solo rilascio, che al tetto esce senza cambiare
   niente: la fascia si accendeva e il gesto moriva in silenzio, e questo tocca
   tutte e quattro le direzioni.
+- Il corpo di una pane non si prende piu' il trascinamento di una scheda:
+  la chat e l'albero dei file lo scambiavano per un file in arrivo, ne
+  fermavano la propagazione e le fasce di split morivano proprio li'. E
+  attraversare i figli di una pane non spegne piu' l'anteprima in WebKit.
 - Uno split parcheggiato in attesa della chat compagna scade invece di
   risorgere ore dopo.
 

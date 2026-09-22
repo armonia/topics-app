@@ -3,6 +3,8 @@
  * Files pane lit the folder under it as a "move here" target, and the row's
  * drop handler stopped the event, so the layout around the pane never saw the
  * release: no split, no merge, only a folder that flashed.
+ *
+ * @covers DNDSPLIT-07
  */
 import { describe, it, expect } from 'bun:test';
 import { fileTreeClaimsDrag } from './fileTreeDrag';

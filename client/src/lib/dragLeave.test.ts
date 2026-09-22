@@ -3,6 +3,8 @@
  * old test was `relatedTarget && host.contains(relatedTarget)`, and WebKit fires
  * dragleave with a NULL relatedTarget: every child crossed inside a pane body
  * read as "left", so the split preview blinked off under a still pointer.
+ *
+ * @covers DNDSPLIT-07
  */
 import { describe, it, expect } from 'bun:test';
 import { dragLeftHost, type LeaveHost } from './dragLeave';

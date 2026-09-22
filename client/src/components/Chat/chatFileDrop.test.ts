@@ -4,6 +4,8 @@
  * project tab dragged over a chat body lit the "drop files here" frame, and the
  * handler's stopPropagation kept the layout from ever seeing the dragover: no
  * split bands over the message list, and a release that did nothing.
+ *
+ * @covers DNDSPLIT-07
  */
 import { describe, it, expect } from 'bun:test';
 import { chatAcceptsFileDrag } from './chatFileDrop';

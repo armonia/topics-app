@@ -96,3 +96,40 @@ una riga a tutta larghezza conta le righe.
 - **GIVEN** due righe, e il puntatore sulla barra delle schede della seconda
 - **WHEN** una scheda viene rilasciata li'
 - **THEN** SHALL entrare in quella barra, e nessuna riga nuova SHALL nascere
+
+### Requirement: DNDSPLIT-07 — Il corpo di una pane non si prende il gesto di una scheda
+
+Il trascinamento di una scheda appartiene alle zone di rilascio del layout che
+la ospita. Cio' che la pane disegna al suo interno (la lista dei messaggi di una
+chat, l'albero dei file, un editor, una pagina) NON SHALL dichiararsi bersaglio
+di un trascinamento che l'app stessa ha iniziato, NON SHALL accendere una sua
+campitura, e NON SHALL fermarne la propagazione: le fasce di split della pane
+SHALL restare vive su tutto il corpo, qualunque figlio stia sotto il puntatore.
+Le zone interne di una pane SHALL restare riservate a cio' che arriva da fuori
+(file dal Finder, testo) e ai trascinamenti propri di quella pane.
+
+Il riquadro da cui si calcolano sinistra/destra/alto/basso SHALL essere quello
+del corpo della pane, non quello del figlio attraversato. Passare da un figlio
+all'altro dentro lo stesso corpo NON SHALL spegnere l'anteprima: WebKit emette
+`dragleave` senza `relatedTarget`, e li' SHALL decidere la posizione del
+puntatore, non l'assenza di un nome.
+
+#### Scenario: una scheda di progetto sopra una chat
+- **GIVEN** un progetto con due gruppi, uno dei quali mostra una chat
+- **WHEN** una scheda dell'altro gruppo passa sulla lista dei messaggi
+- **THEN** la cornice «rilascia qui i file» NON SHALL accendersi
+- **AND** la fascia della direzione puntata SHALL accendersi, e il rilascio
+  SHALL produrre lo split che promette
+
+#### Scenario: una scheda di progetto sopra l'albero dei file
+- **GIVEN** la pane dei file aperta in un gruppo del progetto
+- **WHEN** una scheda passa sopra una cartella e viene rilasciata
+- **THEN** la cartella NON SHALL evidenziarsi come destinazione, e il rilascio
+  SHALL arrivare al layout
+
+#### Scenario: attraversare i figli non spegne l'anteprima
+- **GIVEN** una fascia di split accesa sul corpo di una pane
+- **WHEN** il puntatore passa su un figlio di quel corpo e il `dragleave` arriva
+  senza `relatedTarget`
+- **THEN** l'anteprima SHALL restare accesa finche' il puntatore e' dentro il
+  riquadro del corpo
