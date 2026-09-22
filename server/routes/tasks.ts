@@ -3766,6 +3766,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               parentTaskId: typeof body?.parentTaskId === "string" ? body.parentTaskId : null,
               planFirst: body?.planFirst === true,
               model: typeof body?.model === "string" ? body.model : null,
+              topicsRouting: typeof body?.topicsRouting === "boolean" ? body.topicsRouting : null,
               blockedByTaskId: typeof body?.blockedByTaskId === "string" ? body.blockedByTaskId : null,
               reuseBlockerContext: body?.reuseBlockerContext === true,
             });

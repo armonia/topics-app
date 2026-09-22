@@ -33,6 +33,9 @@ const EN = {
   'ai.selector.noModels': 'No compatible models available.',
   'ai.selector.none': 'No compatible execution engine found.',
   'ai.selector.autoWithin': 'Automatic in {runtime}',
+  'ai.selector.routing': 'Route through Topics',
+  'ai.selector.routingHint': 'On: the turn runs through Topics’ lightweight engine, targeting the provider and model below. Off: direct execution.',
+  'ai.selector.routingUnavailable': 'Not routable with the current selection.',
 
   'app.unsent.title.one': '1 message not sent',
   'app.unsent.title.many': '{n} messages not sent',

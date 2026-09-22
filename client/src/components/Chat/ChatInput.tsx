@@ -292,6 +292,9 @@ interface ChatInputProps {
   onCancelEdit?: () => void;
   providerOverride?: { provider: string; model: string } | null;
   onProviderOverrideChange?: (override: { provider: string; model: string } | null) => void;
+  /** AICTRL-01 switch: null = never set explicitly (legacy topics: fallback). */
+  topicsRouting?: boolean | null;
+  onTopicsRoutingChange?: (next: boolean) => void;
   /** Quanto può fare da sé la chat. Sempre in vista nel composer: decide
    *  `--permission-mode` della sessione, cioè se l'agente può toccare i file. */
   autonomy?: import('../../types').AutonomyLevel | null;
@@ -352,6 +355,8 @@ export function ChatInput({
   onCancelEdit,
   providerOverride,
   onProviderOverrideChange,
+  topicsRouting,
+  onTopicsRoutingChange,
   autonomy,
   onAutonomyChange,
   effort,
@@ -1630,6 +1635,8 @@ export function ChatInput({
                   defaultProviderLabel={defaultProviderLabel}
                   onChange={onProviderOverrideChange}
                   onOpenSettings={onOpenSettings}
+                  topicsRouting={topicsRouting ?? null}
+                  onTopicsRoutingChange={onTopicsRoutingChange}
                 />
               )}
               {/* The knobs you change MID conversation, in their own surface:

@@ -1086,6 +1086,13 @@ export interface Topic {
    */
   model?: string | null;
   /**
+   * AICTRL-01 routing switch, migration 20260922180000. Independent of
+   * `provider`/`model`: ON routes the turn through the Topics native engine
+   * targeting them as a constraint, OFF executes directly. NULL = never set
+   * explicitly; falls back to the legacy `topics:<model>` provider prefix.
+   */
+  topicsRouting?: boolean | null;
+  /**
    * Per-topic reasoning-effort tier override (migration 033). One of
    * low/medium/high/xhigh/max. NULL = no override → the spawn falls back to the
    * global env-resolved default (`resolveClaudeEffort()`). Applied as

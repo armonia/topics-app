@@ -18,10 +18,13 @@ interface Props {
   defaultProviderLabel?: string;
   onChange: (override: ProviderModelOverride | null) => void;
   onOpenSettings?: () => void;
+  /** AICTRL-01 switch: null = never set explicitly (legacy topics: fallback). */
+  topicsRouting?: boolean | null;
+  onTopicsRoutingChange?: (next: boolean) => void;
 }
 
 /** Chat adapter for the execution-first menu shared with coding tasks. */
-export function ProviderModelPicker({ override, defaultProviderLabel, onChange }: Props) {
+export function ProviderModelPicker({ override, defaultProviderLabel, onChange, topicsRouting, onTopicsRoutingChange }: Props) {
   const tr = useT();
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -117,6 +120,10 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange }
               ? tr('chat.picker.defaultIs', { name: effectiveProviderLabel })
               : tr('chat.picker.noneConfigured')}
             onClose={() => setOpen(false)}
+            topicsRouting={onTopicsRoutingChange ? {
+              enabled: !!topicsRouting,
+              onToggle: onTopicsRoutingChange,
+            } : undefined}
           />
         </Suspense>
       </Menu>

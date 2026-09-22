@@ -135,6 +135,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   // Model picker — automatic intelligence or an available coding model.
   const [modelOpen, setModelOpen] = useState(false);
   const [model, setModel] = useState<string | null>(null);
+  const [topicsRouting, setTopicsRouting] = useState<boolean | null>(null);
   const modelBtnRef = useRef<HTMLButtonElement>(null);
   // Priority — "Automatica" (null: the agent evaluates it at kickoff) or 0-4.
   const [prioOpen, setPrioOpen] = useState(false);
@@ -393,7 +394,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
       // perché nei thread di entrambe le card.
       const created = await boardApi.create(target, {
         text: title, description, status: birthStatus, planFirst,
-        model: model ?? undefined, priority: prio ?? undefined,
+        model: model ?? undefined, topicsRouting: topicsRouting ?? undefined, priority: prio ?? undefined,
         // Attachments ride INSIDE the create, like the intake link: the server
         // writes them on the card before dispatching it, so the agent that
         // picks it up already has them instead of seeing them land later.
@@ -407,6 +408,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
       setPlanFirst(false);
       setBirthStatus('todo');
       setModel(null);
+      setTopicsRouting(null);
       setPrio(null);
       setLink(null);
       setProposal(null);
@@ -637,6 +639,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                 onSelect={(m) => { setModel(m); setModelOpen(false); }}
                 autoLabel={tr('board.composer.modelAuto')}
                 autoTitle={tr('board.composer.modelAutoOptionTitle')}
+                topicsRouting={{ enabled: !!topicsRouting, onToggle: setTopicsRouting }}
               />
             </Menu>
             <button

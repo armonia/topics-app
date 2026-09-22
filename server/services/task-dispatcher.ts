@@ -115,7 +115,7 @@ export interface DispatcherDeps {
    */
   catchAllProjectPath?: string;
   /** Create a detached, project-bound chat topic (no focus steal). */
-  createTopic: (opts: { name: string; projectPath: string; worktreeId?: string; systemPrompt: string; effort?: string; model?: string; provider?: string; standalone?: boolean; mcpPolicy?: string; autonomyLevel?: "ask" | "auto-apply" | "yolo" }) => {
+  createTopic: (opts: { name: string; projectPath: string; worktreeId?: string; systemPrompt: string; effort?: string; model?: string; provider?: string; /** AICTRL-01 routing switch */ topicsRouting?: boolean | null; standalone?: boolean; mcpPolicy?: string; autonomyLevel?: "ask" | "auto-apply" | "yolo" }) => {
     topicId: string;
     sessionKey: string;
   };
@@ -2824,6 +2824,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             effort: chosenEffort,
             model: chosenModel,
             provider: chosenProvider,
+            topicsRouting: task.topicsRouting,
             // Catch-all task → standalone session: keeps its (now per-task) cwd
             // but never renders a phantom project node in the sidebar.
             standalone: isCatchAll,
@@ -3138,7 +3139,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     task: Task,
     idx: number,
     total: number,
-    opts: { timeoutMs: number; idleMs: number; effort: string; autoEffort?: boolean; mcp: string; model?: string; provider?: string },
+    opts: { timeoutMs: number; idleMs: number; effort: string; autoEffort?: boolean; mcp: string; model?: string; provider?: string; topicsRouting?: boolean | null },
     resolved: { path: string; projectStoreId: string },
   ): Promise<string | undefined> {
     const store = deps.attempts!;
@@ -3168,6 +3169,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         effort: opts.effort,
         model: opts.model,
         provider: opts.provider,
+        topicsRouting: opts.topicsRouting,
         mcpPolicy: opts.mcp === "inherit" ? undefined : "bridge-only",
       });
       sessionKey = topic.sessionKey;
@@ -3412,7 +3414,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // deve lasciare i fratelli a girare senza nessuno che ne raccolga l'esito.
       const results = await Promise.allSettled(
         Array.from({ length: n }, (_, i) =>
-          runAttempt(task, i + 1, n, { timeoutMs, idleMs, effort: chosenEffort, autoEffort: settings.effort === "auto", mcp: settings.mcp, model: chosenModel, provider: chosenProvider }, resolved),
+          runAttempt(task, i + 1, n, { timeoutMs, idleMs, effort: chosenEffort, autoEffort: settings.effort === "auto", mcp: settings.mcp, model: chosenModel, provider: chosenProvider, topicsRouting: task.topicsRouting }, resolved),
         ),
       );
       // Sepolto dalla rete di liveness mentre giravamo (o rimpiazzato da un run

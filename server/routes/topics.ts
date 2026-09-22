@@ -1620,6 +1620,14 @@ export function createTopicsRouter(
           topic.model = body.model || null;
           spawnConfigChanged ||= (topic.model ?? null) !== prev;
         }
+        if (body.topicsRouting !== undefined) {
+          // AICTRL-01: the switch never rewrites provider/model, but it does
+          // change which engine executes the next turn, so it needs the same
+          // respawn as an actual provider/model change.
+          const prev = topic.topicsRouting ?? null;
+          topic.topicsRouting = body.topicsRouting === null ? null : !!body.topicsRouting;
+          spawnConfigChanged ||= (topic.topicsRouting ?? null) !== prev;
+        }
         // Per-topic effort tier (migration 033). Accepts a valid tier, or
         // null/""/"default" to clear the override (fall back to the global
         // env-resolved default). Unknown tiers are rejected so a stale client

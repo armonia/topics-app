@@ -20,6 +20,7 @@ import { join } from "path";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { userRowMarks } from "../lib/user-row-marks";
 import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
+import { TopicsRoutingIncompatibleError } from "../providers/resolve-topic-provider";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { cartelloRisveglio } from "../providers/claude/woken-turn";
 import { classifyShellToolResult } from "../providers/claude/background-shell";
@@ -747,7 +748,20 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       } else if (explicitProvider) {
         topicProvider = explicitProvider;
       } else {
-        topicProvider = resolveProvider(matchedTopic);
+        // AICTRL-01: the switch can go stale between two page loads (routing
+        // ON, then the pinned provider or the native engine stops being
+        // reachable through it). The canonical rule forbids a silent OFF-style
+        // fallback here — block the send with the exact reason instead, the
+        // pinned provider/model untouched, no dispatch through a route the
+        // user never chose.
+        try {
+          topicProvider = resolveProvider(matchedTopic);
+        } catch (err) {
+          if (err instanceof TopicsRoutingIncompatibleError) {
+            return json({ error: err.message, code: err.code }, 409);
+          }
+          throw err;
+        }
       }
 
       /**

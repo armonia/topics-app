@@ -110,6 +110,28 @@ function isRoutableThroughTopics(
   return !model || native.models.includes(model);
 }
 
+/** Same routability check, for the menu's switch row: null provider means
+ * Automatic, which is always routable (topics picks per its own rules). */
+export function topicsRoutingAvailable(
+  provider: string | null,
+  model: string | null | undefined,
+  snapshot?: ProvidersSnapshot | null,
+): boolean {
+  if (provider === null) return (snapshot?.providers ?? []).some((entry) => entry.name === 'topics' && entry.status === 'ready');
+  const ready = snapshot?.providers.filter((entry) => entry.status === 'ready' && isTaskCodingProvider(entry)) ?? [];
+  return isRoutableThroughTopics(provider, model ?? undefined, ready);
+}
+
+/** AICTRL-04: a task created before this switch existed stored its "run via
+ * Topics" decision by prefixing the model value itself (`topics:<model>`). A
+ * routing field that was never set explicitly (`null`/`undefined`) still
+ * reads as ON for that legacy encoding; anything set explicitly, true or
+ * false, always wins over the old prefix. */
+export function effectiveTopicsRouting(topicsRouting: boolean | null | undefined, modelValue?: string | null): boolean {
+  if (topicsRouting != null) return topicsRouting;
+  return taskModelSelection(modelValue).provider === 'topics';
+}
+
 /** Resolve only executable coding runtimes; an API-chat default is never a fallback.
  * `topicsRouting` is the switch from AICTRL-01: it never changes provider or
  * model, only whether the turn is dispatched through the Topics native engine

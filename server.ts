@@ -168,7 +168,7 @@ import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { pickAutomaticTaskModel, automaticTaskModels, automaticTaskProvider } from "./server/services/task-auto-model";
 import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from "./shared/provider-hold";
 import { readCodexModels } from "./server/providers/codex/models";
-import { taskModelSelection, taskProviderForModel } from "./shared/task-coding-models";
+import { effectiveTopicsRouting, taskModelSelection, taskProviderForModel, topicsRoutingAvailable } from "./shared/task-coding-models";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
@@ -1762,7 +1762,14 @@ const taskDispatcher = createTaskDispatcher({
     const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
     const { model } = taskModelSelection(o.model);
     const snapshot = getSnapshotManager().getSnapshot();
-    const provider = o.provider ? automaticTaskProvider(o.provider, model, snapshot) : taskProviderForModel(o.model, snapshot);
+    const topicsRouting = effectiveTopicsRouting(o.topicsRouting, o.model);
+    let provider = o.provider ? automaticTaskProvider(o.provider, model, snapshot) : taskProviderForModel(o.model, snapshot, topicsRouting);
+    // AICTRL-01: ON + an explicit routable provider never stays a no-op — the
+    // turn executes via Topics, targeting the pinned provider/model. Auto's
+    // own routing is unaffected (topics is already in its candidate pool).
+    if (topicsRouting && o.provider && provider !== "topics" && topicsRoutingAvailable(provider, model, snapshot)) {
+      provider = "topics";
+    }
     if (provider && !tryGetProvider(provider)?.connected) {
       throw new Error(`Provider "${provider}" non disponibile: collegalo nelle Impostazioni prima di avviare il task.`);
     }

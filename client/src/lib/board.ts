@@ -586,6 +586,8 @@ export interface BoardTask {
   userCommentCount: number;
   /** Model the dispatched agent runs on; null = provider default ("Auto"). */
   model: string | null;
+  /** AICTRL-01 routing switch; null = never set explicitly (legacy topics: fallback). */
+  topicsRouting?: boolean | null;
   /**
    * The paired node this card runs on. `null` = this machine (KANBAN-76): the
    * choice is human, there is no `auto` node, and nothing moves a card by load.
@@ -754,6 +756,8 @@ export interface CreateTaskBody {
   planFirst?: boolean;
   /** Model the dispatched agent runs on; omitted/null = provider default ("Auto"). */
   model?: string | null;
+  /** AICTRL-01 routing switch; omitted/null = never set explicitly. */
+  topicsRouting?: boolean | null;
   /** Gate: don't dispatch until this root task is done. */
   blockedByTaskId?: string | null;
   /** When blocked, hand the new agent the blocker's session context. */
@@ -794,6 +798,8 @@ export interface UpdateTaskBody {
   previewImage?: string;
   /** Model the dispatched agent runs on; null clears back to "Auto". */
   model?: string | null;
+  /** AICTRL-01 routing switch; null clears back to "never set explicitly". */
+  topicsRouting?: boolean | null;
   /** The paired node the card runs on; null (or an empty string) clears it back
    *  to this machine. An unknown id is refused with `unknown_machine`. */
   machineId?: string | null;

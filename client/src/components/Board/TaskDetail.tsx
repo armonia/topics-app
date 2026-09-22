@@ -1371,6 +1371,16 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     finally { setBusy(false); }
   };
 
+  // AICTRL-01: same session-fixed guard as changeModel — once a topic exists,
+  // the routing decision for that run has already been made.
+  const changeTopicsRouting = async (next: boolean) => {
+    if (!task || task.assignedTopicId || busy) return;
+    setBusy(true);
+    try { await boardApi.update(projectId, taskId, { topicsRouting: next }); setError(null); await load(); onChanged(); }
+    catch (e) { showError(e); }
+    finally { setBusy(false); }
+  };
+
   // Node selector (header chip): WHICH MACHINE the card runs on (KANBAN-76).
   // `null` = this machine; the local row (`baseUrl === null`) is never a choice.
   const nodeBtnRef = useRef<HTMLButtonElement>(null);
@@ -2264,6 +2274,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 disabled={busy}
                 autoLabel={tr('board.task.modelAutoOption')}
                 autoIcon
+                topicsRouting={{ enabled: !!task.topicsRouting, onToggle: changeTopicsRouting }}
               />
             </Menu>
             {/* WHERE it runs, next to WHAT it runs with: same register as the

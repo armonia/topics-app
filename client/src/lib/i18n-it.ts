@@ -33,6 +33,9 @@ const IT: Dict = {
   'ai.selector.noModels': 'Nessun modello compatibile disponibile.',
   'ai.selector.none': 'Nessuna esecuzione compatibile trovata.',
   'ai.selector.autoWithin': 'Automatico in {runtime}',
+  'ai.selector.routing': 'Instrada via Topics',
+  'ai.selector.routingHint': 'Attivo: il turno passa dal motore leggero di Topics, verso il provider e il modello sotto. Spento: esecuzione diretta.',
+  'ai.selector.routingUnavailable': 'Non instradabile con la selezione attuale.',
 
   'app.unsent.title.one': '1 messaggio non inviato',
   'app.unsent.title.many': '{n} messaggi non inviati',

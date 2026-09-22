@@ -187,6 +187,13 @@ export interface Task {
   priorityAuto: boolean;
   /** Model override for the agent topic. null = auto (provider default). */
   model: string | null;
+  /**
+   * AICTRL-01 routing switch (migration 20260922180000). null = never set
+   * explicitly (legacy `topics:<model>` still reads as ON). Never rewrites
+   * `model`/`provider` — only whether the run routes through the Topics
+   * native engine targeting them.
+   */
+  topicsRouting?: boolean | null;
   /** Automatic effort paired with a concrete model. Cleared on a manual model change. */
   modelEffort?: string;
   /**
@@ -400,6 +407,8 @@ export interface CreateTaskInput {
   planFirst?: boolean;
   /** Model override for the agent topic. Omit/null = auto. */
   model?: string | null;
+  /** AICTRL-01 routing switch; omit/null = never set explicitly. */
+  topicsRouting?: boolean | null;
   /** Run this card on a paired node (KANBAN-76). Omit/null = this machine. */
   machineId?: string | null;
   /** Wait for this task before dispatching (exists, not self, no cycle). */
@@ -442,6 +451,8 @@ export interface UpdateTaskPatch {
   summary?: string;
   /** Model override for the agent topic; null clears (= auto). */
   model?: string | null;
+  /** AICTRL-01 routing switch; null clears back to "never set explicitly". */
+  topicsRouting?: boolean | null;
   /** Move the card to a paired node; null clears (= this machine). */
   machineId?: string | null;
   /** Dependency; null clears. Validated: exists, not self, no cycle. */

@@ -548,6 +548,17 @@ function ChatPaneComponent({
   const effortRef = useRef(effort);
   useEffect(() => { effortRef.current = effort; }, [effort]);
 
+  // AICTRL-01 routing switch. No draft-only path (unlike provider/model
+  // above): a fresh draft simply keeps the default (off) until sent, since
+  // there is no server row to reload it from before that.
+  const [topicsRouting, setTopicsRouting] = useState<boolean | null>(topic.topicsRouting ?? null);
+  useEffect(() => { setTopicsRouting(topic.topicsRouting ?? null); }, [topic.id, topic.topicsRouting]);
+  const handleTopicsRoutingChange = useCallback((next: boolean) => {
+    setTopicsRouting(next);
+    if (isDraftTopicId(topic.id)) return;
+    void onUpdateTopic(topic.id, { topicsRouting: next });
+  }, [onUpdateTopic, topic.id]);
+
   // Livello di autonomia — STESSO pattern di provider/model, Fast Mode ed effort,
   // ed era l'unico dei quattro selettori del composer a non averlo. Leggeva
   // `topic.autonomyLevel` diretto e faceva PATCH incondizionata: su una chat
@@ -1819,7 +1830,7 @@ function ChatPaneComponent({
           // strade (comando digitato, bottone, anello) fanno la stessa cosa.
           if (c.startsWith('/') && (await handleSlashCommand(c))) return true;
           return sendMessage(topic.sessionKey, c);
-        }} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />
+        }} othersTyping={othersTyping} othersTypingText={othersTypingText} mentionedFiles={mentionedFiles} setMentionedFiles={setMentionedFiles} fastMode={fastMode} onToggleFastMode={toggleFastMode} editingMessage={editingMessage} onCancelEdit={handleCancelEdit} onExportConversation={currentMessages.length > 0 ? handleExportConversation : undefined} providerOverride={providerOverride} onProviderOverrideChange={handleProviderOverrideChange} topicsRouting={topicsRouting} onTopicsRoutingChange={handleTopicsRoutingChange} effort={effort} onEffortChange={handleEffortChange} defaultProviderLabel={defaultProviderLabel} onUpdateTopic={onUpdateTopic} onMessage={onWSMessage} />
       </div>
     </div>
   );
