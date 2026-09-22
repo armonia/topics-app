@@ -16,6 +16,8 @@ import {
   setColumnStackHeights,
   reconcileCellStacks,
   pickCellStacks,
+  columnSplitPreviewHost,
+  rowGapWouldReshape,
 } from './groupLayoutStacks';
 import { MAX_STACK_DEPTH } from './constants';
 
@@ -239,5 +241,64 @@ describe('pickCellStacks', () => {
     expect(pickCellStacks(stacks, ['A'])).toEqual({ A: { groupIds: ['A2'], heights: [0.5, 0.5] } });
     expect(pickCellStacks(stacks, ['Z'])).toBeUndefined();
     expect(pickCellStacks(undefined, ['A'])).toBeUndefined();
+  });
+});
+
+describe('columnSplitPreviewHost — a left/right preview on a stacked column', () => {
+  const stacked = () => row(['A', 'B'], { A: { groupIds: ['A2'], heights: [0.5, 0.5] } });
+
+  it('paints on the column when the target is a stacked MEMBER', () => {
+    expect(columnSplitPreviewHost(stacked(), 'A2', 'right')).toBe('A');
+    expect(columnSplitPreviewHost(stacked(), 'A2', 'left')).toBe('A');
+  });
+
+  it('paints on the column when the target is the primary of a stacked column', () => {
+    expect(columnSplitPreviewHost(stacked(), 'A', 'right')).toBe('A');
+  });
+
+  it('leaves an unstacked column to its own slot', () => {
+    expect(columnSplitPreviewHost(stacked(), 'B', 'right')).toBeNull();
+    expect(columnSplitPreviewHost(row(['A', 'B']), 'A', 'left')).toBeNull();
+  });
+
+  it('never claims top/bottom or center — those really do land on the slot', () => {
+    for (const edge of ['top', 'bottom', 'center'] as const) {
+      expect(columnSplitPreviewHost(stacked(), 'A2', edge)).toBeNull();
+    }
+  });
+
+  it('is null for a missing row or an unknown group', () => {
+    expect(columnSplitPreviewHost(undefined, 'A2', 'right')).toBeNull();
+    expect(columnSplitPreviewHost(stacked(), 'ZZ', 'right')).toBeNull();
+  });
+});
+
+describe('rowGapWouldReshape — the band between two rows', () => {
+  const rows = () => [row(['A']), row(['B', 'C'])];
+
+  it('refuses the gap when the pane in flight is the only one of an adjacent single-group row', () => {
+    // Row 0 holds group A alone with one pane: the new row lands exactly where
+    // A's row was, and A's row disappears. Same tree, redrawn.
+    expect(rowGapWouldReshape(rows(), 0, 'A', 1)).toBe(false);
+  });
+
+  it('refuses it from the row BELOW the gap too', () => {
+    expect(rowGapWouldReshape([row(['B', 'C']), row(['A'])], 0, 'A', 1)).toBe(false);
+  });
+
+  it('accepts a source group that keeps a pane behind', () => {
+    expect(rowGapWouldReshape(rows(), 0, 'A', 2)).toBe(true);
+  });
+
+  it('accepts a row that holds more than the source group', () => {
+    expect(rowGapWouldReshape(rows(), 0, 'B', 1)).toBe(true);
+    // A stacked member counts as a second group in the row.
+    const stackedRow = row(['A'], { A: { groupIds: ['A2'], heights: [0.5, 0.5] } });
+    expect(rowGapWouldReshape([stackedRow, row(['B'])], 0, 'A', 1)).toBe(true);
+  });
+
+  it('accepts a drag from another window, where the shelf cannot answer', () => {
+    expect(rowGapWouldReshape(rows(), 0, undefined, undefined)).toBe(true);
+    expect(rowGapWouldReshape(rows(), 0, 'A', undefined)).toBe(true);
   });
 });

@@ -2,7 +2,7 @@ import { useRef, useMemo, useState, useCallback, useEffect, useLayoutEffect } fr
 import type { Pane, PaneGroup, PaneGroupType, PaneType, GroupLayoutRow } from '../../types';
 import { PaneTabBar, type TabLinkContext } from './PaneTabBar';
 import { CellSubStack } from './CellSubStack';
-import { setColumnStackHeights, columnDepth } from './groupLayoutStacks';
+import { setColumnStackHeights, columnDepth, columnSplitPreviewHost } from './groupLayoutStacks';
 import { flattenGroupRows } from './flattenLayout';
 import { startDragPreview } from '../../lib/dragPreview';
 import { equalizeWidths, weightedWidths } from './gridWidths';
@@ -1171,11 +1171,21 @@ export function GroupLayout({
   // progetto uno solo.
   const leadingGid = rows[0]?.groupIds[0];
 
+  // The full-width drop strips (split "in basso/in alto a TUTTE le tab") only
+  // make sense when there's more than one column somewhere — with a single
+  // column a per-cell vertical split already spans the full width, so the
+  // distinction (and the strips) would be redundant. Declared up here because
+  // the split previews below inset themselves around those strips.
+  const hasMultipleColumns = rows.some((r) => r.groupIds.length > 1);
+
   // `hasBox` = the cell hosting this block occupies a rectangle in the layout.
   // It is an axis SEPARATE from residency: whoever receives it false SUSPENDS
   // (observers, polls, measurements against a zero viewport), it does not
   // unmount.
-  const renderGroupBlock = (gid: string, rowIdx: number, seenPaneIds: Set<string>, hasBox: boolean): React.ReactNode => {
+  // `columnScopedSplit` = this block's left/right preview belongs to the COLUMN
+  // container (the leaf paints it there, see `columnSplitPreviewHost`), so the
+  // block must not paint its own: one `data-grid-split-overlay` per gesture.
+  const renderGroupBlock = (gid: string, rowIdx: number, seenPaneIds: Set<string>, hasBox: boolean, columnScopedSplit = false): React.ReactNode => {
     const group = groupMap.get(gid);
     if (!group) return null;
     const groupPanes = group.paneIds
@@ -1393,7 +1403,7 @@ export function GroupLayout({
               bottom stops above the gutter so the column-split and full-width-row
               previews never visually collide; width alone tells them apart.
               'center' paints the inset merge region instead (add-as-tab). */}
-          {edgeDrop && edgeDrop !== 'center' && (
+          {edgeDrop && edgeDrop !== 'center' && !columnScopedSplit && (
             <SplitRegion
               zone={edgeDrop}
               gutterInset={rowIdx === rows.length - 1 && rows.some((r) => r.groupIds.length > 1) ? FULL_ROW_GUTTER_PX : 0}
@@ -1444,6 +1454,15 @@ export function GroupLayout({
     // tab-order and the accessibility tree — and the absence of a box, which
     // goes all the way down to the panes.
     const cellHasBox = !isZoomed || zoomCellKeys.has(gid);
+    // B1/D1+D2: a left/right release on a STACKED column inserts a column as
+    // tall as the whole row, so the preview belongs to the column container,
+    // not to the hovered member's slot (which would promise half a cell). The
+    // leaf wrapper IS that container, so painting it here and telling the
+    // blocks to skip their own keeps exactly one overlay per gesture.
+    const columnSplitZone = edgeDropTarget
+      && columnSplitPreviewHost(rows[rowIdx], edgeDropTarget.groupId, edgeDropTarget.edge) === gid
+      ? (edgeDropTarget.edge as EdgeZone)
+      : null;
     return (
       <div
         data-group-cell={`${rowIdx}-${groupIdx}`}
@@ -1472,11 +1491,22 @@ export function GroupLayout({
         )}
         <CellSubStack
           stack={subStack}
-          primary={renderGroupBlock(gid, rowIdx, seen, cellHasBox)}
+          primary={renderGroupBlock(gid, rowIdx, seen, cellHasBox, columnSplitZone !== null)}
           primaryKey={gid}
-          renderStackItem={(stackedId) => renderGroupBlock(stackedId, rowIdx, seen, cellHasBox)}
+          renderStackItem={(stackedId) => renderGroupBlock(stackedId, rowIdx, seen, cellHasBox, columnSplitZone !== null)}
           onResize={(nextHeights) => onUpdateRows(setColumnStackHeights(rows, gid, nextHeights))}
         />
+        {/* Column-scoped split preview. The wrapper starts at the primary's tab
+            bar, so the top inset clears BOTH the bar and the full-width-row
+            strip that sits just under it (the blocks' own regions start below
+            the bar and only need the strip). */}
+        {columnSplitZone && (
+          <SplitRegion
+            zone={columnSplitZone}
+            gutterInset={rowIdx === rows.length - 1 && hasMultipleColumns ? FULL_ROW_GUTTER_PX : 0}
+            topInset={rowIdx === 0 && hasMultipleColumns ? TAB_BAR_H + FULL_ROW_GUTTER_PX : 0}
+          />
+        )}
       </div>
     );
   };
@@ -1598,11 +1628,6 @@ export function GroupLayout({
     );
   };
 
-  // The full-width drop strips (split "in basso/in alto a TUTTE le tab") only
-  // make sense when there's more than one column somewhere — with a single
-  // column a per-cell vertical split already spans the full width, so the
-  // distinction (and the strips) would be redundant.
-  const hasMultipleColumns = rows.some((r) => r.groupIds.length > 1);
   const showFullRowStrips = dragActive && hasMultipleColumns && !!onSplitGroup;
 
   return (

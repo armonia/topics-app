@@ -274,3 +274,59 @@ export function pickCellStacks(
   }
   return Object.keys(out).length > 0 ? out : undefined;
 }
+
+/**
+ * Which column container must carry a left/right split preview, or null when
+ * the hovered slot is the right place for it.
+ *
+ * A left/right release always inserts a FULL-HEIGHT column beside the HOST
+ * column: `handleSplitGroup` resolves the target through `locateGroup` and
+ * writes into `row.groupIds`, the row's only horizontal axis. So on a stacked
+ * column the preview painted on a member's own slot promises half a cell and
+ * delivers a whole column. Returning the column primary tells the renderer to
+ * paint the region on the column container instead, which is exactly the
+ * footprint that lands. Only ONE of the two paints per gesture, so the single
+ * `data-grid-split-overlay` the e2e tests locate stays single.
+ *
+ * Only left/right: a top/bottom release really does land adjacent to the
+ * target slot, so its half-slot preview is honest.
+ */
+export function columnSplitPreviewHost(
+  row: GroupLayoutRow | undefined,
+  targetGroupId: string,
+  edge: 'left' | 'right' | 'top' | 'bottom' | 'center',
+): string | null {
+  if (!row || (edge !== 'left' && edge !== 'right')) return null;
+  const loc = locateGroup([row], targetGroupId);
+  if (!loc) return null;
+  return columnDepth(row, loc.primaryId) > 1 ? loc.primaryId : null;
+}
+
+/**
+ * Would a full-width row inserted at `gapIdx` (between rows gapIdx and
+ * gapIdx+1) actually reshape the tree?
+ *
+ * The new row lands exactly in the gap, so when the pane in flight is the only
+ * pane of the only group of a row TOUCHING that gap, its old row empties and
+ * disappears right where the new one appeared: the same tree, redrawn. The
+ * band lit up for it all the same.
+ *
+ * An unknown source (`undefined` size: the drag came from another window, where
+ * the drag shelf is empty) answers yes — refusing on a guess kills a gesture
+ * that works.
+ */
+export function rowGapWouldReshape(
+  rows: readonly GroupLayoutRow[],
+  gapIdx: number,
+  sourceGroupId: string | undefined,
+  sourceGroupSize: number | undefined,
+): boolean {
+  if (!sourceGroupId || sourceGroupSize === undefined || sourceGroupSize > 1) return true;
+  for (const idx of [gapIdx, gapIdx + 1]) {
+    const row = rows[idx];
+    if (!row) continue;
+    const ids = rowGroupIds(row);
+    if (ids.length === 1 && ids[0] === sourceGroupId) return false;
+  }
+  return true;
+}
