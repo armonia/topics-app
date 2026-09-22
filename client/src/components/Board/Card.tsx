@@ -52,7 +52,7 @@ import { runInitiatorName } from './taskFilter';
 import { POPOVER_DIVIDER, POPOVER_ITEM, POPOVER_ITEM_DANGER } from '@/lib/popoverStyles';
 
 // ── Column ────────────────────────────────────────────────────────────────
-export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings }: {
+export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject, cardError, onCardError, onRefetch, onOpenTopic, resolveSession, tasksById, projectPathById, liveById, awaitingHuman, justMoved, justCreated, archived = false, draft, onOpenSettings, layout = 'grid' }: {
   status: TaskStatus; tasks: BoardTask[]; onOpen: OpenTask; onCreate: (text: string) => void;
   canCreate: boolean; showProject: boolean; onRefetch: () => void;
   /** L'errore dell'ULTIMA azione fallita, con la card a cui appartiene: la
@@ -84,6 +84,12 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   /** Opens the board settings, where the cap actually is: the load gauge in the
    *  In progress header offers the door, it does not hold a second knob. */
   onOpenSettings?: () => void;
+  /** 'grid' (default): fixed-width carousel slide, snaps, sits side by side.
+   *  'list': full-width section stacked with the others — the alternative
+   *  vertical view. An empty section carries no signal there (no draft, no
+   *  "add" affordance mid-list), so it collapses instead of leaving a bare
+   *  header floating between two populated ones. */
+  layout?: 'grid' | 'list';
 }) {
   const tr = useT();
   const { setNodeRef, isOver } = useDroppable({ id: status });
@@ -143,9 +149,19 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // dentro la colonna stretta.
   // Vale per TUTTE le colonne, non solo Review: la stessa card in Todo avrebbe
   // sfondato allo stesso modo il suo `max-w`.
-  const widthCls = isReview
-    ? 'min-w-0 grow basis-full sm:basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
-    : 'min-w-0 grow basis-72 max-w-[26rem]';
+  // List view is not a carousel: no column has a neighbour to peek at, so the
+  // width fills the whole row instead of stopping at the `basis` meant for
+  // sitting side by side.
+  const widthCls = layout === 'list'
+    ? 'w-full'
+    : isReview
+      ? 'min-w-0 grow basis-full sm:basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
+      : 'min-w-0 grow basis-72 max-w-[26rem]';
+  // A section with no tasks and no draft in flight carries nothing to read in
+  // a vertical list (unlike the grid, where an empty column is still a visible
+  // drop target): skip it, so when only one status is populated the list is
+  // truly ONE column, not five headers.
+  if (layout === 'list' && tasks.length === 0 && !draft) return null;
   return (
     <div
       ref={setNodeRef}
@@ -156,7 +172,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
       // `index.css` (vedi DROP_ACTIVE_ATTR in `lib/dragPreview`): la board
       // diceva «qui» in un colore che nessun'altra superficie usava.
       data-drop-active={isOver ? 'into' : undefined}
-      className={`flex ${widthCls} shrink-0 flex-col rounded-lg border border-app-border bg-white/5 ${snapCls}`}
+      className={`flex ${widthCls} ${layout === 'list' ? '' : 'shrink-0'} flex-col rounded-lg border border-app-border bg-white/5 ${layout === 'list' ? '' : snapCls}`}
     >
       <div className="flex items-center justify-between px-3 py-2">
         <span className="flex items-center gap-1.5 text-compact leading-4 font-semibold uppercase tracking-wide text-app-text-heading">
@@ -197,7 +213,11 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
           padding box: ai lati gli 8px di `px-2` bastano, in cima la stanza non
           c'era proprio e alla prima card della colonna l'alone si vedeva mozzato
           di netto. Sei pixel, non uno spazio scelto a occhio. */}
-      <div data-testid={`kanban-column-body-${status}`} className="flex-1 space-y-2 overflow-y-auto px-2 pt-1.5 pb-36 scrollbar-standard">
+      {/* In list mode the whole stack shares ONE scroll container (the parent in
+          KanbanBoardPane), not one per section — a section here is a slice of
+          that page, not its own carousel slide, so it neither scrolls nor
+          reserves the composer's clearance on its own. */}
+      <div data-testid={`kanban-column-body-${status}`} className={layout === 'list' ? 'space-y-2 px-2 pt-1.5' : 'flex-1 space-y-2 overflow-y-auto px-2 pt-1.5 pb-36 scrollbar-standard'}>
         {/* THE GHOST OF THE CARD BEING WRITTEN, in the column it will land in
             and at the top, where a new card lands. Outside the sortable list:
             it is not a card yet and nothing can drag it. */}
