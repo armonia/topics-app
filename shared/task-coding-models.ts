@@ -60,6 +60,10 @@ export function taskModelValue(provider: string, model?: string | null): string 
  * adapter really supports. Unready rows remain visible for explicit recovery. */
 export function taskExecutionOptions(snapshot?: ProvidersSnapshot | null): TaskExecutionOption[] {
   return (snapshot?.providers ?? []).flatMap((entry) => {
+    // Topics is the routing switch above this list (AICTRL-01), not a provider
+    // row: it stays a real, selectable registry entry for resolution, just
+    // never a synthetic menu choice.
+    if (entry.name === 'topics') return [];
     if (!isTaskCodingProvider(entry)) return [];
     const models = entry.name === 'codex'
       ? entry.models
@@ -92,8 +96,29 @@ export function availableTaskModels(snapshot?: ProvidersSnapshot | null): string
   return [...models];
 }
 
-/** Resolve only executable coding runtimes; an API-chat default is never a fallback. */
-export function taskProviderForModel(value: string | null | undefined, snapshot?: ProvidersSnapshot | null): string {
+/** A provider is reachable through the Topics native engine only if that
+ * engine is itself ready and actually serves the requested model. Codex is
+ * never routable: the native engine has no OpenAI-compatible execution path. */
+function isRoutableThroughTopics(
+  provider: string,
+  model: string | undefined,
+  ready: ProvidersSnapshot['providers'],
+): boolean {
+  if (provider === 'topics' || !CLAUDE_CODING_PROVIDERS.includes(provider)) return false;
+  const native = ready.find((entry) => entry.name === 'topics');
+  if (!native) return false;
+  return !model || native.models.includes(model);
+}
+
+/** Resolve only executable coding runtimes; an API-chat default is never a fallback.
+ * `topicsRouting` is the switch from AICTRL-01: it never changes provider or
+ * model, only whether the turn is dispatched through the Topics native engine
+ * targeting that same selection (ON) or straight to the provider (OFF). */
+export function taskProviderForModel(
+  value: string | null | undefined,
+  snapshot?: ProvidersSnapshot | null,
+  topicsRouting?: boolean,
+): string {
   const selection = taskModelSelection(value);
   const ready = snapshot?.providers.filter((entry) => entry.status === 'ready' && isTaskCodingProvider(entry)) ?? [];
   // A coding default of Codex is also a provider constraint. Its temporary
@@ -109,6 +134,7 @@ export function taskProviderForModel(value: string | null | undefined, snapshot?
     if (selection.model && !selected.models.includes(selection.model)) {
       throw new Error(`The selected coding runtime ${selected.label ?? selected.name} cannot run model "${selection.model}".`);
     }
+    if (topicsRouting && isRoutableThroughTopics(explicitlySelectedProvider, selection.model, ready)) return 'topics';
     return explicitlySelectedProvider;
   }
   const wantsCodex = !selection.model && snapshot?.defaultProvider === 'codex';

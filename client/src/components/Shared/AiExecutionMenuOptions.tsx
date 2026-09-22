@@ -65,7 +65,8 @@ function ModelWindowLabel(
 }
 
 function chatExecutions(snapshot: ProvidersSnapshot | null): ExecutionRow[] {
-  return (snapshot?.providers ?? []).map((entry) => ({
+  // AICTRL-01: topics is the routing switch above this list, never a menu row.
+  return (snapshot?.providers ?? []).filter((entry) => entry.name !== 'topics').map((entry) => ({
     name: entry.name,
     label: entry.label ?? entry.name,
     status: entry.status,

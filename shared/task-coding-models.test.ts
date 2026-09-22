@@ -54,8 +54,8 @@ describe('task coding models', () => {
     const ready = { ...entry('topics', ['claude-opus-5', 'gpt-5.4']), label: 'Topics', capabilities: ['coding-tasks'] };
     const unavailable = { ...entry('codex', ['gpt-5.4'], 'unavailable'), label: 'Codex', capabilities: ['coding-tasks'], lastError: 'Sign in required' };
     const api = { ...entry('openai', ['gpt-5.4']), capabilities: ['streaming'] };
+    // AICTRL-01: topics is the routing switch above this list, never a menu row.
     expect(taskExecutionOptions(snapshot([ready, unavailable, api]))).toEqual([
-      { name: 'topics', label: 'Topics', status: 'ready', models: ['claude-opus-5'], supportsAutomatic: true, reason: undefined },
       { name: 'codex', label: 'Codex', status: 'unavailable', models: ['gpt-5.4'], supportsAutomatic: true, reason: 'Sign in required' },
     ]);
   });
@@ -146,5 +146,22 @@ describe('task coding models', () => {
       expect(() => taskProviderForModel(undefined, current)).toThrow('Codex is unavailable');
       expect(taskProviderForModel('claude-opus-5', current)).toBe('topics');
     }
+  });
+
+  test('canonical routing switch: ON reroutes an explicit routable provider through topics without touching the selection', () => {
+    const entries = [entry('topics', ['claude-opus-5']), entry('claude-code', ['claude-opus-5'])];
+    const current = snapshot(entries, 'claude-code');
+    // ON + explicit routable provider: the turn executes via topics, targeting that provider/model.
+    expect(taskProviderForModel('claude-code:claude-opus-5', current, true)).toBe('topics');
+    // OFF (explicit or omitted): direct execution, no routing detour.
+    expect(taskProviderForModel('claude-code:claude-opus-5', current, false)).toBe('claude-code');
+    expect(taskProviderForModel('claude-code:claude-opus-5', current)).toBe('claude-code');
+    // The stored/displayed selection never changes because of the switch.
+    expect(taskModelSelection('claude-code:claude-opus-5')).toEqual({ provider: 'claude-code', model: 'claude-opus-5' });
+  });
+
+  test('canonical routing switch: a non-routable provider (Codex) is never silently rerouted', () => {
+    const current = snapshot([entry('topics', ['claude-opus-5']), entry('codex', ['gpt-5.4'])], 'codex');
+    expect(taskProviderForModel('gpt-5.4', current, true)).toBe('codex');
   });
 });
