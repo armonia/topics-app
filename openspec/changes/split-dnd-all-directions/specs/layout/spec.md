@@ -69,6 +69,24 @@ queste domande, SHALL essere dimenticato sia su `dragend` sia su `drop`: il
 `dragend` non arriva quando il gestore del rilascio smonta la sorgente, e da li'
 in poi il gesto successivo leggerebbe una pane che non vola piu'.
 
+I tetti di sicurezza contro la fuga (32 colonne per riga, 32 righe, 32 slot per
+colonna) SHALL essere letti dal `dragover` e non dal solo rilascio. Al tetto il
+rilascio esce senza cambiare niente: fino a ieri la fascia si accendeva lo
+stesso, su tutte e quattro le direzioni, e il gesto moriva in silenzio. La
+domanda «ci sta?» SHALL essere UNA funzione per superficie, interrogata dalle
+due parti, e le sue tre diramazioni SHALL rispecchiare quelle del rilascio:
+sinistra/destra contano le colonne della riga OSPITE (un bersaglio annidato
+conta la sua, non zero), alto/basso contano gli slot della colonna puntata, e
+una riga a tutta larghezza conta le righe.
+
+#### Scenario: al tetto non si accende niente
+- **GIVEN** una riga che ha gia' il massimo di colonne
+- **WHEN** una scheda passa sulla fascia destra di una di quelle colonne
+- **THEN** nessuna anteprima SHALL accendersi, e il rilascio SHALL non cambiare
+  l'albero
+- **AND** la fascia alta/bassa della stessa cella, che spende un tetto diverso,
+  SHALL restare viva
+
 #### Scenario: il centro del proprio gruppo resta spento
 - **GIVEN** una scheda trascinata dal corpo della pane in cui gia' vive
 - **WHEN** il puntatore sta nel riquadro centrale di quella pane

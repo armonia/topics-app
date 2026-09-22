@@ -43,6 +43,10 @@ l'anteprima disegna la colonna ospite.
 - Il ripiano della pane in volo si pulisce anche su `drop`, non solo su
   `dragend`: il `dragend` si perde quando la sorgente viene smontata dentro il
   drop, e da li' in poi il gesto successivo leggeva una sorgente sbagliata.
+- I tetti di sicurezza (32 colonne, 32 righe, 32 slot) li legge anche
+  l'anteprima. Erano noti al solo rilascio, che al tetto esce senza cambiare
+  niente: la fascia si accendeva e il gesto moriva in silenzio, e questo tocca
+  tutte e quattro le direzioni.
 - Uno split parcheggiato in attesa della chat compagna scade invece di
   risorgere ore dopo.
 
@@ -67,6 +71,3 @@ al ritorno dopo un ricarico.
   dentro uno slot di pila. E' l'unica riga della matrice che resta senza il suo
   risultato «letterale», ed e' dichiarata: il rilascio produce la colonna
   accanto, e l'anteprima lo dice prima.
-- I cap a 32 colonne / righe / slot: il `dragover` non li consulta, quindi alla
-  32esima l'anteprima promette un no-op. Misurato, dichiarato, non riparato:
-  nessuna superficie reale ci arriva.

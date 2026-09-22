@@ -10,6 +10,7 @@ import { getProjectGridWeight, subscribeProjectGridWeights, type ProjectGridWeig
 import { useGridResize } from '../../hooks/useGridResize';
 import { useLayoutMobile } from '../../hooks/useMobile';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
+import { dragLeftHost } from '../../lib/dragLeave';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
 import { startDragPreview } from '../../lib/dragPreview';
 import { getProjectLabel } from '../../lib/buildSidebarItems';
@@ -2426,8 +2427,7 @@ export function PanelGrid({
   }, [isStandaloneTabDrag, gridDropTargetRef, fullRowDropRef, gridRowsRef]);
 
   const handleFullRowDragLeave = useCallback((e: React.DragEvent) => {
-    const rt = e.relatedTarget as Node | null;
-    if (rt && (e.currentTarget as HTMLElement).contains(rt)) return;
+    if (!dragLeftHost(e.currentTarget, e)) return;
     fullRowDropRef.current = null;
     setFullRowDrop(null);
   }, [fullRowDropRef]);

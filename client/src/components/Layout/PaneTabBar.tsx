@@ -20,6 +20,7 @@ import { getFileIconDef } from '../../lib/fileIcons';
 import { rememberDraggedPane } from '../../lib/dragPayload';
 import { startDragPreview, endDragPreview } from '../../lib/dragPreview';
 import { DND_TYPES, paneTabScopeType, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
+import { dragLeftHost } from '../../lib/dragLeave';
 import { BoardTabCounts } from './BoardTabCounts';
 import { EDGE_DROP_PX } from './constants';
 import { useMobile } from '../../hooks/useMobile';
@@ -1050,8 +1051,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
           // Only reset when the pointer truly left the bar. A dragleave fired
           // while crossing from the container into one of its child tabs would
           // otherwise flicker the insert indicator off mid-drag.
-          const rt = e.relatedTarget as Node | null;
-          if (rt && (e.currentTarget as HTMLElement).contains(rt)) return;
+          if (!dragLeftHost(e.currentTarget, e)) return;
           setEdgeSplitZone(null);
           setCrossGroupDragActive(false);
           setDragOverIdx(null);

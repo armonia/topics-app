@@ -21,6 +21,7 @@ import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
 import { useRefMirror } from '../../hooks/useRefMirror';
 import { detectDropZone, type EdgeGutters, type EdgeZone } from '../../lib/dropZone';
+import { dragLeftHost } from '../../lib/dragLeave';
 import { SplitRegion, CenterRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
 import { FULL_ROW_GUTTER_PX, edgeStripGutters } from '../../lib/dropFeedback';
 import { SplitTree } from './SplitTree';
@@ -512,9 +513,9 @@ export function GroupLayout({
   const handleGroupContentDragLeave = useCallback((groupId: string) => (e: React.DragEvent) => {
     // Ignore a dragleave that merely crossed into a child of the content area
     // (the pane body) — only clear when the pointer actually left, or the edge
-    // preview flickers while dragging over the content.
-    const rt = e.relatedTarget as Node | null;
-    if (rt && (e.currentTarget as HTMLElement).contains(rt)) return;
+    // preview flickers while dragging over the content. D15: WebKit names no
+    // relatedTarget at all, so the pointer's position decides (see dragLeave).
+    if (!dragLeftHost(e.currentTarget, e)) return;
     if (edgeDropTargetRef.current?.groupId === groupId) {
       edgeDropTargetRef.current = null;
       setEdgeDropTarget(null);
@@ -661,8 +662,7 @@ export function GroupLayout({
   }, [onSplitGroup, isPaneTabDrag, edgeDropTargetRef, fullRowDropRef, fullRowWouldReshape, draggedGroupSize, rows]);
 
   const handleFullRowDragLeave = useCallback((e: React.DragEvent) => {
-    const rt = e.relatedTarget as Node | null;
-    if (rt && (e.currentTarget as HTMLElement).contains(rt)) return;
+    if (!dragLeftHost(e.currentTarget, e)) return;
     fullRowDropRef.current = null;
     setFullRowDrop(null);
   }, [fullRowDropRef]);
@@ -717,8 +717,7 @@ export function GroupLayout({
   }, [onSplitGroup, isPaneTabDrag, edgeDropTargetRef, rowGapDropRef, fullRowWouldReshape, draggedGroup, rows]);
 
   const handleRowGapDragLeave = useCallback((e: React.DragEvent) => {
-    const rt = e.relatedTarget as Node | null;
-    if (rt && (e.currentTarget as HTMLElement).contains(rt)) return;
+    if (!dragLeftHost(e.currentTarget, e)) return;
     rowGapDropRef.current = null;
     setRowGapDrop(null);
   }, [rowGapDropRef]);
