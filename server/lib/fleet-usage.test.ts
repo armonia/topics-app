@@ -377,31 +377,31 @@ describe("CPU istantanea, non media di vita", () => {
 });
 
 describe("il buco da 911 MB: responsible pid E ppid, non l'uno O l'altro", () => {
-  /* IL CASO VERO, letto sull'app viva il 2026-08-20.
+  /* THE REAL CASE, read off the live app on 2026-08-20.
    *
-   * I `claude` delle sessioni sono figli dell'ai-bridge, ma macOS li dichiara
-   * RESPONSABILI DI SE STESSI (`responsibility_get_pid_responsible_for_pid`
-   * torna il pid stesso). Il ramo `responsibleOf` cercava solo
-   * `responsible == root.pid`, quindi non appartenevano a nessun root: 911 MB
-   * di CLI degli agenti restavano fuori dal totale che la status bar esiste
-   * per mostrare.
+   * Session `claude` processes are children of the ai-bridge, but macOS
+   * declares them RESPONSIBLE FOR THEMSELVES
+   * (`responsibility_get_pid_responsible_for_pid` returns the pid itself).
+   * The `responsibleOf` branch only looked for `responsible == root.pid`, so
+   * they belonged to no root: 911 MB of agent CLI stayed out of the total
+   * the status bar exists to show.
    *
-   * Non e' un caso limite: e' cio' che macOS fa a un programma lanciato come
-   * sessione propria, cioe' esattamente la parte che pesa. */
+   * It's not an edge case: it's what macOS does to a program launched as its
+   * own session, which is exactly the part that weighs the most. */
   const rows: PsRow[] = parsePsRows(
     [
       " 10 1  90000  1.0 0:01.00 bun run server.ts",
       " 57 1  20000  1.0 0:01.00 bun run ai-bridge.mjs --socket /tmp/a.sock",
-      " 95 57 554768 5.0 0:01.00 claude --print",   // figlio dell'ai-bridge…
-      " 91 57 362496 3.0 0:01.00 claude --print",   // …ma responsabile di se'
-      " 96 95 100000 1.0 0:01.00 mcp-server",       // e i loro figli
+      " 95 57 554768 5.0 0:01.00 claude --print",   // child of the ai-bridge…
+      " 91 57 362496 3.0 0:01.00 claude --print",   // …but responsible for itself
+      " 96 95 100000 1.0 0:01.00 mcp-server",       // and their children
     ].join("\n"),
   );
 
-  /** Il responsible come lo riporta macOS in questo scenario. */
+  /** The responsible pid as macOS reports it in this scenario. */
   const responsibleOf = (pid: number): number | null => {
-    if (pid === 10 || pid === 57) return 10; // i nostri sotto il server
-    if (pid === 95 || pid === 91) return pid; // <- il caso che si perdeva
+    if (pid === 10 || pid === 57) return 10; // ours, under the server
+    if (pid === 95 || pid === 91) return pid; // <- the case that was being lost
     return null;
   };
 
