@@ -2553,9 +2553,9 @@ const IT: Dict = {
   'notifications.loadMore': 'Carica altre notifiche',
   'notifications.loadingMore': 'Carico…',
   'notifications.allLoaded': 'Sei arrivato in fondo al registro.',
-  // ── Barra dei progetti sotto la board.
+  // ── Projects bar under the board.
   'board.projects.more': 'Altri {n} progetti con task aperti',
-  // ── Righe della barra laterale.
+  // ── Sidebar rows.
   'sidebar.noTabs': 'Nessuna tab',
   'sidebar.closeBrowser': 'Chiudi browser',
   'topic.cloudSession': 'Sessione cloud (OpenClaw)',
