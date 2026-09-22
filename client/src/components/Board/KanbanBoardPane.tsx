@@ -2084,6 +2084,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             hidden={typingElsewhere}
             hiddenBelowLg={!!selected}
             onDraft={setDraft}
+            boardTopicsRoutingDefault={settings?.dispatchTopicsRouting ?? null}
+            boardDispatchModel={settings?.dispatchModel ?? null}
           />
         </div>
         {orchestratorTopic && orchestrator && (
@@ -2109,6 +2111,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             loadHistory={loadHistory}
             sessionState={resolveSession(selected.assignedTopicId)}
             focusPaneId={pendingPaneId ?? undefined}
+            boardTopicsRoutingDefault={settings?.dispatchTopicsRouting ?? null}
+            boardDispatchModel={settings?.dispatchModel ?? null}
             /* Apertura automatica nel workspace: SOLO dalla board globale, che
                è una superficie a sé. Dentro una finestra di progetto la board è
                una pane di quella stessa finestra, e promuovere lì il risultato

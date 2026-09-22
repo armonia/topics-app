@@ -24,6 +24,7 @@ import { isDoneThreadService, isFreshSessionNote, isServiceComment } from '../..
 import { questionToProse } from '../../../../shared/question-prose';
 import { pendingQuestionComment } from '../../../../shared/board';
 import { ThreadRuns } from './ThreadRuns';
+import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';
 import { copyText } from '../../lib/clipboard';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
 import { buildTaskLink } from '../../lib/openTaskLink';
@@ -744,7 +745,7 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
 
 // ── Detail: drawer by default, expandable review surface ────────────────────
 
-export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, onOpenTopic, onMessage, loadHistory, sessionState = 'unknown', focusPaneId }: {
+export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, onOpenTopic, onMessage, loadHistory, sessionState = 'unknown', focusPaneId, boardTopicsRoutingDefault = null, boardDispatchModel = null }: {
   projectId: string; taskId: string; onClose: () => void; onChanged: () => void;
   /**
    * Change signal (the task's updatedAt from the board's live list): any WS
@@ -776,6 +777,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
    * sull'anteprima della card. Senza, si apre sul Thread come sempre.
    */
   focusPaneId?: string;
+  /** AICTRL-05: default di QUESTA board per lo switch. `null` nella board globale, dove non esiste UN default e decide il solo legacy del task. allow-italian: dice cosa significa `null` qui */
+  boardTopicsRoutingDefault?: boolean | null;
+  /** Serve a leggere il prefisso legacy quando il task non ha un modello proprio. allow-italian: perche' il modello della board entra nello switch */
+  boardDispatchModel?: string | null;
 }) {
   const tr = useT();
   const locale = useLocale();
@@ -2274,7 +2279,10 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
                 disabled={busy}
                 autoLabel={tr('board.task.modelAutoOption')}
                 autoIcon
-                topicsRouting={{ enabled: !!task.topicsRouting, onToggle: changeTopicsRouting }}
+                topicsRouting={{
+                  enabled: surfaceTopicsRoutingEnabled(task.topicsRouting, boardTopicsRoutingDefault, task.model, boardDispatchModel),
+                  onToggle: changeTopicsRouting,
+                }}
               />
             </Menu>
             {/* WHERE it runs, next to WHAT it runs with: same register as the

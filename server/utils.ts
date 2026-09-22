@@ -582,7 +582,7 @@ export function createAppContext(baseDir: string): AppContext {
         // topics_routing (AICTRL-01, migration 20260922180000). null preserves
         // "never set explicitly" (legacy topics:<model> fallback); the switch
         // never coerces to 0/1 the way fast_mode/muted booleans do below.
-        $topics_routing: topic.topicsRouting === undefined ? null : (topic.topicsRouting ? 1 : 0),
+        $topics_routing: topic.topicsRouting == null ? null : (topic.topicsRouting ? 1 : 0),
         // effort column (migration 033). NULL = no per-topic override → global
         // default resolved at spawn time. Stored as-is (low/medium/high/xhigh/max).
         $effort: topic.effort || null,

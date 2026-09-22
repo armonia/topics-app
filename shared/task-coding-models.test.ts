@@ -1,7 +1,7 @@
 /** @covers MP-TASK-01, MP-TASK-02 */
 import { describe, expect, test } from 'bun:test';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from './types';
-import { availableTaskModels, taskExecutionOptions, taskModelMatchesSession, taskModelSelection, taskModelValue, taskProviderForModel } from './task-coding-models';
+import { availableTaskModels, isTopicsModelServed, taskExecutionOptions, taskModelMatchesSession, taskModelSelection, taskModelValue, taskProviderForModel, TopicsRoutingUnavailableError } from './task-coding-models';
 
 function entry(name: string, models: string[], status: ProviderSnapshotEntry['status'] = 'ready'): ProviderSnapshotEntry {
   return { name, models, status, isDefault: false, requirements: [], fetchedAt: '2026-09-08T00:00:00Z' };
@@ -68,6 +68,21 @@ describe('task coding models', () => {
     expect(taskProviderForModel('claude-code:claude-opus-5', current)).toBe('claude-code');
     expect(taskProviderForModel('topics:auto', snapshot([entry('topics', ['claude-opus-5']), entry('codex', ['gpt-5.4'])], 'codex'))).toBe('topics');
     expect(taskProviderForModel('codex:auto', snapshot([entry('topics', ['claude-opus-5']), entry('codex', ['gpt-5.4'])], 'topics'))).toBe('codex');
+  });
+  test('requisito #9: un legacy provider:"topics" con topicsRouting=true (transizione AICTRL-04) esegue nativo senza throw', () => {
+    // "topics" non e' un bersaglio instradabile (e' il router), ma un valore vecchio `topics:<model>` accende lo switch da quello stesso prefisso: quel giro deve eseguire nativo, mai esplodere. allow-italian: il caso limite che il test difende
+    const ready = snapshot([entry('topics', ['claude-opus-5'])]);
+    expect(taskProviderForModel('topics:claude-opus-5', ready, true)).toBe('topics');
+    expect(taskProviderForModel('topics:auto', ready, true)).toBe('topics');
+  });
+
+  test('requisito #4: isTopicsModelServed e\' l\'unico helper del mezzo modello, condiviso col lato chat', () => {
+    // Assente = motore non ancora raggiunto: permissivo, mai piu' severo per un dato che manca. allow-italian: la scelta su cosa fare quando la lista manca
+    expect(isTopicsModelServed('claude-opus-5', undefined)).toBe(true);
+    expect(isTopicsModelServed(null, undefined)).toBe(true);
+    expect(isTopicsModelServed('claude-opus-5', ['claude-opus-5'])).toBe(true);
+    expect(isTopicsModelServed('claude-sonnet-5', ['claude-opus-5'])).toBe(false);
+    expect(isTopicsModelServed(null, ['claude-opus-5'])).toBe(true);
   });
 
   test('only task-capable ACP runtimes enter the catalog and legacy jcode routes stay valid', () => {
@@ -160,8 +175,32 @@ describe('task coding models', () => {
     expect(taskModelSelection('claude-code:claude-opus-5')).toEqual({ provider: 'claude-code', model: 'claude-opus-5' });
   });
 
-  test('canonical routing switch: a non-routable provider (Codex) is never silently rerouted', () => {
+  test('canonical routing switch: ON with a non-routable explicit provider (Codex) hard-gates, never a silent direct dispatch', () => {
+    // Codex is categorically outside the native engine's reach. ON asked for
+    // routing; a silent fallback to direct execution would be exactly the
+    // no-op the AICTRL-01 contract forbids on the chat side too.
     const current = snapshot([entry('topics', ['claude-opus-5']), entry('codex', ['gpt-5.4'])], 'codex');
-    expect(taskProviderForModel('gpt-5.4', current, true)).toBe('codex');
+    expect(taskProviderForModel('gpt-5.4', current, false)).toBe('codex'); // OFF: still executes Codex direct
+    expect(taskProviderForModel('gpt-5.4', current)).toBe('codex'); // omitted: same as OFF
+    expect(() => taskProviderForModel('gpt-5.4', current, true)).toThrow(TopicsRoutingUnavailableError);
+  });
+
+  test('canonical routing switch: Automatico + ON dispatches via the native topics engine, beating even a Codex default', () => {
+    const current = snapshot([entry('topics', ['claude-opus-5']), entry('codex', ['gpt-5.4'])], 'codex');
+    expect(taskProviderForModel(undefined, current, true)).toBe('topics');
+  });
+
+  test('canonical routing switch: Automatico + ON with no native topics catalog hard-gates instead of falling back to the default', () => {
+    const current = snapshot([entry('codex', ['gpt-5.4'])], 'codex');
+    expect(() => taskProviderForModel(undefined, current, true)).toThrow(TopicsRoutingUnavailableError);
+  });
+
+  test('simmetria col lato chat: Automatico + ON controlla il modello anche senza provider pinnato', () => {
+    // Il gemello del caso chat in resolve-topic-provider.test.ts: qui era gia' giusto e deve restarlo, e' la sponda che dice cosa doveva fare l'altra. allow-italian: dice perche' il caso esiste due volte
+    const current = snapshot([entry('topics', ['claude-opus-5']), entry('claude-code', ['claude-opus-5', 'claude-sonnet-5'])], 'claude-code');
+    expect(taskProviderForModel('claude-opus-5', current, true)).toBe('topics');
+    expect(() => taskProviderForModel('claude-sonnet-5', current, true)).toThrow(TopicsRoutingUnavailableError);
+    // OFF lo esegue diretto: il cancello e' dello switch, non del catalogo. allow-italian: la recinzione del caso sopra
+    expect(taskProviderForModel('claude-sonnet-5', current, false)).toBe('claude-code');
   });
 });

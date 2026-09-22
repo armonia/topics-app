@@ -1793,6 +1793,8 @@ export interface BoardSettings {
    * sul default della board.
    */
   dispatchModel: string;
+  /** AICTRL-05: default board dello switch, asse separato da `dispatchModel`, che non tocca mai. `null` = nessuna scelta qui: decide il task, o in ultimo il prefisso legacy. allow-italian: ordine di risoluzione del default */
+  dispatchTopicsRouting: boolean | null;
   /**
    * Lingua in cui rispondono gli agenti dispatchati su questa board.
    * 'inherit' (il default NULL) → vale la preferenza globale

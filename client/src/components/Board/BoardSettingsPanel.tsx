@@ -23,6 +23,7 @@ import { NightModeCard } from './NightModeCard';
 import { EFFORTS, FANOUT_CHOICES } from './constants';
 import { friendlyModelLabel } from './format';
 import { TaskModelMenuOptions } from './TaskModelMenuOptions';
+import { boardTopicsRoutingSwitch } from '../../lib/topicsRoutingGate';
 import {
   GlobalSettingsSection,
   SettingsPanelHead,
@@ -51,6 +52,7 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
     catch (e) { onError(e instanceof Error ? e.message : 'settings save failed'); }
   };
   if (!s) return null;
+  const topicsRoutingSwitch = boardTopicsRoutingSwitch(s, (p) => { void patch(p); });
   return (
     <div className={SETTINGS_PANEL_SHELL} data-testid="board-settings-panel">
       <SettingsPanelHead onClose={onClose} />
@@ -130,12 +132,18 @@ export function BoardSettingsPanel({ projectId, settings: s, dispatchOn, models,
           role="listbox"
           ariaLabel={tr('board.settings.model')}
         >
+          {/* AICTRL-05: stesso switch del composer e del cassetto, stesso
+              componente (`TaskModelMenuOptions` → `AiExecutionMenuOptions`),
+              ma un asse SEPARATO: `dispatchTopicsRouting` e' il default di
+              QUESTA board, non tocca mai `dispatchModel`. Vince solo quando il
+              task non ha impostato il proprio (vedi shared/board.ts). */}
           <TaskModelMenuOptions
             models={models}
             value={!s.dispatchModel || s.dispatchModel === 'auto' ? null : s.dispatchModel}
             onSelect={(model) => { void patch({ dispatchModel: model ?? 'auto' }); setModelOpen(false); }}
             autoLabel={tr('board.settings.modelAuto')}
             autoTitle={tr('board.settings.modelTitle')}
+            topicsRouting={topicsRoutingSwitch}
           />
         </Menu>
       </div>

@@ -246,6 +246,31 @@ describe("saveSingleTopic upsert (no REPLACE cascade)", () => {
   });
 });
 
+describe("topicsRouting (AICTRL-01, migration 20260922180000)", () => {
+  // Il ramo guardava `undefined` e scriveva 0 anche su un `null` esplicito: rispegnere lo switch persisteva OFF invece di "mai impostato", capovolgendo il fallback legacy senza che nessuno avesse scelto OFF. allow-italian: nomina il difetto che il test blocca
+  test("rispegnere torna a NULL SQL, non 0 — il giro non deve trasformarlo in OFF esplicito", () => {
+    const t = makeTopic("aa000001-aaaa-bbbb-cccc-000000000001", {
+      topicsRouting: true,
+      model: "topics:claude-sonnet-5",
+    });
+    ctx.saveSingleTopic(t);
+    expect(ctx.getTopicById(t.id)?.topicsRouting).toBe(true);
+
+    ctx.saveSingleTopic({ ...t, topicsRouting: null });
+    const raw = ctx.db.prepare("SELECT topics_routing FROM topics WHERE id = ?").get(t.id) as { topics_routing: unknown };
+    expect(raw.topics_routing).toBeNull();
+    expect(ctx.getTopicById(t.id)?.topicsRouting).toBeUndefined();
+  });
+
+  test("un topic che non ha mai toccato lo switch parte da NULL SQL", () => {
+    const t = makeTopic("aa000002-aaaa-bbbb-cccc-000000000002");
+    ctx.saveSingleTopic(t);
+    const raw = ctx.db.prepare("SELECT topics_routing FROM topics WHERE id = ?").get(t.id) as { topics_routing: unknown };
+    expect(raw.topics_routing).toBeNull();
+    expect(ctx.getTopicById(t.id)?.topicsRouting).toBeUndefined();
+  });
+});
+
 afterAll(() => {
   if (DATA_DIR_PRIMA === undefined) delete process.env.DATA_DIR;
   else process.env.DATA_DIR = DATA_DIR_PRIMA;

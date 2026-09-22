@@ -21,6 +21,7 @@ import { titoloDaTesto } from '../../../../shared/task-title';
 import { draftPreviewOf, type DraftPreview } from './draftPreview';
 import { useTaskModelCatalog } from '../../hooks/useTaskModelCatalog';
 import { TaskModelMenuOptions } from './TaskModelMenuOptions';
+import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';
 
 /** Le due colonne in cui un task può NASCERE, nell'ordine in cui il menu le
  *  offre, ognuna con la CHIAVE della riga che dice cosa succede scegliendola.
@@ -66,7 +67,7 @@ type BirthStatus = Extract<TaskStatus, 'todo' | 'backlog'>;
  * sparire. Quando serve toglierlo di mezzo (un campo che gli si sovrappone, il
  * drawer a tutto schermo del telefono) lo si NASCONDE con `hidden`/`hiddenBelowLg`.
  */
-export function FloatingTaskComposer({ projectId, global, onCreated, onError, hidden, hiddenBelowLg, onDraft }: {
+export function FloatingTaskComposer({ projectId, global, onCreated, onError, hidden, hiddenBelowLg, onDraft, boardTopicsRoutingDefault = null, boardDispatchModel = null }: {
   projectId: string;
   /** Cross-project mode: no implicit board — the project picker chip appears. */
   global: boolean;
@@ -91,6 +92,10 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
    *  nothing to preview. Called on every change of text, attachments or birth
    *  column, so the ghost follows the typing. */
   onDraft?: (draft: DraftPreview | null) => void;
+  /** AICTRL-05: default di QUESTA board per lo switch. `null` nella board globale, dove non esiste UN default. allow-italian: dice cosa significa `null` qui */
+  boardTopicsRoutingDefault?: boolean | null;
+  /** Serve a leggere il prefisso legacy quando la board non ha scelto un modello proprio. allow-italian: perche' il modello della board entra nello switch */
+  boardDispatchModel?: string | null;
 }) {
   const [text, setText] = useState('');
   const [focused, setFocused] = useState(false);
@@ -639,7 +644,10 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                 onSelect={(m) => { setModel(m); setModelOpen(false); }}
                 autoLabel={tr('board.composer.modelAuto')}
                 autoTitle={tr('board.composer.modelAutoOptionTitle')}
-                topicsRouting={{ enabled: !!topicsRouting, onToggle: setTopicsRouting }}
+                topicsRouting={{
+                  enabled: surfaceTopicsRoutingEnabled(topicsRouting, boardTopicsRoutingDefault, model, boardDispatchModel),
+                  onToggle: setTopicsRouting,
+                }}
               />
             </Menu>
             <button

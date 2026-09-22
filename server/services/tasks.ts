@@ -6424,6 +6424,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         dispatchIdleMin: r?.dispatch_idle_min ?? 5,
         dispatchMcp: r?.dispatch_mcp ?? "bridge-only",
         dispatchModel: r?.dispatch_model ?? "auto",
+        // AICTRL-05: default board dello switch; NULL = nessuna scelta su questa board (ordine di risoluzione in shared/board.ts). allow-italian: dice cosa significa NULL in colonna
+        dispatchTopicsRouting: r?.dispatch_topics_routing == null ? null : !!r.dispatch_topics_routing,
         language: r?.language ?? "inherit",
         // NULL = 1: una board che non ha mai sentito parlare di fan-out dispaccia
         // un agente per task, com'è sempre stato.
@@ -6486,6 +6488,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // string pins the board to that model id. No allowlist here — the model set is
       // provider-driven (see /api/claude/models); an unknown id simply fails at spawn.
       if (patch.dispatchModel !== undefined) { sets.push("dispatch_model = ?"); params.push(patch.dispatchModel && patch.dispatchModel !== "auto" ? patch.dispatchModel : null); }
+      // Nullable come `topics_routing` sul task: null resta null, non collassa su false. allow-italian: la regola di scrittura della colonna
+      if (patch.dispatchTopicsRouting !== undefined) {
+        sets.push("dispatch_topics_routing = ?");
+        params.push(patch.dispatchTopicsRouting === null ? null : (patch.dispatchTopicsRouting ? 1 : 0));
+      }
       if (patch.language !== undefined) { sets.push("language = ?"); params.push(patch.language && patch.language !== "inherit" ? patch.language : null); }
       // Tetto a 5: oltre, il fan-out non è più "confronto fra alternative" ma un
       // modo di saturare la macchina — e ogni tentativo è un agente vero che

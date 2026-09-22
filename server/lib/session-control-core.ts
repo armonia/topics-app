@@ -124,6 +124,8 @@ export interface DetachedTopicOptions {
    * (a second quota, and a second opinion on mechanical work).
    */
   provider?: string | null;
+  /** AICTRL-01: lo switch si scrive ACCANTO al provider, mai al suo posto. `null` = mai impostato, che non e' `false`: il primo lascia decidere il default della board, il secondo lo batte. allow-italian: la differenza fra `null` e `false` */
+  topicsRouting?: boolean | null;
   /**
    * Livello di autonomia della chat, cioè il `--permission-mode` dello spawn.
    *
@@ -221,6 +223,8 @@ export function createDetachedTopic(
   if (opts.effort) newTopic.effort = opts.effort;
   if (opts.model) newTopic.model = opts.model;
   if (opts.provider) (newTopic as Topic & { provider?: string | null }).provider = opts.provider;
+  // `!= null` e non un test di verita': un OFF esplicito e' una scelta e va scritta, o il default della board se la riprende. allow-italian: perche' il confronto e' con null
+  if (opts.topicsRouting != null) newTopic.topicsRouting = opts.topicsRouting;
   if (opts.standalone) newTopic.standalone = true;
   if (opts.mcpPolicy) newTopic.mcpPolicy = opts.mcpPolicy;
   // Always written, never left to the persistence fallback: `saveSingleTopic`

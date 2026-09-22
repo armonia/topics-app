@@ -68,6 +68,7 @@ const CHAT_IT: Dict = {
   'chat.recording.stop': 'Ferma',
   'chat.recording.startVoice': 'Registra la voce',
   'chat.recording.stopVoice': 'Ferma la registrazione',
+  'chat.topicsRouting.blocked': 'Instradamento leggero acceso ma non disponibile per questo provider o modello. Spegni lo switch per riprendere a scrivere.',
 
   'chat.attachment.pastedImage': 'Immagine incollata',
   'chat.attachment.tooLarge': 'Allegato troppo grande per sopravvivere a un ricaricamento: mandalo adesso, o lo perdi se aggiorni la pagina.',

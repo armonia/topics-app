@@ -5,6 +5,7 @@ import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { Menu } from '../Shared/Menu';
 import { AiExecutionMenuOptions, aiExecutionMenuReady, loadAiExecutionMenu } from '../Shared/aiExecutionMenuLazy';
 import { resolveEffectiveProvider } from '../../lib/effortTiers';
+import { resolveTopicsRoutingTarget } from '../../lib/topicsRoutingGate';
 import { splitModelId, friendlyModelLabel } from '../../lib/modelLabel';
 import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
 
@@ -32,6 +33,13 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
   const entries = useMemo(() => snapshot?.providers ?? [], [snapshot]);
   const effective = useMemo(
     () => resolveEffectiveProvider(entries, override, defaultProviderLabel),
+    [entries, override, defaultProviderLabel],
+  );
+  // Review bug #2: the routing switch must agree with the send gate on what ON
+  // targets, which needs the topic's pin even with no active override — `value`
+  // below stays override-only on purpose, it drives the panel/checkmark UI.
+  const routingTarget = useMemo(
+    () => resolveTopicsRoutingTarget(entries, override, defaultProviderLabel),
     [entries, override, defaultProviderLabel],
   );
   const activeModelId = effective?.model ?? override?.model ?? null;
@@ -110,6 +118,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
             snapshot={snapshot}
             surface="chat"
             value={{ provider: override?.provider ?? null, model: override?.model ?? null }}
+            routingTarget={{ provider: routingTarget?.provider ?? null, model: routingTarget?.model ?? null }}
             onSelect={(selection) => {
               onChange(selection.provider && selection.model
                 ? { provider: selection.provider, model: selection.model }

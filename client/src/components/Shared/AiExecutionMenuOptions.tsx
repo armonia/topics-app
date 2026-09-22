@@ -17,6 +17,14 @@ interface Props {
   snapshot: ProvidersSnapshot | null;
   surface: 'chat' | 'task';
   value: AiExecutionSelection;
+  /**
+   * What the routing switch checks for routability (review bug #2). `value`
+   * alone conflates two things on chat: which panel is open/checked (override
+   * only) and what ON would actually target (override, else the topic's
+   * pinned provider). Defaults to `value` for callers where the two already
+   * coincide (tasks: the stored model IS the target, no separate pin layer).
+   */
+  routingTarget?: AiExecutionSelection;
   onSelect: (selection: AiExecutionSelection) => void;
   automaticLabel: string;
   automaticHint: string;
@@ -88,6 +96,7 @@ export function AiExecutionMenuOptions({
   snapshot,
   surface,
   value,
+  routingTarget,
   onSelect,
   automaticLabel,
   automaticHint,
@@ -97,7 +106,8 @@ export function AiExecutionMenuOptions({
   topicsRouting,
 }: Props) {
   const tr = useT();
-  const routable = topicsRoutingAvailable(value.provider, value.model, snapshot);
+  const target = routingTarget ?? value;
+  const routable = topicsRoutingAvailable(target.provider, target.model, snapshot);
   const executions = useMemo(
     () => surface === 'task' ? taskExecutionOptions(snapshot) : chatExecutions(snapshot),
     [snapshot, surface],

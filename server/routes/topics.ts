@@ -7,7 +7,8 @@ import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic } from "../types";
 import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
-import { resolveTopicProvider } from "../providers/resolve-topic-provider";
+import { createTopicProviderResolver } from "../providers/topic-provider-resolver";
+import { getSnapshotManager } from "../providers/snapshot-manager";
 import { routesThroughGateway } from "./commandRouting";
 import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter, createToolDetailRouter } from "./history";
@@ -512,9 +513,18 @@ export function createTopicsRouter(
   // finiscono in `BrowserBridgeDeps`.
   const taskSvc = createTaskService(ctx.db);
 
-  /** Resolve the AI provider for a topic. Uses topic.provider if set, else default. */
+  /**
+   * Resolve the AI provider for a topic. Uses topic.provider if set, else default.
+   *
+   * Passa dalla fabbrica e non dal resolver nudo: senza la lista dei modelli nativi che porta lei, il cancello sul modello risponde sempre "servito". allow-italian: perche' la fabbrica non e' opzionale
+   */
+  const resolveProviderForTopic = createTopicProviderResolver({
+    getProvider,
+    getDefaultProvider,
+    getSnapshot: () => getSnapshotManager().getSnapshot(),
+  });
   function resolveProvider(topic?: Topic | null): AIProvider {
-    return resolveTopicProvider(topic, { getProvider, getDefaultProvider });
+    return resolveProviderForTopic(topic);
   }
 
   /** Look up the topic owning a sessionKey and resolve its provider. */

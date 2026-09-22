@@ -3649,6 +3649,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
               dispatchIdleMin: typeof body?.dispatchIdleMin === "number" ? body.dispatchIdleMin : undefined,
               dispatchMcp: typeof body?.dispatchMcp === "string" ? body.dispatchMcp : undefined,
               dispatchModel: typeof body?.dispatchModel === "string" ? body.dispatchModel : undefined,
+              // AICTRL-05: nullable, non "auto"-a-stringa come dispatchModel —
+              // la chiave assente lascia il valore stare (undefined), la
+              // chiave presente ma non booleana torna al default "nessuna
+              // scelta" (null), mai a "leave alone".
+              dispatchTopicsRouting: body?.dispatchTopicsRouting === undefined
+                ? undefined
+                : (typeof body.dispatchTopicsRouting === "boolean" ? body.dispatchTopicsRouting : null),
               dispatchFanOut: typeof body?.dispatchFanOut === "number" ? body.dispatchFanOut : undefined,
               // I QUATTRO CHE LA ROTTA NON INOLTRAVA. Esistono nel servizio, nella
               // tabella e nel tipo, e due di loro li LEGGE il dispatcher a ogni

@@ -54,6 +54,7 @@ const CHAT_EN: Dict = {
   'chat.recording.stop': 'Stop',
   'chat.recording.startVoice': 'Record voice',
   'chat.recording.stopVoice': 'Stop recording',
+  'chat.topicsRouting.blocked': 'Lightweight routing is on but not available for this provider or model. Turn the switch off to resume sending.',
 
   'chat.attachment.pastedImage': 'Pasted image',
   'chat.attachment.tooLarge': 'Attachment too large to keep across a reload: send it now, or it will be lost if you refresh.',

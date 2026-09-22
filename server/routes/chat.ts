@@ -378,6 +378,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const overrideProvider = typeof body.provider === "string" && body.provider.trim()
         ? body.provider.trim()
         : null;
+      // Il modello di QUESTO turno, gia' qui perche' con lo switch acceso e' lui che il motore nativo deve poter servire, non quello pinnato sul topic. allow-italian: perche' e' letto prima del resolver
+      const turnModelOverride = typeof body.model === "string" && body.model.trim()
+        ? body.model.trim()
+        : null;
       // Keep raw identity and usable capability distinct. A damaged registry
       // Topic never degrades into an ordinary chat: it has no project/file
       // authority, and it must not recover a default provider through fallback.
@@ -411,9 +415,17 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       let explicitProvider: AIProvider | null = null;
       if (!forcedGlobalProvider && requestedProviderId) {
         try {
-          explicitProvider = overrideProvider
-            ? resolveProviderByName(overrideProvider)
-            : resolveProvider(matchedTopic);
+          // AICTRL-01: anche un override PER MESSAGGIO passa dal resolver. Prima si prendeva il provider dal registry e basta, quindi con lo switch acceso bastava un override nel body per eseguire fuori dal motore nativo, in silenzio. allow-italian: nomina la porta laterale chiusa qui
+          // Il topic non viene riscritto: la scelta del turno viaggia come topic SINTETICO e il pin resta quello che era. allow-italian: perche' si costruisce un topic finto
+          explicitProvider = resolveProvider(
+            overrideProvider || turnModelOverride
+              ? ({
+                  ...(matchedTopic ?? {}),
+                  provider: overrideProvider ?? matchedTopic?.provider ?? null,
+                  model: turnModelOverride ?? matchedTopic?.model ?? null,
+                } as Topic)
+              : matchedTopic,
+          );
           if (!explicitProvider.connected) throw new Error("unavailable");
         } catch (err) {
           // AICTRL-01: this is the resolver call that actually runs whenever a
@@ -868,9 +880,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       // Per-message override wins; otherwise the topic's persisted model is
       // used (set by the picker via PUT /api/topics/:id and broadcast as
       // topic:updated). Falls through to the provider default when both unset.
-      const requestedModel = typeof body.model === "string" && body.model.trim()
-        ? body.model.trim()
-        : (typeof matchedTopic?.model === "string" && matchedTopic.model.trim() ? matchedTopic.model.trim() : undefined);
+      const requestedModel = turnModelOverride
+        ?? (typeof matchedTopic?.model === "string" && matchedTopic.model.trim() ? matchedTopic.model.trim() : undefined);
 
       // A catalog can be stale or incomplete. Keep the chosen ID: only the
       // provider can reject it. Silently using its default would run a different

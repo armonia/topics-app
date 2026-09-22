@@ -42,6 +42,8 @@ import { useVoiceRecording } from './useVoiceRecording';
 import { usePaneStore } from '../../state/pane/store';
 import { createPaneId } from '../../state/pane/adapters';
 import { useToast } from '../Shared/Toast';
+import { getProvidersSnapshotState } from '../../lib/providersSnapshotStore';
+import { topicsRoutingBlocked } from '../../lib/topicsRoutingGate';
 import { copyText } from '../../lib/clipboard';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import {
@@ -1467,6 +1469,11 @@ function ChatPaneComponent({
       return;
     }
     if (!message.trim() && pendingFiles.length === 0 && pendingImages.length === 0) return;
+    // AICTRL-05: gate finale, non estetico. Lo snapshot si legge senza abbonarsi (un hook qui ridisegnerebbe ChatPane a ogni push) e l'unico sblocco e' spegnere lo switch: provider e modello non si toccano mai da soli. allow-italian: perche' si legge lo store invece dell'hook
+    if (topicsRoutingBlocked(topicsRouting, providerOverride, defaultProviderLabel, getProvidersSnapshotState().snapshot)) {
+      toast.error(tr('chat.topicsRouting.blocked'));
+      return;
+    }
     let finalMessage = message.trim();
     // I comandi col cancelletto NON si accodano: `/model`, `/effort`, `/goal`,
     // `/clear` agiscono sulla sessione, non sono un turno da spedire. Il ramo
