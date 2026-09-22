@@ -56,6 +56,41 @@ export function standaloneSplitSurface(gridItemKey: string): SplitSurface {
   return gridItemKey.startsWith('solo:') ? 'standalone-solo' : 'standalone-pool';
 }
 
+/** A tab hovering the EDGE band of a standalone grid cell, as the `dragover`
+ *  can describe it (no `dataTransfer` values there, only the drag shelf). */
+export interface StandaloneEdgeDropContext {
+  /** Grid key of the cell under the pointer: `'standalone'` or `solo:<id>`. */
+  targetCellKey: string;
+  /** The pane in flight, from `lib/dragPayload`. Null when the drag started in
+   *  ANOTHER window, where the shelf is empty and only the drop can tell. */
+  draggedPaneId: string | null;
+  /** Tabs currently in the target cell. */
+  targetCellSize: number;
+}
+
+/**
+ * True when releasing here would actually reshape the grid, so the `dragover`
+ * can refuse to paint a gesture the drop is going to throw away.
+ *
+ * The one refused case is the lone tab of a solo cell released on its OWN
+ * cell's edge: there is nothing left to split away from, which is the same
+ * answer `canSplitPane` already gives the context menu. The preview used to
+ * light up anyway and the release did nothing.
+ *
+ * A drag from another window is allowed through: the shelf is empty there, so
+ * the honest answer is "can't tell", and refusing on a guess would kill a
+ * gesture that works.
+ */
+export function standaloneEdgeDropSplits(ctx: StandaloneEdgeDropContext): boolean {
+  const { targetCellKey, draggedPaneId, targetCellSize } = ctx;
+  if (!draggedPaneId) return true;
+  // Cells are keyed by a chat's TOPIC id while the shelf records the PANE id
+  // (`chat:<topicId>`), so the two only compare after this unwrap.
+  const draggedId = draggedPaneId.startsWith('chat:') ? draggedPaneId.slice('chat:'.length) : draggedPaneId;
+  if (targetCellKey !== `solo:${draggedId}`) return true;
+  return canSplitPane({ surface: standaloneSplitSurface(targetCellKey), groupSize: targetCellSize });
+}
+
 /** A tab released on the edge band of a group, described by where it came from. */
 export interface SplitDropContext {
   /** Which tiling surface hosts the group the tab is being dropped ON. */

@@ -4,7 +4,7 @@
  * @covers LAYOUT-01
  */
 import { describe, it, expect } from 'bun:test';
-import { canSplitPane, canDropSplit, standaloneSplitSurface } from './splitRules';
+import { canSplitPane, canDropSplit, standaloneSplitSurface, standaloneEdgeDropSplits } from './splitRules';
 
 describe('canSplitPane', () => {
   it('standalone pool is always splittable (single tab auto-spawns a draft companion)', () => {
@@ -65,5 +65,46 @@ describe('canDropSplit — the drag path asks the menu\'s question', () => {
     expect(canDropSplit({ ...base, sourceGroupSize: 1, totalGroups: 2 })).toBe(true);
     // A pane leaving a group that keeps others behind always reshapes.
     expect(canDropSplit({ ...base, sourceGroupSize: 2, totalGroups: 1 })).toBe(true);
+  });
+});
+
+describe('standaloneEdgeDropSplits — the preview asks what the drop will answer', () => {
+  // The drop refuses exactly one case (PanelGrid handleGridItemDropCapture):
+  // the lone tab of a solo cell released on its OWN cell's edge. Everything
+  // else reshapes, so everything else may be painted.
+  it('the lone tab of a solo cell on its own edge is refused', () => {
+    expect(standaloneEdgeDropSplits({
+      targetCellKey: 'solo:A', draggedPaneId: 'A', targetCellSize: 1,
+    })).toBe(false);
+  });
+
+  it('a chat pane id is translated to its topic before comparing', () => {
+    expect(standaloneEdgeDropSplits({
+      targetCellKey: 'solo:A', draggedPaneId: 'chat:A', targetCellSize: 1,
+    })).toBe(false);
+  });
+
+  it('the primary of a MULTI-tab cell on its own edge is a real split', () => {
+    expect(standaloneEdgeDropSplits({
+      targetCellKey: 'solo:A', draggedPaneId: 'chat:A', targetCellSize: 2,
+    })).toBe(true);
+  });
+
+  it('another cell edge always splits', () => {
+    expect(standaloneEdgeDropSplits({
+      targetCellKey: 'solo:B', draggedPaneId: 'chat:A', targetCellSize: 1,
+    })).toBe(true);
+  });
+
+  it('the pool edge always splits', () => {
+    expect(standaloneEdgeDropSplits({
+      targetCellKey: 'standalone', draggedPaneId: 'chat:A', targetCellSize: 1,
+    })).toBe(true);
+  });
+
+  it('a drag from another window is allowed: the shelf is empty there', () => {
+    expect(standaloneEdgeDropSplits({
+      targetCellKey: 'solo:A', draggedPaneId: null, targetCellSize: 1,
+    })).toBe(true);
   });
 });

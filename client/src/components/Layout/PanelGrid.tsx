@@ -34,6 +34,8 @@ import { detectDropZone, type DropZone } from '../../lib/dropZone';
 import { SplitRegion, CenterRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths, equalizeWidths } from './gridWidths';
 import { addKeysToCellStack, applyVerticalDrop } from './panelGridStacks';
+import { standaloneEdgeDropSplits } from './splitRules';
+import { draggedPaneId } from '../../lib/dragPayload';
 import { notifyPaneReflow } from './paneReflow';
 import { applyZoomWeights, cellKeysForPanes, liveCellKeys } from './paneZoom';
 import { computeZoomPaneIds, resolveEntryScope, resolveZoomAnchor, resolveZoomCells, type ZoomPane, type ZoomScope } from './zoomScope';
@@ -1599,6 +1601,9 @@ export function PanelGrid({
   // state may not be committed yet when drop fires immediately after
   // dragover (the "drop twice to land" class of bug).
   const gridDropTargetRef = useRefMirror(gridDropTarget);
+  // Read by the dragover to size the cell under the pointer without turning
+  // soloCells into a dep of a handler that is re-created per cell, per render.
+  const soloCellsRef = useRefMirror(soloCells);
 
   // (A former handleGridItemDragStart \u2014 the GRID_ITEM drag-start with its own
   // ghost image \u2014 was dead wiring: StandaloneChatGroup received it as
@@ -1701,6 +1706,25 @@ export function PanelGrid({
       return;
     }
 
+    // A gesture the drop is going to refuse must not be offered. The one such
+    // case on an edge band is the lone tab of a solo cell released on its OWN
+    // cell (handleGridItemDropCapture bails on it): the preview lit up and
+    // nothing happened. `preventDefault` above stays — the drop still has to
+    // fire so the pop-out path doesn't read the release as a drag-out and
+    // close the pane — we just paint nothing.
+    if (isTabDrag && !isGridDrag) {
+      const targetKey = gridRowsRef.current[rowIdx]?.itemKeys[colIdx];
+      const targetCell = targetKey ? soloCellsRef.current.find(c => soloCellKey(c) === targetKey) : undefined;
+      if (targetKey && !standaloneEdgeDropSplits({
+        targetCellKey: targetKey,
+        draggedPaneId: draggedPaneId(),
+        targetCellSize: targetCell?.length ?? 1,
+      })) {
+        if (gridDropTargetRef.current) { setGridDropTarget(null); gridDropTargetRef.current = null; }
+        return;
+      }
+    }
+
     // Edge zone (or any GRID_ITEM drag): handle at grid level
     e.stopPropagation(); // Prevent children from also handling this edge drag
     // WKWebView (Tauri) does NOT infer dropEffect from preventDefault the way
@@ -1726,7 +1750,7 @@ export function PanelGrid({
       setFullRowDrop(null);
     }
     commitTarget({ rowIdx, colIdx, zone, centerSide, isTab: isTabDrag && !isGridDrag });
-  }, [gridDropTargetRef, gridRowsRef, fullRowDropRef]);
+  }, [gridDropTargetRef, gridRowsRef, fullRowDropRef, soloCellsRef]);
 
   const handleGridItemDragEnd = useCallback(() => {
     setDraggingGridKey(null);
