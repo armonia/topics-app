@@ -17,7 +17,7 @@
  */
 import type { GroupLayoutRow, GroupCellStack } from '../../types';
 import { MAX_STACK_DEPTH } from './constants';
-import { normalizeWidths, equalizeWidths } from './gridWidths';
+import { normalizeWidths, equalizeWidths, splitColumnWidths } from './gridWidths';
 
 export type VerticalEdge = 'top' | 'bottom';
 
@@ -95,9 +95,12 @@ export function isColumnStackFull(
  * behavior) landed the pane cells away when the target was a middle member
  * of a deep stack. Landing at visual slot 0 (top of the primary) PROMOTES
  * the new group to column primary (the previous primary + members slide
- * down). Slot heights are reset to equal. No-op (returns the same array
- * reference) when the target can't be located or the column is already at
- * MAX_STACK_DEPTH.
+ * down). The new slot takes HALF of the target's height and every sibling
+ * keeps the size it was dragged to: the old `equalizeWidths` reset the whole
+ * column to 1/N, so adding a third pane flattened a deliberate 80/20 (and the
+ * preview had promised half of the target cell, not 1/N of the column).
+ * No-op (returns the same array reference) when the target can't be located
+ * or the column is already at MAX_STACK_DEPTH.
  */
 export function addGroupToColumnStack(
   rows: readonly GroupLayoutRow[],
@@ -119,14 +122,22 @@ export function addGroupToColumnStack(
   const visual = [loc.primaryId, ...belowPrimary];
   const targetIdx = visual.indexOf(targetGroupId); // ≥ 0 — locateGroup found it
   const insertAt = edge === 'bottom' ? targetIdx + 1 : targetIdx;
+
+  // Heights BEFORE the splice, so the donor index still lines up with `visual`.
+  // A stored array of the wrong length is corrupt persisted state: fall back to
+  // an even column rather than mis-assigning somebody else's height.
+  const prevHeights =
+    existing && existing.heights.length === visual.length
+      ? existing.heights
+      : equalizeWidths(visual.length);
+
   visual.splice(insertAt, 0, newGroupId);
   const primaryId = visual[0];
   const members = visual.slice(1);
 
-  const slots = members.length + 1; // primary + members
   const nextStack: GroupCellStack = {
     groupIds: members,
-    heights: equalizeWidths(slots),
+    heights: splitColumnWidths(prevHeights, targetIdx, insertAt),
   };
 
   const nextRows = rows.map((rr, i) => {

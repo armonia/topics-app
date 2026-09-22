@@ -33,6 +33,7 @@ import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH, MIN_PANE_FRACTION, TAB_BAR
 import { detectDropZone, type DropZone } from '../../lib/dropZone';
 import { SplitRegion, CenterRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths, equalizeWidths } from './gridWidths';
+import { addKeysToCellStack } from './panelGridStacks';
 import { notifyPaneReflow } from './paneReflow';
 import { applyZoomWeights, cellKeysForPanes, liveCellKeys } from './paneZoom';
 import { computeZoomPaneIds, resolveEntryScope, resolveZoomAnchor, resolveZoomCells, type ZoomPane, type ZoomScope } from './zoomScope';
@@ -2050,48 +2051,22 @@ export function PanelGrid({
             const newRow: PanelGridRow = { itemKeys: [soloKey], widths: [1] };
             const insertIdx = zone === 'top' ? tRow : tRow + 1;
             rows = [...rows.slice(0, insertIdx), newRow, ...rows.slice(insertIdx)];
-          } else if (isColumnStack) {
-            // Stack UNDER the target cell's column (cellStacks sub-stack) —
-            // exactly what the SplitRegion preview painted on the cell's
-            // bottom half promised, and what the menu "Split Down" builds.
-            const row = rows[tRow];
-            const stacks = row.cellStacks ? { ...row.cellStacks } : {};
-            const existing = stacks[findKey];
-            if (existing) {
-              const slots = existing.items.length + 2; // primary + items + new
-              stacks[findKey] = {
-                items: [...existing.items, soloKey],
-                heights: Array.from({ length: slots }, () => 1 / slots),
-              };
-            } else {
-              stacks[findKey] = { items: [soloKey], heights: [0.5, 0.5] };
-            }
-            rows = rows.map((r, i) => (i === tRow ? { ...r, cellStacks: stacks } : r));
-          } else if (isColumnStackAbove) {
-            // Stack ABOVE the target cell's column — the mirror of the bottom
-            // stack, previously impossible from a drag (a bare top drop was
-            // routed to the tab bar and silently dropped). cellStacks are
-            // keyed by the column's PRIMARY (its itemKey), and items render
-            // BELOW the primary — so "above" means the dropped pane becomes
-            // the new primary: it takes the column's slot in itemKeys and the
-            // old primary (plus its former stack) moves into its items.
-            const row = rows[tRow];
-            const stacks = row.cellStacks ? { ...row.cellStacks } : {};
-            const existing = stacks[findKey];
-            const items = existing ? [findKey, ...existing.items] : [findKey];
-            const slots = items.length + 1; // new primary + demoted items
-            delete stacks[findKey];
-            stacks[soloKey] = {
-              items,
-              heights: Array.from({ length: slots }, () => 1 / slots),
-            };
-            rows = rows.map((r, i) => (i === tRow
-              ? {
-                  ...r,
-                  itemKeys: r.itemKeys.map(k => (k === findKey ? soloKey : k)),
-                  cellStacks: stacks,
-                }
-              : r));
+          } else if (isColumnStack || isColumnStackAbove) {
+            // Stack UNDER / ABOVE the target cell's column (cellStacks
+            // sub-stack) — exactly what the SplitRegion preview painted on the
+            // cell's half promised, and what the menu "Split Down" builds. The
+            // 'above' case makes the dropped pane the column's new primary,
+            // since cellStacks are keyed by the primary and render items below
+            // it. Heights and the depth cap live in the pure twin so this and
+            // the whole-cell path below can't drift apart again.
+            const stacked = addKeysToCellStack(
+              rows[tRow],
+              findKey,
+              [soloKey],
+              isColumnStack ? 'bottom' : 'top',
+            );
+            if (!stacked) return prev;
+            rows = rows.map((r, i) => (i === tRow ? stacked : r));
           } else {
             const row = rows[tRow];
             const insertAt = (zone === 'right' || (zone === 'center' && centerSide === 'right'))

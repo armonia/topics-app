@@ -119,6 +119,42 @@ describe('addGroupToColumnStack — bottom', () => {
   });
 });
 
+describe('addGroupToColumnStack — sibling heights survive the split', () => {
+  it('halves only the target slot when the target is the primary', () => {
+    const rows = [row(['A'], { A: { groupIds: ['A2', 'A3'], heights: [0.6, 0.2, 0.2] } })];
+    const next = addGroupToColumnStack(rows, 'A', 'NEW', 'bottom');
+    // Visual order A, NEW, A2, A3: A donates half of its 0.6, the two
+    // manually-resized members keep their 0.2 each.
+    expect(next[0].cellStacks?.A.groupIds).toEqual(['NEW', 'A2', 'A3']);
+    expect(next[0].cellStacks?.A.heights).toEqual([0.3, 0.3, 0.2, 0.2]);
+  });
+  it('halves only the target slot when the target is a stacked member', () => {
+    const rows = [row(['A'], { A: { groupIds: ['A2', 'A3'], heights: [0.6, 0.2, 0.2] } })];
+    const next = addGroupToColumnStack(rows, 'A2', 'NEW', 'bottom');
+    expect(next[0].cellStacks?.A.groupIds).toEqual(['A2', 'NEW', 'A3']);
+    expect(next[0].cellStacks?.A.heights).toEqual([0.6, 0.1, 0.1, 0.2]);
+  });
+  it('halves the target slot on a top insert too', () => {
+    const rows = [row(['A'], { A: { groupIds: ['A2', 'A3'], heights: [0.6, 0.2, 0.2] } })];
+    const next = addGroupToColumnStack(rows, 'A3', 'NEW', 'top');
+    expect(next[0].cellStacks?.A.groupIds).toEqual(['A2', 'NEW', 'A3']);
+    expect(next[0].cellStacks?.A.heights).toEqual([0.6, 0.2, 0.1, 0.1]);
+  });
+  it('promotion to primary still halves only the old primary slot', () => {
+    const rows = [row(['A'], { A: { groupIds: ['A2'], heights: [0.8, 0.2] } })];
+    const next = addGroupToColumnStack(rows, 'A', 'NEW', 'top');
+    expect(next[0].groupIds).toEqual(['NEW']);
+    expect(next[0].cellStacks?.NEW.groupIds).toEqual(['A', 'A2']);
+    expect(next[0].cellStacks?.NEW.heights).toEqual([0.4, 0.4, 0.2]);
+  });
+  it('falls back to an even split when stored heights are corrupt', () => {
+    const rows = [row(['A'], { A: { groupIds: ['A2'], heights: [0.5] } })];
+    const next = addGroupToColumnStack(rows, 'A', 'NEW', 'bottom');
+    expect(next[0].cellStacks?.A.heights.length).toBe(3);
+    expect(sum(next[0].cellStacks!.A.heights)).toBeCloseTo(1, 6);
+  });
+});
+
 describe('addGroupToColumnStack — top', () => {
   it('on the primary: promotes the new group and slides the old one down', () => {
     const rows = [row(['A', 'B'])];
