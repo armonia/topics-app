@@ -18,6 +18,7 @@ import {
   pickCellStacks,
   columnSplitPreviewHost,
   rowGapWouldReshape,
+  slotEdges,
 } from './groupLayoutStacks';
 import { MAX_STACK_DEPTH } from './constants';
 
@@ -300,5 +301,23 @@ describe('rowGapWouldReshape — the band between two rows', () => {
   it('accepts a drag from another window, where the shelf cannot answer', () => {
     expect(rowGapWouldReshape(rows(), 0, undefined, undefined)).toBe(true);
     expect(rowGapWouldReshape(rows(), 0, 'A', undefined)).toBe(true);
+  });
+});
+
+describe('slotEdges — which strip can reach a group rect', () => {
+  it('a lone primary touches both ends of its row', () => {
+    expect(slotEdges([row(['A', 'B'])], 'B')).toEqual({ rowIdx: 0, atColumnTop: true, atColumnBottom: true });
+  });
+
+  it('in a stacked column only the ends touch', () => {
+    const rows = [row(['A'], { A: { groupIds: ['A2', 'A3'], heights: [0.34, 0.33, 0.33] } })];
+    expect(slotEdges(rows, 'A')).toEqual({ rowIdx: 0, atColumnTop: true, atColumnBottom: false });
+    expect(slotEdges(rows, 'A2')).toEqual({ rowIdx: 0, atColumnTop: false, atColumnBottom: false });
+    expect(slotEdges(rows, 'A3')).toEqual({ rowIdx: 0, atColumnTop: false, atColumnBottom: true });
+  });
+
+  it('reports the row and nothing at all for a stranger', () => {
+    expect(slotEdges([row(['A']), row(['B'])], 'B')?.rowIdx).toBe(1);
+    expect(slotEdges([row(['A'])], 'ZZ')).toBeNull();
   });
 });

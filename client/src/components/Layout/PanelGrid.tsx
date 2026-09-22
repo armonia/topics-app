@@ -30,7 +30,8 @@ import { useServerHydrated } from '../../hooks/useServerHydrated';
 import { ColumnInsertDivider, RowInsertDivider } from './InsertDividers';
 import { CellSubStack } from './CellSubStack';
 import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH, MIN_PANE_FRACTION, TAB_BAR_H } from './constants';
-import { detectDropZone, type DropZone } from '../../lib/dropZone';
+import { detectDropZone, type DropZone, type EdgeGutters } from '../../lib/dropZone';
+import { edgeStripGutters } from '../../lib/dropFeedback';
 import { SplitRegion, CenterRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths, equalizeWidths } from './gridWidths';
 import { addKeysToCellStack, applyVerticalDrop } from './panelGridStacks';
@@ -231,10 +232,12 @@ const isNativeApp = typeof window !== 'undefined' && !!(window as Window & { web
  * drags, so consumers recompute from the live event rather than trusting
  * whatever the last dragover recorded.
  */
-function computeDropZone(e: React.DragEvent, cell: HTMLElement): DropZone {
+function computeDropZone(e: React.DragEvent, cell: HTMLElement, gutters?: EdgeGutters): DropZone {
   // 5-zone (edges + center) — the inner area is meaningful here for tab
   // reorder/merge intent. Non-null because mode is 'edges+center'.
-  return detectDropZone(e, cell.getBoundingClientRect(), 'edges+center')!;
+  // `gutters` keeps the drop's answer identical to the dragover's, which moves
+  // its floor off the pixels a full-width strip owns (D7).
+  return detectDropZone(e, cell.getBoundingClientRect(), 'edges+center', undefined, gutters)!;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1611,6 +1614,23 @@ export function PanelGrid({
   // was never set. Whole-cell movement happens via tab drags, which the
   // reorder path below handles through `effectiveKey = soloKey`.)
 
+  /**
+   * The pixels of a cell rect that a full-width strip or a row-gap band already
+   * owns (D7). The standalone rect INCLUDES the cell's 40px tab bar, and the
+   * top strip is offset past that bar, so on a 320x180 first-row cell the whole
+   * "stack above" band sat under chrome: not one pixel of it was reachable.
+   */
+  const cellGutters = useCallback((rowIdx: number): EdgeGutters => {
+    const rows = gridRowsRef.current;
+    return edgeStripGutters({
+      atContainerTop: rowIdx === 0,
+      atContainerBottom: rowIdx === rows.length - 1,
+      gapBandBelow: rowIdx < rows.length - 1,
+      extremeStrips: rows.some((r) => r.itemKeys.length > 1),
+      topStripOffset: TAB_BAR_H,
+    });
+  }, [gridRowsRef]);
+
   // Capture phase: fires BEFORE children, so we can intercept edge drags
   // even when StandaloneChatGroup/GroupLayout consume bubble-phase events
   const handleGridItemDragOverCapture = useCallback((rowIdx: number, colIdx: number) => (e: React.DragEvent) => {
@@ -1679,7 +1699,7 @@ export function PanelGrid({
     }
 
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const zone = detectDropZone(e, rect, 'edges+center')!;
+    const zone = detectDropZone(e, rect, 'edges+center', undefined, cellGutters(rowIdx))!;
     let centerSide: 'left' | 'right' | undefined;
     if (zone === 'center') {
       centerSide = (e.clientX - rect.left) / rect.width < 0.5 ? 'left' : 'right';
@@ -1764,7 +1784,7 @@ export function PanelGrid({
       setFullRowDrop(null);
     }
     commitTarget({ rowIdx, colIdx, zone, centerSide, isTab: isTabDrag && !isGridDrag });
-  }, [gridDropTargetRef, gridRowsRef, fullRowDropRef, soloCellsRef]);
+  }, [gridDropTargetRef, gridRowsRef, fullRowDropRef, soloCellsRef, cellGutters]);
 
   const handleGridItemDragEnd = useCallback(() => {
     setDraggingGridKey(null);
@@ -1859,7 +1879,7 @@ export function PanelGrid({
     // the divider element would always yield a useless 'center'/'left' value.
     const actualZone = explicitTarget
       ? explicitTarget.zone
-      : computeDropZone(e, e.currentTarget as HTMLElement);
+      : computeDropZone(e, e.currentTarget as HTMLElement, cellGutters(rawDropTarget.rowIdx));
 
     let effectiveKey = e.dataTransfer.getData(DND_TYPES.GRID_ITEM);
     const sourcePaneTab = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
@@ -2285,7 +2305,7 @@ export function PanelGrid({
     // omitting it captured a stale soloCells in the drop handler. The handler is
     // only a JSX prop / wrapped by other callbacks (never an effect dep), so
     // recreating it on soloCells change has no re-render/loop cost.
-  }, [itemMap, gridDropTargetRef, gridRowsRef, fullRowDropRef, setGridRows, setSoloCells, soloCells, handleMergeIntoCell, handleUnsoloTopic, openPanels, landSidebarDrop]);
+  }, [itemMap, gridDropTargetRef, gridRowsRef, fullRowDropRef, setGridRows, setSoloCells, soloCells, handleMergeIntoCell, handleUnsoloTopic, openPanels, landSidebarDrop, cellGutters]);
 
   /* ---- Insert-between handlers (column / row dividers) ----
    *
@@ -2836,7 +2856,17 @@ export function PanelGrid({
         onDragOverCapture={handleGridItemDragOverCapture(rowIdx, colIdx)}
         onDropCapture={handleGridItemDropCapture}
       >
-        {showSplitRegion && <SplitRegion zone={zone as 'left' | 'right' | 'top' | 'bottom'} />}
+        {showSplitRegion && (
+                      <SplitRegion
+                        zone={zone as 'left' | 'right' | 'top' | 'bottom'}
+                        // The insets the project layout has always passed and
+                        // this one never did: the fill ran UNDER the full-width
+                        // strip, so the preview claimed pixels the strip owns
+                        // and the two intents overlapped.
+                        topInset={cellGutters(rowIdx).top}
+                        gutterInset={cellGutters(rowIdx).bottom}
+                      />
+                    )}
         {isTabTarget && zone === 'center' && <CenterRegion />}
         {stack ? (
           <CellSubStack
@@ -2854,7 +2884,7 @@ export function PanelGrid({
         ) : primaryGroup}
       </div>
     );
-  }, [itemMap, keyPos, effectiveGridRows, gridDropTarget, draggingGridKey, handleGridItemDragOverCapture, handleGridItemDropCapture, renderGroupForKey, handleCellStackResize, isAnyDragActive, isZoomed, zoomCellKeys]);
+  }, [itemMap, keyPos, effectiveGridRows, gridDropTarget, draggingGridKey, handleGridItemDragOverCapture, handleGridItemDropCapture, renderGroupForKey, handleCellStackResize, isAnyDragActive, isZoomed, zoomCellKeys, cellGutters]);
 
   /* ---- empty state ---- */
   if (naturalGridItems.length === 0) {
@@ -3119,7 +3149,17 @@ export function PanelGrid({
                     onDragOverCapture={handleGridItemDragOverCapture(rowIdx, colIdx)}
                     onDropCapture={handleGridItemDropCapture}
                   >
-                    {showSplitRegion && <SplitRegion zone={zone as 'left' | 'right' | 'top' | 'bottom'} />}
+                    {showSplitRegion && (
+                      <SplitRegion
+                        zone={zone as 'left' | 'right' | 'top' | 'bottom'}
+                        // The insets the project layout has always passed and
+                        // this one never did: the fill ran UNDER the full-width
+                        // strip, so the preview claimed pixels the strip owns
+                        // and the two intents overlapped.
+                        topInset={cellGutters(rowIdx).top}
+                        gutterInset={cellGutters(rowIdx).bottom}
+                      />
+                    )}
                     {isTabTarget && zone === 'center' && <CenterRegion />}
                     {/* Unified standalone group (handles chat, utility, and
                         project tabs). When the cell hosts a vertical

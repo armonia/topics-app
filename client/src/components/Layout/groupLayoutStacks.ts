@@ -330,3 +330,23 @@ export function rowGapWouldReshape(
   }
   return true;
 }
+
+/**
+ * Where `gid`'s own rect sits inside its row: which row, and whether it is the
+ * first / last slot of its column. A stacked column's MIDDLE slot touches
+ * neither the row's top nor its bottom, so no full-width strip can cover it.
+ * null when the group is nowhere in `rows`.
+ */
+export function slotEdges(
+  rows: readonly GroupLayoutRow[],
+  gid: string,
+): { rowIdx: number; atColumnTop: boolean; atColumnBottom: boolean } | null {
+  const loc = locateGroup(rows, gid);
+  if (!loc) return null;
+  const members = rows[loc.rowIdx].cellStacks?.[loc.primaryId]?.groupIds ?? [];
+  return {
+    rowIdx: loc.rowIdx,
+    atColumnTop: loc.isPrimary,
+    atColumnBottom: members.length === 0 ? loc.isPrimary : gid === members[members.length - 1],
+  };
+}

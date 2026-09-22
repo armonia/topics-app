@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import type { EdgeZone } from './dropZone';
+import type { EdgeGutters, EdgeZone } from './dropZone';
 
 /**
  * Drop-feedback visual tokens — the ONE source of truth for every pane/tab
@@ -188,5 +188,37 @@ export function rowGapZoneStyle(topPct: number, active: boolean): CSSProperties 
       ? `inset 0 ${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}, inset 0 -${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`
       : `inset 0 -${DROP_SEAM_PX}px 0 0 color-mix(in srgb, ${DROP_ACCENT} 45%, transparent)`,
     transition: 'background 140ms ease, box-shadow 140ms ease',
+  };
+}
+
+/**
+ * How many pixels at the top / bottom of a cell rect are already owned by a
+ * full-width drop strip, so `detectDropZone` can move its floor off them.
+ *
+ * The strips have `pointer-events: auto` at `Z_DROP_FULLROW`, above every
+ * cell region, so a pixel they cover is not a reachable edge target: on a short
+ * cell the "stack above this column" band shrank to a few pixels, and on a
+ * standalone 320x180 first-row cell to none at all. The interior row-gap band
+ * counts the same way, since it sits wholly in the bottom of the row above.
+ *
+ * `topStripOffset` is how far IN from the container's top edge the top strip
+ * starts, in the RECT's own coordinates: the standalone cell rect includes its
+ * tab bar (so the strip lands `TAB_BAR_H` down inside it), while the project's
+ * content rect starts below that bar (so the strip lands at 0).
+ */
+export function edgeStripGutters(o: {
+  /** The rect's top edge IS the container's top edge. */
+  atContainerTop: boolean;
+  /** The rect's bottom edge IS the container's bottom edge. */
+  atContainerBottom: boolean;
+  /** A row-gap band rests on the rect's bottom edge (another row follows). */
+  gapBandBelow: boolean;
+  /** Whether the extreme strips are mounted at all (they need >1 column). */
+  extremeStrips: boolean;
+  topStripOffset?: number;
+}): EdgeGutters {
+  return {
+    top: o.atContainerTop && o.extremeStrips ? (o.topStripOffset ?? 0) + FULL_ROW_GUTTER_PX : 0,
+    bottom: (o.atContainerBottom && o.extremeStrips) || o.gapBandBelow ? FULL_ROW_GUTTER_PX : 0,
   };
 }
