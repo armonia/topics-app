@@ -9,7 +9,7 @@ import { LazyPane } from './LazyPane';
 import { lazyWarm } from '../../lib/lazyWarm';
 import { loadBoard, loadBrowser, loadCronJobs, loadDashboard, loadProfile, loadTerminal } from '../../state/pane/panePreload';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
-import { DND_TYPES, STANDALONE_SCOPE } from '../../lib/dndTypes';
+import { DND_TYPES, STANDALONE_SCOPE, dragMatchesScope } from '../../lib/dndTypes';
 import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, ROW_INSET, TAB_LABEL } from '../../lib/selectionStyles';
 import { CONTENT_CHROME_INSET_PROPERTY } from '../../lib/shell/windowControlsGeometry';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
@@ -236,7 +236,6 @@ export function StandaloneChatGroup({
   const terminalSessions = useTerminalSessions();
 
   // Component-local UI state.
-  const [panelDragOver, setPanelDragOver] = useState(false);
   // Browser navigate URL (from WS) — owned here, mutated by ordering hook via callback.
   const [browserNavigateUrl, setBrowserNavigateUrl] = useState<string | null>(null);
 
@@ -500,6 +499,14 @@ export function StandaloneChatGroup({
   }, [onAcceptSoloDrop, onMergeIntoCell, topicIds, gridItemKey]);
 
   // Handle drops from solo groups (cross-panel-type)
+  //
+  // This handler keeps the drop PLUMBING (preventDefault is what makes a drop
+  // event fire at all) and paints NOTHING. It used to light a `data-drop-active`
+  // ring around the whole card, and that ring was always a second indicator:
+  // PanelGrid's own capture-phase dragover already paints this cell's centre
+  // region for a PANE_TAB drag, and its split region on the edges. Every case
+  // where the grid deliberately paints nothing — the tab bar's own band, a
+  // gesture the drop will refuse — is a case where the ring re-promised it.
   const handleStandaloneDragOver = useCallback((e: React.DragEvent) => {
     if (!onAcceptSoloDrop && !onMergeIntoCell) return;
     // Accept PANEL_ID drops that also have PANE_TAB (from project tab bars or solo groups)
@@ -507,24 +514,24 @@ export function StandaloneChatGroup({
     if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
     // Don't accept grid item drags
     if (e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM)) return;
+    // Scope guard, the one PanelGrid has always applied and this handler never
+    // did: a PROJECT window's tab drag belongs to that project, and the grid
+    // ignores it outright. Accepting it here offered a cell that would not take
+    // it — and, while the pointer merely crossed a standalone cell, lit that
+    // cell up on a drag it had nothing to do with.
+    if (!dragMatchesScope(e.dataTransfer.types, STANDALONE_SCOPE)) return;
     e.preventDefault();
     // WKWebView (Tauri) needs an explicit dropEffect or the source dragend reads
     // 'none' and the pop-out path closes the dragged pane (this merge drop has
     // its own handler, so PanelGrid's dropConsumedRef guard doesn't cover it).
     e.dataTransfer.dropEffect = 'move';
-    setPanelDragOver(true);
   }, [onAcceptSoloDrop, onMergeIntoCell]);
-
-  const handleStandaloneDragLeave = useCallback(() => {
-    setPanelDragOver(false);
-  }, []);
 
   const handleStandaloneDrop = useCallback((e: React.DragEvent) => {
     const topicId = e.dataTransfer.getData(DND_TYPES.PANEL_ID);
     if (!topicId) return;
     e.preventDefault();
     e.stopPropagation();
-    setPanelDragOver(false);
 
     // If the topic is already in this group, skip
     if (topicIds.includes(topicId)) return;
@@ -915,10 +922,6 @@ export function StandaloneChatGroup({
     <>
       <div
         data-split-card
-        // DOVE CADRÀ: `into`, perché il rilascio aggiunge la pane a QUESTO
-        // gruppo. L'anello era scritto qui, ed era la copia locale di un disegno
-        // che sta in `index.css` in una regola sola.
-        data-drop-active={panelDragOver ? 'into' : undefined}
         className="relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden transition-shadow"
         style={CHROME_BAR_H_VAR}
         onMouseDownCapture={() => {
@@ -927,7 +930,6 @@ export function StandaloneChatGroup({
           }
         }}
         onDragOver={handleStandaloneDragOver}
-        onDragLeave={handleStandaloneDragLeave}
         onDrop={handleStandaloneDrop}
       >
         {/* Single shared header — tab bar + (optional) sidebar toggle.

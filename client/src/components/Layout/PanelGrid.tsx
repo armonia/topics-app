@@ -35,7 +35,7 @@ import { edgeStripGutters } from '../../lib/dropFeedback';
 import { SplitRegion, CenterRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths, equalizeWidths } from './gridWidths';
 import { addKeysToCellStack, applyVerticalDrop } from './panelGridStacks';
-import { standaloneEdgeDropSplits, standaloneCenterDropMerges } from './splitRules';
+import { standaloneEdgeDropSplits, standaloneCenterDropMerges, centerMergeTargetKey } from './splitRules';
 import { draggedPaneId } from '../../lib/dragPayload';
 import { notifyPaneReflow } from './paneReflow';
 import { applyZoomWeights, cellKeysForPanes, liveCellKeys } from './paneZoom';
@@ -225,6 +225,20 @@ function removeKeyFromRow(
 
 // Check if running in native macOS app (has webkit message handlers)
 const isNativeApp = typeof window !== 'undefined' && !!(window as Window & { webkit?: { messageHandlers?: unknown } }).webkit?.messageHandlers;
+
+/**
+ * The grid key of the sub-stack SLOT under the pointer, read off the
+ * `[data-split-leaf]` that `CellSubStack` publishes for every slot. Undefined
+ * when the pointer is not over one (a cell with no stack has none) or when the
+ * leaf belongs to some other layout nested inside the cell.
+ *
+ * The drop overlays are `pointer-events: none`, so `e.target` is real content.
+ */
+function leafKeyUnderPointer(e: React.DragEvent, isKnownKey: (key: string) => boolean): string | undefined {
+  const el = (e.target as HTMLElement | null)?.closest?.('[data-split-leaf]');
+  const key = el?.getAttribute('data-split-leaf') ?? undefined;
+  return key && isKnownKey(key) ? key : undefined;
+}
 
 /**
  * Compute the drop zone under the cursor at the exact moment of drop.
@@ -477,6 +491,10 @@ export function PanelGrid({
     for (const item of naturalGridItems) m.set(item.key, item);
     return m;
   }, [naturalGridItems]);
+  // Read by the drag handlers to tell a grid key of OURS from a `data-split-leaf`
+  // published by some other layout nested inside a cell, without making itemMap a
+  // dep of a handler that is re-created per cell, per render.
+  const itemMapRef = useRefMirror(itemMap);
 
   // Read-time self-heal (CHAT-REL-02): `gridRows` absorbs naturalGridItems in a
   // POST-render effect gated on isServerHydrated (additive sync below). On the
@@ -1592,6 +1610,10 @@ export function PanelGrid({
     colIdx: number;
     zone: 'left' | 'right' | 'top' | 'bottom' | 'center';
     centerSide?: 'left' | 'right';
+    /** For a CENTER (merge) hover: the grid key of the sub-stack SLOT under the
+     *  pointer, when the cell hosts a stack. The cell itself would name its
+     *  primary however far down the pointer is (D14). */
+    leafKey?: string;
     /** True when the drag is a PANE_TAB (not a GRID_ITEM). A tab over the
      *  cell's `top` zone is aiming at the tab bar that lives there, not asking
      *  to split the cell — the drop handler no-ops that case (it returns on
@@ -1669,9 +1691,9 @@ export function PanelGrid({
     // same target object every event re-rendered the whole grid each frame — the
     // "preview delle aree di drop laggano". Only setState when the zone/cell actually
     // changes, so a steady cursor produces zero re-renders.
-    const commitTarget = (target: { rowIdx: number; colIdx: number; zone: DropZone; centerSide?: 'left' | 'right'; isTab: boolean }) => {
+    const commitTarget = (target: { rowIdx: number; colIdx: number; zone: DropZone; centerSide?: 'left' | 'right'; isTab: boolean; leafKey?: string }) => {
       const p = gridDropTargetRef.current;
-      if (p && p.rowIdx === target.rowIdx && p.colIdx === target.colIdx && p.zone === target.zone && p.centerSide === target.centerSide && p.isTab === target.isTab) return;
+      if (p && p.rowIdx === target.rowIdx && p.colIdx === target.colIdx && p.zone === target.zone && p.centerSide === target.centerSide && p.isTab === target.isTab && p.leafKey === target.leafKey) return;
       setGridDropTarget(target);
       gridDropTargetRef.current = target;
     };
@@ -1727,7 +1749,10 @@ export function PanelGrid({
       // pool). Paint nothing rather than promise it; `preventDefault` above
       // stays so the release still fires a drop and the pop-out path can't read
       // it as a drag-out.
-      const centerKey = gridRowsRef.current[rowIdx]?.itemKeys[colIdx];
+      // D14: the merge joins the SLOT under the pointer, not the cell's primary,
+      // so both the refusal question and the preview are asked about that slot.
+      const leafKey = leafKeyUnderPointer(e, (k) => itemMapRef.current.has(k));
+      const centerKey = centerMergeTargetKey(leafKey, gridRowsRef.current[rowIdx]?.itemKeys[colIdx], (k) => itemMapRef.current.has(k));
       if (centerKey && !standaloneCenterDropMerges({
         targetCellKey: centerKey,
         draggedPaneId: draggedPaneId(),
@@ -1736,7 +1761,7 @@ export function PanelGrid({
         if (gridDropTargetRef.current) { setGridDropTarget(null); gridDropTargetRef.current = null; }
         return;
       }
-      commitTarget({ rowIdx, colIdx, zone, centerSide, isTab: true });
+      commitTarget({ rowIdx, colIdx, zone, centerSide, isTab: true, leafKey });
       return;
     }
 
@@ -1784,7 +1809,7 @@ export function PanelGrid({
       setFullRowDrop(null);
     }
     commitTarget({ rowIdx, colIdx, zone, centerSide, isTab: isTabDrag && !isGridDrag });
-  }, [gridDropTargetRef, gridRowsRef, fullRowDropRef, soloCellsRef, cellGutters]);
+  }, [gridDropTargetRef, gridRowsRef, fullRowDropRef, soloCellsRef, cellGutters, itemMapRef]);
 
   const handleGridItemDragEnd = useCallback(() => {
     setDraggingGridKey(null);
@@ -1911,7 +1936,14 @@ export function PanelGrid({
         setFullRowDrop(null);
         fullRowDropRef.current = null;
         dropConsumedRef.current = true;
-        const targetKey = gridRowsRef.current[dropTarget.rowIdx]?.itemKeys[dropTarget.colIdx];
+        const targetKey = centerMergeTargetKey(
+          // Re-read from the live event, like the zone above: a fast release can
+          // land a frame after the last dragover. An explicit target is a strip
+          // or a divider, never a cell centre, so it has no slot to name.
+          explicitTarget ? undefined : leafKeyUnderPointer(e, (k) => itemMapRef.current.has(k)),
+          gridRowsRef.current[dropTarget.rowIdx]?.itemKeys[dropTarget.colIdx],
+          (k) => itemMapRef.current.has(k),
+        );
         if (targetKey?.startsWith('solo:')) {
           const targetPrimary = targetKey.slice('solo:'.length);
           if (targetPrimary !== sourceTopicId) handleMergeIntoCell(sourceTopicId, targetPrimary);
@@ -2305,7 +2337,7 @@ export function PanelGrid({
     // omitting it captured a stale soloCells in the drop handler. The handler is
     // only a JSX prop / wrapped by other callbacks (never an effect dep), so
     // recreating it on soloCells change has no re-render/loop cost.
-  }, [itemMap, gridDropTargetRef, gridRowsRef, fullRowDropRef, setGridRows, setSoloCells, soloCells, handleMergeIntoCell, handleUnsoloTopic, openPanels, landSidebarDrop, cellGutters]);
+  }, [itemMap, gridDropTargetRef, gridRowsRef, fullRowDropRef, setGridRows, setSoloCells, soloCells, handleMergeIntoCell, handleUnsoloTopic, openPanels, landSidebarDrop, cellGutters, itemMapRef]);
 
   /* ---- Insert-between handlers (column / row dividers) ----
    *
@@ -2842,7 +2874,19 @@ export function PanelGrid({
     // leave tab order and the accessibility tree — and the absence of a box,
     // which goes all the way down to the panes.
     const cellHasBox = !isZoomed || zoomCellKeys.has(key);
-    const primaryGroup = renderGroupForKey(item, key, rowIdx, colIdx, cellHasBox);
+    // D14: the centre-merge preview belongs to the SLOT a release would join.
+    // With no stack, `CellSubStack` renders the primary bare and the overlay
+    // anchors to the cell exactly as it did before; with one, it anchors to the
+    // slot, so a stacked pane's body finally says it is the target.
+    const centerLeafKey = isTabTarget && zone === 'center'
+      ? (gridDropTarget!.leafKey ?? key)
+      : null;
+    const primaryGroup = (
+      <>
+        {renderGroupForKey(item, key, rowIdx, colIdx, cellHasBox)}
+        {centerLeafKey === key && <CenterRegion />}
+      </>
+    );
     return (
       <div
         className={`flex w-full h-full min-h-0 min-w-0 overflow-hidden relative ${draggingGridKey === key ? 'opacity-40' : ''}`}
@@ -2857,17 +2901,16 @@ export function PanelGrid({
         onDropCapture={handleGridItemDropCapture}
       >
         {showSplitRegion && (
-                      <SplitRegion
-                        zone={zone as 'left' | 'right' | 'top' | 'bottom'}
-                        // The insets the project layout has always passed and
-                        // this one never did: the fill ran UNDER the full-width
-                        // strip, so the preview claimed pixels the strip owns
-                        // and the two intents overlapped.
-                        topInset={cellGutters(rowIdx).top}
-                        gutterInset={cellGutters(rowIdx).bottom}
-                      />
-                    )}
-        {isTabTarget && zone === 'center' && <CenterRegion />}
+          <SplitRegion
+            zone={zone as 'left' | 'right' | 'top' | 'bottom'}
+            // The insets the project layout has always passed and this one
+            // never did: the fill ran UNDER the full-width strip, so the
+            // preview claimed pixels the strip owns and the two intents
+            // overlapped.
+            topInset={cellGutters(rowIdx).top}
+            gutterInset={cellGutters(rowIdx).bottom}
+          />
+        )}
         {stack ? (
           <CellSubStack
             stack={stack}
@@ -2876,7 +2919,12 @@ export function PanelGrid({
             renderStackItem={(stackKey) => {
               const stackItem = itemMap.get(stackKey);
               if (!stackItem) return null;
-              return renderGroupForKey(stackItem, stackKey, rowIdx, colIdx, cellHasBox);
+              return (
+                <>
+                  {renderGroupForKey(stackItem, stackKey, rowIdx, colIdx, cellHasBox)}
+                  {centerLeafKey === stackKey && <CenterRegion />}
+                </>
+              );
             }}
             onResize={(nextHeights) => handleCellStackResize(rowIdx, key, nextHeights)}
             isDragActive={isAnyDragActive}

@@ -4,7 +4,7 @@
  * @covers LAYOUT-01
  */
 import { describe, it, expect } from 'bun:test';
-import { canSplitPane, canDropSplit, standaloneSplitSurface, standaloneEdgeDropSplits, centerDropMerges, standaloneCenterDropMerges } from './splitRules';
+import { canSplitPane, canDropSplit, standaloneSplitSurface, standaloneEdgeDropSplits, centerDropMerges, standaloneCenterDropMerges, centerMergeTargetKey } from './splitRules';
 
 describe('canSplitPane', () => {
   it('standalone pool is always splittable (single tab auto-spawns a draft companion)', () => {
@@ -146,5 +146,25 @@ describe('standaloneCenterDropMerges — the same question on the grid', () => {
 
   it('accepts a drag from another window', () => {
     expect(standaloneCenterDropMerges({ targetCellKey: 'solo:a', draggedPaneId: null, soloCells: cells })).toBe(true);
+  });
+});
+
+describe('centerMergeTargetKey — a centre drop joins the pane under the pointer', () => {
+  const known = (k: string) => ['standalone', 'solo:a', 'solo:b'].includes(k);
+
+  it('prefers the slot under the pointer over its host cell', () => {
+    // The stacked member `solo:b` lives inside the cell headed by `solo:a`:
+    // releasing on ITS body must join it, not the pane above.
+    expect(centerMergeTargetKey('solo:b', 'solo:a', known)).toBe('solo:b');
+  });
+
+  it('falls back to the cell when no slot is under the pointer', () => {
+    expect(centerMergeTargetKey(null, 'solo:a', known)).toBe('solo:a');
+    expect(centerMergeTargetKey(undefined, 'standalone', known)).toBe('standalone');
+  });
+
+  it('ignores a leaf this grid does not own', () => {
+    // A `data-split-leaf` from a PROJECT layout nested in a standalone cell.
+    expect(centerMergeTargetKey('group-77', 'solo:a', known)).toBe('solo:a');
   });
 });

@@ -203,3 +203,27 @@ export function standaloneCenterDropMerges(ctx: StandaloneCenterDropContext): bo
   const cell = ctx.soloCells.find((c) => c[0] === primary);
   return cell ? !cell.includes(topicId) : primary !== topicId;
 }
+
+/**
+ * Which cell a CENTER (merge) release joins.
+ *
+ * The standalone grid's drop targets are whole CELLS, so a cell hosting a
+ * vertical sub-stack reported its PRIMARY however far down the pointer was: a
+ * release on the body of the lower pane put the tab in the group of the pane
+ * above it. That is a data fault, not a cosmetic one, and the CenterRegion
+ * (inset 10% of the cell) never said which pane it meant.
+ *
+ * `CellSubStack` already publishes each slot as `[data-split-leaf]`, so the
+ * caller reads the slot under the pointer and passes it here; the cell stays
+ * the fallback for a cell with no stack, and a leaf this grid does not own (a
+ * project layout nested inside a standalone cell publishes leaves too) is
+ * ignored rather than trusted.
+ */
+export function centerMergeTargetKey(
+  leafKey: string | null | undefined,
+  cellKey: string | undefined,
+  isKnownKey: (key: string) => boolean,
+): string | undefined {
+  if (leafKey && isKnownKey(leafKey)) return leafKey;
+  return cellKey;
+}
