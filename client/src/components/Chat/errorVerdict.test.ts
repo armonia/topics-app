@@ -71,9 +71,11 @@ describe('readableVerdict', () => {
 /**
  * THE 35 ROWS THAT ARRIVE CUT IN HALF.
  *
- * Of the 126 payload verdicts on the reference database (2026-09-22), 35 were
- * stored truncated at a fixed 309 characters, so the object never closes and
- * `JSON.parse` can never see them. They used to fall through to the
+ * On the reference database (2026-09-22) the wide scan over every row
+ * carrying the ⚠️ marker finds 126 payloads; the narrower route the banner
+ * actually reads, `turnErrorOf`, has 123. The 35 are the same rows in both:
+ * they were stored truncated at a fixed 309 characters, so the object never
+ * closes and `JSON.parse` can never see them. They used to fall through to the
  * untouched-text branch and print the envelope raw, which is the very defect
  * this change exists to remove, just on the rows that needed it most: every
  * one of the 35 is a `tool_use`/`tool_result` pairing error, the kind you
@@ -131,8 +133,10 @@ describe('readableVerdict on a payload stored truncated', () => {
     expect(v.details).toContain('\n'); // pretty-printed, as before
   });
 
-  // THE GUARD. An unclosed brace in prose is prose, and the 36 brace-bearing
-  // rows that are not JSON must keep printing exactly as they always did.
+  // THE GUARD. An unclosed brace in prose is prose. The 36 brace-bearing rows
+  // that are not JSON come from the wide ⚠️ scan and sit outside the banner's
+  // own subset, so guarding them is conservative: prose must keep printing
+  // exactly as it always did, whichever route it arrives by.
   test('an unclosed brace with no JSON object behind it is left alone', () => {
     const raw = 'Command failed: ls ${HOME}/nope and then {oops';
     const v = readableVerdict(raw);

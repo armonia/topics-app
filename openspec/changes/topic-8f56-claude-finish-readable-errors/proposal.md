@@ -63,11 +63,13 @@ assertions (message was the JSON body, `code` undefined), `TurnErrorBanner`
 failed on the fold, and the truncated-payload block failed 7 assertions.
 
 **Measured against the real corpus, not only the samples.** A read-only pass
-over the reference database applying `readableVerdict` to every verdict row:
-all **35** truncated payloads now produce a sentence with no brace and a
-verbatim fold, **0** stay raw, and the **36** rows whose braces are not JSON
-come out byte-identical to before. That last number is the one that mattered:
-it is the proof that reading a cut payload did not start eating prose.
+over the reference database applying `readableVerdict` to every row carrying
+the ⚠️ marker, which is a superset of what the banner reads and therefore the
+conservative choice: all **35** truncated payloads now produce a sentence with
+no brace and a verbatim fold, **0** stay raw, and the **36** rows whose braces
+are not JSON come out byte-identical to before. That last number is the one
+that mattered: it is the proof that reading a cut payload did not start eating
+prose. See Grounding for the two counts and why they differ.
 
 **NOT RUN, and it is not a CI promise.** E2E
 `tests/e2e/turn-error-rendering.spec.ts`, case «il payload del provider sta in
@@ -88,21 +90,34 @@ this section as "the branch CI will cover it".
   change**: qui non c'è una riga che dipenda da quel numero.
 
 ## Grounding
-Misurato sul database di riferimento il 2026-09-22, su **2.101** righe che
-portano il cartello di avviso:
+Misurato sul database di riferimento il 2026-09-22. **Due insiemi, non uno**, e
+la differenza va detta: la scansione larga prende ogni riga che porti il
+cartello ⚠️ **in qualunque posizione**, e sono 2.101 — non tutte arrivano al
+banner. La strada che il banner legge davvero, `turnErrorOf` (⚠️ come prefisso
+iniziale, oppure un blocco `error`), è più stretta: **1.996** righe.
 
-| | righe | cosa succede ora |
+| | scansione larga (⚠️ ovunque) | strada del banner (`turnErrorOf`) |
 |---|---|---|
-| payload JSON intero | **91** | frase + payload ripiegato e indentato |
-| payload salvato troncato | **35** | frase + payload ripiegato **verbatim**, etichettato come troncato |
-| **totale con payload** | **126** | tutte leggibili |
-| graffe che non sono JSON | 36 | stampate invariate, nessun dettaglio |
-| entità HTML | **0** | nessuna decodifica scritta: sarebbe codice che si difende da un guasto che questa app non produce |
+| righe | 2.101 | **1.996** |
+| payload JSON intero | **91** | **88** |
+| payload salvato troncato | **35** | **35** (le stesse righe) |
+| **totale con payload** | **126** | **123** |
+| graffe che non sono JSON | 36 | **0** — nessuna delle 36 sta in questo sottoinsieme |
+| entità HTML | **0** | **0** — nessuna decodifica scritta: sarebbe codice che si difende da un guasto che questa app non produce |
 
 I 35 troncati sono tagliati a 309 caratteri fissi: 9 avevano già chiuso la
 stringa `message` prima del taglio, 26 no e la frase finisce con un'ellissi.
+Sono gli stessi 35 nelle due colonne.
+
+**Perché le prove girano sulla colonna larga.** È un sovrainsieme di quella del
+banner, quindi misurarci sopra è conservativo: una garanzia che regge su 2.101
+righe regge sulle 1.996, e le 36 righe di prosa con graffe sono testate pur non
+passando di lì.
 
 **Correzione rispetto alla stesura precedente**, che diceva 125 con payload e
-90 interi: la misura rifatta dà **126 e 91**. Il denominatore 2.101 regge. Non
-è deriva del database — la riga con payload più recente è del 2026-09-13, non
-ne sono arrivate di nuove — era un conteggio sbagliato di uno.
+90 interi: la misura rifatta dà **126 e 91** sulla scansione larga. Il
+denominatore 2.101 regge per quella colonna. Non è deriva del database — la
+riga con payload più recente è del 2026-09-13, non ne sono arrivate di nuove —
+era un conteggio sbagliato di uno. Seconda correzione: quelle righe erano state
+chiamate tutte «verdetti», e non lo sono — 2.101/126 misurano il cartello
+ovunque appaia, il banner ne vede 1.996/123.

@@ -22,13 +22,21 @@ unreadable as before, which is the shape of the failure that was reported.
 The chat SHALL show the provider's own sentence in the amber banner, and SHALL
 keep the raw payload available instead of printing it or discarding it.
 
-Measured on 2026-09-22: 126 of the 2101 verdict rows on this machine carried a
-provider JSON object inline, so the one sentence that mattered sat between two
-braces and a null request id. 91 of those 126 arrived whole; the other 35 were
-stored truncated, cut off at a fixed 309 characters, so the object never closes
-and `JSON.parse` can never see them. ALL 126 read as a sentence, by two
-different routes described below. A further 36 rows carry braces that are not
-JSON at all, and those SHALL keep printing exactly as they are.
+Measured on 2026-09-22, on two sets that are not the same. The wide scan takes
+every row carrying the ⚠️ marker anywhere, 2101 of them, and 126 carried a
+provider JSON object inline (91 whole, 35 stored truncated), with a further 36
+whose braces are not JSON at all. The route the banner actually reads,
+`turnErrorOf` (a leading ⚠️, or an `error` block), is narrower: 1996 rows and
+123 payloads, 88 whole and the same 35 truncated, and none of those 36
+brace-bearing prose rows.
+
+Either way the one sentence that mattered sat between two braces and a null
+request id. The 35 truncated ones are cut off at a fixed 309 characters, so the
+object never closes and `JSON.parse` can never see them. ALL of them read as a
+sentence, by two different routes described below, and the brace-bearing prose
+rows SHALL keep printing exactly as they are. Requirements below are verified
+against the wide scan: it is a superset of the banner's rows, so proving them
+there proves them for the banner.
 
 #### Scenario: the provider refused with a JSON payload
 - **GIVEN** a verdict reading `API 401: {"type":"error","error":{"type":"authentication_error","message":"OAuth access token has been revoked."},"request_id":null}. The token could not be renewed either: run `claude` then /login once, then retry.`

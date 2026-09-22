@@ -2,9 +2,18 @@
  * THE VERDICT, SPLIT IN TWO: the sentence a person reads, and the payload a
  * person forwards.
  *
- * THE DEFECT, measured on this machine's database (2026-09-22): 126 verdict
- * rows out of 2101 carry the provider's raw JSON inside the amber banner, so
- * the chat says
+ * THE DEFECT, measured on this machine's database (2026-09-22). Two counts,
+ * and they are not the same set. The wide scan takes every row carrying the
+ * ⚠️ marker anywhere, 2101 of them, and finds 126 with the provider's raw
+ * JSON inline (91 whole, 35 truncated), plus 36 more whose braces are not
+ * JSON at all. The route this file actually feeds is narrower: what
+ * `turnErrorOf` hands to the banner (a leading ⚠️, or an `error` block) is
+ * 1996 rows and 123 payloads, 88 whole and the same 35 truncated. None of the
+ * 36 brace-bearing prose rows are in that subset. Working from the wide
+ * corpus is deliberate and conservative: it is a superset of the banner's
+ * rows, so what holds there holds here.
+ *
+ * Either way the chat used to say
  *
  *   API 401: {"type":"error","error":{"type":"authentication_error","message":
  *   "OAuth access token has been revoked."},"request_id":null}. The token could
@@ -20,11 +29,12 @@
  * thrown away: a payload nobody can read is still the payload you paste into a
  * bug report.
  *
- * WHAT IS DELIBERATELY NOT HERE. No HTML entity decoding: zero of those same
- * 2101 rows contain one, so the branch would only be code defending itself
- * from a failure this app does not produce.
+ * WHAT IS DELIBERATELY NOT HERE. No HTML entity decoding: zero of those 2101
+ * marker-bearing rows contain one, so the branch would only be code defending
+ * itself from a failure this app does not produce.
  *
- * AND THE 35 THAT ARRIVE CUT IN HALF. 35 of those 126 are stored truncated at
+ * AND THE 35 THAT ARRIVE CUT IN HALF. 35 of those 126 (the same 35 inside the
+ * banner's 123, the two counts agree here) are stored truncated at
  * a fixed 309 characters, so the object never closes and `JSON.parse` will
  * never see them. Leaving them raw would have left the envelope printed in the
  * reader's face exactly where it hurts most: every one of the 35 is a

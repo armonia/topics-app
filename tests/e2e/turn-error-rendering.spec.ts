@@ -155,10 +155,12 @@ test.describe.serial("Il verdetto di un turno finito male", () => {
   /**
    * THE PROVIDER'S JSON, which the banner used to print as it came.
    *
-   * 126 verdict rows out of 2101 on the reference database carry a payload
-   * inline, so the chat showed a wall of escaped quotes with the one sentence
-   * that mattered buried in the middle. The sentence is now the banner; the
-   * payload is a fold that starts closed and can be copied.
+   * On the reference database the banner's own route, `turnErrorOf`, counts
+   * 1996 rows and 123 payloads inline (88 whole, 35 truncated). The wider
+   * scan over every row carrying the ⚠️ marker anywhere gives 2101 and 126,
+   * same 35 truncated. Either way the chat showed a wall of escaped quotes
+   * with the one sentence that mattered buried in the middle. The sentence is
+   * now the banner; the payload is a fold that starts closed and can be copied.
    */
   test("il payload del provider sta in un dettaglio richiudibile, non nella frase", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-REL-07" });
