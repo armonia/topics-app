@@ -76,9 +76,6 @@ async function openProjectBoard(page: Page) {
   await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10000 });
 }
 
-const beat = (page: Page, ms = 900) =>
-  process.env.E2E_EVIDENCE === "1" ? page.waitForTimeout(ms) : Promise.resolve();
-
 test.describe("Vista lista della board · toggle, forma, persistenza", () => {
   test.describe.configure({ timeout: 90_000 });
   test.use({ viewport: { width: 1120, height: 620 } });
@@ -117,7 +114,6 @@ test.describe("Vista lista della board · toggle, forma, persistenza", () => {
     await expect(todoCol).toBeVisible({ timeout: 10000 });
     await expect(backlogCol).toBeVisible();
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
-    await beat(page, 1200);
 
     // ── 2. One click: the board becomes a list, empty columns vanish ────────
     await toggle.click();
@@ -125,7 +121,6 @@ test.describe("Vista lista della board · toggle, forma, persistenza", () => {
     await expect(backlogCol).toHaveCount(0, { timeout: 10000 });
     await expect(todoCol).toBeVisible();
     await expect(todoCol.locator(`[data-task-card="${task.id}"]`)).toContainText(SOLA_CARD);
-    await beat(page, 1400);
 
     // ── 3. Reload: list view was not just component state ───────────────────
     await page.reload();
@@ -133,13 +128,11 @@ test.describe("Vista lista della board · toggle, forma, persistenza", () => {
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await expect(backlogCol).toHaveCount(0, { timeout: 10000 });
     await expect(todoCol).toBeVisible();
-    await beat(page, 1400);
 
     // ── 4. Back to kanban: the empty columns reappear ────────────────────────
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(backlogCol).toBeVisible({ timeout: 10000 });
     await expect(card).toBeVisible();
-    await beat(page, 1200);
   });
 });
