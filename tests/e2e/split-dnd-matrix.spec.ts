@@ -874,16 +874,16 @@ test.describe("Drag-and-drop and split: the case table", () => {
         message: "the project window must draw a surface of its own",
       })
       .toBeGreaterThan(1);
-    const prj = (await page.locator("[data-split-surface]").count()) - 1;
+    const projectSurface = (await page.locator("[data-split-surface]").count()) - 1;
     await expect
-      .poll(async () => leaves(await readTree(page, prj)).length, { timeout: 15000, message: "the project draws a leaf" })
+      .poll(async () => leaves(await readTree(page, projectSurface)).length, { timeout: 15000, message: "the project draws a leaf" })
       .toBeGreaterThan(0);
-    return prj;
+    return projectSurface;
   }
 
   /** Where the dragged pane ended up among the leaves, and how many there are. */
-  async function landing(page: Page, prj: number, paneFrag: string) {
-    const tree = await readTree(page, prj);
+  async function landing(page: Page, projectSurface: number, paneFrag: string) {
+    const tree = await readTree(page, projectSurface);
     const ids = leaves(tree);
     return { tree, ids, axis: rootAxis(tree), at: ids.indexOf(await leafOfPane(page, paneFrag)) };
   }
@@ -901,21 +901,21 @@ test.describe("Drag-and-drop and split: the case table", () => {
     ];
 
     for (const c of cases) {
-      const prj = await openProject(page, request, [projectId, idB]);
-      expect(leaves(await readTree(page, prj)), `${c.edge}: one group before the split`).toHaveLength(1);
+      const projectSurface = await openProject(page, request, [projectId, idB]);
+      expect(leaves(await readTree(page, projectSurface)), `${c.edge}: one group before the split`).toHaveLength(1);
 
       const body = await paneBodyBox(page, projectId);
       const res = await dragTabTo(page, `[data-pane-id*="${idB}"]`, edgePoint(body, c.edge), { scope: PROJECT_PATH });
       expect(res.previewed, `${c.edge}: the band must accept the drop it previews`).toBe(true);
 
       await expect
-        .poll(async () => leaves(await readTree(page, prj)).length, {
+        .poll(async () => leaves(await readTree(page, projectSurface)).length, {
           timeout: 8000,
           message: `${c.edge}: an accepted edge drop must add a leaf`,
         })
         .toBe(2);
 
-      const got = await landing(page, prj, idB);
+      const got = await landing(page, projectSurface, idB);
       // The axis is the direction, and the INDEX is the side: a right split
       // that lands the pane on the left is the same tree read backwards, and
       // only the position tells them apart.
@@ -932,16 +932,16 @@ test.describe("Drag-and-drop and split: the case table", () => {
    * the second level the rows below aim at.
    */
   async function stackedProject(page: Page, request: APIRequestContext, ids: string[]): Promise<number> {
-    const prj = await openProject(page, request, ids);
+    const projectSurface = await openProject(page, request, ids);
     const body = await paneBodyBox(page, ids[0]!);
     await dragTabTo(page, `[data-pane-id*="${ids[1]}"]`, edgePoint(body, "bottom"), { scope: PROJECT_PATH });
     await expect
       .poll(async () => {
-        const t = await readTree(page, prj);
+        const t = await readTree(page, projectSurface);
         return splits(t).filter((s) => s.dir === "col" && s.children.length === 2).length;
       }, { timeout: 8000, message: "the setup needs ONE column split vertically in two" })
       .toBe(1);
-    return prj;
+    return projectSurface;
   }
 
   test("PRJ-5: on a NESTED pane the top/bottom band lands next to it, and the siblings keep their size", async ({
@@ -953,7 +953,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
       { edge: "bottom" as const, at: 2 },
       { edge: "top" as const, at: 1 },
     ]) {
-      const prj = await stackedProject(page, request, [projectId, idB, idC]);
+      const projectSurface = await stackedProject(page, request, [projectId, idB, idC]);
       const lower = await leafOfPane(page, idB);
       const upper = await leafOfPane(page, projectId);
 
@@ -976,12 +976,12 @@ test.describe("Drag-and-drop and split: the case table", () => {
 
       await expect
         .poll(async () => {
-          const t = await readTree(page, prj);
+          const t = await readTree(page, projectSurface);
           return splits(t).filter((s) => s.dir === "col" && s.children.length === 3).length;
         }, { timeout: 8000, message: `${c.edge}: the slot lands INSIDE the pointed column, not beside it` })
         .toBe(1);
 
-      const got = await landing(page, prj, idC);
+      const got = await landing(page, projectSurface, idC);
       expect(got.ids, `${c.edge}: the column is still the whole surface -- ${shape(got.tree)}`).toHaveLength(3);
       expect(got.at, `${c.edge}: the new slot is adjacent to the pane pointed at -- ${shape(got.tree)}`).toBe(c.at);
       expect(got.ids.indexOf(lower) >= 0, `${c.edge}: the pointed member is still there`).toBe(true);
@@ -1005,7 +1005,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
 
   test("PRJ-6: on a NESTED pane the side band draws the COLUMN, and builds it", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "DNDSPLIT-04" });
-    const prj = await stackedProject(page, request, [projectId, idB, idC]);
+    const projectSurface = await stackedProject(page, request, [projectId, idB, idC]);
     const lower = await leafOfPane(page, idB);
 
     await startDrag(page, `[data-pane-id*="${idC}"]`, { scope: PROJECT_PATH });
@@ -1048,11 +1048,11 @@ test.describe("Drag-and-drop and split: the case table", () => {
     // the two it had.
     await expect
       .poll(async () => {
-        const t = await readTree(page, prj);
+        const t = await readTree(page, projectSurface);
         return splits(t).find((s) => s.dir === "row")?.children.length ?? 0;
       }, { timeout: 8000, message: "the release adds a column beside the hosting one" })
       .toBe(2);
-    const after = await readTree(page, prj);
+    const after = await readTree(page, projectSurface);
     expect(
       splits(after).filter((s) => s.dir === "col" && s.children.length === 2).length,
       `the stack is untouched: ${shape(after)}`,
@@ -1062,16 +1062,16 @@ test.describe("Drag-and-drop and split: the case table", () => {
 
   test("PRJ-7: a tab moved between two groups is in exactly one of them", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "DNDSPLIT-04" });
-    const prj = await openProject(page, request, [projectId, idB, idC]);
+    const projectSurface = await openProject(page, request, [projectId, idB, idC]);
     // Two groups first: idC leaves for a column of its own.
     await dragTabTo(page, `[data-pane-id*="${idC}"]`, edgePoint(await paneBodyBox(page, projectId), "right"), {
       scope: PROJECT_PATH,
     });
     await expect
-      .poll(async () => leaves(await readTree(page, prj)).length, { timeout: 8000, message: "two groups to move between" })
+      .poll(async () => leaves(await readTree(page, projectSurface)).length, { timeout: 8000, message: "two groups to move between" })
       .toBe(2);
 
-    const before = await readTree(page, prj);
+    const before = await readTree(page, projectSurface);
     const label = await page.locator(`[data-pane-id*="${idB}"] [data-testid="pane-tab-label"]`).first().textContent();
     const home = await leafOfPane(page, idC);
 
@@ -1099,22 +1099,22 @@ test.describe("Drag-and-drop and split: the case table", () => {
       await page.locator(`[data-pane-id*="${idB}"] [data-testid="pane-tab-label"]`).first().textContent(),
       "and it is still the same chat, not a fresh draft",
     ).toBe(label);
-    expect(shape(await readTree(page, prj)), "a move between groups creates no leaf").toBe(shape(before));
+    expect(shape(await readTree(page, projectSurface)), "a move between groups creates no leaf").toBe(shape(before));
   });
 
   test("PRJ-8: the tree survives a reload", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "DNDSPLIT-04" });
-    const prj = await stackedProject(page, request, [projectId, idB, idC]);
+    const projectSurface = await stackedProject(page, request, [projectId, idB, idC]);
     // A column beside the stack, so the shape under test has both axes: a
     // single-axis tree would come back right by accident.
     await dragTabTo(page, `[data-pane-id*="${idC}"]`, edgePoint(await paneBodyBox(page, idB), "right"), {
       scope: PROJECT_PATH,
     });
     await expect
-      .poll(async () => leaves(await readTree(page, prj)).length, { timeout: 8000, message: "a row and a stack" })
+      .poll(async () => leaves(await readTree(page, projectSurface)).length, { timeout: 8000, message: "a row and a stack" })
       .toBe(3);
 
-    const before = skeleton(await readTree(page, prj));
+    const before = skeleton(await readTree(page, projectSurface));
     const panesBefore = (await page.locator('[data-split-surface]:last-of-type [data-pane-id]').allTextContents()).length;
 
     await page.reload();
@@ -1122,13 +1122,13 @@ test.describe("Drag-and-drop and split: the case table", () => {
     await expect
       .poll(() => page.locator("[data-split-surface]").count(), { timeout: 20000, message: "the project is drawn again" })
       .toBeGreaterThan(1);
-    const prjAfter = (await page.locator("[data-split-surface]").count()) - 1;
+    const projectAfter = (await page.locator("[data-split-surface]").count()) - 1;
 
     // Compared on the SKELETON: group ids are not part of the promise, the
     // arrangement is. A reload that rebuilt the same shape with new ids kept
     // what the user arranged, and that is what the requirement says.
     await expect
-      .poll(async () => skeleton(await readTree(page, prjAfter)), {
+      .poll(async () => skeleton(await readTree(page, projectAfter)), {
         timeout: 15000,
         message: "the arrangement must come back as it was left",
       })
@@ -1141,8 +1141,8 @@ test.describe("Drag-and-drop and split: the case table", () => {
 
   test("PRJ-9: Escape during a drag leaves the tree and the console alone", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "DNDSPLIT-06" });
-    const prj = await openProject(page, request, [projectId, idB]);
-    const before = shape(await readTree(page, prj));
+    const projectSurface = await openProject(page, request, [projectId, idB]);
+    const before = shape(await readTree(page, projectSurface));
 
     // Listening only for the WINDOW of the gesture: the noise a page makes
     // while it boots is not what this row is about, and folding it in would
@@ -1167,7 +1167,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
     page.off("console", onConsole);
     page.off("pageerror", onPageError);
 
-    expect(shape(await readTree(page, prj)), "a cancelled drag changes no tree").toBe(before);
+    expect(shape(await readTree(page, projectSurface)), "a cancelled drag changes no tree").toBe(before);
     expect(
       await page.locator("[data-grid-split-overlay]").count(),
       "and leaves no preview painted behind it",
@@ -1177,8 +1177,8 @@ test.describe("Drag-and-drop and split: the case table", () => {
 
   test("PRJ-10: the centre of your OWN group paints nothing", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "DNDSPLIT-06" });
-    const prj = await openProject(page, request, [projectId, idB]);
-    const before = shape(await readTree(page, prj));
+    const projectSurface = await openProject(page, request, [projectId, idB]);
+    const before = shape(await readTree(page, projectSurface));
 
     await startDrag(page, `[data-pane-id*="${idB}"]`, { scope: PROJECT_PATH });
     const point = center(await paneBodyBox(page, idB));
@@ -1196,7 +1196,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
     await dropAtPoint(page, point);
     await endDrag(page, point);
 
-    expect(shape(await readTree(page, prj)), "and the release changed nothing either").toBe(before);
+    expect(shape(await readTree(page, projectSurface)), "and the release changed nothing either").toBe(before);
   });
 
   test("STD-13: the bottom band builds one tree, whichever cell the tab came from", async ({ page, request }) => {
