@@ -1,38 +1,40 @@
-// cancelled-notice.ts — che cosa resta scritto in chat quando un turno viene
-// ANNULLATO, e da chi dipende.
+// cancelled-notice.ts — what stays written in chat when a turn gets
+// CANCELLED, and what that depends on.
 //
-// PERCHÉ ESISTE. `finalizeStream` trattava «annullato» come una cosa sola, e
-// per una ragione buona: chi preme Ferma sa già di aver premuto, quindi
-// scrivergli «turno interrotto» sarebbe rumore, e la riga vuota che quel turno
-// lascia viene giustamente buttata (`shared/empty-turn.ts`).
+// WHY THIS EXISTS. `finalizeStream` treated "cancelled" as one single thing,
+// and for a good reason: whoever presses Stop already knows they pressed it,
+// so writing them "turn interrupted" would be noise, and the empty line that
+// turn leaves behind is rightly discarded (`shared/empty-turn.ts`).
 //
-// Solo che l'utente non è l'unico che annulla. Il 20/08, su topic:9f9e9629, ad
-// annullare è stato lo SPEGNIMENTO del server: fswatch ha visto un salvataggio
-// in `server/`, `restart-when-idle` ha atteso i suoi 60 secondi di cap per le
-// chat, poi SIGTERM → `stopAllProviders()` → `abort()` su ogni turno vivo. Il
-// turno è morto a metà di un tool, la bolla si è chiusa così com'era — l'ultima
-// frase scritta, nessuna spiegazione, nessun bottone — e nel log è rimasta la
-// riga «stream aborted by user», che è la stessa bugia scritta altrove.
+// Except the user is not the only one who cancels. On 20/08, on
+// topic:9f9e9629, what did the cancelling was the server SHUTTING DOWN:
+// fswatch saw a save in `server/`, `restart-when-idle` waited its 60-second
+// cap for chats, then SIGTERM → `stopAllProviders()` → `abort()` on every
+// live turn. The turn died mid-tool, the bubble closed exactly as it was —
+// the last sentence written, no explanation, no button — and the log kept
+// the line "stream aborted by user", the same lie written elsewhere.
 //
-// Chi guardava ha visto una risposta che si interrompe e non riprende più.
+// Whoever was watching saw a response cut off that never resumes.
 //
-// LA REGOLA. Se ad annullare è stato l'umano non si scrive niente: lo sa. In
-// ogni altro caso si scrive PERCHÉ. Il prefisso ⚠️ è quello che il client già
-// riconosce (`turnError.ts`): banner ambra, senza toccare una riga di client.
+// THE RULE. If a human did the cancelling, nothing gets written: they know.
+// In every other case, WHY gets written. The ⚠️ prefix is what the client
+// already recognizes (`turnError.ts`): amber banner, without touching a
+// single line of client code.
 //
-// COSA PUÒ FARCI CHI LEGGE non sta qui, e non è una dimenticanza. Il testo
-// prometteva sempre «"Riprova" rimanda il tuo messaggio», ma quel bottone lo
-// mostra `turnIsOnlyError` solo se il turno NON ha prodotto niente — regola
-// giusta, perché rimandare un messaggio già risposto a metà ne farebbe un
-// SECONDO, a pagamento, sopra uno che è già lì. Siccome il caso frequente è
-// proprio il turno morto a METÀ lavoro, la promessa era quasi sempre falsa:
-// «non vedo dall'app nessun riprova» (20/08). La coda giusta la sceglie
-// `avvisoPerTurno`, in fondo a questo file.
+// WHAT THE READER CAN DO ABOUT IT is not handled here, and that's not an
+// oversight. The text used to always promise «"Retry" resends your
+// message», but `turnIsOnlyError` only shows that button when the turn
+// produced NOTHING — the right rule, because resending a message that was
+// already half-answered would make a SECOND one, at a cost, on top of one
+// that's already there. Since the frequent case is exactly a turn that died
+// MID-work, the promise was almost always false: "I don't see any retry
+// from the app" (20/08). `avvisoPerTurno`, at the bottom of this file,
+// picks the right closing line.
 //
-// È una funzione pura perché è una DECISIONE, e le decisioni si provano senza
-// avviare un server: `finalizeStream` è dentro una route di 3000 righe con un
-// provider vero attaccato, e una regola che vive solo lì dentro è una regola
-// che nessuno rimette in discussione.
+// It is a pure function because it is a DECISION, and decisions get tested
+// without starting a server: `finalizeStream` sits inside a 3000-line route
+// with a real provider attached, and a rule that only lives in there is a
+// rule nobody ever questions again.
 
 import type { TurnEndInfo } from "../providers/stop-reason";
 
