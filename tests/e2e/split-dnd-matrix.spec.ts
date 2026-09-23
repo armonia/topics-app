@@ -1543,8 +1543,17 @@ test.describe("Drag-and-drop and split: the case table", () => {
             }
 
             // AT the edge: exactly one overlay, of that edge, on the target's cell.
+            // Polled, briefly: a FAST sweep returns inside the same task as its
+            // last dragover, before React has committed the paint. A pointer
+            // resting on the band is still there a frame later, so waiting for
+            // it is the gesture, and an overlay that never comes still fails.
+            await expect
+              .poll(async () => (await paintedOverlay(page)).length, {
+                timeout: 2000,
+                message: `${edge}: the edge band paints one overlay`,
+              })
+              .toBe(1);
             const painted = await paintedOverlay(page);
-            expect(painted, `${edge}: the edge band paints one overlay`).toHaveLength(1);
             expect(painted[0]!.zone, `${edge}: the overlay names the edge aimed at`).toBe(edge);
             expect(painted[0]!.cell, `${edge}: the overlay sits on the target pane`).toBe(targetCell);
 
