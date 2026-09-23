@@ -2219,6 +2219,8 @@ const IT: Dict = {
   'git.files.error': 'non sono riuscito a leggere i file',
   'git.files.empty': 'nessun file cambiato',
   'git.files.more': 'e altri {n}',
+  'git.files.filter': 'Filtra {n} file…',
+  'git.files.noMatch': 'nessun file corrisponde',
   // The state as a WORD, for assistive technology: the coloured letter on the
   // row is hidden from it, and read after the file name (see ChangedFileMark).
   'git.files.status.added': 'aggiunto',

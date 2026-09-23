@@ -1942,6 +1942,8 @@ const EN = {
   'git.files.error': 'could not read the files',
   'git.files.empty': 'no files changed',
   'git.files.more': 'and {n} more',
+  'git.files.filter': 'Filter {n} files…',
+  'git.files.noMatch': 'no file matches',
   // The state as a WORD, for assistive technology: the coloured letter on the
   // row is hidden from it, and read after the file name (see ChangedFileMark).
   'git.files.status.added': 'added',

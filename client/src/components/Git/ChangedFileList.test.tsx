@@ -14,7 +14,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ChangedFileEntry, ChangedFileList } from './ChangedFileList';
+import { ChangedFileEntry, ChangedFileList, visibleChangedRows } from './ChangedFileList';
 import type { ChangedFileRow } from './changedFiles';
 
 const row = (over: Partial<ChangedFileRow> = {}): ChangedFileRow => ({
@@ -116,6 +116,37 @@ describe('the list', () => {
     const html = renderToStaticMarkup(<ChangedFileList rows={many} />);
     expect(html.match(/data-testid="changed-file-row"/g)).toHaveLength(12);
     expect(html).toContain('3');
+  });
+
+  /**
+   * THE TAIL IS A DOOR, NOT A SIGN. «and 39 more» on a 51-file topic was text
+   * with nothing behind it: the files existed, the list knew them, and the only
+   * way to read them was to leave the surface. Measured on real data: topic
+   * 858162f5 hid 39 of 51, task 7657f201 hid 62 of 74.
+   */
+  test('the tail is a button that shows every row', () => {
+    const html = renderToStaticMarkup(<ChangedFileList rows={many} />);
+    expect(html).toMatch(/<button[^>]*data-testid="changed-file-more"/);
+    const all = visibleChangedRows(many, { expanded: true, query: '' });
+    expect(all.shown).toHaveLength(15);
+    expect(all.rest).toBe(0);
+  });
+
+  test('a long list gets a filter, and the filter searches ALL rows, not the first 12', () => {
+    const html = renderToStaticMarkup(<ChangedFileList rows={many} />);
+    expect(html).toContain('data-testid="changed-file-filter"');
+    // file-14 is past the cut: a filter over the visible slice would miss it.
+    const hit = visibleChangedRows(many, { expanded: false, query: 'FILE-14' });
+    expect(hit.shown.map((r) => r.path)).toEqual(['src/file-14.ts']);
+    expect(hit.rest).toBe(0);
+    // A folder matches too: the path is what people remember.
+    expect(visibleChangedRows(many, { expanded: false, query: 'src/' }).shown).toHaveLength(15);
+  });
+
+  test('a short list has neither filter nor tail', () => {
+    const html = renderToStaticMarkup(<ChangedFileList rows={many.slice(0, 12)} />);
+    expect(html).not.toContain('changed-file-filter');
+    expect(html).not.toContain('changed-file-more');
   });
 
   test('loading, error and empty are three different sentences', () => {
