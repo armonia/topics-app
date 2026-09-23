@@ -34,11 +34,14 @@ function at(m: ChatMessage): number {
 /**
  * The first page of a thread laid over what the pane already holds.
  *
- * Local durable messages the page does not have are OLDER than the page when
- * they sit before the pivot (or, with no pivot at all, when their timestamp
- * precedes the page's oldest row) and are kept IN FRONT; the older page will
- * replace them with the server's copy when it lands, so they only have to be
- * in the right half. Everything from the pivot on goes through
+ * Local messages the page does not have are OLDER than the page when they
+ * sit before the pivot, durable or not, and are kept IN FRONT: the older page
+ * will replace them with the server's copy when it lands, so they only have
+ * to be in the right half in the meantime. With no pivot at all the same
+ * split is made by timestamp instead, and there only a DURABLE row (one the
+ * server has already named) can be trusted to be older, since a bare
+ * timestamp on a still-optimistic bubble proves nothing. Everything from the
+ * pivot on goes through
  * `mergeFetchedHistory`, exactly as a whole thread did: optimistic echoes are
  * dropped, a placeholder for the streaming turn is dropped, and a `message:new`
  * that landed during the fetch stays at the end.
@@ -52,7 +55,13 @@ export function mergeHistoryPage(existing: ChatMessage[], page: ChatMessage[]): 
   let older: ChatMessage[];
   let rest: ChatMessage[];
   if (pivot >= 0) {
-    older = existing.slice(0, pivot).filter(durable);
+    // Everything here is kept, durable or not: it sits BEFORE the message the
+    // page also has, so it cannot be an echo of anything the page carries and
+    // dropping it would be a silent loss, not a dedup. An optimistic bubble
+    // that never adopted its durable id (its own `message:new` was dropped as
+    // `isOwnStream`) stays visible until `completeHistory` replaces the whole
+    // prefix with the server's rows.
+    older = existing.slice(0, pivot);
     rest = existing.slice(pivot);
   } else {
     // Disjoint: the chat moved on by more than a page while this pane was
