@@ -28,6 +28,7 @@ export interface KeyValueStore {
 
 const LAST_PROVIDER_KEY = 'providerOverride:last';
 const LAST_EFFORT_KEY = 'effort:last';
+const LAST_AUTONOMY_KEY = 'autonomy:last';
 
 export function providerOverrideKey(topicId: string): string {
   return `providerOverride:${topicId}`;
@@ -35,6 +36,10 @@ export function providerOverrideKey(topicId: string): string {
 
 export function effortKey(topicId: string): string {
   return `effort:${topicId}`;
+}
+
+export function autonomyKey(topicId: string): string {
+  return `autonomy:${topicId}`;
 }
 
 export function isDraftTopicId(topicId: string): boolean {
@@ -96,6 +101,16 @@ export function rememberEffort(store: KeyValueStore, next: string | null): void 
   else store.removeItem(LAST_EFFORT_KEY);
 }
 
+export function readLastAutonomy(store: KeyValueStore): string | null {
+  const raw = store.getItem(LAST_AUTONOMY_KEY);
+  return raw || null;
+}
+
+export function rememberAutonomySelection(store: KeyValueStore, next: string | null): void {
+  if (next) store.setItem(LAST_AUTONOMY_KEY, next);
+  else store.removeItem(LAST_AUTONOMY_KEY);
+}
+
 /** Con cosa parte il picker su questa pane.
  *  Ordine: quello che il topic PERSISTE (server) → la scelta fatta su questa
  *  bozza → l'ultima scelta fatta altrove. Gli ultimi due valgono solo per le
@@ -124,6 +139,18 @@ export function seedEffort(args: {
   if (topicEffort) return topicEffort;
   if (!isDraftTopicId(topicId)) return null;
   return store.getItem(effortKey(topicId)) || readLastEffort(store);
+}
+
+/** Stesso ordine per il livello di autonomia (modalità "Libero" e affini). */
+export function seedAutonomy(args: {
+  topicId: string;
+  topicAutonomy?: string | null;
+  store: KeyValueStore;
+}): string | null {
+  const { topicId, topicAutonomy, store } = args;
+  if (topicAutonomy) return topicAutonomy;
+  if (!isDraftTopicId(topicId)) return null;
+  return store.getItem(autonomyKey(topicId)) || readLastAutonomy(store);
 }
 
 /** Due selezioni sono la stessa cosa? Serve a NON ricreare l'oggetto di stato
