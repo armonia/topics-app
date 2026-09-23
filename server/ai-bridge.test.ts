@@ -196,6 +196,26 @@ describe("ai-bridge daemon", () => {
     c.close();
   });
 
+  /**
+   * The same race, from the output side (found by the verifier on 23/09):
+   * frames carry only the id, so whatever the dying child prints during its
+   * SIGTERM grace would reach the NEW child's handler as if it had said it.
+   */
+  test("output of a dying child never reaches the caller as the id's output", async () => {
+    const c = await connect();
+    const id = "topic:killtalk";
+    // Prints on SIGTERM, then exits a beat later.
+    const script = "trap 'echo last-words; sleep 0.3; exit 0' TERM; while :; do sleep 0.05; done";
+    c.send({ type: "spawn", id, cliPath: "/bin/sh", args: ["-c", script], cwd: storeDir, env: {} });
+    await c.next((m) => m.type === "spawned" && m.id === id);
+    await new Promise((r) => setTimeout(r, 150)); // let the trap be installed
+    c.send({ type: "kill", id });
+    await expect(
+      c.next((m) => m.type === "data" && m.id === id && b64(m.chunk).includes("last-words"), 1200),
+    ).rejects.toThrow("frame timeout");
+    c.close();
+  });
+
   test("list reports the session; kill removes it", async () => {
     const c = await connect();
     const id = "topic:kill1";

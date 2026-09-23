@@ -311,6 +311,9 @@ function handleMessage(msg, client) {
         // closure (onDead), and its exit is announced as the old incarnation.
         sessions.delete(msg.id);
         dying.add(s);
+        // Nobody listens to it any more: frames carry only the id, so output it
+        // prints during the SIGTERM grace would land on the NEW child's handler.
+        s.attached.clear();
         // Its store moves aside too: the next spawn opens `storePathFor(id)`
         // with truncation, and onDead would later unlink that path, i.e. the
         // NEW child's store. The open fd follows the rename.
@@ -477,7 +480,10 @@ function sweepStore() {
   const liveFiles = new Set([...sessions.values()].map((s) => path.basename(s.storePath)));
   const now = Date.now();
   for (const name of names) {
-    if (!name.endsWith('.ndjson') || liveFiles.has(name)) continue;
+    // `.ndjson.dying-<pid>`: the store of a child killed and replaced. It is
+    // unlinked when that child exits, but a daemon that shuts down first
+    // leaves it behind, and it must age out like any other store.
+    if (!/\.ndjson(\.dying-\d+)?$/.test(name) || liveFiles.has(name)) continue;
     const p = path.join(storeDir, name);
     try { if (now - fs.statSync(p).mtimeMs > RETENTION_MS) fs.unlinkSync(p); } catch {}
   }
