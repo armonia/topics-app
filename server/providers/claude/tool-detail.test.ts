@@ -10,7 +10,9 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { deriveToolDetail, deriveToolDetailFromCall } from "./tool-detail";
+import { deriveToolDetail, deriveToolDetailFromCall, TOPICS_BRIDGE_TOOLS, TOPICS_BROWSER_TOOLS } from "./tool-detail";
+import { TOOL_HANDLERS } from "../../mcp/topics-mcp-server";
+import { BROWSER_TOOL_SPECS } from "../../browser-tool-spec";
 import { parseToolCallDetail } from "../../../shared/tool-call-detail";
 
 describe("deriveToolDetail", () => {
@@ -463,6 +465,28 @@ describe("parity with the CLI's tools", () => {
     expect(solved, "these render now: drop them from DEBT, the debt went down").toEqual([]);
   });
 
+  test("the native provider's bare Topics tools get a card, not a JSON block", () => {
+    // Measured 23/09: over two weeks about 4,000 native-provider calls
+    // (read_agent, update_task, edit_file, browser_eval...) rendered as raw JSON,
+    // because the native provider calls them without the `mcp__topics__` prefix.
+    const bare = ["read_agent", "update_task", "spawn_agent", "run_script", "browser_eval", "browser_act"];
+    expect(bare.filter((n) => kind(n) === "unknown")).toEqual([]);
+    const edit = deriveToolDetail("edit_file", { path: "/a.ts", old: "x", new: "y" }) as Record<string, unknown>;
+    expect(edit).toMatchObject({ type: "edit", filePath: "/a.ts", oldString: "x", newString: "y" });
+  });
+
+  test("the bare-name lists match the real tool tables", () => {
+    // The lists are literals so the client mirror can hold the same ones; this
+    // is what stops them drifting from the tables they copy.
+    // Three have a card of their own (ask_user, wait) or are never rendered
+    // (approval_prompt is the CLI's permission channel); the browser tools are
+    // listed separately so their card can say "browser".
+    const own = new Set(["approval_prompt", "ask_user_question", "wait_for_process", ...TOPICS_BROWSER_TOOLS]);
+    const bridge = Object.keys(TOOL_HANDLERS).filter((n) => !own.has(n));
+    expect([...TOPICS_BRIDGE_TOOLS].sort()).toEqual(bridge.sort());
+    expect([...TOPICS_BROWSER_TOOLS].sort()).toEqual(BROWSER_TOOL_SPECS.map((t) => t.name).sort());
+  });
+
   test("an unknown name still falls back rather than vanishing", () => {
     // The check that keeps the empty DEBT list honest. `unknown` is the safety
     // net, and it has to keep working: the renderer switch has no `default`,
@@ -538,7 +562,7 @@ describe("parity with the CLI's tools", () => {
       join(import.meta.dir, "..", "..", "..", "client/src/components/Chat/toolDetail.ts"),
       "utf8",
     );
-    for (const n of ["agent", "task", "enterplanmode", "exitplanmode", "sendmessage", "artifact", "askuserquestion", "toolsearch"]) {
+    for (const n of ["agent", "task", "enterplanmode", "exitplanmode", "sendmessage", "artifact", "askuserquestion", "toolsearch", "edit_file", ...TOPICS_BRIDGE_TOOLS, ...TOPICS_BROWSER_TOOLS]) {
       expect(mirror, `the client mirror does not know \`${n}\``).toContain(`'${n}'`);
     }
   });

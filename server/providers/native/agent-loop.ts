@@ -20,6 +20,7 @@
  */
 
 import { getAccessToken, recoverAfter401 } from "./auth";
+import { claudeCliUserAgent } from "./cli-user-agent";
 import {
   ApiHttpError, ApiStreamError, ApiTransportError, parseRetryAfter, retryRound,
   DEFAULT_RETRY_POLICY, type RetryPolicy,
@@ -294,7 +295,7 @@ async function streamOnce(
         authorization: `Bearer ${token}`,
         "anthropic-version": API_VERSION,
         "anthropic-beta": betaHeader(longWindow),
-        "user-agent": "claude-cli/2.1.0 (external, cli)",
+        "user-agent": claudeCliUserAgent(),
       },
       body: JSON.stringify(body),
       signal: opts.signal,
