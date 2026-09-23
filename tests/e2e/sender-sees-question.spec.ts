@@ -44,12 +44,12 @@ test.describe("sender sees the question", () => {
       window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
         if (!/\/api\/chat$/.test(new URL(url, location.href).pathname) || (init?.method ?? "GET") !== "POST") return realFetch(input, init);
-        const enc = new TextEncoder();
+        const encoder = new TextEncoder();
         const call = { choices: [{ index: 0, delta: { tool_calls: [{ id, function: { name: "mcp__topics__ask_user_question", arguments: "{}" } }] } }] };
         const body = new ReadableStream<Uint8Array>({
           start(c) {
-            c.enqueue(enc.encode(`data: ${JSON.stringify(call)}\n\n`));
-            w.__releaseSse = () => { c.enqueue(enc.encode("data: [DONE]\n\n")); c.close(); };
+            c.enqueue(encoder.encode(`data: ${JSON.stringify(call)}\n\n`));
+            w.__releaseSse = () => { c.enqueue(encoder.encode("data: [DONE]\n\n")); c.close(); };
           },
         });
         return Promise.resolve(new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } }));
