@@ -31,6 +31,8 @@ import {
   __setTabLinkRetryDelayForTests,
 } from './tabLink';
 
+const realCustomEvent = globalThis.CustomEvent;
+
 // jsdom-less: a minimal, typed view of the global surface the module touches,
 // so the stubs below need no `any` (this file is linted under no-explicit-any).
 type Listener = (e: unknown) => void;
@@ -157,6 +159,9 @@ afterEach(() => {
   // And the stub window: bun has none, and a partial one left behind flips the
   // `typeof window` guards of the next file in this process.
   delete (globalThis as { window?: unknown }).window;
+  // And the real CustomEvent: the stub is not an Event, so a later file that
+  // dispatches on a real EventTarget throws "must be an instance of Event".
+  (globalThis as { CustomEvent: unknown }).CustomEvent = realCustomEvent;
 });
 
 describe('buildTaskLink / parseTaskLocation (path-based)', () => {

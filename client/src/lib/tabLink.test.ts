@@ -27,6 +27,8 @@ import { useProjectFocusStore } from '../state/projectFocus';
 import { projectPanesKey } from '../../../shared/project-keys';
 import { TIME_SLACK_ENV, parseForcedSlack } from '../../../shared/test-time-slack';
 
+const realCustomEvent = globalThis.CustomEvent;
+
 // jsdom-less, come `openTaskLink.test.ts`: una vista minima e tipata della
 // superficie globale che il modulo tocca, così gli stub non hanno bisogno di
 // `any` (questo file è lintato sotto no-explicit-any).
@@ -117,6 +119,9 @@ afterAll(() => {
   // The fake window too: bun has none, and a partial one left here trips the
   // `typeof window` guards of the next file in the same process.
   delete (globalThis as { window?: unknown }).window;
+  // And the real CustomEvent: the stub is not an Event, so a later file that
+  // dispatches on a real EventTarget throws "must be an instance of Event".
+  (globalThis as { CustomEvent: unknown }).CustomEvent = realCustomEvent;
 });
 
 /** Lascia sfilare le micro-task della verifica (e i timer a 0ms). */

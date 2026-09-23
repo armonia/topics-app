@@ -3100,6 +3100,26 @@ window and repeat the same 400 on every later turn of the session.
 - **GIVEN** a `read_file` whose output exceeds the per-result budget
 - **THEN** the history holds its head and its tail, with the omission notice between them
 
+### Requirement: NATIVE-UA-01 — The native runtime declares a CLI version the API accepts
+
+The `user-agent` the native runtime sends to Anthropic, on messages and on the
+OAuth refresh, SHALL name the highest Claude Code version installed on the
+machine, and SHALL never name one below the floor known to be accepted by every
+current default model.
+
+> **Why.** The API enables models by the CLI version the user-agent declares.
+> It was a literal `claude-cli/2.1.0`, and on 2026-09-23 `claude-opus-5-5`, the
+> default, answered 400 "Claude Code 2.1.0 does not support this model; version
+> 2.1.280 or newer is required", while 2.1.280 got a 200 on the same token.
+
+#### Scenario: no CLI installed
+- **GIVEN** no `~/.local/share/claude/versions` directory
+- **THEN** the user-agent names the floor version
+
+#### Scenario: a newer CLI installed
+- **GIVEN** versions `2.1.280` and `2.1.1000` installed
+- **THEN** the user-agent names `2.1.1000`
+
 ### Requirement: CHAT-NTOOL-01 — Il piano del turno esiste anche senza la CLI
 
 Il runtime nativo SHALL offrire uno strumento per scrivere la lista di cose da
