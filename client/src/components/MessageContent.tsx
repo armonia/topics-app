@@ -12,7 +12,6 @@ import type { PlanDecisionHandler } from './Chat/planDetection';
 import { getFileIconDef } from '../lib/fileIcons';
 import { getMediaUrl } from '../lib/api';
 import { basename } from '../lib/path-utils';
-import { TurnActivityIndicator } from './MessageParts';
 import { ToolCallRow } from './Chat/ToolCallRow';
 import { GroupedToolRows } from './Chat/ToolGroupRow';
 import { ReasoningRow } from './Chat/ReasoningRow';
@@ -27,7 +26,6 @@ import { ImageLightbox, ZoomableImage } from './Shared/ImageLightbox';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { parseSlashInvocation } from '../../../shared/slash-invocation';
-import { isAwaitingHuman } from '../../../shared/types';
 import { extractMediaPaths, splitBlockMedia } from './messageMedia';
 
 /**
@@ -922,24 +920,6 @@ interface MessageContentProps {
   blocks?: import('../types').ContentBlock[];
   media?: string[];
   partial?: boolean;
-  /** Whether this is the last row in the transcript. The live turn indicator is
-   *  gated on it so a stale/ghost partial can't render a second indicator. */
-  isLast?: boolean;
-  /**
-   * Turn start (ms epoch), from the streaming message's `timestamp`. Anchors
-   * the live turn timer inside <TurnActivityIndicator>. Only read while
-   * `partial`; undefined/NaN degrades gracefully (elapsed from mount).
-   */
-  turnStartedAt?: number;
-  // Consumo del turno — serve alla striscia VIVA (TurnActivityIndicator). La
-  // striscia di chiusura è salita in <MessageBubble>, che legge `msg` da sé:
-  // per questo `latencyMs` e `model` non passano più di qui.
-  usagePromptTokens?: number | null;
-  cacheReadTokens?: number | null;
-  cacheCreationTokens?: number | null;
-  cacheCreation1hTokens?: number | null;
-  usageCompletionTokens?: number | null;
-  costCents?: number | null;
   /** La decisione presa su un piano proposto — vedi <ToolCallRow>. */
   onPlanDecision?: PlanDecisionHandler;
   // Session viewer
@@ -959,8 +939,6 @@ interface MessageContentProps {
    * streaming messages (they never arrive trimmed).
    */
   messageId?: string;
-  // WebSocket message subscription
-  onMessage?: (handler: (msg: import('../types').WSMessage) => void) => () => void;
 }
 
 /** Una tratta della timeline di un messaggio assistant: testo, ragionamento, o
@@ -1023,7 +1001,7 @@ function RipresoBanner() {
   );
 }
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanDecision, sessionKey, messageId, onMessage }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, onPlanDecision, sessionKey, messageId }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -1073,16 +1051,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     () => (role === 'user' ? parseSlashInvocation(cleanText) : null),
     [role, cleanText],
   );
-
-  // Il turno è fermo su una domanda a schermo? Guarda entrambe le sorgenti: la
-  // timeline `blocks` (percorso attuale) e il vecchio secchio `toolCalls`, così
-  // l'indicatore dice la verità in tutti e due i rami di render.
-  const awaitingInput = useMemo(() => {
-    const inBlocks = (blocks ?? []).some(
-      (b) => b.kind === 'tool' && isAwaitingHuman(b.toolCall.status),
-    );
-    return inBlocks || (toolCalls ?? []).some((tc) => isAwaitingHuman(tc.status));
-  }, [blocks, toolCalls]);
 
   // Raggruppamento della timeline dei blocchi, calcolato UNA volta per `blocks`.
   //
@@ -1288,10 +1256,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
           </div>
         ))}
 
-        {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} sessionKey={sessionKey} onMessage={onMessage} awaitingInput={awaitingInput}
-          promptTokens={usagePromptTokens} completionTokens={usageCompletionTokens} costCents={costCents}
-          cacheReadTokens={cacheReadTokens} cacheCreationTokens={cacheCreationTokens} cacheCreation1hTokens={cacheCreation1hTokens} />}
-
         {/* La striscia di chiusura non sta più qui. A messaggio finito vive
             nella riga che <MessageBubble> apre sotto la bolla, insieme all'ora
             e rivelata dal passaggio del mouse: erano DUE righe impilate — una
@@ -1367,12 +1331,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
 
       {/* Media — rendered after content so images appear inline */}
       {allMediaPaths.map((path, i) => <div key={i} className="mb-2"><MediaRenderer path={path} isVoice={voicePaths.has(path)} isUserMessage={false} /></div>)}
-
-      {/* Live turn-activity indicator (playful phrase + timer) — covers empty
-          placeholder and mid-stream alike. */}
-      {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} sessionKey={sessionKey} onMessage={onMessage} awaitingInput={awaitingInput}
-          promptTokens={usagePromptTokens} completionTokens={usageCompletionTokens} costCents={costCents}
-          cacheReadTokens={cacheReadTokens} cacheCreationTokens={cacheCreationTokens} cacheCreation1hTokens={cacheCreation1hTokens} />}
 
       {/* Vedi sopra: la striscia di chiusura è salita in <MessageBubble>, sulla
           riga dell'ora. */}

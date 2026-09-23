@@ -63,7 +63,7 @@ import { taskSessionSegments } from './taskSessionPresentation';
 import { taskSessionRuns, type TaskSessionRunItem } from './taskSessionRuns';
 import { TaskWorkAccordion } from '../Chat/TaskWorkAccordion';
 import { COMPOSER_CARD, COMPOSER_TEXTAREA } from '../Chat/composerStyles';
-import type { ChatMessage, WSMessage } from '../../types';
+import type { ChatMessage } from '../../types';
 import { holdTopic } from '../../state/topicSubscriptions';
 
 /** One shared empty array: a new one per read would loop `useSyncExternalStore`. */
@@ -1799,7 +1799,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
     const row = (item: TimelineItem, index: number) => {
       if (sessionRuns.hidden.has(item.id)) return null;
       const workRun = sessionRuns.runs.get(item.id);
-      if (workRun) return <SessionRun key={item.id} items={workRun} sessionKey={sessionKey} onMessage={onMessage} />;
+      if (workRun) return <SessionRun key={item.id} items={workRun} sessionKey={sessionKey} />;
       if (item.source === 'comment') {
         const receipt = commentReceipt?.id === item.id ? commentReceipt.delivery : undefined;
         // Which of the two sources wins is a rule, and it lives in `chipKey.ts`
@@ -1871,7 +1871,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         );
       }
       // Imported system/session notices remain readable too.
-      return <SessionRun key={item.id} items={[{ ...item, foldProgress: false }]} sessionKey={sessionKey} onMessage={onMessage} />;
+      return <SessionRun key={item.id} items={[{ ...item, foldProgress: false }]} sessionKey={sessionKey} />;
     };
     // Adjacent transitions share one centered event row.
     const statusRun = (items: TimelineItem[]) => (
@@ -1960,7 +1960,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       </div>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- action callbacks use the task state listed below
-  }, [task, timeline, commentReceipt, deliveryWord, agentBusy, busy, sending, uploading, pending, lastThreadComment, replyOptions, tr, ownerName, children, sessionKey, onMessage, openTaskPane, previewInThread, foldedDeliveryNotes, composerHeight, sessionRuns]);
+  }, [task, timeline, commentReceipt, deliveryWord, agentBusy, busy, sending, uploading, pending, lastThreadComment, replyOptions, tr, ownerName, children, sessionKey, openTaskPane, previewInThread, foldedDeliveryNotes, composerHeight, sessionRuns]);
 
   const renderSurface = useCallback<RenderSurface>((pane, _isVisible) => {
     if (pane.id.startsWith('plan:') && planComment)
@@ -3383,10 +3383,9 @@ export function MediaStrip({ media, onPreview }: { media?: string[]; onPreview?:
  * the reader is following a decision. `sessionKey` IS passed, because it is
  * what lets the question form POST its answer.
  */
-const SessionRun = memo(function SessionRun({ items, sessionKey, onMessage }: {
+const SessionRun = memo(function SessionRun({ items, sessionKey }: {
   items: TaskSessionRunItem[];
   sessionKey: string | null;
-  onMessage?: (handler: (m: unknown) => void) => () => void;
 }) {
   const tr = useT();
   const groups = useMemo(() => {
@@ -3418,16 +3417,15 @@ const SessionRun = memo(function SessionRun({ items, sessionKey, onMessage }: {
         key={message.id}
         content={message.content ?? ''} role={message.role}
         thinking={message.thinking} toolCalls={message.toolCalls} blocks={message.blocks} media={message.media}
-        partial={message.partial} isLast={false}
+        partial={message.partial}
         sessionKey={sessionKey ?? undefined} messageId={originalId}
-        onMessage={onMessage as ((h: (m: WSMessage) => void) => () => void) | undefined}
       />);
       return folded
         ? <TaskWorkAccordion key={key} msg={summary} label={tr('chat.taskWork.sessionDetails')}>{content}</TaskWorkAccordion>
         : <div key={key}>{content}</div>;
     })}
   </div>;
-}, (previous, next) => previous.sessionKey === next.sessionKey && previous.onMessage === next.onMessage
+}, (previous, next) => previous.sessionKey === next.sessionKey
   && previous.items.length === next.items.length
   && previous.items.every((item, index) => item.msg === next.items[index].msg
     && item.hasThreadReply === next.items[index].hasThreadReply
