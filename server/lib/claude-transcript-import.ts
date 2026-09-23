@@ -195,11 +195,11 @@ export function parseTranscriptDelta(text: string, opts?: DeltaParseOptions): De
     }
     userText = userText.trim();
     if (!userText) continue; // pure tool_result carrier — no user turn to show
-    // Un turno aperto dalla CLI da sola (un task in background che finisce) non
-    // l'ha scritto nessuno: nella chat nativa non diventa una bolla utente, qui
-    // compariva come messaggio di Attilio con l'XML grezzo della notifica.
-    // Il transcript lo marca con `origin.kind`; il prefisso copre le righe
-    // scritte da CLI che non avevano ancora quel campo.
+    // A turn the CLI opened by itself (a background task finishing) was typed
+    // by nobody: the native chat shows no user bubble for it, while the import
+    // rendered it as the human's message with the raw notification XML.
+    // The transcript marks it with `origin.kind`; the prefix covers lines
+    // written by CLIs that predate that field.
     if (entry.origin?.kind === "task-notification" || userText.startsWith("<task-notification>")) {
       continue;
     }

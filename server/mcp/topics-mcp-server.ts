@@ -2320,21 +2320,21 @@ interface PermissionLegResponse {
 }
 
 /**
- * Oltre questa misura l'input NON torna indietro dentro `updatedInput`.
+ * Above this size the input is NOT echoed back in `updatedInput`.
  *
- * La risposta del permesso è un risultato MCP come gli altri, quindi passa
- * sotto `MAX_MCP_OUTPUT_TOKENS`, che Topics abbassa a 4.000 (~16 kB, vedi
- * `resolveMcpOutputTokens`). Sopra il tetto la CLI mette il risultato in un
- * file e lascia un puntatore: il blocco di testo non è più il JSON della
- * decisione, e la CLI rifiuta lo strumento con «Permission prompt tool returned
- * an invalid result». Misurato il 23/09 sulla CLI 2.1.280: `Workflow` porta nel
- * suo input l'intero `script` (21 kB nella sessione adottata ca699d37), e ogni
- * lancio moriva così; 43 kB passano col tetto di default e muoiono col nostro.
+ * The permission answer is an MCP result like any other, so it is capped by
+ * `MAX_MCP_OUTPUT_TOKENS`, which Topics lowers to 4,000 (~16 kB, see
+ * `resolveMcpOutputTokens`). Over the cap the CLI moves the result to a file and
+ * leaves a pointer: the text block is no longer the decision JSON, and the CLI
+ * rejects the tool with "Permission prompt tool returned an invalid result".
+ * Measured on 23/09 with CLI 2.1.280: `Workflow` carries the whole `script` in
+ * its input (21 kB in the adopted session ca699d37) and every launch died this
+ * way; 43 kB passes with the default cap and dies with ours.
  *
- * Senza `updatedInput` la CLI esegue lo strumento con l'input che aveva già
- * (verificato sulla stessa versione): noi non lo modifichiamo mai, quindi non
- * si perde niente. Sotto la soglia resta com'era, per non cambiare risposta
- * alle CLI più vecchie sui casi che già funzionavano.
+ * Without `updatedInput` the CLI runs the tool with the input it already had
+ * (verified on the same version), and we never modify it, so nothing is lost.
+ * Below the threshold the answer is unchanged, so older CLIs keep receiving
+ * exactly what already worked for them.
  */
 export const PERMISSION_ECHO_MAX_BYTES = 8 * 1024;
 

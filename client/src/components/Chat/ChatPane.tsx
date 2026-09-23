@@ -1255,9 +1255,9 @@ function ChatPaneComponent({
    *  vale dal turno successivo — è il server a occuparsene. */
   const handleAutonomyChange = useCallback(async (level: import('../../types').AutonomyLevel) => {
     setAutonomy(level);
-    // Ricordata come ultima scelta di QUALUNQUE chat, stesso schema di
-    // provider/modello ed effort: cosi' una chat nuova la eredita invece di
-    // ripartire sempre dal default dell'app.
+    // Remembered as the last choice of ANY chat, same scheme as
+    // provider/model and effort, so a new chat inherits it instead of always
+    // starting from the app default.
     rememberAutonomySelection(safeStore(), level);
     if (isDraftTopic) {
       // Nessuna riga sul server da PATCHare: la bozza esiste solo qui. Si

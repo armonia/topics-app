@@ -141,7 +141,7 @@ export function seedEffort(args: {
   return store.getItem(effortKey(topicId)) || readLastEffort(store);
 }
 
-/** Stesso ordine per il livello di autonomia (modalità "Libero" e affini). */
+/** Same precedence for the autonomy level ("Free" mode and the others). */
 export function seedAutonomy(args: {
   topicId: string;
   topicAutonomy?: string | null;

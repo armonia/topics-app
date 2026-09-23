@@ -50,10 +50,10 @@ describe("le tre decisioni tornano nel formato che la CLI si aspetta", () => {
   });
 
   test("allow su un input grande non lo rimanda indietro (Workflow porta tutto lo script)", async () => {
-    // 21 kB come lo script della sessione ca699d37: rimandato dentro
-    // `updatedInput` superava il tetto MCP da 4.000 token e la CLI rifiutava
-    // ogni lancio con «Permission prompt tool returned an invalid result».
-    const big = { scriptPath: "/tmp/wf.js", script: "// riempimento\n".repeat(1500) };
+    // 21 kB, like the script of session ca699d37: echoed in `updatedInput` it
+    // exceeded the 4,000-token MCP cap and the CLI rejected every launch with
+    // "Permission prompt tool returned an invalid result".
+    const big = { scriptPath: "/tmp/wf.js", script: "// filler line\n".repeat(1500) };
     const text = await callApprovalPrompt(ARGS, { tool_name: "Workflow", input: big, tool_use_id: "t1" }, stub([{ decision: "allow" }]));
     expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(PERMISSION_ECHO_MAX_BYTES);
     const out = parse(text);

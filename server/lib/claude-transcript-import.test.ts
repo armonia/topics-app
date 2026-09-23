@@ -91,13 +91,13 @@ describe("parseTranscriptToMessages", () => {
   });
 
   test("a turn the CLI opened by itself is not shown as a user message", () => {
-    // Forma reale, dalla sessione ca699d37 adottata il 23/09: la notifica di un
-    // task in background finito, seguita dalla risposta che la riassume.
+    // Real shape, from session ca699d37 adopted on 23/09: the notice of a
+    // finished background task, followed by the answer that sums it up.
     const notice = "<task-notification>\n<task-id>wbh3m8uc9</task-id>\n<status>completed</status>\n</task-notification>";
     const text = [
       line({ type: "user", origin: { kind: "human" }, message: { role: "user", content: "fai l'audit" } }),
       line({ type: "user", origin: { kind: "task-notification" }, message: { role: "user", content: notice } }),
-      // Riga di una CLI precedente al campo `origin`: basta il prefisso.
+      // Line from a CLI that predates the `origin` field: the prefix is enough.
       line({ type: "user", message: { role: "user", content: [{ type: "text", text: notice }] } }),
       line({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "audit finito" }] } }),
     ].join("\n");
@@ -106,7 +106,7 @@ describe("parseTranscriptToMessages", () => {
       ["user", "fai l'audit"],
       ["assistant", "audit finito"],
     ]);
-    // La catena resta lineare: la risposta pende dal messaggio umano.
+    // The chain stays linear: the answer hangs off the human message.
     expect(msgs[1]!.parentId).toBe(msgs[0]!.id);
   });
 
