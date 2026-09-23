@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.374 — 2026-09-23
+
+### Sotto il cofano
+- una view riusata su una porta locale morta non resta bianca davanti
+
 ## 2.2.373 — 2026-09-23
 
 ### Sotto il cofano
@@ -55,6 +60,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - un turno senza modello non eredita un default che l'account non ha
 - la sessione continua coi permessi che aveva
 - anche composer e impostazioni del progetto non hanno la riga Topics
+- the default model was missing from the runtime's own catalogue
 
 ## 2.2.372 — 2026-09-21
 

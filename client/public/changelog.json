@@ -1,5 +1,22 @@
 [
   {
+    "version": "2.2.374",
+    "date": "2026-09-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "una view riusata su una porta locale morta non resta bianca davanti",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.373",
     "date": "2026-09-23",
     "sections": {
@@ -293,6 +310,12 @@
         },
         {
           "it": "anche composer e impostazioni del progetto non hanno la riga Topics",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the default model was missing from the runtime's own catalogue",
           "en": "",
           "scope": null,
           "breaking": false
