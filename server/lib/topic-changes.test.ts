@@ -89,6 +89,53 @@ describe("aggregateTouchedFiles", () => {
     expect(files[0]).toMatchObject({ path: "src/legacy.ts", kind: "modified", turns: 1 });
   });
 
+  test("a native `edit_file` stored as detail `unknown` still names its file (861 rows since 10/09)", () => {
+    // The shape the prod DB holds: the provider boundary did not recognise the
+    // name at write time and saved the raw args under `unknown`. Returning null
+    // there dropped 13 of 64 files from one topic's strip.
+    const unknown = (name: string, args: Record<string, unknown>): ToolCall =>
+      ({ id: `${name}-${Math.random()}`, name, args, detail: { type: "unknown", raw: { args } } });
+    const files = aggregateTouchedFiles([
+      {
+        timestamp: "2026-01-01T10:00:00.000Z",
+        toolCalls: [
+          unknown("edit_file", { path: "/repo/src/edited.ts", old: "a", new: "b" }),
+          unknown("write_file", { path: "/repo/src/written.ts", content: "x" }),
+          unknown("create_file", { path: "/repo/src/created.ts", content: "x" }),
+          unknown("str_replace", { path: "/repo/src/replaced.ts", old: "a", new: "b" }),
+          unknown("MultiEdit", { file_path: "/repo/src/multi.ts", edits: [{ old_string: "a", new_string: "b" }] }),
+          // Not a write, whatever the detail says: it must stay out.
+          unknown("read_file", { path: "/repo/src/read.ts" }),
+          unknown("some_mcp_tool", { path: "/repo/src/mcp.ts" }),
+        ],
+      },
+    ]);
+    const byPath = Object.fromEntries(files.map((f) => [f.path, f.kind]));
+    expect(byPath).toEqual({
+      "/repo/src/edited.ts": "modified",
+      "/repo/src/written.ts": "created",
+      "/repo/src/created.ts": "created",
+      "/repo/src/replaced.ts": "modified",
+      "/repo/src/multi.ts": "modified",
+    });
+  });
+
+  test("a row with no detail at all falls back by name too, native names included", () => {
+    const files = aggregateTouchedFiles([
+      {
+        timestamp: "2026-01-01T10:00:00.000Z",
+        toolCalls: [
+          { id: "a", name: "edit_file", args: { path: "src/native.ts", old: "a", new: "b" } },
+          { id: "b", name: "write_file", args: { path: "src/new.ts", content: "x" } },
+        ],
+      },
+    ]);
+    expect(Object.fromEntries(files.map((f) => [f.path, f.kind]))).toEqual({
+      "src/native.ts": "modified",
+      "src/new.ts": "created",
+    });
+  });
+
   test("newest first", () => {
     const files = aggregateTouchedFiles([
       { timestamp: "2026-01-01T10:00:00.000Z", toolCalls: [call("Write", { type: "write", filePath: "old.ts" })] },
