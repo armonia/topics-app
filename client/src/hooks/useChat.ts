@@ -65,6 +65,12 @@ import {
 import { senderAlsoSees } from './senderAlsoSees';
 import { toolUpdatePatch, type ToolUpdateEvent } from './toolUpdatePatch';
 import {
+  beginStreamTokenRate,
+  finishStreamTokenRate,
+  forgetStreamTokenRate,
+  recordStreamText,
+} from '../state/streamTokenRate';
+import {
   EXPIRED_QUEUE_KEY,
   OUTBOUND_QUEUE_KEY,
   decideQueuedMessage,
@@ -590,6 +596,7 @@ export function useChat() {
    * dichiarato prima di metà di questo file.
    */
   const beginStreaming = useCallback((sessionKey: string) => {
+    beginStreamTokenRate(sessionKey);
     setStreaming(prev => ({ ...prev, [sessionKey]: true }));
     setStoppedByUser(prev => (prev[sessionKey] ? { ...prev, [sessionKey]: false } : prev));
   }, []);
@@ -700,6 +707,7 @@ export function useChat() {
    * another window, so calling it from more places is safe by construction.
    */
   const settleTurn = useCallback((sessionKey: string) => {
+    finishStreamTokenRate(sessionKey);
     streamMessageIdRef.current.end(sessionKey);
     drainTurnQueueRef.current?.(sessionKey);
   }, []);
@@ -1088,6 +1096,7 @@ export function useChat() {
   }, [appendToLastMessage]);
 
   const bufferLiveDelta = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string) => {
+    recordStreamText(sessionKey, `${contentDelta ?? ''}${thinkingDelta ?? ''}`);
     const buf = liveDeltaBufferRef.current;
     const entry = buf.get(sessionKey) ?? { content: '', thinking: '' };
     if (contentDelta) entry.content += contentDelta;
@@ -1249,7 +1258,13 @@ export function useChat() {
     // twice, and here it could not fail in a test.
     const passaAncheAlMittente = senderAlsoSees(event.type);
     if (localSSESessionsRef.current.has(sessionKey) && !passaAncheAlMittente) {
-      if (event.type === 'stream:end' || event.type === 'stream:error') scheduleSSEFailsafe(sessionKey);
+      if (event.type === 'stream:end') {
+        finishStreamTokenRate(sessionKey, event.usageCompletionTokens);
+        scheduleSSEFailsafe(sessionKey);
+      } else if (event.type === 'stream:error') {
+        finishStreamTokenRate(sessionKey);
+        scheduleSSEFailsafe(sessionKey);
+      }
       return;
     }
 
@@ -1521,6 +1536,7 @@ export function useChat() {
       }
 
       case 'stream:error':
+        finishStreamTokenRate(sessionKey);
         clearStreamTimeout(sessionKey);
         streamMessageIdRef.current.end(sessionKey);
         setStreaming(prev => ({ ...prev, [sessionKey]: false }));
@@ -1531,6 +1547,7 @@ export function useChat() {
         break;
 
       case 'stream:end':
+        finishStreamTokenRate(sessionKey, event.usageCompletionTokens);
         clearStreamTimeout(sessionKey); // Clear watchdog
         setStreaming(prev => ({ ...prev, [sessionKey]: false }));
         setThinking(prev => ({ ...prev, [sessionKey]: false }));
@@ -2016,6 +2033,8 @@ export function useChat() {
             timestamp: msg.timestamp || new Date().toISOString(),
           }));
         setMessages(prev => ({ ...prev, [sessionKey]: chatMessages }));
+        const finalAssistant = [...chatMessages].reverse().find((message) => message.role === 'assistant');
+        finishStreamTokenRate(sessionKey, finalAssistant?.usageCompletionTokens);
         hydratedSessionsRef.current.add(sessionKey);
         // The whole thread, in one answer: nothing is missing above it.
         markHistoryComplete(sessionKey);
@@ -2672,6 +2691,8 @@ export function useChat() {
         ...prev,
         [sessionKey]: chatMessages,
       }));
+      const finalAssistant = [...chatMessages].reverse().find((message) => message.role === 'assistant');
+      finishStreamTokenRate(sessionKey, finalAssistant?.usageCompletionTokens);
       hydratedSessionsRef.current.add(sessionKey);
       markHistoryComplete(sessionKey);
 
@@ -2875,6 +2896,7 @@ export function useChat() {
     // sono più (svuotata, o sfrattata dallo spazzino), quindi quel nome non
     // indica più niente e al rientro punterebbe a una riga che non esiste.
     streamMessageIdRef.current.end(sessionKey);
+    forgetStreamTokenRate(sessionKey);
     // And what the store knew about the thread's length: with no messages
     // here, "only the tail" and "the whole thread" both stop meaning anything.
     resetHistoryCompleteness(sessionKey);

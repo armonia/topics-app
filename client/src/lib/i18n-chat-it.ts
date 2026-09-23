@@ -110,6 +110,11 @@ const CHAT_IT: Dict = {
 
   // Provider and model picker.
   'chat.picker.title': 'Provider e modello',
+  'chat.tokenRate.estimatedAria': 'Velocità di generazione stimata: {rate} token al secondo',
+  'chat.tokenRate.actualAria': 'Velocità di generazione misurata: {rate} token al secondo',
+  'chat.tokenRate.estimatedTitle': 'Stima dal testo generato, media mobile di 2,5 secondi',
+  'chat.tokenRate.finalEstimateTitle': 'Stima finale dal testo generato; usage del provider non disponibile',
+  'chat.tokenRate.actualTitle': 'Usage del provider: {tokens} token di output in {seconds}s. La stima live dal testo era {estimated} token (scarto {difference}%).',
   'chat.picker.search': 'Cerca un provider o un modello',
   'chat.picker.clearSearch': 'Svuota la ricerca',
   'chat.picker.refresh': 'Aggiorna lo stato dei provider',
