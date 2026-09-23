@@ -20,6 +20,7 @@
 
 import type { ToolCall, ToolCallDetail } from "../../types";
 import { isPlanFile } from "../../../shared/plan-file";
+import { multiEditUnifiedDiff } from "../../../shared/multi-edit-diff";
 
 /**
  * The Topics bridge tools (`server/mcp/topics-mcp-server.ts`), as the native
@@ -116,17 +117,14 @@ export function deriveToolDetail(
     c === "str_replace_editor" ||
     c === "str_replace"
   ) {
-    // MultiEdit packs an `edits` array — render the first edit's old/new and
-    // count the remainder via the diff field which the renderer can show.
     if (c === "multiedit" && Array.isArray(a.edits)) {
+      // EVERY edit, as hunks of one diff (`shared/multi-edit-diff.ts`): the
+      // first-edit-plus-a-count form left the rest of them off the screen.
       const edits = a.edits as Array<Record<string, unknown>>;
-      const first = edits[0] ?? {};
-      const tail = edits.length > 1 ? `\n… and ${edits.length - 1} more edit(s)` : "";
       return {
         type: "edit",
         filePath: s(a.file_path) ?? s(a.filePath) ?? "",
-        ...(s(first.old_string) ? { oldString: (s(first.old_string) ?? "") + tail } : {}),
-        ...(s(first.new_string) ? { newString: (s(first.new_string) ?? "") + tail } : {}),
+        ...(edits.length ? { unifiedDiff: multiEditUnifiedDiff(edits) } : {}),
       };
     }
     return {

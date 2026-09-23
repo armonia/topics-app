@@ -13,6 +13,7 @@
 import type { ToolCall, ToolCallDetail } from '../../types';
 import { parseToolCallDetail } from '../../../../shared/tool-call-detail';
 import { isPlanFile } from '../../../../shared/plan-file';
+import { multiEditUnifiedDiff } from '../../../../shared/multi-edit-diff';
 
 function canon(name: string): string {
   return (name || '').toLowerCase().trim();
@@ -101,14 +102,13 @@ export function deriveToolDetail(
 
   if (EDIT_NAMES.has(c)) {
     if (c === 'multiedit' && Array.isArray(a.edits)) {
+      // EVERY edit, as hunks of one diff (`shared/multi-edit-diff.ts`): the
+      // first-edit-plus-a-count form left the rest of them off the screen.
       const edits = a.edits as Array<Record<string, unknown>>;
-      const first = edits[0] ?? {};
-      const tail = edits.length > 1 ? `\n… and ${edits.length - 1} more edit(s)` : '';
       return {
         type: 'edit',
         filePath: s(a.file_path) ?? s(a.filePath) ?? '',
-        ...(s(first.old_string) ? { oldString: (s(first.old_string) ?? '') + tail } : {}),
-        ...(s(first.new_string) ? { newString: (s(first.new_string) ?? '') + tail } : {}),
+        ...(edits.length ? { unifiedDiff: multiEditUnifiedDiff(edits) } : {}),
       };
     }
     return {

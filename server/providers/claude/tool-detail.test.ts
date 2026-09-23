@@ -73,20 +73,27 @@ describe("deriveToolDetail", () => {
     }
   });
 
-  test("MultiEdit → type=edit with first edit + tail marker", () => {
+  test("MultiEdit → type=edit carrying EVERY edit, not the first and a count", () => {
+    // The first-edit-plus-«2 more edit(s)» form left two of three edits off
+    // the screen: they were in the args and the card had no way to show them.
     const d = deriveToolDetail("MultiEdit", {
       file_path: "f.ts",
       edits: [
         { old_string: "x", new_string: "y" },
         { old_string: "p", new_string: "q" },
-        { old_string: "m", new_string: "n" },
+        { old_string: "m\nm2", new_string: "n" },
       ],
     });
     expect(d.type).toBe("edit");
     if (d.type === "edit") {
-      expect(d.oldString).toContain("x");
-      expect(d.oldString).toContain("2 more edit");
-      expect(d.newString).toContain("y");
+      expect(d.filePath).toBe("f.ts");
+      expect(d.unifiedDiff).toBe([
+        "@@ edit 1/3 @@", "-x", "+y",
+        "@@ edit 2/3 @@", "-p", "+q",
+        "@@ edit 3/3 @@", "-m", "-m2", "+n",
+      ].join("\n"));
+      expect(d.oldString).toBeUndefined();
+      expect(JSON.stringify(d)).not.toContain("more edit");
     }
   });
 
