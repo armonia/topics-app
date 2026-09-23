@@ -544,6 +544,7 @@ export default defineConfig({
         // The chat at rest: the pin loop documented in MessageList depends on
         // how the engine measures Virtuoso's rows, and WebKit is what ships.
         "**/chat-scroll-at-rest.spec.ts",
+        "**/sender-sees-question.spec.ts",
         "**/drag-preview.spec.ts",
         "**/swap-freeze-ice.spec.ts",
         "**/split-dnd-matrix.spec.ts",
