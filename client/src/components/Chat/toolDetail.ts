@@ -495,10 +495,27 @@ function summarizeArgs(args?: Record<string, unknown>): string | undefined {
   return parts.length ? parts.join(' · ') : undefined;
 }
 
+/**
+ * `cd <dir> && ` in testa al comando shell, ripetuto quanto serve.
+ *
+ * Gli agenti aprono quasi ogni Bash con un `cd` nel progetto, e nella testata
+ * della riga chiusa quel prefisso si mangiava gli 80 caratteri che si leggono:
+ * il comando vero finiva tagliato. Solo `&&` (un `;` o un `cd` da solo sono
+ * un'altra cosa) e solo in TESTATA: la card aperta mostra il comando intero.
+ */
+const LEADING_CD = /^\s*cd\s+(?:"[^"]*"|'[^']*'|[^\s;&|]+)\s*&&\s*/;
+function stripLeadingCd(command: string): string {
+  let out = command;
+  for (let m = LEADING_CD.exec(out); m && m[0].length < out.length; m = LEADING_CD.exec(out)) {
+    out = out.slice(m[0].length);
+  }
+  return out;
+}
+
 export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string): { name: string; summary?: string } {
   switch (detail.type) {
     case 'shell':
-      return { name: detail.background ? 'Shell (background)' : 'Shell', summary: detail.command };
+      return { name: detail.background ? 'Shell (background)' : 'Shell', summary: stripLeadingCd(detail.command) };
     case 'read':
       return { name: 'Read', summary: stripCwd(detail.filePath) };
     case 'edit':

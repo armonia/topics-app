@@ -287,3 +287,29 @@ describe('toolDetail — update_goal_steps / set_goal', () => {
     expect(buildToolDisplayLabel(d, 'mcp__topics__set_goal')).toEqual({ name: 'Goal', summary: 'Rendere leggibili le righe dei tool' });
   });
 });
+
+// La testata della riga shell diceva «cd /Users/…/progetto && …» e il comando
+// vero finiva fuori dagli 80 caratteri che si leggono. Il `cd` iniziale si
+// toglie SOLO dalla testata: la card aperta mostra il comando intero.
+describe('shell label: a leading `cd <dir> &&` is not the command', () => {
+  const label = (command: string) => buildToolDisplayLabel({ type: 'shell', command }).summary;
+
+  test('strips a plain, a quoted and a chained cd', () => {
+    expect(label('cd /Users/me/Projects/app && bun test')).toBe('bun test');
+    expect(label('cd "/Users/me/My Projects/app" && git status')).toBe('git status');
+    expect(label("cd '/tmp/x y' && ls -la")).toBe('ls -la');
+    expect(label('cd /a && cd b && make')).toBe('make');
+  });
+
+  test('leaves alone what is not a leading cd-and', () => {
+    expect(label('bun test && cd /tmp')).toBe('bun test && cd /tmp');
+    expect(label('cd /tmp')).toBe('cd /tmp');
+    expect(label('cd /tmp; ls')).toBe('cd /tmp; ls');
+    expect(label('cdk deploy && echo ok')).toBe('cdk deploy && echo ok');
+  });
+
+  test('the detail keeps the whole command for the open card', () => {
+    const d = deriveToolDetail('Bash', { command: 'cd /repo && bun test' });
+    if (d.type === 'shell') expect(d.command).toBe('cd /repo && bun test');
+  });
+});
