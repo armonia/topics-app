@@ -204,6 +204,32 @@ test.describe("Il colore di una corsa di tool", () => {
 
     if (isEvidenceRun()) await scattoDiConsegna(page, gruppi);
   });
+
+  test("the failure badge opens the closed group ON the failed row", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-TOOL-02" });
+    await goToApp(page);
+    await openTopic(page, new RegExp(topicName));
+
+    const parziale = page.locator('[data-testid="tool-group-row"]').nth(1);
+    await expect(parziale).toBeVisible({ timeout: 15_000 });
+    const badge = parziale.getByTestId("tool-group-errors");
+    // The badge names the error before anyone clicks: its title is the first
+    // line of the first failure.
+    await expect(badge).toHaveAttribute("title", "ENOENT");
+    // Closed group: the per-call rows do not exist yet.
+    await expect(page.getByTestId("tool-call-row-parziale-1")).toHaveCount(0);
+
+    await badge.click();
+    const failedRow = page.getByTestId("tool-call-row-parziale-1");
+    await expect(failedRow).toBeVisible();
+    await expect(failedRow).toHaveAttribute("data-highlighted", "true");
+    await expect(failedRow).toBeInViewport();
+    // The row opened by itself: the error is readable without a second click.
+    await expect(failedRow.getByTestId("tool-call-error")).toContainText("ENOENT");
+    // The rest of the group is open too, and the ring fades by itself.
+    await expect(page.getByTestId("tool-call-row-parziale-0")).toBeVisible();
+    await expect(failedRow).not.toHaveAttribute("data-highlighted", "true", { timeout: 5_000 });
+  });
 });
 
 /**
