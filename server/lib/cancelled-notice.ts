@@ -162,15 +162,16 @@ export function avvisoPerTurno(
     const perche = info.detail?.trim()
       ? `⚠️ Richiesta rifiutata dal modello: ${info.detail.trim()}`
       : "⚠️ Richiesta rifiutata dal modello, senza spiegazione.";
-    // «QUI SOTTO» MANDAVA A CERCARE UNA COSA CHE STA SOPRA.
+    // "DOWN HERE" WAS SENDING TO LOOK FOR SOMETHING THAT SITS ABOVE.
     //
-    // Il cartello è l'ULTIMO blocco della bolla: ciò che il turno aveva già
-    // prodotto sta tutto prima. Su topic:a5c4a915 (21/09) erano 18 blocchi
-    // sopra e zero sotto, e la frase indicava il vuoto. Vale per il ramo
-    // «haProdotto» di ogni cartello qui: il verdetto chiude la bolla, non la
-    // apre. E la via d'uscita si dice comunque — un rifiuto non si sblocca
-    // aspettando, e chi ha ricevuto del lavoro parziale deve sapere lo stesso
-    // che rimandare non serve.
+    // The card is the LAST block of the bubble: whatever the turn had
+    // already produced comes entirely before it. On topic:a5c4a915 (21/09)
+    // there were 18 blocks above and zero below, and the sentence pointed at
+    // nothing. This holds for the "haProdotto" branch of every card here:
+    // the verdict closes the bubble, it does not open it. And the way out
+    // gets said regardless: a refusal does not unblock by waiting, and
+    // whoever received partial work still needs to know that resending
+    // doesn't help.
     return opts.haProdotto
       ? `${perche} Quello che era già arrivato resta qui sopra: rimandare lo stesso messaggio ottiene lo stesso rifiuto, riformulalo.`
       : `${perche} Rimandare lo stesso messaggio ottiene lo stesso rifiuto: riformulalo, oppure continua in una chat nuova se è la conversazione intera a essere rifiutata.`;

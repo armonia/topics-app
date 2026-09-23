@@ -67,19 +67,20 @@ export const STOP_CAUSES = [
   'provider-error',
   'rate-limit',
   'tool-budget',
-  // IL MODELLO HA DETTO NO, ed è una fine come le altre.
+  // THE MODEL SAID NO, and it's an end like any other.
   //
-  // Stava fuori da questa lista pur essendo un `TurnEnd` da sempre, e la
-  // conseguenza era precisa: il verdetto finiva sulla riga come blocco `error`
-  // SENZA `cause`, e il banner ambra — che disegna solo le cause qui elencate —
-  // non si accendeva mai. Segnalato il 21/09 su topic:a5c4a915: il rifiuto era
-  // il 19° blocco di 19, in coda a una pila di tool call, e la chat sembrava
-  // «bloccata senza nessun feedback». La spiegazione c'era, nel posto dove
-  // nessuno guarda.
+  // It sat outside this list despite always having been a `TurnEnd`, and
+  // the consequence was precise: the verdict ended up on the row as an
+  // `error` block WITHOUT `cause`, and the amber banner — which only
+  // renders the causes listed here — never lit up. Reported 21/09 on
+  // topic:a5c4a915: the refusal was the 19th block of 19, behind a pile
+  // of tool calls, and the chat looked "stuck with no feedback". The
+  // explanation was there, in the place where nobody looks.
   //
-  // Non è `provider-error`: un errore del provider si riprova, un rifiuto no —
-  // rimandare la stessa richiesta ricompra lo stesso no. È la distinzione che
-  // `consumesAttempt` e `meritaRipresaAutomatica` leggono, e merita un nome suo.
+  // It is not `provider-error`: a provider error gets retried, a refusal
+  // doesn't — resending the same request buys the same no. It's the
+  // distinction `consumesAttempt` and `meritaRipresaAutomatica` read, and
+  // it earns a name of its own.
   'refusal',
 ] as const;
 

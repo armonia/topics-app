@@ -143,20 +143,21 @@ export type StopCause =
    */
   | "rate-limit"
   /**
-   * IL MODELLO SI È RIFIUTATO, e il rifiuto ha bisogno di un nome proprio.
+   * THE MODEL REFUSED, and a refusal needs a name of its own.
    *
-   * `refusal` è sempre stato un `TurnEnd` (l'API risponde 200 con zero blocchi
-   * di contenuto e una spiegazione in `stop_details`), ma non era una
-   * `StopCause`: il verdetto veniva scritto sulla riga come blocco `error`
-   * senza causa, e il banner ambra — che rende solo le cause dichiarate — non
-   * compariva. Segnalato il 21/09 su topic:a5c4a915: il cartello era il 19°
-   * blocco di 19, sotto una pila di tool call, e la chat sembrava «bloccata
-   * senza nessun feedback».
+   * `refusal` has always been a `TurnEnd` (the API answers 200 with zero
+   * content blocks and an explanation in `stop_details`), but it wasn't a
+   * `StopCause`: the verdict got written on the row as an `error` block
+   * with no cause, and the amber banner — which only renders declared
+   * causes — never showed up. Reported 21/09 on topic:a5c4a915: the card
+   * was the 19th block of 19, under a pile of tool calls, and the chat
+   * looked "stuck with no feedback".
    *
-   * SEPARATO DA `provider-error` PERCHÉ LA POLITICA È OPPOSTA. Un errore del
-   * provider è transitorio e si riprova; un rifiuto è deterministico e
-   * rimandare la stessa richiesta ricompra lo stesso no. È la ragione per cui
-   * `meritaRipresaAutomatica` deve poterli distinguere leggendo un campo solo.
+   * SEPARATE FROM `provider-error` BECAUSE THE POLICY IS OPPOSITE. A
+   * provider error is transient and gets retried; a refusal is
+   * deterministic and resending the same request buys the same no. That's
+   * why `meritaRipresaAutomatica` needs to tell them apart by reading a
+   * single field.
    */
   | "refusal";
 

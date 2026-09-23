@@ -148,16 +148,16 @@ describe('interruptedTurnOf — chi accende il banner', () => {
   });
 
   /**
-   * IL RIFIUTO SEGNALATO IL 21/09 su topic:a5c4a915.
+   * THE REFUSAL REPORTED 21/09 on topic:a5c4a915.
    *
-   * Il modello disse no, il server scrisse il verdetto, e la chat sembrava
-   * «bloccata senza nessun feedback». Il cartello c'era: era il 19° blocco di
-   * 19, in coda a una pila di tool call, dove nessuno scorre. Non si accendeva
-   * perche' `refusal` non era una `StopCause` e il blocco usciva senza `cause`
-   * — e questo banner rende solo i blocchi che ne portano una.
+   * The model said no, the server wrote the verdict, and the chat looked
+   * "stuck with no feedback". The card was there: it was the 19th block of
+   * 19, behind a pile of tool calls, where nobody scrolls. It didn't light up
+   * because `refusal` was not a `StopCause` and the block went out without a
+   * `cause` — and this banner only renders blocks that carry one.
    *
-   * La riga sotto e' la forma ESATTA che il turno aveva: il verdetto ultimo,
-   * dopo il lavoro gia' prodotto.
+   * The row below is the EXACT shape the turn had: the final verdict, after
+   * the work already produced.
    */
   test('un rifiuto accende: e\' l\'unico segnale che si vede senza scorrere', () => {
     const rifiutato = {

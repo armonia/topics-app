@@ -231,33 +231,35 @@ export function responsiblePid(pid: number): number | null {
 let prevSample: { at: number; byPid: Map<number, number> } | null = null;
 
 /**
- * Oltre questo, `ps` non sta rispondendo: sta annegando insieme alla macchina.
+ * Past this, `ps` is not answering: it's drowning along with the machine.
  *
- * Il 21/09/2026 uno `next dev` in loop ha riempito lo swap al 98% e QUESTO
- * `Bun.spawn` e' rimasto appeso per minuti: `GET /api/system/status` ha
- * impiegato **399 secondi**, e siccome l'await bloccava il loop di Bun, Topics
- * smetteva di rispondere anche a tutto il resto. Da fuori sembrava spento, ed
- * era invece in attesa di un `ps` che non tornava.
+ * On 21/09/2026 a looping `next dev` filled swap to 98% and THIS
+ * `Bun.spawn` stayed hung for minutes: `GET /api/system/status` took
+ * **399 seconds**, and since the await blocked Bun's loop, Topics stopped
+ * answering everything else too. From outside it looked dead, and was
+ * instead waiting on a `ps` that never came back.
  *
- * La beffa e' che il freno anti-swap di questo stesso server e' rimasto cieco
- * per lo stesso motivo (84 righe «ps did not answer with a process table»):
- * proprio mentre serviva di piu', la misura su cui decide non arrivava.
+ * The irony is that this same server's anti-swap brake went blind for
+ * the same reason (84 lines of "ps did not answer with a process
+ * table"): right when it was needed most, the measurement it decides on
+ * wasn't arriving.
  *
- * 5s e' la stessa soglia gia' usata da `readProcessProbe` in `routes/
- * processes.ts`. Fuori emergenza `ps` costa ~0,1s su ~870 processi (misurato),
- * quindi il timeout non puo' scattare per lentezza ordinaria.
+ * 5s is the same threshold already used by `readProcessProbe` in
+ * `routes/processes.ts`. Outside an emergency `ps` costs ~0.1s over ~870
+ * processes (measured), so the timeout cannot trip from ordinary
+ * slowness.
  */
 const PS_TIMEOUT_MS = 5000;
 
-/** Il comando lanciato da `snapshot`. Iniettabile SOLO dal test: per provare
- *  che un `ps` appeso non blocca il server serve un `ps` che si appende
- *  davvero, e non si puo' chiedere alla macchina di andare in swap-thrash su
- *  richiesta. In produzione nessuno passa questo parametro. */
+/** The command launched by `snapshot`. Injectable ONLY from the test: to
+ *  prove a hung `ps` doesn't block the server, you need a `ps` that
+ *  really hangs, and you can't ask the machine to go into swap-thrash on
+ *  demand. In production nobody passes this parameter. */
 export type PsSpawner = () => {
   stdout: ReadableStream | null;
   exited: Promise<number>;
-  // La firma e' quella di Bun (`Signals`, non `string`): il finto del test deve
-  // combaciare con il vero, o il tipo smette di dire qualcosa sul codice reale.
+  // The signature is Bun's (`Signals`, not `string`): the test fake must
+  // match the real one, or the type stops saying anything about the real code.
   kill: (exitCode?: number | NodeJS.Signals) => void;
 };
 
@@ -269,9 +271,9 @@ export async function snapshot(spawn: PsSpawner = defaultPsSpawner, timeoutMs = 
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
-      // Ucciderlo e' parte del rimedio: un `ps` appeso mentre la macchina
-      // soffoca e' esso stesso un processo in piu' che compete per la RAM.
-      try { proc.kill("SIGKILL"); } catch { /* puo' essere gia' uscito */ }
+      // Killing it is part of the fix: a `ps` hung while the machine is
+      // choking is itself one more process competing for RAM.
+      try { proc.kill("SIGKILL"); } catch { /* may have already exited */ }
       reject(new Error("ps probe timed out"));
     }, timeoutMs);
     if (typeof timer.unref === "function") timer.unref();

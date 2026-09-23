@@ -547,32 +547,33 @@ describe("fleet cache · la valanga a freddo", () => {
 
 
 /**
- * LO `ps` CHE NON TORNA.
+ * THE `ps` THAT DOES NOT RETURN.
  *
- * Il 21/09/2026 Topics e' sembrato spento: rispondeva HTTP solo dopo minuti e
- * da fuori era indistinguibile da un server morto. Era vivo. Uno `next dev` in
- * loop aveva riempito lo swap al 98%, e lo `ps -axo` di questo modulo veniva
- * lanciato SENZA scadenza: restava appeso finche' il kernel non lo schedulava,
- * e l'await si portava dietro l'intero loop di Bun. Misurato nel log del
- * server: `GET /api/system/status` **399 secondi**, `GET /api/system/presence`
- * 165 s, con il loop fermo fino a 115 s di fila.
+ * On 21/09/2026 Topics looked dead: it answered HTTP only after minutes,
+ * and from outside was indistinguishable from a dead server. It was alive.
+ * A looping `next dev` had filled swap to 98%, and this module's
+ * `ps -axo` was launched WITHOUT a deadline: it stayed hung until the
+ * kernel scheduled it, and the await dragged the whole Bun loop down with
+ * it. Measured in the server log: `GET /api/system/status` **399
+ * seconds**, `GET /api/system/presence` 165 s, with the loop stalled for
+ * up to 115 s at a stretch.
  *
- * Il danno peggiore non era la latenza: il freno anti-swap di questo stesso
- * server decide su questa misura, e quando serviva di piu' non arrivava. Nel
- * log 84 righe «ps did not answer with a process table: nothing measured,
- * nothing signalled» — cieco esattamente durante l'emergenza che doveva
- * gestire.
+ * The worst damage was not the latency: this same server's anti-swap
+ * brake decides on this measurement, and it wasn't arriving right when it
+ * was needed most. 84 log lines read "ps did not answer with a process
+ * table: nothing measured, nothing signalled" — blind exactly during the
+ * emergency it was meant to handle.
  *
- * Qui lo `ps` appeso e' finto ma il blocco e' reale: uno stdout che non si
- * chiude mai. Senza la scadenza questi test non fallirebbero, resterebbero
- * appesi per sempre, che e' precisamente il guasto.
+ * Here the hung `ps` is fake but the deadlock is real: a stdout that
+ * never closes. Without the deadline these tests would not fail, they'd
+ * hang forever, which is precisely the fault.
  */
-describe("fleet · lo `ps` che non torna", () => {
+describe("fleet · the `ps` that does not return", () => {
   beforeEach(() => _resetFleetUsageCache());
 
-  /** Un `ps` che non chiude mai stdout e non esce mai: il thrash, in provetta. */
+  /** A `ps` that never closes stdout and never exits: thrash, in a test tube. */
   const hangingPs = (killed: { yes: boolean }): PsSpawner => () => ({
-    stdout: new ReadableStream({ start() { /* mai enqueue, mai close */ } }),
+    stdout: new ReadableStream({ start() { /* never enqueue, never close */ } }),
     exited: new Promise<number>(() => {}),
     kill: () => { killed.yes = true; },
   });
@@ -602,8 +603,8 @@ describe("fleet · lo `ps` che non torna", () => {
     const killed = { yes: false };
     const started = Date.now();
 
-    // `getFleetUsage` degrada a «non lo so» (cache o unsupported): quello che
-    // NON deve fare e' propagare l'attesa a chi sta servendo una richiesta.
+    // `getFleetUsage` degrades to "I don't know" (cache or unsupported): what it
+    // must NOT do is propagate the wait to whoever is serving a request.
     const usage = await getFleetUsage(() => snapshot(hangingPs(killed), 80));
 
     expect(usage.supported === false || usage.processCount >= 0).toBe(true);

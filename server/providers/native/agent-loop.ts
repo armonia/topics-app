@@ -588,9 +588,9 @@ export function forApi(blocks: Block[]): Block[] {
  * failed; it does not compact or resume it, so the cap itself has to be high
  * enough for the work (see `DEFAULT_MAX_TOKENS`).
  */
-/** Esportata per il test: e' la funzione che decide il verdetto di un giro, e
- *  il difetto del 21/09 (un rifiuto senza `cause`, quindi senza banner) viveva
- *  esattamente in uno dei suoi rami. */
+/** Exported for the test: this is the function that decides a round's
+ *  verdict, and the 21/09 fault (a refusal with no `cause`, hence no
+ *  banner) lived exactly in one of its branches. */
 export function roundEnd(
   stopReason: string | null,
   toolUseCount: number,
@@ -616,14 +616,14 @@ export function roundEnd(
   // `consumesAttempt` returns false for it (retrying an identical request buys
   // the identical refusal) and `describeTurnEnd` has its sentence.
   if (stopReason === "refusal") {
-    // LA CAUSA VIAGGIA COL VERDETTO, o il verdetto non si vede.
+    // THE CAUSE TRAVELS WITH THE VERDICT, or the verdict stays unseen.
     //
-    // `end` dice COSA è successo, `cause` dice CHI ha chiuso il turno, ed è
-    // `cause` che il banner sopra il compositore rende e che `stream:end`
-    // mette sul filo (entrambi ignorano un blocco `error` che non ce l'ha).
-    // Senza, il rifiuto restava un blocco in fondo alla bolla: su
-    // topic:a5c4a915, il 21/09, il 19° di 19 sotto una pila di tool call, e la
-    // chat sembrava «bloccata senza nessun feedback».
+    // `end` says WHAT happened, `cause` says WHO closed the turn, and it's
+    // `cause` that the banner above the composer renders and that
+    // `stream:end` puts on the wire (both ignore an `error` block that
+    // lacks it). Without it, the refusal stayed a block at the bottom of
+    // the bubble: on topic:a5c4a915, 21/09, the 19th of 19 under a pile of
+    // tool calls, and the chat looked "stuck with no feedback".
     return { end: "refusal", cause: "refusal", detail: refusalDetail(stopDetails) };
   }
   if (toolUseCount > 0) {

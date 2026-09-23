@@ -193,13 +193,13 @@ describe("avvisoPerTurno — la coda dice il vero", () => {
   });
 
   /**
-   * «QUI SOTTO» INDICAVA IL VUOTO.
+   * "DOWN HERE" WAS POINTING AT NOTHING.
    *
-   * Il cartello e' l'ULTIMO blocco della bolla, quindi cio' che il turno aveva
-   * gia' prodotto sta SOPRA. Su topic:a5c4a915 (21/09) erano 18 blocchi sopra
-   * e zero sotto, e la frase mandava a cercare dalla parte sbagliata.
+   * The card is the LAST block of the bubble, so whatever the turn had
+   * already produced sits ABOVE. On topic:a5c4a915 (21/09) there were 18
+   * blocks above and zero below, and the sentence pointed the wrong way.
    */
-  test("rifiuto con lavoro gia' prodotto: indica SOPRA, dove il lavoro sta davvero", () => {
+  test("refusal with work already produced: points ABOVE, where the work actually is", () => {
     const rifiuto: TurnEndInfo = { end: "refusal", detail: "violative cyber content" };
     const out = avvisoPerTurno(rifiuto, { haProdotto: true })!;
     expect(out).toContain("qui sopra");
@@ -207,12 +207,12 @@ describe("avvisoPerTurno — la coda dice il vero", () => {
   });
 
   /**
-   * La via d'uscita si dice ANCHE a chi ha ricevuto del lavoro parziale: un
-   * rifiuto non si sblocca aspettando, e rimandare ricompra lo stesso no.
-   * Prima quel ramo si fermava a «resta qui sotto» e lasciava senza risposta
-   * l'unica domanda che conta, «e adesso?».
+   * The way out gets said EVEN to someone who received partial work: a
+   * refusal does not unblock by waiting, and resending buys the same no.
+   * Before, that branch stopped at "stays down here" and left the only
+   * question that matters, "now what?", unanswered.
    */
-  test("rifiuto: la via d'uscita c'e' in entrambi i rami", () => {
+  test("refusal: the way out is present in both branches", () => {
     const rifiuto: TurnEndInfo = { end: "refusal", detail: "violative cyber content" };
     for (const haProdotto of [true, false]) {
       expect(avvisoPerTurno(rifiuto, { haProdotto })!).toContain("riformula");
