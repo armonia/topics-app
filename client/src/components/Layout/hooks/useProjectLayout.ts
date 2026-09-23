@@ -71,6 +71,7 @@ import {
   isColumnStackFull,
   locateGroup,
 } from '../groupLayoutStacks';
+import { companionSplitIsFresh } from '../companionSplit';
 import { clearBrowserSpawner } from '../../../state/browserSpawner';
 import { isTauri } from '../../../lib/shell';
 import { tauriInvoke } from '../../../lib/shell/tauri';
@@ -377,12 +378,14 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   const pendingTargetedChatRef = useRef<{ paneId: string } | null>(null);
   // A split asked for on the only pane of its group, waiting for the companion
   // chat to be created (see `handleSplitGroup`). Consumed by the effect that
-  // watches the source group fill up.
+  // watches the source group fill up, and only while `askedAt` is still fresh
+  // (see companionSplit.ts for why it needs a deadline at all).
   const pendingCompanionSplitRef = useRef<{
     sourceGroupId: string;
     paneId: string;
     edge: 'left' | 'right' | 'top' | 'bottom';
     opts?: { fullRow?: boolean };
+    askedAt: number;
   } | null>(null);
 
   // --- Stop streaming (closes pane locally if first-message stop) ---
@@ -453,9 +456,15 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
   // group now holds two panes, so it takes the ordinary route and no cell is
   // ever empty in between. The first chat that joins consumes the intent —
   // whichever one it is, splitting the pane out is still what was asked for.
+  // An intent that went stale is dropped instead of replayed: see
+  // companionSplit.ts for what a deadline-less one did hours later.
   useEffect(() => {
     const pending = pendingCompanionSplitRef.current;
     if (!pending) return;
+    if (!companionSplitIsFresh(pending.askedAt, Date.now())) {
+      pendingCompanionSplitRef.current = null;
+      return;
+    }
     const group = groups.find(g => g.id === pending.sourceGroupId);
     if (!group || group.paneIds.length < 2 || !group.paneIds.includes(pending.paneId)) return;
     pendingCompanionSplitRef.current = null;
@@ -1391,7 +1400,7 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         const sourceGroup = groups.find(g => g.id === sourceGroupId);
         if (sourceGroup && sourceGroup.paneIds.length <= 1) {
           if (!onNewChat) return;
-          pendingCompanionSplitRef.current = { sourceGroupId, paneId, edge, opts };
+          pendingCompanionSplitRef.current = { sourceGroupId, paneId, edge, opts, askedAt: Date.now() };
           onNewChat(sourceGroupId);
           return;
         }

@@ -9,7 +9,7 @@ import { LazyPane } from './LazyPane';
 import { lazyWarm } from '../../lib/lazyWarm';
 import { loadBoard, loadBrowser, loadCronJobs, loadDashboard, loadProfile, loadTerminal } from '../../state/pane/panePreload';
 import { SidebarToggleButton } from '../Shared/SidebarToggleButton';
-import { DND_TYPES, STANDALONE_SCOPE } from '../../lib/dndTypes';
+import { DND_TYPES, STANDALONE_SCOPE, dragMatchesScope } from '../../lib/dndTypes';
 import { CHROME_BAR, CHROME_BAR_H_VAR, CHROME_ROW_ACTION_RESERVE_LEFT, RAISED_CONTROL, ROW_INSET, TAB_LABEL } from '../../lib/selectionStyles';
 import { CONTENT_CHROME_INSET_PROPERTY } from '../../lib/shell/windowControlsGeometry';
 import { isUtilityPanelId, parseUtilityPanelType } from './UtilityPanel';
@@ -236,7 +236,6 @@ export function StandaloneChatGroup({
   const terminalSessions = useTerminalSessions();
 
   // Component-local UI state.
-  const [panelDragOver, setPanelDragOver] = useState(false);
   // Browser navigate URL (from WS) — owned here, mutated by ordering hook via callback.
   const [browserNavigateUrl, setBrowserNavigateUrl] = useState<string | null>(null);
 
@@ -500,6 +499,8 @@ export function StandaloneChatGroup({
   }, [onAcceptSoloDrop, onMergeIntoCell, topicIds, gridItemKey]);
 
   // Handle drops from solo groups (cross-panel-type)
+  const [panelDragOver, setPanelDragOver] = useState(false);
+
   const handleStandaloneDragOver = useCallback((e: React.DragEvent) => {
     if (!onAcceptSoloDrop && !onMergeIntoCell) return;
     // Accept PANEL_ID drops that also have PANE_TAB (from project tab bars or solo groups)
@@ -512,7 +513,14 @@ export function StandaloneChatGroup({
     // 'none' and the pop-out path closes the dragged pane (this merge drop has
     // its own handler, so PanelGrid's dropConsumedRef guard doesn't cover it).
     e.dataTransfer.dropEffect = 'move';
-    setPanelDragOver(true);
+    // ONE indicator, and this card owns it only when nobody else does. For a tab
+    // of the GRID's own scope, PanelGrid already paints this cell's centre
+    // region (and its edge regions) from a capture-phase dragover, so the ring
+    // on top of it was simply the second feedback. A tab from a PROJECT window
+    // is the case the grid deliberately ignores while the drop below still
+    // takes it — pulling a chat out into the workspace — and there the ring is
+    // the only thing that says the release will land.
+    setPanelDragOver(!dragMatchesScope(e.dataTransfer.types, STANDALONE_SCOPE));
   }, [onAcceptSoloDrop, onMergeIntoCell]);
 
   const handleStandaloneDragLeave = useCallback(() => {
@@ -915,9 +923,9 @@ export function StandaloneChatGroup({
     <>
       <div
         data-split-card
-        // DOVE CADRÀ: `into`, perché il rilascio aggiunge la pane a QUESTO
-        // gruppo. L'anello era scritto qui, ed era la copia locale di un disegno
-        // che sta in `index.css` in una regola sola.
+        // DOVE CADRA': `into`, perche' il rilascio aggiunge la pane a QUESTO
+        // gruppo. Acceso solo per un drag che la griglia ignora e questo
+        // gestore accetta: vedi `handleStandaloneDragOver`.
         data-drop-active={panelDragOver ? 'into' : undefined}
         className="relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden transition-shadow"
         style={CHROME_BAR_H_VAR}

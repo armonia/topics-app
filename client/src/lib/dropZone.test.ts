@@ -86,3 +86,49 @@ describe('detectDropZone (relative 5-zone)', () => {
     expect(detectDropZone(at(5, 300), b)).toBe('left');
   });
 });
+
+describe('detectDropZone — a side a drop strip already owns', () => {
+  // The 26px full-width strips sit ON TOP of the cell's own edge band, at
+  // `Z_DROP_FULLROW` with pointer-events auto, so whatever they cover is not a
+  // reachable edge target. Raising the floor on THAT side alone gives the
+  // gesture its 30px back. Numbers from the dnd-split audit.
+
+  test('standalone 320x180 first-row cell: the stack-above band is zero without the gutter', () => {
+    const cell = bounds(320, 180); // depthY = max(30, 45) = 45
+    // The rect includes the 40px tab bar and the strip covers [40, 66): every
+    // pixel of the [0, 45) band is either bar or strip.
+    expect(detectDropZone(at(160, 70), cell)).toBe('center');
+  });
+
+  test('...and a real band with it: tab bar 40 + strip 26 = 66px of gutter', () => {
+    const cell = bounds(320, 180);
+    // depthTop = min(max(30 + 66, 45), 81) = 81 → [66, 81) is reachable.
+    expect(detectDropZone(at(160, 70), cell, 'edges+center', undefined, { top: 66 })).toBe('top');
+    expect(detectDropZone(at(160, 80), cell, 'edges+center', undefined, { top: 66 })).toBe('top');
+    // Past the raised floor the middle box resumes.
+    expect(detectDropZone(at(160, 90), cell, 'edges+center', undefined, { top: 66 })).toBe('center');
+  });
+
+  test('project slot of 120px (a stack of 4 in a 500px row): 4px left becomes 28px', () => {
+    const slot = bounds(1200, 120); // depthY = max(30, 30) = 30, cap 54
+    expect(detectDropZone(at(600, 35), slot)).toBe('center');
+    // depthTop = min(max(30 + 26, 30), 54) = 54 → [26, 54) survives the strip.
+    expect(detectDropZone(at(600, 35), slot, 'edges+center', undefined, { top: 26 })).toBe('top');
+  });
+
+  test('only the named side moves — the opposite band keeps its floor', () => {
+    const slot = bounds(1200, 120);
+    // Bottom gutter alone: the top band stays 30px, the bottom one grows to 54.
+    expect(detectDropZone(at(600, 35), slot, 'edges+center', undefined, { bottom: 26 })).toBe('center');
+    expect(detectDropZone(at(600, 85), slot, 'edges+center', undefined, { bottom: 26 })).toBe('bottom');
+    expect(detectDropZone(at(600, 85), slot)).toBe('center');
+  });
+
+  test('no gutters means exactly today, and the cap still protects the centre', () => {
+    const b2 = bounds(800, 600);
+    expect(detectDropZone(at(400, 300), b2, 'edges+center', undefined, {})).toBe('center');
+    // A gutter far past the 45% cap cannot eat the middle box.
+    const tiny = bounds(320, 180);
+    expect(detectDropZone(at(160, 120), tiny, 'edges+center', undefined, { top: 400 })).toBe('center');
+  });
+});

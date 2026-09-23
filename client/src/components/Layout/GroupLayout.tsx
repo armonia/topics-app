@@ -2,7 +2,7 @@ import { useRef, useMemo, useState, useCallback, useEffect, useLayoutEffect } fr
 import type { Pane, PaneGroup, PaneGroupType, PaneType, GroupLayoutRow } from '../../types';
 import { PaneTabBar, type TabLinkContext } from './PaneTabBar';
 import { CellSubStack } from './CellSubStack';
-import { setColumnStackHeights, columnDepth } from './groupLayoutStacks';
+import { setColumnStackHeights, columnDepth, columnSplitPreviewHost, rowGapWouldReshape, slotEdges, splitFitsCaps } from './groupLayoutStacks';
 import { flattenGroupRows } from './flattenLayout';
 import { startDragPreview } from '../../lib/dragPreview';
 import { equalizeWidths, weightedWidths } from './gridWidths';
@@ -14,15 +14,16 @@ import { paneShellOrder } from './paneShellOrder';
 import { useLayoutMobile } from '../../hooks/useMobile';
 import { usePaneResidency } from './hooks/usePaneResidency';
 import { PaneAliveContext, usePaneAlive } from '../../state/paneLiveness';
-import { canSplitPane, canDropSplit } from './splitRules';
+import { canSplitPane, canDropSplit, centerDropMerges } from './splitRules';
 import { draggedPaneId } from '../../lib/dragPayload';
 import { pushUndo } from '../../contexts/UndoContext';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
 import { useRefMirror } from '../../hooks/useRefMirror';
-import { detectDropZone, type EdgeZone } from '../../lib/dropZone';
+import { detectDropZone, type EdgeGutters, type EdgeZone } from '../../lib/dropZone';
+import { dragLeftHost } from '../../lib/dragLeave';
 import { SplitRegion, CenterRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
-import { FULL_ROW_GUTTER_PX } from '../../lib/dropFeedback';
+import { FULL_ROW_GUTTER_PX, edgeStripGutters } from '../../lib/dropFeedback';
 import { SplitTree } from './SplitTree';
 import { type LayoutNode } from '../../state/layout/layoutTree';
 import { buildShallowGridTree } from '../../state/layout/legacyAdapters';
@@ -380,6 +381,14 @@ export function GroupLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rowSig is a render-local pure helper; deps are the structural inputs (rows), the compared heights, and the stable setter
   }, [rows, rowHeights, rowVerticalDepth, onUpdateRowHeights]);
 
+  // The full-width drop strips (split "in basso/in alto a TUTTE le tab") only
+  // make sense when there's more than one column somewhere — with a single
+  // column a per-cell vertical split already spans the full width, so the
+  // distinction (and the strips) would be redundant. Declared up here because
+  // both the drop geometry and the split previews inset themselves around
+  // those strips.
+  const hasMultipleColumns = rows.some((r) => r.groupIds.length > 1);
+
   /* ---- Edge drop zone state (Phase 3: split-on-edge-drop) ---- */
   // `edge` may also be 'center': a tab hovering the pane BODY's middle box
   // previews (and drops as) a MERGE into this group — before, the middle of a
@@ -390,6 +399,25 @@ export function GroupLayout({
   // fires in the same frame as `dragover`, causing fast drops to silently
   // no-op (the "drop twice to land" bug).
   const edgeDropTargetRef = useRefMirror(edgeDropTarget);
+
+  /**
+   * The pixels of a group's content rect that a full-width strip or a row-gap
+   * band already owns (D7). Without this the "stack above / below this column"
+   * band on a short slot shrank to a handful of pixels, because the 26px strip
+   * sits ON it with pointer-events auto. The project's content rect starts
+   * BELOW the tab bar, which is exactly where the top strip is offset to, so
+   * that side needs no extra offset.
+   */
+  const contentGutters = useCallback((groupId: string): EdgeGutters => {
+    const at = slotEdges(rows, groupId);
+    if (!at) return {};
+    return edgeStripGutters({
+      atContainerTop: at.rowIdx === 0 && at.atColumnTop,
+      atContainerBottom: at.rowIdx === rows.length - 1 && at.atColumnBottom,
+      gapBandBelow: at.rowIdx < rows.length - 1 && at.atColumnBottom,
+      extremeStrips: hasMultipleColumns,
+    });
+  }, [rows, hasMultipleColumns]);
 
   const handleGroupContentDragOver = useCallback((groupId: string) => (e: React.DragEvent) => {
     if (!e.dataTransfer.types.includes(DND_TYPES.PANE_TAB)) return;
@@ -414,7 +442,35 @@ export function GroupLayout({
     // (add-as-tab). The tab BAR is a sibling of this content area (its own
     // capture handler clears our preview), so 'center' here is always the
     // pane body.
-    const edge = detectDropZone(e, rect, 'edges+center') as EdgeZone | 'center' | null;
+    const edge = detectDropZone(e, rect, 'edges+center', undefined, contentGutters(groupId)) as EdgeZone | 'center' | null;
+
+    // D4: the centre MERGES the tab into this group, so it does nothing when
+    // the tab already lives here — and the drop says so too
+    // (`sourceGroupId !== groupId`). A dragover cannot read payload VALUES, but
+    // the drag shelf knows who is in flight, so the preview can ask the same
+    // question the drop will. The edge bands stay live: a self-split is real.
+    if (edge === 'center' && !centerDropMerges({
+      draggedPaneId: draggedPaneId(),
+      targetMemberIds: groupMap.get(groupId)?.paneIds ?? [],
+    })) {
+      if (edgeDropTargetRef.current?.groupId === groupId) {
+        edgeDropTargetRef.current = null;
+        setEdgeDropTarget(null);
+      }
+      return;
+    }
+
+    // D6: the runaway caps used to be read only by the drop, which returns
+    // without mutating when one is hit. At the cap the band lit up all the same
+    // and the release did nothing, which is the one thing this whole system is
+    // not allowed to do. Same predicate, both sides.
+    if (edge && edge !== 'center' && !splitFitsCaps(rows, groupId, edge, false)) {
+      if (edgeDropTargetRef.current?.groupId === groupId) {
+        edgeDropTargetRef.current = null;
+        setEdgeDropTarget(null);
+      }
+      return;
+    }
 
     if (edge) {
       // DEDUP: dragover fires ~60fps+; only re-render when the target edge/group
@@ -432,7 +488,7 @@ export function GroupLayout({
         setEdgeDropTarget(null);
       }
     }
-  }, [onSplitGroup, edgeDropTargetRef, dndScope]);
+  }, [onSplitGroup, edgeDropTargetRef, dndScope, groupMap, contentGutters, rows]);
 
   // When a cross-group tab drag moves over THIS group's tab bar (a sibling of
   // the content area), the user is aiming to drop the tab INTO the bar — not to
@@ -457,9 +513,9 @@ export function GroupLayout({
   const handleGroupContentDragLeave = useCallback((groupId: string) => (e: React.DragEvent) => {
     // Ignore a dragleave that merely crossed into a child of the content area
     // (the pane body) — only clear when the pointer actually left, or the edge
-    // preview flickers while dragging over the content.
-    const rt = e.relatedTarget as Node | null;
-    if (rt && (e.currentTarget as HTMLElement).contains(rt)) return;
+    // preview flickers while dragging over the content. D15: WebKit names no
+    // relatedTarget at all, so the pointer's position decides (see dragLeave).
+    if (!dragLeftHost(e.currentTarget, e)) return;
     if (edgeDropTargetRef.current?.groupId === groupId) {
       edgeDropTargetRef.current = null;
       setEdgeDropTarget(null);
@@ -513,7 +569,7 @@ export function GroupLayout({
       edge = cached.edge;
     } else {
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      edge = detectDropZone(e, rect, 'edges+center') as EdgeZone | 'center' | null;
+      edge = detectDropZone(e, rect, 'edges+center', undefined, contentGutters(groupId)) as EdgeZone | 'center' | null;
     }
     if (!edge) { edgeDropTargetRef.current = null; setEdgeDropTarget(null); return; }
 
@@ -539,7 +595,7 @@ export function GroupLayout({
     // full-width strips (gated on dragActive) would stay painted after an
     // edge-split drop too. Clear it here.
     setDragActive(false);
-  }, [onSplitGroup, onMovePaneBetweenGroups, edgeDropTargetRef, dndScope, groupMap]);
+  }, [onSplitGroup, onMovePaneBetweenGroups, edgeDropTargetRef, dndScope, groupMap, contentGutters]);
 
   /* ---- Cross-group tab drop handler ---- */
   const handleCrossGroupDrop = useCallback((targetGroupId: string) =>
@@ -579,17 +635,23 @@ export function GroupLayout({
       totalGroups: groups.length,
     }), [groups.length]);
 
-  /** Size of the group the pane in flight left, or undefined when the drag came
-   *  from another window (the shelf is empty there — only the drop can tell). */
-  const draggedGroupSize = useCallback((): number | undefined => {
+  /** The group the pane in flight left, or undefined when the drag came from
+   *  another window (the shelf is empty there — only the drop can tell). */
+  const draggedGroup = useCallback(() => {
     const paneId = draggedPaneId();
     if (!paneId) return undefined;
-    return groups.find(g => g.paneIds.includes(paneId))?.paneIds.length;
+    return groups.find(g => g.paneIds.includes(paneId));
   }, [groups]);
+
+  const draggedGroupSize = useCallback((): number | undefined =>
+    draggedGroup()?.paneIds.length, [draggedGroup]);
 
   const handleFullRowDragOver = useCallback((side: 'top' | 'bottom') => (e: React.DragEvent) => {
     if (!onSplitGroup || !isPaneTabDrag(e)) return;
     if (!fullRowWouldReshape(draggedGroupSize())) return;
+    // D6: a row the surface has no room for. The strip is the row cap's other
+    // face, so it asks the same predicate the cell bands do.
+    if (!splitFitsCaps(rows, '', side, true)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move'; // WKWebView: signal acceptance (see handleGroupContentDragOver)
@@ -597,11 +659,10 @@ export function GroupLayout({
     // only ONE intent (full-width) shows while the pointer is on the strip.
     if (edgeDropTargetRef.current) { edgeDropTargetRef.current = null; setEdgeDropTarget(null); }
     if (fullRowDropRef.current !== side) { fullRowDropRef.current = side; setFullRowDrop(side); }
-  }, [onSplitGroup, isPaneTabDrag, edgeDropTargetRef, fullRowDropRef, fullRowWouldReshape, draggedGroupSize]);
+  }, [onSplitGroup, isPaneTabDrag, edgeDropTargetRef, fullRowDropRef, fullRowWouldReshape, draggedGroupSize, rows]);
 
   const handleFullRowDragLeave = useCallback((e: React.DragEvent) => {
-    const rt = e.relatedTarget as Node | null;
-    if (rt && (e.currentTarget as HTMLElement).contains(rt)) return;
+    if (!dragLeftHost(e.currentTarget, e)) return;
     fullRowDropRef.current = null;
     setFullRowDrop(null);
   }, [fullRowDropRef]);
@@ -639,16 +700,24 @@ export function GroupLayout({
 
   const handleRowGapDragOver = useCallback((gapIdx: number) => (e: React.DragEvent) => {
     if (!onSplitGroup || !isPaneTabDrag(e)) return;
+    // D5: same two questions the extreme strips ask, so the band never fills
+    // for a release that redraws the very same tree — the shared one
+    // (`fullRowWouldReshape`), plus the one only a GAP has: the new row lands
+    // exactly where a single-pane, single-group neighbouring row would vanish.
+    const src = draggedGroup();
+    if (!fullRowWouldReshape(src?.paneIds.length)) return;
+    if (!rowGapWouldReshape(rows, gapIdx, src?.id, src?.paneIds.length)) return;
+    // D6: and the row cap, which a gap insert spends exactly like a strip does.
+    if (!splitFitsCaps(rows, '', 'bottom', true)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move'; // WKWebView: signal acceptance
     if (edgeDropTargetRef.current) { edgeDropTargetRef.current = null; setEdgeDropTarget(null); }
     if (rowGapDropRef.current !== gapIdx) { rowGapDropRef.current = gapIdx; setRowGapDrop(gapIdx); }
-  }, [onSplitGroup, isPaneTabDrag, edgeDropTargetRef, rowGapDropRef]);
+  }, [onSplitGroup, isPaneTabDrag, edgeDropTargetRef, rowGapDropRef, fullRowWouldReshape, draggedGroup, rows]);
 
   const handleRowGapDragLeave = useCallback((e: React.DragEvent) => {
-    const rt = e.relatedTarget as Node | null;
-    if (rt && (e.currentTarget as HTMLElement).contains(rt)) return;
+    if (!dragLeftHost(e.currentTarget, e)) return;
     rowGapDropRef.current = null;
     setRowGapDrop(null);
   }, [rowGapDropRef]);
@@ -664,12 +733,17 @@ export function GroupLayout({
     if (dndScope && sourceScope && sourceScope !== dndScope) return;
     const anchor = rows[gapIdx]?.groupIds[0];
     if (!anchor) return;
+    // Same pair of predicates the band's dragover used to decide whether to
+    // light up — read off the dataTransfer here, off the shelf there.
+    const sourceSize = groupMap.get(sourceGroupId)?.paneIds.length;
+    if (!fullRowWouldReshape(sourceSize)) return;
+    if (!rowGapWouldReshape(rows, gapIdx, sourceGroupId, sourceSize)) return;
     e.preventDefault();
     e.stopPropagation();
     // 'bottom' + fullRow anchored on the row above the gap → the new row
     // lands exactly in this gap.
     onSplitGroup?.(sourceGroupId, sourcePaneId, anchor, 'bottom', { fullRow: true });
-  }, [onSplitGroup, dndScope, rows, rowGapDropRef]);
+  }, [onSplitGroup, dndScope, rows, rowGapDropRef, fullRowWouldReshape, groupMap]);
 
   /* ---- Row drag reordering (Phase 5) ---- */
   const [draggingRowIdx, setDraggingRowIdx] = useState<number | null>(null);
@@ -1175,7 +1249,10 @@ export function GroupLayout({
   // It is an axis SEPARATE from residency: whoever receives it false SUSPENDS
   // (observers, polls, measurements against a zero viewport), it does not
   // unmount.
-  const renderGroupBlock = (gid: string, rowIdx: number, seenPaneIds: Set<string>, hasBox: boolean): React.ReactNode => {
+  // `columnScopedSplit` = this block's left/right preview belongs to the COLUMN
+  // container (the leaf paints it there, see `columnSplitPreviewHost`), so the
+  // block must not paint its own: one `data-grid-split-overlay` per gesture.
+  const renderGroupBlock = (gid: string, rowIdx: number, seenPaneIds: Set<string>, hasBox: boolean, columnScopedSplit = false): React.ReactNode => {
     const group = groupMap.get(gid);
     if (!group) return null;
     const groupPanes = group.paneIds
@@ -1393,7 +1470,7 @@ export function GroupLayout({
               bottom stops above the gutter so the column-split and full-width-row
               previews never visually collide; width alone tells them apart.
               'center' paints the inset merge region instead (add-as-tab). */}
-          {edgeDrop && edgeDrop !== 'center' && (
+          {edgeDrop && edgeDrop !== 'center' && !columnScopedSplit && (
             <SplitRegion
               zone={edgeDrop}
               gutterInset={rowIdx === rows.length - 1 && rows.some((r) => r.groupIds.length > 1) ? FULL_ROW_GUTTER_PX : 0}
@@ -1444,6 +1521,15 @@ export function GroupLayout({
     // tab-order and the accessibility tree — and the absence of a box, which
     // goes all the way down to the panes.
     const cellHasBox = !isZoomed || zoomCellKeys.has(gid);
+    // B1/D1+D2: a left/right release on a STACKED column inserts a column as
+    // tall as the whole row, so the preview belongs to the column container,
+    // not to the hovered member's slot (which would promise half a cell). The
+    // leaf wrapper IS that container, so painting it here and telling the
+    // blocks to skip their own keeps exactly one overlay per gesture.
+    const columnSplitZone = edgeDropTarget
+      && columnSplitPreviewHost(rows[rowIdx], edgeDropTarget.groupId, edgeDropTarget.edge) === gid
+      ? (edgeDropTarget.edge as EdgeZone)
+      : null;
     return (
       <div
         data-group-cell={`${rowIdx}-${groupIdx}`}
@@ -1472,11 +1558,22 @@ export function GroupLayout({
         )}
         <CellSubStack
           stack={subStack}
-          primary={renderGroupBlock(gid, rowIdx, seen, cellHasBox)}
+          primary={renderGroupBlock(gid, rowIdx, seen, cellHasBox, columnSplitZone !== null)}
           primaryKey={gid}
-          renderStackItem={(stackedId) => renderGroupBlock(stackedId, rowIdx, seen, cellHasBox)}
+          renderStackItem={(stackedId) => renderGroupBlock(stackedId, rowIdx, seen, cellHasBox, columnSplitZone !== null)}
           onResize={(nextHeights) => onUpdateRows(setColumnStackHeights(rows, gid, nextHeights))}
         />
+        {/* Column-scoped split preview. The wrapper starts at the primary's tab
+            bar, so the top inset clears BOTH the bar and the full-width-row
+            strip that sits just under it (the blocks' own regions start below
+            the bar and only need the strip). */}
+        {columnSplitZone && (
+          <SplitRegion
+            zone={columnSplitZone}
+            gutterInset={rowIdx === rows.length - 1 && hasMultipleColumns ? FULL_ROW_GUTTER_PX : 0}
+            topInset={rowIdx === 0 && hasMultipleColumns ? TAB_BAR_H + FULL_ROW_GUTTER_PX : 0}
+          />
+        )}
       </div>
     );
   };
@@ -1598,11 +1695,6 @@ export function GroupLayout({
     );
   };
 
-  // The full-width drop strips (split "in basso/in alto a TUTTE le tab") only
-  // make sense when there's more than one column somewhere — with a single
-  // column a per-cell vertical split already spans the full width, so the
-  // distinction (and the strips) would be redundant.
-  const hasMultipleColumns = rows.some((r) => r.groupIds.length > 1);
   const showFullRowStrips = dragActive && hasMultipleColumns && !!onSplitGroup;
 
   return (

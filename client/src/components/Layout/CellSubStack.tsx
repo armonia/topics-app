@@ -73,8 +73,11 @@ export function CellSubStack({
       data-split-node="col"
       data-split-arity={totalSlots}
     >
+      {/* `relative` so a drop overlay rendered alongside the slot's content
+          anchors to the SLOT and not to the whole cell: the centre-merge
+          preview has to say WHICH stacked pane a release would join. */}
       <div
-        className="flex flex-col min-h-0 min-w-0 overflow-hidden"
+        className="relative flex flex-col min-h-0 min-w-0 overflow-hidden"
         style={{ flex: `${heights[0]} 1 0%` }}
         data-split-leaf={primaryKey}
       >
@@ -88,7 +91,7 @@ export function CellSubStack({
             onResize={onResize}
           />
           <div
-            className="flex flex-col min-h-0 min-w-0 overflow-hidden"
+            className="relative flex flex-col min-h-0 min-w-0 overflow-hidden"
             style={{ flex: `${heights[i + 1]} 1 0%` }}
             data-split-leaf={itemKey}
           >
