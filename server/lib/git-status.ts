@@ -100,8 +100,31 @@ async function readText(args: string[], cwd: string): Promise<{ code: number; te
  * The status of `resolvedDir`, or `null` when it is not inside a git repo.
  * Other failures throw: the route turns them into a 500, the watcher into a
  * skipped push.
+ *
+ * Concurrent callers on the same folder share ONE round of spawns. The route
+ * cache only helps once a round has finished: two panes, or the route and the
+ * watcher, asking in the same instant each paid five git processes, and on a
+ * loaded Mac each waited behind the other's (134 and 138 s for two identical
+ * requests at 13:41:21 on 23/09). The entry is dropped when the round settles,
+ * so a call after it always reads git again.
+ *
+ * `fresh: true` is for whoever KNOWS the tree just changed (the watcher): a
+ * round that started before the change may miss it, so that caller starts its
+ * own and the readers that arrive after it join the new one.
  */
-export async function computeGitStatus(resolvedDir: string): Promise<ComputedGitStatus | null> {
+export function computeGitStatus(resolvedDir: string, opts: { fresh?: boolean } = {}): Promise<ComputedGitStatus | null> {
+  const running = opts.fresh ? undefined : inFlight.get(resolvedDir);
+  if (running) return running;
+  const round: Promise<ComputedGitStatus | null> = computeGitStatusOnce(resolvedDir).finally(() => {
+    if (inFlight.get(resolvedDir) === round) inFlight.delete(resolvedDir);
+  });
+  inFlight.set(resolvedDir, round);
+  return round;
+}
+
+const inFlight = new Map<string, Promise<ComputedGitStatus | null>>();
+
+async function computeGitStatusOnce(resolvedDir: string): Promise<ComputedGitStatus | null> {
   const probe = await readText(["git", "rev-parse", "--git-dir", "--show-toplevel"], resolvedDir);
   if (probe.code !== 0) return null;
   const gitRoot = probe.text.split("\n")[1]?.trim() ?? "";

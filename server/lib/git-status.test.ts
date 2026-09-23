@@ -146,4 +146,41 @@ describe("computeGitStatus on a real repo", () => {
     expect(result).toBeNull();
     expect(spawns).toBe(1);
   });
+
+  /**
+   * Two panes (or the route and the watcher) asking the same folder at the
+   * same moment used to pay two full rounds of git. Measured in the production
+   * log of 22-23/09: 546 seconds out of 3.180 requests with more than one
+   * concurrent status, and at 13:41:21 two identical ones waited 134 and 138 s
+   * each behind their own spawns. Concurrent callers now share one round.
+   */
+  test("concurrent calls on the same folder share one round of spawns", async () => {
+    const { result, spawns } = await countSpawns(() => Promise.all([computeGitStatus(repo), computeGitStatus(repo), computeGitStatus(repo)]));
+    expect(spawns, "one round of five, not three").toBe(5);
+    expect(result[0]).toEqual(result[1]!);
+    expect(result[1]).toEqual(result[2]!);
+  });
+
+  test("a call AFTER the round settled runs a fresh one", async () => {
+    await computeGitStatus(repo);
+    writeFileSync(join(repo, "later.txt"), "y\n");
+    const { result } = await countSpawns(() => computeGitStatus(repo));
+    expect(result!.files.map((f) => f.path)).toContain("later.txt");
+  });
+
+  test("`fresh` never joins a round that started before the change", async () => {
+    const before = computeGitStatus(repo);
+    writeFileSync(join(repo, "during.txt"), "z\n");
+    const after = computeGitStatus(repo, { fresh: true });
+    expect(after, "a new round, not the one in flight").not.toBe(before);
+    await before;
+    expect((await after)!.files.map((f) => f.path)).toContain("during.txt");
+  });
+
+  test("readers arriving after a `fresh` round join it", () => {
+    computeGitStatus(repo);
+    const fresh = computeGitStatus(repo, { fresh: true });
+    expect(computeGitStatus(repo)).toBe(fresh);
+    return fresh;
+  });
 });
