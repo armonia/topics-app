@@ -550,6 +550,9 @@ export default defineConfig({
         "**/drag-preview.spec.ts",
         "**/swap-freeze-ice.spec.ts",
         "**/split-dnd-matrix.spec.ts",
+        // The card's changed-files chip end to end: count, show-all, filter,
+        // row -> the task's diff on that file. Filmed on the shipping engine.
+        "**/changed-files-complete.spec.ts",
       ],
       use: {
         browserName: "webkit",

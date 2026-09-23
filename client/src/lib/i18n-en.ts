@@ -360,6 +360,9 @@ const EN = {
   'common.add': 'Add',
   'common.cancel': 'Cancel',
   'diff.patchMissing': 'The patch for this file did not arrive: the diff exceeds the payload ceiling and stops earlier. The count above is still the real one.',
+  'diff.loadFile': 'Load this file’s diff',
+  'diff.loadingFile': 'loading the diff…',
+  'diff.loadFileFailed': 'Could not load this file’s diff. Retry',
   'diff.binary': 'Binary file: no text diff.',
   'diff.note.add': 'Comment on this line',
   'diff.note.aria': 'Comment on {path}:{line}{side}',
@@ -369,6 +372,7 @@ const EN = {
   'diff.noChanges': 'No changes.',
   'diff.pendingNotes': '{n} pending notes',
   'diff.truncated': 'Diff truncated (very large){rest}: open the project to see it whole.',
+  'diff.truncated.loadable': 'Diff truncated (very large){rest}: open a file to load its diff.',
   'diff.truncated.countOnly': ': for {n} files only the count is left',
 
   'ai.agents.title': 'Connected accounts and agents',
@@ -1945,6 +1949,8 @@ const EN = {
   'git.files.error': 'could not read the files',
   'git.files.empty': 'no files changed',
   'git.files.more': 'and {n} more',
+  'git.files.filter': 'Filter {n} files…',
+  'git.files.noMatch': 'no file matches',
   // The state as a WORD, for assistive technology: the coloured letter on the
   // row is hidden from it, and read after the file name (see ChangedFileMark).
   'git.files.status.added': 'added',

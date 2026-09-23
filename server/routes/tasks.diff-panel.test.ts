@@ -203,3 +203,95 @@ describe("GET /tasks/:id/diff", () => {
     expect(body.branch).toBe("topics/card");
   });
 });
+
+/**
+ * `?file=<path>`: the patch of ONE file, on the range the bundle used.
+ *
+ * The bundle stops at ~200 KB, and every file past that arrived as a name and
+ * a count with nothing to read (task 7657f201: 30 of 74 files, a "patch did
+ * not arrive" notice). The per-file route is how the panel fetches the rest, so what is
+ * pinned is: it answers the file the bundle left out, it answers an untracked
+ * file on a live worktree, and a query string cannot turn it into a read of
+ * anything the bundle could not have listed.
+ */
+describe("GET /tasks/:id/diff?file=", () => {
+  let repo: string, db: Database, router: any, pid: string;
+  let worktree: Worktree;
+
+  beforeEach(async () => {
+    repo = mkdtempSync(join(tmpdir(), "diffile-"));
+    pid = projectIdForPath(repo);
+    await git(repo, ["init", "-q", "-b", "main"]);
+    await git(repo, ["config", "user.email", "t@t.t"]);
+    await git(repo, ["config", "user.name", "t"]);
+    await git(repo, ["config", "commit.gpgsign", "false"]);
+    writeFileSync(join(repo, "base.txt"), "base\n");
+    await git(repo, ["add", "-A"]);
+    await git(repo, ["commit", "-qm", "base"]);
+    await git(repo, ["checkout", "-q", "-b", "topics/card"]);
+    // Sorted first and bigger than the whole bundle cap: everything after it
+    // is left out of the bundle's patch.
+    writeFileSync(join(repo, "a-big.txt"), Array.from({ length: 12_000 }, (_, i) => `line ${i} ${"x".repeat(20)}`).join("\n") + "\n");
+    writeFileSync(join(repo, "z-small.ts"), "export const small = 1;\n");
+    await git(repo, ["add", "-A"]);
+    await git(repo, ["commit", "-qm", "the delivery"]);
+    // Never committed: the live worktree range still has to answer for it.
+    writeFileSync(join(repo, "untracked.md"), "# new\n");
+    worktree = { id: "wt-1", mode: "branch", absPath: repo, branchName: "topics/card" };
+
+    db = freshDb();
+    const now = new Date().toISOString();
+    db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", ["topic-1"]);
+    db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, assigned_topic_id)
+       VALUES ('T', ?, 'la card', 'review', ?, ?, 'topic-1')`,
+      [pid, now, now],
+    );
+    const ctx = {
+      db,
+      json: (data: any, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } }),
+      readJSON: (req: Request) => req.json(),
+      matchRoute,
+      broadcastToAll: () => {},
+      getTopicById: (id: string) => ({ id, name: id, projectPath: repo, worktreeId: worktree?.id }),
+      getTopicBySessionKey: () => null,
+      worktreeStore: { get: (id: string) => (worktree && worktree.id === id ? worktree : null) },
+    } as unknown as AppContext;
+    router = createTasksRouter(ctx, undefined, { listProjectDirs: () => [repo] });
+  });
+
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  test("the bundle is cut before the small file, and `?file=` returns its patch", async () => {
+    const bundle = await (await call(router, `/api/boards/${pid}/tasks/T/diff`))!.json();
+    expect(bundle.truncated).toBe(true);
+    expect(bundle.stat.map((s: any) => s.path)).toContain("z-small.ts");
+    expect(bundle.patch).not.toContain("b/z-small.ts");
+
+    const res = (await call(router, `/api/boards/${pid}/tasks/T/diff?file=${encodeURIComponent("z-small.ts")}`))!;
+    expect(res.status).toBe(200);
+    const one = await res.json();
+    expect(one.path).toBe("z-small.ts");
+    expect(one.patch).toContain("diff --git a/z-small.ts b/z-small.ts");
+    expect(one.patch).toContain("+export const small = 1;");
+    // ONE file: nothing of the big one rides along.
+    expect(one.patch).not.toContain("a-big.txt");
+    expect(one.truncated).toBe(false);
+    expect(one.source).toBe("worktree");
+  });
+
+  test("an untracked file on the live worktree is diffed against nothing", async () => {
+    const one = await (await call(router, `/api/boards/${pid}/tasks/T/diff?file=untracked.md`))!.json();
+    expect(one.patch).toContain("+# new");
+  });
+
+  test("a path the bundle could not have listed is refused, and a pathspec is not a glob", async () => {
+    for (const bad of ["../escape.txt", "/etc/hosts", ""]) {
+      const res = (await call(router, `/api/boards/${pid}/tasks/T/diff?file=${encodeURIComponent(bad)}`))!;
+      expect(res.status).toBe(400);
+    }
+    // `*` read as a pathspec would be the whole diff again.
+    const star = await (await call(router, `/api/boards/${pid}/tasks/T/diff?file=${encodeURIComponent("*")}`))!.json();
+    expect(star.patch).toBe("");
+  });
+});

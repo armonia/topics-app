@@ -21,6 +21,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "path";
 import { realpathSync } from "fs";
 import { gitRead, parsePorcelainZ } from "./git-porcelain";
 import { parseNumstatZ, type Numstat } from "./git-numstat";
+import { deriveToolDetail } from "../providers/claude/tool-detail";
 import type { ToolCall } from "../../shared/types";
 import type { TopicChangeKind, TopicChangedFile, TopicChanges } from "../../shared/topic-changes";
 
@@ -40,26 +41,29 @@ export interface TouchedFile {
   lastAt: string;
 }
 
-/** Tool names that write a file even on rows too old to carry a `detail`. */
-const WRITE_TOOL_NAMES = new Set(["write", "edit", "multiedit", "str_replace_editor", "apply_patch"]);
-
 /** The path a write tool call names, or `null` if it is not a write. */
 function writtenPath(call: ToolCall): { path: string; whole: boolean } | null {
   // A call that ended in an error wrote nothing: listing it would promise a
   // change that is not on disk.
   if (call.error) return null;
-  const detail = call.detail;
-  if (detail && (detail.type === "write" || detail.type === "edit")) {
-    return detail.filePath ? { path: detail.filePath, whole: detail.type === "write" } : null;
-  }
-  if (detail) return null;
-  // Older rows and stateless providers carry no typed detail: fall back to the
-  // raw arguments, which is the only thing left that names the file.
-  if (!WRITE_TOOL_NAMES.has(call.name?.toLowerCase() ?? "")) return null;
-  const args = call.args ?? {};
-  const raw = args.file_path ?? args.filePath ?? args.path;
-  if (typeof raw !== "string" || !raw) return null;
-  return { path: raw, whole: call.name.toLowerCase() === "write" };
+  // A typed detail that says what it is (read, shell, search...) is believed.
+  // A MISSING one (older rows) or an `unknown` one is not a verdict: the
+  // native provider's `edit_file` was stored as `unknown` for weeks (861 rows
+  // since 10/09), and reading that as "not a write" dropped a quarter of a
+  // topic's files from the strip. Those go through the same name+args
+  // derivation the provider boundary uses, so the list of write names lives
+  // in one place.
+  const stored = call.detail;
+  // An `unknown` detail keeps the args under `raw`: the only copy left when a
+  // lean wire shape dropped the top-level ones.
+  const args = call.args && Object.keys(call.args).length
+    ? call.args
+    : stored?.type === "unknown" ? stored.raw?.args : undefined;
+  const detail = stored && stored.type !== "unknown"
+    ? stored
+    : deriveToolDetail(call.name ?? "", args);
+  if (detail.type !== "write" && detail.type !== "edit") return null;
+  return detail.filePath ? { path: detail.filePath, whole: detail.type === "write" } : null;
 }
 
 /**

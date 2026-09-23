@@ -251,6 +251,19 @@ export type OpenTask = (id: string, focusPaneId?: string) => void;
 export const mediaPaneIdFor = (path: string): string => `media:${path}`;
 
 /**
+ * «Open the task on THIS file's diff», through the same `focusPaneId` an
+ * attachment uses to open on its tab. The diff is not a pane, so the drawer
+ * reads this prefix instead: it opens the delivery band, the changes panel,
+ * expands the file and scrolls it into view. One channel, so the card,
+ * the board and every caller of `OpenTask` needed no new prop.
+ */
+const DIFF_FOCUS_PREFIX = 'diff:';
+export const diffFocusFor = (path: string): string => `${DIFF_FOCUS_PREFIX}${path}`;
+/** The file a focus id points at, or `null` when it is a pane id. */
+export const diffFocusPath = (focus: string | null | undefined): string | null =>
+  focus?.startsWith(DIFF_FOCUS_PREFIX) ? focus.slice(DIFF_FOCUS_PREFIX.length) : null;
+
+/**
  * L'etichetta testuale di un chip nelle barre strette della board (riga di
  * controlli del composer, filtri inline della kanban): sparisce quando il
  * CONTENITORE `@container` scende sotto i 448px, lasciando il chip con la sola

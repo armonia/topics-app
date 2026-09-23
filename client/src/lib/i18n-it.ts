@@ -363,6 +363,9 @@ const IT: Dict = {
   'common.add': 'Aggiungi',
   'common.cancel': 'Annulla',
   'diff.patchMissing': 'Il patch di questo file non è arrivato: il diff supera il tetto del payload e si ferma prima. Il conteggio qui sopra è comunque quello vero.',
+  'diff.loadFile': 'Carica il diff di questo file',
+  'diff.loadingFile': 'carico il diff…',
+  'diff.loadFileFailed': 'Non sono riuscito a caricare il diff di questo file. Riprova',
   'diff.binary': 'File binario: nessun diff testuale.',
   'diff.note.add': 'Commenta questa riga',
   'diff.note.aria': 'Commenta {path}:{line}{side}',
@@ -372,6 +375,7 @@ const IT: Dict = {
   'diff.noChanges': 'Nessuna modifica.',
   'diff.pendingNotes': '{n} note in sospeso',
   'diff.truncated': 'Diff troncato (molto grande){rest}: apri il progetto per vederlo intero.',
+  'diff.truncated.loadable': 'Diff troncato (molto grande){rest}: apri un file per caricarne il diff.',
   'diff.truncated.countOnly': ': di {n} file resta solo il conteggio',
 
   'ai.agents.title': 'Account e agenti collegati',
@@ -2222,6 +2226,8 @@ const IT: Dict = {
   'git.files.error': 'non sono riuscito a leggere i file',
   'git.files.empty': 'nessun file cambiato',
   'git.files.more': 'e altri {n}',
+  'git.files.filter': 'Filtra {n} file…',
+  'git.files.noMatch': 'nessun file corrisponde',
   // The state as a WORD, for assistive technology: the coloured letter on the
   // row is hidden from it, and read after the file name (see ChangedFileMark).
   'git.files.status.added': 'aggiunto',
