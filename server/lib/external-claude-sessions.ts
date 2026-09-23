@@ -56,6 +56,8 @@ export interface TranscriptFacts {
   entrypoint: string | null;
   /** True when the last informative entry is a sub-agent sidechain. */
   sidechain: boolean;
+  /** The last `permissionMode` the CLI stamped on the session, if any. */
+  permissionMode: string | null;
 }
 
 /** Default: a session touched within 15 min is working right now. */
@@ -80,12 +82,16 @@ export function parseTranscriptFacts(text: string): TranscriptFacts {
   let entrypoint: string | null = null;
   let sidechain = false;
   let sawCwd = false;
+  let permissionMode: string | null = null;
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]!.trim();
     if (!line || line[0] !== "{") continue;
     let obj: any;
     try { obj = JSON.parse(line); } catch { continue; }
     if (!obj || typeof obj !== "object") continue;
+    if (permissionMode === null && typeof obj.permissionMode === "string" && obj.permissionMode) {
+      permissionMode = obj.permissionMode;
+    }
     if (!sawCwd && typeof obj.cwd === "string" && isAbsolute(obj.cwd)) {
       cwd = obj.cwd;
       sawCwd = true;
@@ -95,13 +101,13 @@ export function parseTranscriptFacts(text: string): TranscriptFacts {
     }
     // cwd comes from the LAST entry (a session can `cd`); branch/entrypoint
     // aren't stamped on every entry, so keep walking back until we have both.
-    if (sawCwd && branch && entrypoint) break;
+    if (sawCwd && branch && entrypoint && permissionMode !== null) break;
     if (sawCwd) {
       if (!branch && typeof obj.gitBranch === "string" && obj.gitBranch) branch = obj.gitBranch;
       if (!entrypoint && typeof obj.entrypoint === "string" && obj.entrypoint) entrypoint = obj.entrypoint;
     }
   }
-  return { cwd, branch, entrypoint, sidechain };
+  return { cwd, branch, entrypoint, sidechain, permissionMode };
 }
 
 /**

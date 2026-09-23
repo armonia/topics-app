@@ -1,5 +1,5 @@
 /**
- * @covers EXTSESS-08
+ * @covers EXTSESS-08, EXTSESS-09
  */
 import { describe, test, expect } from "bun:test";
 import { parseTranscriptToMessages, parseTranscriptDelta } from "./claude-transcript-import";

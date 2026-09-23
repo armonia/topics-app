@@ -155,7 +155,7 @@ for (const device of [
         await expect(composerModel).toBeVisible();
         await composerModel.scrollIntoViewIfNeeded();
         await composerModel.click();
-        await expect(page.locator('button[data-provider="topics"]')).toBeVisible();
+        await expect(page.locator('button[data-provider="topics"]')).toHaveCount(0); // AICTRL-01
         await expect(page.locator('button[data-provider="codex"]')).toBeVisible();
         await expect(page.locator('button[data-provider="openai"]')).toHaveCount(0);
         await page.keyboard.press('Escape');
@@ -171,7 +171,7 @@ for (const device of [
         await expect(projectModel).toBeVisible();
         await projectModel.scrollIntoViewIfNeeded();
         await projectModel.click();
-        await expect(page.locator('button[data-provider="topics"]')).toBeVisible();
+        await expect(page.locator('button[data-provider="topics"]')).toHaveCount(0); // AICTRL-01
         await expect(page.locator('button[data-provider="codex"]')).toBeVisible();
         await expect(page.locator('button[data-provider="openai"]')).toHaveCount(0);
         await page.keyboard.press('Escape');

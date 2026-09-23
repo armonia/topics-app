@@ -7,9 +7,10 @@
  * `planModeFor` is the server-side lever: plan mode comes from the autonomy
  * level, never from a per-turn client flag.
  *
- * @covers FAST-MODE-03
+ * @covers FAST-MODE-03, EXTSESS-09
  */
 import { describe, test, expect } from "bun:test";
+import { autonomyForPermissionMode } from "./autonomy-mode";
 import {
   permissionModeForAutonomy,
   DEFAULT_PERMISSION_MODE,
@@ -163,5 +164,22 @@ describe("nessuna modalità che chiede può partire senza il canale", () => {
     expect(permissionModeAsks(undefined)).toBe(false);
     expect(permissionModeAsks("")).toBe(false);
     expect(permissionModeAsks("acceptEdits")).toBe(true);
+  });
+});
+
+describe("autonomyForPermissionMode — an adopted session keeps running as it was", () => {
+  test("each CLI mode maps to the level that spawns the same mode back", () => {
+    for (const mode of ["plan", "acceptEdits", "bypassPermissions"]) {
+      expect(permissionModeForAutonomy(autonomyForPermissionMode(mode))).toBe(mode);
+    }
+  });
+
+  test("the desktop app's `auto` never stopped on a command, so it is free", () => {
+    expect(autonomyForPermissionMode("auto")).toBe("yolo");
+  });
+
+  test("unknown or absent keeps the default rather than guessing", () => {
+    expect(autonomyForPermissionMode(null)).toBeNull();
+    expect(autonomyForPermissionMode("dontAsk")).toBeNull();
   });
 });
