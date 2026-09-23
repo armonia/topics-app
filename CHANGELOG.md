@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.375 — 2026-09-23
+
+### Sotto il cofano
+- Ctrl+, raggiunge la chat dal permalink, non dall'albero della sidebar
+
 ## 2.2.374 — 2026-09-23
 
 ### Sotto il cofano
