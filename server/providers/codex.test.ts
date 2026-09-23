@@ -6,7 +6,7 @@
  * deterministic upstream, neither of which is achievable here. The helpers
  * are where the real complexity lives anyway (multi-shape usage payloads
  * and double-encoded error messages).
-  * @covers CODEX-01
+  * @covers CODEX-01, CHAT-COMPACT-01
  */
 
 import { describe, expect, test } from "bun:test";
@@ -257,6 +257,19 @@ describe("routeCodexEvent — text + tool wiring", () => {
     }, h);
 
     expect(h.tools.at(-1)).toEqual({ type: "result", id: "cmd-final", payload: "12 pass\\n" });
+  });
+
+  test("a context_compaction item draws the compaction divider, like compact_boundary on Claude", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    const seen: unknown[] = [];
+    (h as unknown as { onCompaction: (m: unknown) => void }).onCompaction = (m) => { seen.push(m); };
+    pushEvent(provider, "s1", { type: "item.started", item: { type: "context_compaction", id: "c1" } }, h);
+    pushEvent(provider, "s1", { type: "item.completed", item: { type: "context_compaction", id: "c1" } }, h);
+    // Once per compaction (on completion), and it is not rendered as text or a tool.
+    expect(seen).toEqual([{ trigger: "auto" }]);
+    expect(h.text).toEqual([]);
+    expect(h.tools).toEqual([]);
   });
 
   test("MCP item lifecycle is rendered as the canonical Topics MCP tool, including update and error", () => {

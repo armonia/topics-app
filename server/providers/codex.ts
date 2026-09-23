@@ -810,6 +810,16 @@ export class CodexProvider implements AIProvider {
         return null;
       }
 
+      // Codex compacts its own context mid-thread (the rollout on disk records
+      // a `compacted` entry, 28 of them in the last 40 sessions on 23/09), and
+      // `exec --json` names that item `context_compaction`. Without this branch
+      // the chat showed the ring dropping with no divider, while the same event
+      // on Claude Code draws one (`compact_boundary`, CHAT-COMPACT-01).
+      if (itemType === "context_compaction") {
+        if (t === "item.completed") handler.onCompaction?.({ trigger: "auto" });
+        return null;
+      }
+
       // `codex exec --json` represents calls to an MCP server as a distinct
       // item, rather than the generic `tool_call` item used for commands. The
       // installed 0.153 CLI exposes `server`, `tool`, `arguments`, `result`,
