@@ -19,8 +19,20 @@ let claim = true;
 let seen: OpenTabDetail[] = [];
 let now = 0;
 const realDateNow = Date.now;
+// Pinned at import: `bun test` runs every file in one process, and a file that
+// stubs `CustomEvent` without putting it back turns the dispatch below into
+// "Argument 1 ('event') to EventTarget.dispatchEvent must be an instance of
+// Event". Seen only in CI, where the file order differs from a local run.
+let customEventBefore: unknown;
 
 beforeEach(() => {
+  customEventBefore = globalThis.CustomEvent;
+  if (!(new (globalThis.CustomEvent)('probe') instanceof Event)) {
+    (globalThis as { CustomEvent: unknown }).CustomEvent = class extends Event {
+      detail: unknown;
+      constructor(type: string, init?: CustomEventInit) { super(type, init); this.detail = init?.detail; }
+    };
+  }
   opened = [];
   seen = [];
   claim = true;
@@ -40,6 +52,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  (globalThis as { CustomEvent: unknown }).CustomEvent = customEventBefore;
   Date.now = realDateNow;
   delete (globalThis as unknown as { window?: unknown }).window;
 });
