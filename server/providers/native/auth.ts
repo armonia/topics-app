@@ -31,6 +31,7 @@
  */
 
 import { readFileSync, writeFileSync, mkdtempSync, renameSync, chmodSync, openSync, closeSync, unlinkSync, constants as fsConstants } from "fs";
+import { claudeCliUserAgent } from "./cli-user-agent";
 import { homedir, tmpdir, userInfo } from "os";
 import { join, dirname } from "path";
 import { spawnSync } from "child_process";
@@ -462,7 +463,7 @@ export async function refreshCredentials(current: OAuthCredentials): Promise<OAu
     headers: {
       "content-type": "application/json",
       accept: "application/json",
-      "user-agent": "claude-cli/2.1.0 (external, cli)",
+      "user-agent": claudeCliUserAgent(),
       "anthropic-beta": "oauth-2025-04-20,claude-code-20250219",
     },
     body: JSON.stringify({
