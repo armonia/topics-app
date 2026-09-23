@@ -518,6 +518,10 @@ struct PerfMetrics {
     /// WebKit che ritira la SPI): le schede risultano allora "non ancora
     /// misurate", che e' diverso da "ferme a zero" e il client lo dice.
     webviews: Vec<WebviewUsage>,
+    /// Physical RAM of the machine, in MB (`None` if the OS did not say). The
+    /// denominator a person understands: «this tab takes 4% of the Mac's
+    /// memory» reads without knowing what a core or a footprint is.
+    system_mem_mb: Option<f64>,
 }
 
 /// Quanto consuma UNA webview, con il label che la lega alla sua pane.
@@ -879,6 +883,17 @@ fn sample_cpu(sys: &mut sysinfo::System, pids: &[i32]) -> CpuSample {
     out
 }
 
+/// Physical RAM in MB, read once: it does not change while the app runs.
+fn system_mem_mb() -> Option<f64> {
+    static TOTAL: std::sync::OnceLock<Option<f64>> = std::sync::OnceLock::new();
+    *TOTAL.get_or_init(|| {
+        let mut sys = sysinfo::System::new();
+        sys.refresh_memory();
+        let bytes = sys.total_memory();
+        if bytes == 0 { None } else { Some(bytes as f64 / 1_048_576.0) }
+    })
+}
+
 #[tauri::command]
 fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
     let version = app.package_info().version.to_string();
@@ -917,6 +932,7 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
                 partial: true,
                 // Non sappiamo nemmeno il nostro pid: niente da attribuire.
                 webviews: Vec::new(),
+                system_mem_mb: system_mem_mb(),
             }
         }
     };
@@ -1016,6 +1032,7 @@ fn perf_metrics(app: tauri::AppHandle) -> PerfMetrics {
                 Vec::new()
             }
         },
+        system_mem_mb: system_mem_mb(),
     };
     // Pubblica la misura: chi legge nei prossimi PERF_SAMPLE_WINDOW riceve
     // questa, invece di far ripartire il cronometro e misurare la CPU su pochi

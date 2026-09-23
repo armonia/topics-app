@@ -34,4 +34,9 @@ describe('paneLive', () => {
     expect(paneLive({ ...away, opsInFlight: 1 })).toBe(true);
     expect(paneLive({ ...away, devtoolsOpen: true })).toBe(true);
   });
+  test('a heavy pane the person chose to keep stays live without focus (23/09)', () => {
+    const base = { heavy: true, paneFocused: false, windowFocused: true, agentActive: false, opsInFlight: 0, devtoolsOpen: false };
+    expect(paneLive(base)).toBe(false);
+    expect(paneLive({ ...base, keptLive: true })).toBe(true);
+  });
 });

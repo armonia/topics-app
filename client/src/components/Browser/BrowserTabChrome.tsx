@@ -35,6 +35,9 @@ import { useBrowserPaneChrome } from '../../state/browserPaneChrome';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { useT } from '../../hooks/useT';
+import { formatShare, machineShare } from '../../lib/shell/heavyPanes';
+
+const CPU_CORES = Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 1) || 1);
 
 /** Stop the tab underneath from also handling the gesture. A click on the
  *  reload button must reload, not activate-and-reload; a pointerdown must not
@@ -160,7 +163,7 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
     : kind === 'connecting' ? t('browser.tab.kind.connecting')
     : kind === 'degraded' ? t('browser.tab.kind.degraded')
     : kind === 'heavy-paused' ? t('browser.tab.kind.heavyPaused')
-    : kind === 'heavy' ? t('browser.tab.kind.heavy', { cpu: String(Math.round(chrome.heavy?.cpu ?? 0)) })
+    : kind === 'heavy' ? t('browser.tab.kind.heavy', { cpu: formatShare(machineShare({ cpu: chrome.heavy?.cpu ?? 0 }, { cores: CPU_CORES, memMb: null }).cpuPct) })
     : kind === 'chromium' ? t('browser.tab.kind.chromium', { n: String(chrome.engineExtensions ?? 0) })
     : t('browser.tab.kind.shared');
 

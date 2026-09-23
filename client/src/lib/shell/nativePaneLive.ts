@@ -26,10 +26,13 @@ export interface PaneLiveInput {
   agentActive: boolean;
   opsInFlight: number;
   devtoolsOpen: boolean;
+  /** The person chose to keep it running: «Mantieni per questa volta» on this
+   *  page, or «Mantieni sempre» on this site. Optional: absent means no. */
+  keptLive?: boolean;
 }
 
 export function paneLive(i: PaneLiveInput): boolean {
   if (!i.heavy) return true;
-  if (i.agentActive || i.opsInFlight > 0 || i.devtoolsOpen) return true;
+  if (i.agentActive || i.opsInFlight > 0 || i.devtoolsOpen || i.keptLive) return true;
   return i.windowFocused !== false && i.paneFocused;
 }
