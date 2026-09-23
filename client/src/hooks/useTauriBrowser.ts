@@ -950,6 +950,17 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
           // Nessuna webview: una pane bianca non serve a niente e costa una
           // WKWebView con il suo data store. La scheda resta PARCHEGGIATA e al
           // suo posto il pannello disegna una schermata che dice cosa manca.
+          //
+          // But a native view for this id may already exist: a remount that
+          // cancelled the close above, or a ⌘R, which never closes panes
+          // (`reload_all_ui_windows` skips them and the next mount reuses the
+          // label). Parked, nobody positions it again: `openedRef` is false, so
+          // the zero-rect branch skips it, and the ParkedPane has no
+          // placeholder. It stayed painted at its old rect above the DOM, the
+          // "white canvas in front" reported on 23/09. Close it: the parked
+          // card's retry opens a fresh one, and closing an id with no view is a
+          // no-op in the shell.
+          void tauriInvoke('browser_close', { id }).catch(() => {});
           setParked({ url: wantedUrl, checkedAt: Date.now() });
           return;
         }
