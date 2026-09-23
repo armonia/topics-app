@@ -3100,6 +3100,21 @@ window and repeat the same 400 on every later turn of the session.
 - **GIVEN** a `read_file` whose output exceeds the per-result budget
 - **THEN** the history holds its head and its tail, with the omission notice between them
 
+### Requirement: CODEX-MODEL-01 — A Codex turn never inherits a model the account cannot use
+
+When a Codex turn names no model, and the default in `~/.codex/config.toml` is
+not in the account's model catalog, the turn SHALL name the first model the
+catalog lists instead. With an empty catalog the CLI's own default SHALL stand.
+
+> **Why.** On 2026-09-23 `config.toml` said `gpt-6-sol`, absent from the
+> account's catalog, and every Topics turn without an explicit model died with
+> 400 "The 'gpt-6-sol' model is not supported when using Codex with a ChatGPT
+> account".
+
+#### Scenario: stale default
+- **GIVEN** `model = "gpt-6-sol"` and a catalog of `gpt-6-astra`, `gpt-5.5`
+- **THEN** the turn runs with `--model gpt-6-astra`
+
 ### Requirement: NATIVE-UA-01 — The native runtime declares a CLI version the API accepts
 
 The `user-agent` the native runtime sends to Anthropic, on messages and on the
