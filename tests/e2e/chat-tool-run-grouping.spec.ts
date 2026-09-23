@@ -210,9 +210,9 @@ test.describe("Il colore di una corsa di tool", () => {
     await goToApp(page);
     await openTopic(page, new RegExp(topicName));
 
-    const parziale = page.locator('[data-testid="tool-group-row"]').nth(1);
-    await expect(parziale).toBeVisible({ timeout: 15_000 });
-    const badge = parziale.getByTestId("tool-group-errors");
+    const partialRun = page.locator('[data-testid="tool-group-row"]').nth(1);
+    await expect(partialRun).toBeVisible({ timeout: 15_000 });
+    const badge = partialRun.getByTestId("tool-group-errors");
     // The badge names the error before anyone clicks: its title is the first
     // line of the first failure.
     await expect(badge).toHaveAttribute("title", "ENOENT");
