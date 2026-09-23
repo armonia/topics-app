@@ -152,7 +152,7 @@
     "desktop-tauri/src-tauri/src/lib.rs": 13456,
     "server.ts": 6674,
     "server/services/tasks.ts": 6404,
-    "server/services/task-dispatcher.ts": 5564,
+    "server/services/task-dispatcher.ts": 5893,
     "server/routes/tasks.ts": 4952,
     "server/services/task-dispatcher.test.ts": 4893,
     "server/providers/claude-code.ts": 3875,

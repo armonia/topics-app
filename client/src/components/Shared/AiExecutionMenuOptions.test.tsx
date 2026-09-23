@@ -22,7 +22,8 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { AiExecutionMenuOptions, selectedModelMissingIn } from './AiExecutionMenuOptions';
+import { AiExecutionMenuOptions } from './AiExecutionMenuOptions';
+import { selectedModelMissingIn } from './aiExecutionSelection';
 import type { ProvidersSnapshot } from '../../types';
 
 const ROUTABLE_SNAPSHOT: ProvidersSnapshot = {
