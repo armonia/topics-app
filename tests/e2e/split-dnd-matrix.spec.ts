@@ -44,6 +44,10 @@ import { hermetic } from "./fixtures/hermetic";
 import { canonicalTmpDir } from "./helpers/file-project";
 
 hermetic(test);
+// The card asks for a clip of the D15 gestures, so this file films even when
+// the run is not an evidence run. File level because Playwright refuses a
+// video option inside a describe: it would force a worker of its own.
+test.use({ video: "on" });
 
 const PROJECT_PATH = canonicalTmpDir("e2e-dndmatrix");
 
@@ -1359,10 +1363,6 @@ test.describe("Drag-and-drop and split: the case table", () => {
    *  the same promise: the overlay painted at the edge is the tree built.
    * ------------------------------------------------------------------ */
   test.describe("D15: header to content to edge, slow and fast", () => {
-    // The card asks for a clip of these gestures, so this block films even
-    // when the run is not an evidence run.
-    test.use({ video: "on" });
-
     type Edge = "left" | "right" | "top" | "bottom";
     type Pt = { x: number; y: number };
     /** What one step of the path saw: the pointer's cell and every overlay painted. */
