@@ -70,6 +70,9 @@ try { fs.mkdirSync(storeDir, { recursive: true }); } catch { /* best effort */ }
  * }
  */
 const sessions = new Map();  // id -> Session
+/** Sessions killed but not yet exited: out of `sessions` (see `kill`), still
+ *  owed a SIGKILL on shutdown and an fd close when they finally go. */
+const dying = new Set();
 const clients = new Set();   // connected server sockets
 const connectedAt = new Map(); // socket -> Date.now(), per distinguere un server da una sonda
 
@@ -242,7 +245,13 @@ function handleMessage(msg, client) {
         if (!session.alive) return;
         session.alive = false;
         session.exitCode = typeof code === 'number' ? code : null;
-        broadcast({ type: 'exit', id, exitCode: session.exitCode, endOffset: session.endOffset });
+        // A KILLED incarnation that has already been replaced must not announce
+        // its exit: the frame carries only the id, and the client would hand it
+        // to the NEW child's handler, ending a live turn with this old 143.
+        // Nobody is attached to it any more except to hear this very exit.
+        const successor = sessions.get(id);
+        const replaced = session.killing && successor !== undefined && successor !== session;
+        if (!replaced) broadcast({ type: 'exit', id, exitCode: session.exitCode, endOffset: session.endOffset });
         if (session.killing) {
           // Explicit teardown: the child is truly gone now → close fd + remove.
           // (Closing in `kill` while the child still emitted during the
@@ -251,7 +260,8 @@ function handleMessage(msg, client) {
           session.storeClosed = true;
           try { fs.closeSync(session.storeFd); } catch { /* already closed */ }
           try { fs.unlinkSync(session.storePath); } catch { /* already gone */ }
-          sessions.delete(id);
+          dying.delete(session);
+          if (sessions.get(id) === session) sessions.delete(id);
         }
         // else keep the session + store for a late attach (Case 1); the sweep reaps it.
       };
@@ -291,6 +301,24 @@ function handleMessage(msg, client) {
       const s = sessions.get(msg.id);
       if (s) {
         s.killing = true; // onDead does fd close + unlink + delete once the child truly exits
+        // A child being killed is no longer THE session for this id. It stays
+        // alive for up to KILL_GRACE_MS, and while it was still in the map a
+        // spawn landing in that window (refreshSessionConfig kills the idle
+        // child and the next turn spawns at once, 23/09) got it back as
+        // `resumed: true`: the turn was written to a dying child and ended on
+        // "Process exited with code 143". Out of the map now, so the next
+        // spawn makes a fresh child; the dying one is finished by its own
+        // closure (onDead), and its exit is announced as the old incarnation.
+        sessions.delete(msg.id);
+        dying.add(s);
+        // Its store moves aside too: the next spawn opens `storePathFor(id)`
+        // with truncation, and onDead would later unlink that path, i.e. the
+        // NEW child's store. The open fd follows the rename.
+        try {
+          const aside = `${s.storePath}.dying-${s.pid}`;
+          fs.renameSync(s.storePath, aside);
+          s.storePath = aside;
+        } catch { /* gone already: onDead's unlink is then a no-op */ }
         try { s.child.kill('SIGTERM'); } catch {}
         setTimeout(() => { try { if (s.alive) s.child.kill('SIGKILL'); } catch {} }, KILL_GRACE_MS);
       }
@@ -529,8 +557,9 @@ async function start() {
 
   function shutdown(signal) {
     console.error(`[AI Bridge] ${signal} — shutting down, killing ${sessions.size} session(s).`);
-    for (const s of sessions.values()) { try { s.child.kill('SIGTERM'); } catch {} try { fs.closeSync(s.storeFd); } catch {} }
+    for (const s of [...sessions.values(), ...dying]) { try { s.child.kill('SIGTERM'); } catch {} try { fs.closeSync(s.storeFd); } catch {} }
     sessions.clear();
+    dying.clear();
     server.close();
     try { fs.unlinkSync(socketPath); } catch {}
     try { fs.unlinkSync(pidPath); } catch {}
