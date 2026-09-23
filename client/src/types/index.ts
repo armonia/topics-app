@@ -78,6 +78,12 @@ export interface ChatMessage extends Message {
    * thinking/content/toolCalls buckets in that case.
    */
   blocks?: ContentBlock[];
+  /**
+   * Which prompt of the person this is in the whole thread (1-based), stamped
+   * by the history route. Absent on assistant rows, machine rows, and prompts
+   * sent since the last load (`promptNumber.ts` fills those).
+   */
+  promptNumber?: number;
   media?: string[];               // Media file paths
   partial?: boolean;              // True if message is still streaming
   queued?: boolean;               // True if message is queued to send (offline)

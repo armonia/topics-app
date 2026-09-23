@@ -33,6 +33,7 @@ import { SkeletonChatMessages } from '../Shared/Skeleton';
 import { listPaintedAndWhole } from './listPaintedAndWhole';
 import { decideHistoryCompletion } from './historyCompletionDecision';
 import { isHistoryIncomplete, requestHistoryCompletion, useHistoryCompleteness } from '../../state/historyCompleteness';
+import { resolvePromptNumbers } from './promptNumber';
 import { usePaneAlive } from '../../state/paneLiveness';
 import type { QueuedTurn } from '../../state/chatQueue';
 import { QueuedTurns } from './QueuedTurns';
@@ -477,6 +478,13 @@ export function MessageList({
    */
   const completeness = useHistoryCompleteness(topic.sessionKey);
   const historyPartial = isHistoryIncomplete(completeness);
+  // «#50»: which prompt of the person each bubble is, in the whole thread.
+  // Computed on the settled rows (the live tail is the assistant turn), so a
+  // token of the answer does not recount the prompts.
+  const promptNumbers = useMemo(
+    () => resolvePromptNumbers(settledItems, completeness.state === 'complete'),
+    [settledItems, completeness.state],
+  );
   const missingAbove = isHistoryIncomplete(completeness) ? completeness.missing : 0;
   /** The pane has a box in the layout: hidden tabs (keep-alive) are `false`. */
   const paneAlive = usePaneAlive();
@@ -2101,6 +2109,7 @@ export function MessageList({
                   onSwitchBranch={onSwitchBranch}
                   onMessage={onMessage}
                   onRetry={isLastAssistant ? onRetry : undefined}
+                  promptNumber={promptNumbers.get(msg.id)}
                 />
               </div>
               </CompactionHoistContext.Provider>

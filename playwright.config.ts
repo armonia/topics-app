@@ -545,6 +545,7 @@ export default defineConfig({
         // how the engine measures Virtuoso's rows, and WebKit is what ships.
         "**/chat-scroll-at-rest.spec.ts",
         "**/sender-sees-question.spec.ts",
+        "**/prompt-history.spec.ts",
         "**/drag-preview.spec.ts",
         "**/swap-freeze-ice.spec.ts",
         "**/split-dnd-matrix.spec.ts",

@@ -91,6 +91,7 @@ const CHAT_IT: Dict = {
   // a hint on hover and the second has to say WHAT it acts on.
   'chat.message.edit': 'Modifica',
   'chat.message.editAria': 'Modifica il messaggio',
+  'chat.message.promptNumber': 'Il tuo prompt numero {n} in questa chat',
   'chat.message.reply': 'Rispondi',
   'chat.message.copy': 'Copia',
   'chat.message.copyAria': 'Copia il messaggio',

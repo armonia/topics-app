@@ -13,6 +13,7 @@ import { routesThroughGateway } from "./commandRouting";
 import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter, createToolDetailRouter } from "./history";
 import { blocksForDisk, leanMessagesForWire, toolCallsColumnForRow } from "../../shared/lean-tool-call";
+import { MACHINE_ROW_SQL } from "../../shared/prompt-number";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
@@ -391,10 +392,8 @@ const PREVIEW_MAX_CHARS = 120;
 const CONTEXT_ENVELOPE_PREFIX = "[Chat messages since your last reply";
 /** A row the MACHINE wrote (goal continuation, goal stop, board envelope) is not
  *  "the last thing said", and in the sidebar it spoke over the person in English
- *  («Objective still open: ...», topic:33966f4e, 23/09). The marks are a few
- *  bytes of JSON, below the blob compression threshold, so a `LIKE` reads them.
- *  Twin of `isMachineRow` in `client/src/components/Chat/machineRow.ts`. */
-const NOT_MACHINE_ROW_SQL = `(blocks IS NULL OR (blocks NOT LIKE '%"kind":"goal-nudge"%' AND blocks NOT LIKE '%"kind":"goal-stop"%' AND blocks NOT LIKE '%"kind":"dispatched-envelope"%'))`;
+ *  («Objective still open: ...», topic:33966f4e, 23/09). */
+const NOT_MACHINE_ROW_SQL = `NOT ${MACHINE_ROW_SQL}`;
 
 /**
  * Il testo di un messaggio ridotto a UNA riga da mostrare sotto il nome di una

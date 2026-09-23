@@ -8,6 +8,7 @@ import { leanMessagesForWire, leanMessagesForHistory } from "../../shared/lean-t
 import { isTurnStillLive, shouldConsultBroker, type BrokerTurnState } from "./historyCleanupPolicy";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { HISTORY_PAGE_MAX_BYTES } from "../../shared/history-paging";
+import { MACHINE_ROW_SQL, promptNumbers } from "../../shared/prompt-number";
 
 /**
  * Keep the TAIL of `msgs` that fits in `budget` serialized bytes, never fewer
@@ -191,7 +192,19 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
       const pool = beforeAt >= 0 ? completeMsgs.slice(0, beforeAt) : completeMsgs;
       const sliced = offset > 0 ? pool.slice(0, Math.max(0, pool.length - offset)) : pool;
       const capped = wantsAll ? sliced : sliced.slice(-limit);
-      const result = cappedRead ? hydrateMessageBodies(capped) : capped;
+      const hydrated = cappedRead ? hydrateMessageBodies(capped) : capped;
+      // «This is my 50th prompt»: numbered on the WHOLE thread, since the page
+      // may be its tail. The lean read left `blocks` in the table, so the rows
+      // the machine wrote are asked of SQLite by their marks (a few bytes of
+      // plain JSON, below the blob compression threshold). See `prompt-number.ts`.
+      const machineIds = new Set((ctx.db.prepare(
+        `SELECT id FROM messages WHERE session_key = ? AND role = 'user' AND ${MACHINE_ROW_SQL}`,
+      ).all(sessionKey) as Array<{ id: string }>).map((r) => r.id));
+      const numbers = promptNumbers(completeMsgs, machineIds);
+      const result = hydrated.map((m) => {
+        const n = numbers.get(m.id);
+        return n ? { ...m, promptNumber: n } : m;
+      });
       const currentStream = isStreaming(sessionKey);
 
       // Overlay in-memory stream content onto the last assistant message

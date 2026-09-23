@@ -41,6 +41,8 @@ import { fastModeUi } from '../../lib/fastMode';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { shortcut } from '../../lib/shortcutLabel';
 import { topicsRoutingBlocked } from '../../lib/topicsRoutingGate';
+import { IDLE as HISTORY_IDLE, historyEntries, onArrow, type PromptHistoryState } from './promptHistory';
+import { isMachineRow } from './machineRow';
 
 // Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
 // the composer's initial bundle and only fetch it the first time the popover opens.
@@ -914,6 +916,43 @@ export function ChatInput({
     }
   };
 
+  // ↑/↓ through the person's own prompts, from an empty field (see
+  // `promptHistory.ts`). The entries are read only when an arrow is pressed:
+  // recomputing them on every streamed token of the answer would be waste.
+  const historyRef = useRef<PromptHistoryState>(HISTORY_IDLE);
+  const currentMessagesRef = useRef(currentMessages);
+  currentMessagesRef.current = currentMessages;
+  const handleHistoryArrow = (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if ((e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey) return false;
+    if (e.nativeEvent.isComposing) return false;
+    const ta = e.currentTarget;
+    const value = ta.value;
+    const collapsed = ta.selectionStart === ta.selectionEnd;
+    const entries = historyEntries(
+      currentMessagesRef.current
+        .filter((m) => m.role === 'user' && !isMachineRow(m.blocks))
+        .map((m) => m.content ?? ''),
+    );
+    const result = onArrow(historyRef.current, {
+      key: e.key,
+      entries,
+      value,
+      caretOnFirstLine: collapsed && !value.slice(0, ta.selectionStart).includes('\n'),
+      caretOnLastLine: collapsed && !value.slice(ta.selectionEnd).includes('\n'),
+    });
+    historyRef.current = result.state;
+    if (!result.handled) return false;
+    e.preventDefault();
+    setMessage(result.value);
+    // Caret at the end, where the shell leaves it: the next ↑ goes further
+    // back only from the first line, so a long entry is read, not skipped.
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (el) el.setSelectionRange(result.value.length, result.value.length);
+    });
+    return true;
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Handle file @-mention menu navigation
     if (showMentionMenu) {
@@ -944,6 +983,7 @@ export function ChatInput({
       if (e.key === 'Escape') { e.preventDefault(); setShowSlashMenu(false); return; }
     }
     
+    if (handleHistoryArrow(e)) return;
     parentOnKeyDown(e);
   };
 

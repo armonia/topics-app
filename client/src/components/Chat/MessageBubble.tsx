@@ -115,6 +115,9 @@ interface MessageBubbleProps {
    *  ghost from a lost stream:end) can never paint a SECOND running indicator
    *  under the real, current turn. */
   isLast?: boolean;
+  /** Which prompt of the person this bubble is in the whole thread («#50»),
+   *  or undefined when it is not a person prompt or is not known yet. */
+  promptNumber?: number;
 }
 
 /**
@@ -148,6 +151,7 @@ export const MessageBubble = memo(function MessageBubble({
   onMessage,
   onRetry,
   isLast,
+  promptNumber,
 }: MessageBubbleProps) {
   const tr = useT();
   // Only inside the chat of a board task, and only on wordless machine work.
@@ -341,6 +345,19 @@ export const MessageBubble = memo(function MessageBubble({
       <div
         className={`group flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} ${!grouped ? 'message-appear' : ''} ${grouped && isCompact ? 'mt-0.5' : ''}`}
       >
+        {/* «#50»: which prompt of the person this is, in the whole thread.
+            Beside the bubble at its top, always on (not a hover detail): it is
+            how you find «the one I asked around the fortieth» when scrolling
+            back. Out of the bubble's own box, so its height never changes. */}
+        {msg.role === 'user' && promptNumber != null && (
+          <span
+            data-testid="prompt-number"
+            className="self-start mt-2 mr-1.5 flex-shrink-0 select-none text-micro tabular-nums text-app-text-muted"
+            title={tr('chat.message.promptNumber', { n: promptNumber })}
+          >
+            #{promptNumber}
+          </span>
+        )}
         <div
           // NO overflow-hidden here: this div is the containing block of the
           // absolutely-positioned hover toolbar below (`bottom-full` = above the

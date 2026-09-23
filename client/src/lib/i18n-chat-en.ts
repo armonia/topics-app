@@ -74,6 +74,7 @@ const CHAT_EN: Dict = {
 
   'chat.message.edit': 'Edit',
   'chat.message.editAria': 'Edit message',
+  'chat.message.promptNumber': 'Your prompt number {n} in this chat',
   'chat.message.reply': 'Reply',
   'chat.message.copy': 'Copy',
   'chat.message.copyAria': 'Copy message',
