@@ -22,6 +22,7 @@ import { Spinner, SpinnerFallback } from '../Shared/Spinner';
 import { SkeletonRows } from '../Shared/Skeleton';
 import { lazyWarm } from '../../lib/lazyWarm';
 import { loadEditorTabs } from '../../state/pane/panePreload';
+import { fileTreeClaimsDrag } from './fileTreeDrag';
 
 // `lazyWarm`: the tree mounts these tabs unconditionally, so with a bare
 // `lazy()` every project window that opens on its file tree drew the spinner
@@ -898,6 +899,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   }, []);
 
   const handleDragOver = useCallback((e: React.DragEvent, node: FileNode) => {
+    // D15: a pane tab crossing this pane belongs to the layout, see fileTreeDrag.
+    if (!fileTreeClaimsDrag(e.dataTransfer.types, draggedPathsRef.current.length > 0)) return;
     e.preventDefault();
     const isExternal = e.dataTransfer.types.includes('Files') && draggedPathsRef.current.length === 0;
     if (isExternal) {
@@ -919,6 +922,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   }, [isChildOf]);
 
   const handleDragEnter = useCallback((e: React.DragEvent, node: FileNode) => {
+    if (!fileTreeClaimsDrag(e.dataTransfer.types, draggedPathsRef.current.length > 0)) return;
     e.preventDefault();
     const isExternal = e.dataTransfer.types.includes('Files') && draggedPathsRef.current.length === 0;
     if (isExternal) {
@@ -1050,6 +1054,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, FileExplorerProps>(fu
   }, [readDirectoryEntries, loadFiles, toast]);
 
   const handleDrop = useCallback(async (e: React.DragEvent, node: FileNode) => {
+    if (!fileTreeClaimsDrag(e.dataTransfer.types, draggedPathsRef.current.length > 0)) return;
     e.preventDefault();
     // A node consumed this drop — stop it bubbling to the scroll container's
     // handleRootDrop, which would upload the same files a second time to the

@@ -16,8 +16,8 @@
  * state. Every function returns NEW arrays/objects — callers stay immutable.
  */
 import type { GroupLayoutRow, GroupCellStack } from '../../types';
-import { MAX_STACK_DEPTH } from './constants';
-import { normalizeWidths, equalizeWidths } from './gridWidths';
+import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH } from './constants';
+import { normalizeWidths, equalizeWidths, splitColumnWidths } from './gridWidths';
 
 export type VerticalEdge = 'top' | 'bottom';
 
@@ -95,9 +95,12 @@ export function isColumnStackFull(
  * behavior) landed the pane cells away when the target was a middle member
  * of a deep stack. Landing at visual slot 0 (top of the primary) PROMOTES
  * the new group to column primary (the previous primary + members slide
- * down). Slot heights are reset to equal. No-op (returns the same array
- * reference) when the target can't be located or the column is already at
- * MAX_STACK_DEPTH.
+ * down). The new slot takes HALF of the target's height and every sibling
+ * keeps the size it was dragged to: the old `equalizeWidths` reset the whole
+ * column to 1/N, so adding a third pane flattened a deliberate 80/20 (and the
+ * preview had promised half of the target cell, not 1/N of the column).
+ * No-op (returns the same array reference) when the target can't be located
+ * or the column is already at MAX_STACK_DEPTH.
  */
 export function addGroupToColumnStack(
   rows: readonly GroupLayoutRow[],
@@ -119,14 +122,22 @@ export function addGroupToColumnStack(
   const visual = [loc.primaryId, ...belowPrimary];
   const targetIdx = visual.indexOf(targetGroupId); // ≥ 0 — locateGroup found it
   const insertAt = edge === 'bottom' ? targetIdx + 1 : targetIdx;
+
+  // Heights BEFORE the splice, so the donor index still lines up with `visual`.
+  // A stored array of the wrong length is corrupt persisted state: fall back to
+  // an even column rather than mis-assigning somebody else's height.
+  const prevHeights =
+    existing && existing.heights.length === visual.length
+      ? existing.heights
+      : equalizeWidths(visual.length);
+
   visual.splice(insertAt, 0, newGroupId);
   const primaryId = visual[0];
   const members = visual.slice(1);
 
-  const slots = members.length + 1; // primary + members
   const nextStack: GroupCellStack = {
     groupIds: members,
-    heights: equalizeWidths(slots),
+    heights: splitColumnWidths(prevHeights, targetIdx, insertAt),
   };
 
   const nextRows = rows.map((rr, i) => {
@@ -262,4 +273,113 @@ export function pickCellStacks(
     if (allow.has(primary)) out[primary] = stack;
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Which column container must carry a left/right split preview, or null when
+ * the hovered slot is the right place for it.
+ *
+ * A left/right release always inserts a FULL-HEIGHT column beside the HOST
+ * column: `handleSplitGroup` resolves the target through `locateGroup` and
+ * writes into `row.groupIds`, the row's only horizontal axis. So on a stacked
+ * column the preview painted on a member's own slot promises half a cell and
+ * delivers a whole column. Returning the column primary tells the renderer to
+ * paint the region on the column container instead, which is exactly the
+ * footprint that lands. Only ONE of the two paints per gesture, so the single
+ * `data-grid-split-overlay` the e2e tests locate stays single.
+ *
+ * Only left/right: a top/bottom release really does land adjacent to the
+ * target slot, so its half-slot preview is honest.
+ */
+export function columnSplitPreviewHost(
+  row: GroupLayoutRow | undefined,
+  targetGroupId: string,
+  edge: 'left' | 'right' | 'top' | 'bottom' | 'center',
+): string | null {
+  if (!row || (edge !== 'left' && edge !== 'right')) return null;
+  const loc = locateGroup([row], targetGroupId);
+  if (!loc) return null;
+  return columnDepth(row, loc.primaryId) > 1 ? loc.primaryId : null;
+}
+
+/**
+ * Would a full-width row inserted at `gapIdx` (between rows gapIdx and
+ * gapIdx+1) actually reshape the tree?
+ *
+ * The new row lands exactly in the gap, so when the pane in flight is the only
+ * pane of the only group of a row TOUCHING that gap, its old row empties and
+ * disappears right where the new one appeared: the same tree, redrawn. The
+ * band lit up for it all the same.
+ *
+ * An unknown source (`undefined` size: the drag came from another window, where
+ * the drag shelf is empty) answers yes — refusing on a guess kills a gesture
+ * that works.
+ */
+export function rowGapWouldReshape(
+  rows: readonly GroupLayoutRow[],
+  gapIdx: number,
+  sourceGroupId: string | undefined,
+  sourceGroupSize: number | undefined,
+): boolean {
+  if (!sourceGroupId || sourceGroupSize === undefined || sourceGroupSize > 1) return true;
+  for (const idx of [gapIdx, gapIdx + 1]) {
+    const row = rows[idx];
+    if (!row) continue;
+    const ids = rowGroupIds(row);
+    if (ids.length === 1 && ids[0] === sourceGroupId) return false;
+  }
+  return true;
+}
+
+/**
+ * Where `gid`'s own rect sits inside its row: which row, and whether it is the
+ * first / last slot of its column. A stacked column's MIDDLE slot touches
+ * neither the row's top nor its bottom, so no full-width strip can cover it.
+ * null when the group is nowhere in `rows`.
+ */
+export function slotEdges(
+  rows: readonly GroupLayoutRow[],
+  gid: string,
+): { rowIdx: number; atColumnTop: boolean; atColumnBottom: boolean } | null {
+  const loc = locateGroup(rows, gid);
+  if (!loc) return null;
+  const members = rows[loc.rowIdx].cellStacks?.[loc.primaryId]?.groupIds ?? [];
+  return {
+    rowIdx: loc.rowIdx,
+    atColumnTop: loc.isPrimary,
+    atColumnBottom: members.length === 0 ? loc.isPrimary : gid === members[members.length - 1],
+  };
+}
+
+/**
+ * Would a split on `targetGroupId`'s `edge` fit inside the runaway caps, i.e.
+ * will the drop actually build it?
+ *
+ * The caps (`MAX_COLS_PER_ROW`, `MAX_ROWS`, `MAX_STACK_DEPTH`) used to be read
+ * only by the drop, which returns without mutating anything when one is hit.
+ * The dragover knew nothing of them, so at the cap the band still lit up and
+ * the release did nothing: the same "a promised gesture must succeed" law the
+ * rest of this system now obeys, broken by silence. This is that question,
+ * asked by both sides so they cannot answer differently.
+ *
+ * The branches mirror `useProjectLayout.handleSplitGroup` line for line:
+ * left/right cap the target's HOST row (a stacked member counts its host, which
+ * a bare `groupIds.includes` walk would miss), a bare top/bottom caps the
+ * target column's stack depth, and a `fullRow` intent caps the row count.
+ *
+ * A target that cannot be located answers yes: the honest answer is "not mine
+ * to refuse", and the drop is the one with the authoritative rows.
+ */
+export function splitFitsCaps(
+  rows: readonly GroupLayoutRow[],
+  targetGroupId: string,
+  edge: 'left' | 'right' | 'top' | 'bottom',
+  fullRow: boolean,
+): boolean {
+  const vertical = edge === 'top' || edge === 'bottom';
+  if (vertical && fullRow) return rows.length < MAX_ROWS;
+  const loc = locateGroup(rows, targetGroupId);
+  if (!loc) return true;
+  if (vertical) return columnDepth(rows[loc.rowIdx], loc.primaryId) < MAX_STACK_DEPTH;
+  return rows[loc.rowIdx].groupIds.length < MAX_COLS_PER_ROW;
 }

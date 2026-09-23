@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import type { EdgeZone } from './dropZone';
+import type { EdgeGutters, EdgeZone } from './dropZone';
 
 /**
  * Drop-feedback visual tokens — the ONE source of truth for every pane/tab
@@ -155,30 +155,70 @@ export function fullRowZoneStyle(side: 'top' | 'bottom', active: boolean, edgeOf
 }
 
 /**
- * An INTERIOR row-gap drop band, centered on the boundary between two rows
- * (`topPct` = the boundary's cumulative height, in % of the container).
- * Same visual language as the top/bottom `fullRowZoneStyle` strips — it IS
- * the same intent (insert a full-width row), just BETWEEN two existing rows
- * instead of at the container's extremes. Drag-only, like the extreme strips.
- * Idle = a centered hairline on the boundary; active = the filled band.
+ * An INTERIOR row-gap drop band, sitting entirely ABOVE the boundary between
+ * two rows (`topPct` = the boundary's cumulative height, in % of the
+ * container), with its bottom edge ON that boundary. Same visual language as
+ * the top/bottom `fullRowZoneStyle` strips — it IS the same intent (insert a
+ * full-width row), just BETWEEN two existing rows instead of at the
+ * container's extremes. Drag-only, like the extreme strips.
+ *
+ * It used to be CENTERED on the boundary, which put half its 26px on the tab
+ * bar of the row BELOW: the band has `pointer-events: auto` and outranks the
+ * cells (`Z_DROP_FULLROW`), so aiming at that bar to move a tab into it landed
+ * a whole new row instead. `edgeOffset = TAB_BAR_H` fixed the same collision
+ * for the container's extreme strips; the interior bands were left on it.
+ * Living wholly in the row above keeps every tab bar reachable.
+ *
+ * Idle = a hairline on the boundary (the band's bottom edge); active = the
+ * filled band.
  */
 export function rowGapZoneStyle(topPct: number, active: boolean): CSSProperties {
   return {
     position: 'absolute',
     left: 0,
     right: 0,
-    top: `calc(${topPct}% - ${FULL_ROW_GUTTER_PX / 2}px)`,
+    top: `calc(${topPct}% - ${FULL_ROW_GUTTER_PX}px)`,
     height: FULL_ROW_GUTTER_PX,
     zIndex: Z_DROP_FULLROW,
-    background: active
-      ? DROP_REGION_FILL
-      : // Idle: hairline centered on the row boundary itself.
-        `linear-gradient(to bottom, transparent calc(50% - 1px), color-mix(in srgb, ${DROP_ACCENT} 45%, transparent) calc(50% - 1px), color-mix(in srgb, ${DROP_ACCENT} 45%, transparent) calc(50% + 1px), transparent calc(50% + 1px))`,
-    // Seam on BOTH edges when active — the band sits between two rows, so both
-    // edges face content; a single seam would read as belonging to one row only.
+    background: active ? DROP_REGION_FILL : 'transparent',
+    // Active: seam on BOTH edges — the band still previews an insertion between
+    // two rows, so both edges face content. Idle: a reduced-strength hairline on
+    // the bottom edge alone, which is the boundary the release aims at.
     boxShadow: active
       ? `inset 0 ${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}, inset 0 -${DROP_SEAM_PX}px 0 0 ${DROP_ACCENT}`
-      : 'none',
+      : `inset 0 -${DROP_SEAM_PX}px 0 0 color-mix(in srgb, ${DROP_ACCENT} 45%, transparent)`,
     transition: 'background 140ms ease, box-shadow 140ms ease',
+  };
+}
+
+/**
+ * How many pixels at the top / bottom of a cell rect are already owned by a
+ * full-width drop strip, so `detectDropZone` can move its floor off them.
+ *
+ * The strips have `pointer-events: auto` at `Z_DROP_FULLROW`, above every
+ * cell region, so a pixel they cover is not a reachable edge target: on a short
+ * cell the "stack above this column" band shrank to a few pixels, and on a
+ * standalone 320x180 first-row cell to none at all. The interior row-gap band
+ * counts the same way, since it sits wholly in the bottom of the row above.
+ *
+ * `topStripOffset` is how far IN from the container's top edge the top strip
+ * starts, in the RECT's own coordinates: the standalone cell rect includes its
+ * tab bar (so the strip lands `TAB_BAR_H` down inside it), while the project's
+ * content rect starts below that bar (so the strip lands at 0).
+ */
+export function edgeStripGutters(o: {
+  /** The rect's top edge IS the container's top edge. */
+  atContainerTop: boolean;
+  /** The rect's bottom edge IS the container's bottom edge. */
+  atContainerBottom: boolean;
+  /** A row-gap band rests on the rect's bottom edge (another row follows). */
+  gapBandBelow: boolean;
+  /** Whether the extreme strips are mounted at all (they need >1 column). */
+  extremeStrips: boolean;
+  topStripOffset?: number;
+}): EdgeGutters {
+  return {
+    top: o.atContainerTop && o.extremeStrips ? (o.topStripOffset ?? 0) + FULL_ROW_GUTTER_PX : 0,
+    bottom: (o.atContainerBottom && o.extremeStrips) || o.gapBandBelow ? FULL_ROW_GUTTER_PX : 0,
   };
 }

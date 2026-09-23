@@ -13,6 +13,8 @@ import { describe, test, expect } from "bun:test";
 import {
   dropRegionStyle,
   fullRowZoneStyle,
+  rowGapZoneStyle,
+  edgeStripGutters,
   FULL_ROW_GUTTER_PX,
   DROP_SEAM_PX,
 } from "./dropFeedback";
@@ -105,5 +107,47 @@ describe("fullRowZoneStyle — full-width gutter", () => {
     // Active: the region fill language + a full-strength seam on the inner edge.
     expect(String(active.background)).toContain("color-mix");
     expect(String(active.boxShadow)).toBe(`inset 0 ${DROP_SEAM_PX}px 0 0 var(--primary)`);
+  });
+});
+
+describe("rowGapZoneStyle — the band lives ABOVE the boundary", () => {
+  test("its bottom edge IS the row boundary, so it never reaches the next row's tab bar", () => {
+    // Centred on the boundary, half the 26px band fell on the tab bar of the
+    // row BELOW: aiming at that bar to move a tab there gave you a new row.
+    const s = rowGapZoneStyle(40, false);
+    expect(s.top).toBe(`calc(40% - ${FULL_ROW_GUTTER_PX}px)`);
+    expect(s.height).toBe(FULL_ROW_GUTTER_PX);
+  });
+
+  test("idle is a hairline on the boundary, active is the filled band", () => {
+    const idle = rowGapZoneStyle(40, false);
+    const active = rowGapZoneStyle(40, true);
+    expect(idle.background).toBe("transparent");
+    // The hairline hugs the band's BOTTOM edge — the boundary itself.
+    expect(String(idle.boxShadow)).toBe(
+      `inset 0 -${DROP_SEAM_PX}px 0 0 color-mix(in srgb, var(--primary) 45%, transparent)`,
+    );
+    expect(String(active.background)).toContain("color-mix");
+  });
+});
+
+describe("edgeStripGutters — pixels a strip already owns", () => {
+  const base = { atContainerTop: false, atContainerBottom: false, gapBandBelow: false, extremeStrips: true };
+
+  test("the project's content rect starts below the tab bar: 26px at the top", () => {
+    expect(edgeStripGutters({ ...base, atContainerTop: true }).top).toBe(FULL_ROW_GUTTER_PX);
+  });
+
+  test("the standalone cell rect includes its tab bar: 40 + 26 = 66px", () => {
+    expect(edgeStripGutters({ ...base, atContainerTop: true, topStripOffset: 40 }).top).toBe(66);
+  });
+
+  test("a row-gap band owns the bottom even when the extreme strips are absent", () => {
+    expect(edgeStripGutters({ ...base, extremeStrips: false, gapBandBelow: true }).bottom).toBe(FULL_ROW_GUTTER_PX);
+    expect(edgeStripGutters({ ...base, extremeStrips: false, atContainerBottom: true }).bottom).toBe(0);
+  });
+
+  test("a middle slot touches nothing", () => {
+    expect(edgeStripGutters(base)).toEqual({ top: 0, bottom: 0 });
   });
 });

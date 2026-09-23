@@ -36,8 +36,15 @@ export function rememberDraggedPane(paneId: string): void {
   // finisce senza `dragend` (o due drag annidati) lascia listener appesi che
   // si accumulano e sparano tutti al primo `dragend` successivo. Uno solo,
   // registrato una volta, non ha stati intermedi da sbagliare.
+  //
+  // And `drop` as well as `dragend`: a drop handler that unmounts the dragged
+  // source (a cross-group move does) swallows the `dragend` that would clear
+  // the shelf, so the NEXT drag reads as same-window even when it came from
+  // another one, and PaneTabBar gets `isCrossGroupDrag` and the dragged
+  // group's size wrong. Every other reset in the repo listens for the pair.
   if (!listening) {
     window.addEventListener('dragend', forgetDraggedPane);
+    window.addEventListener('drop', forgetDraggedPane);
     listening = true;
   }
 }

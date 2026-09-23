@@ -161,10 +161,30 @@ const SLOWMO = process.env.E2E_SLOWMO === "1";
 // `check:test-skips` use it. The flag is handed to any child Playwright loads
 // the config in, which does not see the parent's argv.
 if (process.argv.includes("--list")) process.env.TOPICS_E2E_LIST_ONLY = "1";
-if (process.platform === "darwin" && process.env.GITHUB_ACTIONS !== "true" && process.env.TOPICS_E2E_LIST_ONLY !== "1") {
+
+// The one project that is NOT Chromium is not what the ban is about. The rule
+// on this machine is "no Chrome", and the `webkit` project launches the engine
+// the product actually ships inside (WKWebView): banning it too was collateral,
+// and it cost the only way to film a gesture on the engine that owns it. A run
+// asked for EXPLICITLY with `--project=webkit` is therefore allowed, and only
+// that one: every other project still launches Chromium and still refuses.
+// Handed down through the environment because a child Playwright spawns does
+// not see the parent's argv, the same way `--list` is handed down above.
+const webkitOnly = process.argv.some(
+  (a, i) => a === "--project=webkit" || (a === "--project" && process.argv[i + 1] === "webkit"),
+);
+if (webkitOnly) process.env.TOPICS_E2E_WEBKIT_ONLY = "1";
+
+if (
+  process.platform === "darwin" &&
+  process.env.GITHUB_ACTIONS !== "true" &&
+  process.env.TOPICS_E2E_LIST_ONLY !== "1" &&
+  process.env.TOPICS_E2E_WEBKIT_ONLY !== "1"
+) {
   throw new Error(
     "E2E does not run on this Mac: no Chromium here. Commit the spec and read the e2e jobs of the pull request CI " +
-      "(the board does it for a delivery: github-ci:e2e), or run it on the Windows PC.",
+      "(the board does it for a delivery: github-ci:e2e), or run it on the Windows PC. " +
+      "A WebKit clip of a gesture is the exception: `--project=webkit`, which launches no Chromium.",
   );
 }
 
@@ -509,7 +529,22 @@ export default defineConfig({
       // differently on the engine the product actually ships in. It runs in the
       // `chromium` project as well (it is not in its `testIgnore`): the point is
       // the SAME measurement on the two engines.
-      testMatch: ["**/drag-preview.spec.ts", "**/swap-freeze-ice.spec.ts"],
+      // `split-dnd-matrix.spec.ts` joins them, and for a stronger version of the
+      // same reason: the drop handlers in `PanelGrid` and `GroupLayout` are
+      // written AROUND WebKit's HTML5 drag-and-drop, not around Chromium's.
+      // WKWebView does not infer `dropEffect` from `preventDefault`, so a target
+      // that accepts a release without setting it makes the SOURCE's `dragend`
+      // read `dropEffect: 'none'` — which the pop-out path treats as a drag out
+      // of the window and closes the pane it had just split. Chromium cannot see
+      // that class of fault at all: it infers the effect and goes green. The
+      // matrix runs in the `chromium` project too (it is not in its
+      // `testIgnore`), because the point is the SAME tree asserted on the two
+      // engines.
+      testMatch: [
+        "**/drag-preview.spec.ts",
+        "**/swap-freeze-ice.spec.ts",
+        "**/split-dnd-matrix.spec.ts",
+      ],
       use: {
         browserName: "webkit",
         /* I permessi del `use` globale sono quelli della clipboard, e WebKit non
