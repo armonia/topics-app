@@ -45,8 +45,8 @@ test.describe("goal sent and readable, tok/s in line", () => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
         if (!/\/api\/chat$/.test(new URL(url, location.href).pathname) || (init?.method ?? "GET") !== "POST") return realFetch(input, init);
         try { w.__chatPosts.push(JSON.parse(String(init?.body)).messages.at(-1).content); } catch { /* shape changed: the assertion says so */ }
-        const enc = new TextEncoder();
-        const chunk = (t: string) => enc.encode(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: t } }] })}\n\n`);
+        const encoder = new TextEncoder();
+        const chunk = (t: string) => encoder.encode(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: t } }] })}\n\n`);
         const body = new ReadableStream<Uint8Array>({
           start(c) {
             let i = 0;

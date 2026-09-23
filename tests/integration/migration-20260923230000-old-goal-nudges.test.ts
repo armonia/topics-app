@@ -23,10 +23,10 @@ beforeAll(() => setupTestDataDir(TEST_DATA));
 
 let seq = 0;
 function insert(ctx: AppContext, rows: Array<{ id: string; role?: string; content: string; blocks?: string | null }>): void {
-  const stmt = ctx.db.prepare(
+  const insertRow = ctx.db.prepare(
     `INSERT INTO messages (id, session_key, role, content, blocks, timestamp, sort_order) VALUES (?, 'topic:old', ?, ?, ?, ?, ?)`,
   );
-  for (const r of rows) stmt.run(r.id, r.role ?? "user", r.content, r.blocks ?? null, new Date(Date.now() + ++seq * 1000).toISOString(), seq);
+  for (const r of rows) insertRow.run(r.id, r.role ?? "user", r.content, r.blocks ?? null, new Date(Date.now() + ++seq * 1000).toISOString(), seq);
 }
 const blocksOf = (ctx: AppContext, id: string) =>
   (ctx.db.query(`SELECT blocks FROM messages WHERE id = ?`).get(id) as { blocks: string | null }).blocks;

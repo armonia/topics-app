@@ -12,8 +12,8 @@
  * memory over its physical RAM, and leaves out what is not measured.
  *
  * THREE WAYS BACK. «Riprendi» brings the page back and it may pause again when
- * you leave it; «Mantieni per questa volta» keeps it live until it navigates
- * somewhere else; «Mantieni sempre» never pauses this site again.
+ * you leave it; «keep it this time» keeps it live until it navigates
+ * somewhere else; «keep always» never pauses this site again.
  *
  * STATIC ON PURPOSE. A paused pane exists to stop spending CPU and GPU, so the
  * veil and the card carry no animation of their own. A click on the card's
@@ -21,7 +21,8 @@
  */
 import { CirclePause, Play } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import { formatShare, machineMemoryMb, machineShare } from '../../lib/shell/heavyPanes';
+import { machineMemoryMb } from '../../lib/shell/heavyPanes';
+import { pausedUsageText } from './pausedUsage';
 
 const CPU_CORES = Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 1) || 1);
 
@@ -34,19 +35,6 @@ interface PausedPaneProps {
   onResume?: () => void;
   onKeepOnce?: () => void;
   onKeepAlways?: () => void;
-}
-
-/** The sentence under the title: what the page was taking of the Mac. */
-export function pausedUsageText(
-  tr: (key: string, vars?: Record<string, string | number>) => string,
-  v: { cpu: number; memMb?: number },
-  machine: { cores: number; memMb: number | null },
-): string {
-  const share = machineShare(v, machine);
-  const cpu = formatShare(share.cpuPct);
-  return share.memPct != null
-    ? tr('browser.heavy.paused.bodyCpuMem', { cpu, mem: formatShare(share.memPct) })
-    : tr('browser.heavy.paused.body', { cpu });
 }
 
 export function PausedPane({ cpu, memMb, hasStill, onResume, onKeepOnce, onKeepAlways }: PausedPaneProps) {

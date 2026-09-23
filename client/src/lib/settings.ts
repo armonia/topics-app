@@ -22,7 +22,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // the app badge. Round-trips through the server `settings` key like every
   // other AppSettings field (sanitizeSettingsPayload keeps keys present here).
   mutedProjects: [],
-  // Heavy tabs never paused, by origin: filled by «Mantieni sempre».
+  // Heavy tabs never paused, by origin: filled by the «keep always» button.
   keepLiveSites: [],
   // Lingua dell'interfaccia: `auto` segue il browser (e ricade sull'italiano).
   language: 'auto',

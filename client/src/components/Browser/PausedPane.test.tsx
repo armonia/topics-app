@@ -10,7 +10,8 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PausedPane, pausedUsageText } from './PausedPane';
+import { PausedPane } from './PausedPane';
+import { pausedUsageText } from './pausedUsage';
 import { t } from '../../lib/i18n';
 
 const tr = (key: string, vars?: Record<string, string | number>) => t(key, 'it', vars);

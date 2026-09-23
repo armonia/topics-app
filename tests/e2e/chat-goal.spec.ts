@@ -72,8 +72,8 @@ test.describe("Obiettivo della chat", () => {
 
   test("/goal dichiara, entra nell'envelope e sopravvive al reload", async ({ page, request, chatPage }) => {
     test.info().annotations.push({ type: "spec", description: "CTX-GOAL-01" });
-    // `/goal <testo>` ora manda anche il turno (come Claude Code): qui conta lo
-    // stato dell'obiettivo, non la risposta, quindi il turno si chiude subito.
+    // `/goal <text>` now also sends the turn (like Claude Code): what matters
+    // here is the goal's state, not the answer, so the turn ends at once.
     await page.route(/\/api\/chat$/, (route) =>
       route.request().method() !== "POST"
         ? route.fallback()

@@ -26,8 +26,8 @@ export interface PaneLiveInput {
   agentActive: boolean;
   opsInFlight: number;
   devtoolsOpen: boolean;
-  /** The person chose to keep it running: «Mantieni per questa volta» on this
-   *  page, or «Mantieni sempre» on this site. Optional: absent means no. */
+  /** The person chose to keep it running: «keep it this time» on this
+   *  page, or «keep always» on this site. Optional: absent means no. */
   keptLive?: boolean;
 }
 

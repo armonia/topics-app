@@ -920,7 +920,7 @@ export function ChatInput({
   // recomputing them on every streamed token of the answer would be waste.
   const historyRef = useRef<PromptHistoryState>(HISTORY_IDLE);
   const currentMessagesRef = useRef(currentMessages);
-  currentMessagesRef.current = currentMessages;
+  useEffect(() => { currentMessagesRef.current = currentMessages; }, [currentMessages]);
   const handleHistoryArrow = (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
     if ((e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey) return false;
     if (e.nativeEvent.isComposing) return false;

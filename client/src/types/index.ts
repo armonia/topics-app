@@ -1468,7 +1468,7 @@ export interface AppSettings {
   mutedProjects: string[];
   /**
    * Sites (origin, e.g. `http://localhost:4600`) whose heavy tab is never paused:
-   * the «Mantieni sempre» of the pause card. Per origin, not per page, because
+   * the «keep always» button of the pause card. Per origin, not per page, because
    * the heavy page is the app you are developing and its routes change.
    */
   keepLiveSites: string[];

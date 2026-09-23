@@ -87,10 +87,10 @@ export interface NativePanePause {
   pauseState: PauseState;
   pausedImage: string | null;
   resume: () => void;
-  /** «Mantieni per questa volta»: resume, and do not pause this page again
+  /** «Keep it this time»: resume, and do not pause this page again
    *  until it navigates somewhere else or the pane is reopened. */
   keepOnce: () => void;
-  /** «Mantieni sempre»: resume, and never pause this site (origin) again. */
+  /** «Keep always»: resume, and never pause this site (origin) again. */
   keepAlways: () => void;
 }
 
