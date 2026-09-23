@@ -1163,6 +1163,31 @@ export class ClaudeCodeProvider implements AIProvider {
   private static onWokenTurn: ((sessionKey: string, label?: string) => void) | null = null;
 
   /**
+   * Who wants to know that a Topics-driven turn is OVER: the moment
+   * `isTurnProcessAlive` flips back to false. The adopted-session import sweep
+   * uses it to move its cursor past the turn's bytes right now, instead of
+   * finding them unguarded at its next tick and importing a second copy.
+   * Static for the same boot-order reason as `observeWokenTurns`.
+   */
+  static observeTurnReleased(fn: (sessionKey: string) => void): void {
+    ClaudeCodeProvider.onTurnReleased = fn;
+  }
+  private static onTurnReleased: ((sessionKey: string) => void) | null = null;
+
+  /**
+   * The ONLY way a turn's handler is cleared, so every end (result, abort,
+   * error, timeout, process death, route unregister) tells the observer. Only a
+   * real handler-to-null transition counts: clearing an already-null slot is
+   * not a turn ending.
+   */
+  private releaseStreamHandler(pp: PersistentProcess): void {
+    if (!pp.streamHandler) return;
+    pp.streamHandler = null;
+    try { ClaudeCodeProvider.onTurnReleased?.(pp.sessionKey); }
+    catch (err) { console.warn(`[claude-code] turn-release observer failed for ${pp.sessionKey}:`, err); }
+  }
+
+  /**
    * IL TURNO È STATO CHIESTO — anche se non è ancora partito.
    *
    * La route chiama questo PRIMA di `sendChat`; `claude-code` non lo
@@ -1195,7 +1220,7 @@ export class ClaudeCodeProvider implements AIProvider {
     const pp = this.processes.get(sessionKey);
     if (!pp) return;
     if (handler && pp.streamHandler !== handler) return; // ha già preso qualcun altro
-    pp.streamHandler = null;
+    this.releaseStreamHandler(pp);
   }
 
   /**
@@ -1337,7 +1362,7 @@ export class ClaudeCodeProvider implements AIProvider {
         // certa, quindi si dice con la sua causa e il cartello arriva in chat.
         if (pp.alive && pp.streamHandler) {
           const h = pp.streamHandler;
-          pp.streamHandler = null;
+          this.releaseStreamHandler(pp);
           try { h.onAborted?.({ turnEnd: cancelled("server-shutdown") }); }
           catch (err) { console.warn(`[claude-code] avviso di spegnimento non consegnato per ${key}:`, err); }
         }
@@ -1545,7 +1570,7 @@ export class ClaudeCodeProvider implements AIProvider {
     } catch (err: any) {
       clearTimeout(messageTimeout);
       const errMsg = err?.message ?? "";
-      pp.streamHandler = null;
+      this.releaseStreamHandler(pp);
       pp.pendingResolve = null;
       pp.pendingReject = null;
       this.stopHeartbeat(pp);
@@ -1824,7 +1849,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // content as a finalized message instead of an error stub.
     if (pp.streamHandler) {
       pp.streamHandler.onAborted?.({ turnEnd: cancelled(reason) });
-      pp.streamHandler = null;
+      this.releaseStreamHandler(pp);
     }
     this.stopHeartbeat(pp);
 
@@ -2775,7 +2800,7 @@ export class ClaudeCodeProvider implements AIProvider {
       r({ runId: "" });
     }
     const sink = pp.streamHandler ?? handler;
-    pp.streamHandler = null;
+    this.releaseStreamHandler(pp);
     sink.onError(`Riadozione del turno non riuscita: ${detail}`);
     return "dead";
   }
@@ -2787,7 +2812,7 @@ export class ClaudeCodeProvider implements AIProvider {
     if (pp.pendingResolve) { const r = pp.pendingResolve; pp.pendingResolve = null; pp.pendingReject = null; r({ runId: "" }); }
     if (pp.streamHandler) {
       pp.streamHandler.onAborted?.({ turnEnd: { end: "end_turn", detail: "reattach: nessun turno in volo nello store" } });
-      pp.streamHandler = null;
+      this.releaseStreamHandler(pp);
     }
   }
 
@@ -2798,7 +2823,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // fermato nessuno, è finito il processo sotto.
     if (pp.streamHandler) {
       pp.streamHandler.onAborted?.({ turnEnd: { end: "error", cause: "process-died" } });
-      pp.streamHandler = null;
+      this.releaseStreamHandler(pp);
     }
     this.cleanupTimers(pp);
   }
@@ -2847,7 +2872,7 @@ export class ClaudeCodeProvider implements AIProvider {
           if (pp.pendingReject === reject) {
             pp.pendingResolve = null;
             pp.pendingReject = null;
-            pp.streamHandler = null;
+            this.releaseStreamHandler(pp);
             reject(new Error("RATE_LIMIT"));
           }
         },
@@ -2904,7 +2929,7 @@ export class ClaudeCodeProvider implements AIProvider {
       } else {
         this.tellHandlerSafely(pp, "onError", () => pp.streamHandler?.onError(`Process exited with code ${code}`));
       }
-      pp.streamHandler = null;
+      this.releaseStreamHandler(pp);
     }
     this.cleanupTimers(pp);
   }
@@ -2940,7 +2965,7 @@ export class ClaudeCodeProvider implements AIProvider {
     }
     if (pp.streamHandler) {
       this.tellHandlerSafely(pp, "onError", () => pp.streamHandler?.onError(err.message));
-      pp.streamHandler = null;
+      this.releaseStreamHandler(pp);
     }
     this.cleanupTimers(pp);
   }
@@ -3107,7 +3132,7 @@ export class ClaudeCodeProvider implements AIProvider {
           costUsd: event.total_cost_usd,
           turnEnd,
         });
-        pp.streamHandler = null;
+        this.releaseStreamHandler(pp);
         // Stream finished — drop heartbeat. The sendChatInternal `finally`
         // path also clears it, but doing it here avoids one tick of
         // unnecessary keep-alive between `result` and the await resolution.

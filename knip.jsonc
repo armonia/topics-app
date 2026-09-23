@@ -128,6 +128,11 @@
         // replays the three boot-sweep SELECTs with and without the archived
         // filter. Run by hand against a copy of a database; imported by nobody.
         "scripts/boot-sweep-probe.ts!",
+        // `bun run scripts/dedupe-imported-claude-messages.ts [--db data/topics.db] [--apply]`
+        // - one-off cleanup of the bare copies the adopted-session import sweep
+        // wrote of Topics-streamed turns. Dry run unless `--apply`. Run by hand,
+        // imported by nobody.
+        "scripts/dedupe-imported-claude-messages.ts!",
         // Le tre sonde di performance CITATE in `docs/perf-map.md`: si lanciano
         // per path (`bun run scripts/layer-growth.ts`), non da package.json,
         // quindi per knip erano file morti e tenevano `check:deadcode` rosso su

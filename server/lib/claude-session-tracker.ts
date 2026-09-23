@@ -240,6 +240,15 @@ export interface ClaudeSessionTracker {
    */
   startImportSweep(intervalMs?: number): () => void;
   /**
+   * A Topics-driven turn on this session just ended: move import_offset to the
+   * transcript's current end, synchronously. The stream already persisted every
+   * byte of that turn; without this the sweep's `isSessionLocallyDriven` guard
+   * only covers bytes it happened to see WHILE the child was mid-turn, and the
+   * turn's final lines, written between two ticks, came back as a second copy.
+   * No-op (false) for a session that is not adopted. Never moves backward.
+   */
+  syncImportOffsetToEnd(sessionKey: string): boolean;
+  /**
    * Start the recurring reaper interval. Returns a stop fn.
    */
   startReaper(intervalMs?: number): () => void;
@@ -857,6 +866,11 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
       repo.setImportOffset(sessionKey, nextOffset);
       return 0;
     }
+    // A local turn that ENDED during the awaits above has already snapped the
+    // cursor past these bytes (`syncImportOffsetToEnd`): they are its own, not
+    // the terminal's. Everything from here to the writes is synchronous, so
+    // this check cannot go stale before we act on it.
+    if (repo.loadBySessionKey(sessionKey)?.importOffset !== fromOffset) return 0;
 
     const parentId = importSink.getLastMessageId(sessionKey);
     const { messages, resolutions } = parseTranscriptDelta(consumedText, { parentId });
@@ -930,6 +944,17 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     return () => clearInterval(handle);
   }
 
+  function syncImportOffsetToEnd(sessionKey: string): boolean {
+    const sess = repo.loadBySessionKey(sessionKey);
+    if (!sess?.jsonlPath || sess.importOffset == null) return false;
+    // Read at turn end, after the child wrote the turn: measured on CLI stream-json,
+    // when `result` arrives the final assistant line and the stop_hook_summary are
+    // already on disk and the file does not grow afterwards.
+    const size = fileSizeOrZero(sess.jsonlPath);
+    if (size <= sess.importOffset) return false;
+    return repo.setImportOffset(sessionKey, size);
+  }
+
   function startReaper(intervalMs = 30_000): () => void {
     const handle = setInterval(() => {
       try { reapOnce(); } catch (err) { console.error('[claude-session-tracker] reaper error', err); }
@@ -956,6 +981,7 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
     startJsonlTail,
     importOnce,
     startImportSweep,
+    syncImportOffsetToEnd,
     startReaper,
   };
 }
