@@ -372,6 +372,7 @@ const EN = {
   'diff.noChanges': 'No changes.',
   'diff.pendingNotes': '{n} pending notes',
   'diff.truncated': 'Diff truncated (very large){rest}: open the project to see it whole.',
+  'diff.truncated.loadable': 'Diff truncated (very large){rest}: open a file to load its diff.',
   'diff.truncated.countOnly': ': for {n} files only the count is left',
 
   'ai.agents.title': 'Connected accounts and agents',

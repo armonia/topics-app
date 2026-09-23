@@ -339,7 +339,9 @@ export function UnifiedDiff({ bundle, defaultOpenFirst = false, review, focusPat
       ))}
       {bundle.truncated && (
         <div className="px-1 py-0.5 text-micro text-amber-400/80">
-          {tr('diff.truncated', { rest: missing > 0 ? tr('diff.truncated.countOnly', { n: missing }) : '' })}
+          {/* With a loader the way to the rest is on each file, not in another
+              app: the note says so instead of sending you away. */}
+          {tr(loadPatch ? 'diff.truncated.loadable' : 'diff.truncated', { rest: missing > 0 ? tr('diff.truncated.countOnly', { n: missing }) : '' })}
         </div>
       )}
     </div>

@@ -375,6 +375,7 @@ const IT: Dict = {
   'diff.noChanges': 'Nessuna modifica.',
   'diff.pendingNotes': '{n} note in sospeso',
   'diff.truncated': 'Diff troncato (molto grande){rest}: apri il progetto per vederlo intero.',
+  'diff.truncated.loadable': 'Diff troncato (molto grande){rest}: apri un file per caricarne il diff.',
   'diff.truncated.countOnly': ': di {n} file resta solo il conteggio',
 
   'ai.agents.title': 'Account e agenti collegati',
