@@ -48,6 +48,19 @@ describe('mergeHistoryPage: the first page over what the pane holds', () => {
     expect(ids(mergeHistoryPage(cached, page))).toEqual(ids(thread(81, 120)));
   });
 
+  test('an optimistic bubble BEFORE the pivot is kept, not dropped', () => {
+    // Sent well before the page's oldest row and buried under later messages
+    // by the time the page lands: its own `message:new` broadcast was
+    // dropped as `isOwnStream`, so it never adopted a durable id. It cannot
+    // be an echo of anything in the page (the page starts after it), so it
+    // must stay on screen until `completeHistory` replaces the whole prefix.
+    const ghost: ChatMessage = { ...row(50), id: `${CLIENT_MESSAGE_ID_PREFIX}ghost` };
+    const cached = [ghost, ...thread(81, 119)];
+    const page = thread(81, 120);
+    const out = mergeHistoryPage(cached, page);
+    expect(ids(out)).toEqual([ghost.id, ...ids(thread(81, 120))]);
+  });
+
   test('a cache entirely older than the page is kept in front by timestamp', () => {
     // More than a page landed while this pane was away: nothing in common.
     const cached = thread(1, 40);
