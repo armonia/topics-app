@@ -26,15 +26,32 @@ export function splitColumnWidths(
   donorIdx: number,
   insertAt: number,
 ): number[] {
+  return splitSlotWidths(widths, donorIdx, insertAt, 1);
+}
+
+/**
+ * `splitColumnWidths` for more than one new slot: the donor is cut into
+ * `count + 1` equal shares, one kept and `count` spliced in at `insertAt`.
+ * Needed when a whole cell moves into another column and brings its own
+ * stacked members along, so all of them land without flattening the siblings.
+ * `count <= 0` returns the widths unchanged.
+ */
+export function splitSlotWidths(
+  widths: readonly number[],
+  donorIdx: number,
+  insertAt: number,
+  count: number,
+): number[] {
+  if (count <= 0) return [...widths];
   const donor = widths[donorIdx];
   if (donor === undefined || !Number.isFinite(donor) || donor <= 0) {
-    const n = widths.length + 1;
+    const n = widths.length + count;
     return new Array(n).fill(1 / n);
   }
-  const half = donor / 2;
+  const share = donor / (count + 1);
   const next = [...widths];
-  next[donorIdx] = half;
-  next.splice(insertAt, 0, half);
+  next[donorIdx] = share;
+  next.splice(insertAt, 0, ...new Array<number>(count).fill(share));
   return next;
 }
 

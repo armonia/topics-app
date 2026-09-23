@@ -16,8 +16,12 @@ import {
   setColumnStackHeights,
   reconcileCellStacks,
   pickCellStacks,
+  columnSplitPreviewHost,
+  rowGapWouldReshape,
+  slotEdges,
+  splitFitsCaps,
 } from './groupLayoutStacks';
-import { MAX_STACK_DEPTH } from './constants';
+import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH } from './constants';
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 const row = (groupIds: string[], cellStacks?: GroupLayoutRow['cellStacks']): GroupLayoutRow => ({
@@ -119,6 +123,42 @@ describe('addGroupToColumnStack — bottom', () => {
   });
 });
 
+describe('addGroupToColumnStack — sibling heights survive the split', () => {
+  it('halves only the target slot when the target is the primary', () => {
+    const rows = [row(['A'], { A: { groupIds: ['A2', 'A3'], heights: [0.6, 0.2, 0.2] } })];
+    const next = addGroupToColumnStack(rows, 'A', 'NEW', 'bottom');
+    // Visual order A, NEW, A2, A3: A donates half of its 0.6, the two
+    // manually-resized members keep their 0.2 each.
+    expect(next[0].cellStacks?.A.groupIds).toEqual(['NEW', 'A2', 'A3']);
+    expect(next[0].cellStacks?.A.heights).toEqual([0.3, 0.3, 0.2, 0.2]);
+  });
+  it('halves only the target slot when the target is a stacked member', () => {
+    const rows = [row(['A'], { A: { groupIds: ['A2', 'A3'], heights: [0.6, 0.2, 0.2] } })];
+    const next = addGroupToColumnStack(rows, 'A2', 'NEW', 'bottom');
+    expect(next[0].cellStacks?.A.groupIds).toEqual(['A2', 'NEW', 'A3']);
+    expect(next[0].cellStacks?.A.heights).toEqual([0.6, 0.1, 0.1, 0.2]);
+  });
+  it('halves the target slot on a top insert too', () => {
+    const rows = [row(['A'], { A: { groupIds: ['A2', 'A3'], heights: [0.6, 0.2, 0.2] } })];
+    const next = addGroupToColumnStack(rows, 'A3', 'NEW', 'top');
+    expect(next[0].cellStacks?.A.groupIds).toEqual(['A2', 'NEW', 'A3']);
+    expect(next[0].cellStacks?.A.heights).toEqual([0.6, 0.2, 0.1, 0.1]);
+  });
+  it('promotion to primary still halves only the old primary slot', () => {
+    const rows = [row(['A'], { A: { groupIds: ['A2'], heights: [0.8, 0.2] } })];
+    const next = addGroupToColumnStack(rows, 'A', 'NEW', 'top');
+    expect(next[0].groupIds).toEqual(['NEW']);
+    expect(next[0].cellStacks?.NEW.groupIds).toEqual(['A', 'A2']);
+    expect(next[0].cellStacks?.NEW.heights).toEqual([0.4, 0.4, 0.2]);
+  });
+  it('falls back to an even split when stored heights are corrupt', () => {
+    const rows = [row(['A'], { A: { groupIds: ['A2'], heights: [0.5] } })];
+    const next = addGroupToColumnStack(rows, 'A', 'NEW', 'bottom');
+    expect(next[0].cellStacks?.A.heights.length).toBe(3);
+    expect(sum(next[0].cellStacks!.A.heights)).toBeCloseTo(1, 6);
+  });
+});
+
 describe('addGroupToColumnStack — top', () => {
   it('on the primary: promotes the new group and slides the old one down', () => {
     const rows = [row(['A', 'B'])];
@@ -203,5 +243,137 @@ describe('pickCellStacks', () => {
     expect(pickCellStacks(stacks, ['A'])).toEqual({ A: { groupIds: ['A2'], heights: [0.5, 0.5] } });
     expect(pickCellStacks(stacks, ['Z'])).toBeUndefined();
     expect(pickCellStacks(undefined, ['A'])).toBeUndefined();
+  });
+});
+
+describe('columnSplitPreviewHost — a left/right preview on a stacked column', () => {
+  const stacked = () => row(['A', 'B'], { A: { groupIds: ['A2'], heights: [0.5, 0.5] } });
+
+  it('paints on the column when the target is a stacked MEMBER', () => {
+    expect(columnSplitPreviewHost(stacked(), 'A2', 'right')).toBe('A');
+    expect(columnSplitPreviewHost(stacked(), 'A2', 'left')).toBe('A');
+  });
+
+  it('paints on the column when the target is the primary of a stacked column', () => {
+    expect(columnSplitPreviewHost(stacked(), 'A', 'right')).toBe('A');
+  });
+
+  it('leaves an unstacked column to its own slot', () => {
+    expect(columnSplitPreviewHost(stacked(), 'B', 'right')).toBeNull();
+    expect(columnSplitPreviewHost(row(['A', 'B']), 'A', 'left')).toBeNull();
+  });
+
+  it('never claims top/bottom or center — those really do land on the slot', () => {
+    for (const edge of ['top', 'bottom', 'center'] as const) {
+      expect(columnSplitPreviewHost(stacked(), 'A2', edge)).toBeNull();
+    }
+  });
+
+  it('is null for a missing row or an unknown group', () => {
+    expect(columnSplitPreviewHost(undefined, 'A2', 'right')).toBeNull();
+    expect(columnSplitPreviewHost(stacked(), 'ZZ', 'right')).toBeNull();
+  });
+});
+
+describe('rowGapWouldReshape — the band between two rows', () => {
+  const rows = () => [row(['A']), row(['B', 'C'])];
+
+  it('refuses the gap when the pane in flight is the only one of an adjacent single-group row', () => {
+    // Row 0 holds group A alone with one pane: the new row lands exactly where
+    // A's row was, and A's row disappears. Same tree, redrawn.
+    expect(rowGapWouldReshape(rows(), 0, 'A', 1)).toBe(false);
+  });
+
+  it('refuses it from the row BELOW the gap too', () => {
+    expect(rowGapWouldReshape([row(['B', 'C']), row(['A'])], 0, 'A', 1)).toBe(false);
+  });
+
+  it('accepts a source group that keeps a pane behind', () => {
+    expect(rowGapWouldReshape(rows(), 0, 'A', 2)).toBe(true);
+  });
+
+  it('accepts a row that holds more than the source group', () => {
+    expect(rowGapWouldReshape(rows(), 0, 'B', 1)).toBe(true);
+    // A stacked member counts as a second group in the row.
+    const stackedRow = row(['A'], { A: { groupIds: ['A2'], heights: [0.5, 0.5] } });
+    expect(rowGapWouldReshape([stackedRow, row(['B'])], 0, 'A', 1)).toBe(true);
+  });
+
+  it('accepts a drag from another window, where the shelf cannot answer', () => {
+    expect(rowGapWouldReshape(rows(), 0, undefined, undefined)).toBe(true);
+    expect(rowGapWouldReshape(rows(), 0, 'A', undefined)).toBe(true);
+  });
+});
+
+describe('slotEdges — which strip can reach a group rect', () => {
+  it('a lone primary touches both ends of its row', () => {
+    expect(slotEdges([row(['A', 'B'])], 'B')).toEqual({ rowIdx: 0, atColumnTop: true, atColumnBottom: true });
+  });
+
+  it('in a stacked column only the ends touch', () => {
+    const rows = [row(['A'], { A: { groupIds: ['A2', 'A3'], heights: [0.34, 0.33, 0.33] } })];
+    expect(slotEdges(rows, 'A')).toEqual({ rowIdx: 0, atColumnTop: true, atColumnBottom: false });
+    expect(slotEdges(rows, 'A2')).toEqual({ rowIdx: 0, atColumnTop: false, atColumnBottom: false });
+    expect(slotEdges(rows, 'A3')).toEqual({ rowIdx: 0, atColumnTop: false, atColumnBottom: true });
+  });
+
+  it('reports the row and nothing at all for a stranger', () => {
+    expect(slotEdges([row(['A']), row(['B'])], 'B')?.rowIdx).toBe(1);
+    expect(slotEdges([row(['A'])], 'ZZ')).toBeNull();
+  });
+});
+
+describe('splitFitsCaps — the dragover asks the cap the drop will enforce', () => {
+  const fullRowOf = (n: number): GroupLayoutRow[] =>
+    Array.from({ length: 1 }, () => row(Array.from({ length: n }, (_, i) => `C${i}`)));
+  const manyRows = (n: number): GroupLayoutRow[] =>
+    Array.from({ length: n }, (_, i) => row([`R${i}`]));
+
+  it('accepts an ordinary split in every direction', () => {
+    const rows = [row(['A', 'B'])];
+    for (const edge of ['left', 'right', 'top', 'bottom'] as const) {
+      expect(splitFitsCaps(rows, 'A', edge, false)).toBe(true);
+    }
+  });
+
+  it('refuses left/right once the target ROW is full of columns', () => {
+    const rows = fullRowOf(MAX_COLS_PER_ROW);
+    expect(splitFitsCaps(rows, 'C0', 'left', false)).toBe(false);
+    expect(splitFitsCaps(rows, 'C0', 'right', false)).toBe(false);
+    // The vertical axis is a different cap and is still free.
+    expect(splitFitsCaps(rows, 'C0', 'bottom', false)).toBe(true);
+  });
+
+  it('counts the HOST row for a stacked target, like the drop does', () => {
+    const cols = Array.from({ length: MAX_COLS_PER_ROW }, (_, i) => `C${i}`);
+    const rows = [row(cols, { C0: { groupIds: ['C0b'], heights: [0.5, 0.5] } })];
+    expect(splitFitsCaps(rows, 'C0b', 'right', false)).toBe(false);
+  });
+
+  it('refuses top/bottom once the target COLUMN is at stack depth', () => {
+    const members = Array.from({ length: MAX_STACK_DEPTH - 1 }, (_, i) => `A${i + 2}`);
+    const heights = Array.from({ length: MAX_STACK_DEPTH }, () => 1 / MAX_STACK_DEPTH);
+    const rows = [row(['A', 'B'], { A: { groupIds: members, heights } })];
+    expect(splitFitsCaps(rows, 'A', 'top', false)).toBe(false);
+    expect(splitFitsCaps(rows, 'A', 'bottom', false)).toBe(false);
+    // The sibling column is empty, and the horizontal axis is free.
+    expect(splitFitsCaps(rows, 'B', 'bottom', false)).toBe(true);
+    expect(splitFitsCaps(rows, 'A', 'right', false)).toBe(true);
+  });
+
+  it('refuses a full-width row once the surface is out of rows', () => {
+    expect(splitFitsCaps(manyRows(MAX_ROWS), 'R0', 'bottom', true)).toBe(false);
+    expect(splitFitsCaps(manyRows(MAX_ROWS - 1), 'R0', 'top', true)).toBe(true);
+  });
+
+  it('a full-row intent reads the ROW cap, never the stack depth', () => {
+    const members = Array.from({ length: MAX_STACK_DEPTH - 1 }, (_, i) => `A${i + 2}`);
+    const heights = Array.from({ length: MAX_STACK_DEPTH }, () => 1 / MAX_STACK_DEPTH);
+    const rows = [row(['A'], { A: { groupIds: members, heights } })];
+    expect(splitFitsCaps(rows, 'A', 'bottom', true)).toBe(true);
+  });
+
+  it('says yes for a target it cannot locate, leaving the drop to decide', () => {
+    expect(splitFitsCaps([row(['A'])], 'ZZ', 'right', false)).toBe(true);
   });
 });

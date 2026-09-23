@@ -20,16 +20,33 @@ export type DropZone = EdgeZone | 'center';
  * Relative zones make each split target a quarter of the pane, VS Code-style,
  * while 'center' (merge-as-tab) remains the whole middle box.
  *
+ * `gutters` names pixels at the top/bottom of the rect that something ELSE
+ * already owns: a full-width row strip lies over the cell's own edge band with
+ * pointer-events auto and a higher z-index, so those pixels are not a reachable
+ * edge target. The floor on that side alone rises to `edgePx + gutter`, which
+ * hands the gesture its graspable band back beyond the strip. On a standalone
+ * 320x180 first-row cell (tab bar 40 + strip 26) the stack-above band was
+ * literally 0px wide; the 45% cap still guarantees a centre box. Omit it and
+ * the geometry is exactly what it was.
+ *
  * Pass either a React.DragEvent or a raw {clientX, clientY} pair. The
  * `bounds` is whatever DOMRect-shaped object you have on hand
  * (typically `(e.currentTarget as HTMLElement).getBoundingClientRect()`),
  * accepted as a `DOMRect`-like to avoid forcing callers through `as`.
  */
+export interface EdgeGutters {
+  /** Px at the rect's TOP owned by a strip (never a reachable edge target). */
+  top?: number;
+  /** Px at the rect's BOTTOM owned by a strip or a row-gap band. */
+  bottom?: number;
+}
+
 export function detectDropZone(
   pointer: { clientX: number; clientY: number },
   bounds: { left: number; top: number; width: number; height: number },
   mode: 'edges' | 'edges+center' = 'edges+center',
   edgePx: number = EDGE_DROP_PX,
+  gutters: EdgeGutters = {},
 ): DropZone | null {
   const w = Math.max(bounds.width, 1);
   const h = Math.max(bounds.height, 1);
@@ -37,10 +54,15 @@ export function detectDropZone(
   const y = pointer.clientY - bounds.top;
 
   const depthX = Math.min(Math.max(edgePx, w * 0.25), w * 0.45);
-  const depthY = Math.min(Math.max(edgePx, h * 0.25), h * 0.45);
+  // Per-side vertical depth: only the side a strip covers is deepened, so the
+  // opposite band keeps its ordinary floor and the centre box shifts instead of
+  // shrinking from both ends.
+  const depthTop = Math.min(Math.max(edgePx + (gutters.top ?? 0), h * 0.25), h * 0.45);
+  const depthBottom = Math.min(Math.max(edgePx + (gutters.bottom ?? 0), h * 0.25), h * 0.45);
+  const depthY = Math.min(depthTop, depthBottom);
 
   const inCenterX = x >= depthX && x <= w - depthX;
-  const inCenterY = y >= depthY && y <= h - depthY;
+  const inCenterY = y >= depthTop && y <= h - depthBottom;
   if (inCenterX && inCenterY) {
     return mode === 'edges+center' ? 'center' : null;
   }

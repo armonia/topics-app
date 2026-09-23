@@ -32,6 +32,8 @@
  * one is never promised.
  */
 
+import { primaryFromSoloCellKey } from './soloCells';
+
 export type SplitSurface = 'standalone-pool' | 'standalone-solo' | 'project';
 
 export interface SplitContext {
@@ -54,6 +56,39 @@ export function canSplitPane(ctx: SplitContext): boolean {
 /** Map a standalone grid item key ('standalone' | 'solo:<id>') to its surface. */
 export function standaloneSplitSurface(gridItemKey: string): SplitSurface {
   return gridItemKey.startsWith('solo:') ? 'standalone-solo' : 'standalone-pool';
+}
+
+/** A tab hovering the EDGE band of a standalone grid cell, as the `dragover`
+ *  can describe it (no `dataTransfer` values there, only the drag shelf). */
+export interface StandaloneEdgeDropContext {
+  /** Grid key of the cell under the pointer: `'standalone'` or `solo:<id>`. */
+  targetCellKey: string;
+  /** The pane in flight, from `lib/dragPayload`. Null when the drag started in
+   *  ANOTHER window, where the shelf is empty and only the drop can tell. */
+  draggedPaneId: string | null;
+  /** Tabs currently in the target cell. */
+  targetCellSize: number;
+}
+
+/**
+ * True when releasing here would actually reshape the grid, so the `dragover`
+ * can refuse to paint a gesture the drop is going to throw away.
+ *
+ * The one refused case is the lone tab of a solo cell released on its OWN
+ * cell's edge: there is nothing left to split away from, which is the same
+ * answer `canSplitPane` already gives the context menu. The preview used to
+ * light up anyway and the release did nothing.
+ *
+ * A drag from another window is allowed through: the shelf is empty there, so
+ * the honest answer is "can't tell", and refusing on a guess would kill a
+ * gesture that works.
+ */
+export function standaloneEdgeDropSplits(ctx: StandaloneEdgeDropContext): boolean {
+  const { targetCellKey, draggedPaneId, targetCellSize } = ctx;
+  if (!draggedPaneId) return true;
+  const draggedId = topicIdOfPane(draggedPaneId);
+  if (targetCellKey !== `solo:${draggedId}`) return true;
+  return canSplitPane({ surface: standaloneSplitSurface(targetCellKey), groupSize: targetCellSize });
 }
 
 /** A tab released on the edge band of a group, described by where it came from. */
@@ -105,4 +140,90 @@ export function canDropSplit(ctx: SplitDropContext): boolean {
   if (ctx.fullRow) return ctx.sourceGroupSize > 1 || (ctx.totalGroups ?? 2) > 1;
   if (!ctx.sameGroup) return true;
   return canSplitPane({ surface: ctx.surface, groupSize: ctx.sourceGroupSize });
+}
+
+/** Standalone cells are keyed by a chat's TOPIC id while the drag shelf records
+ *  the PANE id (`chat:<topicId>`), so the two only compare after this unwrap. */
+function topicIdOfPane(paneId: string): string {
+  return paneId.startsWith('chat:') ? paneId.slice('chat:'.length) : paneId;
+}
+
+/** A tab hovering the CENTER (merge) band of a group, as a `dragover` can
+ *  describe it: no `dataTransfer` values there, only the drag shelf. */
+export interface CenterDropContext {
+  /** The pane in flight, from `lib/dragPayload`. Null when the drag started in
+   *  ANOTHER window, where the shelf is empty and only the drop can tell. */
+  draggedPaneId: string | null;
+  /** Panes already in the group under the pointer. */
+  targetMemberIds: readonly string[];
+}
+
+/**
+ * True when a center release would really move the tab.
+ *
+ * A center drop MERGES the tab into the group under the pointer, so it does
+ * nothing at all when the tab already lives there — and the drop handler says
+ * exactly that (`sourceGroupId !== groupId`). The preview lit up anyway: the
+ * body of your own pane looked like a drop target and swallowed the release.
+ * The EDGE bands stay live for the same group; a self-split is a real gesture.
+ *
+ * A drag from another window is allowed through: the shelf is empty there, so
+ * the honest answer is "can't tell", and refusing on a guess kills a gesture
+ * that works.
+ */
+export function centerDropMerges(ctx: CenterDropContext): boolean {
+  if (!ctx.draggedPaneId) return true;
+  return !ctx.targetMemberIds.includes(ctx.draggedPaneId);
+}
+
+/** The standalone twin of `CenterDropContext`. Cells hold TOPIC ids, and the
+ *  main pool is "everything not in a solo cell", so it is described by the
+ *  solo cells rather than by a member list of its own. */
+export interface StandaloneCenterDropContext {
+  /** Grid key of the cell under the pointer: `'standalone'` or `solo:<id>`. */
+  targetCellKey: string;
+  draggedPaneId: string | null;
+  /** Topic ids per solo cell, primary first. */
+  soloCells: readonly (readonly string[])[];
+}
+
+/**
+ * The standalone twin of `centerDropMerges`. Two shapes of no-op, both of which
+ * used to paint: a tab already in the target solo cell (the merge re-lands it
+ * where it is), and a pool tab dropped on the pool (`handleUnsoloTopic` on a
+ * topic no cell holds returns the very same array).
+ */
+export function standaloneCenterDropMerges(ctx: StandaloneCenterDropContext): boolean {
+  if (!ctx.draggedPaneId) return true;
+  const topicId = topicIdOfPane(ctx.draggedPaneId);
+  const primary = primaryFromSoloCellKey(ctx.targetCellKey);
+  // The main pool: the drop un-solos the tab, which is a no-op unless some
+  // cell currently holds it.
+  if (primary === null) return ctx.soloCells.some((cell) => cell.includes(topicId));
+  const cell = ctx.soloCells.find((c) => c[0] === primary);
+  return cell ? !cell.includes(topicId) : primary !== topicId;
+}
+
+/**
+ * Which cell a CENTER (merge) release joins.
+ *
+ * The standalone grid's drop targets are whole CELLS, so a cell hosting a
+ * vertical sub-stack reported its PRIMARY however far down the pointer was: a
+ * release on the body of the lower pane put the tab in the group of the pane
+ * above it. That is a data fault, not a cosmetic one, and the CenterRegion
+ * (inset 10% of the cell) never said which pane it meant.
+ *
+ * `CellSubStack` already publishes each slot as `[data-split-leaf]`, so the
+ * caller reads the slot under the pointer and passes it here; the cell stays
+ * the fallback for a cell with no stack, and a leaf this grid does not own (a
+ * project layout nested inside a standalone cell publishes leaves too) is
+ * ignored rather than trusted.
+ */
+export function centerMergeTargetKey(
+  leafKey: string | null | undefined,
+  cellKey: string | undefined,
+  isKnownKey: (key: string) => boolean,
+): string | undefined {
+  if (leafKey && isKnownKey(leafKey)) return leafKey;
+  return cellKey;
 }

@@ -17,7 +17,8 @@ import { findPendingPlan, planApprovalMessage } from './planDetection';
 import { clearAskDraft, readAskDraft } from './askDraft';
 import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_EDIT_KEY, PLAN_REJECT_LABEL } from '../../../../shared/plan-decision';
 import { useConfirm } from '../../hooks/useConfirm';
-import { DND_TYPES } from '../../lib/dndTypes';
+import { chatAcceptsFileDrag } from './chatFileDrop';
+import { dragLeftHost } from '../../lib/dragLeave';
 import { errMessage } from '../../lib/errMessage';
 import { sendFocusTopic } from '../../lib/focusMessaging';
 import type { MentionedFile } from './FileMentionMenu';
@@ -1563,14 +1564,15 @@ function ChatPaneComponent({
   }, [resizeImageToBase64, isGlobalOrchestrator, toast, tr]);
 
   const handleFileDragOver = useCallback((e: React.DragEvent) => {
-    if (e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return;
+    // D15: our own drags belong to the layout's drop zones, see chatFileDrop.
+    if (!chatAcceptsFileDrag(e.dataTransfer.types)) return;
     e.preventDefault();
     e.stopPropagation();
     if (!isGlobalOrchestrator) setFileDragOver(true);
   }, [isGlobalOrchestrator]);
-  const handleFileDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); if (!e.currentTarget.contains(e.relatedTarget as Node)) setFileDragOver(false); }, []);
+  const handleFileDragLeave = useCallback((e: React.DragEvent) => { if (!chatAcceptsFileDrag(e.dataTransfer.types)) return; e.preventDefault(); e.stopPropagation(); if (dragLeftHost(e.currentTarget, e)) setFileDragOver(false); }, []);
   const handleFileDrop = useCallback((e: React.DragEvent) => {
-    if (e.dataTransfer.types.includes(DND_TYPES.PANEL_ID)) return;
+    if (!chatAcceptsFileDrag(e.dataTransfer.types)) return;
     e.preventDefault();
     e.stopPropagation();
     setFileDragOver(false);

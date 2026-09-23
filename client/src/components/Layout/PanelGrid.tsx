@@ -10,6 +10,7 @@ import { getProjectGridWeight, subscribeProjectGridWeights, type ProjectGridWeig
 import { useGridResize } from '../../hooks/useGridResize';
 import { useLayoutMobile } from '../../hooks/useMobile';
 import { DND_TYPES, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
+import { dragLeftHost } from '../../lib/dragLeave';
 import { usePanelGridPersistence } from './usePanelGridPersistence';
 import { startDragPreview } from '../../lib/dragPreview';
 import { getProjectLabel } from '../../lib/buildSidebarItems';
@@ -30,9 +31,13 @@ import { useServerHydrated } from '../../hooks/useServerHydrated';
 import { ColumnInsertDivider, RowInsertDivider } from './InsertDividers';
 import { CellSubStack } from './CellSubStack';
 import { MAX_COLS_PER_ROW, MAX_ROWS, MAX_STACK_DEPTH, MIN_PANE_FRACTION, TAB_BAR_H } from './constants';
-import { detectDropZone, type DropZone } from '../../lib/dropZone';
+import { detectDropZone, type DropZone, type EdgeGutters } from '../../lib/dropZone';
+import { edgeStripGutters } from '../../lib/dropFeedback';
 import { SplitRegion, CenterRegion, FullWidthRowZone, RowGapDropZone } from './DropOverlay';
 import { splitColumnWidths, appendColumnWidths, chooseSplitOrientation, weightedWidths, equalizeWidths } from './gridWidths';
+import { addKeysToCellStack, applyVerticalDrop, standaloneSplitFitsCaps } from './panelGridStacks';
+import { standaloneEdgeDropSplits, standaloneCenterDropMerges, centerMergeTargetKey } from './splitRules';
+import { draggedPaneId } from '../../lib/dragPayload';
 import { notifyPaneReflow } from './paneReflow';
 import { applyZoomWeights, cellKeysForPanes, liveCellKeys } from './paneZoom';
 import { computeZoomPaneIds, resolveEntryScope, resolveZoomAnchor, resolveZoomCells, type ZoomPane, type ZoomScope } from './zoomScope';
@@ -223,15 +228,31 @@ function removeKeyFromRow(
 const isNativeApp = typeof window !== 'undefined' && !!(window as Window & { webkit?: { messageHandlers?: unknown } }).webkit?.messageHandlers;
 
 /**
+ * The grid key of the sub-stack SLOT under the pointer, read off the
+ * `[data-split-leaf]` that `CellSubStack` publishes for every slot. Undefined
+ * when the pointer is not over one (a cell with no stack has none) or when the
+ * leaf belongs to some other layout nested inside the cell.
+ *
+ * The drop overlays are `pointer-events: none`, so `e.target` is real content.
+ */
+function leafKeyUnderPointer(e: React.DragEvent, isKnownKey: (key: string) => boolean): string | undefined {
+  const el = (e.target as HTMLElement | null)?.closest?.('[data-split-leaf]');
+  const key = el?.getAttribute('data-split-leaf') ?? undefined;
+  return key && isKnownKey(key) ? key : undefined;
+}
+
+/**
  * Compute the drop zone under the cursor at the exact moment of drop.
  * dragover events can lag a frame behind the cursor on fast edge-to-edge
  * drags, so consumers recompute from the live event rather than trusting
  * whatever the last dragover recorded.
  */
-function computeDropZone(e: React.DragEvent, cell: HTMLElement): DropZone {
+function computeDropZone(e: React.DragEvent, cell: HTMLElement, gutters?: EdgeGutters): DropZone {
   // 5-zone (edges + center) — the inner area is meaningful here for tab
   // reorder/merge intent. Non-null because mode is 'edges+center'.
-  return detectDropZone(e, cell.getBoundingClientRect(), 'edges+center')!;
+  // `gutters` keeps the drop's answer identical to the dragover's, which moves
+  // its floor off the pixels a full-width strip owns (D7).
+  return detectDropZone(e, cell.getBoundingClientRect(), 'edges+center', undefined, gutters)!;
 }
 
 /* ------------------------------------------------------------------ */
@@ -471,6 +492,10 @@ export function PanelGrid({
     for (const item of naturalGridItems) m.set(item.key, item);
     return m;
   }, [naturalGridItems]);
+  // Read by the drag handlers to tell a grid key of OURS from a `data-split-leaf`
+  // published by some other layout nested inside a cell, without making itemMap a
+  // dep of a handler that is re-created per cell, per render.
+  const itemMapRef = useRefMirror(itemMap);
 
   // Read-time self-heal (CHAT-REL-02): `gridRows` absorbs naturalGridItems in a
   // POST-render effect gated on isServerHydrated (additive sync below). On the
@@ -1586,6 +1611,10 @@ export function PanelGrid({
     colIdx: number;
     zone: 'left' | 'right' | 'top' | 'bottom' | 'center';
     centerSide?: 'left' | 'right';
+    /** For a CENTER (merge) hover: the grid key of the sub-stack SLOT under the
+     *  pointer, when the cell hosts a stack. The cell itself would name its
+     *  primary however far down the pointer is (D14). */
+    leafKey?: string;
     /** True when the drag is a PANE_TAB (not a GRID_ITEM). A tab over the
      *  cell's `top` zone is aiming at the tab bar that lives there, not asking
      *  to split the cell — the drop handler no-ops that case (it returns on
@@ -1598,12 +1627,32 @@ export function PanelGrid({
   // state may not be committed yet when drop fires immediately after
   // dragover (the "drop twice to land" class of bug).
   const gridDropTargetRef = useRefMirror(gridDropTarget);
+  // Read by the dragover to size the cell under the pointer without turning
+  // soloCells into a dep of a handler that is re-created per cell, per render.
+  const soloCellsRef = useRefMirror(soloCells);
 
   // (A former handleGridItemDragStart \u2014 the GRID_ITEM drag-start with its own
   // ghost image \u2014 was dead wiring: StandaloneChatGroup received it as
   // onGroupDragStart and never attached it to any element, so GRID_ITEM data
   // was never set. Whole-cell movement happens via tab drags, which the
   // reorder path below handles through `effectiveKey = soloKey`.)
+
+  /**
+   * The pixels of a cell rect that a full-width strip or a row-gap band already
+   * owns (D7). The standalone rect INCLUDES the cell's 40px tab bar, and the
+   * top strip is offset past that bar, so on a 320x180 first-row cell the whole
+   * "stack above" band sat under chrome: not one pixel of it was reachable.
+   */
+  const cellGutters = useCallback((rowIdx: number): EdgeGutters => {
+    const rows = gridRowsRef.current;
+    return edgeStripGutters({
+      atContainerTop: rowIdx === 0,
+      atContainerBottom: rowIdx === rows.length - 1,
+      gapBandBelow: rowIdx < rows.length - 1,
+      extremeStrips: rows.some((r) => r.itemKeys.length > 1),
+      topStripOffset: TAB_BAR_H,
+    });
+  }, [gridRowsRef]);
 
   // Capture phase: fires BEFORE children, so we can intercept edge drags
   // even when StandaloneChatGroup/GroupLayout consume bubble-phase events
@@ -1643,9 +1692,9 @@ export function PanelGrid({
     // same target object every event re-rendered the whole grid each frame — the
     // "preview delle aree di drop laggano". Only setState when the zone/cell actually
     // changes, so a steady cursor produces zero re-renders.
-    const commitTarget = (target: { rowIdx: number; colIdx: number; zone: DropZone; centerSide?: 'left' | 'right'; isTab: boolean }) => {
+    const commitTarget = (target: { rowIdx: number; colIdx: number; zone: DropZone; centerSide?: 'left' | 'right'; isTab: boolean; leafKey?: string }) => {
       const p = gridDropTargetRef.current;
-      if (p && p.rowIdx === target.rowIdx && p.colIdx === target.colIdx && p.zone === target.zone && p.centerSide === target.centerSide && p.isTab === target.isTab) return;
+      if (p && p.rowIdx === target.rowIdx && p.colIdx === target.colIdx && p.zone === target.zone && p.centerSide === target.centerSide && p.isTab === target.isTab && p.leafKey === target.leafKey) return;
       setGridDropTarget(target);
       gridDropTargetRef.current = target;
     };
@@ -1673,7 +1722,7 @@ export function PanelGrid({
     }
 
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const zone = detectDropZone(e, rect, 'edges+center')!;
+    const zone = detectDropZone(e, rect, 'edges+center', undefined, cellGutters(rowIdx))!;
     let centerSide: 'left' | 'right' | undefined;
     if (zone === 'center') {
       centerSide = (e.clientX - rect.left) / rect.width < 0.5 ? 'left' : 'right';
@@ -1696,8 +1745,56 @@ export function PanelGrid({
     // it to the bar, making "split up" unreachable from a tab drag).
     if (isTabDrag && !isGridDrag && zone === 'center') {
       e.dataTransfer.dropEffect = 'move';
-      commitTarget({ rowIdx, colIdx, zone, centerSide, isTab: true });
+      // D4's twin: the merge does nothing when this cell already hosts the tab
+      // (re-landing it where it is, or un-soloing a tab that is already in the
+      // pool). Paint nothing rather than promise it; `preventDefault` above
+      // stays so the release still fires a drop and the pop-out path can't read
+      // it as a drag-out.
+      // D14: the merge joins the SLOT under the pointer, not the cell's primary,
+      // so both the refusal question and the preview are asked about that slot.
+      const leafKey = leafKeyUnderPointer(e, (k) => itemMapRef.current.has(k));
+      const centerKey = centerMergeTargetKey(leafKey, gridRowsRef.current[rowIdx]?.itemKeys[colIdx], (k) => itemMapRef.current.has(k));
+      if (centerKey && !standaloneCenterDropMerges({
+        targetCellKey: centerKey,
+        draggedPaneId: draggedPaneId(),
+        soloCells: soloCellsRef.current,
+      })) {
+        if (gridDropTargetRef.current) { setGridDropTarget(null); gridDropTargetRef.current = null; }
+        return;
+      }
+      commitTarget({ rowIdx, colIdx, zone, centerSide, isTab: true, leafKey });
       return;
+    }
+
+    // A gesture the drop is going to refuse must not be offered. The one such
+    // case on an edge band is the lone tab of a solo cell released on its OWN
+    // cell (handleGridItemDropCapture bails on it): the preview lit up and
+    // nothing happened. `preventDefault` above stays — the drop still has to
+    // fire so the pop-out path doesn't read the release as a drag-out and
+    // close the pane — we just paint nothing.
+    if (isTabDrag && !isGridDrag) {
+      const targetKey = gridRowsRef.current[rowIdx]?.itemKeys[colIdx];
+      const targetCell = targetKey ? soloCellsRef.current.find(c => soloCellKey(c) === targetKey) : undefined;
+      if (targetKey && !standaloneEdgeDropSplits({
+        targetCellKey: targetKey,
+        draggedPaneId: draggedPaneId(),
+        targetCellSize: targetCell?.length ?? 1,
+      })) {
+        if (gridDropTargetRef.current) { setGridDropTarget(null); gridDropTargetRef.current = null; }
+        return;
+      }
+    }
+
+    // D6: the runaway caps were read only at drop time, where hitting one is a
+    // bare `return`. At the cap the band lit up and the release did nothing.
+    // The bare cell edge never carries the full-row intent, so `false`: the
+    // strips ask the same predicate with `true` where they are painted.
+    if (zone !== 'center') {
+      const capKey = gridRowsRef.current[rowIdx]?.itemKeys[colIdx];
+      if (capKey && !standaloneSplitFitsCaps(gridRowsRef.current, rowIdx, capKey, zone, false)) {
+        if (gridDropTargetRef.current) { setGridDropTarget(null); gridDropTargetRef.current = null; }
+        return;
+      }
     }
 
     // Edge zone (or any GRID_ITEM drag): handle at grid level
@@ -1725,7 +1822,7 @@ export function PanelGrid({
       setFullRowDrop(null);
     }
     commitTarget({ rowIdx, colIdx, zone, centerSide, isTab: isTabDrag && !isGridDrag });
-  }, [gridDropTargetRef, gridRowsRef, fullRowDropRef]);
+  }, [gridDropTargetRef, gridRowsRef, fullRowDropRef, soloCellsRef, cellGutters, itemMapRef]);
 
   const handleGridItemDragEnd = useCallback(() => {
     setDraggingGridKey(null);
@@ -1820,7 +1917,7 @@ export function PanelGrid({
     // the divider element would always yield a useless 'center'/'left' value.
     const actualZone = explicitTarget
       ? explicitTarget.zone
-      : computeDropZone(e, e.currentTarget as HTMLElement);
+      : computeDropZone(e, e.currentTarget as HTMLElement, cellGutters(rawDropTarget.rowIdx));
 
     let effectiveKey = e.dataTransfer.getData(DND_TYPES.GRID_ITEM);
     const sourcePaneTab = e.dataTransfer.getData(DND_TYPES.PANE_TAB);
@@ -1852,7 +1949,14 @@ export function PanelGrid({
         setFullRowDrop(null);
         fullRowDropRef.current = null;
         dropConsumedRef.current = true;
-        const targetKey = gridRowsRef.current[dropTarget.rowIdx]?.itemKeys[dropTarget.colIdx];
+        const targetKey = centerMergeTargetKey(
+          // Re-read from the live event, like the zone above: a fast release can
+          // land a frame after the last dragover. An explicit target is a strip
+          // or a divider, never a cell centre, so it has no slot to name.
+          explicitTarget ? undefined : leafKeyUnderPointer(e, (k) => itemMapRef.current.has(k)),
+          gridRowsRef.current[dropTarget.rowIdx]?.itemKeys[dropTarget.colIdx],
+          (k) => itemMapRef.current.has(k),
+        );
         if (targetKey?.startsWith('solo:')) {
           const targetPrimary = targetKey.slice('solo:'.length);
           if (targetPrimary !== sourceTopicId) handleMergeIntoCell(sourceTopicId, targetPrimary);
@@ -2050,48 +2154,22 @@ export function PanelGrid({
             const newRow: PanelGridRow = { itemKeys: [soloKey], widths: [1] };
             const insertIdx = zone === 'top' ? tRow : tRow + 1;
             rows = [...rows.slice(0, insertIdx), newRow, ...rows.slice(insertIdx)];
-          } else if (isColumnStack) {
-            // Stack UNDER the target cell's column (cellStacks sub-stack) —
-            // exactly what the SplitRegion preview painted on the cell's
-            // bottom half promised, and what the menu "Split Down" builds.
-            const row = rows[tRow];
-            const stacks = row.cellStacks ? { ...row.cellStacks } : {};
-            const existing = stacks[findKey];
-            if (existing) {
-              const slots = existing.items.length + 2; // primary + items + new
-              stacks[findKey] = {
-                items: [...existing.items, soloKey],
-                heights: Array.from({ length: slots }, () => 1 / slots),
-              };
-            } else {
-              stacks[findKey] = { items: [soloKey], heights: [0.5, 0.5] };
-            }
-            rows = rows.map((r, i) => (i === tRow ? { ...r, cellStacks: stacks } : r));
-          } else if (isColumnStackAbove) {
-            // Stack ABOVE the target cell's column — the mirror of the bottom
-            // stack, previously impossible from a drag (a bare top drop was
-            // routed to the tab bar and silently dropped). cellStacks are
-            // keyed by the column's PRIMARY (its itemKey), and items render
-            // BELOW the primary — so "above" means the dropped pane becomes
-            // the new primary: it takes the column's slot in itemKeys and the
-            // old primary (plus its former stack) moves into its items.
-            const row = rows[tRow];
-            const stacks = row.cellStacks ? { ...row.cellStacks } : {};
-            const existing = stacks[findKey];
-            const items = existing ? [findKey, ...existing.items] : [findKey];
-            const slots = items.length + 1; // new primary + demoted items
-            delete stacks[findKey];
-            stacks[soloKey] = {
-              items,
-              heights: Array.from({ length: slots }, () => 1 / slots),
-            };
-            rows = rows.map((r, i) => (i === tRow
-              ? {
-                  ...r,
-                  itemKeys: r.itemKeys.map(k => (k === findKey ? soloKey : k)),
-                  cellStacks: stacks,
-                }
-              : r));
+          } else if (isColumnStack || isColumnStackAbove) {
+            // Stack UNDER / ABOVE the target cell's column (cellStacks
+            // sub-stack) — exactly what the SplitRegion preview painted on the
+            // cell's half promised, and what the menu "Split Down" builds. The
+            // 'above' case makes the dropped pane the column's new primary,
+            // since cellStacks are keyed by the primary and render items below
+            // it. Heights and the depth cap live in the pure twin so this and
+            // the whole-cell path below can't drift apart again.
+            const stacked = addKeysToCellStack(
+              rows[tRow],
+              findKey,
+              [soloKey],
+              isColumnStack ? 'bottom' : 'top',
+            );
+            if (!stacked) return prev;
+            rows = rows.map((r, i) => (i === tRow ? stacked : r));
           } else {
             const row = rows[tRow];
             const insertAt = (zone === 'right' || (zone === 'center' && centerSide === 'right'))
@@ -2223,21 +2301,25 @@ export function PanelGrid({
       }
       if (tRow === -1) return rows;
 
-      // Enforce grid limits
-      if ((zone === 'top' || zone === 'bottom') && rows.length >= MAX_ROWS) return rows;
+      // Enforce grid limits (the vertical caps live inside applyVerticalDrop)
       if ((zone === 'left' || zone === 'right' || zone === 'center') && rows[tRow].itemKeys.length >= MAX_COLS_PER_ROW) return rows;
 
       // Insert source based on zone (immutably). The detached sub-stack
       // re-attaches under the moved key at its new home.
       if (zone === 'top' || zone === 'bottom') {
-        // Create new row above/below target
-        const newRow: PanelGridRow = {
-          itemKeys: [effectiveKey],
-          widths: [1],
-          ...(movedStack ? { cellStacks: { [effectiveKey]: movedStack } } : {}),
-        };
-        const insertIdx = zone === 'top' ? tRow : tRow + 1;
-        rows = [...rows.slice(0, insertIdx), newRow, ...rows.slice(insertIdx)];
+        // Same resolver the pool path uses, so where the tab HAPPENED to live
+        // no longer changes the result: a bare cell edge stacks in the target's
+        // column, only a strip's `fullRow` intent inserts a spanning row.
+        const next = applyVerticalDrop({
+          rows,
+          targetRowIdx: tRow,
+          targetKey,
+          moved: { key: effectiveKey, stack: movedStack },
+          edge: zone,
+          fullRowIntent: !!explicitTarget?.fullRow,
+        });
+        if (!next) return rows;
+        rows = next;
       } else {
         // left/right/center — insert as column in target's row
         const row = rows[tRow];
@@ -2268,7 +2350,7 @@ export function PanelGrid({
     // omitting it captured a stale soloCells in the drop handler. The handler is
     // only a JSX prop / wrapped by other callbacks (never an effect dep), so
     // recreating it on soloCells change has no re-render/loop cost.
-  }, [itemMap, gridDropTargetRef, gridRowsRef, fullRowDropRef, setGridRows, setSoloCells, soloCells, handleMergeIntoCell, handleUnsoloTopic, openPanels, landSidebarDrop]);
+  }, [itemMap, gridDropTargetRef, gridRowsRef, fullRowDropRef, setGridRows, setSoloCells, soloCells, handleMergeIntoCell, handleUnsoloTopic, openPanels, landSidebarDrop, cellGutters, itemMapRef]);
 
   /* ---- Insert-between handlers (column / row dividers) ----
    *
@@ -2332,6 +2414,9 @@ export function PanelGrid({
     // target at all (their only row-insert gesture was the dishonest
     // half-cell top/bottom preview).
     if (!isStandaloneTabDrag(e) && !e.dataTransfer.types.includes(DND_TYPES.GRID_ITEM)) return;
+    // D6: a row the grid has no room for. Same predicate the cell bands ask,
+    // with the full-row intent these strips carry.
+    if (!standaloneSplitFitsCaps(gridRowsRef.current, 0, '', 'bottom', true)) return;
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move'; // WKWebView: signal acceptance (see cell dragover)
@@ -2339,11 +2424,10 @@ export function PanelGrid({
     // only ONE intent (full-width row) shows while the pointer is on it.
     if (gridDropTargetRef.current) { setGridDropTarget(null); gridDropTargetRef.current = null; }
     if (fullRowDropRef.current !== strip) { fullRowDropRef.current = strip; setFullRowDrop(strip); }
-  }, [isStandaloneTabDrag, gridDropTargetRef, fullRowDropRef]);
+  }, [isStandaloneTabDrag, gridDropTargetRef, fullRowDropRef, gridRowsRef]);
 
   const handleFullRowDragLeave = useCallback((e: React.DragEvent) => {
-    const rt = e.relatedTarget as Node | null;
-    if (rt && (e.currentTarget as HTMLElement).contains(rt)) return;
+    if (!dragLeftHost(e.currentTarget, e)) return;
     fullRowDropRef.current = null;
     setFullRowDrop(null);
   }, [fullRowDropRef]);
@@ -2805,7 +2889,19 @@ export function PanelGrid({
     // leave tab order and the accessibility tree — and the absence of a box,
     // which goes all the way down to the panes.
     const cellHasBox = !isZoomed || zoomCellKeys.has(key);
-    const primaryGroup = renderGroupForKey(item, key, rowIdx, colIdx, cellHasBox);
+    // D14: the centre-merge preview belongs to the SLOT a release would join.
+    // With no stack, `CellSubStack` renders the primary bare and the overlay
+    // anchors to the cell exactly as it did before; with one, it anchors to the
+    // slot, so a stacked pane's body finally says it is the target.
+    const centerLeafKey = isTabTarget && zone === 'center'
+      ? (gridDropTarget!.leafKey ?? key)
+      : null;
+    const primaryGroup = (
+      <>
+        {renderGroupForKey(item, key, rowIdx, colIdx, cellHasBox)}
+        {centerLeafKey === key && <CenterRegion />}
+      </>
+    );
     return (
       <div
         className={`flex w-full h-full min-h-0 min-w-0 overflow-hidden relative ${draggingGridKey === key ? 'opacity-40' : ''}`}
@@ -2819,8 +2915,17 @@ export function PanelGrid({
         onDragOverCapture={handleGridItemDragOverCapture(rowIdx, colIdx)}
         onDropCapture={handleGridItemDropCapture}
       >
-        {showSplitRegion && <SplitRegion zone={zone as 'left' | 'right' | 'top' | 'bottom'} />}
-        {isTabTarget && zone === 'center' && <CenterRegion />}
+        {showSplitRegion && (
+          <SplitRegion
+            zone={zone as 'left' | 'right' | 'top' | 'bottom'}
+            // The insets the project layout has always passed and this one
+            // never did: the fill ran UNDER the full-width strip, so the
+            // preview claimed pixels the strip owns and the two intents
+            // overlapped.
+            topInset={cellGutters(rowIdx).top}
+            gutterInset={cellGutters(rowIdx).bottom}
+          />
+        )}
         {stack ? (
           <CellSubStack
             stack={stack}
@@ -2829,7 +2934,12 @@ export function PanelGrid({
             renderStackItem={(stackKey) => {
               const stackItem = itemMap.get(stackKey);
               if (!stackItem) return null;
-              return renderGroupForKey(stackItem, stackKey, rowIdx, colIdx, cellHasBox);
+              return (
+                <>
+                  {renderGroupForKey(stackItem, stackKey, rowIdx, colIdx, cellHasBox)}
+                  {centerLeafKey === stackKey && <CenterRegion />}
+                </>
+              );
             }}
             onResize={(nextHeights) => handleCellStackResize(rowIdx, key, nextHeights)}
             isDragActive={isAnyDragActive}
@@ -2837,7 +2947,7 @@ export function PanelGrid({
         ) : primaryGroup}
       </div>
     );
-  }, [itemMap, keyPos, effectiveGridRows, gridDropTarget, draggingGridKey, handleGridItemDragOverCapture, handleGridItemDropCapture, renderGroupForKey, handleCellStackResize, isAnyDragActive, isZoomed, zoomCellKeys]);
+  }, [itemMap, keyPos, effectiveGridRows, gridDropTarget, draggingGridKey, handleGridItemDragOverCapture, handleGridItemDropCapture, renderGroupForKey, handleCellStackResize, isAnyDragActive, isZoomed, zoomCellKeys, cellGutters]);
 
   /* ---- empty state ---- */
   if (naturalGridItems.length === 0) {
@@ -3102,7 +3212,17 @@ export function PanelGrid({
                     onDragOverCapture={handleGridItemDragOverCapture(rowIdx, colIdx)}
                     onDropCapture={handleGridItemDropCapture}
                   >
-                    {showSplitRegion && <SplitRegion zone={zone as 'left' | 'right' | 'top' | 'bottom'} />}
+                    {showSplitRegion && (
+                      <SplitRegion
+                        zone={zone as 'left' | 'right' | 'top' | 'bottom'}
+                        // The insets the project layout has always passed and
+                        // this one never did: the fill ran UNDER the full-width
+                        // strip, so the preview claimed pixels the strip owns
+                        // and the two intents overlapped.
+                        topInset={cellGutters(rowIdx).top}
+                        gutterInset={cellGutters(rowIdx).bottom}
+                      />
+                    )}
                     {isTabTarget && zone === 'center' && <CenterRegion />}
                     {/* Unified standalone group (handles chat, utility, and
                         project tabs). When the cell hosts a vertical
