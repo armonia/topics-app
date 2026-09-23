@@ -191,6 +191,25 @@ describe("fine turno con un obiettivo attivo", () => {
     await close();
   });
 
+  // topic:33966f4e, 23/09: two continuations that ran Bash, Read and the browser
+  // tools were stopped as «2 turns in a row with no tool run». The route read the
+  // tools still IN FLIGHT at the end of the turn, a list every finished tool
+  // leaves: at `onDone` it is empty by construction, so every turn looked idle.
+  test("un turno che ha usato tool finiti non conta come fermo", async () => {
+    const b = await banco("goal-tools-ran", ["continue", "continue", "met"]);
+    await b.send("comincia");
+    for (const text of ["primo giro", "secondo giro"]) {
+      const h = b.handlers[b.handlers.length - 1]!;
+      h.onToolStart(`tool-${text}`, "Bash", { command: "ls" });
+      h.onToolResult(`tool-${text}`, "ok");
+      await b.finish(text);
+    }
+    expect(getActiveGoal(b.ctx.db, b.topic.id)?.idleTurns).toBe(0);
+    expect(b.rows().some((r) => blocksOf(r).some((x) => x.kind === "goal-stop"))).toBe(false);
+    expect(b.handlers.length).toBe(3);
+    await close();
+  });
+
   test("un giudice illeggibile non compra niente e non scrive niente", async () => {
     const b = await banco("goal-mute", ["non lo so"]);
     const prima = b.rows().length;

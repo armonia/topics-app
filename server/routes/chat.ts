@@ -1056,6 +1056,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const SAVE_INTERVAL = 10;
           const trackedToolCallIds: string[] = [];
           /**
+           * How many tools this turn STARTED, finished or not. Not the same as
+           * `trackedToolCallIds.length`: that list holds the tools still in
+           * flight and every finished tool leaves it, so at the end of a turn it
+           * is empty by construction. The goal loop read it as "did this turn
+           * run a tool?" and stopped a working chase as «2 turns with no tool
+           * run» (topic:33966f4e, 23/09, after Bash, Read and browser calls).
+           */
+          let toolsStartedThisTurn = 0;
+          /**
            * The ids of the tools that are actually RUNNING, not merely announced.
            *
            * `trackedToolCallIds` is filled in `onToolStart`, which fires at
@@ -2273,7 +2282,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // stop: `interrupted` carries the tools still awaiting a human,
                 // and the plan approval is kept out of it on purpose above.
                 pendingAsk: askingPlanApproval || interrupted.length > 0,
-                usedTools: trackedToolCallIds.length > 0,
+                usedTools: toolsStartedThisTurn > 0,
                 lastAssistantText: fullContent,
               };
               setTimeout(() => {
@@ -2495,6 +2504,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // raro a quotidiano. Una tool call È attività: si dichiara qui.
               updateStreamActivity(sessionKey);
               trackedToolCallIds.push(toolCallId);
+              toolsStartedThisTurn += 1;
               // DOPO la push, mai prima: `armSoftTimer` si sospende sull'insieme
               // che vede in questo istante. Vedi l'invariante su `armSoftTimer`.
               resetStreamTimer();
