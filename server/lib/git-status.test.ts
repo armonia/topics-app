@@ -15,6 +15,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { computeGitStatus, parseBranchHeader, splitBranchHeader } from "./git-status";
+import { invalidateGitCache } from "./git-status-cache";
 import { gitEnv } from "../../tests/setup/bun-test-preload";
 
 function git(cwd: string, ...args: string[]): string {
@@ -182,5 +183,20 @@ describe("computeGitStatus on a real repo", () => {
     const fresh = computeGitStatus(repo, { fresh: true });
     expect(computeGitStatus(repo)).toBe(fresh);
     return fresh;
+  });
+
+  /**
+   * The verifier's case: pane A's poll is in flight, pane B stages a file
+   * (the route calls `invalidateGitCache`) and reloads. B must not be handed
+   * A's round, which may have read the tree before the stage.
+   */
+  test("after an invalidation, the next reader opens a NEW round", async () => {
+    const before = computeGitStatus(repo);
+    writeFileSync(join(repo, "staged.txt"), "s\n");
+    invalidateGitCache(repo);
+    const after = computeGitStatus(repo);
+    expect(after).not.toBe(before);
+    await before;
+    expect((await after)!.files.map((f) => f.path)).toContain("staged.txt");
   });
 });

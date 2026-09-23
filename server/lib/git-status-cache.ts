@@ -84,4 +84,16 @@ export function writeGitStatusCache(projectPath: string, data: GitStatusResult):
 /** Butta la voce di questo progetto: la prossima lettura torna a chiedere a git. */
 export function invalidateGitCache(projectPath: string): void {
   cache.delete(projectPath);
+  // A round already in flight may have read the tree BEFORE the change that
+  // caused this invalidation: whoever asks next must start a new one, not join
+  // it (see `computeGitStatus`).
+  roundsInFlight.delete(projectPath);
 }
+
+/**
+ * The rounds of `computeGitStatus` currently running, per folder. Kept here,
+ * next to the cache, so that the one door every writer already goes through
+ * (`invalidateGitCache`, 23 call sites) also retires a round that can no
+ * longer be trusted.
+ */
+export const roundsInFlight = new Map<string, Promise<unknown>>();

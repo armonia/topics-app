@@ -25,6 +25,7 @@
 import { gitRead, parsePorcelainZ, repoPrefixOf, scopeToPrefix, statusOfPrefix } from "./git-porcelain";
 import type { PorcelainEntry } from "./git-porcelain";
 import { attachNumstats, readNumstats } from "./git-numstat";
+import { roundsInFlight } from "./git-status-cache";
 import type { GitStatus } from "../../shared/git-status";
 export type { GitStatus } from "../../shared/git-status";
 
@@ -106,23 +107,23 @@ async function readText(args: string[], cwd: string): Promise<{ code: number; te
  * watcher, asking in the same instant each paid five git processes, and on a
  * loaded Mac each waited behind the other's (134 and 138 s for two identical
  * requests at 13:41:21 on 23/09). The entry is dropped when the round settles,
- * so a call after it always reads git again.
+ * so a call after it always reads git again, and `invalidateGitCache` drops it
+ * too: after a write (stage, commit, checkout) nobody joins a round that may
+ * have read the tree before it.
  *
  * `fresh: true` is for whoever KNOWS the tree just changed (the watcher): a
  * round that started before the change may miss it, so that caller starts its
  * own and the readers that arrive after it join the new one.
  */
 export function computeGitStatus(resolvedDir: string, opts: { fresh?: boolean } = {}): Promise<ComputedGitStatus | null> {
-  const running = opts.fresh ? undefined : inFlight.get(resolvedDir);
+  const running = opts.fresh ? undefined : (roundsInFlight.get(resolvedDir) as Promise<ComputedGitStatus | null> | undefined);
   if (running) return running;
   const round: Promise<ComputedGitStatus | null> = computeGitStatusOnce(resolvedDir).finally(() => {
-    if (inFlight.get(resolvedDir) === round) inFlight.delete(resolvedDir);
+    if (roundsInFlight.get(resolvedDir) === round) roundsInFlight.delete(resolvedDir);
   });
-  inFlight.set(resolvedDir, round);
+  roundsInFlight.set(resolvedDir, round);
   return round;
 }
-
-const inFlight = new Map<string, Promise<ComputedGitStatus | null>>();
 
 async function computeGitStatusOnce(resolvedDir: string): Promise<ComputedGitStatus | null> {
   const probe = await readText(["git", "rev-parse", "--git-dir", "--show-toplevel"], resolvedDir);

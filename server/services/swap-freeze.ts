@@ -219,13 +219,16 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
    * beat runs every 10 s for the whole swap episode and those facts do not
    * change while the pid lives: before this the same line came out on every
    * beat (46 times for one pid, 1.669 lines out of 5 MB of the production log
-   * on 23/09). Pruned against the live table on every beat, so a recycled pid
-   * is named again.
+   * on 23/09). Keyed by pid AND kind, so being named for one reason never
+   * hides the other; pruned against the live table on every beat and emptied
+   * when the episode ends, so a recycled pid or a new episode is named again.
    */
-  const namedPids = new Set<number>();
-  const logOncePerPid = (pid: number, line: string): void => {
-    if (namedPids.has(pid)) return;
-    namedPids.add(pid);
+  const namedPids = new Map<number, Set<"foreground" | "unrecognised">>();
+  const logOncePerPid = (pid: number, kind: "foreground" | "unrecognised", line: string): void => {
+    const kinds = namedPids.get(pid) ?? new Set();
+    if (kinds.has(kind)) return;
+    kinds.add(kind);
+    namedPids.set(pid, kinds);
     deps.log(line);
   };
   let episodeSince: number | null = null;
@@ -336,7 +339,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
     const byPid = new Map(table.map((r) => [r.pid, r]));
     const commandOf = (pid: number): string | undefined => byPid.get(pid)?.command;
     const { roots, foreground, unrecognised } = toolRoots({ rows: table, sessions: deps.sessions(), natives: deps.natives() });
-    for (const u of unrecognised) logOncePerPid(u.pid, `[freeze] unrecognised child ${u.pid} of ${u.sessionKey}: "${u.command}", never signalled`);
+    for (const u of unrecognised) logOncePerPid(u.pid, "unrecognised", `[freeze] unrecognised child ${u.pid} of ${u.sessionKey}: "${u.command}", never signalled`);
     const frozenRoots = new Set([...frozen.values()].map((t) => t.root.pid));
     const rootRefs = await deps.lstartOf(roots.map((r) => r.pid)).catch(() => null);
     if (rootRefs === null) {
@@ -564,7 +567,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
       try {
         await thawPass({ swap, held });
         if (disabled || !swap.sustained) {
-          if (!swap.sustained) { episodeSince = null; saidNothing = false; saidExhausted = false; noEffectThisEpisode.clear(); }
+          if (!swap.sustained) { episodeSince = null; saidNothing = false; saidExhausted = false; noEffectThisEpisode.clear(); namedPids.clear(); }
           return;
         }
         // A beat that has just continued a tree does not freeze another: the
@@ -589,9 +592,9 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         // this the file grows for every tree ever frozen, with an fsync each.
         const livePids = new Set(table.map((r) => r.pid));
         deps.ledger.pruneCounts((c) => livePids.has(c.pid));
-        for (const pid of namedPids) if (!livePids.has(pid)) namedPids.delete(pid);
+        for (const pid of namedPids.keys()) if (!livePids.has(pid)) namedPids.delete(pid);
         const { candidates, foreground } = await measure(table, guard);
-        for (const f of foreground) logOncePerPid(f.pid, `[freeze] skipped "${f.command}" (pid ${f.pid}): foreground Bash, never frozen`);
+        for (const f of foreground) logOncePerPid(f.pid, "foreground", `[freeze] skipped "${f.command}" (pid ${f.pid}): foreground Bash, never frozen`);
         let { victim, skipped } = pickVictim(candidates);
         // A tree serving somebody outside itself is skipped for the next heaviest.
         const tried = new Set<ToolRoot>();

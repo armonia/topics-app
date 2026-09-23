@@ -254,6 +254,19 @@ describe("F5: the heaviest background command, and nothing else", () => {
     expect(lines).toHaveLength(1);
   });
 
+  test("a new swap episode names the same foreground command again", async () => {
+    const w = world({ procs, sessions });
+    await twoBeats(w);
+    w.advance(10_000);
+    await w.beat({ sustained: false });
+    // Past the shared action window: the first episode froze a tree, and a
+    // beat inside those 120 s returns before measuring anything.
+    w.advance(130_000);
+    await twoBeats(w);
+    const lines = w.logs.filter((l) => l.includes("foreground Bash, never frozen"));
+    expect(lines).toHaveLength(2);
+  });
+
   test("an idle heavyweight alone freezes nothing, and the line says what was missing", async () => {
     const w = world({ procs: [...BASE, ...shell(52000, "bun idle-hog.ts", { cores: 0, footprintGB: 3.0 })], sessions: [session({ backgroundBash: [{ command: "bun idle-hog.ts", startedAt: T0 }] })] });
     await twoBeats(w);
