@@ -92,6 +92,9 @@ export const PROJECT_WORDS = new Set([
   // participle the dictionary does not carry, next to `emitted`, `supplied` and
   // `verified`; the other gates in this folder already count files with it.
   "tailwind", "scanned",
+  // `reparent` is the tree operation of moving a node's children under its own
+  // parent: the dedupe script does exactly that before deleting a copy.
+  "reparent",
   // `colliding`: the present participle, same case as `scanned` above — the
   // dictionary carries the verb and not this form. It names the typography
   // gate's rule about two `--text-*` namespaces landing on one name.

@@ -4,6 +4,7 @@
  * `syncImportOffsetToEnd` in lib/claude-session-tracker.ts). If one ending path
  * forgot to tell it, that path's final answer came back as a bare duplicate.
  * So every way a turn ends must fire it, once, and nothing else may.
+ * @covers CCS-01
  */
 
 import { describe, expect, test, afterEach } from "bun:test";

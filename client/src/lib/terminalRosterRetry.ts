@@ -88,12 +88,16 @@ export async function fetchWhileRosterWarms(
   input: string,
   init?: RequestInit,
   maxRetries: number = MAX_RETRIES,
+  // Injectable so a test can count the waits THIS call asked for: patching the
+  // global `setTimeout` also counted timers left behind by other files in the
+  // same test process (20 instead of 4 in a shard on 23/09).
+  wait: (ms: number) => Promise<void> = sleep,
 ): Promise<Response> {
   let delay = FIRST_DELAY_MS;
   let res = await fetch(input, init);
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     if (!(await isRosterWarming(res))) return res;
-    await sleep(delay);
+    await wait(delay);
     delay = Math.min(delay * 2, MAX_DELAY_MS);
     res = await fetch(input, init);
   }

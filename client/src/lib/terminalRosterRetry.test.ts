@@ -133,12 +133,15 @@ describe('the warming 503 is waited out, everything else is passed through', () 
     // constant in production (`terminalReload.ts`), so the bar here is the same
     // hand-written 15_000 on every machine, loaded or not.
     const calls = stubFetch([warming]);
-    await fetchWhileRosterWarms('/api/terminal/sessions/x/reload', { method: 'POST' }, SHORT_ROSTER_RETRIES);
+    // The waits of THIS call only, through the injected clock: the global
+    // recorder above also catches timers other files in the shard left behind.
+    const own: number[] = [];
+    await fetchWhileRosterWarms('/api/terminal/sessions/x/reload', { method: 'POST' }, SHORT_ROSTER_RETRIES, async (ms) => { own.push(ms); });
     expect(calls.length).toBe(SHORT_ROSTER_RETRIES + 1);
     // One wait between each pair of requests. Without this a fake clock that
     // intercepted nothing would sum to 0 and pass.
-    expect(asked.length).toBe(SHORT_ROSTER_RETRIES);
-    const waited = asked.reduce((sum, ms) => sum + ms, 0);
+    expect(own.length).toBe(SHORT_ROSTER_RETRIES);
+    const waited = own.reduce((sum, ms) => sum + ms, 0);
     expect(waited).toBeLessThan(15_000);
   });
 });
