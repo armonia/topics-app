@@ -102,7 +102,10 @@ for (const device of [
         await expect(chip).toHaveAttribute('title', /tutti i provider|all providers/);
         await chip.click();
         await expect(page.getByRole('option', { name: /Auto \((project default|dal progetto)\)/ })).toBeVisible();
-        await expect(page.getByRole('option', { name: /Topics/ })).toBeVisible();
+        // AICTRL-01: Topics is the routing switch above the list, never a
+        // provider row. This line used to expect the row and went red on
+        // 22/09 when the row was removed on purpose.
+        await expect(page.getByRole('option', { name: /Topics/ })).toHaveCount(0);
         await expect(page.getByRole('option', { name: 'GPT-api-only', exact: true })).toHaveCount(0);
         const codexRuntime = page.locator('button[data-provider="codex"]');
         await codexRuntime.focus();
