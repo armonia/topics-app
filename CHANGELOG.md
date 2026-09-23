@@ -2,6 +2,33 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.377 — 2026-09-23
+
+### Sotto il cofano
+- Fix mergeHistoryPage dropping an optimistic bubble before the pivot
+- Add e2e regression for the pre-pivot ghost bubble surviving a server stall
+- claude-import: snap the import cursor to EOF when a Topics turn ends
+- one-off cleanup of duplicated imported Claude messages
+- Rewrite the ghost e2e in English and stop counting virtualized DOM rows
+- swap-freeze: name a skipped or unrecognised pid once, not on every beat
+- a 404 on the context probe is an answer, not a warning
+- dispatch-capacity: read memory from the async sample, not a vm_stat per call
+- git-status: concurrent callers on one folder share a single round of git
+- trace the turn-release test, allow 'reparent', count only this call's waits
+- git-status, swap-freeze: close the two holes the verifier found
+- the chat at rest and during a stream, in WebKit (streaming case RED)
+- the live turn indicator sits on the meta row, so the end of a turn moves nothing
+- ai-bridge: a child being killed is never handed to the next spawn
+- a response body cut off mid-read is a lost leg, not an empty answer
+- the window you sent from also receives the question panel
+- a terminal turn made of tools reaches the open chat too
+- the sidebar previews catch up too
+- one window bounce per burst of screen changes, and a log you can read
+- keep the tracker test file under its size ceiling (1146 -> 1131 lines)
+- ai-bridge: a dying child talks to nobody, and its store ages out
+- the window that sent the message sees the question, in WebKit
+- English name in the sender-question spec (CI identifier-language gate)
+
 ## 2.2.375 — 2026-09-23
 
 ### Sotto il cofano

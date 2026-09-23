@@ -1,5 +1,144 @@
 [
   {
+    "version": "2.2.377",
+    "date": "2026-09-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Fix mergeHistoryPage dropping an optimistic bubble before the pivot",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Add e2e regression for the pre-pivot ghost bubble surviving a server stall",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "claude-import: snap the import cursor to EOF when a Topics turn ends",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "one-off cleanup of duplicated imported Claude messages",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Rewrite the ghost e2e in English and stop counting virtualized DOM rows",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "swap-freeze: name a skipped or unrecognised pid once, not on every beat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "a 404 on the context probe is an answer, not a warning",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "dispatch-capacity: read memory from the async sample, not a vm_stat per call",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "git-status: concurrent callers on one folder share a single round of git",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "trace the turn-release test, allow 'reparent', count only this call's waits",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "git-status, swap-freeze: close the two holes the verifier found",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the chat at rest and during a stream, in WebKit (streaming case RED)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the live turn indicator sits on the meta row, so the end of a turn moves nothing",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "ai-bridge: a child being killed is never handed to the next spawn",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "a response body cut off mid-read is a lost leg, not an empty answer",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the window you sent from also receives the question panel",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "a terminal turn made of tools reaches the open chat too",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "the sidebar previews catch up too",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "one window bounce per burst of screen changes, and a log you can read",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "keep the tracker test file under its size ceiling (1146 -> 1131 lines)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "ai-bridge: a dying child talks to nobody, and its store ages out",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the window that sent the message sees the question, in WebKit",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "English name in the sender-question spec (CI identifier-language gate)",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.375",
     "date": "2026-09-23",
     "sections": {
