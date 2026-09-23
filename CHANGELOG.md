@@ -2,6 +2,60 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.373 — 2026-09-23
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-21 [skip ci]
+- lo `ps` della flotta non puo' piu' restare appeso e portarsi via il server
+- un rifiuto del modello si vede, invece di restare in fondo alla bolla
+- Show honest generation speed without hot-path renders
+- Keep token-rate tests inside language rails
+- Make generation-speed behavior traceable
+- Keep inherited fixes inside the repository rails
+- vista lista verticale alternativa al kanban
+- due nomi non inglesi bloccavano static-rails sul branch
+- e2e docblock e commenti del toggle vista lista in inglese
+- commenti di turnError.test.ts in inglese
+- commenti di i18n-it.ts in inglese
+- commenti di cancelled-notice in inglese
+- commenti di fleet-usage.test.ts in inglese
+- continua traduzione commenti fleet-usage.test.ts
+- commenti di fleet-usage.ts in inglese
+- commenti di agent-loop-refusal.test.ts in inglese
+- commenti di agent-loop.ts in inglese
+- commenti di stop-reason.ts in inglese
+- commenti di chat.ts e ws-outbound.ts in inglese
+- @covers mancante su agent-loop-refusal.test.ts
+- tolto il waitForTimeout facoltativo dal toggle vista lista
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-22 [skip ci]
+- una card visibile non consegna al buio, e le attese si contano
+- l'instradamento leggero non e' un fornitore di modelli
+- la modalità libera eredita l'ultima scelta come modello ed effort
+- un verdetto e' una frase, e il payload sta dietro una piega
+- 2101/126 e' la scansione larga, il banner ne vede 1996/123
+- ai-control: lo switch di instradamento smette di essere un no-op silenzioso
+- ai-control: il resolver della chat smette di essere un no-op silenzioso
+- ai-control: il vero call-site del resolver in chat.ts smette di inghiottire l'errore tipizzato
+- ai-control: un catalogo Topics in scoperta aspetta, non blocca la card
+- ai-control: il pannello di un altro provider non si prende il modello scelto
+- ui-state: il beacon di pagehide atterra, non prende 404
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-23 [skip ci]
+- un turno aperto dalla CLI non diventa un messaggio dell'utente
+- un input grande non torna indietro nella risposta, Workflow riparte
+- i commenti dei fix di stamattina passano in inglese
+- i commenti arrivati il 21-22/09 passano in inglese
+- main torna verde su lint, emdash e bloat
+- i tool del provider nativo hanno la loro card, non un blocco JSON
+- lo user-agent segue la CLI installata, opus-5-5 non risponde piu' 400
+- CustomEvent finto non sopravvive al file che lo mette
+- NATIVE-UA-01, la versione che il runtime nativo dichiara
+- il muro di sei giorni partiva dal 17/09 ed e' scaduto davvero oggi
+- il menu del modello della card non ha piu' una riga Topics, per scelta
+- la compattazione del contesto lascia il suo segno in chat
+- un turno senza modello non eredita un default che l'account non ha
+- la sessione continua coi permessi che aveva
+- anche composer e impostazioni del progetto non hanno la riga Topics
+
 ## 2.2.372 — 2026-09-21
 
 ### Sotto il cofano
