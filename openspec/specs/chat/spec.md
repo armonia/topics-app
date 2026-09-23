@@ -3100,6 +3100,41 @@ window and repeat the same 400 on every later turn of the session.
 - **GIVEN** a `read_file` whose output exceeds the per-result budget
 - **THEN** the history holds its head and its tail, with the omission notice between them
 
+### Requirement: CODEX-MODEL-01 — A Codex turn never inherits a model the account cannot use
+
+When a Codex turn names no model, and the default in `~/.codex/config.toml` is
+not in the account's model catalog, the turn SHALL name the first model the
+catalog lists instead. With an empty catalog the CLI's own default SHALL stand.
+
+> **Why.** On 2026-09-23 `config.toml` said `gpt-6-sol`, absent from the
+> account's catalog, and every Topics turn without an explicit model died with
+> 400 "The 'gpt-6-sol' model is not supported when using Codex with a ChatGPT
+> account".
+
+#### Scenario: stale default
+- **GIVEN** `model = "gpt-6-sol"` and a catalog of `gpt-6-astra`, `gpt-5.5`
+- **THEN** the turn runs with `--model gpt-6-astra`
+
+### Requirement: NATIVE-UA-01 — The native runtime declares a CLI version the API accepts
+
+The `user-agent` the native runtime sends to Anthropic, on messages and on the
+OAuth refresh, SHALL name the highest Claude Code version installed on the
+machine, and SHALL never name one below the floor known to be accepted by every
+current default model.
+
+> **Why.** The API enables models by the CLI version the user-agent declares.
+> It was a literal `claude-cli/2.1.0`, and on 2026-09-23 `claude-opus-5-5`, the
+> default, answered 400 "Claude Code 2.1.0 does not support this model; version
+> 2.1.280 or newer is required", while 2.1.280 got a 200 on the same token.
+
+#### Scenario: no CLI installed
+- **GIVEN** no `~/.local/share/claude/versions` directory
+- **THEN** the user-agent names the floor version
+
+#### Scenario: a newer CLI installed
+- **GIVEN** versions `2.1.280` and `2.1.1000` installed
+- **THEN** the user-agent names `2.1.1000`
+
 ### Requirement: CHAT-NTOOL-01 — Il piano del turno esiste anche senza la CLI
 
 Il runtime nativo SHALL offrire uno strumento per scrivere la lista di cose da

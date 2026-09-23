@@ -7,11 +7,7 @@ import { friendlyModelLabel } from '../../lib/modelLabel';
 import { POPOVER_ITEM } from '../../lib/popoverStyles';
 import { openSettings } from '../../lib/openSettings';
 import { useT } from '../../hooks/useT';
-
-export interface AiExecutionSelection {
-  provider: string | null;
-  model: string | null;
-}
+import { ownsSelection, selectedModelMissingIn, type AiExecutionSelection } from './aiExecutionSelection';
 
 interface Props {
   snapshot: ProvidersSnapshot | null;
@@ -90,20 +86,6 @@ function chatExecutions(snapshot: ProvidersSnapshot | null): ExecutionRow[] {
     supportsAutomatic: true,
     reason: entry.lastError ?? entry.requirements.find((requirement) => !requirement.present)?.hint,
   }));
-}
-
-// The selection belongs to ITS provider: drilling into another one must not
-// list it there as "unavailable". A model with no provider (legacy pin) is
-// judged against whichever panel is open.
-function ownsSelection(active: Pick<ExecutionRow, 'name'>, value: AiExecutionSelection): boolean {
-  return !value.provider || value.provider === active.name;
-}
-
-export function selectedModelMissingIn(
-  active: Pick<ExecutionRow, 'name' | 'models'>,
-  value: AiExecutionSelection,
-): boolean {
-  return ownsSelection(active, value) && !!value.model && !active.models.includes(value.model);
 }
 
 export function AiExecutionMenuOptions({

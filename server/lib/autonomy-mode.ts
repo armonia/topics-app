@@ -92,6 +92,26 @@ export function permissionModeForAutonomy(level: string | null | undefined): str
 export const PERMISSION_PROMPT_TOOL = "mcp__topics__approval_prompt";
 
 /**
+ * The inverse, for a session adopted from outside Topics: which level carries on
+ * the way it was already running. The CLI stamps `permissionMode` on every
+ * transcript line; an adopted topic has no level of its own, so without this it
+ * got the default `auto-apply` and its first `Bash` sat on a permission panel
+ * nobody was watching (the OpenBrowser session, 23/09, running `auto` and
+ * `bypassPermissions` in the desktop app). `auto` is the desktop app's own
+ * classifier mode, which has no Topics counterpart: it never stopped on a
+ * command, so it maps to `yolo`. Unknown or absent: null, keep the default.
+ */
+export function autonomyForPermissionMode(mode: string | null | undefined): "ask" | "auto-apply" | "yolo" | null {
+  switch (mode) {
+    case "plan": return "ask";
+    case "acceptEdits": return "auto-apply";
+    case "bypassPermissions":
+    case "auto": return "yolo";
+    default: return null;
+  }
+}
+
+/**
  * Questa modalità può fermarsi a chiedere?
  *
  * Vale per tutte tranne `bypassPermissions`. Serve allo spawn per decidere se

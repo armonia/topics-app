@@ -309,6 +309,30 @@ senza toccare il disco.
 - **GIVEN** righe appartenenti a una diramazione
 - **THEN** NON SHALL entrare nella storia della chat
 
+### Requirement: EXTSESS-09 — Una sessione adottata continua con i permessi che aveva
+
+Adottando una sessione nata fuori da Topics, la topic nuova SHALL prendere il
+livello di autonomia che corrisponde all'ultima modalità di permessi scritta nel
+trascritto: `plan` → chiedi prima, `acceptEdits` → applica da sé,
+`bypassPermissions` e `auto` → libera. Una modalità assente o sconosciuta SHALL
+lasciare il default. Anche il messaggio automatico con cui la CLI apre un turno
+da sola (`origin.kind = task-notification`) NON SHALL diventare un messaggio
+dell'utente nella storia importata.
+
+> **Perché.** Il 23/09 la sessione OpenBrowser, che nell'app desktop girava in
+> `auto` e `bypassPermissions`, è stata adottata col default `auto-apply`: il suo
+> primo `Bash` è rimasto fermo quattro minuti su un pannello di permesso che
+> nessuno guardava, e la notifica di un task in background compariva come
+> scritta da Attilio.
+
+#### Scenario: sessione desktop in auto
+- **GIVEN** un trascritto la cui ultima modalità è `auto`
+- **WHEN** la sessione viene adottata
+- **THEN** la topic nasce con autonomia `yolo` e il primo comando non chiede permesso
+
+#### Scenario: nessuna modalità nel trascritto
+- **THEN** la topic prende il default
+
 ### Requirement: CODEXSESS-01 — La sessione esterna si riconosce per CARTELLA e per ISTANTE, non a caso
 
 La scoperta SHALL restituire NIENTE quando la radice delle sessioni non esiste.

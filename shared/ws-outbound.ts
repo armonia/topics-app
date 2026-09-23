@@ -21,19 +21,19 @@
  * Adding a new schema: drop another entry in OUTBOUND_SCHEMAS keyed by the
  * type string. The validator picks it up automatically.
  *
- * PERCHÉ vive in `shared/` (3.3, 29/07): fino a ieri il client ne teneva una
- * COPIA a mano (`client/src/schemas/ws-inbound.ts`, un sottoinsieme dei tipi
- * "letti a mano") con in testa un "KEEP IN SYNC". Due registri che descrivono
- * lo STESSO filo divergono per costruzione: il client ne validava 26 su 102 e
- * nessuno si accorgeva se un campo cambiava lato server. `shared/` è l'unica
- * cartella che i due progetti TS possono importare senza violare il confine
- * composite (TS6307), quindi ora il contratto è UNO e la deriva è impossibile,
- * non solo sconsigliata.
+ * WHY it lives in `shared/` (3.3, 29/07): until yesterday the client kept a
+ * hand-written COPY (`client/src/schemas/ws-inbound.ts`, a subset of the
+ * "hand-read" types) with a "KEEP IN SYNC" at the top. Two registries
+ * describing the SAME wire diverge by construction: the client validated 26
+ * out of 102 and nobody noticed when a field changed server-side. `shared/`
+ * is the only folder both TS projects can import without breaking the
+ * composite boundary (TS6307), so now the contract is ONE and drift is
+ * impossible, not just discouraged.
  *
- * Idioma `zod/mini` per lo stesso motivo: questo modulo finisce nel bundle
- * client, dove la variante method-heavy di zod pesa nel chunk d'ingresso.
- * `z.looseObject({...})` è il `.passthrough()` della API funzionale e
- * `.safeParse` è identico.
+ * `zod/mini` idiom for the same reason: this module ends up in the client
+ * bundle, where the method-heavy variant of zod weighs down the entry
+ * chunk. `z.looseObject({...})` is the functional API's `.passthrough()`
+ * and `.safeParse` is identical.
  */
 import { z } from 'zod/mini';
 import { welcomeMessageSchema, formatZodIssues } from './ws-handshake';
@@ -67,20 +67,14 @@ export const STOP_CAUSES = [
   'provider-error',
   'rate-limit',
   'tool-budget',
-  // THE MODEL SAID NO, and it's an end like any other.
+  // A MODEL REFUSAL IS AN ATTRIBUTED END LIKE THE OTHERS.
   //
-  // It sat outside this list despite always having been a `TurnEnd`, and
-  // the consequence was precise: the verdict ended up on the row as an
-  // `error` block WITHOUT `cause`, and the amber banner — which only
-  // renders the causes listed here — never lit up. Reported 21/09 on
-  // topic:a5c4a915: the refusal was the 19th block of 19, behind a pile
-  // of tool calls, and the chat looked "stuck with no feedback". The
-  // explanation was there, in the place where nobody looks.
+  // It was already a `TurnEnd` but stayed outside this list, so its verdict was
+  // stored as an error block without `cause`. The banner renders only listed
+  // causes, leaving the refusal buried after the tool-call stack.
   //
-  // It is not `provider-error`: a provider error gets retried, a refusal
-  // doesn't — resending the same request buys the same no. It's the
-  // distinction `consumesAttempt` and `meritaRipresaAutomatica` read, and
-  // it earns a name of its own.
+  // It is not `provider-error`: provider errors are retried, while retrying an
+  // identical refusal buys the same result. Retry policy needs this distinction.
   'refusal',
 ] as const;
 

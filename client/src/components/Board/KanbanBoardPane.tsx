@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { PoliteKeyboardSensor, PoliteMouseSensor, PoliteTouchSensor } from './dndSensors';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
-import { AlertTriangle, Archive, ChevronDown, ChevronRight, Music4, Settings, Target, UploadCloud, X } from 'lucide-react';
+import { AlertTriangle, Archive, ChevronDown, ChevronRight, Kanban, List, Music4, Settings, Target, UploadCloud, X } from 'lucide-react';
 import type { Topic, WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { Spinner } from '../Shared/Spinner';
@@ -62,6 +62,8 @@ import { useDevInstall } from '../../hooks/useDevInstall';
 /** Identità stabile per «nessuna scrittura in volo»: una Map nuova a ogni render
  *  rifarebbe il memo che sovrappone le patch, e con lui tutte le colonne. */
 const EMPTY_WRITES: ReadonlyMap<string, Partial<BoardTask>> = new Map();
+
+const BOARD_LAYOUT_STORAGE_KEY = 'topics.board.layout';
 
 interface Props {
   /** Absent in the global ('Board generale') pane — there is no single project. */
@@ -849,6 +851,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // Solo su una board di progetto: il feed globale è `listAll`, che di archivio
   // non parla.
   const [showArchived, setShowArchived] = useState(false);
+  // The alternative to the kanban: columns stacked vertically instead of side
+  // by side, each full width, empty ones skipped (see `Column`, `layout`
+  // prop). A preference the person flips on and off between sessions, not a
+  // property of the task — localStorage, not the server: no board needs to
+  // know which view you're looking at it in.
+  const [boardLayout, setBoardLayout] = useState<'grid' | 'list'>(() => {
+    try { return localStorage.getItem(BOARD_LAYOUT_STORAGE_KEY) === 'list' ? 'list' : 'grid'; }
+    catch { return 'grid'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(BOARD_LAYOUT_STORAGE_KEY, boardLayout); } catch { /* private mode, best effort */ }
+  }, [boardLayout]);
   // Le righe non le legge più questa pane: le legge `useBoardFeed`, che in
   // modalità 'all' NON fetcha affatto (il feed globale ha già un proprietario,
   // `useGlobalBoard`) e in modalità progetto raffredda la raffica e scarta le
@@ -1827,6 +1841,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         <div className="ml-2 flex min-w-0 grow items-center">
           <InlineFilters filters={filters} onFiltersChange={setFilters} tasks={tasks} mode={mode} />
         </div>
+        {/* THE ALTERNATIVE TO THE CLASSIC KANBAN, next to the search: one
+            button that swaps side-by-side columns for stacked sections (see
+            `boardLayout` above and `layout` on `Column`). Same spot, same
+            style as the archive toggle below — not a second menu. */}
+        <button
+          type="button"
+          data-testid="board-layout-toggle"
+          aria-pressed={boardLayout === 'list'}
+          onClick={() => setBoardLayout((v) => (v === 'list' ? 'grid' : 'list'))}
+          className={`grid ${TOOLBAR_CONTROL_H} w-6 shrink-0 place-items-center rounded ${boardLayout === 'list' ? 'bg-white/15 text-primary' : 'text-app-text-secondary hover:bg-white/5'}`}
+          title={boardLayout === 'list' ? tr('board.toolbar.viewMode.list') : tr('board.toolbar.viewMode.kanban')}
+        >{boardLayout === 'list' ? <Kanban className="h-3.5 w-3.5" /> : <List className="h-3.5 w-3.5" />}</button>
         <div className="ml-auto flex items-center gap-2">
           {/* THE COUNT IS GONE (asked on 29/08): in "all" mode the toggle two
               controls to the left already says which scope you are in, and the
@@ -1986,7 +2012,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                 pointer that has not moved. Measured on 2026-09-08: a card
                 dropped on In Progress landed in Review, three times out of
                 three (BOARD-18), from the moment `scroll-smooth` left. */}
-            <div ref={columnsScrollRef} className="flex h-full min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto px-2 py-3 sm:scroll-smooth sm:gap-3 sm:px-3">
+            {/* List: one full-width column scrolling vertically, no
+                snap-carousel (there's nothing to peek at off to the side). */}
+            <div ref={columnsScrollRef} className={boardLayout === 'list'
+              ? 'flex h-full min-w-0 flex-col gap-2 overflow-y-auto px-2 pt-3 pb-36 scrollbar-standard sm:px-3'
+              : 'flex h-full min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto px-2 py-3 sm:scroll-smooth sm:gap-3 sm:px-3'}>
               {TASK_STATUSES.map((status) => (
                 <Column
                   key={status}
@@ -1996,6 +2026,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                   onCreate={(text) => create(status, text)}
                   canCreate={mode === 'project' && !showArchived}
                   showProject={mode === 'all'}
+                  layout={boardLayout}
                   cardError={cardError}
                   onCardError={onCardError}
                   onRefetch={refetch}

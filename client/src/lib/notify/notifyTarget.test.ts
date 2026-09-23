@@ -2,6 +2,8 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { encodeNotifyTarget, decodeNotifyTarget, openNotifyToken } from './notifyTarget';
 import { __resetTabLinkStateForTests, __setTabLinkRetryDelayForTests } from '../tabLink';
 
+const realCustomEvent = globalThis.CustomEvent;
+
 /**
  * Il difetto che questi test fissano: il banner partiva con il solo `taskId`,
  * quindi una notifica di CHAT (fine turno, messaggio nuovo, terminale) non
@@ -104,6 +106,9 @@ describe('openNotifyToken: il click che torna dal guscio', () => {
     // Same for the stub window: bun has none, and a partial one left behind
     // flips the `typeof window` guards of the next file in this process.
     delete (globalThis as { window?: unknown }).window;
+    // And the real CustomEvent: the stub is not an Event, so a later file that
+    // dispatches on a real EventTarget throws "must be an instance of Event".
+    (globalThis as { CustomEvent: unknown }).CustomEvent = realCustomEvent;
   });
 
   test('token di TOPIC: apre la tab della conversazione', async () => {

@@ -51,6 +51,7 @@ import { clearRetirement, recordRetirement } from "../services/retirement";
 import { parkTopicSession } from "../lib/session-parking";
 import { parseTranscriptToMessages } from "../lib/claude-transcript-import";
 import { parseTranscriptFacts } from "../lib/external-claude-sessions";
+import { autonomyForPermissionMode } from "../lib/autonomy-mode";
 import { EFFORT_TIERS } from "../../shared/effort";
 // Only the «delivery» side: the waiting legs (beginAsk/waitForAnswer) live in
 // the human channel, in ./permission.
@@ -1433,7 +1434,8 @@ export function createTopicsRouter(
 
         const text = readFileSync(transcriptPath, "utf-8");
         // The session's real cwd is stamped on its transcript entries.
-        const cwd = parseTranscriptFacts(text).cwd;
+        const facts = parseTranscriptFacts(text);
+        const cwd = facts.cwd;
         if (!cwd) return json({ error: "could not resolve session cwd" }, 400);
 
         const messages = parseTranscriptToMessages(text);
@@ -1465,6 +1467,10 @@ export function createTopicsRouter(
             provider: "claude-code",
           };
           if (projectDir) (t as any).projectPath = projectDir;
+          // Carry on with the permissions the session already ran with, instead
+          // of the default level: see `autonomyForPermissionMode`.
+          const inherited = autonomyForPermissionMode(facts.permissionMode);
+          if (inherited) t.autonomyLevel = inherited;
           saveSingleTopic(t);
           // Bind the topic's chat session to the EXISTING claude session id. The
           // provider's getOrCreateClaudeSessionId will now find this row, see

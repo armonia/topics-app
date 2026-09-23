@@ -268,7 +268,10 @@ describe("a hold longer than a day", () => {
   test("five boots over three days leave one paragraph on the card, not five", async () => {
     const db = freshDb();
     cleanups.push(() => db.close());
-    const clock = { ms: Date.parse("2026-09-17T09:00:00.000Z") };
+    // Anchored to the real clock, not a date: `taskPlanWait` asks
+    // `providerHold()` with `Date.now()`, so a fixed 17/09 + 6 days wall
+    // expired for real on 23/09 at 09:00 UTC and the test went red that day.
+    const clock = { ms: Date.now() };
     const shared = { db, now: () => new Date(clock.ms).toISOString() };
     const wall = clock.ms + 6 * 24 * 3_600_000;
     setProviderHold({ untilMs: wall, window: "usage_limit", reason: "Codex plan usage limit reached", provider: "codex" });

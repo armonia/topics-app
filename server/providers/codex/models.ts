@@ -27,3 +27,34 @@ export function readCodexModels(cachePath = join(process.env.CODEX_HOME || join(
     });
   } catch { return []; }
 }
+
+/**
+ * The model a turn should name when nobody picked one.
+ *
+ * `codex exec` without `--model` takes `model` from ~/.codex/config.toml, and
+ * that file is edited by hand and by the desktop app. On 23/09 it said
+ * `gpt-6-sol`, which is not in this account's catalog: every Topics turn that
+ * left the model to the CLI died with 400 "The 'gpt-6-sol' model is not
+ * supported when using Codex with a ChatGPT account". The picker was right, the
+ * default underneath it was not.
+ *
+ * So: when the configured default is missing from a non-empty catalog, name the
+ * first listed model instead. An empty catalog (not fetched yet) proves
+ * nothing, and the CLI keeps its own choice.
+ */
+export function codexFallbackModel(configured: string | null, catalog: readonly string[]): string | null {
+  if (!configured || catalog.length === 0 || catalog.includes(configured)) return null;
+  return catalog[0] ?? null;
+}
+
+/** The `model = "..."` line of ~/.codex/config.toml, top level only. */
+export function readCodexConfiguredModel(configPath = join(process.env.CODEX_HOME || join(process.env.HOME || '', '.codex'), 'config.toml')): string | null {
+  try {
+    for (const line of readFileSync(configPath, 'utf8').split('\n')) {
+      if (line.trimStart().startsWith('[')) return null;
+      const m = /^\s*model\s*=\s*"([^"]+)"/.exec(line);
+      if (m) return m[1]!;
+    }
+  } catch { /* no config: the CLI uses its built-in default */ }
+  return null;
+}

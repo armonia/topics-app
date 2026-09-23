@@ -1,36 +1,38 @@
 /**
- * IL TURNO DEL 20/08 CHE È MORTO SENZA DIRE NIENTE.
+ * THE 20/08 TURN THAT DIED WITHOUT SAYING ANYTHING.
  *
- * Ricostruzione, da `~/.claude/jarvis/logs/topics-server.log` e dal DB vivo:
+ * Reconstructed from `~/.claude/jarvis/logs/topics-server.log` and the live DB:
  *
- *   19:08:47  l'utente scrive, parte il turno su topic:9f9e9629 (provider
- *             `topics`, il runtime NATIVO — il turno gira dentro il server).
- *   19:11:2x  fswatch vede un salvataggio in `server/`; `restart-when-idle`
- *             risponde 202 e comincia ad aspettare.
- *             `[quiescence] aspetto prima di riavviare — 1 chat in streaming
- *             (topic:9f9e9629)` — poi il cap CHAT di 60 s scade, e il cancello
- *             conclude «procedo, la reload-resilience li riprende».
+ *   19:08:47  the user types, the turn starts on topic:9f9e9629 (provider
+ *             `topics`, the NATIVE runtime — the turn runs inside the server).
+ *   19:11:2x  fswatch sees a save in `server/`; `restart-when-idle`
+ *             answers 202 and starts waiting.
+ *             `[quiescence] waiting before restart — 1 chat streaming
+ *             (topic:9f9e9629)` — then the 60 s CHAT cap expires, and the
+ *             gate concludes "proceeding, reload-resilience will pick them
+ *             back up".
  *   19:11:44  SIGTERM → `stopAllProviders()` → `NativeProvider.stop()` →
- *             `abort()` su ogni sessione viva.
- *   19:11:45  `activity_log`: «stream aborted by user». L'utente non aveva
- *             premuto niente.
+ *             `abort()` on every live session.
+ *   19:11:45  `activity_log`: "stream aborted by user". The user had not
+ *             pressed anything.
  *
- * Quello che si è visto a schermo: «Ho capito il richiamo: **Nerissima
- * Serpe**…», una colonna di tool, e poi più niente. Nessun cartello, nessun
- * «Riprova», nessuna riga che spiegasse cos'era successo. Il turno non è stato
- * nemmeno riadottato, perché un turno nativo non ha un figlio da riadottare.
+ * What showed up on screen: "Got the request: **Nerissima Serpe**…", a
+ * column of tools, and then nothing more. No banner, no "Retry", no line
+ * explaining what happened. The turn was not even re-adopted, because a
+ * native turn has no child process to re-adopt.
  *
- * Quattro difetti in fila, e ognuno da solo bastava a produrre il silenzio:
+ * Four defects in a row, and any one alone was enough to produce the silence:
  *
- *   1. il ciclo dell'agente usciva MUTO sull'abort (nessun handler chiamato);
- *   2. il provider nativo etichettava ogni abort come `cause: "user"`;
- *   3. `finalizeStream` su `aborted` non scriveva mai niente, perché «l'utente
- *      sa già di aver premuto» — vero per l'utente, falso per tutti gli altri;
- *   4. il cancello di quiescenza dava alle chat l'attesa corta appoggiandosi su
- *      «tanto le riadottiamo», che per il runtime nativo è falso.
+ *   1. the agent loop exited MUTE on abort (no handler called);
+ *   2. the native provider labeled every abort as `cause: "user"`;
+ *   3. `finalizeStream` on `aborted` never wrote anything, because "the user
+ *      already knows they pressed it" — true for the user, false for
+ *      everyone else;
+ *   4. the quiescence gate gave chats the short wait leaning on
+ *      "we'll re-adopt them anyway", which is false for the native runtime.
  *
- * Queste prove coprono 2, 3 e 4 al livello della DECISIONE, più 1 e 2 insieme
- * sul provider vero in `native/abort-cause.test.ts`.
+ * These tests cover 2, 3, and 4 at the DECISION level, plus 1 and 2 together
+ * on the real provider in `native/abort-cause.test.ts`.
  *
  * @covers INTERRUPT-03
  */
@@ -193,29 +195,29 @@ describe("avvisoPerTurno — la coda dice il vero", () => {
   });
 
   /**
-   * "DOWN HERE" WAS POINTING AT NOTHING.
+   * «QUI SOTTO» INDICAVA IL VUOTO.
    *
-   * The card is the LAST block of the bubble, so whatever the turn had
-   * already produced sits ABOVE. On topic:a5c4a915 (21/09) there were 18
-   * blocks above and zero below, and the sentence pointed the wrong way.
+   * Il cartello e' l'ULTIMO blocco della bolla, quindi cio' che il turno aveva
+   * gia' prodotto sta SOPRA. Su topic:a5c4a915 (21/09) erano 18 blocchi sopra
+   * e zero sotto, e la frase mandava a cercare dalla parte sbagliata.
    */
-  test("refusal with work already produced: points ABOVE, where the work actually is", () => {
-    const rifiuto: TurnEndInfo = { end: "refusal", detail: "violative cyber content" };
-    const out = avvisoPerTurno(rifiuto, { haProdotto: true })!;
+  test("rifiuto con lavoro gia' prodotto: indica SOPRA, dove il lavoro sta davvero", () => {
+    const refusal: TurnEndInfo = { end: "refusal", detail: "violative cyber content" };
+    const out = avvisoPerTurno(refusal, { haProdotto: true })!;
     expect(out).toContain("qui sopra");
     expect(out).not.toContain("qui sotto");
   });
 
   /**
-   * The way out gets said EVEN to someone who received partial work: a
-   * refusal does not unblock by waiting, and resending buys the same no.
-   * Before, that branch stopped at "stays down here" and left the only
-   * question that matters, "now what?", unanswered.
+   * La via d'uscita si dice ANCHE a chi ha ricevuto del lavoro parziale: un
+   * rifiuto non si sblocca aspettando, e rimandare ricompra lo stesso no.
+   * Prima quel ramo si fermava a «resta qui sotto» e lasciava senza risposta
+   * l'unica domanda che conta, «e adesso?».
    */
-  test("refusal: the way out is present in both branches", () => {
-    const rifiuto: TurnEndInfo = { end: "refusal", detail: "violative cyber content" };
+  test("rifiuto: la via d'uscita c'e' in entrambi i rami", () => {
+    const refusal: TurnEndInfo = { end: "refusal", detail: "violative cyber content" };
     for (const haProdotto of [true, false]) {
-      expect(avvisoPerTurno(rifiuto, { haProdotto })!).toContain("riformula");
+      expect(avvisoPerTurno(refusal, { haProdotto })!).toContain("riformula");
     }
   });
 

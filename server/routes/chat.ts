@@ -313,32 +313,33 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const resumeAttempt = resumeAttemptOf(body);
 
       /**
-       * LO STESSO MESSAGGIO NON SI PRENDE DUE VOLTE.
+       * THE SAME MESSAGE DOES NOT GET TAKEN TWICE.
        *
-       * Il client aveva una regola sola per sapere se un messaggio era partito:
-       * `streamStarted`, che diventa vero quando la `fetch` restituisce la
-       * risposta. Se la connessione muore PRIMA — e muore, perché su questa
-       * macchina il server si ricarica a ogni salvataggio in `server/` — per lui
-       * il server non l'ha mai ricevuto. Ma le due cose che possono essere
-       * successe sono opposte e da fuori identiche: (a) siamo morti prima di
-       * scrivere la riga, e allora il messaggio è perso e va rispedito;
-       * (b) siamo morti dopo, e allora rispedirlo lo duplica.
+       * The client had a single rule for knowing whether a message had gone
+       * out: `streamStarted`, which becomes true when `fetch` returns the
+       * response. If the connection dies BEFORE that — and it does die,
+       * because on this machine the server reloads on every save in
+       * `server/` — from the client's view the server never received it.
+       * But the two things that could have happened are opposite and look
+       * identical from outside: (a) we died before writing the row, and
+       * then the message is lost and needs resending; (b) we died after,
+       * and then resending it duplicates it.
        *
-       * Non potendo distinguerle, il client sceglieva: teneva il messaggio in
-       * coda e sperava. Il commento del suo drain lo dice in chiaro — «tenerlo
-       * qui significherebbe rispedirlo a un server che potrebbe averlo già
-       * preso». Misurato il 2026-08-18: un messaggio scritto durante un reload
-       * non è mai arrivato (zero righe, zero turni) e la pagina è rimasta a
-       * girare; poco prima, un altro aveva mostrato «Message queued» pur essendo
-       * arrivato benissimo.
+       * Unable to tell them apart, the client picked a side: it kept the
+       * message queued and hoped. Its drain's own comment says it plainly —
+       * "keeping it here would mean resending it to a server that may have
+       * already taken it". Measured on 2026-08-18: a message written during
+       * a reload never arrived (zero rows, zero turns) and the page stayed
+       * spinning; shortly before, another had shown "Message queued" while
+       * having arrived just fine.
        *
-       * Con una chiave il dubbio sparisce: il client rispedisce SEMPRE, e siamo
-       * noi a dire se l'avevamo già preso. La chiave si ricorda solo DOPO che la
-       * riga utente è scritta (più sotto), perché è quello il momento in cui il
-       * messaggio esiste davvero: se cadiamo prima, la ripetizione deve poter
-       * ripartire pulita.
+       * With a key the doubt disappears: the client ALWAYS resends, and we
+       * are the ones who say whether we'd already taken it. The key is only
+       * remembered AFTER the user row is written (further below), because
+       * that's the moment the message truly exists: if we die before that,
+       * the resend must be able to start clean.
        *
-       * Stessa meccanica di `POST /api/terminal/sessions`, stesso modulo.
+       * Same mechanism as `POST /api/terminal/sessions`, same module.
        */
       const idempotencyKey =
         req.headers.get("x-idempotency-key")
@@ -2050,19 +2051,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // Same shape as the cancelled notice below: the verdict goes in
               // the BLOCKS, and in the text only when there is no text.
               //
-              // AND THE CAUSE TRAVELS WITH THE CARD, or the card stays unseen.
+              // THE CAUSE TRAVELS WITH THE NOTICE, otherwise it stays hidden.
               //
-              // The banner above the composer only renders blocks that carry
-              // a `cause` (see `interruptedTurnOf`): without it, the verdict
-              // stays a block at the bottom of the bubble. On topic:a5c4a915,
-              // 21/09, it was the 19th of 19 under a pile of tool calls, and
-              // the chat looked "stuck with no feedback" — the explanation
-              // was there, in the place where nobody looks.
+              // The banner above the composer renders only blocks carrying a
+              // `cause`. Without it, the verdict remains buried after the
+              // tool-call stack even though the explanation exists.
               //
-              // `max_tokens` doesn't get one: the cut is not an END
-              // attributed to someone, it's a length limit, and its card
-              // already says the one thing that changes the outcome (ask
-              // for the rest in pieces).
+              // `max_tokens` has no cause because it is a length limit, not an
+              // attributed termination. Its notice already explains recovery.
               const cutCause = endInfo.end === "refusal" ? ("refusal" as const) : undefined;
               blocks.push({
                 kind: "error",

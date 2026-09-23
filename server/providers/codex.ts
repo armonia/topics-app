@@ -36,7 +36,7 @@ import { resolveAppDataDir } from "../lib/data-dir";
 import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
 import { getTopicWorkspaceForSession, topicsMcpBridgeSpec } from "./claude-code";
 import { buildCodexArgs, buildCodexOneshotArgs, buildCodexResumeArgs } from "./codex/args";
-import { readCodexModels } from "./codex/models";
+import { readCodexModels, codexFallbackModel, readCodexConfiguredModel } from "./codex/models";
 import { codexRolloutExists } from "../lib/codex-session";
 import { getDatabase } from "../db";
 import { applyJobQuota } from "../services/agent-job-quota";
@@ -459,7 +459,11 @@ export class CodexProvider implements AIProvider {
     }
 
     const runId = crypto.randomUUID();
-    const explicitModel = options?.model ?? this.config.model;
+    // A turn that names no model inherits config.toml's; when that one is not
+    // in the account's catalog, the turn would die with a 400 (see
+    // `codexFallbackModel`), so name a listed one instead.
+    const explicitModel = options?.model ?? this.config.model
+      ?? codexFallbackModel(readCodexConfiguredModel(), readCodexModels().map((m) => m.slug)) ?? undefined;
 
     // Wire the topics-app MCP bridge into `codex exec` so a codex session can
     // drive topics (open browser pane, switch/create topic, open/create project)
@@ -807,6 +811,16 @@ export class CodexProvider implements AIProvider {
           handler.onTextDelta(text, fullTextRef + text);
           return text;
         }
+        return null;
+      }
+
+      // Codex compacts its own context mid-thread (the rollout on disk records
+      // a `compacted` entry, 28 of them in the last 40 sessions on 23/09), and
+      // `exec --json` names that item `context_compaction`. Without this branch
+      // the chat showed the ring dropping with no divider, while the same event
+      // on Claude Code draws one (`compact_boundary`, CHAT-COMPACT-01).
+      if (itemType === "context_compaction") {
+        if (t === "item.completed") handler.onCompaction?.({ trigger: "auto" });
         return null;
       }
 

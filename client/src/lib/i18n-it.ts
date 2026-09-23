@@ -1684,6 +1684,8 @@ const IT: Dict = {
   'board.toolbar.thisProject': 'Questo progetto',
   'board.toolbar.allProjects': 'Tutti i progetti',
   'board.toolbar.dispatchSettings': 'Impostazioni auto-dispatch',
+  'board.toolbar.viewMode.kanban': 'Passa alla vista a lista',
+  'board.toolbar.viewMode.list': 'Passa alla vista kanban',
   'board.orchestrator.open': 'Orchestratore',
   'board.orchestrator.opening': 'Apro…',
   'board.orchestrator.openTitle': 'Apri il coordinatore della Kanban in un pannello accanto alle colonne',
@@ -1757,8 +1759,8 @@ const IT: Dict = {
   'chat.turnInterrupted.providerError': 'il provider ha risposto con un errore',
   'chat.turnInterrupted.rateLimit': "il limite di richieste dell'API è rimasto saturo per tutti i tentativi; riprende da solo",
   'chat.turnInterrupted.toolBudget': 'il turno ha esaurito i giri di tool concessi dal server; riprende da solo una volta',
-  // No "resumes on its own": a refusal is deterministic, and resending the
-  // same message buys the same no. The way out is rewording.
+  // A refusal is deterministic, so retrying the same message buys the same
+  // result. Rephrasing is the useful recovery path.
   'chat.turnInterrupted.refusal': 'il modello ha rifiutato la richiesta',
   'git.noRepoInitialized': 'Nessun repository git inizializzato',
   'git.noRepo': 'Nessun repository git',
@@ -2557,9 +2559,9 @@ const IT: Dict = {
   'notifications.loadMore': 'Carica altre notifiche',
   'notifications.loadingMore': 'Carico…',
   'notifications.allLoaded': 'Sei arrivato in fondo al registro.',
-  // ── Barra dei progetti sotto la board.
+  // ── Projects bar under the board.
   'board.projects.more': 'Altri {n} progetti con task aperti',
-  // ── Righe della barra laterale.
+  // ── Sidebar rows.
   'sidebar.noTabs': 'Nessuna tab',
   'sidebar.closeBrowser': 'Chiudi browser',
   'topic.cloudSession': 'Sessione cloud (OpenClaw)',

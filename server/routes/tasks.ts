@@ -2713,8 +2713,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           error:
             "this card is labelled `visibile` (it touches client/src), so the reviewer " +
             "opens it to LOOK at something. attach the durable evidence with " +
-            "update_task(previewImage=<absolute path>) — a screenshot of one state, a " +
-            "clip of a behaviour, or a diagram — THEN set status='review'",
+            "update_task(previewImage=<absolute path>): a screenshot of one state, a " +
+            "clip of a behaviour, or a diagram. THEN set status='review'",
           code: "review_needs_preview",
         }, 409);
       }

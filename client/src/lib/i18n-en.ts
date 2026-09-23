@@ -1466,6 +1466,8 @@ const EN = {
   'board.toolbar.thisProject': 'This project',
   'board.toolbar.allProjects': 'All projects',
   'board.toolbar.dispatchSettings': 'Auto-dispatch settings',
+  'board.toolbar.viewMode.kanban': 'Switch to list view',
+  'board.toolbar.viewMode.list': 'Switch to kanban view',
   'board.orchestrator.open': 'Orchestrator',
   'board.orchestrator.opening': 'Opening…',
   'board.orchestrator.openTitle': 'Open the Kanban coordinator in a panel beside the columns',

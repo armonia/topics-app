@@ -21,6 +21,30 @@
 import type { ToolCall, ToolCallDetail } from "../../types";
 import { isPlanFile } from "../../../shared/plan-file";
 
+/**
+ * The Topics bridge tools (`server/mcp/topics-mcp-server.ts`), as the native
+ * provider names them: bare. Kept as a literal list because the client mirror
+ * cannot import from `server/`; `tool-detail.test.ts` pins it to the real table.
+ */
+export const TOPICS_BRIDGE_TOOLS: ReadonlySet<string> = new Set([
+  "open_browser_pane", "close_browser_pane", "browser_list_tabs", "browser_focus_tab", "import_chrome",
+  "run_script", "list_processes", "read_process_output", "stop_process",
+  "list_tasks", "create_task", "get_task", "get_goal", "close_goal", "set_goal", "update_goal_steps",
+  "update_task", "wait_for_condition", "label_task", "comment_task",
+  "list_global_tasks", "get_global_task", "create_global_task", "update_global_task", "comment_global_task",
+  "move_session_to_project", "spawn_agent", "send_to_agent", "read_agent", "list_agents", "stop_agent",
+  "switch_topic", "new_topic", "create_project", "open_project", "send_chat_message", "read_chat_messages",
+  "resolve_tab", "send_mail", "google_call",
+]);
+
+/** The in-app browser tools (`server/browser-tool-spec.ts`), also bare. */
+export const TOPICS_BROWSER_TOOLS: ReadonlySet<string> = new Set([
+  "browser_open", "browser_observe", "browser_act", "browser_extract", "browser_get_text",
+  "browser_screenshot", "browser_read_screen", "browser_console", "browser_network", "browser_eval",
+  "browser_save_state", "browser_load_state", "browser_point", "browser_import_chrome",
+  "browser_status", "browser_upload",
+]);
+
 /** Lowercase + strip leading/trailing punctuation for alias match. */
 function canon(name: string): string {
   return (name || "").toLowerCase().trim();
@@ -85,6 +109,7 @@ export function deriveToolDetail(
   // Edit variants — single Edit, MultiEdit (concat), apply_patch, str_replace
   if (
     c === "edit" ||
+    c === "edit_file" ||
     c === "multiedit" ||
     c === "apply_patch" ||
     c === "apply_diff" ||
@@ -107,8 +132,9 @@ export function deriveToolDetail(
     return {
       type: "edit",
       filePath: s(a.file_path) ?? s(a.filePath) ?? s(a.path) ?? "",
-      ...(s(a.old_string) ? { oldString: s(a.old_string)! } : {}),
-      ...(s(a.new_string) ? { newString: s(a.new_string)! } : {}),
+      // The native provider's `edit_file` names them `old` / `new`.
+      ...((s(a.old_string) ?? s(a.old)) ? { oldString: (s(a.old_string) ?? s(a.old))! } : {}),
+      ...((s(a.new_string) ?? s(a.new)) ? { newString: (s(a.new_string) ?? s(a.new))! } : {}),
       ...(s(a.unified_diff) ? { unifiedDiff: s(a.unified_diff)! } : {}),
     };
   }
@@ -393,6 +419,20 @@ export function deriveToolDetail(
       processId: s(a.process_id) ?? s(a.processId) ?? "",
       ...(s(a.until) ? { until: s(a.until)! } : {}),
       ...(timeout !== undefined ? { timeoutMs: timeout } : {}),
+      ...(result ? { result } : {}),
+    };
+  }
+
+  // The native provider calls the Topics bridge tools in-process under their
+  // BARE names (`update_task`, `read_agent`), without the `mcp__topics__`
+  // prefix the CLI adds. Same tools, same card: without this they all fell to
+  // the generic JSON view (about 4,000 calls in two weeks, measured 23/09).
+  if (TOPICS_BRIDGE_TOOLS.has(c) || TOPICS_BROWSER_TOOLS.has(c)) {
+    return {
+      type: "mcp",
+      server: TOPICS_BROWSER_TOOLS.has(c) ? "browser" : "topics",
+      tool: name,
+      ...(args ? { args: a } : {}),
       ...(result ? { result } : {}),
     };
   }

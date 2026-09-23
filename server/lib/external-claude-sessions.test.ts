@@ -1,5 +1,5 @@
 /**
- * @covers EXTSESS-01, EXTSESS-02, EXTSESS-03
+ * @covers EXTSESS-01, EXTSESS-02, EXTSESS-03, EXTSESS-09
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import {
@@ -37,8 +37,17 @@ describe("parseTranscriptFacts", () => {
 
   test("no cwd anywhere → nulls, never throws", () => {
     expect(parseTranscriptFacts('{"type":"queue-operation"}\nnot json\n')).toEqual({
-      cwd: null, branch: null, entrypoint: null, sidechain: false,
+      cwd: null, branch: null, entrypoint: null, sidechain: false, permissionMode: null,
     });
+  });
+
+  test("reads the LAST permissionMode the CLI stamped, even when it sits on a line without cwd", () => {
+    const text = [
+      line({ type: "user", cwd: "/repo", permissionMode: "acceptEdits" }),
+      line({ type: "user", permissionMode: "auto" }),
+      line({ type: "assistant", cwd: "/repo" }),
+    ].join("\n");
+    expect(parseTranscriptFacts(text).permissionMode).toBe("auto");
   });
 });
 
