@@ -93,7 +93,7 @@ import { createExternalSessionsRouter } from "./server/routes/external-sessions"
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { isChecksHold as isChecksHoldOf, sweepStaleChecksLights as sweepStaleChecksLightsOf } from "./server/services/checks-lights";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { budgetSample, computeDispatchCapacity, dispatchResourceVerdict, probeVm } from "./server/services/dispatch-capacity";
+import { availableMemGB, budgetSample, computeDispatchCapacity, dispatchResourceVerdict, probeVm, setAvailableMemReader } from "./server/services/dispatch-capacity";
 import { createMemSignal, fileMemSampleStore, formatMemorySignalLine } from "./server/services/mem-signal";
 import { OUR_APP_MARKERS } from "./server/services/memory-owners";
 import { createMemoryOwnersReader } from "./server/services/memory-owners-probe";
@@ -1586,7 +1586,10 @@ const memSignal = createMemSignal({
   store: fileMemSampleStore(join(resolveStateDir(process.cwd()), "mem-samples.json")),
 });
 void memSignal.sample();
-
+// The capacity reading takes its memory from this sample instead of a
+// synchronous `vm_stat` per request; the sync probe stays only as the fallback
+// when no fresh sample exists (see `setAvailableMemReader`).
+setAvailableMemReader(() => memSignal.latestAvailGB() ?? availableMemGB());
 // La passata di parcheggio dei terminali stringe la soglia quando la macchina e'
 // al soffitto. `sustained` e' gia' la misura di «lo swap morde davvero» (due
 // porte, tarate sul log vero: vedi mem-signal.ts), quindi non se ne inventa una

@@ -477,6 +477,27 @@ function readVmStatSync(): string | null {
   }
 }
 
+/**
+ * The memory reading `computeDispatchCapacity` uses when nobody injects one.
+ *
+ * Out of the box it is `availableMemGB`, a SYNCHRONOUS `vm_stat`: 1,4 ms of
+ * event loop stopped on a quiet Mac (median of 50, 23/09) and seconds under
+ * thrash, paid on every board poll, every night-mode tick and every terminal
+ * cap check. The server already samples the very same number asynchronously
+ * every 10 s (`mem-signal.ts`), so it plugs that sample in here at boot and
+ * the sync spawn is left only for when no fresh sample exists (first beat,
+ * a probe that failed).
+ */
+let availMemReader: () => number | null = () => availableMemGB();
+
+export function setAvailableMemReader(read: (() => number | null) | null): void {
+  availMemReader = read ?? (() => availableMemGB());
+}
+
+function currentAvailableMemGB(): number | null {
+  return availMemReader();
+}
+
 /** The fields of one `vm_stat` answer the memory readers use; `null` = the line is missing. */
 export interface VmStat {
   /** The sum `availableMemGB` returns (see its comment), or `null` if any term is unreadable. */
@@ -1047,7 +1068,7 @@ export function computeDispatchCapacity(
   running = 0,
   probe: () => FleetLoadReading | null = fleetLoadSync,
   agentsAreProcesses = true,
-  readAvailMemGB: () => number | null = availableMemGB,
+  readAvailMemGB: () => number | null = currentAvailableMemGB,
   /** The knob of the "by resources" mode and how many runs the governor has
    *  frozen right now. They travel through the capacity because the panel, the
    *  gauge and the gate must read ONE reading: a second probe for the same
