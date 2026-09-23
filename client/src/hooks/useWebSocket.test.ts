@@ -316,6 +316,7 @@ describe('the catch-up after a reconnect nobody sees', () => {
         drainQueue: () => done.push('drain'),
         loadTopics: () => done.push('topics'),
         loadHistory: (key: string) => done.push(`history:${key}`),
+        refreshPreviews: () => done.push('previews'),
         openPanelsRef,
         topicsRef,
       });
@@ -352,7 +353,9 @@ describe('the catch-up after a reconnect nobody sees', () => {
 
     expect(seenStatus, 'the grace hid the whole drop').toBe('connected');
     expect(statusEdges, 'no status edge to hang the catch-up on').toBe(0);
-    expect(done).toEqual(['drain', 'topics', 'history:s1', 'history:s2']);
+    // `previews`: the sidebar line of a chat that got messages while the socket
+    // was down is fed by the very `message:new` the drop lost.
+    expect(done).toEqual(['drain', 'topics', 'previews', 'history:s1', 'history:s2']);
     expect(nuova.tipiInviati()).toContain('presence:announce');
     h.unmount();
   });

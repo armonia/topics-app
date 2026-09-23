@@ -34,14 +34,23 @@ export function useReconnectCatchUp(args: {
   openPanelsRef: RefObject<string[]>;
   /** Topic map, mirrored for the same reason. */
   topicsRef: RefObject<Record<string, { sessionKey: string }>>;
+  /**
+   * Refresh the last-message line of every sidebar row. Optional because the
+   * previews are fed live by `message:new`, and that frame is exactly what a
+   * dropped socket missed: without this, a chat that got messages while the
+   * Mac slept kept yesterday's line until the page reloaded (23/09). Safe to
+   * repeat: the store ignores a reading older than the one it holds.
+   */
+  refreshPreviews?: () => Promise<unknown> | unknown;
 }): void {
-  const { drainQueue, loadTopics, loadHistory, openPanelsRef, topicsRef } = args;
+  const { drainQueue, loadTopics, loadHistory, openPanelsRef, topicsRef, refreshPreviews } = args;
   useEffect(() => subscribeReconnect(() => {
     drainQueue();
     void loadTopics();
+    if (refreshPreviews) void refreshPreviews();
     for (const panelId of openPanelsRef.current ?? []) {
       const topic = topicsRef.current?.[panelId];
       if (topic) void loadHistory(topic.sessionKey);
     }
-  }), [drainQueue, loadTopics, loadHistory, openPanelsRef, topicsRef]);
+  }), [drainQueue, loadTopics, loadHistory, openPanelsRef, topicsRef, refreshPreviews]);
 }

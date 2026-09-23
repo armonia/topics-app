@@ -1403,7 +1403,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // stays with the mount effects of ChatPane and useTopics — piling a second
   // loadHistory on top of them flashed the message list to a skeleton and
   // back, which is why `subscribeReconnect` (re-opens only) is the trigger.
-  useReconnectCatchUp({ drainQueue, loadTopics, loadHistory, openPanelsRef, topicsRef });
+  useReconnectCatchUp({ drainQueue, loadTopics, loadHistory, openPanelsRef, topicsRef, refreshPreviews: hydrateTopicPreviews });
 
   // ---- Auto-expand projects on openPanels change ----
   const [expandedProjects, setExpandedProjects] = useState<string[]>(() => {
