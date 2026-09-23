@@ -13,6 +13,8 @@
  *  2. a call with the same id in ANOTHER session is not (no cross-session leak);
  *  3. a call stored BEFORE the carrier is not (the run only grows forward);
  *  4. an id that exists nowhere is still a 404.
+ *
+ * @covers WIRE-09
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { join } from "node:path";

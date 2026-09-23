@@ -126,11 +126,11 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   const tr = useT();
   const rowRef = useRef<HTMLDivElement>(null);
   const settledMetricClass = useSettledMetricClass('tool');
-  // La riga su cui il badge delle fallite ha aperto il gruppo si apre, cosi'
-  // l'errore si legge senza un secondo click. Due casi: nasce evidenziata (il
-  // gruppo era chiuso, le righe nascono con quel click) o lo diventa (gruppo
-  // gia' aperto). Si apre sul FRONTE dell'evidenza, non finche' dura, o si
-  // richiuderebbe quando l'evidenza si spegne.
+  // The row the failure badge opened the group on opens itself, so the error
+  // reads without a second click. Two cases: mounted highlighted (the group
+  // was closed, its rows are born with that click) or highlighted later (the
+  // group was already open). It opens on the EDGE of the highlight, not while
+  // it lasts, or it would close again when the highlight fades.
   const [open, setOpen] = useState(() => !!highlighted);
   const [wasHighlighted, setWasHighlighted] = useState(!!highlighted);
   if (!!highlighted !== wasHighlighted) {
@@ -148,10 +148,10 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   // nothing pollutes the store, and nothing travels on the wire until the
   // user explicitly opens the row.
   const [fetched, setFetched] = useState<{ detail: Record<string, unknown> | null; args: Record<string, unknown> | null } | null>(null);
-  // Lo stato del fetch si vede: senza, un output in arrivo e un output perso
-  // (404, rete) erano la stessa card con il comando e niente sotto. Qui si
-  // tiene solo l'ESITO, per id; «in caricamento» si ricava sotto (aperta, da
-  // caricare, esito non ancora arrivato) invece di impostarlo nell'effetto.
+  // The fetch state is shown: without it, an output on its way and a lost one
+  // (404, network) were the same card, a command with nothing under it. Only
+  // the OUTCOME is stored, per id; "loading" is derived below (open, trimmed,
+  // no outcome yet) instead of being set inside the effect.
   const [fetchOutcome, setFetchOutcome] = useState<{ forId: string; state: 'done' | 'error'; error?: string } | null>(null);
   const fetchedForRef = useRef<string | null>(null);
   const strippedBytes = (toolCall.detailBytes ?? 0) + (toolCall.argsBytes ?? 0);
@@ -230,7 +230,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   });
   useEffect(() => {
     if (!highlighted) return;
-    // `?.` anche sul metodo: WebKit vecchi e i banchi senza layout non l'hanno.
+    // `?.` on the method too: old WebKit and layout-less test benches lack it.
     rowRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
   }, [highlighted]);
 

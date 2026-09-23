@@ -1,7 +1,7 @@
 /**
  * A FAILURE INSIDE A CLOSED GROUP IS ONE CLICK AWAY.
  *
- * The closed group said «✗ 1 fallita» and nothing else: the badge was plain
+ * The closed group showed its failure count and nothing else: the badge was plain
  * text inside the toggle, so reaching the failed row meant opening the group
  * and hunting for it among N rows. Now the badge is its own button: it names
  * the first error in its title, and a click opens the group on that row.

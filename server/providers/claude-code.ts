@@ -3337,9 +3337,9 @@ export class ClaudeCodeProvider implements AIProvider {
             // before onToolStart so the route handler sees the right state if
             // it queries the tracker.
             if (isSubAgentToolName(toolName)) {
-              // updateParentInput, non registerParent: il ramo sidechain puo'
-              // aver gia' creato un segnaposto vuoto, e registerParent su un
-              // id noto non fa niente.
+              // updateParentInput, not registerParent: the sidechain branch
+              // may already have created an empty placeholder, and
+              // registerParent on a known id is a no-op.
               pp.sidechain.updateParentInput(toolId, block.input);
             }
             handler.onToolStart(toolId, toolName, input);

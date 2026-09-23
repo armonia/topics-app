@@ -43,8 +43,8 @@ function HighlightedPre({ code, lang, className, testId, prefix }: {
   /** Literal chrome rendered before the code, outside highlighting ("$ "). */
   prefix?: ReactNode;
 }) {
-  // Terzo argomento = stesso getter: nel browser non cambia niente, e il render
-  // statico dei test (renderToStaticMarkup) smette di alzarsi su queste card.
+  // Third argument = same getter: nothing changes in the browser, and the
+  // static render of unit tests (renderToStaticMarkup) stops throwing here.
   const ready = useSyncExternalStore(subscribeHighlighter, highlighterReady, highlighterReady);
   const html = useMemo(
     () => (lang ? highlightCode(code, lang) : null),
@@ -118,8 +118,8 @@ export function ShellCard({ command, cwd, output, exitCode, isError, background,
     <div className="space-y-1">
       <HighlightedPre
         testId="tool-call-args"
-        // Stesso tetto del comando di Monitor: un heredoc lungo non spinge
-        // l'output (cio' che si apre la riga per leggere) fuori schermo.
+        // Same cap as the Monitor command: a long heredoc no longer pushes the
+        // output (what the row is opened for) off screen.
         className="text-mini font-mono text-app-text whitespace-pre-wrap overflow-auto max-h-40 bg-app-hover/40 rounded px-2 py-1.5"
         prefix="$ "
         code={command}

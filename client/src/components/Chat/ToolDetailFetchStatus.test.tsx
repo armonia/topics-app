@@ -9,6 +9,8 @@
  * the same.
  *
  * Rendered with `renderToStaticMarkup` (no DOM in this repo).
+ *
+ * @covers WIRE-09
  */
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';

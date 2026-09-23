@@ -35,8 +35,8 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
   const [open, setOpen] = useState(false);
   const summary = useMemo(() => summarizeToolGroup(tools), [tools]);
   const firstFailure = useMemo(() => (summary.errors > 0 ? firstFailedTool(tools) : null), [summary.errors, tools]);
-  // La riga fallita su cui il badge ha aperto il gruppo: evidenziata e portata
-  // in vista, poi l'evidenza si spegne da sola (e' un «eccola», non uno stato).
+  // The failed row the badge opened the group on: ringed and scrolled into
+  // view, then the ring fades by itself (it is a "here it is", not a state).
   const [focusId, setFocusId] = useState<string | null>(null);
   useEffect(() => {
     if (!focusId) return;
@@ -64,10 +64,10 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
 
   return (
     <div data-testid="tool-group-row" data-group-id={tools[0]?.id} className="text-compact">
-      {/* Il riepilogo NON e' piu' un bottone unico: dentro c'e' il badge delle
-          fallite, che e' un comando suo, e un bottone dentro un bottone non e'
-          HTML valido. Il click su tutta la riga apre ancora il gruppo (risale
-          fin qui), la tastiera usa il toggle vero. */}
+      {/* The summary is no longer one big button: the failure badge inside it
+          is a command of its own, and a button inside a button is invalid
+          HTML. A click anywhere on the row still toggles (it bubbles up to
+          here); the keyboard uses the real toggle button. */}
       <div
         onClick={toggle}
         className="group/toolgroup w-full py-1 text-left text-app-text-secondary hover:text-app-text transition-colors cursor-pointer"
@@ -110,10 +110,11 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
           {/* L'esito si dice SOLO quando è cattivo, e si dice qui, accanto al
               nome del gruppo — una volta sola, con il numero. Prima la ✗ era
               disegnata due volte (qui e a destra) e la spunta verde stava su
-              ogni gruppo riuscito, cioè su quasi tutti: confermava la norma.
-              È un BOTTONE: a gruppo chiuso l'errore era sepolto, e per trovarlo
-              bisognava aprire e cercare fra N righe. Il click apre il gruppo
-              sulla prima fallita; il title ne dice la prima riga d'errore. */}
+              ogni gruppo riuscito, cioè su quasi tutti: confermava la norma. */}
+          {/* A BUTTON: with the group closed the error was buried, and finding
+              it meant opening the group and hunting among N rows. The click
+              opens the group on the first failure; the title quotes the first
+              line of its error. */}
           {summary.errors > 0 && (
             <button
               type="button"

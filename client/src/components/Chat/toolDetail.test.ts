@@ -246,11 +246,11 @@ describe('il piano scritto su file È un piano, non una scrittura', () => {
   });
 });
 
-// I passi del goal sono una todo: stessa forma (content + status), stessa card.
-// Prima cadevano nella card MCP generica, con una testata «topics ·
-// update_goal_steps()» e nessun riassunto, perché gli argomenti sono solo un
-// array. Il server li salva come `mcp` (o `unknown` sulle righe vecchie coi nomi
-// nudi): la conversione sta al rendering, cosi' vale per tutto lo storico.
+// Goal steps are a todo: same shape (content + status), same card. They used
+// to fall into the generic MCP card, headed "topics · update_goal_steps" with
+// no summary, because their only argument is an array. The server stores them
+// as `mcp` (or `unknown` on old bare-name rows): the conversion happens at
+// render time, so it covers the whole history.
 describe('toolDetail — update_goal_steps / set_goal', () => {
   const steps = [
     { content: 'Mappare', status: 'completed' },
@@ -267,7 +267,7 @@ describe('toolDetail — update_goal_steps / set_goal', () => {
   });
 
   test('una riga salvata come `mcp` dal server si disegna come todo', () => {
-    // La forma vera nel DB: detail mcp, args svuotati dal trim della history.
+    // The real DB shape: an mcp detail, args emptied by the history trim.
     const tc: ToolCall = {
       id: 't1', name: 'mcp__topics__update_goal_steps', status: 'success', args: {},
       detail: { type: 'mcp', server: 'topics', tool: 'update_goal_steps', args: { steps } },
@@ -288,9 +288,9 @@ describe('toolDetail — update_goal_steps / set_goal', () => {
   });
 });
 
-// La testata della riga shell diceva «cd /Users/…/progetto && …» e il comando
-// vero finiva fuori dagli 80 caratteri che si leggono. Il `cd` iniziale si
-// toglie SOLO dalla testata: la card aperta mostra il comando intero.
+// The shell row header read "cd /Users/.../project && ..." and the real
+// command fell past the ~80 characters that get read. The leading `cd` goes
+// ONLY from the header: the open card shows the whole command.
 describe('shell label: a leading `cd <dir> &&` is not the command', () => {
   const label = (command: string) => buildToolDisplayLabel({ type: 'shell', command }).summary;
 

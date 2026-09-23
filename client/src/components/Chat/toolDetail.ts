@@ -83,13 +83,13 @@ function isSetGoalTool(name: string): boolean {
 }
 
 /**
- * I passi del goal come todo. Stessa forma della lista di TodoWrite (content +
- * status), quindi stessa card e stesso riassunto «2/7 · passo in corso»: prima
- * erano JSON generico con una testata vuota. Uno status fuori dai tre noti o un
- * elenco vuoto restano generici: una todo inventata e' peggio del JSON.
+ * Goal steps as a todo. Same shape as the TodoWrite list (content + status),
+ * so same card and same summary "2/7 · current step": before, they were
+ * generic JSON with an empty header. An unknown status or an empty list stays
+ * generic: an invented todo is worse than the JSON.
  *
- * NON entra in TODO_TOOL_NAMES apposta: la striscia sopra il composer e' per le
- * todo del turno, i passi del goal li mostra gia' GoalBar.
+ * Deliberately NOT in TODO_TOOL_NAMES: the strip above the composer is for the
+ * turn's todos, and GoalBar already shows the goal steps.
  */
 function goalStepsAsTodo(args: unknown): ToolCallDetail | null {
   const steps = asRecord(args).steps;
@@ -434,9 +434,9 @@ export function resolveToolDetail(tc: ToolCall): ToolCallDetail {
     // boundary. On schema drift / malformed payload, fall back to client-side
     // derivation (graceful degradation — UI still renders, with a dev warning).
     const result = parseToolCallDetail(tc.detail);
-    // Il server salva i passi del goal come `mcp` (argomenti dentro
-    // `detail.args`, e gli `args` di primo livello svuotati dal trim della
-    // history): la todo si ricava da li', altrimenti lo storico resta JSON.
+    // The server stores goal steps as `mcp` (arguments inside `detail.args`,
+    // top-level `args` emptied by the history trim): the todo is derived from
+    // there, or the whole history stays JSON.
     if (result.ok && result.data.type === 'mcp' && isGoalStepsTool(tc.name)) {
       const todo = goalStepsAsTodo(result.data.args);
       if (todo) return todo;
@@ -496,12 +496,12 @@ function summarizeArgs(args?: Record<string, unknown>): string | undefined {
 }
 
 /**
- * `cd <dir> && ` in testa al comando shell, ripetuto quanto serve.
+ * Leading `cd <dir> && ` of a shell command, repeated as many times as needed.
  *
- * Gli agenti aprono quasi ogni Bash con un `cd` nel progetto, e nella testata
- * della riga chiusa quel prefisso si mangiava gli 80 caratteri che si leggono:
- * il comando vero finiva tagliato. Solo `&&` (un `;` o un `cd` da solo sono
- * un'altra cosa) e solo in TESTATA: la card aperta mostra il comando intero.
+ * Agents open almost every Bash call with a `cd` into the project, and in the
+ * closed row header that prefix ate the ~80 characters that get read: the real
+ * command was cut off. Only `&&` (a `;` or a bare `cd` is something else) and
+ * only in the HEADER: the open card shows the whole command.
  */
 const LEADING_CD = /^\s*cd\s+(?:"[^"]*"|'[^']*'|[^\s;&|]+)\s*&&\s*/;
 function stripLeadingCd(command: string): string {
@@ -547,7 +547,7 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
     case 'plan':
       return { name: 'Plan', summary: planSummary(detail.text) };
     case 'mcp':
-      // L'obiettivo e' una frase: si legge intera, non come «content: …».
+      // The goal is a sentence: it reads whole, not as "content: ...".
       if (isSetGoalTool(detail.tool) && typeof detail.args?.content === 'string') {
         return { name: 'Goal', summary: detail.args.content };
       }

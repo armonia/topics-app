@@ -7,6 +7,8 @@
  * scroll. The output keeps its own, larger cap.
  *
  * Rendered with `renderToStaticMarkup` (no DOM in this repo).
+ *
+ * @covers CHAT-TOOL-04
  */
 import { describe, expect, test } from 'bun:test';
 import { createElement } from 'react';

@@ -117,10 +117,10 @@ export function summarizeToolGroup(tools: ToolCall[]): ToolGroupSummary {
 }
 
 /**
- * La prima azione fallita della corsa e la prima riga non vuota del suo
- * errore: è ciò che il badge «✗ N fallite» nomina nel title e su cui apre il
- * gruppo. `error` prima di `result`, perché è il campo che il provider riempie
- * apposta; il risultato è il ripiego delle righe vecchie.
+ * The first failed call of the run and the first non-empty line of its error:
+ * what the failure badge quotes in its title and opens the group on. `error`
+ * before `result`, because it is the field the provider fills on purpose; the
+ * result is the fallback for old rows.
  */
 export function firstFailedTool(tools: ToolCall[]): { id: string; firstLine: string } | null {
   const tc = tools.find((t) => t.status === 'error');
