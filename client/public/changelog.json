@@ -29,6 +29,18 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "D15 finds the target cell by geometry",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "D15 waits one paint for the overlay after a fast sweep",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
@@ -194,13 +206,85 @@
           "breaking": false
         },
         {
+          "it": "uno split verticale non riazzera le altezze dei fratelli",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "un verdetto e' una frase, e il payload sta dietro una piega",
           "en": "",
           "scope": null,
           "breaking": false
         },
         {
+          "it": "lo stesso gesto da' lo stesso layout, da dove che venga la tab",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "un gesto che sara' rifiutato non si offre piu'",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il ripiano si pulisce anche sul drop, non solo sul dragend",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "uno split parcheggiato scade, invece di risorgere dopo ore",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il commento nuovo va in inglese, come vuole il cancello",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la matrice del drag-and-drop vale anche al secondo livello",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "2101/126 e' la scansione larga, il banner ne vede 1996/123",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "l'anteprima laterale su una colonna impilata disegna la colonna intera",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il centro del proprio gruppo non si accende piu'",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la banda fra due righe non promette piu' un albero identico",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "le fasce di split non restano piu' sotto le strisce",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "un solo indicatore, e il centro indica la pane giusta",
           "en": "",
           "scope": null,
           "breaking": false
@@ -226,6 +310,30 @@
           "scope": null
         },
         {
+          "it": "l'anello si accende solo dove la griglia non dipinge",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la matrice copre il secondo livello, il ripristino e i bersagli spenti",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "l'anteprima chiede al cap quello che il drop fara' rispettare",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "i tetti di sicurezza li legge anche l'anteprima",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "ai-control: il pannello di un altro provider non si prende il modello scelto",
           "en": "",
           "scope": null
@@ -234,6 +342,30 @@
           "it": "ui-state: il beacon di pagehide atterra, non prende 404",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "DNDSPLIT-07, il corpo di una pane non si prende il gesto di una scheda",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "nomi della matrice in inglese",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la matrice gira su WebKit, dove il gesto ha trovato quattro guasti",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "readTree puo' tornare null, e i camminatori dell'albero lo dicono",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "aggiorna durate shard dal nightly del 2026-09-23 [skip ci]",
@@ -333,6 +465,18 @@
         },
         {
           "it": "the default model was missing from the runtime's own catalogue",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "D15, the tab gesture is proven the long way round",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "D15 films at file level, Playwright refuses video inside a describe",
           "en": "",
           "scope": null,
           "breaking": false

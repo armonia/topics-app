@@ -11,6 +11,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - una view riusata su una porta locale morta non resta bianca davanti
+- D15 finds the target cell by geometry
+- D15 waits one paint for the overlay after a fast sweep
 
 ## 2.2.373 — 2026-09-23
 
@@ -41,14 +43,34 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - una card visibile non consegna al buio, e le attese si contano
 - l'instradamento leggero non e' un fornitore di modelli
 - la modalità libera eredita l'ultima scelta come modello ed effort
+- uno split verticale non riazzera le altezze dei fratelli
 - un verdetto e' una frase, e il payload sta dietro una piega
+- lo stesso gesto da' lo stesso layout, da dove che venga la tab
+- un gesto che sara' rifiutato non si offre piu'
+- il ripiano si pulisce anche sul drop, non solo sul dragend
+- uno split parcheggiato scade, invece di risorgere dopo ore
+- il commento nuovo va in inglese, come vuole il cancello
+- la matrice del drag-and-drop vale anche al secondo livello
 - 2101/126 e' la scansione larga, il banner ne vede 1996/123
+- l'anteprima laterale su una colonna impilata disegna la colonna intera
+- il centro del proprio gruppo non si accende piu'
+- la banda fra due righe non promette piu' un albero identico
+- le fasce di split non restano piu' sotto le strisce
+- un solo indicatore, e il centro indica la pane giusta
 - ai-control: lo switch di instradamento smette di essere un no-op silenzioso
 - ai-control: il resolver della chat smette di essere un no-op silenzioso
 - ai-control: il vero call-site del resolver in chat.ts smette di inghiottire l'errore tipizzato
 - ai-control: un catalogo Topics in scoperta aspetta, non blocca la card
+- l'anello si accende solo dove la griglia non dipinge
+- la matrice copre il secondo livello, il ripristino e i bersagli spenti
+- l'anteprima chiede al cap quello che il drop fara' rispettare
+- i tetti di sicurezza li legge anche l'anteprima
 - ai-control: il pannello di un altro provider non si prende il modello scelto
 - ui-state: il beacon di pagehide atterra, non prende 404
+- DNDSPLIT-07, il corpo di una pane non si prende il gesto di una scheda
+- nomi della matrice in inglese
+- la matrice gira su WebKit, dove il gesto ha trovato quattro guasti
+- readTree puo' tornare null, e i camminatori dell'albero lo dicono
 - **e2e** · aggiorna durate shard dal nightly del 2026-09-23 [skip ci]
 - un turno aperto dalla CLI non diventa un messaggio dell'utente
 - un input grande non torna indietro nella risposta, Workflow riparte
@@ -66,6 +88,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - la sessione continua coi permessi che aveva
 - anche composer e impostazioni del progetto non hanno la riga Topics
 - the default model was missing from the runtime's own catalogue
+- D15, the tab gesture is proven the long way round
+- D15 films at file level, Playwright refuses video inside a describe
 
 ## 2.2.372 — 2026-09-21
 
