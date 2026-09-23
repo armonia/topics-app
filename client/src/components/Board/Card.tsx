@@ -154,20 +154,24 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // edge to edge on a wide pane — a full-bleed card list on an ultrawide pane
   // was reported unusable, not more readable (card a551b940).
   //
-  // REVIEW GROWS FURTHER THE MOMENT IT HOLDS SOMETHING: the reviewer asked for
-  // Review to dominate the row, roughly two columns' worth, whenever there is
-  // something to look at (card a551b940). An empty Review is still roomier
-  // than a working column (nothing changes there), but a non-empty one claims
-  // close to half the row so at common desktop widths the carousel
-  // effectively shows Review plus one neighbour instead of five slivers.
-  // `transition-[flex-basis,max-width]` animates the claim/release instead of
-  // snapping it.
+  // REVIEW GROWS FURTHER THE MOMENT IT HOLDS SOMETHING: the reviewer asked
+  // for Review to dominate the row whenever there is something to look at
+  // (card a551b940). It cannot grow as far as "roughly half the row" though:
+  // the column width drives the preview image's width 1:1
+  // (`PREVIEW_CARD_MAX_RATIO`, see PreviewMedia and KANBAN-40), and the
+  // contract a review card must show its preview WHOLE, never scrolled
+  // (tests/e2e/board-preview-cap.spec.ts, PREVIEW-CAP-02) caps how wide a
+  // review column can get before the card taller than the column itself.
+  // Measured against that ceiling: 35rem/42rem is the widest step up from
+  // the old 32rem/44rem that still leaves headroom on a short viewport.
+  // An empty Review is unaffected (nothing there to overflow). `transition-
+  // [flex-basis,max-width]` animates the claim/release instead of snapping.
   const reviewHasWork = isReview && (tasks.length > 0 || !!draft);
   const widthCls = layout === 'list'
     ? 'mx-auto w-full max-w-3xl'
     : `min-w-0 grow transition-[flex-basis,max-width] duration-200 ease-out ${
         reviewHasWork
-          ? 'basis-full sm:basis-[30rem] max-w-[40rem] lg:basis-[46rem] lg:max-w-[60rem]'
+          ? 'basis-full sm:basis-[24rem] max-w-[36rem] lg:basis-[35rem] lg:max-w-[42rem]'
           : isReview
             ? 'basis-full sm:basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
             : 'basis-72 max-w-[26rem]'

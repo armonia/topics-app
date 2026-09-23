@@ -59,7 +59,7 @@ describe('la colonna Review si allarga quando ha lavoro dentro', () => {
   test('Review piena reclama più riga di Review vuota', () => {
     const widthBlock = CARD.slice(CARD.indexOf('const widthCls ='), CARD.indexOf('if (layout ==='));
     expect(widthBlock).toContain('reviewHasWork');
-    expect(widthBlock).toContain("lg:basis-[46rem] lg:max-w-[60rem]");
+    expect(widthBlock).toContain("lg:basis-[35rem] lg:max-w-[42rem]");
     expect(widthBlock).toContain("lg:basis-[32rem] lg:max-w-[44rem]");
   });
 
