@@ -18,7 +18,7 @@
  * tasks on the project it named/owns (no cross-project IDOR).
  */
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { cpus, homedir } from "node:os";
 import type { AppContext, RouteHandler } from "../types";
 import { readableTaskIds, levelFor, meetsLevel } from "../lib/grants-query";
@@ -666,6 +666,44 @@ async function gitDiffBundle(cwd: string, range: string, gopts?: { includeUntrac
 }
 
 export { gitDiffBundle };
+
+/**
+ * Per-file cap for `?file=`. Far above the bundle's: this is ONE file someone
+ * asked for by name, and the client already folds a long file at 600 lines.
+ * It stays a cap because a generated lockfile can still be tens of MB.
+ */
+const DIFF_FILE_PATCH_CAP = 2_000_000;
+
+/**
+ * The patch of ONE file in `range`, for the files the bundle left out.
+ *
+ * The bundle stops at `DIFF_PATCH_CAP` and the files past it arrived as a name
+ * and a count with no way to read them (task 7657f201: 30 of 74). This is the
+ * way: same range, one path.
+ *
+ * `path` comes from a query string, so it is held to what the bundle could
+ * have listed: relative, no `..`, and matched LITERALLY (`--literal-pathspecs`,
+ * or `:(glob)*` would be a whole-repo diff). An untracked file is diffed
+ * against /dev/null only if git itself lists it as untracked: `--no-index`
+ * reads any path it is given, including outside the repository.
+ */
+async function gitDiffFilePatch(
+  cwd: string,
+  range: string,
+  path: string,
+  gopts?: { includeUntracked?: boolean },
+): Promise<{ path: string; patch: string; truncated: boolean } | null> {
+  if (!path || isAbsolute(path) || path.split(/[\\/]/).includes("..") || path.includes("\0")) return null;
+  let patch = (await runGitCap(cwd, ["--literal-pathspecs", "diff", range, "--", path])).out;
+  if (!patch && gopts?.includeUntracked) {
+    const others = (await runGitCap(cwd, ["--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "-z", "--", path])).out;
+    if (others.split("\0").includes(path)) {
+      patch = (await runGitCap(cwd, ["diff", "--no-index", "--", "/dev/null", path])).out;
+    }
+  }
+  const truncated = patch.length > DIFF_FILE_PATCH_CAP;
+  return { path, patch: truncated ? patch.slice(0, DIFF_FILE_PATCH_CAP) : patch, truncated };
+}
 
 /** Is this repository the one this server runs from (and serves `public/` of)? */
 function isServerRepo(repoPath: string): boolean {
@@ -3239,6 +3277,15 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // includeUntracked solo sulla gamma VIVA: una card il cui unico frutto è un
       // file mai committato deve comunque mostrare un diff. Su due commit (un land
       // è già storia) l'albero di lavoro non c'entra niente.
+      // `?file=<path>`: the patch of ONE file, on the same range the bundle
+      // used. It is how a file past the bundle's cap gets read (see
+      // `gitDiffFilePatch`); the bundle itself is untouched.
+      const onlyFile = new URL(req.url).searchParams.get("file");
+      if (onlyFile !== null) {
+        const one = await gitDiffFilePatch(range.cwd, range.range, onlyFile, { includeUntracked: range.live });
+        if (!one) return json({ error: "invalid file path", code: "invalid_input" }, 400);
+        return json({ branch, base: range.range, source: range.source, ...one });
+      }
       const bundle = await gitDiffBundle(range.cwd, range.range, { includeUntracked: range.live });
       const body = { branch, base: range.range, source: range.source, ...bundle };
       return json(bundle.stat.length === 0 ? { code: "no_changes", ...body } : body);
