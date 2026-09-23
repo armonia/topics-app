@@ -389,6 +389,12 @@ const PREVIEW_MAX_CHARS = 120;
  *  `server/utils/build-provider-history.ts`. Qui serve come pattern SQL, quindi
  *  niente apici né `%` dentro: entra in un `LIKE` per concatenazione. */
 const CONTEXT_ENVELOPE_PREFIX = "[Chat messages since your last reply";
+/** A row the MACHINE wrote (goal continuation, goal stop, board envelope) is not
+ *  "the last thing said", and in the sidebar it spoke over the person in English
+ *  («Objective still open: ...», topic:33966f4e, 23/09). The marks are a few
+ *  bytes of JSON, below the blob compression threshold, so a `LIKE` reads them.
+ *  Twin of `isMachineRow` in `client/src/components/Chat/machineRow.ts`. */
+const NOT_MACHINE_ROW_SQL = `(blocks IS NULL OR (blocks NOT LIKE '%"kind":"goal-nudge"%' AND blocks NOT LIKE '%"kind":"goal-stop"%' AND blocks NOT LIKE '%"kind":"dispatched-envelope"%'))`;
 
 /**
  * Il testo di un messaggio ridotto a UNA riga da mostrare sotto il nome di una
@@ -942,6 +948,7 @@ export function createTopicsRouter(
           AND COALESCE(p.partial, 0) = 0
           AND trim(p.content) <> ''
           AND p.content NOT LIKE '${CONTEXT_ENVELOPE_PREFIX}%'
+          AND ${NOT_MACHINE_ROW_SQL.replaceAll("blocks", "p.blocks")}
         ORDER BY p.sort_order DESC
         LIMIT 1
       )
@@ -959,6 +966,7 @@ export function createTopicsRouter(
         AND COALESCE(partial, 0) = 0
         AND trim(content) <> ''
         AND content NOT LIKE '${CONTEXT_ENVELOPE_PREFIX}%'
+        AND ${NOT_MACHINE_ROW_SQL}
       ORDER BY sort_order DESC
       LIMIT ${PREVIEW_FALLBACK_DEPTH}
     `).all(sessionKey) as { role: string; text: string; at: string }[];

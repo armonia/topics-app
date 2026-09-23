@@ -556,7 +556,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         // l'unica cosa giusta da fare.
         if (idempotencySlot) chatIdempotency.remember(idempotencySlot, storedUserMsg.id);
         if (matchedTopic) {
-          broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user", messageId: storedUserMsg.id, content: lastUserMsg.content, preview: lastUserMsg.content.slice(0, 100) });
+          // The marks travel WITH the frame. Without them every other window
+          // drew the goal continuation as the person saying «Objective still
+          // open: ...» in a bubble, until a reload read the row back with its
+          // block (23/09).
+          broadcastToAll({
+            type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user",
+            messageId: storedUserMsg.id, content: lastUserMsg.content, preview: lastUserMsg.content.slice(0, 100),
+            ...(storedUserMsg.blocks?.length ? { blocks: storedUserMsg.blocks } : {}),
+          });
           // Bump the topic's own timestamp on every real message, not just
           // metadata edits (rename/archive/autoname/…). Without this the
           // sidebar's lastActivity (topicTimestamp) freezes at whatever

@@ -760,6 +760,9 @@ export interface WSMessageNewMessage {
   content?: string;
   /** First 100 chars, used for unread previews. */
   preview?: string;
+  /** Marks written on the row (goal continuation, goal stop, board envelope):
+   *  they decide how the row is drawn and keep it out of the sidebar preview. */
+  blocks?: ContentBlock[];
   message?: { id: string; role: string; content: string; timestamp?: string };
 }
 

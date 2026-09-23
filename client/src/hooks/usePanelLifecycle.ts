@@ -72,6 +72,7 @@ import { isLiveSpaceId } from '../state/pane/reducers/spaces';
 import { DEFAULT_SPACE_ID } from '../state/pane/types';
 import { seedBrowserPaneInitialUrl } from '../state/pane/browserPaneUrl';
 import { applyMessagePreview, clearTopicPreview, hydrateTopicPreviews } from '../state/topicPreviews';
+import { isMachineRow } from '../components/Chat/machineRow';
 import { resolveTerminalBrowserContext } from '../state/browserSpawner';
 import {
   buildTerminalSessionBody,
@@ -1217,7 +1218,12 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         // già il messaggio in pagina — ma la riga in sidebar no, e sotto il bail
         // la chat che stai davvero guardando sarebbe l'unica a restare con
         // l'anteprima vecchia.
-        applyMessagePreview(msg.topicId, msg.role, msg.content ?? msg.preview ?? '');
+        // A row the machine wrote (goal continuation, its stop notice, the
+        // board's envelope) is not "the last thing said": the preview keeps
+        // the previous line instead of «Objective still open: ...».
+        if (!isMachineRow(msg.blocks)) {
+          applyMessagePreview(msg.topicId, msg.role, msg.content ?? msg.preview ?? '');
+        }
         if (chatHandlersRef.current.isOwnStream(msg.sessionKey)) return;
         const fullContent = msg.content ?? msg.preview ?? '';
         if (!fullContent) return;
@@ -1240,6 +1246,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
           role: msg.role,
           content: fullContent,
           timestamp: new Date().toISOString(),
+          // The marks decide how the row is drawn: without them the goal's
+          // continuation landed here as the person's own bubble.
+          ...(msg.blocks?.length ? { blocks: msg.blocks } : {}),
         });
       }
       // Il banner del messaggio a finestra nascosta NON sta più qui.
