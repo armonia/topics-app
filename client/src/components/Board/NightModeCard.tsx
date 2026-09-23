@@ -141,14 +141,16 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
 
           {st && (
             <>
-              {/* Il carico come BARRA, non come numero: «15.3» non dice niente,
-                  «oltre la soglia» sì. La soglia è per core, quindi la stessa
-                  barra significa la stessa cosa su macchine diverse. */}
+              {/* Load as a BAR and as a CPU percentage, not as "15.3 / 18.0
+                  cores": that number says nothing to someone who does not
+                  know what a core is. The threshold is the same percentage on
+                  every machine, because it is already relative to the cores
+                  available. */}
               <div className="mt-2">
                 <div className="flex items-baseline justify-between text-micro text-app-text-muted">
                   <span>{tr('board.night.load')}</span>
                   <span className="tabular-nums">
-                    {st.load1.toFixed(1)} / {soglia.toFixed(1)} ({tr('board.night.cores', { n: st.cores })})
+                    {Math.round((st.load1 / Math.max(1, st.cores)) * 100)}% ({tr('board.night.cpuThreshold', { pct: Math.round(MAX_LOAD_PER_CORE * 100) })})
                   </span>
                 </div>
                 <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-white/10">

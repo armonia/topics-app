@@ -310,14 +310,15 @@ describe('the brake by budget', () => {
       admission: { admit: false, blockedBy: 'cpu', firstAgentExempt: false, costCoreUnits: 0.5 } }));
     let html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('data-testid="global-cap-verdict" data-admit="false" data-blocked-by="cpu"');
-    expect(words(html)).toContain('i nuovi aspettano');
+    expect(words(html)).toContain('In attesa');
 
     // An old server sends the axis without its numbers: the axis is said, and
     // nothing claims the memory is "full" (it held that night with 7 GB free).
     adoptDispatchCapacity(machine({ usedCoreUnits: 1, usableCoreUnits: 9.6, running: 3,
       admission: { admit: false, blockedBy: 'memory', firstAgentExempt: false, costCoreUnits: 0.5 } }));
     html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(words(html)).toContain('i nuovi aspettano: memoria');
+    // cores:12, load1:2.5 -> 21% CPU; totalMemGB:32, availableMemGB:20 -> 38% memory.
+    expect(words(html)).toContain('In attesa: il Mac è al 38% di memoria');
     expect(words(html)).not.toContain('memoria piena');
 
     adoptDispatchCapacity(machine({ usedCoreUnits: 2, usableCoreUnits: 9.6, running: 2,
@@ -340,20 +341,20 @@ describe('the brake by budget', () => {
     adoptDispatchCapacity(machine({ usedCoreUnits: 1, usableCoreUnits: 6.6, running: 3,
       admission: { admit: false, blockedBy: 'memory', firstAgentExempt: false, costCoreUnits: 0.5,
         costMemGB: 4, freeQuotaMemGB: 3.3, ourMemGB: 9, usableMemGB: 12.3, memClause: 'quota' } }));
+    // memClause 'quota' has no honest resume threshold: the current reading only.
     let html = words(renderToStaticMarkup(<GlobalCapControl />));
-    expect(html).toContain('i nuovi aspettano: memoria, servono 4.0 GB, liberi per Topics 3.3 GB');
-    // The footprint clause (two 11 GB shard runs): the next agent WOULD fit in
-    // the quota, so printing the quota would contradict itself.
+    expect(html).toContain('In attesa: il Mac è al 38% di memoria');
+    // The footprint clause (two 11 GB shard runs): the ceiling as a share of
+    // the whole Mac IS the honest resume threshold (20.4/32 = 64%).
     adoptDispatchCapacity(machine({ usedCoreUnits: 4, usableCoreUnits: 6.6, running: 16,
       admission: { admit: false, blockedBy: 'memory', firstAgentExempt: false, costCoreUnits: 0.5,
         costMemGB: 1.5, freeQuotaMemGB: 4.2, ourMemGB: 22, usableMemGB: 20.4, memClause: 'footprint' } }));
     html = words(renderToStaticMarkup(<GlobalCapControl />));
-    expect(html).toContain('i nuovi aspettano: memoria, Topics tiene 22.0 GB su un tetto di 20.4 GB');
-    expect(html).not.toContain('servono');
-    // The CPU: what one more agent costs.
+    expect(html).toContain('In attesa: il Mac è al 38% di memoria, parte da solo sotto il 64%');
+    // The CPU: one more agent would still not fit under the ceiling, cost alone.
     adoptDispatchCapacity(machine({ usedCoreUnits: 3.4, usableCoreUnits: 3.8, running: 2,
       admission: { admit: false, blockedBy: 'cpu', firstAgentExempt: false, costCoreUnits: 0.5, usedCoreUnits: 3.4, usableCoreUnits: 3.8 } }));
-    expect(words(renderToStaticMarkup(<GlobalCapControl />))).toContain('i nuovi aspettano: CPU, un agent ne costa 0.5 core');
+    expect(words(renderToStaticMarkup(<GlobalCapControl />))).toContain('In attesa: CPU alta, un agent in più ne costerebbe il 4%');
   });
 
   // THE NIGHT OF 14/09: 5.5 GB available under the native 6 GB floor, the only
@@ -365,7 +366,7 @@ describe('the brake by budget', () => {
     adoptDispatchCapacity(machine({ usedCoreUnits: 2, usableCoreUnits: 6.6, running: 3, admission: floor }));
     let html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('data-testid="global-cap-verdict" data-admit="false" data-blocked-by="floor"');
-    expect(words(html)).toContain('i nuovi aspettano: memoria quasi finita, 5.5 GB disponibili, sotto il pavimento di 6 GB');
+    expect(words(html)).toContain('In attesa: memoria quasi finita, 5.5 GB disponibili, sotto il pavimento di 6 GB');
     expect(words(html)).not.toContain('partirebbe');
 
     // By count there is no budget verdict, but "3 di 4" must not stand alone.

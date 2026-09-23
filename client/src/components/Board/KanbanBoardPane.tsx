@@ -33,7 +33,7 @@ import {
   type PublishProject, type DiffBundle,
 } from '../../lib/board';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
-import { loadAdvice } from './dispatchLoad';
+import { cpuPercent, loadAdvice } from './dispatchLoad';
 import { applyPendingWrites, groupByStatus, manualStatusTarget, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
 import { COLUMN_FLASH_MS, landedInColumn, statusSnapshot } from '../../lib/columnFlash';
 import { useBoardMotion } from './useBoardMotion';
@@ -469,15 +469,13 @@ function LoadAdviceChip() {
           <p className="text-compact font-medium text-app-text-heading">
             {tr('board.load.headline', { running: cap.running ?? 0, recommended: cap.recommended })}
           </p>
-          {cap.oursCores != null ? (
-            <p>
-              {tr('board.load.cores', { ours: cap.oursCores.toFixed(1), budget: cap.budgetCores.toFixed(0), total: cap.cores })}
-            </p>
+          {cap.oursCores != null && cap.cores > 0 ? (
+            <p>{tr('board.load.usage', { pct: Math.round((cap.oursCores / cap.cores) * 100) })}</p>
           ) : (
-            <p>{tr('board.load.loadAvg', { load: cap.load1.toFixed(1), cores: cap.cores })}</p>
+            <p>{tr('board.load.machineBusy', { pct: cpuPercent(cap) ?? 0 })}</p>
           )}
           <p className="text-app-text-muted">{cap.reason}</p>
-          <p>{tr('board.load.adviceStart')}<span className="text-app-text-heading">{tr('board.load.adviceWord')}</span>{tr('board.load.adviceEnd')}</p>
+          <p>{tr('board.load.advice')}</p>
         </div>
       </Menu>
     </>
