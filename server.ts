@@ -783,6 +783,12 @@ const claudeSessionTracker = createClaudeSessionTracker({
   },
 });
 
+// The other half of the double-import guard: `isSessionLocallyDriven` only
+// protects bytes the sweep sees mid-turn, so the moment a Topics-driven turn
+// ends the import cursor jumps past everything it wrote. Armed on the class,
+// like `observeWokenTurns`, because claude-code is not registered yet at boot.
+ClaudeCodeProvider.observeTurnReleased((sk) => { claudeSessionTracker.syncImportOffsetToEnd(sk); });
+
 // La porta unica del parcheggio (lib/session-parking.ts): archiviare un topic
 // deve anche mettere a riposo la sua sessione, o la fase resta viva per sempre
 // su una chat che non ha più né riga né tab. Configurata qui perché il tracker
