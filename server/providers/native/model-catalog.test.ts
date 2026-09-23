@@ -55,6 +55,16 @@ describe("catalogo dei modelli del runtime nativo", () => {
     }
   });
 
+  test("il modello di default di Topics (opus 5.5) e' nel catalogo, lungo e nudo", async () => {
+    // Since 09/22 app_settings.claude_model is claude-opus-5-5[1m], and the
+    // providers snapshot reports it as this runtime's default. Outside this
+    // list the picker cannot show the model the runtime is using, and the
+    // default sits outside its own catalogue: the 08/18 failure again.
+    const models = await provider.listModels();
+    expect(models).toContain("claude-opus-5-5[1m]");
+    expect(models).toContain("claude-opus-5-5");
+  });
+
   test("nessun duplicato e nessun nome vuoto", async () => {
     const models = await provider.listModels();
     expect(new Set(models).size).toBe(models.length);

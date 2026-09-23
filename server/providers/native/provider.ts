@@ -157,8 +157,12 @@ const NO_WORKSPACE_NOTE =
  * Gli id qui sotto sono PROVATI, non dedotti: una richiesta da 1 token per id
  * sull'endpoint OAuth con gli stessi header del loop, tutti 200 (19/08/2026).
  * Se un domani se ne aggiunge uno, si prova allo stesso modo prima di scriverlo.
+ * The 5.5 family was probed on 2026-09-23 through runAgentTurn: 200 once the
+ * user-agent follows the installed CLI (cli-user-agent.ts), 400 at 2.1.0.
  */
 const MODELS = [
+  "claude-opus-5-5[1m]",
+  "claude-opus-5-5",
   "claude-opus-5[1m]",
   "claude-opus-5",
   "claude-sonnet-5",
