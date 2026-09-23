@@ -56,9 +56,9 @@ import {
   BUDGET_SHARE_MIN, BUDGET_SHARE_MAX,
   CHECKS_MEM_FLOOR_MIN_GB, CHECKS_MEM_FLOOR_MAX_GB, checksMemFloorIsOff,
 } from '../../lib/board';
-import type { DispatchAdmission, DispatchCapMode, ThresholdBand } from '../../lib/board';
+import type { DispatchAdmission, DispatchCapacity, DispatchCapMode, ThresholdBand } from '../../lib/board';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
-import { DispatchLoadSummary } from './DispatchLoadGauge';
+import { DispatchLoadSummary, LoadPercentCard } from './DispatchLoadGauge';
 import { admissionVerdictText, checksFloorBoxValue, gateCoreNumbers, type VerdictText } from './dispatchLoad';
 import {
   currentCapLimit,
@@ -87,6 +87,11 @@ export function GlobalCapControl() {
       <p className="text-micro font-semibold uppercase tracking-wide text-app-text-muted">
         {tr('board.dispatch.parallel')}
       </p>
+
+      {/* THE SAME TWO NUMBERS AS THE COLUMN HEADER, here rather than a second
+          reading of the machine: whichever brake the radios below apply, this
+          is what it is limiting. */}
+      <LoadPercentCard cap={s.capacity} />
 
       {/* WHICH QUESTION the brake asks, before any answer to it. Two radios and
           not a checkbox "measure the machine instead": a checkbox has an implied
@@ -203,9 +208,9 @@ const VERDICT_TEXT: Record<VerdictText['tone'], string> = { go: SUCCESS_TEXT, fi
  * holds and the two numbers it compared. The composed sentence of the floor
  * stays one hover away, the panel keeps its one line.
  */
-function Verdict({ admission }: { admission: DispatchAdmission }) {
+function Verdict({ admission, cap }: { admission: DispatchAdmission; cap: DispatchCapacity | null }) {
   const tr = useT();
-  const v = admissionVerdictText(admission);
+  const v = admissionVerdictText(admission, cap);
   return (
     <span
       data-testid="global-cap-verdict"
@@ -267,7 +272,7 @@ function CountBrake() {
           reads as a free slot while no agent can start. The capacity reading
           carries a verdict here only when the floor or a drain holds. */}
       {s.capacity?.admission && !s.capacity.admission.admit && (
-        <p className="text-mini leading-snug"><Verdict admission={s.capacity.admission} /></p>
+        <p className="text-mini leading-snug"><Verdict admission={s.capacity.admission} cap={s.capacity} /></p>
       )}
       {full && (
         <p className="text-mini leading-snug text-amber-300/80">
@@ -388,7 +393,7 @@ function ResourcesBrake() {
               ? tr(pending === 1 ? 'board.dispatch.liveFreePendingOne' : 'board.dispatch.liveFreePending', { used: used.toFixed(1), usable: usable.toFixed(1), n: pending })
               : tr('board.dispatch.liveFree', { used: used.toFixed(1), usable: usable.toFixed(1) })}
         </span>
-        {admission && (used != null || !admission.admit) && <Verdict admission={admission} />}
+        {admission && (used != null || !admission.admit) && <Verdict admission={admission} cap={cap} />}
       </p>
 
       <HowItWorks>

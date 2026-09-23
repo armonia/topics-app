@@ -90,6 +90,57 @@ export function gateCoreNumbers(c: DispatchCapacity | null): { used: number | nu
   return { used: c?.usedCoreUnits ?? null, usable: Math.max(0, c?.usableCoreUnits ?? 0), pending: 0 };
 }
 
+/**
+ * CPU, AS A PERCENT OF THE WHOLE MAC. `load1` (the one-minute average) over
+ * `cores` is the same ratio the gate itself reads the machine with; this only
+ * turns it into the number a person compares without knowing what a core is.
+ * `null` when the probe has not answered (never drawn as "0%": that reads as
+ * an idle machine, not as "not measured yet").
+ */
+export function cpuPercent(cap: DispatchCapacity | null): number | null {
+  if (!cap || !(cap.cores > 0)) return null;
+  return Math.round(Math.min(1, Math.max(0, cap.load1 / cap.cores)) * 100);
+}
+
+/**
+ * MEMORY, AS A PERCENT OF THE WHOLE MAC. `availableMemGB` is `null` off
+ * macOS (no probe there), and that has to stay a "not measured" on screen,
+ * never a fake 0%: a 0% memory reading looks like the safest state there is,
+ * which is the opposite of "we don't know".
+ */
+export function memPercent(cap: DispatchCapacity | null): number | null {
+  if (!cap || !(cap.totalMemGB > 0) || cap.availableMemGB == null) return null;
+  return Math.round(Math.min(1, Math.max(0, 1 - cap.availableMemGB / cap.totalMemGB)) * 100);
+}
+
+/** The three buckets both the CPU and the memory bar are painted in, so a 61%
+ *  CPU and a 61% memory reading always mean the same colour. */
+export type PctTone = 'ok' | 'busy' | 'critical';
+
+export function pctTone(pct: number | null): PctTone {
+  if (pct == null) return 'ok';
+  if (pct > 85) return 'critical';
+  if (pct >= 60) return 'busy';
+  return 'ok';
+}
+
+/** Text colour per bucket. Amber/rose match the ring's own tone tokens
+ *  (`loadToneClass`); emerald is the calm end, the same family already used
+ *  for a healthy reading elsewhere on the board (the budget live band, the
+ *  night-mode dot). */
+export function pctToneTextClass(tone: PctTone): string {
+  if (tone === 'critical') return 'text-rose-300';
+  if (tone === 'busy') return 'text-amber-300';
+  return 'text-emerald-300';
+}
+
+/** Bar-fill colour per bucket, the same three tones as `pctToneTextClass`. */
+export function pctToneBarClass(tone: PctTone): string {
+  if (tone === 'critical') return 'bg-rose-400';
+  if (tone === 'busy') return 'bg-amber-400';
+  return 'bg-emerald-400';
+}
+
 /** Who is holding, from the verdict on the wire. A pass is not a hold. */
 function heldByOf(c: DispatchCapacity | null): HeldBy | null {
   const a = c?.admission;
@@ -198,9 +249,6 @@ export interface VerdictText {
   title?: string;
 }
 
-/** One decimal, the way the live line prints its cores. */
-const oneDecimal = (n: number): string => n.toFixed(1);
-
 /** The first sentence of a composed reason, shaped to follow the verdict's own
  *  colon: initial lowered, and its colon turned into a comma so the line does
  *  not read "wait: memory low: 5.5 GB". A decimal point is never followed by a
@@ -210,7 +258,21 @@ function headline(reason: string): string {
   return first.charAt(0).toLowerCase() + first.slice(1);
 }
 
-export function admissionVerdictText(a: DispatchAdmission): VerdictText {
+/**
+ * THE VERDICT, ONLY IN A PERCENTAGE A PERSON ALREADY OWNS: how loaded the
+ * whole Mac reads right now, and (when the gate's own numbers make it honest)
+ * the point it un-sticks by itself. Core-units and gigabytes stayed the
+ * gate's private currency; this only borrows `cores`/`totalMemGB` from the
+ * capacity reading to turn them into the same percentage the two big numbers
+ * in the popover already show, so "held" and "how loaded" are never printed
+ * in two different units.
+ *
+ * The resume clause ("starts again by itself under X%") is added only where
+ * the maths behind it is real: the gate's own admitted/usable pair for CPU,
+ * the footprint ceiling for memory. Elsewhere the sentence stops after the
+ * current reading rather than invent a threshold nobody measured.
+ */
+export function admissionVerdictText(a: DispatchAdmission, cap: DispatchCapacity | null): VerdictText {
   if (a.admit) {
     return a.firstAgentExempt
       ? { key: 'board.dispatch.verdictFirst', tone: 'first' }
@@ -219,17 +281,24 @@ export function admissionVerdictText(a: DispatchAdmission): VerdictText {
   const wait = (key: string, params?: Record<string, string | number>): VerdictText =>
     ({ key, params, tone: 'wait', title: a.reason ?? undefined });
   if (a.blockedBy === 'floor') {
-    return a.reason ? wait('board.dispatch.verdictWaitFloor', { reason: headline(a.reason) }) : wait('board.dispatch.verdictWaitFloorBare');
+    // The server composes this sentence itself (disk/swap wording, out of this
+    // module's scope). If it ever picks up the retired core/core-unit/load-average
+    // vocabulary, fall back to the bare sentence rather than surface it verbatim.
+    const clean = a.reason != null && !/\b(core|core-unit|load average)\b/i.test(a.reason);
+    return clean ? wait('board.dispatch.verdictWaitFloor', { reason: headline(a.reason as string) }) : wait('board.dispatch.verdictWaitFloorBare');
   }
   if (a.blockedBy === 'drain') return wait('board.dispatch.verdictWaitDrain');
   if (a.blockedBy === 'memory') {
-    if (a.memClause === 'footprint' && a.ourMemGB != null && a.usableMemGB != null) {
-      return wait('board.dispatch.verdictWaitMemoryFootprint', { ours: oneDecimal(a.ourMemGB), ceiling: oneDecimal(a.usableMemGB) });
+    const pct = memPercent(cap);
+    // Footprint: Topics' own tree is over its ceiling. The ceiling as a share
+    // of the whole machine's RAM is the resume line: the same percentage
+    // vocabulary as the reading above it, never Topics' private GB budget.
+    if (a.memClause === 'footprint' && cap && cap.totalMemGB > 0 && a.usableMemGB != null && pct != null) {
+      const resume = Math.round(Math.min(100, Math.max(0, (a.usableMemGB / cap.totalMemGB) * 100)));
+      return wait('board.dispatch.verdictWaitMemory', { pct, resume });
     }
-    if (a.costMemGB != null && a.freeQuotaMemGB != null) {
-      return wait('board.dispatch.verdictWaitMemory', { cost: oneDecimal(a.costMemGB), free: oneDecimal(a.freeQuotaMemGB) });
-    }
-    return wait('board.dispatch.verdictWaitMemoryBare');
+    if (pct != null) return wait('board.dispatch.verdictWaitMemoryBare', { pct });
+    return wait('board.dispatch.verdictWaitMemoryUnmeasured');
   }
   // Held on the CPU while one more agent would fit under the ceiling: that is
   // the resume line (once holding, the gate restarts under 80% of it), and the
@@ -238,12 +307,19 @@ export function admissionVerdictText(a: DispatchAdmission): VerdictText {
   // compares use PLUS the cost of one more agent with 80% of the usable, so the
   // use resumes at that line minus the cost, not at the line itself: printing
   // the bare 80% said "under 4.4" next to a use of 3.5 that was still holding.
+  // Both numbers are turned into a share of `cores`, so "92%" and "starts
+  // again by itself under 70%" are the same unit as the CPU reading above them.
+  const pct = cpuPercent(cap);
   const { usedCoreUnits: used, usableCoreUnits: usable } = a;
-  if (used != null && usable != null && used + a.costCoreUnits <= usable) {
-    const resume = Math.max(0, usable * ADMIT_RESUME_FRACTION - a.costCoreUnits);
-    return wait('board.dispatch.verdictWaitCpuResume', { resume: oneDecimal(resume) });
+  if (cap && cap.cores > 0 && used != null && usable != null && used + a.costCoreUnits <= usable && pct != null) {
+    const resume = Math.round(Math.min(100, Math.max(0, (usable * ADMIT_RESUME_FRACTION - a.costCoreUnits) / cap.cores * 100)));
+    return wait('board.dispatch.verdictWaitCpu', { pct, resume });
   }
-  return wait('board.dispatch.verdictWaitCpu', { cost: oneDecimal(a.costCoreUnits) });
+  if (cap && cap.cores > 0) {
+    const cost = Math.round(Math.min(100, Math.max(0, a.costCoreUnits / cap.cores * 100)));
+    return wait('board.dispatch.verdictWaitCpuBare', { cost });
+  }
+  return wait('board.dispatch.verdictWaitCpuUnmeasured');
 }
 
 /**
