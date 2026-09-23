@@ -7,7 +7,6 @@ import {
   gotoTerminalProject,
   openShellViaSidebar,
 } from "./helpers/terminal-workspace";
-import { goToApp, openTopic } from "./helpers";
 import { hermetic } from "./fixtures/hermetic";
 
 hermetic(test);
@@ -56,9 +55,11 @@ test.describe("Settings shortcut, comma", () => {
 
   test("CMD-COMMA-01: Ctrl+, opens Settings from the chat composer", async ({ page, request }) => {
     await resetTerminalWorkspace(request, topicId);
-    await goToApp(page);
-    await page.keyboard.press("Escape");
-    await openTopic(page, new RegExp(topicName));
+    // The permalink, not the sidebar: this spec proves a shortcut, and reaching
+    // the chat through the sidebar tree is the flaky step on a crowded test
+    // server (the helper says so itself). It failed all three attempts on main
+    // on 23/09, in the setup, before a key was ever pressed.
+    await page.goto(`/topic/${topicId}`);
 
     const composer = page.getByRole("textbox", { name: /Campo del messaggio/ }).first();
     await composer.waitFor({ state: "visible", timeout: 15_000 });
