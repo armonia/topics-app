@@ -921,7 +921,9 @@ export function ChatInput({
   // recomputing them on every streamed token of the answer would be waste.
   const historyRef = useRef<PromptHistoryState>(HISTORY_IDLE);
   const currentMessagesRef = useRef(currentMessages);
-  currentMessagesRef.current = currentMessages;
+  // Synced after commit, not during render: the React compiler rule forbids
+  // writing a ref in render, and the arrow handler only reads it on a key press.
+  useEffect(() => { currentMessagesRef.current = currentMessages; }, [currentMessages]);
   const handleHistoryArrow = (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
     if ((e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey) return false;
     if (e.nativeEvent.isComposing) return false;

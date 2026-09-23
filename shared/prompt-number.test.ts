@@ -1,3 +1,7 @@
+/**
+ * The number each prompt shows counts only what the person typed.
+ * @covers CHAT-04
+ */
 import { describe, it, expect } from "bun:test";
 import { promptNumbers } from "./prompt-number";
 
