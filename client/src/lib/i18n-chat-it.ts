@@ -148,6 +148,7 @@ const CHAT_IT: Dict = {
   'chat.tool.noSessionContext': "L'agente sta chiedendo una risposta, ma questa vista non ha il contesto della sessione. Ricarica per rispondere.",
   'chat.tool.detailLoading': "Carico l'output completo…",
   'chat.tool.detailFailed': "Non sono riuscito a caricare l'output completo.",
+  'toolgroup.jumpToFailure': 'Apri il gruppo sulla prima azione fallita',
 };
 
 export default CHAT_IT;

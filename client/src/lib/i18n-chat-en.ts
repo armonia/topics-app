@@ -128,6 +128,7 @@ const CHAT_EN: Dict = {
   'chat.tool.noSessionContext': 'The agent is asking for input but this view has no session context. Reload to answer.',
   'chat.tool.detailLoading': 'Loading the full output…',
   'chat.tool.detailFailed': 'Could not load the full output.',
+  'toolgroup.jumpToFailure': 'Open the group on the first failed action',
 };
 
 export default CHAT_EN;

@@ -117,6 +117,20 @@ export function summarizeToolGroup(tools: ToolCall[]): ToolGroupSummary {
 }
 
 /**
+ * La prima azione fallita della corsa e la prima riga non vuota del suo
+ * errore: è ciò che il badge «✗ N fallite» nomina nel title e su cui apre il
+ * gruppo. `error` prima di `result`, perché è il campo che il provider riempie
+ * apposta; il risultato è il ripiego delle righe vecchie.
+ */
+export function firstFailedTool(tools: ToolCall[]): { id: string; firstLine: string } | null {
+  const tc = tools.find((t) => t.status === 'error');
+  if (!tc) return null;
+  const text = typeof tc.error === 'string' && tc.error.trim() ? tc.error : typeof tc.result === 'string' ? tc.result : '';
+  const firstLine = text.split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? '';
+  return { id: tc.id, firstLine: firstLine.length > 200 ? `${firstLine.slice(0, 199)}…` : firstLine };
+}
+
+/**
  * La corsa è fallita per INTERO: nessuna azione si è salvata.
  *
  * È l'unica condizione che autorizza il rosso sul titolo del gruppo. Prima

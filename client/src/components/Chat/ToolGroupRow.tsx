@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, Loader2, X, Workflow } from 'lucide-react';
 import type { ToolCall } from '../../types';
@@ -7,6 +7,7 @@ import { ToolCallRow, ElapsedTimer } from './ToolCallRow';
 import { useSettledMetricClass } from './settledMetrics';
 import {
   GROUP_MIN,
+  firstFailedTool,
   formatCostCents,
   formatDurationMs,
   formatTokensCompact,
@@ -33,6 +34,15 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
   const settledMetricClass = useSettledMetricClass('toolgroup');
   const [open, setOpen] = useState(false);
   const summary = useMemo(() => summarizeToolGroup(tools), [tools]);
+  const firstFailure = useMemo(() => (summary.errors > 0 ? firstFailedTool(tools) : null), [summary.errors, tools]);
+  // La riga fallita su cui il badge ha aperto il gruppo: evidenziata e portata
+  // in vista, poi l'evidenza si spegne da sola (e' un «eccola», non uno stato).
+  const [focusId, setFocusId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focusId) return;
+    const t = setTimeout(() => setFocusId(null), 2400);
+    return () => clearTimeout(t);
+  }, [focusId]);
   const live = summary.running > 0;
   const whollyFailed = isWhollyFailed(summary);
   const settledCount = summary.total - summary.running;
@@ -50,15 +60,26 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
   // click continua a scegliere fra tutte le azioni e le sole attive.
   const expanded = open || live;
 
+  const toggle = () => setOpen((v) => !v);
+
   return (
     <div data-testid="tool-group-row" data-group-id={tools[0]?.id} className="text-compact">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="group/toolgroup w-full py-1 text-left text-app-text-secondary hover:text-app-text transition-colors"
+      {/* Il riepilogo NON e' piu' un bottone unico: dentro c'e' il badge delle
+          fallite, che e' un comando suo, e un bottone dentro un bottone non e'
+          HTML valido. Il click su tutta la riga apre ancora il gruppo (risale
+          fin qui), la tastiera usa il toggle vero. */}
+      <div
+        onClick={toggle}
+        className="group/toolgroup w-full py-1 text-left text-app-text-secondary hover:text-app-text transition-colors cursor-pointer"
         data-testid="tool-group-summary"
       >
         <span className="flex items-center gap-2">
+          <button
+            type="button"
+            data-testid="tool-group-toggle"
+            aria-expanded={expanded}
+            className="flex-shrink-0 inline-flex items-center gap-2 text-left"
+          >
           <span data-testid="tool-group-chevron" data-open={expanded ? 'true' : 'false'} className="flex-shrink-0 inline-flex">
             {expanded ? (
               <ChevronDown size={12} className="text-app-text-muted" />
@@ -85,17 +106,28 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
               ? `${settledCount}/${summary.total} azioni`
               : `${summary.total} azioni`}
           </span>
+          </button>
           {/* L'esito si dice SOLO quando è cattivo, e si dice qui, accanto al
               nome del gruppo — una volta sola, con il numero. Prima la ✗ era
               disegnata due volte (qui e a destra) e la spunta verde stava su
-              ogni gruppo riuscito, cioè su quasi tutti: confermava la norma. */}
+              ogni gruppo riuscito, cioè su quasi tutti: confermava la norma.
+              È un BOTTONE: a gruppo chiuso l'errore era sepolto, e per trovarlo
+              bisognava aprire e cercare fra N righe. Il click apre il gruppo
+              sulla prima fallita; il title ne dice la prima riga d'errore. */}
           {summary.errors > 0 && (
-            <span
+            <button
+              type="button"
               data-testid="tool-group-errors"
-              className="flex-shrink-0 inline-flex items-center gap-0.5 text-mini tabular-nums text-red-500"
+              title={firstFailure?.firstLine || tr('toolgroup.jumpToFailure')}
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(true);
+                if (firstFailure) setFocusId(firstFailure.id);
+              }}
+              className="flex-shrink-0 inline-flex items-center gap-0.5 text-mini tabular-nums text-red-500 rounded px-0.5 -mx-0.5 hover:bg-red-500/10 hover:underline"
             >
               <X size={11} /> {summary.errors} {summary.errors === 1 ? 'fallita' : 'fallite'}
-            </span>
+            </button>
           )}
           <span className="min-w-0 flex-1 text-mini text-app-text-muted truncate">
             {formatToolCounts(summary.counts)}
@@ -124,7 +156,7 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
             {live && <Loader2 size={11} className="animate-spin text-primary" />}
           </span>
         </span>
-      </button>
+      </div>
       {expanded && (
         // Rientro + filo a sinistra: è la timeline verticale che il commento di
         // MessageContent promette da sempre («connected by a left border line»)
@@ -132,7 +164,7 @@ function ToolGroupRow({ tools, sessionKey, messageId, onPlanDecision }: { tools:
         // colonna della riga che le contiene, e la gerarchia spariva.
         <div className="ml-[9px] pl-3 border-l border-app-border/50 space-y-px">
           {(open ? tools : tools.filter(isActiveTool)).map((tc) => (
-            <ToolCallRow key={tc.id} toolCall={tc} sessionKey={sessionKey} messageId={messageId} onPlanDecision={onPlanDecision} />
+            <ToolCallRow key={tc.id} toolCall={tc} sessionKey={sessionKey} messageId={messageId} onPlanDecision={onPlanDecision} highlighted={tc.id === focusId} />
           ))}
         </div>
       )}

@@ -96,6 +96,11 @@ interface Props {
    * Absent for streaming rows (their blocks always arrive whole).
    */
   messageId?: string;
+  /**
+   * The group opened ON this row (the «✗ N fallite» badge of ToolGroupRow):
+   * ring it, open it and bring it into view. Transient, the group clears it.
+   */
+  highlighted?: boolean;
 }
 
 /**
@@ -117,10 +122,21 @@ interface Props {
  * tool cambia — testualmente "so React.memo sees a real prop change" — quindi
  * una riga aggiornata ha davvero una prop diversa e non resta indietro.
  */
-export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionKey, messageId, onPlanDecision }: Props) {
+export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionKey, messageId, onPlanDecision, highlighted }: Props) {
   const tr = useT();
+  const rowRef = useRef<HTMLDivElement>(null);
   const settledMetricClass = useSettledMetricClass('tool');
-  const [open, setOpen] = useState(false);
+  // La riga su cui il badge delle fallite ha aperto il gruppo si apre, cosi'
+  // l'errore si legge senza un secondo click. Due casi: nasce evidenziata (il
+  // gruppo era chiuso, le righe nascono con quel click) o lo diventa (gruppo
+  // gia' aperto). Si apre sul FRONTE dell'evidenza, non finche' dura, o si
+  // richiuderebbe quando l'evidenza si spegne.
+  const [open, setOpen] = useState(() => !!highlighted);
+  const [wasHighlighted, setWasHighlighted] = useState(!!highlighted);
+  if (!!highlighted !== wasHighlighted) {
+    setWasHighlighted(!!highlighted);
+    if (highlighted) setOpen(true);
+  }
 
   // Lazy body: the history payload ships a tool call in its closed-row form —
   // the large text fields of `detail` (output, content, result) blank, every
@@ -133,8 +149,10 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   // user explicitly opens the row.
   const [fetched, setFetched] = useState<{ detail: Record<string, unknown> | null; args: Record<string, unknown> | null } | null>(null);
   // Lo stato del fetch si vede: senza, un output in arrivo e un output perso
-  // (404, rete) erano la stessa card con il comando e niente sotto.
-  const [fetchState, setFetchState] = useState<{ state: ToolDetailFetchState; error?: string }>({ state: 'idle' });
+  // (404, rete) erano la stessa card con il comando e niente sotto. Qui si
+  // tiene solo l'ESITO, per id; «in caricamento» si ricava sotto (aperta, da
+  // caricare, esito non ancora arrivato) invece di impostarlo nell'effetto.
+  const [fetchOutcome, setFetchOutcome] = useState<{ forId: string; state: 'done' | 'error'; error?: string } | null>(null);
   const fetchedForRef = useRef<string | null>(null);
   const strippedBytes = (toolCall.detailBytes ?? 0) + (toolCall.argsBytes ?? 0);
 
@@ -210,6 +228,11 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
     isHumanTurn,
     autoOpen,
   });
+  useEffect(() => {
+    if (!highlighted) return;
+    // `?.` anche sul metodo: WebKit vecchi e i banchi senza layout non l'hanno.
+    rowRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+  }, [highlighted]);
 
   const onToggle = () => {
     setUserToggled(true);
@@ -224,19 +247,23 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
     if (strippedBytes === 0) return;
     if (fetchedForRef.current === toolCall.id) return; // already fetched
     fetchedForRef.current = toolCall.id;
-    setFetchState({ state: 'loading' });
+    const forId = toolCall.id;
     chatApi.fetchToolDetail(messageId, toolCall.id).then(({ detail: fullDetail, args: fullArgs }) => {
       const asRecord = (v: unknown): Record<string, unknown> | null =>
         v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
       const next = { detail: asRecord(fullDetail), args: asRecord(fullArgs) };
       if (next.detail || next.args) setFetched(next);
-      setFetchState({ state: 'done' });
+      setFetchOutcome({ forId, state: 'done' });
     }).catch((err: unknown) => {
       // The row still renders with the trimmed call, but it SAYS the rest did
       // not arrive: a blank output here is a lost one, not an empty one.
-      setFetchState({ state: 'error', error: err instanceof Error ? err.message : String(err) });
+      setFetchOutcome({ forId, state: 'error', error: err instanceof Error ? err.message : String(err) });
     });
   }, [effectiveOpen, messageId, toolCall.id, strippedBytes]);
+  const outcome = fetchOutcome?.forId === toolCall.id ? fetchOutcome : null;
+  const fetchState: { state: ToolDetailFetchState; error?: string } = outcome
+    ? outcome
+    : effectiveOpen && messageId && strippedBytes > 0 ? { state: 'loading' } : { state: 'idle' };
 
   // C'è davvero qualcosa da aprire? Una `Skill` senza istruzioni — cioè ogni
   // riga scritta prima che il provider imparasse a raccoglierle — apriva un
@@ -275,6 +302,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
 
   return (
     <div
+      ref={rowRef}
       data-testid={`tool-call-row-${toolCall.id}`}
       // Lo stato sta sulla RIGA, non su una colonna a destra. Ci stava finché
       // quella colonna portava la spunta: tolta la spunta — che confermava la
@@ -283,6 +311,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
       // «visibile» per nessuno, test compresi. Lo stato è una proprietà della
       // riga, e adesso è scritto dove vive davvero.
       data-status={status}
+      data-highlighted={highlighted ? 'true' : undefined}
       className={`text-compact rounded-md transition-colors ${
         // "In use" state must be unmissable: the active tool gets a soft
         // primary tint + hairline ring (negative margin keeps the text
@@ -291,7 +320,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
         // del messaggio, che è `overflow-hidden` — un anello disegnato FUORI dal
         // bordo veniva tagliato a metà proprio sui due lati lunghi.
         isRunning ? 'bg-primary/5 ring-1 ring-inset ring-primary/10 -mx-1.5 px-1.5' : ''
-      }`}
+      } ${highlighted ? 'bg-red-500/5 ring-1 ring-inset ring-red-500/40' : ''}`}
     >
       {/* Un bottone SOLO se c'è qualcosa da aprire. Renderlo comunque e poi
           disabilitarlo sarebbe una promessa fatta e ritirata: chi naviga da
