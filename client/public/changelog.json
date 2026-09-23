@@ -1,5 +1,306 @@
 [
   {
+    "version": "2.2.373",
+    "date": "2026-09-23",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-21 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "lo `ps` della flotta non puo' piu' restare appeso e portarsi via il server",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "un rifiuto del modello si vede, invece di restare in fondo alla bolla",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Show honest generation speed without hot-path renders",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Keep token-rate tests inside language rails",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Make generation-speed behavior traceable",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Keep inherited fixes inside the repository rails",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "vista lista verticale alternativa al kanban",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "due nomi non inglesi bloccavano static-rails sul branch",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "e2e docblock e commenti del toggle vista lista in inglese",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "commenti di turnError.test.ts in inglese",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "commenti di i18n-it.ts in inglese",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "commenti di cancelled-notice in inglese",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "commenti di fleet-usage.test.ts in inglese",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "continua traduzione commenti fleet-usage.test.ts",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "commenti di fleet-usage.ts in inglese",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "commenti di agent-loop-refusal.test.ts in inglese",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "commenti di agent-loop.ts in inglese",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "commenti di stop-reason.ts in inglese",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "commenti di chat.ts e ws-outbound.ts in inglese",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "@covers mancante su agent-loop-refusal.test.ts",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "tolto il waitForTimeout facoltativo dal toggle vista lista",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-22 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "una card visibile non consegna al buio, e le attese si contano",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "l'instradamento leggero non e' un fornitore di modelli",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la modalità libera eredita l'ultima scelta come modello ed effort",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "un verdetto e' una frase, e il payload sta dietro una piega",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "2101/126 e' la scansione larga, il banner ne vede 1996/123",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "ai-control: lo switch di instradamento smette di essere un no-op silenzioso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ai-control: il resolver della chat smette di essere un no-op silenzioso",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ai-control: il vero call-site del resolver in chat.ts smette di inghiottire l'errore tipizzato",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ai-control: un catalogo Topics in scoperta aspetta, non blocca la card",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ai-control: il pannello di un altro provider non si prende il modello scelto",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "ui-state: il beacon di pagehide atterra, non prende 404",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-23 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "un turno aperto dalla CLI non diventa un messaggio dell'utente",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "un input grande non torna indietro nella risposta, Workflow riparte",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "i commenti dei fix di stamattina passano in inglese",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "i commenti arrivati il 21-22/09 passano in inglese",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "main torna verde su lint, emdash e bloat",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "i tool del provider nativo hanno la loro card, non un blocco JSON",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "lo user-agent segue la CLI installata, opus-5-5 non risponde piu' 400",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "CustomEvent finto non sopravvive al file che lo mette",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "NATIVE-UA-01, la versione che il runtime nativo dichiara",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il muro di sei giorni partiva dal 17/09 ed e' scaduto davvero oggi",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "il menu del modello della card non ha piu' una riga Topics, per scelta",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la compattazione del contesto lascia il suo segno in chat",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "un turno senza modello non eredita un default che l'account non ha",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "la sessione continua coi permessi che aveva",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "anche composer e impostazioni del progetto non hanno la riga Topics",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.372",
     "date": "2026-09-21",
     "sections": {
