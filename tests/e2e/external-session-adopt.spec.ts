@@ -18,7 +18,7 @@
  * che fa continuare la STESSA conversazione al turno dopo e' coperto dagli unit
  * test del provider; qui si prova il binding e la storia importata.
  *
- * @covers EXTSESS-04
+ * @covers EXTSESS-04, EXTSESS-09
  */
 import { test } from "./fixtures/layout.fixture";
 import { expect } from "@playwright/test";
@@ -59,6 +59,13 @@ function seedSession(cwd: string, sessionId: string): void {
       ...base, type: "user", uuid: "u2", timestamp: "2026-07-30T10:00:02Z",
       message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "file.txt" }] },
     },
+    // EXTSESS-09: a turn the CLI opened by itself, and the permission mode the
+    // session was running with (the desktop app's `auto`).
+    {
+      ...base, type: "user", uuid: "u3", timestamp: "2026-07-30T10:00:03Z", origin: { kind: "task-notification" },
+      permissionMode: "auto",
+      message: { role: "user", content: "<task-notification>\n<task-id>bg1</task-id>\n</task-notification>" },
+    },
   ];
   writeFileSync(`${dir}/${sessionId}.jsonl`, lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
 }
@@ -98,10 +105,13 @@ test.describe("Handoff: adottare una sessione Claude Code viva", () => {
 
     const res = await request.post(`${BASE}/api/topics/adopt-claude`, { data: { sessionId: API_SID } });
     expect(res.ok()).toBe(true);
-    const topic = (await res.json()) as { id: string; sessionKey: string; provider: string; projectPath: string; importedMessages: number };
+    const topic = (await res.json()) as { id: string; sessionKey: string; provider: string; projectPath: string; importedMessages: number; autonomyLevel?: string };
     expect(topic.provider).toBe("claude-code");
+    // EXTSESS-09: it carries on with the permissions it had, not the default.
+    expect(topic.autonomyLevel).toBe("yolo");
     expect(topic.projectPath).toBe(API_PATH);
-    // user + assistant were imported; the tool_result-only line is not a turn.
+    // user + assistant were imported; the tool_result-only line is not a turn,
+    // and neither is the CLI's own task-notification.
     expect(topic.importedMessages).toBe(2);
 
     // History is queryable under the new topic's session — the user's own words,
