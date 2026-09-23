@@ -149,6 +149,7 @@
   "max_lines": 800,
   "min_clone_lines": 20,
   "files": {
+    "tests/e2e/split-dnd-matrix.spec.ts": 1566,
     "desktop-tauri/src-tauri/src/lib.rs": 13456,
     "server.ts": 6674,
     "server/services/tasks.ts": 6404,
