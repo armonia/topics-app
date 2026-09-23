@@ -71,6 +71,41 @@ const TODO_ITEM_NAMES = new Set(['taskcreate', 'task_create', 'taskupdate', 'tas
  */
 export const TODO_TOOL_NAMES: ReadonlySet<string> = new Set([...TODO_LIST_NAMES, ...TODO_ITEM_NAMES]);
 
+/** `update_goal_steps`, bare (native provider) or behind any MCP prefix. */
+function isGoalStepsTool(name: string): boolean {
+  const c = canon(name);
+  return c === 'update_goal_steps' || c.endsWith('__update_goal_steps');
+}
+
+function isSetGoalTool(name: string): boolean {
+  const c = canon(name);
+  return c === 'set_goal' || c.endsWith('__set_goal');
+}
+
+/**
+ * Goal steps as a todo. Same shape as the TodoWrite list (content + status),
+ * so same card and same summary "2/7 · current step": before, they were
+ * generic JSON with an empty header. An unknown status or an empty list stays
+ * generic: an invented todo is worse than the JSON.
+ *
+ * Deliberately NOT in TODO_TOOL_NAMES: the strip above the composer is for the
+ * turn's todos, and GoalBar already shows the goal steps.
+ */
+function goalStepsAsTodo(args: unknown): ToolCallDetail | null {
+  const steps = asRecord(args).steps;
+  if (!Array.isArray(steps) || steps.length === 0) return null;
+  const items: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> = [];
+  for (const raw of steps) {
+    const step = typeof raw === 'string' ? { content: raw } : asRecord(raw);
+    const content = s(step.content);
+    if (!content) continue;
+    const status = s(step.status) ?? 'pending';
+    if (status !== 'pending' && status !== 'in_progress' && status !== 'completed') return null;
+    items.push({ content, status });
+  }
+  return items.length > 0 ? { type: 'todo', items } : null;
+}
+
 export function deriveToolDetail(
   name: string,
   args: Record<string, unknown> | undefined,
@@ -78,6 +113,11 @@ export function deriveToolDetail(
 ): ToolCallDetail {
   const c = canon(name);
   const a = asRecord(args);
+
+  if (isGoalStepsTool(name)) {
+    const todo = goalStepsAsTodo(a);
+    if (todo) return todo;
+  }
 
   if (SHELL_NAMES.has(c)) {
     return {
@@ -394,6 +434,13 @@ export function resolveToolDetail(tc: ToolCall): ToolCallDetail {
     // boundary. On schema drift / malformed payload, fall back to client-side
     // derivation (graceful degradation — UI still renders, with a dev warning).
     const result = parseToolCallDetail(tc.detail);
+    // The server stores goal steps as `mcp` (arguments inside `detail.args`,
+    // top-level `args` emptied by the history trim): the todo is derived from
+    // there, or the whole history stays JSON.
+    if (result.ok && result.data.type === 'mcp' && isGoalStepsTool(tc.name)) {
+      const todo = goalStepsAsTodo(result.data.args);
+      if (todo) return todo;
+    }
     // A detail the server could not type is now KEPT as `unknown` instead of
     // being deleted (server/utils.ts), so nothing is lost on the wire. The
     // renderer still prefers what it can derive from the tool NAME: a generic
@@ -448,10 +495,27 @@ function summarizeArgs(args?: Record<string, unknown>): string | undefined {
   return parts.length ? parts.join(' · ') : undefined;
 }
 
+/**
+ * Leading `cd <dir> && ` of a shell command, repeated as many times as needed.
+ *
+ * Agents open almost every Bash call with a `cd` into the project, and in the
+ * closed row header that prefix ate the ~80 characters that get read: the real
+ * command was cut off. Only `&&` (a `;` or a bare `cd` is something else) and
+ * only in the HEADER: the open card shows the whole command.
+ */
+const LEADING_CD = /^\s*cd\s+(?:"[^"]*"|'[^']*'|[^\s;&|]+)\s*&&\s*/;
+function stripLeadingCd(command: string): string {
+  let out = command;
+  for (let m = LEADING_CD.exec(out); m && m[0].length < out.length; m = LEADING_CD.exec(out)) {
+    out = out.slice(m[0].length);
+  }
+  return out;
+}
+
 export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string): { name: string; summary?: string } {
   switch (detail.type) {
     case 'shell':
-      return { name: detail.background ? 'Shell (background)' : 'Shell', summary: detail.command };
+      return { name: detail.background ? 'Shell (background)' : 'Shell', summary: stripLeadingCd(detail.command) };
     case 'read':
       return { name: 'Read', summary: stripCwd(detail.filePath) };
     case 'edit':
@@ -470,7 +534,10 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
       const done = detail.items.filter((t) => t.status === 'completed').length;
       const active = detail.items.find((t) => t.status === 'in_progress');
       const activeText = active ? ` · ${active.activeForm ?? active.content}` : '';
-      return { name: 'Todo', summary: `${done}/${detail.items.length}${activeText}` };
+      return {
+        name: rawName && isGoalStepsTool(rawName) ? 'Goal steps' : 'Todo',
+        summary: `${done}/${detail.items.length}${activeText}`,
+      };
     }
     case 'sub_agent':
       return {
@@ -480,6 +547,10 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
     case 'plan':
       return { name: 'Plan', summary: planSummary(detail.text) };
     case 'mcp':
+      // The goal is a sentence: it reads whole, not as "content: ...".
+      if (isSetGoalTool(detail.tool) && typeof detail.args?.content === 'string') {
+        return { name: 'Goal', summary: detail.args.content };
+      }
       return { name: `${detail.server} · ${detail.tool}`, summary: summarizeArgs(detail.args) };
     case 'monitor':
       return { name: 'Monitor', summary: detail.description || detail.command || detail.wsUrl };

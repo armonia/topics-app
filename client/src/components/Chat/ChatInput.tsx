@@ -24,6 +24,7 @@ import { errMessage } from '../../lib/errMessage';
 import { topicsApi, uploadApi, slashCommandsApi, type CustomSlashCommand } from '../../lib/api';
 import { SessionConfigPopover } from './SessionConfigPopover';
 import { ProviderModelPicker } from './ProviderModelPicker';
+import { StreamTokenRateIndicator } from './StreamTokenRateIndicator';
 import { ContextRing } from '../Shared/ContextRing';
 import { useContextInspector } from '../../hooks/useContextInspector';
 import { useRealContext, formatTokens } from '../../hooks/useRealContext';
@@ -919,8 +920,6 @@ export function ChatInput({
   // `promptHistory.ts`). The entries are read only when an arrow is pressed:
   // recomputing them on every streamed token of the answer would be waste.
   const historyRef = useRef<PromptHistoryState>(HISTORY_IDLE);
-  const currentMessagesRef = useRef(currentMessages);
-  useEffect(() => { currentMessagesRef.current = currentMessages; }, [currentMessages]);
   const handleHistoryArrow = (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
     if ((e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey) return false;
     if (e.nativeEvent.isComposing) return false;
@@ -928,7 +927,10 @@ export function ChatInput({
     const value = ta.value;
     const collapsed = ta.selectionStart === ta.selectionEnd;
     const entries = historyEntries(
-      currentMessagesRef.current
+      // Read straight from props: this handler is recreated on every render,
+      // so it always sees the current thread (a ref written during render
+      // is what react-hooks/refs forbids).
+      currentMessages
         .filter((m) => m.role === 'user' && !isMachineRow(m.blocks))
         .map((m) => m.content ?? ''),
     );
@@ -1672,6 +1674,7 @@ export function ChatInput({
                   )}
                 </button>
               )}
+              <StreamTokenRateIndicator sessionKey={topic.sessionKey} />
               {onProviderOverrideChange && (
                 <ProviderModelPicker
                   override={providerOverride ?? null}

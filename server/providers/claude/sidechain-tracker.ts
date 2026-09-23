@@ -47,6 +47,15 @@ export interface SidechainState {
   finished: boolean;
 }
 
+/**
+ * The sub-agent tool under both of its names. The CLI renamed `Task` to
+ * `Agent`: same call, same input (`description`, `subagent_type`, `prompt`).
+ * Checking only `Task` left every `Agent` parent as an empty placeholder.
+ */
+export function isSubAgentToolName(name: string): boolean {
+  return name === "Task" || name === "Agent";
+}
+
 export class SidechainTracker {
   private states = new Map<string, SidechainState>();
   /** Map child tool_use id → parent tool_use id, so child tool_results route. */

@@ -43,7 +43,9 @@ function HighlightedPre({ code, lang, className, testId, prefix }: {
   /** Literal chrome rendered before the code, outside highlighting ("$ "). */
   prefix?: ReactNode;
 }) {
-  const ready = useSyncExternalStore(subscribeHighlighter, highlighterReady);
+  // Third argument = same getter: nothing changes in the browser, and the
+  // static render of unit tests (renderToStaticMarkup) stops throwing here.
+  const ready = useSyncExternalStore(subscribeHighlighter, highlighterReady, highlighterReady);
   const html = useMemo(
     () => (lang ? highlightCode(code, lang) : null),
     // `ready` re-runs the memo once the lazy tokenizers land.
@@ -116,7 +118,9 @@ export function ShellCard({ command, cwd, output, exitCode, isError, background,
     <div className="space-y-1">
       <HighlightedPre
         testId="tool-call-args"
-        className="text-mini font-mono text-app-text whitespace-pre-wrap bg-app-hover/40 rounded px-2 py-1.5"
+        // Same cap as the Monitor command: a long heredoc no longer pushes the
+        // output (what the row is opened for) off screen.
+        className="text-mini font-mono text-app-text whitespace-pre-wrap overflow-auto max-h-40 bg-app-hover/40 rounded px-2 py-1.5"
         prefix="$ "
         code={command}
         lang="bash"
