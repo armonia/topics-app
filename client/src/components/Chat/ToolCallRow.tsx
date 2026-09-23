@@ -16,6 +16,7 @@ import { isAwaitingHuman } from '../../../../shared/types';
 import { autoOpenSchedule, bodyIsOpen } from './toolRowDisclosure';
 import { ErrorBoundary } from '../Shared/ErrorBoundary';
 import { SpinnerFallback } from '../Shared/Spinner';
+import { ToolDetailFetchStatus, type ToolDetailFetchState } from './ToolDetailFetchStatus';
 
 // The answer form only exists for the few calls that stop and ask, so it does
 // not belong in the entry. It is also the ONE lazy surface here that appears
@@ -131,6 +132,9 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   // nothing pollutes the store, and nothing travels on the wire until the
   // user explicitly opens the row.
   const [fetched, setFetched] = useState<{ detail: Record<string, unknown> | null; args: Record<string, unknown> | null } | null>(null);
+  // Lo stato del fetch si vede: senza, un output in arrivo e un output perso
+  // (404, rete) erano la stessa card con il comando e niente sotto.
+  const [fetchState, setFetchState] = useState<{ state: ToolDetailFetchState; error?: string }>({ state: 'idle' });
   const fetchedForRef = useRef<string | null>(null);
   const strippedBytes = (toolCall.detailBytes ?? 0) + (toolCall.argsBytes ?? 0);
 
@@ -220,15 +224,17 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
     if (strippedBytes === 0) return;
     if (fetchedForRef.current === toolCall.id) return; // already fetched
     fetchedForRef.current = toolCall.id;
+    setFetchState({ state: 'loading' });
     chatApi.fetchToolDetail(messageId, toolCall.id).then(({ detail: fullDetail, args: fullArgs }) => {
       const asRecord = (v: unknown): Record<string, unknown> | null =>
         v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
       const next = { detail: asRecord(fullDetail), args: asRecord(fullArgs) };
       if (next.detail || next.args) setFetched(next);
-    }).catch(() => {
-      // Non-fatal: the row still renders with the trimmed call. The missing
-      // text is blank or cut, which is what it was before the user opened
-      // the row.
+      setFetchState({ state: 'done' });
+    }).catch((err: unknown) => {
+      // The row still renders with the trimmed call, but it SAYS the rest did
+      // not arrive: a blank output here is a lost one, not an empty one.
+      setFetchState({ state: 'error', error: err instanceof Error ? err.message : String(err) });
     });
   }, [effectiveOpen, messageId, toolCall.id, strippedBytes]);
 
@@ -471,6 +477,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           ) : (
             <ToolCardBody detail={detail} isError={isError} isRunning={isRunning} sessionKey={sessionKey} />
           )}
+          <ToolDetailFetchStatus state={fetchState.state} error={fetchState.error} />
           {toolCall.userResponse && status !== 'waiting_for_input' && (
             <div className="mt-1.5 text-mini text-app-text-muted">
               <span className="uppercase tracking-wide">Answered</span>

@@ -146,6 +146,8 @@ const CHAT_IT: Dict = {
   'chat.tool.finalResult': 'Risultato finale',
   'chat.tool.skillInstructions': 'Istruzioni caricate',
   'chat.tool.noSessionContext': "L'agente sta chiedendo una risposta, ma questa vista non ha il contesto della sessione. Ricarica per rispondere.",
+  'chat.tool.detailLoading': "Carico l'output completo…",
+  'chat.tool.detailFailed': "Non sono riuscito a caricare l'output completo.",
 };
 
 export default CHAT_IT;
