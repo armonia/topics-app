@@ -28,7 +28,7 @@ import type {
 import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
 import { demoteAgentCli } from "./agent-cli-priority";
-import { SidechainTracker } from "./claude/sidechain-tracker";
+import { SidechainTracker, isSubAgentToolName } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
@@ -3336,8 +3336,11 @@ export class ClaudeCodeProvider implements AIProvider {
             // sub-agent parent so its child events get aggregated. We do this
             // before onToolStart so the route handler sees the right state if
             // it queries the tracker.
-            if (toolName === "Task") {
-              pp.sidechain.registerParent(toolId, block.input);
+            if (isSubAgentToolName(toolName)) {
+              // updateParentInput, non registerParent: il ramo sidechain puo'
+              // aver gia' creato un segnaposto vuoto, e registerParent su un
+              // id noto non fa niente.
+              pp.sidechain.updateParentInput(toolId, block.input);
             }
             handler.onToolStart(toolId, toolName, input);
             // Announced with the full input already in hand — mark finalized
@@ -3471,7 +3474,7 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.activeToolCalls.add(partial.id);
       // Task parents register immediately (empty input, back-filled by
       // finalizeToolArgs) so early sidechain child events find their parent.
-      if (toolName === "Task") pp.sidechain.registerParent(partial.id, {});
+      if (isSubAgentToolName(toolName)) pp.sidechain.registerParent(partial.id, {});
       handler?.onToolStart(partial.id, toolName, {});
     } else if (partial.kind === "input_delta") {
       const entry = pp.streamingToolInputs?.get(index);
@@ -3525,7 +3528,7 @@ export class ClaudeCodeProvider implements AIProvider {
     const finalized = (pp.argsFinalized ??= new Set<string>());
     if (finalized.has(toolId) || pp.settledToolCalls?.has(toolId)) return;
     finalized.add(toolId);
-    if (toolName === "Task") pp.sidechain.updateParentInput(toolId, args);
+    if (isSubAgentToolName(toolName)) pp.sidechain.updateParentInput(toolId, args);
     handler?.onToolArgsUpdate?.(toolId, args);
     this.detectUserInputForTool(pp, handler, toolId, toolName, args);
   }
