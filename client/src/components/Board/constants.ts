@@ -253,8 +253,8 @@ export const mediaPaneIdFor = (path: string): string => `media:${path}`;
 /**
  * «Open the task on THIS file's diff», through the same `focusPaneId` an
  * attachment uses to open on its tab. The diff is not a pane, so the drawer
- * reads this prefix instead: it opens the delivery band, the «Modifiche»
- * panel, expands the file and scrolls it into view. One channel, so the card,
+ * reads this prefix instead: it opens the delivery band, the changes panel,
+ * expands the file and scrolls it into view. One channel, so the card,
  * the board and every caller of `OpenTask` needed no new prop.
  */
 const DIFF_FOCUS_PREFIX = 'diff:';

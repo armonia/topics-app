@@ -1,8 +1,8 @@
 /**
  * A FILE PAST THE PAYLOAD CAP CAN BE READ, AND A FOCUSED FILE IS OPEN.
  *
- * The bundle stops at ~200 KB, and every file past it showed «patch non
- * arrivato» with nothing to click (task 7657f201: 30 of 74). Now a task diff
+ * The bundle stops at ~200 KB, and every file past it showed a "patch did
+ * not arrive" notice with nothing to click (task 7657f201: 30 of 74). Now a task diff
  * offers to fetch that one file (`GET …/diff?file=`, pinned in
  * `server/routes/tasks.diff-panel.test.ts`); a publish diff, which has no task
  * to ask, keeps the plain notice.

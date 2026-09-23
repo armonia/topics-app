@@ -20,7 +20,7 @@
 
 import type { ToolCall, ToolCallDetail } from "../../types";
 import { isPlanFile } from "../../../shared/plan-file";
-import { multiEditUnifiedDiff } from "../../../shared/multi-edit-diff";
+import { batchEditUnifiedDiff } from "../../../shared/multi-edit-diff";
 
 /**
  * The Topics bridge tools (`server/mcp/topics-mcp-server.ts`), as the native
@@ -124,7 +124,7 @@ export function deriveToolDetail(
       return {
         type: "edit",
         filePath: s(a.file_path) ?? s(a.filePath) ?? "",
-        ...(edits.length ? { unifiedDiff: multiEditUnifiedDiff(edits) } : {}),
+        ...(edits.length ? { unifiedDiff: batchEditUnifiedDiff(edits) } : {}),
       };
     }
     return {

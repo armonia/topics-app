@@ -98,14 +98,14 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
   stat?: DiffFileStat;
   partial?: boolean;
   defaultOpen: boolean;
-  /** Il file su cui è stato aperto il pannello: espanso e portato in vista. */
+  /** The file the panel was opened on: expanded and scrolled into view. */
   focused?: boolean;
   review?: DiffReview;
   loadPatch?: LoadFilePatch;
 }) {
   const tr = useT();
   const rootRef = useRef<HTMLDivElement>(null);
-  // Il patch caricato a mano, per un file rimasto oltre il tetto del bundle.
+  // The patch fetched on demand, for a file left past the bundle's cap.
   const [lazy, setLazy] = useState<{ chunk: DiffFileChunk | null; truncated: boolean } | 'loading' | 'error' | null>(null);
   const lazyChunk = lazy && typeof lazy === 'object' ? lazy.chunk ?? undefined : undefined;
   const chunk = bundled ?? lazyChunk;
@@ -126,13 +126,13 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
   // su quella d'ufficio, anche quando le note arrivano dopo (bozza dal server).
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = userOpen ?? (defaultOpen || !!focused || fileNotes.length > 0);
-  // Aperto da una riga del chip della card: il file va in vista, non solo
-  // espanso, altrimenti in un diff da 70 file resta sotto l'orizzonte.
+  // Opened from a row of the card chip: the file is scrolled into view, not
+  // just expanded, or in a 70-file diff it stays below the fold.
   useEffect(() => {
     if (focused) rootRef.current?.scrollIntoView?.({ block: 'start' });
   }, [focused]);
-  // E se il file su cui si è aperto è proprio uno di quelli oltre il tetto,
-  // il suo patch si chiede da solo: il click sulla riga era già la richiesta.
+  // And when that file is one of those past the cap, its patch is fetched
+  // right away: the click on the row already was the request.
   useEffect(() => {
     if (!focused || bundled || !loadPatch) return;
     let alive = true;
@@ -196,14 +196,14 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
         <div className="overflow-x-auto font-mono text-compact leading-[1.55]">
           {!chunk ? (
             lazy && typeof lazy === 'object' ? (
-              // Git ha risposto, e per questo file non c'è testo da mostrare.
+              // Git answered, and this file has no text diff to show.
               <div className="px-2 py-1 font-sans text-mini text-app-text-muted">{tr('diff.noChanges')}</div>
             ) : (
               <div className="px-2 py-1 font-sans text-mini text-app-text-muted">
                 {tr('diff.patchMissing')}
                 {loadPatch && (
-                  // Il cartello da solo diceva cosa mancava e non come averlo:
-                  // qui il file si chiede per nome, sulla stessa gamma.
+                  // The notice alone said what was missing, not how to get
+                  // it: here the file is asked for by name, on the same range.
                   <button
                     type="button"
                     data-testid="diff-load-file"

@@ -13,7 +13,7 @@
 import type { ToolCall, ToolCallDetail } from '../../types';
 import { parseToolCallDetail } from '../../../../shared/tool-call-detail';
 import { isPlanFile } from '../../../../shared/plan-file';
-import { multiEditUnifiedDiff } from '../../../../shared/multi-edit-diff';
+import { batchEditUnifiedDiff } from '../../../../shared/multi-edit-diff';
 
 function canon(name: string): string {
   return (name || '').toLowerCase().trim();
@@ -108,7 +108,7 @@ export function deriveToolDetail(
       return {
         type: 'edit',
         filePath: s(a.file_path) ?? s(a.filePath) ?? '',
-        ...(edits.length ? { unifiedDiff: multiEditUnifiedDiff(edits) } : {}),
+        ...(edits.length ? { unifiedDiff: batchEditUnifiedDiff(edits) } : {}),
       };
     }
     return {

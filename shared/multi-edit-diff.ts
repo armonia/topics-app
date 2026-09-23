@@ -12,7 +12,7 @@
  * Shared because the server boundary and the client fallback both derive the
  * detail (`server/providers/claude/tool-detail.ts`, `Chat/toolDetail.ts`).
  */
-export function multiEditUnifiedDiff(edits: ReadonlyArray<Record<string, unknown>>): string {
+export function batchEditUnifiedDiff(edits: ReadonlyArray<Record<string, unknown>>): string {
   const str = (v: unknown): string => (typeof v === "string" ? v : "");
   const lines = (text: string, sign: "-" | "+"): string[] =>
     text ? text.split("\n").map((l) => `${sign}${l}`) : [];

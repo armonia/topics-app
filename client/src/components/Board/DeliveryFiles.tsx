@@ -42,7 +42,7 @@ import { diffFocusFor, type OpenTask } from './constants';
  * whether the file had been added or deleted.
  *
  * A ROW OPENS THE FILE'S DIFF. With `onOpen` the row is a button that opens the
- * task on its «Modifiche» panel with that file expanded (`diffFocusFor`): the
+ * task on its changes panel with that file expanded (`diffFocusFor`): the
  * list said which files, and then there was no way to read one of them.
  */
 

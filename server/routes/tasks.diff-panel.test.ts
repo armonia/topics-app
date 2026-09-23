@@ -208,8 +208,8 @@ describe("GET /tasks/:id/diff", () => {
  * `?file=<path>`: the patch of ONE file, on the range the bundle used.
  *
  * The bundle stops at ~200 KB, and every file past that arrived as a name and
- * a count with nothing to read (task 7657f201: 30 of 74 files, «patch non
- * arrivato»). The per-file route is how the panel fetches the rest, so what is
+ * a count with nothing to read (task 7657f201: 30 of 74 files, a "patch did
+ * not arrive" notice). The per-file route is how the panel fetches the rest, so what is
  * pinned is: it answers the file the bundle left out, it answers an untracked
  * file on a live worktree, and a query string cannot turn it into a read of
  * anything the bundle could not have listed.
