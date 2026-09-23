@@ -241,6 +241,19 @@ describe("F5: the heaviest background command, and nothing else", () => {
     expect(w.logs.join("\n")).toContain("foreground Bash, never frozen");
   });
 
+  /**
+   * The beat runs every 10 s for the whole swap episode: before this the same
+   * line came out on every beat, 46 times for one pid in the production log of
+   * 23/09 (1.669 lines out of 5 MB). A fact that does not change is said once,
+   * for as long as that pid stays the same.
+   */
+  test("a foreground command is named ONCE per pid, not on every beat", async () => {
+    const w = world({ procs, sessions });
+    for (let i = 0; i < 6; i++) { await w.beat(); w.advance(10_000); }
+    const lines = w.logs.filter((l) => l.includes("foreground Bash, never frozen"));
+    expect(lines).toHaveLength(1);
+  });
+
   test("an idle heavyweight alone freezes nothing, and the line says what was missing", async () => {
     const w = world({ procs: [...BASE, ...shell(52000, "bun idle-hog.ts", { cores: 0, footprintGB: 3.0 })], sessions: [session({ backgroundBash: [{ command: "bun idle-hog.ts", startedAt: T0 }] })] });
     await twoBeats(w);
