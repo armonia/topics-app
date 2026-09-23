@@ -244,8 +244,8 @@ export function createAppContext(baseDir: string): AppContext {
     // `parent_id`. ON CONFLICT DO UPDATE mutates the row in place — no
     // delete, no cascade. Guarded by utils-topic-save.test.ts.
     insertTopic: db.prepare(`
-      INSERT INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, effort, fast_mode, muted, worktree_id, initial_message, standalone, mcp_policy, browser_state, archived, created_at, updated_at)
-      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $effort, $fast_mode, $muted, $worktree_id, $initial_message, $standalone, $mcp_policy, $browser_state, $archived, $created_at, $updated_at)
+      INSERT INTO topics (id, name, slug, parent_id, session_key, color, icon, system_prompt, project_path, sort_order, autonomy_level, provider, model, topics_routing, effort, fast_mode, muted, worktree_id, initial_message, standalone, mcp_policy, browser_state, archived, created_at, updated_at)
+      VALUES ($id, $name, $slug, $parent_id, $session_key, $color, $icon, $system_prompt, $project_path, $sort_order, $autonomy_level, $provider, $model, $topics_routing, $effort, $fast_mode, $muted, $worktree_id, $initial_message, $standalone, $mcp_policy, $browser_state, $archived, $created_at, $updated_at)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         slug = excluded.slug,
@@ -259,6 +259,7 @@ export function createAppContext(baseDir: string): AppContext {
         autonomy_level = excluded.autonomy_level,
         provider = excluded.provider,
         model = excluded.model,
+        topics_routing = excluded.topics_routing,
         effort = excluded.effort,
         fast_mode = excluded.fast_mode,
         muted = excluded.muted,
@@ -500,6 +501,9 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.autonomy_level) topic.autonomyLevel = row.autonomy_level;
     if (row.provider) topic.provider = row.provider;
     if (row.model) topic.model = row.model;
+    // topics_routing (AICTRL-01, migration 20260922180000). NULL omitted:
+    // the reader falls back to the legacy topics:<model> prefix.
+    if (row.topics_routing !== undefined && row.topics_routing !== null) topic.topicsRouting = !!row.topics_routing;
     // effort (migration 033). Per-topic reasoning-tier override; NULL omitted so
     // legacy rows fall back to the global env-resolved default at spawn time.
     if (row.effort) topic.effort = row.effort;
@@ -575,6 +579,10 @@ export function createAppContext(baseDir: string): AppContext {
         $autonomy_level: topic.autonomyLevel || 'auto-apply',
         $provider: topic.provider || null,
         $model: topic.model || null,
+        // topics_routing (AICTRL-01, migration 20260922180000). null preserves
+        // "never set explicitly" (legacy topics:<model> fallback); the switch
+        // never coerces to 0/1 the way fast_mode/muted booleans do below.
+        $topics_routing: topic.topicsRouting == null ? null : (topic.topicsRouting ? 1 : 0),
         // effort column (migration 033). NULL = no per-topic override → global
         // default resolved at spawn time. Stored as-is (low/medium/high/xhigh/max).
         $effort: topic.effort || null,

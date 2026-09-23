@@ -62,9 +62,12 @@ const draw = (props: Parameters<typeof TaskModelMenuOptions>[0]) =>
 
 describe('the task model rows', () => {
   test('Automatic comes first, then the ready execution engines', () => {
+    // AICTRL-01: topics is the routing switch above this list now, never a
+    // row of its own — this fixture's only Claude-serving runtime is topics,
+    // so Codex is the sole execution engine left to list.
     const drawn = draw({ models: CATALOG, value: null, onSelect: () => {}, autoLabel: 'Auto' });
     expect(drawn.map((r) => r.label)).toContain('Auto');
-    expect(drawn.map((r) => r.label)).toContain('TopicsPronto');
+    expect(drawn.map((r) => r.label)).not.toContain('TopicsPronto');
     expect(drawn.map((r) => r.label)).toContain('CodexPronto');
   });
 

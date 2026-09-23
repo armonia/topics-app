@@ -77,6 +77,10 @@ const asNumber = (raw: unknown): FieldRead =>
 const asBoolean = (raw: unknown): FieldRead =>
   typeof raw === "boolean" ? ok(raw) : no(`atteso boolean, ricevuto ${kindOf(raw)}`);
 
+/** AICTRL-01: null clears back to "never set explicitly". */
+const asBooleanOrNull = (raw: unknown): FieldRead =>
+  raw === null || typeof raw === "boolean" ? ok(raw) : no(`atteso boolean o null, ricevuto ${kindOf(raw)}`);
+
 /** Priorità: intero dentro il dominio. Fuori dominio è un 400 che dice il range. */
 const asPriority = (raw: unknown): FieldRead => {
   const read = asNumber(raw);
@@ -118,6 +122,9 @@ const HUMAN_FIELDS: Record<string, FieldSpec> = {
   output_url: { to: "outputUrl", read: asStringOrNull },
   summary: { to: "summary", read: asString },
   model: { to: "model", read: asStringOrNull },
+  // AICTRL-01: routes execution through Topics when the provider allows it;
+  // null falls back to "never set explicitly" (legacy fallback).
+  topicsRouting: { to: "topicsRouting", read: asBooleanOrNull },
   // WHICH MACHINE runs this card (KANBAN-76). Empty or null means "here", and
   // that is a value a person sets on purpose (there is no `auto` node), so it
   // reads like a reference that can be detached. The route checks the id

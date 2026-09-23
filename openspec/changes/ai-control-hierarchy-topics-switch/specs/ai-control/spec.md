@@ -76,6 +76,15 @@ Nessuna migrazione distruttiva: i dati gia' scritti restano leggibili come sono.
 - **WHEN** l'utente cambia lo switch o la selezione
 - **THEN** il turno in volo conserva i valori con cui e' partito
 
+#### Scenario: un `provider` salvato come "topics" non e' un target, e' gia' instradato
+- **GIVEN** un record persistito con `provider: "topics"` (valore storico, mai
+  scritto da una selezione nuova: AICTRL-01 lo esclude gia' dall'elenco)
+- **WHEN** lo switch e' acceso e il record si rilegge
+- **THEN** l'esecuzione passa dal motore nativo senza errore, perche' quel
+  valore *e' gia'* "instradato", non un provider a cui instradare
+- **AND** questo non riapre "topics" come voce selezionabile: resta un caso di
+  lettura di un dato vecchio, non una nuova via di selezione
+
 ### Requirement: AICTRL-05 — Una semantica sola su tre superfici
 
 Chat, composer task e impostazioni board usano la **stessa** logica, condivisa o

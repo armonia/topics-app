@@ -2526,6 +2526,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // TOPIC dell'agente è stato creato col modello risolto.
       model: r.model ?? topic?.model ?? null,
       ...(r.model_effort ? { modelEffort: r.model_effort } : {}),
+      topicsRouting: r.topics_routing == null ? null : !!r.topics_routing,
       // WHERE it runs. `null` is «this machine», which is what every card
       // written before the column existed says (KANBAN-76).
       machineId: r.machine_id ?? null,
@@ -3553,8 +3554,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (input.blockedByTaskId) assertBlockerValid(id, input.blockedByTaskId);
 
       db.prepare(
-        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, text, description, status, priority, kanban_order, assigned_to, chat_id, created_at, completed_at, updated_at, claude_task_id, parent_task_id, plan_first, model, blocked_by_task_id, reuse_blocker_context, created_by_topic_id, priority_auto, machine_id, topics_routing)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id, input.projectId, text, input.description ?? null, status, priority, order,
         input.assignedTo ?? null, input.chatId ?? null, ts, ts, input.idempotencyKey ?? null,
@@ -3565,6 +3566,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         // dispatched agent evaluates and sets one at kickoff.
         input.priority === undefined ? 1 : 0,
         input.machineId ?? null,
+        input.topicsRouting === undefined || input.topicsRouting === null ? null : (input.topicsRouting ? 1 : 0),
       );
       return rowToTask(getTaskRow(id));
     },
@@ -3862,6 +3864,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         const m = (patch.model ?? "").trim();
         put("model", m || null);
         put("model_effort", null);
+      }
+      // AICTRL-01: separate from model/provider on purpose (AICTRL-04) — never
+      // reuses the model column's own null-clears-to-auto encoding.
+      if (patch.topicsRouting !== undefined) {
+        put("topics_routing", patch.topicsRouting === null ? null : (patch.topicsRouting ? 1 : 0));
       }
       // WHERE it runs. Empty string and null both mean «this machine»: the
       // picker clears the choice by sending the empty value, and a card with
@@ -6417,6 +6424,8 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         dispatchIdleMin: r?.dispatch_idle_min ?? 5,
         dispatchMcp: r?.dispatch_mcp ?? "bridge-only",
         dispatchModel: r?.dispatch_model ?? "auto",
+        // AICTRL-05: default board dello switch; NULL = nessuna scelta su questa board (ordine di risoluzione in shared/board.ts). allow-italian: dice cosa significa NULL in colonna
+        dispatchTopicsRouting: r?.dispatch_topics_routing == null ? null : !!r.dispatch_topics_routing,
         language: r?.language ?? "inherit",
         // NULL = 1: una board che non ha mai sentito parlare di fan-out dispaccia
         // un agente per task, com'è sempre stato.
@@ -6479,6 +6488,11 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // string pins the board to that model id. No allowlist here — the model set is
       // provider-driven (see /api/claude/models); an unknown id simply fails at spawn.
       if (patch.dispatchModel !== undefined) { sets.push("dispatch_model = ?"); params.push(patch.dispatchModel && patch.dispatchModel !== "auto" ? patch.dispatchModel : null); }
+      // Nullable come `topics_routing` sul task: null resta null, non collassa su false. allow-italian: la regola di scrittura della colonna
+      if (patch.dispatchTopicsRouting !== undefined) {
+        sets.push("dispatch_topics_routing = ?");
+        params.push(patch.dispatchTopicsRouting === null ? null : (patch.dispatchTopicsRouting ? 1 : 0));
+      }
       if (patch.language !== undefined) { sets.push("language = ?"); params.push(patch.language && patch.language !== "inherit" ? patch.language : null); }
       // Tetto a 5: oltre, il fan-out non è più "confronto fra alternative" ma un
       // modo di saturare la macchina — e ogni tentativo è un agente vero che

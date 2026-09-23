@@ -128,6 +128,7 @@ describe('la conversazione e\' UNA lista', () => {
  * On the source, same method and same reason as the rest of this file.
  * @covers KANBAN-93
  */
+/** AICTRL-05 #6: la cascata dello switch del cassetto e il suo filo sono eseguiti in `FloatingTaskComposer.test.ts`, sulla funzione condivisa. Qui non resta niente da leggere due volte. allow-italian: dice dove vive la prova, per non cercarla qui */
 describe('il dettaglio dei checks tiene i tre esiti separati', () => {
   const section = src.slice(src.indexOf('function ChecksSection'), src.indexOf('function TaskChangesSection'));
 

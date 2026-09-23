@@ -35,7 +35,7 @@ import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISS
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
 import { daySpendSentence, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
-import { taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
+import { effectiveTopicsRouting, taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
 import {
   bookSessionCost,
   createSpendBrake,
@@ -115,7 +115,7 @@ export interface DispatcherDeps {
    */
   catchAllProjectPath?: string;
   /** Create a detached, project-bound chat topic (no focus steal). */
-  createTopic: (opts: { name: string; projectPath: string; worktreeId?: string; systemPrompt: string; effort?: string; model?: string; provider?: string; standalone?: boolean; mcpPolicy?: string; autonomyLevel?: "ask" | "auto-apply" | "yolo" }) => {
+  createTopic: (opts: { name: string; projectPath: string; worktreeId?: string; systemPrompt: string; effort?: string; model?: string; provider?: string; /** AICTRL-01 routing switch */ topicsRouting?: boolean | null; standalone?: boolean; mcpPolicy?: string; autonomyLevel?: "ask" | "auto-apply" | "yolo" }) => {
     topicId: string;
     sessionKey: string;
   };
@@ -1590,6 +1590,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     return error instanceof Error && 'code' in error && error.code === 'task_provider_pending' ? error.message : null;
   }
 
+  /**
+   * Un guasto che rimettere in coda NON risolve: una combinazione di provider e modello che questa macchina non puo' eseguire, dove riprovare ripete lo stesso errore per sempre. Si parcheggia col motivo, l'unica cosa che dice all'umano cosa cambiare. allow-italian: il confine fra guasto permanente e passeggero
+   * Il catalogo ancora in scoperta NON e' qui: quello e' `TaskProviderPendingError`, che aspetta e rimette in coda. allow-italian: la distinzione che una review ha gia' pagato
+   */
+  function hardRoutingBlock(error: unknown): string | null {
+    if (!(error instanceof Error) || !('code' in error)) return null;
+    return error.code === 'task_model_unavailable' || error.code === 'topics_routing_unavailable'
+      ? error.message
+      : null;
+  }
+
   function deferPendingProvider(taskId: string, reason: string): void {
     const queued = releaseAndEmit({ taskId, requeue: true, rollbackAttempt: true, reason });
     markPlanWait(queued, reason);
@@ -2642,7 +2653,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   /** Launch one already-claimed task: (worktree?) → topic → turn → reconcile. */
   async function launch(
     taskId: string,
-    settings: { useWorktree: boolean; timeoutMin: number; idleMin: number; effort: string; mcp: string; model?: string; provider?: string },
+    settings: { useWorktree: boolean; timeoutMin: number; idleMin: number; effort: string; mcp: string; model?: string; provider?: string; topicsRouting?: boolean },
     resolved: { path: string; projectStoreId: string | null },
   ): Promise<void> {
     const beforeLaunch = deps.svc.get(taskId)?.task;
@@ -2824,6 +2835,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             effort: chosenEffort,
             model: chosenModel,
             provider: chosenProvider,
+            // AICTRL-05: gia' risolto dal chiamante, task > board > prefisso legacy. allow-italian: dice che qui non si risolve piu' niente
+            topicsRouting: settings.topicsRouting,
             // Catch-all task → standalone session: keeps its (now per-task) cwd
             // but never renders a phantom project node in the sidebar.
             standalone: isCatchAll,
@@ -3025,7 +3038,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         if (worktreeId) await cleanupWorktree(worktreeId, { preserveWork: true });
         return;
       }
-      if (!attemptId && err instanceof Error && 'code' in err && err.code === 'task_model_unavailable') {
+      if (!attemptId && err instanceof Error && 'code' in err
+        && (err.code === 'task_model_unavailable' || err.code === 'topics_routing_unavailable')) {
+        // A non-routable ON target is a permanent mismatch, not a flaky setup:
+        // requeuing would just re-throw the same error forever. Park with the
+        // exact reason instead — AICTRL-01's hard gate, never a silent retry.
         releaseAndEmit({ taskId, requeue: false, rollbackAttempt: true, parkState: CHIP_BLOCKED, reason: err.message });
         if (worktreeId) await cleanupWorktree(worktreeId, { preserveWork: true });
         return;
@@ -3138,7 +3155,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     task: Task,
     idx: number,
     total: number,
-    opts: { timeoutMs: number; idleMs: number; effort: string; autoEffort?: boolean; mcp: string; model?: string; provider?: string },
+    opts: { timeoutMs: number; idleMs: number; effort: string; autoEffort?: boolean; mcp: string; model?: string; provider?: string; topicsRouting?: boolean | null },
     resolved: { path: string; projectStoreId: string },
   ): Promise<string | undefined> {
     const store = deps.attempts!;
@@ -3168,6 +3185,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         effort: opts.effort,
         model: opts.model,
         provider: opts.provider,
+        topicsRouting: opts.topicsRouting,
         mcpPolicy: opts.mcp === "inherit" ? undefined : "bridge-only",
       });
       sessionKey = topic.sessionKey;
@@ -3192,6 +3210,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         store.finish(attempt.id, { state: "failed", error: pending });
         if (worktreeId) await cleanupWorktree(worktreeId, { preserveWork: true });
         return pending;
+      }
+      // Un cancello duro non è il fallimento di QUESTO tentativo: è la stessa
+      // risposta per tutti e N, e va risalita fino a chi può parcheggiare la
+      // card col motivo. Sepolta qui — `failed` e `return undefined`, cioè
+      // "è partito davvero" per chi legge i risultati — la card tornava in
+      // giro senza che nessuno avesse mai detto perché.
+      const blocked = hardRoutingBlock(err);
+      if (blocked && !sessionKey) {
+        // La riga si chiude PRIMA di risalire: un tentativo eternamente
+        // `running` viene contato da `runningCount` e il cancello del fan-out
+        // ci crede.
+        try { store.finish(attempt.id, { state: "failed", error: blocked }); }
+        catch (e) { log(`fan-out: esito del tentativo ${idx} non salvato`, e); }
+        if (worktreeId) await cleanupWorktree(worktreeId, { preserveWork: true });
+        throw err;
       }
       failure = describeTurnEnd(classifyTurnError(err));
       log(`fan-out: tentativo ${idx} del task ${task.id} caduto`, err);
@@ -3353,7 +3386,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   async function launchFanOut(
     taskId: string,
     n: number,
-    settings: { timeoutMin: number; idleMin: number; effort: string; mcp: string; model?: string },
+    settings: { timeoutMin: number; idleMin: number; effort: string; mcp: string; model?: string; topicsRouting?: boolean },
     resolved: { path: string; projectStoreId: string },
   ): Promise<void> {
     const runId = beginRun(taskId, "");
@@ -3412,13 +3445,31 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // deve lasciare i fratelli a girare senza nessuno che ne raccolga l'esito.
       const results = await Promise.allSettled(
         Array.from({ length: n }, (_, i) =>
-          runAttempt(task, i + 1, n, { timeoutMs, idleMs, effort: chosenEffort, autoEffort: settings.effort === "auto", mcp: settings.mcp, model: chosenModel, provider: chosenProvider }, resolved),
+          runAttempt(task, i + 1, n, { timeoutMs, idleMs, effort: chosenEffort, autoEffort: settings.effort === "auto", mcp: settings.mcp, model: chosenModel, provider: chosenProvider, topicsRouting: settings.topicsRouting }, resolved),
         ),
       );
       // Sepolto dalla rete di liveness mentre giravamo (o rimpiazzato da un run
       // nuovo): non è più roba nostra, e chiudere il fan-out adesso pesterebbe
       // lo stato di chi ci ha sostituito.
       if (!ownsRun(taskId, runId)) return;
+      // `allSettled` non rilancia niente, quindi un cancello duro sarebbe
+      // finito qui dentro come un rifiuto qualunque e la card sarebbe tornata
+      // in giro muta. Si parcheggia col motivo — lo stesso che il percorso a
+      // un agente solo (`launch`) applica da sempre — ma solo se NESSUN
+      // fratello è arrivato a girare: dove c'è lavoro vero, il fan-out si
+      // chiude normalmente e il motivo resta sulla riga del tentativo.
+      const blocked = results.find(
+        (result): result is PromiseRejectedResult => result.status === "rejected" && !!hardRoutingBlock(result.reason),
+      );
+      const started = results.some(result => result.status === "fulfilled" && result.value === undefined);
+      if (blocked && !started) {
+        releaseAndEmit({
+          taskId, requeue: false, rollbackAttempt: true,
+          parkState: CHIP_BLOCKED, reason: hardRoutingBlock(blocked.reason)!,
+        });
+        await reapAttempts(taskId, { keepSelected: false });
+        return;
+      }
       const held = results.map(result => result.status === "fulfilled" ? result.value : undefined);
       // Only an entirely unstarted batch refunds its claim. A sibling already
       // running keeps its work and follows the normal delivery path.
@@ -3435,7 +3486,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         deferPendingProvider(taskId, pending);
         return;
       }
-      if (err instanceof Error && 'code' in err && err.code === 'task_model_unavailable') {
+      if (err instanceof Error && 'code' in err
+        && (err.code === 'task_model_unavailable' || err.code === 'topics_routing_unavailable')) {
         releaseAndEmit({ taskId, requeue: false, rollbackAttempt: true, parkState: CHIP_BLOCKED, reason: err.message });
         return;
       }
@@ -5004,6 +5056,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         effort: settings.dispatchEffort,
         mcp: settings.dispatchMcp,
         model: settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined,
+        // Task esplicito, poi default board, poi prefisso legacy — letto sul modello che il turno USERA' davvero: guardare solo `t.model` perdeva il legacy della board per ogni task senza modello proprio. allow-italian: nomina il difetto della prima versione
+        topicsRouting: effectiveTopicsRouting(
+          t.topicsRouting ?? settings.dispatchTopicsRouting,
+          t.model ?? (settings.dispatchModel && settings.dispatchModel !== "auto" ? settings.dispatchModel : undefined),
+        ),
       };
       if (delegated) launchSettings = effectiveDelegatedSettings(launchSettings, delegated);
       // Fire the launch; do NOT await (one board can fill multiple slots).

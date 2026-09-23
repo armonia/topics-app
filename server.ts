@@ -165,10 +165,11 @@ import type { AbortReason } from "./server/providers/types";
 import { recordTurnEnd, takeTurnEnd, peekTurnEnd } from "./server/providers/turn-end-registry";
 import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
-import { pickAutomaticTaskModel, automaticTaskModels, automaticTaskProvider } from "./server/services/task-auto-model";
+import { pickAutomaticTaskModel, automaticTaskModels } from "./server/services/task-auto-model";
+import { resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
 import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from "./shared/provider-hold";
 import { readCodexModels } from "./server/providers/codex/models";
-import { taskModelSelection, taskProviderForModel } from "./shared/task-coding-models";
+import { taskProviderForModel } from "./shared/task-coding-models";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
@@ -1760,16 +1761,17 @@ const taskDispatcher = createTaskDispatcher({
   },
   createTopic: (o) => {
     const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
-    const { model } = taskModelSelection(o.model);
     const snapshot = getSnapshotManager().getSnapshot();
-    const provider = o.provider ? automaticTaskProvider(o.provider, model, snapshot) : taskProviderForModel(o.model, snapshot);
-    if (provider && !tryGetProvider(provider)?.connected) {
-      throw new Error(`Provider "${provider}" non disponibile: collegalo nelle Impostazioni prima di avviare il task.`);
+    // AICTRL-01: ON e' instradamento, non identita'. Bersaglio e switch restano scritti sul topic, chi esegue lo decide `resolveTopicProvider` a ogni turno. allow-italian: la regola che questa chiamata applica
+    const { provider, model, topicsRouting, executor } = resolveDispatchTopicIdentity(o, snapshot);
+    // Si verifica chi ESEGUE: con ON il bersaglio non parte, e pretenderne la CLI collegata bloccherebbe task sani. allow-italian: perche' il controllo e' su `executor`
+    if (executor && !tryGetProvider(executor)?.connected) {
+      throw new Error(`Provider "${executor}" non disponibile: collegalo nelle Impostazioni prima di avviare il task.`);
     }
     const { topic } = createDetachedTopic(
       // background: an agent session never pops a tab — it lives in the
       // sidebar; the task drawer's "apri tab" un-archives it on demand.
-      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt, effort: o.effort, model, provider, background: true, standalone: o.standalone, mcpPolicy: o.mcpPolicy, autonomyLevel: o.autonomyLevel ?? DISPATCH_AUTONOMY },
+      { name: o.name, projectPath: o.projectPath, worktreeId: o.worktreeId, systemPrompt: o.systemPrompt, effort: o.effort, model, provider, topicsRouting, background: true, standalone: o.standalone, mcpPolicy: o.mcpPolicy, autonomyLevel: o.autonomyLevel ?? DISPATCH_AUTONOMY },
       {
         getTopicById: ctx.getTopicById,
         loadTopics: ctx.loadTopics,

@@ -412,7 +412,9 @@ export function createUiStateRouter(ctx: AppContext, opts?: UiStateRouterOptions
     }
 
     // PUT /api/ui-state/:key — single key update (stamps payload_version=2, increments server_seq)
-    const putMatch = method === "PUT" && pathname.match(/^\/api\/ui-state\/([^/]+)$/);
+    // POST is the same write: `navigator.sendBeacon` cannot PUT, and the
+    // `pagehide` flush of syncServer.ts beacons this exact route.
+    const putMatch = (method === "PUT" || method === "POST") && pathname.match(/^\/api\/ui-state\/([^/]+)$/);
     if (putMatch) {
       const key = decodeURIComponent(putMatch[1]);
       // Finding #10: the client tags every write with a per-tab identifier (the

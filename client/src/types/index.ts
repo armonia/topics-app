@@ -147,6 +147,12 @@ export interface UpdateTopicRequest {
   /** Set to a model id to persist as the topic's last-used model; null clears. */
   model?: string | null;
   /**
+   * AICTRL-01 routing switch (migration 20260922180000). Never rewrites
+   * provider/model; only whether the turn routes through the Topics native
+   * engine targeting them. null clears back to "never set explicitly".
+   */
+  topicsRouting?: boolean | null;
+  /**
    * Set the per-topic reasoning-effort tier (migration 033). One of
    * low/medium/high/xhigh/max; null/""/"default" clears the override. The
    * server validates the tier, forces an idle CLI respawn so it applies on the

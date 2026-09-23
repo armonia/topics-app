@@ -39,6 +39,7 @@ import { AutonomyPicker } from './AutonomyPicker';
 import { fastModeUi } from '../../lib/fastMode';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { shortcut } from '../../lib/shortcutLabel';
+import { topicsRoutingBlocked } from '../../lib/topicsRoutingGate';
 
 // Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
 // the composer's initial bundle and only fetch it the first time the popover opens.
@@ -292,6 +293,9 @@ interface ChatInputProps {
   onCancelEdit?: () => void;
   providerOverride?: { provider: string; model: string } | null;
   onProviderOverrideChange?: (override: { provider: string; model: string } | null) => void;
+  /** AICTRL-01 switch: null = never set explicitly (legacy topics: fallback). */
+  topicsRouting?: boolean | null;
+  onTopicsRoutingChange?: (next: boolean) => void;
   /** Quanto può fare da sé la chat. Sempre in vista nel composer: decide
    *  `--permission-mode` della sessione, cioè se l'agente può toccare i file. */
   autonomy?: import('../../types').AutonomyLevel | null;
@@ -352,6 +356,8 @@ export function ChatInput({
   onCancelEdit,
   providerOverride,
   onProviderOverrideChange,
+  topicsRouting,
+  onTopicsRoutingChange,
   autonomy,
   onAutonomyChange,
   effort,
@@ -410,6 +416,8 @@ export function ChatInput({
     }),
     [providersSnapshot, providerOverride, fastMode],
   );
+  // AICTRL-05: banner LIVE sull'abbonamento gia' pagato per `fastUi`, cosi' la ragione si vede prima di provare a inviare. Il gate VERO, che ferma anche l'Enter, sta in `ChatPane.handleSendMessage`. allow-italian: distingue il banner dal cancello vero
+  const topicsRoutingIsBlocked = topicsRoutingBlocked(topicsRouting, providerOverride ?? null, defaultProviderLabel, providersSnapshot);
   const { budgetPercent, sources: contextSources } = useContextInspector(
     isDraftTopic || isGlobalOrchestrator ? null : topic.id,
   );
@@ -1459,7 +1467,7 @@ export function ChatInput({
                   const isQueue = action.kind === 'queue';
                   // Ambra come la domanda a schermo: stesso colore, stessa cosa.
                   const isAnswer = action.kind === 'answer';
-                  const isDisabled = action.kind === 'disabled' || uploading;
+                  const isDisabled = action.kind === 'disabled' || uploading || topicsRoutingIsBlocked;
 
                   return (
                     <button
@@ -1630,6 +1638,8 @@ export function ChatInput({
                   defaultProviderLabel={defaultProviderLabel}
                   onChange={onProviderOverrideChange}
                   onOpenSettings={onOpenSettings}
+                  topicsRouting={topicsRouting ?? null}
+                  onTopicsRoutingChange={onTopicsRoutingChange}
                 />
               )}
               {/* The knobs you change MID conversation, in their own surface:
@@ -1691,6 +1701,7 @@ export function ChatInput({
           </>
         )}
         {chatError && <div className="text-red-500 text-mini px-3 pb-1.5">{chatError}</div>}
+        {topicsRoutingIsBlocked && <div className="text-red-500 text-mini px-3 pb-1.5">{tr('chat.topicsRouting.blocked')}</div>}
       </form>
 
       {/* Context Inspector popover — anchored to the ring on desktop, a bottom

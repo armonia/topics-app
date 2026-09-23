@@ -5,6 +5,7 @@ import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { Menu } from '../Shared/Menu';
 import { AiExecutionMenuOptions, aiExecutionMenuReady, loadAiExecutionMenu } from '../Shared/aiExecutionMenuLazy';
 import { resolveEffectiveProvider } from '../../lib/effortTiers';
+import { resolveTopicsRoutingTarget } from '../../lib/topicsRoutingGate';
 import { splitModelId, friendlyModelLabel } from '../../lib/modelLabel';
 import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
 
@@ -18,10 +19,13 @@ interface Props {
   defaultProviderLabel?: string;
   onChange: (override: ProviderModelOverride | null) => void;
   onOpenSettings?: () => void;
+  /** AICTRL-01 switch: null = never set explicitly (legacy topics: fallback). */
+  topicsRouting?: boolean | null;
+  onTopicsRoutingChange?: (next: boolean) => void;
 }
 
 /** Chat adapter for the execution-first menu shared with coding tasks. */
-export function ProviderModelPicker({ override, defaultProviderLabel, onChange }: Props) {
+export function ProviderModelPicker({ override, defaultProviderLabel, onChange, topicsRouting, onTopicsRoutingChange }: Props) {
   const tr = useT();
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -29,6 +33,13 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange }
   const entries = useMemo(() => snapshot?.providers ?? [], [snapshot]);
   const effective = useMemo(
     () => resolveEffectiveProvider(entries, override, defaultProviderLabel),
+    [entries, override, defaultProviderLabel],
+  );
+  // Review bug #2: the routing switch must agree with the send gate on what ON
+  // targets, which needs the topic's pin even with no active override — `value`
+  // below stays override-only on purpose, it drives the panel/checkmark UI.
+  const routingTarget = useMemo(
+    () => resolveTopicsRoutingTarget(entries, override, defaultProviderLabel),
     [entries, override, defaultProviderLabel],
   );
   const activeModelId = effective?.model ?? override?.model ?? null;
@@ -107,6 +118,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange }
             snapshot={snapshot}
             surface="chat"
             value={{ provider: override?.provider ?? null, model: override?.model ?? null }}
+            routingTarget={{ provider: routingTarget?.provider ?? null, model: routingTarget?.model ?? null }}
             onSelect={(selection) => {
               onChange(selection.provider && selection.model
                 ? { provider: selection.provider, model: selection.model }
@@ -117,6 +129,10 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange }
               ? tr('chat.picker.defaultIs', { name: effectiveProviderLabel })
               : tr('chat.picker.noneConfigured')}
             onClose={() => setOpen(false)}
+            topicsRouting={onTopicsRoutingChange ? {
+              enabled: !!topicsRouting,
+              onToggle: onTopicsRoutingChange,
+            } : undefined}
           />
         </Suspense>
       </Menu>

@@ -156,7 +156,9 @@ export const TASKS_DDL = `CREATE TABLE IF NOT EXISTS tasks (
   -- 20260912115225: immutable delegated-start authorization and initiator.
   delegated_start_capability_id TEXT,
   run_initiator_person_id TEXT,
-  run_initiator_device_id TEXT
+  run_initiator_device_id TEXT,
+  -- 20260922180000: AICTRL-01 routing switch. NULL = never set explicitly.
+  topics_routing INTEGER CHECK (topics_routing IN (0, 1))
 )`;
 
 /**

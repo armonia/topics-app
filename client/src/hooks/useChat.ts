@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { ChatMessage, ChatRequest, CompactionMarker, ContentBlock, HistoryMessage, Message, ToolCall, WSMessage } from '../types';
-import { chatApi } from '../lib/api';
+import { chatApi, apiErrorCode } from '../lib/api';
 import { decideClientWipeOnStop } from './stopSessionPolicy';
 // "Un turno che non ha prodotto niente non lascia niente" — la STESSA regola che
 // applica il server prima di cancellare la riga. Due definizioni di "vuoto"
@@ -2051,7 +2051,13 @@ export function useChat() {
        * history si ricarica, perché la verità di questo messaggio ora sta sul
        * server e non più in pagina.
        */
-      const duplicate = is409 && err instanceof Error && err.message.includes('duplicate_message');
+      // Read the `code`, never the text. While `sendMessage` rethrew the raw
+      // body, `message.includes('duplicate_message')` worked by accident: the
+      // message WAS the JSON. The message is now the sentence a person reads
+      // and the code travels beside it, so searching the sentence would
+      // re-queue a message the server already has, which is the duplicate the
+      // idempotency key exists to prevent.
+      const duplicate = is409 && apiErrorCode(err) === 'duplicate_message';
       if (duplicate) {
         setMessages(prev => {
           const sessionMessages = prev[sessionKey] || [];

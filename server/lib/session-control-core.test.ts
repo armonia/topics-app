@@ -72,6 +72,31 @@ describe("createDetachedTopic — l'autonomia con cui nasce un agente", () => {
     expect((plain as { provider?: string | null }).provider ?? null).toBeNull();
   });
 
+  test("porta lo switch di instradamento accanto al bersaglio: ON non riscrive l'identità", () => {
+    // Senza `topicsRouting` fra le opzioni, il dispatcher scriveva `provider: "topics"` per esprimere lo switch e perdeva il bersaglio scelto. allow-italian: nomina il difetto che il test blocca
+    const deps = makeDeps();
+    const { topic } = createDetachedTopic(
+      { name: "card instradata", projectPath: "/tmp/x", systemPrompt: "", provider: "claude-code", model: "claude-opus-5", topicsRouting: true },
+      deps,
+    );
+    expect((topic as { provider?: string | null }).provider).toBe("claude-code");
+    expect(topic.model).toBe("claude-opus-5");
+    expect(topic.topicsRouting).toBe(true);
+    expect(deps.saved.at(-1)!.topicsRouting).toBe(true);
+  });
+
+  test("OFF esplicito si scrive come OFF, non come `mai impostato`", () => {
+    // `false` e assente non sono la stessa cosa: il primo batte il default della board, il secondo lo lascia decidere. allow-italian: la distinzione che il test difende
+    const deps = makeDeps();
+    const { topic } = createDetachedTopic(
+      { name: "card diretta", projectPath: "/tmp/x", systemPrompt: "", provider: "claude-code", topicsRouting: false },
+      deps,
+    );
+    expect(topic.topicsRouting).toBe(false);
+    const { topic: silent } = createDetachedTopic({ name: "muta", projectPath: "/tmp/x", systemPrompt: "" }, deps);
+    expect(silent.topicsRouting).toBeUndefined();
+  });
+
   test("mai in plan mode: `ask` è il valore che rompeva gli agenti", () => {
     const deps = makeDeps();
     const { topic } = createDetachedTopic({ name: "t", projectPath: "/tmp/x", systemPrompt: "" }, deps);

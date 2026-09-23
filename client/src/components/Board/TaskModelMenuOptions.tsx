@@ -42,19 +42,32 @@ interface Props {
   autoTitle?: string;
   /** Deterministic catalog injection for render tests. Live callers omit it. */
   snapshot?: ProvidersSnapshot;
+  /** AICTRL-01 switch row, top of the menu. Omitted = no switch (e.g. board defaults). */
+  topicsRouting?: { enabled: boolean; onToggle: (next: boolean) => void };
 }
 
-export function TaskModelMenuOptions({ models, value, onSelect, disabled, autoLabel, autoIcon, autoTitle, snapshot: snapshotOverride }: Props) {
+export function TaskModelMenuOptions({ models, value, onSelect, disabled, autoLabel, autoIcon, autoTitle, snapshot: snapshotOverride, topicsRouting }: Props) {
   void autoIcon;
   const { snapshot: liveSnapshot } = useProvidersSnapshot();
   const snapshot = snapshotOverride ?? liveSnapshot;
   const selected = taskModelSelection(value);
-  const legacyProviders = selected.model && !selected.provider
+  // AICTRL-04: `topics:<model>` is the old "run via Topics" encoding, and a
+  // bare model predates the prefix entirely. Neither names a runtime the menu
+  // still lists (`topics` is the switch above it now, AICTRL-01), so both
+  // resolve against the full registry, `topics` included, instead of the
+  // visible rows only — otherwise a model only `topics` ever served renders
+  // as vanished.
+  const isLegacySelection = selected.model && (!selected.provider || selected.provider === 'topics');
+  const legacyProviders = isLegacySelection
     ? taskExecutionOptions(snapshot).filter((entry) => entry.models.includes(selected.model!))
     : [];
-  const selectedProvider = selected.provider
+  const nativeMatch = isLegacySelection
+    ? snapshot?.providers.find((entry) => entry.name === 'topics' && entry.models.includes(selected.model!))
+    : undefined;
+  const selectedProvider = (selected.provider && selected.provider !== 'topics' ? selected.provider : undefined)
     ?? legacyProviders.find((entry) => entry.name === snapshot?.defaultProvider)?.name
     ?? legacyProviders[0]?.name
+    ?? nativeMatch?.name
     ?? (selected.model && models.includes(value ?? '') ? selected.model : null)
     ?? null;
   return (
@@ -67,6 +80,7 @@ export function TaskModelMenuOptions({ models, value, onSelect, disabled, autoLa
       automaticHint={autoTitle ?? autoLabel}
       disabled={disabled}
       allowRuntimeAutomatic
+      topicsRouting={topicsRouting}
     />
   );
 }

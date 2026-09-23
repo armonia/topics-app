@@ -548,6 +548,11 @@ export const PROJECT_WORDS = new Set([
   // as its service (`gws gmail ...`): the list of its methods that SEND mail
   // has no other honest name than the service it belongs to.
   "gmail",
+  // `routable`: the regular adjective from `route`, same case as `scanned`
+  // above. AICTRL-01's routing switch asks exactly this question of a
+  // provider/model pair, and no other word says it (2026-09-22,
+  // `shared/task-coding-models.ts`).
+  "routable",
 ]);
 
 function trackedFiles(): string[] {

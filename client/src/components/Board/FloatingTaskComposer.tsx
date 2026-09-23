@@ -21,6 +21,7 @@ import { titoloDaTesto } from '../../../../shared/task-title';
 import { draftPreviewOf, type DraftPreview } from './draftPreview';
 import { useTaskModelCatalog } from '../../hooks/useTaskModelCatalog';
 import { TaskModelMenuOptions } from './TaskModelMenuOptions';
+import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';
 
 /** Le due colonne in cui un task può NASCERE, nell'ordine in cui il menu le
  *  offre, ognuna con la CHIAVE della riga che dice cosa succede scegliendola.
@@ -66,7 +67,7 @@ type BirthStatus = Extract<TaskStatus, 'todo' | 'backlog'>;
  * sparire. Quando serve toglierlo di mezzo (un campo che gli si sovrappone, il
  * drawer a tutto schermo del telefono) lo si NASCONDE con `hidden`/`hiddenBelowLg`.
  */
-export function FloatingTaskComposer({ projectId, global, onCreated, onError, hidden, hiddenBelowLg, onDraft }: {
+export function FloatingTaskComposer({ projectId, global, onCreated, onError, hidden, hiddenBelowLg, onDraft, boardTopicsRoutingDefault = null, boardDispatchModel = null }: {
   projectId: string;
   /** Cross-project mode: no implicit board — the project picker chip appears. */
   global: boolean;
@@ -91,6 +92,10 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
    *  nothing to preview. Called on every change of text, attachments or birth
    *  column, so the ghost follows the typing. */
   onDraft?: (draft: DraftPreview | null) => void;
+  /** AICTRL-05: default di QUESTA board per lo switch. `null` nella board globale, dove non esiste UN default. allow-italian: dice cosa significa `null` qui */
+  boardTopicsRoutingDefault?: boolean | null;
+  /** Serve a leggere il prefisso legacy quando la board non ha scelto un modello proprio. allow-italian: perche' il modello della board entra nello switch */
+  boardDispatchModel?: string | null;
 }) {
   const [text, setText] = useState('');
   const [focused, setFocused] = useState(false);
@@ -135,6 +140,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
   // Model picker — automatic intelligence or an available coding model.
   const [modelOpen, setModelOpen] = useState(false);
   const [model, setModel] = useState<string | null>(null);
+  const [topicsRouting, setTopicsRouting] = useState<boolean | null>(null);
   const modelBtnRef = useRef<HTMLButtonElement>(null);
   // Priority — "Automatica" (null: the agent evaluates it at kickoff) or 0-4.
   const [prioOpen, setPrioOpen] = useState(false);
@@ -393,7 +399,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
       // perché nei thread di entrambe le card.
       const created = await boardApi.create(target, {
         text: title, description, status: birthStatus, planFirst,
-        model: model ?? undefined, priority: prio ?? undefined,
+        model: model ?? undefined, topicsRouting: topicsRouting ?? undefined, priority: prio ?? undefined,
         // Attachments ride INSIDE the create, like the intake link: the server
         // writes them on the card before dispatching it, so the agent that
         // picks it up already has them instead of seeing them land later.
@@ -407,6 +413,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
       setPlanFirst(false);
       setBirthStatus('todo');
       setModel(null);
+      setTopicsRouting(null);
       setPrio(null);
       setLink(null);
       setProposal(null);
@@ -637,6 +644,10 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
                 onSelect={(m) => { setModel(m); setModelOpen(false); }}
                 autoLabel={tr('board.composer.modelAuto')}
                 autoTitle={tr('board.composer.modelAutoOptionTitle')}
+                topicsRouting={{
+                  enabled: surfaceTopicsRoutingEnabled(topicsRouting, boardTopicsRoutingDefault, model, boardDispatchModel),
+                  onToggle: setTopicsRouting,
+                }}
               />
             </Menu>
             <button

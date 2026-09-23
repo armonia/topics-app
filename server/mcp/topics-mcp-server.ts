@@ -2319,11 +2319,32 @@ interface PermissionLegResponse {
   reason?: string;
 }
 
+/**
+ * Oltre questa misura l'input NON torna indietro dentro `updatedInput`.
+ *
+ * La risposta del permesso è un risultato MCP come gli altri, quindi passa
+ * sotto `MAX_MCP_OUTPUT_TOKENS`, che Topics abbassa a 4.000 (~16 kB, vedi
+ * `resolveMcpOutputTokens`). Sopra il tetto la CLI mette il risultato in un
+ * file e lascia un puntatore: il blocco di testo non è più il JSON della
+ * decisione, e la CLI rifiuta lo strumento con «Permission prompt tool returned
+ * an invalid result». Misurato il 23/09 sulla CLI 2.1.280: `Workflow` porta nel
+ * suo input l'intero `script` (21 kB nella sessione adottata ca699d37), e ogni
+ * lancio moriva così; 43 kB passano col tetto di default e muoiono col nostro.
+ *
+ * Senza `updatedInput` la CLI esegue lo strumento con l'input che aveva già
+ * (verificato sulla stessa versione): noi non lo modifichiamo mai, quindi non
+ * si perde niente. Sotto la soglia resta com'era, per non cambiare risposta
+ * alle CLI più vecchie sui casi che già funzionavano.
+ */
+export const PERMISSION_ECHO_MAX_BYTES = 8 * 1024;
+
 /** Il payload che la CLI si aspetta come `content[0].text`. */
 function permissionPayload(decision: "allow" | "allow_always" | "deny", input: unknown, message: string): string {
-  return decision === "deny"
-    ? JSON.stringify({ behavior: "deny", message })
-    : JSON.stringify({ behavior: "allow", updatedInput: input ?? {} });
+  if (decision === "deny") return JSON.stringify({ behavior: "deny", message });
+  const echoed = JSON.stringify({ behavior: "allow", updatedInput: input ?? {} });
+  return Buffer.byteLength(echoed, "utf8") <= PERMISSION_ECHO_MAX_BYTES
+    ? echoed
+    : JSON.stringify({ behavior: "allow" });
 }
 
 /**

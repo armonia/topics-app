@@ -20,6 +20,7 @@ import { join } from "path";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { userRowMarks } from "../lib/user-row-marks";
 import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
+import { TopicsRoutingIncompatibleError } from "../providers/resolve-topic-provider";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { cartelloRisveglio } from "../providers/claude/woken-turn";
 import { classifyShellToolResult } from "../providers/claude/background-shell";
@@ -377,6 +378,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       const overrideProvider = typeof body.provider === "string" && body.provider.trim()
         ? body.provider.trim()
         : null;
+      // Il modello di QUESTO turno, gia' qui perche' con lo switch acceso e' lui che il motore nativo deve poter servire, non quello pinnato sul topic. allow-italian: perche' e' letto prima del resolver
+      const turnModelOverride = typeof body.model === "string" && body.model.trim()
+        ? body.model.trim()
+        : null;
       // Keep raw identity and usable capability distinct. A damaged registry
       // Topic never degrades into an ordinary chat: it has no project/file
       // authority, and it must not recover a default provider through fallback.
@@ -410,11 +415,28 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       let explicitProvider: AIProvider | null = null;
       if (!forcedGlobalProvider && requestedProviderId) {
         try {
-          explicitProvider = overrideProvider
-            ? resolveProviderByName(overrideProvider)
-            : resolveProvider(matchedTopic);
+          // AICTRL-01: anche un override PER MESSAGGIO passa dal resolver. Prima si prendeva il provider dal registry e basta, quindi con lo switch acceso bastava un override nel body per eseguire fuori dal motore nativo, in silenzio. allow-italian: nomina la porta laterale chiusa qui
+          // Il topic non viene riscritto: la scelta del turno viaggia come topic SINTETICO e il pin resta quello che era. allow-italian: perche' si costruisce un topic finto
+          explicitProvider = resolveProvider(
+            overrideProvider || turnModelOverride
+              ? ({
+                  ...(matchedTopic ?? {}),
+                  provider: overrideProvider ?? matchedTopic?.provider ?? null,
+                  model: turnModelOverride ?? matchedTopic?.model ?? null,
+                } as Topic)
+              : matchedTopic,
+          );
           if (!explicitProvider.connected) throw new Error("unavailable");
-        } catch {
+        } catch (err) {
+          // AICTRL-01: this is the resolver call that actually runs whenever a
+          // topic has a pinned provider (the common case) — the generic catch
+          // below used to erase TopicsRoutingIncompatibleError into a plain
+          // "provider_unavailable", losing its reason and code before the turn
+          // even had a chance to be blocked correctly. Caught here, before the
+          // user message is persisted, with the pinned provider/model untouched.
+          if (err instanceof TopicsRoutingIncompatibleError) {
+            return json({ error: err.message, code: err.code, provider: err.provider }, 409);
+          }
           return json({
             error: `Provider "${requestedProviderId}" is unavailable. Connect it in Settings or choose another provider.`,
             code: "provider_unavailable", provider: requestedProviderId,
@@ -747,7 +769,20 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       } else if (explicitProvider) {
         topicProvider = explicitProvider;
       } else {
-        topicProvider = resolveProvider(matchedTopic);
+        // AICTRL-01: the switch can go stale between two page loads (routing
+        // ON, then the pinned provider or the native engine stops being
+        // reachable through it). The canonical rule forbids a silent OFF-style
+        // fallback here — block the send with the exact reason instead, the
+        // pinned provider/model untouched, no dispatch through a route the
+        // user never chose.
+        try {
+          topicProvider = resolveProvider(matchedTopic);
+        } catch (err) {
+          if (err instanceof TopicsRoutingIncompatibleError) {
+            return json({ error: err.message, code: err.code }, 409);
+          }
+          throw err;
+        }
       }
 
       /**
@@ -845,9 +880,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       // Per-message override wins; otherwise the topic's persisted model is
       // used (set by the picker via PUT /api/topics/:id and broadcast as
       // topic:updated). Falls through to the provider default when both unset.
-      const requestedModel = typeof body.model === "string" && body.model.trim()
-        ? body.model.trim()
-        : (typeof matchedTopic?.model === "string" && matchedTopic.model.trim() ? matchedTopic.model.trim() : undefined);
+      const requestedModel = turnModelOverride
+        ?? (typeof matchedTopic?.model === "string" && matchedTopic.model.trim() ? matchedTopic.model.trim() : undefined);
 
       // A catalog can be stale or incomplete. Keep the chosen ID: only the
       // provider can reject it. Silently using its default would run a different

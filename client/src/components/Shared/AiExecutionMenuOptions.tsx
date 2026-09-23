@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, Settings, Sparkles } from 'lucide-react';
+import { ArrowLeft, Check, Route, Settings, Sparkles } from 'lucide-react';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from '../../types';
-import { taskExecutionOptions } from '../../../../shared/task-coding-models';
+import { taskExecutionOptions, topicsRoutingAvailable } from '../../../../shared/task-coding-models';
 import { contextWindowFor, formatContextWindow } from '../../../../shared/context-window';
 import { friendlyModelLabel } from '../../lib/modelLabel';
 import { POPOVER_ITEM } from '../../lib/popoverStyles';
@@ -17,12 +17,27 @@ interface Props {
   snapshot: ProvidersSnapshot | null;
   surface: 'chat' | 'task';
   value: AiExecutionSelection;
+  /**
+   * What the routing switch checks for routability (review bug #2). `value`
+   * alone conflates two things on chat: which panel is open/checked (override
+   * only) and what ON would actually target (override, else the topic's
+   * pinned provider). Defaults to `value` for callers where the two already
+   * coincide (tasks: the stored model IS the target, no separate pin layer).
+   */
+  routingTarget?: AiExecutionSelection;
   onSelect: (selection: AiExecutionSelection) => void;
   automaticLabel: string;
   automaticHint: string;
   disabled?: boolean;
   allowRuntimeAutomatic?: boolean;
   onClose?: () => void;
+  /**
+   * The AICTRL-01 switch: does the turn route through the Topics native
+   * engine, targeting `value` as a constraint, or execute directly on it?
+   * Toggling it never touches `value`. Omitted on surfaces that do not yet
+   * persist the routing choice.
+   */
+  topicsRouting?: { enabled: boolean; onToggle: (next: boolean) => void };
 }
 
 interface ExecutionRow {
@@ -65,7 +80,8 @@ function ModelWindowLabel(
 }
 
 function chatExecutions(snapshot: ProvidersSnapshot | null): ExecutionRow[] {
-  return (snapshot?.providers ?? []).map((entry) => ({
+  // AICTRL-01: topics is the routing switch above this list, never a menu row.
+  return (snapshot?.providers ?? []).filter((entry) => entry.name !== 'topics').map((entry) => ({
     name: entry.name,
     label: entry.label ?? entry.name,
     status: entry.status,
@@ -76,18 +92,36 @@ function chatExecutions(snapshot: ProvidersSnapshot | null): ExecutionRow[] {
   }));
 }
 
+// The selection belongs to ITS provider: drilling into another one must not
+// list it there as "unavailable". A model with no provider (legacy pin) is
+// judged against whichever panel is open.
+function ownsSelection(active: Pick<ExecutionRow, 'name'>, value: AiExecutionSelection): boolean {
+  return !value.provider || value.provider === active.name;
+}
+
+export function selectedModelMissingIn(
+  active: Pick<ExecutionRow, 'name' | 'models'>,
+  value: AiExecutionSelection,
+): boolean {
+  return ownsSelection(active, value) && !!value.model && !active.models.includes(value.model);
+}
+
 export function AiExecutionMenuOptions({
   snapshot,
   surface,
   value,
+  routingTarget,
   onSelect,
   automaticLabel,
   automaticHint,
   disabled,
   allowRuntimeAutomatic = false,
   onClose,
+  topicsRouting,
 }: Props) {
   const tr = useT();
+  const target = routingTarget ?? value;
+  const routable = topicsRoutingAvailable(target.provider, target.model, snapshot);
   const executions = useMemo(
     () => surface === 'task' ? taskExecutionOptions(snapshot) : chatExecutions(snapshot),
     [snapshot, surface],
@@ -120,7 +154,22 @@ export function AiExecutionMenuOptions({
     setActiveProvider(null);
   };
 
+  // AICTRL-04: `topics` never shows up in `executions` (AICTRL-01), but a
+  // legacy pinned selection can still name it. It is a real, ready runtime,
+  // not a vanished one — drill in on the actual registry entry instead of
+  // falling through to the "no longer available" placeholder below.
+  const hiddenActive = activeProvider && !executions.some((entry) => entry.name === activeProvider)
+    ? snapshot?.providers.find((entry) => entry.name === activeProvider)
+    : undefined;
   const active = executions.find((entry) => entry.name === activeProvider)
+    ?? (hiddenActive ? {
+      name: hiddenActive.name,
+      label: hiddenActive.label ?? hiddenActive.name,
+      status: hiddenActive.status,
+      models: hiddenActive.models,
+      supportsAutomatic: false,
+      reason: hiddenActive.lastError,
+    } : null)
     ?? (activeProvider ? {
       name: activeProvider,
       label: activeProvider,
@@ -130,12 +179,36 @@ export function AiExecutionMenuOptions({
       reason: tr('ai.selector.noLongerAvailable'),
     } : null);
 
+  const routingRow = topicsRouting && (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={topicsRouting.enabled}
+      disabled={disabled || (!routable && !topicsRouting.enabled)}
+      data-testid="ai-selector-topics-routing"
+      title={routable ? tr('ai.selector.routingHint') : tr('ai.selector.routingUnavailable')}
+      className={`${POPOVER_ITEM} disabled:opacity-40`}
+      onClick={() => topicsRouting.onToggle(!topicsRouting.enabled)}
+    >
+      <Route className="h-3.5 w-3.5 shrink-0 text-app-text-muted" />
+      <span className="min-w-0 flex-1 truncate">{tr('ai.selector.routing')}</span>
+      {!routable && <span className="text-micro text-amber-300">{tr('ai.selector.unavailableShort')}</span>}
+      <span
+        className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${topicsRouting.enabled ? 'bg-emerald-400' : 'bg-app-border'}`}
+        aria-hidden="true"
+      >
+        <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${topicsRouting.enabled ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+      </span>
+    </button>
+  );
+
   if (active) {
     const ready = active.status === 'ready';
-    const missingSelectedModel = !!value.model && !active.models.includes(value.model);
+    const missingSelectedModel = selectedModelMissingIn(active, value);
     const unavailableReason = active.reason || tr('ai.selector.noLongerAvailable');
     return (
       <div ref={panelRef} className="w-[min(22rem,calc(100vw-1rem))] max-w-full py-1" data-testid="ai-selector-models">
+        {routingRow}
         <button
           className={`${POPOVER_ITEM} disabled:opacity-40`}
           onClick={returnToProviders}
@@ -147,7 +220,7 @@ export function AiExecutionMenuOptions({
           <span className="min-w-0 flex-1 truncate">{active.label}</span>
           <span className={`h-1.5 w-1.5 rounded-full ${ready ? 'bg-emerald-400' : 'bg-amber-400'}`} />
         </button>
-        {value.model && (!ready || missingSelectedModel) && (
+        {value.model && ownsSelection(active, value) && (!ready || missingSelectedModel) && (
           <button
             role="option"
             aria-selected="true"
@@ -224,6 +297,7 @@ export function AiExecutionMenuOptions({
 
   return (
     <div ref={panelRef} className="w-[min(22rem,calc(100vw-1rem))] max-w-full py-1" data-testid="ai-selector-runtimes">
+      {routingRow}
       <div className="px-2.5 pb-1 pt-1.5">
         <p className="text-mini font-semibold text-app-text">{tr('ai.selector.execution')}</p>
         <p className="mt-0.5 text-micro text-app-text-muted">{tr('ai.selector.executionHint')}</p>

@@ -2254,7 +2254,10 @@ describe("la lista e il dettaglio dicono la stessa cosa, campo per campo", () =>
          delegated_start_capability_id = 'cap-1',
          run_initiator_person_id = 'person-1',
          run_initiator_device_id = 'device-1',
-         model_effort = 'low'
+         model_effort = 'low',
+         -- 20260922180000: AICTRL-01 routing switch. Same reason as the
+         -- columns above: left NULL it would fall outside this comparison.
+         topics_routing = 1
        WHERE id = ?`,
       [
         // UNA DESCRIZIONE CON CARATTERI FUORI DAL PIANO BASE. `substr` di SQLite

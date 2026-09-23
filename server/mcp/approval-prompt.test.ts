@@ -14,6 +14,7 @@ import { describe, test, expect } from "bun:test";
 import {
   callApprovalPrompt,
   PERMISSION_MAX_LEGS,
+  PERMISSION_ECHO_MAX_BYTES,
   ASK_LEG_MS,
   toolsForProfile,
   isToolAllowedForProfile,
@@ -46,6 +47,18 @@ describe("le tre decisioni tornano nel formato che la CLI si aspetta", () => {
   test("allow_always → allow (la regola la scrive il server, qui si esegue)", async () => {
     const out = parse(await callApprovalPrompt(ARGS, { tool_name: "Write", input: INPUT, tool_use_id: "t1" }, stub([{ decision: "allow_always" }])));
     expect(out.behavior).toBe("allow");
+  });
+
+  test("allow su un input grande non lo rimanda indietro (Workflow porta tutto lo script)", async () => {
+    // 21 kB come lo script della sessione ca699d37: rimandato dentro
+    // `updatedInput` superava il tetto MCP da 4.000 token e la CLI rifiutava
+    // ogni lancio con «Permission prompt tool returned an invalid result».
+    const big = { scriptPath: "/tmp/wf.js", script: "// riempimento\n".repeat(1500) };
+    const text = await callApprovalPrompt(ARGS, { tool_name: "Workflow", input: big, tool_use_id: "t1" }, stub([{ decision: "allow" }]));
+    expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(PERMISSION_ECHO_MAX_BYTES);
+    const out = parse(text);
+    expect(out.behavior).toBe("allow");
+    expect(out.updatedInput).toBeUndefined();
   });
 
   test("deny → behavior deny, e il motivo arriva fino alla riga", async () => {
