@@ -1453,13 +1453,20 @@ test.describe("Drag-and-drop and split: the case table", () => {
       });
     }
 
-    /** The group cell that holds the leaf of `paneFrag`. */
+    /**
+     * The group cell under the centre of `paneFrag`'s body. Found by geometry,
+     * not by `closest`: on a root pane the layout leaf WRAPS the group cell, on
+     * a stacked slot the cell wraps the leaf, and only the rect reads both.
+     */
     async function cellOfPane(page: Page, paneFrag: string): Promise<string | null> {
-      return page.evaluate((frag) => {
-        const tab = document.querySelector(`[data-pane-id*="${frag}"]`);
-        const leaf = tab?.closest("[data-split-leaf]");
-        return leaf?.closest("[data-group-cell]")?.getAttribute("data-group-cell") ?? null;
-      }, paneFrag);
+      const at = center(await paneBodyBox(page, paneFrag));
+      return page.evaluate((at) => {
+        const cell = Array.from(document.querySelectorAll("[data-group-cell]")).find((c) => {
+          const b = c.getBoundingClientRect();
+          return at.x > b.left && at.x < b.right && at.y > b.top && at.y < b.bottom;
+        });
+        return cell?.getAttribute("data-group-cell") ?? null;
+      }, at);
     }
 
     /**
@@ -1494,6 +1501,7 @@ test.describe("Drag-and-drop and split: the case table", () => {
             const dragged = level === "root" ? projectB : projectC;
             const target = level === "root" ? projectId : projectB;
             const targetCell = await cellOfPane(page, target);
+            expect(targetCell, `${edge}: the target pane is drawn inside a group cell`).not.toBeNull();
             const beforeLeaves = leaves(await readTree(page, projectSurface)).length;
 
             const errors: string[] = [];
