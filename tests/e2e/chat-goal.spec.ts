@@ -72,6 +72,13 @@ test.describe("Obiettivo della chat", () => {
 
   test("/goal dichiara, entra nell'envelope e sopravvive al reload", async ({ page, request, chatPage }) => {
     test.info().annotations.push({ type: "spec", description: "CTX-GOAL-01" });
+    // `/goal <testo>` ora manda anche il turno (come Claude Code): qui conta lo
+    // stato dell'obiettivo, non la risposta, quindi il turno si chiude subito.
+    await page.route(/\/api\/chat$/, (route) =>
+      route.request().method() !== "POST"
+        ? route.fallback()
+        : route.fulfill({ status: 200, headers: { "Content-Type": "text/event-stream" }, body: "data: [DONE]\n\n" }),
+    );
     await openChat(page, chatPage);
     await runCommand(page, chatPage.messageInput, "/goal Sistemare il login");
 

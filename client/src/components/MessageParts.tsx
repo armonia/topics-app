@@ -1,4 +1,5 @@
 import { costTokens, partsFromMessage } from '../../../shared/token-cost';
+import { StreamTokenRateIndicator } from './Chat/StreamTokenRateIndicator';
 import { useT } from '../hooks/useT';
 import { useEffect, useState } from 'react';
 import { OrbitLoader } from './Layout/StreamingIndicator';
@@ -350,6 +351,8 @@ export function TurnActivityIndicator({
             : ''}
         </span>
       )}
+      {/* The speed of the answer, in line with the other numbers of the turn. */}
+      {sessionKey && state !== 'waiting' && <StreamTokenRateIndicator sessionKey={sessionKey} />}
     </div>
     {/* Un turno fermo su una domanda si CHIUDE come un messaggio qualunque.
         Tecnicamente non è finito — la riga resta `partial`, il processo è vivo

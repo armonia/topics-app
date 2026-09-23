@@ -31,12 +31,11 @@ describe('StreamTokenRateIndicator', () => {
     const live = renderToStaticMarkup(<StreamTokenRateIndicator sessionKey={SESSION} />);
     expect(live).toContain('data-rate-source="text-estimate"');
     expect(live).toContain('≈ ');
-    expect(live).not.toContain('· usage');
+    expect(live).toContain('tok/s');
 
     finishStreamTokenRate(SESSION, 200, 3_000);
     const final = renderToStaticMarkup(<StreamTokenRateIndicator sessionKey={SESSION} />);
     expect(final).toContain('data-rate-source="usage"');
-    expect(final).toContain('· usage');
     expect(final).not.toContain('≈ ');
   });
 });

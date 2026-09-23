@@ -10,6 +10,7 @@ import { TurnActivityIndicator } from '../MessageParts';
 import { isAwaitingHuman } from '../../../../shared/types';
 import { turnIsOnlyError } from './turnError';
 import { goalLoopRowOf } from './goalLoopRow';
+import { StreamTokenRateIndicator } from './StreamTokenRateIndicator';
 import { isDispatchedEnvelope } from './dispatchedEnvelope';
 import { isMachineWork } from './taskWorkFold';
 import { TaskWorkAccordion } from './TaskWorkAccordion';
@@ -617,6 +618,10 @@ export const MessageBubble = memo(function MessageBubble({
                   completionTokens={msg.usageCompletionTokens}
                   costCents={msg.costCents}
                 />
+              )}
+              {msg.role === 'assistant' && !msg.partial && isLast && (
+                // The rate is the session's LAST turn: only its bubble says it.
+                <StreamTokenRateIndicator sessionKey={topic.sessionKey} />
               )}
             </div>
           )}

@@ -946,6 +946,11 @@ function ChatPaneComponent({
     return paths;
   }, [toast]);
 
+  // The turn `/goal <text>` starts, with the composer's options of THIS render
+  // (fast mode, model override). A ref because the slash handler is a
+  // callback memoized on fewer deps than those options.
+  const sendMessageRef = useRef<((text: string) => Promise<unknown>) | null>(null);
+
   const handleSlashCommand = useCallback(async (text: string): Promise<boolean> => {
     const cmd = text.toLowerCase().trim();
     if (isGlobalOrchestrator && cmd.startsWith('/')) {
@@ -1079,7 +1084,16 @@ function ChatPaneComponent({
           return true;
         }
         await declareGoal(rest);
-        setCommandResult({ type: 'success', message: tr('chat.goal.current', { goal: rest }) });
+        // No confirmation banner here: the bar above the composer and the
+        // prompt itself already say it, a third copy in green monospace was
+        // noise over the start of the turn.
+        setCommandResult(null);
+        // AND THE GOAL IS SENT, like Claude Code's `/goal`: declaring it is
+        // asking for it. Only saving it left the chat idle until the person
+        // wrote the same thing again as a message (23/09). The text goes as a
+        // normal turn: the goal is already in the envelope of that turn
+        // (`goalContextContent`), and the loop takes over from its end.
+        void sendMessageRef.current?.(rest);
       } catch (e) {
         setCommandResult({ type: 'error', message: errMessage(e) });
       }
@@ -1462,6 +1476,7 @@ function ChatPaneComponent({
     }
     return Object.keys(opts).length ? opts : undefined;
   };
+  sendMessageRef.current = (text: string) => sendMessage(topic.sessionKey, text, currentSendOptions());
 
   const handleSendMessage = async (e?: React.SubmitEvent) => {
     if (e) e.preventDefault();

@@ -14,7 +14,7 @@
  * abbandonato o cambiato — e quelle tre azioni ci sono.
  */
 
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import {
   Check,
@@ -78,6 +78,20 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
   const active = rows.find((r) => r.status === 'in_progress');
   const byAgent = goal.createdBy === 'agent';
   const expanded = manualExpand ?? (byAgent && own && rows.length > 0);
+  // Whether the closed line hides part of the objective: only then the chevron
+  // says there is more. Measured on the text itself, closed, and re-measured
+  // when the pane changes width.
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [truncated, setTruncated] = useState(false);
+  useLayoutEffect(() => {
+    const el = textRef.current;
+    if (!el || expanded) return;
+    const measure = () => setTruncated(el.scrollWidth > el.clientWidth + 1);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [goal.content, expanded]);
 
   // THE STATE OF THE LOOP, which is not the state of the objective.
   //
@@ -147,22 +161,29 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
       data-testid="goal-bar"
       className={CHAT_STRIP_NEUTRAL}
     >
-      <div className="flex items-center gap-2 px-2.5 py-1.5">
+      <div className={`flex gap-2 px-2.5 py-1.5 ${expanded ? 'items-start' : 'items-center'}`}>
         <button
           type="button"
-          onClick={() => rows.length && setManualExpand(!expanded)}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          // A click OPENS the bar, with or without steps: a long objective cut
+          // to one line was readable only through the native tooltip, which is
+          // slow, small and gone on touch (23/09). Open, the text wraps whole.
+          onClick={() => setManualExpand(!expanded)}
+          className={`flex min-w-0 flex-1 gap-2 text-left ${expanded ? 'items-start' : 'items-center'}`}
           aria-expanded={expanded}
-          title={goal.content}
+          data-testid="goal-bar-toggle"
         >
-          {rows.length > 0 && (
+          {(rows.length > 0 || truncated) && (
             <ChevronRight
               size={13}
               className={`flex-shrink-0 text-app-text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
             />
           )}
           <Target size={13} className="flex-shrink-0 text-app-text-secondary" />
-          <span className="min-w-0 flex-1 truncate text-compact font-medium text-app-text">
+          <span
+            ref={textRef}
+            data-testid="goal-bar-text"
+            className={`min-w-0 flex-1 text-compact font-medium text-app-text ${expanded ? 'whitespace-pre-wrap break-words' : 'truncate'}`}
+          >
             {goal.content}
           </span>
           {byAgent && (

@@ -546,6 +546,7 @@ export default defineConfig({
         "**/chat-scroll-at-rest.spec.ts",
         "**/sender-sees-question.spec.ts",
         "**/prompt-history.spec.ts",
+        "**/goal-send-and-rate.spec.ts",
         "**/drag-preview.spec.ts",
         "**/swap-freeze-ice.spec.ts",
         "**/split-dnd-matrix.spec.ts",
