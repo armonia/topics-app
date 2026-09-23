@@ -4711,3 +4711,35 @@ contro cosa lo sta mettendo.
 **`0` SHALL essere leggibile come «spento», non come «zero gigabyte».** Un campo
 numerico che a zero cambia natura deve dirlo: il testo accanto SHALL cambiare, e
 non SHALL servire aprire il codice per sapere che cosa fa quel valore.
+
+### Requirement: KANBAN-94 — La vista lista è un'alternativa al kanban, non un secondo pannello
+
+**Un tasto accanto alla ricerca SHALL alternare fra vista kanban e vista
+lista**, senza aprire menu ne' pagine separate. Lo stato SHALL essere leggibile
+da un solo attributo booleano (`aria-pressed`), cosi' che il tasto stesso dica
+in quale vista ci si trova, non solo la switchi.
+
+**La scelta SHALL persistere fra sessioni**, salvata in locale sul client: e'
+una preferenza di chi guarda la board, non un dato della board stessa, quindi
+non SHALL viaggiare sul server ne' propagarsi agli altri client aperti.
+
+**In vista lista le colonne SHALL impilarsi verticali a piena larghezza**,
+invece di stare affiancate come corsie di un carosello — lo scopo e' portare
+le card piu' in alto nello schermo, non solo cambiare la direzione dello
+scroll.
+
+#### Scenario: il tasto alterna e ricorda
+- **GIVEN** la board e' in vista kanban
+- **WHEN** la persona preme il tasto accanto alla ricerca
+- **THEN** le colonne SHALL impilarsi verticali, e la scelta SHALL sopravvivere a un ricaricamento della pagina
+
+**Una sezione di stato senza card e senza bozza in corso, in vista lista,
+SHALL non disegnare niente** — ne' intestazione ne' corpo vuoto. Nella vista a
+colonne una colonna vuota resta un bersaglio di drop visibile; in una lista
+verticale non ha nulla da offrire e la sua sola presenza spinge in basso le
+sezioni piene, il difetto esatto che la vista lista esiste per correggere.
+
+#### Scenario: una sezione vuota non lascia un buco
+- **GIVEN** la vista lista e uno stato senza card ne' bozza aperta
+- **WHEN** la board renderizza le sue sezioni
+- **THEN** quello stato SHALL non comparire, e le sezioni con card SHALL restare adiacenti

@@ -1,23 +1,23 @@
 import { STOP_CAUSES } from "../../shared/ws-outbound";
 /**
- * PERCHÉ un turno è finito — detto una volta sola, con il vocabolario di ACP.
+ * WHY a turn ended — said once, with ACP's vocabulary.
  *
- * Prima nessuno lo sapeva. Il dispatcher scriveva sulla card «Turno interrotto
- * senza arrivare a review (probabile timeout)» e «Turno caduto subito
- * (probabile problema momentaneo del provider)»: due INDOVINELLI, dedotti da
- * quanto era durato il turno, perché la vera ragione non arrivava mai fin lì —
- * il provider la conosceva e la buttava via.
+ * Before, nobody knew. The dispatcher wrote on the card "Turn interrupted
+ * before reaching review (probable timeout)" and "Turn dropped immediately
+ * (probable transient provider issue)": two GUESSES, inferred from how long
+ * the turn had lasted, because the real reason never made it that far — the
+ * provider knew it and threw it away.
  *
- * Indovinare non è gratis: le politiche di ripresa sono diverse per ragioni
- * diverse. Un contesto pieno va ripreso subito (la sessione compatta e
- * riparte), un rifiuto del modello NON va ripreso affatto (riprovare uguale
- * ottiene lo stesso rifiuto e brucia il budget), e uno stop premuto da un umano
- * non è un fallimento dell'agente e non deve costargli un tentativo. Con un
- * unico "probabile timeout" tutti e tre finivano nello stesso ramo.
+ * Guessing isn't free: resume policy differs by reason. A full context
+ * should resume right away (the session compacts and restarts), a model
+ * refusal should NOT resume at all (retrying identically gets the same
+ * refusal and burns the budget), and a stop pressed by a human is not a
+ * failure of the agent's and shouldn't cost it an attempt. With a single
+ * "probable timeout" all three ended up on the same branch.
  *
- * Il vocabolario è quello di ACP (Agent Client Protocol) perché è lo stesso che
- * la fase 3 del piano espone verso l'esterno: nominarlo qui in modo diverso
- * significherebbe tradurlo due volte.
+ * The vocabulary is ACP's (Agent Client Protocol) because it's the same one
+ * phase 3 of the plan exposes externally: naming it differently here would
+ * mean translating it twice.
  */
 
 /** Le cinque ragioni di ACP. */

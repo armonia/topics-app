@@ -1,21 +1,23 @@
 /**
- * IL RIFIUTO CHE NON SI VEDEVA — segnalato il 21/09 su topic:a5c4a915.
+ * THE REFUSAL THAT DIDN'T SHOW — reported on 21/09 on topic:a5c4a915.
  *
- * «Si è bloccata, non vedo nessun feedback.» La chat non era bloccata: l'API
- * aveva rifiutato il turno («violative cyber content») e il server aveva
- * scritto il verdetto. Il verdetto pero' era il 19° blocco di 19, in coda a una
- * pila di tool call, dove nessuno scorre — e il banner ambra sopra il
- * compositore, che esiste apposta per questo, non si accendeva.
+ * "It's stuck, I don't see any feedback." The chat wasn't stuck: the API had
+ * refused the turn ("violative cyber content") and the server had written
+ * the verdict. The verdict, though, was the 19th block out of 19, at the end
+ * of a stack of tool calls nobody scrolls through — and the amber banner
+ * above the composer, which exists exactly for this, wasn't lighting up.
  *
- * LA CATENA CHE MANCAVA, in un anello solo: il banner rende solo i blocchi
- * `error` che portano una `cause` (vedi `interruptedTurnOf`), e `stream:end`
- * mette `stopCause` sul filo solo se `endInfo.cause` c'e'. Un rifiuto tornava
- * con `end: "refusal"` e basta: nessuna causa, nessun banner, ne' in diretta
- * ne' dopo un reload.
+ * THE MISSING LINK, down to a single ring: the banner only renders `error`
+ * blocks that carry a `cause` (see `interruptedTurnOf`), and `stream:end`
+ * only puts `stopCause` on the wire if `endInfo.cause` exists. A refusal
+ * came back with just `end: "refusal"`: no cause, no banner, neither live
+ * nor after a reload.
  *
- * Questi test guardano la SORGENTE della causa. Piu' a valle ci sono i test del
- * banner (`client/src/components/Chat/turnError.test.ts`) e quelli della frase
- * (`server/lib/cancelled-notice.test.ts`).
+ * These tests look at the SOURCE of the cause. Further downstream are the
+ * banner tests (`client/src/components/Chat/turnError.test.ts`) and the
+ * copy tests (`server/lib/cancelled-notice.test.ts`).
+ *
+ * @covers CHAT-REL-01
  */
 import { describe, test, expect } from "bun:test";
 import { roundEnd } from "./agent-loop";
@@ -25,15 +27,15 @@ describe("roundEnd · un rifiuto porta la sua causa", () => {
   test("il rifiuto dichiara ANCHE chi ha chiuso il turno, non solo cosa e' successo", () => {
     const out = roundEnd("refusal", 0, 0, null);
     expect(out.end).toBe("refusal");
-    // `cause` e' l'anello che mancava: senza, niente banner e niente stopCause.
+    // `cause` is the missing link: without it, no banner and no stopCause.
     expect(out.cause).toBe("refusal");
   });
 
   test("la causa e' una del vocabolario del filo, o il broadcast viene scartato", () => {
-    // Una `stopCause` fuori da `STOP_CAUSES` fa fallire la validazione di
-    // `stream:end`: il client non riceve la fine del turno e la chat resta
-    // «in esecuzione» per sempre. E' il guasto documentato accanto a quella
-    // lista, e questo test e' il motivo per cui non puo' tornare.
+    // A `stopCause` outside `STOP_CAUSES` fails `stream:end` validation: the
+    // client never receives the turn's end and the chat stays "running"
+    // forever. It's the bug documented next to that list, and this test is
+    // the reason it can't come back.
     expect(STOP_CAUSES).toContain(roundEnd("refusal", 0, 0, null).cause as never);
   });
 
@@ -46,8 +48,8 @@ describe("roundEnd · un rifiuto porta la sua causa", () => {
   });
 
   test("un rifiuto CON lavoro gia' fatto resta un rifiuto", () => {
-    // Il caso reale: il turno aveva gia' eseguito tool prima del no. Se qui
-    // prevalesse il ramo dei tool, il verdetto tornerebbe muto.
+    // The real case: the turn had already run tools before the refusal. If
+    // the tool branch won out here, the verdict would come back silent.
     const out = roundEnd("refusal", 6, 18, null);
     expect(out.end).toBe("refusal");
     expect(out.cause).toBe("refusal");
@@ -56,8 +58,8 @@ describe("roundEnd · un rifiuto porta la sua causa", () => {
   test("le altre fini NON diventano rifiuti", () => {
     expect(roundEnd("end_turn", 0, 1, null).end).toBe("end_turn");
     expect(roundEnd("max_tokens", 0, 1, null).end).toBe("max_tokens");
-    // `max_tokens` non ha causa apposta: e' un limite di lunghezza, non una
-    // fine attribuita a qualcuno.
+    // `max_tokens` has no dedicated cause: it's a length limit, not an end
+    // attributed to anyone.
     expect(roundEnd("max_tokens", 0, 1, null).cause).toBeUndefined();
   });
 });

@@ -616,14 +616,14 @@ export function roundEnd(
   // `consumesAttempt` returns false for it (retrying an identical request buys
   // the identical refusal) and `describeTurnEnd` has its sentence.
   if (stopReason === "refusal") {
-    // LA CAUSA VIAGGIA COL VERDETTO, o il verdetto non si vede.
+    // THE CAUSE TRAVELS WITH THE VERDICT, or the verdict doesn't show.
     //
-    // `end` dice COSA è successo, `cause` dice CHI ha chiuso il turno, ed è
-    // `cause` che il banner sopra il compositore rende e che `stream:end`
-    // mette sul filo (entrambi ignorano un blocco `error` che non ce l'ha).
-    // Senza, il rifiuto restava un blocco in fondo alla bolla: su
-    // topic:a5c4a915, il 21/09, il 19° di 19 sotto una pila di tool call, e la
-    // chat sembrava «bloccata senza nessun feedback».
+    // `end` says WHAT happened, `cause` says WHO closed the turn, and it's
+    // `cause` that the banner above the composer renders and that
+    // `stream:end` puts on the wire (both ignore an `error` block that
+    // lacks it). Without it, the refusal stayed a block at the bottom of the
+    // bubble: on topic:a5c4a915, on 21/09, the 19th out of 19 under a stack
+    // of tool calls, and the chat looked "stuck with no feedback".
     return { end: "refusal", cause: "refusal", detail: refusalDetail(stopDetails) };
   }
   if (toolUseCount > 0) {
@@ -701,19 +701,20 @@ export async function runAgentTurn(
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     if (opts.signal?.aborted) {
-      // ANCHE QUESTA USCITA PARLA.
+      // THIS EXIT SPEAKS TOO.
       //
-      // Prima faceva `return` e basta: nessun `onDone`, nessun `onError`,
-      // nessun `onAborted`. Chi ascolta — `routes/chat.ts` — finalizza il turno
-      // SOLO da uno di quei tre, quindi su questo ramo lo stream SSE restava
-      // aperto su un turno già morto, e a chiuderlo arrivava minuti dopo un
-      // watchdog, con la sua spiegazione sbagliata («il provider non risponde»).
-      // Un'uscita muta da un ciclo è una promessa non mantenuta a chi aspetta.
+      // It used to just `return`: no `onDone`, no `onError`, no `onAborted`.
+      // Whoever listens — `routes/chat.ts` — finalizes the turn ONLY from
+      // one of those three, so on this branch the SSE stream stayed open on
+      // an already-dead turn, and a watchdog arrived minutes later to close
+      // it, with its wrong explanation ("the provider isn't responding").
+      // A silent exit from a loop is a broken promise to whoever is waiting.
       //
-      // La causa si legge dal segnale. Se chi ha annullato non l'ha dichiarata
-      // NON si inventa: il turno resta `cancelled` senza causa, e a valle
-      // `cancelledNotice` su quel ramo scrive comunque un cartello. Indovinare
-      // «user» è precisamente ciò che ha fatto sparire la spiegazione.
+      // The cause is read from the signal. If whoever cancelled didn't
+      // declare it, it does NOT get invented: the turn stays `cancelled`
+      // with no cause, and downstream `cancelledNotice` still writes a
+      // banner on that branch. Guessing "user" is precisely what made the
+      // explanation disappear.
       const causa = stopCauseFromSignal(opts.signal);
       const end: TurnEndInfo = causa ? { end: "cancelled", cause: causa } : { end: "cancelled" };
       handler.onAborted?.({ result: finalText, turnEnd: end, usage: toProviderUsage(total) });

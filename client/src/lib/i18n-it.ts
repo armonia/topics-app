@@ -1684,6 +1684,8 @@ const IT: Dict = {
   'board.toolbar.thisProject': 'Questo progetto',
   'board.toolbar.allProjects': 'Tutti i progetti',
   'board.toolbar.dispatchSettings': 'Impostazioni auto-dispatch',
+  'board.toolbar.viewMode.kanban': 'Passa alla vista a lista',
+  'board.toolbar.viewMode.list': 'Passa alla vista kanban',
   'board.orchestrator.open': 'Orchestratore',
   'board.orchestrator.opening': 'Apro…',
   'board.orchestrator.openTitle': 'Apri il coordinatore della Kanban in un pannello accanto alle colonne',
@@ -2557,9 +2559,9 @@ const IT: Dict = {
   'notifications.loadMore': 'Carica altre notifiche',
   'notifications.loadingMore': 'Carico…',
   'notifications.allLoaded': 'Sei arrivato in fondo al registro.',
-  // ── Barra dei progetti sotto la board.
+  // ── Projects bar under the board.
   'board.projects.more': 'Altri {n} progetti con task aperti',
-  // ── Righe della barra laterale.
+  // ── Sidebar rows.
   'sidebar.noTabs': 'Nessuna tab',
   'sidebar.closeBrowser': 'Chiudi browser',
   'topic.cloudSession': 'Sessione cloud (OpenClaw)',
