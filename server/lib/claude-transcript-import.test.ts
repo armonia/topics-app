@@ -90,6 +90,26 @@ describe("parseTranscriptToMessages", () => {
     expect(msgs[0]!.content).toBe("vero");
   });
 
+  test("a turn the CLI opened by itself is not shown as a user message", () => {
+    // Forma reale, dalla sessione ca699d37 adottata il 23/09: la notifica di un
+    // task in background finito, seguita dalla risposta che la riassume.
+    const notice = "<task-notification>\n<task-id>wbh3m8uc9</task-id>\n<status>completed</status>\n</task-notification>";
+    const text = [
+      line({ type: "user", origin: { kind: "human" }, message: { role: "user", content: "fai l'audit" } }),
+      line({ type: "user", origin: { kind: "task-notification" }, message: { role: "user", content: notice } }),
+      // Riga di una CLI precedente al campo `origin`: basta il prefisso.
+      line({ type: "user", message: { role: "user", content: [{ type: "text", text: notice }] } }),
+      line({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "audit finito" }] } }),
+    ].join("\n");
+    const msgs = parseTranscriptToMessages(text);
+    expect(msgs.map((m) => [m.role, m.content])).toEqual([
+      ["user", "fai l'audit"],
+      ["assistant", "audit finito"],
+    ]);
+    // La catena resta lineare: la risposta pende dal messaggio umano.
+    expect(msgs[1]!.parentId).toBe(msgs[0]!.id);
+  });
+
   test("handles string assistant content and skips empty turns", () => {
     const text = [
       line({ type: "assistant", message: { role: "assistant", content: "plain" } }),

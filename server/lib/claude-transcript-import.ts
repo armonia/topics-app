@@ -25,6 +25,9 @@ import type { ToolCall } from "../../shared/types";
 interface RawEntry {
   type?: string;
   isMeta?: boolean;
+  /** Who produced a `user` line: `human` for a typed prompt, `task-notification`
+   *  when the CLI opened the turn by itself (a background task finishing). */
+  origin?: { kind?: string };
   isSidechain?: boolean;
   timestamp?: string;
   uuid?: string;
@@ -192,6 +195,14 @@ export function parseTranscriptDelta(text: string, opts?: DeltaParseOptions): De
     }
     userText = userText.trim();
     if (!userText) continue; // pure tool_result carrier — no user turn to show
+    // Un turno aperto dalla CLI da sola (un task in background che finisce) non
+    // l'ha scritto nessuno: nella chat nativa non diventa una bolla utente, qui
+    // compariva come messaggio di Attilio con l'XML grezzo della notifica.
+    // Il transcript lo marca con `origin.kind`; il prefisso copre le righe
+    // scritte da CLI che non avevano ancora quel campo.
+    if (entry.origin?.kind === "task-notification" || userText.startsWith("<task-notification>")) {
+      continue;
+    }
     // A local slash-command echo or an interrupt marker is CLI bookkeeping, not
     // a prompt the human typed — same exclusion list as the live-tail's
     // isMetaUserLine (claude-session-state.ts).
