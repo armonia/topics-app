@@ -150,13 +150,28 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // Vale per TUTTE le colonne, non solo Review: la stessa card in Todo avrebbe
   // sfondato allo stesso modo il suo `max-w`.
   // List view is not a carousel: no column has a neighbour to peek at, so the
-  // width fills the whole row instead of stopping at the `basis` meant for
-  // sitting side by side.
+  // section fills the row up to a reading-width cap instead of stretching
+  // edge to edge on a wide pane — a full-bleed card list on an ultrawide pane
+  // was reported unusable, not more readable (card a551b940).
+  //
+  // REVIEW GROWS FURTHER THE MOMENT IT HOLDS SOMETHING: the reviewer asked for
+  // Review to dominate the row, roughly two columns' worth, whenever there is
+  // something to look at (card a551b940). An empty Review is still roomier
+  // than a working column (nothing changes there), but a non-empty one claims
+  // close to half the row so at common desktop widths the carousel
+  // effectively shows Review plus one neighbour instead of five slivers.
+  // `transition-[flex-basis,max-width]` animates the claim/release instead of
+  // snapping it.
+  const reviewHasWork = isReview && (tasks.length > 0 || !!draft);
   const widthCls = layout === 'list'
-    ? 'w-full'
-    : isReview
-      ? 'min-w-0 grow basis-full sm:basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
-      : 'min-w-0 grow basis-72 max-w-[26rem]';
+    ? 'mx-auto w-full max-w-3xl'
+    : `min-w-0 grow transition-[flex-basis,max-width] duration-200 ease-out ${
+        reviewHasWork
+          ? 'basis-full sm:basis-[30rem] max-w-[40rem] lg:basis-[46rem] lg:max-w-[60rem]'
+          : isReview
+            ? 'basis-full sm:basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
+            : 'basis-72 max-w-[26rem]'
+      }`;
   // A section with no tasks and no draft in flight carries nothing to read in
   // a vertical list (unlike the grid, where an empty column is still a visible
   // drop target): skip it, so when only one status is populated the list is
