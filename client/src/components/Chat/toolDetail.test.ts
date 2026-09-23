@@ -245,3 +245,45 @@ describe('il piano scritto su file È un piano, non una scrittura', () => {
     expect(d.type).toBe('write');
   });
 });
+
+// I passi del goal sono una todo: stessa forma (content + status), stessa card.
+// Prima cadevano nella card MCP generica, con una testata «topics ·
+// update_goal_steps()» e nessun riassunto, perché gli argomenti sono solo un
+// array. Il server li salva come `mcp` (o `unknown` sulle righe vecchie coi nomi
+// nudi): la conversione sta al rendering, cosi' vale per tutto lo storico.
+describe('toolDetail — update_goal_steps / set_goal', () => {
+  const steps = [
+    { content: 'Mappare', status: 'completed' },
+    { content: 'Pila di schede', status: 'in_progress' },
+    { content: 'Marcare le schede', status: 'pending' },
+  ];
+
+  test('update_goal_steps, con e senza prefisso MCP, diventa una todo', () => {
+    for (const name of ['mcp__topics__update_goal_steps', 'update_goal_steps']) {
+      const d = deriveToolDetail(name, { steps });
+      expect(d.type, name).toBe('todo');
+      expect(buildToolDisplayLabel(d, name)).toEqual({ name: 'Goal steps', summary: '1/3 · Pila di schede' });
+    }
+  });
+
+  test('una riga salvata come `mcp` dal server si disegna come todo', () => {
+    // La forma vera nel DB: detail mcp, args svuotati dal trim della history.
+    const tc: ToolCall = {
+      id: 't1', name: 'mcp__topics__update_goal_steps', status: 'success', args: {},
+      detail: { type: 'mcp', server: 'topics', tool: 'update_goal_steps', args: { steps } },
+    };
+    const d = resolveToolDetail(tc);
+    expect(d.type).toBe('todo');
+    if (d.type === 'todo') expect(d.items.map((i) => i.status)).toEqual(['completed', 'in_progress', 'pending']);
+  });
+
+  test('uno status sconosciuto non si traveste: resta la card generica', () => {
+    const d = deriveToolDetail('update_goal_steps', { steps: [{ content: 'x', status: 'deleted' }] });
+    expect(d.type).not.toBe('todo');
+  });
+
+  test('set_goal mostra la frase dell\'obiettivo, non «content: …»', () => {
+    const d = deriveToolDetail('mcp__topics__set_goal', { content: 'Rendere leggibili le righe dei tool' });
+    expect(buildToolDisplayLabel(d, 'mcp__topics__set_goal')).toEqual({ name: 'Goal', summary: 'Rendere leggibili le righe dei tool' });
+  });
+});

@@ -71,6 +71,41 @@ const TODO_ITEM_NAMES = new Set(['taskcreate', 'task_create', 'taskupdate', 'tas
  */
 export const TODO_TOOL_NAMES: ReadonlySet<string> = new Set([...TODO_LIST_NAMES, ...TODO_ITEM_NAMES]);
 
+/** `update_goal_steps`, bare (native provider) or behind any MCP prefix. */
+function isGoalStepsTool(name: string): boolean {
+  const c = canon(name);
+  return c === 'update_goal_steps' || c.endsWith('__update_goal_steps');
+}
+
+function isSetGoalTool(name: string): boolean {
+  const c = canon(name);
+  return c === 'set_goal' || c.endsWith('__set_goal');
+}
+
+/**
+ * I passi del goal come todo. Stessa forma della lista di TodoWrite (content +
+ * status), quindi stessa card e stesso riassunto «2/7 · passo in corso»: prima
+ * erano JSON generico con una testata vuota. Uno status fuori dai tre noti o un
+ * elenco vuoto restano generici: una todo inventata e' peggio del JSON.
+ *
+ * NON entra in TODO_TOOL_NAMES apposta: la striscia sopra il composer e' per le
+ * todo del turno, i passi del goal li mostra gia' GoalBar.
+ */
+function goalStepsAsTodo(args: unknown): ToolCallDetail | null {
+  const steps = asRecord(args).steps;
+  if (!Array.isArray(steps) || steps.length === 0) return null;
+  const items: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }> = [];
+  for (const raw of steps) {
+    const step = typeof raw === 'string' ? { content: raw } : asRecord(raw);
+    const content = s(step.content);
+    if (!content) continue;
+    const status = s(step.status) ?? 'pending';
+    if (status !== 'pending' && status !== 'in_progress' && status !== 'completed') return null;
+    items.push({ content, status });
+  }
+  return items.length > 0 ? { type: 'todo', items } : null;
+}
+
 export function deriveToolDetail(
   name: string,
   args: Record<string, unknown> | undefined,
@@ -78,6 +113,11 @@ export function deriveToolDetail(
 ): ToolCallDetail {
   const c = canon(name);
   const a = asRecord(args);
+
+  if (isGoalStepsTool(name)) {
+    const todo = goalStepsAsTodo(a);
+    if (todo) return todo;
+  }
 
   if (SHELL_NAMES.has(c)) {
     return {
@@ -394,6 +434,13 @@ export function resolveToolDetail(tc: ToolCall): ToolCallDetail {
     // boundary. On schema drift / malformed payload, fall back to client-side
     // derivation (graceful degradation — UI still renders, with a dev warning).
     const result = parseToolCallDetail(tc.detail);
+    // Il server salva i passi del goal come `mcp` (argomenti dentro
+    // `detail.args`, e gli `args` di primo livello svuotati dal trim della
+    // history): la todo si ricava da li', altrimenti lo storico resta JSON.
+    if (result.ok && result.data.type === 'mcp' && isGoalStepsTool(tc.name)) {
+      const todo = goalStepsAsTodo(result.data.args);
+      if (todo) return todo;
+    }
     // A detail the server could not type is now KEPT as `unknown` instead of
     // being deleted (server/utils.ts), so nothing is lost on the wire. The
     // renderer still prefers what it can derive from the tool NAME: a generic
@@ -470,7 +517,10 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
       const done = detail.items.filter((t) => t.status === 'completed').length;
       const active = detail.items.find((t) => t.status === 'in_progress');
       const activeText = active ? ` · ${active.activeForm ?? active.content}` : '';
-      return { name: 'Todo', summary: `${done}/${detail.items.length}${activeText}` };
+      return {
+        name: rawName && isGoalStepsTool(rawName) ? 'Goal steps' : 'Todo',
+        summary: `${done}/${detail.items.length}${activeText}`,
+      };
     }
     case 'sub_agent':
       return {
@@ -480,6 +530,10 @@ export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string):
     case 'plan':
       return { name: 'Plan', summary: planSummary(detail.text) };
     case 'mcp':
+      // L'obiettivo e' una frase: si legge intera, non come «content: …».
+      if (isSetGoalTool(detail.tool) && typeof detail.args?.content === 'string') {
+        return { name: 'Goal', summary: detail.args.content };
+      }
       return { name: `${detail.server} · ${detail.tool}`, summary: summarizeArgs(detail.args) };
     case 'monitor':
       return { name: 'Monitor', summary: detail.description || detail.command || detail.wsUrl };
