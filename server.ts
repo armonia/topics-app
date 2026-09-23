@@ -772,6 +772,12 @@ const claudeSessionTracker = createClaudeSessionTracker({
     resolveToolResult: (sk, toolUseId, result, isError) =>
       ctx.updateToolCallResult(sk, toolUseId, isError ? "" : result, isError ? result : undefined),
     topicIdForSessionKey: (sk) => ctx.getTopicBySessionKey(sk)?.id ?? null,
+    // `topic:updated` is what an open pane reconciles its thread on
+    // (usePanelLifecycle): the imported tool rows and results reach it too.
+    announceThreadChanged: (sk) => {
+      const topic = ctx.getTopicBySessionKey(sk);
+      if (topic) ctx.broadcastToAll({ type: "topic:updated", topic });
+    },
   },
   // Double-import guard: while Topics owns a live claude child for the session,
   // the chat provider streams + persists those turns itself.

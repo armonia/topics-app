@@ -742,6 +742,41 @@ describe('ClaudeSessionTracker — message import sweep (adopted sessions)', () 
     expect(fake.append).toHaveLength(1);
   });
 
+  /**
+   * A terminal turn made only of tool calls has no text, so `message:new`
+   * skips it, and a tool result patched onto an earlier row has no frame at
+   * all. Open panes reconcile their thread on `topic:updated`; without this
+   * announcement they kept those rows invisible, or spinning, until a reload
+   * (23/09, "I have to refresh to see the real state of a topic").
+   */
+  it('a tool-only terminal turn tells the open panes the thread changed', async () => {
+    const db = freshDb();
+    const rec = makeRecorder();
+    const fake = makeSink();
+    const announced: string[] = [];
+    fake.sink.announceThreadChanged = (sk) => announced.push(sk);
+
+    const path = tmpTranscript();
+    const initial = jline({ type: 'user', message: { role: 'user', content: 'ciao' } }) + '\n';
+    writeFileSync(path, initial);
+    seedAdopted(db, 'topic-tools', 'cli-tools', path, Buffer.byteLength(initial, 'utf-8'));
+    const tracker = makeTracker(db, rec, { importSink: fake.sink });
+
+    const turn = [
+      jline({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'Bash', input: { command: 'ls' } }] } }),
+      jline({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu-1', content: 'a.txt' }] } }),
+    ].join('\n') + '\n';
+    writeFileSync(path, initial + turn);
+
+    await tracker.importOnce();
+    expect(rec.events.filter((e: any) => e.type === 'message:new')).toEqual([]);
+    expect(announced).toEqual(['topic-tools']);
+
+    // Nothing new: nothing announced.
+    await tracker.importOnce();
+    expect(announced).toEqual(['topic-tools']);
+  });
+
   it('does NOT re-import while Topics drives the session, but advances the cursor', async () => {
     const db = freshDb();
     const rec = makeRecorder();

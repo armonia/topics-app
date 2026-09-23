@@ -57,6 +57,13 @@ export interface ImportSink {
   resolveToolResult(sessionKey: string, toolUseId: string, result: string, isError: boolean): void;
   /** Topic id for the WS `message:new` fan-out, or null if unmapped. */
   topicIdForSessionKey(sessionKey: string): string | null;
+  /**
+   * The thread of this session changed under the open panes: tell them to
+   * reconcile. `message:new` below carries TEXT only, so a turn made only of
+   * tool calls, and every tool result patched onto an earlier row, reached no
+   * open chat until a reload. Optional so older wirings keep working.
+   */
+  announceThreadChanged?(sessionKey: string): void;
 }
 
 export interface ClaudeSessionTrackerOptions {
@@ -904,6 +911,10 @@ export function createClaudeSessionTracker(opts: ClaudeSessionTrackerOptions): C
           preview: content.slice(0, 100),
         } as OutboundMessage);
       }
+    }
+    if (messages.length || resolutions.length) {
+      try { importSink.announceThreadChanged?.(sessionKey); }
+      catch (err) { console.error('[claude-session-tracker] announceThreadChanged failed', err); }
     }
     return messages.length;
   }
