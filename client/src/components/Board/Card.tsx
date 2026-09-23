@@ -1674,6 +1674,7 @@ export const Card = memo(function Card({ task, onOpen, showProject, error, onErr
             deletions={task.deliveryDeletions ?? 0}
             commit={task.deliveryCommit ?? null}
             live={gitLive}
+            onOpen={onOpen}
           />
         )}
         {/* The last update closes the row, on the right: it is the weakest of

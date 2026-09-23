@@ -1,9 +1,9 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../../hooks/useT';
 import { ChevronDown, ChevronRight, FileCode, MessageSquarePlus, Trash2 } from 'lucide-react';
-import type { DiffBundle, DiffFileStat } from '../../lib/board';
+import { boardApi, type DiffBundle, type DiffFileStat } from '../../lib/board';
 import { parseDiffRows, isCommentable, anchorOf, noteKey, type DiffRow, type DiffNote } from './reviewNotes';
-import { buildFileRows, type DiffFileChunk } from './diffFileRows';
+import { buildFileRows, chunkFromFilePatch, type DiffFileChunk } from './diffFileRows';
 import { ChangedFileEntry } from '../Git/ChangedFileList';
 import { rowFromDiffStat } from '../Git/changedFiles';
 import { shortcut } from '../../lib/shortcutLabel';
@@ -85,16 +85,37 @@ function NoteComposer({ onSave, onCancel }: { onSave: (body: string) => void; on
   );
 }
 
-const FileDiff = memo(function FileDiff({ path, chunk, stat, partial, defaultOpen, review }: {
+/**
+ * Fetches the patch of ONE file the bundle left out. Absent = there is no
+ * task to ask (a publish diff), and the file keeps its plain notice.
+ */
+export type LoadFilePatch = (path: string) => Promise<{ patch: string; truncated: boolean }>;
+
+const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, defaultOpen, focused, review, loadPatch }: {
   path: string;
   /** Assente = il patch di questo file non è arrivato (payload troncato). */
   chunk?: DiffFileChunk;
   stat?: DiffFileStat;
   partial?: boolean;
   defaultOpen: boolean;
+  /** Il file su cui è stato aperto il pannello: espanso e portato in vista. */
+  focused?: boolean;
   review?: DiffReview;
+  loadPatch?: LoadFilePatch;
 }) {
   const tr = useT();
+  const rootRef = useRef<HTMLDivElement>(null);
+  // Il patch caricato a mano, per un file rimasto oltre il tetto del bundle.
+  const [lazy, setLazy] = useState<{ chunk: DiffFileChunk | null; truncated: boolean } | 'loading' | 'error' | null>(null);
+  const lazyChunk = lazy && typeof lazy === 'object' ? lazy.chunk ?? undefined : undefined;
+  const chunk = bundled ?? lazyChunk;
+  const load = useCallback(() => {
+    if (!loadPatch) return;
+    setLazy('loading');
+    loadPatch(path)
+      .then((r) => setLazy({ chunk: chunkFromFilePatch(path, r.patch), truncated: r.truncated }))
+      .catch(() => setLazy('error'));
+  }, [loadPatch, path]);
   const allNotes = review?.notes;
   const fileNotes = useMemo(
     () => (allNotes ? allNotes.filter((n) => n.path === path) : []),
@@ -104,7 +125,22 @@ const FileDiff = memo(function FileDiff({ path, chunk, stat, partial, defaultOpe
   // una nota che l'umano non ritrova più — ma la scelta esplicita vince sempre
   // su quella d'ufficio, anche quando le note arrivano dopo (bozza dal server).
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
-  const open = userOpen ?? (defaultOpen || fileNotes.length > 0);
+  const open = userOpen ?? (defaultOpen || !!focused || fileNotes.length > 0);
+  // Aperto da una riga del chip della card: il file va in vista, non solo
+  // espanso, altrimenti in un diff da 70 file resta sotto l'orizzonte.
+  useEffect(() => {
+    if (focused) rootRef.current?.scrollIntoView?.({ block: 'start' });
+  }, [focused]);
+  // E se il file su cui si è aperto è proprio uno di quelli oltre il tetto,
+  // il suo patch si chiede da solo: il click sulla riga era già la richiesta.
+  useEffect(() => {
+    if (!focused || bundled || !loadPatch) return;
+    let alive = true;
+    loadPatch(path)
+      .then((r) => { if (alive) setLazy({ chunk: chunkFromFilePatch(path, r.patch), truncated: r.truncated }); })
+      .catch(() => { if (alive) setLazy('error'); });
+    return () => { alive = false; };
+  }, [focused, bundled, loadPatch, path]);
   // Il tetto per file è una difesa del DOM, non un giudizio su cosa vale la pena
   // leggere: finché la riga in fondo diceva solo «…altre N righe», quelle N
   // righe non c'era modo di vederle senza uscire dalla app.
@@ -133,7 +169,13 @@ const FileDiff = memo(function FileDiff({ path, chunk, stat, partial, defaultOpe
   }, [fileNotes]);
 
   return (
-    <div className="overflow-hidden rounded-md border border-app-border">
+    <div
+      ref={rootRef}
+      data-testid="diff-file"
+      data-path={path}
+      data-focused={focused ? '1' : undefined}
+      className={`overflow-hidden rounded-md border ${focused ? 'border-indigo-400/60' : 'border-app-border'}`}
+    >
       <button
         onClick={() => setUserOpen(!open)}
         title={row.origPath ? `${row.origPath} -> ${path}` : path}
@@ -153,9 +195,27 @@ const FileDiff = memo(function FileDiff({ path, chunk, stat, partial, defaultOpe
       {open && (
         <div className="overflow-x-auto font-mono text-compact leading-[1.55]">
           {!chunk ? (
-            <div className="px-2 py-1 font-sans text-mini text-app-text-muted">
-              {tr('diff.patchMissing')}
-            </div>
+            lazy && typeof lazy === 'object' ? (
+              // Git ha risposto, e per questo file non c'è testo da mostrare.
+              <div className="px-2 py-1 font-sans text-mini text-app-text-muted">{tr('diff.noChanges')}</div>
+            ) : (
+              <div className="px-2 py-1 font-sans text-mini text-app-text-muted">
+                {tr('diff.patchMissing')}
+                {loadPatch && (
+                  // Il cartello da solo diceva cosa mancava e non come averlo:
+                  // qui il file si chiede per nome, sulla stessa gamma.
+                  <button
+                    type="button"
+                    data-testid="diff-load-file"
+                    onClick={load}
+                    disabled={lazy === 'loading'}
+                    className="ml-1.5 rounded px-1.5 py-0.5 text-indigo-300 hover:bg-indigo-500/10 hover:text-indigo-200 disabled:opacity-50"
+                  >
+                    {lazy === 'loading' ? tr('diff.loadingFile') : lazy === 'error' ? tr('diff.loadFileFailed') : tr('diff.loadFile')}
+                  </button>
+                )}
+              </div>
+            )
           ) : binary ? (
             <div className="px-2 py-1 text-app-text-muted">{tr('diff.binary')}</div>
           ) : shown.map((row, i) => {
@@ -225,7 +285,7 @@ const FileDiff = memo(function FileDiff({ path, chunk, stat, partial, defaultOpe
               {tr('diff.showAll', { total: rows.length, more: overflow })}
             </button>
           )}
-          {partial && (
+          {(partial || (lazy && typeof lazy === 'object' && lazy.truncated)) && (
             <div className="px-2 py-0.5 font-sans text-micro text-amber-400/80">
               {tr('diff.cutHere')}
             </div>
@@ -236,16 +296,27 @@ const FileDiff = memo(function FileDiff({ path, chunk, stat, partial, defaultOpe
   );
 });
 
-export function UnifiedDiff({ bundle, defaultOpenFirst = false, review }: {
+export function UnifiedDiff({ bundle, defaultOpenFirst = false, review, focusPath, projectId, taskId, attemptId }: {
   bundle: DiffBundle;
   /** Expand the first file automatically (handy when there's just one). */
   defaultOpenFirst?: boolean;
   /** Presente = diff commentabile riga per riga. */
   review?: DiffReview;
+  /** The file to expand and scroll to (opened from a row of the card chip). */
+  focusPath?: string | null;
+  /** Both present = a file past the payload cap can be fetched on its own. */
+  projectId?: string;
+  taskId?: string;
+  /** The fan-out attempt this diff belongs to: its files are read from ITS range. */
+  attemptId?: string;
 }) {
   const tr = useT();
   const files = useMemo(() => buildFileRows(bundle), [bundle]);
   const missing = files.filter((f) => !f.chunk).length;
+  const loadPatch = useMemo<LoadFilePatch | undefined>(
+    () => (projectId && taskId ? (path) => boardApi.taskDiffFile(projectId, taskId, path, attemptId) : undefined),
+    [projectId, taskId, attemptId],
+  );
 
   if (files.length === 0) {
     return <div className="px-1 py-1 text-mini text-app-text-muted">{tr('diff.noChanges')}</div>;
@@ -261,7 +332,9 @@ export function UnifiedDiff({ bundle, defaultOpenFirst = false, review }: {
           stat={f.stat}
           partial={f.partial}
           defaultOpen={defaultOpenFirst && files.length === 1}
+          focused={!!focusPath && f.path === focusPath}
           review={review}
+          loadPatch={loadPatch}
         />
       ))}
       {bundle.truncated && (

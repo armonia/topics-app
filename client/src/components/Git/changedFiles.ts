@@ -147,3 +147,31 @@ function rawCode(code: string): string | undefined {
   const trimmed = code.trim();
   return trimmed.length > 1 && trimmed !== '??' ? trimmed : undefined;
 }
+
+/**
+ * How many rows before the list folds into "and N more". Past this a dropdown
+ * stops being read at a glance, so the rest waits behind a button and a filter
+ * appears. It WAITS, it is not dropped: «and 39 more» used to be plain text,
+ * and on a 51-file topic 39 files had no way onto the screen.
+ */
+export const MAX_ROWS = 12;
+
+/**
+ * The rows to draw. Pure so it can be asserted without a DOM.
+ *
+ * The filter runs over EVERY row, not over the visible slice: a file past the
+ * cut is exactly the one you type to find. A filtered list is never cut, the
+ * point of typing was to get a short one.
+ */
+export function visibleChangedRows(
+  rows: ChangedFileRow[],
+  { expanded, query }: { expanded: boolean; query: string },
+): { shown: ChangedFileRow[]; rest: number } {
+  const q = query.trim().toLowerCase();
+  if (q) {
+    const hits = rows.filter((r) => r.path.toLowerCase().includes(q) || !!r.origPath?.toLowerCase().includes(q));
+    return { shown: hits, rest: 0 };
+  }
+  if (expanded || rows.length <= MAX_ROWS) return { shown: rows, rest: 0 };
+  return { shown: rows.slice(0, MAX_ROWS), rest: rows.length - MAX_ROWS };
+}

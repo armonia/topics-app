@@ -54,7 +54,7 @@ import { drawerSurfaceLabels, reviewDecisionButtons, taskActionWord } from './ta
 import { TASK_ACTION_ICON } from './taskActionIcons';
 import { manualStatusTarget } from '../../lib/boardOrder';
 import { formatReviewNotes } from './reviewNotes';
-import { COMPACT_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, mediaPaneIdFor, type TaskSurface } from './constants';
+import { COMPACT_MD_CLS, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER, DISPATCH_CHIP, mediaPaneIdFor, diffFocusPath, type TaskSurface } from './constants';
 import { fmtModel, commentTime, fmtMs, fmtTok, fmtUpdatedAt, autoGrow, attemptStat, taskCopyText, descSummary, fmtCount } from './format';
 import { StatusIcon, DispatchChip, QueueReasonChip } from './atoms';
 import { getSessionMessagesFromStore, subscribeSession } from '../../state/messageStore';
@@ -365,13 +365,24 @@ function ChecksSection({ task }: { task: BoardTask }) {
  * arriva dal merge su main: sopravvive alla potatura del worktree, che è
  * esattamente quando un reviewer vuole ancora poterlo leggere.
  */
-export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
+export function TaskChangesSection({ projectId, taskId, bump, onSent, focusPath }: {
   projectId: string; taskId: string; bump?: string | number;
   /** Le note sono partite come commento: il thread ha una riga in più. */
   onSent?: () => void;
+  /** Aperto da una riga del chip della card: la tendina si apre da sola su
+   *  QUEL file, espanso e portato in vista. */
+  focusPath?: string | null;
 }) {
   const tr = useT();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!!focusPath);
+  // Un'altra riga del chip sulla STESSA card riapre la tendina sul nuovo file.
+  // Aggiustato durante il render e non in un effetto: è il cambio di una prop,
+  // e un setState dentro un effetto sarebbe un render a cascata.
+  const [seenFocus, setSeenFocus] = useState(focusPath);
+  if (focusPath !== seenFocus) {
+    setSeenFocus(focusPath);
+    if (focusPath) setOpen(true);
+  }
   const [state, setState] = useState<DiffBundle | 'error' | null>(null);
   const [notes, setNotes] = useState<DiffNote[]>([]);
   const [sendingNotes, setSendingNotes] = useState(false);
@@ -541,7 +552,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent }: {
         ariaLabel={label}
         className="w-[min(46rem,92vw)] max-h-[70vh] overflow-y-auto p-2"
       >
-        <UnifiedDiff bundle={bundle} defaultOpenFirst review={review} />
+        <UnifiedDiff bundle={bundle} defaultOpenFirst review={review} focusPath={focusPath} projectId={projectId} taskId={taskId} />
         {notes.length > 0 && (
           <div className="mt-1.5 flex items-center gap-2 rounded border border-indigo-500/25 bg-indigo-500/5 px-2 py-1.5">
             <span className="min-w-0 flex-1 text-mini text-app-text-heading">
@@ -738,7 +749,7 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
     // Accordion puro (vedi TaskChangesSection): il tetto in vh era il surrogato
     // dello scroll che il drawer non aveva.
     <div className="mt-1.5">
-      <UnifiedDiff bundle={state} defaultOpenFirst />
+      <UnifiedDiff bundle={state} defaultOpenFirst projectId={projectId} taskId={taskId} attemptId={attemptId} />
     </div>
   );
 }
@@ -875,15 +886,20 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   const [downloadsOpen, toggleDownloadsOpen] = useSectionOpen('Downloads');
   // Presentation is local to this opening, never persisted into shared tabs.
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [deliveryOpen, setDeliveryOpen] = useState(false);
+  // A focus can name a FILE of the diff instead of a pane (`diffFocusFor`, a
+  // row of the card's changed-files chip): that one opens the delivery band,
+  // where «Modifiche» lives, and never the workspace.
+  const focusDiff = diffFocusPath(focusPaneId);
+  const paneFocus = focusDiff ? undefined : focusPaneId;
+  const [deliveryOpen, setDeliveryOpen] = useState(!!focusDiff);
   const isMobile = useMediaQuery('(max-width: 767px)');
-  const [workspaceOpen, setWorkspaceOpen] = useState(!!focusPaneId);
+  const [workspaceOpen, setWorkspaceOpen] = useState(!!paneFocus);
   const toggleWorkspaceOpen = () => setWorkspaceOpen((open) => !open);
   useEffect(() => {
     setDetailsOpen(false);
-    setDeliveryOpen(false);
-    setWorkspaceOpen(!!focusPaneId);
-  }, [taskId, focusPaneId]);
+    setDeliveryOpen(!!focusDiff);
+    setWorkspaceOpen(!!paneFocus);
+  }, [taskId, focusDiff, paneFocus]);
   /**
    * A REVIEW DRAFT DOES NOT STAY HIDDEN BEHIND A TAB.
    *
@@ -1997,8 +2013,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
   // così il gesto dell'utente non si perde nel buco tra mount e fetch — e non si
   // ripete più dopo, altrimenti riporterebbe l'anteprima davanti a ogni nuovo
   // commento mentre stai leggendo il thread.
-  const pendingFocusRef = useRef<string | null>(focusPaneId ?? null);
-  useEffect(() => { pendingFocusRef.current = focusPaneId ?? null; }, [taskId, focusPaneId]);
+  const pendingFocusRef = useRef<string | null>(paneFocus ?? null);
+  useEffect(() => { pendingFocusRef.current = paneFocus ?? null; }, [taskId, paneFocus]);
   useEffect(() => {
     const wanted = pendingFocusRef.current;
     if (!wanted) return;
@@ -2652,7 +2668,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               scelto il diff del task è quello del tentativo 1 — che può non
               essere quello che si tiene. Prima si sceglie, poi si revisiona. */}
           <TaskAttemptsSection projectId={projectId} taskId={taskId} bump={bump} onChanged={onChanged} onOpenTopic={onOpenTopic} />
-          {hasCodeQuestion(task) && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} onSent={onChanged} />}
+          {hasCodeQuestion(task) && <TaskChangesSection projectId={projectId} taskId={taskId} bump={bump} onSent={onChanged} focusPath={focusDiff} />}
     </div>
   ) : null;
 
