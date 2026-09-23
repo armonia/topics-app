@@ -1,3 +1,7 @@
+/**
+ * Server-side prompt numbering over the whole thread.
+ * @covers CHAT-04
+ */
 import { describe, it, expect } from "bun:test";
 import { promptNumbers } from "./prompt-number";
 

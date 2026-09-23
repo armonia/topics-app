@@ -2,7 +2,7 @@
  * ↑ in an EMPTY composer brings back the previous prompt, ↓ walks forward and
  * past the newest one returns to the empty field. The shell and Claude Code
  * both do it, and in a chat where the same kind of request comes back all the
- * time («rifallo con...», «ancora le zanne») retyping it is the one cost here.
+ * time («rifallo con...», «ancora le zanne») retyping it is the one cost here. allow-italian: quoted user prompts
  *
  * Pure: the component owns the state and the key events. The rules:
  *  - it STARTS only from an empty field, so writing and editing keep their
