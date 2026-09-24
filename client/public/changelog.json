@@ -1,5 +1,37 @@
 [
   {
+    "version": "2.2.379",
+    "date": "2026-09-24",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-24 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "A finished turn shows its answer; the work before it folds into one row",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Turn fold: a turn watched live stays open when it ends",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Task drawer: no turn fold inside «Session details»",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.378",
     "date": "2026-09-24",
     "sections": {

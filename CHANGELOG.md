@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.379 — 2026-09-24
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-24 [skip ci]
+- A finished turn shows its answer; the work before it folds into one row
+- Turn fold: a turn watched live stays open when it ends
+- Task drawer: no turn fold inside «Session details»
+
 ## 2.2.378 — 2026-09-24
 
 ### Sotto il cofano
