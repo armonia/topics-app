@@ -49,7 +49,7 @@
  */
 import { useRef, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
-import { useT } from '../../hooks/useT';
+import { useActiveLocale, useT } from '../../hooks/useT';
 import {
   GLOBAL_CAP_MAX, GLOBAL_CAP_MIN, GLOBAL_CAP_OFF,
   budgetShare, capMode, livePressureBand,
@@ -58,8 +58,10 @@ import {
 } from '../../lib/board';
 import type { DispatchAdmission, DispatchCapacity, DispatchCapMode, ThresholdBand } from '../../lib/board';
 import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
-import { DispatchLoadSummary, LoadPercentCard } from './DispatchLoadGauge';
-import { admissionVerdictText, checksFloorBoxValue, gateCoreNumbers, type VerdictText } from './dispatchLoad';
+import { DispatchLoadSummary } from './DispatchLoadGauge';
+import { admissionVerdictText, checksFloorBoxValue, gateCoreNumbers, verdictSentence, type VerdictText } from './dispatchLoad';
+import { MachineBusyLine } from '../Shared/MachineBusyLine';
+import { pctVars } from '../../lib/machineBusy';
 import {
   currentCapLimit,
   saveChecksFloor,
@@ -88,10 +90,10 @@ export function GlobalCapControl() {
         {tr('board.dispatch.parallel')}
       </p>
 
-      {/* THE SAME TWO NUMBERS AS THE COLUMN HEADER, here rather than a second
+      {/* THE SAME ONE NUMBER AS THE COLUMN HEADER'S POPOVER, not a second
           reading of the machine: whichever brake the radios below apply, this
           is what it is limiting. */}
-      <LoadPercentCard cap={s.capacity} />
+      <MachineBusyLine shares={s.capacity} />
 
       {/* WHICH QUESTION the brake asks, before any answer to it. Two radios and
           not a checkbox "measure the machine instead": a checkbox has an implied
@@ -154,8 +156,16 @@ function ChecksFloorField() {
     void saveChecksFloor(n);
   };
 
+  // FOLDED, because it is the one knob of this panel that has to speak in
+  // gigabytes (it is calibrated against a command's measured cost), and the
+  // panel's open text says how busy the Mac is in one percentage (24/09). It
+  // is set once, rarely, by whoever knows what a check costs.
   return (
-    <div className="space-y-1 pt-1.5" data-testid="checks-floor-control">
+    <details className="group space-y-1 pt-1.5" data-testid="checks-floor-control">
+      <summary className="flex cursor-pointer list-none items-center gap-1 text-micro font-semibold uppercase tracking-wide text-app-text-muted hover:text-app-text-secondary">
+        <ChevronRight size={10} className="transition-transform group-open:rotate-90" aria-hidden="true" />
+        {tr('board.checksFloor.fold')}
+      </summary>
       <p className="text-micro font-semibold uppercase tracking-wide text-app-text-muted">
         {tr('board.checksFloor.title')}
       </p>
@@ -183,7 +193,7 @@ function ChecksFloorField() {
           ? tr('board.checksFloor.off')
           : tr('board.checksFloor.hint')}
       </p>
-    </div>
+    </details>
   );
 }
 
@@ -210,6 +220,7 @@ const VERDICT_TEXT: Record<VerdictText['tone'], string> = { go: SUCCESS_TEXT, fi
  */
 function Verdict({ admission, cap }: { admission: DispatchAdmission; cap: DispatchCapacity | null }) {
   const tr = useT();
+  const locale = useActiveLocale();
   const v = admissionVerdictText(admission, cap);
   return (
     <span
@@ -218,7 +229,7 @@ function Verdict({ admission, cap }: { admission: DispatchAdmission; cap: Dispat
       data-blocked-by={admission.blockedBy ?? 'none'}
       title={v.title}
       className={`font-medium ${VERDICT_TEXT[v.tone]}`}
-    >{tr(v.key, v.params)}</span>
+    >{verdictSentence(v, tr, locale)}</span>
   );
 }
 
@@ -369,6 +380,12 @@ function ResourcesBrake() {
   // Nothing usable is the red end, not "no threshold": the others hold it all.
   const liveBand: ThresholdBand | null = used == null ? null : usable <= 0 ? 'red' : livePressureBand(used, usable);
   const cores = cap?.cores ?? 0;
+  // The same two numbers in the unit a person owns: shares of the Mac. The
+  // band above is still decided on the gate's own core-units, unchanged.
+  const locale = useActiveLocale();
+  const sharePct = pctVars(locale, cores > 0 && used != null
+    ? { used: (used / cores) * 100, ceil: (usable / cores) * 100 }
+    : { used: 0, ceil: 0 });
 
   return (
     <>
@@ -390,8 +407,8 @@ function ResourcesBrake() {
           {used == null || cores <= 0
             ? tr('board.dispatch.liveLoading')
             : pending > 0
-              ? tr(pending === 1 ? 'board.dispatch.liveFreePendingOne' : 'board.dispatch.liveFreePending', { used: used.toFixed(1), usable: usable.toFixed(1), n: pending })
-              : tr('board.dispatch.liveFree', { used: used.toFixed(1), usable: usable.toFixed(1) })}
+              ? tr(pending === 1 ? 'board.dispatch.liveFreePendingOne' : 'board.dispatch.liveFreePending', { ...sharePct, n: pending })
+              : tr('board.dispatch.liveFree', sharePct)}
         </span>
         {admission && (used != null || !admission.admit) && <Verdict admission={admission} cap={cap} />}
       </p>
@@ -438,7 +455,8 @@ function BudgetSlider({ share, onCommit, onDraft }: {
     setDraft(null);
     if (v !== share) onCommit(v);
   };
-  const label = tr('board.dispatch.budgetOfFree', { pct: Math.round(shown * 100) });
+  const locale = useActiveLocale();
+  const label = tr('board.dispatch.budgetOfFree', pctVars(locale, { pct: Math.round(shown * 100) }));
 
   return (
     <div className="space-y-0.5 pt-1" data-testid="global-cap-budget">

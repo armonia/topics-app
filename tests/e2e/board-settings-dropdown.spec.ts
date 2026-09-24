@@ -169,6 +169,7 @@ const gear = (page: Page) => page.getByTestId("kanban-board").getByTitle("Impost
  *  reload can cancel the write and the round-trip assertion after it would be
  *  testing a race the app does not have. */
 async function writeFloor(page: Page, gb: string) {
+  await openFloor(page);
   const box = page.getByTestId("checks-floor-gb");
   const written = page.waitForResponse(
     (r) => r.url().includes("/api/all-boards/settings") && r.request().method() === "PATCH" && r.ok(),
@@ -178,6 +179,11 @@ async function writeFloor(page: Page, gb: string) {
   await box.blur();
   await written;
   await expect(box).toBeEnabled();
+}
+/** The checks floor speaks in GB, so it sits folded (24/09): open it first. */
+async function openFloor(page: Page) {
+  const fold = page.getByTestId("checks-floor-control");
+  if ((await fold.getAttribute("open")) === null) await fold.locator("summary").click();
 }
 const menu = (page: Page) => page.getByTestId("board-settings-menu");
 const panel = (page: Page) => page.getByTestId("board-settings-panel");
@@ -414,6 +420,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await page.goto("/");
     await openBoard(page);
     await gear(page).click();
+    await openFloor(page);
     const floor = page.getByTestId("checks-floor-gb");
     await expect(floor).toBeVisible();
     // The default a fresh row is born with, and the change this round landed.
@@ -432,6 +439,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await page.reload();
     await openBoard(page);
     await gear(page).click();
+    await openFloor(page);
     await expect(page.getByTestId("checks-floor-gb")).toHaveValue("5");
 
     // Zero is a setting, not an empty box: it survives the round trip AND the
@@ -442,6 +450,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await page.reload();
     await openBoard(page);
     await gear(page).click();
+    await openFloor(page);
     await expect(page.getByTestId("checks-floor-gb")).toHaveValue("0");
     await expect(page.getByTestId("checks-floor-hint")).toContainText("Freno spento");
 

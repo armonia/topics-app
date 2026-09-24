@@ -33,24 +33,12 @@ import { useSystemStatus } from '../../hooks/useSystemStatus';
 import { usePerfMetrics } from '../../hooks/usePerfMetrics';
 import { useFps } from '../../lib/fpsMonitor';
 import { computeTopicsFootprint } from '../../lib/topicsFootprint';
-import { loadLevel, loadWord, loadTint } from './loadTint';
 import { publishLoad } from '../../state/systemLoad';
-import { useT } from '../../hooks/useT';
-import { formatMemoryMB } from '../../lib/formatMemory';
+import { useActiveLocale, useT } from '../../hooks/useT';
+import { busyDotColor, busyTone, machineBusyPct, pctVars, type BusyTone } from '../../lib/machineBusy';
 
-/**
- * The megabytes at which each half counts as fully loaded. These are the SAME
- * two thresholds the old strip turned amber on, kept to the number on purpose:
- * the dot going hot has to happen where the numbers used to go amber, or the
- * move would have quietly retuned an alarm while claiming to relocate one.
- *
- * The device half is much lower when the reading is partial, because then it
- * covers the shell process alone and three gigabytes of shell is not a state
- * that occurs before the machine is long gone.
- */
-const DEVICE_THRESHOLD_MB = 3072;
-const DEVICE_PARTIAL_THRESHOLD_MB = 1024;
-const SERVER_THRESHOLD_MB = 6144;
+/** The three words the hover says, one per tone of the one number. */
+const WORD: Record<Exclude<BusyTone, 'unknown'>, 'calmo' | 'caldo' | 'carico'> = { ok: 'calmo', busy: 'caldo', critical: 'carico' };
 
 export function TopicsLoadDot({ hidden = false, alarm = false }: {
   /** Covered by the window commands (Tauri, menu open): kept in the DOM, made
@@ -60,6 +48,7 @@ export function TopicsLoadDot({ hidden = false, alarm = false }: {
   alarm?: boolean;
 } = {}) {
   const tr = useT();
+  const locale = useActiveLocale();
   // The same cadences the status bar used, and for the same reasons: system
   // status is a minute (it is a server round trip), the shell metrics are five
   // seconds (they are a local call and the number has to move while you watch
@@ -87,13 +76,15 @@ export function TopicsLoadDot({ hidden = false, alarm = false }: {
     sampleKey: status?.timestamp,
   });
 
-  const memCeilingMB = (appMemMB !== null ? (isPartialMem ? DEVICE_PARTIAL_THRESHOLD_MB : DEVICE_THRESHOLD_MB) : 0)
-    + (usage.serverMB !== null ? SERVER_THRESHOLD_MB : 0);
-  const { livello, misurato } = loadLevel({
-    cpu: usage.totalCpu,
-    memMB: usage.totalMB,
-    memCeilingMB,
-  });
+  // THE DOT SAYS HOW BUSY THE MAC IS (24/09), the one number every load
+  // surface says: the larger of the whole Mac's CPU% and memory%, green under
+  // 60, amber to 85, red above. It used to be Topics' own footprint against
+  // fixed megabyte thresholds, a second scale that disagreed with the board's.
+  // Topics' own megabytes and CPU still travel to the menu, which prints them.
+  const busyPct = machineBusyPct(status?.machine);
+  const tone = busyTone(busyPct);
+  const misurato = busyPct != null;
+  const livello = misurato ? busyPct / 100 : 0;
   const partial = usage.memPartial || usage.cpuPartial;
 
   // Published for the menu, which spells the same sample out in words. Written
@@ -103,12 +94,8 @@ export function TopicsLoadDot({ hidden = false, alarm = false }: {
     publishLoad({ livello, misurato, totalMB: usage.totalMB, totalCpu: usage.totalCpu, fps, partial });
   }, [livello, misurato, usage.totalMB, usage.totalCpu, fps, partial]);
 
-  const title = misurato
-    ? tr(`statusBar.load.${loadWord(livello)}`, {
-        mem: usage.totalMB !== null ? formatMemoryMB(usage.totalMB, { partial }) : '-',
-        cpu: usage.totalCpu !== null ? Math.round(usage.totalCpu).toString() : '-',
-        fps: fps > 0 ? fps.toString() : '-',
-      })
+  const title = tone !== 'unknown' && busyPct != null
+    ? tr(`statusBar.load.${WORD[tone]}`, pctVars(locale, { pct: busyPct }))
     : tr('statusBar.load.unknown');
 
   return (
@@ -123,6 +110,7 @@ export function TopicsLoadDot({ hidden = false, alarm = false }: {
       // The level travels as an attribute so a test can read the state without
       // sampling a pixel and reverse engineering a hue.
       data-load={livello.toFixed(2)}
+      data-tone={tone}
       data-measured={misurato ? 'true' : 'false'}
       data-alarm={alarm || undefined}
       title={title}
@@ -134,7 +122,7 @@ export function TopicsLoadDot({ hidden = false, alarm = false }: {
         // a green fill would say "all good", and those are different facts.
         // The alarm OVERRIDES the load tint: "you are offline" outranks "the
         // machine is busy", and painting both on one dot would mean neither.
-        backgroundColor: alarm ? 'var(--warning, #f59e0b)' : (misurato ? loadTint(livello) : 'transparent'),
+        backgroundColor: alarm ? 'var(--warning, #f59e0b)' : busyDotColor(tone),
         boxShadow: alarm || misurato ? undefined : 'inset 0 0 0 1px var(--text-muted)',
       }}
     />

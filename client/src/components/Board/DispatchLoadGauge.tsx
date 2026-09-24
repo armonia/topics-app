@@ -28,13 +28,14 @@
 import { useRef, useState } from 'react';
 import { ChevronRight, Gauge } from 'lucide-react';
 import { Menu } from '../Shared/Menu';
-import { useT } from '../../hooks/useT';
+import { useActiveLocale, useT } from '../../hooks/useT';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
 import {
-  admissionVerdictText, cpuPercent, dispatchLoadReading, limitDerivation,
-  loadToneClass, loadWordKey, memPercent, pctTone, pctToneBarClass, pctToneTextClass,
-  type DispatchLoadReading,
+  admissionVerdictText, dispatchLoadReading, gateCoreNumbers, limitDerivation,
+  loadToneClass, loadWordKey, verdictSentence, type DispatchLoadReading,
 } from './dispatchLoad';
+import { MachineAxesLine, MachineBusyLine } from '../Shared/MachineBusyLine';
+import { pctVars } from '../../lib/machineBusy';
 import { spendLabel } from './spendFormat';
 import { budgetShare, capMode } from '../../lib/board';
 import type { DispatchCapacity, GlobalDispatchCap } from '../../lib/board';
@@ -83,12 +84,13 @@ function LoadRing({ reading, size }: { reading: DispatchLoadReading; size: numbe
 function gaugePhrase(
   reading: DispatchLoadReading,
   tr: (k: string, v?: Record<string, string | number>) => string,
+  locale: 'it' | 'en',
 ): string {
   if (reading.loading) return tr('board.gauge.ariaReading');
   if (reading.byResources) {
     // Not measured yet is said as such, never as "0.0 of X".
     if (reading.usedShare == null) return tr('board.gauge.ariaReading');
-    return tr('board.gauge.ariaResources', { running: reading.running, pct: pctOf(reading.usedShare) });
+    return tr('board.gauge.ariaResources', { running: reading.running, ...pctVars(locale, { pct: reading.usedShare * 100 }) });
   }
   if (reading.unbounded) return tr('board.gauge.ariaNoLimit', { running: reading.running });
   return tr('board.gauge.aria', { running: reading.running, limit: reading.limit ?? 0 });
@@ -108,67 +110,6 @@ function memoryLine(cap: DispatchCapacity | null): { ours: string; free: string;
   const a = cap?.admission;
   if (!a || a.ourMemGB == null || a.freeQuotaMemGB == null || a.costMemGB == null) return null;
   return { ours: a.ourMemGB.toFixed(1), free: a.freeQuotaMemGB.toFixed(1), cost: a.costMemGB.toFixed(1) };
-}
-
-/** One of the two big numbers: the label, the percentage (or "not measured"),
- *  and the bar under it. Shared by the label text, so the caller supplies an
- *  already-translated label rather than a second i18n key per axis. */
-function PctRow({ label, pct, notMeasuredLabel, testId }: {
-  label: string;
-  pct: number | null;
-  /** Shown instead of a fake 0% when the axis was never read (memory off macOS). */
-  notMeasuredLabel: string;
-  testId: string;
-}) {
-  const tone = pctTone(pct);
-  return (
-    <div className="min-w-0 flex-1">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-mini text-app-text-muted">{label}</span>
-        <span
-          className={`text-compact font-semibold tabular-nums ${pctToneTextClass(tone)}`}
-          data-testid={testId}
-        >
-          {pct == null ? notMeasuredLabel : `${pct}%`}
-        </span>
-      </div>
-      <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-white/10">
-        <div
-          className={`h-full rounded-full transition-[width] ${pctToneBarClass(tone)}`}
-          style={{ width: `${pct ?? 0}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-/**
- * THE TWO BIG NUMBERS: CPU and memory, as a share of the WHOLE Mac, not of
- * Topics' own budget. Exported so `GlobalCapControl.tsx` draws the identical
- * card next to the knob it is about to turn, rather than a second reading
- * that could drift from this one (the same reason `DispatchLoadSummary`
- * exists: one function decides, every surface only draws it).
- */
-export function LoadPercentCard({ cap }: { cap: DispatchCapacity | null }) {
-  const tr = useT();
-  const cpu = cpuPercent(cap);
-  const mem = memPercent(cap);
-  return (
-    <div className="flex gap-3" data-testid="dispatch-load-pct-card">
-      <PctRow
-        label={tr('board.gauge.cpuLabel')}
-        pct={cpu}
-        notMeasuredLabel={tr('board.gauge.notMeasured')}
-        testId="dispatch-load-cpu-pct"
-      />
-      <PctRow
-        label={tr('board.gauge.memLabel')}
-        pct={mem}
-        notMeasuredLabel={tr('board.gauge.notMeasured')}
-        testId="dispatch-load-mem-pct"
-      />
-    </div>
-  );
 }
 
 /** "Agents working N / max M": the one line every mode can print, worded
@@ -195,9 +136,9 @@ function toneAttr(r: DispatchLoadReading): string {
 }
 
 /** Which brake produced the ceiling, said in words before any number. */
-function modeLine(cap: GlobalDispatchCap | null, tr: (k: string, v?: Record<string, string | number>) => string): string {
+function modeLine(cap: GlobalDispatchCap | null, tr: (k: string, v?: Record<string, string | number>) => string, locale: 'it' | 'en'): string {
   if (!cap) return tr('board.gauge.modeAuto');
-  if (capMode(cap) === 'resources') return tr('board.gauge.modeResources', { pct: pctOf(budgetShare(cap)) });
+  if (capMode(cap) === 'resources') return tr('board.gauge.modeResources', pctVars(locale, { pct: pctOf(budgetShare(cap)) }));
   if (cap.auto) return tr('board.gauge.modeAuto');
   if (cap.max === 0) return tr('board.gauge.modeOff');
   return tr('board.gauge.modeFixed');
@@ -210,12 +151,19 @@ function modeLine(cap: GlobalDispatchCap | null, tr: (k: string, v?: Record<stri
  */
 export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const tr = useT();
+  const locale = useActiveLocale();
   const s = useGlobalDispatchCap();
   const reading = dispatchLoadReading(s);
   const btnRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const cap = s.capacity;
-  const phrase = gaugePhrase(reading, tr);
+  const phrase = gaugePhrase(reading, tr, locale);
+  // Topics' own share as a percentage of the Mac, for the fold: the gate's
+  // numbers (probe plus turns still warming up) over the machine's cores.
+  const gate = gateCoreNumbers(cap);
+  const share = reading.byResources && gate.used != null && cap && cap.cores > 0
+    ? { used: (gate.used / cap.cores) * 100, ceil: (gate.usable / cap.cores) * 100 }
+    : null;
   const derived = limitDerivation(s);
   const mem = reading.byResources ? memoryLine(cap) : null;
   const verdict = reading.heldBy && cap?.admission ? admissionVerdictText(cap.admission, cap) : null;
@@ -249,18 +197,18 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
             {tr('board.gauge.popoverTitle')}
           </p>
 
-          {/* THE TWO BIG NUMBERS people came for: CPU and memory of the WHOLE
-              Mac, never Topics' own budget in cores. */}
-          <LoadPercentCard cap={cap} />
+          {/* THE ONE NUMBER people came for: how busy the whole Mac is, the
+              larger of CPU and memory, coloured. The two axes and every
+              technical unit are under "Details" (24/09). */}
+          <MachineBusyLine shares={cap} />
 
           <p className="tabular-nums">{tr(agents.key, agents.params)}</p>
 
-          {/* What holds admission, in a plain sentence with its percentage:
-              the ring already says the axis in one word, this says why in
-              numbers a person already owns. */}
+          {/* Why the queue waits, in the same percentage as the line above,
+              and where it restarts by itself when that point is honest. */}
           {verdict && (
             <p className="tabular-nums text-rose-300" data-testid="dispatch-load-verdict" title={verdict.title}>
-              {tr(verdict.key, verdict.params)}
+              {verdictSentence(verdict, tr, locale)}
             </p>
           )}
 
@@ -274,13 +222,14 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
               {tr('board.gauge.details')}
             </summary>
             <div className="mt-1 space-y-1.5 text-mini leading-snug">
+              <MachineAxesLine shares={cap} />
               <p className="tabular-nums">
-                {modeLine(s.cap, tr)}
+                {modeLine(s.cap, tr, locale)}
                 {derived && <span data-testid="dispatch-load-derivation">{' · '}{tr('board.gauge.derived', { cores: derived.cores, limit: derived.limit })}</span>}
               </p>
-              {reading.byResources && reading.usedShare != null && (
+              {share && (
                 <p className="tabular-nums" data-testid="dispatch-load-budget">
-                  {tr('board.gauge.budgetLine', { pct: Math.round((reading.usedShare ?? 0) * 100) })}
+                  {tr('board.gauge.budgetLine', pctVars(locale, share))}
                 </p>
               )}
               {mem && <p className="tabular-nums" data-testid="dispatch-load-memory">{tr('board.gauge.memLine', mem)}</p>}
@@ -312,6 +261,7 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
  */
 export function DispatchLoadSummary() {
   const tr = useT();
+  const locale = useActiveLocale();
   const s = useGlobalDispatchCap();
   const reading = dispatchLoadReading(s);
 
@@ -322,7 +272,7 @@ export function DispatchLoadSummary() {
       data-tone={toneAttr(reading)}
       data-held={reading.heldBy ?? 'none'}
       data-fill={reading.fill.toFixed(2)}
-      title={gaugePhrase(reading, tr)}
+      title={gaugePhrase(reading, tr, locale)}
     >
       <LoadRing reading={reading} size={12} />
       <span>{tr(loadWordKey(reading))}</span>

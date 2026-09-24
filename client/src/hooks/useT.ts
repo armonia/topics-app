@@ -45,6 +45,20 @@ export function useLocale(): Locale {
 }
 
 export function useT(): (key: string, vars?: Record<string, string | number>) => string {
+  const active = useActiveLocale();
+  return useCallback(
+    (key: string, vars?: Record<string, string | number>) => translate(key, active, vars),
+    [active],
+  );
+}
+
+/**
+ * The language `useT` is drawing in right now, which is not always the one
+ * asked for: until the English catalogue arrives it is Italian. Whoever builds
+ * a value that depends on the language (an Italian article in front of a
+ * number) must agree with the sentence it goes into, so it reads this.
+ */
+export function useActiveLocale(): Locale {
   const wanted = useLocale();
   // La lingua CHIESTA e quella ATTIVA sono due cose diverse da quando il
   // catalogo inglese sta in un chunk suo (vedi `lib/i18n-en.ts`): fra la scelta
@@ -54,8 +68,5 @@ export function useT(): (key: string, vars?: Record<string, string | number>) =>
   const loaded = useSyncExternalStore(subscribeCatalogues, loadedLocales, loadedLocales);
   const active: Locale = loaded.includes(wanted) ? wanted : FALLBACK_LOCALE;
   useEffect(() => { void ensureLocaleLoaded(wanted); }, [wanted]);
-  return useCallback(
-    (key: string, vars?: Record<string, string | number>) => translate(key, active, vars),
-    [active],
-  );
+  return active;
 }

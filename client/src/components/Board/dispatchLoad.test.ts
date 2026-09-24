@@ -10,7 +10,8 @@
 import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { admissionVerdictText, cpuPercent, dispatchLoadReading, gateCoreNumbers, limitDerivation, loadAdvice, loadToneClass, loadWordKey, memPercent } from './dispatchLoad';
+import { admissionVerdictText, dispatchLoadReading, gateCoreNumbers, limitDerivation, loadAdvice, loadToneClass, loadWordKey, verdictSentence } from './dispatchLoad';
+import { t } from '../../lib/i18n';
 import type { GlobalDispatchCapState } from '../../state/globalDispatchCap';
 import type { DispatchAdmission, DispatchCapacity } from '../../lib/board';
 import { admissionVerdict } from '../../../../shared/machine-budget';
@@ -214,124 +215,78 @@ describe('the gate holds', () => {
   });
 });
 
-describe('cpuPercent and memPercent', () => {
-  test('cpuPercent is load1/cores, rounded, and never null when both are known', () => {
-    expect(cpuPercent(machine({ load1: 2.5, cores: 12 }))).toBe(21); // 2.5/12 = 20.83%
-    expect(cpuPercent(machine({ load1: 12, cores: 12 }))).toBe(100);
-  });
-
-  test('cpuPercent clamps to 0-100 and is null with no probe', () => {
-    expect(cpuPercent(machine({ load1: 24, cores: 12 }))).toBe(100); // load past the machine still reads 100%, not 200%
-    expect(cpuPercent(machine({ load1: -1, cores: 12 }))).toBe(0);
-    expect(cpuPercent(null)).toBe(null);
-    expect(cpuPercent(machine({ cores: 0 }))).toBe(null);
-  });
-
-  test('memPercent is 1 - available/total, rounded, and null when unmeasured (off macOS)', () => {
-    expect(memPercent(machine({ totalMemGB: 32, availableMemGB: 20 }))).toBe(38); // 1 - 20/32 = 37.5%
-    expect(memPercent(machine({ totalMemGB: 32, availableMemGB: null }))).toBe(null);
-    expect(memPercent(null)).toBe(null);
-    expect(memPercent(machine({ totalMemGB: 0, availableMemGB: 20 }))).toBe(null);
-  });
-
-  test('memPercent never reads 0% when unmeasured: null is not a fake floor', () => {
-    // A literal 0% would look like the safest state there is; unmeasured stays null.
-    expect(memPercent(machine({ totalMemGB: 32, availableMemGB: null }))).not.toBe(0);
-  });
-});
-
-describe('admissionVerdictText', () => {
+describe('admissionVerdictText: the wait said in the one number', () => {
   const base = { admit: false, firstAgentExempt: false, costCoreUnits: 0.5 };
-  // cores: 12, load1: 2.5 -> 21% CPU; totalMemGB: 32, availableMemGB: 20 -> 38% memory.
-  const cap = machine();
+  // CPU 92% of the Mac, memory 38% (1 - 20/32): the one number is 92, made by the CPU.
+  const cpuBound = machine({ machineCpuPct: 92, machineMemPct: 38 });
+  const itText = (v: ReturnType<typeof admissionVerdictText>) => verdictSentence(v, (k, vars) => t(k, 'it', vars), 'it');
 
-  test('CPU held but a new agent would fit under the ceiling: the resume line', () => {
-    // usable 5.5, used+cost 5.4 stays under it -> the gate restarts on its own.
-    // resume = (5.5 * 0.8 - 1) / 12 cores = 28%.
-    expect(admissionVerdictText({ ...base, blockedBy: 'cpu', costCoreUnits: 1, usedCoreUnits: 4.4, usableCoreUnits: 5.5 }, cap))
-      .toMatchObject({ key: 'board.dispatch.verdictWaitCpu', params: { pct: 21, resume: 28 }, tone: 'wait' });
+  test('CPU holds and makes the number: the resume point is the number minus the drop the gate needs', () => {
+    // Gate reopens when used + cost <= 0.8 x usable: 6.5 + 0.5 - 0.8 x 6.6 = 1.72
+    // core-units too many, 14.3% of 12 cores. 92 - 14.3 = 78.
+    const v = admissionVerdictText({ ...base, blockedBy: 'cpu', usedCoreUnits: 6.5, usableCoreUnits: 6.6 }, cpuBound);
+    expect(v).toMatchObject({ key: 'board.dispatch.verdictWaitBusyResume', params: { pct: 92, resume: 78 }, tone: 'wait' });
+    expect(itText(v)).toBe('In attesa: il Mac è occupato al 92%, parte da solo sotto il 78%');
   });
 
-  test('CPU held and one more agent would still not fit: cost alone, no resume line', () => {
-    // used+cost (6.5+0.5) is past usable (6.6): printing a resume line here
-    // would contradict the numbers beside it.
-    expect(admissionVerdictText({ ...base, blockedBy: 'cpu', usedCoreUnits: 6.5, usableCoreUnits: 6.6 }, cap))
-      .toMatchObject({ key: 'board.dispatch.verdictWaitCpuBare', params: { cost: 4 } });
+  test('memory holds but the CPU makes the number: no resume point, it would not be true', () => {
+    const v = admissionVerdictText({ ...base, blockedBy: 'memory', memClause: 'footprint', ourMemGB: 22, usableMemGB: 20.4 }, cpuBound);
+    expect(v).toMatchObject({ key: 'board.dispatch.verdictWaitBusy', params: { pct: 92 } });
   });
 
-  test('CPU held, no probe at all (an old server): the axis is still named, nothing invented', () => {
-    expect(admissionVerdictText({ ...base, blockedBy: 'cpu' }, null).key).toBe('board.dispatch.verdictWaitCpuUnmeasured');
+  test('memory footprint holds and makes the number: the drop is the GB over the ceiling', () => {
+    // 22.0 - 20.4 = 1.6 GB of 34 = 4.7 points under 79.
+    const v = admissionVerdictText({ ...base, blockedBy: 'memory', memClause: 'footprint', ourMemGB: 22, usableMemGB: 20.4 },
+      machine({ totalMemGB: 34, machineCpuPct: 30, machineMemPct: 79 }));
+    expect(v).toMatchObject({ key: 'board.dispatch.verdictWaitBusyResume', params: { pct: 79, resume: 74 } });
   });
 
-  test('memory held on Topics’ own footprint: the ceiling as a share of the whole Mac', () => {
-    expect(admissionVerdictText({ ...base, blockedBy: 'memory', memClause: 'footprint', usableMemGB: 20.4 }, cap))
-      .toMatchObject({ key: 'board.dispatch.verdictWaitMemory', params: { pct: 38, resume: 64 }, tone: 'wait' });
+  test('memory quota holds: no single resume line exists, none is printed', () => {
+    const v = admissionVerdictText({ ...base, blockedBy: 'memory', memClause: 'quota', costMemGB: 4, freeQuotaMemGB: 3.3 },
+      machine({ machineCpuPct: 10, machineMemPct: 90 }));
+    expect(v).toMatchObject({ key: 'board.dispatch.verdictWaitBusy', params: { pct: 90 } });
   });
 
-  test('memory held on the quota: the current reading, no threshold to derive', () => {
-    expect(admissionVerdictText({ ...base, blockedBy: 'memory', memClause: 'quota' }, cap))
-      .toMatchObject({ key: 'board.dispatch.verdictWaitMemoryBare', params: { pct: 38 } });
+  test('no gate numbers (an old server): the number, and no invented point', () => {
+    expect(admissionVerdictText({ ...base, blockedBy: 'cpu' }, cpuBound).key).toBe('board.dispatch.verdictWaitBusy');
   });
 
-  test('memory held, nothing measured (off macOS): the axis is still named, nothing invented', () => {
-    expect(admissionVerdictText({ ...base, blockedBy: 'memory' }, null).key).toBe('board.dispatch.verdictWaitMemoryUnmeasured');
+  test('nothing measured: the wait is said without a number', () => {
+    expect(admissionVerdictText({ ...base, blockedBy: 'cpu' }, machine({ availableMemGB: null })).key).toBe('board.dispatch.verdictWaitBusyUnknown');
+    expect(admissionVerdictText({ ...base, blockedBy: 'memory' }, null).key).toBe('board.dispatch.verdictWaitBusyUnknown');
   });
 
-  test('the drain and the pass-through cases stay as they were', () => {
-    expect(admissionVerdictText({ ...base, blockedBy: 'drain', reason: 'Riavvio del server in arrivo.' }, cap).key).toBe('board.dispatch.verdictWaitDrain');
-    expect(admissionVerdictText({ admit: true, blockedBy: null, firstAgentExempt: false, costCoreUnits: 0.5 }, cap))
+  test('the floor and the drain keep plain words, the server sentence one hover away', () => {
+    const reason = 'Memoria quasi finita: 5.5 GB disponibili, sotto il pavimento di 6 GB.';
+    const v = admissionVerdictText({ ...base, blockedBy: 'floor', reason }, cpuBound);
+    expect(v).toMatchObject({ key: 'board.dispatch.verdictWaitFloor', title: reason });
+    expect(itText(v)).not.toMatch(/GB|core|CPU|memoria/);
+    expect(admissionVerdictText({ ...base, blockedBy: 'drain' }, cpuBound).key).toBe('board.dispatch.verdictWaitDrain');
+  });
+
+  test('passes stay as they were', () => {
+    expect(admissionVerdictText({ admit: true, blockedBy: null, firstAgentExempt: false, costCoreUnits: 0.5 }, cpuBound))
       .toMatchObject({ key: 'board.dispatch.verdictGo', tone: 'go' });
-    expect(admissionVerdictText({ admit: true, blockedBy: null, firstAgentExempt: true, costCoreUnits: 0.5 }, cap))
+    expect(admissionVerdictText({ admit: true, blockedBy: null, firstAgentExempt: true, costCoreUnits: 0.5 }, cpuBound))
       .toMatchObject({ key: 'board.dispatch.verdictFirst', tone: 'first' });
   });
 
-  test('the resume number is the one the gate really restarts at, cost included', () => {
-    // Share 0.5 of 12 cores, others burning 1, one agent priced at 1 core: the
-    // usable is 5.5 and the gate, once holding, compares use + cost with 4.4.
-    // The panel used to print "under 4.4" beside a use of 3.5 that still held.
-    const sample = (ours: number) => ({
-      cores: 12, totalMemGB: 32, ourCoreUnits: ours, otherCoreUnits: 1, ourMemGB: 2, availableMemGB: null, running: 2,
-    });
+  test('the printed resume point is where the gate really reopens (the gate is unchanged)', () => {
+    const sample = (ourCoreUnits: number) => ({ cores: 12, totalMemGB: 32, ourCoreUnits, otherCoreUnits: 1, ourMemGB: 4, availableMemGB: 20, running: 2 });
     const cost = { coreUnits: 1, memGB: 1.5 };
     const held = admissionVerdict(sample(3.5), 0.5, cost, 'holding');
-    expect(held).toMatchObject({ admit: false, blockedBy: 'cpu', usableCoreUnits: 5.5 });
-    const text = admissionVerdictText({ ...base, blockedBy: 'cpu', costCoreUnits: held.costCoreUnits,
-      usedCoreUnits: held.usedCoreUnits, usableCoreUnits: held.usableCoreUnits }, cap);
-    expect(text.key).toBe('board.dispatch.verdictWaitCpu');
-    const printed = (text.params!.resume as number) / 100 * cap.cores;
-    // The use beside the sentence is not yet under the printed line...
-    expect(held.usedCoreUnits).toBeGreaterThan(printed);
-    // ...and at the printed line the gate does restart.
-    expect(admissionVerdict(sample(printed), 0.5, cost, 'holding').admit).toBe(true);
-    // A cost above 80% of the usable never prints a negative percentage.
-    expect(admissionVerdictText({ ...base, blockedBy: 'cpu', costCoreUnits: 5, usedCoreUnits: 0.5, usableCoreUnits: 5.5 }, cap).params)
-      .toMatchObject({ resume: 0 });
-  });
-
-  test('the floor is said in its own first sentence, the rest one hover away', () => {
-    const reason = 'Memoria quasi finita: 5.5 GB disponibili, sotto il pavimento di 6 GB. Riprendo appena si libera memoria.';
-    const v = admissionVerdictText({ ...base, blockedBy: 'floor', reason }, cap);
-    expect(v).toMatchObject({ key: 'board.dispatch.verdictWaitFloor', tone: 'wait', title: reason });
-    expect(v.params).toEqual({ reason: 'memoria quasi finita, 5.5 GB disponibili, sotto il pavimento di 6 GB' });
-  });
-
-  test('the floor with no reason (an old server) says only that there is no room', () => {
-    expect(admissionVerdictText({ ...base, blockedBy: 'floor' }, cap).key).toBe('board.dispatch.verdictWaitFloorBare');
-  });
-
-  test('a floor reason that still names cores falls back to the bare sentence: the server composes its own words, this module never surfaces the retired vocabulary verbatim', () => {
-    expect(admissionVerdictText({ ...base, blockedBy: 'floor', reason: '12 core al limite.' }, cap).key)
-      .toBe('board.dispatch.verdictWaitFloorBare');
-    expect(admissionVerdictText({ ...base, blockedBy: 'floor', reason: 'load average troppo alto.' }, cap).key)
-      .toBe('board.dispatch.verdictWaitFloorBare');
+    expect(held).toMatchObject({ admit: false, blockedBy: 'cpu' });
+    // The Mac reads 50% CPU while holding; the sentence says where it reopens.
+    const v = admissionVerdictText({ ...base, blockedBy: 'cpu', costCoreUnits: held.costCoreUnits,
+      usedCoreUnits: held.usedCoreUnits, usableCoreUnits: held.usableCoreUnits }, machine({ machineCpuPct: 50, machineMemPct: 38 }));
+    const resume = v.params!.resume as number;
+    // Our use has to fall by (50 - resume)% of 12 cores: there the gate admits.
+    const ourAtResume = held.usedCoreUnits - ((50 - resume) / 100) * 12;
+    expect(admissionVerdict(sample(ourAtResume - 0.05), 0.5, cost, 'holding').admit).toBe(true);
+    expect(admissionVerdict(sample(ourAtResume + 0.2), 0.5, cost, 'holding').admit).toBe(false);
   });
 });
 
-/**
- * THE ADVICE CHIP answers a count question. In "per risorse" `recommended` is
- * still the count figure, and the chip drew a red "Fermane 12" on a machine
- * whose gate admitted the next agent.
- */
 describe('loadAdvice', () => {
   test('by count, over the recommendation: stop the difference', () => {
     expect(loadAdvice(stateWith(16, { capacity: machine({ running: 16, recommended: 4 }) }))).toEqual({ over: 12, severe: true });

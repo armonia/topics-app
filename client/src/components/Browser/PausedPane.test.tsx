@@ -17,17 +17,20 @@ import { t } from '../../lib/i18n';
 const tr = (key: string, vars?: Record<string, string | number>) => t(key, 'it', vars);
 
 describe('the pause card', () => {
-  test('CPU and memory as shares of the whole machine, never «of a core»', () => {
+  test('ONE share of the Mac, the larger of CPU and memory, never «of a core»', () => {
+    // 37% of one core on 12 = 3% of the CPU; 1.6 GB of 32 = 5% of the memory.
     const text = pausedUsageText(tr, { cpu: 37, memMb: 1_638.4 }, { cores: 12, memMb: 32_768 });
-    expect(text).toContain('3% della CPU');
-    expect(text).toContain('5% della memoria del Mac');
-    expect(text).not.toContain('core');
+    expect(text).toBe('Questa pagina usava il 5% del Mac. Riprende da dove era.');
+    expect(text).not.toMatch(/core|CPU|memoria/);
   });
 
   test('without the RAM of the Mac it says the CPU share alone', () => {
     const text = pausedUsageText(tr, { cpu: 37, memMb: 1_024 }, { cores: 12, memMb: null });
-    expect(text).toContain('3% della CPU del Mac');
-    expect(text).not.toContain('memoria');
+    expect(text).toContain('il 3% del Mac');
+  });
+
+  test('the Italian article follows the number: «l\u201911%», «l\u201980%»', () => {
+    expect(pausedUsageText(tr, { cpu: 132 }, { cores: 12, memMb: null })).toContain("usava l'11% del Mac");
   });
 
   test('the two «keep» choices are offered when the pane can honour them', () => {

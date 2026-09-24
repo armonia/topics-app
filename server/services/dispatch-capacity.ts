@@ -1199,6 +1199,20 @@ export function machinePercents(
 }
 
 /**
+ * The two whole-Mac percentages alone, for surfaces that are not the board
+ * (the status dot, the performance panel read `/api/system/status`). Same
+ * probes as the capacity reading, so the dot and the board cannot disagree:
+ * the plugged memory sample and the shared tick sampler, no fleet fallback
+ * (the status route has no fleet reading of its own to lend).
+ */
+export function machineSharesNow(
+  readCpu: (fallbackPct: number | null) => number | null = sampleMachineCpuPct,
+): { machineCpuPct: number | null; machineMemPct: number | null } {
+  const avail = (() => { try { return currentAvailableMemGB(); } catch { return null; } })();
+  return machinePercents(null, avail, machineCores(), os.totalmem() / 1e9, readCpu);
+}
+
+/**
  * The measure the budget decides on, assembled once from the fleet reading.
  *
  * OUR SHARE INCLUDES THE SCRIPTS. `coreUnits` alone is the fleet without the

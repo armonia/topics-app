@@ -96,3 +96,40 @@ export function busyDotColor(tone: BusyTone): string {
   if (tone === 'ok') return 'hsl(150 62% 42%)';
   return 'transparent';
 }
+
+/**
+ * A percentage with the Italian article it needs in front of it.
+ *
+ * Italian elides before a vowel sound, and a number is read aloud: "al 44%"
+ * but "all'88%" (ottantotto), "il 44%" but "l'11%" (undici). The numbers that
+ * start with a vowel between 0 and 100 are 1, 8, 11 and 80-89. A sentence that
+ * reads "al 88%" is the kind of slip a non-technical reader notices first.
+ * English has no article to agree, so the bare "44%" goes into its sentence.
+ * Under 1% is said as such: "0%" of something that is running reads as off.
+ */
+export type PctArticle = 'al' | 'il' | 'dal';
+export function pctWith(article: PctArticle, pct: number, locale: 'it' | 'en'): string {
+  const n = Math.round(Math.max(0, Math.min(100, pct)));
+  if (locale === 'en') return pct > 0 && pct < 1 ? 'under 1%' : `${n}%`;
+  if (pct > 0 && pct < 1) return 'meno dell\u20191%';
+  // Zero takes "lo" ("lo zero per cento"), the one number that does.
+  if (n === 0) return article === 'il' ? 'lo 0%' : `${article}lo 0%`;
+  const vowel = n === 1 || n === 8 || n === 11 || (n >= 80 && n <= 89);
+  if (!vowel) return `${article} ${n}%`;
+  return article === 'il' ? `l'${n}%` : `${article === 'al' ? 'all' : 'dall'}'${n}%`;
+}
+
+/**
+ * The placeholders a catalogue sentence takes for a percentage: `{xAl}` and
+ * `{xIl}` for each named value, in the ACTIVE language. Both forms are always
+ * passed so a sentence can pick the article it needs without the caller
+ * knowing which one that is.
+ */
+export function pctVars(locale: 'it' | 'en', values: Record<string, number>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, v] of Object.entries(values)) {
+    out[`${name}Al`] = pctWith('al', v, locale);
+    out[`${name}Il`] = pctWith('il', v, locale);
+  }
+  return out;
+}
