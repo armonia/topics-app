@@ -784,6 +784,40 @@ function holdKey(kind: DispatchBlockKind | null, reason: string | null, floor: R
 }
 
 /**
+ * THE NOTE A HELD RESUME WRITES IN THE THREAD IS A STATE, ONE SLOT PER CARD.
+ *
+ * Its register (`waitingForSlot`) lives in memory and is born empty at every
+ * boot, and the `addComment` dedupe window is 10 s: on this machine boots are
+ * 35+ minutes apart, so every boot said the wait again. Measured on 24/09/2026:
+ * 17 identical Codex-wall notes on 89919742, and 33 memory-floor notes on 13
+ * cards (6 on bab77cb3 in three hours) that differ only in their figures, so no
+ * identical-text guard could catch them.
+ *
+ * These are the openings of every sentence `resumeHold` can return (the floor,
+ * the 24h and per-card spend, the pressure budget, the drain, the provider
+ * wall) plus the cap-only line and the sentences older code wrote, so a pile
+ * already in a thread is emptied by the next note. `replaces` only touches rows
+ * by the same author and kind (`system`, `service`): a person or an agent
+ * starting a comment with the same words is never touched.
+ */
+const RESUME_WAIT_OPENINGS: readonly string[] = [
+  // allow-italian: openings of the Italian wait sentences this slot replaces
+  "Memoria quasi finita:", "Memoria in risalita:", "Memoria: la sto misurando", "Memoria oltre la soglia", // allow-italian: sentence openings
+  "Disco quasi pieno:", "Tetto di spesa giornaliero raggiunto", "Tetto di spesa per card raggiunto:", // allow-italian: sentence openings
+  "Topics usa ", "Topics è al tetto di memoria", "Non c'è memoria per un altro agent:", // allow-italian: sentence openings
+  "Riavvio del server in arrivo (", "In attesa di uno slot:", // allow-italian: sentence openings
+  `${providerHoldLabel("claude")}: `, `${providerHoldLabel("codex")}: `,
+];
+
+/**
+ * The boot note of a card that was waiting for a seat, as a slot. The claim
+ * window of `claimInterruption` is three minutes and guards concurrent writers
+ * within one boot: across boots it let one copy through each time (15 on
+ * 89919742). The card is still waiting for the same seat, so one row says it.
+ */
+const BOOT_QUEUED_NOTE = "Server ripartito mentre la card aspettava uno slot"; // allow-italian: opening of the boot note
+
+/**
  * La stessa lista, ma cominciando dall'elemento `cursor`-esimo.
  *
  * Serve a far girare l'ordine dei board a ogni reconcile. Il tetto dei posti è
@@ -3614,6 +3648,22 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     return CHIP_NEEDS_INPUT;
   }
 
+  /**
+   * A card in REVIEW that still carries an active chip (`queued`, `starting`,
+   * `working`) and has no live turn here: the turn that delivered it ended
+   * without `onTurnEnd`, the only writer of the review chip. It gets the chip
+   * `onTurnEnd` would have written, and the stale wait sentence goes with the
+   * old chip. a551b940 (23/09/2026) read "in coda" from the Review column with
+   * the floor sentence of 18:04 under it. A live turn is left alone: its own
+   * `onTurnEnd` is about to settle it.
+   */
+  function settleStrandedReviewChip(t: Task): void {
+    if (t.status !== "review" || !RECOVERABLE_DISPATCH_STATES.has(t.dispatchState ?? "")) return;
+    if (inFlight.has(t.id)) return;
+    try { emit(deps.svc.setDispatchState({ taskId: t.id, state: reviewChipFor(t.id), error: null })); }
+    catch { /* best-effort: the row may have moved */ }
+  }
+
   /** `04:36`, local time: when the buffered message was actually written. */
   function hourMinute(at: number): string {
     const d = new Date(at);
@@ -4072,9 +4122,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * provider hold, the per-card spend cap): the machine sentences on the card
    * do not describe them.
    */
-  function resumeHold(t: Task): { reason: string; kind: DispatchBlockKind | null; floor?: ResourceFloorKind | null } | null {
-    const own = taskPlanWait(t)?.reason ?? drainBlock();
-    if (own) return { reason: own, kind: null };
+  function resumeHold(t: Task): { reason: string; kind: DispatchBlockKind | null; floor?: ResourceFloorKind | null; slot?: string } | null {
+    // The provider wall's own slot rides along (see `taskPlanWait`), so the
+    // note of this resume and the one the tick writes for the same wall are
+    // the same row.
+    const plan = taskPlanWait(t);
+    if (plan) return { reason: plan.reason, kind: null, slot: plan.slot };
+    const drain = drainBlock();
+    if (drain) return { reason: drain, kind: null };
     // The floor VERDICT, because the resume keys its wait on the resource and
     // decides on it whether the sentence is worth a line in the thread.
     const floor = admissionVerdictNow();
@@ -4094,7 +4149,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // E se quel task stava aspettando uno slot, l'attesa muore qui insieme al
     // resume: una voce che resta nel registro senza timer è peggio del guasto
     // che il registro cura — quella card non verrebbe recuperata MAI più.
-    if (!t || !t.assignedTopicId || t.status !== "in_progress") { clearSlotWait(taskId, false); return; }
+    if (!t || !t.assignedTopicId || t.status !== "in_progress") {
+      clearSlotWait(taskId, false);
+      if (t) settleStrandedReviewChip(t);
+      return;
+    }
     const policy = delegatedPolicy(t);
     if (policy === null) {
       clearSlotWait(taskId, false);
@@ -4170,15 +4229,29 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // When the write is skipped the kind entry is left alone too, because
       // `heldResumeBlock` believes it only while it matches the sentence the row
       // still carries; refreshing it alone would blank the card's reason.
+      //
+      // AND THE VERY SENTENCE ALREADY ON THE ROW IS NEVER REWRITTEN, minute or
+      // not: the refresh exists for the same wait with other numbers, and with
+      // identical words there is nothing to refresh. It used to fire anyway,
+      // so every held card moved `updated_at` and sent a frame to every client
+      // once a minute with nothing changed (89919742, 24/09/2026: two readings
+      // of the row 65 s apart differed in `updated_at` alone). The kind entry IS
+      // written here, because it describes exactly the sentence the row
+      // carries, and after a restart the map is empty: without it the card
+      // would lose its machine reason until the words changed.
       const kind = hold?.kind ?? null;
       const key = holdKey(kind, floorBlock, hold?.floor ?? null);
       const last = heldWritten.get(taskId);
-      const sameHold = last != null
+      const rowSays = t.dispatchState === CHIP_QUEUED && (t.dispatchError ?? null) === floorBlock;
+      const sameHold = rowSays || (last != null
         && clock() - last.at < HELD_RESUME_REFRESH_MS
         && t.dispatchState === CHIP_QUEUED
         && (t.dispatchError ?? null) === last.reason
-        && last.key === key;
-      if (!sameHold) {
+        && last.key === key);
+      if (rowSays) {
+        setHeldResumeBlock(taskId, kind ? { kind, reason: hold!.reason } : null);
+        if (last?.reason !== floorBlock || last.key !== key) heldWritten.set(taskId, { at: clock(), key, reason: floorBlock });
+      } else if (!sameHold) {
         setHeldResumeBlock(taskId, kind ? { kind, reason: hold!.reason } : null);
         try { emit(deps.svc.setDispatchState({ taskId, state: CHIP_QUEUED, error: floorBlock })); } catch { /* best-effort */ }
         heldWritten.set(taskId, { at: clock(), key, reason: floorBlock });
@@ -4195,10 +4268,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (!rampWait && noteKey && waitingForSlot.get(taskId) !== noteKey) {
         waitingForSlot.set(taskId, noteKey);
         try {
+          // ONE SLOT, see `RESUME_WAIT_OPENINGS`: the register above is born
+          // empty at every boot, so across boots only the slot keeps this to
+          // one row. `once` keeps the row already there when the words have
+          // not changed, so a restart does not even move it.
           deps.svc.addComment({
             taskId, author: "system", kind: "service",
             content: floorBlock
               ?? `In attesa di uno slot: il tetto di concorrenza (${currentCap()}) è pieno. Riprendo appena si libera. Niente è andato perso.`,
+            replaces: hold?.slot && !RESUME_WAIT_OPENINGS.includes(hold.slot) ? [hold.slot, ...RESUME_WAIT_OPENINGS] : [...RESUME_WAIT_OPENINGS],
+            once: true,
           });
         } catch { /* best-effort */ }
       }
@@ -5538,9 +5617,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
                 ? "Riprendo la stessa sessione con la tua bocciatura, che il turno precedente non aveva ancora ricevuto: nessun tentativo consumato."
                 : reason === "boot"
                   ? (t.dispatchState === CHIP_QUEUED
-                    ? "Server ripartito mentre la card aspettava uno slot: riprendo la stessa sessione appena c'è posto, nessun tentativo consumato."
+                    ? `${BOOT_QUEUED_NOTE}: riprendo la stessa sessione appena c'è posto, nessun tentativo consumato.`
                     : "Server ripartito a metà turno: riprendo la stessa sessione, nessun tentativo consumato.")
                   : "Nessun turno vivo su questa card (riciclato o finito senza consegna): riprendo la stessa sessione, nessun tentativo consumato.",
+              // One row per card for the queued boot note, see `BOOT_QUEUED_NOTE`.
+              slot: !rejection && reason === "boot" && t.dispatchState === CHIP_QUEUED ? BOOT_QUEUED_NOTE : undefined,
             });
           } catch { /* dedupe/best-effort */ }
           // Sets inFlight synchronously → the 10s poll can never double-fire.
@@ -5609,6 +5690,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         catch { /* best-effort: la riga puo' essersi mossa */ }
       }
     } catch (err) { log("sweep del chip in coda in backlog fallito", err); }
+    // 1-ter-bis) THE ACTIVE CHIP LEFT ON A REVIEW CARD. A turn that took its
+    //    card to review and ended without `onTurnEnd` (an adoption that dropped
+    //    the turn, a crash between the two) leaves `queued` on a card in the
+    //    Review column: a551b940 read "in coda" from review for a day on
+    //    23/09/2026. No resume will ever look at it again, so the boot does.
+    //    Once per boot, cheap: review is a short column.
+    if (reason === "boot") {
+      try {
+        for (const t of deps.svc.list({ scope: "all", status: "review" })) settleStrandedReviewChip(t);
+      } catch (err) { log("sweep of the active chip on review cards failed", err); }
+    }
     // 1-bis) LE CHECKLIST FERME CHE NESSUNO STA GUARDANDO. La domanda sui figli
     //    fermi si arma su due EVENTI (un figlio che si ferma, il turno del padre
     //    che finisce), e una card che si era fermata prima non ne vedrà mai un

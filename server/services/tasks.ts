@@ -438,8 +438,14 @@ export interface TaskService {
    * Ritorna la nota scritta, oppure `null` se il campo era già preso (o se il
    * task non esiste): chi chiama non deve distinguere i due casi, in entrambi
    * l'interruzione è già raccontata.
+   *
+   * `slot`: the claim window is three minutes and guards CONCURRENT writers,
+   * not one boot against the next. A note that describes a STATE lasting
+   * across boots (a card still waiting for a seat) passes the opening of its
+   * sentence, and gets `replaces` + `once`: one row per card, whatever the
+   * number of restarts. 89919742 carried 15 identical copies on 24/09/2026.
    */
-  claimInterruption(args: { taskId: string; note: string; by?: string }): TaskComment | null;
+  claimInterruption(args: { taskId: string; note: string; by?: string; slot?: string }): TaskComment | null;
   /**
    * THE HUMAN REJECTION NOBODY EVER HANDED TO THE AGENT.
    *
@@ -4201,11 +4207,6 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       const since = once
         ? "0000-01-01T00:00:00.000Z"
         : new Date(new Date(now()).getTime() - commentDedupeMs).toISOString();
-      const dupe = db.prepare(
-        "SELECT * FROM task_comments WHERE task_id = ? AND author = ? AND content = ? AND created_at >= ? ORDER BY created_at DESC LIMIT 1",
-      ).get(taskId, author, body, since);
-      if (dupe) return rowToComment(dupe);
-
       // The slot is emptied BEFORE it is filled, and only for the same author
       // and the same `kind`: a human comment that happens to start with the
       // same words is not the machine's note and must not be touched.
@@ -4217,6 +4218,24 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // stay listed for as long as a card still carries one.
       const openings = (Array.isArray(replaces) ? replaces : [replaces])
         .filter((p): p is string => typeof p === "string" && p.trim().length > 0);
+      const dupe = db.prepare(
+        "SELECT * FROM task_comments WHERE task_id = ? AND author = ? AND content = ? AND created_at >= ? ORDER BY created_at DESC LIMIT 1",
+      ).get(taskId, author, body, since) as { id: string } | null;
+      if (dupe) {
+        // THE SLOT STILL HOLDS ONE ROW when the text is already there. The
+        // dedupe used to return before the slot was emptied, so a pile written
+        // before the slot existed survived every later write of the same text:
+        // 17 identical wall notes on 89919742 (24/09/2026) would have stayed
+        // forever. The surviving row is the one already there, so the thread
+        // keeps its place and `updated_at` does not move.
+        for (const opening of openings) {
+          db.prepare(
+            "DELETE FROM task_comments WHERE task_id = ? AND author = ? AND kind = ? AND content LIKE ? AND id != ?",
+          ).run(taskId, author, commentKind, `${opening}%`, dupe.id);
+        }
+        return rowToComment(dupe);
+      }
+
       for (const opening of openings) {
         db.prepare(
           "DELETE FROM task_comments WHERE task_id = ? AND author = ? AND kind = ? AND content LIKE ?",
@@ -4259,7 +4278,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       return rowToComment(db.prepare("SELECT * FROM task_comments WHERE id = ?").get(id));
     },
 
-    claimInterruption({ taskId, note, by }): TaskComment | null {
+    claimInterruption({ taskId, note, by, slot }): TaskComment | null {
       const body = (note ?? "").trim();
       if (!body) return null;
       const row = getTaskRow(taskId);
@@ -4272,7 +4291,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       if (held && held >= since) return null;
       // La nota PRIMA del campo: se la scrittura fallisce, il campo resta
       // libero per chi viene dopo invece di zittirlo su una riga mai apparsa.
-      const written = this.addComment({ taskId, author: by ?? "system", content: body, kind: "service" });
+      const written = this.addComment({
+        taskId, author: by ?? "system", content: body, kind: "service",
+        ...(slot ? { replaces: slot, once: true } : {}),
+      });
       db.prepare("UPDATE tasks SET interrupt_claimed_at = ? WHERE id = ?").run(now(), taskId);
       return written;
     },

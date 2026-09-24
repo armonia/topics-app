@@ -321,13 +321,15 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     await h.dispatcher.resume("boot", "");
     expect(h.serviceNotes("boot").length).toBe(1);
 
-    // Another resource IS another wait: the disk speaks in its own line.
+    // Another resource IS another wait, and the card gets it (KANBAN-91). It
+    // takes the place of the memory line instead of stacking under it: the
+    // note is the card's wait NOW, one slot per card (see RESUME_WAIT_OPENINGS).
     setSystemTime(new Date(t0 + 18_000));
     h.floor.memGB = null;
     h.floor.diskGB = 2;
     await h.dispatcher.resume("boot", "");
-    expect(h.serviceNotes("boot").length).toBe(2);
-    expect(h.serviceNotes("boot")[1]).toStartWith("Disco quasi pieno");
+    expect(h.serviceNotes("boot").length).toBe(1);
+    expect(h.serviceNotes("boot")[0]).toStartWith("Disco quasi pieno");
   });
 });
 
