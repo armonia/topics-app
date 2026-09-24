@@ -45,4 +45,30 @@ describe("wake adoption: which topic takes a spontaneous turn", () => {
     const db = new Database(":memory:"); // no `tasks` table: the query throws
     expect(runningTaskOwnsTopic(db, "t-agent")).toBe(false);
   });
+
+  // Found by the adversarial check on bd0525bcb: in a fan-out only attempt 1
+  // is in tasks.assigned_topic_id; attempts 2..N live in task_attempts, with
+  // topics born archived like any agent's. A Monitor on attempt 2 was dropped.
+  function fanOutDb(): Database {
+    const db = taskDb([{ id: "k1", status: "in_progress", topic: "t-att1" }]);
+    db.run("CREATE TABLE task_attempts (id TEXT PRIMARY KEY, task_id TEXT, idx INTEGER, topic_id TEXT, state TEXT)");
+    db.run("INSERT INTO task_attempts VALUES ('a1','k1',1,'t-att1','running'),('a2','k1',2,'t-att2','running'),('a3','k1',3,'t-att3','failed')");
+    return db;
+  }
+
+  test("a running fan-out attempt of an in-progress task adopts, not only attempt 1", () => {
+    const db = fanOutDb();
+    expect(wakeVerdict({ id: "t-att2", archived: true }, (id) => runningTaskOwnsTopic(db, id))).toBe("adopt");
+  });
+
+  test("an attempt that already ended is refused like any archived topic", () => {
+    const db = fanOutDb();
+    expect(wakeVerdict({ id: "t-att3", archived: true }, (id) => runningTaskOwnsTopic(db, id))).toBe("archived");
+  });
+
+  test("a running attempt of a task no longer in progress is refused", () => {
+    const db = fanOutDb();
+    db.run("UPDATE tasks SET status = 'done' WHERE id = 'k1'");
+    expect(wakeVerdict({ id: "t-att2", archived: true }, (id) => runningTaskOwnsTopic(db, id))).toBe("archived");
+  });
 });

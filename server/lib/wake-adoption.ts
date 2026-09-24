@@ -39,14 +39,29 @@ interface QueryDb {
  * Is `topicId` the topic of a task currently in progress? A failing query
  * answers `false`: refusing a wake loses one answer, while adopting on a guess
  * could write into a chat nobody owns.
+ *
+ * Two ways to own it. `tasks.assigned_topic_id` names attempt 1 only: in a
+ * fan-out, attempts 2..N live in `task_attempts` (state `running` while their
+ * turn is alive), with topics born archived like any agent's, and a Monitor on
+ * one of them was dropped (adversarial check on bd0525bcb, 24/09).
  */
 export function runningTaskOwnsTopic(db: QueryDb, topicId: string): boolean {
   try {
-    return db.query(
+    const assigned = db.query(
       "SELECT 1 FROM tasks WHERE status = 'in_progress' AND assigned_topic_id = ? LIMIT 1",
     ).get(topicId) != null;
+    if (assigned) return true;
   } catch (err) {
     console.warn(`[wake] task ownership lookup failed for ${topicId}:`, err);
+    return false;
+  }
+  try {
+    return db.query(
+      `SELECT 1 FROM task_attempts a JOIN tasks t ON t.id = a.task_id
+        WHERE a.topic_id = ? AND a.state = 'running' AND t.status = 'in_progress' LIMIT 1`,
+    ).get(topicId) != null;
+  } catch {
+    // No `task_attempts` table (an older database): there are no attempts to own it.
     return false;
   }
 }
