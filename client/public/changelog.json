@@ -1,5 +1,64 @@
 [
   {
+    "version": "2.2.387",
+    "date": "2026-09-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "comando su una riga nel log, skip ripetuti detti una volta",
+          "en": "",
+          "scope": "swap-freeze",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il server muore di SIGTERM dopo un Chromium: Playwright gli smonta il gestore",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "il log del freezer ripete comandi multi-riga e skip a ogni beat",
+          "en": "",
+          "scope": "swap-freeze",
+          "breaking": false
+        },
+        {
+          "it": "Il taglio del comando nel log non spezza un'emoji a metà",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "I test di oneLine in un file loro: il test del freezer restava sotto le 800 righe",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "RGATE-07: il SIGTERM arriva sempre a gracefulShutdown",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test del SIGTERM non tocca la cartella dati vera e ripulisce la sua",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il registro del freezer non resta non tracciato nella radice di prod",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il perché giusto per ignorare swap-freeze.json",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.386",
     "date": "2026-09-24",
     "sections": {
