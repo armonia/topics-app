@@ -205,7 +205,10 @@ export const LOG_COMMAND_MAX = 120;
  */
 export function oneLine(command: string, max = LOG_COMMAND_MAX): string {
   const flat = command.replace(/\s+/g, " ").trim();
-  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+  if (flat.length <= max) return flat;
+  // The cut counts UTF-16 units: a high surrogate left alone at the end is
+  // half an emoji, which reaches the log file as U+FFFD.
+  return `${flat.slice(0, max - 1).replace(/[\uD800-\uDBFF]$/, "")}…`;
 }
 
 type OncePerPidKind = "foreground" | "unrecognised" | "agentCli" | "guarded" | "peers";
