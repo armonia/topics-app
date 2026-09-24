@@ -736,3 +736,59 @@ describe("the holds every silence clock reads", () => {
     expect(w.freezer.frozenMsSince("topic:a", toolStartedAt)).toBeGreaterThan(100_000);
   });
 });
+
+/**
+ * The production error log of 24/09: 1.660 "skipped" lines out of 2 MB, and
+ * 8.800 more lines with no prefix at all, because a heredoc or a `for` loop was
+ * printed whole on every 10 s beat. A command in the log is one line, cut short;
+ * a fact that does not change is said once per pid and per episode.
+ */
+describe("the freezer log stays one line per fact", () => {
+  const script = "python3 - <<'EOF'\nimport sys\nfor i in range(10):\n    print(i)\nEOF\n" + "x".repeat(300);
+
+  test("a multi-line command is logged on ONE line, truncated", async () => {
+    const procs = [...BASE, ...shell(51000, script, { cores: 0.9, footprintGB: 2.6 })];
+    const w = world({ procs, sessions: [session({ foregroundBash: [script] })] });
+    await twoBeats(w);
+    const line = w.logs.find((l) => l.includes("foreground Bash, never frozen"))!;
+    expect(line).toBeDefined();
+    expect(line).not.toContain("\n");
+    expect(line).toContain(`"python3 - <<'EOF' import sys for i in range(10): print(i) EOF`);
+    expect(line).toContain("…");
+    expect(line.length).toBeLessThan(220);
+  });
+
+  test("a tree with an agent CLI is named ONCE per pid, not on every beat", async () => {
+    const procs = [
+      ...BASE,
+      ...shell(51000, "bun batteria.ts", { cores: 0.5, footprintGB: 2.1 }),
+      { pid: 51010, ppid: 51004, pgid: 51000, command: "claude -p hello" },
+    ];
+    const w = world({ procs, sessions: [session({ backgroundBash: [{ command: "bun batteria.ts", startedAt: T0 }] })] });
+    for (let i = 0; i < 6; i++) { await w.beat(); w.advance(10_000); }
+    expect(w.logs.filter((l) => l.includes("contains an agent CLI"))).toHaveLength(1);
+  });
+
+  test("a tree reaching a guarded process is named ONCE per pid, not on every beat", async () => {
+    const procs = [
+      ...BASE,
+      ...shell(51000, "bun batteria.ts", { cores: 0.5, footprintGB: 2.1 }),
+      { pid: 39135, ppid: 51004, pgid: 48914, command: "bun run topics-mcp-server.ts", cores: 0.1, footprintGB: 0.2 },
+    ];
+    const w = world({ procs, sessions: [session({ backgroundBash: [{ command: "bun batteria.ts", startedAt: T0 }] })] });
+    for (let i = 0; i < 6; i++) { await w.beat(); w.advance(10_000); }
+    expect(w.logs.filter((l) => l.includes("reaches a guarded process"))).toHaveLength(1);
+  });
+
+  test("the same peer count is said once, a new count is said again", async () => {
+    let peers = [777];
+    const procs = [...BASE, ...shell(51000, "bun run dev", { cores: 0.6, footprintGB: 3.0 })];
+    const w = world({ procs, sessions: [session({ backgroundBash: [{ command: "bun run dev", startedAt: T0 }] })], outsidePeers: async () => peers });
+    for (let i = 0; i < 4; i++) { await w.beat(); w.advance(10_000); }
+    peers = [777, 778];
+    for (let i = 0; i < 3; i++) { await w.beat(); w.advance(10_000); }
+    const lines = w.logs.filter((l) => l.includes("established peer(s)"));
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toContain("2 established peer(s)");
+  });
+});
