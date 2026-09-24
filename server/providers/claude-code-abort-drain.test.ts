@@ -72,7 +72,7 @@ describe("the stopped turn's tail after abort()", () => {
   test("is dropped: it closes no one and does not wake a spontaneous turn", async () => {
     const provider = new ClaudeCodeProvider({ type: "claude-code" });
     const spontaneousTurns: string[] = [];
-    ClaudeCodeProvider.observeWokenTurns((sk) => spontaneousTurns.push(sk));
+    ClaudeCodeProvider.observeWokenTurns((sk) => { spontaneousTurns.push(sk); });
     try {
       const stopped = spyHandler();
       const pp = fakePP({ streamHandler: stopped });
@@ -139,6 +139,57 @@ describe("the stopped turn's tail after abort()", () => {
     (provider as any).onSessionClosed(stopping, 0);
     expect(next.calls).toEqual([]);
     expect(provider.adoptWokenTurn("topic:test", next as never)).toBe(false);
+  });
+
+  test("a second Stop while the next send waits: that send is stopped, and never spawns a child", async () => {
+    const provider = new ClaudeCodeProvider({ type: "claude-code" });
+    const stopping = fakePP({ streamHandler: spyHandler() });
+    (provider as any).processes.set("topic:test", stopping);
+    await provider.abort("topic:test", undefined, "user");
+
+    let spawned = 0;
+    (provider as any).spawnPersistentProcess = () => { spawned++; return fakePP(); };
+    const second = spyHandler();
+    const wait = (provider as any).processForTurn("topic:test", 5_000, second);
+    await provider.abort("topic:test", undefined, "user");
+    (provider as any).onSessionClosed(stopping, 0);
+
+    expect(await wait).toBeNull();
+    expect(second.calls).toEqual(["aborted"]);
+    expect(spawned).toBe(0);
+  });
+
+  test("the provider stopping while a send waits: that send ends with a notice, no child is spawned", async () => {
+    const provider = new ClaudeCodeProvider({ type: "claude-code" });
+    const stopping = fakePP({ streamHandler: spyHandler() });
+    (provider as any).processes.set("topic:test", stopping);
+    await provider.abort("topic:test", undefined, "user");
+
+    let spawned = 0;
+    (provider as any).spawnPersistentProcess = () => { spawned++; return fakePP(); };
+    const waiting = spyHandler();
+    const wait = (provider as any).processForTurn("topic:test", 5_000, waiting);
+    provider.stop();
+    (provider as any).onSessionClosed(stopping, 0);
+
+    expect(await wait).toBeNull();
+    expect(waiting.calls).toEqual(["aborted"]);
+    expect(spawned).toBe(0);
+  });
+
+  test("killing the stopped child (/clear) ends the wait at once instead of at the cap", async () => {
+    const provider = new ClaudeCodeProvider({ type: "claude-code" });
+    const stopping = fakePP({ streamHandler: spyHandler() });
+    (provider as any).processes.set("topic:test", stopping);
+    await provider.abort("topic:test", undefined, "user");
+
+    const fresh = fakePP();
+    (provider as any).spawnPersistentProcess = () => fresh;
+    const started = Date.now();
+    const wait = (provider as any).processForTurn("topic:test", 5_000);
+    (provider as any).killProcess(stopping);
+    expect(await wait).toBe(fresh);
+    expect(Date.now() - started).toBeLessThan(1_000);
   });
 
   test("a live child that was not stopped is reused as before", async () => {

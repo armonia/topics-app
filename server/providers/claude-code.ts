@@ -1139,6 +1139,14 @@ export class ClaudeCodeProvider implements AIProvider {
   private config: ClaudeCodeProviderConfig;
   private processes = new Map<string, PersistentProcess>();
   /**
+   * The send that is waiting for a stopped child to exit (`processForTurn`),
+   * per session. It is the session's current turn even though no child has it
+   * yet, so a Stop pressed on it must reach it here: otherwise the SIGINT hit
+   * the child already dying, the wait ended, and the stopped send was written
+   * to a fresh child anyway (and stole the handler of the message after it).
+   */
+  private waitingSends = new Map<string, { handler: StreamHandler; cancelled: boolean }>();
+  /**
    * Gli scan della sonda TENUTI IN VITA per chi li adotterà — deliberatamente
    * fuori da `this.processes`, che è la mappa di chi sta GUIDANDO una sessione.
    *
@@ -1356,6 +1364,15 @@ export class ClaudeCodeProvider implements AIProvider {
   stop(): void {
     this.started = false;
     if (this.unsubscribeReconnect) { this.unsubscribeReconnect(); this.unsubscribeReconnect = null; }
+    // A send still waiting for a stopped child to exit must not spawn a new
+    // child on a provider that is going away (in direct mode that child would
+    // outlive the server). It ends here, and its chat says why.
+    for (const [key, waiting] of this.waitingSends) {
+      if (waiting.cancelled) continue;
+      waiting.cancelled = true;
+      try { waiting.handler.onAborted?.({ turnEnd: cancelled("server-shutdown") }); }
+      catch (err) { console.warn(`[claude-code] shutdown notice not delivered to the waiting send on ${key}:`, err); }
+    }
     for (const [key, pp] of this.processes) {
       if (USE_AI_BRIDGE && pp.alive) {
         // The child lives in the DETACHED ai-bridge daemon and must SURVIVE a
@@ -1473,7 +1490,10 @@ export class ClaudeCodeProvider implements AIProvider {
     retriedReset = false,
     resetFallbackContent?: string,
   ): Promise<{ runId?: string }> {
-    const pp = await this.processForTurn(sessionKey);
+    const pp = await this.processForTurn(sessionKey, STOPPED_CHILD_EXIT_WAIT_MS, handler);
+    // Stopped before it had a child (see `waitingSends`): `abort()` already
+    // told the handler, and nothing was written anywhere.
+    if (!pp) return { runId: undefined };
     const runId = crypto.randomUUID();
 
     pp.streamHandler = handler;
@@ -1846,6 +1866,15 @@ export class ClaudeCodeProvider implements AIProvider {
   // --- Abort ---
 
   async abort(sessionKey: string, _runId: string | undefined, reason: AbortReason): Promise<void> {
+    // The turn being stopped may not have a child yet: it is waiting for the
+    // previous stopped child to exit. Stop THAT, and leave the dying child be.
+    const waiting = this.waitingSends.get(sessionKey);
+    if (waiting && !waiting.cancelled) {
+      waiting.cancelled = true;
+      try { waiting.handler.onAborted?.({ turnEnd: cancelled(reason) }); }
+      catch (err) { console.warn(`[claude-code] onAborted threw for the waiting send on ${sessionKey}:`, err); }
+      return;
+    }
     const pp = this.processes.get(sessionKey);
     if (!pp || !pp.alive) return;
 
@@ -2021,18 +2050,32 @@ export class ClaudeCodeProvider implements AIProvider {
    * (topic d6158ec6, 22/09: two task updates lost, «no reply» in 5 and 38 ms).
    * Wait for the exit, kill at the cap, then spawn a fresh one.
    */
-  private async processForTurn(sessionKey: string, waitMs = STOPPED_CHILD_EXIT_WAIT_MS): Promise<PersistentProcess> {
+  private async processForTurn(
+    sessionKey: string,
+    waitMs = STOPPED_CHILD_EXIT_WAIT_MS,
+    handler?: StreamHandler,
+  ): Promise<PersistentProcess | null> {
     const existing = this.processes.get(sessionKey);
     if (existing?.stoppedExit && existing.alive) {
+      const waiting = handler ? { handler, cancelled: false } : null;
+      if (waiting) this.waitingSends.set(sessionKey, waiting);
       let timer: ReturnType<typeof setTimeout> | undefined;
       const capped = new Promise<"timeout">((r) => { timer = setTimeout(() => r("timeout"), waitMs); });
-      const outcome = await Promise.race([existing.stoppedExit.done.then(() => "exited" as const), capped]);
-      clearTimeout(timer);
+      let outcome: "exited" | "timeout";
+      try {
+        outcome = await Promise.race([existing.stoppedExit.done.then(() => "exited" as const), capped]);
+      } finally {
+        clearTimeout(timer);
+        if (waiting && this.waitingSends.get(sessionKey) === waiting) this.waitingSends.delete(sessionKey);
+      }
       if (outcome === "timeout" && existing.alive) {
         console.warn(`[claude-code] ${sessionKey}: the stopped child did not exit within ${waitMs} ms, killing it before the next turn`);
         this.killProcess(existing);
       }
       if (this.processes.get(sessionKey) === existing) this.processes.delete(sessionKey);
+      // Stopped while it waited (a second Stop, or the provider shutting down):
+      // no child is spawned for it.
+      if (waiting?.cancelled) return null;
     }
     return this.getOrCreateProcess(sessionKey);
   }
@@ -3855,6 +3898,10 @@ export class ClaudeCodeProvider implements AIProvider {
 
   private killProcess(pp: PersistentProcess): void {
     pp.alive = false;
+    // Killed on purpose (e.g. `/clear` while a send waits for this stopped
+    // child): nobody will hear its exit in broker mode, because `kill` drops
+    // the handlers for the key, so the wait ends now instead of at its cap.
+    pp.stoppedExit?.resolve();
     this.cleanupTimers(pp);
     try { pp.readline?.close(); } catch {}
     pp.io.kill();
