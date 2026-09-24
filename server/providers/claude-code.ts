@@ -1710,11 +1710,14 @@ export class ClaudeCodeProvider implements AIProvider {
           `(silenzio reale ${idleMin} min, ultimo evento: ${pp.lastEventKind ?? "nessuno"})`,
         );
         // Only a child that is still ours and alive. In broker mode the kill
-        // goes BY KEY, and a `pp` that already died may have a successor under
-        // that key by now (a reattach): a second kill, or a blind delete, would
+        // goes BY KEY, and the key may belong to someone else by now: a
+        // successor after a death, or the child a new provider instance
+        // re-adopted after this one's `stop()` detached it (still `alive`
+        // here, no longer in the map). A second kill, or a blind delete, would
         // take the successor down with it.
-        if (pp.alive) this.killProcess(pp, "watchdog");
-        if (this.processes.get(sessionKey) === pp) this.processes.delete(sessionKey);
+        const ours = this.processes.get(sessionKey) === pp;
+        if (ours && pp.alive) this.killProcess(pp, "watchdog");
+        if (ours) this.processes.delete(sessionKey);
         handler.onError("Nessuna attività dal modello per 30 minuti. Turno terminato.");
         return { runId };
       }
