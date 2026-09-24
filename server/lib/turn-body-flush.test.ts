@@ -50,6 +50,7 @@ function liveTurn(sessionKey: string) {
     updateLastMessage: (_key: string, updates: Partial<StoredMessage>) => {
       row = { tool_calls: "[]", blocks: JSON.stringify(updates.blocks ?? []) };
     },
+    rowId: () => "row-1",
     blocks,
     content: () => "",
     thinking: () => "",

@@ -8,7 +8,7 @@
  * handler on a fresh child, and everything the CLI answered afterwards was
  * written on whatever row was last at that moment. On 24/09, chat 3019832f,
  * the resume sweep's notices were those rows: one got its content turned into
- * «⚠️ Response timed out... Please try again.Due problemi nuovi...», and the
+ * «⚠️ Response timed out... Please try again.Due problemi nuovi...», and the  allow-italian: the corrupted row, verbatim
  * blocks it inherited (`error{cause:"watchdog"}`) made the next sweep read the
  * notice as one more interruption of ours and write another notice. Six in
  * thirty minutes.
