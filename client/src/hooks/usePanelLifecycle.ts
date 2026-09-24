@@ -1533,16 +1533,22 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         mode?: 'preview' | 'permanent';
         /** Direct server projection for creation while WebSocket is offline. */
         topic?: Topic;
+        /**
+         * On the phone, also close the drawer so the chat is what you see.
+         * Opt-in: the boot re-assertion of a `/topic/<id>` deep link sends this
+         * same event on every hydrate wave, and closing the drawer each time
+         * took the home screen away under the person's finger.
+         */
+        reveal?: boolean;
       }>).detail;
       if (!detail?.topicId) return;
       if (detail.topic) applyTopicFromWS(detail.topic);
       openPanel(detail.topicId, detail.mode ?? 'preview', true, detail.topic);
-      // Every sender of this event means "take me to that chat" (a
-      // notification, a board card, the unsent band). On the phone the drawer
-      // IS the home screen and covers the pane, and `openPanel` closes it only
-      // on the project route: an already-open chat stayed hidden behind it,
+      // On the phone the drawer IS the home screen and covers the pane, and
+      // `openPanel` closes it only on the project route: a row of the unsent
+      // band pointing at an already-open chat left it hidden behind the drawer,
       // and the tap looked like it did nothing.
-      if (isMobile) setSidebarCollapsed(true);
+      if (isMobile && detail.reveal) setSidebarCollapsed(true);
     };
     window.addEventListener('topics:open-topic', onOpenTopic as EventListener);
     return () => window.removeEventListener('topics:open-topic', onOpenTopic as EventListener);

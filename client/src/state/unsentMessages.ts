@@ -1,7 +1,7 @@
 /**
  * The unsent messages, split between the two places that show them.
  *
- * Reported on 24/09: the "1 messaggio non inviato" toast floated `absolute`
+ * Reported on 24/09: the "1 messaggio non inviato" toast floated `absolute` allow-italian: quotes the UI text that was reported
  * over the grid, so with several columns it landed on the pane under the
  * middle of the screen (whatever chat the message belonged to), on top of that
  * pane's composer, and partly cut. A message belongs to ONE chat, so it is
@@ -117,7 +117,7 @@ export function groupBySession<T extends { sessionKey: string }>(items: readonly
  * project) instead of leaving a ghost tab behind, and closes the phone drawer.
  */
 export function openUnsentChat(topicId: string): void {
-  window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId, mode: 'permanent' } }));
+  window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId, mode: 'permanent', reveal: true } }));
 }
 
 // --- Sessions whose strip is on screen ------------------------------------

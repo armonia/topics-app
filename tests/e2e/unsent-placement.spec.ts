@@ -12,7 +12,7 @@ hermetic(test);
 /**
  * WHERE the unsent messages are shown, measured on the DOM (CHAT-QUEUE-06).
  *
- * Reported on 24/09: "1 messaggio non inviato" appeared as a toast at the
+ * Reported on 24/09: "1 messaggio non inviato" appeared as a toast at the allow-italian: quotes the UI text that was reported
  * bottom of whatever pane happened to sit under the centre of the grid, on top
  * of that pane's composer, and cut off. The toast was `absolute` inside the
  * grid, so with three columns it landed on the middle one whatever chat the
