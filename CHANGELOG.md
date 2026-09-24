@@ -2,6 +2,35 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.378 — 2026-09-24
+
+### Sotto il cofano
+- Goal loop: a turn that ran and finished tools is not idle
+- Goal loop rows read as machinery everywhere, not as the person
+- ↑/↓ recall your prompts; each prompt shows its number
+- Sub-agents named Agent lost their description
+- Chat strip: an 'unknown' tool detail is not a verdict, derive the write by name
+- Changed-files list: «and N more» opens the rest, and a long list gets a filter
+- Tool rows in a coalesced run lost their output
+- Shell command block had no height cap
+- /goal sends the goal; the goal bar opens whole; tok/s in the turn's row
+- Goal steps rendered as anonymous JSON
+- Task diff route: ?file=<path> returns one file's patch on the bundle's range
+- Card chip and diff panel: real counts, clickable rows, lazy per-file patch
+- MultiEdit card: every edit on screen, as hunks of one diff
+- Failures inside a closed tool group were unreachable
+- Shell row header showed the cd, not the command
+- Heavy tab pause: shares of the Mac, and keep it running once or always
+- Tool-UX comments in English and tests traced to their requirement
+- Clear four red gates inherited from the base commits
+- English comments and names, lint (refs in render, fast refresh)
+- e2e (WebKit): the card chip walked end to end, and the cut note stops sending you away
+- the failure badge opens the group on the failed row
+- E2E badge test: English identifier (check:identifier-language)
+- Comments in English and an identifier the language gate knows
+- Composer history: clear the four QA-gate reds it landed with
+- Delivery chip stays open on an empty read; bundle baseline for the 23/09 batch
+
 ## 2.2.377 — 2026-09-23
 
 ### Sotto il cofano
