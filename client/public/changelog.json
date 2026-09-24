@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.386",
+    "date": "2026-09-24",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "La chat non scatta più scendendo: il margine della bolla stava fuori dalla riga",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La spec dello scatto rispetta le barre: attese contate in pagina, nomi e commento in inglese",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.385",
     "date": "2026-09-24",
     "sections": {
