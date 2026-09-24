@@ -62,6 +62,7 @@ import { MessageContent } from '../MessageContent';
 import { taskSessionSegments } from './taskSessionPresentation';
 import { taskSessionRuns, type TaskSessionRunItem } from './taskSessionRuns';
 import { TaskWorkAccordion } from '../Chat/TaskWorkAccordion';
+import { TaskWorkFoldContext } from '../Chat/taskWorkFoldContext';
 import { COMPOSER_CARD, COMPOSER_TEXTAREA } from '../Chat/composerStyles';
 import type { ChatMessage } from '../../types';
 import { holdTopic } from '../../state/topicSubscriptions';
@@ -3436,9 +3437,13 @@ const SessionRun = memo(function SessionRun({ items, sessionKey }: {
         partial={message.partial}
         sessionKey={sessionKey ?? undefined} messageId={originalId}
       />);
+      // The task drawer already folds the session's work into «Session
+      // details»: the turn fold of the chat (`Chat/turnFold.ts`) would nest a
+      // second closed row inside it, so it is switched off here the same way
+      // the task chat switches it off.
       return folded
-        ? <TaskWorkAccordion key={key} msg={summary} label={tr('chat.taskWork.sessionDetails')}>{content}</TaskWorkAccordion>
-        : <div key={key}>{content}</div>;
+        ? <TaskWorkAccordion key={key} msg={summary} label={tr('chat.taskWork.sessionDetails')}><TaskWorkFoldContext.Provider value>{content}</TaskWorkFoldContext.Provider></TaskWorkAccordion>
+        : <div key={key}><TaskWorkFoldContext.Provider value>{content}</TaskWorkFoldContext.Provider></div>;
     })}
   </div>;
 }, (previous, next) => previous.sessionKey === next.sessionKey
