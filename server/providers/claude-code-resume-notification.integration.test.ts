@@ -20,7 +20,13 @@ let tempDir = "";
 const savedEnv: Record<string, string | undefined> = {};
 function setEnv(k: string, v: string) { savedEnv[k] = process.env[k]; process.env[k] = v; }
 
-beforeAll(() => {
+beforeAll(async () => {
+  // The ai-bridge client is a process-wide singleton bound to the data dir it
+  // first saw. Another integration file in the same `bun test` process leaves
+  // one behind pointing at its own temp dir, deleted by its afterAll: without
+  // this reset the spawn here lands on a dead store (ENOENT) and times out.
+  const { __resetAiBridgeClientForTests } = await import("../lib/ai-bridge-client");
+  __resetAiBridgeClientForTests();
   tempDir = mkdtempSync(join(tmpdir(), "resume-notif-"));
   mkdirSync(join(tempDir, "data"), { recursive: true });
   setEnv("DATA_DIR", join(tempDir, "data"));

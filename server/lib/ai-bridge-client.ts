@@ -200,6 +200,18 @@ export class AiBridgeClient {
   private connecting = false;
   private readyResolvers: Array<() => void> = [];
   private readonly handlers = new Map<string, SessionHandlers>();
+  /**
+   * Spawns sent and not yet acknowledged, by session id. An `exit` frame names
+   * only the id, and until the daemon acks the new spawn the one child it can
+   * be about is the PREVIOUS incarnation: the daemon writes `spawned` in the
+   * same tick it starts the child, so a new child's exit always follows its ack
+   * on the socket. Measured 24/09 (3 runs out of 8): Stop, send, then /clear
+   * within half a second. The killed child died before the daemon read the
+   * spawn, so its exit went out with no successor to hide it, and this client
+   * handed it to the NEW turn's handlers: "Process exited with code null" on a
+   * message that had not even started.
+   */
+  private readonly spawnsInFlight = new Map<string, object>();
   private readonly waiters: Waiter[] = [];
   private readonly reconnectCbs = new Set<() => void>();
   private watchdog: ReturnType<typeof setInterval> | null = null;
@@ -380,12 +392,22 @@ export class AiBridgeClient {
     if (msg.type === "pong") { this.lastPongAt = Date.now(); return; }
     const id = msg.id as string | undefined;
     if (!id) return;
+    // The ack closes the window at once, not when the spawn's promise settles:
+    // the new child's own exit can sit right behind it in the same chunk, and
+    // it must reach the handlers.
+    if (msg.type === "spawned") this.spawnsInFlight.delete(id);
     const h = this.handlers.get(id);
     if (!h) return;
     switch (msg.type) {
       case "data": h.onData(Buffer.from(msg.chunk ?? "", "base64"), msg.offset ?? 0); break;
       case "stderr": h.onStderr?.(Buffer.from(msg.chunk ?? "", "base64")); break;
-      case "exit": h.onExit?.(typeof msg.exitCode === "number" ? msg.exitCode : null); break;
+      case "exit":
+        if (this.spawnsInFlight.has(id)) {
+          console.warn(`[ai-bridge-client] exit of the replaced child of ${id} dropped: its successor is still being spawned`);
+          break;
+        }
+        h.onExit?.(typeof msg.exitCode === "number" ? msg.exitCode : null);
+        break;
     }
   }
 
@@ -537,14 +559,20 @@ export class AiBridgeClient {
 
   /** Spawn (or, if a live session for `id` already exists, resume) a child. */
   async spawn(id: string, opts: SpawnOpts): Promise<{ pid: number; resumed: boolean }> {
-    const m = await this.request(
-      { type: "spawn", id, cliPath: opts.cliPath, args: opts.args, cwd: opts.cwd, env: opts.env },
-      (f) => (f.type === "spawned" || f.type === "error") && f.id === id,
-      SPAWN_ACK_TIMEOUT_MS,
-      `spawn ${id}`,
-    );
-    if (m.type === "error") throw new Error(`ai-bridge spawn: ${m.error}`);
-    return { pid: m.pid, resumed: m.resumed === true };
+    const token = {};
+    this.spawnsInFlight.set(id, token);
+    try {
+      const m = await this.request(
+        { type: "spawn", id, cliPath: opts.cliPath, args: opts.args, cwd: opts.cwd, env: opts.env },
+        (f) => (f.type === "spawned" || f.type === "error") && f.id === id,
+        SPAWN_ACK_TIMEOUT_MS,
+        `spawn ${id}`,
+      );
+      if (m.type === "error") throw new Error(`ai-bridge spawn: ${m.error}`);
+      return { pid: m.pid, resumed: m.resumed === true };
+    } finally {
+      if (this.spawnsInFlight.get(id) === token) this.spawnsInFlight.delete(id);
+    }
   }
 
   /** Re-attach to an existing session, replaying the store from `fromOffset`. */
