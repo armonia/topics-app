@@ -17,18 +17,26 @@
 import { useId, useMemo, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight, FileDiff, Users, Workflow, X } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import type { ChatMessage } from '../../types';
+import type { ChatMessage, ToolCall } from '../../types';
 import { formatDurationMs, formatToolCounts, isWhollyFailed } from './toolGrouping';
-import { baseName, summarizeWork } from './taskWorkFold';
+import { baseName, summarizeTools, summarizeWork } from './taskWorkFold';
 
 /** Up to this many file names spell themselves out; past it, a count. */
 const FILES_SPELLED = 2;
 
-export function TaskWorkAccordion({ msg, children, label }: { msg: ChatMessage; children: ReactNode; label?: string }) {
+export function TaskWorkAccordion({ msg, tools, children, label, testId = 'task-work-accordion' }: {
+  /** The message whose work folds (the board task's per-message fold)... */
+  msg?: ChatMessage;
+  /** ...or the calls themselves (a finished turn's work, `turnFold.ts`). */
+  tools?: ToolCall[];
+  children: ReactNode;
+  label?: string;
+  testId?: string;
+}) {
   const tr = useT();
   const [open, setOpen] = useState(false);
   const bodyId = useId();
-  const summary = useMemo(() => summarizeWork([msg]), [msg]);
+  const summary = useMemo(() => (tools ? summarizeTools(tools) : summarizeWork(msg ? [msg] : [])), [msg, tools]);
 
   const total = summary.total;
   const failed = isWhollyFailed(summary);
@@ -43,7 +51,7 @@ export function TaskWorkAccordion({ msg, children, label }: { msg: ChatMessage; 
 
   return (
     <div
-      data-testid="task-work-accordion"
+      data-testid={testId}
       data-open={open ? 'true' : 'false'}
       data-actions={String(total)}
       className="my-0.5 text-compact"

@@ -19,6 +19,9 @@ import { Spinner } from './Shared/Spinner';
 import { useToast } from './Shared/Toast';
 import { SlashCommandChip } from './Chat/SlashCommandChip';
 import { TurnErrorBanner } from './Chat/TurnErrorBanner';
+import { TurnWorkRow } from './Chat/TurnWorkRow';
+import { foldFinishedTurn } from './Chat/turnFold';
+import { useTaskWorkFold } from './Chat/taskWorkFoldContext';
 import type { ToolCall } from '../types';
 import { LEGACY_ERROR_PREFIX, turnErrorOf } from './Chat/turnError';
 import { releaseAudio } from '../lib/releaseAudio';
@@ -1124,6 +1127,15 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     return paths;
   }, [extractedMediaPaths, mediaFromBlocks, media]);
 
+  // A finished turn shows its answer and folds the work before it into one row
+  // (`Chat/turnFold.ts` for the rule and for what never folds). Inside a board
+  // task the per-message accordion already does it, so it is not done twice.
+  const inTaskFold = useTaskWorkFold();
+  const turnFold = useMemo(
+    () => (role === 'assistant' && !inTaskFold ? foldFinishedTurn(blockGroups, partial) : null),
+    [role, inTaskFold, blockGroups, partial],
+  );
+
   if (role === 'user') {
     const renderUserText = (text: string) => {
       const lines = text.split('\n');
@@ -1187,15 +1199,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   // each piece of content so reasoning that happens *between* tool calls
   // appears where it occurred, not lifted to the top.
   if (blocks && blocks.length > 0) {
-    // Group consecutive tool blocks so we can render them as a single
-    // vertical timeline (connected by a left border line) instead of N
-    // unrelated rows. Visually lighter, easier to scan.
-    return (
-      <div data-testid="message-content-assistant">
-        {ripreso && <RipresoBanner />}
-        {woken && <WokenBanner label={woken.label} />}
-        {turnError && <TurnErrorBanner text={turnError} />}
-        {blockGroups.map((g) => {
+    const renderGroup = (g: BlockGroup) => {
           if (g.kind === 'thinking') {
             return (
               <ReasoningRow
@@ -1247,7 +1251,23 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               <ProseBlock text={text} components={markdownComponents} />
             </div>
           );
-        })}
+    };
+    // Group consecutive tool blocks so we can render them as a single
+    // vertical timeline (connected by a left border line) instead of N
+    // unrelated rows. Visually lighter, easier to scan.
+    return (
+      <div data-testid="message-content-assistant">
+        {ripreso && <RipresoBanner />}
+        {woken && <WokenBanner label={woken.label} />}
+        {turnError && <TurnErrorBanner text={turnError} />}
+        {turnFold ? (
+          <>
+            <TurnWorkRow tools={turnFold.tools}>
+              {turnFold.work.map(renderGroup)}
+            </TurnWorkRow>
+            {turnFold.shown.map(renderGroup)}
+          </>
+        ) : blockGroups.map(renderGroup)}
 
         {/* Media — rendered after content blocks */}
         {allMediaPaths.map((path, i) => (

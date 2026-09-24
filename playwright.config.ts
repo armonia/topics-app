@@ -554,6 +554,7 @@ export default defineConfig({
         // row -> the task's diff on that file. Filmed on the shipping engine.
         "**/changed-files-complete.spec.ts",
         "**/chat-tool-run-grouping.spec.ts",
+        "**/turn-fold.spec.ts",
       ],
       use: {
         browserName: "webkit",
