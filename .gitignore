@@ -443,3 +443,11 @@ provider-hold.json
 # ancora i non tracciati ai file cambiati.
 mem-samples.json
 mem-samples.json.tmp
+
+# The swap freezer's ledger (server/services/swap-freeze-ledger.ts), same place
+# and same reason as the two files above: `resolveStateDir(process.cwd())` puts
+# it in the repo root under start-prod, and an untracked file there is what
+# keeps a board land's door shut. Found untracked in the prod checkout on
+# 24/09/2026.
+swap-freeze.json
+swap-freeze.json.tmp
