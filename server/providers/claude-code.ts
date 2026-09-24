@@ -1031,6 +1031,13 @@ interface PersistentProcess {
    */
   lastEventKind?: string;
   /**
+   * A `system/task_notification` arrived and its turn has not ended yet: the
+   * next empty `result` with no model turn in it is the notification's answer,
+   * not the end of the turn the person is waiting on. See the `noise` branch
+   * of `handleStreamEvent`.
+   */
+  notificationTurnPending?: boolean;
+  /**
    * Set when this process was spawned with `--session-id` because the prior
    * `claude_session_id` was either missing on disk or never existed, but the
    * topics-app DB *does* contain prior user/assistant turns for this
@@ -3000,6 +3007,9 @@ export class ClaudeCodeProvider implements AIProvider {
     // `system` drop below. Skip during reattach replay (replayMute scan /
     // replaySilent fold) so re-reading the store never double-fires the marker.
     if (line.kind === "compaction") {
+      // The empty result after a boundary is the compaction's, and it closes
+      // the turn (CCLI-05): a notification seen earlier must not swallow it.
+      if (!pp.replayMute) pp.notificationTurnPending = false;
       if (!pp.replayMute && !pp.replaySilent) {
         const marker = parseCompactBoundary(event);
         if (marker) {
@@ -3032,7 +3042,20 @@ export class ClaudeCodeProvider implements AIProvider {
     }
 
     // Filter noise
-    if (line.kind === "noise") return;
+    if (line.kind === "noise") {
+      // A LEFTOVER TASK NOTIFICATION IS A TURN OF ITS OWN. A resumed session
+      // that had a background task when it last ended delivers the task's
+      // notification before it reads the next message, and answers it with an
+      // empty `result` (num_turns 0). That result is the notification's, not
+      // the person's: it closed their turn as «no reply» in 1.5 s (24/09,
+      // topic 33966f4e; recorded with CLI 2.1.280, see
+      // `claude-code-resume-notification.test.ts`). Armed here, spent on the
+      // next result. Armed during the reattach fold too (`replaySilent`): that
+      // fold closes turns on `result` like live traffic does. Not during the
+      // scan (`replayMute`), which reads history and would leak the flag.
+      if (line.label === "system/task_notification" && !pp.replayMute) pp.notificationTurnPending = true;
+      return;
+    }
 
     // Reattach SCAN pass: record the store's tail shape, emit nothing.
     if (pp.replayMute) {
@@ -3117,6 +3140,15 @@ export class ClaudeCodeProvider implements AIProvider {
       // corso (vedi `RESULT_WAITING` nelle fixture).
       const resultText = typeof event.result === "string" ? event.result : "";
       if (resultText === "waiting for message") return;
+      // The notification's own turn ends here: a clean success with zero model
+      // turns and no text. It is not the person's answer, so the turn they are
+      // waiting on stays open and the result that follows is theirs. Anything
+      // else (text, a turn the model actually ran, an error) is a real end,
+      // and the flag is dropped with it: an error must never be swallowed.
+      if (pp.notificationTurnPending) {
+        pp.notificationTurnPending = false;
+        if (!resultText && event.num_turns === 0 && event.subtype === "success" && event.is_error !== true) return;
+      }
 
       if (handler) {
         // PERCHÉ è finito: la CLI lo dice qui e finora lo buttavamo via. A valle
