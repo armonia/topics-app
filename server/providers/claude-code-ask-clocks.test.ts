@@ -40,7 +40,7 @@ function fakePP() {
   return {
     alive: true,
     inactivityTimer: null,
-    lifetimeTimer: null,
+    lifetimeTimer: null as { clear: () => void } | null,
     heartbeatInterval: null,
     subAgentEmit: new Map(),
     streamHandler: null as unknown,
@@ -132,6 +132,23 @@ describe("lifetime cap and the turn in flight", () => {
 
     expect(killed()).toBe(1);
     expect(p.processes.get(sessionKey)).toBeUndefined();
+  });
+
+  test("a send still waiting on the child holds the cap even with no handler", async () => {
+    // The route can stop watching a turn (it unregisters its handler) while the
+    // CLI is still working on it: the send is pending, and that is a turn too.
+    const sessionKey = "sess-life-pending";
+    const { p, pp, killed } = setup(sessionKey);
+    (pp as any).pendingReject = () => {};
+
+    p.armLifetime(pp, sessionKey, { ms: 20, rearmMs: 10 });
+    await sleep(100);
+    expect(killed()).toBe(0);
+
+    (pp as any).pendingReject = null;
+    await waitFor(() => killed() > 0);
+    pp.lifetimeTimer?.clear();
+    expect(killed()).toBe(1);
   });
 
   test("an orphaned cap does not touch the process that took its key", async () => {

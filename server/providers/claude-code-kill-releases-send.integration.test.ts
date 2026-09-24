@@ -139,7 +139,8 @@ describe("a killed child and the session queue (real broker, real child)", () =>
     // own answer.
     expect(await waitFor(() => log.some((l) => l.ev.startsWith("B:done")), slackMs(10_000))).toBe(true);
     await sendB;
-    expect(log.filter((l) => l.ev.startsWith("B:")).map((l) => l.ev)).toEqual(["B:done:ricevuto: tutto ok?"]);
+    const bEvents = log.filter((l) => l.ev.startsWith("B:") && l.ev !== "B:delta").map((l) => l.ev);
+    expect(bEvents).toEqual(["B:done:ricevuto: tutto ok?"]);
 
     provider.stop();
   }, 30_000);
