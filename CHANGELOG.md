@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.384 — 2026-09-24
+
+### Sotto il cofano
+- A fan-out attempt's agent gets its Monitor back too
+- wait for the reply box to settle after the 768px remount
+
 ## 2.2.383 — 2026-09-24
 
 ### Sotto il cofano

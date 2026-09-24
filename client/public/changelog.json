@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.2.384",
+    "date": "2026-09-24",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "A fan-out attempt's agent gets its Monitor back too",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "wait for the reply box to settle after the 768px remount",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.383",
     "date": "2026-09-24",
     "sections": {
