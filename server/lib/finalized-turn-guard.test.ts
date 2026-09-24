@@ -17,6 +17,8 @@ function recorder() {
     onToolResult: (id: string) => { calls.push(`result:${id}`); },
     onCallUsage: () => { calls.push("usage"); },
     onDone: () => { calls.push("done"); },
+    onCompaction: () => { calls.push("compaction"); },
+    onContextSize: (n: number) => { calls.push(`context:${n}`); },
     onError: (e: string) => { calls.push(`error:${e}`); },
     onAborted: () => { calls.push("aborted"); },
   } as unknown as StreamHandler;
@@ -56,6 +58,16 @@ describe("silenceAfterFinalize", () => {
     h.onAborted?.();
     h.onError("killed");
     expect(calls).toEqual(["aborted", "error:killed"]);
+    expect(dropped).toEqual([]);
+  });
+
+  test("the session's own facts still land: a compaction and the context size are not the turn's row", () => {
+    const { calls, handler } = recorder();
+    const dropped: string[] = [];
+    const h = silenceAfterFinalize(handler, () => true, (e) => dropped.push(e));
+    h.onCompaction?.({} as never);
+    h.onContextSize?.(1200);
+    expect(calls).toEqual(["compaction", "context:1200"]);
     expect(dropped).toEqual([]);
   });
 

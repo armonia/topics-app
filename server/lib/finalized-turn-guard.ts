@@ -21,13 +21,20 @@
  * which is idempotent, and `onError` also rolls back the inline preamble mark,
  * which stays right for a turn that never finished.
  *
+ * And two facts about the SESSION rather than the turn: a compaction
+ * (`onCompaction`) and the context size (`onContextSize`). They go to their own
+ * tables, never to a message row, and they stay true whoever was listening. The
+ * compaction marker is also what resets the inline-preamble dedup: dropped, the
+ * turns after a late auto-compaction would go out without the topic context
+ * the CLI has just summarised away (review of card 1046df0b).
+ *
  * What is dropped is reported through `onDropped`, so the loss is in the log:
  * the text of a late answer does not reach the database, and the CLI's own
  * transcript is where it can still be read.
  */
 import type { StreamHandler } from "../providers/types";
 
-const STILL_HEARD: ReadonlySet<string> = new Set(["onError", "onAborted"]);
+const STILL_HEARD: ReadonlySet<string> = new Set(["onError", "onAborted", "onCompaction", "onContextSize"]);
 
 export function silenceAfterFinalize(
   handler: StreamHandler,

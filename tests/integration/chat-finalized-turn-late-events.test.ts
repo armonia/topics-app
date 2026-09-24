@@ -198,6 +198,20 @@ describe("a closed turn writes on no row but its own", () => {
     expect(h.raw(turnRowId)).toEqual(turnAtClose);
   });
 
+  test("a compaction reaching a closed turn is still recorded: it is the session's fact, not the turn's row", async () => {
+    const h = await harness("topic:late-compaction");
+    const handler = await h.startTurn();
+    await until(() => h.sent.some((m) => m.type === "stream:end"));
+
+    // The late answer auto-compacts the CLI session. The marker is what resets
+    // the inline-preamble dedup: lost, the next turns skip the topic context.
+    handler.onCompaction?.({ trigger: "auto", preTokens: 180_000 } as never);
+
+    const markers = h.ctx.db.query("SELECT trigger FROM compaction_markers WHERE session_key = ?")
+      .all("topic:late-compaction") as Array<{ trigger: string }>;
+    expect(markers.map((m) => m.trigger)).toEqual(["auto"]);
+  });
+
   test("a live turn writes its body and its tools on its own row even when a newer row exists", async () => {
     const h = await harness("topic:live-by-id");
     const handler = await h.startTurn();
