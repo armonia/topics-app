@@ -508,12 +508,22 @@ test('the floating composer leaves the latest answer readable through multiline 
   }
   // A short wrapped draft must also shrink when the panel widens; a field
   // stuck at the previous width's line count wastes the conversation's space.
-  await page.setViewportSize({ width: 375, height: 844 });
+  // THE PANEL WIDENS THROUGH ITS OWN TOGGLE, not through a resize to 375 and
+  // back: crossing 768px remounts the drawer (see the loop above), and that
+  // made this check both flaky and empty. The fill could land on the field
+  // being replaced, whose successor reloaded the 12-line draft from the server
+  // (1 run in 10 on WebKit, on main too, 24/09), and a freshly mounted field
+  // cannot be "stuck at the previous width" in the first place. The toggle
+  // grows the same field from 24rem to its wide width, which is the case.
+  const wideToggle = drawer.getByTestId('task-detail-wide-toggle');
+  await wideToggle.click();
+  await expect(wideToggle).toHaveAttribute('aria-pressed', 'false');
   const shortDraft = 'Keep the source selected for this chart. Explain which saved query supplies its data and where I can edit it. Preserve the existing filters and show the result before the technical details.';
   await input.fill(shortDraft);
   await expect(input).toHaveValue(shortDraft);
   const narrowHeight = (await input.boundingBox())!.height;
-  await page.setViewportSize({ width: 1600, height: 900 });
+  await wideToggle.click();
+  await expect(wideToggle).toHaveAttribute('aria-pressed', 'true');
   await expect(input).toBeVisible();
   await expect(input).toHaveValue(shortDraft);
   await expect.poll(async () => (await input.boundingBox())?.height ?? Infinity).toBeLessThan(narrowHeight);
