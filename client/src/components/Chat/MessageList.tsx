@@ -2065,14 +2065,14 @@ export function MessageList({
             const hoistOwnSummary = idx === 0
               ? !!leadingSummary
               : !!(prev && markersAfter(prev)?.length);
-            // `flow-root` non è estetica: tiene DENTRO la riga i margini dei
-            // figli. La bolla ha `mb-1.5`, e senza un contesto di blocco quel
-            // margine collassava fuori dall'item: Virtuoso misurava ogni riga
-            // 6px più corta dello spazio che occupava. Quando una riga usciva
-            // in cima, il padding cresceva della sua altezza MISURATA mentre il
-            // DOM perdeva altezza + 6: il contenuto saliva di 6px (12 con due
-            // righe) sotto la rotellina. Era lo «scatta scrollando giù» del
-            // 24/09, misurato in `chat-scroll-down-jitter.spec.ts`.
+            // `flow-root` is not cosmetic: it keeps the children's margins
+            // INSIDE the row. The bubble has `mb-1.5`, and without a block
+            // formatting context that margin collapsed out of the item, so
+            // Virtuoso measured every row 6px shorter than the space it took.
+            // When a row left the top, the padding grew by its MEASURED height
+            // while the DOM lost height + 6: the content jumped up 6px (12 with
+            // two rows) under the wheel. That was the "it jerks scrolling
+            // down" of 24/09, measured in `chat-scroll-down-jitter.spec.ts`.
             return (
               <div className="flow-root">
               {idx === 0 && historyPartial && (

@@ -42,7 +42,7 @@ hermetic(test);
  */
 const JERK_PX = 3;
 
-type Frame = { t: number; top: number; h: number; ch: number; idx: number; disp: number | null; pad: number; first: number; last: number; rows: Record<string, number> };
+type Frame = { t: number; top: number; h: number; ch: number; idx: number; shift: number | null; pad: number; first: number; last: number; rows: Record<string, number> };
 type Write = { t: number; kind: string; before: number; after: number; h: number; ch: number };
 type Wheel = { t: number; dy: number };
 type Probe = { frames: Frame[]; writes: Write[]; wheels: Wheel[]; running: boolean };
@@ -52,19 +52,19 @@ async function installProbe(page: Page) {
     const p = { frames: [], writes: [], wheels: [], running: false } as unknown as Probe;
     (window as unknown as { __probe: Probe }).__probe = p;
     const isChat = (el: Element) => el.matches?.('[data-testid="virtuoso-scroller"], [data-virtuoso-scroller]');
-    const desc = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
-    const read = (el: Element) => desc.get!.call(el) as number;
+    const scrollTopProperty = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
+    const read = (el: Element) => scrollTopProperty.get!.call(el) as number;
     const log = (el: Element, kind: string, before: number) => {
       if (!p.running) return;
       p.writes.push({ t: performance.now(), kind, before, after: read(el), h: el.scrollHeight, ch: el.clientHeight });
     };
     Object.defineProperty(Element.prototype, "scrollTop", {
       configurable: true,
-      get() { return desc.get!.call(this); },
+      get() { return scrollTopProperty.get!.call(this); },
       set(v: number) {
-        if (!isChat(this)) return desc.set!.call(this, v);
+        if (!isChat(this)) return scrollTopProperty.set!.call(this, v);
         const before = read(this);
-        desc.set!.call(this, v);
+        scrollTopProperty.set!.call(this, v);
         log(this, "scrollTop", before);
       },
     });
@@ -98,10 +98,10 @@ async function startRecording(scroller: Locator) {
     };
     const tick = () => {
       if (!p.running) return;
-      let disp: number | null = null;
+      let shift: number | null = null;
       if (prevIdx >= 0) {
         const same = el.querySelector<HTMLElement>(`[data-index="${prevIdx}"]`);
-        if (same) disp = same.getBoundingClientRect().top - prevTop;
+        if (same) shift = same.getBoundingClientRect().top - prevTop;
       }
       const row = rowAtMiddle();
       prevIdx = row ? Number(row.dataset.index) : -1;
@@ -111,7 +111,7 @@ async function startRecording(scroller: Locator) {
       const rows: Record<string, number> = {};
       for (const m of mounted) rows[m.dataset.index!] = Math.round(m.getBoundingClientRect().height * 10) / 10;
       p.frames.push({
-        t: performance.now(), top: el.scrollTop, h: el.scrollHeight, ch: el.clientHeight, idx: prevIdx, disp,
+        t: performance.now(), top: el.scrollTop, h: el.scrollHeight, ch: el.clientHeight, idx: prevIdx, shift,
         pad: list ? parseFloat(getComputedStyle(list).paddingTop) : 0,
         first: mounted.length ? Number(mounted[0]!.dataset.index) : -1,
         last: mounted.length ? Number(mounted[mounted.length - 1]!.dataset.index) : -1,
@@ -140,10 +140,10 @@ function analyse(p: Probe): { jerks: Jerk[]; lastWheel: number } {
   for (let i = 1; i < p.frames.length; i++) {
     const a = p.frames[i - 1]!;
     const b = p.frames[i]!;
-    if (b.disp == null) continue;
+    if (b.shift == null) continue;
     const ws = p.writes.filter((w) => w.t > a.t && w.t <= b.t);
     const appPx = ws.reduce((s, w) => s + (w.after - w.before), 0);
-    const unexplained = b.disp + (b.top - a.top) - appPx;
+    const unexplained = b.shift + (b.top - a.top) - appPx;
     // The app moved the view, or content moved under the viewport, by more
     // than the threshold. `-appPx` is what the reader sees of a write the
     // content did not ask for; `unexplained` catches both at once.
@@ -167,11 +167,28 @@ function analyse(p: Probe): { jerks: Jerk[]; lastWheel: number } {
   return { jerks, lastWheel };
 }
 
+/**
+ * Lets real time pass with the recorder running.
+ *
+ * DELIBERATE FIXED WAIT: here the clock IS the experiment. The app's own
+ * movers are time-based (the 400ms gesture window, the opening window, the
+ * pins that fire once a gesture is over), so "nothing jerked for N ms after
+ * the hand stopped" has no condition to poll; and a trackpad is a cadence of
+ * wheel events, not a single one. It is counted in the page, on the same
+ * frames the recorder samples (the pattern of `chat-scroll-at-rest.spec.ts`).
+ */
+const watch = (page: Page, ms: number) =>
+  page.evaluate((span) => new Promise<void>((done) => {
+    const end = performance.now() + span;
+    const tick = () => (performance.now() >= end ? done() : requestAnimationFrame(tick));
+    requestAnimationFrame(tick);
+  }), ms);
+
 /** One trackpad fling: a burst of wheel events decaying like momentum. */
 async function fling(page: Page, dir: 1 | -1, start = 70) {
   for (let d = start; d >= 1; d *= 0.88) {
     await page.mouse.wheel(0, dir * Math.round(d));
-    await page.waitForTimeout(14);
+    await watch(page, 14);
   }
 }
 
@@ -224,7 +241,7 @@ test.describe("chat scroll down: no jerk", () => {
       .poll(() => scroller.evaluate((el) => el.scrollHeight - el.clientHeight > 2000 && el.scrollHeight - el.scrollTop - el.clientHeight <= 8), { timeout: 20_000 })
       .toBe(true);
     // The opening window (OPEN_WINDOW_MS, up to OPEN_HARD_STOP_MS) is over.
-    await page.waitForTimeout(2000);
+    await watch(page, 2000);
     const box = (await scroller.boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     return scroller;
@@ -245,7 +262,11 @@ test.describe("chat scroll down: no jerk", () => {
     const scroller = await openAtBottom(page);
     // Go back into history the way a reader does, then let everything settle.
     for (let i = 0; i < 4; i++) await fling(page, -1, 90);
-    await page.waitForTimeout(1200);
+    // Settled: scrollTop no longer moves between two frames.
+    await expect.poll(() => scroller.evaluate((el) => new Promise<boolean>((done) => {
+      const before = el.scrollTop;
+      requestAnimationFrame(() => requestAnimationFrame(() => done(el.scrollTop === before)));
+    })), { timeout: 10_000 }).toBe(true);
     const up = await scroller.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
     expect(up, "the setup did not get far enough from the bottom").toBeGreaterThan(1200);
     // The cause, asserted directly: rows sit edge to edge. A gap between two
@@ -265,7 +286,7 @@ test.describe("chat scroll down: no jerk", () => {
       if (d <= 1) break;
     }
     await fling(page, 1, 40);
-    await page.waitForTimeout(1500);
+    await watch(page, 1500);
     const p = await stopRecording(page);
     const dist = await scroller.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight));
     const jerks = report("history -> bottom", p, { dist });
@@ -279,9 +300,9 @@ test.describe("chat scroll down: no jerk", () => {
     await startRecording(scroller);
     for (let i = 0; i < 3; i++) {
       await fling(page, 1);
-      await page.waitForTimeout(600);
+      await watch(page, 600);
     }
-    await page.waitForTimeout(1200);
+    await watch(page, 1200);
     const p = await stopRecording(page);
     const dist = await scroller.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight));
     const jerks = report("at bottom, keep scrolling down", p, { dist });
@@ -295,11 +316,11 @@ test.describe("chat scroll down: no jerk", () => {
     await startRecording(scroller);
     for (let i = 0; i < 3; i++) {
       await fling(page, -1, 25);
-      await page.waitForTimeout(300);
+      await watch(page, 300);
       await fling(page, 1, 30);
-      await page.waitForTimeout(700);
+      await watch(page, 700);
     }
-    await page.waitForTimeout(1200);
+    await watch(page, 1200);
     const p = await stopRecording(page);
     const dist = await scroller.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight));
     const jerks = report("near bottom, up and down", p, { dist });
