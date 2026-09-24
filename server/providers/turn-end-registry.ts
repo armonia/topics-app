@@ -25,7 +25,16 @@ import type { TurnEndInfo } from "./stop-reason";
  */
 const MAX_ENTRIES = 200;
 
-const lastTurnEnd = new Map<string, TurnEndInfo>();
+/** A deposited end and the moment it was deposited. */
+export interface RecordedTurnEnd {
+  info: TurnEndInfo;
+  atMs: number;
+}
+
+// The time travels with the end, in the same entry, so eviction drops both:
+// the resume sweep needs to know whether a Stop came after the message it is
+// judging or belongs to the turn before it.
+const lastTurnEnd = new Map<string, RecordedTurnEnd>();
 
 /** Deposita la fine del turno per questa sessione (sovrascrive la precedente). */
 export function recordTurnEnd(sessionKey: string, info: TurnEndInfo): void {
@@ -33,7 +42,7 @@ export function recordTurnEnd(sessionKey: string, info: TurnEndInfo): void {
   // delete+set rimette la chiave in coda all'ordine di inserimento della Map,
   // così lo sfratto sotto colpisce la sessione ferma da più tempo.
   lastTurnEnd.delete(sessionKey);
-  lastTurnEnd.set(sessionKey, info);
+  lastTurnEnd.set(sessionKey, { info, atMs: Date.now() });
   while (lastTurnEnd.size > MAX_ENTRIES) {
     const oldest = lastTurnEnd.keys().next();
     if (oldest.done) break;
@@ -49,9 +58,21 @@ export function peekTurnEnd(sessionKey: string): boolean {
 }
 
 export function takeTurnEnd(sessionKey: string): TurnEndInfo | undefined {
-  const info = lastTurnEnd.get(sessionKey);
-  if (info) lastTurnEnd.delete(sessionKey);
-  return info;
+  const recorded = lastTurnEnd.get(sessionKey);
+  if (recorded) lastTurnEnd.delete(sessionKey);
+  return recorded?.info;
+}
+
+/**
+ * The last end deposited for this session and when, WITHOUT consuming it.
+ *
+ * For the resume sweep, which must not steal an end from a headless driver.
+ * Interactive chats never withdraw, so their last end stays readable until it
+ * is overwritten or evicted; after a restart the map is empty and the reader
+ * gets `undefined`, which is the honest answer.
+ */
+export function readTurnEnd(sessionKey: string): RecordedTurnEnd | undefined {
+  return lastTurnEnd.get(sessionKey);
 }
 
 /** Solo per i test: azzera tutto. */

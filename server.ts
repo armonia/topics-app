@@ -5,7 +5,7 @@ import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { NOT_ARCHIVED_SQL } from "./server/lib/archived-scope";
 import { wakeVerdict, runningTaskOwnsTopic } from "./server/lib/wake-adoption";
-import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
+import { riprendiTurniInterrotti, type CtxRipresa } from "./server/lib/ripresa-boot";
 import { providerHold, isProviderHeld, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
 import { resolveStateDir } from "./server/lib/data-dir";
 import { createSwapFreezer } from "./server/services/swap-freeze";
@@ -159,7 +159,7 @@ import { createBillingRouter, isBillingWebhookPath } from "./server/routes/billi
 import { createAccountRouter } from "./server/routes/account";
 import { createPeopleRouter } from "./server/routes/people";
 import { getGatewayWS } from "./server/gateway-ws";
-import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep } from "./server/providers";
+import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend } from "./server/providers";
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import type { AbortReason } from "./server/providers/types";
@@ -5699,6 +5699,18 @@ function adottaTurniRisvegliati(): void {
 }
 adottaTurniRisvegliati();
 
+// One context for every sweep. Beyond the live stream, the sweep asks the
+// providers whether a send is still queued (topic 3019832f, 24/09: resent four
+// times behind a send the watchdog had orphaned), and dates each row against
+// this boot so a notice blames a restart only when one happened.
+const resumeCtx: CtxRipresa = {
+  db: ctx.db,
+  getTopicBySessionKey: (sk) => ctx.getTopicBySessionKey(sk),
+  isStreaming: (sk) => ctx.isStreaming(sk),
+  providerBusy: sessionHasPendingSend,
+  bootedAtMs: SERVER_STARTED_AT,
+};
+
 // Chain reconcile AFTER reattach: reattach adopts survivors (keeps their broker
 // child alive → they stay in the alive-set → reconcile skips them) and reaps
 // idle children (so reconcile's fresh list sees them dead → demotes their
@@ -5711,7 +5723,7 @@ reattachSurvivingChatTurns()
   .then(() => reconcileOrphanedBusyPhases())
   .then(() => reconcileOrphanedTranscripts())
   .then(() => reconcileArchivedTopicSessions())
-  .then(() => riprendiTurniInterrotti(ctx, topicsRouter))
+  .then(() => riprendiTurniInterrotti(resumeCtx, topicsRouter))
   .catch((err) => console.error("[chat-reattach] boot sweep failed", err))
   .finally(() => scheduleResumeSweep());
 
@@ -5737,7 +5749,7 @@ function nudgeResumeSweep(): void {
   resumeNudge = setTimeout(() => {
     resumeNudge = null;
     if (providerHold()) return;
-    riprendiTurniInterrotti(ctx, topicsRouter)
+    riprendiTurniInterrotti(resumeCtx, topicsRouter)
       .catch((err) => console.error("[ripresa] nudged sweep failed", err));
   }, RESUME_NUDGE_MS);
   resumeNudge.unref?.();
@@ -5754,7 +5766,7 @@ function scheduleResumeSweep(): void {
       scheduleResumeSweep();
       return;
     }
-    riprendiTurniInterrotti(ctx, topicsRouter)
+    riprendiTurniInterrotti(resumeCtx, topicsRouter)
       .catch((err) => console.error("[ripresa] periodic sweep failed", err))
       .finally(() => scheduleResumeSweep());
   }, RESUME_SWEEP_MS);

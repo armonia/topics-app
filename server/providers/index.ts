@@ -724,3 +724,24 @@ export function resolveTurnAlive(sessionKey: string): boolean | null {
   }
   return null;
 }
+
+/**
+ * Does any provider still hold a send for this session, in flight or queued?
+ *
+ * Asked by the resume sweep before it resends: a send waiting behind a stuck
+ * turn is live even when no stream and no process are (topic 3019832f, 24/09).
+ * Deliberately NOT gated on `ownsSession`, unlike `resolveTurnAlive`:
+ * `killProcess` drops the session from `processes` while a send can still be
+ * queued, which is exactly the case this has to see. A probe that throws
+ * claims nothing, and the sweep falls back to what it did before.
+ */
+export async function sessionHasPendingSend(sessionKey: string): Promise<boolean> {
+  for (const [, p] of _providers) {
+    const probe = p as unknown as { hasPendingSend?: (sk: string) => Promise<boolean> };
+    if (typeof probe.hasPendingSend !== "function") continue;
+    try {
+      if (await probe.hasPendingSend(sessionKey)) return true;
+    } catch { /* a failing probe claims nothing */ }
+  }
+  return false;
+}

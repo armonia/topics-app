@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import {
   peekTurnEnd,
+  readTurnEnd,
   recordTurnEnd,
   resetTurnEndRegistry,
   takeTurnEnd,
@@ -80,5 +81,37 @@ describe("tetto ai residui", () => {
     for (let i = 150; i < 250; i++) recordTurnEnd(`s${i}`, { end: "end_turn" });
     expect(takeTurnEnd("s0")).toBeUndefined();
     expect(takeTurnEnd("vip")?.end).toBe("refusal");
+  });
+});
+
+describe("reading without withdrawing, with the time of the end", () => {
+  it("returns the end and WHEN it was deposited, and leaves it for whoever withdraws", () => {
+    const before = Date.now();
+    recordTurnEnd("topic:stop", cancelled("user", "POST /api/chat/abort"));
+    const after = Date.now();
+    const read = readTurnEnd("topic:stop");
+    expect(read?.info).toEqual(cancelled("user", "POST /api/chat/abort"));
+    expect(read!.atMs).toBeGreaterThanOrEqual(before);
+    expect(read!.atMs).toBeLessThanOrEqual(after);
+    // Not consumed: the resume sweep must not steal the end from a headless driver.
+    expect(readTurnEnd("topic:stop")).toEqual(read);
+    expect(takeTurnEnd("topic:stop")).toEqual(cancelled("user", "POST /api/chat/abort"));
+    expect(readTurnEnd("topic:stop")).toBeUndefined();
+  });
+
+  it("a newer end replaces the time too", async () => {
+    recordTurnEnd("s1", cancelled("user"));
+    const first = readTurnEnd("s1")!.atMs;
+    await new Promise((r) => setTimeout(r, 5));
+    recordTurnEnd("s1", { end: "end_turn" });
+    expect(readTurnEnd("s1")?.info.end).toBe("end_turn");
+    expect(readTurnEnd("s1")!.atMs).toBeGreaterThan(first);
+  });
+
+  it("an evicted session loses its time with its end", () => {
+    recordTurnEnd("old", cancelled("user"));
+    for (let i = 0; i < 250; i++) recordTurnEnd(`s${i}`, { end: "end_turn" });
+    expect(readTurnEnd("old")).toBeUndefined();
+    expect(turnEndRegistrySize()).toBeLessThanOrEqual(200);
   });
 });

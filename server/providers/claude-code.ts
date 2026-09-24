@@ -2672,6 +2672,12 @@ export class ClaudeCodeProvider implements AIProvider {
     return this.processes.has(sessionKey);
   }
 
+  /** A send in flight or queued, read off the queue tail and not process liveness: see `sessionHasPendingSend`. */
+  async hasPendingSend(sessionKey: string): Promise<boolean> {
+    const tail = this.queues.get(sessionKey), pending = Symbol("pending");
+    return !!tail && (await Promise.race([tail, Promise.resolve(pending)])) === pending; // RAW tail: `tail.then()` adds a tick and always loses
+  }
+
   /**
    * C'è un turno IN VOLO in questa sessione, secondo il BROKER?
    *
