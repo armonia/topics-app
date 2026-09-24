@@ -2,6 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.383 — 2026-09-24
+
+### Sotto il cofano
+- Skip a leftover notification's empty result instead of ending the turn with it
+- Never write the next turn into a child that is dying after a stop
+- Keep the next turn's handler off a stopped child
+- A second Stop reaches the send that waits for the dying child
+- Drop a replaced child's exit while its successor is still being spawned
+- a running task's agent gets its Monitor back, a declined wake leaks nowhere
+- Disarm the notification skip at every send
+- The resume sweep leaves a chat alone while a turn is live on it
+- Each fake-CLI integration test owns its ai-bridge daemon
+
 ## 2.2.382 — 2026-09-24
 
 ### Correzioni
