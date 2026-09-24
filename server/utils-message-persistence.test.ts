@@ -261,6 +261,40 @@ describe("message field-ownership on updateMessage", () => {
   });
 });
 
+/**
+ * THE WRITERS TAKE THE ROW (card 1046df0b). With `rowId` each one patches that
+ * row of the session, not the last one: a notice written after a turn must
+ * never receive the turn's body, tools or media. The route test drives the
+ * same rule through `routes/chat.ts`, but there the tool column is skipped on
+ * any row that already has blocks, so only here is every writer seen writing.
+ */
+describe("the row writers target the named row, not the last one", () => {
+  test("body, tool call, tool result, tool fields and media land on the turn, the newer row is untouched", () => {
+    const turn = ctx.createPartialMessage(SK, "assistant");
+    const notice = ctx.createPartialMessage(SK, "assistant");
+    ctx.updateLastMessage(SK, { content: "cartello", partial: undefined, streamedAt: undefined });
+    const noticeBefore = ctx.getMessageById(notice.id)!;
+    const own = { rowId: turn.id };
+
+    ctx.addToolCallToLastMessage(SK, tool("late1"), own);
+    ctx.updateToolCallResult(SK, "late1", "ok", undefined, { endedAt: 1 }, own);
+    ctx.updateToolCallFields(SK, "late1", { tokens: 5 }, own);
+    ctx.updateLastMessage(SK, { content: "risposta" }, own);
+    ctx.updateLastMessageWithMedia(SK, ["/tmp/shot.png"], own);
+
+    expect(ctx.getMessageById(notice.id)).toEqual(noticeBefore);
+    const row = ctx.getMessageById(turn.id)!;
+    expect(row.content).toBe("risposta\nMEDIA:/tmp/shot.png");
+    expect(row.toolCalls?.[0]).toMatchObject({ id: "late1", status: "success", result: "ok", tokens: 5 });
+  });
+
+  test("an id from another conversation writes nothing", () => {
+    const turn = ctx.createPartialMessage(SK, "assistant");
+    expect(ctx.updateLastMessage("topic:someone-else", { content: "intruso" }, { rowId: turn.id })).toBeNull();
+    expect(ctx.getMessageById(turn.id)!.content).toBe("");
+  });
+});
+
 describe("reuseHeadstoneOrCreate — il turno spontaneo riprende il cartello che lo precede", () => {
   const CARTELLO = "⚠️ Nessuna risposta: il turno si è chiuso senza produrre niente. Il tuo messaggio è ancora qui: «Riprova» lo rimanda.";
 
