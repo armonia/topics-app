@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
   MAX_RESUME_ATTEMPTS, RESUME_CAP_MARKER, UNANSWERED_NOTICE, attemptsOnRow, riprendiTurniInterrotti,
-  resumeVerdict, type RigaDaValutare,
+  resumeVerdict,
 } from "./ripresa-boot";
 // The notice builders are new: reached through the namespace so this file still
 // loads on the code before the fix, where the verdict tests must fail on the
@@ -26,13 +26,16 @@ import type { ContentBlock } from "../types";
 // decide a verdict here.
 beforeEach(() => resetTurnEndRegistry());
 
+/** The row `resumeVerdict` judges. */
+type JudgedRow = Parameters<typeof resumeVerdict>[0];
+
 const ORA = Date.UTC(2026, 8, 24, 12, 47, 0);
-const interrotto: ContentBlock = { kind: "error", text: "Turno interrotto: il server si è riavviato." };
-const prosa: ContentBlock = { kind: "text", text: "stavo misurando" };
-const base: RigaDaValutare = {
+const interruptedBlock: ContentBlock = { kind: "error", text: "Turno interrotto: il server si è riavviato." };
+const proseBlock: ContentBlock = { kind: "text", text: "stavo misurando" };
+const base: JudgedRow = {
   sessionKey: "topic:3019832f",
   ruolo: "assistant",
-  blocks: [prosa, interrotto],
+  blocks: [proseBlock, interruptedBlock],
   timestampMs: ORA - 60_000,
   attempts: 0,
 };
@@ -60,9 +63,9 @@ describe("the verdict asks the provider and remembers the Stop", () => {
     text: "Turno interrotto: il processo dell'agente non dava più segni di vita e la risposta è stata chiusa.",
     cause: "watchdog",
   } as ContentBlock;
-  const cutByWatchdog: RigaDaValutare = { ...base, blocks: [prosa, watchdogCut] };
+  const cutByWatchdog: JudgedRow = { ...base, blocks: [proseBlock, watchdogCut] };
   // 230 s: past USER_TAIL_GRACE_MS, the age the c5d57a41 message had when it was resent.
-  const userTail: RigaDaValutare = { ...base, ruolo: "user", blocks: null, timestampMs: ORA - 230_000 };
+  const userTail: JudgedRow = { ...base, ruolo: "user", blocks: null, timestampMs: ORA - 230_000 };
 
   test("(a) a send still queued on the provider: no resend, and no cap notice either", () => {
     expect(resumeVerdict(cutByWatchdog, ORA)).toBe("resend");
@@ -143,7 +146,7 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
   test("(a) the provider still holds a send for the chat: no call, no trace, no row", async () => {
     const cutChat = () => chatDb([
       { id: "u0", role: "user", agoMs: 10 * 60_000 },
-      { id: "a0", role: "assistant", agoMs: 9 * 60_000, blocks: [prosa, watchdogCut], parent: "u0" },
+      { id: "a0", role: "assistant", agoMs: 9 * 60_000, blocks: [proseBlock, watchdogCut], parent: "u0" },
     ]);
     // Control: the same chat with an idle provider IS resumed.
     const idleCalls: unknown[] = [];
@@ -220,15 +223,15 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
   const cappedChats = (): Array<[string, () => Database]> => [
     ["watchdog cut", () => chatDb([
       { id: "u0", role: "user", agoMs: 10 * 60_000 },
-      { id: "a0", role: "assistant", agoMs: 9 * 60_000, blocks: [{ kind: "ripreso", attempt: MAX_RESUME_ATTEMPTS } as ContentBlock, prosa, watchdogCut], parent: "u0" },
+      { id: "a0", role: "assistant", agoMs: 9 * 60_000, blocks: [{ kind: "ripreso", attempt: MAX_RESUME_ATTEMPTS } as ContentBlock, proseBlock, watchdogCut], parent: "u0" },
     ])],
     ["notice without a cause", () => chatDb([
       { id: "u0", role: "user", agoMs: 10 * 60_000 },
-      { id: "a0", role: "assistant", agoMs: 9 * 60_000, blocks: [interrotto, { kind: "ripreso", attempt: MAX_RESUME_ATTEMPTS } as ContentBlock], parent: "u0" },
+      { id: "a0", role: "assistant", agoMs: 9 * 60_000, blocks: [interruptedBlock, { kind: "ripreso", attempt: MAX_RESUME_ATTEMPTS } as ContentBlock], parent: "u0" },
     ])],
     ["person's message at the end of the chain", () => chatDb([
       { id: "u0", role: "user", agoMs: 10 * 60_000 },
-      { id: "a0", role: "assistant", agoMs: 9 * 60_000, blocks: [{ kind: "ripreso", attempt: MAX_RESUME_ATTEMPTS } as ContentBlock, prosa, watchdogCut], parent: "u0" },
+      { id: "a0", role: "assistant", agoMs: 9 * 60_000, blocks: [{ kind: "ripreso", attempt: MAX_RESUME_ATTEMPTS } as ContentBlock, proseBlock, watchdogCut], parent: "u0" },
       { id: "u1", role: "user", agoMs: 5 * 60_000, parent: "a0" },
     ])],
   ];
