@@ -1613,6 +1613,14 @@ export class ClaudeCodeProvider implements AIProvider {
         return;
       }
 
+      // A notification seen BEFORE this send belongs to no turn of ours. If it
+      // got no result of its own (the CLI marks some ambient), a flag left
+      // armed would skip this turn's end whenever it is an empty zero-turn
+      // result (`/reset`, `/new`, `/compact` with nothing to compact) and hang
+      // the send until the watchdog (adversarial check, 24/09). The resume case
+      // the flag exists for is unaffected: there the CLI prints the
+      // notification after reading this write, so it arms after this line.
+      pp.notificationTurnPending = false;
       pp.io.writeStdin(input);
     });
 
