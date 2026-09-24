@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.381 — 2026-09-24
+
+### Sotto il cofano
+- Goal bar: start closed even when the agent wrote the goal
+
 ## 2.2.380 — 2026-09-24
 
 ### Sotto il cofano
