@@ -229,8 +229,10 @@ test.describe("Top bar della kanban — si legge da sola", () => {
     await expect(chip).toHaveText(/^Fermane 2$/);
     await chip.click();
     await expect(page.getByText("4 agent al lavoro, ne reggo 2")).toBeVisible();
-    // The popover carries the REAL measure (the fleet's CPU), not the load average.
-    await expect(page.getByText(/6\.2 core sui 6 che spettano loro/)).toBeVisible();
+    // The popover says how busy the Mac is in ONE number (the larger of CPU
+    // and memory), and the core count of the server's reason is not shown.
+    await expect(page.getByText("Il Mac è occupato al 90%")).toBeVisible();
+    await expect(page.getByText(/core sui/)).toHaveCount(0);
     await expect(page.getByText(/consiglio/)).toBeVisible();
     await page.screenshot({ path: join(SHOTS, "popover-carico.png"), clip: { x: 0, y: 0, width: 1440, height: 320 } });
     await page.keyboard.press("Escape");

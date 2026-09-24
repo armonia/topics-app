@@ -569,6 +569,12 @@ export default defineConfig({
         // Layout is decided by the engine that ships, so it is measured there.
         "**/unsent-placement.spec.ts",
         "**/unsent-banner.spec.ts",
+        // "The Mac is X% busy": the one number every load surface says, and
+        // no technical word outside "Dettagli" (24/09). Text and colour are
+        // read on the engine that ships.
+        "**/board-dispatch-load-gauge.spec.ts",
+        "**/board-settings-dropdown.spec.ts",
+        "**/board-topbar-legibility.spec.ts",
       ],
       use: {
         browserName: "webkit",

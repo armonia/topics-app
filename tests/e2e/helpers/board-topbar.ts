@@ -80,6 +80,8 @@ export async function stubProbes(page: Page, opts?: { running?: number }) {
       body: JSON.stringify({
         recommended: 2, cores: 12, totalMemGB: 32, availableMemGB: 9.5, load1: 15.4, running,
         oursCores: 6.2, budgetCores: 6,
+        // The whole Mac: 90% CPU, 70% memory. The one number the chip says is 90.
+        machineCpuPct: 90, machineMemPct: 70,
         reason: "12 core → base 4, ridotto a 2: gli agent tengono 6.2 core sui 6 di quota",
       }),
     }));
@@ -246,4 +248,3 @@ export async function audit(page: Page) {
     };
   });
 }
-
