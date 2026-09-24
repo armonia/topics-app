@@ -84,6 +84,7 @@ export function drainWoken(
 ): void {
   const pending = slot.wokenBuffer;
   slot.wokenBuffer = null;
+  (slot as WokenSlot).bufferedTurnEnded = false;
   if (!pending || pending.length === 0) return;
   for (const ev of pending) {
     try { consegna(ev); }
@@ -99,6 +100,70 @@ export interface WokenSlot {
   /** La `description` dell'ultimo Monitor armato: viaggia con la sveglia
    *  perché è la sola cosa che risponde a «arrivato COSA». */
   ultimoMonitor?: string;
+  /** The spontaneous turn in flight was declined: its content is dropped
+   *  until its own `result`, so it can neither wake twice nor reach the next
+   *  turn somebody asks for. */
+  declinedTurn?: boolean;
+  /** The buffered turn already produced its `result`: it is a finished turn
+   *  waiting for its adopter, not one a new sender can merge into. */
+  bufferedTurnEnded?: boolean;
+}
+
+/**
+ * The server's answer to a wake. `false` = declined (no chat to write it in).
+ * Anything else = an adoption is on its way; if it fails later, `abandon`
+ * turns the held turn into a declined one.
+ */
+export type WakeObserver = (sessionKey: string, label: string | undefined, abandon: () => void) => boolean | void;
+
+/**
+ * A wake that will never be adopted: drop what is held, and drop the rest of
+ * that turn as it arrives. The held lines used to stay in the buffer, and the
+ * next `registerStreamHandler`, from a turn somebody else asked for, poured
+ * them into its own row (topic 2d0c1101, 23/09).
+ *
+ * A turn that already ended leaves nothing more to drop, so the flag is set
+ * only while it still runs. With a handler installed the remaining lines
+ * already belong to that turn (the CLI merges a message sent mid-turn).
+ */
+export function abandonHeldTurn(slot: WokenSlot): void {
+  const ended = slot.bufferedTurnEnded === true;
+  slot.wokenBuffer = null;
+  slot.bufferedTurnEnded = false;
+  if (!ended && !slot.streamHandler) slot.declinedTurn = true;
+}
+
+/**
+ * What to do with a line outside replay, BEFORE the ordinary processing.
+ *
+ * `drop`: content of a declined turn. `hold`: the `result` of a turn waiting
+ * for its adopter, which must reach it or the adopted row never closes.
+ * `pass`: everything else, unchanged.
+ *
+ * Any real `result` ends the declined turn, handler or not: the CLI answers a
+ * message sent during a spontaneous turn with ONE merged result (measured on
+ * CLI 2.1.280, 24/09), and the next spontaneous turn must be able to wake.
+ */
+export function unattendedLineFate(
+  slot: WokenSlot,
+  event: unknown,
+  kind: StreamLineKind,
+): "drop" | "hold" | "pass" {
+  const closes = kind === "result" && (event as { result?: unknown })?.result !== "waiting for message";
+  if (slot.streamHandler) {
+    if (closes) slot.declinedTurn = false;
+    return "pass";
+  }
+  if (slot.declinedTurn) {
+    if (closes) { slot.declinedTurn = false; return "pass"; }
+    return kind === "content" || kind === "partial" ? "drop" : "pass";
+  }
+  if (closes && slot.wokenBuffer != null) {
+    slot.wokenBuffer.push(event);
+    slot.bufferedTurnEnded = true;
+    return "hold";
+  }
+  return "pass";
 }
 
 /**
@@ -111,16 +176,37 @@ export interface WokenSlot {
  *
  * `true` = tenuto da parte, il chiamante non lo processi. `false` = qualcuno ha
  * adottato in modo sincrono, si prosegue col nuovo handler.
+ *
+ * A declined wake (the observer answers `false`, or nobody observes) drops the
+ * turn on the spot instead of holding it for an adopter that will never come.
+ * The `abandon` handed to the observer is bound to THIS buffer: called late,
+ * after the turn was adopted or a newer wake opened its own buffer, it does
+ * nothing.
  */
 export function bufferWoken(
   slot: WokenSlot,
   event: unknown,
-  sveglia: ((sessionKey: string, label?: string) => void) | null,
+  sveglia: WakeObserver | null,
 ): boolean {
   if (slot.wokenBuffer == null) {
-    slot.wokenBuffer = [];
-    try { sveglia?.(slot.sessionKey, slot.ultimoMonitor); }
-    catch (err) { console.warn(`[claude-code] la sveglia del turno spontaneo su ${slot.sessionKey} ha rigettato:`, err); }
+    const held: unknown[] = [];
+    slot.wokenBuffer = held;
+    slot.bufferedTurnEnded = false;
+    let answer: boolean | void = sveglia ? undefined : false;
+    try {
+      if (sveglia) answer = sveglia(slot.sessionKey, slot.ultimoMonitor, () => {
+        if (slot.wokenBuffer === held) abandonHeldTurn(slot);
+      });
+    } catch (err) {
+      // An observer that throws adopts nothing: holding the turn for it would
+      // only leave it for the next sender to inherit.
+      answer = false;
+      console.warn(`[claude-code] la sveglia del turno spontaneo su ${slot.sessionKey} ha rigettato:`, err);
+    }
+    if (answer === false && slot.wokenBuffer === held) {
+      abandonHeldTurn(slot);
+      return true;
+    }
   }
   // La sveglia può aver adottato sul posto: allora il buffer è già stato
   // svuotato da `drainWoken` e non c'è niente da tenere.

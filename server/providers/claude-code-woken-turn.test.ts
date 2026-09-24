@@ -112,7 +112,7 @@ describe("claude-code · il turno che nasce da solo", () => {
   test("senza handler, un evento di contenuto SVEGLIA invece di cadere", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:woken1");
     const sveglie: string[] = [];
-    ClaudeCodeProvider.observeWokenTurns((sk) => sveglie.push(sk));
+    ClaudeCodeProvider.observeWokenTurns((sk) => { sveglie.push(sk); });
 
     // Il turno precedente è finito: nessun handler. È lo stato esatto in cui
     // arrivava la risposta del Monitor.
@@ -125,7 +125,7 @@ describe("claude-code · il turno che nasce da solo", () => {
   test("la sveglia si chiama UNA volta, non a ogni evento del risveglio", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:woken2");
     const sveglie: string[] = [];
-    ClaudeCodeProvider.observeWokenTurns((sk) => sveglie.push(sk));
+    ClaudeCodeProvider.observeWokenTurns((sk) => { sveglie.push(sk); });
 
     // La CLI manda un `assistant` per BLOCCO di contenuto: se ogni evento
     // svegliasse, un turno risvegliato aprirebbe dieci righe in chat.
@@ -176,7 +176,7 @@ describe("claude-code · il turno che nasce da solo", () => {
   test("una RIADOZIONE non sveglia niente: sta rileggendo turni già finiti", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:woken5");
     const sveglie: string[] = [];
-    ClaudeCodeProvider.observeWokenTurns((sk) => sveglie.push(sk));
+    ClaudeCodeProvider.observeWokenTurns((sk) => { sveglie.push(sk); });
 
     // È la guardia che conta davvero. `reattach` ripercorre di proposito uno
     // store che contiene turni VECCHI: senza questa esclusione ogni riavvio del
@@ -196,7 +196,7 @@ describe("claude-code · il turno che nasce da solo", () => {
   test("con un handler vivo non si sveglia nessuno: è un turno normale", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:woken6");
     const sveglie: string[] = [];
-    ClaudeCodeProvider.observeWokenTurns((sk) => sveglie.push(sk));
+    ClaudeCodeProvider.observeWokenTurns((sk) => { sveglie.push(sk); });
 
     const h = makeHandler();
     pp.streamHandler = h.handler;
@@ -253,6 +253,102 @@ describe("claude-code · il turno che nasce da solo", () => {
     pp.alive = false;
 
     expect(provider.adoptWokenTurn("topic:woken8", makeHandler().handler)).toBe(false);
+  });
+
+  /**
+   * A DECLINED WAKE IS NOBODY'S TURN, and it must not become the next one.
+   *
+   * Measured in production (topic 2d0c1101, 23/09 15:58): the server refused a
+   * wake (archived topic), the held events stayed in the buffer, and the next
+   * turn somebody else asked for received them on registration: its assistant
+   * row opened with the spontaneous turn's text.
+   */
+  const result = (text: string) => ({ type: "result", subtype: "success", is_error: false, result: text, duration_ms: 10 });
+
+  test("a declined wake never leaks into the next turn, which gets its own result", () => {
+    const { provider, pp } = makeProviderWithStubProcess("topic:declined1");
+    const wakes: string[] = [];
+    ClaudeCodeProvider.observeWokenTurns((sk) => { wakes.push(sk); return false; });
+
+    emit(provider, pp, testo("OLD woken answer"));
+    emit(provider, pp, testo(" and more of it"));
+    emit(provider, pp, result("OLD woken answer"));
+    // One wake for the whole declined turn: its later lines do not reopen it.
+    expect(wakes).toEqual(["topic:declined1"]);
+
+    const h = makeHandler();
+    provider.registerStreamHandler("topic:declined1", undefined, h.handler);
+    emit(provider, pp, testo("NEW answer"));
+    emit(provider, pp, result("NEW answer"));
+
+    expect(h.texts.join("")).toBe("NEW answer");
+    expect(h.done).toBe("NEW answer");
+  });
+
+  test("after a declined turn ends, the next spontaneous turn wakes again", () => {
+    const { provider, pp } = makeProviderWithStubProcess("topic:declined2");
+    const answers = [false, true];
+    const wakes: string[] = [];
+    ClaudeCodeProvider.observeWokenTurns((sk) => { wakes.push(sk); return answers.shift(); });
+
+    emit(provider, pp, testo("declined turn"));
+    emit(provider, pp, result("declined turn"));
+    emit(provider, pp, testo("a later Monitor delivering"));
+
+    expect(wakes).toEqual(["topic:declined2", "topic:declined2"]);
+    const h = makeHandler();
+    expect(provider.adoptWokenTurn("topic:declined2", h.handler)).toBe(true);
+    expect(h.texts.join("")).toBe("a later Monitor delivering");
+  });
+
+  test("a message sent while the declined turn still runs gets the merged result, not a hang", () => {
+    // CLI 2.1.280, measured 24/09: a user message written during a spontaneous
+    // turn joins it, and ONE result answers both. What came before the message
+    // is dropped; what comes after belongs to the turn that asked.
+    const { provider, pp } = makeProviderWithStubProcess("topic:declined3");
+    ClaudeCodeProvider.observeWokenTurns(() => false);
+
+    emit(provider, pp, testo("OLD spontaneous text"));
+    const h = makeHandler();
+    provider.registerStreamHandler("topic:declined3", undefined, h.handler);
+    emit(provider, pp, testo("BETA"));
+    emit(provider, pp, result("BETA"));
+
+    expect(h.texts.join("")).toBe("BETA");
+    expect(h.done).toBe("BETA");
+  });
+
+  test("a wake the server accepted but could not adopt is dropped, not inherited", () => {
+    const { provider, pp } = makeProviderWithStubProcess("topic:abandoned1");
+    let abandon: () => void = () => {};
+    ClaudeCodeProvider.observeWokenTurns((_sk, _label, giveUp) => { abandon = giveUp; return true; });
+
+    emit(provider, pp, testo("held for an adoption that failed"));
+    // The route refused or threw: the server gives the held turn up.
+    abandon();
+    emit(provider, pp, testo(" still the abandoned turn"));
+    emit(provider, pp, result("abandoned"));
+
+    const h = makeHandler();
+    provider.registerStreamHandler("topic:abandoned1", undefined, h.handler);
+    emit(provider, pp, testo("NEW"));
+    emit(provider, pp, result("NEW"));
+    expect(h.texts.join("")).toBe("NEW");
+    expect(h.done).toBe("NEW");
+  });
+
+  test("a spontaneous turn that ends before adoption still closes the adopted row", () => {
+    const { provider, pp } = makeProviderWithStubProcess("topic:fast1");
+    ClaudeCodeProvider.observeWokenTurns(() => true);
+
+    emit(provider, pp, testo("quick"));
+    emit(provider, pp, result("quick"));
+    const h = makeHandler();
+    expect(provider.adoptWokenTurn("topic:fast1", h.handler)).toBe(true);
+
+    expect(h.texts.join("")).toBe("quick");
+    expect(h.done).toBe("quick");
+    expect(pp.streamHandler).toBeNull();
   });
 
   test("senza nessuno in ascolto il comportamento resta quello di prima", () => {

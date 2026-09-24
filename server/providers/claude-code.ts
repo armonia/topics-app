@@ -52,7 +52,7 @@ import {
   type AssistantBlock,
   type CallUsage,
 } from "./claude/events";
-import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor } from "./claude/woken-turn";
+import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor, unattendedLineFate, type WakeObserver } from "./claude/woken-turn";
 import { observePlanUsage } from "./native/usage-window";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
@@ -942,6 +942,9 @@ interface PersistentProcess {
    * eventi vanno ripiegati appena arriva l'handler, NELL'ORDINE.
    */
   wokenBuffer?: unknown[] | null;
+  /** See `WokenSlot` in `claude/woken-turn.ts`. */
+  declinedTurn?: boolean;
+  bufferedTurnEnded?: boolean;
   /** `description` dell'ultimo `Monitor`: il «COSA» del risveglio. */
   ultimoMonitor?: string;
   /** Pending promise resolvers for sendChat */
@@ -1183,10 +1186,10 @@ export class ClaudeCodeProvider implements AIProvider {
    * usciva zitta: cablaggio perfetto, mai collegato. Vale anche a caldo, perché
    * `registerProvider` SOSTITUISCE l'istanza a ogni cambio di modello.
    */
-  static observeWokenTurns(fn: (sessionKey: string, label?: string) => void): void {
+  static observeWokenTurns(fn: WakeObserver): void {
     ClaudeCodeProvider.onWokenTurn = fn;
   }
-  private static onWokenTurn: ((sessionKey: string, label?: string) => void) | null = null;
+  private static onWokenTurn: WakeObserver | null = null;
 
   /**
    * Who wants to know that a Topics-driven turn is OVER: the moment
@@ -1238,6 +1241,10 @@ export class ClaudeCodeProvider implements AIProvider {
     if (pp.stoppedExit) return;
     pp.streamHandler = handler;
     // Se aspettavamo un adottatore, quel turno ha trovato il suo padrone.
+    // Unless it already ended: its held `result` would close whatever turn is
+    // registering now with an answer it never asked for. A finished turn goes
+    // only to `adoptWokenTurn`, and to nobody if someone else took the session.
+    if (pp.bufferedTurnEnded) return;
     this.drainWokenBuffer(pp);
   }
 
@@ -1277,6 +1284,7 @@ export class ClaudeCodeProvider implements AIProvider {
     if (pp.streamHandler && pp.streamHandler !== handler) {
       // Guida davvero qualcun altro: quegli eventi appartengono al suo stream.
       pp.wokenBuffer = null;
+      pp.bufferedTurnEnded = false;
       return false;
     }
     pp.streamHandler = handler;
@@ -3091,6 +3099,12 @@ export class ClaudeCodeProvider implements AIProvider {
 
     // ── IL TURNO CHE NASCE DA SOLO ──
     // Il perché e le tre esclusioni stanno in `claude/woken-turn.ts`.
+    // First the lines of a turn already judged: a declined one is dropped to
+    // its `result`, and the `result` of one awaiting adoption is held for it.
+    if (!pp.replayMute && !pp.replaySilent) {
+      const fate = unattendedLineFate(pp, event, line.kind);
+      if (fate !== "pass") return;
+    }
     if (isWokenTurnLine({
       hasHandler: !!handler,
       replayMute: !!pp.replayMute,

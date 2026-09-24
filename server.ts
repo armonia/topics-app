@@ -4,6 +4,7 @@ import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { NOT_ARCHIVED_SQL } from "./server/lib/archived-scope";
+import { wakeVerdict, runningTaskOwnsTopic } from "./server/lib/wake-adoption";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
 import { providerHold, isProviderHeld, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
 import { resolveStateDir } from "./server/lib/data-dir";
@@ -5659,13 +5660,17 @@ function adottaTurniRisvegliati(): void {
   // quella a sondare il PATH e a registrarlo — quindi un `tryGetProvider` qui
   // troverebbe `undefined` e uscirebbe zitto: la sveglia sarebbe cablata e mai
   // collegata. Vedi `ClaudeCodeProvider.observeWokenTurns`.
-  ClaudeCodeProvider.observeWokenTurns((sessionKey, label) => {
+  ClaudeCodeProvider.observeWokenTurns((sessionKey, label, abandon) => {
     const topic = ctx.getTopicBySessionKey(sessionKey);
-    if (!topic || topic.archived) {
+    // A task agent's topic is born archived yet is alive while its task runs:
+    // the rule, and the 8 wakes it used to drop, in `lib/wake-adoption.ts`.
+    const verdict = wakeVerdict(topic, (id) => runningTaskOwnsTopic(ctx.db, id));
+    if (verdict !== "adopt") {
       // Nessuna chat dove metterlo: adottarlo vorrebbe dire scrivere una riga
-      // in un posto che l'utente non ha. Si lascia cadere, come prima.
+      // in un posto che l'utente non ha. `false` tells the provider to drop
+      // the turn, so it never lands in the next turn somebody asks for.
       console.log(`[woken] ${sessionKey}: turno spontaneo su una topic assente o archiviata — lasciato cadere`);
-      return;
+      return false;
     }
     console.log(`[woken] ${sessionKey}: la CLI ha aperto un turno da sola (Monitor o simile) — lo adotto`);
     // L'ATTESA È FINITA, e va detto PRIMA di guidare il turno.
@@ -5679,11 +5684,17 @@ function adottaTurniRisvegliati(): void {
     // di una spia che non si accende mai.
     try { claudeSessionTracker.noteWatchDelivered(sessionKey); }
     catch (err) { console.warn(`[woken] ${sessionKey}: attesa non disarmata:`, err); }
+    // Whatever the outcome, give the held turn up once the route is done with
+    // it. After a real adoption the buffer is already drained and `abandon`
+    // does nothing; when the route refused before adopting (a 4xx/5xx, a
+    // throw) it drops the turn instead of leaving it for the next sender.
     void runHeadlessWoken(sessionKey, label)
       .then((end) => {
         if (end.end !== "end_turn") console.warn(`[woken] ${sessionKey}: ${describeTurnEnd(end)}`);
       })
-      .catch((err) => console.warn(`[woken] ${sessionKey} non adottato:`, err?.message ?? err));
+      .catch((err) => console.warn(`[woken] ${sessionKey} non adottato:`, err?.message ?? err))
+      .finally(abandon);
+    return true;
   });
 }
 adottaTurniRisvegliati();
