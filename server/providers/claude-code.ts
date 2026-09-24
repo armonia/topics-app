@@ -2925,6 +2925,11 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.pendingResolve = () => resolve();
       pp.pendingReject = (e) => reject(e);
     });
+    // Nobody awaits this until the attach below returns, and on the `missing`
+    // and `!alive` paths nobody ever does. A kill (`/clear`) or a Stop in that
+    // window rejected it with no listener, and Bun exits on an unhandled
+    // rejection: the whole server went down. The awaits below still see it.
+    turnDone.catch(() => {});
 
     const res = await client.attach(sessionKey, pp.replayAfterLastResultOffset ?? 0);
     pp.replaySilent = false;

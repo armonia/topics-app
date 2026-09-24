@@ -60,6 +60,8 @@ beforeAll(async () => {
   );
   insert.run("t-krs-a", "krs-a", "krs-a", "topic:kill-releases-send", now, now);
   insert.run("t-krs-b", "krs-b", "krs-b", "topic:queued-send-stopped", now, now);
+  insert.run("t-krs-c", "krs-c", "krs-c", "topic:reattach-killed-clear", now, now);
+  insert.run("t-krs-d", "krs-d", "krs-d", "topic:reattach-killed-stop", now, now);
 });
 
 afterAll(async () => {
@@ -184,4 +186,57 @@ describe("a killed child and the session queue (real broker, real child)", () =>
       provider.stop();
     }
   }, 30_000);
+
+  /**
+   * A re-adoption after a restart parks its turn on a promise that nobody
+   * awaits until the second broker attach returns. A kill (`/clear`) or a Stop
+   * landing in that window rejected it with no listener, and an unhandled
+   * rejection makes Bun exit: the whole server went down with every stream on
+   * it. Found by adversarial review of the kill rejection; the Stop variant was
+   * already there on origin/main.
+   */
+  for (const trigger of ["clear", "stop"] as const) {
+    test(`a ${trigger} during a re-adoption does not leave an unhandled rejection`, async () => {
+      const sk = `topic:reattach-killed-${trigger}`;
+      const { ClaudeCodeProvider } = await import("./claude-code");
+      const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+      const unhandled: string[] = [];
+      const onUnhandled = (e: unknown) => { unhandled.push(String((e as Error)?.message ?? e)); };
+      process.on("unhandledRejection", onUnhandled);
+      const log: { at: number; ev: string }[] = [];
+
+      // A turn in flight, then a "restart": the old provider detaches and the
+      // child keeps working in the daemon.
+      const before = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+      void before.sendChat(sk, "do some work", recorder("A", log) as never);
+      expect(await waitFor(() => log.some((l) => l.ev === "A:tool"), slackMs(10_000))).toBe(true);
+      before.stop();
+
+      const after = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+      const client = getAiBridgeClient() as any;
+      const realAttach = client.attach.bind(client);
+      let attaches = 0;
+      client.attach = async (id: string, from: number) => {
+        if (id === sk && ++attaches === 2) {
+          // The second attach is phase 2: the turn's promise is already armed.
+          setTimeout(() => {
+            if (trigger === "clear") void after.resetSession(sk);
+            else void after.abort(sk, undefined, "user");
+          }, 0);
+          await sleep(50);
+        }
+        return realAttach(id, from);
+      };
+      try {
+        await after.reattach(sk, recorder("R", log) as never);
+        await sleep(200);
+        expect(attaches).toBeGreaterThanOrEqual(2);
+        expect(unhandled).toEqual([]);
+      } finally {
+        client.attach = realAttach;
+        process.off("unhandledRejection", onUnhandled);
+        after.stop();
+      }
+    }, 30_000);
+  }
 });
