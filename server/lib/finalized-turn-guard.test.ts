@@ -2,6 +2,8 @@
  * The rule of `finalized-turn-guard.ts`: once the turn is closed, every
  * callback is ignored and reported, except the two the route expects after its
  * own close.
+ *
+ * @covers CHAT-01
  */
 import { describe, expect, test } from "bun:test";
 import { silenceAfterFinalize } from "./finalized-turn-guard";
