@@ -44,6 +44,7 @@ function fakePP() {
     heartbeatInterval: null,
     subAgentEmit: new Map(),
     streamHandler: null as unknown,
+    lastEventAt: Date.now(),
     io: { writeStdin: () => {}, kill: () => {}, signal: () => {} },
     readline: { close() {} },
   };
@@ -149,6 +150,37 @@ describe("lifetime cap and the turn in flight", () => {
     await waitFor(() => killed() > 0);
     pp.lifetimeTimer?.clear();
     expect(killed()).toBe(1);
+  });
+
+  test("a woken turn not adopted yet, or declined, holds the cap too", async () => {
+    // Both flags clear on the turn's own `result`, so holding on them never
+    // turns into holding forever.
+    for (const flags of [{ wokenBuffer: [] }, { declinedTurn: true }]) {
+      const sessionKey = `sess-life-woken-${Object.keys(flags)[0]}`;
+      const { p, pp, killed } = setup(sessionKey);
+      Object.assign(pp, flags);
+
+      p.armLifetime(pp, sessionKey, { ms: 20, rearmMs: 10 });
+      await sleep(100);
+      pp.lifetimeTimer?.clear();
+      expect(killed()).toBe(0);
+    }
+  });
+
+  test("a turn silent past the watchdog window is still recycled", async () => {
+    // A woken turn has no turn watchdog: if it wedges, this cap is the only
+    // thing that ends it, as it was before the cap learned to wait.
+    const sessionKey = "sess-life-wedged";
+    const { p, pp, killed } = setup(sessionKey);
+    pp.streamHandler = {};
+    pp.lastEventAt = Date.now() - 1_000;
+
+    p.armLifetime(pp, sessionKey, { ms: 20, rearmMs: 10, wedgedMs: 500 });
+    await waitFor(() => killed() > 0);
+    pp.lifetimeTimer?.clear();
+
+    expect(killed()).toBe(1);
+    expect(p.processes.get(sessionKey)).toBeUndefined();
   });
 
   test("an orphaned cap does not touch the process that took its key", async () => {

@@ -3808,9 +3808,10 @@ export class ClaudeCodeProvider implements AIProvider {
     pp: PersistentProcess,
     sessionKey: string,
     /** Solo per i test: due ore non si aspettano, e la regola va provata. */
-    opts: { ms?: number; rearmMs?: number } = {},
+    opts: { ms?: number; rearmMs?: number; wedgedMs?: number } = {},
   ): TurnDeadline {
     const rearmMs = opts.rearmMs ?? LIFETIME_REARM_MS;
+    const wedgedMs = opts.wedgedMs ?? MESSAGE_TIMEOUT_MS;
     return armTurnDeadline({
       ms: opts.ms ?? MAX_LIFETIME_MS,
       rearmMs,
@@ -3820,15 +3821,23 @@ export class ClaudeCodeProvider implements AIProvider {
         // `killProcess` kills BY KEY, so a cap left armed on a replaced `pp`
         // would kill the child of whoever holds the key now.
         if (this.processes.get(sessionKey) !== pp) { pp.lifetimeTimer = null; return; }
-        // A child with a stream handler, or with a send still waiting on it (a
-        // turn the route stopped watching but the CLI is still working on), is
-        // in the middle of a turn. The cap is a wall clock on purpose (it
-        // recycles the child), so it waits for the turn to end and fires on the
-        // first tick after it, never inside it. On 2026-09-24 (chat 3019832f)
-        // it killed a streaming CLI at 12:42 and the send hung for 30 minutes.
-        // Not a silence clock: a wedged turn is the turn watchdog's job.
-        if (pp.streamHandler || pp.pendingReject) {
-          pp.lifetimeTimer = this.armLifetime(pp, sessionKey, { ms: rearmMs, rearmMs });
+        // A child in the middle of a turn: a stream handler (sent, woken or
+        // reattached turn), a send still waiting on it (a turn the route
+        // stopped watching while the CLI works on), or a woken turn not yet
+        // adopted or declined (both flags clear on the turn's own `result`).
+        // The cap is a wall clock on purpose (it recycles the child), so it
+        // waits for the turn to end and fires on the first tick after it. On
+        // 2026-09-24 (chat 3019832f) it killed a streaming CLI at 12:42 and the
+        // send hung for 30 minutes.
+        const inTurn = !!pp.streamHandler || !!pp.pendingReject || pp.wokenBuffer != null || pp.declinedTurn === true;
+        // Except a turn silent for longer than the turn watchdog's window. A
+        // sent turn never gets here (its own watchdog fires first, one rearm
+        // earlier); a woken turn has no watchdog, and the cap was the only
+        // thing ending it if it wedged. It still is, so waiting never becomes
+        // waiting forever. Not a second silence clock: this only ever fires
+        // past the 2 h mark, and only where the watchdog would have.
+        if (inTurn && Date.now() - pp.lastEventAt < wedgedMs + rearmMs) {
+          pp.lifetimeTimer = this.armLifetime(pp, sessionKey, { ms: rearmMs, rearmMs, wedgedMs });
           return;
         }
         console.log(`[claude-code] Max lifetime reached for ${sessionKey}, killing process`);
