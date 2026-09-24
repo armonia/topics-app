@@ -35,7 +35,7 @@ import {
   loadToneClass, loadWordKey, verdictSentence, type DispatchLoadReading,
 } from './dispatchLoad';
 import { MachineAxesLine, MachineBusyLine } from '../Shared/MachineBusyLine';
-import { pctVars } from '../../lib/machineBusy';
+import { pctPlaceholders } from '../../lib/machineBusy';
 import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { spendLabel } from './spendFormat';
 import { budgetShare, capMode } from '../../lib/board';
@@ -91,7 +91,7 @@ function gaugePhrase(
   if (reading.byResources) {
     // Not measured yet is said as such, never as "0.0 of X".
     if (reading.usedShare == null) return tr('board.gauge.ariaReading');
-    return tr('board.gauge.ariaResources', { running: reading.running, ...pctVars(locale, { pct: reading.usedShare * 100 }) });
+    return tr('board.gauge.ariaResources', { running: reading.running, ...pctPlaceholders(locale, { pct: reading.usedShare * 100 }) });
   }
   if (reading.unbounded) return tr('board.gauge.ariaNoLimit', { running: reading.running });
   return tr('board.gauge.aria', { running: reading.running, limit: reading.limit ?? 0 });
@@ -139,7 +139,7 @@ function toneAttr(r: DispatchLoadReading): string {
 /** Which brake produced the ceiling, said in words before any number. */
 function modeLine(cap: GlobalDispatchCap | null, tr: (k: string, v?: Record<string, string | number>) => string, locale: 'it' | 'en'): string {
   if (!cap) return tr('board.gauge.modeAuto');
-  if (capMode(cap) === 'resources') return tr('board.gauge.modeResources', pctVars(locale, { pct: pctOf(budgetShare(cap)) }));
+  if (capMode(cap) === 'resources') return tr('board.gauge.modeResources', pctPlaceholders(locale, { pct: pctOf(budgetShare(cap)) }));
   if (cap.auto) return tr('board.gauge.modeAuto');
   if (cap.max === 0) return tr('board.gauge.modeOff');
   return tr('board.gauge.modeFixed');
@@ -230,7 +230,7 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
               </p>
               {share && (
                 <p className="tabular-nums" data-testid="dispatch-load-budget">
-                  {tr('board.gauge.budgetLine', pctVars(locale, share))}
+                  {tr('board.gauge.budgetLine', pctPlaceholders(locale, share))}
                 </p>
               )}
               {mem && <p className="tabular-nums" data-testid="dispatch-load-memory">{tr('board.gauge.memLine', mem)}</p>}

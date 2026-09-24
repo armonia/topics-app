@@ -16,7 +16,7 @@
  *    is what says "past it": "oltre il limite", tone over.
  *  - GAUGE-04  the popover leads with ONE number, "il Mac è occupato al 44%", allow-italian: quotes the UI sentence
  *    coloured, and no technical word (core, CPU, memory, GB, load) outside the
- *    folded "Dettagli"; the mode and how the machine derived the ceiling
+ *    folded "Details"; the mode and how the machine derived the ceiling
  *    ("12 core → 4") are inside it, and "Impostazioni" opens the settings. allow-italian: quotes the button label
  *  - GAUGE-05  the settings panel shows the SAME reading beside the live count:
  *    ring and word with the same tone and fill as the header, the count said
@@ -26,11 +26,11 @@
  *    (it used to stay empty in that mode, which is a gauge saying nothing in
  *    the mode whose whole question is "how full is it"); the popover says how
  *    busy the Mac is in one amber percentage, and Topics' share in % under
- *    "Dettagli".
+ *    "Details".
  *  - GAUGE-07  memory holds the queue while the CPU is inside the budget: the
  *    ring is full, the word says the Mac is busy, and the wait sentence says
  *    it in the same percentage with the point where it restarts by itself.
- *  - GAUGE-08  nothing measured: "non misurabile", never an invented 0%.
+ *  - GAUGE-08  nothing measured: said as not measurable, never an invented 0%.
  *
  * The cap is left in its default (by count, auto): the derivation line only
  * exists when the machine is what produced the limit, and auto is what the
@@ -65,7 +65,7 @@ const PROOF = process.env.LOAD_PCT_SHOTS ?? "";
 /**
  * The words a person who is not technical should never meet in the main text.
  * `details` is removed first: the technical numbers are allowed only behind
- * the folded "Dettagli", which is the whole point of the change.
+ * the folded "Details", which is the whole point of the change.
  */
 const TECH_WORDS = /\b(core|core-unit\w*|CPU|memoria|memory|RAM|GB|load)\b/i;
 async function mainText(el: import("@playwright/test").Locator): Promise<string> {

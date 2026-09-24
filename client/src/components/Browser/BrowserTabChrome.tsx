@@ -37,7 +37,7 @@ import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { useActiveLocale, useT } from '../../hooks/useT';
 import { machineMemoryMb } from '../../lib/shell/heavyPanes';
 import { pageSharePct } from './pausedUsage';
-import { pctVars } from '../../lib/machineBusy';
+import { pctPlaceholders } from '../../lib/machineBusy';
 
 const CPU_CORES = Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 1) || 1);
 
@@ -166,7 +166,7 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
     : kind === 'connecting' ? t('browser.tab.kind.connecting')
     : kind === 'degraded' ? t('browser.tab.kind.degraded')
     : kind === 'heavy-paused' ? t('browser.tab.kind.heavyPaused')
-    : kind === 'heavy' ? t('browser.tab.kind.heavy', pctVars(locale, { pct: pageSharePct({ cpu: chrome.heavy?.cpu ?? 0 }, { cores: CPU_CORES, memMb: machineMemoryMb() }) }))
+    : kind === 'heavy' ? t('browser.tab.kind.heavy', pctPlaceholders(locale, { pct: pageSharePct({ cpu: chrome.heavy?.cpu ?? 0 }, { cores: CPU_CORES, memMb: machineMemoryMb() }) }))
     : kind === 'chromium' ? t('browser.tab.kind.chromium', { n: String(chrome.engineExtensions ?? 0) })
     : t('browser.tab.kind.shared');
 

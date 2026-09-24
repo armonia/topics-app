@@ -35,7 +35,7 @@ import { useFps } from '../../lib/fpsMonitor';
 import { computeTopicsFootprint } from '../../lib/topicsFootprint';
 import { publishLoad } from '../../state/systemLoad';
 import { useActiveLocale, useT } from '../../hooks/useT';
-import { busyDotColor, busyTone, machineBusyPct, pctVars, type BusyTone } from '../../lib/machineBusy';
+import { busyDotColor, busyTone, machineBusyPct, pctPlaceholders, type BusyTone } from '../../lib/machineBusy';
 
 /** The three words the hover says, one per tone of the one number. */
 const WORD: Record<Exclude<BusyTone, 'unknown'>, 'calmo' | 'caldo' | 'carico'> = { ok: 'calmo', busy: 'caldo', critical: 'carico' };
@@ -83,19 +83,19 @@ export function TopicsLoadDot({ hidden = false, alarm = false }: {
   // Topics' own megabytes and CPU still travel to the menu, which prints them.
   const busyPct = machineBusyPct(status?.machine);
   const tone = busyTone(busyPct);
-  const misurato = busyPct != null;
-  const livello = misurato ? busyPct / 100 : 0;
+  const measured = busyPct != null;
+  const level = measured ? busyPct / 100 : 0;
   const partial = usage.memPartial || usage.cpuPartial;
 
   // Published for the menu, which spells the same sample out in words. Written
   // in an effect and not during render: a render that writes to a store outside
   // React is the one shape that can tear a concurrent render.
   useEffect(() => {
-    publishLoad({ livello, misurato, totalMB: usage.totalMB, totalCpu: usage.totalCpu, fps, partial });
-  }, [livello, misurato, usage.totalMB, usage.totalCpu, fps, partial]);
+    publishLoad({ livello: level, misurato: measured, totalMB: usage.totalMB, totalCpu: usage.totalCpu, fps, partial });
+  }, [level, measured, usage.totalMB, usage.totalCpu, fps, partial]);
 
   const title = tone !== 'unknown' && busyPct != null
-    ? tr(`statusBar.load.${WORD[tone]}`, pctVars(locale, { pct: busyPct }))
+    ? tr(`statusBar.load.${WORD[tone]}`, pctPlaceholders(locale, { pct: busyPct }))
     : tr('statusBar.load.unknown');
 
   return (
@@ -109,9 +109,9 @@ export function TopicsLoadDot({ hidden = false, alarm = false }: {
       data-load-dot="true"
       // The level travels as an attribute so a test can read the state without
       // sampling a pixel and reverse engineering a hue.
-      data-load={livello.toFixed(2)}
+      data-load={level.toFixed(2)}
       data-tone={tone}
-      data-measured={misurato ? 'true' : 'false'}
+      data-measured={measured ? 'true' : 'false'}
       data-alarm={alarm || undefined}
       title={title}
       // `flex-shrink-0`: the title next to it truncates, this does not. A dot
@@ -123,7 +123,7 @@ export function TopicsLoadDot({ hidden = false, alarm = false }: {
         // The alarm OVERRIDES the load tint: "you are offline" outranks "the
         // machine is busy", and painting both on one dot would mean neither.
         backgroundColor: alarm ? 'var(--warning, #f59e0b)' : busyDotColor(tone),
-        boxShadow: alarm || misurato ? undefined : 'inset 0 0 0 1px var(--text-muted)',
+        boxShadow: alarm || measured ? undefined : 'inset 0 0 0 1px var(--text-muted)',
       }}
     />
   );

@@ -9,7 +9,7 @@
  * under a "Details" of their own: this line never names CPU or memory.
  */
 import { useT, useActiveLocale } from '../../hooks/useT';
-import { busyBarClass, busyTextClass, busyTone, pctVars, type MachineShares, machineBusyPct, machineMemPct } from '../../lib/machineBusy';
+import { busyBarClass, busyTextClass, busyTone, pctPlaceholders, type MachineShares, machineBusyPct, machineMemPct } from '../../lib/machineBusy';
 
 export function MachineBusyLine({ shares, bar = true, className = '' }: {
   shares: MachineShares | null | undefined;
@@ -29,7 +29,7 @@ export function MachineBusyLine({ shares, bar = true, className = '' }: {
         data-tone={tone}
         data-pct={pct ?? ''}
       >
-        {pct == null ? tr('machine.busyUnknown') : tr('machine.busy', pctVars(locale, { pct }))}
+        {pct == null ? tr('machine.busyUnknown') : tr('machine.busy', pctPlaceholders(locale, { pct }))}
       </p>
       {bar && (
         <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-white/10" aria-hidden="true">

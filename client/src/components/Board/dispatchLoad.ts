@@ -21,7 +21,7 @@
 import { ADMIT_RESUME_FRACTION, capMode } from '../../lib/board';
 import type { DispatchAdmission, DispatchCapacity } from '../../lib/board';
 import type { GlobalDispatchCapState } from '../../state/globalDispatchCap';
-import { machineBusyPct, machineMemPct, pctVars } from '../../lib/machineBusy';
+import { machineBusyPct, machineMemPct, pctPlaceholders } from '../../lib/machineBusy';
 import { currentCapLimit } from '../../state/globalDispatchCap';
 
 /** Which brake is holding new agents right now, as the gate said it. */
@@ -212,7 +212,7 @@ export function verdictSentence(
 ): string {
   const nums: Record<string, number> = {};
   for (const [k, n] of Object.entries(v.params ?? {})) if (typeof n === 'number') nums[k] = n;
-  return tr(v.key, { ...v.params, ...pctVars(locale, nums) });
+  return tr(v.key, { ...v.params, ...pctPlaceholders(locale, nums) });
 }
 
 /**

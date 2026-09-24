@@ -34,7 +34,7 @@ export type BusyTone = 'ok' | 'busy' | 'critical' | 'unknown';
 const valid = (n: number | null | undefined): n is number => n != null && Number.isFinite(n);
 
 /** The larger of the two measured shares, unrounded; `null` when neither is. */
-export function busiestPct(cpuPct: number | null | undefined, memPct: number | null | undefined): number | null {
+export function maxPct(cpuPct: number | null | undefined, memPct: number | null | undefined): number | null {
   const parts = [cpuPct, memPct].filter(valid).map((n) => Math.min(100, Math.max(0, n)));
   return parts.length ? Math.max(...parts) : null;
 }
@@ -63,7 +63,7 @@ export function machineMemPct(s: MachineShares | null | undefined): number | nul
 
 /** THE number: how busy the whole Mac is, 0-100 rounded, or `null`. */
 export function machineBusyPct(s: MachineShares | null | undefined): number | null {
-  const pct = busiestPct(s?.machineCpuPct, machineMemPct(s));
+  const pct = maxPct(s?.machineCpuPct, machineMemPct(s));
   return pct == null ? null : Math.round(pct);
 }
 
@@ -111,11 +111,11 @@ export function busyDotColor(tone: BusyTone): string {
  * English has no article to agree, so the bare "44%" goes into its sentence.
  * Under 1% is said as such: "0%" of something that is running reads as off.
  */
-export type PctArticle = 'al' | 'il' | 'dal';
+export type PctArticle = 'al' | 'il' | 'dal'; // allow-italian: the Italian articles ARE the data this helper agrees
 export function pctWith(article: PctArticle, pct: number, locale: 'it' | 'en'): string {
   const n = Math.round(Math.max(0, Math.min(100, pct)));
   if (locale === 'en') return pct > 0 && pct < 1 ? 'under 1%' : `${n}%`;
-  if (pct > 0 && pct < 1) return 'meno dell\u20191%';
+  if (pct > 0 && pct < 1) return 'meno dell\u20191%'; // allow-italian: the Italian branch of a two-language formatter
   // Zero takes "lo" ("lo zero per cento"), the one number that does.
   if (n === 0) return article === 'il' ? 'lo 0%' : `${article}lo 0%`;
   const vowel = n === 1 || n === 8 || n === 11 || (n >= 80 && n <= 89);
@@ -129,7 +129,7 @@ export function pctWith(article: PctArticle, pct: number, locale: 'it' | 'en'): 
  * passed so a sentence can pick the article it needs without the caller
  * knowing which one that is.
  */
-export function pctVars(locale: 'it' | 'en', values: Record<string, number>): Record<string, string> {
+export function pctPlaceholders(locale: 'it' | 'en', values: Record<string, number>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [name, v] of Object.entries(values)) {
     out[`${name}Al`] = pctWith('al', v, locale);

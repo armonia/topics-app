@@ -3,7 +3,7 @@
  * @covers KANBAN-79
  */
 import { describe, expect, test } from 'bun:test';
-import { busiestPct, busyTone, machineBusyPct, machineMemPct } from './machineBusy';
+import { maxPct, busyTone, machineBusyPct, machineMemPct } from './machineBusy';
 
 describe('machineBusyPct', () => {
   test('the larger of the two, not the average', () => {
@@ -30,7 +30,7 @@ describe('machineBusyPct', () => {
   });
 
   test('clamped to the machine, rounded', () => {
-    expect(busiestPct(130, -5)).toBe(100);
+    expect(maxPct(130, -5)).toBe(100);
     expect(machineBusyPct({ machineCpuPct: 59.6 })).toBe(60);
   });
 });

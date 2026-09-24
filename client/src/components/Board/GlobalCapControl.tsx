@@ -61,7 +61,7 @@ import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from '../../lib/popoverStyles
 import { DispatchLoadSummary } from './DispatchLoadGauge';
 import { admissionVerdictText, checksFloorBoxValue, gateCoreNumbers, verdictSentence, type VerdictText } from './dispatchLoad';
 import { MachineBusyLine } from '../Shared/MachineBusyLine';
-import { pctVars } from '../../lib/machineBusy';
+import { pctPlaceholders } from '../../lib/machineBusy';
 import {
   currentCapLimit,
   saveChecksFloor,
@@ -383,7 +383,7 @@ function ResourcesBrake() {
   // The same two numbers in the unit a person owns: shares of the Mac. The
   // band above is still decided on the gate's own core-units, unchanged.
   const locale = useActiveLocale();
-  const sharePct = pctVars(locale, cores > 0 && used != null
+  const sharePct = pctPlaceholders(locale, cores > 0 && used != null
     ? { used: (used / cores) * 100, ceil: (usable / cores) * 100 }
     : { used: 0, ceil: 0 });
 
@@ -456,7 +456,7 @@ function BudgetSlider({ share, onCommit, onDraft }: {
     if (v !== share) onCommit(v);
   };
   const locale = useActiveLocale();
-  const label = tr('board.dispatch.budgetOfFree', pctVars(locale, { pct: Math.round(shown * 100) }));
+  const label = tr('board.dispatch.budgetOfFree', pctPlaceholders(locale, { pct: Math.round(shown * 100) }));
 
   return (
     <div className="space-y-0.5 pt-1" data-testid="global-cap-budget">

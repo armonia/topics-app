@@ -19,7 +19,7 @@ import { useEffect, useState } from 'react';
 import { Moon } from 'lucide-react';
 import { useActiveLocale, useT, useLocale } from '../../hooks/useT';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
-import { machineBusyPct, pctVars } from '../../lib/machineBusy';
+import { machineBusyPct, pctPlaceholders } from '../../lib/machineBusy';
 import { MachineBusyLine } from '../Shared/MachineBusyLine';
 import { boardApi } from '../../lib/board';
 // Il testo sta in un modulo suo: e' la parte pura, e tenerla qui spegneva il
@@ -95,7 +95,7 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
   const busyPct = machineBusyPct(machine);
   const loadWait = st?.action === 'wait' && st.busySessions === 0;
   const detail = loadWait
-    ? (busyPct == null ? tr('board.dispatch.verdictWaitBusyUnknown') : tr('board.night.waitBusy', pctVars(active, { pct: busyPct })))
+    ? (busyPct == null ? tr('board.dispatch.verdictWaitBusyUnknown') : tr('board.night.waitBusy', pctPlaceholders(active, { pct: busyPct })))
     : info.detailText ?? (info.detailKey ? tr(info.detailKey) : null);
 
   const toneRing =
