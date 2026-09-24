@@ -53,13 +53,11 @@ type Row = { content: string; status: 'pending' | 'in_progress' | 'completed' };
 
 export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote }: Props) {
   const tr = useT();
-  // Null = nobody has touched the arrow yet, so the default decides: the plan
-  // of a goal the AGENT proposed opens by itself, because nobody asked for that
-  // goal and its steps are the thing to read. A goal the person declared keeps
-  // its own plan closed, the way it has always been. `null` and not a boolean
-  // because the steps arrive from a broadcast while the bar is already
-  // mounted: an initial value would have been decided before they existed.
-  const [manualExpand, setManualExpand] = useState<boolean | null>(null);
+  // Closed until the person opens it, whoever wrote the goal. An agent goal
+  // used to open its plan by itself, and a list of steps sitting open above the
+  // input got in the way of typing (24/09). The closed line still carries the
+  // step in progress and the done/total counter, which is what a glance needs.
+  const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(goal.content);
   // The write is in flight. Two jobs: no second write (Enter and then the blur
@@ -77,7 +75,6 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
   const done = rows.filter((r) => r.status === 'completed').length;
   const active = rows.find((r) => r.status === 'in_progress');
   const byAgent = goal.createdBy === 'agent';
-  const expanded = manualExpand ?? (byAgent && own && rows.length > 0);
   // Whether the closed line hides part of the objective: only then the chevron
   // says there is more. Measured on the text itself, closed, and re-measured
   // when the pane changes width.
@@ -167,7 +164,7 @@ export function GoalBar({ goal, fallback, onClose, onEdit, onStopLoop, onPromote
           // A click OPENS the bar, with or without steps: a long objective cut
           // to one line was readable only through the native tooltip, which is
           // slow, small and gone on touch (23/09). Open, the text wraps whole.
-          onClick={() => setManualExpand(!expanded)}
+          onClick={() => setExpanded(!expanded)}
           className={`flex min-w-0 flex-1 gap-2 text-left ${expanded ? 'items-start' : 'items-center'}`}
           aria-expanded={expanded}
           data-testid="goal-bar-toggle"

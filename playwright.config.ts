@@ -547,6 +547,8 @@ export default defineConfig({
         "**/sender-sees-question.spec.ts",
         "**/prompt-history.spec.ts",
         "**/goal-send-and-rate.spec.ts",
+        // The goal bar starts closed, agent goal included, and opens on click.
+        "**/chat-goal.spec.ts",
         "**/drag-preview.spec.ts",
         "**/swap-freeze-ice.spec.ts",
         "**/split-dnd-matrix.spec.ts",

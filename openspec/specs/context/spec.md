@@ -269,8 +269,10 @@ dall'umano, con un errore che nomina l'obiettivo in vigore e la via d'uscita;
 perché scrivere il piano dell'obiettivo ricevuto è fare il lavoro, sostituire
 l'obiettivo è deciderlo. Senza un goal attivo l'envelope SHALL portare la riga
 che dice all'agente di dichiararlo, e la UI SHALL mostrare il goal dell'agente
-come proposta, con i passi in linea e il progresso, e un modo per l'umano di
-farlo proprio.
+come proposta, con il passo in corso e il progresso sulla riga chiusa, i passi
+interi solo quando l'umano la apre, e un modo per l'umano di farlo proprio.
+La barra SHALL partire chiusa anche per il goal dell'agente: aperta da sola,
+la lista dei passi sopra il composer intralciava la scrittura (24/09).
 
 > **Perché.** Fino a questa change il goal lo scriveva solo l'umano con `/goal` e
 > i passi arrivavano solo dal `plan` ACP: col runtime nativo e con claude-code la

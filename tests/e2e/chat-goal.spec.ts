@@ -136,7 +136,7 @@ test.describe("Obiettivo della chat", () => {
     expect(block!.content).toContain("[~] Scrivere il test");
   });
 
-  test("il goal dell'agente: etichetta, passi in linea, progresso, e l'umano se lo prende", async ({ page, request, chatPage }) => {
+  test("il goal dell'agente: etichetta, passi chiusi finché non li apri, progresso, e l'umano se lo prende", async ({ page, request, chatPage }) => {
     test.info().annotations.push({ type: "spec", description: "CTX-GOAL-03" });
     // The same write the `set_goal` tool does: an AGENT goal.
     const created = await (
@@ -162,10 +162,16 @@ test.describe("Obiettivo della chat", () => {
     await expect(bar).toContainText("Portare a verde la suite", { timeout: 10_000 });
     // WHO it comes from is visible: a proposal, not the person's decision.
     await expect(bar.getByTestId("goal-by-agent")).toBeVisible();
-    // The steps of an agent goal open by themselves: nobody asked for that
-    // goal, and what there is to read is what it is doing.
+    // Closed by default even for an agent goal (24/09): an open list of steps
+    // above the input was in the way. The closed line still says the counter
+    // and the step in progress. The full plan is one click away.
+    const toggle = bar.getByTestId("goal-bar-toggle");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(bar).toContainText("2/4");
     await expect(bar).toContainText("Cablare i due tool MCP");
+    await expect(bar).not.toContainText("Passare i sei cancelli");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
     await expect(bar).toContainText("Passare i sei cancelli");
 
     if (process.env.E2E_EVIDENCE) {
