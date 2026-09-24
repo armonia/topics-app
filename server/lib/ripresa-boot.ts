@@ -145,6 +145,12 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
     return "unanswered";
   }
   if (r.ruolo !== "assistant") return "no";
+  // A turn is live on this chat: whatever the last row says, it is being
+  // answered right now. Without this the capped branch below fired on EVERY
+  // sweep while the resumed turn was still working: topic 3019832f on 24/09
+  // got «Ripresa automatica sospesa» six times in 30 minutes, one each 5 min,
+  // under an agent that was answering.
+  if (r.streaming) return "no";
   if (!Array.isArray(r.blocks) || r.blocks.length === 0) return "no";
   // Fuori finestra: una risposta che arriva domani a una domanda di ieri è
   // rumore, non un recupero.

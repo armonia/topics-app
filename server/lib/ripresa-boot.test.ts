@@ -85,6 +85,17 @@ describe("quale chat riprende da sola", () => {
     expect(resumeVerdict({ ...base, ruolo: "user", attempts: MAX_RESUME_ATTEMPTS }, ORA)).toBe("no");
   });
 
+  test("a turn live on the chat is neither resent nor capped, even past the cap", () => {
+    // topic 3019832f, 24/09: the resumed turn was working, its row still
+    // carried the interruption of the attempt before, and every sweep (one
+    // every 5 minutes) answered "capped": six «Ripresa automatica sospesa»
+    // notices in 30 minutes under an agent that was answering.  allow-italian: quotes the notice
+    expect(resumeVerdict({ ...base, attempts: MAX_RESUME_ATTEMPTS, streaming: true }, ORA)).toBe("no");
+    expect(resumeVerdict({ ...base, attempts: 1, streaming: true }, ORA)).toBe("no");
+    // Once the turn is over the same row is judged as before.
+    expect(resumeVerdict({ ...base, attempts: MAX_RESUME_ATTEMPTS }, ORA)).toBe("capped");
+  });
+
   test("il cartello del tetto non e' un'interruzione: il boot dopo non lo riprende", () => {
     // Written with the same ⚠️ shape the client renders as "Riprova", it would  allow-italian: button label
     // be the perfect fuel for the loop it closes if the recogniser took it.
