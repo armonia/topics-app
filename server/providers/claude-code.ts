@@ -156,6 +156,9 @@ export function turnWatchdogDecision(opts: {
   return { action: "rearm", delayMs: remaining };
 }
 const KILL_GRACE_MS = 3_000;                       // 3s between SIGTERM and SIGKILL
+/** How long a send waits for a stopped child to exit before killing it. The
+ *  CLI exits 0.3-0.7 s after SIGINT (measured 24/09, CLI 2.1.280). */
+const STOPPED_CHILD_EXIT_WAIT_MS = 5_000;
 // Heartbeat (Fix B in stream-timeout-resilience):
 //   Re-emit `onSubAgentUpdate` snapshots when the provider has gone quiet
 //   for ≥ HEARTBEAT_QUIET_MS while Task() sub-agents are still pending.
@@ -906,6 +909,14 @@ interface PersistentProcess {
    *  the CLI exits code 0 on SIGINT, and without this flag onSessionClosed
    *  surfaced it as "⚠️ Process exited with code 0". */
   aborting?: boolean;
+  /**
+   * Resolved when this child exits. Created by `abort()`: in stream-json mode
+   * the CLI does not survive a SIGINT (it prints the stopped turn's tail and
+   * exits 0 within a second, measured 24/09 with CLI 2.1.280), so a stopped
+   * child is never reused. `processForTurn` waits on this instead, and
+   * `handleStreamEvent` drops the tail while it is set.
+   */
+  stoppedExit?: { done: Promise<void>; resolve: () => void };
   /** Who asked for the abort — "user" (default) or "watchdog" (stream
    *  timeout). Only affects the exit log label so a watchdog kill is never
    *  misread as the human pressing stop. */
@@ -1456,7 +1467,7 @@ export class ClaudeCodeProvider implements AIProvider {
     retriedReset = false,
     resetFallbackContent?: string,
   ): Promise<{ runId?: string }> {
-    const pp = this.getOrCreateProcess(sessionKey);
+    const pp = await this.processForTurn(sessionKey);
     const runId = crypto.randomUUID();
 
     pp.streamHandler = handler;
@@ -1837,8 +1848,15 @@ export class ClaudeCodeProvider implements AIProvider {
     // reason keeps the exit log honest ("watchdog stop" vs "user stop").
     pp.aborting = true;
     pp.abortReason = reason;
+    if (!pp.stoppedExit) {
+      let resolve!: () => void;
+      const done = new Promise<void>((r) => { resolve = r; });
+      pp.stoppedExit = { done, resolve };
+    }
 
-    // SIGINT cancels the current turn without killing the process
+    // SIGINT cancels the current turn. In stream-json mode it also ends the
+    // child (exit 0 within a second, see `stoppedExit`): the next send waits
+    // for that exit in `processForTurn` and spawns a fresh `--resume`.
     try {
       pp.io.signal("SIGINT");
     } catch (err) {
@@ -1987,6 +2005,30 @@ export class ClaudeCodeProvider implements AIProvider {
     const pp = this.spawnPersistentProcess(sessionKey);
     this.processes.set(sessionKey, pp);
     return pp;
+  }
+
+  /**
+   * The child a new turn is written to. A stopped child (`abort()` was called
+   * on it) is never reused: the CLI answers a SIGINT by printing the stopped
+   * turn's tail and exiting, so a send landing in that window read the tail's
+   * result as the end of ITS turn and wrote its text into a dying process
+   * (topic d6158ec6, 22/09: two task updates lost, «no reply» in 5 and 38 ms).
+   * Wait for the exit, kill at the cap, then spawn a fresh one.
+   */
+  private async processForTurn(sessionKey: string, waitMs = STOPPED_CHILD_EXIT_WAIT_MS): Promise<PersistentProcess> {
+    const existing = this.processes.get(sessionKey);
+    if (existing?.stoppedExit && existing.alive) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const capped = new Promise<"timeout">((r) => { timer = setTimeout(() => r("timeout"), waitMs); });
+      const outcome = await Promise.race([existing.stoppedExit.done.then(() => "exited" as const), capped]);
+      clearTimeout(timer);
+      if (outcome === "timeout" && existing.alive) {
+        console.warn(`[claude-code] ${sessionKey}: the stopped child did not exit within ${waitMs} ms, killing it before the next turn`);
+        this.killProcess(existing);
+      }
+      if (this.processes.get(sessionKey) === existing) this.processes.delete(sessionKey);
+    }
+    return this.getOrCreateProcess(sessionKey);
   }
 
   /**
@@ -2891,6 +2933,7 @@ export class ClaudeCodeProvider implements AIProvider {
   // pending turn and surfaces the error to a live stream, then drops timers.
   private onSessionClosed(pp: PersistentProcess, code: number | null): void {
     pp.alive = false;
+    pp.stoppedExit?.resolve();
     // Il CLI è morto: il suo pid non è più un'ancora valida (il sistema può
     // riciclare il numero). Le shell che gli pendevano sotto le riconcilia
     // `routes/processes.ts` guardando se il processo è ancora vivo.
@@ -2987,6 +3030,15 @@ export class ClaudeCodeProvider implements AIProvider {
     // Che cosa è questa riga. La decodifica sta in `claude/events.ts`, puro:
     // qui restano solo le decisioni che hanno bisogno dello stato del processo.
     const line = classifyStreamLine(event);
+
+    // A STOPPED CHILD'S TAIL BELONGS TO NOBODY. After `abort()` the CLI still
+    // prints the stopped turn's last lines («[Request interrupted by user]»
+    // and an error result) before it exits. The turn is already closed and no
+    // new one is ever written to this child (`processForTurn`), so every line
+    // from here on is dropped: read as content it woke a spontaneous turn that
+    // stole the next send (topic 8f56c2c4, 22/09 14:45), read as a result it
+    // closed the next send as «no reply».
+    if (pp.stoppedExit && !pp.replayMute && !pp.replaySilent) return;
 
     // ── IL TURNO CHE NASCE DA SOLO ──
     // Il perché e le tre esclusioni stanno in `claude/woken-turn.ts`.
