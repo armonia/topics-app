@@ -131,13 +131,19 @@ async function harness(sessionKey: string) {
     return JSON.parse(decodeCol(r.blocks as never) ?? "[]") as ContentBlock[];
   };
 
+  /** A person's row after the turn, with no blocks: every writer really writes there if aimed at it. */
+  const appendUserRow = (text: string): string => {
+    ctx.appendLocalMessage(sessionKey, "user", text);
+    return lastRowId();
+  };
+
   /** Writes the resume sweep's cap notice: the row the incident rewrote. */
   const insertNotice = (): string => {
     insertRestartNotification(ctx.db as unknown as PartialSweepDb, sessionKey, { text: RESUME_CAP_MARKER });
     return lastRowId();
   };
 
-  return { ctx, sent, startTurn, lastRowId, raw, blocksOf, insertNotice };
+  return { ctx, sent, startTurn, lastRowId, raw, blocksOf, insertNotice, appendUserRow };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -202,21 +208,27 @@ describe("a closed turn writes on no row but its own", () => {
     total += first;
     handler.onTextDelta(first, total);
 
-    // A row born after the turn while it is still streaming.
-    const noticeId = h.insertNotice();
-    const noticeBefore = h.raw(noticeId);
+    // A row born after the turn while it is still streaming, and one WITHOUT
+    // blocks on purpose: on a row that has blocks (a sweep notice does) the
+    // tool column write is skipped, so a tool writer aimed at the last row
+    // would leave that row identical and this test would prove nothing about
+    // the tools. A resend's user row is the realistic shape.
+    const newerId = h.appendUserRow("scrivo mentre risponde");
+    const newerBefore = h.raw(newerId);
 
     for (let i = 1; i <= 10; i++) {
       const d = `pezzo ${i} `;
       total += d;
       handler.onTextDelta(d, total);
     }
-    handler.onToolStart("toolu_live", "Read", { file_path: "/tmp/x" } as never);
+    handler.onToolStart("toolu_live", "Read", {} as never);
+    handler.onToolArgsUpdate?.("toolu_live", { file_path: "/tmp/x" } as never);
+    handler.onToolUsage?.("toolu_live", { inputTokens: 10, outputTokens: 5, cacheRead: 0, cacheCreation: 0, cacheCreation1h: 0 });
     handler.onToolResult("toolu_live", "contenuto", false);
     handler.onDone({ content: [{ type: "text", text: total }] } as never);
     await until(() => h.sent.some((m) => m.type === "stream:end"));
 
-    expect(h.raw(noticeId)).toEqual(noticeBefore);
+    expect(h.raw(newerId)).toEqual(newerBefore);
     // The whole answer, tail included, is on the turn's own row.
     const turn = h.raw(turnRowId);
     expect(decodeCol(turn.content as never)).toBe(total);
