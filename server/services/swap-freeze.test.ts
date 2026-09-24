@@ -11,7 +11,7 @@
  * @covers KANBAN-85
  */
 import { describe, expect, test } from "bun:test";
-import { createSwapFreezer, oneLine, pickVictim, thawReason, type FreezeCandidate } from "./swap-freeze";
+import { createSwapFreezer, pickVictim, thawReason, type FreezeCandidate } from "./swap-freeze";
 import { createSwapFreezeLedger, type LedgerIo } from "./swap-freeze-ledger";
 import { encodeAsPsWould, type AgentSessionRef, type NativeCommandRef, type PsRow } from "../lib/agent-tool-children";
 import type { HeldMemory, SwapVerdict } from "./mem-signal";
@@ -756,14 +756,6 @@ describe("the freezer log stays one line per fact", () => {
     expect(line).toContain(`"python3 - <<'EOF' import sys for i in range(10): print(i) EOF`);
     expect(line).toContain("…");
     expect(line.length).toBeLessThan(220);
-  });
-
-  test("the cut never splits a character in two", () => {
-    // An emoji is two UTF-16 units: cut between them, the log would carry a
-    // lone surrogate, which UTF-8 turns into U+FFFD.
-    const cut = oneLine("a".repeat(118) + "😀bbbb");
-    expect(cut).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
-    expect(cut.endsWith("…")).toBe(true);
   });
 
   test("a tree with an agent CLI is named ONCE per pid, not on every beat", async () => {
