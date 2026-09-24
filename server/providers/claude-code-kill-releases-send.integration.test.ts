@@ -59,6 +59,7 @@ beforeAll(async () => {
     `INSERT INTO topics (id, name, slug, session_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
   );
   insert.run("t-krs-a", "krs-a", "krs-a", "topic:kill-releases-send", now, now);
+  insert.run("t-krs-a2", "krs-a2", "krs-a2", "topic:kill-releases-send-config", now, now);
   insert.run("t-krs-b", "krs-b", "krs-b", "topic:queued-send-stopped", now, now);
   insert.run("t-krs-c", "krs-c", "krs-c", "topic:reattach-killed-clear", now, now);
   insert.run("t-krs-d", "krs-d", "krs-d", "topic:reattach-killed-stop", now, now);
@@ -109,43 +110,70 @@ async function waitFor(cond: () => boolean, timeoutMs: number): Promise<boolean>
 }
 
 describe("a killed child and the session queue (real broker, real child)", () => {
-  test("the send on a killed child is rejected at once, and the queued send starts", async () => {
-    const sk = "topic:kill-releases-send";
-    const { ClaudeCodeProvider } = await import("./claude-code");
-    const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
-    const p = provider as any;
-    const log: { at: number; ev: string }[] = [];
+  /**
+   * Two ways a child dies under a live send. `/clear` is the person throwing
+   * the turn away: it ends as a cancel, like Stop, with no error and no error
+   * push. Any other kill is an error that says who did it; here a config change
+   * on a turn the route stopped watching (handler released, send still
+   * pending), the one system kill that can still land on a turn in flight.
+   */
+  const KILLS = [
+    {
+      name: "/clear",
+      sk: "topic:kill-releases-send",
+      kill: async (provider: any, sk: string) => { await provider.resetSession(sk); },
+      ending: (ev: string) => ev === "A:aborted",
+    },
+    {
+      name: "a config change",
+      sk: "topic:kill-releases-send-config",
+      kill: async (provider: any, sk: string) => {
+        provider.unregisterStreamHandler(sk);
+        provider.refreshSessionConfig(sk);
+      },
+      ending: (ev: string) => ev.startsWith("A:error:") && ev.includes("configuration change"),
+    },
+  ];
+  for (const k of KILLS) {
+    test(`a kill by ${k.name} settles the send at once, and the queued send starts`, async () => {
+      const sk = k.sk;
+      const { ClaudeCodeProvider } = await import("./claude-code");
+      const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+      const p = provider as any;
+      const log: { at: number; ev: string }[] = [];
 
-    // A: a turn that works until something stops it.
-    const sendA = provider.sendChat(sk, "do some work", recorder("A", log) as never);
-    expect(await waitFor(() => log.some((l) => l.ev === "A:tool"), slackMs(10_000))).toBe(true);
-    const ppA = p.processes.get(sk);
-    expect(ppA.pendingReject).not.toBeNull();
+      // A: a turn that works until something stops it.
+      const sendA = provider.sendChat(sk, "do some work", recorder("A", log) as never);
+      expect(await waitFor(() => log.some((l) => l.ev === "A:tool"), slackMs(10_000))).toBe(true);
+      const ppA = p.processes.get(sk);
+      expect(ppA.pendingReject).not.toBeNull();
 
-    // B: queued behind A on the per-session queue.
-    const sendB = provider.sendChat(sk, "tutto ok?", recorder("B", log) as never);
-    await sleep(50);
-    expect(log.some((l) => l.ev.startsWith("B:"))).toBe(false);
+      // B: queued behind A on the per-session queue.
+      const sendB = provider.sendChat(sk, "tutto ok?", recorder("B", log) as never);
+      await sleep(50);
+      expect(log.some((l) => l.ev.startsWith("B:"))).toBe(false);
 
-    // Kill A's child mid-turn.
-    const killedAt = Date.now();
-    await provider.resetSession(sk);
+      // Kill A's child mid-turn.
+      const killedAt = Date.now();
+      await k.kill(provider, sk);
 
-    expect(ppA.pendingReject).toBeNull();
-    expect(await waitFor(() => log.some((l) => l.ev.startsWith("A:error")), slackMs(100))).toBe(true);
-    const aEnd = log.find((l) => l.ev.startsWith("A:error"))!;
-    expect(aEnd.at - killedAt).toBeLessThan(slackMs(100));
-    await sendA;
+      expect(ppA.pendingReject).toBeNull();
+      expect(await waitFor(() => log.some((l) => k.ending(l.ev)), slackMs(100))).toBe(true);
+      expect(log.find((l) => k.ending(l.ev))!.at - killedAt).toBeLessThan(slackMs(100));
+      // One ending, not two.
+      expect(log.filter((l) => /^A:(aborted|error|done)/.test(l.ev))).toHaveLength(1);
+      await sendA;
 
-    // B does not wait for a 30 minute watchdog: it gets a fresh child and its
-    // own answer.
-    expect(await waitFor(() => log.some((l) => l.ev.startsWith("B:done")), slackMs(10_000))).toBe(true);
-    await sendB;
-    const bEvents = log.filter((l) => l.ev.startsWith("B:") && l.ev !== "B:delta").map((l) => l.ev);
-    expect(bEvents).toEqual(["B:done:ricevuto: tutto ok?"]);
+      // B does not wait for a 30 minute watchdog: it gets a fresh child and its
+      // own answer.
+      expect(await waitFor(() => log.some((l) => l.ev.startsWith("B:done")), slackMs(10_000))).toBe(true);
+      await sendB;
+      const bEvents = log.filter((l) => l.ev.startsWith("B:") && l.ev !== "B:delta").map((l) => l.ev);
+      expect(bEvents).toEqual(["B:done:ricevuto: tutto ok?"]);
 
-    provider.stop();
-  }, 30_000);
+      provider.stop();
+    }, 30_000);
+  }
 
   test("a send stopped while queued is never written to the CLI and never calls its handler", async () => {
     const sk = "topic:queued-send-stopped";
@@ -175,7 +203,8 @@ describe("a killed child and the session queue (real broker, real child)", () =>
       await provider.abort(sk, undefined, "watchdog");
 
       await sendA;
-      expect(await sendB).toEqual({ runId: undefined });
+      // Nothing reached the model: the route rolls back what it marked as sent.
+      expect(await sendB).toEqual({ runId: undefined, notSent: true });
       // Give a wrongly released B the time to spawn a child and answer.
       await sleep(slackMs(1500));
 

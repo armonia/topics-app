@@ -156,7 +156,7 @@
     "server/services/task-dispatcher.ts": 5893,
     "server/routes/tasks.ts": 4952,
     "server/services/task-dispatcher.test.ts": 4893,
-    "server/providers/claude-code.ts": 4180,
+    "server/providers/claude-code.ts": 4190,
     "server/routes/chat.ts": 3676,
     "client/src/components/Board/TaskDetail.tsx": 3598,
     "server/routes/terminal.ts": 3545,

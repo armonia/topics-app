@@ -887,6 +887,15 @@ class ProcessKilledError extends Error {
   }
 }
 
+/** How a turn whose child was killed ends on its handler. `/clear` is the person
+ *  throwing the turn away, the same gesture as Stop: a cancel, not a failure,
+ *  so no error notice and no error push. Any other kill is an error that says
+ *  who did it. */
+function endKilledTurn(handler: StreamHandler, err: ProcessKilledError): void {
+  if (err.killCause === "clear") handler.onAborted?.({ turnEnd: cancelled("user") });
+  else handler.onError(err.notice);
+}
+
 interface PersistentProcess {
   /** Set in DIRECT mode only (the spawned child); null in broker mode. */
   proc: ChildProcess | null;
@@ -1479,7 +1488,7 @@ export class ClaudeCodeProvider implements AIProvider {
     message: string,
     handler: StreamHandler,
     options?: { model?: string; resetFallbackContent?: string; fastMode?: boolean },
-  ): Promise<{ runId?: string }> {
+  ): Promise<{ runId?: string; notSent?: boolean }> {
     if (isRawGlobalCoordinator(sessionKey)) {
       // Do not enqueue or re-use a generic persistent process.  The only
       // supported provider for this role is Codex; the explicit server-owned
@@ -1504,7 +1513,7 @@ export class ClaudeCodeProvider implements AIProvider {
     try {
       // Stopped while it waited in the queue: whoever aborted it has closed its
       // stream, so nothing is written and the handler hears nothing.
-      if (queued.cancelled) return { runId: undefined };
+      if (queued.cancelled) return { runId: undefined, notSent: true };
       // Note: per-message `options.model` override is intentionally ignored —
       // claude-code spawns a long-lived child whose --model is set at spawn
       // time. Switching models requires respawning, which we don't do mid-flow.
@@ -1551,11 +1560,11 @@ export class ClaudeCodeProvider implements AIProvider {
     handler: StreamHandler,
     retriedReset = false,
     resetFallbackContent?: string,
-  ): Promise<{ runId?: string }> {
+  ): Promise<{ runId?: string; notSent?: boolean }> {
     const pp = await this.processForTurn(sessionKey, STOPPED_CHILD_EXIT_WAIT_MS, handler);
     // Stopped before it had a child (see `waitingSends`): `abort()` already
     // told the handler, and nothing was written anywhere.
-    if (!pp) return { runId: undefined };
+    if (!pp) return { runId: undefined, notSent: true };
     const runId = crypto.randomUUID();
 
     pp.streamHandler = handler;
@@ -1727,7 +1736,7 @@ export class ClaudeCodeProvider implements AIProvider {
         // ends the turn, with the cause, so the queue behind it moves now.
         if (this.processes.get(sessionKey) === pp) this.processes.delete(sessionKey);
         console.warn(`[claude-code] ${sessionKey}: turn ended by a kill (${err.killCause})`);
-        handler.onError(err.notice);
+        endKilledTurn(handler, err);
         return { runId };
       }
 
@@ -2997,9 +3006,10 @@ export class ClaudeCodeProvider implements AIProvider {
     }
     const sink = pp.streamHandler ?? handler;
     this.releaseStreamHandler(pp);
-    // A kill during the adopted turn is not a failed re-adoption: say who
-    // ended it, as `sendChatInternal` does for a turn it sent.
-    sink.onError(err instanceof ProcessKilledError ? err.notice : `Riadozione del turno non riuscita: ${detail}`);
+    // A kill during the adopted turn is not a failed re-adoption: it ends the
+    // way `sendChatInternal` ends a turn it sent.
+    if (err instanceof ProcessKilledError) endKilledTurn(sink, err);
+    else sink.onError(`Riadozione del turno non riuscita: ${detail}`);
     return "dead";
   }
 
