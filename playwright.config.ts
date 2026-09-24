@@ -544,6 +544,9 @@ export default defineConfig({
         // The chat at rest: the pin loop documented in MessageList depends on
         // how the engine measures Virtuoso's rows, and WebKit is what ships.
         "**/chat-scroll-at-rest.spec.ts",
+        // Scrolling down to the bottom with a trackpad: every frame whose motion
+        // the wheel does not explain is a jerk (reported 24/09).
+        "**/chat-scroll-down-jitter.spec.ts",
         "**/sender-sees-question.spec.ts",
         "**/prompt-history.spec.ts",
         "**/goal-send-and-rate.spec.ts",

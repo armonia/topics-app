@@ -2065,8 +2065,16 @@ export function MessageList({
             const hoistOwnSummary = idx === 0
               ? !!leadingSummary
               : !!(prev && markersAfter(prev)?.length);
+            // `flow-root` non è estetica: tiene DENTRO la riga i margini dei
+            // figli. La bolla ha `mb-1.5`, e senza un contesto di blocco quel
+            // margine collassava fuori dall'item: Virtuoso misurava ogni riga
+            // 6px più corta dello spazio che occupava. Quando una riga usciva
+            // in cima, il padding cresceva della sua altezza MISURATA mentre il
+            // DOM perdeva altezza + 6: il contenuto saliva di 6px (12 con due
+            // righe) sotto la rotellina. Era lo «scatta scrollando giù» del
+            // 24/09, misurato in `chat-scroll-down-jitter.spec.ts`.
             return (
-              <>
+              <div className="flow-root">
               {idx === 0 && historyPartial && (
                 <LoadOlderDivider count={missingAbove} loading={olderLoading} onLoad={loadOlder} />
               )}
@@ -2116,7 +2124,7 @@ export function MessageList({
               {trailingMarkers && trailingMarkers.map((mk) => (
                 <CompactionDivider key={mk.id} marker={mk} summary={trailingSummary ?? undefined} />
               ))}
-              </>
+              </div>
             );
           }}
           components={virtuosoComponents}
