@@ -1,4 +1,4 @@
-import { rowsCarryAsk, type AskHaystackRow } from "../lib/ask-answer-routing";
+import { rowCarryingAsk, type AskHaystackRow } from "../lib/ask-answer-routing";
 import { canonicalProjectPath } from "../lib/canonical-project-path";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
@@ -2567,20 +2567,21 @@ export function createTopicsRouter(
       // processo: se è il pannello, la risposta va al rendez-vous — che se non
       // c'è nessuno in ascolto la mette da parte per la gamba successiva
       // (`deliverAnswer` bufferizza apposta).
-      const answeringBridgeAsk = (() => {
-        if (response.kind !== 'questions') return false;
-        if (hasPendingAsk(sessionKey)) return true;
+      // NOT ONLY THE LAST ROW - the rule and its measurement live in
+      // `lib/ask-answer-routing.ts`. The window is short on purpose: the
+      // question being answered belongs to this exchange, and a scan of the
+      // whole session would cost a table walk per answer. The row that carries
+      // the question is also where the answer is written, below.
+      const askRowId = (() => {
+        if (response.kind !== 'questions') return null;
         try {
-          // NOT ONLY THE LAST ROW - the rule and its measurement live in
-          // `lib/ask-answer-routing.ts`. The window is short on purpose: the
-          // question being answered belongs to this exchange, and a scan of the
-          // whole session would cost a table walk per answer.
           const rows = ctx.db.prepare(
-            "SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 20",
+            "SELECT id, tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 20",
           ).all(sessionKey) as AskHaystackRow[];
-          return rowsCarryAsk(rows, toolCallId, decodeCol);
-        } catch { return false; }
+          return rowCarryingAsk(rows, toolCallId, decodeCol);
+        } catch { return null; }
       })();
+      const answeringBridgeAsk = response.kind === 'questions' && (hasPendingAsk(sessionKey) || askRowId !== null);
       if (answeringBridgeAsk) {
         // AND THE ANSWER NAMES THE QUESTION, here too.
         //
@@ -2624,10 +2625,13 @@ export function createTopicsRouter(
         // re-open the panel for an already-answered question. We intentionally
         // do NOT call resumeWithToolResponse — the bridge return is the result.
         try { resolveProvider(topic).clearPendingInput?.(sessionKey, toolCallId); } catch { /* provider gone; nothing to clear */ }
+        // On the question's own row: a question asked by a turn the watchdog
+        // had already closed sits above the sweep's notice, and the last row
+        // does not carry it (card 1046df0b).
         updateToolCallFields(sessionKey, toolCallId, {
           status: 'running',
           userResponse: normalised,
-        });
+        }, askRowId ? { rowId: askRowId } : undefined);
         broadcastToAll({
           type: 'stream:tool_update',
           sessionKey,
