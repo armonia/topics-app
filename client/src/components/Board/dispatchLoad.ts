@@ -18,10 +18,10 @@
  * Nothing here decides the cap: the cap is `currentCapLimit`, the machine is the
  * probe, and this only turns the pair into something a person reads.
  */
-import { ADMIT_RESUME_FRACTION, capMode } from '../../lib/board';
+import { capMode } from '../../lib/board';
 import type { DispatchAdmission, DispatchCapacity } from '../../lib/board';
 import type { GlobalDispatchCapState } from '../../state/globalDispatchCap';
-import { machineBusyPct, machineMemPct, pctPlaceholders } from '../../lib/machineBusy';
+import { machineBusyPct, pctPlaceholders } from '../../lib/machineBusy';
 import { currentCapLimit } from '../../state/globalDispatchCap';
 
 /** Which brake is holding new agents right now, as the gate said it. */
@@ -221,19 +221,14 @@ export function verdictSentence(
  * same percentage as the headline of every load surface (`machineBusyPct`),
  * so "held" and "how busy" are never said in two units.
  *
- * THE RESUME CLAUSE ("starts by itself under X%") is printed only where it is
- * honest, and that is narrower than it looks. The gate decides on TOPICS'
- * share, the headline is the WHOLE Mac; the two meet only through the drop
- * the gate needs, which is the same amount of the machine whichever way it is
- * counted. So the resume point is the headline minus that drop, and only:
- *  - when the axis that holds is the axis that makes the headline (a memory
- *    hold under a CPU-made 92% says nothing about where the 92% goes);
- *  - when the gate sent its numbers, and the drop is inside the machine.
- * CPU: once holding, the gate reopens when use plus one more agent is under
- * 80% of the usable, so the drop is `used + cost - 0.8 x usable` core-units.
- * Memory, footprint clause: our tree over its ceiling, the drop is
- * `ours - ceiling` GB. The quota clause depends on the next agent's price and
- * on the free memory at once, so no single line exists and none is printed.
+ * NO RESUME POINT ("starts by itself under X%"). The gate decides on TOPICS'
+ * share and the number is the WHOLE Mac, so no point on the number is where
+ * the gate reopens: the Mac can fall 40 points because another app closed and
+ * the gate still holds, since Topics did not move. A clause computed as "the
+ * number minus the drop the gate needs" was checked against the real gate
+ * (card 07909147): it promised "under 52%", the Mac reached 50%, the gate
+ * held. The wait says how busy the Mac is and that it restarts by itself; the
+ * gate's own figures stay in the server's sentence, one hover away.
  */
 export function admissionVerdictText(a: DispatchAdmission, cap: DispatchCapacity | null): VerdictText {
   if (a.admit) {
@@ -250,31 +245,7 @@ export function admissionVerdictText(a: DispatchAdmission, cap: DispatchCapacity
   if (a.blockedBy === 'drain') return wait('board.dispatch.verdictWaitDrain');
   const pct = machineBusyPct(cap);
   if (pct == null) return wait('board.dispatch.verdictWaitBusyUnknown');
-  const resume = resumePct(a, cap, pct);
-  return resume == null
-    ? wait('board.dispatch.verdictWaitBusy', { pct })
-    : wait('board.dispatch.verdictWaitBusyResume', { pct, resume });
-}
-
-/** Where the headline has to fall for the gate to reopen, or `null` when that
- *  point is not honestly derivable (see `admissionVerdictText`). */
-function resumePct(a: DispatchAdmission, cap: DispatchCapacity | null, pct: number): number | null {
-  if (!cap) return null;
-  const cpu = cap.machineCpuPct ?? null;
-  const mem = machineMemPct(cap);
-  let dropPct: number | null = null;
-  if (a.blockedBy === 'cpu') {
-    if (cpu == null || cpu < pct || !(cap.cores > 0)) return null;
-    const { usedCoreUnits: used, usableCoreUnits: usable } = a;
-    if (used == null || usable == null) return null;
-    dropPct = ((used + a.costCoreUnits - usable * ADMIT_RESUME_FRACTION) / cap.cores) * 100;
-  } else if (a.blockedBy === 'memory') {
-    if (mem == null || Math.round(mem) < pct || !(cap.totalMemGB > 0)) return null;
-    if (a.memClause !== 'footprint' || a.ourMemGB == null || a.usableMemGB == null) return null;
-    dropPct = ((a.ourMemGB - a.usableMemGB) / cap.totalMemGB) * 100;
-  }
-  if (dropPct == null || !(dropPct > 0) || dropPct >= pct) return null;
-  return Math.round(pct - dropPct);
+  return wait('board.dispatch.verdictWaitBusy', { pct });
 }
 
 /**

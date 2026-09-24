@@ -348,18 +348,20 @@ describe('the brake by budget', () => {
     expect(html).toContain('In attesa: il Mac è occupato al 38%');
     expect(html).not.toContain('parte da solo');
     // The footprint clause (two 11 GB shard runs) with memory making the
-    // number: 22.0 - 20.4 = 1.6 GB of 32 = 5 points, so under 33%.
+    // number: the number alone, no promise of where the gate reopens (the gate
+    // reads Topics' share, the number is the whole Mac).
     adoptDispatchCapacity(machine({ usedCoreUnits: 4, usableCoreUnits: 6.6, running: 16,
       admission: { admit: false, blockedBy: 'memory', firstAgentExempt: false, costCoreUnits: 0.5,
         costMemGB: 1.5, freeQuotaMemGB: 4.2, ourMemGB: 22, usableMemGB: 20.4, memClause: 'footprint' } }));
     html = words(renderToStaticMarkup(<GlobalCapControl />));
-    expect(html).toContain('In attesa: il Mac è occupato al 38%, parte da solo sotto il 33%');
-    // The CPU, measured and making the number: 3.4 + 0.5 - 0.8 x 3.8 = 0.86
-    // core-units over, 7 points of 12 cores, so 91 - 7 = 84.
+    expect(html).toContain('In attesa: il Mac è occupato al 38%');
+    expect(html).not.toContain('parte da solo');
+    // The CPU, measured and making the number: again the number alone.
     adoptDispatchCapacity(machine({ machineCpuPct: 91, usedCoreUnits: 3.4, usableCoreUnits: 3.8, running: 2,
       admission: { admit: false, blockedBy: 'cpu', firstAgentExempt: false, costCoreUnits: 0.5, usedCoreUnits: 3.4, usableCoreUnits: 3.8 } }));
     html = words(renderToStaticMarkup(<GlobalCapControl />));
-    expect(html).toContain('In attesa: il Mac è occupato al 91%, parte da solo sotto l&#x27;84%');
+    expect(html).toContain('In attesa: il Mac è occupato al 91%');
+    expect(html).not.toContain('parte da solo');
     // Open text only: what sits under a <details> fold may stay technical.
     expect(words(renderToStaticMarkup(<GlobalCapControl />).replace(/<details[\s\S]*?<\/details>/g, ''))).not.toMatch(/\b(core|CPU|GB|RAM)\b/);
   });

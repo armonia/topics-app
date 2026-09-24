@@ -1386,7 +1386,6 @@ const EN = {
   'machine.detailsAxes': 'CPU {cpu} · memory {mem}',
   'machine.notMeasured': 'n/a',
   'board.dispatch.verdictWaitBusy': 'Waiting: the Mac is {pctAl} busy',
-  'board.dispatch.verdictWaitBusyResume': 'Waiting: the Mac is {pctAl} busy, starts by itself under {resumeIl}',
   'board.dispatch.verdictWaitBusyUnknown': 'Waiting: the Mac is too busy',
   'board.night.waitBusy': 'The Mac is {pctAl} busy: starts again by itself once it frees up.',
   // Kanban surfaces: column, card, filter bar, floating composer, delivery

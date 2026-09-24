@@ -1579,7 +1579,6 @@ const IT: Dict = {
   'machine.detailsAxes': 'CPU {cpu} · memoria {mem}',
   'machine.notMeasured': 'n/d',
   'board.dispatch.verdictWaitBusy': 'In attesa: il Mac è occupato {pctAl}',
-  'board.dispatch.verdictWaitBusyResume': 'In attesa: il Mac è occupato {pctAl}, parte da solo sotto {resumeIl}',
   'board.dispatch.verdictWaitBusyUnknown': 'In attesa: il Mac è troppo occupato',
   'board.night.waitBusy': 'Il Mac è occupato {pctAl}: riparte da solo quando si libera.',
   // ── LE SUPERFICI KANBAN: colonna, card, barra dei filtri, composer,

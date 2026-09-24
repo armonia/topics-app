@@ -221,12 +221,18 @@ describe('admissionVerdictText: the wait said in the one number', () => {
   const cpuBound = machine({ machineCpuPct: 92, machineMemPct: 38 });
   const itText = (v: ReturnType<typeof admissionVerdictText>) => verdictSentence(v, (k, vars) => t(k, 'it', vars), 'it');
 
-  test('CPU holds and makes the number: the resume point is the number minus the drop the gate needs', () => {
-    // Gate reopens when used + cost <= 0.8 x usable: 6.5 + 0.5 - 0.8 x 6.6 = 1.72
-    // core-units too many, 14.3% of 12 cores. 92 - 14.3 = 78.
+  /**
+   * NO RESUME POINT, on any axis. The gate decides on TOPICS' share and the
+   * number is the WHOLE Mac: "starts by itself under 78%" was the number minus
+   * the drop the gate needs, which only holds if everything else on the Mac
+   * stays still. Checked against the real gate by the verifier of card
+   * 07909147: promised "under 52%", the Mac reached 50% and the gate still
+   * held, because the drop had come from another app and not from Topics.
+   */
+  test('CPU holds and makes the number: the number, and no promise of where it restarts', () => {
     const v = admissionVerdictText({ ...base, blockedBy: 'cpu', usedCoreUnits: 6.5, usableCoreUnits: 6.6 }, cpuBound);
-    expect(v).toMatchObject({ key: 'board.dispatch.verdictWaitBusyResume', params: { pct: 92, resume: 78 }, tone: 'wait' });
-    expect(itText(v)).toBe('In attesa: il Mac è occupato al 92%, parte da solo sotto il 78%');
+    expect(v).toMatchObject({ key: 'board.dispatch.verdictWaitBusy', params: { pct: 92 }, tone: 'wait' });
+    expect(itText(v)).toBe('In attesa: il Mac è occupato al 92%');
   });
 
   test('memory holds but the CPU makes the number: no resume point, it would not be true', () => {
@@ -234,11 +240,11 @@ describe('admissionVerdictText: the wait said in the one number', () => {
     expect(v).toMatchObject({ key: 'board.dispatch.verdictWaitBusy', params: { pct: 92 } });
   });
 
-  test('memory footprint holds and makes the number: the drop is the GB over the ceiling', () => {
-    // 22.0 - 20.4 = 1.6 GB of 34 = 4.7 points under 79.
+  test('memory footprint holds and makes the number: the number, and no promise either', () => {
     const v = admissionVerdictText({ ...base, blockedBy: 'memory', memClause: 'footprint', ourMemGB: 22, usableMemGB: 20.4 },
       machine({ totalMemGB: 34, machineCpuPct: 30, machineMemPct: 79 }));
-    expect(v).toMatchObject({ key: 'board.dispatch.verdictWaitBusyResume', params: { pct: 79, resume: 74 } });
+    expect(v).toMatchObject({ key: 'board.dispatch.verdictWaitBusy', params: { pct: 79 } });
+    expect(itText(v)).not.toContain('parte da solo');
   });
 
   test('memory quota holds: no single resume line exists, none is printed', () => {
@@ -271,19 +277,21 @@ describe('admissionVerdictText: the wait said in the one number', () => {
       .toMatchObject({ key: 'board.dispatch.verdictFirst', tone: 'first' });
   });
 
-  test('the printed resume point is where the gate really reopens (the gate is unchanged)', () => {
-    const sample = (ourCoreUnits: number) => ({ cores: 12, totalMemGB: 32, ourCoreUnits, otherCoreUnits: 1, ourMemGB: 4, availableMemGB: 20, running: 2 });
+  test('why no point on the number is printed: the Mac falls, the real gate still holds', () => {
+    // The gate reads Topics' share. Here another app frees 4 cores (the whole
+    // Mac drops by a third) while Topics does not move: the number falls well
+    // under any "starts under X%" the old clause printed, and the gate, which
+    // is unchanged, still holds. The sentence therefore promises nothing.
+    const sample = (otherCoreUnits: number) => ({ cores: 12, totalMemGB: 32, ourCoreUnits: 3.5, otherCoreUnits, ourMemGB: 4, availableMemGB: 20, running: 2 });
     const cost = { coreUnits: 1, memGB: 1.5 };
-    const held = admissionVerdict(sample(3.5), 0.5, cost, 'holding');
-    expect(held).toMatchObject({ admit: false, blockedBy: 'cpu' });
-    // The Mac reads 50% CPU while holding; the sentence says where it reopens.
-    const v = admissionVerdictText({ ...base, blockedBy: 'cpu', costCoreUnits: held.costCoreUnits,
-      usedCoreUnits: held.usedCoreUnits, usableCoreUnits: held.usableCoreUnits }, machine({ machineCpuPct: 50, machineMemPct: 38 }));
-    const resume = v.params!.resume as number;
-    // Our use has to fall by (50 - resume)% of 12 cores: there the gate admits.
-    const ourAtResume = held.usedCoreUnits - ((50 - resume) / 100) * 12;
-    expect(admissionVerdict(sample(ourAtResume - 0.05), 0.5, cost, 'holding').admit).toBe(true);
-    expect(admissionVerdict(sample(ourAtResume + 0.2), 0.5, cost, 'holding').admit).toBe(false);
+    const busy = admissionVerdict(sample(5), 0.5, cost, 'holding');
+    const calmer = admissionVerdict(sample(1), 0.5, cost, 'holding');
+    expect(busy).toMatchObject({ admit: false, blockedBy: 'cpu' });
+    expect(calmer).toMatchObject({ admit: false, blockedBy: 'cpu' });
+    const v = admissionVerdictText({ ...base, blockedBy: 'cpu', costCoreUnits: busy.costCoreUnits,
+      usedCoreUnits: busy.usedCoreUnits, usableCoreUnits: busy.usableCoreUnits }, machine({ machineCpuPct: 71, machineMemPct: 38 }));
+    expect(v).toMatchObject({ key: 'board.dispatch.verdictWaitBusy', params: { pct: 71 } });
+    expect(v.params).not.toHaveProperty('resume');
   });
 });
 

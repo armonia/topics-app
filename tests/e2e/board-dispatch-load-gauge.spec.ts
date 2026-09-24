@@ -363,9 +363,10 @@ test.describe("Il carico del dispatcher si legge nell'header di In progress", ()
     await openBoard(page);
     await gear(page).click();
     await page.getByTestId("global-cap-brake-resources").click();
-    // Topics holds 22.0 GB over a 20.4 GB ceiling: 1.6 GB of 34 is 4.7 points
-    // of the Mac, so the gate reopens once the Mac is under 79 - 4.7 = 74%.
-    const WAIT = "In attesa: il Mac è occupato al 79%, parte da solo sotto il 74%";
+    // Topics holds 22.0 GB over a 20.4 GB ceiling. The wait says how busy the
+    // Mac is and nothing about where the gate reopens: the gate reads Topics'
+    // share, the number is the whole Mac, and no point on it is a promise.
+    const WAIT = "In attesa: il Mac è occupato al 79%";
     await expect(page.getByTestId("global-cap-verdict")).toHaveText(WAIT);
     await page.keyboard.press("Escape");
 
