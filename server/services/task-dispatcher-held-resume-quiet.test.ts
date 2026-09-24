@@ -34,6 +34,7 @@ import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL, APP_SETTINGS_DDL } from
 import { createTaskAttemptStore } from "./task-attempts";
 import { dispatchResourceBlock, dispatchResourceVerdict } from "./dispatch-capacity";
 import type { HeldMemory } from "./mem-signal";
+import { clearProviderHold, resetProviderHoldStore, setProviderHold } from "../lib/provider-hold";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
@@ -136,6 +137,14 @@ function harness() {
   svc.setGlobalCap({ auto: false, max: 4 });
   return {
     db, svc, dispatcher, frames, floor,
+    /** A RESTART: same database, a brand new dispatcher whose in-memory maps
+     *  (`waitingForSlot`, `heldWritten`, the held-block map) are empty. */
+    restart: () => {
+      dispatcher.shutdown();
+      const next = createTaskDispatcher(deps);
+      dispatchers.push(next);
+      return next;
+    },
     task: (id: string) => svc.get(id)!.task,
     framesOf: (id: string) => frames.filter((f) => f === id).length,
     serviceNotes: (id: string) => svc.get(id)!.comments.filter((c) => c.kind === "service").map((c) => c.content),
@@ -319,5 +328,146 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     await h.dispatcher.resume("boot", "");
     expect(h.serviceNotes("boot").length).toBe(2);
     expect(h.serviceNotes("boot")[1]).toStartWith("Disco quasi pieno");
+  });
+});
+
+/**
+ * A HELD CARD ACROSS RESTARTS: its notes are a STATE, one slot per card.
+ *
+ * Measured on 24/09/2026 on card 89919742 (in progress, queued behind a Codex
+ * wall of days): 15 identical boot notes and 17 identical wall notes, one pair
+ * per boot, boots 35+ minutes apart. The in-memory registers are born empty at
+ * every process and the `addComment` dedupe window is 10 s, so nothing stopped
+ * them. Same shape on the memory floor: 33 notes on 13 cards, up to 6 on one,
+ * different only in their figures. And the chip was rewritten every minute with
+ * the very sentence the row already carried: `updated_at` moved and every client
+ * got a frame for nothing.
+ */
+describe("a held card across restarts", () => {
+  afterEach(() => { clearProviderHold(); clearProviderHold("codex"); });
+
+  const bootNotes = (h: ReturnType<typeof harness>, id: string) =>
+    h.serviceNotes(id).filter((c) => c.startsWith("Server ripartito mentre la card aspettava uno slot"));
+
+  it("three boots 35 minutes apart leave one boot note, not three", async () => {
+    const h = harness();
+    h.floor.memGB = 4.8;
+    heldCard(h.db, "booted");
+    h.db.run("UPDATE tasks SET dispatch_state = 'queued' WHERE id = 'booted'");
+    const t0 = Date.now();
+    let d = h.dispatcher;
+    for (let boot = 0; boot < 3; boot++) {
+      setSystemTime(new Date(t0 + boot * 35 * 60_000));
+      if (boot > 0) d = h.restart();
+      await d.reconcile({ reason: "boot" });
+    }
+    expect(bootNotes(h, "booted")).toHaveLength(1);
+  });
+
+  it("the memory floor across boots, with other figures each time: one note, the current one", async () => {
+    const h = harness();
+    heldCard(h.db, "floor");
+    const t0 = Date.now();
+    let d = h.dispatcher;
+    for (const [boot, gb] of [4.8, 5.1, 4.2].entries()) {
+      setSystemTime(new Date(t0 + boot * 35 * 60_000));
+      h.floor.memGB = gb;
+      if (boot > 0) d = h.restart();
+      await d.resume("floor", "");
+    }
+    const floorNotes = h.serviceNotes("floor").filter((c) => c.startsWith("Memoria"));
+    expect(floorNotes).toHaveLength(1);
+    expect(floorNotes[0]).toContain("4.2 GB");
+  });
+
+  it("a provider wall of days across boots: one note on the card, not one per boot", async () => {
+    resetProviderHoldStore();
+    const h = harness();
+    heldCard(h.db, "walled");
+    const t0 = Date.now();
+    setProviderHold({ untilMs: t0 + 6 * 24 * 3_600_000, window: "usage_limit", reason: "Claude quota exhausted" });
+    let d = h.dispatcher;
+    for (let boot = 0; boot < 3; boot++) {
+      setSystemTime(new Date(t0 + boot * 35 * 60_000));
+      if (boot > 0) d = h.restart();
+      await d.resume("walled", "");
+    }
+    expect(h.task("walled").dispatchError).toContain("piano esaurito");
+    expect(h.serviceNotes("walled").filter((c) => c.startsWith("Claude: "))).toHaveLength(1);
+  });
+
+  it("the pile already in the thread shrinks to one, and only the machine's own copies go", async () => {
+    const h = harness();
+    heldCard(h.db, "pile");
+    for (const gb of ["4.1", "4.3", "4.5"]) {
+      h.svc.addComment({ taskId: "pile", author: "system", kind: "service", content: `Memoria quasi finita: la lettura più bassa degli ultimi 2 minuti è ${gb} GB, vecchia.` });
+    }
+    // allow-italian: a person and an agent writing the same opening in the thread
+    h.svc.addComment({ taskId: "pile", author: "user", content: "Memoria quasi finita: lo so, ho chiuso Chrome." });
+    h.svc.addComment({ taskId: "pile", author: "agent-1", content: "Memoria quasi finita: aspetto." });
+    h.floor.memGB = 4.8;
+    await h.dispatcher.resume("pile", "");
+    const all = h.svc.get("pile")!.comments.map((c) => `${c.author}|${c.content}`);
+    expect(all.filter((c) => c.startsWith("system|Memoria"))).toHaveLength(1);
+    expect(all.filter((c) => c.startsWith("system|Memoria"))[0]).toContain("4.8 GB");
+    expect(all.some((c) => c.startsWith("user|Memoria quasi finita: lo so"))).toBe(true);
+    expect(all.some((c) => c.startsWith("agent-1|Memoria quasi finita: aspetto"))).toBe(true);
+  });
+
+  it("the same sentence already on the row: no write and no frame, even after the minute and after a restart", async () => {
+    const h = harness();
+    h.floor.memGB = 4.8;
+    heldCard(h.db, "still");
+    const t0 = Date.now();
+    await h.dispatcher.resume("still", "");
+    expect(h.framesOf("still")).toBe(1);
+    const stamp = h.task("still").updatedAt;
+
+    setSystemTime(new Date(t0 + 65_000));
+    await h.dispatcher.resume("still", "");
+    expect(h.framesOf("still")).toBe(1);
+    expect(h.task("still").updatedAt).toBe(stamp);
+
+    // A restart empties the kind map: the row is not rewritten, but the card
+    // must still read the machine block that holds it.
+    setSystemTime(new Date(t0 + 35 * 60_000));
+    const d = h.restart();
+    await d.resume("still", "");
+    expect(h.framesOf("still")).toBe(1);
+    expect(h.task("still").updatedAt).toBe(stamp);
+    expect(h.task("still").queueReason).toMatchObject({ kind: "resource_floor" });
+  });
+});
+
+/**
+ * A QUEUED CHIP ON A CARD THAT LEFT IN PROGRESS.
+ *
+ * Card a551b940 on 23/09/2026: the agent took it to review inside a turn whose
+ * end nobody observed, so `onTurnEnd` never ran and the chip stayed `queued`
+ * with the floor sentence of 18:04. The card said "in coda" from the Review
+ * column, and neither `resume` nor any boot pass looked at it again.
+ */
+describe("a queued chip left on a review card", () => {
+  const strand = (h: ReturnType<typeof harness>, id: string) => {
+    heldCard(h.db, id);
+    h.svc.addComment({ taskId: id, author: "agent-1", content: "Fatto: consegnato su main." });
+    h.db.run("UPDATE tasks SET status = 'review', dispatch_state = 'queued', dispatch_error = 'Memoria quasi finita: vecchia.' WHERE id = ?", [id]);
+  };
+
+  it("the boot pass settles it to the review chip and drops the stale reason", async () => {
+    const h = harness();
+    strand(h, "stranded");
+    await h.restart().reconcile({ reason: "boot" });
+    expect(h.task("stranded").status).toBe("review");
+    expect(h.task("stranded").dispatchState).toBe("delivered");
+    expect(h.task("stranded").dispatchError ?? null).toBeNull();
+  });
+
+  it("a resume that finds it out of In progress settles it too", async () => {
+    const h = harness();
+    strand(h, "resumed");
+    await h.dispatcher.resume("resumed", "");
+    expect(h.task("resumed").dispatchState).toBe("delivered");
+    expect(h.task("resumed").dispatchError ?? null).toBeNull();
   });
 });
