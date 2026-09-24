@@ -1446,8 +1446,11 @@ describe("task-dispatcher", () => {
     await h.dispatcher.resume("t2", "riprova ancora");
     await flush();
     const testi = h.svc.get("t2")!.comments.filter((c) => c.content.includes("In attesa di uno slot")).map((c) => c.content);
-    expect(testi.length).toBe(2);
-    expect(testi.some((t) => t.includes("(2)"))).toBe(true);
+    // One row, the NEW one: the wait note is a slot per card (it replaces the
+    // previous copy instead of stacking). A register left dirty would have
+    // said nothing, and the only row would still read the cap of 1.
+    expect(testi.length).toBe(1);
+    expect(testi[0]).toContain("(2)");
   });
 
   it("parks (does not run in-place) when a worktree is required but unavailable", async () => {
