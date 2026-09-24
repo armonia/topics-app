@@ -9,8 +9,12 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
   MAX_RESUME_ATTEMPTS, RESUME_CAP_MARKER, UNANSWERED_NOTICE, attemptsOnRow, riprendiTurniInterrotti,
-  resumeCapNotice, resumeVerdict, unansweredNotice, type RigaDaValutare,
+  resumeVerdict, type RigaDaValutare,
 } from "./ripresa-boot";
+// The notice builders are new: reached through the namespace so this file still
+// loads on the code before the fix, where the verdict tests must fail on the
+// verdict and not on a missing import.
+import * as boot from "./ripresa-boot";
 import { eCartelloDiInterruzione } from "./cancelled-notice";
 import { decodeCol } from "../../shared/message-blob";
 import { recordTurnEnd, resetTurnEndRegistry } from "../providers/turn-end-registry";
@@ -276,20 +280,20 @@ describe("the notice variants and the recogniser", () => {
   test("every unanswered notice is recognised, and only a real restart is blamed", () => {
     for (const lastEnd of ends) {
       for (const restarted of [true, false]) {
-        const text = unansweredNotice({ restarted, lastEnd });
+        const text = boot.unansweredNotice({ restarted, lastEnd });
         const label = `${lastEnd?.end ?? "none"}/${(lastEnd as { cause?: string } | null)?.cause ?? "-"} restarted=${restarted}`;
         expect(eCartelloDiInterruzione(text), label).toBe(true);
         expect(text.startsWith("⚠️"), label).toBe(true);
         expect(text.includes("riavviat"), label).toBe(restarted);
       }
     }
-    expect(unansweredNotice({ restarted: true, lastEnd: cancelled("watchdog") })).toBe(UNANSWERED_NOTICE);
+    expect(boot.unansweredNotice({ restarted: true, lastEnd: cancelled("watchdog") })).toBe(UNANSWERED_NOTICE);
   });
 
   test("every cap notice keeps the retry and stays unrecognised, and only a real restart is blamed", () => {
     for (const cause of [undefined, "watchdog", "wall-clock", "server-shutdown", "rate-limit", "tool-budget"]) {
       for (const restarted of [true, false]) {
-        const text = resumeCapNotice({ restarted, cause });
+        const text = boot.resumeCapNotice({ restarted, cause });
         const label = `${cause ?? "none"} restarted=${restarted}`;
         expect(text.startsWith("⚠️ Ripresa automatica sospesa:"), label).toBe(true);
         expect(text, label).toContain("Riprova");
@@ -297,6 +301,6 @@ describe("the notice variants and the recogniser", () => {
         expect(text.includes("riavviat"), label).toBe(restarted);
       }
     }
-    expect(resumeCapNotice({ restarted: true, cause: "watchdog" })).toBe(RESUME_CAP_MARKER);
+    expect(boot.resumeCapNotice({ restarted: true, cause: "watchdog" })).toBe(RESUME_CAP_MARKER);
   });
 });
