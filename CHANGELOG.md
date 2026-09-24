@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.386 — 2026-09-24
+
+### Sotto il cofano
+- La chat non scatta più scendendo: il margine della bolla stava fuori dalla riga
+- La spec dello scatto rispetta le barre: attese contate in pagina, nomi e commento in inglese
+
 ## 2.2.385 — 2026-09-24
 
 ### Sotto il cofano
