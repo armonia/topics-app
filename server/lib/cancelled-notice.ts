@@ -95,7 +95,7 @@ export function cancelledNotice(info: TurnEndInfo): string | null {
 export function abortLogTitle(info: TurnEndInfo): string {
   if (info.end !== "cancelled") return "stream aborted";
   switch (info.cause) {
-    case "user": return "stream aborted by user";
+    case "user": return USER_ABORT_LOG_TITLE;
     case "watchdog": return "stream aborted by watchdog";
     case "wall-clock": return "stream aborted by wall-clock cap";
     case "server-shutdown": return "stream aborted by server shutdown";
@@ -105,6 +105,17 @@ export function abortLogTitle(info: TurnEndInfo): string {
     default: return "stream aborted";
   }
 }
+
+/**
+ * The two `activity_log` titles that say a PERSON stopped a turn, and the only
+ * durable trace of it: the turn-end registry lives in memory and the server
+ * reloads on every save. `finalizeStream` writes the first through
+ * `abortLogTitle`, but only if it is still open when the provider reports the
+ * abort; `/api/chat/abort` writes the second itself, before telling anyone.
+ * The resume sweep reads both (`lib/ripresa-boot.ts`).
+ */
+export const USER_ABORT_LOG_TITLE = "stream aborted by user";
+export const STOP_PRESSED_LOG_TITLE = "stop pressed by user";
 
 /**
  * Il cartello COMPLETO: il perché, più l'unica cosa che chi legge può fare.
@@ -210,6 +221,22 @@ export function eCartelloDiInterruzione(testo: string | null | undefined): boole
   if (!t) return false;
   return CARTELLI_RIPRENDIBILI.some((c) => t.startsWith(c));
 }
+
+/**
+ * Does this notice say the SERVER restarted under the turn? The two openings
+ * that do, both already in `CARTELLI_RIPRENDIBILI`: the graceful shutdown's
+ * and the boot sweep's (`RESTART_INTERRUPTED_MARKER`, written with no `cause`
+ * and a timestamp after the boot, so only its text tells a hard kill apart).
+ */
+export function isRestartNotice(text: string | null | undefined): boolean {
+  const t = (text ?? "").trim().replace(/^⚠️\s*/, "");
+  return RESTART_OPENINGS.some((opening) => t.startsWith(opening));
+}
+
+const RESTART_OPENINGS = [
+  "Turno interrotto: il server si è riavviato",
+  "Turno interrotto da un riavvio del server",
+] as const;
 
 /**
  * The causes that come from an interruption of OURS, i.e. the same three

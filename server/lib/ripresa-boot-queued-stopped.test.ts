@@ -5,8 +5,11 @@
  *
  * @covers RESUME-01, RESUME-02
  */
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   MAX_RESUME_ATTEMPTS, RESUME_CAP_MARKER, UNANSWERED_NOTICE, attemptsOnRow, riprendiTurniInterrotti,
   resumeVerdict,
@@ -15,7 +18,12 @@ import {
 // loads on the code before the fix, where the verdict tests must fail on the
 // verdict and not on a missing import.
 import * as boot from "./ripresa-boot";
-import { eCartelloDiInterruzione } from "./cancelled-notice";
+import { abortLogTitle, eCartelloDiInterruzione } from "./cancelled-notice";
+import { RESTART_INTERRUPTED_MARKER } from "./boot-partial-sweep";
+import { closeDatabase, getDatabase, initDatabase } from "../db";
+import { logStreamAborted } from "../db/activity-log";
+// `logStopPressed` is new: through the namespace, like the builders above.
+import * as activityLog from "../db/activity-log";
 import { decodeCol } from "../../shared/message-blob";
 import { recordTurnEnd, resetTurnEndRegistry } from "../providers/turn-end-registry";
 import { cancelled } from "../providers/stop-reason";
@@ -115,6 +123,10 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
       id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
       partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER
     )`);
+    // The columns of migration 001 the sweep reads.
+    db.run(`CREATE TABLE activity_log (
+      id TEXT PRIMARY KEY, timestamp TEXT NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL, session_key TEXT
+    )`);
     rows.forEach((r, i) => db.run(
       "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,?,?,?,?,0,?,?,?,0)",
       [r.id, SK, r.role, r.role === "user" ? "fai il merge" : "", r.blocks ? JSON.stringify(r.blocks) : null,
@@ -123,6 +135,11 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
     return db;
   }
   const rowCount = (db: Database) => (db.query("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n;
+  /** A Stop as `activity_log` keeps it, `agoMs` before now. */
+  const logStop = (db: Database, title: string, agoMs: number) => db.run(
+    "INSERT INTO activity_log (id, timestamp, category, title, session_key) VALUES (?,?,'stream',?,?)",
+    [crypto.randomUUID(), new Date(Date.now() - agoMs).toISOString(), title, SK],
+  );
   const lastText = (db: Database) => (db.query(
     "SELECT content FROM messages WHERE session_key = ? ORDER BY sort_order DESC, rowid DESC LIMIT 1",
   ).get(SK) as { content: string }).content;
@@ -182,6 +199,24 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
     expect(rowCount(db)).toBe(1);
   });
 
+  /**
+   * The registry is memory, and this server reloads on every save in
+   * `server/`: on the first boot after a Stop it is empty, and the stopped
+   * message was resent as "unanswered", with a notice blaming the restart.
+   * `activity_log` is what survives: the chat route's own abort line, and the
+   * one the abort route writes before telling the provider.
+   */
+  test("(b) after a restart the registry is empty, and the Stop kept in activity_log still holds", async () => {
+    for (const title of ["stream aborted by user", "stop pressed by user"]) {
+      const db = chatDb([{ id: "u0", role: "user", agoMs: 230_000 }]);
+      logStop(db, title, 225_000);
+      const calls: unknown[] = [];
+      await sweep({ ...ctxOf(db), bootedAtMs: Date.now() - 60_000 }, calls);
+      expect(calls, title).toHaveLength(0);
+      expect(rowCount(db), title).toBe(1);
+    }
+  });
+
   test("(b) a Stop recorded before the message does not block its resend", async () => {
     const db = chatDb([{ id: "u0", role: "user", agoMs: 230_000 }]);
     const calls: unknown[] = [];
@@ -189,6 +224,24 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
       ...ctxOf(db),
       lastTurnEnd: () => ({ info: cancelled("user"), atMs: Date.now() - 300_000 }),
     }, calls);
+    expect(calls).toHaveLength(1);
+    // Same for the durable trace: a Stop of the turn before, and one of another chat.
+    const durable = chatDb([{ id: "u0", role: "user", agoMs: 230_000 }]);
+    logStop(durable, "stop pressed by user", 300_000);
+    durable.run(
+      "INSERT INTO activity_log (id, timestamp, category, title, session_key) VALUES ('other', ?, 'stream', 'stop pressed by user', 'topic:other')",
+      [new Date().toISOString()],
+    );
+    const durableCalls: unknown[] = [];
+    await sweep(ctxOf(durable), durableCalls);
+    expect(durableCalls).toHaveLength(1);
+  });
+
+  test("(b) a database without activity_log is no evidence, and the sweep still runs", async () => {
+    const db = chatDb([{ id: "u0", role: "user", agoMs: 230_000 }]);
+    db.run("DROP TABLE activity_log");
+    const calls: unknown[] = [];
+    await sweep(ctxOf(db), calls);
     expect(calls).toHaveLength(1);
   });
 
@@ -211,53 +264,122 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
     }
   });
 
-  test("(c) unanswered after a real boot: the restart notice, word for word", async () => {
+  test("(c) unanswered after a real boot, cause unknown: the restart notice, word for word", async () => {
     const db = chatDb([{ id: "u0", role: "user", agoMs: 5 * 60_000 }]);
     await sweep({ ...ctxOf(db), bootedAtMs: Date.now() - 60_000 }, []);
     const notice = db.query("SELECT content FROM messages WHERE role = 'assistant'").get() as { content: string };
     expect(notice.content).toBe(UNANSWERED_NOTICE);
   });
 
-  /** Three chains that spent their attempts: a watchdog cut, a boot notice
-   *  with no cause on it, and a person's message at the end of the chain. */
-  const cappedChats = (): Array<[string, () => Database]> => [
-    ["watchdog cut", () => chatDb([
-      { id: "u0", role: "user", agoMs: 10 * 60_000 },
-      { id: "a0", role: "assistant", agoMs: 9 * 60_000, blocks: [{ kind: "ripreso", attempt: MAX_RESUME_ATTEMPTS } as ContentBlock, proseBlock, watchdogCut], parent: "u0" },
-    ])],
-    ["notice without a cause", () => chatDb([
-      { id: "u0", role: "user", agoMs: 10 * 60_000 },
-      { id: "a0", role: "assistant", agoMs: 9 * 60_000, blocks: [interruptedBlock, { kind: "ripreso", attempt: MAX_RESUME_ATTEMPTS } as ContentBlock], parent: "u0" },
-    ])],
-    ["person's message at the end of the chain", () => chatDb([
-      { id: "u0", role: "user", agoMs: 10 * 60_000 },
-      { id: "a0", role: "assistant", agoMs: 9 * 60_000, blocks: [{ kind: "ripreso", attempt: MAX_RESUME_ATTEMPTS } as ContentBlock, proseBlock, watchdogCut], parent: "u0" },
-      { id: "u1", role: "user", agoMs: 5 * 60_000, parent: "a0" },
-    ])],
+  test("(c) unanswered after a boot but cut by the watchdog: the cause wins over the boot", async () => {
+    // A claude-code turn reattached after the boot keeps its pre-boot message,
+    // and the watchdog cut it later: the restart is not what left it unanswered.
+    const db = chatDb([{ id: "u0", role: "user", agoMs: 5 * 60_000 }]);
+    recordTurnEnd(SK, cancelled("watchdog", "grace expired"));
+    await sweep({ ...ctxOf(db), bootedAtMs: Date.now() - 4 * 60_000 }, []);
+    const notice = db.query("SELECT content FROM messages WHERE role = 'assistant'").get() as { content: string };
+    expect(notice.content).toContain("non dava più segni di vita");
+    expect(notice.content).not.toContain("riavviat");
+    expect(eCartelloDiInterruzione(notice.content)).toBe(true);
+  });
+
+  const capped = (cut: ContentBlock, agoMs = 9 * 60_000) => () => chatDb([
+    { id: "u0", role: "user", agoMs: 10 * 60_000 },
+    { id: "a0", role: "assistant", agoMs, blocks: [{ kind: "ripreso", attempt: MAX_RESUME_ATTEMPTS } as ContentBlock, proseBlock, cut], parent: "u0" },
+  ]);
+  const cappedTail = () => chatDb([
+    { id: "u0", role: "user", agoMs: 10 * 60_000 },
+    { id: "a0", role: "assistant", agoMs: 9 * 60_000, blocks: [{ kind: "ripreso", attempt: MAX_RESUME_ATTEMPTS } as ContentBlock, proseBlock, watchdogCut], parent: "u0" },
+    { id: "u1", role: "user", agoMs: 5 * 60_000, parent: "a0" },
+  ]);
+  const EARLY_BOOT = () => Date.now() - HOUR;
+  const LATE_BOOT = () => Date.now();
+
+  /**
+   * Chains that spent their attempts, and the wording each must get. CAUSE
+   * FIRST: an answer row is judged by its cut, never by its timestamp. A
+   * watchdog cut followed by a reload on save predates the boot, and the boot
+   * sweep writes a hard kill's notice with no cause AFTER the boot. Only a
+   * person's message, which has no cut row, falls back on the boot time.
+   */
+  const cappedCases: Array<[string, () => Database, () => number, "restart" | "stall" | "generic"]> = [
+    ["watchdog cut, no boot since", capped(watchdogCut), EARLY_BOOT, "stall"],
+    ["watchdog cut, a reload after it", capped(watchdogCut), LATE_BOOT, "stall"],
+    ["hard kill: the boot sweep's notice, newer than the boot",
+      capped({ kind: "error", text: RESTART_INTERRUPTED_MARKER } as ContentBlock, 60_000), EARLY_BOOT, "restart"],
+    ["graceful shutdown: the notice without a cause", capped(interruptedBlock), EARLY_BOOT, "restart"],
+    ["graceful shutdown: cause server-shutdown",
+      capped({ kind: "error", text: "Turno interrotto.", cause: "server-shutdown" } as ContentBlock), EARLY_BOOT, "restart"],
+    ["a cut of ours that is no restart",
+      capped({ kind: "error", text: "Risposta interrotta: nessuna attività per 3 minuti." } as ContentBlock), LATE_BOOT, "generic"],
+    ["person's message at the end of the chain, no boot since", cappedTail, EARLY_BOOT, "generic"],
+    ["person's message at the end of the chain, booted after it", cappedTail, LATE_BOOT, "restart"],
   ];
 
-  test("(c) capped with no boot since the row: no restart in the notice, and it stays unrecognised", async () => {
-    for (const [label, make] of cappedChats()) {
+  test("(c) capped: the notice names what cut the chain, and stays unrecognised", async () => {
+    for (const [label, make, bootedAt, wording] of cappedCases) {
       const db = make();
       const before = rowCount(db);
       const calls: unknown[] = [];
-      await sweep({ ...ctxOf(db), bootedAtMs: Date.now() - HOUR }, calls);
+      await sweep({ ...ctxOf(db), bootedAtMs: bootedAt() }, calls);
       expect(calls, label).toHaveLength(0);
       expect(rowCount(db), label).toBe(before + 1);
       const text = lastText(db);
       expect(text.startsWith("⚠️ Ripresa automatica sospesa:"), label).toBe(true);
-      expect(text, label).not.toContain("riavviat");
       expect(text, label).toContain("Riprova");
       // Recognised as an interruption, the next sweep would resume the chain it closes.
       expect(eCartelloDiInterruzione(text), label).toBe(false);
+      if (wording === "restart") expect(text, label).toBe(RESUME_CAP_MARKER);
+      else expect(text, label).not.toContain("riavviat");
+      expect(text.includes("ha smesso di rispondere"), label).toBe(wording === "stall");
     }
   });
+});
 
-  test("(c) capped after a real boot: the restart cap notice, word for word", async () => {
-    for (const [label, make] of cappedChats()) {
-      const db = make();
-      await sweep({ ...ctxOf(db), bootedAtMs: Date.now() }, []);
-      expect(lastText(db), label).toBe(RESUME_CAP_MARKER);
+/**
+ * The durable Stop, end to end on the real schema: the helper the abort route
+ * calls, and the chat route's own abort line, read back by the sweep from the
+ * table migration 001 creates. The in-memory table above cannot tell whether
+ * its columns are the real ones; this can.
+ *
+ * @covers RESUME-01
+ */
+describe("the Stop the server writes is the Stop the sweep reads", () => {
+  let tmpRoot: string;
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(join(tmpdir(), "resume-stop-"));
+    initDatabase(tmpRoot);
+  });
+  afterEach(() => {
+    try { closeDatabase(); } catch { /* already closed */ }
+    try { rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* scratch dir */ }
+  });
+
+  const writers: Array<[string, (sk: string) => void]> = [
+    ["the abort route", (sk) => activityLog.logStopPressed({ sessionKey: sk, topicId: "t1" })],
+    ["the chat route", (sk) => logStreamAborted({ sessionKey: sk, topicId: "t1", title: abortLogTitle(cancelled("user")) })],
+  ];
+
+  test("a message stopped before the restart is not resent after it", async () => {
+    for (const [label, writeStop] of writers) {
+      const sk = `topic:stop-${label.replace(/\W/g, "")}`;
+      const db = getDatabase();
+      db.run(
+        "INSERT INTO messages (id, session_key, role, content, timestamp, sort_order) VALUES (?,?,'user','fai il merge',?,0)",
+        [`u-${sk}`, sk, new Date(Date.now() - 230_000).toISOString()],
+      );
+      writeStop(sk);
+      const calls: unknown[] = [];
+      const log = console.log, warn = console.warn;
+      console.log = () => {}; console.warn = () => {};
+      try {
+        await riprendiTurniInterrotti(
+          { db, getTopicBySessionKey: () => ({ archived: false }), bootedAtMs: Date.now() - 60_000 },
+          () => { calls.push(1); return new Response(null, { status: 200 }); },
+          { responseMs: 500, streamMs: 500 },
+        );
+      } finally { console.log = log; console.warn = warn; }
+      expect(calls, label).toHaveLength(0);
     }
   });
 });
@@ -280,20 +402,28 @@ describe("the notice variants and the recogniser", () => {
     { end: "end_turn" } as const,
   ];
 
-  test("every unanswered notice is recognised, and only a real restart is blamed", () => {
+  /** Cause first: a named cause decides, and only `server-shutdown` is a
+   *  restart; `restarted` speaks only when no cause is known. */
+  const blamesRestart = (cause: unknown, restarted: boolean) =>
+    typeof cause === "string" ? cause === "server-shutdown" : restarted;
+
+  test("every unanswered notice is recognised, and a restart is blamed only when it is the cause", () => {
     for (const lastEnd of ends) {
       for (const restarted of [true, false]) {
         const text = boot.unansweredNotice({ restarted, lastEnd });
-        const label = `${lastEnd?.end ?? "none"}/${(lastEnd as { cause?: string } | null)?.cause ?? "-"} restarted=${restarted}`;
+        const cause = (lastEnd as { cause?: string } | null)?.cause;
+        const label = `${lastEnd?.end ?? "none"}/${cause ?? "-"} restarted=${restarted}`;
         expect(eCartelloDiInterruzione(text), label).toBe(true);
         expect(text.startsWith("⚠️"), label).toBe(true);
-        expect(text.includes("riavviat"), label).toBe(restarted);
+        expect(text.includes("riavviat"), label).toBe(blamesRestart(cause, restarted));
       }
     }
-    expect(boot.unansweredNotice({ restarted: true, lastEnd: cancelled("watchdog") })).toBe(UNANSWERED_NOTICE);
+    const stalled = boot.unansweredNotice({ restarted: true, lastEnd: cancelled("watchdog") });
+    expect(stalled).toContain("non dava più segni di vita");
+    expect(boot.unansweredNotice({ restarted: false, lastEnd: cancelled("server-shutdown") })).toBe(UNANSWERED_NOTICE);
   });
 
-  test("every cap notice keeps the retry and stays unrecognised, and only a real restart is blamed", () => {
+  test("every cap notice keeps the retry and stays unrecognised, and a restart is blamed only when it is the cause", () => {
     for (const cause of [undefined, "watchdog", "wall-clock", "server-shutdown", "rate-limit", "tool-budget"]) {
       for (const restarted of [true, false]) {
         const text = boot.resumeCapNotice({ restarted, cause });
@@ -301,9 +431,10 @@ describe("the notice variants and the recogniser", () => {
         expect(text.startsWith("⚠️ Ripresa automatica sospesa:"), label).toBe(true);
         expect(text, label).toContain("Riprova");
         expect(eCartelloDiInterruzione(text), label).toBe(false);
-        expect(text.includes("riavviat"), label).toBe(restarted);
+        expect(text.includes("riavviat"), label).toBe(blamesRestart(cause, restarted));
       }
     }
-    expect(boot.resumeCapNotice({ restarted: true, cause: "watchdog" })).toBe(RESUME_CAP_MARKER);
+    expect(boot.resumeCapNotice({ restarted: true, cause: "watchdog" })).not.toBe(RESUME_CAP_MARKER);
+    expect(boot.resumeCapNotice({ restarted: false, cause: "server-shutdown" })).toBe(RESUME_CAP_MARKER);
   });
 });

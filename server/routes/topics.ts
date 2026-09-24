@@ -26,6 +26,7 @@ import { resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
 import { getSessionContext } from "../db/session-context";
 import { markTargetNotificationsSeen, countUnseenNotifications } from "../db/notification-log";
+import { logStopPressed } from "../db/activity-log";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
 import { createTaskService } from "../services/tasks";
@@ -2458,6 +2459,10 @@ export function createTopicsRouter(
       // `cancelled("user")` è quello che il provider stesso depositerebbe: se la
       // sua finalizzazione arriva comunque, riscrive lo stesso verdetto.
       recordTurnEnd(sessionKey, cancelled("user", "POST /api/chat/abort"));
+      // The registry above is memory, and the server reloads on every save: the
+      // durable trace is what keeps the resume sweep from resending a stopped
+      // message after the next restart (topic c5d57a41, 24/09).
+      logStopPressed({ sessionKey, topicId });
 
       // PRIMA il provider, POI il controller dell'SSE. L'ordine conta: l'abort
       // del controller chiude la macchina a stati della route, quindi tutto ciò

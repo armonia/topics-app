@@ -18,6 +18,7 @@
  */
 
 import { getDatabase } from "../db";
+import { STOP_PRESSED_LOG_TITLE, USER_ABORT_LOG_TITLE } from "../lib/cancelled-notice";
 
 /** Maximum rows kept in `activity_log`. Older rows are deleted on insert. */
 const MAX_ROWS = 10_000;
@@ -207,7 +208,7 @@ export function logStreamAborted(ctx: StreamLogContext & { title?: string }): vo
   logActivity({
     category: "stream",
     level: "info",
-    title: ctx.title ?? "stream aborted by user",
+    title: ctx.title ?? USER_ABORT_LOG_TITLE,
     sessionKey: ctx.sessionKey,
     entityType: "topic",
     entityId: ctx.topicId,
@@ -216,6 +217,25 @@ export function logStreamAborted(ctx: StreamLogContext & { title?: string }): vo
       toolCallCount: ctx.toolCallCount,
       ...ctx.extra,
     },
+  });
+}
+
+/**
+ * The person pressed Stop on a live turn. Written by `/api/chat/abort` before
+ * the provider is told, because `logStreamAborted` is not guaranteed: the
+ * route aborts the SSE controller right after the provider, and a provider
+ * that reports the abort later finds `finalizeStream` already closed. The
+ * resume sweep reads this row after a restart, when the in-memory turn-end
+ * registry is empty, so it never resends a message the person stopped.
+ */
+export function logStopPressed(ctx: { sessionKey: string; topicId?: string }): void {
+  logActivity({
+    category: "stream",
+    level: "info",
+    title: STOP_PRESSED_LOG_TITLE,
+    sessionKey: ctx.sessionKey,
+    entityType: "topic",
+    entityId: ctx.topicId,
   });
 }
 
