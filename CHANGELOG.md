@@ -2,6 +2,21 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.387 — 2026-09-25
+
+### Correzioni
+- **swap-freeze** · comando su una riga nel log, skip ripetuti detti una volta
+
+### Sotto il cofano
+- Il server muore di SIGTERM dopo un Chromium: Playwright gli smonta il gestore
+- **swap-freeze** · il log del freezer ripete comandi multi-riga e skip a ogni beat
+- Il taglio del comando nel log non spezza un'emoji a metà
+- I test di oneLine in un file loro: il test del freezer restava sotto le 800 righe
+- RGATE-07: il SIGTERM arriva sempre a gracefulShutdown
+- Il test del SIGTERM non tocca la cartella dati vera e ripulisce la sua
+- Il registro del freezer non resta non tracciato nella radice di prod
+- Il perché giusto per ignorare swap-freeze.json
+
 ## 2.2.386 — 2026-09-24
 
 ### Sotto il cofano
