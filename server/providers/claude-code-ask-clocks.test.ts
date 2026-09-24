@@ -30,6 +30,12 @@ import { beginAsk, endAsk, hasPendingAsk } from "../lib/ask-user-bridge";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Polls instead of guessing a delay: a loaded machine runs a 10 ms timer late. */
+async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
+  const until = Date.now() + timeoutMs;
+  while (!cond() && Date.now() < until) await sleep(5);
+}
+
 function fakePP() {
   return {
     alive: true,
@@ -37,6 +43,7 @@ function fakePP() {
     lifetimeTimer: null,
     heartbeatInterval: null,
     subAgentEmit: new Map(),
+    streamHandler: null as unknown,
     io: { writeStdin: () => {}, kill: () => {}, signal: () => {} },
     readline: { close() {} },
   };
@@ -94,6 +101,54 @@ describe("tetto di vita del figlio CLI", () => {
     deadline.clear();
 
     expect(killed()).toBe(1);
+  });
+});
+
+/**
+ * THE LIFETIME CAP NEVER CUTS A TURN IN FLIGHT.
+ *
+ * On 2026-09-24 (chat 3019832f) the 2 h cap fired at 12:42 while the child was
+ * streaming a turn: the CLI died mid-answer, and in broker mode nobody told the
+ * waiting send. The cap is a wall clock on purpose (it recycles the child); what
+ * was missing is the guard the idle reaper already has: a child with a stream
+ * handler is busy, so the cap waits for the turn to end and fires on the first
+ * tick after it.
+ */
+describe("lifetime cap and the turn in flight", () => {
+  test("rearms while a turn is streaming, fires on the first tick after it ends", async () => {
+    const sessionKey = "sess-life-turn";
+    const { p, pp, killed } = setup(sessionKey);
+    pp.streamHandler = {};
+
+    p.armLifetime(pp, sessionKey, { ms: 50, rearmMs: 10 });
+    await sleep(150);
+
+    expect(killed()).toBe(0);
+    expect(p.processes.get(sessionKey)).toBe(pp);
+
+    pp.streamHandler = null;
+    await waitFor(() => killed() > 0);
+    pp.lifetimeTimer?.clear();
+
+    expect(killed()).toBe(1);
+    expect(p.processes.get(sessionKey)).toBeUndefined();
+  });
+
+  test("an orphaned cap does not touch the process that took its key", async () => {
+    const sessionKey = "sess-life-orphan";
+    const { p, pp: ppA, killed } = setup(sessionKey);
+
+    const deadline = p.armLifetime(ppA, sessionKey, { ms: 5, rearmMs: 5 });
+    // Re-adoption: another `pp` takes the key (what `reattach` does). In broker
+    // mode `killProcess` kills BY KEY, so an orphan would kill the successor.
+    const ppB = fakePP();
+    p.processes.set(sessionKey, ppB);
+
+    await sleep(40);
+    deadline.clear();
+
+    expect(killed()).toBe(0);
+    expect(p.processes.get(sessionKey)).toBe(ppB);
   });
 });
 
