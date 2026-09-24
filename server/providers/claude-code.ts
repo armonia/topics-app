@@ -3734,17 +3734,29 @@ export class ClaudeCodeProvider implements AIProvider {
     /** Solo per i test: due ore non si aspettano, e la regola va provata. */
     opts: { ms?: number; rearmMs?: number } = {},
   ): TurnDeadline {
+    const rearmMs = opts.rearmMs ?? LIFETIME_REARM_MS;
     return armTurnDeadline({
       ms: opts.ms ?? MAX_LIFETIME_MS,
-      rearmMs: opts.rearmMs ?? LIFETIME_REARM_MS,
+      rearmMs,
       isWaitingForHuman: () => isHumanHold(sessionKey),
       onExpired: () => {
-        console.log("[claude-code] Max lifetime reached, killing process");
-        this.killProcess(pp);
-        // Find and remove from map
-        for (const [key, p] of this.processes) {
-          if (p === pp) { this.processes.delete(key); break; }
+        // Identity first, as in `resetInactivityTimer`: in broker mode
+        // `killProcess` kills BY KEY, so a cap left armed on a replaced `pp`
+        // would kill the child of whoever holds the key now.
+        if (this.processes.get(sessionKey) !== pp) { pp.lifetimeTimer = null; return; }
+        // A child with a stream handler is in the middle of a turn. The cap is a
+        // wall clock on purpose (it recycles the child), so it waits for the
+        // turn to end and fires on the first tick after it, never inside it. On
+        // 2026-09-24 (chat 3019832f) it killed a streaming CLI at 12:42 and the
+        // send hung for 30 minutes. Not a silence clock: that is the turn
+        // watchdog's job.
+        if (pp.streamHandler) {
+          pp.lifetimeTimer = this.armLifetime(pp, sessionKey, { ms: rearmMs, rearmMs });
+          return;
         }
+        console.log(`[claude-code] Max lifetime reached for ${sessionKey}, killing process`);
+        this.killProcess(pp);
+        this.processes.delete(sessionKey);
       },
     });
   }
