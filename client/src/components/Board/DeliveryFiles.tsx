@@ -106,7 +106,11 @@ export function DeliveryFiles({ projectId, taskId, files, insertions, deletions,
   // nothing, and "0 files +0 -0" is a control that opens on an empty list.
   // Before any count exists the chip stays: "not measured yet" is a different
   // statement from "nothing changed", and it is the one the live label makes.
-  if (!showsGitChangesChip(misura)) return null;
+  // AN OPEN CHIP STAYS: when the person opened it, the empty read is the
+  // answer to show in the list («no file in the delivery commit»), not a
+  // reason to pull the chip from under the click. Without this, a delivery the
+  // DB counted and git could not resolve vanished the moment it was opened.
+  if (!aperto && !showsGitChangesChip(misura)) return null;
 
   return (
     <div className="relative" data-testid="card-delivery-files">

@@ -544,20 +544,29 @@
     "come chunk PIGRO non puo' dirlo se prima non si e' mangiata mezza mega di",
     "margine. Abbassarlo e' la stessa riga che lo script stampa da solo quando",
     "una misura scende («Lower the numbers to lock the win»), applicata al terzo",
-    "budget, che quella stampa non guarda."
+    "budget, che quella stampa non guarda.",
+    "",
+    "2026-09-17 -> 2026-09-24: entry eager +28.830 raw / +9.218 gz (+2,0% / +2,1%).",
+    "Bought with the 23/09 chat batch: composer prompt history and #N numbers, goal",
+    "sent on /goal and readable whole, tok/s in the turn row, machine rows kept out of",
+    "bubbles and previews, tool rows (Agent sub-agents, carrier detail fetch state,",
+    "failed badge, goal steps as todo), changed files shown whole (show all, lazy",
+    "per-file patch, clickable rows, MultiEdit hunks), heavy-tab pause in shares of",
+    "the Mac with keep once/always. All chat or board code that renders on open; no",
+    "new dependency and no lazy import turned static."
   ],
-  "updated": "2026-09-17",
+  "updated": "2026-09-24",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1411389,
-    "gz": 444684
+    "raw": 1440219,
+    "gz": 453902
   },
   "critical_path": {
-    "raw": 2018595,
-    "gz": 603702,
+    "raw": 2048181,
+    "gz": 612235,
     "files": 5
   },
   "total_assets": {
-    "raw": 8282484
+    "raw": 8331536
   }
 }
