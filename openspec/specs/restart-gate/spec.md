@@ -252,3 +252,24 @@ riavvii che tagliano turni.
 #### Scenario: una modifica in shared/
 - **GIVEN** un file di `shared/` che il server importa e uno che non importa
 - **THEN** cambiare il primo SHALL chiedere il riavvio, cambiare il secondo NON SHALL
+
+### Requirement: RGATE-07 — Il SIGTERM arriva sempre a `gracefulShutdown`
+
+Tutto il cancello poggia su un'ipotesi: il SIGTERM che chiude il server fa girare
+`gracefulShutdown`. Nessuna libreria dentro il server SHALL poter togliere quel
+gestore. Dal 16/09 al 24/09/2026 11 uscite su 92 sono state code 143, morte per
+l'azione di default del segnale: nessuna riga «[Shutdown]», lock stantio al boot
+dopo, e il 24/09 alle 16:48 sei tool orfani e un turno interrotto senza
+spiegazione. Tutte e 11 avevano un Chromium lanciato in quella vita: il `launch()`
+di Playwright installa di suo gestori SIGTERM, SIGINT e SIGHUP e li toglie quando
+il browser esce, e in Bun togliere un listener di un segnale smonta il gestore
+nativo di quel segnale anche se quello del server è ancora registrato.
+
+Il browser del server SHALL essere lanciato senza i gestori di segnale di
+Playwright: lo chiude già `gracefulShutdown`, e uno lasciato da un crash lo
+raccoglie la spazzata al boot.
+
+#### Scenario: il browser è stato lanciato e poi chiuso
+- **GIVEN** un processo col gestore SIGTERM del server che lancia il browser del server e lo vede uscire
+- **WHEN** riceve SIGTERM
+- **THEN** il gestore del server SHALL girare e il processo uscire 0, non 143

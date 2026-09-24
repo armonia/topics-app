@@ -21,6 +21,8 @@
  *
  * The server does its own shutdown (`browserService.close()` in
  * `gracefulShutdown`), so Playwright's handlers add nothing we need.
+ *
+ * @covers RGATE-07
  */
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "fs";
