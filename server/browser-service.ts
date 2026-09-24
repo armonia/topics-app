@@ -730,6 +730,22 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
     browser = await pw.chromium.launch({
       executablePath: chromiumPath,
       headless: true,
+      // THE SERVER'S SIGNALS ARE NOT PLAYWRIGHT'S. By default `launch()` adds
+      // its own SIGTERM, SIGINT and SIGHUP listeners and removes them with
+      // `off()` when Chromium exits, and in Bun removing one listener of a
+      // signal uninstalls the native handler for that signal while the
+      // server's listener is still registered. From then on a SIGTERM kills
+      // the server with the default action: no `gracefulShutdown`, live turns
+      // cut without their notice. Production, 16/09 to 24/09: 11 of 92 exits
+      // were code 143, every one after a Chromium launch in that lifetime, 10
+      // of them after the idle reaper had closed it. While Chromium is up the
+      // SIGINT one is wrong too: it calls `process.exit(130)` in the middle of
+      // our own shutdown. `gracefulShutdown` closes the browser itself, and
+      // the boot sweep reaps one left behind by a crash.
+      // See `browser-service-sigterm.test.ts`.
+      handleSIGTERM: false,
+      handleSIGINT: false,
+      handleSIGHUP: false,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
