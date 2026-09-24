@@ -66,3 +66,18 @@ export function foldFinishedTurn<G extends FoldableGroup>(groups: readonly G[], 
   const keptMedia = before.filter((g) => g.kind === 'media');
   return { work, shown: [...keptMedia, ...groups.slice(answerAt)], tools };
 }
+
+/**
+ * The turns this page watched stream. They stay spread out when they end:
+ * folding at `stream:end` shrank the bubble by hundreds of pixels under the
+ * reader and the pinned list jumped up (chat-scroll-at-rest, 3793 -> 3312).
+ * They fold the next time the page is loaded, when they are history. Ids of
+ * both the live placeholder and the durable row land here, a few per turn.
+ */
+const watchedLive = new Set<string>();
+export function noteWatchedLive(messageId: string): void {
+  watchedLive.add(messageId);
+}
+export function wasWatchedLive(messageId: string): boolean {
+  return watchedLive.has(messageId);
+}

@@ -20,7 +20,7 @@ import { useToast } from './Shared/Toast';
 import { SlashCommandChip } from './Chat/SlashCommandChip';
 import { TurnErrorBanner } from './Chat/TurnErrorBanner';
 import { TurnWorkRow } from './Chat/TurnWorkRow';
-import { foldFinishedTurn } from './Chat/turnFold';
+import { foldFinishedTurn, noteWatchedLive, wasWatchedLive } from './Chat/turnFold';
 import { useTaskWorkFold } from './Chat/taskWorkFoldContext';
 import type { ToolCall } from '../types';
 import { LEGACY_ERROR_PREFIX, turnErrorOf } from './Chat/turnError';
@@ -1130,10 +1130,21 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   // A finished turn shows its answer and folds the work before it into one row
   // (`Chat/turnFold.ts` for the rule and for what never folds). Inside a board
   // task the per-message accordion already does it, so it is not done twice.
+  //
+  // NOT THE TURN YOU JUST WATCHED. A turn that streamed in front of you stays
+  // spread out when it ends: folding it at `stream:end` shrank the bubble by
+  // hundreds of pixels under the reader's eyes, and the pinned list jumped up
+  // (chat-scroll-at-rest, 3793 -> 3312). It folds the next time it is drawn
+  // from history, which is when the wall of rows is in the way.
   const inTaskFold = useTaskWorkFold();
+  // Remembered by message id in a module set, not in component state: the list
+  // does not key its rows by message, so the bubble that streamed can remount
+  // with `partial: false` and a fresh state would fold it anyway.
+  if (partial && messageId) noteWatchedLive(messageId);
+  const watched = !!messageId && wasWatchedLive(messageId);
   const turnFold = useMemo(
-    () => (role === 'assistant' && !inTaskFold ? foldFinishedTurn(blockGroups, partial) : null),
-    [role, inTaskFold, blockGroups, partial],
+    () => (role === 'assistant' && !inTaskFold && !watched ? foldFinishedTurn(blockGroups, partial) : null),
+    [role, inTaskFold, watched, blockGroups, partial],
   );
 
   if (role === 'user') {

@@ -3,6 +3,7 @@ import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { interceptWebSocket } from "./helpers/ws-helpers";
 
 hermetic(test);
 
@@ -71,5 +72,36 @@ test.describe("finished turn fold", () => {
     // The turn waiting on a question is shown whole: nothing of it folded.
     await expect(page.locator('[data-testid="tool-call-row-t5"]')).toHaveCount(1);
     await page.screenshot({ path: test.info().outputPath("turn-fold.png") });
+  });
+
+  // The turn you just WATCHED stays spread out when it ends: folding it at
+  // `stream:end` shrank the bubble under the reader and the pinned list jumped
+  // up (chat-scroll-at-rest caught it, 3793 -> 3312).
+  test("a turn watched live does not fold when it ends", async ({ page, chatPage, request }) => {
+    const topics = (await (await request.get(`${E2E_BASE}/api/topics`, { ignoreHTTPSErrors: true })).json()) as { topics: Record<string, { id: string; sessionKey: string }> };
+    const sessionKey = Object.values(topics.topics).find((t) => t.id === topicId)!.sessionKey;
+    const wire = await interceptWebSocket(page);
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(topicName));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+    await expect.poll(() => wire.getByType("subscribe").some(({ direction, data }) =>
+      direction === "client" && JSON.parse(data).topicIds?.includes(topicId))).toBe(true);
+    const id = `fold-live-${Date.now()}`;
+    wire.send({ type: "stream:start", sessionKey, topicId, messageId: id });
+    // A real turn spans many frames: the bubble is on screen while it streams,
+    // which is what makes it a turn the reader WATCHED.
+    await expect(page.getByTestId("chat-streaming-indicator")).toBeVisible({ timeout: 10_000 });
+    for (const i of [1, 2, 3]) {
+      wire.send({ type: "stream:tool_call", sessionKey, topicId, toolCall: { id: `live${i}`, name: "Bash", args: { command: `echo ${i}` }, status: "running" } });
+      wire.send({ type: "stream:tool_result", sessionKey, topicId, toolCallId: `live${i}`, result: "ok" });
+    }
+    wire.send({ type: "stream:content_chunk", sessionKey, topicId, messageId: id, content: "Risposta finale dal vivo." });
+    wire.send({ type: "stream:end", sessionKey, topicId, messageId: id });
+    await expect(page.getByText("Risposta finale dal vivo.")).toBeVisible({ timeout: 10_000 });
+    // Its three actions are still on screen as the run it streamed (one group
+    // row), not behind a second fold; the only fold is the history turn's.
+    await expect(page.locator('[data-testid="tool-group-row"][data-group-id="live1"]')).toHaveCount(1);
+    await expect(page.getByTestId("turn-work-fold")).toHaveCount(1);
   });
 });
