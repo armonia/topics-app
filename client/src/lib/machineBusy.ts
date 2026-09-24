@@ -22,6 +22,8 @@
  * surfaces cannot disagree about the same Mac.
  */
 
+import { DANGER_TEXT, SUCCESS_TEXT, WARNING_TEXT } from './popoverStyles';
+
 /** Green below this. */
 export const BUSY_AMBER_FROM = 60;
 /** Red above this (85 itself is still amber). */
@@ -72,11 +74,13 @@ export function busyTone(pct: number | null): BusyTone {
   return 'ok';
 }
 
-/** Text colour per tone: the ring's own amber/rose, emerald for calm. */
+/** Text colour per tone. The popover tokens measured at 4.5:1 on BOTH themes
+ *  (`popoverStyles.ts`): the `-300` shades read fine on dark and wash out to
+ *  about 2:1 on the light popover, which is where this line lives. */
 export function busyTextClass(tone: BusyTone): string {
-  if (tone === 'critical') return 'text-rose-300';
-  if (tone === 'busy') return 'text-amber-300';
-  if (tone === 'ok') return 'text-emerald-300';
+  if (tone === 'critical') return DANGER_TEXT;
+  if (tone === 'busy') return WARNING_TEXT;
+  if (tone === 'ok') return SUCCESS_TEXT;
   return 'text-app-text-muted';
 }
 

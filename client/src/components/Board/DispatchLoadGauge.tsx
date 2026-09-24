@@ -36,6 +36,7 @@ import {
 } from './dispatchLoad';
 import { MachineAxesLine, MachineBusyLine } from '../Shared/MachineBusyLine';
 import { pctVars } from '../../lib/machineBusy';
+import { DANGER_TEXT } from '../../lib/popoverStyles';
 import { spendLabel } from './spendFormat';
 import { budgetShare, capMode } from '../../lib/board';
 import type { DispatchCapacity, GlobalDispatchCap } from '../../lib/board';
@@ -207,7 +208,7 @@ export function DispatchLoadGauge({ onOpenSettings }: { onOpenSettings?: () => v
           {/* Why the queue waits, in the same percentage as the line above,
               and where it restarts by itself when that point is honest. */}
           {verdict && (
-            <p className="tabular-nums text-rose-300" data-testid="dispatch-load-verdict" title={verdict.title}>
+            <p className={`tabular-nums ${DANGER_TEXT}`} data-testid="dispatch-load-verdict" title={verdict.title}>
               {verdictSentence(verdict, tr, locale)}
             </p>
           )}
