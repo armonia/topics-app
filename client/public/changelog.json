@@ -1,5 +1,32 @@
 [
   {
+    "version": "2.2.380",
+    "date": "2026-09-24",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "board-conversation-details green on WebKit, and in the WebKit CI project",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Turn fold: a compaction recap is a boundary, not work",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Manual /compact: the next turn fills the post-compaction size",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.379",
     "date": "2026-09-24",
     "sections": {

@@ -2,6 +2,13 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.380 — 2026-09-24
+
+### Sotto il cofano
+- board-conversation-details green on WebKit, and in the WebKit CI project
+- Turn fold: a compaction recap is a boundary, not work
+- Manual /compact: the next turn fills the post-compaction size
+
 ## 2.2.379 — 2026-09-24
 
 ### Sotto il cofano
