@@ -14,6 +14,8 @@ function recorder() {
   const handler = {
     onTextDelta: (t: string) => { calls.push(`text:${t}`); },
     onToolStart: (id: string) => { calls.push(`tool:${id}`); },
+    onToolArgsUpdate: (id: string) => { calls.push(`args:${id}`); },
+    onUserInputRequired: (id: string) => { calls.push(`ask:${id}`); },
     onToolResult: (id: string) => { calls.push(`result:${id}`); },
     onCallUsage: () => { calls.push("usage"); },
     onDone: () => { calls.push("done"); },
@@ -69,6 +71,21 @@ describe("silenceAfterFinalize", () => {
     h.onContextSize?.(1200);
     expect(calls).toEqual(["compaction", "context:1200"]);
     expect(dropped).toEqual([]);
+  });
+
+  test("a late question still reaches the person: its announcement is replayed first, then only that tool is heard", () => {
+    const { calls, handler } = recorder();
+    const dropped: string[] = [];
+    const h = silenceAfterFinalize(handler, () => true, (e) => dropped.push(e));
+    h.onToolStart("q1", "mcp__topics__ask_user_question");
+    h.onToolArgsUpdate?.("q1", { questions: [] } as never);
+    h.onTextDelta("prima di chiedere", "prima di chiedere");
+    h.onToolStart("t2", "Bash");
+    h.onUserInputRequired?.("q1", "mcp__topics__ask_user_question", { kind: "raw" } as never);
+    h.onToolResult("q1", "risposta");
+    h.onToolResult("t2", "ok");
+    expect(calls).toEqual(["tool:q1", "args:q1", "ask:q1", "result:q1"]);
+    expect(dropped).toEqual(["onToolStart", "onToolArgsUpdate", "onTextDelta", "onToolStart", "onToolResult"]);
   });
 
   test("the state is read at call time: the same handler goes deaf when the turn closes", () => {

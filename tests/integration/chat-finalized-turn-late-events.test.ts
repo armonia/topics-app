@@ -198,6 +198,36 @@ describe("a closed turn writes on no row but its own", () => {
     expect(h.raw(turnRowId)).toEqual(turnAtClose);
   });
 
+  test("a question in a late answer lands on the closed turn's own row, where it can be answered", async () => {
+    const h = await harness("topic:late-ask");
+    const handler = await h.startTurn();
+    const turnRowId = h.lastRowId();
+    await until(() => h.sent.some((m) => m.type === "stream:end"));
+    const noticeId = h.insertNotice();
+    const noticeBefore = h.raw(noticeId);
+
+    // The late answer asks the person. The announcement arrives before anyone
+    // knows it is a question; the verdict comes once the arguments are whole.
+    handler.onToolStart("toolu_ask", "mcp__topics__ask_user_question", {} as never);
+    const questions = [{ question: "Quale ramo?", header: "Ramo", options: [{ label: "main" }, { label: "sito" }] }];
+    handler.onToolArgsUpdate?.("toolu_ask", { questions } as never);
+    handler.onTextDelta("testo tardivo ", "testo tardivo ");
+    handler.onUserInputRequired?.("toolu_ask", "mcp__topics__ask_user_question", { kind: "questions", questions } as never);
+
+    // On screen: the panel event went out for that tool.
+    expect(h.sent.some((m) => m.type === "stream:tool_user_input_required" && m.toolCallId === "toolu_ask")).toBe(true);
+    // In the database: on the turn's own row, waiting for the answer.
+    const ask = h.blocksOf(turnRowId).find((b) => b.kind === "tool" && b.toolCall.id === "toolu_ask");
+    expect(ask && ask.kind === "tool" ? ask.toolCall.status : null).toBe("waiting_for_input");
+    // The answer closes it, on the same row.
+    handler.onToolResult("toolu_ask", "sito", false);
+    const answered = h.blocksOf(turnRowId).find((b) => b.kind === "tool" && b.toolCall.id === "toolu_ask");
+    expect(answered && answered.kind === "tool" ? answered.toolCall.status : null).toBe("success");
+    // Nothing else of the late answer got through, and the notice is untouched.
+    expect(decodeCol(h.raw(turnRowId).content as never)).not.toContain("testo tardivo");
+    expect(h.raw(noticeId)).toEqual(noticeBefore);
+  });
+
   test("a compaction reaching a closed turn is still recorded: it is the session's fact, not the turn's row", async () => {
     const h = await harness("topic:late-compaction");
     const handler = await h.startTurn();
