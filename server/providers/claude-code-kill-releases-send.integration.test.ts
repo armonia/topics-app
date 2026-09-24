@@ -131,7 +131,7 @@ describe("a killed child and the session queue (real broker, real child)", () =>
         provider.unregisterStreamHandler(sk);
         provider.refreshSessionConfig(sk);
       },
-      ending: (ev: string) => ev.startsWith("A:error:") && ev.includes("configuration change"),
+      ending: (ev: string) => ev === "A:error:Turn ended: the Claude Code process was stopped by a configuration change.",
     },
   ];
   for (const k of KILLS) {
@@ -204,10 +204,12 @@ describe("a killed child and the session queue (real broker, real child)", () =>
 
       await sendA;
       // Nothing reached the model: the route rolls back what it marked as sent.
+      // `sendChat` settles only when its turn is over, so a B wrongly released
+      // would already have written and answered by now: no wait is needed.
       expect(await sendB).toEqual({ runId: undefined, notSent: true });
-      // Give a wrongly released B the time to spawn a child and answer.
-      await sleep(slackMs(1500));
 
+      // The spy does see this session's writes (A's), so its silence on B means something.
+      expect(writes.some((w) => w.includes("do some work"))).toBe(true);
       expect(writes.some((w) => w.includes("tutto ok?"))).toBe(false);
       expect(log.filter((l) => l.ev.startsWith("B:"))).toEqual([]);
     } finally {

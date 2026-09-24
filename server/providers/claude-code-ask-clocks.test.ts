@@ -120,12 +120,20 @@ describe("lifetime cap and the turn in flight", () => {
     const sessionKey = "sess-life-turn";
     const { p, pp, killed } = setup(sessionKey);
     pp.streamHandler = {};
+    // Every re-arm goes through `armLifetime` again: record its options, because
+    // a re-arm with the whole cap would still pass on timing alone here, and in
+    // production would recycle the child up to 2 h after the turn, not 60 s.
+    const rearms: Array<{ ms?: number; rearmMs?: number }> = [];
+    const arm = p.armLifetime.bind(p);
+    p.armLifetime = (a: unknown, b: string, o: { ms?: number; rearmMs?: number }) => { rearms.push(o); return arm(a, b, o); };
 
     p.armLifetime(pp, sessionKey, { ms: 50, rearmMs: 10 });
     await sleep(150);
 
     expect(killed()).toBe(0);
     expect(p.processes.get(sessionKey)).toBe(pp);
+    expect(rearms.length).toBeGreaterThan(1);
+    expect(rearms.slice(1).every((o) => o.ms === 10)).toBe(true);
 
     pp.streamHandler = null;
     await waitFor(() => killed() > 0);
