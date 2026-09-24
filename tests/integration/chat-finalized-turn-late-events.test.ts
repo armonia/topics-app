@@ -257,8 +257,8 @@ describe("a closed turn writes on no row but its own", () => {
     // tool column write is skipped, so a tool writer aimed at the last row
     // would leave that row identical and this test would prove nothing about
     // the tools. A resend's user row is the realistic shape.
-    const newerId = h.appendUserRow("scrivo mentre risponde");
-    const newerBefore = h.raw(newerId);
+    const laterRowId = h.appendUserRow("scrivo mentre risponde");
+    const laterRowBefore = h.raw(laterRowId);
 
     for (let i = 1; i <= 10; i++) {
       const d = `pezzo ${i} `;
@@ -272,7 +272,7 @@ describe("a closed turn writes on no row but its own", () => {
     handler.onDone({ content: [{ type: "text", text: total }] } as never);
     await until(() => h.sent.some((m) => m.type === "stream:end"));
 
-    expect(h.raw(newerId)).toEqual(newerBefore);
+    expect(h.raw(laterRowId)).toEqual(laterRowBefore);
     // The whole answer, tail included, is on the turn's own row.
     const turn = h.raw(turnRowId);
     expect(decodeCol(turn.content as never)).toBe(total);
