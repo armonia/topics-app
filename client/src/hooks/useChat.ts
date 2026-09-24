@@ -3129,11 +3129,6 @@ export function useChat() {
     }
   }, []);
 
-  const clearExpired = useCallback(() => {
-    writeQueue(queueStorage, EXPIRED_QUEUE_KEY, []);
-    setExpiredMessages([]);
-  }, []);
-
   // Discard the expired messages of ONE chat. The banner names a chat per row,
   // so "dismiss" has to be per row too: dropping every chat's messages because
   // one of them is no longer wanted is the loss this queue exists to prevent.
@@ -3164,7 +3159,6 @@ export function useChat() {
     drainQueue,
     expiredMessages,
     retryExpired,
-    clearExpired,
     dismissExpiredSession,
     pendingQueueSize: pendingQueue.length,
     getStreamQueueSize: (sessionKey: string) => getTurnQueue(sessionKey).length,

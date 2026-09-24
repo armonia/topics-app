@@ -1537,10 +1537,16 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       if (!detail?.topicId) return;
       if (detail.topic) applyTopicFromWS(detail.topic);
       openPanel(detail.topicId, detail.mode ?? 'preview', true, detail.topic);
+      // Every sender of this event means "take me to that chat" (a
+      // notification, a board card, the unsent band). On the phone the drawer
+      // IS the home screen and covers the pane, and `openPanel` closes it only
+      // on the project route: an already-open chat stayed hidden behind it,
+      // and the tap looked like it did nothing.
+      if (isMobile) setSidebarCollapsed(true);
     };
     window.addEventListener('topics:open-topic', onOpenTopic as EventListener);
     return () => window.removeEventListener('topics:open-topic', onOpenTopic as EventListener);
-  }, [openPanel, applyTopicFromWS]);
+  }, [openPanel, applyTopicFromWS, isMobile, setSidebarCollapsed]);
 
 
   // Keep the openPanelRef (declared up top, before the WS effects) pointed at

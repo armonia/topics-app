@@ -116,6 +116,7 @@ import { popOutTopic } from './lib/popOutTopic';
 import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 import { SkeletonTopicList } from './components/Shared/Skeleton';
 import { SidebarStatusBar, MobileTransportBand } from './components/Sidebar/SidebarStatusBar';
+import { UnsentContext, useUnsentController } from './state/unsentMessages';
 import { NotificationHistoryButton } from './components/Sidebar/NotificationHistoryButton';
 import { MobileChromeBar } from './components/Sidebar/MobileChromeBar';
 import { shortcut, usesCtrl } from './lib/shortcutLabel';
@@ -530,13 +531,13 @@ function App() {
     drainQueue,
     expiredMessages,
     retryExpired,
-    clearExpired,
     dismissExpiredSession,
     onWSMessage: chatStreamHandler,
     error: chatError,
     gatewayConnected: _gatewayConnected,
     isOwnStream,
   } = useChat();
+
 
   const { status: wsStatus, unreadData, sendWS, onMessage: onWSMessage, lastConnectedAt } = useWebSocket();
 
@@ -1319,8 +1320,15 @@ function App() {
     if (focusedPanelId && !focusedIsChat && !focusedProjectPath) sendBlur(sendWS);
   }, [focusedPanelId, focusedIsChat, focusedProjectPath, sendWS]);
 
+  // The unsent queue, for every chat (each shows its own above its composer)
+  // and for the band that lists the chats not on screen. Provided here and not
+  // in the grid, because on the phone the band lives outside it. On the phone
+  // an open drawer covers the whole grid: nothing in it counts as seen.
+  const unsent = useUnsentController(expiredMessages, retryExpired, dismissExpiredSession, isMobile && !sidebarCollapsed);
+
   return (
     <TopicsProvider topics={topics} terminalSessions={terminalSessions} terminalRosterAuthoritative={terminals.rosterAuthoritative} workspaceProjects={workspaceProjects}>
+    <UnsentContext.Provider value={unsent}>
     <TabNotificationProvider unreadData={unreadData} onWSMessage={onWSMessage} openPanels={openPanels} focusedPanelId={focusedPanelId}>
     <SplitPositionProvider>
     <ToastProvider>
@@ -2126,10 +2134,6 @@ function App() {
           switchBranch={switchBranch}
           loadHistory={loadHistory}
           chatError={chatError}
-          expiredMessages={expiredMessages}
-          retryExpired={retryExpired}
-          clearExpired={clearExpired}
-          dismissExpiredSession={dismissExpiredSession}
           sendWS={sendWS}
           onWSMessage={onWSMessage}
           onUpdateTopic={updateTopic}
@@ -2444,6 +2448,7 @@ function App() {
     </ToastProvider>
     </SplitPositionProvider>
     </TabNotificationProvider>
+    </UnsentContext.Provider>
     </TopicsProvider>
   );
 }

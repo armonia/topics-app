@@ -38,6 +38,7 @@ import { TaskCardStrip } from './TaskCardStrip';
 import { TaskWorkFoldContext } from './taskWorkFoldContext';
 import { useTopicTask } from '../../state/taskSessions';
 import { ChangedFilesStrip } from './ChangedFilesStrip';
+import { UnsentStrip } from './UnsentStrip';
 import { selectLatestTodo } from './selectLatestTodo';
 import { useVoiceRecording } from './useVoiceRecording';
 import { usePaneStore } from '../../state/pane/store';
@@ -1848,6 +1849,9 @@ function ChatPaneComponent({
             while the command is stopped, and writing in the chat is exactly
             what stays possible. */}
         {swapFreeze && <SwapFreezeLabel freeze={swapFreeze} className="mx-3 mb-1 self-start" />}
+        {/* What this chat wrote and never reached the server: in flow, right
+            above the composer that would send it again, never over it. */}
+        <UnsentStrip sessionKey={topic.sessionKey} />
         <ChatInput autonomy={autonomy} onAutonomyChange={handleAutonomyChange} isMobile={isMobile} isFocused={isFocused} topic={topic} currentMessages={currentMessages} currentStreaming={currentStreaming} stoppedByUser={currentStoppedByUser} message={message} setMessage={setMessage} pendingFiles={pendingFiles} pendingImages={pendingImages} setPendingImages={setPendingImages} uploading={isUploading} replyingTo={replyingTo} setReplyingTo={setReplyingTo} isRecording={isRecording} recordingTime={recordingTime} fileInputRef={fileInputRef} textareaRef={textareaRef} onSubmit={handleSendMessage} onStop={() => { void stopSession(topic.sessionKey); }} onKeyDown={handleKeyDown} onFileSelect={handleFileSelect} removePendingFile={removePendingFile} onPaste={handlePaste} startRecording={startRecording} stopRecording={stopRecording} formatRecordingTime={formatRecordingTime} isImageFile={isImageFile} chatError={chatError[topic.sessionKey] ?? null} sendMessageDirect={async (c: string) => {
           // Passa dall'imbuto degli slash: il bottone «Compact now» e
           // l'azione dell'anello mandavano `/compact` come messaggio nudo,

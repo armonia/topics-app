@@ -561,6 +561,11 @@ export default defineConfig({
         "**/chat-compact-command.spec.ts",
         "**/chat-compact-drain.spec.ts",
         "**/chat-compaction-fold.spec.ts",
+        // Where the unsent messages land, measured on the DOM: bounding boxes
+        // against the clip of every overflow ancestor and against the composer.
+        // Layout is decided by the engine that ships, so it is measured there.
+        "**/unsent-placement.spec.ts",
+        "**/unsent-banner.spec.ts",
       ],
       use: {
         browserName: "webkit",
