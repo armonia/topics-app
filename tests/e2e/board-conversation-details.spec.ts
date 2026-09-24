@@ -594,6 +594,11 @@ test('the current question is actionable once; history and centered status stay 
   await input.fill('Explain which source supplies the chart.\nKeep the SQL details in the expandable session.\nInclude a concrete example.');
   await expect(input).toHaveAccessibleName(/correzione|correction/);
   await expect(drawer.getByTestId('task-composer').getByTestId('task-composer-submit')).toHaveAccessibleName(/Invia all.agente|Send to agent/);
+  // The resize to 390px crosses 768px, and the drawer remounts there (see the
+  // poll in the floating-composer test above): the fill can land while the new
+  // textarea has not been grown yet. CI read 32px once (run 36030171515). The
+  // assertion is about the settled layout, so it waits for it.
+  await expect.poll(async () => (await input.boundingBox())?.height ?? 0).toBeGreaterThan(60);
   const inputBox = await input.boundingBox();
   expect(inputBox!.height).toBeGreaterThan(60);
   expect(inputBox!.height).toBeLessThanOrEqual(140);
