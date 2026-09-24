@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.385",
+    "date": "2026-09-24",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Say in words what a frozen command is, why, and that it resumes",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.384",
     "date": "2026-09-24",
     "sections": {

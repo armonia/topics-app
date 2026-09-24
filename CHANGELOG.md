@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.385 — 2026-09-24
+
+### Sotto il cofano
+- Say in words what a frozen command is, why, and that it resumes
+
 ## 2.2.384 — 2026-09-24
 
 ### Sotto il cofano
