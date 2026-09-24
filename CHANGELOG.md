@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.382 — 2026-09-24
+
+### Correzioni
+- **chat** · unsent messages live in their own chat, not in a toast over a random pane
+
+### Sotto il cofano
+- Close the phone drawer only for the unsent band, and quote the report
+
 ## 2.2.381 — 2026-09-24
 
 ### Sotto il cofano

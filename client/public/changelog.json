@@ -1,5 +1,28 @@
 [
   {
+    "version": "2.2.382",
+    "date": "2026-09-24",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "it": "unsent messages live in their own chat, not in a toast over a random pane",
+          "en": "",
+          "scope": "chat",
+          "breaking": false
+        }
+      ],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Close the phone drawer only for the unsent band, and quote the report",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.381",
     "date": "2026-09-24",
     "sections": {
