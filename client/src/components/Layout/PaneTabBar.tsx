@@ -1722,11 +1722,12 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               return sid ? <TerminalStreamingSpinner sessionId={sid} /> : null;
             })()}
             {pane.type === 'browser' && <BrowserStreamingSpinner paneId={pane.id} />}
-            {/* FROZEN: the snowflake instead of the working glyph, because a
-                command Topics has stopped is not working. The words do not fit
-                on a tab: the tooltip carries them, and the card and the pane
-                carry them in full. */}
-            {tabFreeze && <SwapFreezeLabel freeze={tabFreeze} compact />}
+            {/* FROZEN: the snowflake and the word "pausa" instead of the
+                working glyph, because a command Topics has stopped is not
+                working and a glyph alone was read as decoration. The whole
+                sentence does not fit on a tab: the tooltip carries it, and the
+                card and the pane carry it in full. */}
+            {tabFreeze && <SwapFreezeLabel freeze={tabFreeze} variant="compact" />}
             </div>
             {/* IL COMANDO, ULTIMO NEL DOM E FUORI DAL FLUSSO.
                 Anche una tab FISSATA si chiude. Il fissaggio non è un

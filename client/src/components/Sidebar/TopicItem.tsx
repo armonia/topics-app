@@ -414,7 +414,13 @@ export const TopicItem = memo(function TopicItem({
         )}>
           {topic.name}
         </span>
-        <TopicSubline topicId={topic.id} onFill={onFill} />
+        {/* FROZEN: the second line says it in words, in place of the preview.
+            The rail has no room for a sentence and a lone snowflake there
+            meant nothing to anybody; the subline is the row's own place for
+            "what is going on", and the name above keeps all its width. */}
+        {swapFreeze
+          ? <SwapFreezeLabel freeze={swapFreeze} variant="line" />
+          : <TopicSubline topicId={topic.id} onFill={onFill} />}
       </div>
 
       {/* The worktree this topic works in — an attribute of the row, beside
@@ -500,9 +506,8 @@ export const TopicItem = memo(function TopicItem({
             so the sidebar chat row and its tab can't drift in glyph, animation
             or size. Read-only on both: stopping is a command now, not a hover
             state of a status glyph. */}
-        {/* Frozen: the snowflake takes the working glyph's place, because a
-            command Topics has stopped is not working. */}
-        {swapFreeze && <SwapFreezeLabel freeze={swapFreeze} compact className="flex-shrink-0" />}
+        {/* Frozen: no working glyph, because a command Topics has stopped is
+            not working. The words are on the second line (above). */}
         {isStreaming && !swapFreeze && (
           <TopicStreamingSpinner
             topicId={topic.id}

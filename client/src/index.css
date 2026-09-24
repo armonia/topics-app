@@ -1292,14 +1292,25 @@ html, body {
    (`relative isolate`) e ogni suo figlio che non sia la brina sale di un piano:
    la brina e' un fondale, non un velo sopra le parole. Nessun `role`, nessuna
    classe di `OVERLAY_SELECTOR` (lib/shell/browserOcclusion.ts): un pannello
-   browser nativo sotto la card non deve essere occluso da una texture. */
+   browser nativo sotto la card non deve essere occluso da una texture.
+   `.row-actions` is left out of this rule: with a pointer it is `absolute`
+   (see its `@media (hover: hover)` block), and this more specific `relative`
+   put it back in the flow, so on a frozen row or tab the close ring took 36px
+   from the title (the tab shrank to "E2...", measured 24/09). */
 .swap-ice-host {
   position: relative;
   isolation: isolate;
 }
-.swap-ice-host > :not(.swap-ice):not(.swap-ice-glints) {
+.swap-ice-host > :not(.swap-ice):not(.swap-ice-glints):not(.row-actions) {
   position: relative;
   z-index: 1;
+}
+/* Without a pointer the command IS in the flow: it rises a layer like the rest. */
+@media not (hover: hover) {
+  .swap-ice-host > .row-actions {
+    position: relative;
+    z-index: 1;
+  }
 }
 .swap-ice {
   position: absolute;

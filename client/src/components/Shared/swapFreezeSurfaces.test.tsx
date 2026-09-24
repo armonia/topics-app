@@ -18,6 +18,9 @@ import { LiveToolLine } from '../Board/CardLive';
 import type { LiveTool } from '../Board/constants';
 import type { SwapFreezeView } from '../../state/swapFreeze';
 
+/** The words a person reads without hovering: the markup and its tooltips stripped. */
+const visibleText = (html: string): string => html.replace(/<[^>]*>/g, ' ');
+
 const freeze: SwapFreezeView = {
   id: 'tree-1', sessionKey: 'topic:a', topicId: 'a', terminalId: null, taskId: 'task-1',
   command: 'bun batteria.ts', footprintGB: 2.1, pagesReadBackPerS: 33.6, debtGBPerMin: 8.8,
@@ -25,20 +28,36 @@ const freeze: SwapFreezeView = {
 };
 
 describe('the label says which command, how much, and why', () => {
-  test('the full pill carries command, weight and the reason in its tooltip', () => {
+  test('the full pill says what is paused, why and when it resumes, in plain words', () => {
     const html = renderToStaticMarkup(<SwapFreezeLabel freeze={freeze} />);
+    const visible = visibleText(html);
     expect(html).toContain('bun batteria.ts');
-    expect(html).toContain('2,1 GB');
+    expect(visible).toContain('Comando in pausa');
+    expect(visible).toContain('a corto di memoria');
+    expect(visible).toContain('Riprende da solo');
+    expect(visible, 'the jargon stays in the tooltip').not.toMatch(/swap|pagine/);
+    expect(html, 'the weight and the mechanism are still one hover away').toContain('2,1 GB');
     expect(html).toContain('swap');
     expect(html, 'the consequence a red test could be blamed on').toContain('timeout');
     expect(html).toContain('data-testid="swap-freeze-label"');
   });
 
-  test('the compact form is the glyph alone, with the same words in the tooltip', () => {
-    const html = renderToStaticMarkup(<SwapFreezeLabel freeze={freeze} compact />);
+  test('a test suite is named as a test', () => {
+    const html = renderToStaticMarkup(<SwapFreezeLabel freeze={{ ...freeze, command: 'bun run test:e2e' }} />);
+    expect(html).toContain('Test in pausa');
+  });
+
+  test('the compact form is the glyph and one word, with the sentence in the tooltip', () => {
+    const html = renderToStaticMarkup(<SwapFreezeLabel freeze={freeze} variant="compact" />);
     expect(html).not.toContain('data-testid="swap-freeze-label"');
+    expect(visibleText(html)).toContain('pausa');
     expect(html).toContain('bun batteria.ts');
     expect(html).toContain('<svg');
+  });
+
+  test('the row line says it in words that fit a row', () => {
+    const html = renderToStaticMarkup(<SwapFreezeLabel freeze={freeze} variant="line" />);
+    expect(visibleText(html)).toContain('In pausa: poca memoria');
   });
 });
 
@@ -49,11 +68,11 @@ describe('the live tool line stops with the command', () => {
 
   test('frozen: it says so instead of counting', () => {
     const html = renderToStaticMarkup(<LiveToolLine tool={tool} frozen />);
-    expect(html).toContain('congelato');
+    expect(html).toContain('in pausa');
   });
 
   test('not frozen: the elapsed time is back', () => {
     const html = renderToStaticMarkup(<LiveToolLine tool={tool} />);
-    expect(html).not.toContain('congelato');
+    expect(html).not.toContain('in pausa');
   });
 });
