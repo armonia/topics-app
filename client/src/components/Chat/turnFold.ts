@@ -25,6 +25,7 @@
 import type { ToolCall } from '../../types';
 import { isAwaitingHuman } from '../../../../shared/types';
 import { isActiveTool } from './toolGrouping';
+import { COMPACTION_PREAMBLE } from '../../lib/compactionSummary';
 
 /** The groups `MessageContent` builds from a message's blocks. */
 export type FoldableGroup =
@@ -34,6 +35,8 @@ export type FoldableGroup =
   | { kind: 'media'; idx: number; path: string; seq: number };
 
 export interface TurnFold<G extends FoldableGroup> {
+  /** Everything up to and including a compaction recap: never folded. */
+  head: G[];
   /** The work before the answer, to render inside the closed row. */
   work: G[];
   /** The answer, and anything the fold must not swallow, in order. */
@@ -47,15 +50,28 @@ export const FOLD_MIN_TOOLS = 2;
 
 export function foldFinishedTurn<G extends FoldableGroup>(groups: readonly G[], partial: boolean | undefined): TurnFold<G> | null {
   if (partial) return null;
-  let answerAt = -1;
+  // A COMPACTION INSIDE THE TURN IS A BOUNDARY, NOT WORK. The CLI writes its
+  // recap as text in the middle of a turn that ran out of context; folded, the
+  // recap and its «Context compacted» row vanished behind «N actions» (55 turns
+  // of 55 on the prod DB, 24/09), and once the recap itself became the answer
+  // in sight. Only the work AFTER the last recap folds; the recap and what came
+  // before it stay as they were.
+  let recapAt = -1;
   for (let i = groups.length - 1; i >= 0; i--) {
     const g = groups[i];
+    if (g.kind === 'text' && g.text.includes(COMPACTION_PREAMBLE)) { recapAt = i; break; }
+  }
+  const head = groups.slice(0, recapAt + 1);
+  const tail = groups.slice(recapAt + 1);
+  let answerAt = -1;
+  for (let i = tail.length - 1; i >= 0; i--) {
+    const g = tail[i];
     if (g.kind === 'text' && g.text.trim().length > 0) { answerAt = i; break; }
   }
   if (answerAt <= 0) return null;
   // The answer is the LAST text; what follows it (a trailing tool, an image
   // the answer points at) is shown too, never folded behind the answer.
-  const before = groups.slice(0, answerAt);
+  const before = tail.slice(0, answerAt);
   const tools = before.flatMap((g) => (g.kind === 'tools' ? g.tools : []));
   for (const g of groups) {
     if (g.kind !== 'tools') continue;
@@ -64,7 +80,7 @@ export function foldFinishedTurn<G extends FoldableGroup>(groups: readonly G[], 
   if (tools.length < FOLD_MIN_TOOLS) return null;
   const work = before.filter((g) => g.kind !== 'media');
   const keptMedia = before.filter((g) => g.kind === 'media');
-  return { work, shown: [...keptMedia, ...groups.slice(answerAt)], tools };
+  return { head, work, shown: [...keptMedia, ...tail.slice(answerAt)], tools };
 }
 
 /**

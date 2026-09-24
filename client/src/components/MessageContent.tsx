@@ -1273,6 +1273,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
         {turnError && <TurnErrorBanner text={turnError} />}
         {turnFold ? (
           <>
+            {turnFold.head.map(renderGroup)}
             <TurnWorkRow tools={turnFold.tools}>
               {turnFold.work.map(renderGroup)}
             </TurnWorkRow>

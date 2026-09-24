@@ -19,6 +19,7 @@ describe('the finished turn folds its work and shows its answer', () => {
       text(5, 'Fatto: il test passa.'),
     ];
     const fold = foldFinishedTurn(groups, false)!;
+    expect(fold.head).toEqual([]);
     expect(fold.shown).toEqual([text(5, 'Fatto: il test passa.')]);
     expect(fold.work).toHaveLength(5);
     expect(fold.tools.map((t) => t.id)).toEqual(['a', 'b', 'c']);
@@ -45,5 +46,21 @@ describe('the finished turn folds its work and shows its answer', () => {
     const fold = foldFinishedTurn(groups, false)!;
     expect(fold.shown).toEqual([img, text(2, 'Ecco.'), tools(3, tool('c'))]);
     expect(fold.work).toEqual([tools(0, tool('a'), tool('b'))]);
+  });
+
+  // 24/09: 55 compacted turns of 55 on the prod DB had the CLI recap folded
+  // behind «N actions», boundary and «Context compacted» row included.
+  test('a compaction recap is a boundary: it stays in sight, only the work after it folds', () => {
+    const recap = text(2, 'This session is being continued from a previous conversation that ran out of context. Summary: ...');
+    const groups = [text(0, 'Prima.'), tools(1, tool('a')), recap, tools(3, tool('b'), tool('c')), text(4, 'Fatto dopo la compattazione.')];
+    const fold = foldFinishedTurn(groups, false)!;
+    expect(fold.head).toEqual([text(0, 'Prima.'), tools(1, tool('a')), recap]);
+    expect(fold.work).toEqual([tools(3, tool('b'), tool('c'))]);
+    expect(fold.shown).toEqual([text(4, 'Fatto dopo la compattazione.')]);
+  });
+
+  test('a recap that is the last text never becomes the folded answer', () => {
+    const recap = text(2, 'This session is being continued from a previous conversation that ran out of context. Summary: ...');
+    expect(foldFinishedTurn([tools(0, tool('a'), tool('b')), text(1, 'x'), recap], false)).toBeNull();
   });
 });

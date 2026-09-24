@@ -556,6 +556,9 @@ export default defineConfig({
         "**/chat-tool-run-grouping.spec.ts",
         "**/turn-fold.spec.ts",
         "**/board-conversation-details.spec.ts",
+        "**/chat-compact-command.spec.ts",
+        "**/chat-compact-drain.spec.ts",
+        "**/chat-compaction-fold.spec.ts",
       ],
       use: {
         browserName: "webkit",

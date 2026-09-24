@@ -39,6 +39,16 @@ test.describe("finished turn fold", () => {
       { kind: "text", text: "Ora lancio il test." }, tool("t2", "bun test a"), tool("t3", "bun test b"),
       { kind: "text", text: "Il test passa ora." },
     ]);
+    await row("user", "continua");
+    // A turn that ran out of context: the CLI writes its recap as text in the
+    // middle, then keeps working. The recap must stay in sight (24/09: 55 turns
+    // of 55 folded it behind «N actions»).
+    await row("assistant", "Finito dopo la compattazione.", [
+      tool("c1", "ls"),
+      { kind: "text", text: "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation." },
+      tool("c2", "bun test"), tool("c3", "git status"),
+      { kind: "text", text: "Finito dopo la compattazione." },
+    ]);
     await row("user", "e questo?");
     await row("assistant", "Quale preferisci?", [
       tool("t4", "ls"), tool("t5", "git status"),
@@ -55,8 +65,8 @@ test.describe("finished turn fold", () => {
     await openTopic(page, new RegExp(topicName));
     await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
 
-    const fold = page.getByTestId("turn-work-fold");
-    await expect(fold).toHaveCount(1, { timeout: 15_000 });
+    const fold = page.getByTestId("turn-work-fold").first();
+    await expect(page.getByTestId("turn-work-fold")).toHaveCount(2, { timeout: 15_000 });
     await expect(fold).toHaveAttribute("data-open", "false");
     await expect(fold).toHaveAttribute("data-actions", "3");
     await expect(page.getByText("Il test passa ora.")).toBeVisible();
@@ -68,6 +78,12 @@ test.describe("finished turn fold", () => {
     await fold.getByTestId("task-work-summary").click();
     await expect(page.getByText("Ora lancio il test.")).toBeVisible();
     await expect(page.getByText("Guardo il file.")).toBeVisible();
+
+    // The compacted turn: its recap is in sight (folded by its own «context
+    // summary» row, never behind «N actions»), only the work after it folds.
+    await expect(page.getByTestId("compaction-summary-fold")).toHaveCount(1);
+    await expect(page.getByTestId("turn-work-fold").nth(1)).toHaveAttribute("data-actions", "2");
+    await expect(page.getByText("Finito dopo la compattazione.")).toBeVisible();
 
     // The turn waiting on a question is shown whole: nothing of it folded.
     await expect(page.locator('[data-testid="tool-call-row-t5"]')).toHaveCount(1);
@@ -102,6 +118,6 @@ test.describe("finished turn fold", () => {
     // Its three actions are still on screen as the run it streamed (one group
     // row), not behind a second fold; the only fold is the history turn's.
     await expect(page.locator('[data-testid="tool-group-row"][data-group-id="live1"]')).toHaveCount(1);
-    await expect(page.getByTestId("turn-work-fold")).toHaveCount(1);
+    await expect(page.getByTestId("turn-work-fold")).toHaveCount(2);
   });
 });
