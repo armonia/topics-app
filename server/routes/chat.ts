@@ -1211,6 +1211,18 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // turn's `prompt_tokens` (the compacted context that was sent) is the
           // post-compaction size to backfill onto the just-created marker.
           let compactedThisTurn = false;
+          // A MANUAL /compact ENDS AT THE BOUNDARY: the turn that made it has no
+          // model call after it, so nothing ever measured the compacted context
+          // and the divider kept «~445k token before» for good (10 manual
+          // markers of 10 on the prod DB, 24/09, none with a post count). The
+          // first call of the NEXT turn is that measurement, so a turn that
+          // starts with the session's latest marker still open takes it.
+          // `backfillPostTokens` targets exactly that marker and refuses a
+          // number that is not smaller than the pre count.
+          const openCompaction = (ctx.db.prepare(
+            `SELECT post_tokens FROM compaction_markers WHERE session_key = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+          ).get(sessionKey) as { post_tokens: number | null } | undefined);
+          const inheritsOpenCompaction = !!openCompaction && openCompaction.post_tokens == null;
           // First per-call context size seen AFTER a compaction boundary — that
           // single measurement IS the post-compaction context. Latched so later
           // calls in the same turn (which grow again as work resumes) can't
@@ -3048,7 +3060,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // so a long turn reported a post-compaction size far bigger than
               // the pre one and the divider read "48.9k → 1.2M token", i.e. the
               // context appeared to EXPLODE during compaction.
-              if (!compactedThisTurn || postCompactionFilled) return;
+              if (!(compactedThisTurn || inheritsOpenCompaction) || postCompactionFilled) return;
               postCompactionFilled = true;
               try {
                 const filled = backfillPostTokens(ctx.db, sessionKey, tokens);
