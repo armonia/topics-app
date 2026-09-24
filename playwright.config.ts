@@ -555,6 +555,7 @@ export default defineConfig({
         "**/changed-files-complete.spec.ts",
         "**/chat-tool-run-grouping.spec.ts",
         "**/turn-fold.spec.ts",
+        "**/board-conversation-details.spec.ts",
       ],
       use: {
         browserName: "webkit",
