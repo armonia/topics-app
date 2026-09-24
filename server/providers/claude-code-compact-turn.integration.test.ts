@@ -42,6 +42,12 @@ beforeAll(async () => {
   setEnv("DATA_DIR", join(tempDir, "data"));
   setEnv("TOPICS_DATA_DIR", join(tempDir, "data"));
   setEnv("HOME", tempDir);
+  // Its own daemon socket, inside the temp dir. The socket path otherwise comes
+  // from the environment, and in the full suite an earlier file leaves
+  // TOPICS_AI_BRIDGE_SOCKET set: two of these files then share one daemon,
+  // whose store points at the data dir of whichever file started it, deleted
+  // by that file's afterAll (CI 36015524316, "store open failed: ENOENT").
+  setEnv("TOPICS_AI_BRIDGE_SOCKET", join(tempDir, "ai-bridge.sock"));
 
   // La CLI finta emette la sequenza REGISTRATA di una compattazione vera
   // (init → compact_boundary → result vuoto). Vive in tests/e2e/helpers perché
@@ -54,6 +60,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  const { __resetAiBridgeClientForTests } = await import("../lib/ai-bridge-client");
+  __resetAiBridgeClientForTests();
   try {
     const { closeDatabase } = await import("../db");
     closeDatabase();
