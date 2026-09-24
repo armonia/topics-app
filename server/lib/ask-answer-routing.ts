@@ -15,6 +15,7 @@
 
 /** One stored message, as the columns come out of SQLite. */
 export interface AskHaystackRow {
+  id?: string;
   tool_calls?: unknown;
   blocks?: unknown;
 }
@@ -43,4 +44,23 @@ export function rowsCarryAsk(
     const haystack = `${decode(row?.tool_calls) ?? ""}${decode(row?.blocks) ?? ""}`;
     return haystack.includes(toolCallId) && haystack.includes("ask_user_question");
   });
+}
+
+/**
+ * WHICH row carries this question: the answer is written on THAT row.
+ *
+ * Same window and same match as `rowsCarryAsk`, but the id comes back. The
+ * answer route used to patch the session's LAST row, which is the question's
+ * row only while nothing was written after it: a question asked by a turn the
+ * watchdog had already closed sits on that turn's own row, above the sweep's
+ * notice, and the answer went to the notice, which has no such tool (review of
+ * card 1046df0b). Rows are expected newest first; `null` when none carries it.
+ */
+export function rowCarryingAsk(
+  rows: readonly AskHaystackRow[],
+  toolCallId: string,
+  decode: (value: unknown) => string | null | undefined,
+): string | null {
+  const row = rows.find((r) => rowsCarryAsk([r], toolCallId, decode));
+  return typeof row?.id === "string" ? row.id : null;
 }

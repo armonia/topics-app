@@ -11,7 +11,7 @@
  * the native runtime does not have.
  */
 import { describe, expect, test } from "bun:test";
-import { rowsCarryAsk, type AskHaystackRow } from "./ask-answer-routing";
+import { rowCarryingAsk, rowsCarryAsk, type AskHaystackRow } from "./ask-answer-routing";
 
 const decode = (v: unknown) => (typeof v === "string" ? v : null);
 const ID = "toolu_01Sd41TjzoJUW7UWVvPzUbAH";
@@ -54,5 +54,20 @@ describe("rowsCarryAsk", () => {
       tool_calls: JSON.stringify([{ id: "toolu_altro", name: "ask_user_question" }]),
     };
     expect(rowsCarryAsk([otherAsk], ID, decode)).toBe(false);
+  });
+});
+
+describe("rowCarryingAsk", () => {
+  const decode = (v: unknown) => (typeof v === "string" ? v : null);
+  const ask = (id: string, toolId: string): AskHaystackRow =>
+    ({ id, blocks: JSON.stringify([{ kind: "tool", toolCall: { id: toolId, name: "mcp__topics__ask_user_question" } }]) });
+
+  test("the question sits under a newer notice: the answer goes to the question's row", () => {
+    const notice: AskHaystackRow = { id: "notice", blocks: JSON.stringify([{ kind: "error", text: "Ripresa automatica sospesa" }]) };
+    expect(rowCarryingAsk([notice, ask("turn", "toolu_ask")], "toolu_ask", decode)).toBe("turn");
+  });
+
+  test("no row carries it: nothing to aim at", () => {
+    expect(rowCarryingAsk([ask("turn", "toolu_other")], "toolu_ask", decode)).toBeNull();
   });
 });
