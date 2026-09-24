@@ -127,6 +127,20 @@ describe("the stopped turn's tail after abort()", () => {
     expect(killed).toBe(1);
   });
 
+  test("the next turn's handler is not handed to the stopping child (its exit would close that turn)", async () => {
+    const provider = new ClaudeCodeProvider({ type: "claude-code" });
+    const stopping = fakePP({ streamHandler: spyHandler() });
+    (provider as any).processes.set("topic:test", stopping);
+    await provider.abort("topic:test", undefined, "user");
+
+    const next = spyHandler();
+    provider.registerStreamHandler("topic:test", undefined, next as never);
+    expect(stopping.streamHandler).toBeNull();
+    (provider as any).onSessionClosed(stopping, 0);
+    expect(next.calls).toEqual([]);
+    expect(provider.adoptWokenTurn("topic:test", next as never)).toBe(false);
+  });
+
   test("a live child that was not stopped is reused as before", async () => {
     const provider = new ClaudeCodeProvider({ type: "claude-code" });
     const live = fakePP();

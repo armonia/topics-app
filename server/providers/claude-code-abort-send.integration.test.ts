@@ -80,10 +80,19 @@ describe("stop then send at once (whole chain, real child)", () => {
     await toolStarted;
 
     // 2) Stop it, and send the next message in the same tick, as the
-    //    dispatcher does with a task update.
+    //    dispatcher does with a task update. Same order as the route
+    //    (`routes/chat.ts`): the handler is registered BEFORE `sendChat`, so
+    //    it reaches the provider while the stopped child is still alive.
     await provider.abort("topic:abort-send-test", undefined, "user");
+    // The next send is a separate HTTP request: by the time it lands, the
+    // stopped turn's own teardown (the catch in `sendChatInternal`) has run.
+    // Without this tick that teardown ran AFTER the registration below and
+    // wiped the new handler, which hid the bug this test is about.
+    await new Promise((r) => setTimeout(r, 0));
     const second = new Promise<void>((settle) => {
-      void provider.sendChat("topic:abort-send-test", "tutto ok?", handler("second", settle));
+      const h = handler("second", settle);
+      provider.registerStreamHandler("topic:abort-send-test", undefined, h);
+      void provider.sendChat("topic:abort-send-test", "tutto ok?", h);
     });
     await Promise.all([first, second]);
 

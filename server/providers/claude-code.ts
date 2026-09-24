@@ -1223,6 +1223,11 @@ export class ClaudeCodeProvider implements AIProvider {
     // l'handler da sé. Crearlo qui spawnerebbe un figlio per una route che
     // potrebbe rigettare un attimo dopo.
     if (!pp) return;
+    // A stopped child is on its way out and no turn is ever written to it
+    // (`processForTurn`). Handing it the new turn's handler meant its exit, a
+    // moment later, closed that new turn as «stopped» before it started.
+    // `sendChatInternal` installs the handler on the fresh child instead.
+    if (pp.stoppedExit) return;
     pp.streamHandler = handler;
     // Se aspettavamo un adottatore, quel turno ha trovato il suo padrone.
     this.drainWokenBuffer(pp);
@@ -1256,7 +1261,8 @@ export class ClaudeCodeProvider implements AIProvider {
    */
   adoptWokenTurn(sessionKey: string, handler: StreamHandler): boolean {
     const pp = this.processes.get(sessionKey);
-    if (!pp || !pp.alive) return false;
+    // A stopped child opens no turn of its own: its tail is dropped.
+    if (!pp || !pp.alive || pp.stoppedExit) return false;
     // «Occupata da sé stessa» non è occupata: la route registra l'handler PRIMA
     // di guidare. Con `!== null` si rifiutava OGNI risveglio (dieci sveglie,
     // zero risposte): si guarda CHI c'è, non SE.
