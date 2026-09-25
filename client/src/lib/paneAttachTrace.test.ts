@@ -73,7 +73,7 @@ describe('paneAttachTrace', () => {
   });
 
   it('a refusal turns the sink off instead of retrying forever', async () => {
-    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(null, { status: 403 }));
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async () => new Response(null, { status: 403 })) as unknown as typeof fetch);
     try {
       installPaneAttachTraceSink(() => 'tab-1');
       tracePaneAttach('force-open received', { host: '/p' });
