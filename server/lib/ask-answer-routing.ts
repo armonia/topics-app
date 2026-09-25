@@ -64,3 +64,23 @@ export function rowCarryingAsk(
   const row = rows.find((r) => rowsCarryAsk([r], toolCallId, decode));
   return typeof row?.id === "string" ? row.id : null;
 }
+
+/**
+ * WHICH row carries this tool call, whatever the tool: permission panels,
+ * outbound confirmations and plan approvals are patched on THAT row by id.
+ *
+ * The same reason as `rowCarryingAsk`: "the last row" is the tool's row only
+ * while nothing was written after it, and a turn closed by the watchdog keeps
+ * working under the sweep's notice. Rows newest first; `null` when none of the
+ * window carries the id, which the caller must treat as "not announced", never
+ * as "the last row".
+ */
+export function rowCarryingTool(
+  rows: readonly AskHaystackRow[],
+  toolCallId: string,
+  decode: (value: unknown) => string | null | undefined,
+): string | null {
+  if (!toolCallId) return null;
+  const row = rows.find((r) => `${decode(r?.tool_calls) ?? ""}${decode(r?.blocks) ?? ""}`.includes(toolCallId));
+  return typeof row?.id === "string" ? row.id : null;
+}
