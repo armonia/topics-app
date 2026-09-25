@@ -39,6 +39,14 @@ import { E2E_BASE, E2E_PORT, testServerEnv } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { slackMs } from "../helpers/time-slack";
 import { projectPanesKey } from "../../shared/project-keys";
+import { TerminalPage } from "./fixtures/terminal.fixture";
+import {
+  cleanupTerminalTopic,
+  gotoTerminalProject,
+  openShellViaSidebar,
+  resetTerminalWorkspace,
+  seedTerminalTopic,
+} from "./helpers/terminal-workspace";
 
 hermetic(test);
 
@@ -547,6 +555,64 @@ test.describe("open_browser_pane attaches the project pane", () => {
     } finally {
       await watch.attach();
     }
+  });
+});
+
+/**
+ * A terminal's browser keeps its terminal. `open_browser_pane` from a terminal
+ * announces `browser:open-near-pane`, which opens `browser:term-<id>` beside the
+ * terminal and records `terminal:<id>` as its spawner (the browser's jump back
+ * to the terminal). When that announce attached nothing, the same route sends
+ * force-open, and the hand-over used to pass the context id as the spawner,
+ * overwriting `terminal:<id>` with `term-<id>`.
+ *
+ * Web shell here, with the browser socket answered by the page itself: what is
+ * measured is the spawner record, and a real shell is what puts a terminal in
+ * the project window.
+ */
+test.describe("open_browser_pane from a terminal", () => {
+  test.describe.configure({ timeout: 90_000 });
+  let topicId = "";
+  let topicName = "";
+
+  test.beforeAll(async ({ request }) => {
+    ({ topicId, topicName } = await seedTerminalTopic(request, "pane-spawner"));
+  });
+  test.beforeEach(async ({ request }) => {
+    await resetTerminalWorkspace(request, topicId);
+  });
+  test.afterAll(async ({ request }) => {
+    await cleanupTerminalTopic(request, topicId);
+  });
+
+  test("force-open of a terminal's browser keeps the terminal as its spawner", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "BROWSER-CHAT-04" });
+    await page.routeWebSocket(/\/ws\/browser\//, () => {});
+    const app = await proxyAppSocket(page);
+    const traces: string[] = [];
+    page.on("console", (m) => { if (m.text().includes("[pane-attach]")) traces.push(m.text()); });
+    const spawnerOf = (ctx: string) =>
+      page.evaluate((c) => {
+        const raw = sessionStorage.getItem("topics:browser-spawners:v1");
+        return raw ? ((JSON.parse(raw) as { browserToTopic?: Record<string, string> }).browserToTopic?.[c] ?? null) : null;
+      }, ctx);
+
+    await gotoTerminalProject(page, topicName);
+    await openShellViaSidebar(page, new TerminalPage(page));
+    const terminalPaneId = await page.locator('[role="tab"][data-pane-id^="terminal:"]').first().getAttribute("data-pane-id");
+    expect(terminalPaneId).toBeTruthy();
+    const ctx = `term-${terminalPaneId!.slice("terminal:".length)}`;
+
+    app.send({ type: "browser:open-near-pane", paneId: terminalPaneId, contextId: ctx, url: "https://example.com/from-the-terminal" });
+    await expect(innerTab(page, `browser:${ctx}`)).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => spawnerOf(ctx), { message: "open-near-pane records the terminal" }).toBe(terminalPaneId);
+
+    app.send({ type: "browser:force-open", contextId: ctx, url: "https://example.com/forced" });
+    await expect
+      .poll(() => traces.some((t) => t.includes("force-open handed to this window")), { timeout: 10_000 })
+      .toBe(true);
+    expect(await spawnerOf(ctx), "the hand-over keeps the terminal as the spawner").toBe(terminalPaneId);
+    await expect(innerTab(page, `browser:${ctx}`)).toHaveAttribute("data-active", "true");
   });
 });
 

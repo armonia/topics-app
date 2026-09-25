@@ -39,7 +39,7 @@ import {
 import { resolveBrowserNavigateUrl } from '../../../lib/browserNavUrl';
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../../lib/openLink';
 import { insertPaneAfter, resolveOpenTabTarget } from '../../../lib/openTabTarget';
-import { setBrowserSpawner } from '../../../state/browserSpawner';
+import { setBrowserSpawner, spawnerOfBrowser } from '../../../state/browserSpawner';
 import { chooseSplitOrientation } from '../gridWidths';
 import { tracePaneAttach } from '../../../lib/paneAttachTrace';
 
@@ -131,6 +131,11 @@ export function useProjectBrowserPanes({
   // panel consumes it via `onNavigateConsumed`. If the broadcast races the
   // pane mount, the navigateUrl prop will be honoured on first render.
   useEffect(() => {
+    // The group holding the pane that opened a browser (a terminal, for a
+    // `term-<id>` context), so a browser created again lands beside it.
+    const groupHosting = (spawner: string | null): string | undefined =>
+      spawner ? groupsRef.current.find(g => g.paneIds.includes(spawner))?.id : undefined;
+
     const ensureBrowserPaneAndNavigate = (rawUrl: string, targetGroupId?: string, spawnerKey?: string, contextId?: string) => {
       if (!rawUrl) return;
       // Rewrite localhost/127.0.0.1/*.local → the LAN https host for remote/mobile
@@ -284,8 +289,9 @@ export function useProjectBrowserPanes({
       const d = (e as CustomEvent<ProjectBrowserHandOver>).detail;
       if (!d?.url || !d.contextId || d.projectPath !== projectPath) return;
       e.preventDefault();
-      tracePaneAttach('force-open handed to this window', { projectPath, contextId: d.contextId });
-      ensureBrowserPaneAndNavigate(d.url, undefined, d.contextId, d.contextId);
+      const spawner = spawnerOfBrowser(d.contextId);
+      tracePaneAttach('force-open handed to this window', { projectPath, contextId: d.contextId, spawner });
+      ensureBrowserPaneAndNavigate(d.url, groupHosting(spawner), spawner ?? undefined, d.contextId);
     };
     window.addEventListener(PROJECT_BROWSER_HAND_OVER_EVENT, handOverHandler);
 
@@ -407,8 +413,12 @@ export function useProjectBrowserPanes({
     // goes last.
     queueMicrotask(() => {
       for (const nav of parked) {
-        tracePaneAttach('parked navigate drained', { projectPath, contextId: nav.contextId ?? null });
-        ensureBrowserPaneAndNavigateRef.current?.(nav.url, undefined, nav.spawnerKey ?? nav.contextId, nav.contextId);
+        // A browser that already has a spawner keeps it (a terminal's, above
+        // all), and one created again goes beside it: see spawnerOfBrowser.
+        const spawner = nav.spawnerKey ?? (nav.contextId ? spawnerOfBrowser(nav.contextId) : null) ?? nav.contextId ?? null;
+        const near = spawner ? groupsRef.current.find(g => g.paneIds.includes(spawner))?.id : undefined;
+        tracePaneAttach('parked navigate drained', { projectPath, contextId: nav.contextId ?? null, spawner });
+        ensureBrowserPaneAndNavigateRef.current?.(nav.url, near, spawner ?? undefined, nav.contextId);
       }
     });
   }, [projectPath, groups.length]);

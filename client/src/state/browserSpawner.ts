@@ -93,6 +93,24 @@ export function getSpawnedBrowser(spawnerTopicId: string): string | null {
 }
 
 /**
+ * Who opened this browser, as a caller that reopens or re-navigates it must
+ * keep it: the recorded spawner, or, for a terminal's context (`term-<id>`)
+ * with no record yet, its terminal pane (`terminal:<id>`, the key
+ * `browser:open-near-pane` records). Null when neither is known.
+ *
+ * Passing the context id itself instead, as the force-open hand-over first
+ * did, overwrote `terminal:<id>` with `term-<id>`: the browser lost its jump
+ * back to the terminal, and a pane created afresh landed in the focused group
+ * instead of beside the terminal (review of PR #137, card c5c1c68f).
+ */
+export function spawnerOfBrowser(browserContextId: string): string | null {
+  const known = getBrowserSpawner(browserContextId);
+  if (known) return known;
+  const m = /^term-(.+)$/.exec(browserContextId);
+  return m ? `terminal:${m[1]}` : null;
+}
+
+/**
  * Resolve the browser contextId to CLOSE for a server `browser:close-pane`
  * broadcast. A browser pane opened from a TERMINAL mounts under the owning
  * topic/project's browser contextId, NOT the server-side `term-<id>` the close
