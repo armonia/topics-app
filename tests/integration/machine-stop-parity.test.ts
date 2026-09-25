@@ -205,7 +205,7 @@ describe("a stop the machine wanted ends as on main, and is not the person's", (
     expect(await c.resentAfterRestart()).toEqual([]);
   });
 
-  test("a card's chat is the dispatcher's even after the land: the sweep leaves a done or archived card alone", async () => {
+  test("a landed or archived card's chat is left alone; one still on the board is resumed as on main", async () => {
     // A cut the sweep WOULD resume (a watchdog verdict, nothing after it), on
     // the chat of a card. Landed, the card is `done` and keeps its topic: the
     // sweep resent its last envelope and an agent redid work already on main.
@@ -230,6 +230,14 @@ describe("a stop the machine wanted ends as on main, and is not the person's", (
       const c = await chatWith(sk, cut(sk));
       bindCard(c, sk, status, archived);
       expect(await c.resentAfterRestart()).toEqual([]);
+    }
+    // A card still on the board keeps main's rule for a cut turn: the notice
+    // says «Riprendo da solo», and somebody does.
+    for (const status of ["todo", "in_progress", "review"] as const) {
+      const sk = `topic:card-live-${status}`;
+      const c = await chatWith(sk, cut(sk));
+      bindCard(c, sk, status, 0);
+      expect(await c.resentAfterRestart()).toEqual(["Envelope della card"]);
     }
   });
 

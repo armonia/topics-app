@@ -154,6 +154,9 @@ export interface RigaDaValutare {
   lastTurnEnd?: RecordedTurnEnd | null;
   /** The chat belongs to a board card: the dispatcher resumes those itself. */
   boundToCard?: boolean;
+  /** ...and that card is done or archived, with none left on the board: its
+   *  work landed, and a cut turn there has nothing left to resume. */
+  cardLanded?: boolean;
 }
 
 /** The person pressed Stop on this message's turn, or on a later one. A Stop
@@ -212,10 +215,10 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   // queue is the same case with no stream to show it (3019832f again: four
   // resends behind the send the watchdog had orphaned).
   if (r.streaming || r.providerBusy) return "no";
-  // A card's chat is the dispatcher's here too, landed or archived included:
-  // after a land the sweep resent the card's last envelope, and an agent redid
-  // work already on main (third review of PR #135).
-  if (r.boundToCard) return "no";
+  // A landed or archived card's chat: after a land the sweep resent the card's
+  // last envelope, and an agent redid work already on main (third review of
+  // PR #135). A card still on the board keeps main's rule (fourth review).
+  if (r.cardLanded) return "no";
   if (!Array.isArray(r.blocks) || r.blocks.length === 0) return "no";
   // Fuori finestra: una risposta che arriva domani a una domanda di ieri è
   // rumore, non un recupero.
@@ -371,15 +374,18 @@ const stopsLogged = new Map<string, number>();
  *  every five minutes. */
 const busyLogged = new Map<string, string>();
 
-/** Whether a board card owns this topic: those chats are the dispatcher's to
- *  resume (it re-sends its own kickoff), never this sweep's. A landed card
- *  (`done`) and an archived one still own it: nothing is left to resume there. */
-function cardBound(db: Pick<Database, "query">, topicId: string): boolean {
+/** Whether a board card owns this topic (those chats are the dispatcher's to
+ *  resume: it re-sends its own kickoff), and whether its work has landed: a
+ *  card done or archived, none left on the board. */
+function cardHold(db: Pick<Database, "query">, topicId: string): { bound: boolean; landed: boolean } {
   try {
-    return db.query(
-      `SELECT 1 FROM tasks WHERE assigned_topic_id = ? AND status IN ('todo','in_progress','review','done') LIMIT 1`,
-    ).get(topicId) != null;
-  } catch { return false; }
+    const cards = db.query(
+      `SELECT status, archived FROM tasks WHERE assigned_topic_id = ?
+          AND (status IN ('todo','in_progress','review','done') OR archived = 1)`,
+    ).all(topicId) as Array<{ status: string; archived: number }>;
+    const onBoard = cards.some((c) => !c.archived && c.status !== "done");
+    return { bound: cards.length > 0, landed: cards.length > 0 && !onBoard };
+  } catch { return { bound: false, landed: false }; }
 }
 
 /** A chain longer than this is not a chain: `parent_id` is cyclic or corrupt. */
@@ -526,6 +532,7 @@ export async function riprendiTurniInterrotti(
       const attempts = attemptsInChain(ctx.db, r.sk, r.id);
       const topic = ctx.getTopicBySessionKey(r.sk);
       if (!topic || topic.archived) continue;
+      const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false };
       const row: RigaDaValutare = {
         sessionKey: r.sk, ruolo: r.ruolo, blocks, timestampMs: Date.parse(r.ts), attempts,
         streaming: Boolean(ctx.isStreaming?.(r.sk)),
@@ -539,7 +546,8 @@ export async function riprendiTurniInterrotti(
           ctx.lastTurnEnd ? ctx.lastTurnEnd(r.sk) : readTurnEnd(r.sk),
           r.ruolo === "user" ? durableStopSince(ctx.db, r.sk, r.ts) : undefined,
         ) ?? null,
-        boundToCard: topic.id ? cardBound(ctx.db, topic.id) : false,
+        boundToCard: card.bound,
+        cardLanded: card.landed,
       };
       if (!row.providerBusy) busyLogged.delete(r.sk);
       let verdict: ResumeVerdict = resumeVerdict(row, ora);
