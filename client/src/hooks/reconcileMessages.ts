@@ -114,6 +114,15 @@ export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessag
     echiDisponibili.set(k, (echiDisponibili.get(k) ?? 0) + 1);
   }
 
+  // The server's copy of the live turn is a snapshot taken when the request
+  // was READ, and the socket may have delivered more of the same turn before
+  // the answer arrived. Replacing the bubble with the older snapshot dropped
+  // those chunks, and the ones after were appended to it: a hole in the
+  // middle of the turn (card 423e016f). The local copy of the SAME row wins
+  // when it extends the server's text from its first character.
+  const liveAhead = codaInVolo ? localAheadOf(existing, coda) : null;
+  const base = liveAhead ? [...fetched.slice(0, -1), liveAhead] : fetched;
+
   const localOnly = existing.filter((m) => {
     if (!m.id || fetchedIds.has(m.id)) return false;
     if (codaInVolo && m.role === 'assistant' && m.partial === true) return false;
@@ -127,7 +136,23 @@ export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessag
     }
     return true;
   });
-  return localOnly.length > 0 ? [...fetched, ...localOnly] : fetched;
+  return localOnly.length > 0 ? [...base, ...localOnly] : base;
+}
+
+/**
+ * The local copy of the server's live tail, when it is AHEAD of it: same row
+ * id, still partial, and a text that starts with the server's and goes
+ * further. Null otherwise, and then the server's copy is the truth: a local
+ * bubble built from the live chunks alone does not start with the server's
+ * text, and that is exactly the one to replace.
+ */
+function localAheadOf(existing: ChatMessage[], serverTail: ChatMessage): ChatMessage | null {
+  if (!serverTail.id) return null;
+  const local = existing.find((m) => m.id === serverTail.id);
+  if (!local || local.role !== 'assistant' || local.partial !== true) return null;
+  const mine = local.content ?? '';
+  const theirs = serverTail.content ?? '';
+  return mine.length > theirs.length && mine.startsWith(theirs) ? local : null;
 }
 
 /**

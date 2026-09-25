@@ -122,6 +122,23 @@ describe('mergeFetchedHistory — un turno solo, non due', () => {
     expect(out.map((m) => m.id)).toEqual(['u1', 'srv-uuid-1', 'msg_1765_abc']);
   });
 
+  it('the live turn seen over the wire past the server snapshot keeps its chunks', () => {
+    // Card 423e016f: the history was read at chunk 5, the socket delivered 6
+    // and 7 before the answer came back, and the answer replaced the bubble.
+    const existing = [utente('u1', 'vai'), parziale('srv-live', 'c-01 c-02 c-03 c-04 c-05 c-06 c-07 ')];
+    const fetched = [utente('u1', 'vai'), parziale('srv-live', 'c-01 c-02 c-03 c-04 c-05 ')];
+    const out = mergeFetchedHistory(existing, fetched);
+    expect(out.map((m) => m.content)).toEqual(['vai', 'c-01 c-02 c-03 c-04 c-05 c-06 c-07 ']);
+  });
+
+  it('a local bubble that does not start with the server text is replaced by it', () => {
+    // The bubble built from the live chunks alone, without the start: the
+    // server's copy is the one that holds the turn from its first word.
+    const existing = [utente('u1', 'vai'), parziale('srv-live', 'c-06 c-07 ')];
+    const fetched = [utente('u1', 'vai'), parziale('srv-live', 'c-01 c-02 c-03 c-04 c-05 ')];
+    expect(mergeFetchedHistory(existing, fetched)).toBe(fetched);
+  });
+
   it('lo stesso id da entrambe le parti non si duplica', () => {
     const existing = [utente('u1', 'vai'), msg('srv-uuid-1', 'ok')];
     const fetched = [utente('u1', 'vai'), msg('srv-uuid-1', 'ok')];
