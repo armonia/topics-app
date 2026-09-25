@@ -2476,8 +2476,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }, 500);
             }
 
-            // Close SSE response
-            await writeTurnEnd(endInfo);
+            // Close SSE response. A turn that ended normally but left an error
+            // verdict (an empty reply) failed all the same, and the frame says so.
+            await writeTurnEnd(turnError && endInfo.end === "end_turn" ? { end: "error" } : endInfo);
             await writeSSE("[DONE]");
             await closeClient();
 

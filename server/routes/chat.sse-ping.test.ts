@@ -279,6 +279,19 @@ describe("the turn frames the chat's SSE carries for its readers", () => {
     expect(body.trimEnd().endsWith("data: [DONE]")).toBe(true);
   });
 
+  test("a turn that ends with nothing at all is an error, and says so before [DONE]", async () => {
+    const ctx = await createTestAppContext();
+    const sessionKey = saveTopic(ctx, "sse-empty");
+    const { provider } = silentToolProvider();
+    // Ends at once: no text, no tool. The route writes the «Nessuna risposta» verdict.
+    (provider as unknown as { sendChat: unknown }).sendChat = async (_sk: string, _msg: string, h: StreamHandler) => {
+      h.onDone(undefined as never);
+      return { runId: "run-empty" };
+    };
+    const { body } = await readAll(await postInProcess(chatRouterFor(ctx, provider, 60_000), sessionKey));
+    expect(body).toContain(`data: ${JSON.stringify({ turn: { end: "error" } })}\n\ndata: [DONE]`);
+  });
+
   test("a turn a person stops says so before [DONE]", async () => {
     const ctx = await createTestAppContext();
     const sessionKey = saveTopic(ctx, "sse-stop");
