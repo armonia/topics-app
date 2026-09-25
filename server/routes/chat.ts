@@ -54,6 +54,7 @@ import { decodeCol } from "../../shared/message-blob";
 import { isAwaitingHuman } from "../../shared/types";
 import { createTurnBodyPersist } from "../lib/turn-body-persist";
 import { guardFinalizedTurn } from "../lib/finalized-turn-guard";
+import { createLateAnswerLane } from "../lib/late-answer-lane";
 import { registerTurnBodyFlush } from "../lib/turn-body-flush";
 import { setProviderHold, holdUntilLabel } from "../lib/provider-hold";
 import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
@@ -1142,6 +1143,24 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             reattachSnapshot: () => reattachSnapshot,
           });
           const persistTurnBody = (withText: boolean, force = false) => turnBody.request(withText, blocksBytes, force);
+          // A late answer is kept on this turn's row, under the cut, starting
+          // from the row as its closer left it: lib/late-answer-lane.ts. Which
+          // callbacks go there, which stay live and which are dropped:
+          // lib/finalized-turn-guard.ts.
+          let releaseLateFlush: (() => void) | null = null;
+          const late = createLateAnswerLane({
+            sessionKey, topicId: matchedTopic?.id, rowId: () => partialMsg.id, blocks, saveEvery: SAVE_INTERVAL,
+            isClosed: () => streamState === "finalized",
+            readRow: () => ctx.getMessageById(partialMsg.id),
+            content: { get: () => fullContent, set: (value) => { fullContent = value; } },
+            thinking: { get: () => fullThinking, set: (value) => { fullThinking = value; } },
+            appendTextBlock, appendThinkingBlock, setBlocksBytes: (bytes) => { blocksBytes = bytes; },
+            save: (force) => persistTurnBody(true, force),
+            broadcast: (frame) => broadcastStreamToTopic(frame, matchedTopic?.id),
+            finalText: (message) => extractFinalText(message),
+            onOpen: () => { releaseLateFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush()); },
+            onClose: () => { releaseLateFlush?.(); },
+          });
           // THE ROW, FOR WHOEVER READS IT INSTEAD OF THE STREAM. The outbound
           // gate looks for the tool that is waiting in the last persisted row,
           // and the throttle above can still owe that write for up to fifteen
@@ -1152,17 +1171,20 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // still arrives (a tool result that came back after the end) is
           // written NOW. Deferring it would leave the row without it until an
           // event that will never come, and would put the write on a timer
-          // outliving the turn that owns it. What still arrives here after
-          // the close is a late answer's tool (see `guardFinalizedTurn` below)
-          // or a tool the ROUTE runs itself (`browser_*`, control tools)
-          // settling after the end, and it lands on this turn's row by id.
-          const persistBlocks = (force = false) => persistTurnBody(false, force || streamState === "finalized");
+          // outliving the turn that owns it. A tool the ROUTE runs itself
+          // (`browser_*`, control tools) settling after the end is that case.
+          // A late answer's tools are not: its end writes the row, and forced
+          // they rewrote the whole timeline at every event.
+          const persistBlocks = (force = false) =>
+            persistTurnBody(false, force || (streamState === "finalized" && !late.isOpen()));
           const appendToolBlock = (tc: ToolCall) => {
+            late.adopt();
             blocks.push({ kind: "tool", toolCall: tc });
             blocksBytes += JSON.stringify(tc).length;
             persistBlocks();
           };
           const updateBlockTool = (id: string, patch: Partial<ToolCall>) => {
+            late.adopt();
             for (let i = 0; i < blocks.length; i++) {
               const b = blocks[i];
               if (b.kind === "tool" && b.toolCall.id === id) {
@@ -1308,6 +1330,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             messageId: partialMsg.id,
             ...(streamState === "finalized" ? { late: true as const } : {}),
           });
+          // And every other stream frame once the turn is closed: the window
+          // that sent the NEXT turn drops the session's frames it expects on
+          // its own SSE, and a late frame of this turn is not among them.
+          const broadcastTurnFrame = (message: OutboundMessage, topicId: string | undefined) =>
+            broadcastStreamToTopic(streamState === "finalized" ? { ...message, ...rowOfFrame() } : message, topicId);
           crashedPartialId = partialMsg.id;
           // Su una RIADOZIONE il turno non comincia adesso: è cominciato quando
           // l'ha aperto il turno vero, e noi ci stiamo solo riattaccando. Con
@@ -1414,7 +1441,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const endStreamAndAnnounce = (opts?: Parameters<typeof endStream>[1]): ToolCall[] => {
             const interruptedTools = endStream(sessionKey, opts);
             for (const tc of interruptedTools) {
-              broadcastStreamToTopic({
+              broadcastTurnFrame({
                 type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id,
                 toolCallId: tc.id, status: "error",
                 result: tc.result, error: tc.error, endedAt: tc.endedAt,
@@ -1980,14 +2007,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // updateToolCallResult sets status='error' when error is provided.
                 updateToolCallResult(sessionKey, tcId, '', finalizeError, { endedAt: finalizeEndedAt }, ownMirrored);
                 updateBlockTool(tcId, { status: 'error', error: finalizeError, endedAt: finalizeEndedAt });
-                broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'error', result: '', error: finalizeError, endedAt: finalizeEndedAt }, matchedTopic?.id);
+                broadcastTurnFrame({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'error', result: '', error: finalizeError, endedAt: finalizeEndedAt }, matchedTopic?.id);
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: tcId, status: 'error', error: finalizeError } } }] }));
               } else {
                 // Fire-and-forget success. Empty result so the UI shows just
                 // the green ✓ without a literal "success" body.
                 updateToolCallResult(sessionKey, tcId, '', undefined, { endedAt: finalizeEndedAt }, ownMirrored);
                 updateBlockTool(tcId, { status: 'success', endedAt: finalizeEndedAt });
-                broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'success', endedAt: finalizeEndedAt }, matchedTopic?.id);
+                broadcastTurnFrame({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId: tcId, status: 'success', endedAt: finalizeEndedAt }, matchedTopic?.id);
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: tcId, status: 'success' } } }] }));
               }
             }
@@ -2444,71 +2471,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             }
           };
 
-          // A LATE ANSWER IS KEPT, ON THIS TURN'S ROW, UNDER THE CUT.
-          //
-          // Once the turn is finalized the provider can still answer into it
-          // (a send that waited in its queue, C2). That answer used to land on
-          // whatever row was last, then was dropped; kept nowhere, the final
-          // answer was lost and the sweep resent a message the CLI had already
-          // executed (review of PR #135). Here it is written on `partialMsg.id`
-          // after the timeout block, the content column keeps the cut above it,
-          // and every frame names the row and says it is late, so a client
-          // paints it on this bubble and never on the last one. Which callbacks
-          // come here, which stay live and which are dropped:
-          // lib/finalized-turn-guard.ts.
-          let lateText = "";
-          let lateDeltas = 0;
-          let droppedLate = 0;
-          const lateFrame = () => ({ messageId: partialMsg.id, late: true as const });
-          const persistLateAnswer = () => {
-            try {
-              updateLastMessage(sessionKey, {
-                content: lateText ? `${fullContent}\n\n${lateText}` : fullContent,
-                thinking: fullThinking || undefined,
-                blocks: blocks.length > 0 ? blocks : undefined,
-              }, ownRow);
-            } catch (err) { console.warn(`[StreamWS] ${sessionKey}: late answer not saved on ${partialMsg.id}:`, err); }
-          };
-          const broadcastLateChunk = (type: "stream:content_chunk" | "stream:thinking_chunk", content: string) => {
-            const chunk = { type, sessionKey, topicId: matchedTopic?.id, content, ...lateFrame() };
-            if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, chunk);
-            else broadcastToAll(chunk);
-          };
-          const lateAnswer: Partial<StreamHandler> = {
-            onTextDelta: (text: string) => {
-              if (!text) return;
-              lateText += text;
-              appendTextBlock(text);
-              broadcastLateChunk("stream:content_chunk", text);
-              lateDeltas += 1;
-              if (lateDeltas % SAVE_INTERVAL === 0) persistLateAnswer();
-            },
-            onThinkingDelta: (text: string) => {
-              if (!text) return;
-              fullThinking += text;
-              appendThinkingBlock(text);
-              broadcastLateChunk("stream:thinking_chunk", text);
-            },
-            onDone: (message?: any) => {
-              // The end carries the whole final text; what the deltas did not
-              // bring is its tail, and the tail is what was lost before.
-              const finalText = message ? extractFinalText(message) : null;
-              if (finalText && finalText.length > lateText.length && finalText.startsWith(lateText)) {
-                const extra = finalText.slice(lateText.length);
-                lateText = finalText;
-                appendTextBlock(extra);
-                broadcastLateChunk("stream:content_chunk", extra);
-              }
-              persistLateAnswer();
-              console.warn(`[StreamWS] ${sessionKey}: late answer of the closed turn ${partialMsg.id} saved on its own row (${lateText.length} chars)`);
-            },
-            // Logged and nothing else. The live `onError` rolls back the inline
-            // preamble mark, and after the close that mark may already belong
-            // to the next turn.
-            onError: (error: string) => {
-              console.warn(`[StreamWS] ${sessionKey}: late error on the closed turn ${partialMsg.id}, ignored: ${error}`);
-            },
-          };
           const handler: StreamHandler = guardFinalizedTurn({
             onTextDelta: (text: string, _fullText: string) => {
               resetStreamTimer();
@@ -2616,7 +2578,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               resetStreamTimer();
               addToolCallToLastMessage(sessionKey, toolCall, ownMirrored);
               appendToolBlock(toolCall);
-              broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall, ...rowOfFrame() }, matchedTopic?.id);
+              broadcastTurnFrame({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall, ...rowOfFrame() }, matchedTopic?.id);
 
               // Also send as SSE for the HTTP client
               writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCallId, function: { name, arguments: JSON.stringify(args || {}) }, contentOffset: fullContent.length }] } }] }));
@@ -2657,7 +2619,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     const browserEndedAt = Date.now();
                     updateToolCallResult(sessionKey, toolCallId, resultStr, undefined, { endedAt: browserEndedAt }, ownMirrored);
                     updateBlockTool(toolCallId, { status: 'success', result: resultStr, endedAt: browserEndedAt });
-                    broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: resultStr, endedAt: browserEndedAt }, matchedTopic?.id);
+                    broadcastTurnFrame({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: resultStr, endedAt: browserEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: resultStr } } }] }));
                     settleTrackedTool(toolCallId);
 
@@ -2692,7 +2654,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     const browserErrEndedAt = Date.now();
                     updateToolCallResult(sessionKey, toolCallId, errResult, undefined, { endedAt: browserErrEndedAt }, ownMirrored);
                     updateBlockTool(toolCallId, { status: 'error', result: errResult, endedAt: browserErrEndedAt });
-                    broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult, endedAt: browserErrEndedAt }, matchedTopic?.id);
+                    broadcastTurnFrame({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult, endedAt: browserErrEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result: errResult } } }] }));
                     settleTrackedTool(toolCallId);
                   });
@@ -2724,7 +2686,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     const controlEndedAt = Date.now();
                     updateToolCallResult(sessionKey, toolCallId, confirmation, undefined, { endedAt: controlEndedAt }, ownMirrored);
                     updateBlockTool(toolCallId, { status: 'success', result: confirmation, endedAt: controlEndedAt });
-                    broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: confirmation, endedAt: controlEndedAt }, matchedTopic?.id);
+                    broadcastTurnFrame({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result: confirmation, endedAt: controlEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result: confirmation } } }] }));
                     settleTrackedTool(toolCallId);
                   })
@@ -2735,7 +2697,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                     const controlErrEndedAt = Date.now();
                     updateToolCallResult(sessionKey, toolCallId, errResult, undefined, { endedAt: controlErrEndedAt }, ownMirrored);
                     updateBlockTool(toolCallId, { status: 'error', result: errResult, endedAt: controlErrEndedAt });
-                    broadcastStreamToTopic({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult, endedAt: controlErrEndedAt }, matchedTopic?.id);
+                    broadcastTurnFrame({ type: 'stream:tool_result', sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result: errResult, endedAt: controlErrEndedAt }, matchedTopic?.id);
                     writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result: errResult } } }] }));
                     settleTrackedTool(toolCallId);
                   });
@@ -2767,7 +2729,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             onToolUpdate: (toolCallId: string, _partialResult: string) => {
               resetStreamTimer();
               // Broadcast partial result to clients
-              broadcastStreamToTopic({ type: "stream:tool_update", sessionKey, topicId: matchedTopic?.id, toolCallId, partialResult: _partialResult }, matchedTopic?.id);
+              broadcastTurnFrame({ type: "stream:tool_update", sessionKey, topicId: matchedTopic?.id, toolCallId, partialResult: _partialResult }, matchedTopic?.id);
             },
 
             onToolActivity: (_toolCallId: string) => {
@@ -2824,7 +2786,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               if (!merged) return; // never announced (shouldn't happen)
               updateToolCallFields(sessionKey, toolCallId, { args, detail: merged.detail }, ownRow);
               updateBlockTool(toolCallId, { args, detail: merged.detail });
-              broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall: merged, ...rowOfFrame() }, matchedTopic?.id);
+              broadcastTurnFrame({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall: merged, ...rowOfFrame() }, matchedTopic?.id);
               writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCallId, function: { name: merged.name, arguments: JSON.stringify(args) }, contentOffset: merged.contentOffset }] } }] }));
             },
 
@@ -2883,7 +2845,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // `broadcastToAll` mentre i vicini passavano già da
               // `broadcastStreamToTopic`. Ogni finestra aperta su un'altra topic
               // li riceveva tutti per instradarli su `topicId` e buttarli.
-              broadcastStreamToTopic({
+              broadcastTurnFrame({
                 type: "stream:tool_detail",
                 sessionKey,
                 topicId: matchedTopic?.id,
@@ -2930,12 +2892,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // error text — passing it as both result and error is intentional.
                 updateToolCallResult(sessionKey, toolCallId, result, result, { endedAt }, ownMirrored);
                 updateBlockTool(toolCallId, { status: 'error', result, error: result, endedAt, ...(detail ? { detail } : {}) });
-                broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result, error: result, detail, endedAt }, matchedTopic?.id);
+                broadcastTurnFrame({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'error', result, error: result, detail, endedAt }, matchedTopic?.id);
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result, error: result } } }] }));
               } else {
                 updateToolCallResult(sessionKey, toolCallId, result, undefined, { endedAt }, ownMirrored);
                 updateBlockTool(toolCallId, { status: 'success', result, endedAt, ...(detail ? { detail } : {}) });
-                broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result, detail, endedAt }, matchedTopic?.id);
+                broadcastTurnFrame({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result, detail, endedAt }, matchedTopic?.id);
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result } } }] }));
               }
               // Le shell in background non finiscono col tool: restano.
@@ -2972,7 +2934,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               if (costCents != null) patch.costCents = costCents;
               updateToolCallFields(sessionKey, toolCallId, patch, ownRow);
               updateBlockTool(toolCallId, patch);
-              broadcastStreamToTopic({
+              broadcastTurnFrame({
                 type: "stream:tool_usage",
                 sessionKey,
                 topicId: matchedTopic?.id,
@@ -3225,12 +3187,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
               finalizeStream("aborted", undefined, message?.turnEnd);
             },
-          }, () => streamState === "finalized", lateAnswer, (event) => {
-            droppedLate += 1;
-            if (droppedLate === 1) {
-              console.warn(`[StreamWS] ${sessionKey}: ${event} reached the closed turn ${partialMsg.id} and was dropped (only its text, tools and end are kept)`);
-            }
-          });
+          }, () => streamState === "finalized", late);
 
           // Helper to extract text from final/aborted message
             /**

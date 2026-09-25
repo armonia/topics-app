@@ -37,6 +37,7 @@ import { RESUME_CAP_MARKER, resumeVerdict, riprendiTurniInterrotti } from "../..
 import { createPermissionRouter } from "../../server/routes/permission";
 import { beginPermission, cancelPermissionsForSession } from "../../server/lib/permission-bridge";
 import { decodeCol } from "../../shared/message-blob";
+import { flushTurnBody } from "../../server/lib/turn-body-flush";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, ContentBlock, Topic } from "../../server/types";
 
@@ -76,6 +77,14 @@ async function harness(sessionKey: string) {
 
   (ctx as { broadcastToAll: (m: unknown) => void })
     .broadcastToAll = (m) => { sent.push(m as WireMessage); };
+  // Every write that carries the timeline, with the row it was aimed at: what
+  // a late answer costs is counted here, not guessed.
+  const blockWrites: string[] = [];
+  const realUpdate = ctx.updateLastMessage;
+  (ctx as { updateLastMessage: typeof realUpdate }).updateLastMessage = (sk, updates, opts) => {
+    if (updates.blocks !== undefined) blockWrites.push(opts?.rowId ?? "last");
+    return realUpdate(sk, updates, opts);
+  };
   (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void })
     .broadcastToTopicSubscribers = (_id, m) => { sent.push(m as WireMessage); };
 
@@ -149,7 +158,7 @@ async function harness(sessionKey: string) {
     return lastRowId();
   };
 
-  return { ctx, sent, startTurn, lastRowId, raw, blocksOf, insertNotice, appendUserRow };
+  return { ctx, sent, blockWrites, startTurn, lastRowId, raw, blocksOf, insertNotice, appendUserRow };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -329,8 +338,11 @@ describe("a closed turn writes on no row but its own", () => {
     // In the database: on the turn's own row, waiting for the answer.
     const ask = h.blocksOf(turnRowId).find((b) => b.kind === "tool" && b.toolCall.id === "toolu_ask");
     expect(ask && ask.kind === "tool" ? ask.toolCall.status : null).toBe("waiting_for_input");
-    // The answer closes it, on the same row.
+    // The answer closes it, on the same row. Through the turn's throttle, like
+    // a live turn's tools: a reader that opens the row flushes it first, and
+    // the late answer's flush is registered while it runs.
     handler.onToolResult("toolu_ask", "sito", false);
+    expect(flushTurnBody("topic:late-ask")).toBe(true);
     const answered = h.blocksOf(turnRowId).find((b) => b.kind === "tool" && b.toolCall.id === "toolu_ask");
     expect(answered && answered.kind === "tool" ? answered.toolCall.status : null).toBe("success");
     // The late text is kept on the same row (every write is by id), the
@@ -392,5 +404,108 @@ describe("a closed turn writes on no row but its own", () => {
     const blocks = h.blocksOf(turnRowId);
     expect(blocks.some((b) => b.kind === "tool" && b.toolCall.id === "toolu_live")).toBe(true);
     expect(blocks.filter((b) => b.kind === "text").map((b) => (b as { text: string }).text).join("")).toContain("pezzo 10");
+  });
+});
+
+describe("a late answer is kept whole, cheaply, on the row as its closer left it", () => {
+  /** Watchdog-closed T1, then `n` late deltas: the shape every case below starts from. */
+  async function closedTurnWithLateText(sk: string, n: number) {
+    const h = await harness(sk);
+    const handler = await h.startTurn();
+    const turnRowId = h.lastRowId();
+    await until(() => h.sent.some((m) => m.type === "stream:end"));
+    let total = "";
+    for (let i = 1; i <= n; i++) {
+      const d = `pezzo${i} `;
+      total += d;
+      handler.onTextDelta(d, total);
+    }
+    return { h, handler, turnRowId };
+  }
+
+  test("a late answer that dies of an error keeps every delta and its thinking, and says why it stopped", async () => {
+    // Fifteen deltas: the periodic save wrote the first ten, and the end that
+    // saves the rest is the error, not `onDone`.
+    const sk = "topic:late-error-end";
+    const { h, handler, turnRowId } = await closedTurnWithLateText(sk, 15);
+    handler.onThinkingDelta?.("sto pensando");
+    handler.onError("API Error: 429 rate_limit_error");
+    await sleep(20);
+
+    const row = h.ctx.getMessageById(turnRowId);
+    expect(row?.content).toContain("pezzo15");
+    expect(row?.thinking).toContain("sto pensando");
+    const blocks = h.blocksOf(turnRowId);
+    // The failure is on the row, after the late answer: a notice the sweep
+    // recognises, so the message is resumed like a live turn cut the same way.
+    expect(blocks[blocks.length - 1]?.kind).toBe("error");
+    const at = h.ctx.db.query("SELECT timestamp FROM messages WHERE id = ?").get(turnRowId) as { timestamp: string };
+    expect(resumeVerdict({
+      sessionKey: sk, ruolo: "assistant", blocks, timestampMs: Date.parse(at.timestamp), attempts: 0,
+    }, Date.now())).toBe("resend");
+  });
+
+  test("a late answer that is aborted keeps every delta it streamed", async () => {
+    const { h, handler, turnRowId } = await closedTurnWithLateText("topic:late-aborted-end", 15);
+    handler.onAborted?.();
+    await sleep(20);
+    expect(h.ctx.getMessageById(turnRowId)?.content).toContain("pezzo15");
+  });
+
+  test("a long late answer goes through the write throttle, not one full rewrite per tool event", async () => {
+    // Forty tools with a 4 KB result each: forced, that was a rewrite of the
+    // whole timeline per event (eighty, and growing with the square of the
+    // answer). Through the throttle it is a handful, and nothing is lost.
+    const { h, handler, turnRowId } = await closedTurnWithLateText("topic:late-throttled", 1);
+    const before = h.blockWrites.length;
+    const result = "x".repeat(4_096);
+    for (let i = 1; i <= 40; i++) {
+      handler.onToolStart(`toolu_${i}`, "Read", {} as never);
+      handler.onToolResult(`toolu_${i}`, result, false);
+    }
+    handler.onDone({ content: [{ type: "text", text: "pezzo1 fine" }] } as never);
+    await sleep(20);
+
+    expect(h.blockWrites.length - before).toBeLessThan(20);
+    const tools = h.blocksOf(turnRowId).filter((b) => b.kind === "tool");
+    expect(tools).toHaveLength(40);
+    expect(tools.every((b) => b.kind === "tool" && b.toolCall.status === "success")).toBe(true);
+  });
+
+  test("a late write does not put back a tool the close marked as interrupted", async () => {
+    // The close fixes the ROW (endStream turns a running tool into an error)
+    // and not the route's copy of the timeline. Written back whole, that copy
+    // set the tool running again, on a turn nothing will ever close.
+    const h = await harness("topic:late-no-resurrect");
+    const handler = await h.startTurn();
+    const turnRowId = h.lastRowId();
+    handler.onToolStart("toolu_orig", "Bash", { command: "sleep 600" } as never);
+    await until(() => h.sent.some((m) => m.type === "stream:end"));
+    const statusOf = () => h.blocksOf(turnRowId)
+      .flatMap((b) => (b.kind === "tool" && b.toolCall.id === "toolu_orig" ? [b.toolCall.status] : []));
+    expect(statusOf()).toEqual(["error"]);
+
+    let total = "";
+    for (let i = 1; i <= 10; i++) {
+      const d = `tardi${i} `;
+      total += d;
+      handler.onTextDelta(d, total);
+    }
+    handler.onDone({ content: [{ type: "text", text: total }] } as never);
+    await sleep(20);
+    expect(statusOf()).toEqual(["error"]);
+  });
+
+  test("every frame a closed turn still sends names its row and says it is late, the tool results too", async () => {
+    // The window that sent the NEXT turn drops the session's stream frames it
+    // thinks its own SSE carries; a late frame of the turn before is not among
+    // them, and the client lets it through only if it says so.
+    const { h, handler, turnRowId } = await closedTurnWithLateText("topic:late-frames", 1);
+    handler.onToolStart("toolu_f", "Read", {} as never);
+    handler.onToolResult("toolu_f", "ok", false);
+    await sleep(20);
+    const result = h.sent.find((m) => m.type === "stream:tool_result" && m.toolCallId === "toolu_f");
+    expect(result?.late).toBe(true);
+    expect(result?.messageId).toBe(turnRowId);
   });
 });

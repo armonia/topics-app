@@ -25,67 +25,78 @@ function recorder() {
     onError: (e: string) => { calls.push(`error:${e}`); },
     onAborted: () => { calls.push("aborted"); },
   } as unknown as StreamHandler;
-  const late: Partial<StreamHandler> = {
-    onTextDelta: (t: string) => { calls.push(`late-text:${t}`); },
-    onDone: () => { calls.push("late-done"); },
-    onError: (e: string) => { calls.push(`late-error:${e}`); },
+  const heard: string[] = [];
+  const dropped: string[] = [];
+  const lane = {
+    handlers: {
+      onTextDelta: (t: string) => { calls.push(`late-text:${t}`); },
+      onDone: () => { calls.push("late-done"); },
+      onError: (e: string) => { calls.push(`late-error:${e}`); },
+      onAborted: () => { calls.push("late-aborted"); },
+    } as Partial<StreamHandler>,
+    onHeard: (e: string) => { heard.push(e); },
+    onDropped: (e: string) => { dropped.push(e); },
   };
-  return { calls, handler, late };
+  return { calls, handler, lane, heard, dropped };
 }
 
 describe("guardFinalizedTurn", () => {
   test("a live turn hears everything on its live handler, the late lane untouched", () => {
-    const { calls, handler, late } = recorder();
-    const dropped: string[] = [];
-    const h = guardFinalizedTurn(handler, () => false, late, (e: string) => dropped.push(e));
+    const { calls, handler, lane, heard, dropped } = recorder();
+    const h = guardFinalizedTurn(handler, () => false, lane);
     h.onTextDelta("a", "a");
     h.onToolStart("t1", "Bash");
     h.onDone();
     h.onError("boom");
-    expect(calls).toEqual(["text:a", "tool:t1", "done", "error:boom"]);
+    h.onAborted?.();
+    expect(calls).toEqual(["text:a", "tool:t1", "done", "error:boom", "aborted"]);
+    expect(heard).toEqual([]);
     expect(dropped).toEqual([]);
   });
 
-  test("a closed turn: text, end and error go to the late lane, never to the live code", () => {
-    const { calls, handler, late } = recorder();
-    const h = guardFinalizedTurn(handler, () => true, late, () => {});
+  test("a closed turn: text and every end go to the late lane, never to the live code", () => {
+    const { calls, handler, lane, heard } = recorder();
+    const h = guardFinalizedTurn(handler, () => true, lane);
     h.onTextDelta("tardi", "tardi");
     h.onDone();
     h.onError("killed");
-    expect(calls).toEqual(["late-text:tardi", "late-done", "late-error:killed"]);
+    h.onAborted?.();
+    expect(calls).toEqual(["late-text:tardi", "late-done", "late-error:killed", "late-aborted"]);
+    expect(heard).toEqual(["onTextDelta", "onDone", "onError", "onAborted"]);
   });
 
-  test("a closed turn: the tool lifecycle, the session's facts and the abort stay on the live handlers", () => {
-    const { calls, handler, late } = recorder();
-    const dropped: string[] = [];
-    const h = guardFinalizedTurn(handler, () => true, late, (e: string) => dropped.push(e));
+  test("a closed turn: the tool lifecycle and the session's facts stay on the live handlers, and are heard", () => {
+    const { calls, handler, lane, heard, dropped } = recorder();
+    const h = guardFinalizedTurn(handler, () => true, lane);
     h.onToolStart("q1", "mcp__topics__ask_user_question");
     h.onToolArgsUpdate?.("q1", { questions: [] } as never);
     h.onUserInputRequired?.("q1", "mcp__topics__ask_user_question", { kind: "raw" } as never);
     h.onToolResult("q1", "risposta");
     h.onCompaction?.({} as never);
     h.onContextSize?.(1200);
-    h.onAborted?.();
-    expect(calls).toEqual(["tool:q1", "args:q1", "ask:q1", "result:q1", "compaction", "context:1200", "aborted"]);
+    expect(calls).toEqual(["tool:q1", "args:q1", "ask:q1", "result:q1", "compaction", "context:1200"]);
+    // Heard first, so the lane knows a late answer started with a tool.
+    expect(heard[0]).toBe("onToolStart");
+    expect(heard).toHaveLength(6);
     expect(dropped).toEqual([]);
   });
 
   test("a closed turn: what is neither kept nor safe is dropped and reported, new callbacks included", () => {
-    const { calls, handler, late } = recorder();
-    const dropped: string[] = [];
+    const { calls, handler, lane, heard, dropped } = recorder();
     const withNew = { ...handler, onSomethingNew: () => { calls.push("new"); } } as unknown as StreamHandler;
-    const h = guardFinalizedTurn(withNew, () => true, late, (e: string) => dropped.push(e)) as unknown as Record<string, (...a: unknown[]) => void>;
+    const h = guardFinalizedTurn(withNew, () => true, lane) as unknown as Record<string, (...a: unknown[]) => void>;
     h.onCallUsage({});
     h.onRetry({});
     h.onSomethingNew();
     expect(calls).toEqual([]);
+    expect(heard).toEqual([]);
     expect(dropped).toEqual(["onCallUsage", "onRetry", "onSomethingNew"]);
   });
 
   test("the state is read at call time: the same handler switches lane when the turn closes", () => {
-    const { calls, handler, late } = recorder();
+    const { calls, handler, lane } = recorder();
     let closed = false;
-    const h = guardFinalizedTurn(handler, () => closed, late, () => {});
+    const h = guardFinalizedTurn(handler, () => closed, lane);
     h.onTextDelta("before", "before");
     closed = true;
     h.onTextDelta("after", "beforeafter");
