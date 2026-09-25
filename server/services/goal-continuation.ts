@@ -287,13 +287,21 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
       if (info.fromHuman) dropWaiting(sk);
       return defer(info);
     }
+    // An empty wake (a Monitor tick answered "No response requested.") with
+    // the work still listed: the goal keeps waiting on the turn that did the
+    // work, and its clock too. Dropping the entry first re-armed the check-in
+    // from now at every silent tick, G1 again (review of 25/09); and a check-in
+    // that fell due while that wake ran fires now instead of in thirty minutes.
+    const still = deferred.get(sk);
+    if (info.discarded && still && info.end === "end_turn" && !info.dispatched && info.backgroundWork) {
+      return defer({ ...still.info, backgroundWakeOnly: info.backgroundWakeOnly });
+    }
     const waiting = dropWaiting(sk);
     if (!info.backgroundWork) checkInCount.delete(sk);
     // The empty wake after the work reported: judge the turn that did it. Only
     // a wake the model closed by itself: a turn somebody stopped, or one that
     // failed, drops the waiting turn with it, or a Stop would buy a nudge.
     if (info.discarded && waiting && info.end === "end_turn" && !info.dispatched) {
-      if (info.backgroundWork) return defer(waiting.info);
       return judge({ ...waiting.info, backgroundWork: false }, false);
     }
     return judge(info, false);

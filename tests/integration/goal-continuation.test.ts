@@ -392,6 +392,34 @@ describe("a goal deferred on background work", () => {
     await close();
   });
 
+  test("G1, silent ticks: an empty wake with the work still listed leaves the clock alone", async () => {
+    // A Monitor tick answered "No response requested." is discarded by the
+    // route; handling it by dropping the waiting turn re-armed from each tick.
+    const t = await bench("goal-checkin-silent-ticks", ["continue"]);
+    await t.onTurnEnd(t.turn({ lastAssistantText: "watching the deploy" }));
+    for (let i = 0; i < 3; i++) {
+      await t.advance(20 * 60_000);
+      if (t.judged.length) break;
+      expect(await t.onTurnEnd(t.turn({ discarded: true, lastAssistantText: "" }))).toBe("background");
+    }
+    expect(t.judged.length).toBe(1);
+    expect(t.judged[0]).toContain("watching the deploy");
+    await close();
+  });
+
+  test("a check-in due while a wake ran fires when that wake ends empty with the work still listed", async () => {
+    let busy = true;
+    const t = await bench("goal-checkin-due-then-empty", ["continue"], () => busy);
+    await t.onTurnEnd(t.turn({ lastAssistantText: "suite on the PC" }));
+    await t.advance(30 * 60_000);
+    expect(t.judged).toEqual([]);
+    busy = false;
+    await t.onTurnEnd(t.turn({ discarded: true, lastAssistantText: "" }));
+    await t.advance(0);
+    expect(t.judged.length).toBe(1);
+    await close();
+  });
+
   test("G2: a message from the person re-enables the check-ins spent on the work still running", async () => {
     const t = await bench("goal-checkin-human", ["continue", "continue", "continue", "continue"]);
     for (let i = 0; i < GOAL_CHECK_IN_LIMIT; i++) {
