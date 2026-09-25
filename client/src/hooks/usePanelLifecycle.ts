@@ -66,7 +66,8 @@ import {
   getBrowserOrigin,
   enqueueProjectBrowserReopen,
   enqueueProjectBrowserNavigate,
-  isProjectWindowMounted,
+  PROJECT_BROWSER_HAND_OVER_EVENT,
+  type ProjectBrowserHandOver,
 } from '../state/pane/adapters';
 import { findPaneLocation, usePaneStore } from '../state/pane/store';
 import { filterVisiblePaneIds, resolvePaneSpace } from '../state/pane/selectors';
@@ -967,8 +968,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
           ?? (openPanelsRef.current.includes(browserPaneId)
             ? null
             : getBrowserOrigin(msg.contextId)?.projectPath ?? topicsRef.current[msg.contextId]?.projectPath ?? null);
-        const hostMounted = host ? isProjectWindowMounted(host) : null;
-        tracePaneAttach('force-open received', { contextId: msg.contextId, owner, host, hostMounted });
         if (host) {
           // Bringing the project to the front is not enough, and focusing it was
           // all this branch did (card c5c1c68f). force-open means nothing
@@ -981,21 +980,23 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
           // was never loaded in it: `browser:navigate` reached no mounted window.
           //
           // So the host window gets the same request as a navigate: activate
-          // this pane, or create it, and load `url`. A mounted window takes it
+          // this pane, or create it, and load `url`. A mounted window claims it
           // live; a window that is not mounted finds it parked when it mounts,
           // which bringing it to the front below makes happen.
-          if (hostMounted) {
-            window.dispatchEvent(new CustomEvent('browser:open-and-navigate', {
-              detail: { projectPath: host, url: msg.url, contextId: msg.contextId },
-            }));
-          } else {
-            enqueueProjectBrowserNavigate(host, { url: msg.url, contextId: msg.contextId });
-          }
+          const handOver = new CustomEvent<ProjectBrowserHandOver>(PROJECT_BROWSER_HAND_OVER_EVENT, {
+            detail: { projectPath: host, url: msg.url, contextId: msg.contextId },
+            cancelable: true,
+          });
+          window.dispatchEvent(handOver);
+          const claimed = handOver.defaultPrevented;
+          if (!claimed) enqueueProjectBrowserNavigate(host, { url: msg.url, contextId: msg.contextId });
+          tracePaneAttach('force-open received', { contextId: msg.contextId, owner, host, claimed });
           const projectPaneId = createPaneId('project', host);
           if (openPanelsRef.current.includes(projectPaneId)) setFocusedPanelId(projectPaneId);
           else handleProjectClickRef.current?.(host);
           return;
         }
+        tracePaneAttach('force-open received', { contextId: msg.contextId, owner, host: null });
         // No project hosts it, OR the only ownership entry is
         // STALE from a project tab that was since closed (owningRenderedProject
         // returns null for those). Mount a visible standalone pane so a

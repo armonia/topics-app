@@ -33,6 +33,8 @@ import {
   getBrowserContextFromPaneId,
   drainProjectBrowserNavigates,
   registerProjectWindow,
+  PROJECT_BROWSER_HAND_OVER_EVENT,
+  type ProjectBrowserHandOver,
 } from '../../../state/pane/adapters';
 import { resolveBrowserNavigateUrl } from '../../../lib/browserNavUrl';
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../../lib/openLink';
@@ -275,6 +277,18 @@ export function useProjectBrowserPanes({
     };
     window.addEventListener('browser:open-and-navigate', domHandler);
 
+    // force-open handing this project's browser to this window (see
+    // PROJECT_BROWSER_HAND_OVER_EVENT): the same request as a navigate. Only
+    // project windows listen, so no app-level cell can take it.
+    const handOverHandler = (e: Event) => {
+      const d = (e as CustomEvent<ProjectBrowserHandOver>).detail;
+      if (!d?.url || !d.contextId || d.projectPath !== projectPath) return;
+      e.preventDefault();
+      tracePaneAttach('force-open handed to this window', { projectPath, contextId: d.contextId });
+      ensureBrowserPaneAndNavigate(d.url, undefined, d.contextId, d.contextId);
+    };
+    window.addEventListener(PROJECT_BROWSER_HAND_OVER_EVENT, handOverHandler);
+
     // A LINK was clicked somewhere that can host it here (chat, terminal, tool
     // card, board preview, or a page in a browser pane asking for a popup).
     // Different from `browser:open-and-navigate` on the one point that matters:
@@ -362,6 +376,7 @@ export function useProjectBrowserPanes({
     return () => {
       unsubWS();
       window.removeEventListener('browser:open-and-navigate', domHandler);
+      window.removeEventListener(PROJECT_BROWSER_HAND_OVER_EVENT, handOverHandler);
       window.removeEventListener(OPEN_TAB_EVENT, openTabHandler);
       window.removeEventListener('browser:request-close', closeHandler);
       window.removeEventListener('browser:request-focus', focusHandler);

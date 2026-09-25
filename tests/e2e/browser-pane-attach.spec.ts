@@ -240,6 +240,82 @@ async function openPaneRoute(request: APIRequestContext, topicId: string, url: s
 test.describe("open_browser_pane attaches the project pane", () => {
   test.describe.configure({ timeout: 150_000 });
 
+  /**
+   * The owner window IS mounted, and force-open arrives alone: the case of a
+   * window that mounted after the navigate went by. Its browser is a
+   * background tab that was never shown in this page, so it is not mounted.
+   * Next to it, a cell with a chat that belongs to no project. That cell is
+   * the trap: it claims `browser:open-and-navigate` whenever the detail has no
+   * `topicId`, and opens a second browser of its own on a fresh context.
+   */
+  test("the owning project window is mounted: force-open activates its background tab, and no other cell opens a browser", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "BROWSER-CHAT-04" });
+    const owner = makeProject("owner");
+    const topic = await createTopic(request, "Pane attach, mounted owner", { projectPath: owner });
+    const loose = await createTopic(request, "Pane attach, a chat of no project");
+    const ctx = topic.id;
+    await seedProjectLayout(request, owner, ctx);
+    const ownerTab = projectPaneId(owner);
+    const cur = (await (await request.get(`${E2E_BASE}/api/ui-state/pane-store-v2`)).json()) as { value?: { lastSeq?: number } };
+    const put = await request.put(`${E2E_BASE}/api/ui-state/pane-store-v2`, {
+      data: {
+        panes: {
+          [ownerTab]: { id: ownerTab, type: "project", title: "owner", projectPath: owner },
+          [loose.id]: { id: loose.id, type: "chat", title: "", topicId: loose.id },
+        },
+        groups: { "group:default": { id: "group:default", paneIds: [ownerTab, loose.id], splitRatio: 1, splitAxis: "horizontal" } },
+        groupOrder: ["group:default"],
+        closedStack: [],
+        projects: {},
+        lastSeq: (cur.value?.lastSeq ?? 0) + 1,
+      },
+    });
+    expect(put.ok(), "the tabs are seeded").toBeTruthy();
+
+    await page.clock.install();
+    await fakeTauriShell(page);
+    const app = await proxyAppSocket(page);
+    const watch = watchPage(page, ctx);
+    try {
+      // The chat of no project in a cell of its own, beside the project's cell.
+      await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+      await page.evaluate((cells) => {
+        const grid = JSON.stringify({ gridRows: [], gridRowHeights: [], soloCells: cells });
+        localStorage.setItem("topics-panel-grid-layout", grid);
+        localStorage.setItem("topics-panel-grid-layout:space:default", grid);
+      }, [[loose.id]]);
+      await goToApp(page);
+      await expect(page.locator('[data-testid="panel-tab-bar"]').first()).toBeVisible({ timeout: 15_000 });
+      await leaveBrowserInBackground(page, owner, ctx);
+
+      // After a reload the browser has not been shown in this page, so the
+      // mounted window leaves it unmounted.
+      const connectionsBefore = app.connections();
+      const reloadedAt = Date.now();
+      await page.reload();
+      await expect(innerTab(page, `chat:${ctx}`)).toHaveAttribute("data-active", "true", { timeout: 15_000 });
+      await expect(innerTab(page, `browser:${ctx}`)).toHaveAttribute("data-active", "false");
+      await expect.poll(() => app.connections(), { timeout: 15_000 }).toBeGreaterThan(connectionsBefore);
+      expect(watch.opensSince(reloadedAt), "no pane socket before force-open").toBe(0);
+
+      const url = "https://example.com/opened-by-the-agent";
+      const forcedAt = Date.now();
+      app.send({ type: "browser:force-open", contextId: ctx, url });
+      await expect
+        .poll(() => watch.opensSince(forcedAt), { timeout: slackMs(PANE_WAIT_MS), message: "a pane socket attaches within the route's wait after force-open" })
+        .toBeGreaterThan(0);
+      await expect(innerTab(page, `browser:${ctx}`)).toHaveAttribute("data-active", "true");
+      await expect(page.locator('[role="tab"][data-pane-id^="browser:"]'), "one browser tab, the project's").toHaveCount(1);
+
+      await waitForExecutor(request, () => watch.opensSince(forcedAt), ctx);
+      const answer = await openPaneRoute(request, ctx, url);
+      expect(answer.visible).toBe(true);
+      await expect(page.locator('[role="tab"][data-pane-id^="browser:"]'), "still one browser tab").toHaveCount(1);
+    } finally {
+      await watch.attach();
+    }
+  });
+
   test("the owning project window never mounted in this session: force-open shows the tab and it attaches", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "BROWSER-CHAT-04" });
     const owner = makeProject("owner");

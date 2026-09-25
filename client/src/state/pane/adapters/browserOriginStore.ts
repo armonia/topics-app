@@ -215,6 +215,26 @@ export function enqueueProjectBrowserNavigate(projectPath: string, nav: PendingB
   pendingNavigates.set(projectPath, list);
 }
 
+/**
+ * `browser:force-open` handing a browser to the project window that hosts it
+ * (card c5c1c68f). Cancelable: the window of `projectPath` claims it with
+ * `preventDefault()` and activates or creates the pane; when nobody claims it
+ * the window is not mounted, and the caller parks the navigate above for its
+ * mount.
+ *
+ * A name of its own because `browser:open-and-navigate` is also claimed by
+ * every app-level cell that holds no project tab when the detail carries no
+ * `topicId`, and such a cell opens a second browser of its own, on a fresh
+ * context, with the agent's url.
+ */
+export const PROJECT_BROWSER_HAND_OVER_EVENT = 'browser:hand-to-project';
+
+export interface ProjectBrowserHandOver {
+  projectPath: string;
+  url: string;
+  contextId: string;
+}
+
 export function drainProjectBrowserNavigates(projectPath: string): PendingBrowserNavigate[] {
   const list = pendingNavigates.get(projectPath);
   if (!list || list.length === 0) return [];
