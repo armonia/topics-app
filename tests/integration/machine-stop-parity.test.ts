@@ -303,6 +303,17 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
     const bubble = last?.role === "assistant" && turnIsOnlyError(last);
     return banner || bubble;
   };
+  /** What the dispatcher leaves on a card's chat: the card, or one fan-out attempt, owns the topic. */
+  const bindCard = (c: Awaited<ReturnType<typeof chatWith>>, sk: string, via: "card" | "attempt" = "card") => {
+    c.ctx.db.run(
+      "INSERT INTO tasks (id, project_id, text, status, archived, assigned_topic_id, created_at, updated_at) VALUES (?, 'p-notice', 'card', 'in_progress', 0, ?, ?, ?)",
+      [`card-${sk}`, via === "card" ? `t-${sk}` : null, minutesAgo(30), minutesAgo(1)],
+    );
+    if (via === "attempt") {
+      c.ctx.db.run("INSERT INTO task_attempts (id, task_id, idx, topic_id, created_at) VALUES (?, ?, 2, ?, ?)", [`att-${sk}`, `card-${sk}`, `t-${sk}`, minutesAgo(30)]);
+    }
+  };
+  const noticeRows = (rows: StoredMessage[]) => rows.filter((m) => (m.blocks ?? []).some((b) => b.kind === "machine-stop"));
 
   for (const cause of ["superseded", "wall-clock", "stall"] as const) {
     for (const echoes of [true, false]) {
@@ -310,6 +321,7 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
       test(`${cause}, ${order}: a service row under the envelope, no retry, nothing resent`, async () => {
         const sk = `topic:empty-${cause}-${echoes ? "echo" : "late"}`;
         const c = await chatWith(sk);
+        bindCard(c, sk);
         echoesAbort = echoes;
         await c.post({ messages: [{ role: "user", content: "Envelope della card: fai il merge" }] });
         const turnRowId = c.assistantRows().at(-1)!.id;
@@ -343,6 +355,7 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
   test("a turn that produced something keeps its own row, and gets no service row", async () => {
     const sk = "topic:kept-superseded";
     const c = await chatWith(sk);
+    bindCard(c, sk);
     await c.post({ messages: [{ role: "user", content: "Envelope della card" }] });
     captured!.onTextDelta("Comincio il merge", "Comincio il merge");
 
@@ -373,6 +386,7 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
   test("the person's Stop on an empty turn is not the machine's: no service row", async () => {
     const sk = "topic:empty-person";
     const c = await chatWith(sk);
+    bindCard(c, sk);
     await c.post({ messages: [{ role: "user", content: "fermati pure" }] });
 
     await c.clientAbort();
@@ -380,6 +394,71 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
     const rows = c.ctx.loadLocalMessages(sk);
     expect(rows.at(-1)?.role).toBe("user");
     expect(rows.flatMap((m) => m.blocks ?? []).some((b) => b.kind === "machine-stop")).toBe(false);
+  });
+
+  test("a fan-out attempt's chat is the board's too: the line is written", async () => {
+    const sk = "topic:empty-attempt";
+    const c = await chatWith(sk);
+    bindCard(c, sk, "attempt");
+    await c.post({ messages: [{ role: "user", content: "Envelope del tentativo 2" }] });
+
+    await c.abort(internalAbortRequest(sk, "superseded"));
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    expect(noticeRows(rows)).toHaveLength(1);
+    expect(retryOffered(rows)).toBe(false);
+  });
+
+  test("a person's own chat recycled by the stall judge keeps main's behaviour: Retry, and the sweep resends", async () => {
+    // No card drives it, so nothing continues by itself: the question is the
+    // person's, the sweep is what answers it, and Retry stays theirs.
+    const sk = "topic:empty-human-stall";
+    const c = await chatWith(sk);
+    await c.post({ messages: [{ role: "user", content: "Domanda a cui nessuno ha risposto" }] });
+
+    await c.abort(internalAbortRequest(sk, "stall"));
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    expect(noticeRows(rows)).toHaveLength(0);
+    expect(rows.at(-1)?.role).toBe("user");
+    expect(retryOffered(rows)).toBe(true);
+    expect(await c.resentAfterRestart()).toEqual(["Domanda a cui nessuno ha risposto"]);
+  });
+
+  test("a message written during the turn is not the one it answered: no line under it", async () => {
+    const sk = "topic:empty-newer-row";
+    const c = await chatWith(sk);
+    bindCard(c, sk);
+    await c.post({ messages: [{ role: "user", content: "Envelope della card" }] });
+    c.ctx.appendLocalMessage(sk, "user", "e intanto guarda anche questo");
+
+    await c.abort(internalAbortRequest(sk, "superseded"));
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    expect(noticeRows(rows)).toHaveLength(0);
+    expect(rows.at(-1)?.content).toBe("e intanto guarda anche questo");
+  });
+
+  test("a reattach after the stop opens its own row: the line is never adopted, even when the replay fails", async () => {
+    // The stopped child may outlive the stop, and the next boot reattaches it.
+    // The line has no `latency_ms`, which alone used to read as "this turn's
+    // own row, closed from outside while alive".
+    const sk = "topic:empty-then-reattach";
+    const c = await chatWith(sk);
+    bindCard(c, sk);
+    await c.post({ messages: [{ role: "user", content: "Envelope della card" }] });
+    await c.abort(internalAbortRequest(sk, "superseded"));
+    const notice = noticeRows(c.ctx.loadLocalMessages(sk))[0];
+    expect(notice).toBeDefined();
+
+    await c.post({ messages: [], mode: "reattach", dispatched: true, provider: "openai" });
+    const start = c.sent.findLast((m) => m.type === "stream:start");
+    expect(start?.messageId).not.toBe(notice.id);
+    captured!.onError("Process exited with code 137");
+
+    const after = c.ctx.loadLocalMessages(sk).find((m) => m.id === notice.id)!;
+    expect(after.content).toBe("");
+    expect(after.blocks).toEqual(notice.blocks);
   });
 
   test("the opposite: a turn that really came back empty keeps its notice and its retry", async () => {

@@ -17,6 +17,14 @@
  * `machine-stop` block, drawn by the client as a service line, and the chat no
  * longer ends on an unanswered message.
  *
+ * -- Only on a chat the board drives -------------------------------------------
+ * A land and a delegation's deadline only ever stop a card's chat. The stall
+ * judge also recycles a person's own chat (a turn adopted at boot), and there
+ * nothing continues by itself: the resume sweep resends the person's question,
+ * and until then Retry is theirs to press. A service row there would silence
+ * both (third review of this fix), so a chat no card or attempt drives keeps
+ * the behaviour it had.
+ *
  * -- Why `content` stays empty ------------------------------------------------
  * Every reader that must not see this row reads `content` alone: the model's
  * history (`context/assemble.ts`, the claude-code replay, the native rehydrate
@@ -33,6 +41,23 @@ import { machineStopToolError, type MachineStopCause } from "./abort-cause";
 /** The block, with the sentence a client older than it prints as prose. */
 export function machineStopBlock(cause: MachineStopCause): Extract<ContentBlock, { kind: "machine-stop" }> {
   return { kind: "machine-stop", cause, text: machineStopToolError(cause) };
+}
+
+/**
+ * Does a card, or one of its fan-out attempts, drive this topic? The abort
+ * comes before the dispatcher releases the card (`cancelDelegatedTask`, the
+ * land's `cutLiveTurn`), so the binding is still there when this runs. A
+ * database without those tables is no evidence.
+ */
+export function boardDrivesTopic(db: { query(sql: string): { get(...args: string[]): unknown } }, topicId: string): boolean {
+  try {
+    return !!db.query(
+      `SELECT 1 FROM tasks WHERE assigned_topic_id = ?1
+       UNION ALL SELECT 1 FROM task_attempts WHERE topic_id = ?1 LIMIT 1`,
+    ).get(topicId);
+  } catch {
+    return false;
+  }
 }
 
 /**

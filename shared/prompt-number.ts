@@ -14,6 +14,11 @@ import type { ContentBlock } from "./types";
  *  the model. Twin of `isMachineRow` on the client. */
 export const MACHINE_ROW_KINDS = ["goal-nudge", "goal-stop", "dispatched-envelope", "machine-stop"] as const;
 
+/** Does a row carry one of those marks? Blocks as parsed JSON. */
+export function hasMachineMark(blocks: readonly { kind?: unknown }[] | null | undefined): boolean {
+  return Array.isArray(blocks) && blocks.some((b) => (MACHINE_ROW_KINDS as readonly unknown[]).includes(b?.kind));
+}
+
 /**
  * The same rule as SQL, for readers that do not load `blocks` (lean reads, the
  * sidebar previews). The marks are a few bytes of plain JSON, below the blob

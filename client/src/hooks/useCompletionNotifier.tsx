@@ -11,6 +11,7 @@ import { isAgentTurnNoise } from '../lib/notify/dispatchedTopic';
 import { isTopicMuted as isTopicMutedPure } from '../lib/notify/muteGate';
 import { bannerClaimKey, bannerClaimant, claimMessageBanner } from '../lib/notify/messageBannerClaim';
 import { decideMessageBanner } from '../lib/notify/messageBanner';
+import { machineStopOf } from '../components/Chat/machineRow';
 import { buildNotifyActions, type NotifyAction } from '../../../shared/notify-actions';
 import { questionAsksHuman } from '../../../shared/board';
 import { resolveReviewQuestion } from '../lib/notify/reviewQuestion';
@@ -492,6 +493,7 @@ export function useCompletionNotifier({
         body: msg.preview || msg.content || '',
         topicName: await resolveTopicName(msg.topicId),
         muted: isTopicMuted(msg.topicId),
+        machineStop: machineStopOf(msg.blocks) !== null,
         agentWorking: isAgentWorking(task?.dispatchState),
         lastFiredAt: cooldownRef.current.get(`msg:${msg.topicId}`),
         now: Date.now(),

@@ -20,6 +20,7 @@ import {
 import { readMutedProjects } from "./lib/muted-projects";
 import { appDataRoots, resolveAppDataDir, resolveStateDir } from "./lib/data-dir";
 import { decodeCol, encodeCol } from "../shared/message-blob";
+import { hasMachineMark } from "../shared/prompt-number";
 import { knownProjectDirs, isInsideKnownProject } from "./services/known-project-dirs";
 import { isInsideDir } from "./lib/path-containment";
 import { realPathForNewEntry } from "./lib/real-path";
@@ -1640,7 +1641,12 @@ export function createAppContext(baseDir: string): AppContext {
     const row = stmts.getLastMessage.get(sessionKey) as any;
     const isAssistant = row && row.role === "assistant";
     const stillPartial = isAssistant && (row.partial === 1 || row.partial === true);
-    const closedFromOutsideWhileAlive = isAssistant && !stillPartial && row.latency_ms == null;
+    // A row the MACHINE wrote (a goal's stop line, the line under a turn the
+    // machine stopped) is closed without `latency_ms` too, but it was never a
+    // turn's own row: adopting it poured the replay over the line, and a replay
+    // that then failed turned it into an error row offering Retry again.
+    const closedFromOutsideWhileAlive = isAssistant && !stillPartial && row.latency_ms == null
+      && !hasMachineMark(parseBlocksCol(row.blocks, String(row.id)));
     if (isAssistant && (stillPartial || closedFromOutsideWhileAlive)) {
       const now = new Date().toISOString();
       db.run("UPDATE messages SET streamed_at = ?, partial = 1 WHERE id = ?", [now, String(row.id)]);

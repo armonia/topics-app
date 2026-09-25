@@ -108,3 +108,10 @@ describe('decideMessageBanner — cooldown', () => {
     expect(decideMessageBanner(passing({ lastFiredAt: undefined }))).not.toBeNull();
   });
 });
+
+describe('decideMessageBanner - the line under a stopped turn', () => {
+  it('is quiet: it explains a stop the machine made, the agent said nothing', () => {
+    expect(decideMessageBanner(passing({ machineStop: true, body: 'Fermato: il lavoro della card è già atterrato' }))).toBeNull();
+    expect(decideMessageBanner(passing({ machineStop: false }))).not.toBeNull();
+  });
+});

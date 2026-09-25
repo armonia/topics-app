@@ -38,6 +38,10 @@ export interface MessageBannerInput {
   topicName: string | null | undefined;
   /** Mute per topic o per progetto (muteGate.ts). */
   muted: boolean;
+  /** The row is the line under a turn the machine stopped (a land, a
+   *  delegation's deadline, the stall judge): it explains a stop, it is not
+   *  something the agent said. */
+  machineStop?: boolean;
   /** Un agente di board sta lavorando QUESTO topic adesso. */
   agentWorking: boolean;
   /** Quando questo topic ha bannerizzato l'ultima volta su questo percorso, o
@@ -79,6 +83,7 @@ export function decideMessageBanner(i: MessageBannerInput): MessageBannerDecisio
   if (!i.body) return null;
   if (!i.topicName) return null;
   if (i.muted) return null;
+  if (i.machineStop) return null;
   // Mentre un agente di board lavora il topic, i suoi messaggi non sono un
   // evento per l'umano: la consegna la annuncia `task:review-ready`, che è più
   // informativo. Senza questo, una consegna sola produceva banner quasi identici

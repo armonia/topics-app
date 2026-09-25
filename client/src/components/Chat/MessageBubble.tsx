@@ -1,6 +1,6 @@
 import { memo, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useT } from '../../hooks/useT';
-import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Target, Trash2, CircleStop } from 'lucide-react';
+import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Target, Trash2 } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
 import { MessageMetaFooter } from './MessageMetaFooter';
@@ -11,6 +11,7 @@ import { isAwaitingHuman } from '../../../../shared/types';
 import { turnIsOnlyError } from './turnError';
 import { goalLoopRowOf } from './goalLoopRow';
 import { machineStopOf } from './machineRow';
+import { MachineStopLine } from './MachineStopLine';
 import { StreamTokenRateIndicator } from './StreamTokenRateIndicator';
 import { isDispatchedEnvelope } from './dispatchedEnvelope';
 import { isMachineWork } from './taskWorkFold';
@@ -132,14 +133,6 @@ function FoldWork({ fold, msg, children }: { fold: boolean; msg: ChatMessage; ch
   return <TaskWorkAccordion msg={msg}>{children}</TaskWorkAccordion>;
 }
 
-
-/** The sentence for each cause, by key: an explicit map, so a cause without
- *  its sentence does not compile. */
-const MACHINE_STOP_KEY = {
-  'superseded': 'chat.machineStop.superseded',
-  'wall-clock': 'chat.machineStop.wallClock',
-  'stall': 'chat.machineStop.stall',
-} as const;
 
 export const MessageBubble = memo(function MessageBubble({
   msg,
@@ -294,18 +287,7 @@ export const MessageBubble = memo(function MessageBubble({
   // for a turn that redoes work already on main. One neutral line, no retry.
   // See server/lib/machine-stop-notice.ts.
   const machineStop = machineStopOf(msg.blocks);
-  if (machineStop) {
-    return (
-      <div
-        data-testid="machine-stop-row"
-        data-cause={machineStop}
-        className="my-1 flex items-center justify-center gap-1.5 px-2 text-mini text-app-text-muted"
-      >
-        <CircleStop size={11} className="flex-shrink-0" aria-hidden="true" />
-        <span className="truncate">{tr(MACHINE_STOP_KEY[machineStop])}</span>
-      </div>
-    );
-  }
+  if (machineStop) return <MachineStopLine cause={machineStop} />;
 
   // THE BOARD'S ENVELOPE TALKS, IT DOES NOT IMPERSONATE. The row itself lives
   // in `DispatchEnvelopeRow`, shared with the card's conversation: two surfaces

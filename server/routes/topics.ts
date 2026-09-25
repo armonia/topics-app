@@ -28,7 +28,7 @@ import { getSessionContext } from "../db/session-context";
 import { markTargetNotificationsSeen, countUnseenNotifications } from "../db/notification-log";
 import { logMachineStop, logStopPressed } from "../db/activity-log";
 import { isMachineStop, machineStopToolError, stopCauseOf } from "../lib/abort-cause";
-import { machineStopBlock, needsMachineStopNotice } from "../lib/machine-stop-notice";
+import { boardDrivesTopic, machineStopBlock, needsMachineStopNotice } from "../lib/machine-stop-notice";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
 import { createTaskService } from "../services/tasks";
@@ -2547,9 +2547,12 @@ export function createTopicsRouter(
       // does not end on the unanswered message and the client offers no
       // Retry for it, live or after a reload (lib/machine-stop-notice.ts).
       // Written here, after both finalizes, because whichever ran first
-      // discarded the row, and before the `stream:end` below, so a watching
-      // window never paints the no-reply banner in between.
-      if (isMachineStop(cause) && answeredMessageId
+      // discarded the row. On the claude-code path the chat route has already
+      // sent its own `stream:end` by now; a watching window still paints no
+      // banner in between, because the banner also waits for the streaming
+      // registry to be read again, and that read is an HTTP round trip that
+      // starts after this frame is out. Only on a chat the board drives.
+      if (isMachineStop(cause) && answeredMessageId && topicId && boardDrivesTopic(db, topicId)
         && needsMachineStopNotice(loadLocalMessages(sessionKey, { withBlocks: false, withToolCalls: false }), answeredMessageId)) {
         const block = machineStopBlock(cause);
         const notice = appendLocalMessage(sessionKey, "assistant", "", undefined, [block]);
