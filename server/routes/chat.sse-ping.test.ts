@@ -243,16 +243,15 @@ describe("the board's stall watch with pings on the stream", () => {
     ctx.activeStreams.get(sessionKey)?.abortController?.abort();
   }, 10_000);
 
-  test("the headless reader in server.ts counts no ping as activity, nor as the body speaking after the end", () => {
+  test("the headless reader in server.ts counts no comment-only chunk as activity", () => {
     // The loop lives inside server.ts, which starts a server on import: its
-    // wiring is checked on the source. Two rules: a ping does not feed the
-    // stall watch, and a ping does not keep the end grace (20 s, like the
-    // ping) from ever running out once the end is deposited.
+    // wiring is checked on the source. A ping must not end the drain either:
+    // pings flow only until the route finalizes, and an end deposited while
+    // they flow is a superseded turn's, or not final yet.
     const source = readFileSync(join(REPO_ROOT, "server.ts"), "utf8");
     const reader = source.slice(source.indexOf("async function watchHeadlessBody("));
     const loop = reader.slice(0, reader.indexOf("finally {"));
-    expect(loop).toMatch(/if \(!isSseCommentOnly\(value\)\) \{ detector\.noteActivity\(\); lastDataAt = Date\.now\(\); \}/);
-    expect(loop).toMatch(/else if \(peekTurnEnd\(sessionKey\) && Date\.now\(\) - lastDataAt >= HEADLESS_END_GRACE_MS\) \{ reader\.cancel\(\)/);
+    expect(loop).toMatch(/if \(!isSseCommentOnly\(value\)\) detector\.noteActivity\(\);\n    \}/);
   });
 
   test("a comment-only chunk is a ping; a chunk with data is activity", () => {
