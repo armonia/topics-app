@@ -89,6 +89,7 @@ import { makeSheetWriter } from "../services/delivery-sheet";
 import { resolveTaskDiffRange } from "../services/task-diff-range";
 import { isTaskLabel, normalizeLabels, type TaskFile } from "../../shared/task-labels";
 import type { TurnEndCause } from "../../shared/types";
+import { abortCauseOf, STOP_CAUSE_HEADER } from "../lib/abort-cause";
 import { probeUrl, invalidateProbeCache } from "../services/url-probe-cache";
 import {
   getEligibleGlobalOrchestratorSessionBySessionKey,
@@ -3614,8 +3615,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const detachLiveAgent = (
         t: { id: string; assignedTopicId: string | null; dispatchState: string | null },
         reason: string,
+        cause: TurnEndCause,
       ): Task | null => {
-        if (!cutLiveTurn(t, reason, "user")) return null;
+        if (!cutLiveTurn(t, reason, cause)) return null;
         // `stopped` e non NULL: un park senza stato è indistinguibile da un task
         // mai dispacciato, e la card tornava in Backlog senza dire perché.
         return svc.release({ taskId: t.id, requeue: false, by: HUMAN, reason, parkState: PARKED_STOPPED });
@@ -3933,6 +3935,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
           const parked = detachLiveAgent(
             got.task,
             got.task.dispatchState === "queued" ? NOTE_UNQUEUED_BY_HUMAN : NOTE_STOPPED_BY_HUMAN,
+            "user",
           );
           if (!parked) return json({ error: "no active agent on this task", code: "invalid_transition" }, 409);
           broadcastToAll({ type: "task:updated", projectId: bStop.projectId, task: parked });
@@ -4605,7 +4608,9 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             // nessuno (vedi `detachLiveAgent`). Prima di archiviare, quindi.
             const got = svc.get(taskId, { projectId });
             if (got) {
-              detachLiveAgent(got.task, NOTE_ARCHIVED_BY_HUMAN);
+              // The server sends this DELETE itself for a delegation another
+              // machine revoked, and says so: that stop is not a person's (C9).
+              detachLiveAgent(got.task, NOTE_ARCHIVED_BY_HUMAN, abortCauseOf({ cause: req.headers.get(STOP_CAUSE_HEADER) }));
             }
             // Read BEFORE the archive: the sweep needs the delivery branch, and
             // it runs after, when the card is already off the board.

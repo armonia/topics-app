@@ -238,7 +238,7 @@ import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
 // is downgraded to a reporting-only comparison below.
 import { armStallDetector } from "./server/lib/stall-detector";
 import { judgeStall } from "./server/lib/stall-judge";
-import { internalAbortRequest } from "./server/lib/abort-cause";
+import { internalAbortRequest, STOP_CAUSE_HEADER } from "./server/lib/abort-cause";
 import { runBootPartialSweep } from "./server/lib/boot-partial-sweep";
 import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/delivery-backfill";
 import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } from "./server/services/delivery-ref-keep";
@@ -2791,9 +2791,11 @@ const worktreesRouter = createWorktreesRouter(ctx, {
 // The ingress of a card mirrored from another machine (KANBAN-76). The DELETE
 // goes through the board's own route so "stop the agent, then archive" has one
 // implementation: a second copy here would be the one that forgets the stop.
+// The revocation is the machine's, and the stop it causes says so (card C9).
 const deleteDelegatedBoardTask = (projectId: string, taskId: string) => {
   const url = new URL(`http://localhost/api/boards/${projectId}/tasks/${taskId}`);
-  return tasksRouter(new Request(url, { method: "DELETE" }), url, url.pathname, "DELETE");
+  const req = new Request(url, { method: "DELETE", headers: { [STOP_CAUSE_HEADER]: "superseded" } });
+  return tasksRouter(req, url, url.pathname, "DELETE");
 };
 const delegatedRevocations = createDelegatedRevocationRetry({
   db: ctx.db,

@@ -30,6 +30,13 @@ export function providerAbortReason(cause: TurnEndCause): AbortReason {
   return cause === "user" || cause === "server-shutdown" ? cause : "watchdog";
 }
 
+/**
+ * The same cause on a request that stops a turn indirectly, through a route
+ * the person also uses: the board's DELETE of a card, which the server sends
+ * itself when another machine revokes a delegated card. Absent = the person.
+ */
+export const STOP_CAUSE_HEADER = "x-topics-stop-cause";
+
 /** The request a caller inside the server sends to `/api/chat/abort`. */
 export function internalAbortRequest(sessionKey: string, cause: TurnEndCause): Request {
   return new Request("http://localhost/api/chat/abort", {
