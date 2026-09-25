@@ -10,6 +10,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - The reattach replays a row's own turn, from the mark its send left in the store
 - No handler but the adopted row's sees a closed turn's replay
 - chat.ts back under its ceiling after the rebase on main
+- The resume notices written by the server reach the windows open on the chat
 
 ## 2.2.399 — 2026-09-25
 

@@ -31,6 +31,11 @@
           "it": "chat.ts back under its ceiling after the rebase on main",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "The resume notices written by the server reach the windows open on the chat",
+          "en": "",
+          "scope": null
         }
       ]
     }
