@@ -212,3 +212,42 @@ describe("il registro tiene insieme piu' provider", () => {
     expect(scanAllExternalSessions({ ...opts, providers })).toHaveLength(1);
   });
 });
+
+describe("a session file is parsed once per rewrite, not at every census", () => {
+  test("an unchanged file is not read again, a rewritten one is", () => {
+    const dir = makeSessionsDir();
+    const p = writeSession(dir, "cached", { status: "Active" });
+    const scan = () => scanJcodeSessions({ sessionsDir: dir, now: NOW, isAlive: alive })[0]?.state;
+    expect(scan()).toBe("active");
+
+    // Same size, same mtime, different bytes: only a remembered parse still says active.
+    const same = JSON.stringify({ id: "cached", status: "Idle!!", last_pid: 4242, working_dir: "/tmp/progetto", updated_at: new Date(NOW).toISOString() });
+    writeFileSync(p, same);
+    utimesSync(p, NOW / 1000, NOW / 1000);
+    expect(scan()).toBe("active");
+
+    // The rewrite jcode does at the end of a turn changes the size or the mtime.
+    writeSession(dir, "cached", { status: "Idle", minutesAgo: 0.5 });
+    expect(scan()).toBe("idle");
+  });
+
+  test("bench: an 11 MB session in the window costs under 5 ms once it is known", () => {
+    const dir = makeSessionsDir();
+    // The size measured on 25/09, with the transcript where jcode keeps it: before the fields.
+    const big = join(dir, "big.json");
+    const messages = Array.from({ length: 11_000 }, (_, i) => ({ id: `m${i}`, role: "user", content: "x".repeat(1000) }));
+    writeFileSync(big, JSON.stringify({ id: "big", messages, working_dir: "/tmp/progetto", status: "Active", last_pid: 4242 }));
+    utimesSync(big, NOW / 1000, NOW / 1000);
+    for (let i = 0; i < 199; i++) writeSession(dir, `small-${i}`, { minutesAgo: i });
+
+    const scan = () => scanJcodeSessions({ sessionsDir: dir, now: NOW, isAlive: alive });
+    expect(scan()).toHaveLength(200);
+    const runs = Array.from({ length: 5 }, () => {
+      const t = performance.now();
+      scan();
+      return performance.now() - t;
+    }).sort((a, b) => a - b);
+    console.log(`[bench] jcode census, 11 MB + 199 files unchanged: ${runs.map((ms) => ms.toFixed(1)).join(" ")} ms`);
+    expect(runs[2]).toBeLessThan(5);
+  });
+});

@@ -435,6 +435,107 @@ describe("ai-bridge orphan monitor", () => {
     }
   }, 25_000);
 
+  test("a client that hangs up while the daemon still has bytes for it does not keep the orphan alive", async () => {
+    // How nine test daemons were still alive twelve hours on (25/09). A client
+    // went away with frames still queued for it: Bun emitted 'end' on the
+    // daemon's side and then neither 'finish' nor 'close', so the socket stayed
+    // in `clients` for good and the monitor took it for a server that had come
+    // back. The real claude-code provider test hit it 4 runs out of 5; a client
+    // that stops reading and hangs up under a flood hits it every time.
+    const sock = join(tmpdir(), `ai-bridge-hangup-${process.pid}.sock`);
+    const store = mkdtempSync(join(tmpdir(), "ai-bridge-hangup-store-"));
+    const corpse = Bun.spawn(["/usr/bin/true"], { stdout: "ignore", stderr: "ignore" });
+    await corpse.exited;
+
+    const orphan = Bun.spawn(
+      [process.execPath, join(import.meta.dir, "ai-bridge.mjs"),
+        "--socket", sock, "--store-dir", store, "--parent-pid", String(corpse.pid)],
+      // REAL_CLIENT_MS at 1s: the client counts as a server that came back
+      // before it hangs up, which is the state the stale entry froze.
+      { stdout: "ignore", stderr: "ignore", env: { ...process.env, ...FAST_ENV,
+        TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "1000", TOPICS_AI_BRIDGE_REAL_CLIENT_MS: "1000" } },
+    );
+    let client: net.Socket | null = null;
+    try {
+      expect(await until(() => existsSync(sock), 10_000)).toBe(true);
+      let exited = false;
+      void orphan.exited.then(() => { exited = true; });
+      client = net.connect({ path: sock, allowHalfOpen: true });
+      await new Promise<void>((r) => client!.once("connect", () => r()));
+      client.pause();
+      // Four megabytes the client never reads, then a child that stays alive.
+      client.write(JSON.stringify({ type: "spawn", id: "hangup", cliPath: "/bin/sh",
+        args: ["-c", "head -c 4000000 /dev/zero; exec sleep 600"], cwd: store, env: {} }) + "\n");
+      await new Promise((r) => setTimeout(r, 1_500));
+      client.end();
+      await new Promise((r) => setTimeout(r, 300));
+      client.destroy();
+      // Monitor tick 500ms and a 1s grace from the hang-up: about 2s.
+      expect(await until(() => exited, 8_000)).toBe(true);
+    } finally {
+      client?.destroy();
+      try { orphan.kill(); } catch { /* already gone — that's the pass case */ }
+      try { rmSync(store, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  }, 25_000);
+
+  test("a server that recycles its socket under a flood and comes back after the grace keeps its sessions", async () => {
+    // Production's pose after any restart: the spawner long dead (53082's parent
+    // is), a live server attached. Under a flood the server's loop stalls, its
+    // watchdog recycles the socket, and the reconnect waits behind the next
+    // stall. Hanging up is leaving (the test above), so the daemon outlives the
+    // gap only because it adopted the server that pinged it with its pid. On
+    // the hang-up fix alone it shut down and took the session with it.
+    const sock = join(tmpdir(), `ai-bridge-recycle-${process.pid}.sock`);
+    const store = mkdtempSync(join(tmpdir(), "ai-bridge-recycle-store-"));
+    const corpse = Bun.spawn(["/usr/bin/true"], { stdout: "ignore", stderr: "ignore" });
+    await corpse.exited;
+    const orphan = Bun.spawn(
+      [process.execPath, join(import.meta.dir, "ai-bridge.mjs"),
+        "--socket", sock, "--store-dir", store, "--parent-pid", String(corpse.pid)],
+      { stdout: "ignore", stderr: "ignore", env: { ...process.env, ...FAST_ENV,
+        TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "1000", TOPICS_AI_BRIDGE_REAL_CLIENT_MS: "1000" } },
+    );
+    let first: net.Socket | null = null;
+    let again: net.Socket | null = null;
+    const opened = (): Promise<net.Socket> => new Promise((ok, fail) => {
+      const c = net.connect(sock, () => ok(c));
+      c.once("error", fail);
+    });
+    try {
+      expect(await until(() => existsSync(sock), 10_000)).toBe(true);
+      let exited = false;
+      void orphan.exited.then(() => { exited = true; });
+      first = await opened();
+      first.write(JSON.stringify({ type: "ping", pid: process.pid }) + "\n");
+      first.write(JSON.stringify({ type: "spawn", id: "recycle", cliPath: "/bin/sh",
+        args: ["-c", "head -c 4000000 /dev/zero; exec sleep 600"], cwd: store, env: {} }) + "\n");
+      await new Promise((r) => setTimeout(r, 2_500)); // attached long enough to count as the server
+      first.pause(); // the loop stands still: nothing read, frames queue in the daemon
+      await new Promise((r) => setTimeout(r, 2_000));
+      first.destroy(); // the watchdog recycles
+      await new Promise((r) => setTimeout(r, 4_000)); // the next stall, well past the 1 s grace
+      expect(exited, "the daemon left while its server was alive the whole time").toBe(false);
+      again = await opened();
+      let pending = "";
+      const list = new Promise<{ sessions?: Array<{ id: string; alive: boolean }> }>((ok) => {
+        again!.on("data", (d) => {
+          pending += d.toString();
+          for (const line of pending.split("\n")) {
+            try { const m = JSON.parse(line); if (m.type === "list") ok(m); } catch { /* partial or other frame */ }
+          }
+        });
+      });
+      again.write(JSON.stringify({ type: "list" }) + "\n");
+      expect((await list).sessions?.map((x) => ({ id: x.id, alive: x.alive }))).toEqual([{ id: "recycle", alive: true }]);
+    } finally {
+      first?.destroy();
+      again?.destroy();
+      try { orphan.kill(); } catch { /* already gone */ }
+      try { rmSync(store, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  }, 30_000);
+
   test("a daemon with a LIVE parent stays up", async () => {
     const sock = join(tmpdir(), `ai-bridge-live-${process.pid}.sock`);
     const store = mkdtempSync(join(tmpdir(), "ai-bridge-live-store-"));
@@ -456,4 +557,35 @@ describe("ai-bridge orphan monitor", () => {
       try { rmSync(store, { recursive: true, force: true }); } catch { /* best effort */ }
     }
   }, 15_000);
+
+  test("an orphan adopts the server that came back: that server's disconnect no longer runs out its grace", async () => {
+    // The production daemon on 25/09: its spawner dead, the server that
+    // reconnected alive but gone quiet (a stalled loop, a recycled socket).
+    const sock = join(tmpdir(), `ai-bridge-adopt-${process.pid}.sock`);
+    const store = mkdtempSync(join(tmpdir(), "ai-bridge-adopt-store-"));
+    const corpse = Bun.spawn(["/usr/bin/true"], { stdout: "ignore", stderr: "ignore" });
+    await corpse.exited;
+    const orphan = Bun.spawn(
+      [process.execPath, join(import.meta.dir, "ai-bridge.mjs"),
+        "--socket", sock, "--store-dir", store, "--parent-pid", String(corpse.pid)],
+      { stdout: "ignore", stderr: "ignore", env: { ...process.env, ...FAST_ENV, TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "1000", TOPICS_AI_BRIDGE_REAL_CLIENT_MS: "500" } },
+    );
+    let exited = false;
+    void orphan.exited.then(() => { exited = true; });
+    try {
+      expect(await until(() => existsSync(sock), 10_000)).toBe(true);
+      const server = net.connect(sock);
+      await new Promise((r) => server.once("connect", r));
+      server.write(JSON.stringify({ type: "ping", pid: process.pid }) + "\n");
+      // Attached long enough to be a server, and at least one monitor tick.
+      await new Promise((r) => setTimeout(r, 1_500));
+      server.destroy();
+      // Past the 1 s grace and several ticks: this process is alive, so is the daemon.
+      await new Promise((r) => setTimeout(r, 3_000));
+      expect(exited).toBe(false);
+    } finally {
+      try { orphan.kill(); } catch { /* ignore */ }
+      try { rmSync(store, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  }, 20_000);
 });

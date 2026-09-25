@@ -13,6 +13,7 @@
  * @covers RESUME-02
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { stopOwnAiBridges } from "../../scripts/stray-ai-bridges";
 import { mkdtempSync, mkdirSync, rmSync, existsSync, cpSync, chmodSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -38,8 +39,8 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   try { const { getProvider } = await import("../../server/providers"); await (getProvider("claude-code") as any)?.stop?.(); } catch {}
-  const { __resetAiBridgeClientForTests } = await import("../../server/lib/ai-bridge-client");
-  __resetAiBridgeClientForTests();
+  // Resets the client and stops the daemon it started, which is detached.
+  await stopOwnAiBridges();
   for (const [k, v] of Object.entries(savedEnv)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   if (tempDir && existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
 });

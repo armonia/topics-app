@@ -47,7 +47,7 @@ import { readFileSync, existsSync, readdirSync, mkdtempSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { extractClaims, checkReport, type RepoProbe } from "./deliveryReportChecks";
+import { extractClaims, checkReport, declaredSymbols, type RepoProbe } from "./deliveryReportChecks";
 import { repoProbe, probeForRoot } from "./deliveryReportProbe";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -263,21 +263,29 @@ describe("cosa il cancello dice di se stesso", () => {
  * for the defect to surface at all. That is the argument for these four
  * assertions living here rather than only in the pure bench.
  */
+/** The real probe answers only what `prepare` asked git, the way the server
+ *  uses it: each report here carries the question. */
+const prepared = async (probe: RepoProbe, ...reports: string[]): Promise<RepoProbe> =>
+  (await probe.prepare?.(reports)) ?? probe;
+
 describe("la sonda vera distingue «no» da «non lo so»", () => {
-  test("uno sha inventato non esiste, e lo dice", () => {
-    expect(repoProbe.shaExists("0000000deadbee1")).toBe(false);
+  test("uno sha inventato non esiste, e lo dice", async () => {
+    const p = await prepared(repoProbe, "Fatto (commit 0000000deadbee1).");
+    expect(p.shaExists("0000000deadbee1")).toBe(false);
   });
 
-  test("uno sha vero esiste", () => {
+  test("uno sha vero esiste", async () => {
     const head = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
-    expect(repoProbe.shaExists(head)).toBe(true);
+    const p = await prepared(repoProbe, `Fatto (commit ${head}).`);
+    expect(p.shaExists(head)).toBe(true);
   });
 
-  test("un percorso citato per nome corto si risolve", () => {
+  test("un percorso citato per nome corto si risolve", async () => {
     // The false positive that accused 20 existing paths: reports cite files
     // the way people talk about them, not from the repository root.
-    expect(repoProbe.fileMatches("tasks.ts")).toBe(true);
-    expect(repoProbe.fileMatches("questo/file/non/esiste.ts")).toBe(false);
+    const p = await prepared(repoProbe, "Toccati `tasks.ts` e `questo/file/non/esiste.ts`.");
+    expect(p.fileMatches("tasks.ts")).toBe(true);
+    expect(p.fileMatches("questo/file/non/esiste.ts")).toBe(false);
   });
 
   /**
@@ -319,19 +327,24 @@ describe("la sonda vera distingue «no» da «non lo so»", () => {
     });
     afterAll(() => rmSync(repo, { recursive: true, force: true }));
 
-    test("un simbolo mai scritto non compare nella storia", () => {
-      expect(probe.symbolInHistory("simboloCheNessunoHaMaiScritto")).toBe(false);
+    test("un simbolo mai scritto non compare nella storia", async () => {
+      const p = await prepared(probe, "Nuovo `simboloCheNessunoHaMaiScritto`.");
+      expect(p.symbolInHistory("simboloCheNessunoHaMaiScritto")).toBe(false);
     });
 
-    test("un simbolo scritto e poi cancellato resta nella storia", () => {
+    test("un simbolo scritto e poi cancellato resta nella storia", async () => {
       // The non-vacuity of the test above, and the line between the two
       // implementations: this is a pickaxe over the DIFFS, not a grep of the
       // tip. `goneSymbol` is in no file any more and must still answer yes.
-      expect(probe.symbolInHistory("goneSymbol")).toBe(true);
-      expect(probe.symbolInHistory("keptSymbol")).toBe(true);
+      // One report each: inside a report git stops at the first symbol found.
+      // And each report does ask: a symbol it did not ask answers yes too.
+      expect([declaredSymbols("Vedi `goneSymbol`."), declaredSymbols("Vedi `keptSymbol`.")]).toEqual([["goneSymbol"], ["keptSymbol"]]);
+      const p = await prepared(probe, "Vedi `goneSymbol`.", "Vedi `keptSymbol`.");
+      expect(p.symbolInHistory("goneSymbol")).toBe(true);
+      expect(p.symbolInHistory("keptSymbol")).toBe(true);
     });
 
-    test("un simbolo che vive solo nel worktree viene rilevato, ed e' giusto cosi'", () => {
+    test("un simbolo che vive solo nel worktree viene rilevato, ed e' giusto cosi'", async () => {
       // Not a false positive. At review time the work has to be committed, and
       // `git log --all -S` looks at every ref, so an agent's branch is inside
       // that. A symbol that appears nowhere means it lives only in the worktree,
@@ -340,7 +353,7 @@ describe("la sonda vera distingue «no» da «non lo so»", () => {
       // symbol from the test file, not yet committed, and the check rejected it.
       const sha = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
       const r = `Fatto (commit ${sha}). Vedi \`worktreeOnlySymbol\`.`;
-      expect(checkReport(r, probe).map((x) => x.code)).toContain("symbol-never-written");
+      expect(checkReport(r, await prepared(probe, r)).map((x) => x.code)).toContain("symbol-never-written");
     });
   });
 });

@@ -31,6 +31,7 @@ import { homedir, tmpdir } from "os";
 import { join, resolve } from "path";
 import { IS_WINDOWS, processRows } from "./platform";
 import { defaultE2EPort, E2E_DEFAULT_PORT } from "./worktree-port";
+import { TEST_RUN_ENV, newTestRunId } from "../../../scripts/stray-ai-bridges";
 
 /**
  * Il checkout a cui appartiene QUESTO file — non `process.cwd()`, che cambia a
@@ -199,6 +200,15 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     TOPICS_PTY_SOCKET: bridgeSocket("pty-bridge", port),
     // Stessa storia per il broker stream-json.
     TOPICS_AI_BRIDGE_SOCKET: bridgeSocket("ai-bridge", port),
+    // A bank daemon whose server died gives up after 15s, not the 90s meant for
+    // a production restart. The teardown stops it anyway; this covers a run
+    // killed before its teardown. The two specs that restart the server test
+    // the browser and the terminal, not a claude turn surviving it.
+    TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "15000",
+    // Every ai-bridge daemon this server starts inherits it, and the teardown
+    // finds the run's leftovers by it (scripts/stray-ai-bridges.ts). The first
+    // call writes it; the workers inherit it, so a restarted server shares it.
+    [TEST_RUN_ENV]: (process.env[TEST_RUN_ENV] ??= newTestRunId()),
     // Il bundle servito è la fotografia fatta dal globalSetup, non `public/` del
     // repo: vedi publicDirForPort qui sopra.
     TOPICS_PUBLIC_DIR: publicDirForPort(port),

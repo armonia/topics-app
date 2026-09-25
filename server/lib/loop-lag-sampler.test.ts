@@ -8,6 +8,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   loopLagLine,
+  readSelfMemory,
   startLoopLagSampler,
   type LoopLagSample,
 } from "./loop-lag-sampler";
@@ -60,6 +61,43 @@ describe("loopLagLine", () => {
     expect(line).toContain("compressed=?MB");
     expect(line).toContain("disk-faults=?");
     expect(line).not.toContain("=0MB");
+  });
+});
+
+describe("where a stall's time went", () => {
+  it("says how much of the stall was CPU and how much was waiting in the scheduler's queue", () => {
+    const line = loopLagLine({
+      now: new Date("2026-09-25T17:00:00.000Z"),
+      lagMs: 287_000,
+      thresholdMs: 1000,
+      // Runnable counts running AND waiting: 912 of work + 3127 in the queue.
+      sample: { ...healthy, cpuMs: 10_912, runnableMs: 24_039 },
+      previousDiskFaults: 1000,
+      previousCpuMs: 10_000,
+      previousRunnableMs: 20_000,
+    });
+    expect(line).toContain("cpu=+912ms queued=+3127ms");
+  });
+
+  it("the first stall, with nothing to compare against, says `?`", () => {
+    const line = loopLagLine({ now: new Date(0), lagMs: 2000, thresholdMs: 1000, sample: { ...healthy, cpuMs: 5, runnableMs: 7 }, previousDiskFaults: null });
+    expect(line).toContain("cpu=? queued=?");
+  });
+
+  it.if(process.platform === "darwin")("reads this process's runnable time in ms: at least the CPU it spent busy, next to its footprint", () => {
+    const cpu = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
+    const before = readSelfMemory();
+    const cpuBefore = cpu();
+    const end = performance.now() + 300;
+    while (performance.now() < end) { /* busy: runnable the whole time */ }
+    const after = readSelfMemory();
+    const spent = cpu() - cpuBefore;
+    expect(before.footprintMB).toBeGreaterThan(0);
+    const runnable = after.runnableMs! - before.runnableMs!;
+    // Mach ticks read as ms would be 41x too big, nanoseconds as ms 1e6 too big:
+    // the unit is right when running time sits inside it and the wall bounds it.
+    expect(runnable).toBeGreaterThanOrEqual(spent * 0.9);
+    expect(runnable).toBeLessThan(300 * 12 + 100);
   });
 });
 

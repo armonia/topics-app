@@ -10,8 +10,11 @@
  * @covers KANBAN-11
  */
 import { test, expect, describe, beforeEach } from "bun:test";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { createTaskService, type TaskService } from "./tasks";
+import { createTaskService, deliveryNotesInFlight, type TaskService } from "./tasks";
 import { freshDb, PID } from "./tasks-test-db";
 import type { RepoProbe } from "./deliveryReportChecks";
 
@@ -65,5 +68,103 @@ describe("the delivery verifier probes the card's repository", () => {
 
     expect(asked[0]?.assignedTopicId).toBeNull();
     expect(built).toEqual(["/projects/of/the-board"]);
+  });
+});
+
+describe("a note that died with the process is written at the next boot", () => {
+  const findsNothing: RepoProbe = { ...silentProbe, symbolInHistory: () => false };
+
+  test("the agent deliveries still in review without a note are checked again; the others are not", async () => {
+    const db = freshDb();
+    // The process that delivered never wrote the note (it stopped while git
+    // was being asked): modelled by a probe that finds nothing to say.
+    const before = createTaskService(db, { repoRootFor: () => "/r", probeFor: () => silentProbe });
+    const deliver = (text: string) => {
+      const t = before.create({ projectId: PID, text, status: "in_progress" });
+      before.update({ taskId: t.id, actor: "agent", by: "agent-1", patch: { status: "review", summary: "Nuovo `neverWrittenSymbol`." } });
+      return t.id;
+    };
+    const lost = deliver("persa");
+    const bySystem = deliver("portata dal sistema");
+    const old = deliver("vecchia");
+    db.run("UPDATE tasks SET delivered_by = 'system' WHERE id = ?", [bySystem]);
+    db.run("UPDATE tasks SET updated_at = '2020-01-01T00:00:00.000Z' WHERE id = ?", [old]);
+
+    const told: string[] = [];
+    const next = createTaskService(db, {
+      repoRootFor: () => "/r",
+      probeFor: () => ({ ...findsNothing, prepare: async () => findsNothing }),
+      onLateDeliveryNote: (taskId) => told.push(taskId),
+    });
+    expect(next.recheckRecentDeliveries(new Date(Date.now() - 60_000).toISOString())).toBe(1);
+    await deliveryNotesInFlight();
+    const noteOf = (id: string) => next.get(id)!.comments.filter((c) => c.kind === "review-note").map((c) => c.content).join("\n");
+    expect(noteOf(lost)).toContain("neverWrittenSymbol");
+    expect([noteOf(bySystem), noteOf(old)]).toEqual(["", ""]);
+    expect(told).toEqual([lost]);
+    // Once written, the note is there: a second boot has nothing left to do.
+    expect(next.recheckRecentDeliveries(new Date(Date.now() - 60_000).toISOString())).toBe(0);
+  });
+});
+
+describe("the verifier's git does not hold the server's loop", () => {
+  // A git that answers everything at once except `log -S`, which walks every
+  // ref (up to 20 s measured on a real repository): 3 s here, and it finds
+  // only `foundSymbolHere`. It stamps the start and end of each `-S` so the
+  // fixture can tell whether the loop ran meanwhile.
+  function runFixture(mode: "single" | "multirow" | "race") {
+    const bin = mkdtempSync(join(tmpdir(), "slow-git-"));
+    const marks = mkdtempSync(join(tmpdir(), "slow-git-marks-"));
+    writeFileSync(
+      join(bin, "git"),
+      [
+        "#!/bin/sh",
+        "sym=",
+        `case "$*" in *" -S "*) sym=$(printf '%s\\n' "$*" | sed 's/.* -S \\([^ ]*\\).*/\\1/');; esac`,
+        '[ -n "$sym" ] && touch "$MARKS/start-$sym"',
+        'case "$sym" in foundSymbolHere) echo abc1234;; "") ;; *) sleep 3;; esac',
+        '[ -n "$sym" ] && touch "$MARKS/end-$sym"',
+        "exit 0",
+        "",
+      ].join("\n"),
+    );
+    chmodSync(join(bin, "git"), 0o755);
+    const child = Bun.spawn(
+      [process.execPath, join(import.meta.dir, "tasks.delivery-probe.slow-git.fixture.ts"), mkdtempSync(join(tmpdir(), "repo-")), mode],
+      { env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, MARKS: marks }, stdout: "pipe", stderr: "pipe" },
+    );
+    return (async () => {
+      const out = await new Response(child.stdout).text();
+      await child.exited;
+      return JSON.parse(out.trim().split("\n").at(-1) ?? "{}") as { beatsWhileGitRan?: number | null; notes?: string[] };
+    })();
+  }
+
+  test("one report: the update returns at once, and the note follows git's answer", async () => {
+    const r = await runFixture("single");
+    expect(r.notes?.join("\n")).toContain("slowSymbolNeverWritten");
+    expect(r.beatsWhileGitRan, "the loop stood still while git looked the symbol up").toBeGreaterThan(0);
+  }, 30_000);
+
+  test("several rows in the turn: git is asked row by row, off the loop, and the note reads only those answers", async () => {
+    // The first version asked until the first symbol found across ALL rows, so
+    // the older row's symbol was never asked ahead and the check asked it
+    // synchronously: 2081 ms of loop held (PR #147, second review).
+    const r = await runFixture("multirow");
+    expect(r.notes?.join("\n")).toContain("slowSymbolNeverWritten");
+    expect(r.beatsWhileGitRan, "the loop stood still while git looked the older row's symbol up").toBeGreaterThan(0);
+  }, 30_000);
+
+  test("a note still on its way for turn 1 does not land under turn 2's clean delivery", async () => {
+    const r = await runFixture("race");
+    expect(r.beatsWhileGitRan, "git was asked about turn 1's symbol").not.toBeNull();
+    expect(r.notes).toEqual([]);
+  }, 30_000);
+
+  test("the probe has no synchronous git left to fall back on", () => {
+    // What the three cases above measure, said once where it cannot drift: the
+    // only way this module reaches git is `execFile`, answered off the loop.
+    const src = readFileSync(join(import.meta.dir, "deliveryReportProbe.ts"), "utf8");
+    expect(src.split("\n").filter((l) => /execFileSync|spawnSync|execSync/.test(l))).toEqual([]);
   });
 });
