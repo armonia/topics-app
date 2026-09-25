@@ -2,11 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.390 — 2026-09-25
+
+### Sotto il cofano
+- Il commento dice cosa conta davvero per spostare la nota in fondo
+
 ## 2.2.389 — 2026-09-25
 
 ### Sotto il cofano
 - A Stop before the fresh child is ready writes nothing and lets the queue move
 - Record the size claude-code.ts grew to for the second round of lifetime fixes
+- Le tre riserve del verifier sulle note d'attesa: traccia del tick, episodio nuovo in fondo, un frame dopo il riavvio
+- Un nome che il cancello dei nomi conosce: buried
 - The send watchdog's window is a field, so a test can shrink it
 - a dead child's cleanup must not end the next message, and the person's wait is not silence for the watchdog or the reaper
 - A dead child in the map no longer takes, and loses, the next message's handler
@@ -47,6 +54,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Nomi e commenti in inglese, articoli italiani marcati come dato: i cancelli della lingua tornano verdi
 - Baseline dei nomi: NightModeCard perde «soglia», il debito scende di uno
 - Escape rimette il fuoco sul ⚙ anche in WebKit: Safari non dà il fuoco a un bottone cliccato, e il bersaglio salvato era <body>
+- Test rossi: le note di una card trattenuta si impilano a ogni boot e il chip in coda resta su una card in review
+- Le note di una card trattenuta sono uno stato: una riga per card, non una per boot
+- Il test del resume che rinuncia legge lo slot: una riga d'attesa, quella nuova
 - Il server muore di SIGTERM dopo un Chromium: Playwright gli smonta il gestore
 - **swap-freeze** · il log del freezer ripete comandi multi-riga e skip a ogni beat
 - Il taglio del comando nel log non spezza un'emoji a metà
