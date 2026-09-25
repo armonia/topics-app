@@ -70,11 +70,11 @@ describe("callSendChatMessage when the turn does not finish on the stream", () =
       streaming: () => LIVE,
       messages: () => [
         { id: "u0", role: "user", content: "ping" },
-        { id: "m0", role: "assistant", content: "an earlier answer to the same words" },
+        { id: "m0", role: "assistant", content: "an earlier answer to the same words", latencyMs: 1200 },
         { id: "u1", role: "user", content: "ping" },
         ++polls < 3
           ? { id: "m1", role: "assistant", content: "half ", partial: true }
-          : { id: "m1", role: "assistant", content: "half an answer, and then the rest of it" },
+          : { id: "m1", role: "assistant", content: "half an answer, and then the rest of it", latencyMs: 1200 },
       ],
     });
     const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST);
@@ -121,7 +121,7 @@ describe("callSendChatMessage when the turn does not finish on the stream", () =
         { id: "u1", role: "user", content: "ping" },
         looks < 5
           ? { id: "m1", role: "assistant", content: "", partial: true }
-          : { id: "m1", role: "assistant", content: "the whole answer" },
+          : { id: "m1", role: "assistant", content: "the whole answer", latencyMs: 1200 },
       ],
     });
     const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
@@ -144,8 +144,8 @@ describe("callSendChatMessage when the turn does not finish on the stream", () =
       chat,
       streaming: () => [],
       messages: () => [
-        { id: "m1", role: "assistant", content: "our answer" },
-        { id: "m2", role: "assistant", content: "someone else's answer" },
+        { id: "m1", role: "assistant", content: "our answer", latencyMs: 1200 },
+        { id: "m2", role: "assistant", content: "someone else's answer", latencyMs: 1200 },
       ],
     });
     expect(await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST)).toBe("our answer");
@@ -153,7 +153,7 @@ describe("callSendChatMessage when the turn does not finish on the stream", () =
 
   test("a server that reloads during the wait is waited through, and one that stays down is said to be", async () => {
     let reads = 0;
-    const reloading = world({ streaming: () => [], messages: () => [{ id: "m1", role: "assistant", content: "the whole answer" }] });
+    const reloading = world({ streaming: () => [], messages: () => [{ id: "m1", role: "assistant", content: "the whole answer", latencyMs: 1200 }] });
     const flaky = (async (url: RequestInfo | URL, init?: RequestInit) => {
       if (String(url).includes("/messages/") && ++reads <= 3) throw new TypeError("Unable to connect. Is the computer able to access the url?");
       return reloading(url, init);
@@ -216,10 +216,37 @@ describe("callSendChatMessage when the turn does not finish on the stream", () =
     expect(out).not.toContain("Topics resends");
   });
 
-  test("a cut turn whose row closed with nothing in it ended without a reply", async () => {
-    const fetchImpl = world({ streaming: () => [], messages: () => [{ id: "m1", role: "assistant", content: "" }] });
-    await expect(callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST))
-      .rejects.toThrow(/stream interrupted, and the turn ended without leaving a reply\. Before sending it again/);
+  /**
+   * CLOSED FROM OUTSIDE IS NOT FINISHED. Only a turn's own completion writes
+   * `latencyMs`; the boot sweep after a crash, a Stop and the sweeper close the
+   * row without it, and the boot sweep writes no verdict on it (the person has
+   * the restart notice). The half, or nothing, is never the reply.
+   */
+  test("a cut turn whose row was closed from outside is not finished, with or without text", async () => {
+    for (const content of ["", "half an answer"]) {
+      const fetchImpl = world({ streaming: () => [], messages: () => [{ id: "m1", role: "assistant", content }] });
+      await expect(callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST))
+        .rejects.toThrow(/stream interrupted, and the turn was closed before it finished \(a restart, a stop or the watchdog\)\. (It had written nothing|What it had written: "half an answer")\. Before sending it again/);
+    }
+  });
+
+  test("every failure after the send warns against sending again, but the busy refusal, which accepted nothing", async () => {
+    const cases: Array<[string, typeof fetch]> = [
+      ["cut before the row was named", world({ chat: delta("half "), streaming: () => [], messages: () => [] })],
+      ["still running", world({ streaming: () => LIVE, messages: () => [{ id: "m1", role: "assistant", content: "", partial: true }] })],
+      ["server error", stubFetch(async (url) => String(url).endsWith("/api/topics/t1")
+        ? Response.json({ topic: { sessionKey: "topic:target", name: "Target" } })
+        : new Response("boom", { status: 500 }))],
+    ];
+    for (const [name, fetchImpl] of cases) {
+      const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST).catch((err: Error) => err.message);
+      expect(`${name}: ${out}`).toContain("Before sending it again, check read_chat_messages");
+    }
+    const busy = stubFetch(async (url) => String(url).endsWith("/api/topics/t1")
+      ? Response.json({ topic: { sessionKey: "topic:target", name: "Target" } })
+      : new Response("busy", { status: 409 }));
+    const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, busy, FAST).catch((err: Error) => err.message);
+    expect(out).not.toContain("Before sending it again");
   });
 
   test("a turn stopped by the machine or ended in an error says which", async () => {
@@ -276,7 +303,7 @@ describe("callSendChatMessage against a server that cuts the stream", () => {
         const row = pathname.match(/^\/api\/topics\/t1\/messages\/([^/]+)$/);
         if (row) {
           rowReads++;
-          return Response.json({ message: { id: row[1], role: "assistant", content: `answer of ${row[1]}` } });
+          return Response.json({ message: { id: row[1], role: "assistant", content: `answer of ${row[1]}`, latencyMs: 1200 } });
         }
         return new Response("not found", { status: 404 });
       },

@@ -14,7 +14,7 @@ import {
   resumeVerdict, resumeAttemptOf, type RigaDaValutare, USER_TAIL_GRACE_MS, UNANSWERED_NOTICE,
 } from "./ripresa-boot";
 import { Database } from "bun:sqlite";
-import { insertRestartNotification } from "./boot-partial-sweep";
+import { insertRestartNotification, runBootPartialSweep } from "./boot-partial-sweep";
 import { eCartelloDiInterruzione } from "./cancelled-notice";
 import { decodeCol } from "../../shared/message-blob";
 import { resetTurnEndRegistry } from "../providers/turn-end-registry";
@@ -439,6 +439,36 @@ describe("la catena dei riavvii ha un tetto", () => {
     // The next sweep finds the answer the route deposited and leaves it alone.
     await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
     expect(calls).toHaveLength(1);
+  });
+
+  /**
+   * A ROW THE BOOT CLOSED IS NOT A CUT OF OURS TO RESUME. A person deletes the
+   * amber restart bubble; `deleteMessageSubtree` takes the notice and whatever
+   * the resend put under it, and the row the sweep closed is the chat's last
+   * again. Round 4 wrote a restart verdict on that row, in the words the resume
+   * recognizes, and the resume sent the message again with its attempts back
+   * at 0 (review of eb1971a84: "fai il deploy", ripresa 1). The row carries no
+   * verdict, as on main: nothing to resume, and one notice for the person.
+   */
+  test("the person deletes the restart notice: the row the boot closed, last again, is not resent", async () => {
+    const db = freshDb();
+    for (const col of ["streamed_at", "thinking", "tool_calls"]) db.run(`ALTER TABLE messages ADD COLUMN ${col} TEXT`);
+    const earlier = new Date(Date.now() - 5 * 60_000).toISOString();
+    db.run("UPDATE messages SET timestamp = ? WHERE id = 'u0'", [earlier]);
+    db.run(
+      "INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, parent_id, branch_index) VALUES ('cut','topic:x','assistant','Faccio il deploy: ',1,?,1,'u0',0)",
+      [earlier],
+    );
+    runBootPartialSweep(db as unknown as Parameters<typeof runBootPartialSweep>[0], {
+      listConfirmed: true, liveSessions: new Set(), generateId: () => "restart-notice",
+    });
+    db.run("DELETE FROM messages WHERE id = 'restart-notice'");
+    expect(lastRow(db).id).toBe("cut");
+    expect(blocksOf(lastRow(db).blocks).some((b) => b.kind === "error")).toBe(false);
+
+    const calls: Array<Record<string, unknown>> = [];
+    await quietly(() => riprendiTurniInterrotti({ ...ctxOf(db), bootedAtMs: Date.now() }, chatRoute(db, calls)));
+    expect(calls).toHaveLength(0);
   });
 
   test("l'ultima riga è dell'utente ma un turno è in volo, o è fresca: non si tocca", async () => {

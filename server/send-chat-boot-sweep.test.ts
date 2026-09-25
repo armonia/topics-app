@@ -1,14 +1,17 @@
 /**
- * A SEND WAITED ACROSS A SERVER THAT DIED GETS THE VERDICT, NOT THE HALF.
+ * A SEND WAITED ACROSS A SERVER THAT DIED IS TOLD THE TURN WAS CUT, NOT HANDED THE HALF.
  * @covers CHAT-STREAM-01, CHAT-INT-01
  *
  * From the round-3 review of card 63e01ac0: the process dies without a clean
  * shutdown (SIGKILL, crash) while a turn writes prose; send_chat_message rides
  * the restart out; at boot `runBootPartialSweep` closes the turn's row with
- * `partial = 0` and put its notice in a NEW row, so the row read by id looked
- * like a finished answer and the half came back as the reply. The boot order
- * is replayed on the real database: the sweep, the orphan tools of a dead
- * child, the repair of mute turns; then the real by-id route answers.
+ * `partial = 0` and puts its notice in a NEW row, so the row read by id looked
+ * like a finished answer and the half came back as the reply. The row stays as
+ * the sweep leaves it (one notice for the person, no second one on the row,
+ * nothing the resume could take for a cut of ours): the tool reads the close
+ * from the missing `latency_ms`, which only a turn's own completion writes.
+ * The boot order is replayed on the real database: the sweep, the orphan tools
+ * of a dead child, the repair of mute turns; then the real by-id route answers.
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";
@@ -17,11 +20,11 @@ import { join } from "path";
 import { closeDatabase, getDatabase } from "./db";
 import { createAppContext } from "./utils";
 import { createTopicsRouter } from "./routes/topics";
-import { RESTART_ROW_VERDICT, runBootPartialSweep } from "./lib/boot-partial-sweep";
+import { RESTART_INTERRUPTED_MARKER, runBootPartialSweep } from "./lib/boot-partial-sweep";
 import { bonificaTurniMuti } from "./lib/verdetto-turno-interrotto";
 import { finalizeOrphanTool } from "./lib/orphan-tool-sweep";
 import { decodeCol, encodeCol } from "../shared/message-blob";
-import { callSendChatMessage } from "./mcp/topics-mcp-server";
+import { callReadChatMessages, callSendChatMessage, RESTART_NOTICE_OPENING } from "./mcp/topics-mcp-server";
 import type { AppContext, Topic } from "./types";
 
 const DATA_DIR_BEFORE = process.env.DATA_DIR;
@@ -102,21 +105,21 @@ const send = (tid: string, fetchImpl: typeof fetch) => callSendChatMessage(
 );
 
 describe("send_chat_message across a server that died and booted", () => {
-  test("died while the model wrote prose, no tool running: the restart verdict, with the half as what it had written", async () => {
+  test("died while the model wrote prose, no tool running: closed before it finished, the half as what it had written", async () => {
     const rowId = turnCutMidway("boot-prose", false);
     await expect(send("boot-prose", serverThatDiesAndBoots("boot-prose", rowId, 3)))
-      .rejects.toThrow(`stream interrupted, and the turn then ended badly: ${RESTART_ROW_VERDICT} What it had written: ${JSON.stringify(HALF.trim())}`);
+      .rejects.toThrow(`stream interrupted, and the turn was closed before it finished (a restart, a stop or the watchdog). What it had written: ${JSON.stringify(HALF.trim())}. Before sending it again`);
   });
 
-  test("died during a silent tool: the same verdict, written once", async () => {
+  test("died during a silent tool: the interrupted tool's verdict, written once", async () => {
     const rowId = turnCutMidway("boot-tool", true);
     await expect(send("boot-tool", serverThatDiesAndBoots("boot-tool", rowId, 3)))
-      .rejects.toThrow(`stream interrupted, and the turn then ended badly: ${RESTART_ROW_VERDICT} What it had written`);
+      .rejects.toThrow(/stream interrupted, and the turn then ended badly: Turno interrotto prima di una risposta finale\. What it had written/);
     const row = ctx.getMessageById(rowId)!;
     expect(row.blocks!.filter((b) => b.kind === "error")).toHaveLength(1);
   });
 
-  test("died before anything was saved: no reply, a warning against resending, and no second bubble in the chat", async () => {
+  test("died before anything was saved: nothing written, a warning against resending, the row left hidden", async () => {
     const tid = "boot-empty";
     const sessionKey = `topic:${tid}`;
     const now = new Date().toISOString();
@@ -124,16 +127,49 @@ describe("send_chat_message across a server that died and booted", () => {
     ctx.appendLocalMessage(sessionKey, "user", "ping");
     const rowId = ctx.createPartialMessage(sessionKey, "assistant").id;
     await expect(send(tid, serverThatDiesAndBoots(tid, rowId, 2)))
-      .rejects.toThrow(/the turn ended without leaving a reply\. Before sending it again, check read_chat_messages/);
+      .rejects.toThrow(/closed before it finished \(a restart, a stop or the watchdog\)\. It had written nothing\. Before sending it again, check read_chat_messages/);
     expect(ctx.getMessageById(rowId)!.blocks).toBeUndefined();
   });
 
-  test("the chat shows the same truth: the prose, then the verdict", async () => {
+  test("the person reads one notice: the prose row carries no verdict, the restart notice after it does", async () => {
     const rowId = turnCutMidway("boot-list", false);
     await send("boot-list", serverThatDiesAndBoots("boot-list", rowId, 1)).catch(() => {});
     const url = new URL("http://t.test/api/topics/boot-list/messages?limit=50");
-    const { messages } = await (await createTopicsRouter(ctx)(new Request(url), url, url.pathname, "GET"))!.json() as { messages: Array<{ id: string; blocks?: Array<{ kind: string; text?: string }> }> };
-    const row = messages.find((m) => m.id === rowId)!;
-    expect(row.blocks).toEqual([{ kind: "text", text: HALF }, { kind: "error", text: RESTART_ROW_VERDICT }]);
+    const { messages } = await (await createTopicsRouter(ctx)(new Request(url), url, url.pathname, "GET"))!.json() as { messages: Array<{ id: string; content: string; blocks?: Array<{ kind: string; text?: string }> }> };
+    const at = messages.findIndex((m) => m.id === rowId);
+    expect(messages[at].content).toBe(HALF);
+    expect(messages[at].blocks?.some((b) => b.kind === "error") ?? false).toBe(false);
+    expect(messages[at + 1].content).toBe(RESTART_INTERRUPTED_MARKER);
+    expect(messages.filter((m) => m.blocks?.some((b) => b.kind === "error"))).toHaveLength(1);
+  });
+});
+
+describe("read_chat_messages after the same restart", () => {
+  test("the cut row says it was cut, a verdict row says how it ended, a finished answer says nothing", async () => {
+    const tid = "boot-read";
+    const rowId = turnCutMidway(tid, false);
+    await send(tid, serverThatDiesAndBoots(tid, rowId, 1)).catch(() => {});
+    // The next turn ends badly (a verdict on its row), the one after it ends well.
+    const sessionKey = `topic:${tid}`;
+    ctx.appendLocalMessage(sessionKey, "user", "riprova");
+    const bad = ctx.createPartialMessage(sessionKey, "assistant");
+    ctx.updateLastMessage(sessionKey, { content: "a meta'", blocks: [{ kind: "text", text: "a meta'" }, { kind: "error", text: "Risposta interrotta" }] as never, partial: undefined }, { rowId: bad.id } as never);
+    ctx.appendLocalMessage(sessionKey, "user", "e ora?");
+    const good = ctx.createPartialMessage(sessionKey, "assistant");
+    ctx.updateLastMessage(sessionKey, { content: "fatto", partial: undefined, latencyMs: 900 } as never, { rowId: good.id } as never);
+
+    const router = createTopicsRouter(ctx);
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const u = new URL(String(input));
+      return (await router(new Request(u), u, u.pathname, "GET"))!;
+    }) as typeof fetch;
+    const out = JSON.parse(await callReadChatMessages({ baseUrl: "http://x", sessionKey: "topic:caller" }, { topic_id: tid }, fetchImpl)) as { messages: Array<{ role: string; content: string; note?: string }> };
+    const noteOf = (content: string) => out.messages.find((m) => m.content === content)?.note;
+    expect(noteOf(HALF)).toBe("cut by a server restart before it finished");
+    expect(noteOf(RESTART_INTERRUPTED_MARKER)).toBeUndefined();
+    expect(noteOf("a meta'")).toBe("ended badly: Risposta interrotta");
+    expect(noteOf("fatto")).toBeUndefined();
+    // The MCP process does not import the sweep: the opening it matches is tied here.
+    expect(RESTART_INTERRUPTED_MARKER).toContain(RESTART_NOTICE_OPENING);
   });
 });

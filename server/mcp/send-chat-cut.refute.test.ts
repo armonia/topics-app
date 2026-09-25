@@ -66,7 +66,7 @@ describe("REFUTE: cut stream fallback", () => {
         { id: "u1", role: "user", content: "ping" },
         p < 4
           ? { id: "m1", role: "assistant", content: "half ", partial: true }
-          : { id: "m1", role: "assistant", content: "half an answer, and then the rest of it" },
+          : { id: "m1", role: "assistant", content: "half an answer, and then the rest of it", latencyMs: 1200 },
       ],
     });
     const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST);
@@ -97,9 +97,9 @@ describe("REFUTE: cut stream fallback", () => {
       streaming: (p) => (p <= 3 ? LIVE : []),
       messages: () => [
         { id: "u1", role: "user", content: "ping" },
-        { id: "m1", role: "assistant", content: "our full answer" },
+        { id: "m1", role: "assistant", content: "our full answer", latencyMs: 1200 },
         { id: "u2", role: "user", content: "queued follow-up from the person" },
-        { id: "m2", role: "assistant", content: "someone else's answer" },
+        { id: "m2", role: "assistant", content: "someone else's answer", latencyMs: 1200 },
       ],
     });
     const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST);
@@ -111,7 +111,7 @@ describe("REFUTE: cut stream fallback", () => {
       streaming: () => LIVE, // goal loop keeps going; our turn ended at once
       messages: () => [
         { id: "u1", role: "user", content: "ping" },
-        { id: "m1", role: "assistant", content: "our full answer" },
+        { id: "m1", role: "assistant", content: "our full answer", latencyMs: 1200 },
         { id: "u2", role: "user", content: "Objective still open: continue" },
       ],
     });

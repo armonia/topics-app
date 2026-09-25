@@ -1462,6 +1462,7 @@ async function postChatReadSSE(
   targetSessionKey: string,
   message: string,
   fetchImpl: typeof fetch,
+  topicId: string,
 ): Promise<{ text: string; complete: boolean; messageId?: string; end?: TurnEndFrame }> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
@@ -1483,7 +1484,7 @@ async function postChatReadSSE(
     if (resp.status === 409) {
       throw new Error("send_chat_message: c'è già un turno in volo su questa topic — riprova quando ha finito");
     }
-    throw new Error(`send_chat_message: chat request failed (HTTP ${resp.status}) ${t.slice(0, 200)}`);
+    throw new Error(`send_chat_message: chat request failed (HTTP ${resp.status}) ${t.slice(0, 200)}. ${beforeResending(topicId)}`);
   }
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
@@ -1567,7 +1568,7 @@ const CUT_SEND_MAX_WAIT_MS = 30 * 60_000;
 // is adopted again after it (38 s after the cut, on 24/09): the wait rides it out.
 const CUT_SEND_UNREACHABLE_MS = 2 * 60_000;
 
-type ChatRow = { id?: string; role?: string; content?: string; partial?: boolean; blocks?: Array<{ kind?: string; text?: string }>; toolCalls?: unknown[] };
+type ChatRow = { id?: string; role?: string; content?: string; partial?: boolean; blocks?: Array<{ kind?: string; text?: string }>; latencyMs?: number };
 
 /**
  * The stream was cut before `[DONE]` while the turn may still be running. Wait
@@ -1589,7 +1590,7 @@ async function awaitTurnEndAndReadReply(
 ): Promise<string> {
   const see = `Use read_chat_messages(topic_id="${topicId}")`;
   if (!messageId) {
-    throw new Error(`send_chat_message: stream interrupted before the turn named its reply, so there is nothing to wait on. ${see}.`);
+    throw new Error(`send_chat_message: stream interrupted before the turn named its reply, so there is nothing to wait on. ${beforeResending(topicId)}`);
   }
   const pollMs = wait.pollMs ?? CUT_SEND_POLL_MS;
   const maxWaitMs = wait.maxWaitMs ?? CUT_SEND_MAX_WAIT_MS;
@@ -1616,7 +1617,7 @@ async function awaitTurnEndAndReadReply(
       // The server is reloading, or busy: the turn may well be alive. Ask again.
       unreachableSince ??= Date.now();
       if (Date.now() - unreachableSince >= unreachableMs) {
-        throw new Error(`send_chat_message: stream interrupted, and topics-app stayed unreachable for ${Math.round(unreachableMs / 1000)} s while the turn was awaited (${err instanceof Error ? err.message : String(err)}). ${see} later.`);
+        throw new Error(`send_chat_message: stream interrupted, and topics-app stayed unreachable for ${Math.round(unreachableMs / 1000)} s while the turn was awaited (${err instanceof Error ? err.message : String(err)}). ${beforeResending(topicId)}`);
       }
     }
     if (row && !row.partial) {
@@ -1626,19 +1627,22 @@ async function awaitTurnEndAndReadReply(
         throw new Error(`send_chat_message: stream interrupted, and the turn then ended badly: ${(verdict.text ?? "error").replace(/[.\s]+$/, "")}.`
           + (text ? ` What it had written: ${JSON.stringify(text)}.` : "") + ` ${beforeResending(topicId)}`);
       }
-      // Closed with nothing in it: never a finished turn (an empty reply gets a
-      // verdict, a tools-only one has its tools). The boot sweep leaves an
-      // empty row that way, hidden in the chat under its restart notice.
-      if (!text && !row.blocks?.length && !row.toolCalls?.length) {
-        throw new Error(`send_chat_message: stream interrupted, and the turn ended without leaving a reply. ${beforeResending(topicId)}`);
+      // CLOSED FROM OUTSIDE, not finished: only a turn's own completion writes
+      // `latency_ms` (the discriminant `reuseOrCreatePartialForReattach` already
+      // relies on). The boot sweep after a crash, a Stop, the sweeper close the
+      // row without it, and the boot sweep writes no verdict on the row: the
+      // person reads the restart notice after it, and one notice is enough.
+      if (row.latencyMs == null) {
+        throw new Error(`send_chat_message: stream interrupted, and the turn was closed before it finished (a restart, a stop or the watchdog).`
+          + (text ? ` What it had written: ${JSON.stringify(text)}.` : " It had written nothing.") + ` ${beforeResending(topicId)}`);
       }
       return text;
     }
     if (live?.state === "waiting") {
-      throw new Error(`send_chat_message: stream interrupted, and the turn is waiting for a person's answer in that chat. ${see} once it is answered.`);
+      throw new Error(`send_chat_message: stream interrupted, and the turn is waiting for a person's answer in that chat. ${see} once it is answered; do not send it again.`);
     }
     if (Date.now() >= deadline) {
-      throw new Error(`send_chat_message: stream interrupted, and the turn is still running after ${Math.round(maxWaitMs / 60_000)} min. ${see} later.`);
+      throw new Error(`send_chat_message: stream interrupted, and the turn is still running after ${Math.round(maxWaitMs / 60_000)} min. ${beforeResending(topicId)}`);
     }
     await new Promise((r) => setTimeout(r, pollMs));
   }
@@ -1679,7 +1683,7 @@ export async function callSendChatMessage(
   if (target.sessionKey === args.sessionKey) {
     throw new Error("send_chat_message: refusing to message your own session — reply normally instead");
   }
-  const read = await postChatReadSSE(args, target.sessionKey, toolArgs.message, fetchImpl);
+  const read = await postChatReadSSE(args, target.sessionKey, toolArgs.message, fetchImpl, toolArgs.topic_id);
   if (read.complete && read.end) throw new Error(unfinishedTurn(read.end, read.text, toolArgs.topic_id));
   const reply = read.complete
     ? read.text
@@ -1688,6 +1692,30 @@ export async function callSendChatMessage(
     return `Sent to "${target.name ?? toolArgs.topic_id}". The turn produced no text reply (it may have only run tools) — use read_chat_messages(topic_id="${toolArgs.topic_id}") to inspect.`;
   }
   return reply;
+}
+
+type ListedRow = { role?: string; content?: string; partial?: boolean; latencyMs?: number; blocks?: Array<{ kind?: string; text?: string }> };
+
+/** How the boot sweep's restart notice opens (`RESTART_INTERRUPTED_MARKER`, lib/boot-partial-sweep.ts). */
+export const RESTART_NOTICE_OPENING = "Turno interrotto da un riavvio del server";
+
+/**
+ * What `content` alone does not say about a row: a turn that ended badly, one
+ * still being written, one a restart cut. The last carries nothing of its own
+ * (the person reads the restart notice right after it, one notice is enough),
+ * so it is told by that notice following a row no completion closed.
+ */
+function turnNote(row: ListedRow, next: ListedRow | undefined): string | undefined {
+  if (row.role !== "assistant") return undefined;
+  const verdict = row.blocks?.find((b) => b?.kind === "error")?.text;
+  // A notice row is its own verdict: its content already says it.
+  if (verdict) return (row.content ?? "").includes(verdict) ? undefined : `ended badly: ${verdict}`;
+  if (row.partial) return "still being written";
+  const nextSays = `${next?.content ?? ""} ${next?.blocks?.find((b) => b?.kind === "error")?.text ?? ""}`;
+  if (row.latencyMs == null && next?.role === "assistant" && nextSays.includes(RESTART_NOTICE_OPENING)) {
+    return "cut by a server restart before it finished";
+  }
+  return undefined;
 }
 
 export async function callReadChatMessages(
@@ -1702,15 +1730,19 @@ export async function callReadChatMessages(
     ? Math.min(Math.floor(toolArgs.limit), 200)
     : 30;
   const path = `/api/topics/${encodeURIComponent(toolArgs.topic_id)}/messages?limit=${limit}`;
-  const body = await httpJson<{ messages?: Array<{ role?: string; content?: string }>; topicName?: string }>(
+  const body = await httpJson<{ messages?: ListedRow[]; topicName?: string }>(
     args, "GET", path, undefined, fetchImpl,
   );
   const msgs = Array.isArray(body?.messages) ? body!.messages : [];
-  const compact = msgs.map((m) => ({
-    role: m.role ?? "?",
-    // Cap each message so a long transcript doesn't blow the tool-result budget.
-    content: (m.content ?? "").slice(0, 4000),
-  }));
+  const compact = msgs.map((m, i) => {
+    const note = turnNote(m, msgs[i + 1]);
+    return {
+      role: m.role ?? "?",
+      // Cap each message so a long transcript doesn't blow the tool-result budget.
+      content: (m.content ?? "").slice(0, 4000),
+      ...(note ? { note } : {}),
+    };
+  });
   return JSON.stringify({ topic: body?.topicName, count: compact.length, messages: compact }, null, 2);
 }
 
