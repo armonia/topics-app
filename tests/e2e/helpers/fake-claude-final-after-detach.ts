@@ -16,7 +16,8 @@
  * "OLDTURN" answers at once; "COMPACTNOW" is a `/compact` (an init, a boundary,
  * an empty result); "AFTERCOMPACT" waits for `finish-turn` like "report";
  * "DELAYED" is read, and its turn starts only at `finish-turn` (the SIGTERM
- * that comes before the CLI's init). Every `duration_ms` is the turn's real length.
+ * that comes before the CLI's init); "SLOWCOMPACT" is a `/compact` that ends
+ * there too. Every `duration_ms` is the turn's real length.
  *
  * Its second review added three more, ported the same way:
  *   - "BGREPORT": the turn starts a background command and ends at
@@ -25,6 +26,8 @@
  *   - "FIXTUREBG": the recorded CLI 2.1.282 session (tests/fixtures, copied
  *     next to this file by the test): its turn ends at `finish-turn` while its
  *     background Agent keeps printing after the `result`.
+ * And one after the third: "LONGTAIL" ends at `finish-turn` with 3 MB of an
+ * Agent's lines after its `result`, then a wake: a replay that spans reads.
  */
 
 // A module, not a global script: the other fake CLIs in this folder declare
@@ -88,6 +91,28 @@ function reviewTurn(text: string): boolean {
     out({ type: "user", session_id: SESSION_ID, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_old", content: "x" }] } });
     assistant([{ type: "text", text: "OLD-B: the old final report." }]);
     result("OLD-B: the old final report.", started);
+  } else if (/LONGTAIL/.test(text)) {
+    init();
+    assistant([{ type: "text", text: "LT-FIRST." }]);
+    assistant([{ type: "tool_use", id: "toolu_lt", name: "Bash", input: { command: "make" } }]);
+    whenFile("finish-turn", () => {
+      out({ type: "user", session_id: SESSION_ID, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_lt", content: "built" }] } });
+      assistant([{ type: "text", text: "LT-FINAL report." }]);
+      result("LT-FINAL report.", started);
+      const agentLine = JSON.stringify({ type: "assistant", session_id: SESSION_ID, parent_tool_use_id: "toolu_agent", message: { role: "assistant", content: [{ type: "text", text: "x".repeat(1000) }] } }) + "\n";
+      process.stdout.write(agentLine.repeat(3000));
+      out({ type: "system", subtype: "task_notification", task_id: "a1", status: "completed", session_id: SESSION_ID });
+      init();
+      assistant([{ type: "text", text: "LT-WAKE." }]);
+      result("LT-WAKE.", started, 1);
+      touch("lt-done");
+    });
+  } else if (/SLOWCOMPACT/.test(text)) {
+    init();
+    whenFile("finish-turn", () => {
+      out({ type: "system", subtype: "compact_boundary", session_id: SESSION_ID, compact_metadata: { trigger: "manual", pre_tokens: 500000 } });
+      result("", started, 0);
+    });
   } else if (/COMPACTNOW/.test(text)) {
     init();
     out({ type: "system", subtype: "compact_boundary", session_id: SESSION_ID, compact_metadata: { trigger: "manual", pre_tokens: 574474 } });

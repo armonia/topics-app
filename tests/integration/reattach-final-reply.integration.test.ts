@@ -71,7 +71,7 @@ async function bench(name: string) {
   const { createTopicsRouter } = await import("../../server/routes/topics");
   const { registerProvider, removeProvider } = await import("../../server/providers");
   const { __resetAiBridgeClientForTests, getAiBridgeClient } = await import("../../server/lib/ai-bridge-client");
-  for (const f of ["finish-turn", "got-delayed", "bg-done", "woken-done", "fx-done"]) rmSync(join(tempDir, f), { force: true });
+  for (const f of ["finish-turn", "got-delayed", "bg-done", "woken-done", "fx-done", "lt-done"]) rmSync(join(tempDir, f), { force: true });
   const ctx = await createTestAppContext();
   const frames: Array<{ type?: string }> = [];
   (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = (m) => frames.push(m as { type?: string });
@@ -244,5 +244,64 @@ describe("a turn that ended while the server was away is written whole at the ne
     await b.reattach();
     await waitFor("the adopted row to close", () => b.rows().every((r) => r.partial === 0), 30_000);
     expect(b.rows().find((r) => r.id === row.id)!.content).toContain(FINAL_REPORT);
+  }, 60_000);
+
+  // Third review of #145: the replayed row closes on its own result while the
+  // reattach still waits for the attach's ack, and the chat's queue sends the
+  // next message at once. The store's last result was handed to that next
+  // row's handler, which closed it as «no reply» and lost its answer.
+  test("the row is a slow /compact that ends during the shutdown: the next message still gets its answer", async () => {
+    const b = await bench("slowcomp");
+    await b.post({ messages: [{ role: "user", content: "OLDTURN" }] });
+    void b.post({ messages: [{ role: "user", content: "SLOWCOMPACT" }] });
+    await waitFor("its partial row", () => { const r = b.rows(); return r.at(-1)?.partial === 1 && r.some((x) => x.content === "SLOWCOMPACT"); });
+    await Bun.sleep(300);
+    b.shutdown(finish);
+    await waitFor("its end in the broker store", () => (readFileSync(b.store(), "utf8").match(/"type":"result"/g) ?? []).length >= 2 && has(b.store(), "compact_boundary"));
+    await b.boot();
+    await waitFor("the adopted row to close", () => b.rows().every((r) => r.partial === 0), 30_000);
+    expect(b.rows().at(-1)!.content).not.toContain("OLD-B");
+    await b.post({ messages: [{ role: "user", content: "OLDTURN" }] });
+    await waitFor("the next answer", () => { const r = b.rows().at(-1)!; return r.role === "assistant" && r.partial === 0 && r.content.includes("OLD-B"); }, 20_000);
+  }, 60_000);
+
+  test("the next message sent the moment the replayed row closes gets its own answer", async () => {
+    const b = await bench("nextfast");
+    void b.post({ messages: [{ role: "user", content: "write the report" }] });
+    await waitFor("the tool to start", () => b.frames.some((f) => /tool/.test(f.type ?? "")));
+    b.shutdown(finish);
+    await waitFor("the turn's end in the broker store", () => has(b.store(), `"result":${JSON.stringify(FINAL_REPORT)}`));
+    b.bootProvider();
+    const adopted = b.reattach();
+    // The chat's queue sends as soon as the row closes.
+    for (const end = Date.now() + 30_000; Date.now() < end && !b.rows().every((r) => r.partial === 0); await Bun.sleep(2)) { /* polling */ }
+    await b.post({ messages: [{ role: "user", content: "hello there" }] });
+    await adopted;
+    await waitFor("the next answer", () => { const r = b.rows().at(-1)!; return r.role === "assistant" && r.partial === 0; }, 20_000);
+    await Bun.sleep(500);
+    expect(b.rows().at(-1)!.content).toBe("ok");
+    expect(b.rows()[1].content).toContain(FINAL_REPORT);
+  }, 60_000);
+
+  // The same window, wide: 3 MB after the row's result reach the server over
+  // several reads, and the next message registers its handler in between. The
+  // tail (an Agent's lines, then a wake) is nobody's, least of all that row's.
+  test("the next message sent while the replay still delivers the store's tail gets its own answer, not the tail", async () => {
+    const b = await bench("longtail");
+    void b.post({ messages: [{ role: "user", content: "LONGTAIL" }] });
+    await waitFor("the tool to start", () => b.frames.some((f) => /tool/.test(f.type ?? "")));
+    b.shutdown(finish);
+    await waitFor("the store's tail", () => existsSync(join(tempDir, "lt-done")) && has(b.store(), '"result":"LT-WAKE.'));
+    b.bootProvider();
+    const adopted = b.reattach();
+    for (const end = Date.now() + 30_000; Date.now() < end && !b.rows().every((r) => r.partial === 0); await Bun.sleep(2)) { /* polling */ }
+    await b.post({ messages: [{ role: "user", content: "hello there" }] });
+    await adopted;
+    await waitFor("the next answer", () => { const r = b.rows().at(-1)!; return r.role === "assistant" && r.partial === 0; }, 20_000);
+    await Bun.sleep(500);
+    const rows = b.rows();
+    expect(rows[1].content).toContain("LT-FINAL report.");
+    expect(rows.at(-1)!.content).not.toContain("LT-WAKE");
+    expect(rows.at(-1)!.content).toBe("ok");
   }, 60_000);
 });

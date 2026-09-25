@@ -1400,7 +1400,8 @@ export class ClaudeCodeProvider implements AIProvider {
     // the kill that cleans it up before the next spawn used to find this new
     // turn's handler on it and end the turn as a watchdog stop, while the CLI
     // went on to answer into a closed row (PR #134 review, round 2).
-    if (pp.stoppedExit || !pp.alive) return;
+    // Nor while a reattach replays the store: its tail is nobody's, and the send installs itself after it.
+    if (pp.stoppedExit || !pp.alive || pp.replaySilent) return;
     pp.streamHandler = handler;
     // Se aspettavamo un adottatore, quel turno ha trovato il suo padrone.
     // Unless it already ended: its held `result` would close whatever turn is
@@ -3163,12 +3164,14 @@ export class ClaudeCodeProvider implements AIProvider {
         // text the old process never flushed and closes on its result (card 98ce88d1). What follows (a
         // wake, an Agent's late lines) folds with no handler, silently, and keeps the background current.
         pp.streamHandler = handler;
-        if (own) {
-          pp.replaySilent = true;
-          dateReplay(pp, await client.attach(sessionKey, own.from));
-          pp.replaySilent = false;
-        }
-        if (pp.streamHandler && pp.replayLastResult) this.handleStreamEvent(pp, pp.replayLastResult); // the replay did not reach it
+        // The next send waits for the replay (sendChat's queue): a handler installed meanwhile got the store's tail.
+        let release = () => {};
+        const replayed = new Promise<void>((r) => { release = () => r(); });
+        if (own) this.queues.set(sessionKey, (this.queues.get(sessionKey) ?? Promise.resolve()).then(() => replayed));
+        try {
+          if (own) { pp.replaySilent = true; dateReplay(pp, await client.attach(sessionKey, own.from)); }
+          if (pp.streamHandler === handler && pp.replayLastResult) this.handleStreamEvent(pp, pp.replayLastResult); // the replay did not reach it
+        } finally { pp.replaySilent = false; release(); }
         return "completed";
       }
       // Empty store (child idle since spawn, or nothing meaningful): nothing
