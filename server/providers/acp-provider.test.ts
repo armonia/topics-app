@@ -559,8 +559,8 @@ describe("a prompt in flight is a pending send", () => {
   test("the registry asks ACP too", async () => {
     registry.registerProvider({ type: "acp", name: "finto-registry", command: process.execPath, args: [FAKE_AGENT], defaultWorkspace: tmpRoot });
     try {
-      const acp = registry.getProvider("finto-registry") as unknown as { sessions: Map<string, unknown> };
-      acp.sessions.set("topic:acp-busy", { promptInFlight: true });
+      const agent = registry.getProvider("finto-registry") as unknown as { sessions: Map<string, unknown> };
+      agent.sessions.set("topic:acp-busy", { promptInFlight: true });
       expect(await registry.sessionHasPendingSend("topic:acp-busy")).toBe(true);
       expect(await registry.sessionHasPendingSend("topic:acp-idle")).toBe(false);
     } finally {

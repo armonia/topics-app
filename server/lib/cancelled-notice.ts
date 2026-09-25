@@ -336,5 +336,5 @@ const CARTELLI_RIPRENDIBILI = [
   // answered, when no restart happened (`UNANSWERED_NO_RESTART_NOTICE` in
   // lib/ripresa-boot.ts). It becomes the row the resend is traced on, so the
   // next sweep has to read it as ours.
-  "Turno interrotto: la risposta non è mai partita",
+  "Turno interrotto: la risposta non è mai arrivata",
 ] as const;

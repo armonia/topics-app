@@ -539,7 +539,8 @@ describe("the notice variants and the recogniser", () => {
    * the cause belongs to the LAST cut, the only one read. «l'agente ha smesso
    * di rispondere 4 volte di fila» extended one watchdog to the whole chain,  allow-italian: quotes the notice
    * and the restart variant counted four restarts after a single boot. One
-   * voice (the server speaking, first person) and one spelling (è, not e').
+   * voice (the server speaking, first person) and one spelling (the accented
+   * vowel, never the apostrophe that stood in for it).
    */
   test("every variant counts resends, blames only the last cut, and speaks one way", () => {
     const caps = [undefined, "watchdog", "server-shutdown", "rate-limit"].flatMap((cause) =>

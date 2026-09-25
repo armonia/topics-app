@@ -28,6 +28,10 @@
  *     turn-end registry (`readTurnEnd`) and, since the registry dies with
  *     every reload, from `activity_log`: a Stop recorded at or after the
  *     message means they stopped it (topic c5d57a41, 24/09);
+ *   · and only if nothing was produced after the LAST such verdict: a late
+ *     answer of a closed turn is saved on its own row, under the verdict, and
+ *     a row that carries one was answered whatever the verdict above it says.
+ *     Resending it runs the message a second time (the 3019832f shape);
  *   · never while a provider still holds a send for the chat
  *     (`sessionHasPendingSend`): a send queued behind a stuck turn is live
  *     even with no stream and no process (topic 3019832f, 24/09);
@@ -99,15 +103,16 @@ export const USER_TAIL_GRACE_MS = 2 * 60_000;
  *  explanation in the thread, then the resend). Its opening words are one of
  *  `CARTELLI_RIPRENDIBILI`, so the resume that follows recognises it. */
 export const UNANSWERED_NOTICE =
-  "⚠️ Turno interrotto: il server si è riavviato prima che la risposta partisse: il messaggio è rimasto senza risposta.";
+  "⚠️ Turno interrotto: il server si è riavviato prima che la risposta partisse e il messaggio è rimasto senza risposta. Lo rimando.";
 
 /**
- * The same notice when no restart happened: UNANSWERED_NOTICE said "the server
- * restarted" on every chat, and on topic 3019832f (24/09) nothing had
- * restarted. Its opening is in `CARTELLI_RIPRENDIBILI` too, for the same reason.
+ * The same notice when no restart can be blamed: UNANSWERED_NOTICE said "the
+ * server restarted" on every chat, and on topic 3019832f (24/09) nothing had
+ * restarted. It says only what is known, that no answer arrived. Its opening
+ * is in `CARTELLI_RIPRENDIBILI` too, for the same reason.
  */
 export const UNANSWERED_NO_RESTART_NOTICE =
-  "⚠️ Turno interrotto: la risposta non è mai partita e il messaggio è rimasto senza risposta. Lo rimando.";
+  "⚠️ Turno interrotto: la risposta non è mai arrivata e il messaggio è rimasto senza risposta. Lo rimando.";
 
 /** A cut by the stream watchdog or the silence cap: the agent stopped answering. */
 function isStall(cause: unknown): boolean {
@@ -139,7 +144,7 @@ export function unansweredNotice(opts: { restarted: boolean; lastEnd?: TurnEndIn
   const end = opts.lastEnd;
   if (end?.end === "cancelled" && isStall(end.cause)) {
     const why = cancelledNotice(end);
-    if (why) return `${why} Il messaggio è rimasto senza risposta: lo rimando.`;
+    if (why) return `${why} Il messaggio è rimasto senza risposta. Lo rimando.`;
   }
   return blamesRestart(end?.cause, opts.restarted) ? UNANSWERED_NOTICE : UNANSWERED_NO_RESTART_NOTICE;
 }
@@ -152,25 +157,48 @@ export function unansweredNotice(opts: { restarted: boolean; lastEnd?: TurnEndIn
  * It must NOT start with one of the openings `eCartelloDiInterruzione`
  * recognises, or the next boot would read it as one more interruption of ours
  * and resume the chain it just closed.
+ *
+ * It claims only what the sweep knows: how many times it RESENT the message
+ * (the count it keeps), and what cut the LAST link (the only one it reads).
+ * The old wording extended the last cut to the whole chain, «il server si e'  allow-italian: quotes the old notice
+ * riavviato 4 volte» after a single boot.
  */
-export const RESUME_CAP_MARKER =
-  `⚠️ Ripresa automatica sospesa: il server si e' riavviato ${MAX_RESUME_ATTEMPTS} volte di fila sotto questo turno e ogni volta l'aveva ripreso da capo. Il messaggio che hai inviato e' ancora qui: premi Riprova quando vuoi rimandarlo.`;
+function capNotice(lastCut: string): string {
+  return `⚠️ Ripresa automatica sospesa: ho ripreso questo turno da capo ${MAX_RESUME_ATTEMPTS} volte e ${lastCut}. Il messaggio che hai inviato è ancora qui: premi Riprova quando vuoi rimandarlo.`;
+}
+export const RESUME_CAP_MARKER = capNotice("l'ultima volta l'ha interrotto un riavvio del server");
 
 /**
- * The cap notice, worded by what really cut the chain. RESUME_CAP_MARKER
- * blamed a restart every time: topic 3019832f got six of them on 24/09 with no
- * restart between 10:42 and 14:48. Cause first, as in `blamesRestart`: a stall
- * keeps its sentence even when a boot happened later. Same opening as the
- * marker, which must stay outside `CARTELLI_RIPRENDIBILI` for the reason
- * given above.
+ * The cap notice, worded by what really cut the last link. Cause first, as in
+ * `blamesRestart`: a stall keeps its sentence even when a boot happened later.
  */
 export function resumeCapNotice(opts: { restarted: boolean; cause?: unknown }): string {
-  const tail = "Il messaggio che hai inviato e' ancora qui: premi Riprova quando vuoi rimandarlo.";
-  if (isStall(opts.cause)) {
-    return `⚠️ Ripresa automatica sospesa: l'agente ha smesso di rispondere ${MAX_RESUME_ATTEMPTS} volte di fila su questo turno e ogni volta l'avevo ripreso da capo. ${tail}`;
-  }
+  if (isStall(opts.cause)) return capNotice("l'ultima volta l'agente ha smesso di rispondere");
   if (blamesRestart(opts.cause, opts.restarted)) return RESUME_CAP_MARKER;
-  return `⚠️ Ripresa automatica sospesa: questo turno si e' interrotto ${MAX_RESUME_ATTEMPTS} volte di fila e ogni volta l'avevo ripreso da capo. ${tail}`;
+  return capNotice("l'ultima volta si è interrotto di nuovo");
+}
+
+/** An interruption verdict of ours: recognised by its text or by its cause. */
+function isInterruptionVerdict(b: ContentBlock | null | undefined): boolean {
+  if (b?.kind !== "error") return false;
+  const text = (b as { text?: unknown }).text;
+  return eCartelloDiInterruzione(typeof text === "string" ? text : "")
+    || isResumableCause((b as { cause?: unknown }).cause);
+}
+
+/** Where the last interruption verdict sits among a row's blocks, or -1. */
+function lastInterruptionIndex(blocks: ContentBlock[] | null): number {
+  if (!Array.isArray(blocks)) return -1;
+  for (let i = blocks.length - 1; i >= 0; i--) if (isInterruptionVerdict(blocks[i])) return i;
+  return -1;
+}
+
+/** Something a turn produced: prose with words in it, or a tool call. The
+ *  resend trace (`ripreso`) and an empty text block are not an answer. */
+function isProducedContent(b: ContentBlock | null | undefined): boolean {
+  if (b?.kind === "tool") return true;
+  const text = (b as { text?: unknown } | null | undefined)?.text;
+  return b?.kind === "text" && typeof text === "string" && text.trim() !== "";
 }
 
 export interface RigaDaValutare {
@@ -265,11 +293,14 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   // cause is what reaches every cut of ours whatever sentence it wore. The
   // sweeper's cut (`INTERRUPTED_MARKER` in lib/stale-stream-sweep.ts) was
   // recognised by neither until 05/09/2026: no chat it closed was ever resumed.
-  const interrupted = r.blocks.some((b) => b?.kind === "error" && (
-    eCartelloDiInterruzione(typeof (b as { text?: unknown }).text === "string" ? (b as { text: string }).text : "")
-    || isResumableCause((b as { cause?: unknown }).cause)
-  ));
-  if (!interrupted) return "no";
+  const lastCut = lastInterruptionIndex(r.blocks);
+  if (lastCut < 0) return "no";
+  // ANSWERED AFTER THE CUT. A late answer of a closed turn is saved on its own
+  // row, under the verdict: prose or a tool after the LAST verdict means the
+  // message was answered, and a resend would run it a second time. Past the
+  // cap too: an answered chain gets no cap notice. A resumed row that is cut
+  // again ends with its own verdict, so only the last one is read.
+  if (r.blocks.slice(lastCut + 1).some(isProducedContent)) return "no";
   // Resumed TOO MANY times, on the CHAIN. The trace is written BEFORE the
   // resend, on purpose: written after, a resend that dies halfway would be
   // retried at every boot forever. And it is a counter, not a switch: a resend
@@ -348,14 +379,12 @@ export interface CtxRipresa {
   bootedAtMs?: number;
 }
 
-/** The last `error` block of a row: the cut, with its cause and its text. */
-function lastErrorBlock(blocks: ContentBlock[] | null): { cause?: unknown; text?: string } | undefined {
-  if (!Array.isArray(blocks)) return undefined;
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const b = blocks[i] as { kind?: unknown; cause?: unknown; text?: unknown } | undefined;
-    if (b?.kind === "error") return { cause: b.cause, text: typeof b.text === "string" ? b.text : undefined };
-  }
-  return undefined;
+/** The last interruption verdict of a row: the cut, with its cause and its text. */
+function lastInterruption(blocks: ContentBlock[] | null): { cause?: unknown; text?: string } | undefined {
+  const i = lastInterruptionIndex(blocks);
+  if (i < 0 || !blocks) return undefined;
+  const b = blocks[i] as { cause?: unknown; text?: unknown };
+  return { cause: b.cause, text: typeof b.text === "string" ? b.text : undefined };
 }
 
 /**
@@ -388,6 +417,11 @@ function latestEnd(a: RecordedTurnEnd | undefined, b: RecordedTurnEnd | undefine
 /** Stops already reported in the log, per session, by the time of the Stop:
  *  without it a stopped chat would repeat the same line every sweep for a day. */
 const stopsLogged = new Map<string, number>();
+
+/** Sessions whose queued-send line was already said in the current episode,
+ *  which ends at the first sweep that finds the provider idle: without it a
+ *  send stuck for half an hour said the same line every five minutes. */
+const busyLogged = new Set<string>();
 
 /** Whether a board card is working on this topic: those chats are the
  *  dispatcher's to resume (it re-sends its own kickoff), never this sweep's. */
@@ -558,12 +592,16 @@ export async function riprendiTurniInterrotti(
         ) ?? null,
         boundToCard: topic.id ? cardBound(ctx.db, topic.id) : false,
       };
+      if (!row.providerBusy) busyLogged.delete(r.sk);
       let verdict: ResumeVerdict = resumeVerdict(row, ora);
       if (verdict === "no") {
         // Said only when that reason alone changed the verdict: a live stream
         // or a card already says "no" without anybody's help.
         if (row.providerBusy && resumeVerdict({ ...row, providerBusy: false }, ora) !== "no") {
-          console.log(`[ripresa] ${r.sk}: un invio per questa chat è ancora in coda sul provider, non lo rimando`);
+          if (!busyLogged.has(r.sk)) {
+            busyLogged.add(r.sk);
+            console.log(`[ripresa] ${r.sk}: un invio per questa chat è ancora in coda sul provider, non lo rimando`);
+          }
         } else if (row.lastTurnEnd && stoppedByPerson(row) && stopsLogged.get(r.sk) !== row.lastTurnEnd.atMs
           && resumeVerdict({ ...row, lastTurnEnd: null }, ora) !== "no") {
           stopsLogged.set(r.sk, row.lastTurnEnd.atMs);
@@ -572,9 +610,12 @@ export async function riprendiTurniInterrotti(
         continue;
       }
       // A person's message that predates this process lived through a restart:
-      // the fallback evidence for their notices when no cause is known. Never
-      // used for an answer row, whose cut says what cut it.
-      const messagePredatesBoot = row.timestampMs < bootedAtMs;
+      // the fallback evidence for their notices when no cause is known. Unless
+      // a turn ended for it after the boot: then its answer started after the
+      // restart, and the restart is not what left it unanswered. Never used
+      // for an answer row, whose cut says what cut it.
+      const endedSinceBoot = !!row.lastTurnEnd && row.lastTurnEnd.atMs >= Math.max(bootedAtMs, row.timestampMs);
+      const restartLeftItUnanswered = row.timestampMs < bootedAtMs && !endedSinceBoot;
       // The recorded end speaks for this message only if it came after it.
       const ownEnd = row.lastTurnEnd && row.lastTurnEnd.atMs >= row.timestampMs ? row.lastTurnEnd.info : null;
       let resendRowId = r.id;
@@ -585,7 +626,7 @@ export async function riprendiTurniInterrotti(
         // the row the resend is traced on: the next sweep counts this chain
         // like any other, and a second boot does not resend it again.
         try {
-          insertRestartNotification(ctx.db as unknown as PartialSweepDb, r.sk, { text: unansweredNotice({ restarted: messagePredatesBoot, lastEnd: ownEnd }) });
+          insertRestartNotification(ctx.db as unknown as PartialSweepDb, r.sk, { text: unansweredNotice({ restarted: restartLeftItUnanswered, lastEnd: ownEnd }) });
         } catch (err) {
           console.warn(`[ripresa] ${r.sk}: messaggio senza risposta, ma non riesco a scrivere il cartello, lo salto:`, err);
           continue;
@@ -609,14 +650,14 @@ export async function riprendiTurniInterrotti(
       // this chain again. Written once: the boot after finds it and says "no".
       if (verdict === "capped") {
         try {
-          const cut = lastErrorBlock(blocks);
+          const cut = lastInterruption(blocks);
           const text = r.ruolo === "user"
-            ? resumeCapNotice({ restarted: messagePredatesBoot, cause: ownEnd?.cause })
+            ? resumeCapNotice({ restarted: restartLeftItUnanswered, cause: ownEnd?.cause })
             // An answer row carries its cut: the block's cause, or a restart
             // notice's text (the boot sweep writes a hard kill's with no cause).
             : resumeCapNotice({ restarted: isRestartNotice(cut?.text), cause: cut?.cause });
           insertRestartNotification(ctx.db as unknown as PartialSweepDb, r.sk, { text });
-          console.warn(`[ripresa] ${r.sk}: ripreso gia' ${attempts} volte di fila su questo messaggio, mi fermo e lo scrivo in chat`);
+          console.warn(`[ripresa] ${r.sk}: ripreso gia' ${attempts} volte su questo messaggio, mi fermo e lo scrivo in chat`);
         } catch (err) {
           console.warn(`[ripresa] ${r.sk}: tetto raggiunto ma non riesco a scriverlo in chat:`, err);
         }
