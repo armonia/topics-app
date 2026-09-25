@@ -86,6 +86,10 @@ const NIGHTLY_ONLY_SPECS = [
   // ugualmente: il filtro grepInvert salta i test, non i file, quindi il
   // beforeAll (che chiama /api/stt/capabilities) gira comunque.
   "dictation-real-mic",
+  // Restarts the test server pointing at a fake gateway in its beforeAll, and
+  // again without it in its afterAll: on the PR gate the two restarts would be
+  // paid by the specs around it, and the tag alone would still run the hooks.
+  "chat-sse-own-row",
 ].map((name) => `**/${name}.spec.ts`);
 
 // ── Velocità vs. evidenza ────────────────────────────────────────────────────
@@ -590,6 +594,9 @@ export default defineConfig({
         // the DOM of the engine that ships.
         "**/project-chat-live-turn.spec.ts",
         "**/chat-join-mid-turn.spec.ts",
+        // A turn over the HTTP fallback keeps its answer on its own bubble, in
+        // two windows, live and after a reload.
+        "**/chat-sse-own-row.spec.ts",
       ],
       use: {
         browserName: "webkit",
