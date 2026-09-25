@@ -2,6 +2,59 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.391 — 2026-09-25
+
+### Sotto il cofano
+- Test rosso: un turno chiuso scrive sulla riga del cartello dopo di lui
+- Test rossi: la ripresa rimanda un invio ancora in coda e un messaggio fermato
+- Un turno chiuso non scrive piu' sulla riga di un altro
+- La ripresa chiede al provider e ricorda lo Stop prima di rimandare
+- Il test della guardia dichiara la storia che copre
+- I test nuovi della ripresa caricano anche sul codice di prima
+- Il file nuovo della ripresa non porta nomi italiani nuovi
+- Ogni writer con rowId scrive la riga nominata: provato uno per uno
+- Il test del turno vivo vede anche gli scrittori dei tool
+- Una compattazione arrivata a un turno chiuso si registra lo stesso
+- Una domanda in una risposta tardiva arriva lo stesso alla persona
+- Nel test del turno vivo nomi che il cancello della lingua conosce
+- Lo Stop sopravvive al riavvio e il cartello nomina chi ha tagliato
+- La riga che porta la domanda, non solo se c'e'
+- La risposta a una domanda si scrive sulla riga della domanda
+- La riga che porta un tool, qualunque tool
+- Test rossi: risposta tardiva letta come taglio, ACP muto sulla coda, cartelli che esagerano
+- Una risposta dopo il taglio e' una risposta, e i cartelli dicono solo il vero
+- La risposta tardiva di un turno chiuso si salva sulla sua riga, sotto il taglio
+- Un permesso tardivo si dipinge sulla riga del suo turno, o si nega
+- Lo Stop scrive sulla riga del turno fermato, non sull'ultima
+- Ogni risposta a un pannello si scrive sulla riga del suo tool
+- Il cancello outbound cerca la riga del tool, non l'ultima
+- Lo scarto del turno vuoto non si porta via le righe nate dopo
+- Un /compact finito bene non è più un messaggio senza risposta
+- La riga «ancora in coda» si ridice su una nuova riga tagliata
+- Due turni della stessa chat si fanno scrivere entrambi prima di una lettura
+- La risposta tardiva riparte dalla riga, passa dal throttle e si salva comunque finisca
+- La finestra che ha mandato il turno dopo vede la risposta tardiva di quello prima
+- Le frasi della ripresa in un modulo loro: ripresa-boot.ts torna sotto le 800 righe
+- La fine del turno stesso non e' una risposta tardiva
+- Uno stop della macchina non firma mai come la persona
+- La revoca di una delega ferma l'agente come macchina, non come persona
+- I test sulla causa degli stop della board in un file loro
+- Una fermata voluta dalla macchina finisce come su main, e non e' della persona
+- Il permesso e la risposta a un pannello cercano il tool solo sul ramo attivo
+- La risposta tardiva apre il suo paragrafo anche nella bolla, non solo nella riga
+- types.ts torna a 800 righe: il commento sulle cause della macchina in una riga
+- L'eco di una fermata voluta non scrive cartelli, e i tool che la fermata chiude si spengono anche a schermo
+- Una fermata della macchina torna al percorso di main, e resta muta anche dopo il riavvio
+- Il sweep lascia stare solo le card atterrate o archiviate, le altre tornano come su main
+- Il client tiene lateStart finche' arriva testo, e lateStartContent torna fuori dal JSDoc altrui
+- The delegation's deadline writes no notice; the silence cap, through onError, still promises the resume
+- English comments and names for the machine-stop path
+- The route records a machine stop for every provider: a tool reporting late cannot make the boot resume it
+- English comment in the reboot test
+- A stop the machine wanted sends no cause to the client, so no banner live or from the cache; the log names the stall judge
+- The client half of the machine stop runs on the real hook and the real route events; Codex's echo of a stop is not an error
+- English comment in the hook test
+
 ## 2.2.390 — 2026-09-25
 
 ### Sotto il cofano
