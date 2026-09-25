@@ -1147,6 +1147,8 @@ interface PersistentProcess {
   background?: BackgroundWork;
   /** A config change this child was too busy to take: the next send that finds it idle, its background work over, respawns it. */
   configStale?: boolean;
+  /** The chat was already told this child's background work is closed. */
+  backgroundClosedSaid?: boolean;
   /** Scan outcome: the tail is open only because a `system/init` started a turn with nothing after it yet. */
   replayTailInitOnly?: boolean;
   /**
@@ -1333,7 +1335,9 @@ export class ClaudeCodeProvider implements AIProvider {
    */
   private sayBackgroundClosed(pp: PersistentProcess, why: "silent" | "stuck-turn", by: string): void {
     const listed = pp.background?.tasks;
-    if (!pp.alive || !listed?.size) return;
+    // Once per child: a second clock in the 0.8 s between SIGINT and exit is the same close.
+    if (!pp.alive || !listed?.size || pp.backgroundClosedSaid) return;
+    pp.backgroundClosedSaid = true;
     const tasks = [...listed.values()].map((t) => t.description || t.type);
     console.log(`[claude-code] ${pp.sessionKey}: ${by} closes background work (${why}): ${tasks.join("; ")}`);
     try { ClaudeCodeProvider.onBackgroundClosed?.(pp.sessionKey, tasks, why); }
@@ -2126,7 +2130,9 @@ export class ClaudeCodeProvider implements AIProvider {
 
     // A clock's stop takes the listed background work with it: the stall judge
     // only after two hours without news of it, the watchdogs on a wedged turn.
-    if (reason === "stall") this.sayBackgroundClosed(pp, "silent", "the stall judge");
+    // The judge is asked only once the work is past the bound, unless it
+    // reported while the judge thought: then it went with a stuck turn.
+    if (reason === "stall") this.sayBackgroundClosed(pp, backgroundAlive(pp) ? "stuck-turn" : "silent", "the stall judge");
     if (reason === "watchdog" || reason === "wall-clock") this.sayBackgroundClosed(pp, "stuck-turn", `the ${reason} stop`);
     // Mark BEFORE signalling: the CLI exits (code 0) on SIGINT, so the exit
     // event that follows must be read as a clean stop, not a crash. The

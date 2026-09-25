@@ -24,6 +24,8 @@ import { createTopicsRouter } from "./topics";
 import { registerProvider, removeProvider } from "../providers";
 import { ClaudeCodeProvider } from "../providers/claude-code";
 import { takeTurnEnd } from "../providers/turn-end-registry";
+import { internalAbortRequest } from "../lib/abort-cause";
+import { postBackgroundNotice } from "../lib/background-notice";
 import { SidechainTracker } from "../providers/claude/sidechain-tracker";
 import { recordedBackgroundSession } from "../providers/claude/background-work.fixture";
 import type { AppContext, Topic } from "../types";
@@ -71,7 +73,7 @@ async function harness(name: string, autonomyLevel: Topic["autonomyLevel"]) {
     `SELECT content, blocks FROM messages WHERE session_key = ? AND blocks LIKE '%background-notice%' ORDER BY sort_order`,
   ).all(sessionKey) as Array<{ content: string; blocks: string }>).map((r) => JSON.parse(r.blocks)[0]);
   return {
-    provider, pp, killed, notices, sessionKey, goalLoop: goalLoop!,
+    provider, pp, killed, notices, sessionKey, goalLoop: goalLoop!, ctx, router, topicId: topic.id,
     patch: (body: Record<string, unknown>) => call(`/api/topics/${topic.id}`, "PATCH", body),
     command: (command: string, args: Record<string, unknown>) => call("/api/command", "POST", { command, sessionKey, args }),
     stop: () => call("/api/chat/abort", "POST", { sessionKey }),
@@ -166,6 +168,48 @@ describe("the Stop of a chat whose turn is closed and whose work still runs", ()
       expect(h.killed.sigint).toBe(1);
     } finally {
       try { removeProvider("openai"); } catch { /* already gone */ }
+      removeProvider("claude-code");
+    }
+  });
+
+  test("a machine stop with no turn open leaves live work alone, unless the card is superseded", async () => {
+    const h = await harness("bg-stop-machine", "yolo");
+    try {
+      const machine = async (cause: "stall" | "wall-clock" | "superseded") => {
+        const req = internalAbortRequest(h.sessionKey, cause);
+        return (await (await h.router(req, new URL(req.url), "/api/chat/abort", "POST"))!.json());
+      };
+      // The stall judge thought while the turn ended: the work is not its business.
+      expect(await machine("stall")).toEqual({ ok: false, reason: "no_active_stream", cleared: false });
+      expect(await machine("wall-clock")).toEqual({ ok: false, reason: "no_active_stream", cleared: false });
+      expect(h.killed.sigint).toBe(0);
+      expect(await machine("superseded")).toEqual({ ok: true, reason: "background_stopped", cleared: false });
+      expect(h.killed.sigint).toBe(1);
+      expect(h.pp.abortReason).toBe("superseded");
+    } finally {
+      removeProvider("claude-code");
+    }
+  });
+
+  test("a stall recycle of an empty turn: the turn is discarded and the notice follows it, not under it", async () => {
+    const h = await harness("bg-stall-empty", "yolo");
+    ClaudeCodeProvider.observeBackgroundClosed((sk, tasks, why) => {
+      postBackgroundNotice(h.ctx, { sessionKey: sk, topicId: h.topicId }, { kind: "background-notice", event: "closed", tasks, why });
+    });
+    try {
+      h.pp.background.lastSignalAt = Date.now() - 2 * 60 * 60_000 - 1_000;
+      h.ctx.appendLocalMessage(h.sessionKey, "user", "continua il task");
+      const placeholder = h.ctx.createPartialMessage(h.sessionKey, "assistant");
+      h.ctx.startStream(h.sessionKey, placeholder.id, new AbortController());
+      h.pp.streamHandler = { onDelta() {}, onDone() {}, onError() {}, onAborted() {} };
+      const req = internalAbortRequest(h.sessionKey, "stall");
+      await h.router(req, new URL(req.url), "/api/chat/abort", "POST");
+      for (let i = 0; i < 40 && h.notices().length === 0; i++) await new Promise((r) => setTimeout(r, 100));
+      const rows = h.ctx.db.prepare(`SELECT id, parent_id FROM messages WHERE session_key = ? ORDER BY sort_order`).all(h.sessionKey) as Array<{ id: string; parent_id: string | null }>;
+      expect(rows.some((r) => r.id === placeholder.id)).toBe(false);
+      expect(h.notices()).toEqual([expect.objectContaining({ event: "closed", why: "silent" })]);
+    } finally {
+      ClaudeCodeProvider.observeBackgroundClosed(() => {});
       removeProvider("claude-code");
     }
   });

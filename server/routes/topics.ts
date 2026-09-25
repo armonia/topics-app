@@ -2473,7 +2473,9 @@ export function createTopicsRouter(
       if (!stream) {
         // Only background work left: the Stop is for it (SIGINT, exit 0 in 0.8 s
         // on 2.1.282), and a goal waiting for it stops, or its check-in revives it.
-        const stopped = await stopBackgroundWork(sessionKey, stopCauseOf(req, body?.cause));
+        // The person's Stop or a superseded card; a stall/wall-clock stop was for a turn now over.
+        const bgCause = stopCauseOf(req, body?.cause);
+        const stopped = bgCause === "user" || bgCause === "superseded" ? await stopBackgroundWork(sessionKey, bgCause) : "none";
         if (stopped === "stopped") goalLoop.stopWaiting(sessionKey);
         if (stopped !== "none") return json({ ok: stopped === "stopped", reason: `background_${stopped}`, cleared: false });
         // Niente da fermare: turno già finito, oppure una finestra che stava

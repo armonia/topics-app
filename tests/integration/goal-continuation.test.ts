@@ -407,6 +407,17 @@ describe("a goal deferred on background work", () => {
     await close();
   });
 
+  test("the person's own empty turn (a /compact) starts a fresh stretch, it does not fire the old one", async () => {
+    const t = await bench("goal-checkin-compact", ["continue"]);
+    await t.onTurnEnd(t.turn({ lastAssistantText: "watching the deploy" }));
+    await t.advance(29 * 60_000);
+    expect(await t.onTurnEnd(t.turn({ discarded: true, fromHuman: true, lastAssistantText: "" }))).toBe("background");
+    expect(t.timers.map((x) => x.due)).toEqual([59 * 60_000]);
+    await t.advance(0);
+    expect(t.judged).toEqual([]);
+    await close();
+  });
+
   test("a check-in due while a wake ran fires when that wake ends empty with the work still listed", async () => {
     let busy = true;
     const t = await bench("goal-checkin-due-then-empty", ["continue"], () => busy);

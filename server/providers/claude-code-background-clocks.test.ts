@@ -123,6 +123,9 @@ describe("the clocks that kill, against background work", () => {
       expect(judged).toBe(1);
       expect(counts.sigint).toBe(1);
       expect(closed).toEqual([{ sk, tasks: expect.arrayContaining(["tick counter loop"]), why: "silent" }]);
+      // A second clock in the window before the child exits is the same close: one row.
+      (provider as any).killProcess(pp, "idle");
+      expect(closed.length).toBe(1);
 
       const sk2 = "topic:clocks-watchdog-closed";
       const second = stub(sk2);

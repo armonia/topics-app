@@ -21,6 +21,7 @@ import type { ContentBlock } from "../../shared/types";
 import type { AppContext } from "../types";
 
 export type BackgroundNotice = Extract<ContentBlock, { kind: "background-notice" }>;
+type NoticeCtx = Pick<AppContext, "appendLocalMessage" | "broadcastToAll" | "isStreaming">;
 
 /**
  * The prefix every notice's text starts with, so a reader that loads rows
@@ -43,7 +44,7 @@ export function backgroundNoticeText(n: BackgroundNotice): string {
  * Returns the field the route's answer carries, so its caller knows too.
  */
 export function noticeOwedChanges(
-  ctx: Pick<AppContext, "appendLocalMessage" | "broadcastToAll">,
+  ctx: NoticeCtx,
   topic: { id: string; sessionKey: string },
   outcome: unknown,
   changes: { autonomy?: boolean; model?: boolean; effort?: boolean },
@@ -55,12 +56,29 @@ export function noticeOwedChanges(
   return { pending: "background-work" };
 }
 
-/** Write the row and push it to every client. Never throws: a notice is not worth a failed request. */
+/** How long a notice waits for the session's open turn to close before it is written anyway. */
+const NOTICE_WAIT_CAP_MS = 30 * 60_000;
+
+/**
+ * Write the row and push it to every client. Never throws: a notice is not
+ * worth a failed request.
+ *
+ * Not under a turn still open: the row would hang from that turn's placeholder,
+ * and a turn that ends empty (the stall judge recycling a silent one) is only
+ * discarded when nothing hangs from it, so it stayed as an empty bubble. The
+ * notice waits for the turn to close and follows it.
+ */
 export function postBackgroundNotice(
-  ctx: Pick<AppContext, "appendLocalMessage" | "broadcastToAll">,
+  ctx: NoticeCtx,
   target: { sessionKey: string; topicId: string },
   notice: BackgroundNotice,
+  waitedMs = 0,
 ): void {
+  if (ctx.isStreaming(target.sessionKey) && waitedMs < NOTICE_WAIT_CAP_MS) {
+    const t = setTimeout(() => postBackgroundNotice(ctx, target, notice, waitedMs + 500), 500);
+    (t as { unref?: () => void }).unref?.();
+    return;
+  }
   const text = backgroundNoticeText(notice);
   try {
     const row = ctx.appendLocalMessage(target.sessionKey, "assistant", text, undefined, [notice]);

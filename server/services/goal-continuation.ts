@@ -294,6 +294,9 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
     // that fell due while that wake ran fires now instead of in thirty minutes.
     const still = deferred.get(sk);
     if (info.discarded && still && info.end === "end_turn" && !info.dispatched && info.backgroundWork) {
+      // Unless the empty turn was the person's own (a /compact): that starts a
+      // fresh stretch, like any message of theirs.
+      if (info.fromHuman) dropWaiting(sk);
       return defer({ ...still.info, backgroundWakeOnly: info.backgroundWakeOnly });
     }
     const waiting = dropWaiting(sk);
