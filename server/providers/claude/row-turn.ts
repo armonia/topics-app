@@ -24,6 +24,15 @@
  * what it has. The daemon that holds production's CLIs speaks an older protocol
  * and outlives every server restart, and an empty row is better than another
  * turn's text in a person's row.
+ *
+ * A WAKE'S ROW has no stdin write to mark: the CLI starts that turn by itself.
+ * Its adopter marks it instead, through the same `write` with no data, as
+ * `<row id>@<offset>`: the offset where the wake's first line starts, which
+ * the mark itself lands after. That turn runs from there to the first `result`
+ * after it, which may already be in the store when the mark arrives (a short
+ * wake is over before the route has opened its row). Without it, two wakes
+ * across a restart put the second's text in the first's row, and a wake that
+ * ended while the server was away left its row «no reply».
  */
 
 export const DELIVERY_MARK = "topics_delivered";
@@ -38,12 +47,25 @@ export interface RowTurns {
   byRow: Map<string, RowTurn>;
   /** A task notification came after the last mark: the next empty zero-turn result is its own turn's. */
   notified: boolean;
+  /** Where every turn-closing `result` ends, in order: a wake's mark comes after its turn has begun. */
+  results: number[];
 }
 
 type StoreLine = { type?: unknown; subtype?: unknown; mark?: unknown; result?: unknown; num_turns?: unknown; is_error?: unknown } | null;
 
 export function isDeliveryMark(event: unknown): boolean {
   return (event as StoreLine)?.type === DELIVERY_MARK;
+}
+
+/** A wake's mark, left by its adopter: it opens no turn, the one it names had begun already. */
+export function isWakeMark(event: unknown): boolean {
+  const mark = (event as StoreLine)?.mark;
+  return isDeliveryMark(event) && typeof mark === "string" && mark.includes("@");
+}
+
+/** The mark a wake's adopter leaves for `rowId`, whose turn starts at byte `at` of the store. */
+export function wakeMark(rowId: string, at: number): string {
+  return `${rowId}@${at}`;
 }
 
 /** The end of a task notification's own turn: a clean success with no model turn and no text. */
@@ -55,19 +77,25 @@ export function isNotificationTurnEnd(event: unknown): boolean {
 /** One store line the scan folded, ending at byte `end`. */
 export function foldRowTurns(t: RowTurns | undefined, event: unknown, end: number): RowTurns | undefined {
   const e = event as StoreLine;
+  const turns = () => (t ??= { byRow: new Map<string, RowTurn>(), notified: false, results: [] });
   if (e?.type === DELIVERY_MARK && typeof e.mark === "string") {
-    const turns = t ?? { byRow: new Map<string, RowTurn>(), notified: false };
-    turns.byRow.set(e.mark, { from: end });
-    turns.notified = false;
-    return turns;
-  }
-  if (!t || !e) return t;
-  if (e.type === "system" && e.subtype === "task_notification") t.notified = true;
-  else if (e.type === "system" && e.subtype === "compact_boundary") t.notified = false;
-  else if (e.type === "result" && e.result !== "waiting for message") {
-    const notificationOwn = t.notified && isNotificationTurnEnd(e);
-    t.notified = false;
-    if (!notificationOwn) for (const turn of t.byRow.values()) turn.end ??= end;
+    const at = e.mark.lastIndexOf("@");
+    const from = at < 0 ? NaN : Number(e.mark.slice(at + 1));
+    if (Number.isInteger(from) && from >= 0) {
+      turns().byRow.set(e.mark.slice(0, at), { from, end: turns().results.find((r) => r > from) });
+    } else {
+      turns().byRow.set(e.mark, { from: end });
+      turns().notified = false;
+    }
+  } else if (e?.type === "system" && e.subtype === "task_notification") turns().notified = true;
+  else if (e?.type === "system" && e.subtype === "compact_boundary") turns().notified = false;
+  else if (e?.type === "result" && e.result !== "waiting for message") {
+    const notificationOwn = turns().notified && isNotificationTurnEnd(e);
+    turns().notified = false;
+    if (!notificationOwn) {
+      turns().results.push(end);
+      for (const turn of turns().byRow.values()) turn.end ??= end;
+    }
   }
   return t;
 }

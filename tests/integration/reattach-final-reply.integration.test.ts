@@ -32,6 +32,9 @@ const savedEnv: Record<string, string | undefined> = {};
 function setEnv(k: string, v: string) { savedEnv[k] = process.env[k]; process.env[k] = v; }
 
 beforeAll(async () => {
+  // Short broker windows for the mute daemon below (production: 15 s, 1 s), read when the client loads.
+  setEnv("TOPICS_AI_BRIDGE_ATTACH_ACK_MS", "3000");
+  setEnv("TOPICS_AI_BRIDGE_STALL_TICK_MS", "250");
   const { __resetAiBridgeClientForTests } = await import("../../server/lib/ai-bridge-client");
   __resetAiBridgeClientForTests();
   tempDir = mkdtempSync(join(tmpdir(), "reattach-final-"));
@@ -71,7 +74,7 @@ async function bench(name: string) {
   const { createTopicsRouter } = await import("../../server/routes/topics");
   const { registerProvider, removeProvider } = await import("../../server/providers");
   const { __resetAiBridgeClientForTests, getAiBridgeClient } = await import("../../server/lib/ai-bridge-client");
-  for (const f of ["finish-turn", "got-delayed", "bg-done", "woken-done", "fx-done", "lt-done"]) rmSync(join(tempDir, f), { force: true });
+  for (const f of ["finish-turn", "got-delayed", "bg-done", "woken-done", "fx-done", "lt-done", "w1-finish", "bg2-done", "w2-finish", "tail-mb"]) rmSync(join(tempDir, f), { force: true });
   const ctx = await createTestAppContext();
   const frames: Array<{ type?: string }> = [];
   (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = (m) => frames.push(m as { type?: string });
@@ -121,6 +124,16 @@ async function bench(name: string) {
 }
 
 const has = (file: string, text: string) => existsSync(file) && readFileSync(file, "utf8").includes(text);
+const touch = (name: string) => writeFileSync(join(tempDir, name), "");
+
+/** Wakes adopted the way server.ts does: through the route, `mode: "woken"`. Returns the undo. */
+async function adoptWakes(post: (body: Record<string, unknown>) => Promise<unknown>): Promise<() => void> {
+  const { ClaudeCodeProvider } = await import("../../server/providers/claude-code");
+  const slot = ClaudeCodeProvider as unknown as { onWokenTurn: unknown };
+  const before = slot.onWokenTurn;
+  ClaudeCodeProvider.observeWokenTurns(() => { void post({ messages: [], mode: "woken", provider: "claude-code" }); });
+  return () => { slot.onWokenTurn = before; };
+}
 
 const finish = () => writeFileSync(join(tempDir, "finish-turn"), "");
 
@@ -304,4 +317,89 @@ describe("a turn that ended while the server was away is written whole at the ne
     expect(rows.at(-1)!.content).not.toContain("LT-WAKE");
     expect(rows.at(-1)!.content).toBe("ok");
   }, 60_000);
+
+  // A wake starts with no stdin write, so no delivery mark: its adopter marks
+  // it. Before that, a wake in flight at the shutdown whose second wake opened
+  // before the boot got that second wake's text, as on main.
+  test("two wakes across a restart: the first wake's row keeps its own turn", async () => {
+    const b = await bench("wakes2");
+    const undo = await adoptWakes(b.post);
+    try {
+      await b.post({ messages: [{ role: "user", content: "BGWAKES" }] });
+      touch("bg-done");
+      await waitFor("the first wake's tool", () => b.frames.some((f) => /tool/.test(f.type ?? "")));
+      await Bun.sleep(1000);
+      const wakeRow = b.rows().at(-1)!;
+      expect(wakeRow.role).toBe("assistant");
+      b.shutdown();
+      touch("w1-finish");
+      await waitFor("the first wake's result", () => has(b.store(), '"result":"W1-FINAL'));
+      touch("bg2-done");
+      await waitFor("the second wake's text", () => has(b.store(), "W2-TEXT"));
+      await Bun.sleep(300);
+      void b.boot();
+      await waitFor("the first wake's row to close", () => b.rows().find((r) => r.id === wakeRow.id)?.partial === 0, 5_000).catch(() => {});
+      touch("w2-finish");
+      await waitFor("every row closed", () => b.rows().every((r) => r.partial === 0), 30_000);
+      const row = b.rows().find((r) => r.id === wakeRow.id)!;
+      expect(row.content).not.toContain("W2-TEXT");
+      expect(row.content).toContain("W1-FINAL: all green.");
+    } finally { undo(); }
+  }, 60_000);
+
+  test("a wake that ended while the server was away fills its row, instead of «no reply»", async () => {
+    const b = await bench("wakedown");
+    const undo = await adoptWakes(b.post);
+    try {
+      await b.post({ messages: [{ role: "user", content: "BGWAKES" }] });
+      touch("bg-done");
+      await waitFor("the wake's tool", () => b.frames.some((f) => /tool/.test(f.type ?? "")));
+      await Bun.sleep(1000);
+      const wakeRow = b.rows().at(-1)!;
+      b.shutdown();
+      touch("w1-finish");
+      await waitFor("the wake's result", () => has(b.store(), '"result":"W1-FINAL'));
+      await b.boot();
+      await waitFor("every row closed", () => b.rows().every((r) => r.partial === 0), 30_000);
+      const row = b.rows().find((r) => r.id === wakeRow.id)!;
+      expect(row.content).toContain("W1-FINAL: all green.");
+      expect(row.content).not.toContain("Nessuna risposta");
+    } finally { undo(); }
+  }, 60_000);
+
+  // Review of #145, round 4 (H3): the daemon goes mute (SIGSTOP) while the next
+  // send waits behind the replay. The wait must end, and the send visibly.
+  test("the daemon goes mute while a send waits behind the replay: the wait ends, and the send ends visibly", async () => {
+    const b = await bench("h3mute");
+    writeFileSync(join(tempDir, "tail-mb"), "20");
+    void b.post({ messages: [{ role: "user", content: "LONGTAIL" }] });
+    await waitFor("the tool to start", () => b.frames.some((f) => /tool/.test(f.type ?? "")));
+    b.shutdown(finish);
+    await waitFor("the store's tail", () => existsSync(join(tempDir, "lt-done")) && has(b.store(), '"result":"LT-WAKE.'), 60_000);
+    b.bootProvider();
+    const { getAiBridgeClient } = await import("../../server/lib/ai-bridge-client");
+    const client = getAiBridgeClient() as unknown as { attach: (id: string, from: number) => Promise<unknown> };
+    const attach = client.attach.bind(client);
+    let replayDone = 0;
+    client.attach = async (id: string, from: number) => { try { return await attach(id, from); } finally { if (from > 0 && !replayDone) replayDone = Date.now(); } };
+    const adopted = b.reattach();
+    for (const end = Date.now() + 60_000; Date.now() < end && !b.rows().every((r) => r.partial === 0); await Bun.sleep(2)) { /* polling */ }
+    void b.post({ messages: [{ role: "user", content: "hello there" }] });
+    const daemons = Bun.spawnSync(["pgrep", "-f", join(tempDir, "ai-bridge.sock")]).stdout.toString().trim().split("\n").filter(Boolean).map(Number);
+    const heldWhenStopped = replayDone === 0;
+    for (const pid of daemons) { try { process.kill(pid, "SIGSTOP"); } catch { /* gone */ } }
+    try {
+      await waitFor("the replay's wait to end with the daemon stopped", () => replayDone !== 0, 60_000);
+    } finally {
+      for (const pid of daemons) { try { process.kill(pid, "SIGCONT"); } catch { /* gone */ } }
+    }
+    await waitFor("the held send's row to close", () => { const r = b.rows().at(-1)!; return r.role === "assistant" && r.partial === 0; }, 90_000);
+    await Promise.race([adopted, Bun.sleep(5_000)]);
+    const rows = b.rows();
+    expect(heldWhenStopped).toBe(true);
+    expect(rows.at(-1)!.content.length).toBeGreaterThan(0);
+    expect(rows.at(-1)!.content).not.toContain("LT-WAKE");
+    expect(rows[1].content).toContain("LT-FINAL report.");
+    expect(rows[1].content).not.toContain("Riadozione");
+  }, 240_000);
 });
