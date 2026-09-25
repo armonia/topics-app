@@ -116,6 +116,40 @@ export function readParentToolUseId(event: unknown): string | null {
   return typeof v === "string" && v ? v : null;
 }
 
+/** One entry of a `system/background_tasks_changed` snapshot. */
+export interface BackgroundTaskEntry {
+  id: string;
+  /** `local_agent`, `local_bash` (a Monitor is one too), whatever the CLI names next. */
+  type: string;
+  description: string;
+}
+
+/**
+ * The background work the CLI says is running, out of
+ * `system/background_tasks_changed`; null for any other line.
+ *
+ * The event carries the WHOLE set every time, not a delta: recorded on CLI
+ * 2.1.282 (25/09, `tests/fixtures/claude-cli-2.1.282-background-work.ndjson`),
+ * it is emitted before every `task_started` and after every `task_updated`, and
+ * an empty `tasks` array is the only line that says "nothing is left". So the
+ * caller replaces its view with it, never merges.
+ */
+export function readBackgroundTasks(event: unknown): BackgroundTaskEntry[] | null {
+  const e = asRecord(event);
+  if (e?.type !== "system" || e.subtype !== "background_tasks_changed" || !Array.isArray(e.tasks)) return null;
+  const out: BackgroundTaskEntry[] = [];
+  for (const raw of e.tasks) {
+    const t = asRecord(raw);
+    if (typeof t?.task_id !== "string" || !t.task_id) continue;
+    out.push({
+      id: t.task_id,
+      type: typeof t.task_type === "string" ? t.task_type : "",
+      description: typeof t.description === "string" ? t.description : "",
+    });
+  }
+  return out;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // I blocchi di contenuto
 
