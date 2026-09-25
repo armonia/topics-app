@@ -11,6 +11,11 @@
           "it": "The reread after a cut reply goes past the history dedup, so a turn started meanwhile from another window gets its Stop",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "A busy check-in doubles the interval without moving the pause, and a goal set anew starts its own check-ins",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -194,6 +199,11 @@
         },
         {
           "it": "The codex probe is asked, guests get stream:alive, the bench threshold resets with the test DB",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A busy check-in is spent, so the interval doubles and the check-ins pause after three",
           "en": "",
           "scope": null
         }

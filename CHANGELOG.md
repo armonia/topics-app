@@ -6,6 +6,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 
 ### Sotto il cofano
 - The reread after a cut reply goes past the history dedup, so a turn started meanwhile from another window gets its Stop
+- A busy check-in doubles the interval without moving the pause, and a goal set anew starts its own check-ins
 
 ## 2.2.395 — 2026-09-25
 
@@ -44,6 +45,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Retry, auto-TTS, a plan's buttons and a pending question look past a service line, and its sentence wraps on a phone
 - A reply cut short relights only a turn still running: not one that ended, or was stopped, while its history was in flight
 - The codex probe is asked, guests get stream:alive, the bench threshold resets with the test DB
+- A busy check-in is spent, so the interval doubles and the check-ins pause after three
 
 ## 2.2.394 — 2026-09-25
 
