@@ -80,7 +80,7 @@ function serverThatDiesAndBoots(tid: string, rowId: string, downReads: number): 
         booted = true;
         const db = getDatabase();
         runBootPartialSweep(db as never, { listConfirmed: true, liveSessions: new Set() });
-        // Pass 1 of finalizeOrphanedRunningTools (server.ts): a dead child's running tools become "Interrotto".
+        // Pass 1 of finalizeOrphanedRunningTools (server.ts): a dead child's running tools are closed as interrupted.
         for (const r of db.query("SELECT id, tool_calls, blocks FROM messages WHERE partial = 0 AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)").all() as Array<{ id: string; tool_calls: unknown; blocks: unknown }>) {
           let tc = decodeCol(r.tool_calls), bl = decodeCol(r.blocks), changed = false;
           if (tc) { const a = JSON.parse(tc); for (const t of a) if (finalizeOrphanTool(t, { childAlive: false, now: Date.now() })) changed = true; tc = JSON.stringify(a); }
