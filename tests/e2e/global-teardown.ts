@@ -16,6 +16,7 @@ import {
 } from "./helpers/platform";
 import { E2E_PORT, descendantsOf, testServerEnv } from "./helpers/test-server";
 import { liveLockHolder, releaseRunLock } from "./helpers/run-lock";
+import { killTestListeners } from "./helpers/port-guard";
 
 const TEST_PORT = E2E_PORT;
 
@@ -78,10 +79,11 @@ async function waitForServersGone(port: number, timeoutMs = 10_000): Promise<voi
   }
   // Non se n'è andato con le buone: si insiste, poi si va avanti comunque —
   // il ponte va spento anche se un server si è impuntato.
+  // Only test servers: anything else is named and left alive (helpers/port-guard.ts).
   const rimasti = listeners();
   if (rimasti.length) {
-    console.warn(`[global-teardown] Server ancora in ascolto su ${port} (PID ${rimasti.join(", ")}): SIGKILL.`);
-    killPids(rimasti, { force: true });
+    console.warn(`[global-teardown] Server ancora in ascolto su ${port} (PID ${rimasti.join(", ")}): SIGKILL ai server di test.`);
+    killTestListeners(port, { force: true, onForeign: "warn" });
     await new Promise((r) => setTimeout(r, 500));
   }
 }
@@ -160,11 +162,8 @@ async function globalTeardown() {
     return;
   }
   {
-    const pids = listenerPids(TEST_PORT);
-    if (pids.length) {
-      killPids(pids);
-      console.log(`[global-teardown] Killed stale processes on port ${TEST_PORT}: ${pids.join(", ")}`);
-    }
+    const pids = killTestListeners(TEST_PORT, { onForeign: "warn" }); // only test servers
+    if (pids.length) console.log(`[global-teardown] Killed stale processes on port ${TEST_PORT}: ${pids.join(", ")}`);
   }
 
   console.log("[global-teardown] Test server stopped.");

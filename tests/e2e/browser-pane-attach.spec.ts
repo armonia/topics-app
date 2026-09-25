@@ -28,7 +28,7 @@
  * does in production.
  */
 import { expect, test, type APIRequestContext, type Page, type WebSocketRoute } from "@playwright/test";
-import { execSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
@@ -36,6 +36,7 @@ import { join, resolve } from "node:path";
 import { goToApp } from "./helpers";
 import { createTopic } from "./helpers/api-fixtures";
 import { E2E_BASE, E2E_PORT, testServerEnv } from "./helpers/test-server";
+import { killTestListeners } from "./helpers/port-guard";
 import { hermetic } from "./fixtures/hermetic";
 import { slackMs } from "../helpers/time-slack";
 import { projectPanesKey } from "../../shared/project-keys";
@@ -647,8 +648,7 @@ async function portOpen(): Promise<boolean> {
  * that run after this one still find the Chromium global-setup gave it.
  */
 async function restartServer(): Promise<string[]> {
-  const pids = execSync(`lsof -ti :${E2E_PORT} -sTCP:LISTEN 2>/dev/null || true`).toString().trim();
-  if (pids) execSync(`kill ${pids.split("\n").join(" ")} 2>/dev/null || true`);
+  killTestListeners(E2E_PORT); // only the test server (helpers/port-guard.ts)
   const down = Date.now();
   while (Date.now() - down < 15_000 && (await portOpen())) await new Promise((r) => setTimeout(r, 200));
   const out: string[] = [];

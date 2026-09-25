@@ -10,10 +10,11 @@ import {
   deleteTerminalSession,
   listTerminalSessions,
 } from "./helpers/api-fixtures";
-import { spawn, execSync } from "child_process";
+import { spawn } from "child_process";
 import { resolve } from "path";
 import net from "net";
 import { E2E_BASE, E2E_PORT, testServerEnv } from "./helpers/test-server";
+import { killTestListeners } from "./helpers/port-guard";
 import { hermetic } from "./fixtures/hermetic";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
@@ -50,12 +51,8 @@ async function waitForServer(timeoutMs = 30000): Promise<void> {
  *  file di spec SUCCESSIVO ("Target page, context or browser has been closed"):
  *  un flake che sembrava di un altro test. Qui si vuole chi TIENE la porta. */
 async function killServer(): Promise<void> {
-  try {
-    const pids = execSync(`lsof -ti :${TEST_PORT} -sTCP:LISTEN 2>/dev/null || true`).toString().trim();
-    if (pids) {
-      execSync(`kill ${pids.split("\n").join(" ")} 2>/dev/null || true`);
-    }
-  } catch {}
+  // Only the test server: anything else on the port fails the spec with its name (helpers/port-guard.ts).
+  killTestListeners(TEST_PORT);
   // Wait for port to be released
   const start = Date.now();
   while (Date.now() - start < 10000) {
