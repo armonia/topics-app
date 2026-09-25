@@ -100,6 +100,50 @@ describe("the verdict asks the provider and remembers the Stop", () => {
 });
 
 /**
+ * A LATE ANSWER SAVED UNDER THE VERDICT IS AN ANSWER.
+ *
+ * A turn the watchdog closed while its send still waited in the queue gets
+ * answered once the queue drains, and that answer is saved on the turn's own
+ * row, under the interruption block. Read as "cut", that row made the next
+ * sweep resend a message the CLI had already executed (the 3019832f shape,
+ * where the message was a real merge). Only the LAST verdict counts: a resumed
+ * row opens with its `ripreso` trace and closes with its own verdict when it
+ * is cut again.
+ *
+ * @covers RESUME-01
+ */
+describe("content after the last interruption verdict means the turn was answered", () => {
+  const watchdogCut = {
+    kind: "error",
+    text: "Turno interrotto: il processo dell'agente non dava più segni di vita e la risposta è stata chiusa.",
+    cause: "watchdog",
+  } as ContentBlock;
+  const lateText: ContentBlock = { kind: "text", text: "merge fatto" };
+  const lateTool = { kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } } as ContentBlock;
+  const row = (blocks: ContentBlock[], attempts = 0): JudgedRow => ({ ...base, blocks, attempts });
+
+  test("a cut with nothing produced after it is resent", () => {
+    expect(resumeVerdict(row([proseBlock, watchdogCut]), ORA)).toBe("resend");
+    // The resend trace and blank text are not an answer.
+    expect(resumeVerdict(row([watchdogCut, { kind: "ripreso", attempt: 1 } as ContentBlock]), ORA)).toBe("resend");
+    expect(resumeVerdict(row([watchdogCut, { kind: "text", text: "  \n" }]), ORA)).toBe("resend");
+  });
+
+  test("text or a tool after the cut: answered, no resend and no cap notice", () => {
+    expect(resumeVerdict(row([watchdogCut, lateText]), ORA)).toBe("no");
+    expect(resumeVerdict(row([watchdogCut, lateTool]), ORA)).toBe("no");
+    expect(resumeVerdict(row([watchdogCut, lateText], MAX_RESUME_ATTEMPTS), ORA)).toBe("no");
+    // A verdict recognised by its text, with no cause, reads the same way.
+    expect(resumeVerdict(row([interruptedBlock, lateTool]), ORA)).toBe("no");
+  });
+
+  test("only the last verdict counts: cut again after the late answer, still resent", () => {
+    expect(resumeVerdict(row([proseBlock, watchdogCut, lateText, watchdogCut]), ORA)).toBe("resend");
+    expect(resumeVerdict(row([proseBlock, watchdogCut, lateText, watchdogCut], MAX_RESUME_ATTEMPTS), ORA)).toBe("capped");
+  });
+});
+
+/**
  * The same two cases through the sweep, on a real database: what matters is
  * that the route is never called and nothing is written, not only the verdict.
  * And (c): on 3019832f there was no restart between 10:42 and 14:48, yet the
@@ -117,7 +161,7 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
   } as ContentBlock;
   const HOUR = 60 * 60_000;
 
-  function chatDb(rows: Array<{ id: string; role: string; agoMs: number; blocks?: ContentBlock[]; parent?: string }>): Database {
+  function chatDb(rows: Array<{ id: string; role: string; agoMs: number; blocks?: ContentBlock[]; parent?: string }>, sk = SK): Database {
     const db = new Database(":memory:");
     db.run(`CREATE TABLE messages (
       id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
@@ -129,7 +173,7 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
     )`);
     rows.forEach((r, i) => db.run(
       "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,?,?,?,?,0,?,?,?,0)",
-      [r.id, SK, r.role, r.role === "user" ? "fai il merge" : "", r.blocks ? JSON.stringify(r.blocks) : null,
+      [r.id, sk, r.role, r.role === "user" ? "fai il merge" : "", r.blocks ? JSON.stringify(r.blocks) : null,
         new Date(Date.now() - r.agoMs).toISOString(), i, r.parent ?? null],
     ));
     return db;
@@ -188,6 +232,45 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
     await sweep({ ...ctxOf(tail), providerBusy: () => true }, calls);
     expect(calls).toHaveLength(0);
     expect(rowCount(tail)).toBe(1);
+  });
+
+  test("(a) the late answer saved under the watchdog's verdict: no resend, nothing written", async () => {
+    const db = chatDb([
+      { id: "u0", role: "user", agoMs: 10 * 60_000 },
+      { id: "a0", role: "assistant", agoMs: 9 * 60_000, blocks: [watchdogCut, { kind: "text", text: "merge fatto" }], parent: "u0" },
+    ]);
+    const calls: unknown[] = [];
+    await sweep(ctxOf(db), calls);
+    expect(calls).toHaveLength(0);
+    expect(rowCount(db)).toBe(2);
+  });
+
+  test("(a) the queued-send line is said once per episode, not at every sweep", async () => {
+    const sk = "topic:busy-log";
+    const db = chatDb([
+      { id: "u0", role: "user", agoMs: 10 * 60_000 },
+      { id: "a0", role: "assistant", agoMs: 9 * 60_000, blocks: [proseBlock, watchdogCut], parent: "u0" },
+    ], sk);
+    const said: string[] = [];
+    const sweepWith = async (busy: boolean) => {
+      const log = console.log, warn = console.warn;
+      console.log = (...args: unknown[]) => { said.push(args.map(String).join(" ")); };
+      console.warn = () => {};
+      try {
+        await riprendiTurniInterrotti(
+          { db, getTopicBySessionKey: () => ({ archived: false }), providerBusy: () => busy },
+          countingRoute([]), { responseMs: 500, streamMs: 500 },
+        );
+      } finally { console.log = log; console.warn = warn; }
+    };
+    const queuedLines = () => said.filter((l) => l.includes(sk) && l.includes("ancora in coda")).length;
+    await sweepWith(true);
+    await sweepWith(true);
+    expect(queuedLines()).toBe(1);
+    // The queue drained and the sweep resent: the episode is over, the next one is news.
+    await sweepWith(false);
+    await sweepWith(true);
+    expect(queuedLines()).toBe(2);
   });
 
   test("(b) the person pressed Stop: the route is never called and no notice is written", async () => {
@@ -271,6 +354,19 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
     expect(notice.content).toBe(UNANSWERED_NOTICE);
   });
 
+  test("(c) a turn that ended after the boot: the restart is not what left the message unanswered", async () => {
+    const db = chatDb([{ id: "u0", role: "user", agoMs: 5 * 60_000 }]);
+    // Recorded now, after the boot of four minutes ago: the answer started
+    // after the restart, so blaming the restart would be false.
+    recordTurnEnd(SK, { end: "end_turn" });
+    const calls: unknown[] = [];
+    await sweep({ ...ctxOf(db), bootedAtMs: Date.now() - 4 * 60_000 }, calls);
+    expect(calls).toHaveLength(1);
+    const notice = db.query("SELECT content FROM messages WHERE role = 'assistant'").get() as { content: string };
+    expect(notice.content).not.toContain("riavvi");
+    expect(eCartelloDiInterruzione(notice.content)).toBe(true);
+  });
+
   test("(c) unanswered after a boot but cut by the watchdog: the cause wins over the boot", async () => {
     // A claude-code turn reattached after the boot keeps its pre-boot message,
     // and the watchdog cut it later: the restart is not what left it unanswered.
@@ -330,7 +426,7 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
       // Recognised as an interruption, the next sweep would resume the chain it closes.
       expect(eCartelloDiInterruzione(text), label).toBe(false);
       if (wording === "restart") expect(text, label).toBe(RESUME_CAP_MARKER);
-      else expect(text, label).not.toContain("riavviat");
+      else expect(text, label).not.toContain("riavvi");
       expect(text.includes("ha smesso di rispondere"), label).toBe(wording === "stall");
     }
   });
@@ -415,7 +511,7 @@ describe("the notice variants and the recogniser", () => {
         const label = `${lastEnd?.end ?? "none"}/${cause ?? "-"} restarted=${restarted}`;
         expect(eCartelloDiInterruzione(text), label).toBe(true);
         expect(text.startsWith("⚠️"), label).toBe(true);
-        expect(text.includes("riavviat"), label).toBe(blamesRestart(cause, restarted));
+        expect(text.includes("riavvi"), label).toBe(blamesRestart(cause, restarted));
       }
     }
     const stalled = boot.unansweredNotice({ restarted: true, lastEnd: cancelled("watchdog") });
@@ -431,10 +527,35 @@ describe("the notice variants and the recogniser", () => {
         expect(text.startsWith("⚠️ Ripresa automatica sospesa:"), label).toBe(true);
         expect(text, label).toContain("Riprova");
         expect(eCartelloDiInterruzione(text), label).toBe(false);
-        expect(text.includes("riavviat"), label).toBe(blamesRestart(cause, restarted));
+        expect(text.includes("riavvi"), label).toBe(blamesRestart(cause, restarted));
       }
     }
     expect(boot.resumeCapNotice({ restarted: true, cause: "watchdog" })).not.toBe(RESUME_CAP_MARKER);
     expect(boot.resumeCapNotice({ restarted: false, cause: "server-shutdown" })).toBe(RESUME_CAP_MARKER);
+  });
+
+  /**
+   * What a notice may claim. The count is of RESENDS, the only thing counted;
+   * the cause belongs to the LAST cut, the only one read. «l'agente ha smesso
+   * di rispondere 4 volte di fila» extended one watchdog to the whole chain,  allow-italian: quotes the notice
+   * and the restart variant counted four restarts after a single boot. One
+   * voice (the server speaking, first person) and one spelling (è, not e').
+   */
+  test("every variant counts resends, blames only the last cut, and speaks one way", () => {
+    const caps = [undefined, "watchdog", "server-shutdown", "rate-limit"].flatMap((cause) =>
+      [true, false].map((restarted) => boot.resumeCapNotice({ restarted, cause })));
+    const unanswered = [null, cancelled("watchdog"), cancelled("wall-clock"), cancelled("server-shutdown"), { end: "end_turn" } as const]
+      .flatMap((lastEnd) => [true, false].map((restarted) => boot.unansweredNotice({ restarted, lastEnd })));
+    for (const text of caps) {
+      expect(text).toContain(`${MAX_RESUME_ATTEMPTS} volte`);
+      expect(text).not.toContain("di fila");
+      if (text.includes("riavvi") || text.includes("smesso di rispondere")) expect(text).toContain("l'ultima volta");
+    }
+    for (const text of [...caps, ...unanswered]) {
+      expect(text).not.toMatch(/e' /);
+      expect(text).not.toContain("l'aveva");
+    }
+    // Every unanswered variant says what happens next, the restart one included.
+    for (const text of unanswered) expect(text.endsWith("Lo rimando."), text).toBe(true);
   });
 });

@@ -15,6 +15,9 @@ import { join } from "path";
 import { initDatabase, closeDatabase, getDatabase } from "../db";
 import { AcpProvider, type AcpProviderConfig } from "./acp";
 import { readProviderSession, writeProviderSession } from "./acp/session-store";
+// `sessionHasPendingSend` is new: through the namespace, so the file still loads
+// on the code before it and only its own test fails.
+import * as registry from "./index";
 import type { ProviderDoneMessage, StreamHandler, ToolArgs } from "./types";
 
 const FAKE_AGENT = join(import.meta.dir, "acp", "fake-agent.fixture.ts");
@@ -246,6 +249,17 @@ describe("stop e morte", () => {
     await provider.abort("topic:slow2", undefined, "watchdog");
     await turn;
     expect(rec.aborted[0]!.turnEnd).toEqual({ end: "cancelled", cause: "watchdog" });
+  });
+
+  test("a cancel nobody asked for carries no cause: it is not a person's Stop", async () => {
+    // With `cause: "user"` here the chat route logs «stream aborted by user»,  allow-italian: quotes the log title
+    // and the resume sweep reads that line as the person having pressed Stop.
+    const provider = makeProvider();
+    const rec = recorder();
+    await provider.sendChat("topic:selfcancel", "SELFCANCEL", rec.handler);
+    expect(rec.errors).toEqual([]);
+    expect(rec.aborted).toHaveLength(1);
+    expect(rec.aborted[0]!.turnEnd).toEqual({ end: "cancelled" });
   });
 
   test("il processo che muore a metà turno diventa un errore, non una promise appesa", async () => {
@@ -520,5 +534,37 @@ describe("l'effort del topic arriva all'agente", () => {
     await provider.sendChat("topic:e4", "due", recorder().handler);
     expect(rec.errors).toEqual([]);
     expect((await agentEffort(provider, "topic:e4")).calls).toEqual([]);
+  });
+});
+
+/**
+ * The resume sweep asks every provider whether a send is still in flight
+ * before it resends (`sessionHasPendingSend`). ACP knew (`promptInFlight`)
+ * and did not say, so a prompt still running behind a turn the watchdog had
+ * closed looked idle.
+ */
+describe("a prompt in flight is a pending send", () => {
+  test("true while the prompt runs, false once it ends and for an unknown chat", async () => {
+    const provider = makeProvider();
+    expect(await provider.hasPendingSend("topic:never-seen")).toBe(false);
+    const rec = recorder();
+    const turn = provider.sendChat("topic:pending", "SLOW", rec.handler);
+    await untilSlowStarted(rec);
+    expect(await provider.hasPendingSend("topic:pending")).toBe(true);
+    await provider.abort("topic:pending", undefined, "watchdog");
+    await turn;
+    expect(await provider.hasPendingSend("topic:pending")).toBe(false);
+  });
+
+  test("the registry asks ACP too", async () => {
+    registry.registerProvider({ type: "acp", name: "finto-registry", command: process.execPath, args: [FAKE_AGENT], defaultWorkspace: tmpRoot });
+    try {
+      const acp = registry.getProvider("finto-registry") as unknown as { sessions: Map<string, unknown> };
+      acp.sessions.set("topic:acp-busy", { promptInFlight: true });
+      expect(await registry.sessionHasPendingSend("topic:acp-busy")).toBe(true);
+      expect(await registry.sessionHasPendingSend("topic:acp-idle")).toBe(false);
+    } finally {
+      registry.removeProvider("finto-registry");
+    }
   });
 });
