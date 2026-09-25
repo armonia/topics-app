@@ -1000,6 +1000,10 @@ export class CodexProvider implements AIProvider {
     }
 
     if (t === "turn.failed" || t === "error") {
+      // After a stop the CLI still flushes a `turn.failed`: the stop's echo,
+      // which the close reports as `onAborted`. As an error it reached the
+      // late-answer lane of the closed turn and wrote a notice there.
+      if (this.sessionState.get(sessionKey)?.aborted) return null;
       handler.onError(extractCodexErrorMessage(event));
       return null;
     }

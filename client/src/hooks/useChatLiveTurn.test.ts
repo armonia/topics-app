@@ -425,3 +425,45 @@ describe('stream token rate wiring', () => {
     d.unmount();
   });
 });
+
+/**
+ * A STOP THE MACHINE WANTED LEAVES NO INTERRUPTION BANNER, on screen or in the
+ * cache a reload reads (fifth review of PR #135).
+ *
+ * After a land the amber «Turno interrotto» with Retry was false, and Retry
+ * resent the envelope. The server now ends such a turn without a cause
+ * (routes/chat.ts, and the abort route's own end); this pins what the page does
+ * with that end. The watchdog's end is the control: the same path does draw
+ * and cache a banner, so an empty result below is not an empty harness.
+ */
+describe('a stop the machine wanted leaves no interruption banner', () => {
+  const ends: Array<[string, Record<string, unknown>, string[]]> = [
+    ['the machine (a land, a deadline, the stall judge)', { stopReason: 'cancelled' }, []],
+    ['the watchdog, as the control', { stopReason: 'cancelled', stopCause: 'watchdog', reason: 'error', error: 'Turno interrotto.' }, ['watchdog']],
+  ];
+  for (const [who, end, causes] of ends) {
+    test(`${who}: ${causes.length ? 'a banner' : 'no banner'}, live and cached`, () => {
+      // useChat caches through the bare `localStorage`, which bun does not define.
+      const g2 = globalThis as { localStorage?: unknown };
+      const had = 'localStorage' in g2;
+      const prev = g2.localStorage;
+      const storage = new MemStorage();
+      g2.localStorage = storage;
+      try {
+        const d = drive();
+        const sk = keyOf();
+        d.ws({ type: 'stream:start', messageId: LIVE });
+        d.ws({ type: 'stream:content_chunk', content: PRIMA });
+        d.ws({ type: 'stream:end', messageId: LIVE, ...end });
+        const causesOf = (msgs: Array<{ blocks?: Array<{ kind: string; cause?: string }> | null }> | null) =>
+          (msgs ?? []).flatMap((m) => (m.blocks ?? []).filter((b) => b.kind === 'error').map((b) => b.cause ?? ''));
+        expect(causesOf(d.chat.getSessionMessages(sk))).toEqual(causes);
+        expect(causesOf(JSON.parse(storage.getItem(`messages-cache-${sk}`) ?? 'null'))).toEqual(causes);
+        d.unmount();
+      } finally {
+        if (had) g2.localStorage = prev;
+        else delete g2.localStorage;
+      }
+    });
+  }
+});

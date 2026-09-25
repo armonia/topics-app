@@ -30,6 +30,7 @@ import { createTopicsRouter } from "../../server/routes/topics";
 import { registerProvider, removeProvider } from "../../server/providers";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, Topic } from "../../server/types";
+import { liveInterruptionBlock } from "../../client/src/components/Chat/turnError";
 
 const TEST_DATA = testTmpDir("chat-stream-abort-data");
 beforeAll(() => setupTestDataDir(TEST_DATA));
@@ -386,11 +387,17 @@ describe("la promessa di ripresa sul cartello", () => {
   // route's own `stream:end` does: after a land «a newer turn took its place»
   // was false, and Retry resent the envelope (fifth review of PR #135).
   test("una fermata della macchina non manda la causa al client, il watchdog e il silenzio sì", async () => {
+    // The real events through the client's own reader, so the two halves fail together.
+    const banner = (e: Record<string, unknown>) => {
+      const block = liveInterruptionBlock({ stopCause: e.stopCause as string | undefined, error: e.error as string | undefined });
+      return block?.kind === "error" ? block.cause : null;
+    };
     for (const cause of ["stall", "superseded", "wall-clock"] as const) {
       const h = await harness(`topic:fine-${cause}`);
       (await h.startTurn()).onAborted?.({ result: "", turnEnd: { end: "cancelled", cause } });
       await new Promise((r) => setTimeout(r, 50));
       expect(h.ends().map((e) => e.stopCause), cause).toEqual([undefined]);
+      expect(h.ends().map(banner), cause).toEqual([null]);
     }
     const dog = await harness("topic:fine-watchdog");
     (await dog.startTurn()).onAborted?.({ result: "", turnEnd: { end: "cancelled", cause: "watchdog" } });
@@ -399,6 +406,7 @@ describe("la promessa di ripresa sul cartello", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(dog.ends().map((e) => e.stopCause)).toEqual(["watchdog"]);
     expect(quiet.ends().map((e) => e.stopCause)).toEqual(["wall-clock"]);
+    expect([...dog.ends(), ...quiet.ends()].map(banner)).toEqual(["watchdog", "wall-clock"]);
   });
 
   test("scadenza della delega: nessun cartello, riga vuota scartata, come su main", async () => {
