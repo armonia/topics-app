@@ -33,7 +33,7 @@ import { GOAL_STEP_STATUSES } from "../../shared/types";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 import { OUTBOUND_TOOLS, callGoogleCall, callSendMail } from "./outbound-tools";
-import { httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
+import { HttpAnswerError, httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
 import type { ParsedArgs } from "./topics-http";
 
 interface JsonRpcRequest {
@@ -1535,27 +1535,23 @@ function unfinishedTurn(end: TurnEndFrame, text: string, topicId: string): strin
 export interface SendChatWait {
   pollMs?: number;
   maxWaitMs?: number;
-  /** How long neither the row nor the stream may be seen before the turn counts as gone. */
-  goneAfterMs?: number;
 }
 const CUT_SEND_POLL_MS = 2_000;
 // A tool call cannot hold its caller for ever: past this it answers, and
 // read_chat_messages has the rest. It is not the turn's limit, a live turn has none.
 const CUT_SEND_MAX_WAIT_MS = 30 * 60_000;
-// A turn still running can vanish from both places at once: `/messages` hides a
-// row with no text yet, and `/api/topics/streaming` hides a turn silent for
-// over 3 min until the stale-stream sweep (every 30 s) marks it alive again.
-const CUT_SEND_GONE_MS = 45_000;
 
 type ChatRow = { id?: string; role?: string; content?: string; partial?: boolean; blocks?: Array<{ kind?: string; text?: string }> };
 
 /**
  * The stream was cut before `[DONE]` while the turn may still be running. Wait
- * on the turn's own row, by the id the stream named: it is the reply once it
- * is no longer partial. A row that is still partial is never the reply, even
- * when the turn drops out of the streaming registry for a moment. A turn
- * waiting for a person, still running past the wait, gone without a row, or
- * closed with an error verdict is an explicit failure.
+ * on the turn's own row, by the id the stream named, read ONE row at a time:
+ * the list hides a partial row with no text yet, and the streaming registry
+ * hides a turn silent for over 3 min, so neither can say the turn is over.
+ * The row can: it is the reply once it is no longer partial, and gone (404)
+ * when the turn was dropped without writing anything. A turn waiting for a
+ * person, still running past the wait, or closed with an error verdict is an
+ * explicit failure.
  */
 async function awaitTurnEndAndReadReply(
   args: ParsedArgs,
@@ -1571,14 +1567,17 @@ async function awaitTurnEndAndReadReply(
   }
   const pollMs = wait.pollMs ?? CUT_SEND_POLL_MS;
   const maxWaitMs = wait.maxWaitMs ?? CUT_SEND_MAX_WAIT_MS;
-  const goneAfterMs = wait.goneAfterMs ?? CUT_SEND_GONE_MS;
   const deadline = Date.now() + maxWaitMs;
-  let unseenSince: number | null = null;
   for (;;) {
-    const body = await httpJson<{ messages?: ChatRow[] }>(
-      args, "GET", `/api/topics/${encodeURIComponent(topicId)}/messages?limit=50`, undefined, fetchImpl,
-    );
-    const row = (Array.isArray(body?.messages) ? body!.messages : []).find((m) => m.id === messageId);
+    let row: ChatRow | undefined;
+    try {
+      row = (await httpJson<{ message?: ChatRow }>(
+        args, "GET", `/api/topics/${encodeURIComponent(topicId)}/messages/${encodeURIComponent(messageId)}`, undefined, fetchImpl,
+      ))?.message;
+    } catch (err: unknown) {
+      if (!(err instanceof HttpAnswerError && err.status === 404)) throw err;
+      throw new Error(`send_chat_message: stream interrupted, and the turn ended without leaving a reply. ${see}.`);
+    }
     if (row && !row.partial) {
       const text = (row.content ?? "").trim();
       const verdict = row.blocks?.find((b) => b?.kind === "error");
@@ -1593,13 +1592,6 @@ async function awaitTurnEndAndReadReply(
     ))?.sessions?.find((s) => s.sessionKey === sessionKey);
     if (live?.state === "waiting") {
       throw new Error(`send_chat_message: stream interrupted, and the turn is waiting for a person's answer in that chat. ${see} once it is answered.`);
-    }
-    if (row || live) unseenSince = null;
-    else {
-      unseenSince ??= Date.now();
-      if (Date.now() - unseenSince >= goneAfterMs) {
-        throw new Error(`send_chat_message: stream interrupted, and the turn ended without leaving a reply. ${see}.`);
-      }
     }
     if (Date.now() >= deadline) {
       throw new Error(`send_chat_message: stream interrupted, and the turn is still running after ${Math.round(maxWaitMs / 60_000)} min. ${see} later.`);

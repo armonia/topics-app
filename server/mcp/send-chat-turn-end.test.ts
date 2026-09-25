@@ -19,7 +19,7 @@ function stubFetch(impl: (input: RequestInfo | URL, init?: RequestInit) => Promi
 
 describe("callSendChatMessage when the turn does not finish on the stream", () => {
   const A = { baseUrl: "http://x", sessionKey: "topic:mine" };
-  const FAST = { pollMs: 5, maxWaitMs: 200, goneAfterMs: 50 };
+  const FAST = { pollMs: 5, maxWaitMs: 200 };
   const frame = (o: unknown) => `data: ${JSON.stringify(o)}\n\n`;
   const delta = (c: string) => frame({ choices: [{ delta: { content: c } }] });
 
@@ -46,7 +46,19 @@ describe("callSendChatMessage when the turn does not finish on the stream", () =
       if (u.endsWith("/api/topics/t1")) return new Response(JSON.stringify({ topic: { sessionKey: "topic:target", name: "Target" } }), { status: 200 });
       if (u.endsWith("/api/chat")) return sseResponse(opts.chat ?? cut);
       if (u.endsWith("/api/topics/streaming")) return new Response(JSON.stringify({ sessions: opts.streaming() }), { status: 200 });
-      if (u.includes("/api/topics/t1/messages")) return new Response(JSON.stringify({ messages: opts.messages() }), { status: 200 });
+      // The routes as the server serves them: one row by id, partial and empty
+      // included, or 404; the list without a partial row that has no text yet.
+      const one = u.match(/\/api\/topics\/t1\/messages\/([^/?]+)$/);
+      if (one) {
+        const row = opts.messages().find((m) => m.id === one[1]);
+        return row
+          ? new Response(JSON.stringify({ message: row }), { status: 200 })
+          : new Response(JSON.stringify({ error: "Message not found" }), { status: 404 });
+      }
+      if (u.includes("/api/topics/t1/messages?")) {
+        const listed = opts.messages().filter((m) => !m.partial || String(m.content ?? "").trim());
+        return new Response(JSON.stringify({ messages: listed }), { status: 200 });
+      }
       throw new Error(`unexpected url ${u}`);
     });
   }
@@ -77,17 +89,42 @@ describe("callSendChatMessage when the turn does not finish on the stream", () =
   });
 
   test("a turn waiting for a person's answer says so at once", async () => {
-    const fetchImpl = world({ streaming: () => [{ sessionKey: "topic:target", state: "waiting" }], messages: () => [] });
+    const fetchImpl = world({
+      streaming: () => [{ sessionKey: "topic:target", state: "waiting" }],
+      messages: () => [{ id: "m1", role: "assistant", content: "", partial: true }],
+    });
     await expect(callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST))
       .rejects.toThrow(/stream interrupted.*waiting for a person/i);
   });
 
-  test("a row with no text yet is waited on while the turn is live, and a turn gone for good is said to be", async () => {
-    let polls = 0;
-    const fetchImpl = world({ streaming: () => (++polls < 4 ? LIVE : []), messages: () => [] });
+  /**
+   * THE CASE OF C7, WITHOUT A CLOCK TO LOSE TO. The row of a turn silent in a
+   * tool usually has no text yet (content is saved every 10 deltas), so the
+   * list hides it, and past 3 min of silence the streaming registry hides the
+   * turn until the next sweep. Waiting on those two was a race against a 45 s
+   * margin that a loaded Mac loses (the loop stalled 7-87 s on 14/09). Here
+   * both stay blind for 1.5 s while the turn is alive: the reply still comes.
+   */
+  test("a live turn invisible to the list and to the registry is still waited on, by its row", async () => {
+    const t0 = Date.now();
+    const fetchImpl = world({
+      streaming: () => [],
+      messages: () => [
+        { id: "u1", role: "user", content: "ping" },
+        Date.now() - t0 < 1_500
+          ? { id: "m1", role: "assistant", content: "", partial: true }
+          : { id: "m1", role: "assistant", content: "the whole answer" },
+      ],
+    });
+    const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, { pollMs: 5, maxWaitMs: 5_000 });
+    expect(out).toBe("the whole answer");
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(1_500);
+  }, 10_000);
+
+  test("a row that is gone says the turn ended without a reply, at once", async () => {
+    const fetchImpl = world({ streaming: () => LIVE, messages: () => [{ id: "u1", role: "user", content: "ping" }] });
     await expect(callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST))
       .rejects.toThrow(/stream interrupted.*ended without leaving a reply/i);
-    expect(polls).toBeGreaterThanOrEqual(4);
   });
 
   test("a cut turn that then closed with an error verdict is not handed back as the reply", async () => {

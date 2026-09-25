@@ -5,7 +5,8 @@
  *
  * Copied from the independent review of df9b2fd2e (card 63e01ac0). Adapted to
  * the fix in two ways only: the cut stream opens with the route's `turn` frame
- * naming the row (and the rows carry ids), and the "never partial" test takes
+ * naming the row (and the rows carry ids, read one by one as the server serves
+ * them since round 3), and the "never partial" test takes
  * an explicit failure as an answer too, since a turn still partial at the end
  * of the wait is one.
  */
@@ -33,6 +34,11 @@ function world(opts: {
     if (u.endsWith("/api/topics/t1")) return new Response(JSON.stringify({ topic: { sessionKey: "topic:target", name: "Target" } }), { status: 200 });
     if (u.endsWith("/api/chat")) return cutSse(["half "]);
     if (u.endsWith("/api/topics/streaming")) return new Response(JSON.stringify({ sessions: opts.streaming(++polls) }), { status: 200 });
+    const one = u.match(/\/api\/topics\/t1\/messages\/([^/?]+)$/);
+    if (one) {
+      const row = opts.messages(polls).find((m) => m.id === one[1]);
+      return new Response(JSON.stringify(row ? { message: row } : { error: "Message not found" }), { status: row ? 200 : 404 });
+    }
     if (u.includes("/api/topics/t1/messages")) return new Response(JSON.stringify({ messages: opts.messages(polls) }), { status: 200 });
     throw new Error(`unexpected url ${u}`);
   }) as typeof fetch;

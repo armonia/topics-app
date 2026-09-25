@@ -17,6 +17,8 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { setupTestDataDir, createTestAppContext, cleanupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createChatRouter } from "./chat";
+import { createTopicsRouter } from "./topics";
+import { callSendChatMessage } from "../mcp/topics-mcp-server";
 import { armStallDetector } from "../lib/stall-detector";
 import { isSseCommentOnly } from "../lib/sse-ping";
 import { cancelled } from "../providers/stop-reason";
@@ -159,6 +161,44 @@ describe("the chat's SSE response during a silent tool, behind Bun's idle timeou
     } finally {
       silentServer.stop(true);
       pingServer.stop(true);
+    }
+  }, 40_000);
+});
+
+describe("send_chat_message across a stream Bun cut, on the real routes", () => {
+  test("the idle close lands mid-tool, before any text: the tool still returns the final answer", async () => {
+    const ctx = await createTestAppContext();
+    const sessionKey = saveTopic(ctx, "sse-cut-send");
+    // No ping inside the 14 s: the response is cut at 8 to 12 s, the turn goes on.
+    const chat = chatRouterFor(ctx, silentToolProvider(14_000).provider, 60_000);
+    const topics = createTopicsRouter(ctx);
+    const server = Bun.serve({
+      port: 0,
+      idleTimeout: 8,
+      fetch: async (req) => {
+        const url = new URL(req.url);
+        return (await chat(req, url, url.pathname, req.method))
+          ?? (await topics(req, url, url.pathname, req.method))
+          ?? new Response("not found", { status: 404 });
+      },
+    });
+    const asked: string[] = [];
+    const recording = ((input: RequestInfo | URL, init?: RequestInit) => {
+      asked.push(String(input));
+      return fetch(input, init);
+    }) as typeof fetch;
+    try {
+      const reply = await callSendChatMessage(
+        { baseUrl: `http://127.0.0.1:${server.port}`, sessionKey: "topic:the-caller" },
+        { topic_id: "sse-cut-send", message: "run the long command" },
+        recording,
+        { pollMs: 200, maxWaitMs: 30_000 },
+      );
+      expect(reply).toBe("finished");
+      // It came from the row, after the cut: not from a stream that reached [DONE].
+      expect(asked.some((u) => /\/api\/topics\/sse-cut-send\/messages\/[^/?]+$/.test(u))).toBe(true);
+    } finally {
+      server.stop(true);
     }
   }, 40_000);
 });
