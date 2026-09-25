@@ -25,6 +25,28 @@ hermetic(test);
 
 const BASE = E2E_BASE;
 
+/**
+ * Declares one more window to the page: every roster the server sends it
+ * (`presence:windows`, after each `hello` and `presence:announce`) arrives
+ * with `other` added. A roster sent once on a timer lost to the server's own
+ * whenever the page announced itself after the timer, as it does under load,
+ * and the page went back to a world without the other window.
+ */
+async function declareOtherWindow(page: Page, other: Record<string, unknown>): Promise<void> {
+  await page.routeWebSocket(/ws/, (ws) => {
+    const server = ws.connectToServer();
+    server.onMessage((msg) => {
+      if (typeof msg === "string" && msg.includes('"presence:windows"')) {
+        const roster = JSON.parse(msg) as { windows?: unknown[] };
+        ws.send(JSON.stringify({ ...roster, windows: [...(roster.windows ?? []), other] }));
+        return;
+      }
+      ws.send(msg);
+    });
+    ws.onMessage((msg) => server.send(msg));
+  });
+}
+
 test.describe.serial("Gruppi (Spazi)", () => {
   let idA = "";
   let idB = "";
@@ -207,26 +229,14 @@ test.describe.serial("Gruppi (Spazi)", () => {
     // La presenza è WS-driven: si inietta la finestra-gruppo invece di aprirla
     // davvero (fuori da Tauri non esiste `window_focus_label`, e il punto qui è
     // il SEGNO sul chip + la rotta del click).
-    await page.routeWebSocket(/ws/, (ws) => {
-      const server = ws.connectToServer();
-      server.onMessage((msg) => ws.send(msg));
-      ws.onMessage((msg) => server.send(msg));
-      setTimeout(() => {
-        ws.send(JSON.stringify({
-          type: "presence:windows",
-          windows: [
-            {
-              windowId: "e2e-space-window",
-              clientId: "e2e-c1",
-              windowLabel: "space-e2e",
-              detached: true,
-              spaceId,
-              topicIds: [idA],
-              tabs: [{ id: idA, type: "chat" }],
-            },
-          ],
-        }));
-      }, 800);
+    await declareOtherWindow(page, {
+      windowId: "e2e-space-window",
+      clientId: "e2e-c1",
+      windowLabel: "space-e2e",
+      detached: true,
+      spaceId,
+      topicIds: [idA],
+      tabs: [{ id: idA, type: "chat" }],
     });
     await page.reload();
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
@@ -463,26 +473,14 @@ test.describe.serial("Gruppi (Spazi)", () => {
     // terminali vivi in doppio.
     await openTwoStandaloneTabs(page);
 
-    await page.routeWebSocket(/ws/, (ws) => {
-      const server = ws.connectToServer();
-      server.onMessage((msg) => ws.send(msg));
-      ws.onMessage((msg) => server.send(msg));
-      setTimeout(() => {
-        ws.send(JSON.stringify({
-          type: "presence:windows",
-          windows: [
-            {
-              windowId: "e2e-space-window",
-              clientId: "e2e-c1",
-              windowLabel: "space-e2e",
-              detached: true,
-              spaceId: "space:default",
-              topicIds: [idA, idB],
-              tabs: [{ id: idA, type: "chat" }],
-            },
-          ],
-        }));
-      }, 600);
+    await declareOtherWindow(page, {
+      windowId: "e2e-space-window",
+      clientId: "e2e-c1",
+      windowLabel: "space-e2e",
+      detached: true,
+      spaceId: "space:default",
+      topicIds: [idA, idB],
+      tabs: [{ id: idA, type: "chat" }],
     });
     await page.reload();
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
@@ -507,26 +505,14 @@ test.describe.serial("Gruppi (Spazi)", () => {
 
     // La presenza dichiara che GRUPPO 2 vive in un'altra finestra, e si passa
     // lì: la finestra deve rimbalzare da sola su Principale.
-    await page.routeWebSocket(/ws/, (ws) => {
-      const server = ws.connectToServer();
-      server.onMessage((msg) => ws.send(msg));
-      ws.onMessage((msg) => server.send(msg));
-      setTimeout(() => {
-        ws.send(JSON.stringify({
-          type: "presence:windows",
-          windows: [
-            {
-              windowId: "e2e-space-window",
-              clientId: "e2e-c1",
-              windowLabel: "space-e2e",
-              detached: true,
-              spaceId,
-              topicIds: [idA],
-              tabs: [{ id: idA, type: "chat" }],
-            },
-          ],
-        }));
-      }, 500);
+    await declareOtherWindow(page, {
+      windowId: "e2e-space-window",
+      clientId: "e2e-c1",
+      windowLabel: "space-e2e",
+      detached: true,
+      spaceId,
+      topicIds: [idA],
+      tabs: [{ id: idA, type: "chat" }],
     });
     await page.reload();
     await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15000 });
