@@ -905,6 +905,28 @@ function endKilledTurn(handler: StreamHandler, err: ProcessKilledError): void {
   else handler.onAborted({ turnEnd: cancelled("watchdog", err.notice) });
 }
 
+/**
+ * A child in the middle of a turn: a stream handler (sent, woken or reattached
+ * turn), a send still waiting on it (a turn the route stopped watching while
+ * the CLI works on), or a spontaneous turn waiting for its adopter or declined
+ * (both flags clear on the turn's own `result`). The one rule for every clock
+ * that may kill the child: the lifetime cap, the idle reaper, a config change.
+ */
+function turnInFlight(pp: PersistentProcess): boolean {
+  return !!pp.streamHandler || !!pp.pendingReject || pp.wokenBuffer != null || pp.declinedTurn === true;
+}
+
+/**
+ * Since when the child counts as quiet: its last event, or the moment a person
+ * last answered it, whichever is later. The CLI prints nothing while a
+ * permission prompt or a question is open, nor while the command just approved
+ * runs, and a clock counting from the tool_use that asked killed that command.
+ * Read by the lifetime cap and by the send watchdog.
+ */
+function quietSince(pp: PersistentProcess, sessionKey: string): number {
+  return Math.max(pp.lastEventAt, humanHoldReleasedAt(sessionKey) ?? 0);
+}
+
 interface PersistentProcess {
   /** Set in DIRECT mode only (the spawned child); null in broker mode. */
   proc: ChildProcess | null;
@@ -1664,7 +1686,7 @@ export class ClaudeCodeProvider implements AIProvider {
       const arm = () => {
         const d = turnWatchdogDecision({
           pendingAsk: isHumanHold(sessionKey),
-          idleMs: Date.now() - pp.lastEventAt,
+          idleMs: Date.now() - quietSince(pp, sessionKey),
           windowMs: this.turnWatchdogMs,
         });
         if (d.action === "reject") {
@@ -1947,10 +1969,9 @@ export class ClaudeCodeProvider implements AIProvider {
   refreshSessionConfig(sessionKey: string): void {
     const pp = this.processes.get(sessionKey);
     if (!pp) return;
-    // A turn in flight, by the same rule as the lifetime cap: a handler, or a
-    // send still waiting on the child after the route released its handler.
-    // The change then applies on the next natural respawn.
-    if (pp.streamHandler || pp.pendingReject) return;
+    // A turn in flight, by the same rule as the lifetime cap and the reaper
+    // (`turnInFlight`): the change then applies on the next natural respawn.
+    if (turnInFlight(pp)) return;
     console.log(`[claude-code] refreshSessionConfig: dropping idle process for ${sessionKey} to pick up new config`);
     this.killProcess(pp, "config");
     this.processes.delete(sessionKey);
@@ -3900,25 +3921,15 @@ export class ClaudeCodeProvider implements AIProvider {
         // `killProcess` kills BY KEY, so a cap left armed on a replaced `pp`
         // would kill the child of whoever holds the key now.
         if (this.processes.get(sessionKey) !== pp) { pp.lifetimeTimer = null; return; }
-        // A child in the middle of a turn: a stream handler (sent, woken or
-        // reattached turn), a send still waiting on it (a turn the route
-        // stopped watching while the CLI works on), or a woken turn not yet
-        // adopted or declined (both flags clear on the turn's own `result`).
         // The cap is a wall clock on purpose (it recycles the child), so it
-        // waits for the turn to end and fires on the first tick after it. On
-        // 2026-09-24 (chat 3019832f) it killed a streaming CLI at 12:42 and the
-        // send hung for 30 minutes.
-        const inTurn = !!pp.streamHandler || !!pp.pendingReject || pp.wokenBuffer != null || pp.declinedTurn === true;
-        // Except a turn silent for longer than the turn watchdog's window. A
+        // waits for a turn in flight to end and fires on the first tick after
+        // it. On 2026-09-24 (chat 3019832f) it killed a streaming CLI at 12:42
+        // and the send hung for 30 minutes.
+        // Except a turn quiet for longer than the turn watchdog's window. A
         // woken turn has no watchdog, and the cap was the only thing ending it
         // if it wedged. It still is, so waiting never becomes waiting forever.
         // Not a second silence clock: this only ever fires past the 2 h mark.
-        // Silence counts from the last event OR from the moment a person last
-        // answered, whichever is later: the CLI prints nothing while a
-        // permission prompt or a question is open, nor while the command just
-        // approved runs, and counting that wait killed the approved command.
-        const quietSince = Math.max(pp.lastEventAt, humanHoldReleasedAt(sessionKey) ?? 0);
-        if (inTurn && Date.now() - quietSince < wedgedMs + rearmMs) {
+        if (turnInFlight(pp) && Date.now() - quietSince(pp, sessionKey) < wedgedMs + rearmMs) {
           pp.lifetimeTimer = this.armLifetime(pp, sessionKey, { ms: rearmMs, rearmMs, wedgedMs });
           return;
         }
@@ -4083,7 +4094,9 @@ export class ClaudeCodeProvider implements AIProvider {
       // by the previous turn's end fired and killed it mid-work, and the chat
       // showed a running turn for hours with nothing behind it. The invariant
       // belongs where the kill happens: never reap a child that is streaming.
-      if (pp.streamHandler) { this.resetInactivityTimer(key, pp, opts); return; }
+      // The same holds for a spontaneous turn declined or waiting for its
+      // adopter: no handler, and the child writing (PR #134 review, round 2).
+      if (turnInFlight(pp)) { this.resetInactivityTimer(key, pp, opts); return; }
       console.log(`[claude-code] Inactivity timeout for ${key}`);
       this.killProcess(pp, "idle");
       this.processes.delete(key);
