@@ -41,6 +41,16 @@ export interface StallDetectorOptions {
    * `our-own-wait-is-not-a-stall`). Bounded by the freeze's own ten minutes.
    */
   isFrozen?: () => boolean;
+  /**
+   * The session's CLI still reports on background work (an Agent with
+   * `run_in_background`, a Bash, a Monitor): the transcript is quiet because
+   * the model is waiting for it, and the CLI will speak again when it reports.
+   * The judge reads only the transcript, so it cannot see that: on 25/09 it
+   * answered alive, alive, then stuck on chat 3019832f with the same tail, and
+   * the recycle killed the agent. Bounded by the thirty minutes without news of
+   * `claude/background-work.ts`.
+   */
+  isWaitingForBackground?: () => boolean;
   /** The tail of the transcript to hand the judge. `null` = nothing readable
    *  right now — treated as "alive": never recycle on ignorance. */
   getTail: () => string | null;
@@ -51,7 +61,7 @@ export interface StallDetectorOptions {
   onStuck: () => void;
   /** Fires on every rearm (a human in the loop, or an "alive" verdict) —
    *  logging only, mirrors `TurnDeadlineOptions.onRearm`. */
-  onRearm?: (reason: "human" | "checks" | "freeze" | "alive") => void;
+  onRearm?: (reason: "human" | "checks" | "freeze" | "background" | "alive") => void;
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (handle: unknown) => void;
@@ -72,13 +82,15 @@ export function armStallDetector(opts: StallDetectorOptions): StallDetector {
     inner = armTurnDeadline({
       ms: opts.idleMs,
       isWaitingForHuman: () =>
-        opts.isWaitingForHuman() || (opts.isWaitingForChecks?.() ?? false) || (opts.isFrozen?.() ?? false),
+        opts.isWaitingForHuman() || (opts.isWaitingForChecks?.() ?? false) || (opts.isFrozen?.() ?? false)
+        || (opts.isWaitingForBackground?.() ?? false),
       now: opts.now,
       setTimer: opts.setTimer,
       clearTimer: opts.clearTimer,
       // The inner watch only knows "somebody is holding": name who, for the log.
       onRearm: () => opts.onRearm?.(
-        opts.isWaitingForHuman() ? "human" : opts.isFrozen?.() ? "freeze" : "checks",
+        opts.isWaitingForHuman() ? "human" : opts.isFrozen?.() ? "freeze"
+          : opts.isWaitingForBackground?.() ? "background" : "checks",
       ),
       onExpired: () => {
         // Fire-and-continue: the inner timer has already stopped ticking (it

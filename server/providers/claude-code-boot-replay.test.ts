@@ -20,6 +20,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync, existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { recordedBackgroundSession } from "./claude/background-work.fixture";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 let tempDir = "";
@@ -292,5 +293,68 @@ describe("boot · un solo replay dello store per sessione", () => {
     expect((prov as any).parkedScans.size).toBe(0);
 
     try { getAiBridgeClient().kill(sessionKey); } catch { /* pulizia best-effort */ }
+  }, 40_000);
+});
+
+/**
+ * A CLOSED TURN WITH ITS AGENT STILL RUNNING IS NOT A TURN IN FLIGHT (card C9).
+ *
+ * Chat 3019832f, 25/09: the server restarted while the chat waited for its
+ * background agent. The store held the agent's lines after the last `result`
+ * (they carry `parent_tool_use_id`), the scan read them as an open turn, and the
+ * boot adopted a turn that only the agent's end could close; the stall judge
+ * later recycled it and killed the agent. Read correctly, the tail is closed,
+ * and the session must still be KEPT, not reaped: its work is alive, and the
+ * wake it brings when it reports has to be heard.
+ *
+ * The store is the recorded CLI session (`claude/background-work.fixture.ts`):
+ * up to the agent's lines before the first wake, then the fake CLI waits for a
+ * trigger and prints that wake, the Monitor's first tick.
+ */
+describe("boot · the agent's lines after the last result", () => {
+  test("the tail is closed, the session is kept attached, and the next wake is heard", async () => {
+    const events = recordedBackgroundSession();
+    const firstResult = events.findIndex((e) => e.type === "result");
+    const nextInit = events.findIndex((e, i) => i > firstResult && e.type === "system" && e.subtype === "init");
+    const wakeEnd = events.findIndex((e, i) => i > nextInit && e.type === "result");
+    const before = join(tempDir, "bg-before.ndjson");
+    const wake = join(tempDir, "bg-wake.ndjson");
+    const trigger = join(tempDir, "bg-wake.go");
+    writeFileSync(before, events.slice(0, nextInit).map((e) => JSON.stringify(e)).join("\n") + "\n");
+    writeFileSync(wake, events.slice(nextInit, wakeEnd + 1).map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const cli = join(tempDir, "fake-bgstore.sh");
+    writeFileSync(cli, `#!/bin/sh\nread line\ncat '${before}'\nwhile [ ! -f '${trigger}' ]; do sleep 0.05; done\ncat '${wake}'\nsleep 30\n`);
+    chmodSync(cli, 0o755);
+    setEnv("TOPICS_CLAUDE_CLI_PATH", cli);
+
+    const sessionKey = "topic:boot-bg-agent";
+    await seedSurvivingSession(sessionKey, "t-boot-bg-agent");
+    const prov = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    try {
+      // Before the fix: "open", and the boot adopted a turn nobody had opened.
+      expect(await prov.brokerTurnState(sessionKey, { park: true })).toBe("idle");
+      expect((prov as any).parkedScans.size).toBe(0);
+      // Not reaped either: the probe kept the session, and the boot asks this.
+      expect(prov.hasBackgroundWork(sessionKey)).toBe(true);
+      expect(prov.isTurnProcessAlive(sessionKey)).toBe(false);
+
+      // The Monitor ticks: the CLI wakes itself, and somebody is listening.
+      const wakes: string[] = [];
+      let done = null as string | null;
+      ProviderCtor.observeWokenTurns((sk: string) => {
+        wakes.push(sk);
+        const h = makeHandler();
+        h.handler.onDone = (r: { result?: string }) => { done = r?.result ?? ""; };
+        prov.adoptWokenTurn(sk, h.handler);
+      });
+      writeFileSync(trigger, "");
+      await waitFor(() => done !== null, 10_000);
+      expect(wakes).toEqual([sessionKey]);
+      expect(String(done)).toBe(String(events[wakeEnd]!.result));
+    } finally {
+      ProviderCtor.observeWokenTurns(() => {});
+      try { getAiBridgeClient().kill(sessionKey); } catch { /* best-effort cleanup */ }
+    }
   }, 40_000);
 });

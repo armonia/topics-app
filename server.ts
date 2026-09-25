@@ -159,7 +159,7 @@ import { createBillingRouter, isBillingWebhookPath } from "./server/routes/billi
 import { createAccountRouter } from "./server/routes/account";
 import { createPeopleRouter } from "./server/routes/people";
 import { getGatewayWS } from "./server/gateway-ws";
-import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend } from "./server/providers";
+import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend, sessionHasBackgroundWork } from "./server/providers";
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import type { AbortReason } from "./server/providers/types";
@@ -1127,6 +1127,8 @@ async function watchHeadlessBody(
     isWaitingForChecks: () => isChecksHold(sessionKey),
     // A command of this session is STOPped by us: that silence is ours.
     isFrozen: () => isSwapFreezeHold(sessionKey),
+    // Its CLI still reports on an agent, a Bash or a Monitor: that wait is the model's own.
+    isWaitingForBackground: () => sessionHasBackgroundWork(sessionKey),
     getTail: () => stallTranscriptTail(sessionKey),
     judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
     onRearm: (reason) => console.log(
@@ -1134,6 +1136,8 @@ async function watchHeadlessBody(
         ? `[turn] stall watch rearmed on ${sessionKey}: a person is in the loop (question or permission), their time doesn't count`
         : reason === "freeze"
           ? `[turn] stall watch rearmed on ${sessionKey}: one of its commands is frozen by the swap brake, that wait is ours`
+        : reason === "background"
+          ? `[turn] stall watch rearmed on ${sessionKey}: its background work is still running, the judge is not asked`
         : reason === "checks"
           ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
           : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
@@ -5401,6 +5405,12 @@ async function reattachSurvivingChatTurns(): Promise<void> {
       const prov = tryGetProvider("claude-code") as { isTurnProcessAlive?: (sk: string) => boolean } | undefined;
       if (prov?.isTurnProcessAlive?.(s.id)) continue; // adopted by a live turn — hands off
     } catch { /* provider not up yet — reap anyway, a turn can't be running */ }
+    // No turn, but the probe above found the work its last turn left running
+    // and kept the session attached: reaping it would kill that work.
+    if (adoptable && sessionHasBackgroundWork(s.id)) {
+      console.log(`[chat-reattach] keeping ${s.id}: no turn in flight, but its background work is still running`);
+      continue;
+    }
     // Il motivo va scritto con le PROVE che l'hanno deciso: quando questo reap
     // si rivelerà di nuovo sbagliato, il log deve dire da quale delle due fonti
     // è arrivata la bugia, non solo che qualcuno è stato ucciso.

@@ -42,9 +42,23 @@ export function isWokenTurnLine(args: {
   replaySilent: boolean;
   /** Che cosa è questa riga (vedi `claude/events.ts`). */
   kind: StreamLineKind;
+  /** The line carries `parent_tool_use_id`: a subagent is talking, not the model. */
+  subagent?: boolean;
+  /** A spontaneous turn is already held, waiting for its adopter. */
+  wakeHeld?: boolean;
 }): boolean {
   if (args.hasHandler) return false;
   if (args.replayMute || args.replaySilent) return false;
+  // A BACKGROUND AGENT'S LINE OPENS NOTHING. After the `result` of the turn that
+  // launched it, an Agent with `run_in_background` keeps printing on the same
+  // stdout, marked with `parent_tool_use_id`. Read as a turn, its first line
+  // opened an empty row that only a `result` could close, and that `result`
+  // comes only when the agent is done and the model answers its notification:
+  // chat 3019832f, 25/09, the row the stall judge then found "stuck". The CLI
+  // wakes itself with a line of the MODEL (recorded on 2.1.282, see
+  // `claude-code-woken-turn.test.ts`). A subagent line that arrives while that
+  // real wake is held belongs to it, so it joins the buffer in order.
+  if (args.subagent && !args.wakeHeld) return false;
   // `content` = i blocchi veri (assistant/user), `partial` = i loro pezzi in
   // streaming. Un `result` NON conta: chiude un turno, non ne apre uno, e senza
   // handler non c'è niente da chiudere. `noise` e `compaction` non sono il

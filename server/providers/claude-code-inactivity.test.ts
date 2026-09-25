@@ -15,6 +15,8 @@
  */
 import { describe, test, expect } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";
+import { noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
+import { recordedBackgroundSession } from "./claude/background-work.fixture";
 
 function fakePP(over: Record<string, unknown> = {}) {
   return {
@@ -152,5 +154,79 @@ describe("ClaudeCodeProvider — inactivity reaper never fires during a turn", (
     // the re-arm. A dead child must not carry a live reaper handle.
     expect(pp.inactivityTimer).toBeNull();
     expect((provider as any).processes.get(sessionKey)).toBeUndefined();
+  });
+
+  /**
+   * Card C9: a turn that ends with an Agent, a Bash or a Monitor still running
+   * leaves a child with no handler, which every clock used to read as idle.
+   * Killing it kills the work (exit 137). Background state folded from the
+   * recorded CLI session (`claude/background-work.fixture.ts`).
+   */
+  describe("(f) a child whose closed turn left background work is not idle", () => {
+    const events = recordedBackgroundSession();
+    const firstResult = events.findIndex((e) => e.type === "result");
+    const fold = (from: number, to: number, work?: BackgroundWork) => {
+      for (const e of events.slice(from, to)) work = noteBackgroundLine(work, e, Date.now());
+      return work;
+    };
+
+    test("the reaper re-arms while the work runs, and reaps once it is over", async () => {
+      const sessionKey = "sess-inact-f1";
+      let killed = 0;
+      const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
+      const provider = setup(pp, sessionKey);
+      pp.background = fold(0, firstResult + 1);
+      expect(provider.hasBackgroundWork(sessionKey)).toBe(true);
+
+      (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(killed).toBe(0);
+      expect((provider as any).processes.get(sessionKey)).toBe(pp);
+
+      // The last task reported: the recorded session ends on an empty snapshot.
+      pp.background = fold(firstResult + 1, events.length, pp.background);
+      expect(provider.hasBackgroundWork(sessionKey)).toBe(false);
+      (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(killed).toBe(1);
+    });
+
+    test("a config change waits for the work instead of killing it", () => {
+      const sessionKey = "sess-inact-f2";
+      let killed = 0;
+      const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
+      const provider = setup(pp, sessionKey);
+      pp.background = fold(0, firstResult + 1);
+      provider.refreshSessionConfig(sessionKey);
+      expect(killed).toBe(0);
+      pp.background = fold(firstResult + 1, events.length, pp.background);
+      provider.refreshSessionConfig(sessionKey);
+      expect(killed).toBe(1);
+    });
+
+    test("the lifetime cap waits for the work too", async () => {
+      const sessionKey = "sess-inact-f3";
+      let killed = 0;
+      const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
+      const provider = setup(pp, sessionKey);
+      pp.background = fold(0, firstResult + 1);
+      (pp as any).lifetimeTimer = (provider as any).armLifetime(pp, sessionKey, { ms: 5, rearmMs: 5, wedgedMs: 5 });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(killed).toBe(0);
+      pp.background = fold(firstResult + 1, events.length, pp.background);
+      await new Promise((r) => setTimeout(r, 30));
+      expect(killed).toBe(1);
+      (pp as any).lifetimeTimer?.clear?.();
+    });
+
+    test("a dead child reports no background work, whatever it said last", () => {
+      const sessionKey = "sess-inact-f4";
+      const pp = fakePP() as ReturnType<typeof fakePP> & { background?: BackgroundWork };
+      const provider = setup(pp, sessionKey);
+      pp.background = fold(0, firstResult + 1);
+      (provider as any).onSessionClosed(pp, 0);
+      expect(provider.hasBackgroundWork(sessionKey)).toBe(false);
+      expect(pp.background).toBeUndefined();
+    });
   });
 });

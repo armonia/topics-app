@@ -748,3 +748,21 @@ export async function sessionHasPendingSend(sessionKey: string): Promise<boolean
   }
   return false;
 }
+
+/**
+ * Is this session's CLI still reporting on work its last turn left running (an
+ * Agent with `run_in_background`, a Bash, a Monitor)? The one door the stall
+ * detector and the goal loop ask, the way `sessionHasPendingSend` is the resume
+ * sweep's. Only claude-code answers today; any other session is `false`, which
+ * is what every clock assumed before. A probe that throws claims nothing.
+ */
+export function sessionHasBackgroundWork(sessionKey: string): boolean {
+  for (const [, p] of _providers) {
+    const probe = p as unknown as { hasBackgroundWork?: (sk: string) => boolean };
+    if (typeof probe.hasBackgroundWork !== "function") continue;
+    try {
+      if (probe.hasBackgroundWork(sessionKey)) return true;
+    } catch { /* a failing probe claims nothing */ }
+  }
+  return false;
+}

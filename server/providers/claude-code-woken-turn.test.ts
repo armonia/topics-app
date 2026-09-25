@@ -38,6 +38,8 @@ import { describe, expect, test, afterEach } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";
 import { SidechainTracker } from "./claude/sidechain-tracker";
 import type { StreamHandler } from "./types";
+import { readParentToolUseId } from "./claude/events";
+import { recordedBackgroundSession } from "./claude/background-work.fixture";
 
 function makeProviderWithStubProcess(sessionKey: string) {
   const provider = new ClaudeCodeProvider({ type: "claude-code" });
@@ -360,5 +362,69 @@ describe("claude-code · il turno che nasce da solo", () => {
     const { provider, pp } = makeProviderWithStubProcess("topic:woken9");
     expect(() => emit(provider, pp, testo("nel vuoto"))).not.toThrow();
     expect(pp.streamHandler).toBeNull();
+  });
+});
+
+/**
+ * A BACKGROUND AGENT'S LINES ARE NOT A TURN (card C9, chat 3019832f, 25/09).
+ *
+ * The real CLI, recorded (`claude/background-work.fixture.ts`): after the
+ * `result` of the turn that launched it, a background Agent keeps printing on
+ * the same stdout with `parent_tool_use_id`. The first of those lines used to
+ * wake a turn nobody opened: an empty row that only the agent's end could
+ * close, which the stall judge later found "stuck" and recycled, killing the
+ * agent. The CLI's own wakes start on a line of the MODEL, after `system/init`.
+ * @covers MONITOR-02
+ */
+describe("claude-code · a background agent's lines open no turn", () => {
+  afterEach(() => { ClaudeCodeProvider.observeWokenTurns(() => {}); });
+
+  test("replaying the recorded session: every wake starts on a line of the model, and each gets its own result", () => {
+    const { provider, pp } = makeProviderWithStubProcess("topic:bgwork1");
+    const events = recordedBackgroundSession();
+    const wakes: Array<{ triggeredBy: string | null; h: ReturnType<typeof makeHandler> }> = [];
+    let i = 0;
+    ClaudeCodeProvider.observeWokenTurns((sk) => {
+      const h = makeHandler();
+      wakes.push({ triggeredBy: readParentToolUseId(events[i]), h });
+      // Adopted on the spot, the way the route answers once its row exists.
+      provider.adoptWokenTurn(sk, h.handler);
+    });
+    // The turn the person sent, driven as a send drives it.
+    const sent = makeHandler();
+    pp.streamHandler = sent.handler;
+    for (i = 0; i < events.length; i++) emit(provider, pp, events[i]);
+
+    expect(sent.done).toBe("Launched.");
+    const laterResults = events.filter((e) => e.type === "result").slice(1).map((e) => String(e.result));
+    expect(laterResults).toHaveLength(7);
+    // No wake was opened by the agent: before the fix the first one was, at the
+    // agent's first line after "Launched.".
+    expect(wakes.map((w) => w.triggeredBy)).toEqual(laterResults.map(() => null));
+    // And each real wake closed on its own answer, none left open.
+    expect(wakes.map((w) => w.h.done)).toEqual(laterResults);
+    expect(pp.streamHandler).toBeNull();
+    expect(pp.wokenBuffer ?? null).toBeNull();
+  });
+
+  test("the agent's lines between two turns wake nobody and open no row", () => {
+    const { provider, pp } = makeProviderWithStubProcess("topic:bgwork2");
+    const events = recordedBackgroundSession();
+    const sveglie: string[] = [];
+    ClaudeCodeProvider.observeWokenTurns((sk) => { sveglie.push(sk); return false; });
+    const firstResult = events.findIndex((e) => e.type === "result");
+    const nextInit = events.findIndex((e, idx) => idx > firstResult && e.type === "system" && e.subtype === "init");
+    const between = events.slice(firstResult + 1, nextInit);
+    // The window really is the agent talking, with no line of the model in it.
+    expect(between.some((e) => readParentToolUseId(e) !== null)).toBe(true);
+    expect(between.filter((e) => e.type === "assistant" && readParentToolUseId(e) === null)).toEqual([]);
+
+    pp.streamHandler = makeHandler().handler;
+    for (const e of events.slice(0, firstResult + 1)) emit(provider, pp, e);
+    for (const e of between) emit(provider, pp, e);
+
+    expect(sveglie).toEqual([]);
+    expect(pp.wokenBuffer ?? null).toBeNull();
+    expect(pp.declinedTurn ?? false).toBe(false);
   });
 });

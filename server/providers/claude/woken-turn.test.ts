@@ -57,4 +57,14 @@ describe("isWokenTurnLine", () => {
     // working: waking a turn on it would resurrect a session nobody prompted.
     expect(isWokenTurnLine({ ...risveglio, kind: "rate_limit" })).toBe(false);
   });
+
+  test("a background agent's line opens nothing, but joins a wake the model already opened", () => {
+    // Card C9: a subagent keeps talking after the `result` of the turn that
+    // launched it. Its line is not the CLI waking up; the model's line is.
+    expect(isWokenTurnLine({ ...risveglio, subagent: true })).toBe(false);
+    expect(isWokenTurnLine({ ...risveglio, kind: "partial", subagent: true })).toBe(false);
+    // A real wake is held for its adopter and the agent speaks in the middle:
+    // that line belongs to the held turn, in order.
+    expect(isWokenTurnLine({ ...risveglio, subagent: true, wakeHeld: true })).toBe(true);
+  });
 });

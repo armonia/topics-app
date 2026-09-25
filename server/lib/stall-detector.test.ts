@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { armStallDetector } from "./stall-detector";
+import { ClaudeCodeProvider } from "../providers/claude-code";
+import { SidechainTracker } from "../providers/claude/sidechain-tracker";
+import { recordedBackgroundSession } from "../providers/claude/background-work.fixture";
 
 /**
  * @covers CHAT-REL-03 — the "stream inactivity" watchdog. Same requirement as
@@ -32,11 +35,23 @@ function fakeTimers() {
   };
 }
 
+/** A real provider around an idle stub child, fed lines by hand. */
+function providerWithStubProcess(sessionKey: string) {
+  const provider = new ClaudeCodeProvider({ type: "claude-code" });
+  const pp = {
+    sessionKey, alive: true, streamHandler: null, pendingResolve: null, pendingReject: null,
+    fullText: "", activeToolCalls: new Set(), subAgentEmit: new Map(), sidechain: new SidechainTracker(),
+    pendingInputs: new Map(), lastEventAt: Date.now(), io: { writeStdin: () => {}, signal: () => {}, kill: () => {} },
+  };
+  (provider as any).processes.set(sessionKey, pp);
+  return { provider, pp };
+}
+
 describe("armStallDetector — silence asks the judge before ever cutting", () => {
   test("a clean 'alive' verdict rearms the SAME watch, never calls onStuck", async () => {
     const t = fakeTimers();
     let stuck = 0;
-    let rearms: Array<"human" | "checks" | "freeze" | "alive"> = [];
+    let rearms: Array<"human" | "checks" | "freeze" | "background" | "alive"> = [];
     armStallDetector({
       idleMs: 5_000,
       isWaitingForHuman: () => false,
@@ -97,7 +112,7 @@ describe("armStallDetector — silence asks the judge before ever cutting", () =
   test("a human on screen rearms without ever asking the judge", async () => {
     const t = fakeTimers();
     let judged = 0;
-    let rearms: Array<"human" | "checks" | "freeze" | "alive"> = [];
+    let rearms: Array<"human" | "checks" | "freeze" | "background" | "alive"> = [];
     armStallDetector({
       idleMs: 5_000,
       isWaitingForHuman: () => true,
@@ -125,7 +140,7 @@ describe("armStallDetector — silence asks the judge before ever cutting", () =
     const t = fakeTimers();
     let judged = 0;
     let stuck = 0;
-    const rearms: Array<"human" | "checks" | "freeze" | "alive"> = [];
+    const rearms: Array<"human" | "checks" | "freeze" | "background" | "alive"> = [];
     armStallDetector({
       idleMs: 5_000,
       isWaitingForHuman: () => false,
@@ -151,7 +166,7 @@ describe("armStallDetector — silence asks the judge before ever cutting", () =
     const t = fakeTimers();
     let judged = 0;
     let stuck = 0;
-    let rearms: Array<"human" | "checks" | "freeze" | "alive"> = [];
+    let rearms: Array<"human" | "checks" | "freeze" | "background" | "alive"> = [];
     let checksRunning = true;
     armStallDetector({
       idleMs: 5_000,
@@ -173,6 +188,53 @@ describe("armStallDetector — silence asks the judge before ever cutting", () =
     t.silence(5_000);
     t.fire();
     await Promise.resolve(); await Promise.resolve();
+    expect(judged).toBe(1);
+    expect(stuck).toBe(1);
+  });
+
+  /**
+   * Card C9, chat 3019832f, 25/09: the turn was waiting for its own background
+   * agent. The judge reads only the transcript, answered alive twice and then
+   * stuck on the same tail, and the recycle's SIGINT killed the agent and its
+   * four commands. The CLI says the work is alive in every
+   * `background_tasks_changed`; the provider folds that, and the detector asks
+   * it before the judge, like every other wait that is not a stall.
+   */
+  test("background work holds the watch: no judge, rearm says 'background', judged again once it is over", async () => {
+    const t = fakeTimers();
+    let judged = 0;
+    let stuck = 0;
+    const rearms: Array<"human" | "checks" | "freeze" | "background" | "alive"> = [];
+    // The provider, fed the recorded CLI session up to the end of the turn
+    // that launched the agent, the Bash and the Monitor.
+    const { provider, pp } = providerWithStubProcess("topic:stall-bg");
+    const events = recordedBackgroundSession();
+    const firstResult = events.findIndex((e) => e.type === "result");
+    for (const e of events.slice(0, firstResult + 1)) (provider as any).handleStreamEvent(pp, e);
+    armStallDetector({
+      idleMs: 5_000,
+      isWaitingForHuman: () => false,
+      isWaitingForChecks: () => false,
+      isFrozen: () => false,
+      isWaitingForBackground: () => provider.hasBackgroundWork("topic:stall-bg"),
+      getTail: () => "assistant: my part is pushed; the vortex merges when the agent is done",
+      judge: async () => { judged++; return "stuck"; },
+      onStuck: () => { stuck++; },
+      onRearm: (r) => rearms.push(r),
+      setTimer: t.setTimer, clearTimer: t.clearTimer, now: t.now,
+    });
+    t.silence(30 * 60_000);
+    t.fire();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(judged, "the agent is running: nobody asks the judge").toBe(0);
+    expect(stuck).toBe(0);
+    expect(rearms).toEqual(["background"]);
+
+    // Every task reports and the CLI prints an empty snapshot: the silence is
+    // the judge's to read again.
+    for (const e of events.slice(firstResult + 1)) (provider as any).handleStreamEvent(pp, e);
+    t.fire();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
     expect(judged).toBe(1);
     expect(stuck).toBe(1);
   });
