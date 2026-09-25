@@ -153,3 +153,23 @@ describe('lateStartContent: a late answer opens its own paragraph, as the server
     expect(lateStartContent?.('  \n', 'Due problemi')).toBe('Due problemi');
   });
 });
+
+describe('carryLateStart: the flag that opens a late answer waits for its first visible words', () => {
+  // A first late chunk the client cleans to nothing (invisible markers) used
+  // to take `lateStart` with it, and the late answer glued to the text above.
+  const carryLateStart = (liveTurn as Record<string, unknown>).carryLateStart as
+    ((pending: Set<string>, frame: { messageId?: string; lateStart?: true }, hasText: boolean) => boolean) | undefined;
+
+  test('a first chunk that cleans to nothing hands the flag to the next one with text', () => {
+    const pending = new Set<string>();
+    expect(carryLateStart?.(pending, { messageId: 'T1', lateStart: true }, false)).toBe(false);
+    expect(carryLateStart?.(pending, { messageId: 'T1' }, true)).toBe(true);
+    expect(carryLateStart?.(pending, { messageId: 'T1' }, true)).toBe(false);
+  });
+
+  test('a first chunk with text opens it at once, and only once', () => {
+    const pending = new Set<string>();
+    expect(carryLateStart?.(pending, { messageId: 'T1', lateStart: true }, true)).toBe(true);
+    expect(carryLateStart?.(pending, { messageId: 'T1' }, true)).toBe(false);
+  });
+});

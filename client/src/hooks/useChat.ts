@@ -8,7 +8,7 @@ import { decideClientWipeOnStop } from './stopSessionPolicy';
 import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder, CLIENT_MESSAGE_ID_PREFIX } from './streamCatchupMerge';
 import { clearPartialForReattach, reviveClosedBubble } from './streamReattachReset';
-import { LiveTurnIds, frameTargetIndex, lateStartContent, liveAssistantIndex, shouldFillFromBroadcast } from './liveTurn';
+import { LiveTurnIds, carryLateStart, frameTargetIndex, lateStartContent, liveAssistantIndex, shouldFillFromBroadcast } from './liveTurn';
 import { liveInterruptionBlock } from '../components/Chat/turnError';
 import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
@@ -631,6 +631,9 @@ export function useChat() {
   const loadHistoryRef = useRef<((sk: string) => Promise<boolean>) | null>(null);
   // Track sessions with active local SSE streams (to avoid double content from WS broadcast)
   const localSSESessionsRef = useRef<Set<string>>(new Set());
+  // A late answer's opening flag whose chunk cleaned to nothing, by message id
+  // (see `carryLateStart`).
+  const pendingLateStartRef = useRef<Set<string>>(new Set());
   // Per-session timestamp of the last successful loadHistory fetch. Used to
   // dedup rapid re-mounts (a tab switch in StandaloneChatGroup unmounts the
   // active ChatPane and re-mounts a new one — without dedup the user sees
@@ -1370,7 +1373,12 @@ export function useChat() {
             // Same as the thinking above; and no watchdog reset, it guards the
             // turn in flight, not this one.
             flushLiveDeltas(sessionKey);
-            if (cleanedChunk) appendToLastMessage(sessionKey, cleanedChunk, undefined, event);
+            const opens = carryLateStart(pendingLateStartRef.current, event, !!cleanedChunk);
+            if (cleanedChunk) {
+              appendToLastMessage(sessionKey, cleanedChunk, undefined, {
+                messageId: event.messageId, late: event.late, ...(opens ? { lateStart: true as const } : {}),
+              });
+            }
             break;
           }
           if (cleanedChunk) bufferLiveDelta(sessionKey, cleanedChunk, undefined);

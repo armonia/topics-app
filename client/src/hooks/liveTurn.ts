@@ -111,6 +111,35 @@ export function frameTargetIndex(
 }
 
 /**
+ * A closed turn's late answer under the text above the cut, as the server
+ * writes it (`lib/late-answer-lane.ts`): a paragraph of its own, never glued
+ * to it. The frame that opens it says so (`lateStart`).
+ */
+export function lateStartContent(above: string | undefined, delta: string): string {
+  return (above && above.trim() ? `${above}\n\n` : '') + delta;
+}
+
+/**
+ * Whether this late chunk opens the late answer. The server marks the FIRST
+ * chunk (`lateStart`); when the client cleans that one to nothing (invisible
+ * markers), the flag waits for the first chunk with text, or the late answer
+ * would glue to the text above the cut. `pending` holds the waiting flags by
+ * message id.
+ */
+export function carryLateStart(
+  pending: Set<string>,
+  frame: { messageId?: string; lateStart?: true },
+  hasText: boolean,
+): boolean {
+  const key = frame.messageId ?? '';
+  if (!hasText) {
+    if (frame.lateStart) pending.add(key);
+    return false;
+  }
+  return pending.delete(key) || frame.lateStart === true;
+}
+
+/**
  * A persisted row arrived for a message we ALREADY have. Does its content still
  * need to land?
  *
@@ -127,15 +156,6 @@ export function frameTargetIndex(
  * carry a TRUNCATED preview, and a shorter text must never overwrite the full
  * one we streamed.
  */
-/**
- * A closed turn's late answer under the text above the cut, as the server
- * writes it (`lib/late-answer-lane.ts`): a paragraph of its own, never glued
- * to it. The frame that opens it says so (`lateStart`).
- */
-export function lateStartContent(above: string | undefined, delta: string): string {
-  return (above && above.trim() ? `${above}\n\n` : '') + delta;
-}
-
 export function shouldFillFromBroadcast(existing: ChatMessage | undefined, incomingContent: string): boolean {
   if (!existing || existing.role !== 'assistant') return false;
   const held = existing.content ?? '';
