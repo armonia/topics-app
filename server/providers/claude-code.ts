@@ -1297,7 +1297,11 @@ export class ClaudeCodeProvider implements AIProvider {
     // (`processForTurn`). Handing it the new turn's handler meant its exit, a
     // moment later, closed that new turn as «stopped» before it started.
     // `sendChatInternal` installs the handler on the fresh child instead.
-    if (pp.stoppedExit) return;
+    // A DEAD child likewise: nothing takes it out of the map when it exits, and
+    // the kill that cleans it up before the next spawn used to find this new
+    // turn's handler on it and end the turn as a watchdog stop, while the CLI
+    // went on to answer into a closed row (PR #134 review, round 2).
+    if (pp.stoppedExit || !pp.alive) return;
     pp.streamHandler = handler;
     // Se aspettavamo un adottatore, quel turno ha trovato il suo padrone.
     // Unless it already ended: its held `result` would close whatever turn is
@@ -4095,6 +4099,7 @@ export class ClaudeCodeProvider implements AIProvider {
   }
 
   private killProcess(pp: PersistentProcess, cause: KillCause): void {
+    const wasAlive = pp.alive;
     pp.alive = false;
     // Killed on purpose (e.g. `/clear` while a send waits for this stopped
     // child): nobody will hear its exit in broker mode, because `kill` drops
@@ -4111,11 +4116,13 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.pendingResolve = null;
       pp.pendingReject = null;
       reject(new ProcessKilledError(cause));
-    } else if (pp.streamHandler) {
+    } else if (pp.streamHandler && wasAlive) {
       // A turn with no send waiting on it (a spontaneous turn the route
       // adopted): no rejection has a reader, and in broker mode no exit frame
       // follows, so the handler ends here, or the row stayed open until the
-      // route's watchdog wrote «Response timed out».
+      // route's watchdog wrote «Response timed out». Only on a child that was
+      // alive: a dead one already ended its turn in `onSessionClosed`, and a
+      // handler found on it belongs to nobody it could end.
       const handler = pp.streamHandler;
       this.releaseStreamHandler(pp);
       this.tellHandlerSafely(pp, "onAborted", () => endKilledTurn(handler, new ProcessKilledError(cause)));
