@@ -3540,7 +3540,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   ? Promise.resolve({ runId: "woken" })
                   : Promise.reject(new Error("WOKEN_TURN_GONE")))
               : isReattach
-              // The row's own turn is the one its send marked in the broker store (claude/row-turn.ts).
               ? reattachFn!.call(topicProvider, sessionKey, handler, { rowId: partialMsg.id }).then((outcome) => ({ runId: outcome }))
               : topicProvider.sendChat(
                   sessionKey,
