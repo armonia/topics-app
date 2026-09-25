@@ -459,6 +459,72 @@ describe("callSendChatMessage", () => {
   });
 });
 
+/**
+ * A STREAM THAT CLOSES WITHOUT [DONE] IS NOT A REPLY.
+ *
+ * On 2026-09-24 the chat's SSE response closed after 255 s of a silent tool
+ * (Bun's idle timeout) with HTTP 200 and no `data: [DONE]`, while the turn went
+ * on. `send_chat_message` read until the close and returned what it had: half
+ * an answer, handed to a coordinating agent as the answer. A close without
+ * `[DONE]` now means "incomplete": wait for the turn's real end and read the
+ * final row back, or say plainly that the turn is still running.
+ */
+describe("callSendChatMessage when the stream closes without [DONE]", () => {
+  const A = { baseUrl: "http://x", sessionKey: "topic:mine" };
+  const FAST = { pollMs: 5, maxWaitMs: 200 };
+
+  /** An SSE body that stops after `deltas`, with no [DONE]: the idle close. */
+  function cutSseResponse(deltas: string[]): Response {
+    const lines = deltas.map((c) => `data: ${JSON.stringify({ choices: [{ delta: { content: c } }] })}\n\n`).join("");
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(": ping\n\n" + lines));
+        controller.close();
+      },
+    });
+    return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+  }
+
+  function world(streaming: () => Array<{ sessionKey: string; state: string }>, messages: Array<{ role: string; content: string }>) {
+    return stubFetch(async (url) => {
+      const u = String(url);
+      if (u.endsWith("/api/topics/t1")) return new Response(JSON.stringify({ topic: { sessionKey: "topic:target", name: "Target" } }), { status: 200 });
+      if (u.endsWith("/api/chat")) return cutSseResponse(["half "]);
+      if (u.endsWith("/api/topics/streaming")) return new Response(JSON.stringify({ sessions: streaming() }), { status: 200 });
+      if (u.includes("/api/topics/t1/messages")) return new Response(JSON.stringify({ messages }), { status: 200 });
+      throw new Error(`unexpected url ${u}`);
+    });
+  }
+
+  test("waits for the turn's real end and returns the final row, not the half it read", async () => {
+    let polls = 0;
+    const fetchImpl = world(
+      () => (++polls < 3 ? [{ sessionKey: "topic:target", state: "streaming" }] : []),
+      [
+        { role: "user", content: "earlier" },
+        { role: "assistant", content: "an earlier answer" },
+        { role: "user", content: "ping" },
+        { role: "assistant", content: "half an answer, and then the rest of it" },
+      ],
+    );
+    const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST);
+    expect(out).toBe("half an answer, and then the rest of it");
+    expect(polls).toBeGreaterThanOrEqual(3);
+  });
+
+  test("a turn still running past the wait is an explicit failure, never half an answer", async () => {
+    const fetchImpl = world(() => [{ sessionKey: "topic:target", state: "streaming" }], []);
+    await expect(callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST))
+      .rejects.toThrow(/stream interrupted.*still running/i);
+  });
+
+  test("a turn waiting for a person's answer says so at once", async () => {
+    const fetchImpl = world(() => [{ sessionKey: "topic:target", state: "waiting" }], []);
+    await expect(callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST))
+      .rejects.toThrow(/stream interrupted.*waiting for a person/i);
+  });
+});
+
 describe("callReadChatMessages", () => {
   test("GETs the topic messages endpoint with a clamped limit and returns compact roles", async () => {
     let seenUrl = "";
