@@ -1556,8 +1556,8 @@ async function awaitTurnEndAndReadReply(
   let asked = msgs.length - 1;
   while (asked >= 0 && !(msgs[asked].role === "user" && (msgs[asked].content ?? "").trim() === message.trim())) asked--;
   // Not found (the row was rewritten, or scrolled out): the last answer is the best guess.
-  const replies = (asked >= 0 ? msgs.slice(asked + 1) : msgs.slice(-1)).filter((m) => m.role === "assistant");
-  return replies.map((m) => (m.content ?? "").trim()).filter(Boolean).join("\n\n");
+  const answers = (asked >= 0 ? msgs.slice(asked + 1) : msgs.slice(-1)).filter((m) => m.role === "assistant");
+  return answers.map((m) => (m.content ?? "").trim()).filter(Boolean).join("\n\n");
 }
 
 export async function callSendChatMessage(

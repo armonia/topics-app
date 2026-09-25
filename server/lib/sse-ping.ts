@@ -19,11 +19,11 @@
  */
 
 /** Well under the idle timeout of a proxy on the way; 60 s is a common one. */
-export const SSE_KEEPALIVE_MS = 20_000;
+export const SSE_PING_MS = 20_000;
 
 const PING = new TextEncoder().encode(": ping\n\n");
 
-export function startSseKeepalive(opts: {
+export function startSsePing(opts: {
   /** Writes raw bytes to the response. Errors are the writer's to swallow. */
   write: (chunk: Uint8Array) => void;
   /** False once the stream is finished or its client is gone. */
@@ -33,7 +33,7 @@ export function startSseKeepalive(opts: {
   const timer = setInterval(() => {
     if (!opts.alive()) { clearInterval(timer); return; }
     opts.write(PING);
-  }, opts.intervalMs ?? SSE_KEEPALIVE_MS);
+  }, opts.intervalMs ?? SSE_PING_MS);
   // A ping must never be what keeps a process alive.
   (timer as { unref?: () => void }).unref?.();
   return () => clearInterval(timer);

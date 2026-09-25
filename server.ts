@@ -3176,7 +3176,7 @@ const opzioniServer = {
   // lock (acquired before Bun.serve) is the primary guard; this is defense in
   // depth for any server that bypasses it via a custom TOPICS_HOME.
   reusePort: false,
-  idleTimeout: 0, // off: Bun counts no server write as activity, so a silent tool cut the chat SSE at 255 s (server/lib/sse-keepalive.ts)
+  idleTimeout: 0, // off: Bun counts no server write as activity, so a silent tool cut the chat SSE at 255 s (server/lib/sse-ping.ts)
   ...(useTls ? {
     tls: {
       cert: Bun.file(tlsCert),

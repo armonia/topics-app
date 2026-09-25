@@ -31,13 +31,13 @@ const REPO_ROOT = join(import.meta.dir, "..", "..");
 /** Reads a response to the end, keeping what arrived before a reset. */
 async function readAll(resp: Response): Promise<{ body: string; cut: boolean }> {
   const reader = resp.body!.getReader();
-  const dec = new TextDecoder();
+  const decoder = new TextDecoder();
   let body = "";
   try {
     for (;;) {
       const { value, done } = await reader.read();
       if (done) return { body, cut: false };
-      body += dec.decode(value, { stream: true });
+      body += decoder.decode(value, { stream: true });
     }
   } catch {
     return { body, cut: true };
@@ -54,13 +54,13 @@ describe("Bun's idle timeout and a streaming response", () => {
       port: 0,
       idleTimeout: 1,
       fetch() {
-        const enc = new TextEncoder();
+        const encoder = new TextEncoder();
         const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
         const w = writable.getWriter();
-        const ping = setInterval(() => { w.write(enc.encode(": ping\n\n")).catch(() => {}); }, 300);
+        const ping = setInterval(() => { w.write(encoder.encode(": ping\n\n")).catch(() => {}); }, 300);
         setTimeout(() => {
           clearInterval(ping);
-          w.write(enc.encode("data: [DONE]\n\n")).then(() => w.close()).catch(() => {});
+          w.write(encoder.encode("data: [DONE]\n\n")).then(() => w.close()).catch(() => {});
         }, 9_000);
         return new Response(readable, { headers: { "Content-Type": "text/event-stream" } });
       },
@@ -126,7 +126,7 @@ describe("the chat's SSE response during a silent tool", () => {
       updateUnreadCount: () => {},
       browserNavigatedTopics: new Set<string>(),
       WORKSPACE_DIR: ROOT,
-      sseKeepaliveMs: 200,
+      ssePingMs: 200,
     } as never);
 
     // Served as production serves it: idle timeout off.

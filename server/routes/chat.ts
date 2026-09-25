@@ -19,7 +19,7 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { repeatsAnEnvelope, userRowMarks } from "../lib/user-row-marks";
-import { startSseKeepalive } from "../lib/sse-keepalive";
+import { startSsePing } from "../lib/sse-ping";
 import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
 import { TopicsRoutingIncompatibleError } from "../providers/resolve-topic-provider";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
@@ -161,9 +161,9 @@ export interface ChatDeps {
    * only add a line to the chat. Native runtime only.
    */
   hooks?: LifecycleHookRunner;
-  /** The SSE keepalive's interval (`lib/sse-keepalive.ts`). Tests only: the
-   *  real one is 20 s. */
-  sseKeepaliveMs?: number;
+  /** The SSE ping's interval (`lib/sse-ping.ts`). Tests only: the real one
+   *  is 20 s. */
+  ssePingMs?: number;
 }
 
 /**
@@ -207,7 +207,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     resolveProvider, resolveProviderByName = getProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR, hooks,
-    sseKeepaliveMs,
+    ssePingMs,
   } = deps;
 
   /**
@@ -1385,16 +1385,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // this response 255 s into a silent tool, with no [DONE], while the
           // turn went on (chat 3019832f, 2026-09-24). Every write here is a
           // whole event, so a comment line never splits one.
-          const stopKeepalive = startSseKeepalive({
+          const stopPing = startSsePing({
             write: (chunk) => {
               if (clientDisconnected) return;
               writer.write(chunk).catch(() => { clientDisconnected = true; });
             },
             alive: () => !clientDisconnected && streamState !== "finalized",
-            intervalMs: sseKeepaliveMs,
+            intervalMs: ssePingMs,
           });
           const closeClient = async () => {
-            stopKeepalive();
+            stopPing();
             if (clientDisconnected) return;
             try { await writer.close(); } catch { clientDisconnected = true; }
           };
