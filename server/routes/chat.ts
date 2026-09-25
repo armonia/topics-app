@@ -182,6 +182,13 @@ function readClaudeSessionId(ctx: AppContext, sessionKey: string): string | null
   }
 }
 
+/** What the goal loop reads of the session's background work at the end of a turn, from the provider that ran it. */
+function backgroundOfTurn(provider: unknown, sessionKey: string): { backgroundWork: boolean; backgroundWakeOnly: boolean } {
+  const p = provider as { backgroundState?: (sk: string) => string; hasBackgroundWork?: (sk: string) => boolean };
+  const state = p.backgroundState?.(sessionKey) ?? (p.hasBackgroundWork?.(sessionKey) ? "running" : "none");
+  return { backgroundWork: state !== "none", backgroundWakeOnly: state === "wake-queued" };
+}
+
 function countCompactions(ctx: AppContext, sessionKey: string): number {
   try {
     const row = ctx.db
@@ -2380,8 +2387,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 pendingAsk: askingPlanApproval || interrupted.length > 0,
                 // Asked of the provider that ran the turn, right after its
                 // `result`: the CLI prints its background snapshot before it.
-                backgroundWork: (topicProvider as { hasBackgroundWork?: (sk: string) => boolean })
-                  .hasBackgroundWork?.(sessionKey) === true,
+                ...backgroundOfTurn(topicProvider, sessionKey),
+                // Claude Code re-enables its paused check-ins at the person's
+                // next message, not at any turn.
+                fromHuman: !isWoken && !isReattach && !dispatched && !body.goalNudge && !resumeAttempt,
                 usedTools: toolsStartedThisTurn > 0,
                 lastAssistantText: fullContent,
               };

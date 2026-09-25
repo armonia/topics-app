@@ -20,7 +20,7 @@ import { createChatRouter } from "../../server/routes/chat";
 import { registerProvider, removeProvider } from "../../server/providers";
 import { setGoal, getActiveGoal, setGoalLoop } from "../../server/services/goals";
 import { MAX_GOAL_CONTINUATIONS } from "../../server/services/goal-loop";
-import { createGoalContinuation, GOAL_CHECK_IN_LIMIT, goalCheckInDelayMs, type TurnEndInfo } from "../../server/services/goal-continuation";
+import { createGoalContinuation, GOAL_CHECK_IN_LIMIT, GOAL_CHECK_IN_MS, GOAL_WAKE_RECHECK_MS, goalCheckInDelayMs, type TurnEndInfo } from "../../server/services/goal-continuation";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, ContentBlock, Topic } from "../../server/types";
 
@@ -276,10 +276,11 @@ describe("fine turno con un obiettivo attivo", () => {
 describe("a goal deferred on background work", () => {
   async function bench(name: string, verdicts: string[], busy = () => false) {
     const b = await banco(name, []);
-    const timers: Array<{ fn: () => void; ms: number }> = [];
+    const timers: Array<{ fn: () => void; ms: number; due: number }> = [];
     const judged: string[] = [];
     const sent: string[] = [];
     let running = true;
+    let clock = 0;
     const onTurnEnd = createGoalContinuation({
       db: b.ctx.db,
       judge: async (prompt) => { judged.push(prompt); return verdicts.shift() ?? "continue"; },
@@ -287,8 +288,9 @@ describe("a goal deferred on background work", () => {
       announce: () => {}, broadcast: () => {},
       isBusy: busy,
       backgroundWork: () => running,
-      setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
-      clearTimer: () => {},
+      setTimer: (fn, ms) => { const h = { fn, ms, due: clock + ms }; timers.push(h); return h; },
+      clearTimer: (h) => { const i = timers.indexOf(h as never); if (i >= 0) timers.splice(i, 1); },
+      now: () => clock,
     });
     const turn = (over: Partial<TurnEndInfo> = {}): TurnEndInfo => ({
       sessionKey: b.sessionKey, topicId: b.topic.id, dispatched: false, end: "end_turn",
@@ -296,7 +298,16 @@ describe("a goal deferred on background work", () => {
       backgroundWork: true, ...over,
     });
     const fire = async () => { timers.shift()!.fn(); await new Promise((r) => setTimeout(r, 20)); };
-    return { b, timers, judged, sent, onTurnEnd, turn, fire, stop: () => { running = false; } };
+    /** Move the clock, firing every timer that falls due on the way. */
+    const advance = async (ms: number) => {
+      clock += ms;
+      for (const due of timers.filter((x) => x.due <= clock)) {
+        timers.splice(timers.indexOf(due), 1);
+        due.fn();
+        await new Promise((r) => setTimeout(r, 20));
+      }
+    };
+    return { b, timers, judged, sent, onTurnEnd, turn, fire, advance, stop: () => { running = false; } };
   }
 
   test("a job that never reports: the goal checks in after thirty minutes, the way Claude Code does", async () => {
@@ -364,6 +375,60 @@ describe("a goal deferred on background work", () => {
     // The wake it met turns out empty and is discarded: the waiting turn is still there to judge.
     expect(await t.onTurnEnd(t.turn({ discarded: true, backgroundWork: false, lastAssistantText: "" }))).toBe("continued");
     expect(t.judged[0]).toContain("the suite is running on the PC");
+    await close();
+  });
+
+  test("G1: the check-in counts from when the goal started waiting, not from the last turn end", async () => {
+    // Verification of 25/09: a Monitor ticking every twenty minutes re-armed
+    // the thirty-minute check-in at each tick, so it never fired.
+    const t = await bench("goal-checkin-since", ["continue"]);
+    await t.onTurnEnd(t.turn());
+    await t.advance(20 * 60_000);
+    expect(await t.onTurnEnd(t.turn({ lastAssistantText: "tick 1" }))).toBe("background");
+    expect(t.timers.map((x) => x.due)).toEqual([30 * 60_000]);
+    await t.advance(20 * 60_000);
+    expect(t.judged.length).toBe(1);
+    expect(t.judged[0]).toContain("tick 1");
+    await close();
+  });
+
+  test("G2: a message from the person re-enables the check-ins spent on the work still running", async () => {
+    const t = await bench("goal-checkin-human", ["continue", "continue", "continue", "continue"]);
+    for (let i = 0; i < GOAL_CHECK_IN_LIMIT; i++) {
+      await t.onTurnEnd(t.turn());
+      await t.fire();
+    }
+    await t.onTurnEnd(t.turn());
+    expect(t.timers).toEqual([]);
+    // The person writes; their turn ends with the job still up.
+    expect(await t.onTurnEnd(t.turn({ fromHuman: true, lastAssistantText: "answered the human" }))).toBe("background");
+    expect(t.timers.map((x) => x.ms)).toEqual([GOAL_CHECK_IN_MS]);
+    await close();
+  });
+
+  test("a task that just reported: the goal waits for its wake, not for a judge and a nudge that would meet it", async () => {
+    // The last snapshot is empty and the report's wake is queued: a nudge now
+    // would collide with that wake (409) and judge a turn about to be superseded.
+    const t = await bench("goal-wake-queued", ["continue"]);
+    expect(await t.onTurnEnd(t.turn({ backgroundWakeOnly: true }))).toBe("background");
+    expect(t.timers.map((x) => x.ms)).toEqual([GOAL_WAKE_RECHECK_MS]);
+    expect(t.judged).toEqual([]);
+    // The wake comes and ends with the work over: it is the turn judged.
+    t.stop();
+    expect(await t.onTurnEnd(t.turn({ backgroundWork: false, lastAssistantText: "all five green" }))).toBe("continued");
+    expect(t.timers).toEqual([]);
+    expect(t.judged.length).toBe(1);
+    expect(t.judged[0]).toContain("all five green");
+    await close();
+  });
+
+  test("a wake that never comes is judged after a minute, without spending a check-in", async () => {
+    const t = await bench("goal-wake-missing", ["continue"]);
+    await t.onTurnEnd(t.turn({ backgroundWakeOnly: true, lastAssistantText: "suite done, reading it" }));
+    t.stop();
+    await t.advance(GOAL_WAKE_RECHECK_MS);
+    expect(t.judged.length).toBe(1);
+    expect(t.sent.length).toBe(1);
     await close();
   });
 

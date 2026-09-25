@@ -111,6 +111,10 @@ export interface FinishedTurn {
   pendingAsk: boolean;
   /** The session still has background work running, which will wake it when it reports. */
   backgroundWork?: boolean;
+  /** Only a wake is pending: a task just reported and the CLI is about to answer it. */
+  backgroundWakeOnly?: boolean;
+  /** The turn answered a message the person typed (not a nudge, a wake, a resume or a card). */
+  fromHuman?: boolean;
   /** At least one tool ran. This is what "progress" means here. */
   usedTools: boolean;
   /** The assistant's last words, for the judge. */

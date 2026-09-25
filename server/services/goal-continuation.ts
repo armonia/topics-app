@@ -86,6 +86,7 @@ export interface GoalContinuationDeps {
   backgroundWork?: (sessionKey: string) => boolean;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (handle: unknown) => void;
+  now?: () => number;
 }
 
 /**
@@ -101,10 +102,27 @@ export function goalCheckInDelayMs(spentCheckIns: number): number {
   return GOAL_CHECK_IN_MS * 2 ** Math.min(spentCheckIns, 2);
 }
 
+/**
+ * A task reported and the CLI is about to answer it: wait for that wake instead
+ * of judging, and look again after this long if it never comes. Claude Code
+ * re-arms by the same 60 s in the same state (`A.length===0&&queued`).
+ */
+export const GOAL_WAKE_RECHECK_MS = 60_000;
+
 /** What the route hands over once a turn is finalized. */
 export interface TurnEndInfo extends FinishedTurn {
   sessionKey: string;
   topicId: string;
+}
+
+/** A goal turn waiting on background work, with what will look at it again. */
+interface Waiting {
+  info: TurnEndInfo;
+  /** When this stretch of waiting began: the check-in counts from here. */
+  since: number;
+  timer: unknown;
+  /** Waiting only for the wake a reported task promised, not for running work. */
+  wakeOnly: boolean;
 }
 
 /**
@@ -186,9 +204,10 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
    * discards and so never reaches the judge. The first gets the check-in, the
    * second hands the judge the turn that did the work.
    */
-  const deferred = new Map<string, { info: TurnEndInfo; timer: unknown }>();
+  const deferred = new Map<string, Waiting>();
   /** Check-ins already spent on the current stretch of background work. */
   const checkInCount = new Map<string, number>();
+  const now = deps.now ?? (() => Date.now());
   const setTimer = deps.setTimer ?? ((fn: () => void, ms: number) => {
     const t = setTimeout(fn, ms);
     (t as { unref?: () => void }).unref?.();
@@ -196,42 +215,66 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
   });
   const clearTimer = deps.clearTimer ?? ((h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>));
 
-  function takeDeferred(sessionKey: string): TurnEndInfo | null {
-    const d = deferred.get(sessionKey);
-    if (!d) return null;
-    if (d.timer != null) clearTimer(d.timer);
+  function dropWaiting(sessionKey: string): Waiting | null {
+    const w = deferred.get(sessionKey);
+    if (!w) return null;
+    if (w.timer != null) clearTimer(w.timer);
     deferred.delete(sessionKey);
-    return d.info;
+    return w;
   }
 
+  /**
+   * Wait for the background work, and arm what looks again if it never
+   * reports. The check-in counts from when the goal STARTED waiting, as Claude
+   * Code's `deferredSince` does: a turn that ends meanwhile (a Monitor tick, a
+   * partial report) replaces the turn to judge and leaves the clock alone.
+   * Re-arming from each turn end kept a goal whose Monitor ticked every twenty
+   * minutes from ever checking in (the verification of 25/09, G1).
+   */
   function defer(info: TurnEndInfo): string {
-    const spent = checkInCount.get(info.sessionKey) ?? 0;
-    const timer = spent < GOAL_CHECK_IN_LIMIT
-      ? setTimer(() => { void checkIn(info.sessionKey); }, goalCheckInDelayMs(spent))
-      : null;
-    deferred.set(info.sessionKey, { info, timer });
-    log(`goal-loop: ${info.sessionKey}: background work still running, the goal waits for the turn it wakes` +
-      (timer ? ` (check-in in ${goalCheckInDelayMs(spent) / 60_000} min)` : " (check-ins paused until the next message)"));
+    const sk = info.sessionKey;
+    const t = now();
+    const prev = deferred.get(sk);
+    const wakeOnly = info.backgroundWakeOnly === true;
+    if (prev && prev.wakeOnly === wakeOnly && prev.timer != null) {
+      prev.info = info;
+      return "background";
+    }
+    if (prev?.timer != null) clearTimer(prev.timer);
+    const since = prev && !prev.wakeOnly && !wakeOnly ? prev.since : t;
+    const spent = checkInCount.get(sk) ?? 0;
+    const delay = wakeOnly ? GOAL_WAKE_RECHECK_MS : spent < GOAL_CHECK_IN_LIMIT ? Math.max(0, since + goalCheckInDelayMs(spent) - t) : null;
+    const timer = delay === null ? null : setTimer(() => { void checkIn(sk); }, delay);
+    deferred.set(sk, { info, since, timer, wakeOnly });
+    log(`goal-loop: ${sk}: ` + (wakeOnly
+      ? "a background task just reported, the goal waits for the wake answering it"
+      : "background work still running, the goal waits for the turn it wakes"
+        + (timer ? ` (check-in in ${Math.round((delay ?? 0) / 60_000)} min)` : " (check-ins paused until the next message)")));
     return "background";
   }
 
   async function checkIn(sessionKey: string): Promise<void> {
-    const info = deferred.get(sessionKey)?.info;
-    if (!info) return;
+    const w = deferred.get(sessionKey);
+    if (!w) return;
     // A turn in flight ends by itself, and its end decides. The deferred turn
     // stays for it: if that turn is the empty last wake, it is the one to judge.
-    if (deps.isBusy?.(sessionKey)) { deferred.set(sessionKey, { info, timer: null }); return; }
+    if (deps.isBusy?.(sessionKey)) { w.timer = null; return; }
     deferred.delete(sessionKey);
-    checkInCount.set(sessionKey, (checkInCount.get(sessionKey) ?? 0) + 1);
-    log(`goal-loop: ${sessionKey}: checking in on the goal after its background work ran without reporting`);
-    await judge({ ...info, backgroundWork: false }, deps.backgroundWork?.(sessionKey) === true)
+    // A wake that did not come is not a check-in: nothing to count.
+    if (!w.wakeOnly) checkInCount.set(sessionKey, (checkInCount.get(sessionKey) ?? 0) + 1);
+    log(`goal-loop: ${sessionKey}: ` + (w.wakeOnly
+      ? "the wake a background report promised did not come, judging the waiting turn"
+      : "checking in on the goal after its background work ran without reporting"));
+    await judge({ ...w.info, backgroundWork: false }, deps.backgroundWork?.(sessionKey) === true)
       .catch((err) => log(`goal-loop: the check-in failed (${err instanceof Error ? err.message : String(err)})`));
   }
 
-  return async function onTurnEnd(info: TurnEndInfo): Promise<string> {
-    if (info.end === "end_turn") resumedAfterBudget.delete(info.sessionKey);
-    const waiting = takeDeferred(info.sessionKey);
-    if (!info.backgroundWork) checkInCount.delete(info.sessionKey);
+  const onTurnEnd = async function onTurnEnd(info: TurnEndInfo): Promise<string> {
+    const sk = info.sessionKey;
+    if (info.end === "end_turn") resumedAfterBudget.delete(sk);
+    // Claude Code clears its idle check-ins at the person's own prompt: a
+    // message typed while the work runs re-enables them.
+    if (info.fromHuman) checkInCount.delete(sk);
     let goal;
     try {
       goal = getActiveGoal(deps.db, info.topicId);
@@ -239,16 +282,23 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
       log(`goal-loop: cannot read the goal (${err instanceof Error ? err.message : String(err)})`);
       return "error";
     }
-    if (info.backgroundWork && turnCanContinueGoal({ ...info, backgroundWork: false }, goal)) return defer(info);
+    if (info.backgroundWork && turnCanContinueGoal({ ...info, backgroundWork: false }, goal)) {
+      // A message typed while the goal waited starts a fresh stretch.
+      if (info.fromHuman) dropWaiting(sk);
+      return defer(info);
+    }
+    const waiting = dropWaiting(sk);
+    if (!info.backgroundWork) checkInCount.delete(sk);
     // The empty wake after the work reported: judge the turn that did it. Only
     // a wake the model closed by itself: a turn somebody stopped, or one that
     // failed, drops the waiting turn with it, or a Stop would buy a nudge.
     if (info.discarded && waiting && info.end === "end_turn" && !info.dispatched) {
-      if (info.backgroundWork) return defer(waiting);
-      return judge({ ...waiting, backgroundWork: false }, false);
+      if (info.backgroundWork) return defer(waiting.info);
+      return judge({ ...waiting.info, backgroundWork: false }, false);
     }
     return judge(info, false);
   };
+  return onTurnEnd;
 
   async function judge(info: TurnEndInfo, backgroundStillRunning: boolean): Promise<string> {
     let goal;
