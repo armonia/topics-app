@@ -274,8 +274,8 @@ describe('the line under a turn the machine stopped', () => {
     // A woken turn opens its row under the line: merged, the bubble drew only
     // the line (it answers for its blocks) and the tools vanished.
     const stop = msg({ blocks: [{ kind: 'machine-stop', cause: 'stall', text: 'Fermato' }] });
-    const woken = msg({ blocks: [{ kind: 'woken' }, { kind: 'tool', toolCall: tool('Bash') }] });
+    const tools = msg({ blocks: [{ kind: 'woken' }, { kind: 'tool', toolCall: tool('Bash') }] });
     expect(isWorkOnlyAssistant(stop)).toBe(false);
-    expect(coalesceToolRuns([stop, woken]).items.map((m) => m.id)).toEqual([stop.id, woken.id]);
+    expect(coalesceToolRuns([stop, tools]).items.map((m) => m.id)).toEqual([stop.id, tools.id]);
   });
 });

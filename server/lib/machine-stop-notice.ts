@@ -35,7 +35,7 @@
  * delivery (`recoverAgentWords`). The block is what keeps the row: a non-text
  * block is work for `isEmptyAssistantTurn`, so no later pass discards it.
  */
-import type { ContentBlock } from "../types";
+import type { AppContext, ContentBlock } from "../types";
 import { machineStopToolError, type MachineStopCause } from "./abort-cause";
 
 /** The block, with the sentence a client older than it prints as prose. */
@@ -75,4 +75,32 @@ export function needsMachineStopNotice(
   if (!answeredMessageId) return false;
   const last = thread.at(-1);
   return !!last && last.id === answeredMessageId && last.role === "user";
+}
+
+/**
+ * Write the line and tell the screens, when the chat needs it. Called by
+ * `/api/chat/abort` after both finalizes, so whichever ran first has already
+ * discarded the turn's row.
+ *
+ * On the claude-code path the chat route has sent its own `stream:end` by now.
+ * A watching window still paints no banner in between: the banner also waits
+ * for the streaming registry to be read again, an HTTP round trip that starts
+ * after this frame is out.
+ */
+export function leaveMachineStopNotice(
+  deps: Pick<AppContext, "db" | "loadLocalMessages" | "appendLocalMessage" | "broadcastToAll">,
+  turn: { sessionKey: string; topicId: string; cause: MachineStopCause; answeredMessageId: string },
+): void {
+  if (!boardDrivesTopic(deps.db, turn.topicId)) return;
+  const thread = deps.loadLocalMessages(turn.sessionKey, { withBlocks: false, withToolCalls: false });
+  if (!needsMachineStopNotice(thread, turn.answeredMessageId)) return;
+  const block = machineStopBlock(turn.cause);
+  const notice = deps.appendLocalMessage(turn.sessionKey, "assistant", "", undefined, [block]);
+  // The row's `content` is empty on purpose, but the live handler drops a
+  // `message:new` without text: the frame carries the sentence the client
+  // falls back to, and the block is what it draws.
+  deps.broadcastToAll({
+    type: "message:new", topicId: turn.topicId, sessionKey: turn.sessionKey, role: "assistant",
+    messageId: notice.id, content: block.text, preview: "", blocks: [block],
+  });
 }
