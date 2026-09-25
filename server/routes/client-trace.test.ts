@@ -138,7 +138,7 @@ describe("POST /api/client-trace", () => {
     expect(pulled).toBeLessThan(10);
   });
 
-  it("writes at most 600 lines a minute across clients, and says how many it dropped", async () => {
+  it("writes at most 600 lines a minute across clients, and says how many it dropped and when", async () => {
     const logged: string[] = [];
     let t = 1_000_000;
     const router = createClientTraceRouter(ctx, (l) => logged.push(l), () => t);
@@ -150,11 +150,12 @@ describe("POST /api/client-trace", () => {
     }
     expect(statuses.every((s) => s === 204)).toBe(true);
     expect(logged).toHaveLength(600);
-    t += 60_000;
-    await router(post({ events: [{ at: AT, event: "next minute" }] }), new URL("http://x/api/client-trace"), "/api/client-trace", "POST");
+    // The next batch comes three hours later: the count still names its minute.
+    t += 3 * 60 * 60_000;
+    await router(post({ events: [{ at: AT, event: "hours later" }] }), new URL("http://x/api/client-trace"), "/api/client-trace", "POST");
     expect(logged.slice(600)).toEqual([
-      "[client-trace] 50 line(s) dropped in the last minute (cap 600/min)",
-      "[client-trace] 2026-09-24T10:42:02.174Z tab-1 pane-attach next minute",
+      "[client-trace] 50 line(s) dropped in the minute from 1970-01-01T00:16:40.000Z (cap 600/min)",
+      "[client-trace] 2026-09-24T10:42:02.174Z tab-1 pane-attach hours later",
     ]);
   });
 

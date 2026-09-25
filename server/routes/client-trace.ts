@@ -27,7 +27,8 @@ const MAX_FIELDS_CHARS = 600;
 /**
  * A browser opening traces a handful of lines, a reload a few dozen. Measured
  * before this cap: 200 concurrent batches wrote 10,053 lines in 284 ms. Past it
- * the lines are counted and said once, in the next minute's first line.
+ * the lines are counted, and the count is written once, with the minute it is
+ * about, before the next batch that gets through.
  */
 const MAX_LINES_PER_MINUTE = 600;
 
@@ -123,7 +124,11 @@ export function createClientTraceRouter(
   const admit = (n: number): number => {
     const t = now();
     if (t - windowStart >= 60_000) {
-      if (dropped > 0) log(`[client-trace] ${dropped} line(s) dropped in the last minute (cap ${MAX_LINES_PER_MINUTE}/min)`);
+      // Said by the first batch AFTER the window, which can come hours later:
+      // so the line names the minute it is about, not "the last minute".
+      if (dropped > 0) {
+        log(`[client-trace] ${dropped} line(s) dropped in the minute from ${new Date(windowStart).toISOString()} (cap ${MAX_LINES_PER_MINUTE}/min)`);
+      }
       windowStart = t;
       windowLines = 0;
       dropped = 0;
