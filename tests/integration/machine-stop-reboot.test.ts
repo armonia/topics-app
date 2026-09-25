@@ -39,7 +39,7 @@ beforeAll(() => setupTestDataDir(TEST_DATA));
 let captured: StreamHandler | undefined;
 // "claude-code" answers the abort at once; "native" answers nothing, and its
 // tool, cancelled by the abort, reports late with the sentence the repair pass
-// looks for (`MOTIVO_ANNULLATO` in providers/native/tools.ts).
+// looks for (the cancelled-command text in providers/native/tools.ts).
 let answers: "claude-code" | "native" = "claude-code";
 const registered = registerProvider({ type: "openai", apiKey: "" } as never) as unknown as Record<string, unknown>;
 Object.defineProperty(registered, "connected", { configurable: true, get: () => true });
