@@ -176,6 +176,10 @@ describe("a turn streamed over HTTP-SSE, with a row born after its own", () => {
     sse.text(11, 12, "C");
     sse.cut();
     await drained;
+    // The consumer's `finally` closes the response BEFORE it writes the row and
+    // ends the stream: the end of the stream is what says the write happened.
+    const until = Date.now() + 5_000;
+    while (ctx.isStreaming(sk) && Date.now() < until) await new Promise((r) => setTimeout(r, 10));
 
     expect(shape(rowById(ctx, sk, notice.id))).toEqual(noticeBefore);
     const own = rowById(ctx, sk, turnRow.id)!;
