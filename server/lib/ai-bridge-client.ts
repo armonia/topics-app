@@ -326,6 +326,9 @@ export class AiBridgeClient {
         this.lastPongAt = Date.now();
         this.setupReader(socket);
         this.startWatchdog();
+        // Right away, not at the first watchdog beat: the pid is what lets an
+        // orphaned daemon adopt this server (see the monitor in ai-bridge.mjs).
+        this.send({ type: "ping", pid: process.pid });
         console.log("[AI Bridge] Connected to daemon");
         res(true);
       });
@@ -543,15 +546,38 @@ export class AiBridgeClient {
    */
   private startWatchdog(): void {
     if (this.watchdog) return;
+    let dueAt = Date.now() + WATCHDOG_EVERY_MS;
+    // Our own stalls since the bridge last spoke: taken off its silence, and
+    // back to zero the moment it speaks again.
+    let excusedMs = 0;
+    let heardAt = 0;
     this.watchdog = setInterval(() => {
       if (!this.ready) return;
       const now = Date.now();
-      if (shouldRecycleSocket(now, this.lastPongAt, this.lastByteAt, PONG_TIMEOUT_MS)) {
+      const heard = Math.max(this.lastPongAt, this.lastByteAt);
+      if (heard !== heardAt) { heardAt = heard; excusedMs = 0; }
+      // A BEAT FAR LATER THAN ITS PERIOD MEASURES US, NOT THE BRIDGE. After a
+      // loop that stood still for a minute (287 s measured on 25/09) this timer
+      // runs before the socket's pending bytes are even read, so the pong and
+      // the data of that minute look missing. Recycling there dropped a healthy
+      // socket, and its reconnect then waited behind the next stall long enough
+      // for the daemon's grace to run out and take the CLIs with it (card
+      // 51fb9359). The same forgiveness the ack waiters apply (`arm`).
+      //
+      // The stall is SUBTRACTED from the silence, not a reason to start it
+      // over: restarting it at every late beat excused, for ever, a daemon that
+      // never answered while a stall of over 2 s landed on each beat (PR #147,
+      // second review). A ceiling on wall time instead would bring the 287 s
+      // case back.
+      const late = now - dueAt;
+      if (late > LOOP_STALL_FORGIVENESS_MS) excusedMs += late;
+      dueAt = now + WATCHDOG_EVERY_MS;
+      if (shouldRecycleSocket(now - excusedMs, this.lastPongAt, this.lastByteAt, PONG_TIMEOUT_MS)) {
         console.warn("[AI Bridge] watchdog: né pong né byte — riciclo il socket");
         try { this.socket?.destroy(); } catch { /* 'close' handles reconnect */ }
         return;
       }
-      this.send({ type: "ping" });
+      this.send({ type: "ping", pid: process.pid });
     }, WATCHDOG_EVERY_MS);
     this.watchdog.unref?.();
   }

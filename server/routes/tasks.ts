@@ -761,6 +761,12 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR),
     repoRootFor: opts?.repoRootFor,
     probeFor: opts?.probeFor,
+    // The delivery note that waited on git lands after the PATCH broadcast:
+    // the same second emit every other late `addComment` in this file makes.
+    onLateDeliveryNote: (taskId, projectId) => {
+      const noted = svc.get(taskId, { projectId })?.task;
+      if (noted) broadcastToAll({ type: "task:updated", projectId, task: noted });
+    },
   });
   const attempts = createTaskAttemptStore(db);
 

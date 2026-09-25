@@ -80,6 +80,7 @@ const sessions = new Map();  // id -> Session
 const dying = new Set();
 const clients = new Set();   // connected server sockets
 const connectedAt = new Map(); // socket -> Date.now(), per distinguere un server da una sonda
+const serverPids = new Map();  // socket -> the pid its pings carry: who the orphan monitor may adopt
 
 function broadcast(msg) {
   const line = JSON.stringify(msg) + '\n';
@@ -343,6 +344,7 @@ function handleMessage(msg, client) {
       break;
     }
     case 'ping': {
+      if (Number.isInteger(msg.pid) && msg.pid > 0) serverPids.set(client, msg.pid);
       sendTo(client, { type: 'pong' });
       break;
     }
@@ -533,7 +535,7 @@ async function start() {
         catch (e) { sendTo(socket, { type: 'error', error: e.message, id: parsed?.id }); }
       }
     });
-    const drop = () => { clients.delete(socket); connectedAt.delete(socket); for (const s of sessions.values()) s.attached.delete(socket); };
+    const drop = () => { clients.delete(socket); connectedAt.delete(socket); serverPids.delete(socket); for (const s of sessions.values()) s.attached.delete(socket); };
     socket.on('close', drop);
     socket.on('error', drop);
   });
@@ -614,13 +616,31 @@ async function start() {
   const AI_MONITOR_TICK_MS = Number(process.env.TOPICS_AI_BRIDGE_MONITOR_TICK_MS) || 5_000;
   let orphanDeadline = null;
   let orphanExtended = false;
+  // THE SERVER WE OUTLIVE: the one that spawned us, then the one that came back.
+  //
+  // Tolerating a reconnected server is not enough. Until 25/09 an orphan stayed
+  // up only while that server was ATTACHED, so each of its disconnects restarted
+  // the 90 s: a server whose loop stood still for minutes, with its socket
+  // recycled and its reconnect stuck behind the block, lost every CLI it had
+  // while it was alive all along (card 51fb9359). A server that says its pid in
+  // its pings is adopted, and from then on it is ITS death that counts.
+  let guardianPid = parentPid;
   setInterval(() => {
     // No --parent-pid (hand-started daemon): nothing to outlive, the idle
     // timeout below is the only thing that will ever retire us.
-    const orphaned = parentPid !== null && !pidAlive(parentPid);
+    const orphaned = guardianPid !== null && !pidAlive(guardianPid);
     if (!orphaned) { orphanDeadline = null; orphanExtended = false; return; }
     const now = Date.now();
-    const settled = [...clients].some((c) => now - (connectedAt.get(c) ?? now) >= REAL_CLIENT_MS);
+    const settledClients = [...clients].filter((c) => now - (connectedAt.get(c) ?? now) >= REAL_CLIENT_MS);
+    const heir = settledClients.map((c) => serverPids.get(c)).find((pid) => pid && pidAlive(pid));
+    if (heir) {
+      console.error(`[AI Bridge] Server ${guardianPid} is gone, ${heir} came back: adopting it, sessions preserved.`);
+      guardianPid = heir;
+      orphanDeadline = null;
+      orphanExtended = false;
+      return;
+    }
+    const settled = settledClients.length > 0;
     if (settled) {
       if (orphanDeadline !== null) {
         console.error('[AI Bridge] Server reconnected after parent death — staying alive, sessions preserved.');
@@ -631,7 +651,7 @@ async function start() {
     }
     if (orphanDeadline === null) {
       orphanDeadline = now + ORPHAN_GRACE_MS;
-      console.error(`[AI Bridge] Parent died (was ${parentPid}), no server connected — exit in ${ORPHAN_GRACE_MS / 1000}s unless one reconnects.`);
+      console.error(`[AI Bridge] Parent died (was ${guardianPid}), no server connected — exit in ${ORPHAN_GRACE_MS / 1000}s unless one reconnects.`);
       return;
     }
     if (now < orphanDeadline) return;

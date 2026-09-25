@@ -77,6 +77,30 @@ export interface RepoProbe {
   readLine(path: string, line: number): string | null;
   /** `git log --all -S<simbolo>` found at least one commit. */
   symbolInHistory(name: string): boolean;
+  /**
+   * Asks git, off the server's loop, everything `checkReport` will ask about
+   * these reports, and returns a probe that answers from those answers alone.
+   * The real probe never runs git inline: without this step its git questions
+   * all answer "no accusation". The probes injected in the tests answer inline
+   * and do not need it.
+   */
+  prepare?(reports: readonly string[]): Promise<RepoProbe>;
+}
+
+/** The symbols a report declares: the ones `symbolInHistory` is asked about. */
+export function declaredSymbols(report: string): string[] {
+  return extractClaims(report).filter((c) => c.kind === "simbolo").map((c) => (c as { name: string }).name);
+}
+
+/** What `checkReport` asks git about one report: the cited shas, whether it
+ *  cites a file (the tracked list), and the declared symbols in order. */
+export function gitQuestions(report: string): { shas: string[]; citesFiles: boolean; symbols: string[] } {
+  const claims = extractClaims(report);
+  return {
+    shas: claims.flatMap((c) => (c.kind === "sha" ? [c.value] : [])),
+    citesFiles: claims.some((c) => c.kind === "file"),
+    symbols: declaredSymbols(report),
+  };
 }
 
 /** Extensions that make a backticked token a path rather than a name. */
@@ -219,7 +243,7 @@ export function checkReport(report: string, probe: RepoProbe): Finding[] {
   const claims = extractClaims(report);
   const findings: Finding[] = [];
 
-  const symbols = claims.filter((c) => c.kind === "simbolo").map((c) => (c as { name: string }).name);
+  const symbols = declaredSymbols(report);
 
   // 1. Every cited sha must resolve.
   //    WHAT THIS FINDING MEANS CHANGED, and only forward. Until the delivery ref

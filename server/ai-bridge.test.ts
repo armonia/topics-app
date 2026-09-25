@@ -456,4 +456,35 @@ describe("ai-bridge orphan monitor", () => {
       try { rmSync(store, { recursive: true, force: true }); } catch { /* best effort */ }
     }
   }, 15_000);
+
+  test("an orphan adopts the server that came back: that server's disconnect no longer runs out its grace", async () => {
+    // The production daemon on 25/09: its spawner dead, the server that
+    // reconnected alive but gone quiet (a stalled loop, a recycled socket).
+    const sock = join(tmpdir(), `ai-bridge-adopt-${process.pid}.sock`);
+    const store = mkdtempSync(join(tmpdir(), "ai-bridge-adopt-store-"));
+    const corpse = Bun.spawn(["/usr/bin/true"], { stdout: "ignore", stderr: "ignore" });
+    await corpse.exited;
+    const orphan = Bun.spawn(
+      [process.execPath, join(import.meta.dir, "ai-bridge.mjs"),
+        "--socket", sock, "--store-dir", store, "--parent-pid", String(corpse.pid)],
+      { stdout: "ignore", stderr: "ignore", env: { ...process.env, ...FAST_ENV, TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "1000", TOPICS_AI_BRIDGE_REAL_CLIENT_MS: "500" } },
+    );
+    let exited = false;
+    void orphan.exited.then(() => { exited = true; });
+    try {
+      expect(await until(() => existsSync(sock), 10_000)).toBe(true);
+      const server = net.connect(sock);
+      await new Promise((r) => server.once("connect", r));
+      server.write(JSON.stringify({ type: "ping", pid: process.pid }) + "\n");
+      // Attached long enough to be a server, and at least one monitor tick.
+      await new Promise((r) => setTimeout(r, 1_500));
+      server.destroy();
+      // Past the 1 s grace and several ticks: this process is alive, so is the daemon.
+      await new Promise((r) => setTimeout(r, 3_000));
+      expect(exited).toBe(false);
+    } finally {
+      try { orphan.kill(); } catch { /* ignore */ }
+      try { rmSync(store, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  }, 20_000);
 });
