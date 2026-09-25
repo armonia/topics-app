@@ -14,6 +14,7 @@ import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter, createToolDetailRouter } from "./history";
 import { blocksForDisk, leanMessagesForWire, toolCallsColumnForRow } from "../../shared/lean-tool-call";
 import { MACHINE_ROW_SQL } from "../../shared/prompt-number";
+import { postBackgroundNotice } from "../lib/background-notice";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
@@ -1614,8 +1615,9 @@ export function createTopicsRouter(
         // Provider/model are spawn-time flags for the claude-code CLI (same
         // as effort below): track changes so we can force an idle respawn.
         let spawnConfigChanged = false;
-        // A permission change: applied even over the chat's background work.
-        let autonomyChanged = false;
+        // Owed while background work runs: a lowering, or a raise out of `ask`
+        // (plan mode stays). auto-apply to yolo applies live (`sessionIsFree`).
+        let autonomyOwed = false;
         if (body.autonomyLevel !== undefined) {
           const valid: Topic['autonomyLevel'][] = ['ask', 'auto-apply', 'yolo'];
           // Un livello sconosciuto è un ERRORE del chiamante, non un `ask`.
@@ -1634,7 +1636,11 @@ export function createTopicsRouter(
           // come provider e modello: senza il respawn la scelta non avrebbe
           // effetto finché la chat non riparte da sola — cioè sembrerebbe
           // un'impostazione che non fa niente.
-          if (next !== topic.autonomyLevel) { spawnConfigChanged = true; autonomyChanged = true; }
+          if (next !== topic.autonomyLevel) {
+            spawnConfigChanged = true;
+            const prev = topic.autonomyLevel ?? 'ask';
+            autonomyOwed = valid.indexOf(next) < valid.indexOf(prev) || prev === 'ask';
+          }
           topic.autonomyLevel = next;
         }
         if (body.provider !== undefined) {
@@ -1642,10 +1648,12 @@ export function createTopicsRouter(
           topic.provider = body.provider || null;
           spawnConfigChanged ||= (topic.provider ?? null) !== prev;
         }
+        let modelChanged = false;
         if (body.model !== undefined) {
           const prev = topic.model ?? null;
           topic.model = body.model || null;
-          spawnConfigChanged ||= (topic.model ?? null) !== prev;
+          modelChanged = (topic.model ?? null) !== prev;
+          spawnConfigChanged ||= modelChanged;
         }
         if (body.topicsRouting !== undefined) {
           // AICTRL-01: the switch never rewrites provider/model, but it does
@@ -1715,8 +1723,18 @@ export function createTopicsRouter(
         // applies on the next natural respawn) and must not block the PATCH
         // response.
         if (effortChanged || spawnConfigChanged) {
-          try { resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey, { overBackgroundWork: autonomyChanged }); }
+          let outcome: string | void = undefined;
+          try { outcome = resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
           catch (err) { console.warn(`[topics] refreshSessionConfig failed for ${topic.sessionKey}:`, err); }
+          // The respawn would kill the chat's background work, so the change
+          // waits for it, and the chat says so: a lowered autonomy the CLI does
+          // not have yet is not something to learn from a log.
+          if (outcome === "deferred-background") {
+            const owed = { autonomy: autonomyOwed, model: modelChanged, effort: effortChanged };
+            for (const change of (["autonomy", "model", "effort"] as const).filter((c) => owed[c])) {
+              postBackgroundNotice(ctx, { sessionKey: topic.sessionKey, topicId: topic.id }, { kind: "background-notice", event: "deferred", change });
+            }
+          }
           // Il ring cambia DENOMINATORE, non numeratore: cambiare modello cambia
           // la finestra, e l'ultima misura va riletta contro quella nuova. Senza
           // questo il ring resta fermo sul vecchio rapporto fino al turno dopo —
@@ -2935,11 +2953,15 @@ export function createTopicsRouter(
             topic.updatedAt = new Date().toISOString();
             saveSingleTopic(topic);
             broadcastToAll({ type: "topic:updated", topic });
+            let outcome: string | void = undefined;
             if ((topic.model ?? null) !== prevModel) {
-              try { resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
+              try { outcome = resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
               catch (err) { console.warn(`[command] refreshSessionConfig (model) failed:`, err); }
             }
-            return json({ ok: true, command: "model", model: topic.model, message: `Modello impostato: ${topic.model}. Attivo dal prossimo turno.` });
+            // Owed to the background work: the chat says it, translated.
+            const pending = outcome === "deferred-background" ? { pending: "background-work" } : {};
+            if (pending.pending) postBackgroundNotice(ctx, { sessionKey, topicId: topic.id }, { kind: "background-notice", event: "deferred", change: "model" });
+            return json({ ok: true, command: "model", model: topic.model, ...pending, message: `Modello impostato: ${topic.model}. Attivo dal prossimo turno.` });
           }
           case "effort": {
             // Per-topic reasoning-effort tier for claude-code (spawn-time
@@ -2959,11 +2981,14 @@ export function createTopicsRouter(
             topic.updatedAt = new Date().toISOString();
             saveSingleTopic(topic);
             broadcastToAll({ type: "topic:updated", topic });
+            let outcome: string | void = undefined;
             if ((topic.effort ?? null) !== prevEffort) {
-              try { resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
+              try { outcome = resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
               catch (err) { console.warn(`[command] refreshSessionConfig (effort) failed:`, err); }
             }
-            return json({ ok: true, command: "effort", level: tier, message: `Effort impostato: ${tier}. Attivo dal prossimo turno.` });
+            const pending = outcome === "deferred-background" ? { pending: "background-work" } : {};
+            if (pending.pending) postBackgroundNotice(ctx, { sessionKey, topicId: topic.id }, { kind: "background-notice", event: "deferred", change: "effort" });
+            return json({ ok: true, command: "effort", level: tier, ...pending, message: `Effort impostato: ${tier}. Attivo dal prossimo turno.` });
           }
           case "reasoning": {
             const level = args?.level || "on";

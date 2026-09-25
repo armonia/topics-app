@@ -1,7 +1,8 @@
 /**
  * Is this row one the MACHINE wrote, not the person or the model?
  *
- * The goal loop's continuation (`goal-nudge`), its stop notice (`goal-stop`)
+ * The goal loop's continuation (`goal-nudge`), its stop notice (`goal-stop`),
+ * the line about a chat's background work (`background-notice`)
  * and the board's envelope (`dispatched-envelope`) are rows of the transcript
  * because a provider only answers a `user` turn, but none of them is
  * something anybody said. The chat draws them as a service line
@@ -13,7 +14,7 @@ import type { ContentBlock } from '../../types';
 import type { MachineStopCause } from '../../../../shared/types';
 export type { MachineStopCause } from '../../../../shared/types';
 
-const MACHINE_KINDS = new Set(['goal-nudge', 'goal-stop', 'dispatched-envelope', 'machine-stop']);
+const MACHINE_KINDS = new Set(['goal-nudge', 'goal-stop', 'dispatched-envelope', 'machine-stop', 'background-notice']);
 
 export function isMachineRow(blocks: readonly ContentBlock[] | undefined | null): boolean {
   if (!blocks || blocks.length === 0) return false;

@@ -1,6 +1,6 @@
 import { memo, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useT } from '../../hooks/useT';
-import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Target, Trash2 } from 'lucide-react';
+import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Target, Trash2, Layers } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
 import { MessageMetaFooter } from './MessageMetaFooter';
@@ -288,6 +288,27 @@ export const MessageBubble = memo(function MessageBubble({
   // See server/lib/machine-stop-notice.ts.
   const machineStop = machineStopOf(msg.blocks);
   if (machineStop) return <MachineStopLine cause={machineStop} />;
+
+  // What the chat's background work changed: a config change waiting for it,
+  // or the work closed after two hours without news. Machinery, drawn as one
+  // line like the goal loop's (server/lib/background-notice.ts).
+  const backgroundNotice = msg.blocks?.find((b) => b.kind === 'background-notice');
+  if (backgroundNotice?.kind === 'background-notice') {
+    return (
+      <div
+        data-testid="background-notice-row"
+        data-background-notice={backgroundNotice.event === 'closed' ? 'closed' : `deferred:${backgroundNotice.change}`}
+        className="my-1 flex items-center justify-center gap-1.5 px-2 text-mini text-app-text-muted"
+      >
+        <Layers size={11} className="flex-shrink-0" />
+        <span className="truncate" title={backgroundNotice.event === 'closed' ? backgroundNotice.tasks.join('\n') : undefined}>
+          {backgroundNotice.event === 'closed'
+            ? tr('background.notice.closed', { tasks: backgroundNotice.tasks.join(', ') })
+            : tr(`background.notice.deferred.${backgroundNotice.change}`)}
+        </span>
+      </div>
+    );
+  }
 
   // THE BOARD'S ENVELOPE TALKS, IT DOES NOT IMPERSONATE. The row itself lives
   // in `DispatchEnvelopeRow`, shared with the card's conversation: two surfaces

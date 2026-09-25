@@ -75,6 +75,27 @@ describe("the clocks that kill, against background work", () => {
     if (pp.inactivityTimer) clearTimeout(pp.inactivityTimer);
   });
 
+  test("two hours without news of listed work: the reaper closes it and says what it closed", async () => {
+    const sk = "topic:clocks-closed";
+    const { provider, pp, counts, feed } = stub(sk);
+    feed(events.slice(0, firstResult + 1));
+    pp.wokenBuffer = null; pp.declinedTurn = false;
+    pp.background.lastSignalAt = Date.now() - TWO_HOURS - 1;
+    const closed: Array<{ sk: string; tasks: string[] }> = [];
+    ClaudeCodeProvider.observeBackgroundClosed((key, tasks) => { closed.push({ sk: key, tasks }); });
+    try {
+      (provider as any).resetInactivityTimer(sk, pp, { ms: 5 });
+      await sleep(40);
+      expect(counts.kill).toBe(1);
+      expect(closed.length).toBe(1);
+      expect(closed[0].sk).toBe(sk);
+      expect(closed[0].tasks).toContain("tick counter loop");
+      expect(closed[0].tasks.length).toBe(3);
+    } finally {
+      ClaudeCodeProvider.observeBackgroundClosed(() => {});
+    }
+  });
+
   test("B2: the stall judge waits exactly as long as the other clocks: a Bash silent for 31 minutes is not judged", async () => {
     const sk = "topic:clocks-stall";
     // Registered, so the server's own door (`sessionHasBackgroundWork`) finds it.

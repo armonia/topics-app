@@ -159,7 +159,7 @@ import { createBillingRouter, isBillingWebhookPath } from "./server/routes/billi
 import { createAccountRouter } from "./server/routes/account";
 import { createPeopleRouter } from "./server/routes/people";
 import { getGatewayWS } from "./server/gateway-ws";
-import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend, sessionHasBackgroundWork, stallBackgroundHold } from "./server/providers";
+import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend, stallBackgroundHold } from "./server/providers";
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import type { AbortReason } from "./server/providers/types";
@@ -247,6 +247,7 @@ import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } fr
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 import { decodeCol, encodeCol } from "./shared/message-blob";
 import { budgetShare, capMode, governorReading, TURN_ERROR_PREFIX } from "./shared/board";
+import { BACKGROUND_NOTICE_PREFIX, postBackgroundNotice } from "./server/lib/background-notice";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -798,6 +799,12 @@ const claudeSessionTracker = createClaudeSessionTracker({
 // ends the import cursor jumps past everything it wrote. Armed on the class,
 // like `observeWokenTurns`, because claude-code is not registered yet at boot.
 ClaudeCodeProvider.observeTurnReleased((sk) => { claudeSessionTracker.syncImportOffsetToEnd(sk); });
+// A clock closed a CLI with background work still listed: the chat says what
+// died and why (server/lib/background-notice.ts), not only the log.
+ClaudeCodeProvider.observeBackgroundClosed((sessionKey, tasks) => {
+  const topic = ctx.getTopicBySessionKey(sessionKey);
+  if (topic) postBackgroundNotice(ctx, { sessionKey, topicId: topic.id }, { kind: "background-notice", event: "closed", tasks });
+});
 
 // La porta unica del parcheggio (lib/session-parking.ts): archiviare un topic
 // deve anche mettere a riposo la sua sessione, o la fase resta viva per sempre
@@ -2011,6 +2018,8 @@ const taskDispatcher = createTaskDispatcher({
         // (`turnError.ts`): li si SALTA e si continua a scendere, perche' sotto
         // c'e' quasi sempre la prosa che stiamo cercando.
         if (testo.startsWith(TURN_ERROR_PREFIX)) continue;
+        // Nor the line about the chat's background work: the machine wrote it.
+        if (testo.startsWith(BACKGROUND_NOTICE_PREFIX)) continue;
         // The ID comes back with the words: the note that mirrors them is a
         // card comment, and its anchor has to be the row it quotes, not the
         // last row of the session.

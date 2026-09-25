@@ -1302,6 +1302,18 @@ export class ClaudeCodeProvider implements AIProvider {
   private static onTurnReleased: ((sessionKey: string) => void) | null = null;
 
   /**
+   * Who says in the chat that a clock closed a CLI whose background work was
+   * still listed: the reaper, the lifetime cap or a config change, which close
+   * it only after two hours without news of that work. The work dies with the
+   * child, and a log line was the only trace of it (verification of 25/09).
+   * Static for the same boot-order reason as `observeWokenTurns`.
+   */
+  static observeBackgroundClosed(fn: (sessionKey: string, tasks: string[]) => void): void {
+    ClaudeCodeProvider.onBackgroundClosed = fn;
+  }
+  private static onBackgroundClosed: ((sessionKey: string, tasks: string[]) => void) | null = null;
+
+  /**
    * The ONLY way a turn's handler is cleared, so every end (result, abort,
    * error, timeout, process death, route unregister) tells the observer. Only a
    * real handler-to-null transition counts: clearing an already-null slot is
@@ -4026,7 +4038,7 @@ export class ClaudeCodeProvider implements AIProvider {
         // if it wedged. It still is, so waiting never becomes waiting forever.
         // Not a second silence clock: this only ever fires past the 2 h mark.
         // Background work waits the same way, bounded by two hours without
-        // news of it (`BACKGROUND_KILL_CAP_MS`).
+        // news of it (`BACKGROUND_WORK_CAP_MS`).
         if ((turnInFlight(pp) && Date.now() - quietSince(pp, sessionKey) < wedgedMs + rearmMs) || backgroundAlive(pp)) {
           pp.lifetimeTimer = this.armLifetime(pp, sessionKey, { ms: rearmMs, rearmMs, wedgedMs });
           return;
@@ -4215,6 +4227,13 @@ export class ClaudeCodeProvider implements AIProvider {
   private killProcess(pp: PersistentProcess, cause: KillCause): void {
     const wasAlive = pp.alive;
     pp.alive = false;
+    const listed = pp.background?.tasks;
+    if (wasAlive && listed?.size && (cause === "idle" || cause === "lifetime" || cause === "config")) {
+      const tasks = [...listed.values()].map((t) => t.description || t.type);
+      console.log(`[claude-code] ${pp.sessionKey}: ${KILL_CAUSE_TEXT[cause]} closes background work silent for two hours: ${tasks.join("; ")}`);
+      try { ClaudeCodeProvider.onBackgroundClosed?.(pp.sessionKey, tasks); }
+      catch (err) { console.warn(`[claude-code] background-closed observer failed for ${pp.sessionKey}:`, err); }
+    }
     // Killed on purpose (e.g. `/clear` while a send waits for this stopped
     // child): nobody will hear its exit in broker mode, because `kill` drops
     // the handlers for the key, so the wait ends now instead of at its cap.
