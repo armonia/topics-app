@@ -79,7 +79,7 @@ describe("stale gap on the real registry + routes", () => {
       finalizeMessage: () => {}, recordTurnEnd: () => {}, warn: () => {}, info: () => {},
     } as never);
     console.log("sweep outcome =", outcomes.get(SK));
-    expect(["rescued", "extended"]).toContain(outcomes.get(SK));
+    expect(["rescued", "extended"]).toContain(outcomes.get(SK) as string);
     expect(ctx.isStreaming(SK)).toBeDefined(); // back in the list after the tick: the gap was only a gap
   });
 });
