@@ -66,6 +66,7 @@ import { usePaneHold } from '../../state/pane/residency/holds';
 import { useSessionMessages } from '../../state/useSessionMessages';
 import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAttachments';
 import { useServedFromCache } from '../../state/historyFromCache';
+import { holdTopic } from '../../state/topicSubscriptions';
 
 /**
  * The text `/help` prints, DERIVED from the composer's own menu.
@@ -163,6 +164,14 @@ function ChatPaneComponent({
   /** A command of this chat is stopped: the pane says so above the composer. */
   const swapFreeze = useSwapFreeze({ topicId: topic.id });
   const toast = useToast();
+  // Declared on the wire for as long as this pane is mounted. A window hears
+  // the per-token frames of a turn only for the topics it declares
+  // (`server/lib/ws-topic-routing.ts`), and it declares its open PANES: a chat
+  // inside a project pane is not one, so it heard its own turn only while it
+  // was the focused topic (card 1fc3a9fa). Not tied to visibility: a hidden
+  // pane stays mounted and keeps receiving its messages, and the person reads
+  // them on coming back.
+  useEffect(() => holdTopic(topic.id), [topic.id]);
   const isGlobalOrchestrator = topic.isGlobalOrchestrator === true;
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => { const h = () => setIsMobile(window.innerWidth < 768); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);

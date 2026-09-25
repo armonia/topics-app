@@ -1192,7 +1192,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // reconnects). That was exactly the "chat looks cut in half" failure.
   //
   // So: whenever a topic we have OPEN gets a `topic:updated`, reconcile its
-  // thread against the server. `loadHistory` MERGES (server truth + local-only
+  // thread against the server. Open means a pane of this window OR a surface
+  // holding the topic (`getExtraTopicIds`): a chat inside a project pane is not
+  // in `openPanels`, and it was the one chat never reconciled (card 1fc3a9fa). `loadHistory` MERGES (server truth + local-only
   // messages), so it's safe/idempotent; it also early-returns while we're the
   // one streaming, and we skip our own live stream up front. Debounced per
   // session so a finalize burst collapses to one fetch.
@@ -1207,7 +1209,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       }
       if (msg.type === 'topic:updated' && msg.topic?.sessionKey) {
         const t = msg.topic;
-        if (!openPanelsRef.current.includes(t.id)) return;
+        if (!openPanelsRef.current.includes(t.id) && !getExtraTopicIds().includes(t.id)) return;
         if (chatHandlersRef.current.isOwnStream(t.sessionKey)) return;
         const pending = timers.get(t.sessionKey);
         if (pending) clearTimeout(pending);
