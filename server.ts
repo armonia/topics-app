@@ -204,6 +204,7 @@ import { upgradeWebSocket } from "./server/lib/ws-upgrade";
 import { sendWsFrame } from "./server/lib/ws-send";
 import { markViaTunnel, isLocalTransport, clientIpOf, tunnelPort } from "./server/lib/tunnel";
 import { compressJson } from "./server/lib/compress-json";
+import { isSseCommentOnly } from "./server/lib/sse-ping";
 import { currentRouteFault, applyRouteFault } from "./server/lib/route-fault";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
 import { claudeTranscriptPath, isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
@@ -246,7 +247,6 @@ import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } fr
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 import { decodeCol, encodeCol } from "./shared/message-blob";
 import { budgetShare, capMode, governorReading, TURN_ERROR_PREFIX } from "./shared/board";
-import { isSseCommentOnly } from "./server/lib/sse-ping";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -1160,9 +1160,10 @@ async function watchHeadlessBody(
         if (peekTurnEnd(sessionKey)) reader.cancel().catch(() => {});
         break;
       }
-      // A ping means the route has not finalized, so it rightly holds off the end grace:
-      // an end deposited meanwhile is a superseded turn's, or about to be finalized.
-      if (!isSseCommentOnly(value)) detector.noteActivity();
+      // A ping is no sign of life. It means the route has not finalized, so it rightly holds
+      // off the end grace: an end deposited meanwhile is a superseded turn's, or not final yet.
+      if (isSseCommentOnly(value)) continue;
+      detector.noteActivity();
     }
   }
   finally {

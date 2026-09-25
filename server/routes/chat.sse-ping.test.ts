@@ -251,7 +251,7 @@ describe("the board's stall watch with pings on the stream", () => {
     const source = readFileSync(join(REPO_ROOT, "server.ts"), "utf8");
     const reader = source.slice(source.indexOf("async function watchHeadlessBody("));
     const loop = reader.slice(0, reader.indexOf("finally {"));
-    expect(loop).toMatch(/if \(!isSseCommentOnly\(value\)\) detector\.noteActivity\(\);\n    \}/);
+    expect(loop).toMatch(/if \(isSseCommentOnly\(value\)\) continue;\n\s*detector\.noteActivity\(\);/);
   });
 
   test("a comment-only chunk is a ping; a chunk with data is activity", () => {

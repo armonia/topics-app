@@ -155,14 +155,14 @@ export interface ChatDeps {
   updateUnreadCount: (topicId: string) => void;
   browserNavigatedTopics: Set<string>;
   WORKSPACE_DIR: string;
+  /** The SSE ping's interval (`lib/sse-ping.ts`); tests only, the real one is 20 s. */
+  ssePingMs?: number;
   /**
    * The user's `turn-end` hook (HOOKS-02). Fired by this route AFTER the
    * stream is finalised, never awaited: the turn is over and the hook can
    * only add a line to the chat. Native runtime only.
    */
   hooks?: LifecycleHookRunner;
-  /** The SSE ping's interval (`lib/sse-ping.ts`); tests only, the real one is 20 s. */
-  ssePingMs?: number;
 }
 
 /**
