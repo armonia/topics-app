@@ -36,6 +36,12 @@
  *   · never when the turn is parked on a question to the human
  *     (`ask_user_question`, a plan waiting for approval): continuing there
  *     answers a question the human never saw;
+ *   · never while the session's background work is running (an Agent with
+ *     `run_in_background`, a Bash, a Monitor): the CLI wakes itself when that
+ *     work reports, and the turn it wakes is judged like any other. Nudging
+ *     before then bought a paid turn every ~25 s, each answering "still
+ *     running" (chat 7e9caa28, 24/09: five in 104 s). Claude Code defers its own
+ *     check-in the same way; the thirty-minute bound lives with the provider;
  *   · a ceiling of MAX_GOAL_CONTINUATIONS in a row per goal;
  *   · a stop after IDLE_TURNS_LIMIT turns in a row that ran no tool - a model
  *     answering "I'll continue" without touching anything is not advancing, it
@@ -102,6 +108,8 @@ export interface FinishedTurn {
   discarded: boolean;
   /** The turn is parked on a question to the human. */
   pendingAsk: boolean;
+  /** The session still has background work running, which will wake it when it reports. */
+  backgroundWork?: boolean;
   /** At least one tool ran. This is what "progress" means here. */
   usedTools: boolean;
   /** The assistant's last words, for the judge. */
@@ -123,6 +131,7 @@ export function turnCanContinueGoal(turn: FinishedTurn, goal: TopicGoal | null):
   if (turn.end !== "end_turn" && !endedOnOurToolBudget(turn)) return false;
   if (turn.discarded) return false;
   if (turn.pendingAsk) return false;
+  if (turn.backgroundWork) return false;
   return true;
 }
 

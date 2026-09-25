@@ -81,6 +81,16 @@ describe("turnCanContinueGoal", () => {
     expect(turnCanContinueGoal(turn(), goal({ loopState: "blocked" }))).toBe(false);
     expect(turnCanContinueGoal(turn(), goal({ loopState: "stopped" }))).toBe(false);
   });
+
+  it("says no while the session's background work runs, and yes again once it reports", () => {
+    // Card C6, chat 7e9caa28, 24/09: five nudges in 104 s while it waited for
+    // five of its own verifiers, each answer "still running" and each a paid
+    // turn. The turn that used tools to check is exactly the one that used to
+    // pass every other brake.
+    expect(turnCanContinueGoal(turn({ backgroundWork: true, usedTools: true }), goal())).toBe(false);
+    // The CLI wakes itself when the last task reports; that turn is judged.
+    expect(turnCanContinueGoal(turn({ backgroundWork: false }), goal())).toBe(true);
+  });
 });
 
 describe("goalLoopStep", () => {

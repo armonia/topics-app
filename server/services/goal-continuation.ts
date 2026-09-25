@@ -169,6 +169,10 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
       // it resumes ONCE. Measured 05/09/2026: a chat left mute for six hours
       // under a notice that promised "la ripresa continua".
       const step = toolBudgetResumeStep(info, resumedAfterBudget.has(info.sessionKey));
+      if (step === "none" && info.backgroundWork && turnCanContinueGoal({ ...info, backgroundWork: false }, goal)) {
+        log(`goal-loop: ${info.sessionKey}: background work still running, the goal waits for the turn it wakes`);
+        return "background";
+      }
       if (step === "none") return "skipped";
       if (step === "stop") {
         resumedAfterBudget.delete(info.sessionKey);

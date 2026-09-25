@@ -2378,6 +2378,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // stop: `interrupted` carries the tools still awaiting a human,
                 // and the plan approval is kept out of it on purpose above.
                 pendingAsk: askingPlanApproval || interrupted.length > 0,
+                // Asked of the provider that ran the turn, right after its
+                // `result`: the CLI prints its background snapshot before it.
+                backgroundWork: (topicProvider as { hasBackgroundWork?: (sk: string) => boolean })
+                  .hasBackgroundWork?.(sessionKey) === true,
                 usedTools: toolsStartedThisTurn > 0,
                 lastAssistantText: fullContent,
               };

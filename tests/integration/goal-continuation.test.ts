@@ -30,7 +30,7 @@ registerProvider({ type: "openai", apiKey: "" } as never);
 afterAll(() => { try { removeProvider("openai"); } catch { /* gia' tolto */ } });
 
 /** The bench: a topic with an active goal and the real route on top. */
-async function banco(name: string, verdicts: string[]) {
+async function banco(name: string, verdicts: string[], opts: { backgroundWork?: () => boolean } = {}) {
   const sessionKey = `topic:${name}`;
   const ctx = await createTestAppContext();
   const frames: Array<Record<string, unknown>> = [];
@@ -59,6 +59,7 @@ async function banco(name: string, verdicts: string[]) {
     sendChat: () => new Promise<{ runId?: string }>(() => {}),
     defaultModel: () => "fake-model",
     abort: async () => {},
+    ...(opts.backgroundWork ? { hasBackgroundWork: opts.backgroundWork } : {}),
     start: () => {}, stop: () => {},
     complete: async (msgs: Array<{ content: string }>) => {
       judged.push(msgs[0]?.content ?? "");
@@ -150,6 +151,28 @@ describe("fine turno con un obiettivo attivo", () => {
     const after = getActiveGoal(b.ctx.db, b.topic.id);
     expect(after).toBe(null);
     expect(b.handlers.length).toBe(2);
+    await close();
+  });
+
+  test("background work still running: no judge, no nudge, until a turn ends with it over", async () => {
+    // Card C6, chat 7e9caa28, 24/09: five nudges in 104 s while it waited for
+    // five of its own verifiers. The CLI wakes itself when they report.
+    let running = true;
+    const b = await banco("goal-background", ["continue", "met"], { backgroundWork: () => running });
+
+    await b.send("lancia i verificatori in background");
+    await b.finish("cinque verificatori lanciati, aspetto i loro esiti");
+    expect(b.judged).toEqual([]);
+    expect(b.handlers.length).toBe(1);
+    expect(getActiveGoal(b.ctx.db, b.topic.id)?.continuations).toBe(0);
+
+    // The work reports; the turn that closes after it is judged like any other.
+    running = false;
+    await b.send("esiti arrivati?");
+    await b.finish("quattro verdi, uno rosso: correggo");
+    expect(b.judged.length).toBe(1);
+    expect(b.handlers.length).toBe(3);
+    await b.finish("corretto e verificato");
     await close();
   });
 
