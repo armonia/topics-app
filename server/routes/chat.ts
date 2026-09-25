@@ -977,12 +977,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         // in `updateMessage`, che lascia la colonna dov'è.
         return undefined;
       };
-      // The turn body's writer, taken down. Set once the writer exists, further
-      // down; a no-op before, when there is nothing to take down. The two
-      // failure paths close the turn through `closeTurnWithFailure` and left
-      // the writer's flush registered for good, so a later reader of the
-      // session (history, a catch-up, the outbound gate) wrote the turn's body
-      // over the failure notice.
+      // Every failure path stops the turn's writer, after writing what it owes:
+      // left registered, its flush let the next reader of the chat write the
+      // body over the notice. Set once the writer exists, a no-op before.
       let stopTurnBody: () => void = () => {};
       /**
        * Chiude il turno quando non si è potuto GUIDARE: `sendChat` ha rigettato,
@@ -1004,8 +1001,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
        * lo terrebbe appeso.
        */
       const closeTurnWithFailure = (err: unknown, rowId: string): string => {
-        // The row is closed here: no write of the turn's body may land after
-        // it, and no reader may flush one onto it (see `stopTurnBody`).
         stopTurnBody();
         const row = readRowForNotice(rowId);
         const notice = sendFailureNotice(row, err);
@@ -1187,7 +1182,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // seconds: a confirmation would find no row and refuse a send nobody
           // had a chance to see. Published here, taken down with the turn.
           const releaseTurnBodyFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush());
-          stopTurnBody = () => { turnBody.dispose(); releaseTurnBodyFlush(); };
+          stopTurnBody = () => { try { turnBody.flush(); } catch { /* the notice is still written */ } turnBody.dispose(); releaseTurnBodyFlush(); };
           // A turn already finalized has no write budget left to save: whatever
           // still arrives (a tool result that came back after the end) is
           // written NOW. Deferring it would leave the row without it until an
@@ -3601,6 +3596,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 console.log(`[StreamWS] ${sessionKey}: il turno spontaneo era già stato preso da qualcun altro — chiudo senza scrivere niente`);
                 undoInlineMark();
                 topicProvider.unregisterStreamHandler?.(sessionKey);
+                stopTurnBody();
                 endStream(sessionKey);
                 streamState = "finalized";
                 // `discardIfEmptyTurn` vuole la RIGA, non un id, e verifica in
@@ -3658,6 +3654,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         } catch (err: any) {
           console.error(`[StreamWS] Unexpected error for ${sessionKey}:`, err);
           stopPing();
+          try { stopTurnBody(); } catch { /* the turn is still closed below */ }
           // Uscire di qui con un 502 e basta lasciava tre cose sul campo: la
           // riga assistente APERTA (e `partial` è il perno che il setaccio di
           // boot legge per decidere chi è vivo), lo stream registrato in

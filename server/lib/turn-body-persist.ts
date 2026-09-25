@@ -72,7 +72,10 @@ export function createTurnBodyPersist(opts: TurnBodyPersistOptions): TurnBodyPer
   let writtenMark = "";
 
   const writeNow = (withText: boolean) => {
-    writtenMark = mark();
+    // Taken before the write and kept only once it went through, and only by a
+    // write that carries the text: after a blocks-only write the row's text
+    // columns are still behind, and a flush must still write them.
+    const now = mark();
     const timeline = blocks.length > 0 ? blocks : undefined;
     const snapshot = opts.reattachSnapshot();
     const own = { rowId: opts.rowId() };
@@ -80,6 +83,7 @@ export function createTurnBodyPersist(opts: TurnBodyPersistOptions): TurnBodyPer
       updateLastMessage(sessionKey, withText
         ? { content: opts.content(), thinking: opts.thinking() || undefined, blocks: timeline }
         : { blocks: timeline }, own);
+      if (withText) writtenMark = now;
       return;
     }
     const merged = mergeReattachedRow(snapshot, {
@@ -93,6 +97,7 @@ export function createTurnBodyPersist(opts: TurnBodyPersistOptions): TurnBodyPer
       thinking: merged.thinking,
       blocks: (merged.blocks as ContentBlock[] | undefined) ?? timeline,
     }, own);
+    writtenMark = now;
   };
 
   // Sticky: a periodic save that gets deferred and then rides a later tool

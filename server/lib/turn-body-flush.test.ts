@@ -129,6 +129,16 @@ describe("la riga di un turno vivo si fa scrivere PRIMA di leggerla", () => {
     flushTurnBody(sessionKey);
     flushTurnBody(sessionKey);
     expect(writes).toBe(1);
+
+    // A tool event writes the timeline alone: the text columns are behind
+    // again, and the next reader's flush writes them.
+    content += "c-8 ";
+    (blocks[0] as { text: string }).text += "c-8 ";
+    blocks.push({ kind: "tool", toolCall: { id: "t1", name: "Bash", args: {}, status: "running" } });
+    persist.request(false, 1, true);
+    expect(row.content).toBe("c-1 c-2 c-3 c-4 c-5 c-6 c-7 ");
+    flushTurnBody(sessionKey);
+    expect(row.content).toBe("c-1 c-2 c-3 c-4 c-5 c-6 c-7 c-8 ");
     release();
     persist.dispose();
   });

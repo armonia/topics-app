@@ -157,7 +157,7 @@
     "server/routes/tasks.ts": 4952,
     "server/services/task-dispatcher.test.ts": 4893,
     "server/providers/claude-code.ts": 4278,
-    "server/routes/chat.ts": 3676,
+    "server/routes/chat.ts": 3862,
     "client/src/components/Board/TaskDetail.tsx": 3598,
     "server/routes/terminal.ts": 3545,
     "client/src/components/Layout/PanelGrid.tsx": 3229,
