@@ -16,11 +16,11 @@
  *     and it leaves a pane that is already in a group where it is.
  *
  * WHAT IS REPLAYED, AND WHY. The first two tests play the server's two
- * broadcasts on the app socket, with the server's own budget between them,
- * instead of calling the route. With no pane attached, step 3 of the route
- * navigates a headless Chromium context, and no Chromium runs on this Mac.
- * Once the pane has attached, the real route is called and answers through the
- * pane, which is what the agent reads.
+ * broadcasts on the app socket instead of calling the route, with the route's
+ * own wait around force-open. With no pane attached, step
+ * 3 of the route navigates a headless Chromium context, and no Chromium runs on
+ * this Mac. Once the pane has attached, the real route is called and answers
+ * through the pane, which is what the agent reads.
  *
  * The pane is the native one: `__TAURI_INTERNALS__` is faked (the same disguise
  * as `browser-heavy-pane-pause.spec.ts`), so it registers as the executor of
@@ -43,7 +43,7 @@ import { projectPanesKey } from "../../shared/project-keys";
 hermetic(test);
 
 /** `PANE_WAIT_MS` of `server/routes/browser-bridge.ts`: how long the route
- *  waits for a pane to attach, before navigating and again after force-open. */
+ *  waits for a pane to attach after force-open before answering `visible:false`. */
 const PANE_WAIT_MS = 2_500;
 const APP_WS = /\/ws(\?|$)/;
 const NO_CHROMIUM_HERE = process.platform === "darwin" && process.env.GITHUB_ACTIONS !== "true";
@@ -159,10 +159,12 @@ function watchPage(page: Page, ctx: string) {
 }
 
 /** Pass-through proxy on the app socket, so server frames can be played into it. */
-async function proxyAppSocket(page: Page): Promise<{ send: (frame: Record<string, unknown>) => void }> {
+async function proxyAppSocket(page: Page): Promise<{ send: (frame: Record<string, unknown>) => void; connections: () => number }> {
   let route: WebSocketRoute | null = null;
+  let connections = 0;
   await page.routeWebSocket(APP_WS, (ws) => {
     route = ws;
+    connections += 1;
     const server = ws.connectToServer();
     ws.onMessage((m) => server.send(m));
     server.onMessage((m) => ws.send(m));
@@ -172,6 +174,7 @@ async function proxyAppSocket(page: Page): Promise<{ send: (frame: Record<string
       if (!route) throw new Error("the app socket is not connected yet");
       route.send(JSON.stringify(frame));
     },
+    connections: () => connections,
   };
 }
 
@@ -192,15 +195,39 @@ async function leaveBrowserInBackground(page: Page, path: string, topicId: strin
 }
 
 /**
- * The server's half of `open_browser_pane` when no pane attaches: navigate,
- * the route's wait, force-open. Returns when force-open was played.
+ * The server's two broadcasts of `open_browser_pane` when no pane attaches:
+ * navigate, the route's wait, force-open. Returns when force-open was played.
+ *
+ * The wait is the page's clock run forward, not a sleep (the page must have
+ * installed Playwright's clock). It is not decoration: in those 2.5 s
+ * residency forgets the panes of a window it evicted (1.5 s after the
+ * eviction), and a window that comes back before that remounts its background
+ * browser hidden. On 24/09 the eviction was minutes old.
  */
 async function replayOpenPaneWithoutAttach(page: Page, app: { send: (f: Record<string, unknown>) => void }, ctx: string, url: string): Promise<number> {
   app.send({ type: "browser:navigate", topicId: ctx, contextId: ctx, url });
-  await page.waitForTimeout(PANE_WAIT_MS);
+  await page.clock.runFor(PANE_WAIT_MS);
   const at = Date.now();
   app.send({ type: "browser:force-open", contextId: ctx, url });
   return at;
+}
+
+/**
+ * The pane is its context's executor, per the server: its socket is open, and
+ * it no longer counts as a viewer, which it does from the socket's open until
+ * `register_native_executor` is handled. Awaited before the route, because
+ * the route counts a pane as attached as soon as its socket opens, and a call
+ * that lands before the registration drives the headless context instead of
+ * the pane, which starts a Chromium.
+ */
+async function waitForExecutor(request: APIRequestContext, opened: () => number, ctx: string): Promise<void> {
+  await expect.poll(opened, { timeout: 20_000, message: "the pane socket is open" }).toBeGreaterThan(0);
+  await expect
+    .poll(async () => ((await (await request.get(`${E2E_BASE}/api/browsers/${encodeURIComponent(ctx)}/viewers`)).json()) as { count: number }).count, {
+      timeout: 20_000,
+      message: "the pane registered as its context's executor",
+    })
+    .toBe(0);
 }
 
 /** The route the MCP tool calls, once a pane is attached to answer it. */
@@ -214,7 +241,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
   test.describe.configure({ timeout: 150_000 });
 
   test("the owning project window never mounted in this session: force-open shows the tab and it attaches", async ({ page, request }) => {
-    test.info().annotations.push({ type: "spec", description: "c5c1c68f" });
+    test.info().annotations.push({ type: "spec", description: "BROWSER-CHAT-04" });
     const owner = makeProject("owner");
     const other = makeProject("other");
     const topic = await createTopic(request, "Pane attach, never mounted", { projectPath: owner });
@@ -223,6 +250,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
     await seedProjectLayout(request, owner, ctx);
     await seedProjectLayout(request, other, null);
 
+    await page.clock.install();
     await fakeTauriShell(page);
     const app = await proxyAppSocket(page);
     const watch = watchPage(page, ctx);
@@ -234,11 +262,13 @@ test.describe("open_browser_pane attaches the project pane", () => {
 
       // A reload with the OTHER project on screen: the owner's window is a tab
       // that nothing shows, so it is not mounted and its pane has no socket.
+      const connectionsBefore = app.connections();
+      const reloadedAt = Date.now();
       await page.reload();
       await expect(projectTab(page, other)).toHaveAttribute("data-active", "true", { timeout: 15_000 });
-      await page.waitForTimeout(1_000);
-      const since = Date.now();
-      expect(watch.opensSince(since - 1_000), "no pane socket before open_browser_pane").toBe(0);
+      await expect.poll(() => app.connections(), { timeout: 15_000 }).toBeGreaterThan(connectionsBefore);
+      await expect(innerTab(page, `chat:${ctx}`), "the owner's window is not mounted").toHaveCount(0);
+      expect(watch.opensSince(reloadedAt), "no pane socket before open_browser_pane").toBe(0);
 
       const url = "https://example.com/opened-by-the-agent";
       const forcedAt = await replayOpenPaneWithoutAttach(page, app, ctx, url);
@@ -248,6 +278,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
       await expect(projectTab(page, owner)).toHaveAttribute("data-active", "true");
       await expect(innerTab(page, `browser:${ctx}`)).toHaveAttribute("data-active", "true");
 
+      await waitForExecutor(request, () => watch.opensSince(forcedAt), ctx);
       const answer = await openPaneRoute(request, ctx, url);
       expect(answer.visible).toBe(true);
     } finally {
@@ -256,7 +287,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
   });
 
   test("the owning project window was evicted by residency: force-open shows the background tab and it attaches", async ({ page, request }) => {
-    test.info().annotations.push({ type: "spec", description: "c5c1c68f" });
+    test.info().annotations.push({ type: "spec", description: "BROWSER-CHAT-04" });
     // Five project tabs, as on the machine of 24/09: residency keeps three
     // hidden project windows mounted, so visiting four others evicts the first.
     const owner = makeProject("owner");
@@ -267,6 +298,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
     await seedProjectLayout(request, owner, ctx);
     for (const p of others) await seedProjectLayout(request, p, null);
 
+    await page.clock.install();
     await fakeTauriShell(page);
     const app = await proxyAppSocket(page);
     const watch = watchPage(page, ctx);
@@ -294,6 +326,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
       await expect(projectTab(page, owner)).toHaveAttribute("data-active", "true");
       await expect(innerTab(page, `browser:${ctx}`)).toHaveAttribute("data-active", "true");
 
+      await waitForExecutor(request, () => watch.opensSince(forcedAt), ctx);
       const answer = await openPaneRoute(request, ctx, url);
       expect(answer.visible).toBe(true);
     } finally {
@@ -314,7 +347,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
    * paid by whichever spec runs next.
    */
   test("a server restart whose boot strips the pane's browser tombstone leaves the live pane attached @nightly", async ({ page, request }) => {
-    test.info().annotations.push({ type: "spec", description: "c5c1c68f" });
+    test.info().annotations.push({ type: "spec", description: "BROWSER-CHAT-04" });
     const owner = makeProject("owner");
     const topic = await createTopic(request, "Pane attach, restart", { projectPath: owner });
     const ctx = topic.id;
@@ -339,15 +372,16 @@ test.describe("open_browser_pane attaches the project pane", () => {
       const boot = await restartServer();
       // eslint-disable-next-line no-control-regex -- Bun colours the object it logs
       expect(boot.join("").replace(/\x1b\[[0-9;]*m/g, ""), "the boot cleanup rewrote tombstones-browser").toMatch(/key: "tombstones-browser"/);
+      // The pane socket reconnects by itself and registers again.
       const back = Date.now();
-      await expect
-        .poll(() => watch.opensSince(back), { timeout: 20_000, message: "the pane socket reconnects after the restart" })
-        .toBeGreaterThan(0);
-      await page.waitForTimeout(5_000);
-      expect(watch.lines.filter((l) => l.includes("pane socket released")), "the pane was never unmounted").toEqual([]);
-
+      await waitForExecutor(request, () => watch.opensSince(back), ctx);
+      // The tool's answer is the observation: the route attaches through a pane
+      // only if one is attached. No clock is added on top: the one delayed
+      // unmount on the client is residency's, and it does not touch the only,
+      // visible, project window of this test.
       const answer = await openPaneRoute(request, ctx, "https://example.com/after-restart");
       expect(answer.visible).toBe(true);
+      expect(watch.lines.filter((l) => l.includes("pane socket released")), "the pane was never unmounted").toEqual([]);
     } finally {
       await watch.attach();
     }
@@ -364,8 +398,8 @@ async function portOpen(): Promise<boolean> {
 
 /**
  * SIGTERM the test server (as the file watcher does in production) and start
- * it again with the environment it was born with. Returns its stdout, where the
- * boot cleanup reports what it rewrote.
+ * it again with the environment it was born with. Returns its output, where
+ * the boot cleanup reports what it rewrote.
  *
  * On a Mac outside CI `CHROMIUM_PATH` points nowhere, on purpose: a headless
  * launch attempted by mistake fails loudly instead of starting a Chromium
