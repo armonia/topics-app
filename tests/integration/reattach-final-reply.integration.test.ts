@@ -62,22 +62,20 @@ async function waitFor(what: string, check: () => boolean | Promise<boolean>, ms
   throw new Error(`timed out waiting for ${what}`);
 }
 
-/** The turn ends during the shutdown (provider detached, process still up) or with the server fully gone. */
-async function turnEndingWithoutServer(when: "shutdown" | "down") {
+/** An old server, its shutdown and the next boot, on one chat; the store and the rows to look at. */
+async function bench(name: string) {
   const { setupTestDataDir, createTestAppContext, testTmpDir } = await import("./helpers");
-  setupTestDataDir(testTmpDir(`reattach-final-${when}`));
+  setupTestDataDir(testTmpDir(`reattach-final-${name}`));
   const { createTopicsRouter } = await import("../../server/routes/topics");
   const { registerProvider, removeProvider } = await import("../../server/providers");
   const { __resetAiBridgeClientForTests, getAiBridgeClient } = await import("../../server/lib/ai-bridge-client");
-  const finish = join(tempDir, "finish-turn");
-  rmSync(finish, { force: true });
-
+  for (const f of ["finish-turn", "got-delayed"]) rmSync(join(tempDir, f), { force: true });
   const ctx = await createTestAppContext();
   const frames: Array<{ type?: string }> = [];
   (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = (m) => frames.push(m as { type?: string });
   (ctx as { broadcastToTopicSubscribers: (i: string, m: unknown) => void }).broadcastToTopicSubscribers = (_i, m) => frames.push(m as { type?: string });
-  const sk = `topic:rf${when.slice(0, 4)}`;
-  ctx.saveSingleTopic({ id: `rf${when}-000000000000`, name: when, slug: when, parentId: null, links: [], sessionKey: sk, color: "#5865f2",
+  const sk = `topic:rf${name.slice(0, 6)}`;
+  ctx.saveSingleTopic({ id: `rf${name}-000000000000`, name, slug: name, parentId: null, links: [], sessionKey: sk, color: "#5865f2",
     icon: "MessageSquare", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), archived: false, provider: "claude-code" } as never);
   const post = async (router: ReturnType<typeof createTopicsRouter>, body: Record<string, unknown>) => {
     const url = new URL("http://localhost/api/chat");
@@ -86,47 +84,88 @@ async function turnEndingWithoutServer(when: "shutdown" | "down") {
     const reader = resp.body!.getReader();
     return (async () => { try { while (!(await reader.read()).done) { /* drained */ } } catch { /* cut */ } })();
   };
-
-  // The old server: the turn runs, says its first line and starts a tool.
-  const before = registerProvider({ type: "claude-code", defaultWorkspace: tempDir } as never) as { stop: () => void };
-  void post(createTopicsRouter(ctx), { messages: [{ role: "user", content: "write the report" }] });
-  await waitFor("the tool to start", () => frames.some((f) => /tool/.test(f.type ?? "")));
-  const rows = () => ctx.db.query("SELECT id, role, content, partial FROM messages WHERE session_key = ? ORDER BY sort_order").all(sk) as Array<{ id: string; role: string; content: string; partial: number }>;
-  const turnRow = rows().find((r) => r.role === "assistant")!;
-  expect(turnRow.partial).toBe(1);
-
-  // The shutdown detaches the broker session (claude-code `stop()`).
-  before.stop();
-  if (when === "shutdown") writeFileSync(finish, "");
-  // The process goes: its providers, its bridge connection, its streams in memory.
-  removeProvider("claude-code");
-  __resetAiBridgeClientForTests();
-  ctx.activeStreams.delete(sk);
-  if (when === "down") writeFileSync(finish, "");
-  // The daemon stores the end of the turn: the child has written its `result`.
-  const store = join(getAiBridgeClient().storeDir, `${sk.replace(/[^a-zA-Z0-9_-]/g, "_")}.ndjson`);
-  await waitFor("the turn's end in the broker store", () => existsSync(store) && readFileSync(store, "utf8").includes(`"result":${JSON.stringify(FINAL_REPORT)}`));
-  expect(rows().find((r) => r.id === turnRow.id)?.content ?? "").not.toContain(FINAL_REPORT);
-
-  // The next boot: a fresh provider and fresh routes adopt the session (`runHeadlessReattach`).
-  registerProvider({ type: "claude-code", defaultWorkspace: tempDir } as never);
-  await post(createTopicsRouter(ctx), { messages: [], mode: "reattach", dispatched: true, provider: "claude-code" });
-  await waitFor("the adopted row to close", () => rows().every((r) => r.partial === 0));
-  return rows();
+  const provider = registerProvider({ type: "claude-code", defaultWorkspace: tempDir } as never) as { stop: () => void };
+  const router = createTopicsRouter(ctx);
+  return {
+    frames, post: (body: Record<string, unknown>) => post(router, body),
+    rows: () => ctx.db.query("SELECT id, role, content, partial FROM messages WHERE session_key = ? ORDER BY sort_order").all(sk) as Array<{ id: string; role: string; content: string; partial: number }>,
+    store: () => join(getAiBridgeClient().storeDir, `${sk.replace(/[^a-zA-Z0-9_-]/g, "_")}.ndjson`),
+    /** The shutdown detaches the broker session (claude-code `stop()`), then the process goes. */
+    shutdown: (beforeExit?: () => void) => {
+      provider.stop();
+      beforeExit?.();
+      removeProvider("claude-code");
+      __resetAiBridgeClientForTests();
+      ctx.activeStreams.delete(sk);
+    },
+    /** The next boot: a fresh provider and fresh routes adopt the session (`runHeadlessReattach`'s request). */
+    boot: () => {
+      registerProvider({ type: "claude-code", defaultWorkspace: tempDir } as never);
+      return post(createTopicsRouter(ctx), { messages: [], mode: "reattach", dispatched: true, provider: "claude-code" });
+    },
+  };
 }
+
+const finish = () => writeFileSync(join(tempDir, "finish-turn"), "");
 
 describe("a turn that ended while the server was away is written whole at the next boot", () => {
   for (const when of ["shutdown", "down"] as const) {
     test(`ended ${when === "shutdown" ? "during the shutdown" : "with the server fully gone"}: the row has the final report, closed, once`, async () => {
-      const rows = await turnEndingWithoutServer(when);
+      const b = await bench(when);
+      // The old server: the turn runs, says its first line and starts a tool.
+      void b.post({ messages: [{ role: "user", content: "write the report" }] });
+      await waitFor("the tool to start", () => b.frames.some((f) => /tool/.test(f.type ?? "")));
+      const turnRow = b.rows().find((r) => r.role === "assistant")!;
+      expect(turnRow.partial).toBe(1);
+      b.shutdown(when === "shutdown" ? finish : undefined);
+      if (when === "down") finish();
+      await waitFor("the turn's end in the broker store", () => existsSync(b.store()) && readFileSync(b.store(), "utf8").includes(`"result":${JSON.stringify(FINAL_REPORT)}`));
+      expect(b.rows().find((r) => r.id === turnRow.id)?.content ?? "").not.toContain(FINAL_REPORT);
+      await b.boot();
+      await waitFor("the adopted row to close", () => b.rows().every((r) => r.partial === 0));
+      const rows = b.rows();
       // The person's message and ONE answer: no second bubble for the adopted turn.
       expect(rows.map((r) => r.role)).toEqual(["user", "assistant"]);
-      const answer = rows[1];
-      expect(answer.partial).toBe(0);
-      expect(answer.content).toContain(FINAL_REPORT);
+      expect(rows[1].partial).toBe(0);
+      expect(rows[1].content).toContain(FINAL_REPORT);
       // Nothing twice: the replay rebuilt the row, it did not append to it.
-      expect(answer.content.split(FINAL_REPORT).length - 1).toBe(1);
-      expect(answer.content.split(FIRST_TEXT).length - 1).toBe(1);
+      expect(rows[1].content.split(FINAL_REPORT).length - 1).toBe(1);
+      expect(rows[1].content.split(FIRST_TEXT).length - 1).toBe(1);
     }, 60_000);
   }
+
+  // Review of #145: a SIGTERM after the message reached stdin but before the
+  // CLI's init (its UserPromptSubmit hooks run first) leaves the PREVIOUS turn
+  // last in the store. It is not this row's, and its answer must not be copied.
+  test("the store's last turn is older than the row: its answer stays out of the new row, as on main", async () => {
+    const b = await bench("older");
+    await b.post({ messages: [{ role: "user", content: "OLDTURN" }] });
+    await waitFor("the old turn closed", () => b.rows().some((r) => r.role === "assistant" && r.partial === 0 && r.content.includes("OLD-B")));
+    void b.post({ messages: [{ role: "user", content: "DELAYED" }] });
+    await waitFor("the child to read the message", () => existsSync(join(tempDir, "got-delayed")));
+    await waitFor("the new partial row", () => { const r = b.rows(); return r.length === 4 && r[3].partial === 1; });
+    b.shutdown();
+    await b.boot();
+    await Bun.sleep(1000);
+    const newRow = b.rows()[3];
+    expect(newRow.content).not.toContain("OLD-A");
+    expect(newRow.content).not.toContain("OLD-B");
+  }, 60_000);
+
+  // Review of #145: the first turn after a `/compact` begins at the compaction's
+  // EMPTY result; replayed from the last non-empty one, the row closed on it.
+  test("the first turn after a /compact, ended during the shutdown: the row gets its final text", async () => {
+    const b = await bench("compact");
+    await b.post({ messages: [{ role: "user", content: "OLDTURN" }] });
+    await b.post({ messages: [{ role: "user", content: "COMPACTNOW" }] });
+    void b.post({ messages: [{ role: "user", content: "AFTERCOMPACT" }] });
+    await waitFor("its partial row", () => { const r = b.rows(); return r.at(-1)?.partial === 1 && r.some((x) => x.content === "AFTERCOMPACT"); });
+    b.shutdown(finish);
+    await waitFor("its end in the broker store", () => readFileSync(b.store(), "utf8").includes('"result":"AC-FINAL report."'));
+    await b.boot();
+    await waitFor("the adopted row to close", () => b.rows().every((r) => r.partial === 0), 30_000);
+    const last = b.rows().at(-1)!;
+    expect(last.content).toContain("AC-FINAL report.");
+    expect(last.content).not.toContain("OLD-B");
+  }, 60_000);
 });

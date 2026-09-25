@@ -30,6 +30,7 @@ import { getDatabase } from "../db";
 import { demoteAgentCli } from "./agent-cli-priority";
 import { SidechainTracker, isSubAgentToolName } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
+import { answersTheRow, foldResult, sealScan, storeWrittenAt, type ClosedTurn } from "./claude/closed-turn";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
 import { applyJobQuota } from "../services/agent-job-quota";
@@ -986,8 +987,8 @@ interface PersistentProcess {
   /** Scan outcome: consumed-store offset right after the last `result` —
    *  where the LIVE second attach starts so old turns are never re-emitted. */
   replayAfterLastResultOffset?: number;
-  /** Scan outcome: where the turn that last `result` closed begins (the end of the one before). */
-  replayLastTurnOffset?: number;
+  /** Scan outcome for a store that ends on a `result`: its last turn (`claude/closed-turn.ts`). */
+  replayClosedTurn?: ClosedTurn;
   /** Offset assoluto appena DOPO l'ultima riga NDJSON piegata. Non è
    *  `consumedOffset`, che si muove a CHUNK e per giunta solo a fold finito:
    *  qui si è precisi alla riga, mentre la riga passa. È ciò che fa ripartire
@@ -2926,9 +2927,11 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.replayTailOpen = false;
     pp.replayTailInitOnly = false;
     pp.replayLastResult = undefined;
-    pp.replayAfterLastResultOffset = pp.replayLastTurnOffset = 0;
+    pp.replayAfterLastResultOffset = 0;
+    pp.replayClosedTurn = undefined;
     const scan = await client.attach(sessionKey, 0);
     dateReplay(pp, scan);
+    pp.replayClosedTurn = sealScan(pp.replayClosedTurn, { endOffset: scan.endOffset, lastDataAt: scan.lastDataAt ?? storeWrittenAt(client.storeDir, sessionKey) });
     return { missing: scan.missing === true, alive: scan.alive === true };
   }
 
@@ -3073,7 +3076,7 @@ export class ClaudeCodeProvider implements AIProvider {
    *                  died turn so the caller degrades to resume-from-scratch.
    * Resolves when the turn ends (like sendChatInternal), returning the outcome.
    */
-  async reattach(sessionKey: string, handler: StreamHandler): Promise<"completed" | "live" | "awaiting-input" | "dead"> {
+  async reattach(sessionKey: string, handler: StreamHandler, opts: { answeredAt?: number } = {}): Promise<"completed" | "live" | "awaiting-input" | "dead"> {
     const existing = this.processes.get(sessionKey);
     if (existing && existing.alive && existing.streamHandler) return "live"; // already driving
 
@@ -3111,7 +3114,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // essere riusata e la rifusione dello snapshot vive dentro `finalizeStream`,
     // che quel `.catch` non chiama mai. Vedi `finalizeFailedReattach`.
     try {
-      return await this.reattachDrive(sessionKey, handler, pp, parked !== null);
+      return await this.reattachDrive(sessionKey, handler, pp, parked !== null, opts.answeredAt);
     } catch (err) {
       return this.finalizeFailedReattach(sessionKey, pp, handler, err);
     }
@@ -3126,13 +3129,10 @@ export class ClaudeCodeProvider implements AIProvider {
     sessionKey: string,
     handler: StreamHandler,
     pp: PersistentProcess,
-    /**
-     * Il `pp` arriva da uno scan PARCHEGGIATO: la fase 1 è già stata fatta —
-     * dalla sonda, sugli stessi byte — ed è già piegata dentro di lui. Rifarla
-     * significherebbe farsi spedire lo store una seconda volta per riscoprire
-     * quello che sappiamo già.
-     */
+    /** Il `pp` viene da uno scan PARCHEGGIATO: la fase 1 l'ha già fatta la sonda, sugli stessi byte. */
     preScanned: boolean,
+    /** When the person's message this row answers arrived (epoch ms), if the route knows it. */
+    answeredAt?: number,
   ): Promise<"completed" | "live" | "awaiting-input" | "dead"> {
     const client = getAiBridgeClient();
 
@@ -3162,12 +3162,14 @@ export class ClaudeCodeProvider implements AIProvider {
         // The turn COMPLETED while we were detached: the row has what the old
         // process flushed, the store has the whole turn. Replayed as an open
         // turn is, so the row gets its text and closes on the result, which
-        // alone carries no text the route reads (card 98ce88d1).
+        // alone carries no text the route reads (card 98ce88d1). Only a turn
+        // that began after this row's message: else the result alone, as before.
         pp.streamHandler = handler;
-        pp.replaySilent = true;
-        const res = await client.attach(sessionKey, pp.replayLastTurnOffset ?? 0);
-        pp.replaySilent = false;
-        dateReplay(pp, res);
+        if (answersTheRow(pp.replayClosedTurn, answeredAt)) {
+          pp.replaySilent = true;
+          dateReplay(pp, await client.attach(sessionKey, pp.replayClosedTurn!.from));
+          pp.replaySilent = false;
+        }
         if (pp.streamHandler) this.handleStreamEvent(pp, pp.replayLastResult); // the replay did not reach it
         return "completed";
       }
@@ -3559,15 +3561,9 @@ export class ClaudeCodeProvider implements AIProvider {
         if (rt && rt !== "waiting for message") {
           pp.replayTailOpen = false;
           pp.replayLastResult = event;
-          pp.replayLastTurnOffset = pp.replayAfterLastResultOffset ?? 0;
-          // Alla RIGA, non alla fetta — e la fetta era anche peggio di come
-          // suona. `consumedOffset` si aggiorna DOPO il fold dell'intero chunk,
-          // quindi mentre le righe scorrono qui dentro vale ancora quello del
-          // giro precedente: su un replay consegnato in un frame solo (che è il
-          // caso normale) è ZERO. Il punto di ripartenza della fase 2 non era la
-          // fine della fetta, era il suo inizio — misurato: la riadozione si
-          // rispediva l'intero store una TERZA volta, e la rifoldava non muta.
-          // Vedi `createLineFolder`.
+          // Alla RIGA, non alla fetta: `consumedOffset` si aggiorna dopo il fold
+          // dell'intero chunk (su un replay in un frame solo vale ZERO), e la fase 2
+          // si rispediva l'intero store una terza volta. Vedi `createLineFolder`.
           pp.replayAfterLastResultOffset = pp.lineEndOffset ?? pp.consumedOffset;
         } else if (pp.replayTailInitOnly) {
           // An empty result right after an init with nothing between: a
@@ -3575,6 +3571,7 @@ export class ClaudeCodeProvider implements AIProvider {
           pp.replayTailOpen = false;
         }
         pp.replayTailInitOnly = false;
+        if (rt !== "waiting for message") pp.replayClosedTurn = foldResult(pp.replayClosedTurn, pp.lineEndOffset ?? pp.consumedOffset, event);
       } else if (readParentToolUseId(event) === null) {
         pp.replayTailInitOnly = false;
         // A background agent's line after the last `result` is not a turn in

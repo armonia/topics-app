@@ -3531,7 +3531,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // prima della riga parziale e di qualunque stream: vedi la guardia
             // `reattach_unsupported` alla risoluzione del provider. `!` qui è
             // sostenuto da quella guardia, non da un'assunzione.
-            const reattachFn = (topicProvider as unknown as { reattach?: (sk: string, h: StreamHandler) => Promise<string> }).reattach;
+            const reattachFn = (topicProvider as unknown as { reattach?: (sk: string, h: StreamHandler, o?: { answeredAt?: number }) => Promise<string> }).reattach;
             // Il risveglio si adotta in modo SINCRONO (gli eventi sono già nel
             // provider). `false` = l'ha preso qualcun altro, o il figlio è morto.
             const adoptWoken = (topicProvider as unknown as { adoptWokenTurn?: (sk: string, h: StreamHandler) => boolean }).adoptWokenTurn;
@@ -3540,7 +3540,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   ? Promise.resolve({ runId: "woken" })
                   : Promise.reject(new Error("WOKEN_TURN_GONE")))
               : isReattach
-              ? reattachFn!.call(topicProvider, sessionKey, handler).then((outcome) => ({ runId: outcome }))
+              // When this row's message arrived: only a turn begun after it is this row's (claude/closed-turn.ts).
+              ? reattachFn!.call(topicProvider, sessionKey, handler, { answeredAt: Date.parse(ctx.getMessageById(partialMsg.parentId ?? "")?.timestamp ?? "") }).then((outcome) => ({ runId: outcome }))
               : topicProvider.sendChat(
                   sessionKey,
                   userContent,

@@ -551,7 +551,7 @@ export interface AIProvider {
    * la domanda si poteva porre solo con un cast — cioè fuori dal controllo del
    * compilatore, che è dove i contratti taciti vanno a marcire.
    */
-  reattach?(sessionKey: string, handler: StreamHandler): Promise<"completed" | "live" | "awaiting-input" | "dead">;
+  reattach?(sessionKey: string, handler: StreamHandler, opts?: { answeredAt?: number }): Promise<"completed" | "live" | "awaiting-input" | "dead">;
 
   /**
    * True when the provider's child process for this session is currently
