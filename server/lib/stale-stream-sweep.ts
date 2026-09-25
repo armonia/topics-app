@@ -209,6 +209,28 @@ function bumpAndMark(
   deps.silence.set(sessionKey, { since, bumpedTo: Number.isFinite(stamped) ? stamped : fallback });
 }
 
+/**
+ * Tell every client this turn is alive: the sweep just asked its child.
+ *
+ * Rescue and extend used to move the clock in here and say nothing outside, so
+ * a window that had already taken the turn for over (its Stop gone, its queue
+ * drained) stayed that way until a reload. `stream:alive` names the row, and a
+ * client that settled the turn lights it again.
+ */
+function announceAlive(deps: StaleStreamSweepDeps, sessionKey: string, stream: SweepableStream): void {
+  deps.broadcast({ type: "stream:alive", sessionKey, topicId: deps.getTopicId(sessionKey), messageId: stream.messageId });
+}
+
+/**
+ * The e2e bench's silence threshold, in place of the three minutes server.ts
+ * passes (`POST /api/test/stale-stream-clock`). A spec cannot wait three
+ * minutes for each tick to act; `null` gives the caller's back.
+ */
+let benchTimeoutMs: number | null = null;
+export function setBenchStaleTimeout(ms: number | null): void {
+  benchTimeoutMs = ms;
+}
+
 export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, SweepOutcome> {
   const now = deps.now();
   const outcomes = new Map<string, SweepOutcome>();
@@ -303,7 +325,7 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
       // every extension, so the frozen cap must be compared against this one or
       // it never fires at all.
       trueSilenceMs: now - silenceSince,
-      timeoutMs: deps.timeoutMs,
+      timeoutMs: benchTimeoutMs ?? deps.timeoutMs,
       childAlive: deps.childAlive(sessionKey),
       // BOTH columns. `tool_calls` is the list, `blocks` the timeline the
       // client renders when present: tool state lives in each of them, and
@@ -329,6 +351,7 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
       // Push lastActivity forward so the rescue gets a full round to land;
       // real output re-bumps it and the stream leaves this path entirely.
       bumpAndMark(deps, sessionKey, stream, silenceSince, now);
+      announceAlive(deps, sessionKey, stream);
       outcomes.set(sessionKey, "rescued");
       continue;
     }
@@ -343,6 +366,7 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
         ? `[StaleStream] ${sessionKey} silent for ${Math.round((now - silenceSince) / 60_000)} min, its tool is waiting on OUR pre-review checks: extending (that wait is ours)`
         : `[StaleStream] ${sessionKey} silent for ${Math.round((now - silenceSince) / 60_000)} min but its child is ALIVE: extending (a live turn is never killed by a clock)`);
       bumpAndMark(deps, sessionKey, stream, silenceSince, now);
+      announceAlive(deps, sessionKey, stream);
       outcomes.set(sessionKey, "extended");
       continue;
     }

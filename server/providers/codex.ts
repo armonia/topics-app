@@ -418,6 +418,16 @@ export class CodexProvider implements AIProvider {
     return !!child && child.exitCode === null && child.signalCode === null;
   }
 
+  /**
+   * Is this session ours? Without it `resolveTurnAlive` never asked the probe
+   * above, answered "cannot tell", and the stale-stream sweep closed a live
+   * `codex exec` three minutes into a silent tool. The entry leaves the map
+   * when the child exits, so "ours" is also "a turn of ours is running".
+   */
+  ownsSession(sessionKey: string): boolean {
+    return this.activeChildren.has(sessionKey);
+  }
+
   // --- Streaming chat ---
 
   async sendChat(

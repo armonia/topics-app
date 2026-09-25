@@ -526,8 +526,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
        * il turno in volo finisce. Prima quel ramo del client era codice morto —
        * nessun 409 su /api/chat esisteva in tutto il server.
        *
-       * Non blocca per sempre: `isStreaming` considera morto uno stream fermo
-       * da oltre 3 minuti, e lo sweeper `[StaleStream]` lo finalizza.
+       * Not forever: the `[StaleStream]` sweep closes a turn whose child is dead,
+       * or whose provider cannot say (no probe), and its entry leaves the map.
        * `reattach` è esente per costruzione — adottare il turno vivo È il suo
        * mestiere, e vale identico per `woken` (`adottaTurnoVivo`).
        */

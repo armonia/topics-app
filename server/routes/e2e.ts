@@ -126,6 +126,7 @@ import { clearPlanUsage, clearProviderHold } from "../lib/provider-hold";
 import { observePlanUsage } from "../providers/native/usage-window";
 import { partialTurnRows } from "../lib/partial-turn-fixture";
 import { setInjectedSwapFreezeViews } from "../lib/swap-freeze-hold";
+import { setBenchStaleTimeout } from "../lib/stale-stream-sweep";
 import type { SwapFreezeView } from "../../shared/swap-freeze";
 
 /** Attivo solo dove `start-test-server.sh` lo dichiara. */
@@ -200,6 +201,8 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       // own, but a spec that dies mid-hold would leave it armed on the next
       // file: here, where the files separate, it is dropped regardless.
       releaseDispatchHold();
+      // Same for the stale-stream threshold a spec cut to 1 s.
+      setBenchStaleTimeout(null);
       const snap = loadBaseline();
       if (!snap) {
         // Meglio un errore esplicito che un reset silenziosamente saltato: chi
@@ -371,6 +374,16 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       const views = Array.isArray(body?.views) ? body!.views! : [];
       setInjectedSwapFreezeViews(views);
       return json({ ok: true, views: views.length });
+    }
+
+    // POST /api/test/stale-stream-clock {timeoutMs} - the silence after which the
+    // stale-stream sweep acts, three minutes in production. The sweep itself and
+    // its 30 s tick stay the real ones; `{}` gives the three minutes back.
+    if (method === "POST" && pathname === "/api/test/stale-stream-clock") {
+      const body = (await req.json().catch(() => null)) as { timeoutMs?: number } | null;
+      const ms = typeof body?.timeoutMs === "number" && body.timeoutMs > 0 ? body.timeoutMs : null;
+      setBenchStaleTimeout(ms);
+      return json({ ok: true, timeoutMs: ms });
     }
 
     // POST /api/test/dispatch-hold {ms} — holds the periodic reconcile.

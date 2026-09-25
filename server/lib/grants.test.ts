@@ -153,7 +153,7 @@ describe("grants · i frame che un ospite può MANDARE", () => {
 describe("grants · i frame che un ospite può ricevere", () => {
   const ammessi = [
     "task:created", "task:updated", "task:deleted", "task:review-ready", "task:parked",
-    "stream:start", "stream:content_chunk", "stream:end", "stream:catchup",
+    "stream:start", "stream:content_chunk", "stream:end", "stream:alive", "stream:catchup",
     "message", "message:new",
   ];
 

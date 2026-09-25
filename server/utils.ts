@@ -2118,21 +2118,19 @@ export function createAppContext(baseDir: string): AppContext {
     return interrupted;
   }
 
+  /**
+   * The turn in flight on this session, for as long as its entry exists.
+   *
+   * No clock here. Three minutes without a provider event used to answer
+   * "not streaming" while the entry stayed, and a tool that prints nothing
+   * (a long Bash, a wait on a Monitor) is exactly that silence: the registry
+   * poll dropped a live turn, every client took its Stop away, and the 409
+   * gate let a second turn in (topic:3019832f, 2026-09-25). Silence says
+   * nothing about death. The sweeper in server.ts asks the child, and it is
+   * the one that removes the entry, finalizing the row and saying so.
+   */
   function isStreaming(sessionKey: string): ActiveStream | undefined {
-    const stream = activeStreams.get(sessionKey);
-    if (!stream) return undefined;
-    const lastActivity = new Date(stream.lastActivity).getTime();
-    const STREAM_TIMEOUT_MS = 3 * 60 * 1000;
-    if (Date.now() - lastActivity > STREAM_TIMEOUT_MS) {
-      // Stale: report "not streaming" but do NOT delete the entry here. Deleting
-      // it would steal the entry from the authoritative sweeper (server.ts
-      // `staleStreamTimer`), which is the only path that finalizes the partial
-      // DB row (partial=0) and broadcasts stream:end. A bare delete left the
-      // message stuck partial=1 forever (perpetual "streaming" in history until
-      // a server restart). Leave it for the 30s sweeper to clean up properly.
-      return undefined;
-    }
-    return stream;
+    return activeStreams.get(sessionKey);
   }
 
   // NOTE: the periodic stale-active-stream sweeper lives in server.ts

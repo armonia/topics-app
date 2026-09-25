@@ -9,9 +9,9 @@
  *
  * The harness counts the calls: with two active streams the route must call
  * `loadTopics` zero times and `getTopicBySessionKey` once per stream. The
- * behaviour it must keep is pinned too: a stale stream (isStreaming says no)
- * is skipped without being deleted, and a stream whose topic row is gone is
- * omitted, as the old filter omitted it.
+ * behaviour it must keep is pinned too: a stream silent for minutes is still
+ * listed (only the sweeper, which asks the child, ends a turn), and a stream
+ * whose topic row is gone is omitted, as the old filter omitted it.
  *
  * @covers STREAM-SNAPSHOT-01
  */
@@ -41,13 +41,17 @@ function makeTopic(id: string): Topic {
 
 function makeHarness(opts: { streams: string[]; stale?: string[]; topics: Topic[] }) {
   const topics = new Map(opts.topics.map((t) => [t.id, t]));
-  const activeStreams = new Map<string, { sessionKey: string }>();
-  for (const k of opts.streams) activeStreams.set(k, { sessionKey: k });
+  // A silent stream: its last provider event is four minutes old (a tool that prints nothing).
+  const silentSince = new Date(Date.now() - 4 * 60_000).toISOString();
+  const activeStreams = new Map<string, { sessionKey: string; lastActivity: string }>();
+  for (const k of opts.streams) {
+    activeStreams.set(k, { sessionKey: k, lastActivity: (opts.stale ?? []).includes(k) ? silentSince : new Date().toISOString() });
+  }
   const calls = { loadTopics: 0, getTopicBySessionKey: 0 };
   const ctx = {
     OPENCLAW_DIR: "/nonexistent-openclaw-dir",
     activeStreams,
-    isStreaming: (k: string) => (activeStreams.has(k) && !(opts.stale ?? []).includes(k) ? activeStreams.get(k) : undefined),
+    isStreaming: (k: string) => activeStreams.get(k),
     loadTopics: () => { calls.loadTopics += 1; return { topics: Object.fromEntries(topics) }; },
     getTopicBySessionKey: (key: string) => {
       calls.getTopicBySessionKey += 1;
@@ -92,10 +96,10 @@ describe("GET /api/topics/streaming", () => {
     expect(h.calls.getTopicBySessionKey).toBe(0);
   });
 
-  test("a stale stream is skipped and left in the Map for the sweeper", async () => {
+  test("a stream silent for minutes is listed and left in the Map: its end is the sweeper's", async () => {
     const h = makeHarness({ streams: ["topic:a", "topic:old"], stale: ["topic:old"], topics: [makeTopic("a"), makeTopic("old")] });
     const { body } = await h.call();
-    expect(body.sessions.map((s) => s.topicId)).toEqual(["a"]);
+    expect(body.sessions.map((s) => s.topicId)).toEqual(["a", "old"]);
     expect(h.activeStreams.has("topic:old"), "never deleted here: server.ts owns the finalisation").toBe(true);
   });
 
