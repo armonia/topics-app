@@ -232,6 +232,14 @@ function stoppedByPerson(r: RigaDaValutare): boolean {
   return !!e && e.info.end === "cancelled" && e.info.cause === "user" && e.atMs >= r.timestampMs;
 }
 
+/** The message's turn ran and ended normally, and its answer was empty and
+ *  discarded: a manual /compact, a CLI sentinel. It was answered. Only
+ *  `end_turn` counts: a cancellation or an error left it unanswered. */
+function endedNormallyAfter(r: RigaDaValutare): boolean {
+  const e = r.lastTurnEnd;
+  return !!e && e.info.end === "end_turn" && e.atMs >= r.timestampMs;
+}
+
 /** The rule's answer: resend, stop AND say so, leave the row alone - or, for a
  *  person's message nobody answered, write the notice first and then resend. */
 export type ResumeVerdict = "resend" | "capped" | "no" | "unanswered";
@@ -254,8 +262,11 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
     // for any other interruption of ours.
     // A send still queued on the provider is the answer on its way, and a
     // message the person stopped stays unanswered because they chose so.
+    // A normal end after the message is an answer nobody kept: a /compact
+    // ends with an empty result and the route discards the empty row.
     if (r.streaming || r.providerBusy || r.boundToCard) return "no";
     if (stoppedByPerson(r)) return "no";
+    if (endedNormallyAfter(r)) return "no";
     if (oraMs - r.timestampMs < USER_TAIL_GRACE_MS) return "no";
     if (oraMs - r.timestampMs > FINESTRA_RIPRESA_MS) return "no";
     if (r.attempts >= MAX_RESUME_ATTEMPTS) return "capped";

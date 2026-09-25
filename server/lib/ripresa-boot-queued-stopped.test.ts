@@ -26,7 +26,7 @@ import { logStreamAborted } from "../db/activity-log";
 import * as activityLog from "../db/activity-log";
 import { decodeCol } from "../../shared/message-blob";
 import { recordTurnEnd, resetTurnEndRegistry } from "../providers/turn-end-registry";
-import { cancelled } from "../providers/stop-reason";
+import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import type { ContentBlock } from "../types";
 
 // The sweep reads each session's last turn end from a process-wide registry:
@@ -96,6 +96,24 @@ describe("the verdict asks the provider and remembers the Stop", () => {
     // An end that is not a person's Stop does not block the resend.
     const watchdogEnd = { info: cancelled("watchdog"), atMs: ORA - 225_000 };
     expect(resumeVerdict({ ...userTail, lastTurnEnd: watchdogEnd }, ORA)).toBe("unanswered");
+  });
+
+  /**
+   * A manual /compact ends with an empty result: the chat route discards the
+   * empty answer row, the person's '/compact' stays the last row, and the turn
+   * end is `end_turn`. That message was answered, and resending it buys a
+   * second compaction under a false "no answer arrived" notice.
+   */
+  test("(d) a normal end recorded after the message: answered with an empty answer, not resent", () => {
+    const normalEnd = { info: { end: "end_turn" } as const, atMs: ORA - 225_000 };
+    expect(resumeVerdict({ ...userTail, lastTurnEnd: normalEnd }, ORA)).toBe("no");
+    // Past the cap too: an answered message earns no cap notice.
+    expect(resumeVerdict({ ...userTail, lastTurnEnd: normalEnd, attempts: MAX_RESUME_ATTEMPTS }, ORA)).toBe("no");
+    // A normal end from BEFORE the message belongs to the turn before it.
+    expect(resumeVerdict({ ...userTail, lastTurnEnd: { ...normalEnd, atMs: ORA - 300_000 } }, ORA)).toBe("unanswered");
+    // An error is not an answer: the message is still resent.
+    const errorEnd = { info: { end: "error", cause: "provider-error" } as const, atMs: ORA - 225_000 };
+    expect(resumeVerdict({ ...userTail, lastTurnEnd: errorEnd }, ORA)).toBe("unanswered");
   });
 });
 
@@ -355,16 +373,37 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
   });
 
   test("(c) a turn that ended after the boot: the restart is not what left the message unanswered", async () => {
+    // Not `end_turn`: a normal end answers the message (see (d)). The first
+    // end names no cause (an `abort()` with no reason), so only the end's time
+    // against the boot can keep the restart out of the notice; the second
+    // names a cause that is not a restart.
+    const ends: TurnEndInfo[] = [{ end: "cancelled" }, { end: "error", cause: "process-died" }];
+    for (const end of ends) {
+      resetTurnEndRegistry();
+      const label = `${end.end}/${end.cause ?? "-"}`;
+      const db = chatDb([{ id: "u0", role: "user", agoMs: 5 * 60_000 }]);
+      // Recorded now, after the boot of four minutes ago: the answer started
+      // after the restart, so blaming the restart would be false.
+      recordTurnEnd(SK, end);
+      const calls: unknown[] = [];
+      await sweep({ ...ctxOf(db), bootedAtMs: Date.now() - 4 * 60_000 }, calls);
+      expect(calls, label).toHaveLength(1);
+      const notice = db.query("SELECT content FROM messages WHERE role = 'assistant'").get() as { content: string };
+      expect(notice.content, label).not.toContain("riavvi");
+      expect(eCartelloDiInterruzione(notice.content), label).toBe(true);
+    }
+  });
+
+  test("(d) a manual /compact that ended normally: no resend and no notice", async () => {
+    // The compaction's empty answer row was discarded, so '/compact' is the
+    // last row, and the turn end the route recorded after it is `end_turn`.
     const db = chatDb([{ id: "u0", role: "user", agoMs: 5 * 60_000 }]);
-    // Recorded now, after the boot of four minutes ago: the answer started
-    // after the restart, so blaming the restart would be false.
+    db.run("UPDATE messages SET content = '/compact' WHERE id = 'u0'");
     recordTurnEnd(SK, { end: "end_turn" });
     const calls: unknown[] = [];
-    await sweep({ ...ctxOf(db), bootedAtMs: Date.now() - 4 * 60_000 }, calls);
-    expect(calls).toHaveLength(1);
-    const notice = db.query("SELECT content FROM messages WHERE role = 'assistant'").get() as { content: string };
-    expect(notice.content).not.toContain("riavvi");
-    expect(eCartelloDiInterruzione(notice.content)).toBe(true);
+    await sweep({ ...ctxOf(db), bootedAtMs: Date.now() - HOUR }, calls);
+    expect(calls).toHaveLength(0);
+    expect(rowCount(db)).toBe(1);
   });
 
   test("(c) unanswered after a boot but cut by the watchdog: the cause wins over the boot", async () => {
