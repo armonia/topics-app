@@ -477,7 +477,6 @@ export function createTopicsRouter(
     endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
     searchTranscripts,
-    getMessageById,
     activeStreams,
     worktreeStore,
     projectStore,
@@ -2491,14 +2490,27 @@ export function createTopicsRouter(
       // o una tool call sono invece lavoro fatto e restano (vedi shared/empty-turn.ts).
       let discardedMessageId: string | null = null;
       const finalizeAborted = () => {
-        // Indirizzato per id, non "l'ultima riga": la finalize del provider
-        // (`onAborted` → finalizeStream in chat.ts) può aver già scartato il
-        // segnaposto di questo stream. Se non c'è più non c'è niente da
-        // finalizzare — e `updateLastMessage`, che è posizionale, scriverebbe
-        // sulla riga dell'UTENTE.
-        if (stream.messageId && !getMessageById(stream.messageId)) return;
-        const finalized = updateLastMessage(sessionKey, { content: stream.content, thinking: stream.thinking || undefined, partial: undefined, streamedAt: undefined });
-        discardedMessageId = discardIfEmptyTurn(sessionKey, finalized);
+        // ON THIS TURN'S ROW, by id, never on "the last row": a row born after
+        // the turn (a resend's user row, a sweep notice) took the partial
+        // answer over its own text, or was blanked by a Stop before the first
+        // token (card 1046df0b). A row the provider's own finalize already
+        // discarded (`onAborted` -> finalizeStream in chat.ts) is not found,
+        // and then nothing is written and nothing is discarded.
+        if (!stream.messageId) return;
+        const finalized = updateLastMessage(
+          sessionKey,
+          { content: stream.content, thinking: stream.thinking || undefined, partial: undefined, streamedAt: undefined },
+          { rowId: stream.messageId },
+        );
+        // An empty placeholder with rows under it is KEPT: the discard deletes
+        // the whole subtree, and what hangs from a live turn was born during it
+        // (a sub-agent's exit report, `lib/subagent-watch.ts`). Unknown counts
+        // as "rows under it": an empty bubble costs less than a lost row.
+        const turnHasChildren = (() => {
+          try { return !!db.prepare("SELECT 1 FROM messages WHERE parent_id = ? LIMIT 1").get(stream.messageId); }
+          catch { return true; }
+        })();
+        discardedMessageId = turnHasChildren ? null : discardIfEmptyTurn(sessionKey, finalized);
         if (discardedMessageId) console.log(`[Abort] ${sessionKey}: turno vuoto scartato (${discardedMessageId})`);
       };
       const clearedForReal = decideClear();
