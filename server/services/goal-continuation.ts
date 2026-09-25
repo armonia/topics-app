@@ -598,3 +598,14 @@ export function goalContinuationForChatRoute(deps: {
 
 /** The chat route's goal loop, as the Stop and the boot hold it. */
 export type ChatGoalLoop = ReturnType<typeof goalContinuationForChatRoute>;
+
+/**
+ * What the goal reads of the session's background work when a turn ends, asked
+ * of the provider that ran it right after its `result` (the CLI prints its
+ * snapshot before it). Used by the chat route.
+ */
+export function backgroundOfTurn(provider: unknown, sessionKey: string): { backgroundWork: boolean; backgroundWakeOnly: boolean } {
+  const p = provider as { backgroundState?: (sk: string) => string; hasBackgroundWork?: (sk: string) => boolean };
+  const state = p.backgroundState?.(sessionKey) ?? (p.hasBackgroundWork?.(sessionKey) ? "running" : "none");
+  return { backgroundWork: state !== "none", backgroundWakeOnly: state === "wake-queued" };
+}

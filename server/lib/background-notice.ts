@@ -33,6 +33,18 @@ export type BackgroundNoticeFacts = BackgroundNotice extends infer N ? (N extend
 type NoticeCtx = Pick<AppContext, "appendLocalMessage" | "broadcastToAll" | "isStreaming">;
 export type OwedChange = "autonomy" | "model" | "effort";
 
+/**
+ * Does an autonomy change wait for the chat's background work? A lowering does
+ * (the running CLI would keep the permissions just taken away), and so does a
+ * raise out of `ask` (plan mode stays until the respawn). auto-apply to yolo
+ * applies live through the permission bridge (`sessionIsFree`).
+ */
+export function autonomyChangeOwed(prev: string | null | undefined, next: string | null | undefined): boolean {
+  const order = ["ask", "auto-apply", "yolo"];
+  const from = prev ?? "ask";
+  return order.indexOf(next ?? "ask") < order.indexOf(from) || from === "ask";
+}
+
 /** Is this row a background notice and nothing else, blocks as parsed JSON? */
 export function isBackgroundNoticeRow(blocks: readonly { kind?: unknown }[] | null | undefined): boolean {
   return Array.isArray(blocks) && blocks.length > 0 && blocks.every((b) => b?.kind === "background-notice");

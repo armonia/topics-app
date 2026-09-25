@@ -52,6 +52,8 @@ interface TaskFacts {
   subagent: boolean;
   /** It was in a `background_tasks_changed` snapshot: a foreground Bash never is. */
   listed: boolean;
+  /** Launched by the Monitor tool: its events wake the CLI with no task line. */
+  monitor?: boolean;
 }
 
 export interface BackgroundWork {
@@ -63,10 +65,12 @@ export interface BackgroundWork {
   facts: Map<string, TaskFacts>;
   /** A background task of the model reported and the wake answering it has not started yet. */
   wakeQueuedAt: number | null;
+  /** Tool calls of the Monitor tool not yet matched to their task. */
+  monitorCalls: Set<string>;
 }
 
 export function newBackgroundWork(): BackgroundWork {
-  return { tasks: new Map(), lastSignalAt: 0, facts: new Map(), wakeQueuedAt: null };
+  return { tasks: new Map(), lastSignalAt: 0, facts: new Map(), wakeQueuedAt: null, monitorCalls: new Set() };
 }
 
 /**
@@ -77,7 +81,7 @@ export function newBackgroundWork(): BackgroundWork {
  * News, which moves `lastSignalAt`, is any sign of a task in the last snapshot:
  * the snapshot itself, a `system/task_*` line about a listed task, a line whose
  * `parent_tool_use_id` is a listed task's tool call (a subagent talking, or a
- * `tool_progress` heartbeat), and a wake while tasks are listed. The wake is
+ * `tool_progress` heartbeat), and a wake while a Monitor is listed. The wake is
  * the only sign a Monitor gives while it runs: its events arrive as turns of
  * the model with no `task_*` line (fixture, "Tick-2 fired."), and without
  * counting them a Monitor reporting every minute was presumed lost.
@@ -107,23 +111,29 @@ export function noteBackgroundLine(
     if (work.tasks.size !== before.size || [...work.tasks.keys()].some((id) => !before.has(id))) work.lastSignalAt = now;
     return;
   }
-  const e = event as { type?: unknown; subtype?: unknown; task_id?: unknown; tool_use_id?: unknown; owned_by_subagent?: unknown } | null;
+  const e = event as { type?: unknown; subtype?: unknown; task_id?: unknown; tool_use_id?: unknown; owned_by_subagent?: unknown; message?: { content?: unknown } } | null;
+  if (e?.type === "assistant" && Array.isArray(e.message?.content)) {
+    for (const b of e.message.content as Array<{ type?: unknown; name?: unknown; id?: unknown }>) {
+      if (b?.type === "tool_use" && b.name === "Monitor" && typeof b.id === "string") work.monitorCalls.add(b.id);
+    }
+  }
   if (e?.type === "system" && typeof e.subtype === "string") {
     const id = typeof e.task_id === "string" ? e.task_id : null;
     if (e.subtype === "init") {
       // A turn of the model starts: whatever was queued is being answered.
       work.wakeQueuedAt = null;
-      if (opts.unattended && work.tasks.size > 0) work.lastSignalAt = now;
+      // A wake is news of a listed MONITOR, the one task whose events wake the
+      // CLI with no task line. Any wake counted for every task, so a lost Bash
+      // stayed kept for good by a CronCreate's wakes (second review of 25/09).
+      if (opts.unattended && [...work.tasks.keys()].some((t) => work.facts.get(t)?.monitor)) work.lastSignalAt = now;
       return;
     }
     if (!id || !e.subtype.startsWith("task_")) return;
     if (e.subtype === "task_started") {
       const f = work.facts.get(id);
-      work.facts.set(id, {
-        toolUseId: typeof e.tool_use_id === "string" ? e.tool_use_id : f?.toolUseId,
-        subagent: e.owned_by_subagent === true,
-        listed: f?.listed ?? false,
-      });
+      const toolUseId = typeof e.tool_use_id === "string" ? e.tool_use_id : f?.toolUseId;
+      const monitor = !!toolUseId && work.monitorCalls.delete(toolUseId);
+      work.facts.set(id, { toolUseId, subagent: e.owned_by_subagent === true, listed: f?.listed ?? false, monitor: monitor || f?.monitor });
     }
     if (e.subtype === "task_notification") {
       const f = work.facts.get(id);

@@ -7,7 +7,7 @@ import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic, ToolCall } from "../types";
 import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
-import { sessionsWithBackgroundWork, stopBackgroundWork } from "../providers/background-probes";
+import { backgroundStatusRows, stopBackgroundWork } from "../providers/background-probes";
 import { createTopicProviderResolver } from "../providers/topic-provider-resolver";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { routesThroughGateway } from "./commandRouting";
@@ -15,7 +15,7 @@ import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter, createToolDetailRouter } from "./history";
 import { blocksForDisk, leanMessagesForWire, toolCallsColumnForRow } from "../../shared/lean-tool-call";
 import { MACHINE_ROW_SQL } from "../../shared/prompt-number";
-import { noticeOwedChanges, type OwedChange } from "../lib/background-notice";
+import { autonomyChangeOwed, noticeOwedChanges, type OwedChange } from "../lib/background-notice";
 import { goalContinuationForChatRoute, type ChatGoalLoop } from "../services/goal-continuation";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
@@ -1170,12 +1170,7 @@ export function createTopicsRouter(
           ...(awaitingSince != null ? { awaitingSince } : {}),
         });
       }
-      // No turn open, but work a closed one left running: the Stop still applies.
-      for (const sessionKey of sessionsWithBackgroundWork()) {
-        if (sessions.some((s) => s.sessionKey === sessionKey)) continue;
-        const topic = getTopicBySessionKey(sessionKey);
-        if (topic?.sessionKey) sessions.push({ topicId: topic.id, sessionKey: topic.sessionKey, state: "background" });
-      }
+      sessions.push(...backgroundStatusRows(sessions, getTopicBySessionKey));
       return json({ sessions });
     }
 
@@ -1631,9 +1626,7 @@ export function createTopicsRouter(
         // Provider/model are spawn-time flags for the claude-code CLI (same
         // as effort below): track changes so we can force an idle respawn.
         let spawnConfigChanged = false;
-        // Owed while background work runs: a lowering, or a raise out of `ask`
-        // (plan mode stays). auto-apply to yolo applies live (`sessionIsFree`).
-        let autonomyOwed = false;
+        let autonomyOwed = false; // see `autonomyChangeOwed`
         if (body.autonomyLevel !== undefined) {
           const valid: Topic['autonomyLevel'][] = ['ask', 'auto-apply', 'yolo'];
           // Un livello sconosciuto è un ERRORE del chiamante, non un `ask`.
@@ -1652,11 +1645,7 @@ export function createTopicsRouter(
           // come provider e modello: senza il respawn la scelta non avrebbe
           // effetto finché la chat non riparte da sola — cioè sembrerebbe
           // un'impostazione che non fa niente.
-          if (next !== topic.autonomyLevel) {
-            spawnConfigChanged = true;
-            const prev = topic.autonomyLevel ?? 'ask';
-            autonomyOwed = valid.indexOf(next) < valid.indexOf(prev) || prev === 'ask';
-          }
+          if (next !== topic.autonomyLevel) { spawnConfigChanged = true; autonomyOwed = autonomyChangeOwed(topic.autonomyLevel, next); }
           topic.autonomyLevel = next;
         }
         if (body.provider !== undefined) {
@@ -2473,8 +2462,7 @@ export function createTopicsRouter(
       };
 
       if (!stream) {
-        // Only background work left: the Stop is for it (SIGINT, exit 0 in 0.8 s
-        // on 2.1.282), and a goal waiting for it stops, or its check-in revives it.
+        // Only background work left: the Stop is for it, and a goal waiting for it stops.
         const stopped = await stopBackgroundWork(sessionKey, stopCauseOf(req, body?.cause));
         if (stopped === "stopped") goalLoop.stopWaiting(sessionKey);
         if (stopped !== "none") return json({ ok: stopped === "stopped", reason: `background_${stopped}`, cleared: false });
@@ -2965,8 +2953,7 @@ export function createTopicsRouter(
             topic.updatedAt = new Date().toISOString();
             saveSingleTopic(topic);
             broadcastToAll({ type: "topic:updated", topic });
-            const outcome = (topic.model ?? null) !== prevModel ? refreshConfig(topic, { model: true }) : undefined;
-            const pending = noticeOwedChanges(ctx, topic, outcome, { model: true });
+            const pending = noticeOwedChanges(ctx, topic, (topic.model ?? null) !== prevModel ? refreshConfig(topic, { model: true }) : undefined, { model: true });
             return json({ ok: true, command: "model", model: topic.model, ...pending, message: `Modello impostato: ${topic.model}. Attivo dal prossimo turno.` });
           }
           case "effort": {
@@ -2987,8 +2974,7 @@ export function createTopicsRouter(
             topic.updatedAt = new Date().toISOString();
             saveSingleTopic(topic);
             broadcastToAll({ type: "topic:updated", topic });
-            const outcome = (topic.effort ?? null) !== prevEffort ? refreshConfig(topic, { effort: true }) : undefined;
-            const pending = noticeOwedChanges(ctx, topic, outcome, { effort: true });
+            const pending = noticeOwedChanges(ctx, topic, (topic.effort ?? null) !== prevEffort ? refreshConfig(topic, { effort: true }) : undefined, { effort: true });
             return json({ ok: true, command: "effort", level: tier, ...pending, message: `Effort impostato: ${tier}. Attivo dal prossimo turno.` });
           }
           case "reasoning": {

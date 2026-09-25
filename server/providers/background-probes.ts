@@ -74,3 +74,19 @@ export function sessionsWithBackgroundWork(): string[] {
   }
   return out;
 }
+
+/**
+ * The `/api/topics/streaming` rows for the sessions with no turn open but work
+ * a closed one left running: not a reply in progress, and the Stop still applies.
+ */
+export function backgroundStatusRows(
+  listed: ReadonlyArray<{ sessionKey: string }>,
+  topicOf: (sessionKey: string) => { id: string; sessionKey?: string | null } | null | undefined,
+): Array<{ topicId: string; sessionKey: string; state: "background" }> {
+  const rows: Array<{ topicId: string; sessionKey: string; state: "background" }> = [];
+  for (const sessionKey of sessionsWithBackgroundWork()) {
+    const topic = listed.some((s) => s.sessionKey === sessionKey) ? null : topicOf(sessionKey);
+    if (topic?.sessionKey) rows.push({ topicId: topic.id, sessionKey: topic.sessionKey, state: "background" });
+  }
+  return rows;
+}

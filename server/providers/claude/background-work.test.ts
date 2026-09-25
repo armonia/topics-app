@@ -83,6 +83,20 @@ describe("background work, from the recorded CLI session", () => {
     expect(work.lastSignalAt).toBe(at);
   });
 
+  test("a wake is news of a listed Monitor only: a CronCreate's wake does not keep a lost Bash", () => {
+    const work = newBackgroundWork();
+    noteBackgroundLine(work, snapshot([{ task_id: "b1", task_type: "local_bash", description: "lost suite" }]), 10, { unattended: true });
+    noteBackgroundLine(work, started("b1", "toolu_bash"), 10, { unattended: true });
+    noteBackgroundLine(work, { type: "system", subtype: "init" }, 5_000, { unattended: true });
+    expect(work.lastSignalAt).toBe(10);
+    // The same wake with a Monitor listed is that Monitor's event.
+    noteBackgroundLine(work, { type: "assistant", message: { content: [{ type: "tool_use", name: "Monitor", id: "toolu_mon" }] } }, 6_000, { unattended: false });
+    noteBackgroundLine(work, snapshot([{ task_id: "b1", task_type: "local_bash", description: "lost suite" }, { task_id: "m1", task_type: "local_bash", description: "watch the log" }]), 6_000, { unattended: false });
+    noteBackgroundLine(work, started("m1", "toolu_mon"), 6_000, { unattended: false });
+    noteBackgroundLine(work, { type: "system", subtype: "init" }, 9_000, { unattended: true });
+    expect(work.lastSignalAt).toBe(9_000);
+  });
+
   test("a turn somebody sent is not news about the background", () => {
     const { work } = foldUntil(firstResult + 1);
     const before = work.lastSignalAt;

@@ -35,7 +35,7 @@ import {
 } from "./processes";
 import { insertCompactionMarkerIfNew, backfillPostTokens } from "../db/compaction-markers";
 import { getActiveGoal, replaceSteps } from "../services/goals";
-import { goalContinuationForChatRoute, type ChatGoalLoop, type TurnEndInfo as GoalTurnEnd } from "../services/goal-continuation";
+import { backgroundOfTurn, goalContinuationForChatRoute, type ChatGoalLoop, type TurnEndInfo as GoalTurnEnd } from "../services/goal-continuation";
 import { recordSessionContext } from "../db/session-context";
 import { buildContextUpdate } from "../usage/usage-update";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
@@ -163,8 +163,7 @@ export interface ChatDeps {
    * only add a line to the chat. Native runtime only.
    */
   hooks?: LifecycleHookRunner;
-  /** The goal loop, when the caller needs its handle too (the Stop of background work). */
-  goalLoop?: ChatGoalLoop;
+  goalLoop?: ChatGoalLoop; // when the caller holds it too (the Stop, the boot)
 }
 
 /**
@@ -182,13 +181,6 @@ function readClaudeSessionId(ctx: AppContext, sessionKey: string): string | null
   } catch {
     return null;
   }
-}
-
-/** What the goal loop reads of the session's background work at the end of a turn, from the provider that ran it. */
-function backgroundOfTurn(provider: unknown, sessionKey: string): { backgroundWork: boolean; backgroundWakeOnly: boolean } {
-  const p = provider as { backgroundState?: (sk: string) => string; hasBackgroundWork?: (sk: string) => boolean };
-  const state = p.backgroundState?.(sessionKey) ?? (p.hasBackgroundWork?.(sessionKey) ? "running" : "none");
-  return { backgroundWork: state !== "none", backgroundWakeOnly: state === "wake-queued" };
 }
 
 function countCompactions(ctx: AppContext, sessionKey: string): number {
@@ -2387,11 +2379,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // stop: `interrupted` carries the tools still awaiting a human,
                 // and the plan approval is kept out of it on purpose above.
                 pendingAsk: askingPlanApproval || interrupted.length > 0,
-                // Asked of the provider that ran the turn, right after its
-                // `result`: the CLI prints its background snapshot before it.
-                ...backgroundOfTurn(topicProvider, sessionKey),
-                // Claude Code re-enables its paused check-ins at the person's
-                // next message, not at any turn.
+                ...backgroundOfTurn(topicProvider, sessionKey), // see goal-continuation.ts
                 fromHuman: !isWoken && !isReattach && !dispatched && !body.goalNudge && !resumeAttempt,
                 woken: isWoken,
                 usedTools: toolsStartedThisTurn > 0,

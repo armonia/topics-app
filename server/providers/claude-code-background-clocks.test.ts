@@ -62,7 +62,10 @@ describe("the clocks that kill, against background work", () => {
 
     const sk = "topic:clocks-monitor";
     const { provider, pp, counts, feed } = stub(sk);
-    feed([monitorOnly]);
+    // The Monitor as the CLI launched it: its tool call, its snapshot, its start.
+    const monitorCall = events.find((e: any) => e.type === "assistant" && JSON.stringify(e.message?.content).includes('"name":"Monitor"')) as any;
+    const monitorStarted = events.find((e: any) => e.subtype === "task_started" && e.description === "tick counter loop") as any;
+    feed([monitorCall, monitorOnly, monitorStarted]);
     expect(provider.hasBackgroundWork(sk)).toBe(true);
     // The Monitor started just under two hours ago, and fires NOW.
     pp.background.lastSignalAt = Date.now() - TWO_HOURS + 40;
