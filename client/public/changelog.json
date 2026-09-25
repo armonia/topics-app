@@ -1,7 +1,23 @@
 [
   {
-    "version": "2.2.387",
+    "version": "2.2.388",
     "date": "2026-09-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il campo che si restringe allargando il pannello si prova col toggle, non con un resize a 375",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.387",
+    "date": "2026-09-24",
     "sections": {
       "new": [],
       "fixes": [
@@ -14,6 +30,47 @@
       ],
       "perf": [],
       "internal": [
+        {
+          "it": "carico CPU/Memoria in %, non più in core",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Capacità: CPU e memoria del Mac intero in % sul filo (machineCpuPct, machineMemPct)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test rossi: un numero solo, «il Mac è occupato al X%», e niente parole tecniche fuori da Dettagli",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il Mac occupato al X%: un numero solo su ogni superficie del carico",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "La riga del Mac occupato usa i colori AA del popover: i -300 su tema chiaro scendevano a circa 2:1",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Nomi e commenti in inglese, articoli italiani marcati come dato: i cancelli della lingua tornano verdi",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Baseline dei nomi: NightModeCard perde «soglia», il debito scende di uno",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Escape rimette il fuoco sul ⚙ anche in WebKit: Safari non dà il fuoco a un bottone cliccato, e il bersaglio salvato era <body>",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Il server muore di SIGTERM dopo un Chromium: Playwright gli smonta il gestore",
           "en": "",
@@ -52,6 +109,16 @@
         },
         {
           "it": "Il perché giusto per ignorare swap-freeze.json",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "L'attesa non promette più «parte da solo sotto X%»: il gate non la mantiene",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il client non riesporta più ADMIT_RESUME_FRACTION",
           "en": "",
           "scope": null
         }
