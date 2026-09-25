@@ -472,7 +472,9 @@ export interface AIProvider {
        */
       tools?: Tool[];
     },
-  ): Promise<{ runId?: string }>;
+  ): Promise<{ runId?: string;
+    /** Stopped while queued, nothing written: the caller undoes what it marked as sent. */
+    notSent?: boolean }>;
 
   /**
    * Register a handler to receive stream events for a session.
