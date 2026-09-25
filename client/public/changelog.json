@@ -1,5 +1,106 @@
 [
   {
+    "version": "2.2.399",
+    "date": "2026-09-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "A project chat's turn, driven from outside, read in the DOM of the engine that ships",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A chat joined mid-turn, sampled every 250 ms: every sample must be a prefix",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A project chat holds its topic on the wire for as long as its pane is mounted",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A reader of a live turn's row gets the whole body, and a chat joining mid-turn gets a catch-up",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A failed turn takes its writer down, and a flush writes only what changed",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A history answer older than the live bubble of the same turn does not replace it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A failed turn writes the work it still owed before its writer stops, on every failure path",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The live bubble kept over an older history answer keeps the row's banners",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A failure stops the writer of its own row before endStream, writes only work, and a read pays one write",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The verifiers' client cases as specs: a doubled chunk, and a history answer that reopens a closed turn",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A turn streaming into the window is not reconciled mid-turn, and an answer older than its end does not reopen it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "stopTurnBodyOf skips a writer whose row does not exist yet instead of throwing",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A hold sends the subscribe frame alone, not the presence announce with it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A row the server deleted at a turn end does not come back from a history read",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The fast-turns test gets its own chat, so the ones after it read a short thread",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "closeTurnWithFailure ends the stream after stopping the writer, keeping chat.ts under its ceiling",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A history read with no turn in flight forgets the live row's name, so a turn stopped while the socket was down leaves no bubble",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The spaces tests add their other window to every roster the server sends, instead of one timed roster",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.397",
     "date": "2026-09-25",
     "sections": {

@@ -2,6 +2,28 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.399 — 2026-09-25
+
+### Sotto il cofano
+- A project chat's turn, driven from outside, read in the DOM of the engine that ships
+- A chat joined mid-turn, sampled every 250 ms: every sample must be a prefix
+- A project chat holds its topic on the wire for as long as its pane is mounted
+- A reader of a live turn's row gets the whole body, and a chat joining mid-turn gets a catch-up
+- A failed turn takes its writer down, and a flush writes only what changed
+- A history answer older than the live bubble of the same turn does not replace it
+- A failed turn writes the work it still owed before its writer stops, on every failure path
+- The live bubble kept over an older history answer keeps the row's banners
+- A failure stops the writer of its own row before endStream, writes only work, and a read pays one write
+- The verifiers' client cases as specs: a doubled chunk, and a history answer that reopens a closed turn
+- A turn streaming into the window is not reconciled mid-turn, and an answer older than its end does not reopen it
+- stopTurnBodyOf skips a writer whose row does not exist yet instead of throwing
+- A hold sends the subscribe frame alone, not the presence announce with it
+- A row the server deleted at a turn end does not come back from a history read
+- The fast-turns test gets its own chat, so the ones after it read a short thread
+- closeTurnWithFailure ends the stream after stopping the writer, keeping chat.ts under its ceiling
+- A history read with no turn in flight forgets the live row's name, so a turn stopped while the socket was down leaves no bubble
+- The spaces tests add their other window to every roster the server sends, instead of one timed roster
+
 ## 2.2.397 — 2026-09-25
 
 ### Sotto il cofano
