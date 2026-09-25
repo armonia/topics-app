@@ -596,6 +596,7 @@ export function useChat() {
    * dichiarato prima di metà di questo file.
    */
   const beginStreaming = useCallback((sessionKey: string) => {
+    turnStartsRef.current.set(sessionKey, (turnStartsRef.current.get(sessionKey) ?? 0) + 1);
     beginStreamTokenRate(sessionKey);
     setStreaming(prev => ({ ...prev, [sessionKey]: true }));
     setStoppedByUser(prev => (prev[sessionKey] ? { ...prev, [sessionKey]: false } : prev));
@@ -652,9 +653,10 @@ export function useChat() {
   // can fire two concurrent fetches for the same session in one tick. This
   // collapses those onto one request.
   const inFlightHistoryRef = useRef<Set<string>>(new Set());
-  // How many turns of each session ended in this window (`stream:end`). A
-  // history answer read before an end that arrived while it was in flight
-  // carries the turn as still running: `loadHistory` compares the two counts.
+  // How many turns of each session this window lit and ended (`stream:end`).
+  // A history answer that a start or an end overtook in flight no longer
+  // describes the current turn: `loadHistory` compares the counts.
+  const turnStartsRef = useRef<Map<string, number>>(new Map());
   const turnEndsRef = useRef<Map<string, number>>(new Map());
   // Rows the server DELETED at a turn end (`stream:end.discardedMessageId`):
   // an empty turn that was stopped, or woken with nothing to say. An answer
@@ -2613,14 +2615,18 @@ export function useChat() {
       // answers in tens of milliseconds; the rest is fetched by
       // `completeHistory`, only while nobody is looking at the list.
       const endsBefore = turnEndsRef.current.get(sessionKey) ?? 0;
+      const startsBefore = turnStartsRef.current.get(sessionKey) ?? 0;
       const response = await chatApi.getHistory(sessionKey, { limit: HISTORY_FIRST_PAGE });
       // A turn ended while this answer was in flight: it describes that turn
-      // as still running. Applied as it is, it brought the spinner back for
-      // good over the closed bubble (the reconcile at the end found this
-      // request in flight and skipped). Its rows are merged, the closed bubble
-      // wins over their partial copy (`mergeFetchedHistory`), and the history
+      // as still running, and brought the spinner back for good. Its rows are
+      // merged under the closed bubble (`mergeFetchedHistory`), and the history
       // is read again once this request is out of the way.
       endedMeanwhile = (turnEndsRef.current.get(sessionKey) ?? 0) !== endsBefore;
+      const startedMeanwhile = (turnStartsRef.current.get(sessionKey) ?? 0) !== startsBefore;
+      // The live row the answer may not hold yet, only while a turn is really
+      // in flight: the name left by a turn whose end never reached this window
+      // kept its deleted row as a bubble with a spinner.
+      const liveRowId = response.isStreaming || startedMeanwhile ? streamMessageIdRef.current.get(sessionKey) : undefined;
       // Fewer rows than the thread has: what came is a page, not the story.
       // Compared BEFORE the context-message filter below, which is client-side
       // and would otherwise make a complete thread look short.
@@ -2653,16 +2659,13 @@ export function useChat() {
       // local-only messages whose id isn't in the fetched set. A PAGE merges
       // around its pivot instead, so the local copy's rows older than the page
       // keep their place at the front (`mergeHistoryPage`).
-      // The chunks still buffered for the next frame go in first: a snapshot
-      // that already holds them would otherwise get them appended a second
-      // time when the frame comes.
+      // Chunks still buffered for the next frame go in first: a snapshot that
+      // already holds them would get them appended again when the frame comes.
       flushLiveDeltas(sessionKey);
       setMessages(prev => {
         const existing = prev[sessionKey] || [];
-        const mergeOpts = { endedMeanwhile, liveRowId: streamMessageIdRef.current.get(sessionKey) };
-        const merged = wholeThread
-          ? mergeFetchedHistory(existing, chatMessages, mergeOpts)
-          : mergeHistoryPage(existing, chatMessages, mergeOpts);
+        const merge = wholeThread ? mergeFetchedHistory : mergeHistoryPage;
+        const merged = merge(existing, chatMessages, { endedMeanwhile, liveRowId });
         // La storia che arriva è quasi sempre quella che è già a schermo: se lo
         // è, questa riga restituisce l'array PRECEDENTE e React salta il render
         // — niente ri-misura delle altezze, niente lista che si ri-assembla
@@ -2716,12 +2719,11 @@ export function useChat() {
         // Reset the stream timeout since we just reconnected
         resetStreamTimeout(sessionKey);
       } else {
-        // The server is the authority and says nothing is in flight: a turn
-        // queued before a reload/relaunch would otherwise wait for a
-        // `stream:end` this client never saw. Drain only, no `.end()`: no
-        // bubble of ours is in flight, and a `stream:start` that raced this
-        // fetch must keep its name. Fires once per hydrate (HISTORY_DEDUP_MS
-        // short-circuits remounts before reaching here).
+        // The server says nothing is in flight: a turn queued before a reload
+        // waits for a `stream:end` this client never saw, and the turn it
+        // closed keeps its row's name, unless a turn was lit meanwhile. Fires
+        // once per hydrate (HISTORY_DEDUP_MS short-circuits remounts).
+        if (!startedMeanwhile) streamMessageIdRef.current.end(sessionKey);
         drainTurnQueueRef.current?.(sessionKey);
       }
 

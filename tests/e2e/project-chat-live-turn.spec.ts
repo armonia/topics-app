@@ -127,6 +127,9 @@ async function proxyAppSocket(page: Page, sessionKey: string) {
     const server = ws.connectToServer();
     ws.onMessage((m) => server.send(m));
     server.onMessage((m) => {
+      // A socket the test cut: its server side closes a moment later, and what
+      // the server sends it meanwhile never reaches the window.
+      if (!live.has(ws)) return;
       if (typeof m === "string" && m.includes(sessionKey)) {
         try {
           const type = (JSON.parse(m) as { type?: string }).type;
@@ -145,7 +148,9 @@ async function proxyAppSocket(page: Page, sessionKey: string) {
     /** Drop the socket and keep it down until `state.refuse` goes back to false. */
     cut: async () => {
       state.refuse = true;
-      for (const ws of [...live]) await ws.close({ code: 4000, reason: "cut by the test" }).catch(() => {});
+      const cut = [...live];
+      live.clear();
+      for (const ws of cut) await ws.close({ code: 4000, reason: "cut by the test" }).catch(() => {});
     },
   };
 }
@@ -434,6 +439,53 @@ test.describe("a chat inside a project pane shows the true state of its turn", (
         .messages.filter((m) => m.role === "assistant").length;
       const bubbles = () => page.locator(`[data-chat-topic-id="${c}"] [data-testid="chat-message"][data-role="assistant"]`).count();
       await expect.poll(bubbles, { timeout: 5_000, message: "one bubble per assistant row of the database" }).toBe(rows);
+      await expect.poll(() => busy(page, c), { timeout: 5_000, message: "no turn running on screen" }).toBe(false);
+    } finally {
+      await deleteTopic(request, c).catch(() => {});
+    }
+  });
+
+  /**
+   * The same stop with the socket DOWN: the page never sees the end, and the
+   * reload on the socket's return is its only news of it. The window still
+   * held the name of the turn's row, and the merge kept that row, deleted by
+   * then, as a bubble with a spinner until a refresh.
+   */
+  test("a turn stopped while the socket is down: its return leaves no bubble behind", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CCPROV-02" });
+    const c = (await createTopic(request, "Live silent down", { projectPath: p1, provider: "claude-code" })).id;
+    try {
+      const skC = await sessionKeyOf(request, c);
+      await startTurn(skC, "warm up").done;
+      await seedLayout(request, p1, c, p2, b);
+      const sent = historyRequests(page, skC);
+      const app = await proxyAppSocket(page, skC);
+      await goToApp(page);
+      await projectTab(page, p1).click();
+      await expect(page.locator(`[data-chat-topic-id="${c}"]`).first()).toBeVisible({ timeout: 20_000 });
+      startTurn(skC, "SILENT:30000");
+      await expect.poll(() => busy(page, c), { timeout: 20_000, message: "the turn is lit on screen" }).toBe(true);
+      const opens = app.state.opens;
+      await app.cut();
+      const stop = await fetch(`${E2E_BASE}/api/chat/abort`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+        body: JSON.stringify({ sessionKey: skC }),
+      });
+      expect(stop.ok, "the turn is stopped").toBeTruthy();
+      const assistantRows = async () =>
+        ((await (await request.get(`${E2E_BASE}/api/topics/${c}/messages?limit=50`)).json()) as { messages: { role: string; partial?: boolean }[] })
+          .messages.filter((m) => m.role === "assistant");
+      await expect.poll(async () => (await assistantRows()).some((m) => m.partial), { timeout: 20_000, message: "the server deleted the empty row" }).toBe(false);
+      const rows = (await assistantRows()).length;
+      const deletedAt = Date.now();
+      expect(app.saw("stream:end"), "the page never saw the end").toBe(false);
+      await pastHistoryDedup(sent);
+      app.state.refuse = false;
+      await expect.poll(() => app.state.opens, { timeout: 30_000, message: "the socket comes back" }).toBeGreaterThan(opens);
+      await expect.poll(() => sent.filter((t) => t > deletedAt).length, { timeout: 15_000, message: "the reconnect reads the history" }).toBeGreaterThan(0);
+      const bubbles = () => page.locator(`[data-chat-topic-id="${c}"] [data-testid="chat-message"][data-role="assistant"]`).count();
+      await expect.poll(bubbles, { timeout: 10_000, message: "one bubble per assistant row of the database" }).toBe(rows);
       await expect.poll(() => busy(page, c), { timeout: 5_000, message: "no turn running on screen" }).toBe(false);
     } finally {
       await deleteTopic(request, c).catch(() => {});
