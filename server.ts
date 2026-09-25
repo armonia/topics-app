@@ -176,6 +176,7 @@ import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
 import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
 import { createPushRouter } from "./server/routes/push";
+import { createClientTraceRouter } from "./server/routes/client-trace";
 import { createNotificationsRouter } from "./server/routes/notifications";
 import { recordAndAnnounce } from "./server/notification-registry";
 import { createUiStateRouter, loadAllUiState, assertUiStateMigrationApplied } from "./server/routes/ui-state";
@@ -2702,6 +2703,8 @@ const pushRouter = createPushRouter(ctx);
 // La CRONOLOGIA delle notifiche: leggerla, scriverci (il banner del client
 // registra qui la sua riga), segnarla vista. Vedi migration 101.
 const notificationsRouter = createNotificationsRouter(ctx);
+// The client's `[pane-attach]` trace, written into this log (card c5c1c68f).
+const clientTraceRouter = createClientTraceRouter(ctx);
 // Chiudere una tab E' il ritiro di cio' che contiene, deciso lato server.
 //
 // Il client gia' archivia la chat e chiude la sessione quando e' LUI a chiudere.
@@ -3788,6 +3791,7 @@ const opzioniServer = {
         || await tasksRouter(req, url, pathname, method)
         || await pushRouter(req, url, pathname, method)
         || await notificationsRouter(req, url, pathname, method)
+        || await clientTraceRouter(req, url, pathname, method)
         || await uiStateRouter(req, url, pathname, method)
         || await providersRouter(req, url, pathname, method)
         || await appSettingsRouter(req, url, pathname, method)

@@ -10,6 +10,8 @@ import { bootstrapPaneStore, paneChunksWarm } from './state/pane/bootstrap';
 import { awaitWithCap, recordFirstFrameGate, FIRST_FRAME_WARM_CAP_MS } from './lib/firstFrameGate';
 import { initWindowPresence } from './state/windowPresence';
 import { installNetShim } from './lib/shell/net';
+import { installPaneAttachTraceSink } from './lib/paneAttachTrace';
+import { getTabId } from './state/pane/middleware/syncCrossTab';
 import { isInternalDrag } from './lib/dndTypes';
 import { installPaneDragFlag } from './lib/paneDragFlag';
 import { SessionRoot } from './components/Share/SessionRoot';
@@ -21,6 +23,10 @@ import { ErrorBoundary } from './components/Shared/ErrorBoundary';
 // server. Deve girare prima di ogni fetch di bootstrap. Su web non si installa —
 // lì l'URL relativo è già quello giusto.
 installNetShim();
+// The `[pane-attach]` trace goes to the server log too: the desktop console is
+// read by nobody after the fact (card c5c1c68f). After the shim, so that under
+// Tauri its POST reaches the data server.
+installPaneAttachTraceSink(getTabId);
 
 const container = document.getElementById('root')
 if (!container) {
