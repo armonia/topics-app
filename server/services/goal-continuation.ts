@@ -441,6 +441,7 @@ export function goalContinuationForChatRoute(deps: {
   ctx: {
     db: Database;
     getTopicById: (id: string) => Topic | null;
+    getTopicBySessionKey: (sessionKey: string) => Topic | null;
     broadcastToAll: (msg: OutboundMessage) => void;
     isStreaming: (sessionKey: string) => unknown;
   };
@@ -509,5 +510,35 @@ export function goalContinuationForChatRoute(deps: {
     useRoute(handler: ChatRouteLike) { route ??= handler; },
     onTurnEnd,
     stopWaiting: onTurnEnd.stopWaiting,
+    /**
+     * THE GOALS THAT WAITED, BACK AFTER A RESTART. The waiting turns and their
+     * check-ins lived in the old process. A session the boot kept for its
+     * background work (`keepScanAsProcess`) waits again, its check-in counted
+     * from now, as if its last turn had just ended: otherwise a job that never
+     * reports leaves its goal unpursued for good. A job that reports ends a
+     * turn of its own, which is judged as usual.
+     */
+    async resumeAfterBoot(sessionKeys: string[]): Promise<void> {
+      for (const sessionKey of sessionKeys) {
+        const topic = ctx.getTopicBySessionKey(sessionKey);
+        if (!topic || topic.archived) continue;
+        try {
+          const last = ctx.db.query(
+            `SELECT content FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC, rowid DESC LIMIT 1`,
+          ).get(sessionKey) as { content: string | null } | null;
+          // A board card's turns are the dispatcher's, as they are at any turn end.
+          const dispatched = !!ctx.db.query(`SELECT 1 FROM tasks WHERE status = 'in_progress' AND assigned_topic_id = ?`).get(topic.id);
+          await onTurnEnd({
+            sessionKey, topicId: topic.id, dispatched, end: "end_turn", discarded: false, pendingAsk: false,
+            usedTools: true, backgroundWork: true, lastAssistantText: last?.content ?? "",
+          });
+        } catch (err) {
+          deps.log?.(`goal-loop: ${sessionKey}: cannot resume the waiting goal (${err instanceof Error ? err.message : String(err)})`);
+        }
+      }
+    },
   };
 }
+
+/** The chat route's goal loop, as the Stop and the boot hold it. */
+export type ChatGoalLoop = ReturnType<typeof goalContinuationForChatRoute>;

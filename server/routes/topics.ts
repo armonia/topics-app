@@ -15,7 +15,7 @@ import { createHistoryRouter, createToolDetailRouter } from "./history";
 import { blocksForDisk, leanMessagesForWire, toolCallsColumnForRow } from "../../shared/lean-tool-call";
 import { MACHINE_ROW_SQL } from "../../shared/prompt-number";
 import { noticeOwedChanges } from "../lib/background-notice";
-import { goalContinuationForChatRoute } from "../services/goal-continuation";
+import { goalContinuationForChatRoute, type ChatGoalLoop } from "../services/goal-continuation";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
@@ -468,7 +468,7 @@ export function createTopicsRouter(
   browserService?: BrowserService,
   paneAttachedTo: (contextId: string) => boolean = () => false,
   /** What the chat route needs from the outside and this closure does not own. */
-  extra: { hooks?: LifecycleHookRunner } = {},
+  extra: { hooks?: LifecycleHookRunner; exposeGoalLoop?: (loop: ChatGoalLoop) => void } = {},
 ): RouteHandler {
   const {
     GATEWAY_URL, GATEWAY_TOKEN, OPENCLAW_DIR,
@@ -881,13 +881,13 @@ export function createTopicsRouter(
   // The two doors that leave the machine (mail and Google): same treatment as
   // the human channel, because the confirmation they impose IS that channel.
   const outboundRouter = createOutboundRouter(ctx);
-  /** Apply a spawn-time config change to the session's child, or learn why it waits. */
-  const refreshConfig = (topic: Topic) => {
+  const refreshConfig = (topic: Topic) => { // apply a spawn-time change, or learn why it waits
     try { return resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
     catch (err) { console.warn(`[topics] refreshSessionConfig failed for ${topic.sessionKey}:`, err); }
   };
-  // Built here and not inside the chat route: the Stop below needs its handle.
+  // Built here, not in the chat route: the Stop below and the boot need its handle.
   const goalLoop = goalContinuationForChatRoute({ ctx, resolveProvider, log: (m) => console.log(`[goal] ${m}`) });
+  extra.exposeGoalLoop?.(goalLoop);
   const chatRouter = createChatRouter(ctx, {
     resolveProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,

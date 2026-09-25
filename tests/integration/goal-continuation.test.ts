@@ -20,7 +20,7 @@ import { createChatRouter } from "../../server/routes/chat";
 import { registerProvider, removeProvider } from "../../server/providers";
 import { setGoal, getActiveGoal, setGoalLoop } from "../../server/services/goals";
 import { MAX_GOAL_CONTINUATIONS } from "../../server/services/goal-loop";
-import { createGoalContinuation, GOAL_CHECK_IN_LIMIT, GOAL_CHECK_IN_MS, GOAL_WAKE_RECHECK_MS, goalCheckInDelayMs, type TurnEndInfo } from "../../server/services/goal-continuation";
+import { createGoalContinuation, goalContinuationForChatRoute, GOAL_CHECK_IN_LIMIT, GOAL_CHECK_IN_MS, GOAL_WAKE_RECHECK_MS, goalCheckInDelayMs, type TurnEndInfo } from "../../server/services/goal-continuation";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, ContentBlock, Topic } from "../../server/types";
 
@@ -444,6 +444,32 @@ describe("a goal deferred on background work", () => {
     await t.advance(GOAL_CHECK_IN_MS * 8);
     expect(t.judged).toEqual([]);
     expect(t.sent).toEqual([]);
+    await close();
+  });
+
+  test("after a restart the boot hands back the goals that waited: the check-in is armed again", async () => {
+    // The waiting turns lived in the old process. A session kept for its
+    // background work, whose job never reports, left its goal unpursued for good.
+    const b = await banco("goal-boot-resume", []);
+    b.ctx.appendLocalMessage(b.sessionKey, "assistant", "started the dev server, watching it");
+    const logs: string[] = [];
+    const loop = goalContinuationForChatRoute({
+      ctx: b.ctx as never,
+      resolveProvider: () => ({ name: "fake", complete: async () => ({ content: "continue" }) }),
+      log: (m) => logs.push(m),
+    });
+    await loop.resumeAfterBoot([b.sessionKey, "topic:not-a-topic"]);
+    expect(logs).toEqual([expect.stringContaining(`${b.sessionKey}: background work still running, the goal waits for the turn it wakes (check-in in 30 min)`)]);
+    // A board card's session is the dispatcher's: nothing is armed for it.
+    const at = new Date().toISOString();
+    b.ctx.db.run(
+      `INSERT INTO tasks (id, project_id, text, status, assigned_topic_id, created_at, updated_at) VALUES ('task-boot', 'p', 'x', 'in_progress', ?, ?, ?)`,
+      [b.topic.id, at, at],
+    );
+    logs.length = 0;
+    await goalContinuationForChatRoute({ ctx: b.ctx as never, resolveProvider: () => ({}) as never, log: (m) => logs.push(m) })
+      .resumeAfterBoot([b.sessionKey]);
+    expect(logs).toEqual([]);
     await close();
   });
 

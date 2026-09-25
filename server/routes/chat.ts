@@ -35,7 +35,7 @@ import {
 } from "./processes";
 import { insertCompactionMarkerIfNew, backfillPostTokens } from "../db/compaction-markers";
 import { getActiveGoal, replaceSteps } from "../services/goals";
-import { goalContinuationForChatRoute, type TurnEndInfo as GoalTurnEnd } from "../services/goal-continuation";
+import { goalContinuationForChatRoute, type ChatGoalLoop, type TurnEndInfo as GoalTurnEnd } from "../services/goal-continuation";
 import { recordSessionContext } from "../db/session-context";
 import { buildContextUpdate } from "../usage/usage-update";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
@@ -164,7 +164,7 @@ export interface ChatDeps {
    */
   hooks?: LifecycleHookRunner;
   /** The goal loop, when the caller needs its handle too (the Stop of background work). */
-  goalLoop?: ReturnType<typeof goalContinuationForChatRoute>;
+  goalLoop?: ChatGoalLoop;
 }
 
 /**

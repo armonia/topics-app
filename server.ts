@@ -159,7 +159,7 @@ import { createBillingRouter, isBillingWebhookPath } from "./server/routes/billi
 import { createAccountRouter } from "./server/routes/account";
 import { createPeopleRouter } from "./server/routes/people";
 import { getGatewayWS } from "./server/gateway-ws";
-import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend, stallBackgroundHold } from "./server/providers";
+import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend, sessionsWithBackgroundWork, stallBackgroundHold } from "./server/providers";
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import type { AbortReason } from "./server/providers/types";
@@ -248,6 +248,7 @@ import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLand
 import { decodeCol, encodeCol } from "./shared/message-blob";
 import { budgetShare, capMode, governorReading, TURN_ERROR_PREFIX } from "./shared/board";
 import { BACKGROUND_NOTICE_PREFIX, postBackgroundNotice } from "./server/lib/background-notice";
+import type { ChatGoalLoop } from "./server/services/goal-continuation";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -842,7 +843,8 @@ const paneAttachedTo = (contextId: string): boolean => {
   return false;
 };
 // The user's `turn-end` hook reaches the chat route from here (HOOKS-02).
-const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo, { hooks: defaultLifecycleHooks() });
+let goalLoop: ChatGoalLoop | null = null;
+const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo, { hooks: defaultLifecycleHooks(), exposeGoalLoop: (l) => { goalLoop = l; } });
 const orchestratorSessionsRouter = createOrchestratorSessionsRouter(ctx);
 const filesRouter = createFilesRouter(ctx);
 const voiceRouter = createVoiceRouter(ctx);
@@ -5759,6 +5761,8 @@ reattachSurvivingChatTurns()
   .then(() => reconcileOrphanedTranscripts())
   .then(() => reconcileArchivedTopicSessions())
   .then(() => riprendiTurniInterrotti(resumeCtx, topicsRouter))
+  // The sessions the reattach kept for their background work: their goals wait again.
+  .then(() => goalLoop?.resumeAfterBoot(sessionsWithBackgroundWork()))
   .catch((err) => console.error("[chat-reattach] boot sweep failed", err))
   .finally(() => scheduleResumeSweep());
 
