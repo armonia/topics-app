@@ -1,11 +1,11 @@
-import { rowCarryingAsk, type AskHaystackRow } from "../lib/ask-answer-routing";
+import { rowCarryingAsk, rowCarryingTool, type AskHaystackRow } from "../lib/ask-answer-routing";
 import { canonicalProjectPath } from "../lib/canonical-project-path";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
-import type { AppContext, RouteHandler, Topic } from "../types";
+import type { AppContext, RouteHandler, Topic, ToolCall } from "../types";
 import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
 import { createTopicProviderResolver } from "../providers/topic-provider-resolver";
 import { getSnapshotManager } from "../providers/snapshot-manager";
@@ -2582,17 +2582,26 @@ export function createTopicsRouter(
       // NOT ONLY THE LAST ROW - the rule and its measurement live in
       // `lib/ask-answer-routing.ts`. The window is short on purpose: the
       // question being answered belongs to this exchange, and a scan of the
-      // whole session would cost a table walk per answer. The row that carries
-      // the question is also where the answer is written, below.
-      const askRowId = (() => {
-        if (response.kind !== 'questions') return null;
+      // whole session would cost a table walk per answer.
+      const recentRows = (() => {
         try {
-          const rows = ctx.db.prepare(
+          return ctx.db.prepare(
             "SELECT id, tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 20",
           ).all(sessionKey) as AskHaystackRow[];
-          return rowCarryingAsk(rows, toolCallId, decodeCol);
-        } catch { return null; }
+        } catch { return [] as AskHaystackRow[]; }
       })();
+      const askRowId = response.kind === 'questions' ? rowCarryingAsk(recentRows, toolCallId, decodeCol) : null;
+      // EVERY WRITE OF THIS ROUTE GOES ON THE ROW THAT CARRIES THE TOOL, by id,
+      // whatever the tool: a question, the outbound gate's confirmation painted
+      // on its `send_mail` row, a plan, a provider's paused tool. The last row
+      // is that row only while nothing was written after it: a sweep notice, a
+      // resend, a woken turn (card 1046df0b). `null` means the tool was never
+      // announced in the window, and then nothing is written: never "the last
+      // row" instead.
+      const toolRowId = rowCarryingTool(recentRows, toolCallId, decodeCol);
+      const patchToolRow = (patch: Partial<ToolCall>) => {
+        if (toolRowId) updateToolCallFields(sessionKey, toolCallId, patch, { rowId: toolRowId });
+      };
       const answeringBridgeAsk = response.kind === 'questions' && (hasPendingAsk(sessionKey) || askRowId !== null);
       if (answeringBridgeAsk) {
         // AND THE ANSWER NAMES THE QUESTION, here too.
@@ -2637,13 +2646,14 @@ export function createTopicsRouter(
         // re-open the panel for an already-answered question. We intentionally
         // do NOT call resumeWithToolResponse — the bridge return is the result.
         try { resolveProvider(topic).clearPendingInput?.(sessionKey, toolCallId); } catch { /* provider gone; nothing to clear */ }
-        // On the question's own row: a question asked by a turn the watchdog
-        // had already closed sits above the sweep's notice, and the last row
-        // does not carry it (card 1046df0b).
-        updateToolCallFields(sessionKey, toolCallId, {
+        // On the panel's own row: a question asked by a turn the watchdog had
+        // already closed sits above the sweep's notice, and the last row does
+        // not carry it (card 1046df0b). No row carries it: the answer is
+        // delivered all the same, and nothing is written on the last row.
+        patchToolRow({
           status: 'running',
           userResponse: normalised,
-        }, askRowId ? { rowId: askRowId } : undefined);
+        });
         broadcastToAll({
           type: 'stream:tool_update',
           sessionKey,
@@ -2670,7 +2680,7 @@ export function createTopicsRouter(
       if (response.kind === 'questions' && isPlanApprovalAnswer(response)) {
         const submittedAt = new Date().toISOString();
         const topicForPlan = getTopicBySessionKey(sessionKey);
-        updateToolCallFields(sessionKey, toolCallId, {
+        patchToolRow({
           status: 'success',
           userResponse: { ...response, submittedAt },
         });
@@ -2699,7 +2709,7 @@ export function createTopicsRouter(
         const errMsg = provider.resumeWithToolResponse
           ? `provider ${provider.name} is not connected`
           : `provider ${provider.name} does not support user input`;
-        updateToolCallFields(sessionKey, toolCallId, {
+        patchToolRow({
           status: 'error',
           error: errMsg,
         });
@@ -2742,7 +2752,7 @@ export function createTopicsRouter(
         // Provider rejected (no pending input, process dead, stdin write
         // failed). Flag the tool as errored so the UI unblocks; the next
         // user turn can retry from scratch.
-        updateToolCallFields(sessionKey, toolCallId, {
+        patchToolRow({
           status: 'error',
           error: msg,
         });
@@ -2760,7 +2770,7 @@ export function createTopicsRouter(
         return errorResponse(status, msg);
       }
 
-      updateToolCallFields(sessionKey, toolCallId, {
+      patchToolRow({
         status: 'running',
         userResponse: normalised,
       });
