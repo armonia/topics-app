@@ -119,7 +119,7 @@ describe("AiBridgeClient", () => {
     const after = Date.now();
     await new Promise((r) => setTimeout(r, 300));
     const res = await client.attach(id, 0);
-    expect(res.protocol).toBe(2);
+    expect(res.protocol).toBe(3);
     expect(res.lastDataAt).toBeGreaterThanOrEqual(before);
     expect(res.lastDataAt).toBeLessThanOrEqual(after);
   });

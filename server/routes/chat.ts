@@ -3478,7 +3478,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
             // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.
             topicProvider.registerStreamHandler?.(sessionKey, undefined, handler);
-            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; fastMode?: boolean } = {};
+            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; fastMode?: boolean; rowId?: string } = { rowId: partialMsg.id };
             if (overrideModel) sendOptions.model = overrideModel;
             // La richiesta di fast mode viaggia COME richiesta: decide il
             // provider, che la gira alla CLI solo se la CLI ha detto di poterla
@@ -3531,7 +3531,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // prima della riga parziale e di qualunque stream: vedi la guardia
             // `reattach_unsupported` alla risoluzione del provider. `!` qui è
             // sostenuto da quella guardia, non da un'assunzione.
-            const reattachFn = (topicProvider as unknown as { reattach?: (sk: string, h: StreamHandler) => Promise<string> }).reattach;
+            const reattachFn = (topicProvider as unknown as { reattach?: (sk: string, h: StreamHandler, o?: { rowId?: string }) => Promise<string> }).reattach;
             // Il risveglio si adotta in modo SINCRONO (gli eventi sono già nel
             // provider). `false` = l'ha preso qualcun altro, o il figlio è morto.
             const adoptWoken = (topicProvider as unknown as { adoptWokenTurn?: (sk: string, h: StreamHandler) => boolean }).adoptWokenTurn;
@@ -3540,7 +3540,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   ? Promise.resolve({ runId: "woken" })
                   : Promise.reject(new Error("WOKEN_TURN_GONE")))
               : isReattach
-              ? reattachFn!.call(topicProvider, sessionKey, handler).then((outcome) => ({ runId: outcome }))
+              ? reattachFn!.call(topicProvider, sessionKey, handler, { rowId: partialMsg.id }).then((outcome) => ({ runId: outcome }))
               : topicProvider.sendChat(
                   sessionKey,
                   userContent,
