@@ -1,6 +1,6 @@
 /**
  * THE CHAT'S SSE STREAM OUTLIVES A SILENT TOOL, AND SAYS WHICH TURN IT IS.
- * @covers CCLI-03
+ * @covers CHAT-STREAM-01, CHAT-INT-01
  *
  * Measured on 2026-09-24 (chat 3019832f): a Bash with a 300 s timeout started
  * at 23:35:30Z, and the SSE response of POST /api/chat closed at 23:39:45Z,
@@ -212,12 +212,12 @@ describe("the board's stall watch with pings on the stream", () => {
   });
 
   test("a comment-only chunk is a ping; a chunk with data is activity", () => {
-    const enc = (s: string) => new TextEncoder().encode(s);
-    expect(isSseCommentOnly(enc(": ping\n\n"))).toBe(true);
-    expect(isSseCommentOnly(enc(": ping\n\n: ping\n\n"))).toBe(true);
-    expect(isSseCommentOnly(enc(": ping\n\ndata: {}\n\n"))).toBe(false);
-    expect(isSseCommentOnly(enc("data: [DONE]\n\n"))).toBe(false);
-    expect(isSseCommentOnly(enc(""))).toBe(false);
+    const bytes = (s: string) => new TextEncoder().encode(s);
+    expect(isSseCommentOnly(bytes(": ping\n\n"))).toBe(true);
+    expect(isSseCommentOnly(bytes(": ping\n\n: ping\n\n"))).toBe(true);
+    expect(isSseCommentOnly(bytes(": ping\n\ndata: {}\n\n"))).toBe(false);
+    expect(isSseCommentOnly(bytes("data: [DONE]\n\n"))).toBe(false);
+    expect(isSseCommentOnly(bytes(""))).toBe(false);
     expect(isSseCommentOnly(undefined)).toBe(false);
   });
 });

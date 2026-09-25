@@ -1,4 +1,5 @@
 /**
+ * @covers CHAT-STREAM-01
  * PREMISE, on the real code: a live turn inside a silent tool drops out of
  * GET /api/topics/streaming once its lastActivity is > 3 min old, while its row
  * is still partial with half a reply, and the real messages route serves that

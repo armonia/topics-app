@@ -161,8 +161,7 @@ export interface ChatDeps {
    * only add a line to the chat. Native runtime only.
    */
   hooks?: LifecycleHookRunner;
-  /** The SSE ping's interval (`lib/sse-ping.ts`). Tests only: the real one
-   *  is 20 s. */
+  /** The SSE ping's interval (`lib/sse-ping.ts`); tests only, the real one is 20 s. */
   ssePingMs?: number;
 }
 
@@ -945,8 +944,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       // fondo: se schiantiamo dopo averla aperta, va chiusa lì — vedi
       // crashedTurnNotice.ts. Dichiarata fuori dal `try` apposta.
       let crashedPartialId: string | null = null;
-      // Out here for the same reason: the last catch stops it too.
-      let stopPing = () => {};
+      let stopPing = () => {}; // out here too: the last catch stops it
       /**
        * La riga com'è ADESSO, per decidere se un cartello d'errore può scriverci
        * sopra. Le tre colonne servono tutte: `content` da solo direbbe «vuota»
@@ -1381,16 +1379,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (clientDisconnected) return;
             try { await writer.write(encoder.encode(`data: ${data}\n\n`)); } catch { clientDisconnected = true; }
           };
-          // A byte on the wire every 20 s while the turn is alive. Bun's idle
-          // timeout (255 s, server.ts) cut this response into a silent tool,
-          // with no [DONE], while the turn went on (chat 3019832f,
-          // 2026-09-24); every write resets it, and so does this one. Every
-          // write here is a whole event, so a comment line never splits one.
+          // A byte every 20 s while the turn lives: Bun's 255 s idle timeout cut this
+          // response into a silent tool (chat 3019832f), and every write resets it.
           stopPing = startSsePing({
-            write: (chunk) => {
-              if (clientDisconnected) return;
-              writer.write(chunk).catch(() => { clientDisconnected = true; });
-            },
+            write: (chunk) => { if (!clientDisconnected) writer.write(chunk).catch(() => { clientDisconnected = true; }); },
             alive: () => !clientDisconnected && streamState !== "finalized",
             intervalMs: ssePingMs,
           });
@@ -1399,18 +1391,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (clientDisconnected) return;
             try { await writer.close(); } catch { clientDisconnected = true; }
           };
-          // THE READER LEARNS WHICH TURN THIS IS, AND HOW IT ENDED, on the
-          // stream itself. The first frame names this turn's row; the last,
-          // before [DONE], says the end when it is not a finished answer.
-          // send_chat_message needs both: the row to wait on when the stream
-          // is cut, and the end, so half a reply that was stopped or failed is
-          // never handed back as the reply. The other readers look only at
-          // `choices` and skip these frames.
+          // `turn` frames, for send_chat_message: the first names this turn's row (what
+          // a cut stream waits on), the last says an end that is not a finished answer,
+          // so a stopped half is never the reply. Other readers look only at `choices`.
           writeSSE(JSON.stringify({ turn: { messageId: partialMsg.id } }));
-          const writeTurnEnd = (info: TurnEndInfo | undefined) =>
-            !info || info.end === "end_turn"
-              ? Promise.resolve()
-              : writeSSE(JSON.stringify({ turn: { end: info.end, ...(info.cause ? { cause: info.cause } : {}) } }));
+          const writeTurnEnd = (info?: TurnEndInfo) => !info || info.end === "end_turn" ? Promise.resolve()
+            : writeSSE(JSON.stringify({ turn: { end: info.end, ...(info.cause ? { cause: info.cause } : {}) } }));
 
           // ── Stream timeout state machine (resilience layer) ────────────
           //
@@ -1860,8 +1846,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             streamState = "finalized";
             clearAllTimers();
             topicProvider.unregisterStreamHandler?.(sessionKey);
-            // Whoever aborted deposited the cause first (/api/chat/abort, the
-            // sweeper); one older than this request belongs to another turn.
+            // Deposited by whoever aborted (abort route, sweeper); an older one is another turn's.
             const deposited = readTurnEnd(sessionKey);
             writeTurnEnd(deposited && deposited.atMs >= requestStartMs ? deposited.info : { end: "cancelled" })
               .then(() => writeSSE("[DONE]")).then(() => closeClient())

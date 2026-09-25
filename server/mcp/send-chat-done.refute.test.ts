@@ -1,4 +1,5 @@
 /**
+ * @covers CHAT-INT-01
  * Copied from the independent review of df9b2fd2e (card 63e01ac0). Adapted to
  * the fix: the streams carry the route's `turn` frames (the row that is cut,
  * the end of a stopped turn), and the stopped turn may answer with an explicit

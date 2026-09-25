@@ -1,5 +1,6 @@
 /**
  * Refutation tests for the cut-stream fallback of send_chat_message.
+ * @covers CHAT-STREAM-01
  * Each test models a behaviour of the REAL server, cited next to it.
  *
  * Copied from the independent review of df9b2fd2e (card 63e01ac0). Adapted to
