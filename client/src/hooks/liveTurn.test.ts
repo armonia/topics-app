@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { LIVE_TURN_MAX_SESSIONS, LiveTurnIds, liveAssistantIndex, shouldFillFromBroadcast } from './liveTurn';
+// New in the review of PR #135: through the namespace, so the rest of this file
+// still loads on the code before it.
+import * as liveTurn from './liveTurn';
 import type { ChatMessage } from '../types';
 
 /**
@@ -108,5 +111,29 @@ describe('shouldFillFromBroadcast', () => {
 
   test('niente da riempire se la riga non ce', () => {
     expect(shouldFillFromBroadcast(undefined, 'testo')).toBe(false);
+  });
+});
+
+describe('frameTargetIndex: the bubble a frame names', () => {
+  const msgs = [
+    { id: 'u1', role: 'user' },
+    { id: 'turn-1', role: 'assistant' },
+    { id: 'notice', role: 'assistant' },
+  ] as never;
+
+  test('a late frame of a closed turn lands on its bubble, not on the last one', () => {
+    // The turn's live id was cleared at stream:end, so the old fallback picked
+    // the notice below it.
+    expect(liveTurn.frameTargetIndex(msgs, undefined, { messageId: 'turn-1', late: true })).toBe(1);
+  });
+
+  test('a late frame whose bubble is not in view goes nowhere', () => {
+    expect(liveTurn.frameTargetIndex(msgs, undefined, { messageId: 'not-loaded', late: true })).toBe(-1);
+  });
+
+  test('a live frame with an unknown name keeps the long-standing fallback', () => {
+    // A window that only watches another's turn holds a local placeholder id.
+    expect(liveTurn.frameTargetIndex(msgs, undefined, { messageId: 'server-id' })).toBe(2);
+    expect(liveTurn.frameTargetIndex(msgs, undefined, undefined)).toBe(2);
   });
 });

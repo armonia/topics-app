@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { ChatMessage, ChatRequest, CompactionMarker, ContentBlock, HistoryMessage, Message, ToolCall, WSMessage } from '../types';
+import type { ChatMessage, ChatRequest, CompactionMarker, ContentBlock, HistoryMessage, Message, ToolCall, WSFrameRow, WSMessage } from '../types';
 import { chatApi, apiErrorCode } from '../lib/api';
 import { decideClientWipeOnStop } from './stopSessionPolicy';
 // "Un turno che non ha prodotto niente non lascia niente" — la STESSA regola che
@@ -8,7 +8,7 @@ import { decideClientWipeOnStop } from './stopSessionPolicy';
 import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder, CLIENT_MESSAGE_ID_PREFIX } from './streamCatchupMerge';
 import { clearPartialForReattach, reviveClosedBubble } from './streamReattachReset';
-import { LiveTurnIds, liveAssistantIndex, shouldFillFromBroadcast } from './liveTurn';
+import { LiveTurnIds, frameTargetIndex, liveAssistantIndex, shouldFillFromBroadcast } from './liveTurn';
 import { liveInterruptionBlock } from '../components/Chat/turnError';
 import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
@@ -983,10 +983,10 @@ export function useChat() {
     return arr;
   };
 
-  const appendToLastMessage = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string) => {
+  const appendToLastMessage = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string, frame?: WSFrameRow) => {
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
-      const lastMessageIndex = liveAssistantIndex(sessionMessages, streamMessageIdRef.current.get(sessionKey));
+      const lastMessageIndex = frameTargetIndex(sessionMessages, streamMessageIdRef.current.get(sessionKey), frame);
 
       if (lastMessageIndex >= 0) {
         const updatedMessages = [...sessionMessages];
@@ -1014,10 +1014,10 @@ export function useChat() {
     });
   }, []);
 
-  const addToolCallToLastMessage = useCallback((sessionKey: string, toolCall: ToolCall) => {
+  const addToolCallToLastMessage = useCallback((sessionKey: string, toolCall: ToolCall, frame?: WSFrameRow) => {
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
-      const lastMessageIndex = liveAssistantIndex(sessionMessages, streamMessageIdRef.current.get(sessionKey));
+      const lastMessageIndex = frameTargetIndex(sessionMessages, streamMessageIdRef.current.get(sessionKey), frame);
 
       if (lastMessageIndex >= 0) {
         const updatedMessages = [...sessionMessages];
@@ -1338,7 +1338,14 @@ export function useChat() {
 
       case 'stream:thinking_chunk':
         if (event.content) {
-          bufferLiveDelta(sessionKey, undefined, event.content);
+          // A closed turn's late answer goes straight to the bubble it names,
+          // outside the live buffer, which belongs to the turn in flight.
+          if (event.late) {
+            flushLiveDeltas(sessionKey);
+            appendToLastMessage(sessionKey, undefined, event.content, event);
+          } else {
+            bufferLiveDelta(sessionKey, undefined, event.content);
+          }
         }
         break;
 
@@ -1349,6 +1356,13 @@ export function useChat() {
       case 'stream:content_chunk':
         if (event.content) {
           const cleanedChunk = cleanInvisibleMarkers(event.content);
+          if (event.late) {
+            // Same as the thinking above; and no watchdog reset, it guards the
+            // turn in flight, not this one.
+            flushLiveDeltas(sessionKey);
+            if (cleanedChunk) appendToLastMessage(sessionKey, cleanedChunk, undefined, event);
+            break;
+          }
           if (cleanedChunk) bufferLiveDelta(sessionKey, cleanedChunk, undefined);
           resetStreamTimeout(sessionKey); // Reset watchdog on each chunk (immediate, not deferred)
         }
@@ -1371,7 +1385,7 @@ export function useChat() {
 
       case 'stream:tool_call':
         if (event.toolCall) {
-          addToolCallToLastMessage(sessionKey, event.toolCall as ToolCall);
+          addToolCallToLastMessage(sessionKey, event.toolCall as ToolCall, event);
         }
         break;
 
@@ -1685,7 +1699,7 @@ export function useChat() {
         }
         break;
     }
-  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn]);
+  }, [addToolCallToLastMessage, appendToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {

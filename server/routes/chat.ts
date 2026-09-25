@@ -53,7 +53,7 @@ import { dispatchBrowserToolCall, providerRunsBrowserToolsItself, resolveContext
 import { decodeCol } from "../../shared/message-blob";
 import { isAwaitingHuman } from "../../shared/types";
 import { createTurnBodyPersist } from "../lib/turn-body-persist";
-import { silenceAfterFinalize } from "../lib/finalized-turn-guard";
+import { guardFinalizedTurn } from "../lib/finalized-turn-guard";
 import { registerTurnBodyFlush } from "../lib/turn-body-flush";
 import { setProviderHold, holdUntilLabel } from "../lib/provider-hold";
 import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
@@ -1152,11 +1152,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // still arrives (a tool result that came back after the end) is
           // written NOW. Deferring it would leave the row without it until an
           // event that will never come, and would put the write on a timer
-          // outliving the turn that owns it. Since the provider's callbacks
-          // are silenced once the turn is closed (`silenceAfterFinalize`
-          // below), what still arrives here is a tool the ROUTE runs itself
-          // (`browser_*`, control tools) settling after the end, and it lands
-          // on this turn's row by id.
+          // outliving the turn that owns it. What still arrives here after
+          // the close is a late answer's tool (see `guardFinalizedTurn` below)
+          // or a tool the ROUTE runs itself (`browser_*`, control tools)
+          // settling after the end, and it lands on this turn's row by id.
           const persistBlocks = (force = false) => persistTurnBody(false, force || streamState === "finalized");
           const appendToolBlock = (tc: ToolCall) => {
             blocks.push({ kind: "tool", toolCall: tc });
@@ -1301,6 +1300,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // 1046df0b) a closed turn's late answer rewrote six notices that way.
           const ownRow = { rowId: partialMsg.id } as const;
           const ownMirrored = { ...MIRRORED, rowId: partialMsg.id } as const;
+          // The same row, named on the frames that CREATE something on screen
+          // (a tool call), so the client puts it on this bubble; `late` once
+          // the turn is closed, which tells the client not to fall back on its
+          // last bubble when this one is not in view.
+          const rowOfFrame = () => ({
+            messageId: partialMsg.id,
+            ...(streamState === "finalized" ? { late: true as const } : {}),
+          });
           crashedPartialId = partialMsg.id;
           // Su una RIADOZIONE il turno non comincia adesso: è cominciato quando
           // l'ha aperto il turno vero, e noi ci stiamo solo riattaccando. Con
@@ -2437,14 +2444,72 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             }
           };
 
-          // Register event handler for this session.
+          // A LATE ANSWER IS KEPT, ON THIS TURN'S ROW, UNDER THE CUT.
           //
-          // Wrapped so that once this turn is finalized the provider can no
-          // longer reach it: see lib/finalized-turn-guard.ts. The drop is
-          // logged on the first late event and on a late end, which is where
-          // an answer the database will never hold shows up.
-          let lateEvents = 0;
-          const handler: StreamHandler = silenceAfterFinalize({
+          // Once the turn is finalized the provider can still answer into it
+          // (a send that waited in its queue, C2). That answer used to land on
+          // whatever row was last, then was dropped; kept nowhere, the final
+          // answer was lost and the sweep resent a message the CLI had already
+          // executed (review of PR #135). Here it is written on `partialMsg.id`
+          // after the timeout block, the content column keeps the cut above it,
+          // and every frame names the row and says it is late, so a client
+          // paints it on this bubble and never on the last one. Which callbacks
+          // come here, which stay live and which are dropped:
+          // lib/finalized-turn-guard.ts.
+          let lateText = "";
+          let lateDeltas = 0;
+          let droppedLate = 0;
+          const lateFrame = () => ({ messageId: partialMsg.id, late: true as const });
+          const persistLateAnswer = () => {
+            try {
+              updateLastMessage(sessionKey, {
+                content: lateText ? `${fullContent}\n\n${lateText}` : fullContent,
+                thinking: fullThinking || undefined,
+                blocks: blocks.length > 0 ? blocks : undefined,
+              }, ownRow);
+            } catch (err) { console.warn(`[StreamWS] ${sessionKey}: late answer not saved on ${partialMsg.id}:`, err); }
+          };
+          const broadcastLateChunk = (type: "stream:content_chunk" | "stream:thinking_chunk", content: string) => {
+            const chunk = { type, sessionKey, topicId: matchedTopic?.id, content, ...lateFrame() };
+            if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, chunk);
+            else broadcastToAll(chunk);
+          };
+          const lateAnswer: Partial<StreamHandler> = {
+            onTextDelta: (text: string) => {
+              if (!text) return;
+              lateText += text;
+              appendTextBlock(text);
+              broadcastLateChunk("stream:content_chunk", text);
+              lateDeltas += 1;
+              if (lateDeltas % SAVE_INTERVAL === 0) persistLateAnswer();
+            },
+            onThinkingDelta: (text: string) => {
+              if (!text) return;
+              fullThinking += text;
+              appendThinkingBlock(text);
+              broadcastLateChunk("stream:thinking_chunk", text);
+            },
+            onDone: (message?: any) => {
+              // The end carries the whole final text; what the deltas did not
+              // bring is its tail, and the tail is what was lost before.
+              const finalText = message ? extractFinalText(message) : null;
+              if (finalText && finalText.length > lateText.length && finalText.startsWith(lateText)) {
+                const extra = finalText.slice(lateText.length);
+                lateText = finalText;
+                appendTextBlock(extra);
+                broadcastLateChunk("stream:content_chunk", extra);
+              }
+              persistLateAnswer();
+              console.warn(`[StreamWS] ${sessionKey}: late answer of the closed turn ${partialMsg.id} saved on its own row (${lateText.length} chars)`);
+            },
+            // Logged and nothing else. The live `onError` rolls back the inline
+            // preamble mark, and after the close that mark may already belong
+            // to the next turn.
+            onError: (error: string) => {
+              console.warn(`[StreamWS] ${sessionKey}: late error on the closed turn ${partialMsg.id}, ignored: ${error}`);
+            },
+          };
+          const handler: StreamHandler = guardFinalizedTurn({
             onTextDelta: (text: string, _fullText: string) => {
               resetStreamTimer();
               // Il primo argomento È il pezzo nuovo, sempre: lo dice il contratto
@@ -2551,7 +2616,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               resetStreamTimer();
               addToolCallToLastMessage(sessionKey, toolCall, ownMirrored);
               appendToolBlock(toolCall);
-              broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall }, matchedTopic?.id);
+              broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall, ...rowOfFrame() }, matchedTopic?.id);
 
               // Also send as SSE for the HTTP client
               writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCallId, function: { name, arguments: JSON.stringify(args || {}) }, contentOffset: fullContent.length }] } }] }));
@@ -2759,7 +2824,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               if (!merged) return; // never announced (shouldn't happen)
               updateToolCallFields(sessionKey, toolCallId, { args, detail: merged.detail }, ownRow);
               updateBlockTool(toolCallId, { args, detail: merged.detail });
-              broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall: merged }, matchedTopic?.id);
+              broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall: merged, ...rowOfFrame() }, matchedTopic?.id);
               writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ id: toolCallId, function: { name: merged.name, arguments: JSON.stringify(args) }, contentOffset: merged.contentOffset }] } }] }));
             },
 
@@ -3160,10 +3225,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
               finalizeStream("aborted", undefined, message?.turnEnd);
             },
-          }, () => streamState === "finalized", (event) => {
-            lateEvents += 1;
-            if (lateEvents === 1 || event === "onDone") {
-              console.warn(`[StreamWS] ${sessionKey}: ${event} reached turn ${partialMsg.id} after it was closed, ignored (${lateEvents} late event(s)): the provider is still answering a turn the route already finalized`);
+          }, () => streamState === "finalized", lateAnswer, (event) => {
+            droppedLate += 1;
+            if (droppedLate === 1) {
+              console.warn(`[StreamWS] ${sessionKey}: ${event} reached the closed turn ${partialMsg.id} and was dropped (only its text, tools and end are kept)`);
             }
           });
 

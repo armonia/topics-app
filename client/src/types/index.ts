@@ -486,7 +486,16 @@ export interface WSStreamThinkingStartMessage {
   type: 'stream:thinking_start';
   sessionKey: string;
 }
-export interface WSStreamThinkingChunkMessage {
+/**
+ * The row a frame belongs to, on the frames that CREATE something on screen.
+ * `late` marks the answer of a turn already closed (server `guardFinalizedTurn`):
+ * such a frame lands on the bubble it names or nowhere, never on the last one.
+ */
+export interface WSFrameRow {
+  messageId?: string;
+  late?: true;
+}
+export interface WSStreamThinkingChunkMessage extends WSFrameRow {
   type: 'stream:thinking_chunk';
   sessionKey: string;
   content: string;
@@ -495,12 +504,12 @@ export interface WSStreamThinkingEndMessage {
   type: 'stream:thinking_end';
   sessionKey: string;
 }
-export interface WSStreamContentChunkMessage {
+export interface WSStreamContentChunkMessage extends WSFrameRow {
   type: 'stream:content_chunk';
   sessionKey: string;
   content: string;
 }
-export interface WSStreamToolCallMessage {
+export interface WSStreamToolCallMessage extends WSFrameRow {
   type: 'stream:tool_call';
   sessionKey: string;
   toolCall: ToolCall;

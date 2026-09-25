@@ -13,8 +13,12 @@
  * notice as one more interruption of ours and write another notice. Six in
  * thirty minutes.
  *
- * Two rules, one test each:
- *   - a finalized turn ignores whatever the provider still sends it;
+ * The rules:
+ *   - a finalized turn's late answer is kept on ITS row, under the cut, never
+ *     on a row born after it; its frames name that row (review of PR #135);
+ *   - so the sweep reads it as answered and does not resend the message;
+ *   - a question or a permission of a late answer lands on that row too, and a
+ *     permission no row announced is refused instead of held for two hours;
  *   - a LIVE turn writes on its row by id, so a row born after it (a notice,
  *     anything) is never the target of its body or its tools.
  *
@@ -29,7 +33,9 @@ import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import { slackMs } from "../helpers/time-slack";
 import { createChatRouter } from "../../server/routes/chat";
 import { insertRestartNotification, type PartialSweepDb } from "../../server/lib/boot-partial-sweep";
-import { RESUME_CAP_MARKER, resumeVerdict } from "../../server/lib/ripresa-boot";
+import { RESUME_CAP_MARKER, resumeVerdict, riprendiTurniInterrotti } from "../../server/lib/ripresa-boot";
+import { createPermissionRouter } from "../../server/routes/permission";
+import { beginPermission, cancelPermissionsForSession } from "../../server/lib/permission-bridge";
 import { decodeCol } from "../../shared/message-blob";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, ContentBlock, Topic } from "../../server/types";
@@ -167,7 +173,7 @@ function driveLateTurn(handler: StreamHandler): void {
 }
 
 describe("a closed turn writes on no row but its own", () => {
-  test("events reaching a turn the watchdog closed leave the notice after it byte for byte", async () => {
+  test("a late answer lands on the closed turn's own row, under the cut, and the notice after it stays byte for byte", async () => {
     const h = await harness("topic:late-after-grace");
     const handler = await h.startTurn();
     const turnRowId = h.lastRowId();
@@ -194,8 +200,112 @@ describe("a closed turn writes on no row but its own", () => {
       sessionKey: "topic:late-after-grace", ruolo: notice.role, blocks: h.blocksOf(noticeId),
       timestampMs: Date.parse(notice.timestamp), attempts: 0,
     }, Date.now())).toBe("no");
-    // And the closed turn stays closed: no late prose glued to its verdict.
-    expect(h.raw(turnRowId)).toEqual(turnAtClose);
+    // The late answer is KEPT, on T1's own row and under the cut (Attilio's
+    // call in the review of PR #135): the timeout block first, then the text,
+    // the tool and the tail that only the end carried.
+    const closedContent = decodeCol(turnAtClose.content as never) ?? "";
+    const content = decodeCol(h.raw(turnRowId).content as never) ?? "";
+    expect(content.startsWith(`${closedContent}\n\n`)).toBe(true);
+    expect(content).toContain("Due problemi nuovi 10.");
+    expect(content).toContain("Ho sistemato tutti e tre i problemi.");
+    const kinds = h.blocksOf(turnRowId).map((b) => b.kind);
+    const cut = kinds.lastIndexOf("error");
+    expect(cut).toBeGreaterThanOrEqual(0);
+    expect(kinds.slice(cut + 1)).toEqual(["text", "tool", "text"]);
+    // And every late frame named that row and said it was late.
+    const lateFrames = h.sent.filter((m) => m.late === true);
+    expect(lateFrames.length).toBeGreaterThan(0);
+    expect(lateFrames.every((m) => m.messageId === turnRowId)).toBe(true);
+    expect(h.sent.some((m) => m.type === "stream:tool_call" && m.late === true && m.messageId === turnRowId)).toBe(true);
+  });
+
+  test("the message a late answer answered is not resent: the sweep reads the answer under the cut", async () => {
+    // The exact shape of 3019832f: the queue drains, the CLI really answers,
+    // and nothing is written after the closed turn, so the sweep judges T1.
+    const sk = "topic:late-answered";
+    const h = await harness(sk);
+    const handler = await h.startTurn();
+    const turnRowId = h.lastRowId();
+    await until(() => h.sent.some((m) => m.type === "stream:end"));
+
+    driveLateTurn(handler);
+    await sleep(20);
+    expect(h.lastRowId()).toBe(turnRowId);
+
+    const row = h.ctx.db.query("SELECT role, timestamp FROM messages WHERE id = ?").get(turnRowId) as { role: string; timestamp: string };
+    expect(resumeVerdict({
+      sessionKey: sk, ruolo: row.role, blocks: h.blocksOf(turnRowId), timestampMs: Date.parse(row.timestamp), attempts: 0,
+    }, Date.now())).toBe("no");
+
+    const resent: string[] = [];
+    const log = console.log, warn = console.warn;
+    console.log = () => {}; console.warn = () => {};
+    try {
+      await riprendiTurniInterrotti(
+        {
+          db: h.ctx.db,
+          getTopicBySessionKey: (key) => h.ctx.getTopicBySessionKey(key),
+          isStreaming: () => false,
+          providerBusy: () => false,
+          bootedAtMs: Date.now() - 3_600_000,
+        },
+        () => { resent.push(sk); return new Response(null, { status: 200 }); },
+        { responseMs: 500, streamMs: 500 },
+      );
+    } finally { console.log = log; console.warn = warn; }
+    expect(resent).toEqual([]);
+  });
+
+  test("a permission asked by a late answer is painted on the closed turn's row, where it can be answered", async () => {
+    // Card C8 (de3b5a0b). The zombie announces a Bash call, then the CLI's
+    // permission tool asks Topics over HTTP whether it may run it.
+    const sk = "topic:late-perm";
+    const h = await harness(sk);
+    const handler = await h.startTurn();
+    const turnRowId = h.lastRowId();
+    await until(() => h.sent.some((m) => m.type === "stream:end"));
+    const noticeId = h.insertNotice();
+    const noticeBefore = h.raw(noticeId);
+
+    handler.onToolStart("toolu_perm", "Bash", { command: "git push origin main" } as never);
+    const perm = createPermissionRouter(h.ctx);
+    const url = new URL(`http://topics.test/api/sessions/${encodeURIComponent(sk)}/permission`);
+    try {
+      const resp = await perm(new Request(url.toString(), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolName: "Bash", toolUseId: "toolu_perm", input: { command: "git push origin main" }, legMs: 150 }),
+      }), url, url.pathname, "POST") as Response;
+      expect(await resp.json()).toEqual({ pending: true });
+      const tool = h.blocksOf(turnRowId).find((b) => b.kind === "tool" && b.toolCall.id === "toolu_perm");
+      expect(tool && tool.kind === "tool" ? tool.toolCall.status : null).toBe("awaiting_permission");
+      expect(h.raw(noticeId)).toEqual(noticeBefore);
+      expect(h.sent.some((m) => m.type === "stream:tool_permission_required" && m.toolCallId === "toolu_perm")).toBe(true);
+    } finally {
+      cancelPermissionsForSession(sk, "test over");
+    }
+  });
+
+  test("a permission for a tool no row announced is refused after a short grace, not held for two hours", async () => {
+    const sk = "topic:perm-nobody";
+    const h = await harness(sk);
+    await h.startTurn();
+    await until(() => h.sent.some((m) => m.type === "stream:end"));
+    // The request has been open for a minute and still no row carries it.
+    beginPermission(sk, "toolu_ghost", undefined, Date.now() - 60_000);
+    const perm = createPermissionRouter(h.ctx);
+    const url = new URL(`http://topics.test/api/sessions/${encodeURIComponent(sk)}/permission`);
+    try {
+      const resp = await perm(new Request(url.toString(), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolName: "Bash", toolUseId: "toolu_ghost", input: {}, legMs: 150 }),
+      }), url, url.pathname, "POST") as Response;
+      const out = await resp.json() as { cancelled?: boolean };
+      expect(out.cancelled).toBe(true);
+    } finally {
+      cancelPermissionsForSession(sk, "test over");
+    }
   });
 
   test("a question in a late answer lands on the closed turn's own row, where it can be answered", async () => {
@@ -206,8 +316,8 @@ describe("a closed turn writes on no row but its own", () => {
     const noticeId = h.insertNotice();
     const noticeBefore = h.raw(noticeId);
 
-    // The late answer asks the person. The announcement arrives before anyone
-    // knows it is a question; the verdict comes once the arguments are whole.
+    // The late answer asks the person: announcement, arguments, then the
+    // verdict that it is a question, each on the closed turn's row by id.
     handler.onToolStart("toolu_ask", "mcp__topics__ask_user_question", {} as never);
     const questions = [{ question: "Quale ramo?", header: "Ramo", options: [{ label: "main" }, { label: "sito" }] }];
     handler.onToolArgsUpdate?.("toolu_ask", { questions } as never);
@@ -223,8 +333,11 @@ describe("a closed turn writes on no row but its own", () => {
     handler.onToolResult("toolu_ask", "sito", false);
     const answered = h.blocksOf(turnRowId).find((b) => b.kind === "tool" && b.toolCall.id === "toolu_ask");
     expect(answered && answered.kind === "tool" ? answered.toolCall.status : null).toBe("success");
-    // Nothing else of the late answer got through, and the notice is untouched.
-    expect(decodeCol(h.raw(turnRowId).content as never)).not.toContain("testo tardivo");
+    // The late text is kept on the same row (every write is by id), the
+    // question's frame named that row, and the notice is untouched.
+    handler.onDone({} as never);
+    expect(decodeCol(h.raw(turnRowId).content as never)).toContain("testo tardivo");
+    expect(h.sent.some((m) => m.type === "stream:tool_call" && m.messageId === turnRowId && m.late === true)).toBe(true);
     expect(h.raw(noticeId)).toEqual(noticeBefore);
   });
 
