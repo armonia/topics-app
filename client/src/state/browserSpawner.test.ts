@@ -45,6 +45,7 @@ const {
   clearBrowserSpawner,
   subscribeBrowserSpawner,
   resolveTerminalBrowserContext,
+  spawnerOfBrowser,
 } = await import("./browserSpawner");
 
 function reset(): void {
@@ -146,5 +147,19 @@ describe("resolveTerminalBrowserContext", () => {
   test("term-<id> with no recorded spawner falls back to itself", () => {
     // Nothing opened → nothing to remap; the raw id is a harmless no-op target.
     expect(resolveTerminalBrowserContext("term-unknown")).toBe("term-unknown");
+  });
+  test("spawnerOfBrowser keeps the recorded spawner: a terminal's browser stays the terminal's", () => {
+    setBrowserSpawner("term-d1b33bbe", "terminal:d1b33bbe");
+    expect(spawnerOfBrowser("term-d1b33bbe")).toBe("terminal:d1b33bbe");
+    setBrowserSpawner("topic-ctx", "topic-ctx");
+    expect(spawnerOfBrowser("topic-ctx")).toBe("topic-ctx");
+  });
+
+  test("spawnerOfBrowser names the terminal of a term-<id> context nobody recorded", () => {
+    expect(spawnerOfBrowser("term-fresh01")).toBe("terminal:fresh01");
+  });
+
+  test("spawnerOfBrowser has no answer for a context with neither a record nor a terminal", () => {
+    expect(spawnerOfBrowser("5c63c9b5-3727-4688-8669-8c1a0d3a4074")).toBeNull();
   });
 });

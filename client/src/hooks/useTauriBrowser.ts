@@ -76,6 +76,7 @@ import { attemptNativeOpen } from '../lib/shell/nativeBrowserOpen';
 import { normalizeUrl } from '@/lib/browserNavUrl';
 import { openLink } from '../lib/openLink';
 import { createPaneId } from '../state/pane/adapters';
+import { tracePaneAttach } from '../lib/paneAttachTrace';
 
 /** Off-screen X for parking a hidden native view far outside any display — keeps
  *  the webview alive (no reload) while hidden. We park at the last REAL size (not
@@ -1681,7 +1682,9 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
       },
     });
     executorRunRef.current = run;
+    tracePaneAttach('pane socket opened', { contextId: id, shell: 'native' });
     return () => {
+      tracePaneAttach('pane socket released', { contextId: id, shell: 'native' });
       executorRunRef.current = null;
       run.stop();
     };

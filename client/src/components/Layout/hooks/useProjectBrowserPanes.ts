@@ -33,12 +33,15 @@ import {
   getBrowserContextFromPaneId,
   drainProjectBrowserNavigates,
   registerProjectWindow,
+  PROJECT_BROWSER_HAND_OVER_EVENT,
+  type ProjectBrowserHandOver,
 } from '../../../state/pane/adapters';
 import { resolveBrowserNavigateUrl } from '../../../lib/browserNavUrl';
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../../lib/openLink';
 import { insertPaneAfter, resolveOpenTabTarget } from '../../../lib/openTabTarget';
-import { setBrowserSpawner } from '../../../state/browserSpawner';
+import { setBrowserSpawner, spawnerOfBrowser } from '../../../state/browserSpawner';
 import { chooseSplitOrientation } from '../gridWidths';
+import { tracePaneAttach } from '../../../lib/paneAttachTrace';
 
 export interface UseProjectBrowserPanesArgs {
   projectPath: string;
@@ -95,7 +98,14 @@ export function useProjectBrowserPanes({
   // Dichiara questa finestra al registro: chi vorrebbe promuovere qualcosa nel
   // workspace (la board, con «Apri nel workspace») può così sapere se la
   // finestra c'è GIÀ, invece di sparare `topics:open-project` a ogni click.
-  useEffect(() => registerProjectWindow(projectPath), [projectPath]);
+  useEffect(() => {
+    tracePaneAttach('project window mounted', { projectPath });
+    const release = registerProjectWindow(projectPath);
+    return () => {
+      tracePaneAttach('project window unmounted', { projectPath });
+      release();
+    };
+  }, [projectPath]);
 
   // --- Browser-navigate listener (parity with StandaloneChatGroup) -----------
   //
@@ -121,6 +131,11 @@ export function useProjectBrowserPanes({
   // panel consumes it via `onNavigateConsumed`. If the broadcast races the
   // pane mount, the navigateUrl prop will be honoured on first render.
   useEffect(() => {
+    // The group holding the pane that opened a browser (a terminal, for a
+    // `term-<id>` context), so a browser created again lands beside it.
+    const groupHosting = (spawner: string | null): string | undefined =>
+      spawner ? groupsRef.current.find(g => g.paneIds.includes(spawner))?.id : undefined;
+
     const ensureBrowserPaneAndNavigate = (rawUrl: string, targetGroupId?: string, spawnerKey?: string, contextId?: string) => {
       if (!rawUrl) return;
       // Rewrite localhost/127.0.0.1/*.local → the LAN https host for remote/mobile
@@ -167,12 +182,16 @@ export function useProjectBrowserPanes({
       const existing = contextId
         ? panesRef.current.find(p => p.id === createPaneId('browser', contextId))
         : panesRef.current.find(p => p.type === 'browser');
-      if (existing) {
-        const grp = groupsRef.current.find(g => g.paneIds.includes(existing.id));
-        if (grp) {
-          setGroups(prev => prev.map(g => (g.id === grp.id ? { ...g, activePaneId: existing.id } : g)));
-          setFocusedGroupId(grp.id);
-        }
+      const grp = existing ? groupsRef.current.find(g => g.paneIds.includes(existing.id)) : undefined;
+      // A pane that exists but sits in no group (transient: between a hydrate
+      // and its reconcile) has no tab to activate. It goes down the creation
+      // path below, which dedups the pane by id, puts it in the target group
+      // and activates it; left here, the request was claimed and did nothing.
+      if (existing && !grp) tracePaneAttach('existing pane in no group, placing it', { projectPath, paneId: existing.id });
+      if (existing && grp) {
+        tracePaneAttach('reuse existing pane', { projectPath, paneId: existing.id, groupId: grp.id, wasActive: grp.activePaneId === existing.id });
+        setGroups(prev => prev.map(g => (g.id === grp.id ? { ...g, activePaneId: existing.id } : g)));
+        setFocusedGroupId(grp.id);
         const ctx = getBrowserContextFromPaneId(existing.id);
         if (ctx && spawnerKey) setBrowserSpawner(ctx, spawnerKey);
         seedPaneUrl(existing.id);
@@ -184,10 +203,14 @@ export function useProjectBrowserPanes({
       // it lands in its own space-aware cell BESIDE the chat/terminal instead
       // of sitting hidden as a tab. The split effect below consumes this once
       // the pane is committed and picks side-by-side vs stacked by space.
+      // The existing pane's own context when it is the one being placed, so
+      // the add finds it by id instead of minting a second browser.
+      const createContextId = contextId ?? (existing ? getBrowserContextFromPaneId(existing.id) ?? undefined : undefined);
       queueMicrotask(async () => {
         const newId = fgid
-          ? await handleAddPaneToGroupRef.current?.(fgid, 'browser', undefined, contextId)
-          : await handleAddPaneWhenEmptyRef.current?.('browser', undefined, contextId);
+          ? await handleAddPaneToGroupRef.current?.(fgid, 'browser', undefined, createContextId)
+          : await handleAddPaneWhenEmptyRef.current?.('browser', undefined, createContextId);
+        tracePaneAttach('create pane', { projectPath, contextId: createContextId ?? null, groupId: fgid ?? null, paneId: newId ?? null });
         if (newId) {
           const ctx = getBrowserContextFromPaneId(newId);
           if (ctx && spawnerKey) setBrowserSpawner(ctx, spawnerKey);
@@ -206,27 +229,32 @@ export function useProjectBrowserPanes({
     // board "Apri nel workspace" that arrived while this window was still closed.
     ensureBrowserPaneAndNavigateRef.current = ensureBrowserPaneAndNavigate;
 
-    const topicBelongsToThisProject = (topicId: string | undefined): boolean => {
-      if (!topicId) return false;
+    // Why a topic belongs here, or null. The reason only feeds the trace; the
+    // callers need the boolean below.
+    const topicMembership = (topicId: string | undefined): 'open-chat' | 'project-path' | null => {
+      if (!topicId) return null;
       // Match if the topic is currently rendered as a chat pane here OR if its
       // projectPath matches ours. The latter handles broadcasts that arrive
       // before the user has explicitly opened the chat pane in this window.
       const inOpenChats = panesRef.current.some(
         p => p.type === 'chat' && p.topicId === topicId,
       );
-      if (inOpenChats) return true;
+      if (inOpenChats) return 'open-chat';
       const t = topics[topicId];
-      return !!t && t.projectPath === projectPath;
+      return t && t.projectPath === projectPath ? 'project-path' : null;
     };
+    const topicBelongsToThisProject = (topicId: string | undefined): boolean => topicMembership(topicId) !== null;
 
     const unsubWS = onWSMessage((msg: WSMessage) => {
       const m = msg as unknown as { type?: string; topicId?: string; url?: string; paneId?: string; contextId?: string };
-      if (m.type === 'browser:navigate' && m.url && topicBelongsToThisProject(m.topicId)) {
+      if (m.type === 'browser:navigate' && m.url) {
+        const membership = topicMembership(m.topicId);
+        tracePaneAttach('navigate received', { projectPath, topicId: m.topicId ?? null, contextId: m.contextId ?? null, membership });
         // Bind the pane to the server-resolved contextId (== topic.id) so the
         // native CDP target registers under the id the agent's browser_* tools
         // resolve to (no invisible Playwright phantom). Falls back to topicId
         // (the chat-topic contextId) when the broadcast predates the field.
-        ensureBrowserPaneAndNavigate(m.url, undefined, m.topicId, m.contextId ?? m.topicId);
+        if (membership) ensureBrowserPaneAndNavigate(m.url, undefined, m.topicId, m.contextId ?? m.topicId);
       }
       // Terminal-originated open: only the project window whose layout actually
       // contains the terminal pane reacts; it opens the browser beside that
@@ -247,6 +275,7 @@ export function useProjectBrowserPanes({
       const belongs =
         (!!detail.projectPath && detail.projectPath === projectPath) ||
         topicBelongsToThisProject(detail.topicId);
+      tracePaneAttach('open-and-navigate received', { projectPath, contextId: detail.contextId ?? null, belongs });
       if (!belongs) return;
       // chat-topic contextId === topicId (resolveContextIdForTopic); the board
       // passes an explicit contextId so the pane is steerable by the agent later.
@@ -256,6 +285,23 @@ export function useProjectBrowserPanes({
       drainProjectBrowserNavigates(projectPath);
     };
     window.addEventListener('browser:open-and-navigate', domHandler);
+
+    // force-open handing this project's browser to this window (see
+    // PROJECT_BROWSER_HAND_OVER_EVENT): the same request as a navigate. Only
+    // project windows listen, so no app-level cell can take it.
+    const handOverHandler = (e: Event) => {
+      const d = (e as CustomEvent<ProjectBrowserHandOver>).detail;
+      if (!d?.url || !d.contextId || d.projectPath !== projectPath) return;
+      e.preventDefault();
+      // The recorded spawner first (a terminal's, above all); with none, the
+      // context itself, as the drain below and the base did. A chat's browser
+      // context IS its topic id, so that keeps the chat-browser link when the
+      // window mounted after the navigate that would have recorded it.
+      const spawner = spawnerOfBrowser(d.contextId) ?? d.contextId;
+      tracePaneAttach('force-open handed to this window', { projectPath, contextId: d.contextId, spawner });
+      ensureBrowserPaneAndNavigate(d.url, groupHosting(spawner), spawner, d.contextId);
+    };
+    window.addEventListener(PROJECT_BROWSER_HAND_OVER_EVENT, handOverHandler);
 
     // A LINK was clicked somewhere that can host it here (chat, terminal, tool
     // card, board preview, or a page in a browser pane asking for a popup).
@@ -344,6 +390,7 @@ export function useProjectBrowserPanes({
     return () => {
       unsubWS();
       window.removeEventListener('browser:open-and-navigate', domHandler);
+      window.removeEventListener(PROJECT_BROWSER_HAND_OVER_EVENT, handOverHandler);
       window.removeEventListener(OPEN_TAB_EVENT, openTabHandler);
       window.removeEventListener('browser:request-close', closeHandler);
       window.removeEventListener('browser:request-focus', focusHandler);
@@ -363,9 +410,25 @@ export function useProjectBrowserPanes({
     // SINCRONO dallo snapshot al mount (`useState(() => initial.groups)`),
     // quindi zero gruppi vuol dire zero gruppi, non «non ancora caricati» — e
     // la navigazione parcheggiata deve aprire la sua pane anche lì.
-    for (const nav of drainProjectBrowserNavigates(projectPath)) {
-      ensureBrowserPaneAndNavigateRef.current?.(nav.url, undefined, nav.spawnerKey ?? nav.contextId, nav.contextId);
-    }
+    const parked = drainProjectBrowserNavigates(projectPath);
+    if (parked.length === 0) return;
+    // Applied AFTER the other effects of this commit. When the window has just
+    // mounted, the chat sync (`useProjectChatSync`, called after this hook)
+    // restores the chat that was active last time in the same flush. A browser
+    // pane activated here, in that chat's cell, lost to it and stayed a
+    // background tab, so it never mounted (card c5c1c68f). A request that
+    // waited for this window is newer than the layout it was saved with, so it
+    // goes last.
+    queueMicrotask(() => {
+      for (const nav of parked) {
+        // A browser that already has a spawner keeps it (a terminal's, above
+        // all), and one created again goes beside it: see spawnerOfBrowser.
+        const spawner = nav.spawnerKey ?? (nav.contextId ? spawnerOfBrowser(nav.contextId) : null) ?? nav.contextId ?? null;
+        const near = spawner ? groupsRef.current.find(g => g.paneIds.includes(spawner))?.id : undefined;
+        tracePaneAttach('parked navigate drained', { projectPath, contextId: nav.contextId ?? null, spawner });
+        ensureBrowserPaneAndNavigateRef.current?.(nav.url, near, spawner ?? undefined, nav.contextId);
+      }
+    });
   }, [projectPath, groups.length]);
 
   // Consume a queued browser split: once the freshly added browser pane is

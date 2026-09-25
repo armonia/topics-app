@@ -33,6 +33,7 @@ import {
   type TombstoneEntry,
   type TombstoneKind,
 } from './closedTabRecord';
+import { tracePaneAttach } from '../../../lib/paneAttachTrace';
 
 // Only a close within this window drives a LIVE eviction (mirrors the tombstone
 // store's own TTL). Bounds the blast radius: a stale marker can't reach across
@@ -64,6 +65,7 @@ function evictRemotelyClosedBrowserPanes(entries: TombstoneEntry[]): void {
     if (typeof pane.openedAt === 'number' && pane.openedAt > e.ts) continue; // re-opened after the close
     const loc = findPaneLocation(store, paneId);
     if (!loc) continue;
+    tracePaneAttach('remote close evicts pane', { paneId, closedAt: e.ts });
     store.dispatch({ type: 'CLOSE_PANE', payload: { id: paneId, groupId: loc.groupId, groupIndex: loc.groupIndex } });
   }
 }

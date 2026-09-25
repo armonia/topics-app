@@ -28,6 +28,7 @@ import {
   RESIDENCY_BUDGET,
   type ResidencyCandidate,
 } from './policy';
+import { tracePaneAttach } from '../../../lib/paneAttachTrace';
 
 /**
  * Ritardo fra la decisione di sfrattare e lo smontaggio. Maggiore di
@@ -148,6 +149,11 @@ function applyRemoval(key: string): void {
   const next = new Set(resident);
   next.delete(key);
   resident = next;
+  // A project window unmounted here takes every browser pane inside it down
+  // with it, sockets included.
+  if (key.startsWith('project:') || key.startsWith('browser:')) {
+    tracePaneAttach('residency unmounts pane', { key, closed: !liveKeys.has(key) });
+  }
   // La recency serve solo a ordinare i candidati. Se la pane non è più in
   // nessuna superficie è stata chiusa: tenerne la data è una perdita lenta.
   if (!liveKeys.has(key)) lastTouchedAt.delete(key);

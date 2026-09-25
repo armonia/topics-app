@@ -215,6 +215,51 @@ export function enqueueProjectBrowserNavigate(projectPath: string, nav: PendingB
   pendingNavigates.set(projectPath, list);
 }
 
+/**
+ * A request to show a pane that already lives in a project window, parked
+ * because no window claimed it: the window was not mounted (residency evicts
+ * hidden project windows past three). `openBrowserPane` parks it when a sidebar
+ * click on a project's browser finds nobody to activate the tab, and the window
+ * drains it on mount. Without it the click brought the project to the front
+ * and left the browser a background tab, not mounted (card c5c1c68f).
+ * In-memory, one session, like the queues above.
+ */
+const pendingPaneFocus = new Map<string, string[]>();
+
+export function enqueueProjectPaneFocus(projectPath: string, paneId: string): void {
+  if (!projectPath || !paneId) return;
+  const list = pendingPaneFocus.get(projectPath) ?? [];
+  if (!list.includes(paneId)) list.push(paneId);
+  pendingPaneFocus.set(projectPath, list);
+}
+
+export function drainProjectPaneFocus(projectPath: string): string[] {
+  const list = pendingPaneFocus.get(projectPath);
+  if (!list || list.length === 0) return [];
+  pendingPaneFocus.delete(projectPath);
+  return list;
+}
+
+/**
+ * `browser:force-open` handing a browser to the project window that hosts it
+ * (card c5c1c68f). Cancelable: the window of `projectPath` claims it with
+ * `preventDefault()` and activates or creates the pane; when nobody claims it
+ * the window is not mounted, and the caller parks the navigate above for its
+ * mount.
+ *
+ * A name of its own because `browser:open-and-navigate` is also claimed by
+ * every app-level cell that holds no project tab when the detail carries no
+ * `topicId`, and such a cell opens a second browser of its own, on a fresh
+ * context, with the agent's url.
+ */
+export const PROJECT_BROWSER_HAND_OVER_EVENT = 'browser:hand-to-project';
+
+export interface ProjectBrowserHandOver {
+  projectPath: string;
+  url: string;
+  contextId: string;
+}
+
 export function drainProjectBrowserNavigates(projectPath: string): PendingBrowserNavigate[] {
   const list = pendingNavigates.get(projectPath);
   if (!list || list.length === 0) return [];
