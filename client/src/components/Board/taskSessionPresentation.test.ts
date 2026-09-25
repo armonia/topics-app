@@ -268,3 +268,16 @@ test('a settled failed tool at the end folds the whole message, needing no atten
   const parts = taskSessionSegments(msg);
   expect(parts.every((part) => part.folded)).toBe(true);
 });
+
+describe('the line under a turn the machine stopped', () => {
+  test('stays in sight in the drawer, even while the card is still working', () => {
+    // Folded, it was an empty «session details» row: the line has no text,
+    // tools or reasoning for the accordion to show.
+    const stop: ChatMessage = {
+      id: 'stop', role: 'assistant', content: '', timestamp: '2026-09-25T07:00:00Z',
+      blocks: [{ kind: 'machine-stop', cause: 'stall', text: 'Fermato' }],
+    };
+    expect(taskSessionSegments(stop, false, true)).toEqual([{ message: stop, folded: false }]);
+    expect(taskSessionSegments(stop, true)).toEqual([{ message: stop, folded: false }]);
+  });
+});

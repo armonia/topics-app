@@ -19,18 +19,22 @@
  * are real, and the provider behaves like claude-code on abort.
  *
  * @covers RESUME-02
+ * @covers CHAT-01
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import { createChatRouter } from "../../server/routes/chat";
 import { createTopicsRouter } from "../../server/routes/topics";
 import { riprendiTurniInterrotti } from "../../server/lib/ripresa-boot";
-import { internalAbortRequest } from "../../server/lib/abort-cause";
+import { internalAbortRequest, internalRequest, STOP_CAUSE_HEADER } from "../../server/lib/abort-cause";
+import { createTasksRouter } from "../../server/routes/tasks";
 import { STOP_PRESSED_LOG_TITLE } from "../../server/lib/cancelled-notice";
 import { readTurnEnd, resetTurnEndRegistry } from "../../server/providers/turn-end-registry";
 import { registerProvider, removeProvider } from "../../server/providers";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, ContentBlock, StoredMessage, Topic } from "../../server/types";
+import { HEADSTONE_PREFIX } from "../../server/lib/empty-turn-headstone";
+import { turnIsOnlyError, turnLooksUnanswered } from "../../client/src/components/Chat/turnError";
 
 const TEST_DATA = testTmpDir("machine-stop-parity-data");
 beforeAll(() => setupTestDataDir(TEST_DATA));
@@ -39,11 +43,14 @@ let captured: StreamHandler | undefined;
 const reasons: string[] = [];
 /** What the provider still says between the stop and its abort echo (ACP, native). */
 let beforeEcho: ((h: StreamHandler) => void) | null = null;
+/** false = a provider whose abort ends the turn later (ACP, Codex): the route finalizes first. */
+let echoesAbort = true;
 const registered = registerProvider({ type: "openai", apiKey: "" } as never) as unknown as Record<string, unknown>;
 Object.defineProperty(registered, "connected", { configurable: true, get: () => true });
 // Like claude-code's abort(): a synchronous onAborted with the reason it got.
 registered.abort = async (_sk: string, _runId: string | undefined, reason: string) => {
   reasons.push(reason);
+  if (!echoesAbort) return;
   if (captured && beforeEcho) beforeEcho(captured);
   captured?.onAborted?.({ turnEnd: { end: "cancelled", cause: reason } } as never);
 };
@@ -51,16 +58,17 @@ afterAll(() => { try { removeProvider("openai"); } catch { /* already gone */ } 
 
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
 
-async function chatWith(sessionKey: string, rows: StoredMessage[] = []) {
+async function chatWith(sessionKey: string, rows: StoredMessage[] = [], topicId = `t-${sessionKey}`) {
   captured = undefined;
   beforeEcho = null;
+  echoesAbort = true;
   reasons.length = 0;
   const ctx: AppContext = await createTestAppContext();
   const sent: Array<Record<string, unknown>> = [];
   (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = (m) => { sent.push(m as Record<string, unknown>); };
   (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void }).broadcastToTopicSubscribers = (_id, m) => { sent.push(m as Record<string, unknown>); };
   ctx.saveSingleTopic({
-    id: `t-${sessionKey}`, name: "stop parity", slug: "stop-parity", parentId: null, links: [], sessionKey,
+    id: topicId, name: "stop parity", slug: "stop-parity", parentId: null, links: [], sessionKey,
     color: "#5865f2", icon: "MessageSquare", createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(), archived: false, provider: "openai",
   } as Topic);
@@ -265,5 +273,305 @@ describe("a stop the machine wanted ends as on main, and is not the person's", (
     expect(reasons).toEqual(["user"]);
     expect(readTurnEnd(sk)?.info).toMatchObject({ cause: "user" });
     expect(c.stopsOnRecord()).toBe(1);
+  });
+});
+
+/**
+ * AN EMPTY TURN THE MACHINE STOPPED OFFERS NO RETRY, AFTER A RELOAD TOO (card
+ * 46617a7f).
+ *
+ * A stop the machine wanted discards an empty turn's row (above), and the chat
+ * then ends on the message that turn was answering: for a card, the
+ * dispatcher's envelope. The client reads that shape as a reply that never
+ * came (`turnLooksUnanswered`) and offers Retry, which resends the envelope:
+ * a paid turn to redo work already on main. Measured on the production DB
+ * before the fix: 11 card chats ending on an envelope, the card landed about a
+ * second later, nothing under it.
+ *
+ * "Reload" here is what the history route serves (`loadLocalMessages`), read
+ * by the client's own rules, so the verdict survives a reload by construction.
+ */
+describe("an empty turn the machine stopped offers no retry, after a reload too", () => {
+  /** What the client decides on the rows the history route serves. */
+  const retryOffered = (rows: StoredMessage[]) => {
+    const last = rows.at(-1);
+    const banner = turnLooksUnanswered({
+      lastMessageIsUser: last?.role === "user",
+      locallyStreaming: false,
+      serverSaysOpen: false,
+      serverAsked: true,
+    });
+    const bubble = last?.role === "assistant" && turnIsOnlyError(last);
+    return banner || bubble;
+  };
+  /** What the dispatcher leaves on a card's chat: the card, or one fan-out attempt, owns the topic. */
+  const bindCard = (c: Awaited<ReturnType<typeof chatWith>>, sk: string, via: "card" | "attempt" = "card") => {
+    c.ctx.db.run(
+      "INSERT INTO tasks (id, project_id, text, status, archived, assigned_topic_id, created_at, updated_at) VALUES (?, 'p-notice', 'card', 'in_progress', 0, ?, ?, ?)",
+      [`card-${sk}`, via === "card" ? `t-${sk}` : null, minutesAgo(30), minutesAgo(1)],
+    );
+    if (via === "attempt") {
+      c.ctx.db.run("INSERT INTO task_attempts (id, task_id, idx, topic_id, created_at) VALUES (?, ?, 2, ?, ?)", [`att-${sk}`, `card-${sk}`, `t-${sk}`, minutesAgo(30)]);
+    }
+  };
+  const noticeRows = (rows: StoredMessage[]) => rows.filter((m) => (m.blocks ?? []).some((b) => b.kind === "machine-stop"));
+
+  for (const cause of ["superseded", "wall-clock", "stall"] as const) {
+    for (const echoes of [true, false]) {
+      const order = echoes ? "the provider finalizes first (claude-code)" : "the route finalizes first (ACP, Codex)";
+      test(`${cause}, ${order}: a service row under the envelope, no retry, nothing resent`, async () => {
+        const sk = `topic:empty-${cause}-${echoes ? "echo" : "late"}`;
+        const c = await chatWith(sk);
+        bindCard(c, sk);
+        echoesAbort = echoes;
+        await c.post({ messages: [{ role: "user", content: "Envelope della card: fai il merge" }], dispatched: true });
+        const turnRowId = c.assistantRows().at(-1)!.id;
+
+        await c.abort(internalAbortRequest(sk, cause));
+
+        const rows = c.ctx.loadLocalMessages(sk);
+        expect(rows.some((m) => m.id === turnRowId)).toBe(false);
+        expect(retryOffered(rows)).toBe(false);
+        // The row that says why. Its `content` is empty on purpose: the model's
+        // history and the dispatcher's "last words of the agent" read only
+        // `content`, and a sentence there would reach both.
+        const notice = rows.at(-1)!;
+        expect(notice.role).toBe("assistant");
+        expect(notice.content).toBe("");
+        expect(notice.blocks).toEqual([{ kind: "machine-stop", cause, text: expect.stringMatching(/^Fermato: /) }]);
+        expect(notice.parentId).toBe(rows.at(-2)!.id);
+        // A window watching the chat gets it live, before the stop's end: its
+        // handler drops a `message:new` without text, so the frame carries one.
+        const live = c.sent.findIndex((m) => m.type === "message:new" && m.messageId === notice.id);
+        expect(live).toBeGreaterThanOrEqual(0);
+        expect(c.sent[live]).toMatchObject({ role: "assistant", blocks: [{ kind: "machine-stop", cause }] });
+        expect(c.sent[live].content).toBe((notice.blocks![0] as { text: string }).text);
+        const routeEnd = c.sent.findLastIndex((m) => m.type === "stream:end");
+        expect(live).toBeLessThan(routeEnd);
+        expect(await c.resentAfterRestart()).toEqual([]);
+      });
+    }
+  }
+
+  test("a turn that produced something keeps its own row, and gets no service row", async () => {
+    const sk = "topic:kept-superseded";
+    const c = await chatWith(sk);
+    bindCard(c, sk);
+    await c.post({ messages: [{ role: "user", content: "Envelope della card" }], dispatched: true });
+    captured!.onTextDelta("Comincio il merge", "Comincio il merge");
+
+    await c.abort(internalAbortRequest(sk, "superseded"));
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    expect(rows.at(-1)?.content).toContain("Comincio il merge");
+    expect(rows.flatMap((m) => m.blocks ?? []).some((b) => b.kind === "machine-stop")).toBe(false);
+  });
+
+  test("the stall judge on an empty woken row under an answer: nothing to explain, no service row", async () => {
+    // The chat ends on an answer once the woken row is gone: no retry was on
+    // offer, and a line saying a turn was stopped would sit under a reply.
+    const sk = "topic:woken-no-notice";
+    const c = await chatWith(sk, [
+      { id: `${sk}-u`, role: "user", content: "Fai il giro", timestamp: minutesAgo(40) },
+      { id: `${sk}-a`, role: "assistant", content: "Fatto.", timestamp: minutesAgo(20), parentId: `${sk}-u` },
+      { id: `${sk}-w`, role: "assistant", content: "", timestamp: minutesAgo(15), partial: true, parentId: `${sk}-a` },
+    ] as StoredMessage[]);
+    await c.post({ messages: [], mode: "reattach", dispatched: true, provider: "openai" });
+
+    await c.abort(internalAbortRequest(sk, "stall"));
+
+    expect(c.ctx.loadLocalMessages(sk).map((m) => m.id)).toEqual([`${sk}-u`, `${sk}-a`]);
+    expect(c.sent.some((m) => m.type === "message:new")).toBe(false);
+  });
+
+  test("the person's Stop on an empty turn is not the machine's: no service row", async () => {
+    const sk = "topic:empty-person";
+    const c = await chatWith(sk);
+    bindCard(c, sk);
+    await c.post({ messages: [{ role: "user", content: "fermati pure" }], dispatched: true });
+
+    await c.clientAbort();
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    expect(rows.at(-1)?.role).toBe("user");
+    expect(rows.flatMap((m) => m.blocks ?? []).some((b) => b.kind === "machine-stop")).toBe(false);
+  });
+
+  test("a fan-out attempt's chat is the board's too: the line is written", async () => {
+    const sk = "topic:empty-attempt";
+    const c = await chatWith(sk);
+    bindCard(c, sk, "attempt");
+    await c.post({ messages: [{ role: "user", content: "Envelope del tentativo 2" }], dispatched: true });
+
+    await c.abort(internalAbortRequest(sk, "superseded"));
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    expect(noticeRows(rows)).toHaveLength(1);
+    expect(retryOffered(rows)).toBe(false);
+    // A change from main, on purpose: the sweep binds a chat to a card through
+    // `assigned_topic_id` only, so an attempt's chat looked like a person's and
+    // its envelope was resent after a restart, redoing a closed attempt.
+    expect(await c.resentAfterRestart()).toEqual([]);
+  });
+
+  test("a person's own chat recycled by the stall judge keeps main's behaviour: Retry, and the sweep resends", async () => {
+    // No card drives it, so nothing continues by itself: the question is the
+    // person's, the sweep is what answers it, and Retry stays theirs.
+    const sk = "topic:empty-human-stall";
+    const c = await chatWith(sk);
+    await c.post({ messages: [{ role: "user", content: "Domanda a cui nessuno ha risposto" }] });
+
+    await c.abort(internalAbortRequest(sk, "stall"));
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    expect(noticeRows(rows)).toHaveLength(0);
+    expect(rows.at(-1)?.role).toBe("user");
+    expect(retryOffered(rows)).toBe(true);
+    expect(await c.resentAfterRestart()).toEqual(["Domanda a cui nessuno ha risposto"]);
+  });
+
+  for (const lateRow of ["a person's message", "a second envelope"] as const) {
+    test(`${lateRow} written during the turn is not the one it answered: no line under it`, async () => {
+      // The gate reads the PARENT of the turn's row, not the last user row: a
+      // second envelope no turn has answered yet must keep its own chance.
+      const sk = `topic:empty-late-${lateRow === "a second envelope" ? "env" : "person"}`;
+      const c = await chatWith(sk);
+      bindCard(c, sk);
+      await c.post({ messages: [{ role: "user", content: "Envelope della card" }], dispatched: true });
+      c.ctx.appendLocalMessage(sk, "user", "e intanto guarda anche questo", undefined,
+        lateRow === "a second envelope" ? [{ kind: "dispatched-envelope" }] : undefined);
+
+      await c.abort(internalAbortRequest(sk, "superseded"));
+
+      const rows = c.ctx.loadLocalMessages(sk);
+      expect(noticeRows(rows)).toHaveLength(0);
+      expect(rows.at(-1)?.content).toBe("e intanto guarda anche questo");
+    });
+  }
+
+  test("a reattach after the stop opens its own row: the line is never adopted, even when the replay fails", async () => {
+    // The stopped child may outlive the stop, and the next boot reattaches it.
+    // The line has no `latency_ms`, which alone used to read as "this turn's
+    // own row, closed from outside while alive".
+    const sk = "topic:empty-then-reattach";
+    const c = await chatWith(sk);
+    bindCard(c, sk);
+    await c.post({ messages: [{ role: "user", content: "Envelope della card" }], dispatched: true });
+    await c.abort(internalAbortRequest(sk, "superseded"));
+    const notice = noticeRows(c.ctx.loadLocalMessages(sk))[0];
+    expect(notice).toBeDefined();
+
+    await c.post({ messages: [], mode: "reattach", dispatched: true, provider: "openai" });
+    const start = c.sent.findLast((m) => m.type === "stream:start");
+    expect(start?.messageId).not.toBe(notice.id);
+    captured!.onError("Process exited with code 137");
+
+    const after = c.ctx.loadLocalMessages(sk).find((m) => m.id === notice.id)!;
+    expect(after.content).toBe("");
+    expect(after.blocks).toEqual(notice.blocks);
+  });
+
+  test("Retry on the envelope, then a land: the resend is still the envelope, and gets the line", async () => {
+    // Retry (and the resume sweep) resend the envelope's text without
+    // `dispatched`. Unmarked, that copy was the person's for the gate, and a
+    // land on its empty turn left Retry on the kickoff again.
+    const sk = "topic:retry-then-land";
+    const c = await chatWith(sk);
+    bindCard(c, sk);
+    await c.post({ messages: [{ role: "user", content: "KICKOFF envelope: implement the card" }], dispatched: true });
+    captured!.onError("Process exited with code 137");
+    // What the client's Retry sends: the last user row's text, nothing else.
+    await c.post({ messages: [{ role: "user", content: "KICKOFF envelope: implement the card" }] });
+
+    await c.abort(internalAbortRequest(sk, "superseded"));
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    const resent = rows.filter((m) => m.role === "user").at(-1)!;
+    expect(resent.blocks).toEqual([{ kind: "dispatched-envelope" }]);
+    expect(noticeRows(rows)).toHaveLength(1);
+    expect(retryOffered(rows)).toBe(false);
+  });
+
+  test("a goal's continuation is the machine's too, but not the dispatcher's: no line, Retry stays", async () => {
+    // The gate reads the envelope mark, not any machine mark: the goal loop's
+    // row can sit in a person's own chat, where Retry is theirs.
+    const sk = "topic:goal-nudge-stall";
+    const c = await chatWith(sk);
+    await c.post({ messages: [{ role: "user", content: "Objective still open: continue" }], goalNudge: 1 });
+
+    await c.abort(internalAbortRequest(sk, "stall"));
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    expect(rows.at(-1)?.blocks?.[0]?.kind).toBe("goal-nudge");
+    expect(noticeRows(rows)).toHaveLength(0);
+    expect(retryOffered(rows)).toBe(true);
+  });
+
+  test("a person's question in a card under review keeps its Retry: the card binding does not decide", async () => {
+    // The card keeps its topic in review, and the person can still ask it
+    // something. A boot reattach of that turn recycled by the stall judge left
+    // Retry as the only way back, and it has to stay.
+    const sk = "topic:card-review-question";
+    const c = await chatWith(sk);
+    bindCard(c, sk);
+    c.ctx.db.run("UPDATE tasks SET status = 'review' WHERE id = ?", [`card-${sk}`]);
+    await c.post({ messages: [{ role: "user", content: "Perché hai cambiato quel file?" }] });
+
+    await c.abort(internalAbortRequest(sk, "stall"));
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    expect(noticeRows(rows)).toHaveLength(0);
+    expect(retryOffered(rows)).toBe(true);
+  });
+
+  test("a revoked delegation, in the DELETE's real order: the line is written although the card is released first", async () => {
+    // `detachLiveAgent` -> `cutLiveTurn` fires the abort without awaiting it,
+    // then `svc.release` clears `assigned_topic_id` before the abort route
+    // reaches the line. The board derives the session key from the topic id.
+    const sk = "topic:revoke01";
+    const c = await chatWith(sk, [], "revoke01-0000-4000-8000-000000000000");
+    const aborts: Array<Promise<unknown>> = [];
+    const tasks = createTasksRouter(c.ctx as never, { onEnterTodo() {}, onLeaveTodo() {}, resume: async () => {} } as never, {
+      abortTurn: (key: string, cause: string) => {
+        const req = internalAbortRequest(key, cause as never);
+        const done = c.abort(req);
+        aborts.push(done);
+        return done;
+      },
+    } as never);
+    const created = await tasks(new Request("http://localhost/api/boards/pR/tasks", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "delega", status: "in_progress" }),
+    }), new URL("http://localhost/api/boards/pR/tasks"), "/api/boards/pR/tasks", "POST");
+    const card = await created!.json() as { id: string };
+    c.ctx.db.run("UPDATE tasks SET assigned_topic_id = ?, dispatch_state = 'working' WHERE id = ?", ["revoke01-0000-4000-8000-000000000000", card.id]);
+    await c.post({ messages: [{ role: "user", content: "Envelope della delega" }], dispatched: true });
+
+    const url = new URL(`http://localhost/api/boards/pR/tasks/${card.id}`);
+    const resp = await tasks(internalRequest(url, { method: "DELETE", headers: { [STOP_CAUSE_HEADER]: "superseded" } }), url, url.pathname, "DELETE");
+    expect(resp?.status).toBe(200);
+    await Promise.all(aborts);
+
+    expect(reasons).toEqual(["superseded"]);
+    expect((c.ctx.db.query("SELECT assigned_topic_id AS t FROM tasks WHERE id = ?").get(card.id) as { t: string | null }).t).toBeNull();
+    const rows = c.ctx.loadLocalMessages(sk);
+    expect(noticeRows(rows)).toHaveLength(1);
+    expect(retryOffered(rows)).toBe(false);
+    expect(await c.resentAfterRestart()).toEqual([]);
+  });
+
+  test("the opposite: a turn that really came back empty keeps its notice and its retry", async () => {
+    // No stop at all: the provider closed the turn with nothing. That is a
+    // failure the person can act on, and Retry is the right offer.
+    const sk = "topic:empty-for-real";
+    const c = await chatWith(sk);
+    await c.post({ messages: [{ role: "user", content: "rispondi" }] });
+
+    captured!.onDone({} as never);
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    const last = rows.at(-1)!;
+    expect(last.content.startsWith(HEADSTONE_PREFIX)).toBe(true);
+    expect(retryOffered(rows)).toBe(true);
+    expect(rows.flatMap((m) => m.blocks ?? []).some((b) => b.kind === "machine-stop")).toBe(false);
   });
 });

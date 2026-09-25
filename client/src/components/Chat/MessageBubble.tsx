@@ -10,6 +10,8 @@ import { TurnActivityIndicator } from '../MessageParts';
 import { isAwaitingHuman } from '../../../../shared/types';
 import { turnIsOnlyError } from './turnError';
 import { goalLoopRowOf } from './goalLoopRow';
+import { machineStopOf } from './machineRow';
+import { MachineStopLine } from './MachineStopLine';
 import { StreamTokenRateIndicator } from './StreamTokenRateIndicator';
 import { isDispatchedEnvelope } from './dispatchedEnvelope';
 import { isMachineWork } from './taskWorkFold';
@@ -130,6 +132,7 @@ function FoldWork({ fold, msg, children }: { fold: boolean; msg: ChatMessage; ch
   if (!fold) return <>{children}</>;
   return <TaskWorkAccordion msg={msg}>{children}</TaskWorkAccordion>;
 }
+
 
 export const MessageBubble = memo(function MessageBubble({
   msg,
@@ -277,6 +280,14 @@ export const MessageBubble = memo(function MessageBubble({
       </div>
     );
   }
+
+  // A TURN THE MACHINE STOPPED BEFORE IT SAID ANYTHING: a land, a
+  // delegation's deadline, the stall judge. The row exists only so the chat
+  // does not end on an unanswered message, which would offer Retry and pay
+  // for a turn that redoes work already on main. One neutral line, no retry.
+  // See server/lib/machine-stop-notice.ts.
+  const machineStop = machineStopOf(msg.blocks);
+  if (machineStop) return <MachineStopLine cause={machineStop} />;
 
   // THE BOARD'S ENVELOPE TALKS, IT DOES NOT IMPERSONATE. The row itself lives
   // in `DispatchEnvelopeRow`, shared with the card's conversation: two surfaces

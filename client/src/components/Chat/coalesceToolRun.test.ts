@@ -268,3 +268,14 @@ describe('scadenza della memoria', () => {
     expect(tardi.items).toBe(primo.items);
   });
 });
+
+describe('the line under a turn the machine stopped', () => {
+  it('is not work, so the tool rows under it keep their own bubble', () => {
+    // A woken turn opens its row under the line: merged, the bubble drew only
+    // the line (it answers for its blocks) and the tools vanished.
+    const stop = msg({ blocks: [{ kind: 'machine-stop', cause: 'stall', text: 'Fermato' }] });
+    const tools = msg({ blocks: [{ kind: 'woken' }, { kind: 'tool', toolCall: tool('Bash') }] });
+    expect(isWorkOnlyAssistant(stop)).toBe(false);
+    expect(coalesceToolRuns([stop, tools]).items.map((m) => m.id)).toEqual([stop.id, tools.id]);
+  });
+});

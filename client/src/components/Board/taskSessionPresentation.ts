@@ -6,6 +6,7 @@ import { isActiveTool } from '../Chat/toolGrouping';
 import { LEGACY_ERROR_PREFIX, turnErrorOf } from '../Chat/turnError';
 import { extractMediaPaths, splitBlockMedia } from '../messageMedia';
 import { parseQuestionBlock } from '../../../../shared/board';
+import { machineStopOf } from '../Chat/machineRow';
 
 export interface SessionSegment {
   message: ChatMessage;
@@ -36,6 +37,9 @@ function withoutLegacyError(content: string): string {
 export function taskSessionSegments(message: ChatMessage, hasThreadReply = false, activeRun = false): SessionSegment[] {
   const visible = () => [{ message, folded: false }];
   if (message.role !== 'assistant') return visible();
+  // The line under a turn the machine stopped: nothing to fold, and folded it
+  // was an empty «session details» row.
+  if (machineStopOf(message.blocks)) return visible();
   const tools = toolsOf(message);
   const inFlight = activeRun || !!message.partial || tools.some(isActiveTool);
 

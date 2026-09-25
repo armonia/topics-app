@@ -61,3 +61,12 @@ describe("userRowMarks", () => {
     expect(userRowMarks({ dispatched: true, commentIds: "c1" })).toEqual([{ kind: "dispatched-envelope" }]);
   });
 });
+
+describe("a resend of the envelope is still the envelope (card 46617a7f)", () => {
+  test("Retry or the resume sweep resending the envelope's text keeps its mark, without the comment ids", () => {
+    expect(userRowMarks({ repeatsEnvelope: true })).toEqual([{ kind: "dispatched-envelope" }]);
+    // A real dispatch says more, and wins: it carries its own ids.
+    expect(userRowMarks({ dispatched: true, repeatsEnvelope: true, commentIds: ["c1"] }))
+      .toEqual([{ kind: "dispatched-envelope", commentIds: ["c1"] }]);
+  });
+});

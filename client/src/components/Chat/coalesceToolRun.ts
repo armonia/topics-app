@@ -38,6 +38,7 @@
  */
 
 import type { ChatMessage, ContentBlock, ToolCall } from '../../types';
+import { isMachineRow } from './machineRow';
 
 /** Un item della lista: un messaggio, eventualmente portatore di altri. */
 export interface CoalescedMessage extends ChatMessage {
@@ -59,6 +60,10 @@ export function isWorkOnlyAssistant(msg: ChatMessage): boolean {
   if (msg.role !== 'assistant') return false;
   if (msg.partial) return false;
   if ((msg.content ?? '').trim().length > 0) return false;
+  // A line the machine wrote carries an empty `content` and one block, and is
+  // not work: merged with the tool rows under it, the bubble drew only the line
+  // and the tools vanished (third review of the machine-stop fix).
+  if (isMachineRow(msg.blocks)) return false;
   const hasTools = Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0;
   const hasBlocks = Array.isArray(msg.blocks) && msg.blocks.length > 0;
   return hasTools || hasBlocks || !!msg.thinking;
