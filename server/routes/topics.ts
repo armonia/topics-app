@@ -6,7 +6,7 @@ import { join, resolve, dirname } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic, ToolCall } from "../types";
-import { getProvider, getDefaultProvider, getDefaultProviderName, sessionHasBackgroundWork, sessionsWithBackgroundWork, type AIProvider } from "../providers";
+import { getProvider, getDefaultProvider, getDefaultProviderName, sessionsWithBackgroundWork, stopBackgroundWork, type AIProvider } from "../providers";
 import { createTopicProviderResolver } from "../providers/topic-provider-resolver";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { routesThroughGateway } from "./commandRouting";
@@ -2473,11 +2473,9 @@ export function createTopicsRouter(
       if (!stream) {
         // Only background work left: the Stop is for it (SIGINT, exit 0 in 0.8 s
         // on 2.1.282), and a goal waiting for it stops, or its check-in revives it.
-        if (sessionHasBackgroundWork(sessionKey) && abortProvider.abort) {
-          await abortProvider.abort(sessionKey, undefined, "user");
-          goalLoop.stopWaiting(sessionKey);
-          return json({ ok: true, reason: "background_stopped", cleared: false });
-        }
+        const stopped = await stopBackgroundWork(sessionKey);
+        if (stopped === "stopped") goalLoop.stopWaiting(sessionKey);
+        if (stopped !== "none") return json({ ok: stopped === "stopped", reason: `background_${stopped}`, cleared: false });
         // Niente da fermare: turno già finito, oppure una finestra che stava
         // solo guardando quello di un'altra. Nessun effetto — né sul provider
         // (un `abort` alla cieca taglierebbe un turno headless che questo

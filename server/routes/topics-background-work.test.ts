@@ -27,6 +27,7 @@ import { takeTurnEnd } from "../providers/turn-end-registry";
 import { SidechainTracker } from "../providers/claude/sidechain-tracker";
 import { recordedBackgroundSession } from "../providers/claude/background-work.fixture";
 import type { AppContext, Topic } from "../types";
+import type { ChatGoalLoop } from "../services/goal-continuation";
 
 const ROOT = testTmpDir("topics-background-config");
 beforeAll(() => setupTestDataDir(`${ROOT}/data`));
@@ -59,7 +60,8 @@ async function harness(name: string, autonomyLevel: Topic["autonomyLevel"]) {
   pp.wokenBuffer = null; pp.declinedTurn = false;
   expect(provider.backgroundState(sessionKey)).toBe("running");
 
-  const router = createTopicsRouter(ctx);
+  let goalLoop: ChatGoalLoop | null = null;
+  const router = createTopicsRouter(ctx, undefined, undefined, { exposeGoalLoop: (l) => { goalLoop = l; } });
   const call = async (path: string, method: string, body: unknown) => {
     const url = new URL(`http://topics.test${path}`);
     const req = new Request(url.toString(), { method, headers: { "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -69,7 +71,7 @@ async function harness(name: string, autonomyLevel: Topic["autonomyLevel"]) {
     `SELECT content, blocks FROM messages WHERE session_key = ? AND blocks LIKE '%background-notice%' ORDER BY sort_order`,
   ).all(sessionKey) as Array<{ content: string; blocks: string }>).map((r) => JSON.parse(r.blocks)[0]);
   return {
-    provider, pp, killed, notices, sessionKey,
+    provider, pp, killed, notices, sessionKey, goalLoop: goalLoop!,
     patch: (body: Record<string, unknown>) => call(`/api/topics/${topic.id}`, "PATCH", body),
     command: (command: string, args: Record<string, unknown>) => call("/api/command", "POST", { command, sessionKey, args }),
     stop: () => call("/api/chat/abort", "POST", { sessionKey }),
@@ -129,11 +131,16 @@ describe("a config change against a chat's background work", () => {
 describe("the Stop of a chat whose turn is closed and whose work still runs", () => {
   test("the status offers it, the Stop stops the work, and nothing is recorded as a turn", async () => {
     const h = await harness("bg-stop", "yolo");
+    // The goal waiting for that work must stop waiting, or its check-in revives it.
+    const forgotten: string[] = [];
+    const stopWaiting = h.goalLoop.stopWaiting;
+    h.goalLoop.stopWaiting = (sk) => { forgotten.push(sk); stopWaiting(sk); };
     try {
       expect(await h.status()).toContainEqual(expect.objectContaining({ sessionKey: h.sessionKey, state: "background" }));
       const resp = await h.stop();
       expect(await resp.json()).toEqual({ ok: true, reason: "background_stopped", cleared: false });
       expect(h.killed.sigint).toBe(1);
+      expect(forgotten).toEqual([h.sessionKey]);
       // No turn was stopped: a headless driver must not read a cancelled turn here.
       expect(takeTurnEnd(h.sessionKey)).toBeUndefined();
       // The child is on its way out with its work: no Stop left to offer, no second SIGINT.
@@ -141,6 +148,19 @@ describe("the Stop of a chat whose turn is closed and whose work still runs", ()
       expect(await (await h.stop()).json()).toEqual({ ok: false, reason: "no_active_stream", cleared: false });
       expect(h.killed.sigint).toBe(1);
     } finally {
+      removeProvider("claude-code");
+    }
+  });
+
+  test("after a switch to another provider the Stop still reaches the child that has the work", async () => {
+    const h = await harness("bg-stop-switched", "yolo");
+    registerProvider({ type: "openai", apiKey: "" } as never);
+    try {
+      expect((await h.patch({ provider: "openai" })).status).toBe(200);
+      expect(await (await h.stop()).json()).toEqual({ ok: true, reason: "background_stopped", cleared: false });
+      expect(h.killed.sigint).toBe(1);
+    } finally {
+      try { removeProvider("openai"); } catch { /* already gone */ }
       removeProvider("claude-code");
     }
   });

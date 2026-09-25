@@ -773,6 +773,23 @@ export function stallBackgroundHold(sessionKey: string): () => boolean {
   return () => sessionHasBackgroundWork(sessionKey);
 }
 
+/**
+ * The Stop of a session's background work, sent to the provider that HAS it:
+ * the topic's provider may have changed since (a model switch across
+ * providers), and the old child keeps running its work. `stopped` only once
+ * that provider no longer reports any.
+ */
+export async function stopBackgroundWork(sessionKey: string): Promise<"none" | "stopped" | "failed"> {
+  for (const [, p] of _providers) {
+    try {
+      if (!(p as BackgroundProbe).hasBackgroundWork?.(sessionKey) || !p.abort) continue;
+      await p.abort(sessionKey, undefined, "user");
+      return (p as BackgroundProbe).hasBackgroundWork?.(sessionKey) ? "failed" : "stopped";
+    } catch { return "failed"; }
+  }
+  return "none";
+}
+
 /** Every session with background work, for the chat status that offers its Stop. */
 export function sessionsWithBackgroundWork(): string[] {
   const out: string[] = [];
