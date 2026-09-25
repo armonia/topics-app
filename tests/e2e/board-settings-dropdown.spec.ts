@@ -74,6 +74,8 @@ async function stubMachine(page: Page) {
         // assertable. The verdict is the gate's, so the stub says it too.
         budgetShare: 0.6, budgetCoreUnits: 7.2, usableCoreUnits: 6,
         usedCoreUnits: 7.4, usedMemGB: 8, otherCoreUnits: 2, frozen: 0,
+        // The whole Mac: 88% CPU, 70% memory (1 - 9.5/32). The one number is 88, red.
+        machineCpuPct: 88, machineMemPct: 70,
         admission: { admit: false, blockedBy: "cpu", firstAgentExempt: false, costCoreUnits: 1 },
         reason: "12 core, base 4",
       }),
@@ -167,6 +169,7 @@ const gear = (page: Page) => page.getByTestId("kanban-board").getByTitle("Impost
  *  reload can cancel the write and the round-trip assertion after it would be
  *  testing a race the app does not have. */
 async function writeFloor(page: Page, gb: string) {
+  await openFloor(page);
   const box = page.getByTestId("checks-floor-gb");
   const written = page.waitForResponse(
     (r) => r.url().includes("/api/all-boards/settings") && r.request().method() === "PATCH" && r.ok(),
@@ -176,6 +179,11 @@ async function writeFloor(page: Page, gb: string) {
   await box.blur();
   await written;
   await expect(box).toBeEnabled();
+}
+/** The checks floor speaks in GB, so it sits folded (24/09): open it first. */
+async function openFloor(page: Page) {
+  const fold = page.getByTestId("checks-floor-control");
+  if ((await fold.getAttribute("open")) === null) await fold.locator("summary").click();
 }
 const menu = (page: Page) => page.getByTestId("board-settings-menu");
 const panel = (page: Page) => page.getByTestId("board-settings-panel");
@@ -324,24 +332,40 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
 
     // ONE knob, a share of what is free.
     const budget = page.getByTestId("global-cap-budget-slider");
-    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("60% del libero");
+    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("fino al 60% del Mac libero");
 
-    // The live reading, in cores against what is usable: 7.4 of 6.0.
+    // THE ONE NUMBER, at the top of the panel: 88% of the Mac, red.
+    const busy = control.getByTestId("machine-busy-pct");
+    await expect(busy).toHaveText("Il Mac è occupato all'88%");
+    await expect(busy).toHaveAttribute("data-tone", "critical");
+
+    // The live reading, as shares of the Mac: 7.4 of 12 is 62%, the ceiling
+    // 6.0 of 12 is 50%. Over it, so red.
     const live = page.getByTestId("global-cap-budget-live");
     await expect(live).toHaveAttribute("data-band", "red");
-    await expect(live).toHaveText("Topics usa 7.4 dei 6.0 core a disposizione");
+    await expect(live).toHaveText("Topics usa il 62% del Mac, può arrivare al 50%");
 
-    // The verdict, on the same line: at the ceiling with an agent running, a new
-    // one waits, and the line names the axis with what one more agent costs.
+    // The verdict, on the same line, in the same percentage: one more agent
+    // would not fit even under the ceiling, so there is no honest resume point
+    // and none is printed.
     const verdict = page.getByTestId("global-cap-verdict");
     await expect(verdict).toHaveAttribute("data-admit", "false");
     await expect(verdict).toHaveAttribute("data-blocked-by", "cpu");
-    await expect(verdict).toHaveText("i nuovi aspettano: CPU, un agent ne costa 1.0 core");
+    await expect(verdict).toHaveText("In attesa: il Mac è occupato all'88%");
+
+    // No technical word in the text a person reads without opening anything.
+    const visible = await control.evaluate((node) => {
+      const clone = node.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll("details, [data-technical]").forEach((d) => d.remove());
+      return clone.textContent ?? "";
+    });
+    expect(visible).not.toMatch(/\b(core|core-unit\w*|CPU|RAM|GB|load)\b/i);
+    if (process.env.LOAD_PCT_SHOTS) await control.screenshot({ path: join(process.env.LOAD_PCT_SHOTS, "settings.png") });
 
     // What the share buys on both axes is folded away, and opens on request.
     const units = page.getByTestId("global-cap-budget-units");
     await expect(units).toBeHidden();
-    await page.getByTestId("global-cap-details").locator("summary").click();
+    await page.getByTestId("global-cap-details").first().locator("summary").click();
     await expect(units).toBeVisible();
     await expect(units).toContainText("12 core");
     await expect(units).toContainText("7.2 core-unità");
@@ -350,12 +374,12 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     // Moving the knob: the two units follow under the finger, ONE write per
     // move goes out in the wire name, and at 80% the machine is back inside.
     await budget.fill("0.8");
-    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("80% del libero");
+    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("fino all'80% del Mac libero");
     await expect(units).toContainText("9.6 core-unità");
     await expect.poll(() => writes.filter((w) => "budgetShare" in w).map((w) => w.budgetShare)).toEqual([0.8]);
 
     await budget.fill("0.15");
-    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("15% del libero");
+    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("fino al 15% del Mac libero");
     await expect.poll(() => writes.filter((w) => "budgetShare" in w).map((w) => w.budgetShare)).toEqual([0.8, 0.15]);
   });
 
@@ -372,13 +396,13 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     const budget = page.getByTestId("global-cap-budget-slider");
     await expect(budget).toBeVisible();
     await budget.fill("0.85");
-    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("85% del libero");
+    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("fino all'85% del Mac libero");
 
     await page.reload();
     await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 15000 });
     await gear(page).click();
     await expect(page.getByTestId("global-cap-brake-resources")).toHaveAttribute("aria-checked", "true");
-    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("85% del libero");
+    await expect(page.getByTestId("global-cap-budget-value")).toHaveText("fino all'85% del Mac libero");
     await expect(page.getByTestId("global-cap-max")).toHaveCount(0);
 
     // Back to "by count": the three states and the number are back.
@@ -396,6 +420,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await page.goto("/");
     await openBoard(page);
     await gear(page).click();
+    await openFloor(page);
     const floor = page.getByTestId("checks-floor-gb");
     await expect(floor).toBeVisible();
     // The default a fresh row is born with, and the change this round landed.
@@ -414,6 +439,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await page.reload();
     await openBoard(page);
     await gear(page).click();
+    await openFloor(page);
     await expect(page.getByTestId("checks-floor-gb")).toHaveValue("5");
 
     // Zero is a setting, not an empty box: it survives the round trip AND the
@@ -424,6 +450,7 @@ test.describe("Impostazioni della board: un dropdown sul ⚙, due freni dentro",
     await page.reload();
     await openBoard(page);
     await gear(page).click();
+    await openFloor(page);
     await expect(page.getByTestId("checks-floor-gb")).toHaveValue("0");
     await expect(page.getByTestId("checks-floor-hint")).toContainText("Freno spento");
 

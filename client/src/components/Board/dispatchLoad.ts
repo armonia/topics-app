@@ -18,9 +18,10 @@
  * Nothing here decides the cap: the cap is `currentCapLimit`, the machine is the
  * probe, and this only turns the pair into something a person reads.
  */
-import { ADMIT_RESUME_FRACTION, capMode } from '../../lib/board';
+import { capMode } from '../../lib/board';
 import type { DispatchAdmission, DispatchCapacity } from '../../lib/board';
 import type { GlobalDispatchCapState } from '../../state/globalDispatchCap';
+import { machineBusyPct, pctPlaceholders } from '../../lib/machineBusy';
 import { currentCapLimit } from '../../state/globalDispatchCap';
 
 /** Which brake is holding new agents right now, as the gate said it. */
@@ -198,19 +199,38 @@ export interface VerdictText {
   title?: string;
 }
 
-/** One decimal, the way the live line prints its cores. */
-const oneDecimal = (n: number): string => n.toFixed(1);
-
-/** The first sentence of a composed reason, shaped to follow the verdict's own
- *  colon: initial lowered, and its colon turned into a comma so the line does
- *  not read "wait: memory low: 5.5 GB". A decimal point is never followed by a
- *  space ("5.5 GB"), so it does not split there. */
-function headline(reason: string): string {
-  const first = reason.split(/\.\s/)[0]!.trim().replace(/\.$/, '').replace(': ', ', ');
-  return first.charAt(0).toLowerCase() + first.slice(1);
+/**
+ * The verdict as the sentence on screen. Its numbers are percentages and the
+ * Italian sentence needs each one with its article ("all'88%"), which depends
+ * on the language being drawn: so the caller passes it, and every surface that
+ * prints a verdict prints the same words.
+ */
+export function verdictSentence(
+  v: VerdictText,
+  tr: (k: string, vars?: Record<string, string | number>) => string,
+  locale: 'it' | 'en',
+): string {
+  const nums: Record<string, number> = {};
+  for (const [k, n] of Object.entries(v.params ?? {})) if (typeof n === 'number') nums[k] = n;
+  return tr(v.key, { ...v.params, ...pctPlaceholders(locale, nums) });
 }
 
-export function admissionVerdictText(a: DispatchAdmission): VerdictText {
+/**
+ * THE VERDICT, IN THE ONE NUMBER: "Waiting: the Mac is 92% busy". Core-units
+ * and gigabytes stay the gate's private currency; the sentence speaks in the
+ * same percentage as the headline of every load surface (`machineBusyPct`),
+ * so "held" and "how busy" are never said in two units.
+ *
+ * NO RESUME POINT ("starts by itself under X%"). The gate decides on TOPICS'
+ * share and the number is the WHOLE Mac, so no point on the number is where
+ * the gate reopens: the Mac can fall 40 points because another app closed and
+ * the gate still holds, since Topics did not move. A clause computed as "the
+ * number minus the drop the gate needs" was checked against the real gate
+ * (card 07909147): it promised "under 52%", the Mac reached 50%, the gate
+ * held. The wait says how busy the Mac is and that it restarts by itself; the
+ * gate's own figures stay in the server's sentence, one hover away.
+ */
+export function admissionVerdictText(a: DispatchAdmission, cap: DispatchCapacity | null): VerdictText {
   if (a.admit) {
     return a.firstAgentExempt
       ? { key: 'board.dispatch.verdictFirst', tone: 'first' }
@@ -218,32 +238,14 @@ export function admissionVerdictText(a: DispatchAdmission): VerdictText {
   }
   const wait = (key: string, params?: Record<string, string | number>): VerdictText =>
     ({ key, params, tone: 'wait', title: a.reason ?? undefined });
-  if (a.blockedBy === 'floor') {
-    return a.reason ? wait('board.dispatch.verdictWaitFloor', { reason: headline(a.reason) }) : wait('board.dispatch.verdictWaitFloorBare');
-  }
+  // The floor (disk or memory under the hard line) and a planned restart hold
+  // the whole machine. The server's own sentence carries GB and stays one
+  // hover away in `title`; the line says what it means in plain words.
+  if (a.blockedBy === 'floor') return wait('board.dispatch.verdictWaitFloor');
   if (a.blockedBy === 'drain') return wait('board.dispatch.verdictWaitDrain');
-  if (a.blockedBy === 'memory') {
-    if (a.memClause === 'footprint' && a.ourMemGB != null && a.usableMemGB != null) {
-      return wait('board.dispatch.verdictWaitMemoryFootprint', { ours: oneDecimal(a.ourMemGB), ceiling: oneDecimal(a.usableMemGB) });
-    }
-    if (a.costMemGB != null && a.freeQuotaMemGB != null) {
-      return wait('board.dispatch.verdictWaitMemory', { cost: oneDecimal(a.costMemGB), free: oneDecimal(a.freeQuotaMemGB) });
-    }
-    return wait('board.dispatch.verdictWaitMemoryBare');
-  }
-  // Held on the CPU while one more agent would fit under the ceiling: that is
-  // the resume line (once holding, the gate restarts under 80% of it), and the
-  // cost alone would read as a contradiction of the numbers beside it.
-  // The number printed is the one the USE beside it has to reach. The gate
-  // compares use PLUS the cost of one more agent with 80% of the usable, so the
-  // use resumes at that line minus the cost, not at the line itself: printing
-  // the bare 80% said "under 4.4" next to a use of 3.5 that was still holding.
-  const { usedCoreUnits: used, usableCoreUnits: usable } = a;
-  if (used != null && usable != null && used + a.costCoreUnits <= usable) {
-    const resume = Math.max(0, usable * ADMIT_RESUME_FRACTION - a.costCoreUnits);
-    return wait('board.dispatch.verdictWaitCpuResume', { resume: oneDecimal(resume) });
-  }
-  return wait('board.dispatch.verdictWaitCpu', { cost: oneDecimal(a.costCoreUnits) });
+  const pct = machineBusyPct(cap);
+  if (pct == null) return wait('board.dispatch.verdictWaitBusyUnknown');
+  return wait('board.dispatch.verdictWaitBusy', { pct });
 }
 
 /**

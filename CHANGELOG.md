@@ -2,6 +2,36 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.388 — 2026-09-25
+
+### Sotto il cofano
+- Il campo che si restringe allargando il pannello si prova col toggle, non con un resize a 375
+
+## 2.2.387 — 2026-09-24
+
+### Correzioni
+- **swap-freeze** · comando su una riga nel log, skip ripetuti detti una volta
+
+### Sotto il cofano
+- carico CPU/Memoria in %, non più in core
+- Capacità: CPU e memoria del Mac intero in % sul filo (machineCpuPct, machineMemPct)
+- Test rossi: un numero solo, «il Mac è occupato al X%», e niente parole tecniche fuori da Dettagli
+- Il Mac occupato al X%: un numero solo su ogni superficie del carico
+- La riga del Mac occupato usa i colori AA del popover: i -300 su tema chiaro scendevano a circa 2:1
+- Nomi e commenti in inglese, articoli italiani marcati come dato: i cancelli della lingua tornano verdi
+- Baseline dei nomi: NightModeCard perde «soglia», il debito scende di uno
+- Escape rimette il fuoco sul ⚙ anche in WebKit: Safari non dà il fuoco a un bottone cliccato, e il bersaglio salvato era <body>
+- Il server muore di SIGTERM dopo un Chromium: Playwright gli smonta il gestore
+- **swap-freeze** · il log del freezer ripete comandi multi-riga e skip a ogni beat
+- Il taglio del comando nel log non spezza un'emoji a metà
+- I test di oneLine in un file loro: il test del freezer restava sotto le 800 righe
+- RGATE-07: il SIGTERM arriva sempre a gracefulShutdown
+- Il test del SIGTERM non tocca la cartella dati vera e ripulisce la sua
+- Il registro del freezer non resta non tracciato nella radice di prod
+- Il perché giusto per ignorare swap-freeze.json
+- L'attesa non promette più «parte da solo sotto X%»: il gate non la mantiene
+- Il client non riesporta più ADMIT_RESUME_FRACTION
+
 ## 2.2.386 — 2026-09-24
 
 ### Sotto il cofano

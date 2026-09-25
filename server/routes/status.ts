@@ -4,6 +4,7 @@ import { join } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { getListeningPorts, getTopCpuProcesses } from "./processes";
 import { getFleetUsage } from "../lib/fleet-usage";
+import { machineSharesNow } from "../services/dispatch-capacity";
 import { unknownPricedModels } from "../usage/pricing";
 import { getProvider } from "../providers";
 import { checkGatewayHealth as pingGateway } from "../providers/health";
@@ -307,8 +308,16 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
         ]);
       } catch {}
 
+      // How busy the whole Mac is, as the two percentages the one number on
+      // the status dot is made of (`machineBusyPct` on the client). The same
+      // probes as the board's capacity reading, so the dot and the board
+      // cannot tell two different stories about the same machine.
+      let machine: ReturnType<typeof machineSharesNow> = { machineCpuPct: null, machineMemPct: null };
+      try { machine = machineSharesNow(); } catch { /* not measured, never zero */ }
+
       return json({
         timestamp: new Date().toISOString(),
+        machine,
         gateway: {
           online: gateway.online,
           status: gateway.status,

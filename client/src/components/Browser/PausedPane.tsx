@@ -20,7 +20,7 @@
  * background resumes, the first button is the same action said out loud.
  */
 import { CirclePause, Play } from 'lucide-react';
-import { useT } from '../../hooks/useT';
+import { useActiveLocale, useT } from '../../hooks/useT';
 import { machineMemoryMb } from '../../lib/shell/heavyPanes';
 import { pausedUsageText } from './pausedUsage';
 
@@ -39,7 +39,8 @@ interface PausedPaneProps {
 
 export function PausedPane({ cpu, memMb, hasStill, onResume, onKeepOnce, onKeepAlways }: PausedPaneProps) {
   const tr = useT();
-  const body = pausedUsageText(tr, { cpu, memMb }, { cores: CPU_CORES, memMb: machineMemoryMb() });
+  const locale = useActiveLocale();
+  const body = pausedUsageText(tr, { cpu, memMb }, { cores: CPU_CORES, memMb: machineMemoryMb() }, locale);
   const secondary = 'inline-flex items-center gap-1.5 px-3 py-1.5 text-compact rounded-md text-app-text-secondary hover:text-app-text hover:bg-app-hover';
   return (
     <div

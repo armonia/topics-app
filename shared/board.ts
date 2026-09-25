@@ -1927,6 +1927,17 @@ export interface DispatchCapacity {
    *  memory it is compared with. `null` where memory is not measured. */
   agentCostMemGB: number;
   freeQuotaMemGB: number | null;
+  /**
+   * THE WHOLE MAC, as a percent of the machine (0-100): CPU busy over the last
+   * interval between two readings (kernel tick counters, see
+   * `server/lib/machine-cpu.ts`), and memory in use (`1 - availableMemGB /
+   * totalMemGB`). They are what a person is shown as "the Mac is X% busy"
+   * (the larger of the two, `machineBusyPct` on the client); the gate never
+   * reads them. `null` = not measured, never 0%. Optional because an older
+   * server does not send them: absent reads as not measured too.
+   */
+  machineCpuPct?: number | null;
+  machineMemPct?: number | null;
   /** Spiegazione in una riga di come `recommended` è stato derivato. */
   reason: string;
   /**

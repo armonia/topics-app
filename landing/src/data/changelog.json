@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.2.387",
+    "date": "2026-09-24",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "comando su una riga nel log, skip ripetuti detti una volta",
+          "scope": "swap-freeze"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.382",
     "date": "2026-09-24",
     "sections": {

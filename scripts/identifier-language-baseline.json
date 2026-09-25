@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-19",
+  "generated": "2026-09-24",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -73,9 +73,6 @@
       "raf",
       "raf2",
       "snelliti"
-    ],
-    "client/src/components/Board/NightModeCard.tsx": [
-      "soglia"
     ],
     "client/src/components/Board/PreviewMedia.tsx": [
       "expandable"

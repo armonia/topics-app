@@ -227,10 +227,10 @@ describe('the brake by budget', () => {
     // 9 is far above the bound; the wire never reaches the slider unclamped.
     resources(9);
     let html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(html).toMatch(/data-testid="global-cap-budget-value">95% del libero</);
+    expect(html).toMatch(/data-testid="global-cap-budget-value">fino al 95% del Mac libero</);
     adoptGlobalCap({ maxAgentsMode: 'resources', budgetShare: 0.8 });
     html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(html).toMatch(/data-testid="global-cap-budget-value">80% del libero</);
+    expect(html).toMatch(/data-testid="global-cap-budget-value">fino all&#x27;80% del Mac libero</);
   });
 
   test('the percentage is said in the units it buys, on both axes', () => {
@@ -248,7 +248,8 @@ describe('the brake by budget', () => {
     adoptDispatchCapacity(machine({ usedCoreUnits: 2, budgetCoreUnits: 9.6, usableCoreUnits: 9.6 }));
     let html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('data-testid="global-cap-budget-live" data-band="green"');
-    expect(words(html)).toContain('Topics usa 2.0 dei 9.6 core a disposizione');
+    // 2 of 12 cores = 17% of the Mac, the ceiling 9.6 of 12 = 80%.
+    expect(words(html)).toContain('Topics usa il 17% del Mac, può arrivare all&#x27;80%');
     // At the budget: red.
     adoptDispatchCapacity(machine({ usedCoreUnits: 9.6, budgetCoreUnits: 9.6, usableCoreUnits: 9.6 }));
     html = renderToStaticMarkup(<GlobalCapControl />);
@@ -261,8 +262,9 @@ describe('the brake by budget', () => {
     resources(0.8);
     adoptDispatchCapacity(machine({ usedCoreUnits: 1, budgetCoreUnits: 9.6, usableCoreUnits: 2 }));
     const html = words(renderToStaticMarkup(<GlobalCapControl />));
-    expect(html).toContain('Topics usa 1.0 dei 2.0 core a disposizione');
-    expect(html).not.toContain('dei 9.6 core a disposizione');
+    // 1 of 12 = 8%, the usable 2 of 12 = 17%: the smaller ceiling, not 80%.
+    expect(html).toContain('Topics usa l&#x27;8% del Mac, può arrivare al 17%');
+    expect(html).not.toContain('può arrivare all&#x27;80%');
   });
 
   test('the reading is said ONCE, and the explanations are folded away', () => {
@@ -272,13 +274,13 @@ describe('the brake by budget', () => {
     resources(0.8);
     adoptDispatchCapacity(machine({ usedCoreUnits: 2, usableCoreUnits: 5, running: 2, frozen: 1 }));
     const html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(words(html).match(/core a disposizione/g)).toHaveLength(1);
+    expect(words(html).match(/Topics usa/g)).toHaveLength(1);
     expect(html).not.toContain('% del PC');
     const details = html.match(/<details[^>]*data-testid="global-cap-details"[^>]*>([\s\S]*?)<\/details>/);
     expect(details).not.toBe(null);
     expect(details![0]).not.toMatch(/<details[^>]*\sopen/);
     const folded = words(details![1]);
-    expect(folded).toContain('i processi che non sono di Topics hanno la precedenza');
+    expect(folded).toContain('loro hanno la precedenza');
     expect(folded).toContain('Un tetto solo');
     expect(folded).toContain('1 check congelati');
   });
@@ -298,7 +300,7 @@ describe('the brake by budget', () => {
     adoptDispatchCapacity(machine({ usedCoreUnits: 1.2, budgetCoreUnits: 7.2, usableCoreUnits: 0, running: 2 }));
     const html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('data-testid="global-cap-budget-live" data-band="red"');
-    expect(words(html)).toContain('Topics usa 1.2 dei 0.0 core a disposizione');
+    expect(words(html)).toContain('Topics usa il 10% del Mac, può arrivare allo 0%');
   });
 
   test('the verdict is the GATE\'s, read off the wire, and says which axis holds', () => {
@@ -310,14 +312,15 @@ describe('the brake by budget', () => {
       admission: { admit: false, blockedBy: 'cpu', firstAgentExempt: false, costCoreUnits: 0.5 } }));
     let html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('data-testid="global-cap-verdict" data-admit="false" data-blocked-by="cpu"');
-    expect(words(html)).toContain('i nuovi aspettano');
+    expect(words(html)).toContain('In attesa');
 
     // An old server sends the axis without its numbers: the axis is said, and
     // nothing claims the memory is "full" (it held that night with 7 GB free).
     adoptDispatchCapacity(machine({ usedCoreUnits: 1, usableCoreUnits: 9.6, running: 3,
       admission: { admit: false, blockedBy: 'memory', firstAgentExempt: false, costCoreUnits: 0.5 } }));
     html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(words(html)).toContain('i nuovi aspettano: memoria');
+    // No CPU on the wire (an old server); memory 1 - 20/32 = 38%: that is the number.
+    expect(words(html)).toContain('In attesa: il Mac è occupato al 38%');
     expect(words(html)).not.toContain('memoria piena');
 
     adoptDispatchCapacity(machine({ usedCoreUnits: 2, usableCoreUnits: 9.6, running: 2,
@@ -334,38 +337,47 @@ describe('the brake by budget', () => {
     expect(words(html)).toContain('il primo parte comunque');
   });
 
-  test('the verdict names the axis WITH the numbers it compared', () => {
+  test('the verdict says the one number, and where it restarts only when that is honest', () => {
     resources(0.6);
     // The quota clause: one more agent does not fit in our share of the free.
     adoptDispatchCapacity(machine({ usedCoreUnits: 1, usableCoreUnits: 6.6, running: 3,
       admission: { admit: false, blockedBy: 'memory', firstAgentExempt: false, costCoreUnits: 0.5,
         costMemGB: 4, freeQuotaMemGB: 3.3, ourMemGB: 9, usableMemGB: 12.3, memClause: 'quota' } }));
+    // The quota clause has no single resume line: the number alone.
     let html = words(renderToStaticMarkup(<GlobalCapControl />));
-    expect(html).toContain('i nuovi aspettano: memoria, servono 4.0 GB, liberi per Topics 3.3 GB');
-    // The footprint clause (two 11 GB shard runs): the next agent WOULD fit in
-    // the quota, so printing the quota would contradict itself.
+    expect(html).toContain('In attesa: il Mac è occupato al 38%');
+    expect(html).not.toContain('parte da solo');
+    // The footprint clause (two 11 GB shard runs) with memory making the
+    // number: the number alone, no promise of where the gate reopens (the gate
+    // reads Topics' share, the number is the whole Mac).
     adoptDispatchCapacity(machine({ usedCoreUnits: 4, usableCoreUnits: 6.6, running: 16,
       admission: { admit: false, blockedBy: 'memory', firstAgentExempt: false, costCoreUnits: 0.5,
         costMemGB: 1.5, freeQuotaMemGB: 4.2, ourMemGB: 22, usableMemGB: 20.4, memClause: 'footprint' } }));
     html = words(renderToStaticMarkup(<GlobalCapControl />));
-    expect(html).toContain('i nuovi aspettano: memoria, Topics tiene 22.0 GB su un tetto di 20.4 GB');
-    expect(html).not.toContain('servono');
-    // The CPU: what one more agent costs.
-    adoptDispatchCapacity(machine({ usedCoreUnits: 3.4, usableCoreUnits: 3.8, running: 2,
+    expect(html).toContain('In attesa: il Mac è occupato al 38%');
+    expect(html).not.toContain('parte da solo');
+    // The CPU, measured and making the number: again the number alone.
+    adoptDispatchCapacity(machine({ machineCpuPct: 91, usedCoreUnits: 3.4, usableCoreUnits: 3.8, running: 2,
       admission: { admit: false, blockedBy: 'cpu', firstAgentExempt: false, costCoreUnits: 0.5, usedCoreUnits: 3.4, usableCoreUnits: 3.8 } }));
-    expect(words(renderToStaticMarkup(<GlobalCapControl />))).toContain('i nuovi aspettano: CPU, un agent ne costa 0.5 core');
+    html = words(renderToStaticMarkup(<GlobalCapControl />));
+    expect(html).toContain('In attesa: il Mac è occupato al 91%');
+    expect(html).not.toContain('parte da solo');
+    // Open text only: what sits under a <details> fold may stay technical.
+    expect(words(renderToStaticMarkup(<GlobalCapControl />).replace(/<details[\s\S]*?<\/details>/g, ''))).not.toMatch(/\b(core|CPU|GB|RAM)\b/);
   });
 
   // THE NIGHT OF 14/09: 5.5 GB available under the native 6 GB floor, the only
   // brake that held, while the panel said in green that an agent would start.
-  test('the floor holds: the panel says so with its numbers, in either brake', () => {
+  test('the floor holds: the panel says so in plain words, in either brake, the numbers on hover', () => {
     const floor = { admit: false, blockedBy: 'floor' as const, firstAgentExempt: false, costCoreUnits: 0,
       reason: 'Memoria quasi finita: 5.5 GB disponibili, sotto il pavimento di 6 GB. Con il runtime nativo i check ne chiedono ~1,5 GB.' };
     resources(0.6);
     adoptDispatchCapacity(machine({ usedCoreUnits: 2, usableCoreUnits: 6.6, running: 3, admission: floor }));
     let html = renderToStaticMarkup(<GlobalCapControl />);
     expect(html).toContain('data-testid="global-cap-verdict" data-admit="false" data-blocked-by="floor"');
-    expect(words(html)).toContain('i nuovi aspettano: memoria quasi finita, 5.5 GB disponibili, sotto il pavimento di 6 GB');
+    expect(words(html)).toContain('In attesa: il Mac è quasi pieno, riparte da solo quando si libera spazio');
+    // The server's sentence, GB and all, is one hover away.
+    expect(html).toContain('title="Memoria quasi finita: 5.5 GB disponibili');
     expect(words(html)).not.toContain('partirebbe');
 
     // By count there is no budget verdict, but "3 di 4" must not stand alone.
@@ -374,7 +386,7 @@ describe('the brake by budget', () => {
     html = renderToStaticMarkup(<GlobalCapControl />);
     expect(words(html)).toContain('3 di 4');
     expect(html).toContain('data-blocked-by="floor"');
-    expect(words(html)).toContain('sotto il pavimento di 6 GB');
+    expect(words(html)).toContain('il Mac è quasi pieno');
   });
 
   test('the live number is the one the gate decided on, turns still warming up included', () => {
@@ -385,8 +397,9 @@ describe('the brake by budget', () => {
       admission: { admit: false, blockedBy: 'cpu', firstAgentExempt: false, costCoreUnits: 1.5,
         usedCoreUnits: 6.5, usableCoreUnits: 6.6, pendingAdmissions: 3 } }));
     const html = renderToStaticMarkup(<GlobalCapControl />);
-    expect(words(html)).toContain('Topics usa 6.5 dei 6.6 core a disposizione (3 appena partiti)');
-    expect(words(html)).not.toContain('usa 2.0');
+    // 6.5 of 12 = 54%, 6.6 of 12 = 55%.
+    expect(words(html)).toContain('Topics usa il 54% del Mac, può arrivare al 55% (3 appena partiti)');
+    expect(words(html)).not.toContain('usa il 17%');
     expect(html).toContain('data-testid="global-cap-budget-live" data-band="amber"');
   });
 

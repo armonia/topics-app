@@ -3,6 +3,7 @@ import { Activity, HardDrive } from 'lucide-react';
 import { useFps, useFpsHistory, type FpsSample } from '@/lib/fpsMonitor';
 import { formatCpuPercent, usePerfMetrics } from '@/hooks/usePerfMetrics';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
+import { MachineBusyLine } from '@/components/Shared/MachineBusyLine';
 import { computeTopicsFootprint } from '@/lib/topicsFootprint';
 import { scegliVerdetto } from './verdict';
 import { useFeatureWeights } from '@/hooks/useFeatureWeights';
@@ -242,6 +243,14 @@ export function PerfSection() {
 
   return (
     <div className="px-2 pt-2 pb-1 space-y-2 border-b border-app-border">
+      {/* THE HEADLINE, before the three questions: how busy the whole Mac is,
+          in the one number every load surface says (24/09). What follows is
+          the technical panel (frames, megabytes, processes) for whoever opens
+          it to dig, and it stays as it was. */}
+      <div className="px-0.5" data-testid="perf-machine-busy">
+        <MachineBusyLine shares={status?.machine} />
+      </div>
+
       {/* TRE DOMANDE, IN QUEST'ORDINE. Prima erano nove blocchi di numeri con
           etichette diverse per la stessa cosa ("CPU shell", "CPU Topics",
           "Renderer", "GPU", "server-side", "Topics (shell)", "residente",
