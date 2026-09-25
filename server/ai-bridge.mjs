@@ -110,6 +110,9 @@ function appendToStore(session, buf) {
   try {
     fs.writeSync(session.storeFd, buf);
     session.endOffset += buf.byteLength;
+    // When the child last printed anything. The store has no time per line, so
+    // this is the only clock a reattach scan can date its replay by.
+    session.lastDataAt = Date.now();
   } catch (e) {
     console.error(`[AI Bridge] store write failed for ${session.id}: ${e.message}`);
     return null;
@@ -284,7 +287,7 @@ function handleMessage(msg, client) {
       const s = sessions.get(msg.id);
       if (!s) { sendTo(client, { type: 'attached', id: msg.id, endOffset: 0, alive: false, exitCode: null, missing: true }); break; }
       replayTo(s, client, msg.fromOffset || 0);
-      sendTo(client, { type: 'attached', id: msg.id, endOffset: s.endOffset, alive: s.alive, exitCode: s.exitCode });
+      sendTo(client, { type: 'attached', id: msg.id, endOffset: s.endOffset, alive: s.alive, exitCode: s.exitCode, lastDataAt: s.lastDataAt ?? null });
       break;
     }
     case 'detach': {

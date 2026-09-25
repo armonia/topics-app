@@ -53,7 +53,7 @@ import {
   type CallUsage,
 } from "./claude/events";
 import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor, unattendedLineFate, type WakeObserver } from "./claude/woken-turn";
-import { isBackgroundWorkAlive, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
+import { BACKGROUND_KILL_CAP_MS, isBackgroundWorkAlive, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
 import { observePlanUsage } from "./native/usage-window";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
@@ -919,7 +919,7 @@ function turnInFlight(pp: PersistentProcess): boolean {
 
 /** Killing this child would also kill the Agent, Bash or Monitor its last turn left running. */
 function backgroundAlive(pp: PersistentProcess): boolean {
-  return isBackgroundWorkAlive(pp.background, Date.now());
+  return isBackgroundWorkAlive(pp.background, Date.now(), BACKGROUND_KILL_CAP_MS);
 }
 
 /**
@@ -1128,6 +1128,10 @@ interface PersistentProcess {
   notificationTurnPending?: boolean;
   /** What the CLI last said about the work a closed turn left running (see `claude/background-work.ts`). */
   background?: BackgroundWork;
+  /** A config change arrived while this child could not be killed: the next send that finds it idle respawns it. */
+  configStale?: boolean;
+  /** Scan outcome: the tail is open only because a `system/init` started a turn with nothing after it yet. */
+  replayTailInitOnly?: boolean;
   /**
    * Set when this process was spawned with `--session-id` because the prior
    * `claude_session_id` was either missing on disk or never existed, but the
@@ -1980,7 +1984,9 @@ export class ClaudeCodeProvider implements AIProvider {
     // A turn in flight, by the same rule as the lifetime cap and the reaper
     // (`turnInFlight`): the change then applies on the next natural respawn.
     // Background work too: a model switch is not worth the agent it would kill.
-    if (turnInFlight(pp) || backgroundAlive(pp)) return;
+    // Either way the change is owed: the next send that finds the child idle
+    // respawns it, or an autonomy lowered now would never take effect.
+    if (turnInFlight(pp) || backgroundAlive(pp)) { pp.configStale = true; return; }
     console.log(`[claude-code] refreshSessionConfig: dropping idle process for ${sessionKey} to pick up new config`);
     this.killProcess(pp, "config");
     this.processes.delete(sessionKey);
@@ -2218,10 +2224,14 @@ export class ClaudeCodeProvider implements AIProvider {
 
   private getOrCreateProcess(sessionKey: string): PersistentProcess {
     const existing = this.processes.get(sessionKey);
-    if (existing && existing.alive) return existing;
-
-    // Clean up dead process
-    if (existing) {
+    if (existing?.alive && existing.configStale && !turnInFlight(existing) && !backgroundAlive(existing)) {
+      console.log(`[claude-code] ${sessionKey}: respawning to apply the config change it was too busy to take`);
+      this.killProcess(existing, "config");
+      this.processes.delete(sessionKey);
+    } else if (existing && existing.alive) {
+      return existing;
+    } else if (existing) {
+      // Clean up dead process
       this.killProcess(existing, "dead");
       this.processes.delete(sessionKey);
     }
@@ -2670,7 +2680,7 @@ export class ClaudeCodeProvider implements AIProvider {
   /** The session's last turn left an Agent, a Bash or a Monitor running, and the CLI still reports on it. */
   hasBackgroundWork(sessionKey: string): boolean {
     const pp = this.processes.get(sessionKey);
-    return !!pp && pp.alive && backgroundAlive(pp);
+    return !!pp && pp.alive && isBackgroundWorkAlive(pp.background, Date.now());
   }
 
   /**
@@ -2786,9 +2796,16 @@ export class ClaudeCodeProvider implements AIProvider {
   ): Promise<{ missing: boolean; alive: boolean }> {
     pp.replayMute = true;
     pp.replayTailOpen = false;
+    pp.replayTailInitOnly = false;
     pp.replayLastResult = undefined;
     pp.replayAfterLastResultOffset = 0;
     const scan = await client.attach(sessionKey, 0);
+    // The replay dated every background line "now". The child's last write is
+    // the true age of that news: a job silent for hours must not look fresh
+    // after every restart, or no clock ever collects a lost one.
+    if (pp.background && typeof scan.lastDataAt === "number" && scan.lastDataAt < pp.background.lastSignalAt) {
+      pp.background = { ...pp.background, lastSignalAt: scan.lastDataAt };
+    }
     return { missing: scan.missing === true, alive: scan.alive === true };
   }
 
@@ -3396,6 +3413,12 @@ export class ClaudeCodeProvider implements AIProvider {
       // fold closes turns on `result` like live traffic does. Not during the
       // scan (`replayMute`), which reads history and would leak the flag.
       if (line.label === "system/task_notification" && !pp.replayMute) pp.notificationTurnPending = true;
+      // THE SCAN: every turn of the model starts with `system/init` (recorded,
+      // 2.1.282), a subagent's never does. A store that ends between it and the
+      // first streamed line is a turn in flight: the wake answering the last
+      // background report, or a message sent while a background agent talked.
+      // Read as closed, the boot reaped the child mid-answer.
+      if (pp.replayMute && line.label === "system/init") { pp.replayTailOpen = true; pp.replayTailInitOnly = true; }
       return;
     }
 
@@ -3415,8 +3438,14 @@ export class ClaudeCodeProvider implements AIProvider {
           // rispediva l'intero store una TERZA volta, e la rifoldava non muta.
           // Vedi `createLineFolder`.
           pp.replayAfterLastResultOffset = pp.lineEndOffset ?? pp.consumedOffset;
+        } else if (pp.replayTailInitOnly) {
+          // An empty result right after an init with nothing between: a
+          // `/compact` or a notification's own turn, begun and already over.
+          pp.replayTailOpen = false;
         }
+        pp.replayTailInitOnly = false;
       } else if (readParentToolUseId(event) === null) {
+        pp.replayTailInitOnly = false;
         // A background agent's line after the last `result` is not a turn in
         // flight: read as one, the boot adopted chat 3019832f's closed turn and
         // waited for a `result` that only the agent's end would bring (25/09).
@@ -3975,8 +4004,8 @@ export class ClaudeCodeProvider implements AIProvider {
         // woken turn has no watchdog, and the cap was the only thing ending it
         // if it wedged. It still is, so waiting never becomes waiting forever.
         // Not a second silence clock: this only ever fires past the 2 h mark.
-        // Background work waits the same way, bounded by its own thirty-minute
-        // cap without news (`claude/background-work.ts`).
+        // Background work waits the same way, bounded by two hours without
+        // news of it (`BACKGROUND_KILL_CAP_MS`).
         if ((turnInFlight(pp) && Date.now() - quietSince(pp, sessionKey) < wedgedMs + rearmMs) || backgroundAlive(pp)) {
           pp.lifetimeTimer = this.armLifetime(pp, sessionKey, { ms: rearmMs, rearmMs, wedgedMs });
           return;

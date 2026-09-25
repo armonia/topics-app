@@ -15,7 +15,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";
-import { noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
+import { BACKGROUND_KILL_CAP_MS, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
 import { recordedBackgroundSession } from "./claude/background-work.fixture";
 
 function fakePP(over: Record<string, unknown> = {}) {
@@ -191,6 +191,28 @@ describe("ClaudeCodeProvider — inactivity reaper never fires during a turn", (
       expect(killed).toBe(1);
     });
 
+    test("a background Bash silent for 45 minutes is a long job, not a lost one; two hours without news is", async () => {
+      // A background Bash prints nothing until it ends (the recorded `sleep 40`
+      // is silent for its whole run): a suite on the PC looks exactly like this.
+      const sessionKey = "sess-inact-f5";
+      let killed = 0;
+      const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
+      const provider = setup(pp, sessionKey);
+      const open = fold(0, firstResult + 1)!;
+      pp.background = { ...open, lastSignalAt: Date.now() - 45 * 60_000 };
+      (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(killed).toBe(0);
+      // Waiting is another matter: past thirty minutes the goal loop checks in
+      // and the stall judge may look again.
+      expect(provider.hasBackgroundWork(sessionKey)).toBe(false);
+
+      pp.background = { ...open, lastSignalAt: Date.now() - BACKGROUND_KILL_CAP_MS };
+      (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(killed).toBe(1);
+    });
+
     test("a config change waits for the work instead of killing it", () => {
       const sessionKey = "sess-inact-f2";
       let killed = 0;
@@ -201,6 +223,29 @@ describe("ClaudeCodeProvider — inactivity reaper never fires during a turn", (
       expect(killed).toBe(0);
       pp.background = fold(firstResult + 1, events.length, pp.background);
       provider.refreshSessionConfig(sessionKey);
+      expect(killed).toBe(1);
+    });
+
+    test("the config change it was too busy to take is applied at the next send that finds it idle", () => {
+      // Autonomy lowered from yolo to ask while a background job runs: skipping
+      // the kill must not mean skipping the change, or the next turn still runs
+      // with `bypassPermissions`.
+      const sessionKey = "sess-inact-f6";
+      let killed = 0;
+      const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
+      const provider = new ClaudeCodeProvider({ type: "claude-code" });
+      const p = provider as any;
+      const fresh = fakePP();
+      p.spawnPersistentProcess = () => fresh;
+      p.processes.set(sessionKey, pp);
+      pp.background = fold(0, firstResult + 1);
+      provider.refreshSessionConfig(sessionKey);
+      expect(killed).toBe(0);
+      // Still working: the next send keeps the child and its work.
+      expect(p.getOrCreateProcess(sessionKey)).toBe(pp);
+      pp.background = fold(firstResult + 1, events.length, pp.background);
+      // Idle now: the owed respawn happens here.
+      expect(p.getOrCreateProcess(sessionKey)).toBe(fresh);
       expect(killed).toBe(1);
     });
 

@@ -357,4 +357,83 @@ describe("boot · the agent's lines after the last result", () => {
       try { getAiBridgeClient().kill(sessionKey); } catch { /* best-effort cleanup */ }
     }
   }, 40_000);
+
+  /** A store written by the fake CLI and left there: `lines` then sleep. */
+  function storeCli(name: string, lines: unknown[]): string {
+    const body = join(tempDir, `${name}.ndjson`);
+    writeFileSync(body, lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const cli = join(tempDir, `${name}.sh`);
+    writeFileSync(cli, `#!/bin/sh\nread line\ncat '${body}'\nsleep 30\n`);
+    chmodSync(cli, 0o755);
+    return cli;
+  }
+
+  test("a restart between the last report and the wake's first word: the wake is a turn in flight, not an idle child", async () => {
+    // The CLI prints the empty snapshot BEFORE the notification and the wake
+    // that answers it (fixture lines 268-272). Ending there, the store has no
+    // line of the model yet, only its `system/init`.
+    const events = recordedBackgroundSession();
+    const lastInit = events.findLastIndex((e) => e.type === "system" && e.subtype === "init");
+    setEnv("TOPICS_CLAUDE_CLI_PATH", storeCli("bg-final-wake", events.slice(0, lastInit + 1)));
+    const sessionKey = "topic:boot-bg-final";
+    await seedSurvivingSession(sessionKey, "t-boot-bg-final");
+    const prov = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    try {
+      expect(prov.hasBackgroundWork(sessionKey)).toBe(false);
+      expect(await prov.brokerTurnState(sessionKey)).toBe("open");
+    } finally {
+      try { getAiBridgeClient().kill(sessionKey); } catch { /* best-effort cleanup */ }
+    }
+  }, 40_000);
+
+  test("a /compact that already ended is not a turn in flight", async () => {
+    const lines = [
+      { type: "system", subtype: "init", session_id: "s" },
+      { type: "assistant", message: { content: [{ type: "text", text: "ok" }] } },
+      { type: "result", subtype: "success", is_error: false, num_turns: 1, result: "ok" },
+      { type: "system", subtype: "init", session_id: "s" },
+      { type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 1000 } },
+      { type: "result", subtype: "success", is_error: false, num_turns: 0, result: "" },
+    ];
+    setEnv("TOPICS_CLAUDE_CLI_PATH", storeCli("compact-over", lines));
+    const sessionKey = "topic:boot-compact-over";
+    await seedSurvivingSession(sessionKey, "t-boot-compact-over");
+    const prov = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    try {
+      expect(await prov.brokerTurnState(sessionKey)).toBe("idle");
+    } finally {
+      try { getAiBridgeClient().kill(sessionKey); } catch { /* best-effort cleanup */ }
+    }
+  }, 40_000);
+
+  test("news replayed at boot is dated by the child's last write, so a job silent for hours is not kept", async () => {
+    // Without the daemon's clock every restart re-dated the snapshot to "now",
+    // and a task that stopped reporting hours ago survived every restart.
+    const events = recordedBackgroundSession();
+    const firstResult = events.findIndex((e) => e.type === "result");
+    setEnv("TOPICS_CLAUDE_CLI_PATH", storeCli("bg-stale", events.slice(0, firstResult + 1)));
+    const sessionKey = "topic:boot-bg-stale";
+    await seedSurvivingSession(sessionKey, "t-boot-bg-stale");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const bridge = getAiBridgeClient() as any;
+    const vero = bridge.attach.bind(bridge);
+    try {
+      // The real daemon reports the true last write: fresh, so it is kept.
+      const fresh = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+      expect(await fresh.brokerTurnState(sessionKey)).toBe("idle");
+      expect(fresh.hasBackgroundWork(sessionKey)).toBe(true);
+      fresh.stop();
+      // The same store, last written three hours ago.
+      bridge.attach = async (id: string, from: number) => ({ ...(await vero(id, from)), lastDataAt: Date.now() - 3 * 60 * 60_000 });
+      const late = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+      expect(await late.brokerTurnState(sessionKey)).toBe("idle");
+      expect(late.hasBackgroundWork(sessionKey)).toBe(false);
+      expect((late as any).processes.has(sessionKey)).toBe(false);
+    } finally {
+      bridge.attach = vero;
+      try { bridge.kill(sessionKey); } catch { /* best-effort cleanup */ }
+    }
+  }, 40_000);
 });

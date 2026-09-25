@@ -35,6 +35,17 @@ import { readBackgroundTasks, readParentToolUseId } from "./events";
  */
 export const BACKGROUND_WORK_CAP_MS = 30 * 60_000;
 
+/**
+ * How long the clocks that KILL the child (the idle reaper, the lifetime cap, a
+ * config change) keep believing it. Longer than the wait above on purpose: a
+ * background Bash prints nothing between its `task_started` and its end (the
+ * recorded `sleep 40` is silent for its whole run), so thirty minutes of silence
+ * is a long build or a suite on the PC, not a lost task. Presuming it lost only
+ * costs a check-in when the question is whether to wait; when the question is
+ * whether to kill, it costs the work. Two hours is the lifetime cap's own scale.
+ */
+export const BACKGROUND_KILL_CAP_MS = 2 * 60 * 60_000;
+
 export interface BackgroundWork {
   /** The last snapshot the CLI printed: task id to what it is. */
   tasks: ReadonlyMap<string, { type: string; description: string }>;
@@ -74,6 +85,10 @@ function isBackgroundSignal(event: unknown): boolean {
 }
 
 /** Is there background work alive, as of `now`? Past the cap it is presumed lost. */
-export function isBackgroundWorkAlive(work: BackgroundWork | undefined, now: number): boolean {
-  return !!work && work.tasks.size > 0 && now - work.lastSignalAt < BACKGROUND_WORK_CAP_MS;
+export function isBackgroundWorkAlive(
+  work: BackgroundWork | undefined,
+  now: number,
+  capMs: number = BACKGROUND_WORK_CAP_MS,
+): boolean {
+  return !!work && work.tasks.size > 0 && now - work.lastSignalAt < capMs;
 }
