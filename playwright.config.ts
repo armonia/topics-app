@@ -579,6 +579,9 @@ export default defineConfig({
         // server restart and with the owning project window unmounted. The
         // pane under test is the native (Tauri) one, and Tauri ships WebKit.
         "**/browser-pane-attach.spec.ts",
+        // An empty turn the machine stopped: one neutral line, no Riprova,
+        // live and after a reload. Filmed on the engine that ships.
+        "**/machine-stop-no-retry.spec.ts",
       ],
       use: {
         browserName: "webkit",

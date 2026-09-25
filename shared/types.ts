@@ -979,6 +979,17 @@ export type ContentBlock =
    */
   | { kind: 'goal-stop'; reason: 'capped' | 'stalled' }
   /**
+   * THE MACHINE STOPPED THIS TURN ON PURPOSE, before it said anything.
+   *
+   * A land (`superseded`), a delegation's deadline (`wall-clock`) or the stall
+   * judge (`stall`): the empty turn's row is discarded, and without a row
+   * saying so the chat would end on the unanswered envelope, which the client
+   * offers to resend. The block is the whole row: `content` stays empty so
+   * neither the model's history nor the dispatcher's "last words of the agent"
+   * read it. See `server/lib/machine-stop-notice.ts`.
+   */
+  | { kind: 'machine-stop'; cause: 'superseded' | 'wall-clock' | 'stall' }
+  /**
    * THIS ROW IS AN ENVELOPE THE DISPATCHER WROTE, not something a person typed.
    *
    * A board turn starts by POSTing a generated text to the chat as a `user`

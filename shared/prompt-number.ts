@@ -12,7 +12,7 @@ import type { ContentBlock } from "./types";
 
 /** The block kinds that mark a row as written by the machine, not a person or
  *  the model. Twin of `isMachineRow` on the client. */
-export const MACHINE_ROW_KINDS = ["goal-nudge", "goal-stop", "dispatched-envelope"] as const;
+export const MACHINE_ROW_KINDS = ["goal-nudge", "goal-stop", "dispatched-envelope", "machine-stop"] as const;
 
 /**
  * The same rule as SQL, for readers that do not load `blocks` (lean reads, the

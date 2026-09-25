@@ -28,6 +28,7 @@ import { getSessionContext } from "../db/session-context";
 import { markTargetNotificationsSeen, countUnseenNotifications } from "../db/notification-log";
 import { logMachineStop, logStopPressed } from "../db/activity-log";
 import { isMachineStop, machineStopToolError, stopCauseOf } from "../lib/abort-cause";
+import { machineStopBlock, needsMachineStopNotice } from "../lib/machine-stop-notice";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
 import { createTaskService } from "../services/tasks";
@@ -2470,6 +2471,12 @@ export function createTopicsRouter(
       // Stop only: a machine's recycle recorded here was never resumed.
       if (cause === "user") logStopPressed({ sessionKey, topicId });
       else if (stream.messageId) logMachineStop({ sessionKey, topicId, cause, messageId: stream.messageId });
+      // The message this turn was answering, read NOW: the provider's abort
+      // below can finalize and discard the turn's row synchronously (claude-code),
+      // and after that nothing says which message it hung from.
+      const answeredMessageId = isMachineStop(cause) && stream.messageId
+        ? ctx.getMessageById(stream.messageId)?.parentId ?? null
+        : null;
 
       // PRIMA il provider, POI il controller dell'SSE. L'ordine conta: l'abort
       // del controller chiude la macchina a stati della route, quindi tutto ciò
@@ -2536,6 +2543,27 @@ export function createTopicsRouter(
           ...(stream.messageId ? { messageId: stream.messageId } : {}),
         });
       }
+      // An empty turn the machine stopped leaves one service row, so the chat
+      // does not end on the unanswered message and the client offers no
+      // «Riprova» for it, live or after a reload (lib/machine-stop-notice.ts).
+      // Written here, after both finalizes, because whichever ran first
+      // discarded the row, and before the `stream:end` below, so a watching
+      // window never paints the no-reply banner in between.
+      if (isMachineStop(cause) && answeredMessageId
+        && needsMachineStopNotice(loadLocalMessages(sessionKey, { withBlocks: false, withToolCalls: false }), answeredMessageId)) {
+        const block = machineStopBlock(cause);
+        const notice = appendLocalMessage(sessionKey, "assistant", "", undefined, [block]);
+        if (topicId) {
+          // The row's `content` is empty on purpose, but the live handler drops
+          // a `message:new` without text: the frame carries the sentence the
+          // client falls back to, and the block is what it draws.
+          broadcastToAll({
+            type: "message:new", topicId, sessionKey, role: "assistant",
+            messageId: notice.id, content: machineStopToolError(cause), preview: "", blocks: [block],
+          });
+        }
+      }
+
       // user_abort: user explicitly clicked stop — they are present in the tab,
       // so we intentionally do NOT increment unread count. This is a design
       // choice, not an omission. A machine's stop says it was cancelled, with

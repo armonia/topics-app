@@ -1089,6 +1089,8 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       // Nor the dispatcher's envelope mark: like those two it says WHY this row
       // exists, and `MessageBubble` draws it as a collapsed service line.
       if (b.kind === 'dispatched-envelope') continue;
+      // Nor the machine's stop line: `MessageBubble` draws that row whole.
+      if (b.kind === 'machine-stop') continue;
       if (b.kind === 'tool') {
         const last = out[out.length - 1];
         if (last && last.kind === 'tools') last.tools.push(b.toolCall);
