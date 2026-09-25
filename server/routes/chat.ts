@@ -997,6 +997,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
        * lo terrebbe appeso.
        */
       const closeTurnWithFailure = (err: unknown, rowId: string): string => {
+        stopTurnBodyOf(rowId);
+        endStream(sessionKey);
         const row = readRowForNotice(rowId);
         const notice = sendFailureNotice(row, err);
         const verdetto = `Non sono riuscito ad avviare il turno: ${shortErrorDetail(err)}`;
@@ -3590,7 +3592,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 console.log(`[StreamWS] ${sessionKey}: il turno spontaneo era già stato preso da qualcun altro — chiudo senza scrivere niente`);
                 undoInlineMark();
                 topicProvider.unregisterStreamHandler?.(sessionKey);
-                stopTurnBodyOf(partialMsg.id);
                 endStream(sessionKey);
                 streamState = "finalized";
                 // `discardIfEmptyTurn` vuole la RIGA, non un id, e verifica in
@@ -3611,8 +3612,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // restano i throw sincroni; la classe grossa passa da `onError`.
               undoInlineMark();
               topicProvider.unregisterStreamHandler?.(sessionKey);
-              stopTurnBodyOf(partialMsg.id);
-              endStream(sessionKey);
               // Il turno è chiuso: un `onDone` in ritardo non deve riaprirlo e
               // riscrivere la riga da `finalizeStream`. Mancava, ed era un buco
               // — non una decisione.
@@ -3626,8 +3625,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           } catch (err: any) {
             console.error(`[StreamWS] sync setup error for ${sessionKey}:`, err);
             topicProvider.unregisterStreamHandler?.(sessionKey);
-            stopTurnBodyOf(partialMsg.id);
-            endStream(sessionKey);
             // Come il gemello asincrono: il turno è chiuso, e i timer del
             // watchdog sono ancora armati.
             streamState = "finalized";
