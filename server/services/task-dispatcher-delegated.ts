@@ -1,6 +1,6 @@
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import type { TurnEndInfo } from "../providers/stop-reason";
-import type { TurnEndCause } from "../../shared/types";
+import type { StopCause } from "../lib/abort-cause";
 
 const EFFORT_RANK = new Map([
   ["low", 0], ["medium", 1], ["high", 2], ["xhigh", 3], ["max", 4], ["ultra", 5],
@@ -30,7 +30,7 @@ export async function runWithDelegatedDeadline(input: {
   persistedDeadlineAt: number | undefined;
   sessionKey: string;
   clock: () => number;
-  abortTurn?: (sessionKey: string, cause: TurnEndCause) => Promise<void>;
+  abortTurn?: (sessionKey: string, cause: StopCause) => Promise<void>;
   run: () => Promise<TurnEndInfo | void>;
 }): Promise<TurnEndInfo | void> {
   const policy = input.resolvePolicy();

@@ -88,8 +88,7 @@ import { createDeliveryCapture } from "../services/task-delivery-capture";
 import { makeSheetWriter } from "../services/delivery-sheet";
 import { resolveTaskDiffRange } from "../services/task-diff-range";
 import { isTaskLabel, normalizeLabels, type TaskFile } from "../../shared/task-labels";
-import type { TurnEndCause } from "../../shared/types";
-import { abortCauseOf, STOP_CAUSE_HEADER } from "../lib/abort-cause";
+import { stopCauseOf, STOP_CAUSE_HEADER, type StopCause } from "../lib/abort-cause";
 import { probeUrl, invalidateProbeCache } from "../services/url-probe-cache";
 import {
   getEligibleGlobalOrchestratorSessionBySessionKey,
@@ -236,7 +235,7 @@ export interface TasksRouterOpts {
   /** Workspace root for scaffolding a NEW project from the board. */
   workspaceDir?: string;
   /** Abort a running headless turn (human "stop" on a dispatched task). */
-  abortTurn?: (sessionKey: string, cause: TurnEndCause) => Promise<void>;
+  abortTurn?: (sessionKey: string, cause: StopCause) => Promise<void>;
   /**
    * Kill the WHOLE process tree an agent's Bash tool spawned for this session
    * — not just the CLI turn. `abortTurn` cuts the turn (SIGINT to the CLI,
@@ -1645,7 +1644,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     t: { id: string; assignedTopicId: string | null; dispatchState: string | null },
     reason: string,
     // A person's Stop on the card is `user`; the machine closing it is not (card C9).
-    cause: TurnEndCause,
+    cause: StopCause,
   ): boolean {
     let running: TaskAttempt[] = [];
     try { running = attempts.list(t.id).filter((a) => a.state === "running"); }
@@ -3615,7 +3614,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const detachLiveAgent = (
         t: { id: string; assignedTopicId: string | null; dispatchState: string | null },
         reason: string,
-        cause: TurnEndCause,
+        cause: StopCause,
       ): Task | null => {
         if (!cutLiveTurn(t, reason, cause)) return null;
         // `stopped` e non NULL: un park senza stato è indistinguibile da un task
@@ -4610,7 +4609,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
             if (got) {
               // The server sends this DELETE itself for a delegation another
               // machine revoked, and says so: that stop is not a person's (C9).
-              detachLiveAgent(got.task, NOTE_ARCHIVED_BY_HUMAN, abortCauseOf({ cause: req.headers.get(STOP_CAUSE_HEADER) }));
+              detachLiveAgent(got.task, NOTE_ARCHIVED_BY_HUMAN, stopCauseOf(req, req.headers.get(STOP_CAUSE_HEADER)));
             }
             // Read BEFORE the archive: the sweep needs the delivery branch, and
             // it runs after, when the card is already off the board.

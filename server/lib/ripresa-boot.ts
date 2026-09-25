@@ -212,6 +212,10 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   // queue is the same case with no stream to show it (3019832f again: four
   // resends behind the send the watchdog had orphaned).
   if (r.streaming || r.providerBusy) return "no";
+  // A card's chat is the dispatcher's here too, landed or archived included:
+  // after a land the sweep resent the card's last envelope, and an agent redid
+  // work already on main (third review of PR #135).
+  if (r.boundToCard) return "no";
   if (!Array.isArray(r.blocks) || r.blocks.length === 0) return "no";
   // Fuori finestra: una risposta che arriva domani a una domanda di ieri è
   // rumore, non un recupero.
@@ -367,12 +371,13 @@ const stopsLogged = new Map<string, number>();
  *  every five minutes. */
 const busyLogged = new Map<string, string>();
 
-/** Whether a board card is working on this topic: those chats are the
- *  dispatcher's to resume (it re-sends its own kickoff), never this sweep's. */
+/** Whether a board card owns this topic: those chats are the dispatcher's to
+ *  resume (it re-sends its own kickoff), never this sweep's. A landed card
+ *  (`done`) and an archived one still own it: nothing is left to resume there. */
 function cardBound(db: Pick<Database, "query">, topicId: string): boolean {
   try {
     return db.query(
-      `SELECT 1 FROM tasks WHERE assigned_topic_id = ? AND archived = 0 AND status IN ('todo','in_progress','review') LIMIT 1`,
+      `SELECT 1 FROM tasks WHERE assigned_topic_id = ? AND status IN ('todo','in_progress','review','done') LIMIT 1`,
     ).get(topicId) != null;
   } catch { return false; }
 }

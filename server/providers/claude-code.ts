@@ -3192,7 +3192,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // is ABORTED. Only a genuine non-zero exit is PROCESS_DIED.
     const graceful = pp.aborting === true || code === 0;
     const kind = pp.recovering ? " (session reset)"
-      : pp.aborting ? (pp.abortReason === "watchdog" ? " (watchdog stop)" : " (user stop)")
+      : pp.aborting ? ` (${pp.abortReason ?? "user"} stop)`
       : "";
     console.log(`[claude-code] Process exited with code ${code}${kind}`);
     if (pp.pendingReject) {
@@ -3216,7 +3216,7 @@ export class ClaudeCodeProvider implements AIProvider {
         // una causa inventata.
         this.tellHandlerSafely(pp, "onAborted", () => pp.streamHandler?.onAborted?.({
           turnEnd: pp.aborting
-            ? cancelled(pp.abortReason === "watchdog" ? "watchdog" : "user")
+            ? cancelled(pp.abortReason ?? "user")
             : { end: "cancelled" },
         }));
       } else {

@@ -57,6 +57,17 @@ describe("onSessionClosed — clean/aborted exit is not an error", () => {
     expect(h.calls).toEqual(["aborted"]);
   });
 
+  test("the exit carries the reason the abort was given, not `user` for anything but the watchdog", () => {
+    // A server shutdown, or a stop the machine wanted (card C9), used to come
+    // out of the exit as `user`: the person's Stop, which nobody pressed.
+    for (const reason of ["server-shutdown", "stall", "superseded", "wall-clock", "watchdog", "user"]) {
+      const ends: unknown[] = [];
+      const pp = fakePP({ streamHandler: { onAborted: (m: { turnEnd?: unknown }) => ends.push(m?.turnEnd) }, aborting: true, abortReason: reason });
+      close(pp, 0);
+      expect(ends).toEqual([{ end: "cancelled", cause: reason }]);
+    }
+  });
+
   test("non-zero code without abort → onError (genuine crash)", () => {
     const h = spyHandler();
     const pp = fakePP({ streamHandler: h });

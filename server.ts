@@ -58,7 +58,7 @@ import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
-import type { ContentBlock, TurnEndCause } from "./shared/types";
+import type { ContentBlock } from "./shared/types";
 import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
@@ -238,7 +238,7 @@ import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
 // is downgraded to a reporting-only comparison below.
 import { armStallDetector } from "./server/lib/stall-detector";
 import { judgeStall } from "./server/lib/stall-judge";
-import { internalAbortRequest, STOP_CAUSE_HEADER } from "./server/lib/abort-cause";
+import { internalAbortRequest, internalRequest, STOP_CAUSE_HEADER, type StopCause } from "./server/lib/abort-cause";
 import { runBootPartialSweep } from "./server/lib/boot-partial-sweep";
 import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/delivery-backfill";
 import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } from "./server/services/delivery-ref-keep";
@@ -1014,7 +1014,7 @@ const dispatcherSvc = createTaskService(ctx.db, {
 
 /** Stops a turn from inside the server. The cause is required and is never
  *  `user` unless a person pressed something: see lib/abort-cause.ts (card C9). */
-async function abortHeadlessTurn(sessionKey: string, cause: TurnEndCause): Promise<void> {
+async function abortHeadlessTurn(sessionKey: string, cause: StopCause): Promise<void> {
   const req = internalAbortRequest(sessionKey, cause);
   try {
     await topicsRouter(req, new URL(req.url), "/api/chat/abort", "POST");
@@ -2794,7 +2794,7 @@ const worktreesRouter = createWorktreesRouter(ctx, {
 // The revocation is the machine's, and the stop it causes says so (card C9).
 const deleteDelegatedBoardTask = (projectId: string, taskId: string) => {
   const url = new URL(`http://localhost/api/boards/${projectId}/tasks/${taskId}`);
-  const req = new Request(url, { method: "DELETE", headers: { [STOP_CAUSE_HEADER]: "superseded" } });
+  const req = internalRequest(url, { method: "DELETE", headers: { [STOP_CAUSE_HEADER]: "superseded" } });
   return tasksRouter(req, url, url.pathname, "DELETE");
 };
 const delegatedRevocations = createDelegatedRevocationRetry({

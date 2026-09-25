@@ -13,7 +13,7 @@
 import { describe, expect, test } from "bun:test";
 import { createTasksRouter } from "./tasks";
 import { freshDb, makeCtx, call } from "./tasks-test-support";
-import { STOP_CAUSE_HEADER } from "../lib/abort-cause";
+import { internalRequest, STOP_CAUSE_HEADER } from "../lib/abort-cause";
 
 /** A board with one card whose agent is working, and the causes its stops carried. */
 async function workingCard(topicId: string) {
@@ -43,8 +43,16 @@ describe("the stop of a card's agent says who stopped it", () => {
   test("the DELETE the server sends for a revoked delegation is the machine's", async () => {
     const c = await workingCard("top-rev");
     const url = new URL(`http://localhost/api/boards/pX/tasks/${c.id}`);
-    const resp = await c.r(new Request(url, { method: "DELETE", headers: { [STOP_CAUSE_HEADER]: "superseded" } }), url, url.pathname, "DELETE");
+    const resp = await c.r(internalRequest(url, { method: "DELETE", headers: { [STOP_CAUSE_HEADER]: "superseded" } }), url, url.pathname, "DELETE");
     expect(resp?.status).toBe(200);
     expect(c.causes).toEqual(["superseded"]);
+  });
+
+  test("the same header from outside the server is ignored: the person archived it", async () => {
+    const c = await workingCard("top-spoof");
+    const url = new URL(`http://localhost/api/boards/pX/tasks/${c.id}`);
+    const resp = await c.r(new Request(url, { method: "DELETE", headers: { [STOP_CAUSE_HEADER]: "superseded" } }), url, url.pathname, "DELETE");
+    expect(resp?.status).toBe(200);
+    expect(c.causes).toEqual(["user"]);
   });
 });

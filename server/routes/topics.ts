@@ -27,7 +27,7 @@ import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
 import { getSessionContext } from "../db/session-context";
 import { markTargetNotificationsSeen, countUnseenNotifications } from "../db/notification-log";
 import { logStopPressed } from "../db/activity-log";
-import { abortCauseOf, providerAbortReason } from "../lib/abort-cause";
+import { stopCauseOf } from "../lib/abort-cause";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
 import { createTaskService } from "../services/tasks";
@@ -2459,10 +2459,10 @@ export function createTopicsRouter(
       // `cancelled("user")` è quello che il provider stesso depositerebbe: se la
       // sua finalizzazione arriva comunque, riscrive lo stesso verdetto.
       //
-      // WHO stopped it is said by the caller (lib/abort-cause.ts, card C9): the
-      // client sends no cause and is the person; the server's own callers (the
-      // stall judge, the board, the dispatcher's clocks) always name theirs.
-      const cause = abortCauseOf(body);
+      // WHO stopped it is said by the caller (lib/abort-cause.ts, card C9): a
+      // request from outside is the person; the server's own callers (the
+      // stall judge, the board, the dispatcher's clocks) name theirs.
+      const cause = stopCauseOf(req, body?.cause);
       recordTurnEnd(sessionKey, cancelled(cause, "POST /api/chat/abort"));
       // The registry above is memory, and the server reloads on every save: the
       // durable trace is what keeps the resume sweep from resending a stopped
@@ -2474,8 +2474,19 @@ export function createTopicsRouter(
       // del controller chiude la macchina a stati della route, quindi tutto ciò
       // che il provider ha ancora da dire su questo turno (il suo `onAborted`,
       // con la ragione autorevole) troverebbe un `finalizeStream` già spento.
+      //
+      // A stop the MACHINE wanted takes the other order, and that is the point:
+      // it must end as every route stop ended before (no notice, an empty row
+      // discarded, nothing to resume). claude-code answers an abort with a
+      // synchronous `onAborted`, and its finalize would write the cause's
+      // resumable notice; closed first, the turn hears that as its own trailing
+      // end and changes nothing, and the partial is finalized below.
+      if (cause !== "user") {
+        console.log(`[Abort] ${sessionKey}: stopped by the machine (${cause})`);
+        try { stream.abortController?.abort(); } catch {}
+      }
       if (abortProvider.connected) {
-        abortProvider.abort?.(sessionKey, undefined, providerAbortReason(cause))?.catch((err: any) => console.warn(`[Abort] Provider abort failed:`, err));
+        abortProvider.abort?.(sessionKey, undefined, cause)?.catch((err: any) => console.warn(`[Abort] Provider abort failed:`, err));
         abortProvider.unregisterStreamHandler?.(sessionKey);
       }
 
@@ -2522,10 +2533,11 @@ export function createTopicsRouter(
       endStream(sessionKey);
       // user_abort: user explicitly clicked stop — they are present in the tab,
       // so we intentionally do NOT increment unread count. This is a design
-      // choice, not an omission. A machine's stop says so instead.
+      // choice, not an omission. A machine's stop says it was cancelled, with
+      // no cause: a cause would paint the live banner the row does not carry.
       broadcastToAll({
         type: "stream:end", sessionKey, topicId,
-        ...(cause === "user" ? { reason: "user_abort" } : { reason: "aborted", stopReason: "cancelled", stopCause: cause }),
+        ...(cause === "user" ? { reason: "user_abort" } : { reason: "aborted", stopReason: "cancelled" }),
         ...(discardedMessageId ? { discardedMessageId } : {}),
       });
 

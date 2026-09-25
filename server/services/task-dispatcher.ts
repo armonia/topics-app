@@ -57,7 +57,8 @@ import { providerHold, holdAsksAPerson, holdUntilLabel, planUsage } from "../lib
 import { PLAN_DISPATCH_HOLD_AT, providerHoldKey, providerHoldLabel } from "../../shared/provider-hold";
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { resolveOutputLanguage } from "./app-settings";
-import { OUTPUT_LANGUAGES, type OutputLanguage, type TurnEndCause } from "../../shared/types";
+import { OUTPUT_LANGUAGES, type OutputLanguage } from "../../shared/types";
+import type { StopCause } from "../lib/abort-cause";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import { effectiveDelegatedSettings, runWithDelegatedDeadline } from "./task-dispatcher-delegated";
 
@@ -513,7 +514,7 @@ export interface DispatcherDeps {
     outcome?: string | null;
   }) => boolean | number;
   /** Stops a live local turn when its authorizing capability is revoked. */
-  abortTurn?: (sessionKey: string, cause: TurnEndCause) => Promise<void>;
+  abortTurn?: (sessionKey: string, cause: StopCause) => Promise<void>;
 }
 
 export interface TaskDispatcher {

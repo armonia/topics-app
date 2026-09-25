@@ -10,36 +10,45 @@
  * home chat 3019832f while it only waited for its background agent, the log
  * said "user stop", and after a restart the message would never be resumed.
  *
- * The client never sends a `cause`, so a request without one is the person's.
- * A caller inside the server always sends one, and it is `user` only when a
- * person pressed something (the board's Stop).
+ * A stop the machine WANTED (a land, a delegation's deadline, the stall judge)
+ * ends as every route stop ended before: no notice, an empty row discarded,
+ * nothing to resume (third review of PR #135). The only difference is that it
+ * is not written down as the person's.
+ *
+ * Only a request built inside the server can name a machine cause: the mark
+ * lives on the Request object, which a client cannot forge. Anything else is
+ * the person, whatever its body or headers claim.
  */
-import { STOP_CAUSES } from "../../shared/ws-outbound";
-import type { TurnEndCause } from "../../shared/types";
-import type { AbortReason } from "../providers/types";
+export type MachineStopCause = "stall" | "superseded" | "wall-clock";
+export type StopCause = "user" | MachineStopCause;
 
-export function abortCauseOf(body: { cause?: unknown } | null | undefined): TurnEndCause {
-  const cause = body?.cause;
-  return typeof cause === "string" && (STOP_CAUSES as readonly string[]).includes(cause)
-    ? (cause as TurnEndCause)
-    : "user";
-}
-
-/** The provider's word for it: it knows three, and only a person is `user`. */
-export function providerAbortReason(cause: TurnEndCause): AbortReason {
-  return cause === "user" || cause === "server-shutdown" ? cause : "watchdog";
-}
+const MACHINE_STOP_CAUSES: ReadonlySet<string> = new Set<MachineStopCause>(["stall", "superseded", "wall-clock"]);
+const internalRequests = new WeakSet<Request>();
 
 /**
  * The same cause on a request that stops a turn indirectly, through a route
  * the person also uses: the board's DELETE of a card, which the server sends
- * itself when another machine revokes a delegated card. Absent = the person.
+ * itself when another machine revokes a delegated card.
  */
 export const STOP_CAUSE_HEADER = "x-topics-stop-cause";
 
+/** A request the server builds for its own routes, marked as such. */
+export function internalRequest(url: URL | string, init: RequestInit): Request {
+  const req = new Request(url, init);
+  internalRequests.add(req);
+  return req;
+}
+
+/** Who stopped the turn: the cause `declared` counts only on a request the server built. */
+export function stopCauseOf(req: Request, declared: unknown): StopCause {
+  return internalRequests.has(req) && typeof declared === "string" && MACHINE_STOP_CAUSES.has(declared)
+    ? (declared as MachineStopCause)
+    : "user";
+}
+
 /** The request a caller inside the server sends to `/api/chat/abort`. */
-export function internalAbortRequest(sessionKey: string, cause: TurnEndCause): Request {
-  return new Request("http://localhost/api/chat/abort", {
+export function internalAbortRequest(sessionKey: string, cause: StopCause): Request {
+  return internalRequest("http://localhost/api/chat/abort", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sessionKey, cause }),
