@@ -219,6 +219,7 @@ describe('outbound registry contract', () => {
       'scripts:output',
       'scripts:updated',
       'session:state',
+      'stream:alive',
       'stream:catchup',
       'stream:compaction',
       'stream:content_chunk',
@@ -376,8 +377,10 @@ describe('outbound registry contract', () => {
   // connect, never a delta: it is the only source of the frost on the card, of
   // the snowflake on rows and tabs and of the ring on the pane, and a client
   // that missed one frame would keep a session frosted while it is running again.
-  test('all 99 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(99);
+  // 99 → 100: `stream:alive`, the stale-stream sweep asked a silent turn's child
+  // and it answered: a window that had taken the turn for over lights it again.
+  test('all 100 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(100);
   });
 });
 
