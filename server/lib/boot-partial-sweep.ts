@@ -105,10 +105,11 @@ export function runBootPartialSweep(
     // resume reads only a session's last row, and that is the notice.
     let resetChanges = 0;
     const rows = db
-      .query("SELECT id, content, blocks FROM messages WHERE session_key = ? AND partial = 1")
-      .all(row.sk) as Array<{ id: string; content: string | null; blocks: unknown }>;
+      .query("SELECT id, role, content, blocks FROM messages WHERE session_key = ? AND partial = 1")
+      .all(row.sk) as Array<{ id: string; role: string; content: string | null; blocks: unknown }>;
     for (const r of rows) {
-      const timeline = timelineWithRestartVerdict(r.content, decodeCol(r.blocks));
+      // A verdict is the assistant's to carry; any other row is only closed.
+      const timeline = r.role === "assistant" ? timelineWithRestartVerdict(r.content, decodeCol(r.blocks)) : null;
       resetChanges += timeline
         ? db.run(
             "UPDATE messages SET partial = 0, streamed_at = NULL, blocks = ? WHERE id = ? AND partial = 1",

@@ -251,6 +251,12 @@ describe("the row the boot sweep closes carries the restart verdict", () => {
     expect(blocksOf("m2").blocks).toEqual([{ kind: "error", text: RESTART_ROW_VERDICT }]);
   });
 
+  it("a partial row that is not the assistant's is closed with no verdict", () => {
+    db.run("INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order) VALUES ('u1', 'topic:cut', 'user', 'ping', 1, 't', 0)");
+    sweep();
+    expect(blocksOf("u1")).toEqual({ blocks: null, content: "ping", partial: 0 });
+  });
+
   it("a row already explained keeps its verdict, a live session is not touched, and the notice still follows", () => {
     const explained = [{ kind: "text", text: "meta'" }, { kind: "error", text: "Limite di richieste" }];
     insert("m1", { content: "meta'", blocks: explained });
