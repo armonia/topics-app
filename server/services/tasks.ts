@@ -4220,8 +4220,20 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         .filter((p): p is string => typeof p === "string" && p.trim().length > 0);
       const dupe = db.prepare(
         "SELECT * FROM task_comments WHERE task_id = ? AND author = ? AND content = ? AND created_at >= ? ORDER BY created_at DESC LIMIT 1",
-      ).get(taskId, author, body, since) as { id: string } | null;
-      if (dupe) {
+      ).get(taskId, author, body, since) as { id: string; created_at: string } | null;
+      // A SLOT NOTE THAT IS NO LONGER THE LAST WORD MOVES DOWN. `once` keeps the
+      // row already there when nothing was said after it, so a restart does not
+      // even move it. But a wait that ended and came back with the same words
+      // after a person wrote stayed ABOVE that person's comment, and the thread
+      // read as if the machine had spoken first (verifier repro, 24/09/2026).
+      // Then the slot is emptied and the note is written again, at the bottom.
+      // Only SOMEONE ELSE'S words count: the machine's own notes of the same
+      // kind (the boot note and the wait note are written one after the other
+      // at every boot) would otherwise overtake each other and rewrite both.
+      const overtaken = dupe != null && openings.length > 0 && db.prepare(
+        "SELECT 1 FROM task_comments WHERE task_id = ? AND created_at > ? AND NOT (author = ? AND kind = ?) LIMIT 1",
+      ).get(taskId, dupe.created_at, author, commentKind) != null;
+      if (dupe && !overtaken) {
         // THE SLOT STILL HOLDS ONE ROW when the text is already there. The
         // dedupe used to return before the slot was emptied, so a pile written
         // before the slot existed survived every later write of the same text:

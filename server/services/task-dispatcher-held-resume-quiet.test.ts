@@ -431,13 +431,95 @@ describe("a held card across restarts", () => {
     expect(h.task("still").updatedAt).toBe(stamp);
 
     // A restart empties the kind map: the row is not rewritten, but the card
-    // must still read the machine block that holds it.
+    // must still read the machine block that holds it, and clients that read
+    // it in the gap get it through ONE frame (see the next test).
     setSystemTime(new Date(t0 + 35 * 60_000));
     const d = h.restart();
     await d.resume("still", "");
-    expect(h.framesOf("still")).toBe(1);
+    expect(h.framesOf("still")).toBe(2);
     expect(h.task("still").updatedAt).toBe(stamp);
     expect(h.task("still").queueReason).toMatchObject({ kind: "resource_floor" });
+  });
+
+  /**
+   * The client read the card between the boot and the first held resume
+   * (useBoardFeed refetches on every socket 'open'), when the kind map was still
+   * empty: its copy says queueReason null. The row is right and is not
+   * rewritten, but without a frame that copy stays wrong until the words
+   * change. One frame per card per boot, the first time the map learns it.
+   * Found by the verifier of this branch (repro R2).
+   */
+  it("after a restart, the first quiet resume sends ONE frame so a client that read the empty map learns the reason", async () => {
+    const h = harness();
+    h.floor.memGB = 4.8;
+    heldCard(h.db, "relearn");
+    const t0 = Date.now();
+    await h.dispatcher.resume("relearn", "");
+    expect(h.framesOf("relearn")).toBe(1);
+    setSystemTime(new Date(t0 + 35 * 60_000));
+    const d = h.restart();
+    await d.resume("relearn", "");
+    expect(h.framesOf("relearn")).toBe(2);
+    await d.resume("relearn", "");
+    setSystemTime(new Date(t0 + 37 * 60_000));
+    await d.resume("relearn", "");
+    expect(h.framesOf("relearn")).toBe(2);
+  });
+
+  /**
+   * A NEW episode with the same words comes back to the bottom. `once` kept the
+   * old row wherever it was, so a wait that ended and started again after a
+   * person had written stayed ABOVE that person's comment, and the thread read
+   * as if the machine had spoken first. The slot is still one row: the old one
+   * goes, the new one lands at the end. Found by the verifier (repro R3b).
+   */
+  it("a new episode with the same words after a human comment lands below it, and the slot keeps one row", async () => {
+    const h = harness();
+    h.floor.memGB = 4.8;
+    heldCard(h.db, "again");
+    const t0 = Date.now();
+    await h.dispatcher.resume("again", "");
+    // The episode ends: the card left the queue (it ran, it came back), and a
+    // person writes. Done on the row, since the turn itself is not the subject.
+    h.db.run("UPDATE tasks SET dispatch_state = 'working', dispatch_error = NULL WHERE id = 'again'");
+    setSystemTime(new Date(t0 + 3 * 3_600_000));
+    h.svc.addComment({ taskId: "again", author: "user", content: "rifai il test" }); // allow-italian: a person's message
+    // A new episode, same reading, same words: after a restart, like prod.
+    h.db.run("UPDATE tasks SET status = 'in_progress', dispatch_state = NULL, dispatch_error = NULL WHERE id = 'again'");
+    h.floor.memGB = 4.8;
+    await h.restart().resume("again", "");
+    const thread = h.svc.get("again")!.comments.filter((c) => c.kind !== "status").map((c) => `${c.author}|${c.content.slice(0, 24)}`);
+    expect(thread.filter((c) => c.startsWith("system|Memoria"))).toHaveLength(1);
+    expect(thread[thread.length - 1]).toStartWith("system|Memoria");
+  });
+});
+
+/**
+ * THE TICK'S NOTE ON A TODO CARD IS THE SAME STATE as the resume's, in the same
+ * words, so it is the same slot. Written apart, it piled up on its own (268 rows
+ * on 58 cards in prod, up to 29 on one) and the resume's slot then erased it as
+ * if it were its own copy. Found by the verifier (repro R1).
+ */
+describe("the tick's wait note on a todo card", () => {
+  const todo = (h: ReturnType<typeof harness>, id: string) => {
+    const ts = new Date().toISOString();
+    h.db.run("INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, priority) VALUES (?, ?, 'x', 'todo', ?, ?, 0, 2)", [id, PID, ts, ts]);
+  };
+
+  it("episodes of the floor with other figures leave one note on the card, the current one", async () => {
+    const h = harness();
+    todo(h, "queue1");
+    const t0 = Date.now();
+    let d = h.dispatcher;
+    for (const [i, gb] of [4.8, 5.1, 4.2].entries()) {
+      setSystemTime(new Date(t0 + i * 35 * 60_000));
+      h.floor.memGB = gb;
+      if (i > 0) d = h.restart();
+      await d.tick(PID);
+    }
+    const notes = h.serviceNotes("queue1").filter((c) => c.startsWith("Memoria"));
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain("4.2 GB");
   });
 });
 

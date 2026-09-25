@@ -34,7 +34,7 @@ import { shouldAnnounceResume, DEAD_SESSION_NOTE } from "../lib/dead-run-note";
 import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISSION_SPACING_MS, DISPATCH_CHIP_QUEUED, admissionVerdict, budgetShare, capMode, estimatedAgentCost, estimatedAgentMemCost, machineBudget, reservedCost, hasDeliveredWork, MAX_FANOUT, PARKED_STOPPED, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, OUTBOUND_TOOLS_RULE, PREVIEW_RULE, RECOMMENDED_OPTION_RULE, VERSION_BUMP_RULE, readTaskWeight, statusEventEnters, type AdmissionVerdict, type BudgetGateState, type DispatchAdmission, type GlobalDispatchCap, type MachineBudgetSample } from "../../shared/board";
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
-import { daySpendSentence, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
+import { daySpendSentence, heldResumeBlock, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
 import { effectiveTopicsRouting, taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
 import {
   bookSessionCost,
@@ -796,7 +796,9 @@ function holdKey(kind: DispatchBlockKind | null, reason: string | null, floor: R
  * These are the openings of every sentence `resumeHold` can return (the floor,
  * the 24h and per-card spend, the pressure budget, the drain, the provider
  * wall) plus the cap-only line and the sentences older code wrote, so a pile
- * already in a thread is emptied by the next note. `replaces` only touches rows
+ * already in a thread is emptied by the next note. The tick's note on a todo
+ * card says the same machine state in the same words, so it shares the slot.
+ * `replaces` only touches rows
  * by the same author and kind (`system`, `service`): a person or an agent
  * starting a comment with the same words is never touched.
  */
@@ -4249,7 +4251,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         && (t.dispatchError ?? null) === last.reason
         && last.key === key);
       if (rowSays) {
+        // ONE FRAME WHEN THE MAP LEARNS IT AGAIN. After a restart the kind map
+        // is empty, and a client that read the card in that gap (useBoardFeed
+        // refetches on every socket 'open') holds `queueReason: null`. The row
+        // is right, so it is not rewritten: the card is only re-sent, once per
+        // card per boot, the first time this process can name the reason.
+        const relearned = heldResumeBlock(taskId, floorBlock) === null && kind != null;
         setHeldResumeBlock(taskId, kind ? { kind, reason: hold!.reason } : null);
+        if (relearned) { try { emit(deps.svc.get(taskId)?.task ?? t); } catch { /* best-effort */ } }
         if (last?.reason !== floorBlock || last.key !== key) heldWritten.set(taskId, { at: clock(), key, reason: floorBlock });
       } else if (!sameHold) {
         setHeldResumeBlock(taskId, kind ? { kind, reason: hold!.reason } : null);
@@ -4905,14 +4914,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         //
         // Two channels, two different things: the chip is fed by
         // `publishDispatchBlock` above (it lives exactly as long as the block), the
-        // thread line stays as the trace of what happened. One per EPISODE,
-        // like the twin path of the resume already does - that discipline was
-        // missing here entirely.
+        // thread line says the wait in words. One per EPISODE, and one ROW per
+        // card across episodes and boots: it is the state of the wait, the same
+        // slot as the resume's note (see `RESUME_WAIT_OPENINGS`).
         try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
         if (floorNote && floorNoteKey && floorHeldNoted.get(t.id) !== floorNoteKey) {
           floorHeldNoted.set(t.id, floorNoteKey);
           try {
-            deps.svc.addComment({ taskId: t.id, author: "system", kind: "service", content: floorNote });
+            // THE SAME SLOT AS THE RESUME'S NOTE: same machine state, same
+            // sentences. Written apart, it piled up across boots (268 rows on
+            // 58 cards in prod, up to 29 on one), and the resume's slot later
+            // erased it as if it were its own copy.
+            deps.svc.addComment({ taskId: t.id, author: "system", kind: "service", content: floorNote, replaces: [...RESUME_WAIT_OPENINGS], once: true });
           } catch { /* il task può essersi mosso sotto i piedi */ }
         }
         continue;
