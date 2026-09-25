@@ -15,7 +15,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";
-import { BACKGROUND_KILL_CAP_MS, BACKGROUND_WORK_CAP_MS, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
+import { BACKGROUND_WORK_CAP_MS, newBackgroundWork, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
 import { recordedBackgroundSession } from "./claude/background-work.fixture";
 
 function fakePP(over: Record<string, unknown> = {}) {
@@ -165,8 +165,8 @@ describe("ClaudeCodeProvider — inactivity reaper never fires during a turn", (
   describe("(f) a child whose closed turn left background work is not idle", () => {
     const events = recordedBackgroundSession();
     const firstResult = events.findIndex((e) => e.type === "result");
-    const fold = (from: number, to: number, work?: BackgroundWork) => {
-      for (const e of events.slice(from, to)) work = noteBackgroundLine(work, e, Date.now());
+    const fold = (from: number, to: number, work: BackgroundWork = newBackgroundWork()) => {
+      for (let i = from; i < to; i++) noteBackgroundLine(work, events[i], Date.now(), { unattended: i > firstResult });
       return work;
     };
 
@@ -191,24 +191,22 @@ describe("ClaudeCodeProvider — inactivity reaper never fires during a turn", (
       expect(killed).toBe(1);
     });
 
-    test("a background Bash silent for 45 minutes is a long job, not a lost one; two hours without news is", async () => {
+    test("a background Bash silent for 45 minutes is a long job, not a lost one, for every clock; two hours without news is", async () => {
       // A background Bash prints nothing until it ends (the recorded `sleep 40`
       // is silent for its whole run): a suite on the PC looks exactly like this.
       const sessionKey = "sess-inact-f5";
       let killed = 0;
       const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
       const provider = setup(pp, sessionKey);
-      const open = fold(0, firstResult + 1)!;
-      pp.background = { ...open, lastSignalAt: Date.now() - 45 * 60_000 };
+      pp.background = fold(0, firstResult + 1);
+      pp.background.lastSignalAt = Date.now() - 45 * 60_000;
       (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });
       await new Promise((r) => setTimeout(r, 30));
       expect(killed).toBe(0);
-      // The goal loop keeps waiting on it; the stall judge, past thirty minutes
-      // without news, may look again.
+      // One bound: the goal loop and the stall judge read the same answer.
       expect(provider.hasBackgroundWork(sessionKey)).toBe(true);
-      expect(provider.hasBackgroundWork(sessionKey, BACKGROUND_WORK_CAP_MS)).toBe(false);
 
-      pp.background = { ...open, lastSignalAt: Date.now() - BACKGROUND_KILL_CAP_MS };
+      pp.background.lastSignalAt = Date.now() - BACKGROUND_WORK_CAP_MS;
       (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });
       await new Promise((r) => setTimeout(r, 30));
       expect(killed).toBe(1);
@@ -228,9 +226,9 @@ describe("ClaudeCodeProvider — inactivity reaper never fires during a turn", (
     });
 
     test("the config change it was too busy to take is applied at the next send that finds it idle", () => {
-      // Autonomy lowered from yolo to ask while a background job runs: skipping
-      // the kill must not mean skipping the change, or the next turn still runs
-      // with `bypassPermissions`.
+      // A model, effort or autonomy change while a background job runs: skipping
+      // the kill must not mean skipping the change. It is owed, and the next send
+      // that finds the child idle with the job over respawns it.
       const sessionKey = "sess-inact-f6";
       let killed = 0;
       const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
@@ -250,13 +248,16 @@ describe("ClaudeCodeProvider — inactivity reaper never fires during a turn", (
       expect(killed).toBe(1);
     });
 
-    test("a permission change does not wait for the work: autonomy lowered now stops the next edit", () => {
+    test("a config change deferred by background work says so, so the route can tell the chat", () => {
       const sessionKey = "sess-inact-f7";
       let killed = 0;
       const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
       const provider = setup(pp, sessionKey);
       pp.background = fold(0, firstResult + 1);
-      provider.refreshSessionConfig(sessionKey, { overBackgroundWork: true });
+      expect(provider.refreshSessionConfig(sessionKey)).toBe("deferred-background");
+      expect(killed).toBe(0);
+      pp.background = fold(firstResult + 1, events.length, pp.background);
+      expect(provider.refreshSessionConfig(sessionKey)).toBe("applied");
       expect(killed).toBe(1);
     });
 

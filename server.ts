@@ -159,7 +159,7 @@ import { createBillingRouter, isBillingWebhookPath } from "./server/routes/billi
 import { createAccountRouter } from "./server/routes/account";
 import { createPeopleRouter } from "./server/routes/people";
 import { getGatewayWS } from "./server/gateway-ws";
-import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend, sessionHasBackgroundWork } from "./server/providers";
+import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend, sessionHasBackgroundWork, stallBackgroundHold } from "./server/providers";
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import type { AbortReason } from "./server/providers/types";
@@ -239,7 +239,6 @@ import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
 // it (see server/lib/stall-detector.ts + stall-judge.ts). `dispatchTimeoutMin`
 // is downgraded to a reporting-only comparison below.
 import { armStallDetector } from "./server/lib/stall-detector";
-import { BACKGROUND_WORK_CAP_MS } from "./server/providers/claude/background-work";
 import { judgeStall } from "./server/lib/stall-judge";
 import { internalAbortRequest, internalRequest, STOP_CAUSE_HEADER, type StopCause } from "./server/lib/abort-cause";
 import { runBootPartialSweep } from "./server/lib/boot-partial-sweep";
@@ -1129,8 +1128,9 @@ async function watchHeadlessBody(
     // A command of this session is STOPped by us: that silence is ours.
     isFrozen: () => isSwapFreezeHold(sessionKey),
     // Its CLI still reports on an agent, a Bash or a Monitor: that wait is the
-    // model's own. Thirty minutes without news and the judge may look again.
-    isWaitingForBackground: () => sessionHasBackgroundWork(sessionKey, BACKGROUND_WORK_CAP_MS),
+    // model's own. The same bound as every other clock that kills the child:
+    // the judge's recycle is a SIGINT, and it takes the work with it.
+    isWaitingForBackground: stallBackgroundHold(sessionKey),
     getTail: () => stallTranscriptTail(sessionKey),
     judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
     onRearm: (reason) => console.log(

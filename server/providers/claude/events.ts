@@ -122,6 +122,8 @@ export interface BackgroundTaskEntry {
   /** `local_agent`, `local_bash` (a Monitor is one too), whatever the CLI names next. */
   type: string;
   description: string;
+  /** "Not activity" in the CLI's own schema (dream, auto_mode_scan, fork workers): not work to wait for. */
+  ambient?: boolean;
 }
 
 /**
@@ -145,6 +147,7 @@ export function readBackgroundTasks(event: unknown): BackgroundTaskEntry[] | nul
       id: t.task_id,
       type: typeof t.task_type === "string" ? t.task_type : "",
       description: typeof t.description === "string" ? t.description : "",
+      ...(t.ambient === true ? { ambient: true } : {}),
     });
   }
   return out;

@@ -53,7 +53,7 @@ import {
   type CallUsage,
 } from "./claude/events";
 import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor, unattendedLineFate, type WakeObserver } from "./claude/woken-turn";
-import { BACKGROUND_KILL_CAP_MS, isBackgroundWorkAlive, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
+import { datedByLastWrite, hasLiveTasks, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
 import { observePlanUsage } from "./native/usage-window";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
@@ -917,20 +917,14 @@ function turnInFlight(pp: PersistentProcess): boolean {
   return !!pp.streamHandler || !!pp.pendingReject || pp.wokenBuffer != null || pp.declinedTurn === true;
 }
 
-/**
- * A replay folds every background line with "now". The child's last write is
- * the true age of that news: a job silent for hours must not look fresh after
- * every restart, or no clock ever collects a lost one.
- */
-function datedByLastWrite(pp: PersistentProcess, lastDataAt: number | undefined): void {
-  if (pp.background && typeof lastDataAt === "number" && lastDataAt < pp.background.lastSignalAt) {
-    pp.background = { ...pp.background, lastSignalAt: lastDataAt };
-  }
+/** A replay's background news, dated by the daemon's record of the child's last write when it has one. */
+function dateReplay(pp: PersistentProcess, lastDataAt: number | undefined): void {
+  if (pp.background && typeof lastDataAt === "number") datedByLastWrite(pp.background, lastDataAt);
 }
 
 /** Killing this child would also kill the Agent, Bash or Monitor its last turn left running. */
 function backgroundAlive(pp: PersistentProcess): boolean {
-  return isBackgroundWorkAlive(pp.background, Date.now(), BACKGROUND_KILL_CAP_MS);
+  return isBackgroundWorkAlive(pp.background, Date.now());
 }
 
 /**
@@ -1139,9 +1133,8 @@ interface PersistentProcess {
   notificationTurnPending?: boolean;
   /** What the CLI last said about the work a closed turn left running (see `claude/background-work.ts`). */
   background?: BackgroundWork;
-  /** A config change this child was too busy to take: the next send that finds it idle respawns it.
-   *  `hard` (a permission change) does not wait for background work, `soft` (model, effort) does. */
-  configStale?: "hard" | "soft";
+  /** A config change this child was too busy to take: the next send that finds it idle, its background work over, respawns it. */
+  configStale?: boolean;
   /** Scan outcome: the tail is open only because a `system/init` started a turn with nothing after it yet. */
   replayTailInitOnly?: boolean;
   /**
@@ -1990,23 +1983,25 @@ export class ClaudeCodeProvider implements AIProvider {
    * stream would drop the partial; the change then applies on the next natural
    * respawn instead. Idempotent: nothing to do if no process is pooled.
    */
-  refreshSessionConfig(sessionKey: string, opts: { overBackgroundWork?: boolean } = {}): void {
+  refreshSessionConfig(sessionKey: string): "applied" | "deferred-turn" | "deferred-background" | "none" {
     const pp = this.processes.get(sessionKey);
-    if (!pp) return;
+    if (!pp) return "none";
     // A turn in flight, by the same rule as the lifetime cap and the reaper
     // (`turnInFlight`): the change then applies on the next natural respawn.
-    // Background work too: a model switch is not worth the agent it would kill.
-    // A permission change is (`overBackgroundWork`): an autonomy lowered to ask
-    // must stop the next edit, not the one after the job ends. Either way the
-    // change is owed, and the next send that finds the child idle respawns it.
-    const hard = opts.overBackgroundWork === true;
-    if (turnInFlight(pp) || (!hard && backgroundAlive(pp))) {
-      pp.configStale = hard || pp.configStale === "hard" ? "hard" : "soft";
-      return;
+    // Background work too, for every change, a permission change included:
+    // raising the autonomy must not kill the agent it would unblock, and
+    // lowering it while the work runs is deferred and said in the chat by the
+    // caller (the verification of 25/09, and the MONITOR-02 scenario). Either
+    // way the change is owed: the next send that finds the child idle and its
+    // work over respawns it.
+    if (turnInFlight(pp) || backgroundAlive(pp)) {
+      pp.configStale = true;
+      return backgroundAlive(pp) ? "deferred-background" : "deferred-turn";
     }
     console.log(`[claude-code] refreshSessionConfig: dropping idle process for ${sessionKey} to pick up new config`);
     this.killProcess(pp, "config");
     this.processes.delete(sessionKey);
+    return "applied";
   }
 
   /**
@@ -2241,8 +2236,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
   private getOrCreateProcess(sessionKey: string): PersistentProcess {
     const existing = this.processes.get(sessionKey);
-    if (existing?.alive && existing.configStale && !turnInFlight(existing)
-      && (existing.configStale === "hard" || !backgroundAlive(existing))) {
+    if (existing?.alive && existing.configStale && !turnInFlight(existing) && !backgroundAlive(existing)) {
       console.log(`[claude-code] ${sessionKey}: respawning to apply the config change it was too busy to take`);
       this.killProcess(existing, "config");
       this.processes.delete(sessionKey);
@@ -2696,15 +2690,22 @@ export class ClaudeCodeProvider implements AIProvider {
   }
 
   /**
-   * The session's last turn left an Agent, a Bash or a Monitor running, and
-   * the CLI has said something about it within `quietMs`. Two hours by
-   * default, the bound under which the child is not killed: the goal loop
-   * waits that long, checking in on its own schedule. The stall judge asks
-   * with thirty minutes (`BACKGROUND_WORK_CAP_MS`).
+   * The session's last turn left an Agent, a Bash or a Monitor running and the
+   * CLI still reports on it (`BACKGROUND_WORK_CAP_MS`), or one of them just
+   * reported and the wake answering it is on its way. Every clock that kills
+   * the child asks this, the stall judge included, and so does the goal loop.
    */
-  hasBackgroundWork(sessionKey: string, quietMs: number = BACKGROUND_KILL_CAP_MS): boolean {
+  hasBackgroundWork(sessionKey: string): boolean {
+    return this.backgroundState(sessionKey) !== "none";
+  }
+
+  /** `running`: listed tasks with news. `wake-queued`: only a reported task, the CLI is about to answer it. */
+  backgroundState(sessionKey: string): "running" | "wake-queued" | "none" {
     const pp = this.processes.get(sessionKey);
-    return !!pp && pp.alive && isBackgroundWorkAlive(pp.background, Date.now(), quietMs);
+    if (!pp?.alive) return "none";
+    const now = Date.now();
+    if (hasLiveTasks(pp.background, now)) return "running";
+    return isWakeQueued(pp.background, now) ? "wake-queued" : "none";
   }
 
   /**
@@ -2824,7 +2825,7 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.replayLastResult = undefined;
     pp.replayAfterLastResultOffset = 0;
     const scan = await client.attach(sessionKey, 0);
-    datedByLastWrite(pp, scan.lastDataAt);
+    dateReplay(pp, scan.lastDataAt);
     return { missing: scan.missing === true, alive: scan.alive === true };
   }
 
@@ -3095,7 +3096,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
     const res = await client.attach(sessionKey, pp.replayAfterLastResultOffset ?? 0);
     pp.replaySilent = false;
-    datedByLastWrite(pp, res.lastDataAt);
+    dateReplay(pp, res.lastDataAt);
 
     // Replay is fully folded now (synchronous onData). Classify from pp state.
     if (res.missing) { this.finalizeDeadReattach(pp); return "dead"; }
@@ -3353,7 +3354,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
     // Background work first, in every mode: the reattach scan rebuilds it from
     // the store the same way live traffic keeps it (`claude/background-work.ts`).
-    pp.background = noteBackgroundLine(pp.background, event, Date.now());
+    noteBackgroundLine(pp.background ??= newBackgroundWork(), event, Date.now(), { unattended: !pp.streamHandler });
 
     // ── IL TURNO CHE NASCE DA SOLO ──
     // Il perché e le tre esclusioni stanno in `claude/woken-turn.ts`.

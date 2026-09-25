@@ -3,7 +3,6 @@ import { armStallDetector } from "./stall-detector";
 import { ClaudeCodeProvider } from "../providers/claude-code";
 import { SidechainTracker } from "../providers/claude/sidechain-tracker";
 import { recordedBackgroundSession } from "../providers/claude/background-work.fixture";
-import { BACKGROUND_WORK_CAP_MS } from "../providers/claude/background-work";
 
 /**
  * @covers CHAT-REL-03 — the "stream inactivity" watchdog. Same requirement as
@@ -217,7 +216,7 @@ describe("armStallDetector — silence asks the judge before ever cutting", () =
       isWaitingForHuman: () => false,
       isWaitingForChecks: () => false,
       isFrozen: () => false,
-      isWaitingForBackground: () => provider.hasBackgroundWork("topic:stall-bg", BACKGROUND_WORK_CAP_MS),
+      isWaitingForBackground: () => provider.hasBackgroundWork("topic:stall-bg"),
       getTail: () => "assistant: my part is pushed; the vortex merges when the agent is done",
       judge: async () => { judged++; return "stuck"; },
       onStuck: () => { stuck++; },
