@@ -57,6 +57,7 @@ import { uploadAllowedRoots, parseExtraRoots } from "./server/lib/upload-allowli
 import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
+import { flushTurnBody } from "./server/lib/turn-body-flush";
 import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
 import type { ContentBlock } from "./shared/types";
 import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
@@ -973,14 +974,58 @@ function principaliDi(deviceId: string) {
   return list;
 }
 
+/**
+ * The `stream:catchup` frames of the turns in flight whose topic `wants`.
+ *
+ * Trust the DB's `partial` flag as single source of truth: if the assistant
+ * message was already finalized, the stream is over even though
+ * `activeStreams` still has a stale entry (an `endStream` path that skipped
+ * cleanup, a broadcast lost before this client reconnected). A catch-up there
+ * would wedge the client's `streaming` state on for up to 3 min until the
+ * watchdog clears it: random ghost spinners on chat tabs.
+ *
+ * The row is WRITTEN before it is read. Its `blocks`, the timeline the bubble
+ * draws, go through a throttle that can be 15 s behind the stream, while
+ * `content` comes from memory: the newcomer drew a timeline without its last
+ * chunks, the frames after it appended, and the bubble kept a hole for the
+ * rest of the turn (card 423e016f). `flushTurnBody` is the writer's own flush.
+ *
+ * The shape of the payload lives in `buildStreamCatchupFrame`: the legacy
+ * `toolCalls` bucket is dropped when the blocks carry the same calls, and the
+ * calls that are OVER travel with their large text blanked. Why, and what
+ * stays whole, is documented there; the budget is
+ * tests/integration/catchup-payload-weight.test.ts.
+ */
+function streamCatchupFrames(wants: (topicId: string | undefined) => boolean): Record<string, unknown>[] {
+  const frames: Record<string, unknown>[] = [];
+  for (const [sessionKey, stream] of activeStreams.entries()) {
+    const topicId = ctx.getTopicBySessionKey(sessionKey)?.id;
+    if (!wants(topicId)) continue;
+    flushTurnBody(sessionKey);
+    const partial = getMessageById(stream.messageId);
+    if (!partial || partial.partial !== true) {
+      activeStreams.delete(sessionKey);
+      continue;
+    }
+    frames.push(buildStreamCatchupFrame({ sessionKey, topicId, stream, partial }));
+  }
+  return frames;
+}
+
+/**
+ * May a guest device receive this frame? The rule of every fan-out, named so a
+ * frame sent to ONE socket outside the fan-outs goes through the same door.
+ */
+function guestMayReceiveFrame(deviceId: string, message: unknown): boolean {
+  const tipo = (message as { type?: unknown }).type;
+  if (typeof tipo !== "string" || !isGuestSafeFrameType(tipo)) return false;
+  const risorsa = frameResource(message);
+  if (!risorsa) return false;
+  return hasGrant(ctx.db, principaliDi(deviceId), risorsa.type, risorsa.id);
+}
+
 ctx.setGuestBroadcastFilter({
-  mayReceiveFrame(deviceId, message) {
-    const tipo = (message as { type?: unknown }).type;
-    if (typeof tipo !== "string" || !isGuestSafeFrameType(tipo)) return false;
-    const risorsa = frameResource(message);
-    if (!risorsa) return false;
-    return hasGrant(ctx.db, principaliDi(deviceId), risorsa.type, risorsa.id);
-  },
+  mayReceiveFrame: guestMayReceiveFrame,
   // Le fan-out per topic non portano l'entità NEL frame: ce l'hanno come
   // argomento. Qui quindi si guarda il topic che si sta per consegnare, non
   // quello che il frame dichiara — molti di quei frame non lo nominano affatto.
@@ -4106,32 +4151,11 @@ const opzioniServer = {
       // entirely rather than paying a full loadTopics() table-scan+joins on
       // every WS connect. When streams do exist, resolve each one's topicId
       // via the indexed single-row lookup instead of scanning all topics.
-      for (const [sessionKey, stream] of activeStreams.entries()) {
-        // Trust the DB's `partial` flag as single source of truth: if the
-        // assistant message was already finalized, the stream is over even
-        // though `activeStreams` still has a stale entry (can happen when an
-        // `endStream` path skipped cleanup, or when a broadcast was lost
-        // before this client reconnected). Emitting catchup here would
-        // wedge the client's `streaming` state on for up to 3 min until the
-        // watchdog clears it — which the user perceives as random ghost
-        // spinners on chat tabs.
-        const partial = getMessageById(stream.messageId);
-        if (!partial || partial.partial !== true) {
-          activeStreams.delete(sessionKey);
-          continue;
-        }
-        const topicId = ctx.getTopicBySessionKey(sessionKey)?.id;
-        // Dalla stessa porta della raffica: questo frame porta il TESTO di un
-        // turno a metà, ed è quello che un ospite non deve vedere per una chat
-        // che non è sua.
-        //
-        // The shape of the payload lives in `buildStreamCatchupFrame`: the
-        // legacy `toolCalls` bucket is dropped when the blocks carry the same
-        // calls, and the calls that are OVER travel with their large text
-        // blanked. Why, and what stays whole, is documented there; the budget
-        // is tests/integration/catchup-payload-weight.test.ts.
-        inviaIniziale(buildStreamCatchupFrame({ sessionKey, topicId, stream, partial }));
-      }
+      //
+      // Dalla stessa porta della raffica: questo frame porta il TESTO di un
+      // turno a metà, ed è quello che un ospite non deve vedere per una chat
+      // che non è sua.
+      for (const frame of streamCatchupFrames(() => true)) inviaIniziale(frame);
     },
     message(ws, message) {
       ws.data.lastPong = Date.now();
@@ -4506,11 +4530,26 @@ const opzioniServer = {
           case 'focus':
             ws.data.focusedTopicId = data.topicId;
             break;
-          case 'subscribe':
+          case 'subscribe': {
             // P6: the set of topics this connection currently has open, used to
             // route streaming deltas only to clients showing that topic.
-            ws.data.openTopicIds = new Set(data.topicIds);
+            const before = ws.data.openTopicIds;
+            const next = new Set(data.topicIds);
+            ws.data.openTopicIds = next;
+            // A topic that JOINS the set in the middle of its turn missed the
+            // frames before this one: a chat opened while its agent works, a
+            // project chat mounting. It gets the turn so far, as a socket that
+            // opens does (card 423e016f). Not on the first set: until then the
+            // socket received every delta, and its open sent every catch-up.
+            if (before) {
+              const joined = (topicId: string | undefined) => !!topicId && next.has(topicId) && !before.has(topicId);
+              for (const frame of streamCatchupFrames(joined)) {
+                if (guestSocket && !guestMayReceiveFrame(ws.data.deviceId!, frame)) continue;
+                try { sendWsFrame(ws, JSON.stringify(frame), "stream:catchup"); } catch { /* socket closed */ }
+              }
+            }
             break;
+          }
           case 'typing':
             broadcastToTopic(data.topicId, { type: 'typing', topicId: data.topicId, clientId: ws.data.id, text: data.text || '' }, ws);
             break;

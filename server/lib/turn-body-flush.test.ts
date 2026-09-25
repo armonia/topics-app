@@ -92,6 +92,41 @@ describe("la riga di un turno vivo si fa scrivere PRIMA di leggerla", () => {
     turn.persist.dispose();
   });
 
+  test("a turn of text alone: the flush writes the text the periodic save has not written yet", () => {
+    // Card 423e016f. The text reaches the row at every tenth chunk, and the
+    // throttle owes nothing in between: a reader opening the row mid-turn got
+    // no timeline, and the chunks it saw live were drawn without the start.
+    const sessionKey = "topic:flush-text";
+    const blocks: ContentBlock[] = [];
+    let content = "";
+    let row: Partial<StoredMessage> = {};
+    const persist = createTurnBodyPersist({
+      sessionKey,
+      updateLastMessage: (_key: string, updates: Partial<StoredMessage>) => { row = { ...row, ...updates }; },
+      rowId: () => "row-text",
+      blocks,
+      content: () => content,
+      thinking: () => "",
+      trackedTools: () => 0,
+      reattachSnapshot: () => null,
+    });
+    for (let i = 1; i <= 7; i++) {
+      const chunk = `c-${i} `;
+      content += chunk;
+      const last = blocks[blocks.length - 1];
+      if (last && last.kind === "text") last.text += chunk;
+      else blocks.push({ kind: "text", text: chunk });
+    }
+    expect(row.blocks).toBeUndefined();
+
+    const release = registerTurnBodyFlush(sessionKey, () => persist.flush());
+    expect(flushTurnBody(sessionKey)).toBe(true);
+    expect(row.content).toBe("c-1 c-2 c-3 c-4 c-5 c-6 c-7 ");
+    expect(row.blocks).toEqual([{ kind: "text", text: "c-1 c-2 c-3 c-4 c-5 c-6 c-7 " }]);
+    release();
+    persist.dispose();
+  });
+
   test("two turns of one session both get flushed, and releasing one keeps the other", () => {
     // A closed turn's late answer (lib/late-answer-lane.ts) registers its
     // flush while the NEXT turn of the same chat is live. One slot per session

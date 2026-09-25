@@ -54,8 +54,8 @@ export interface TurnBodyPersist {
    */
   request(withText: boolean, sizeBytes: number, force?: boolean): void;
   /**
-   * Write what is still owed, now. For a reader that is about to open the ROW
-   * instead of following the stream - see lib/turn-body-flush.ts.
+   * Write the whole body now, text included. For a reader that is about to
+   * open the ROW instead of following the stream - see lib/turn-body-flush.ts.
    */
   flush(): void;
   /** Drop a write still owed. Every caller rewrites the row whole right after. */
@@ -95,12 +95,26 @@ export function createTurnBodyPersist(opts: TurnBodyPersistOptions): TurnBodyPer
     write: () => { const withText = owesText; owesText = false; writeNow(withText); },
   });
 
+  // The size of the last request: a forced write needs one, and it only
+  // decides when the NEXT deferred write goes out.
+  let lastSizeBytes = 0;
+
   return {
     request(withText: boolean, sizeBytes: number, force = false) {
+      lastSizeBytes = sizeBytes;
       if (withText) owesText = true;
       throttle.persist(sizeBytes, force);
     },
-    flush() { throttle.flush(); },
+    flush() {
+      // What the throttle owes is not enough for a reader of the row: the text
+      // reaches it only at every tenth chunk (`SAVE_INTERVAL` in
+      // routes/chat.ts), so a turn of text alone had a row with no timeline for
+      // its first ten chunks. A chat opened mid-turn drew that empty timeline,
+      // appended the live chunks to it, and showed the turn without its start
+      // (card 423e016f). So the reader gets the body as it is NOW.
+      owesText = true;
+      throttle.persist(lastSizeBytes, true);
+    },
     dispose() { throttle.dispose(); },
   };
 }
