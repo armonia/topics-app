@@ -21,7 +21,8 @@
  * lives on the Request object, which a client cannot forge. Anything else is
  * the person, whatever its body or headers claim.
  */
-export type MachineStopCause = "stall" | "superseded" | "wall-clock";
+import type { MachineStopCause } from "../../shared/types";
+export type { MachineStopCause } from "../../shared/types";
 export type StopCause = "user" | MachineStopCause;
 
 export const MACHINE_STOP_CAUSE_LIST: readonly MachineStopCause[] = ["stall", "superseded", "wall-clock"];

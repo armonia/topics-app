@@ -871,6 +871,14 @@ export interface ToolCall {
  */
 export type TurnEndCause = (typeof STOP_CAUSES)[number];
 
+/**
+ * A stop the machine WANTED: a land (`superseded`), a delegation's deadline
+ * (`wall-clock`), the stall judge (`stall`). Declared once here: the server
+ * sends it (`server/lib/abort-cause.ts`) and the client draws its line
+ * (`client/src/components/Chat/machineRow.ts`), and both re-export it.
+ */
+export type MachineStopCause = 'superseded' | 'wall-clock' | 'stall';
+
 export type ContentBlock =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; text: string }
@@ -993,7 +1001,7 @@ export type ContentBlock =
    * the whole pane ("undefined is not an object", measured on the previous
    * client). Current clients draw the line from `cause`.
    */
-  | { kind: 'machine-stop'; cause: 'superseded' | 'wall-clock' | 'stall'; text: string }
+  | { kind: 'machine-stop'; cause: MachineStopCause; text: string }
   /**
    * THIS ROW IS AN ENVELOPE THE DISPATCHER WROTE, not something a person typed.
    *

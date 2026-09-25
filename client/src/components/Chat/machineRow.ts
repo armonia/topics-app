@@ -10,6 +10,8 @@
  * open: ...» under the name of a chat is the machine talking over the person.
  */
 import type { ContentBlock } from '../../types';
+import type { MachineStopCause } from '../../../../shared/types';
+export type { MachineStopCause } from '../../../../shared/types';
 
 const MACHINE_KINDS = new Set(['goal-nudge', 'goal-stop', 'dispatched-envelope', 'machine-stop']);
 
@@ -18,7 +20,6 @@ export function isMachineRow(blocks: readonly ContentBlock[] | undefined | null)
   return blocks.some((b) => MACHINE_KINDS.has(b.kind));
 }
 
-export type MachineStopCause = Extract<ContentBlock, { kind: 'machine-stop' }>['cause'];
 
 /**
  * The cause of a turn the machine stopped before it said anything, or null.
