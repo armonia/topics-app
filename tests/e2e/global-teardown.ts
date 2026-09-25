@@ -16,6 +16,7 @@ import {
 } from "./helpers/platform";
 import { E2E_PORT, descendantsOf, testServerEnv } from "./helpers/test-server";
 import { liveLockHolder, releaseRunLock } from "./helpers/run-lock";
+import { TEST_RUN_ENV, reportAndEndStrays, strayAiBridges } from "../../scripts/stray-ai-bridges";
 
 const TEST_PORT = E2E_PORT;
 
@@ -86,8 +87,15 @@ async function waitForServersGone(port: number, timeoutMs = 10_000): Promise<voi
   }
 }
 
-async function killBankPtyBridge(port: number): Promise<void> {
-  const socket = testServerEnv(port).TOPICS_PTY_SOCKET;
+/**
+ * The same for both of the bank's bridges. The ai-bridge was missing: the
+ * server starts it on the first claude-code turn (on by default outside
+ * Windows) and every run left it behind, still holding its CLIs.
+ */
+async function killBankBridge(port: number, kind: "pty" | "ai"): Promise<void> {
+  const env = testServerEnv(port);
+  const socket = kind === "pty" ? env.TOPICS_PTY_SOCKET : env.TOPICS_AI_BRIDGE_SOCKET;
+  const label = kind === "pty" ? "Ponte PTY" : "ai-bridge";
   const pidFile = socket.replace(/\.sock$/, ".pid");
   const killed = new Set<number>();
 
@@ -113,9 +121,9 @@ async function killBankPtyBridge(port: number): Promise<void> {
   if (rimasti.length) {
     // Non si alza la voce a vuoto: se resta, resta detto — un ponte orfano tiene
     // aperti i PTY e si accumula una run dopo l'altra.
-    console.warn(`[global-teardown] ATTENZIONE: ponte PTY del banco ancora vivo (PID ${rimasti.join(", ")}) su ${socket}`);
+    console.warn(`[global-teardown] ATTENZIONE: ${label} del banco ancora vivo (PID ${rimasti.join(", ")}) su ${socket}`);
   } else if (killed.size) {
-    console.log(`[global-teardown] Ponte PTY del banco spento (PID ${[...killed].join(", ")}) su ${socket}`);
+    console.log(`[global-teardown] ${label} del banco spento (PID ${[...killed].join(", ")}) su ${socket}`);
   }
 }
 
@@ -171,7 +179,12 @@ async function globalTeardown() {
 
   // Dopo il server, non prima: finché il server respira può rispawnare il ponte.
   await waitForServersGone(TEST_PORT);
-  await killBankPtyBridge(TEST_PORT);
+  await killBankBridge(TEST_PORT, "pty");
+  await killBankBridge(TEST_PORT, "ai");
+  // Any other daemon this run started (a spec with its own socket, a server a
+  // spec restarted) is still here only if nobody stopped it. Red at the end.
+  const strays = await strayAiBridges(process.env[TEST_RUN_ENV] ?? "");
+  await reportAndEndStrays(strays, (line) => console.error(`[global-teardown] ${line}`));
 
   // Reap Chromiums orphaned by THIS run — never anyone else's.
   //
@@ -227,6 +240,10 @@ async function globalTeardown() {
   // `releaseRunLock` toglie solo il lock di questo PID, quindi è innocuo anche
   // se il lock nel frattempo è passato a qualcun altro.
   releaseRunLock(TEST_PORT);
+
+  if (strays.length > 0) {
+    throw new Error(`${strays.length} ai-bridge daemon(s) started by this run were still alive at the end (listed above)`);
+  }
 }
 
 export default globalTeardown;

@@ -35,6 +35,7 @@ import {
 import { missingBundleAssets } from "../../server/lib/client-bundle";
 import { SERVER_DEATH_GRACE_MS, portHolders } from "./helpers/server-death";
 import { removeTmpDir } from "./helpers/file-project";
+import { TEST_RUN_ENV, newTestRunId } from "../../scripts/stray-ai-bridges";
 
 // Test server runs WITHOUT TLS for simplicity (NO_TLS=1)
 // Port 13334 is the default per il checkout principale, chosen to avoid
@@ -578,6 +579,10 @@ async function globalSetup() {
   // che il server apra la porta, così ciò che serve per tutta la run è un
   // insieme di file che nessuno riscriverà più.
   await snapshotBundle();
+
+  // The server inherits it, and so does every ai-bridge daemon it starts: the
+  // teardown finds this run's leftovers by it (scripts/stray-ai-bridges.ts).
+  process.env[TEST_RUN_ENV] = newTestRunId();
 
   // Start isolated test server
   await startTestServer();

@@ -32,6 +32,7 @@ import { spawnSync } from "node:child_process";
 import { cpus, loadavg } from "node:os";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../shared/test-time-slack.ts";
 import { SUITE_ROOTS } from "./test-unit-shards.ts";
+import { TEST_RUN_ENV, newTestRunId, reportAndEndStrays, strayAiBridges } from "./stray-ai-bridges.ts";
 
 /**
  * ONE list of roots, shared with the sharded runner. A second copy here would
@@ -60,13 +61,22 @@ const paths = args.filter((a) => !a.startsWith("-"));
 const flags = args.filter((a) => a.startsWith("-"));
 const targets = paths.length > 0 ? paths : PATHS;
 
+// A fresh id per run, even if one is inherited: a runner started from inside
+// another run's test must not hand its daemons to the outer check.
+const runId = newTestRunId();
+
 const run = spawnSync(
   "bun",
   ["test", "--timeout", timeout, ...targets, ...flags],
   {
     stdio: "inherit",
-    env: { ...process.env, [TIME_SLACK_ENV]: String(slack) },
+    env: { ...process.env, [TIME_SLACK_ENV]: String(slack), [TEST_RUN_ENV]: runId },
   },
 );
 
-process.exit(run.status ?? 1);
+// A daemon still alive once every test is done is a red of its own, even on a
+// green run: see scripts/stray-ai-bridges.ts.
+const strays = await strayAiBridges(runId);
+await reportAndEndStrays(strays);
+
+process.exit(run.status !== 0 ? (run.status ?? 1) : strays.length > 0 ? 1 : 0);
