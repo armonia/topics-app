@@ -1442,18 +1442,22 @@ export async function callOpenProject(
 }
 
 /**
- * POST /api/chat for a target sessionKey and read the SSE stream to completion,
- * concatenating the assistant's text deltas. The chat route streams
- * `data: {choices:[{delta:{content}}]}` lines (OpenAI-shaped) and terminates
- * the HTTP response when the turn finalizes, so draining the body === waiting
- * for the reply. Loopback TLS + gateway token mirror httpJson.
+ * POST /api/chat for a target sessionKey and read the SSE stream, concatenating
+ * the assistant's text deltas. The chat route streams
+ * `data: {choices:[{delta:{content}}]}` lines (OpenAI-shaped) and ends a
+ * finished turn with `data: [DONE]`. Loopback TLS + gateway token mirror
+ * httpJson.
+ *
+ * `complete` is whether that `[DONE]` came. A close without it is a cut, not
+ * an end: on 2026-09-24 the response closed 255 s into a silent tool while the
+ * turn went on, and this function returned the half it had read as the reply.
  */
 async function postChatReadSSE(
   args: ParsedArgs,
   targetSessionKey: string,
   message: string,
   fetchImpl: typeof fetch,
-): Promise<string> {
+): Promise<{ text: string; complete: boolean }> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
   const resp = await fetchImpl(`${args.baseUrl}/api/chat`, {
@@ -1476,31 +1480,92 @@ async function postChatReadSSE(
   const dec = new TextDecoder();
   let buf = "";
   let out = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    let nl: number;
-    while ((nl = buf.indexOf("\n")) >= 0) {
-      const line = buf.slice(0, nl).trim();
-      buf = buf.slice(nl + 1);
-      if (!line.startsWith("data:")) continue;
-      const payload = line.slice(5).trim();
-      if (!payload || payload === "[DONE]") continue;
-      try {
-        const j = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }> };
-        const d = j?.choices?.[0]?.delta?.content;
-        if (d) out += d;
-      } catch { /* ignore non-JSON keep-alive lines */ }
+  let complete = false;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        // Comment lines (`: ping`, the keepalive) and anything else that is not data.
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (payload === "[DONE]") { complete = true; continue; }
+        if (!payload) continue;
+        try {
+          const j = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }> };
+          const d = j?.choices?.[0]?.delta?.content;
+          if (d) out += d;
+        } catch { /* ignore non-JSON lines */ }
+      }
     }
+  } catch {
+    // A reset mid-stream is a cut like a clean close without [DONE].
+    complete = false;
   }
-  return out.trim();
+  return { text: out.trim(), complete };
+}
+
+/** How long a cut send waits for the turn's real end, and how often it looks. */
+export interface SendChatWait {
+  pollMs?: number;
+  maxWaitMs?: number;
+}
+const CUT_SEND_POLL_MS = 2_000;
+// The turn watchdog's window: past it a silent turn is killed anyway.
+const CUT_SEND_MAX_WAIT_MS = 30 * 60_000;
+
+/**
+ * The stream was cut before `[DONE]` while the turn may still be running. Wait
+ * for the turn's real end in the server's streaming registry, then read the
+ * reply back from the chat: what the assistant wrote after the last user row
+ * carrying this message. A turn waiting for a person, or still running past
+ * the wait, is an explicit failure, never the half that was read.
+ */
+async function awaitTurnEndAndReadReply(
+  args: ParsedArgs,
+  topicId: string,
+  sessionKey: string,
+  message: string,
+  fetchImpl: typeof fetch,
+  wait: SendChatWait,
+): Promise<string> {
+  const pollMs = wait.pollMs ?? CUT_SEND_POLL_MS;
+  const maxWaitMs = wait.maxWaitMs ?? CUT_SEND_MAX_WAIT_MS;
+  const deadline = Date.now() + maxWaitMs;
+  for (;;) {
+    const live = (await httpJson<{ sessions?: Array<{ sessionKey?: string; state?: string }> }>(
+      args, "GET", "/api/topics/streaming", undefined, fetchImpl,
+    ))?.sessions?.find((s) => s.sessionKey === sessionKey);
+    if (!live) break;
+    if (live.state === "waiting") {
+      throw new Error(`send_chat_message: stream interrupted, and the turn is waiting for a person's answer in that chat. Use read_chat_messages(topic_id="${topicId}") once it is answered.`);
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`send_chat_message: stream interrupted, and the turn is still running after ${Math.round(maxWaitMs / 60_000)} min. Use read_chat_messages(topic_id="${topicId}") later.`);
+    }
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+  const body = await httpJson<{ messages?: Array<{ role?: string; content?: string }> }>(
+    args, "GET", `/api/topics/${encodeURIComponent(topicId)}/messages?limit=50`, undefined, fetchImpl,
+  );
+  const msgs = Array.isArray(body?.messages) ? body!.messages : [];
+  let asked = msgs.length - 1;
+  while (asked >= 0 && !(msgs[asked].role === "user" && (msgs[asked].content ?? "").trim() === message.trim())) asked--;
+  // Not found (the row was rewritten, or scrolled out): the last answer is the best guess.
+  const replies = (asked >= 0 ? msgs.slice(asked + 1) : msgs.slice(-1)).filter((m) => m.role === "assistant");
+  return replies.map((m) => (m.content ?? "").trim()).filter(Boolean).join("\n\n");
 }
 
 export async function callSendChatMessage(
   args: ParsedArgs,
   toolArgs: { topic_id?: unknown; message?: unknown },
   fetchImpl: typeof fetch = fetch,
+  /** Tests only: a cut stream waits up to 30 min, polling every 2 s. */
+  wait: SendChatWait = {},
 ): Promise<string> {
   if (typeof toolArgs?.topic_id !== "string" || !toolArgs.topic_id) {
     throw new Error("send_chat_message: 'topic_id' (string) is required");
@@ -1530,7 +1595,10 @@ export async function callSendChatMessage(
   if (target.sessionKey === args.sessionKey) {
     throw new Error("send_chat_message: refusing to message your own session — reply normally instead");
   }
-  const reply = await postChatReadSSE(args, target.sessionKey, toolArgs.message, fetchImpl);
+  const read = await postChatReadSSE(args, target.sessionKey, toolArgs.message, fetchImpl);
+  const reply = read.complete
+    ? read.text
+    : await awaitTurnEndAndReadReply(args, toolArgs.topic_id, target.sessionKey, toolArgs.message, fetchImpl, wait);
   if (!reply) {
     return `Sent to "${target.name ?? toolArgs.topic_id}". The turn produced no text reply (it may have only run tools) — use read_chat_messages(topic_id="${toolArgs.topic_id}") to inspect.`;
   }
