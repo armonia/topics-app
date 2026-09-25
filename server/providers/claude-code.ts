@@ -1673,6 +1673,24 @@ export class ClaudeCodeProvider implements AIProvider {
     // write (spawn + write share the socket FIFO, but spawn's send is behind an
     // ensureConnected microtask). No-op in direct mode (ready resolved at spawn).
     await pp.ready;
+    // Stopped, or taken off this turn, while the child was being spawned. No
+    // send was waiting yet, so `abort()` had nothing to reject and told the
+    // handler itself, and a SIGINT sent before the spawn reached nobody.
+    // Writing now handed the message to a child whose every line is dropped as
+    // a stopped child's tail, and the send hung until the watchdog with the
+    // queue behind it (PR #134 review; on origin/main too).
+    if (pp.stoppedExit || pp.streamHandler !== handler) {
+      clearTimeout(messageTimeout);
+      this.stopHeartbeat(pp);
+      // The Stop the person pressed lands now that the child exists: it exits
+      // clean in under a second, instead of being killed by key after
+      // `processForTurn`'s 5 s wait, whose exit the daemon can hand to the
+      // child spawned next under the same key.
+      if (pp.stoppedExit) {
+        try { pp.io.signal("SIGINT"); } catch { /* the wait in processForTurn kills it */ }
+      }
+      return { runId: undefined, notSent: true };
+    }
 
     const messagePromise = new Promise<{ runId: string }>((resolve, reject) => {
       pp.pendingResolve = resolve;
