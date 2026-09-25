@@ -176,12 +176,12 @@ describe("ClaudeCodeProvider — inactivity reaper never fires during a turn", (
       const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
       const provider = setup(pp, sessionKey);
       pp.background = fold(0, firstResult + 1);
-      expect(provider.hasBackgroundWork(sessionKey)).toBe(true);
 
       (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });
       await new Promise((r) => setTimeout(r, 30));
       expect(killed).toBe(0);
       expect((provider as any).processes.get(sessionKey)).toBe(pp);
+      expect(provider.hasBackgroundWork(sessionKey)).toBe(true);
 
       // The last task reported: the recorded session ends on an empty snapshot.
       pp.background = fold(firstResult + 1, events.length, pp.background);
