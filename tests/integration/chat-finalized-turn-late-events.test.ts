@@ -317,6 +317,36 @@ describe("a closed turn writes on no row but its own", () => {
     }
   });
 
+  test("a late permission of a turn a regenerate left on an inactive branch counts as no row: refused, not held", async () => {
+    // After a regenerate the closed turn is a sibling nobody sees: a panel
+    // painted there is invisible, and the CLI would wait on it for two hours.
+    const sk = "topic:late-perm-regen";
+    const h = await harness(sk);
+    const handler = await h.startTurn();
+    const turnRowId = h.lastRowId();
+    await until(() => h.sent.some((m) => m.type === "stream:end"));
+    const { parent_id: userRowId } = h.ctx.db.query("SELECT parent_id FROM messages WHERE id = ?").get(turnRowId) as { parent_id: string };
+    h.ctx.createBranchPartialMessage(sk, userRowId);
+    expect(h.ctx.loadActiveThread(sk).map((m) => m.id)).not.toContain(turnRowId);
+
+    handler.onToolStart("toolu_regen", "Bash", { command: "git push origin main" } as never);
+    beginPermission(sk, "toolu_regen", undefined, Date.now() - 60_000);
+    const perm = createPermissionRouter(h.ctx);
+    const url = new URL(`http://topics.test/api/sessions/${encodeURIComponent(sk)}/permission`);
+    try {
+      const resp = await perm(new Request(url.toString(), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ toolName: "Bash", toolUseId: "toolu_regen", input: {}, legMs: 150 }),
+      }), url, url.pathname, "POST") as Response;
+      expect((await resp.json() as { cancelled?: boolean }).cancelled).toBe(true);
+      const tool = h.blocksOf(turnRowId).find((b) => b.kind === "tool" && b.toolCall.id === "toolu_regen");
+      expect(tool && tool.kind === "tool" ? tool.toolCall.status : null).not.toBe("awaiting_permission");
+    } finally {
+      cancelPermissionsForSession(sk, "test over");
+    }
+  });
+
   test("a question in a late answer lands on the closed turn's own row, where it can be answered", async () => {
     const h = await harness("topic:late-ask");
     const handler = await h.startTurn();

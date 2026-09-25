@@ -22,7 +22,7 @@ import { sessionIsFree, switchSessionToFree } from "../lib/session-free-mode";
 import { etichettaAutore } from "../lib/message-author";
 import { logActivity } from "../db/activity-log";
 import { decodeCol } from "../../shared/message-blob";
-import { rowCarryingTool, type AskHaystackRow } from "../lib/ask-answer-routing";
+import { recentActiveRows, rowCarryingTool } from "../lib/ask-answer-routing";
 import { flushTurnBody } from "../lib/turn-body-flush";
 
 /**
@@ -383,9 +383,7 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
           let carryingRowId: string | null = null;
           let lastRowId: string | null = null;
           try {
-            const recent = ctx.db
-              .prepare("SELECT id, tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 20")
-              .all(sk) as Array<AskHaystackRow & { id: string }>;
+            const recent = recentActiveRows(ctx, sk);
             carryingRowId = rowCarryingTool(recent, toolUseId, decodeCol);
             lastRowId = recent[0]?.id ?? null;
             // The carrying row when there is one; else the last row, where the
@@ -502,9 +500,7 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
         // row only while nothing was written after it (card C8).
         const rowOfTool = (toolId: string): { id: string; tool_calls?: unknown; blocks?: unknown } | null => {
           try {
-            const recent = ctx.db
-              .prepare("SELECT id, tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 20")
-              .all(sk) as Array<AskHaystackRow & { id: string }>;
+            const recent = recentActiveRows(ctx, sk);
             const id = rowCarryingTool(recent, toolId, decodeCol);
             return recent.find((r) => r.id === id) ?? null;
           } catch {

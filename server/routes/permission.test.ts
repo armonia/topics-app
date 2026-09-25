@@ -71,6 +71,8 @@ function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterab
           : null,
       }),
     },
+    // The active thread the recent-rows read walks: the one chat row.
+    loadActiveThread: () => (row ? [{ id: "chat-row" }] : []),
     json: (data: unknown, status = 200) =>
       new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } }),
     readJSON: async (req: Request) => { try { return await req.json(); } catch { return null; } },

@@ -1,4 +1,4 @@
-import { rowCarryingAsk, rowCarryingTool, type AskHaystackRow } from "../lib/ask-answer-routing";
+import { recentActiveRows, rowCarryingAsk, rowCarryingTool, type AskHaystackRow } from "../lib/ask-answer-routing";
 import { canonicalProjectPath } from "../lib/canonical-project-path";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
@@ -2601,11 +2601,8 @@ export function createTopicsRouter(
       // question being answered belongs to this exchange, and a scan of the
       // whole session would cost a table walk per answer.
       const recentRows = (() => {
-        try {
-          return ctx.db.prepare(
-            "SELECT id, tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 20",
-          ).all(sessionKey) as AskHaystackRow[];
-        } catch { return [] as AskHaystackRow[]; }
+        try { return recentActiveRows(ctx, sessionKey); }
+        catch { return [] as AskHaystackRow[]; }
       })();
       const askRowId = response.kind === 'questions' ? rowCarryingAsk(recentRows, toolCallId, decodeCol) : null;
       // EVERY WRITE OF THIS ROUTE GOES ON THE ROW THAT CARRIES THE TOOL, by id,

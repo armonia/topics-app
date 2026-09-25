@@ -72,6 +72,8 @@ function makeHarness(row: Row) {
       prepare: (sql: string) => ({ get: () => undefined, all: () => (String(sql).includes("FROM messages") ? [row] : []) }),
       query: () => ({ get: () => null, all: () => [] }),
     },
+    // The active thread the recent-rows read walks: the one row above.
+    loadActiveThread: () => [{ id: row.id }],
     json,
     errorResponse: (status: number, error: string) => json({ error }, status),
     readJSON: async (req: Request) => { try { return await req.json(); } catch { return null; } },

@@ -84,3 +84,26 @@ export function rowCarryingTool(
   const row = rows.find((r) => `${decode(r?.tool_calls) ?? ""}${decode(r?.blocks) ?? ""}`.includes(toolCallId));
   return typeof row?.id === "string" ? row.id : null;
 }
+
+/** What `recentActiveRows` needs from the app: the database and the active thread. */
+export interface ActiveRowsSource {
+  db: { prepare: (sql: string) => { all: (...params: string[]) => unknown } };
+  loadActiveThread: (sessionKey: string, opts: { withBlocks: false; withToolCalls: false }) => Array<{ id: string }>;
+}
+
+/**
+ * The session's last rows ON THE ACTIVE BRANCH, newest first, with the two
+ * columns a tool lookup reads. A row a regenerate or an edit left on another
+ * branch is on no screen: a panel painted there is one nobody sees, so a tool
+ * found only there counts as "no row" (third review of PR #135).
+ */
+export function recentActiveRows(src: ActiveRowsSource, sessionKey: string, limit = 20): Array<AskHaystackRow & { id: string }> {
+  const ids = src.loadActiveThread(sessionKey, { withBlocks: false, withToolCalls: false }).slice(-limit).map((m) => m.id).reverse();
+  if (ids.length === 0) return [];
+  const rows = src.db
+    .prepare(`SELECT id, tool_calls, blocks FROM messages WHERE id IN (${ids.map(() => "?").join(",")})`)
+    .all(...ids) as Array<AskHaystackRow & { id: string }>;
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return ids.flatMap((id) => { const row = byId.get(id); return row ? [row] : []; });
+}
+

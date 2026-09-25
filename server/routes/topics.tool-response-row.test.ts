@@ -58,6 +58,8 @@ function harness(rows: Row[]) {
       prepare: () => ({ get: () => undefined, all: () => rows }),
       query: () => ({ get: () => null, all: () => [] }),
     },
+    // Oldest first, as the active thread is: `rows` is given newest first.
+    loadActiveThread: () => [...rows].reverse().map((r) => ({ id: r.id })),
     json,
     errorResponse: (status: number, error: string) => json({ error }, status),
     readJSON: async (req: Request) => { try { return await req.json(); } catch { return null; } },
