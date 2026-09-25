@@ -1441,6 +1441,9 @@ export async function callOpenProject(
   return `opened project at ${body?.projectPath ?? toolArgs.ref}`;
 }
 
+/** How a turn ended, when it was not a finished answer (`turn` frame, chat route). */
+interface TurnEndFrame { end: string; cause?: string }
+
 /**
  * POST /api/chat for a target sessionKey and read the SSE stream, concatenating
  * the assistant's text deltas. The chat route streams
@@ -1451,13 +1454,15 @@ export async function callOpenProject(
  * `complete` is whether that `[DONE]` came. A close without it is a cut, not
  * an end: on 2026-09-24 the response closed 255 s into a silent tool while the
  * turn went on, and this function returned the half it had read as the reply.
+ * The route's `turn` frames say which row the turn writes (`messageId`, first)
+ * and how it ended when that was not a finished answer (`end`, before [DONE]).
  */
 async function postChatReadSSE(
   args: ParsedArgs,
   targetSessionKey: string,
   message: string,
   fetchImpl: typeof fetch,
-): Promise<{ text: string; complete: boolean }> {
+): Promise<{ text: string; complete: boolean; messageId?: string; end?: TurnEndFrame }> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
   const resp = await fetchImpl(`${args.baseUrl}/api/chat`, {
@@ -1477,26 +1482,33 @@ async function postChatReadSSE(
     throw new Error(`send_chat_message: chat request failed (HTTP ${resp.status}) ${t.slice(0, 200)}`);
   }
   const reader = resp.body.getReader();
-  const dec = new TextDecoder();
+  const decoder = new TextDecoder();
   let buf = "";
   let out = "";
   let complete = false;
+  let messageId: string | undefined;
+  let end: TurnEndFrame | undefined;
   try {
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
-      buf += dec.decode(value, { stream: true });
+      buf += decoder.decode(value, { stream: true });
       let nl: number;
       while ((nl = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, nl).trim();
         buf = buf.slice(nl + 1);
-        // Comment lines (`: ping`, the keepalive) and anything else that is not data.
+        // Comment lines (`: ping`) and anything else that is not data.
         if (!line.startsWith("data:")) continue;
         const payload = line.slice(5).trim();
         if (payload === "[DONE]") { complete = true; continue; }
         if (!payload) continue;
         try {
-          const j = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }> };
+          const j = JSON.parse(payload) as {
+            choices?: Array<{ delta?: { content?: string } }>;
+            turn?: { messageId?: string; end?: string; cause?: string };
+          };
+          if (typeof j?.turn?.messageId === "string") messageId = j.turn.messageId;
+          if (typeof j?.turn?.end === "string") end = { end: j.turn.end, ...(j.turn.cause ? { cause: j.turn.cause } : {}) };
           const d = j?.choices?.[0]?.delta?.content;
           if (d) out += d;
         } catch { /* ignore non-JSON lines */ }
@@ -1506,58 +1518,94 @@ async function postChatReadSSE(
     // A reset mid-stream is a cut like a clean close without [DONE].
     complete = false;
   }
-  return { text: out.trim(), complete };
+  return { text: out.trim(), complete, messageId, end };
+}
+
+/** What the tool says for a turn that ended without finishing its answer. */
+function unfinishedTurn(end: TurnEndFrame, text: string, topicId: string): string {
+  const how = end.end === "cancelled"
+    ? `was stopped${end.cause === "user" ? " by a person" : end.cause ? ` (${end.cause})` : ""}`
+    : end.end === "error" ? "ended in an error" : `ended early (${end.end})`;
+  return `send_chat_message: the turn ${how} before finishing its reply.`
+    + (text ? ` What it had written: ${JSON.stringify(text)}.` : " It had written nothing.")
+    + ` See read_chat_messages(topic_id="${topicId}").`;
 }
 
 /** How long a cut send waits for the turn's real end, and how often it looks. */
 export interface SendChatWait {
   pollMs?: number;
   maxWaitMs?: number;
+  /** How long neither the row nor the stream may be seen before the turn counts as gone. */
+  goneAfterMs?: number;
 }
 const CUT_SEND_POLL_MS = 2_000;
-// The turn watchdog's window: past it a silent turn is killed anyway.
+// A tool call cannot hold its caller for ever: past this it answers, and
+// read_chat_messages has the rest. It is not the turn's limit, a live turn has none.
 const CUT_SEND_MAX_WAIT_MS = 30 * 60_000;
+// A turn still running can vanish from both places at once: `/messages` hides a
+// row with no text yet, and `/api/topics/streaming` hides a turn silent for
+// over 3 min until the stale-stream sweep (every 30 s) marks it alive again.
+const CUT_SEND_GONE_MS = 45_000;
+
+type ChatRow = { id?: string; role?: string; content?: string; partial?: boolean; blocks?: Array<{ kind?: string; text?: string }> };
 
 /**
  * The stream was cut before `[DONE]` while the turn may still be running. Wait
- * for the turn's real end in the server's streaming registry, then read the
- * reply back from the chat: what the assistant wrote after the last user row
- * carrying this message. A turn waiting for a person, or still running past
- * the wait, is an explicit failure, never the half that was read.
+ * on the turn's own row, by the id the stream named: it is the reply once it
+ * is no longer partial. A row that is still partial is never the reply, even
+ * when the turn drops out of the streaming registry for a moment. A turn
+ * waiting for a person, still running past the wait, gone without a row, or
+ * closed with an error verdict is an explicit failure.
  */
 async function awaitTurnEndAndReadReply(
   args: ParsedArgs,
   topicId: string,
   sessionKey: string,
-  message: string,
+  messageId: string | undefined,
   fetchImpl: typeof fetch,
   wait: SendChatWait,
 ): Promise<string> {
+  const see = `Use read_chat_messages(topic_id="${topicId}")`;
+  if (!messageId) {
+    throw new Error(`send_chat_message: stream interrupted before the turn named its reply, so there is nothing to wait on. ${see}.`);
+  }
   const pollMs = wait.pollMs ?? CUT_SEND_POLL_MS;
   const maxWaitMs = wait.maxWaitMs ?? CUT_SEND_MAX_WAIT_MS;
+  const goneAfterMs = wait.goneAfterMs ?? CUT_SEND_GONE_MS;
   const deadline = Date.now() + maxWaitMs;
+  let unseenSince: number | null = null;
   for (;;) {
+    const body = await httpJson<{ messages?: ChatRow[] }>(
+      args, "GET", `/api/topics/${encodeURIComponent(topicId)}/messages?limit=50`, undefined, fetchImpl,
+    );
+    const row = (Array.isArray(body?.messages) ? body!.messages : []).find((m) => m.id === messageId);
+    if (row && !row.partial) {
+      const text = (row.content ?? "").trim();
+      const verdict = row.blocks?.find((b) => b?.kind === "error");
+      if (verdict) {
+        throw new Error(`send_chat_message: stream interrupted, and the turn then ended badly: ${verdict.text ?? "error"}.`
+          + (text ? ` What it had written: ${JSON.stringify(text)}.` : "") + ` ${see}.`);
+      }
+      return text;
+    }
     const live = (await httpJson<{ sessions?: Array<{ sessionKey?: string; state?: string }> }>(
       args, "GET", "/api/topics/streaming", undefined, fetchImpl,
     ))?.sessions?.find((s) => s.sessionKey === sessionKey);
-    if (!live) break;
-    if (live.state === "waiting") {
-      throw new Error(`send_chat_message: stream interrupted, and the turn is waiting for a person's answer in that chat. Use read_chat_messages(topic_id="${topicId}") once it is answered.`);
+    if (live?.state === "waiting") {
+      throw new Error(`send_chat_message: stream interrupted, and the turn is waiting for a person's answer in that chat. ${see} once it is answered.`);
+    }
+    if (row || live) unseenSince = null;
+    else {
+      unseenSince ??= Date.now();
+      if (Date.now() - unseenSince >= goneAfterMs) {
+        throw new Error(`send_chat_message: stream interrupted, and the turn ended without leaving a reply. ${see}.`);
+      }
     }
     if (Date.now() >= deadline) {
-      throw new Error(`send_chat_message: stream interrupted, and the turn is still running after ${Math.round(maxWaitMs / 60_000)} min. Use read_chat_messages(topic_id="${topicId}") later.`);
+      throw new Error(`send_chat_message: stream interrupted, and the turn is still running after ${Math.round(maxWaitMs / 60_000)} min. ${see} later.`);
     }
     await new Promise((r) => setTimeout(r, pollMs));
   }
-  const body = await httpJson<{ messages?: Array<{ role?: string; content?: string }> }>(
-    args, "GET", `/api/topics/${encodeURIComponent(topicId)}/messages?limit=50`, undefined, fetchImpl,
-  );
-  const msgs = Array.isArray(body?.messages) ? body!.messages : [];
-  let asked = msgs.length - 1;
-  while (asked >= 0 && !(msgs[asked].role === "user" && (msgs[asked].content ?? "").trim() === message.trim())) asked--;
-  // Not found (the row was rewritten, or scrolled out): the last answer is the best guess.
-  const answers = (asked >= 0 ? msgs.slice(asked + 1) : msgs.slice(-1)).filter((m) => m.role === "assistant");
-  return answers.map((m) => (m.content ?? "").trim()).filter(Boolean).join("\n\n");
 }
 
 export async function callSendChatMessage(
@@ -1596,9 +1644,10 @@ export async function callSendChatMessage(
     throw new Error("send_chat_message: refusing to message your own session — reply normally instead");
   }
   const read = await postChatReadSSE(args, target.sessionKey, toolArgs.message, fetchImpl);
+  if (read.complete && read.end) throw new Error(unfinishedTurn(read.end, read.text, toolArgs.topic_id));
   const reply = read.complete
     ? read.text
-    : await awaitTurnEndAndReadReply(args, toolArgs.topic_id, target.sessionKey, toolArgs.message, fetchImpl, wait);
+    : await awaitTurnEndAndReadReply(args, toolArgs.topic_id, target.sessionKey, read.messageId, fetchImpl, wait);
   if (!reply) {
     return `Sent to "${target.name ?? toolArgs.topic_id}". The turn produced no text reply (it may have only run tools) — use read_chat_messages(topic_id="${toolArgs.topic_id}") to inspect.`;
   }

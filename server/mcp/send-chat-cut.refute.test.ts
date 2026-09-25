@@ -1,6 +1,12 @@
 /**
  * Refutation tests for the cut-stream fallback of send_chat_message.
  * Each test models a behaviour of the REAL server, cited next to it.
+ *
+ * Copied from the independent review of df9b2fd2e (card 63e01ac0). Adapted to
+ * the fix in two ways only: the cut stream opens with the route's `turn` frame
+ * naming the row (and the rows carry ids), and the "never partial" test takes
+ * an explicit failure as an answer too, since a turn still partial at the end
+ * of the wait is one.
  */
 import { describe, test, expect } from "bun:test";
 import { callSendChatMessage } from "./topics-mcp-server";
@@ -9,7 +15,7 @@ const A = { baseUrl: "http://x", sessionKey: "topic:mine" };
 const FAST = { pollMs: 5, maxWaitMs: 500 };
 
 function cutSse(deltas: string[]): Response {
-  const lines = deltas.map((c) => `data: ${JSON.stringify({ choices: [{ delta: { content: c } }] })}\n\n`).join("");
+  const lines = `data: ${JSON.stringify({ turn: { messageId: "m1" } })}\n\n` + deltas.map((c) => `data: ${JSON.stringify({ choices: [{ delta: { content: c } }] })}\n\n`).join("");
   const body = new ReadableStream<Uint8Array>({
     start(c) { c.enqueue(new TextEncoder().encode(lines)); c.close(); },
   });
@@ -50,10 +56,10 @@ describe("REFUTE: cut stream fallback", () => {
       // poll 1: live; poll 2: stale gap (turn still running); poll 3: live again; poll 4+: really over
       streaming: (p) => (p === 2 ? [] : p < 4 ? LIVE : []),
       messages: (p) => [
-        { role: "user", content: "ping" },
+        { id: "u1", role: "user", content: "ping" },
         p < 4
-          ? { role: "assistant", content: "half ", partial: true }
-          : { role: "assistant", content: "half an answer, and then the rest of it" },
+          ? { id: "m1", role: "assistant", content: "half ", partial: true }
+          : { id: "m1", role: "assistant", content: "half an answer, and then the rest of it" },
       ],
     });
     const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST);
@@ -65,11 +71,12 @@ describe("REFUTE: cut stream fallback", () => {
     const fetchImpl = world({
       streaming: () => [],
       messages: () => [
-        { role: "user", content: "ping" },
-        { role: "assistant", content: "half ", partial: true },
+        { id: "u1", role: "user", content: "ping" },
+        { id: "m1", role: "assistant", content: "half ", partial: true },
       ],
     });
-    const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST);
+    const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST)
+      .catch((err: Error) => err.message);
     expect(out).not.toContain("half");
   });
 
@@ -82,10 +89,10 @@ describe("REFUTE: cut stream fallback", () => {
     const fetchImpl = world({
       streaming: (p) => (p <= 3 ? LIVE : []),
       messages: () => [
-        { role: "user", content: "ping" },
-        { role: "assistant", content: "our full answer" },
-        { role: "user", content: "queued follow-up from the person" },
-        { role: "assistant", content: "someone else's answer" },
+        { id: "u1", role: "user", content: "ping" },
+        { id: "m1", role: "assistant", content: "our full answer" },
+        { id: "u2", role: "user", content: "queued follow-up from the person" },
+        { id: "m2", role: "assistant", content: "someone else's answer" },
       ],
     });
     const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST);
@@ -96,9 +103,9 @@ describe("REFUTE: cut stream fallback", () => {
     const fetchImpl = world({
       streaming: () => LIVE, // goal loop keeps going; our turn ended at once
       messages: () => [
-        { role: "user", content: "ping" },
-        { role: "assistant", content: "our full answer" },
-        { role: "user", content: "Objective still open: continue" },
+        { id: "u1", role: "user", content: "ping" },
+        { id: "m1", role: "assistant", content: "our full answer" },
+        { id: "u2", role: "user", content: "Objective still open: continue" },
       ],
     });
     await expect(callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST)).resolves.toContain("our full answer");
