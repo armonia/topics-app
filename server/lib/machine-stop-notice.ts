@@ -17,13 +17,19 @@
  * `machine-stop` block, drawn by the client as a service line, and the chat no
  * longer ends on an unanswered message.
  *
- * -- Only on a chat the board drives -------------------------------------------
- * A land and a delegation's deadline only ever stop a card's chat. The stall
- * judge also recycles a person's own chat (a turn adopted at boot), and there
- * nothing continues by itself: the resume sweep resends the person's question,
- * and until then Retry is theirs to press. A service row there would silence
- * both (third review of this fix), so a chat no card or attempt drives keeps
- * the behaviour it had.
+ * -- Only under the machine's own envelope ------------------------------------
+ * What decides is the message the stopped turn was answering, not whether a
+ * card owns the chat. Under a dispatcher's envelope (the user row marked
+ * `dispatched-envelope`, lib/user-row-marks.ts) a retry resends that envelope:
+ * work that landed, a delegation that was revoked or ran out, a turn the
+ * dispatcher continues itself. Under a question the person typed, Retry is
+ * theirs and so is the resume sweep's resend, whether the chat is their own or
+ * a card's in review (fourth review of this fix).
+ *
+ * The card binding was the first gate, and it was wrong both ways: a revoked
+ * delegation releases the card (clearing `assigned_topic_id`) before the
+ * abort, which the board does not await, reaches this line; and a card in
+ * review keeps its binding while the person asks it something.
  *
  * -- Why `content` stays empty ------------------------------------------------
  * Every reader that must not see this row reads `content` alone: the model's
@@ -43,21 +49,9 @@ export function machineStopBlock(cause: MachineStopCause): Extract<ContentBlock,
   return { kind: "machine-stop", cause, text: machineStopToolError(cause) };
 }
 
-/**
- * Does a card, or one of its fan-out attempts, drive this topic? The abort
- * comes before the dispatcher releases the card (`cancelDelegatedTask`, the
- * land's `cutLiveTurn`), so the binding is still there when this runs. A
- * database without those tables is no evidence.
- */
-export function boardDrivesTopic(db: { query(sql: string): { get(...args: string[]): unknown } }, topicId: string): boolean {
-  try {
-    return !!db.query(
-      `SELECT 1 FROM tasks WHERE assigned_topic_id = ?1
-       UNION ALL SELECT 1 FROM task_attempts WHERE topic_id = ?1 LIMIT 1`,
-    ).get(topicId);
-  } catch {
-    return false;
-  }
+/** Is this row one of the dispatcher's envelopes? */
+export function isMachineEnvelope(row: { role: string; blocks?: ContentBlock[] | null } | null | undefined): boolean {
+  return row?.role === "user" && !!row.blocks?.some((b) => b.kind === "dispatched-envelope");
 }
 
 /**
@@ -88,10 +82,10 @@ export function needsMachineStopNotice(
  * after this frame is out.
  */
 export function leaveMachineStopNotice(
-  deps: Pick<AppContext, "db" | "loadLocalMessages" | "appendLocalMessage" | "broadcastToAll">,
+  deps: Pick<AppContext, "getMessageById" | "loadLocalMessages" | "appendLocalMessage" | "broadcastToAll">,
   turn: { sessionKey: string; topicId: string; cause: MachineStopCause; answeredMessageId: string },
 ): void {
-  if (!boardDrivesTopic(deps.db, turn.topicId)) return;
+  if (!isMachineEnvelope(deps.getMessageById(turn.answeredMessageId))) return;
   const thread = deps.loadLocalMessages(turn.sessionKey, { withBlocks: false, withToolCalls: false });
   if (!needsMachineStopNotice(thread, turn.answeredMessageId)) return;
   const block = machineStopBlock(turn.cause);

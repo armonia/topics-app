@@ -26,7 +26,8 @@ import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import { createChatRouter } from "../../server/routes/chat";
 import { createTopicsRouter } from "../../server/routes/topics";
 import { riprendiTurniInterrotti } from "../../server/lib/ripresa-boot";
-import { internalAbortRequest } from "../../server/lib/abort-cause";
+import { internalAbortRequest, internalRequest, STOP_CAUSE_HEADER } from "../../server/lib/abort-cause";
+import { createTasksRouter } from "../../server/routes/tasks";
 import { STOP_PRESSED_LOG_TITLE } from "../../server/lib/cancelled-notice";
 import { readTurnEnd, resetTurnEndRegistry } from "../../server/providers/turn-end-registry";
 import { registerProvider, removeProvider } from "../../server/providers";
@@ -57,7 +58,7 @@ afterAll(() => { try { removeProvider("openai"); } catch { /* already gone */ } 
 
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
 
-async function chatWith(sessionKey: string, rows: StoredMessage[] = []) {
+async function chatWith(sessionKey: string, rows: StoredMessage[] = [], topicId = `t-${sessionKey}`) {
   captured = undefined;
   beforeEcho = null;
   echoesAbort = true;
@@ -67,7 +68,7 @@ async function chatWith(sessionKey: string, rows: StoredMessage[] = []) {
   (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = (m) => { sent.push(m as Record<string, unknown>); };
   (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void }).broadcastToTopicSubscribers = (_id, m) => { sent.push(m as Record<string, unknown>); };
   ctx.saveSingleTopic({
-    id: `t-${sessionKey}`, name: "stop parity", slug: "stop-parity", parentId: null, links: [], sessionKey,
+    id: topicId, name: "stop parity", slug: "stop-parity", parentId: null, links: [], sessionKey,
     color: "#5865f2", icon: "MessageSquare", createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(), archived: false, provider: "openai",
   } as Topic);
@@ -323,7 +324,7 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
         const c = await chatWith(sk);
         bindCard(c, sk);
         echoesAbort = echoes;
-        await c.post({ messages: [{ role: "user", content: "Envelope della card: fai il merge" }] });
+        await c.post({ messages: [{ role: "user", content: "Envelope della card: fai il merge" }], dispatched: true });
         const turnRowId = c.assistantRows().at(-1)!.id;
 
         await c.abort(internalAbortRequest(sk, cause));
@@ -356,7 +357,7 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
     const sk = "topic:kept-superseded";
     const c = await chatWith(sk);
     bindCard(c, sk);
-    await c.post({ messages: [{ role: "user", content: "Envelope della card" }] });
+    await c.post({ messages: [{ role: "user", content: "Envelope della card" }], dispatched: true });
     captured!.onTextDelta("Comincio il merge", "Comincio il merge");
 
     await c.abort(internalAbortRequest(sk, "superseded"));
@@ -387,7 +388,7 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
     const sk = "topic:empty-person";
     const c = await chatWith(sk);
     bindCard(c, sk);
-    await c.post({ messages: [{ role: "user", content: "fermati pure" }] });
+    await c.post({ messages: [{ role: "user", content: "fermati pure" }], dispatched: true });
 
     await c.clientAbort();
 
@@ -400,13 +401,17 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
     const sk = "topic:empty-attempt";
     const c = await chatWith(sk);
     bindCard(c, sk, "attempt");
-    await c.post({ messages: [{ role: "user", content: "Envelope del tentativo 2" }] });
+    await c.post({ messages: [{ role: "user", content: "Envelope del tentativo 2" }], dispatched: true });
 
     await c.abort(internalAbortRequest(sk, "superseded"));
 
     const rows = c.ctx.loadLocalMessages(sk);
     expect(noticeRows(rows)).toHaveLength(1);
     expect(retryOffered(rows)).toBe(false);
+    // A change from main, on purpose: the sweep binds a chat to a card through
+    // `assigned_topic_id` only, so an attempt's chat looked like a person's and
+    // its envelope was resent after a restart, redoing a closed attempt.
+    expect(await c.resentAfterRestart()).toEqual([]);
   });
 
   test("a person's own chat recycled by the stall judge keeps main's behaviour: Retry, and the sweep resends", async () => {
@@ -429,7 +434,7 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
     const sk = "topic:empty-newer-row";
     const c = await chatWith(sk);
     bindCard(c, sk);
-    await c.post({ messages: [{ role: "user", content: "Envelope della card" }] });
+    await c.post({ messages: [{ role: "user", content: "Envelope della card" }], dispatched: true });
     c.ctx.appendLocalMessage(sk, "user", "e intanto guarda anche questo");
 
     await c.abort(internalAbortRequest(sk, "superseded"));
@@ -446,7 +451,7 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
     const sk = "topic:empty-then-reattach";
     const c = await chatWith(sk);
     bindCard(c, sk);
-    await c.post({ messages: [{ role: "user", content: "Envelope della card" }] });
+    await c.post({ messages: [{ role: "user", content: "Envelope della card" }], dispatched: true });
     await c.abort(internalAbortRequest(sk, "superseded"));
     const notice = noticeRows(c.ctx.loadLocalMessages(sk))[0];
     expect(notice).toBeDefined();
@@ -459,6 +464,58 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
     const after = c.ctx.loadLocalMessages(sk).find((m) => m.id === notice.id)!;
     expect(after.content).toBe("");
     expect(after.blocks).toEqual(notice.blocks);
+  });
+
+  test("a person's question in a card under review keeps its Retry: the card binding does not decide", async () => {
+    // The card keeps its topic in review, and the person can still ask it
+    // something. A boot reattach of that turn recycled by the stall judge left
+    // Retry as the only way back, and it has to stay.
+    const sk = "topic:card-review-question";
+    const c = await chatWith(sk);
+    bindCard(c, sk);
+    c.ctx.db.run("UPDATE tasks SET status = 'review' WHERE id = ?", [`card-${sk}`]);
+    await c.post({ messages: [{ role: "user", content: "Perché hai cambiato quel file?" }] });
+
+    await c.abort(internalAbortRequest(sk, "stall"));
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    expect(noticeRows(rows)).toHaveLength(0);
+    expect(retryOffered(rows)).toBe(true);
+  });
+
+  test("a revoked delegation, in the DELETE's real order: the line is written although the card is released first", async () => {
+    // `detachLiveAgent` -> `cutLiveTurn` fires the abort without awaiting it,
+    // then `svc.release` clears `assigned_topic_id` before the abort route
+    // reaches the line. The board derives the session key from the topic id.
+    const sk = "topic:revoke01";
+    const c = await chatWith(sk, [], "revoke01-0000-4000-8000-000000000000");
+    const aborts: Array<Promise<unknown>> = [];
+    const tasks = createTasksRouter(c.ctx as never, { onEnterTodo() {}, onLeaveTodo() {}, resume: async () => {} } as never, {
+      abortTurn: (key: string, cause: string) => {
+        const req = internalAbortRequest(key, cause as never);
+        const done = c.abort(req);
+        aborts.push(done);
+        return done;
+      },
+    } as never);
+    const created = await tasks(new Request("http://localhost/api/boards/pR/tasks", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "delega", status: "in_progress" }),
+    }), new URL("http://localhost/api/boards/pR/tasks"), "/api/boards/pR/tasks", "POST");
+    const card = await created!.json() as { id: string };
+    c.ctx.db.run("UPDATE tasks SET assigned_topic_id = ?, dispatch_state = 'working' WHERE id = ?", ["revoke01-0000-4000-8000-000000000000", card.id]);
+    await c.post({ messages: [{ role: "user", content: "Envelope della delega" }], dispatched: true });
+
+    const url = new URL(`http://localhost/api/boards/pR/tasks/${card.id}`);
+    const resp = await tasks(internalRequest(url, { method: "DELETE", headers: { [STOP_CAUSE_HEADER]: "superseded" } }), url, url.pathname, "DELETE");
+    expect(resp?.status).toBe(200);
+    await Promise.all(aborts);
+
+    expect(reasons).toEqual(["superseded"]);
+    expect((c.ctx.db.query("SELECT assigned_topic_id AS t FROM tasks WHERE id = ?").get(card.id) as { t: string | null }).t).toBeNull();
+    const rows = c.ctx.loadLocalMessages(sk);
+    expect(noticeRows(rows)).toHaveLength(1);
+    expect(retryOffered(rows)).toBe(false);
+    expect(await c.resentAfterRestart()).toEqual([]);
   });
 
   test("the opposite: a turn that really came back empty keeps its notice and its retry", async () => {

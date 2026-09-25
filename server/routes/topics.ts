@@ -2547,7 +2547,7 @@ export function createTopicsRouter(
       // does not end on the unanswered envelope and no Retry is offered for it.
       // Here, after both finalizes: whichever ran first discarded the row.
       if (isMachineStop(cause) && answeredMessageId && topicId) {
-        leaveMachineStopNotice({ db, loadLocalMessages, appendLocalMessage, broadcastToAll }, { sessionKey, topicId, cause, answeredMessageId });
+        leaveMachineStopNotice({ getMessageById: ctx.getMessageById, loadLocalMessages, appendLocalMessage, broadcastToAll }, { sessionKey, topicId, cause, answeredMessageId });
       }
 
       // user_abort: user explicitly clicked stop — they are present in the tab,
