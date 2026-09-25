@@ -4227,9 +4227,12 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // after a person wrote stayed ABOVE that person's comment, and the thread
       // read as if the machine had spoken first (verifier repro, 24/09/2026).
       // Then the slot is emptied and the note is written again, at the bottom.
-      // Only SOMEONE ELSE'S words count: the machine's own notes of the same
-      // kind (the boot note and the wait note are written one after the other
-      // at every boot) would otherwise overtake each other and rewrite both.
+      // ANY row by someone else counts, not only a person: an agent, a verifier
+      // note, a status transition. A transition after the note means the wait
+      // ended and began again, and the new note belongs below it. Only the
+      // writer's own notes (same author and kind) do not count: the boot note
+      // and the wait note are written one after the other at every boot, and
+      // would otherwise push each other down and rewrite both.
       const buried = dupe != null && openings.length > 0 && db.prepare(
         "SELECT 1 FROM task_comments WHERE task_id = ? AND created_at > ? AND NOT (author = ? AND kind = ?) LIMIT 1",
       ).get(taskId, dupe.created_at, author, commentKind) != null;
