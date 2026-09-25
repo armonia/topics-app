@@ -430,19 +430,24 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
     expect(await c.resentAfterRestart()).toEqual(["Domanda a cui nessuno ha risposto"]);
   });
 
-  test("a message written during the turn is not the one it answered: no line under it", async () => {
-    const sk = "topic:empty-newer-row";
-    const c = await chatWith(sk);
-    bindCard(c, sk);
-    await c.post({ messages: [{ role: "user", content: "Envelope della card" }], dispatched: true });
-    c.ctx.appendLocalMessage(sk, "user", "e intanto guarda anche questo");
+  for (const lateRow of ["a person's message", "a second envelope"] as const) {
+    test(`${lateRow} written during the turn is not the one it answered: no line under it`, async () => {
+      // The gate reads the PARENT of the turn's row, not the last user row: a
+      // second envelope no turn has answered yet must keep its own chance.
+      const sk = `topic:empty-late-${lateRow === "a second envelope" ? "env" : "person"}`;
+      const c = await chatWith(sk);
+      bindCard(c, sk);
+      await c.post({ messages: [{ role: "user", content: "Envelope della card" }], dispatched: true });
+      c.ctx.appendLocalMessage(sk, "user", "e intanto guarda anche questo", undefined,
+        lateRow === "a second envelope" ? [{ kind: "dispatched-envelope" }] : undefined);
 
-    await c.abort(internalAbortRequest(sk, "superseded"));
+      await c.abort(internalAbortRequest(sk, "superseded"));
 
-    const rows = c.ctx.loadLocalMessages(sk);
-    expect(noticeRows(rows)).toHaveLength(0);
-    expect(rows.at(-1)?.content).toBe("e intanto guarda anche questo");
-  });
+      const rows = c.ctx.loadLocalMessages(sk);
+      expect(noticeRows(rows)).toHaveLength(0);
+      expect(rows.at(-1)?.content).toBe("e intanto guarda anche questo");
+    });
+  }
 
   test("a reattach after the stop opens its own row: the line is never adopted, even when the replay fails", async () => {
     // The stopped child may outlive the stop, and the next boot reattaches it.
@@ -464,6 +469,42 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
     const after = c.ctx.loadLocalMessages(sk).find((m) => m.id === notice.id)!;
     expect(after.content).toBe("");
     expect(after.blocks).toEqual(notice.blocks);
+  });
+
+  test("Retry on the envelope, then a land: the resend is still the envelope, and gets the line", async () => {
+    // Retry (and the resume sweep) resend the envelope's text without
+    // `dispatched`. Unmarked, that copy was the person's for the gate, and a
+    // land on its empty turn left Retry on the kickoff again.
+    const sk = "topic:retry-then-land";
+    const c = await chatWith(sk);
+    bindCard(c, sk);
+    await c.post({ messages: [{ role: "user", content: "KICKOFF envelope: implement the card" }], dispatched: true });
+    captured!.onError("Process exited with code 137");
+    // What the client's Retry sends: the last user row's text, nothing else.
+    await c.post({ messages: [{ role: "user", content: "KICKOFF envelope: implement the card" }] });
+
+    await c.abort(internalAbortRequest(sk, "superseded"));
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    const resent = rows.filter((m) => m.role === "user").at(-1)!;
+    expect(resent.blocks).toEqual([{ kind: "dispatched-envelope" }]);
+    expect(noticeRows(rows)).toHaveLength(1);
+    expect(retryOffered(rows)).toBe(false);
+  });
+
+  test("a goal's continuation is the machine's too, but not the dispatcher's: no line, Retry stays", async () => {
+    // The gate reads the envelope mark, not any machine mark: the goal loop's
+    // row can sit in a person's own chat, where Retry is theirs.
+    const sk = "topic:goal-nudge-stall";
+    const c = await chatWith(sk);
+    await c.post({ messages: [{ role: "user", content: "Objective still open: continue" }], goalNudge: 1 });
+
+    await c.abort(internalAbortRequest(sk, "stall"));
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    expect(rows.at(-1)?.blocks?.[0]?.kind).toBe("goal-nudge");
+    expect(noticeRows(rows)).toHaveLength(0);
+    expect(retryOffered(rows)).toBe(true);
   });
 
   test("a person's question in a card under review keeps its Retry: the card binding does not decide", async () => {

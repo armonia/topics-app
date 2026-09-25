@@ -18,7 +18,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
-import { userRowMarks } from "../lib/user-row-marks";
+import { repeatsAnEnvelope, userRowMarks } from "../lib/user-row-marks";
 import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
 import { TopicsRoutingIncompatibleError } from "../providers/resolve-topic-provider";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
@@ -552,7 +552,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         const storedUserMsg = appendLocalMessage(
           sessionKey, "user", lastUserMsg.content,
           autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
-          userRowMarks({ goalNudge: body.goalNudge, dispatched, commentIds: dispatchedFor }),
+          userRowMarks({
+            goalNudge: body.goalNudge, dispatched, commentIds: dispatchedFor,
+            repeatsEnvelope: !dispatched && repeatsAnEnvelope(ctx.db, sessionKey, lastUserMsg.content),
+          }),
         );
         // ADESSO il messaggio esiste, e da adesso una ripetizione è un doppione.
         // Non un istante prima: la riga è la prova, e finché non c'è, ripetere è

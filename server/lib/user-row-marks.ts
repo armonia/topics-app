@@ -31,6 +31,14 @@ export interface UserRowOrigin {
   dispatched?: boolean;
   /** The card comments this envelope delivers, when it is a resume. */
   commentIds?: unknown;
+  /**
+   * The row repeats, word for word, the chat's last user row, and that row is
+   * an envelope (`repeatsAnEnvelope`). Retry and the resume sweep resend the
+   * text alone, without `dispatched`: the copy is still the dispatcher's
+   * words, and unmarked it showed them as the person's and let the machine
+   * stop line miss the turn that answered it (fourth review of card 46617a7f).
+   */
+  repeatsEnvelope?: boolean;
 }
 
 /**
@@ -47,6 +55,11 @@ export function userRowMarks(origin: UserRowOrigin): ContentBlock[] | undefined 
   if (typeof origin.goalNudge === "number" && origin.goalNudge > 0) {
     blocks.push({ kind: "goal-nudge", attempt: Math.floor(origin.goalNudge) });
   }
+  if (origin.dispatched !== true && origin.repeatsEnvelope === true) {
+    // No comment ids: the row it repeats already delivered them, and a second
+    // anchor would draw the same words twice on the card.
+    blocks.push({ kind: "dispatched-envelope" });
+  }
   if (origin.dispatched === true) {
     // Ids only on a row that IS an envelope, and only when there are any: a
     // list of comments on a row nobody dispatched would be an anchor pointing
@@ -58,4 +71,28 @@ export function userRowMarks(origin: UserRowOrigin): ContentBlock[] | undefined 
     blocks.push(ids.length ? { kind: "dispatched-envelope", commentIds: ids } : { kind: "dispatched-envelope" });
   }
   return blocks.length ? blocks : undefined;
+}
+
+/**
+ * Is `content` a word-for-word resend of the chat's last user row, and is that
+ * row an envelope? Equality with one marked row, never a guess from the text:
+ * recognising an envelope by its words is the migration's alone. The mark is a
+ * few bytes of plain JSON, below the blob compression threshold, so a `LIKE`
+ * reads it (the same reasoning as `MACHINE_ROW_SQL`).
+ */
+export function repeatsAnEnvelope(
+  db: { query(sql: string): { get(...args: string[]): unknown } },
+  sessionKey: string,
+  content: string,
+): boolean {
+  try {
+    const row = db.query(
+      `SELECT content = ?2 AND blocks LIKE '%"kind":"dispatched-envelope"%' AS repeats
+         FROM messages WHERE session_key = ?1 AND role = 'user'
+        ORDER BY sort_order DESC, rowid DESC LIMIT 1`,
+    ).get(sessionKey, content) as { repeats: number | null } | null;
+    return row?.repeats === 1;
+  } catch {
+    return false;
+  }
 }
