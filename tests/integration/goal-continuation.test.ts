@@ -20,6 +20,7 @@ import { createChatRouter } from "../../server/routes/chat";
 import { registerProvider, removeProvider } from "../../server/providers";
 import { setGoal, getActiveGoal, setGoalLoop } from "../../server/services/goals";
 import { MAX_GOAL_CONTINUATIONS } from "../../server/services/goal-loop";
+import { createGoalContinuation, GOAL_CHECKINS_MAX, goalCheckInDelayMs, type TurnEndInfo } from "../../server/services/goal-continuation";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, ContentBlock, Topic } from "../../server/types";
 
@@ -262,6 +263,90 @@ describe("fine turno con un obiettivo attivo", () => {
     expect(b.handlers.length).toBe(1);
     expect(getActiveGoal(b.ctx.db, b.topic.id)?.status).toBe("active");
     expect(b.rows().length).toBe(prima + 2); // the question and the answer, nothing else
+    await close();
+  });
+});
+
+/**
+ * The two turns that left a deferred goal silent for good (review of card C6):
+ * a background job that never reports, so no turn ever ends again, and the
+ * empty wake that follows the last report, which the route discards. Driven on
+ * the service with a hand-moved timer, the same DB and goal as the route bench.
+ */
+describe("a goal deferred on background work", () => {
+  async function bench(name: string, verdicts: string[], busy = () => false) {
+    const b = await banco(name, []);
+    const timers: Array<{ fn: () => void; ms: number }> = [];
+    const judged: string[] = [];
+    const sent: string[] = [];
+    let running = true;
+    const onTurnEnd = createGoalContinuation({
+      db: b.ctx.db,
+      judge: async (prompt) => { judged.push(prompt); return verdicts.shift() ?? "continue"; },
+      resend: async ({ text }) => { sent.push(text); },
+      announce: () => {}, broadcast: () => {},
+      isBusy: busy,
+      backgroundWork: () => running,
+      setTimer: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+      clearTimer: () => {},
+    });
+    const turn = (over: Partial<TurnEndInfo> = {}): TurnEndInfo => ({
+      sessionKey: b.sessionKey, topicId: b.topic.id, dispatched: false, end: "end_turn",
+      discarded: false, pendingAsk: false, usedTools: true, lastAssistantText: "launched, waiting for them",
+      backgroundWork: true, ...over,
+    });
+    const fire = async () => { timers.shift()!.fn(); await new Promise((r) => setTimeout(r, 20)); };
+    return { b, timers, judged, sent, onTurnEnd, turn, fire, stop: () => { running = false; } };
+  }
+
+  test("a job that never reports: the goal checks in after thirty minutes, the way Claude Code does", async () => {
+    const t = await bench("goal-checkin", ["continue"]);
+    expect(await t.onTurnEnd(t.turn())).toBe("background");
+    expect(t.judged).toEqual([]);
+    expect(t.timers.map((x) => x.ms)).toEqual([30 * 60_000]);
+
+    await t.fire();
+    expect(t.judged.length).toBe(1);
+    expect(t.sent.length).toBe(1);
+    expect(t.sent[0]).toContain("still running");
+
+    // The nudge's own turn ends with the job still up: deferred again, and the
+    // next check-in waits twice as long.
+    expect(await t.onTurnEnd(t.turn({ lastAssistantText: "still up, checked it" }))).toBe("background");
+    expect(t.timers.map((x) => x.ms)).toEqual([goalCheckInDelayMs(1)]);
+    await close();
+  });
+
+  test("check-ins stop after three, until a turn ends with the work over", async () => {
+    const t = await bench("goal-checkin-cap", ["continue", "continue", "continue"]);
+    for (let i = 0; i < GOAL_CHECKINS_MAX; i++) {
+      await t.onTurnEnd(t.turn());
+      await t.fire();
+    }
+    expect(t.judged.length).toBe(GOAL_CHECKINS_MAX);
+    await t.onTurnEnd(t.turn());
+    expect(t.timers).toEqual([]);
+    await close();
+  });
+
+  test("a check-in that finds a turn in flight stays out of its way", async () => {
+    const t = await bench("goal-checkin-busy", ["continue"], () => true);
+    await t.onTurnEnd(t.turn());
+    await t.fire();
+    expect(t.judged).toEqual([]);
+    expect(t.sent).toEqual([]);
+    await close();
+  });
+
+  test("the empty wake after the last report hands the judge the turn that did the work", async () => {
+    const t = await bench("goal-empty-wake", ["continue"]);
+    await t.onTurnEnd(t.turn({ lastAssistantText: "fixed four of five, the fifth is running" }));
+    t.stop();
+    // "No response requested.": the route discards it, and it was the only
+    // turn left to end.
+    expect(await t.onTurnEnd(t.turn({ discarded: true, backgroundWork: false, lastAssistantText: "" }))).toBe("continued");
+    expect(t.judged.length).toBe(1);
+    expect(t.judged[0]).toContain("fixed four of five");
     await close();
   });
 });

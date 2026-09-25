@@ -49,6 +49,7 @@ import {
 } from "./goal-loop";
 import { insertRestartNotification, type PartialSweepDb } from "../lib/boot-partial-sweep";
 import { MAX_ITERATIONS } from "../providers/native/agent-loop";
+import { sessionHasBackgroundWork } from "../providers";
 
 export interface GoalContinuationDeps {
   db: Database;
@@ -79,6 +80,25 @@ export interface GoalContinuationDeps {
   announce: (topicId: string) => void;
   broadcast: (msg: OutboundMessage) => void;
   log?: (msg: string) => void;
+  /** A turn is in flight on this session: its own end decides, a check-in stays out. */
+  isBusy?: (sessionKey: string) => boolean;
+  /** The session's background work is still running, asked again when a check-in fires. */
+  backgroundWork?: (sessionKey: string) => boolean;
+  setTimer?: (fn: () => void, ms: number) => unknown;
+  clearTimer?: (handle: unknown) => void;
+}
+
+/**
+ * When a goal deferred on background work checks in anyway, the way Claude Code
+ * does (2.1.282: `CLAUDE_CODE_GOAL_CHECKIN_MINUTES`, default 30, doubling up to
+ * two hours, three check-ins, then paused until the next message). Without it a
+ * background job that never reports, a dev server, a lost task, left the goal
+ * active on the bar and nobody pursuing it.
+ */
+export const GOAL_CHECKIN_MS = 30 * 60_000;
+export const GOAL_CHECKINS_MAX = 3;
+export function goalCheckInDelayMs(checkInsSoFar: number): number {
+  return GOAL_CHECKIN_MS * 2 ** Math.min(checkInsSoFar, 2);
 }
 
 /** What the route hands over once a turn is finalized. */
@@ -154,8 +174,79 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
    */
   const resumedAfterBudget = new Set<string>();
 
+  /**
+   * THE TURN A GOAL IS WAITING TO JUDGE, per session: the last turn that ended
+   * while its background work ran, with the check-in armed for it. In memory,
+   * like the set above: a restart forgets it, and the next turn end judges.
+   *
+   * It is kept, and not just skipped, for two turns that would otherwise leave
+   * the goal silent for good: a background job that never reports (a dev
+   * server: the CLI never wakes, so no turn ends), and the empty wake that
+   * often follows the last report ("No response requested."), which the route
+   * discards and so never reaches the judge. The first gets the check-in, the
+   * second hands the judge the turn that did the work.
+   */
+  const deferred = new Map<string, { info: TurnEndInfo; timer: unknown }>();
+  /** Check-ins already spent on the current stretch of background work. */
+  const checkIns = new Map<string, number>();
+  const setTimer = deps.setTimer ?? ((fn: () => void, ms: number) => {
+    const t = setTimeout(fn, ms);
+    (t as { unref?: () => void }).unref?.();
+    return t;
+  });
+  const clearTimer = deps.clearTimer ?? ((h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>));
+
+  function takeDeferred(sessionKey: string): TurnEndInfo | null {
+    const d = deferred.get(sessionKey);
+    if (!d) return null;
+    if (d.timer != null) clearTimer(d.timer);
+    deferred.delete(sessionKey);
+    return d.info;
+  }
+
+  function defer(info: TurnEndInfo): string {
+    const spent = checkIns.get(info.sessionKey) ?? 0;
+    const timer = spent < GOAL_CHECKINS_MAX
+      ? setTimer(() => { void checkIn(info.sessionKey); }, goalCheckInDelayMs(spent))
+      : null;
+    deferred.set(info.sessionKey, { info, timer });
+    log(`goal-loop: ${info.sessionKey}: background work still running, the goal waits for the turn it wakes` +
+      (timer ? ` (check-in in ${goalCheckInDelayMs(spent) / 60_000} min)` : " (check-ins paused until the next message)"));
+    return "background";
+  }
+
+  async function checkIn(sessionKey: string): Promise<void> {
+    const info = deferred.get(sessionKey)?.info;
+    if (!info) return;
+    deferred.delete(sessionKey);
+    if (deps.isBusy?.(sessionKey)) return; // that turn ends by itself, and its end decides
+    checkIns.set(sessionKey, (checkIns.get(sessionKey) ?? 0) + 1);
+    log(`goal-loop: ${sessionKey}: checking in on the goal after its background work ran without reporting`);
+    await judge({ ...info, backgroundWork: false }, deps.backgroundWork?.(sessionKey) === true)
+      .catch((err) => log(`goal-loop: the check-in failed (${err instanceof Error ? err.message : String(err)})`));
+  }
+
   return async function onTurnEnd(info: TurnEndInfo): Promise<string> {
     if (info.end === "end_turn") resumedAfterBudget.delete(info.sessionKey);
+    const waiting = takeDeferred(info.sessionKey);
+    if (!info.backgroundWork) checkIns.delete(info.sessionKey);
+    let goal;
+    try {
+      goal = getActiveGoal(deps.db, info.topicId);
+    } catch (err) {
+      log(`goal-loop: cannot read the goal (${err instanceof Error ? err.message : String(err)})`);
+      return "error";
+    }
+    if (info.backgroundWork && turnCanContinueGoal({ ...info, backgroundWork: false }, goal)) return defer(info);
+    if (info.discarded && waiting) {
+      // The empty wake after the work reported: judge the turn that did it.
+      if (info.backgroundWork) return defer(waiting);
+      return judge({ ...waiting, backgroundWork: false }, false);
+    }
+    return judge(info, false);
+  };
+
+  async function judge(info: TurnEndInfo, backgroundStillRunning: boolean): Promise<string> {
     let goal;
     try {
       goal = getActiveGoal(deps.db, info.topicId);
@@ -169,10 +260,6 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
       // it resumes ONCE. Measured 05/09/2026: a chat left mute for six hours
       // under a notice that promised "la ripresa continua".
       const step = toolBudgetResumeStep(info, resumedAfterBudget.has(info.sessionKey));
-      if (step === "none" && info.backgroundWork && turnCanContinueGoal({ ...info, backgroundWork: false }, goal)) {
-        log(`goal-loop: ${info.sessionKey}: background work still running, the goal waits for the turn it wakes`);
-        return "background";
-      }
       if (step === "none") return "skipped";
       if (step === "stop") {
         resumedAfterBudget.delete(info.sessionKey);
@@ -267,14 +354,14 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
     try {
       await deps.resend({
         sessionKey: info.sessionKey,
-        text: goalNudgeText(active.content),
+        text: goalNudgeText(active.content, { backgroundStillRunning }),
         attempt: action.attempt,
       });
     } catch (err) {
       log(`goal-loop: the continuation did not go through (${err instanceof Error ? err.message : String(err)})`);
     }
     return "continued";
-  };
+  }
 }
 
 /**
@@ -292,6 +379,7 @@ export function goalContinuationForChatRoute(deps: {
     db: Database;
     getTopicById: (id: string) => Topic | null;
     broadcastToAll: (msg: OutboundMessage) => void;
+    isStreaming: (sessionKey: string) => unknown;
   };
   resolveProvider: (topic?: Topic | null) => {
     name: string;
@@ -349,6 +437,8 @@ export function goalContinuationForChatRoute(deps: {
     },
     broadcast: ctx.broadcastToAll,
     log: deps.log,
+    isBusy: (sk) => !!ctx.isStreaming(sk),
+    backgroundWork: sessionHasBackgroundWork,
   });
 
   return {

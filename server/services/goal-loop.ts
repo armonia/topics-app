@@ -41,7 +41,8 @@
  *     work reports, and the turn it wakes is judged like any other. Nudging
  *     before then bought a paid turn every ~25 s, each answering "still
  *     running" (chat 7e9caa28, 24/09: five in 104 s). Claude Code defers its own
- *     check-in the same way; the thirty-minute bound lives with the provider;
+ *     check-in the same way, and checks in after thirty minutes as it does
+ *     (`goal-continuation.ts`);
  *   · a ceiling of MAX_GOAL_CONTINUATIONS in a row per goal;
  *   · a stop after IDLE_TURNS_LIMIT turns in a row that ran no tool - a model
  *     answering "I'll continue" without touching anything is not advancing, it
@@ -302,9 +303,13 @@ export function parseGoalVerdict(raw: string): GoalVerdict | null {
  * of the loop (finishing), and a model that cannot finish keeps going until a
  * ceiling stops it.
  */
-export const goalNudgeText = (goal: string) =>
+export const goalNudgeText = (goal: string, opts: { backgroundStillRunning?: boolean } = {}) =>
   [
     `Objective still open: ${goal}`,
+    // A check-in while background work runs: say so, or the model launches it again.
+    ...(opts.backgroundStillRunning
+      ? ["Background work you launched is still running: check on it before starting anything new."]
+      : []),
     "Continue. When it is reached AND verified, call close_goal(achieved) with the evidence.",
     "If you need a decision from the user, ask it and stop.",
   ].join(" ");
