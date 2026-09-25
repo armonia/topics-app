@@ -150,6 +150,12 @@ export function beginPermission(
   return now - open.startedAt < ttlMs;
 }
 
+/** How long THIS request has been open, or `null` when it is not open. */
+export function permissionAgeMs(sessionKey: string, toolUseId: string, now = Date.now()): number | null {
+  const open = activeRequests.get(permissionKey(sessionKey, toolUseId));
+  return open ? now - open.startedAt : null;
+}
+
 /** Chiude una richiesta: decisa, annullata o scaduta. Idempotente. */
 export function endPermission(sessionKey: string, toolUseId: string): void {
   const removed = activeRequests.delete(permissionKey(sessionKey, toolUseId));

@@ -13,6 +13,7 @@ import {
   allowPendingPermissions,
   takeBufferedDecision,
   PermissionWaitError,
+  permissionAgeMs,
 } from "../lib/permission-bridge";
 import { decideGrantForTool, addToolGrant, listToolGrants, removeToolGrant } from "../lib/tool-grants";
 import { decidePermissionPaint, toolNameOnRow as toolNameOnPaintRow } from "../lib/permission-paint";
@@ -21,6 +22,16 @@ import { sessionIsFree, switchSessionToFree } from "../lib/session-free-mode";
 import { etichettaAutore } from "../lib/message-author";
 import { logActivity } from "../db/activity-log";
 import { decodeCol } from "../../shared/message-blob";
+import { rowCarryingTool, type AskHaystackRow } from "../lib/ask-answer-routing";
+import { flushTurnBody } from "../lib/turn-body-flush";
+
+/**
+ * How long a permission request may wait for a row to announce its tool before
+ * it is refused. Covers the two ways a LIVE turn's tool reaches the row late:
+ * the request and the stream travel on different channels, and the body write
+ * may be owed by the throttle (flushed first). See the refusal below.
+ */
+export const UNANNOUNCED_PERMISSION_GRACE_MS = 15_000;
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import type { PermissionDecision, ToolPermissionOutcome, ToolPermissionRequest } from "../../shared/types";
 
@@ -334,6 +345,9 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
           cancelPermission(sk, toolUseId, "no answer: the request expired");
           return json({ cancelled: true, reason: "permission: the request expired with no answer" });
         }
+        // Set below when no row carries the tool yet: the leg then comes back
+        // at the end of the grace instead of after a whole poll interval.
+        let legCapMs: number | undefined;
 
         // 2. Il pannello si dipinge finché non è a schermo — non «una volta».
         //
@@ -357,27 +371,63 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
           // `lib/permission-paint.ts` con i suoi test (ripiego per nome, i
           // blocchi che battono `tool_calls`, «nel dubbio si ridipinge»). Qui
           // restano la lettura e gli effetti.
+          //
+          // THE ROW THAT ANNOUNCED THIS TOOL, not the last one (card C8,
+          // de3b5a0b). A late answer of a turn the watchdog closed writes its
+          // tools on that turn's row, above the sweep's notice: painting the
+          // last row wrote nothing, and the CLI held the session for the whole
+          // TTL behind a panel nobody could see. A live turn may still owe its
+          // row the tool (the body throttle), so that write is flushed first.
+          flushTurnBody(sk);
           let row: { tool_calls?: string | null; blocks?: string | null } | undefined;
+          let carryingRowId: string | null = null;
+          let lastRowId: string | null = null;
           try {
-            const rawRow = ctx.db
-              .prepare("SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
-              .get(sk) as { tool_calls?: unknown; blocks?: unknown } | undefined;
-            if (rawRow) {
-              row = { tool_calls: decodeCol(rawRow.tool_calls), blocks: decodeCol(rawRow.blocks) };
-            }
+            const recent = ctx.db
+              .prepare("SELECT id, tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 20")
+              .all(sk) as Array<AskHaystackRow & { id: string }>;
+            carryingRowId = rowCarryingTool(recent, toolUseId, decodeCol);
+            lastRowId = recent[0]?.id ?? null;
+            // The carrying row when there is one; else the last row, where the
+            // name fallback of `decidePermissionPaint` has always looked.
+            const target = recent.find((r) => r.id === carryingRowId) ?? recent[0];
+            if (target) row = { tool_calls: decodeCol(target.tool_calls), blocks: decodeCol(target.blocks) };
           } catch { /* riga illeggibile: si ridipinge */ }
           const { targetId, aliasTo, alreadyPainted } = decidePermissionPaint(row, toolUseId, toolName);
           // Il click arriverà con l'id della RIGA: la corrispondenza si SCRIVE
           // adesso, invece di indovinarla al ritorno.
           if (aliasTo) aliasPermission(sk, toolUseId, aliasTo);
+          const paintRowId = carryingRowId ?? (aliasTo ? lastRowId : null);
+
+          // NOBODY ANNOUNCED THIS TOOL: say no instead of holding the session.
+          //
+          // No row carries the id and the name fallback found nothing, so no
+          // panel can be painted and nobody can answer: the old path opened a
+          // wait for the whole TTL (two hours) with every watchdog disarmed and
+          // the sidebar saying "waiting for you". A few seconds of grace first,
+          // because this request travels on another channel than the stream
+          // (the CLI's permission tool over HTTP, the tool_use on stdout) and a
+          // live turn's tool may land a moment later; then the CLI gets a
+          // clean refusal it can report.
+          if (!paintRowId) {
+            const openFor = permissionAgeMs(sk, toolUseId) ?? 0;
+            if (openFor >= UNANNOUNCED_PERMISSION_GRACE_MS) {
+              cancelPermission(sk, toolUseId, "no turn announced this tool");
+              console.warn(`[permission] ${sk}: ${toolName} (${toolUseId}) is on no row after ${Math.round(openFor / 1000)}s, refused instead of waiting`);
+              return json({ cancelled: true, reason: "permission: no open turn announced this tool, so nobody can answer it" });
+            }
+            legCapMs = Math.max(100, UNANNOUNCED_PERMISSION_GRACE_MS - openFor);
+          }
 
           if (!alreadyPainted) {
             const topic = getTopicBySessionKey(sk);
-            updateToolCallFields(sk, targetId, {
-              status: "awaiting_permission",
-              permissionRequest: request,
-              permissionOutcome: undefined,
-            });
+            if (paintRowId) {
+              updateToolCallFields(sk, targetId, {
+                status: "awaiting_permission",
+                permissionRequest: request,
+                permissionOutcome: undefined,
+              }, { rowId: paintRowId });
+            }
             broadcastToAll({
               type: "stream:tool_permission_required",
               sessionKey: sk,
@@ -390,7 +440,8 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
 
         // 3. Aspetta che qualcuno prema.
         try {
-          const decision = await waitForDecision(sk, toolUseId, legMs !== undefined ? { timeoutMs: legMs } : {});
+          const legTimeout = legCapMs !== undefined ? Math.min(legMs ?? legCapMs, legCapMs) : legMs;
+          const decision = await waitForDecision(sk, toolUseId, legTimeout !== undefined ? { timeoutMs: legTimeout } : {});
           return json({ decision });
         } catch (err: any) {
           if (err instanceof PermissionWaitError && err.code === "timeout") {
@@ -446,16 +497,29 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
         // first, column as fallback): a row with blocks has `tool_calls = '[]'`
         // on disk, and reading only that column was how "always allow" quietly
         // stopped writing the rule.
-        const toolNameOnRow = (): string | null => {
+        // The row that carries a tool, among the recent ones: its name is read
+        // there and the outcome is written there, by id. The last row is that
+        // row only while nothing was written after it (card C8).
+        const rowOfTool = (toolId: string): { id: string; tool_calls?: unknown; blocks?: unknown } | null => {
           try {
-            const row = ctx.db
-              .prepare("SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
-              .get(sk) as { tool_calls?: unknown; blocks?: unknown } | undefined;
-            if (!row) return null;
-            return toolNameOnPaintRow({ tool_calls: decodeCol(row.tool_calls), blocks: decodeCol(row.blocks) }, toolCallId);
+            const recent = ctx.db
+              .prepare("SELECT id, tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 20")
+              .all(sk) as Array<AskHaystackRow & { id: string }>;
+            const id = rowCarryingTool(recent, toolId, decodeCol);
+            return recent.find((r) => r.id === id) ?? null;
           } catch {
             return null;
           }
+        };
+        const toolNameOnRow = (): string | null => {
+          const row = rowOfTool(toolCallId);
+          if (!row) return null;
+          return toolNameOnPaintRow({ tool_calls: decodeCol(row.tool_calls), blocks: decodeCol(row.blocks) }, toolCallId);
+        };
+        // Nothing carries it: there is no row to write the outcome on.
+        const writeOutcome = (toolId: string, patch: { status: "running"; permissionOutcome: ToolPermissionOutcome }) => {
+          const row = rowOfTool(toolId);
+          if (row) updateToolCallFields(sk, toolId, patch, { rowId: row.id });
         };
         if (decision === "allow_always") {
           // Il pattern è il nome dello strumento: scriverne uno più largo (tutto
@@ -501,7 +565,7 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
         deliverDecision(sk, openId, cliDecisionFor(decision));
         // La riga torna a girare, e l'esito RESTA: chi rilegge la chat vede chi
         // ha detto cosa, non solo che a un certo punto il tool è partito.
-        updateToolCallFields(sk, toolCallId, { status: "running", permissionOutcome: outcome });
+        writeOutcome(toolCallId, { status: "running", permissionOutcome: outcome });
         broadcastToAll({
           type: "stream:tool_permission_resolved",
           sessionKey: sk,
@@ -519,7 +583,7 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
           for (const served of allowPendingPermissions(sk)) {
             const alsoOutcome: ToolPermissionOutcome = { decision: "allow", decidedAt, actor: outcome.actor };
             for (const rowId of [served.toolUseId, ...served.rowIds]) {
-              updateToolCallFields(sk, rowId, { status: "running", permissionOutcome: alsoOutcome });
+              writeOutcome(rowId, { status: "running", permissionOutcome: alsoOutcome });
               broadcastToAll({
                 type: "stream:tool_permission_resolved",
                 sessionKey: sk,
