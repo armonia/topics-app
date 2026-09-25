@@ -70,3 +70,26 @@ export function lastConversationMessage<M extends { blocks?: ContentBlock[] | nu
   }
   return undefined;
 }
+
+/**
+ * What a Retry resends: the last user row with words in it. Not the chat's last
+ * row, which may be a service line with the notice's own sentence as `content`
+ * (live) or nothing (after a reload): resent, the model answered the notice and
+ * the person's message was lost (third review of 25/09).
+ */
+export function lastPersonText(messages: readonly { role: string; content?: string | null }[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === 'user' && m.content?.trim()) return m.content;
+  }
+  return null;
+}
+
+/**
+ * The message auto-TTS reads: the chat's last word when it is the model's, and
+ * never a service line, whose live `content` is the notice's English sentence.
+ */
+export function messageToSpeak<M extends { role: string; content?: string | null; blocks?: ContentBlock[] | null }>(messages: readonly M[]): M | undefined {
+  const last = lastConversationMessage(messages);
+  return last?.role === 'assistant' && last.content && !isMachineRow(last.blocks) ? last : undefined;
+}

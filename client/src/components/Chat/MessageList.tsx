@@ -37,6 +37,7 @@ import { resolvePromptNumbers } from './promptNumber';
 import { usePaneAlive } from '../../state/paneLiveness';
 import type { QueuedTurn } from '../../state/chatQueue';
 import { QueuedTurns } from './QueuedTurns';
+import { lastConversationMessage } from './machineRow';
 
 /**
  * La LISTA di Virtuoso, cappata alla misura di lettura.
@@ -465,6 +466,8 @@ export function MessageList({
     () => (liveTail ? [...settledItems, liveTail as CoalescedMessage] : settledItems),
     [settledItems, liveTail],
   );
+  /** The chat's last word, past a background notice after it: where Retry and a plan's buttons go. */
+  const lastWord = useMemo(() => lastConversationMessage(filteredMessages), [filteredMessages]);
 
   // ── THE REST OF THE HISTORY, out of sight ─────────────────────────────────
   /**
@@ -2046,7 +2049,7 @@ export function MessageList({
           itemContent={(idx, msg) => {
             const prev = idx > 0 ? filteredMessages[idx - 1] : undefined;
             // Only show plan approve/reject on the last assistant message
-            const isLastAssistant = msg.role === 'assistant' && idx === filteredMessages.length - 1;
+            const isLastAssistant = msg.role === 'assistant' && msg === lastWord;
             const trailingMarkers = markersAfter(msg);
             // One boundary, one signal: a divider hoists the recap out of the
             // message BELOW it (that's where the CLI writes it) and renders the

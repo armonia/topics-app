@@ -27,7 +27,8 @@ export function MachineStopLine({ cause, closed }: { cause: MachineStopCause; cl
       className="my-1 flex items-center justify-center gap-1.5 px-2 text-mini text-app-text-muted"
     >
       <CircleStop size={11} className="flex-shrink-0" aria-hidden="true" />
-      <span className="truncate" title={closed?.event === 'closed' ? closed.tasks.join('\n') : undefined}>{sentence}</span>
+      {/* With the closed work it is two sentences: wrapped, as the notice's own line. */}
+      <span className={closed ? 'min-w-0 text-center' : 'truncate'} title={closed?.event === 'closed' ? closed.tasks.join('\n') : undefined}>{sentence}</span>
     </div>
   );
 }

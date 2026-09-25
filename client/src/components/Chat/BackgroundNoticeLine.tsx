@@ -16,7 +16,9 @@ export function BackgroundNoticeLine({ notice }: { notice: BackgroundNoticeBlock
       className="my-1 flex items-center justify-center gap-1.5 px-2 text-mini text-app-text-muted"
     >
       <Layers size={11} className="flex-shrink-0" />
-      <span className="truncate" title={notice.event === 'closed' ? notice.tasks.join('\n') : undefined}>
+      {/* Wrapped, not truncated: on a phone the end of a deferral's sentence
+          is the one instruction in it (Stop ends the work now). */}
+      <span className="min-w-0 text-center" title={notice.event === 'closed' ? notice.tasks.join('\n') : undefined}>
         {backgroundNoticeSentence(tr, notice)}
       </span>
     </div>

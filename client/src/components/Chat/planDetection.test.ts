@@ -79,6 +79,12 @@ describe('findPendingPlan — il ripiego sulla prosa', () => {
     expect(findPendingPlan({ messages: [assistant(PROSA)], autonomy: 'ask' })).toEqual({ toolCallId: null });
   });
 
+  test('a background notice after the plan does not take its buttons away', () => {
+    const notice = { id: 'n1', role: 'assistant' as const, content: 'The model change applies…', timestamp: '2026-08-10T10:01:00.000Z',
+      blocks: [{ kind: 'background-notice' as const, event: 'deferred' as const, change: 'model' as const, text: 'The model change applies…' }] };
+    expect(findPendingPlan({ messages: [assistant(PROSA), notice], autonomy: 'ask' })).toEqual({ toolCallId: null });
+  });
+
   test('fuori da plan mode un piano scritto è una nota di lavoro, non una domanda', () => {
     expect(findPendingPlan({ messages: [assistant(PROSA)], autonomy: 'auto-apply' })).toBeNull();
     expect(findPendingPlan({ messages: [assistant(PROSA)], autonomy: null })).toBeNull();

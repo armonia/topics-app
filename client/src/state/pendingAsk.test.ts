@@ -35,6 +35,12 @@ describe('findPendingAsk', () => {
     expect(found?.toolName).toBe('mcp__topics__ask_user_question');
   });
 
+  test('looks past a background notice: a service line, not a turn', () => {
+    const notice = { id: 'n1', role: 'assistant' as const, content: 'Background work closed…', timestamp: '2026-08-03T20:01:00.000Z',
+      blocks: [{ kind: 'background-notice' as const, event: 'closed' as const, tasks: ['sleep 600'], text: 'Background work closed…' }] };
+    expect(findPendingAsk([assistant([asking]), notice])?.toolCallId).toBe('toolu_ask');
+  });
+
   test('ignora un waiting_for_input rimasto appeso in un turno PRECEDENTE', () => {
     // È il fantasma di uno stream perso: il processo dall'altra parte non c'è
     // più, e mandargli una risposta la farebbe sparire nel nulla.
