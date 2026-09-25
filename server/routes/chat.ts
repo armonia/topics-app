@@ -3631,10 +3631,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // watchdog sono ancora armati.
             streamState = "finalized";
             const errorMsg = closeTurnWithFailure(err, partialMsg.id);
-            await writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: errorMsg }, finish_reason: "stop" }] }));
-            await writeTurnEnd({ end: "error" });
-            await writeSSE("[DONE]");
-            await closeClient();
+            // Not awaited: nobody reads this stream before the Response below
+            // is returned, and a write with no reader waits for one for ever.
+            writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: errorMsg }, finish_reason: "stop" }] }))
+              .then(() => writeTurnEnd({ end: "error" })).then(() => writeSSE("[DONE]")).then(() => closeClient())
+              .catch((e) => console.warn(`[StreamWS] error/close on sync setup error failed:`, e));
             return new Response(readable, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" } });
           }
 

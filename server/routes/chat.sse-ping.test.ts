@@ -292,6 +292,24 @@ describe("the turn frames the chat's SSE carries for its readers", () => {
     expect(body).toContain(`data: ${JSON.stringify({ turn: { end: "error" } })}\n\ndata: [DONE]`);
   });
 
+  test("a provider that throws while the turn is set up gets an answer at once, with the error and its end", async () => {
+    const ctx = await createTestAppContext();
+    const sessionKey = saveTopic(ctx, "sse-sync-throw");
+    const { provider } = silentToolProvider();
+    // Throws synchronously, before any promise: the route's setup catch.
+    (provider as unknown as { sendChat: unknown }).sendChat = () => { throw new Error("spawn failed"); };
+    const router = chatRouterFor(ctx, provider, 60_000);
+    const req = chatRequest(sessionKey);
+    const url = new URL(req.url);
+    const answered = await Promise.race([
+      router(req, url, url.pathname, "POST"),
+      Bun.sleep(3_000).then(() => "no answer in 3 s" as const),
+    ]);
+    expect(answered).not.toBe("no answer in 3 s");
+    const { body } = await readAll(answered as Response);
+    expect(body).toContain(`data: ${JSON.stringify({ turn: { end: "error" } })}\n\ndata: [DONE]`);
+  }, 10_000);
+
   test("a turn a person stops says so before [DONE]", async () => {
     const ctx = await createTestAppContext();
     const sessionKey = saveTopic(ctx, "sse-stop");
