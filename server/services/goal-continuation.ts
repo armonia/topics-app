@@ -211,6 +211,11 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
   const deferred = new Map<string, Waiting>();
   /** Check-ins already spent on the current stretch of background work. */
   const checkInCount = new Map<string, number>();
+  /** Check-ins that reached a free session: only these count toward the pause (Claude Code's idleCheckinCount). */
+  const idleCheckInCount = new Map<string, number>();
+  const resetCheckInCounts = (sk: string) => { checkInCount.delete(sk); idleCheckInCount.delete(sk); };
+  /** The goal the counters above were spent on: Claude Code keeps them on the goal itself. */
+  const countedGoal = new Map<string, string>();
   const now = deps.now ?? (() => Date.now());
   const setTimer = deps.setTimer ?? ((fn: () => void, ms: number) => {
     const t = setTimeout(fn, ms);
@@ -247,7 +252,7 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
     if (prev?.timer != null) clearTimer(prev.timer);
     const since = prev && !prev.wakeOnly && !wakeOnly ? prev.since : t;
     const spent = checkInCount.get(sk) ?? 0;
-    const delay = wakeOnly ? GOAL_WAKE_RECHECK_MS : spent < GOAL_CHECK_IN_LIMIT ? Math.max(0, since + goalCheckInDelayMs(spent) - t) : null;
+    const delay = wakeOnly ? GOAL_WAKE_RECHECK_MS : (idleCheckInCount.get(sk) ?? 0) < GOAL_CHECK_IN_LIMIT ? Math.max(0, since + goalCheckInDelayMs(spent) - t) : null;
     const timer = delay === null ? null : setTimer(() => { void checkIn(sk); }, delay);
     deferred.set(sk, { info, since, timer, wakeOnly });
     log(`goal-loop: ${sk}: ` + (wakeOnly
@@ -267,7 +272,7 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
     if (deps.wakeQueued?.(sessionKey)) { w.timer = setTimer(() => { void checkIn(sessionKey); }, GOAL_WAKE_RECHECK_MS); return; }
     deferred.delete(sessionKey);
     // A wake that did not come is not a check-in: nothing to count.
-    if (!w.wakeOnly) checkInCount.set(sessionKey, (checkInCount.get(sessionKey) ?? 0) + 1);
+    if (!w.wakeOnly) { checkInCount.set(sessionKey, (checkInCount.get(sessionKey) ?? 0) + 1); idleCheckInCount.set(sessionKey, (idleCheckInCount.get(sessionKey) ?? 0) + 1); }
     log(`goal-loop: ${sessionKey}: ` + (w.wakeOnly
       ? "the wake a background report promised did not come, judging the waiting turn"
       : "checking in on the goal after its background work ran without reporting"));
@@ -277,9 +282,14 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
     const outcome = await judge({ ...w.info, backgroundWork: false }, deps.backgroundWork?.(sessionKey) === true, free)
       .catch((err) => { log(`goal-loop: the check-in failed (${err instanceof Error ? err.message : String(err)})`); return "error"; });
     if (outcome === "busy") {
-      // The turn that took the session ends by itself and decides; this check-in is not spent.
-      const spent = w.wakeOnly ? 0 : Math.max(0, (checkInCount.get(sessionKey) ?? 1) - 1);
-      if (!w.wakeOnly) checkInCount.set(sessionKey, spent);
+      // The turn that took the session ends by itself and decides. The judge
+      // was paid, so the interval doubles; nothing reached the chat, so the
+      // pause after three does not move (Claude Code's checkinCount and
+      // idleCheckinCount). Given back whole, a Monitor ticking every 25 s paid
+      // 11 judges in 6 hours; counted toward the pause, a watcher that kept a
+      // chat busy for 4 hours paused its goal with no nudge sent (fourth review of 25/09).
+      const spent = checkInCount.get(sessionKey) ?? 0;
+      if (!w.wakeOnly) idleCheckInCount.set(sessionKey, Math.max(0, (idleCheckInCount.get(sessionKey) ?? 1) - 1));
       // And the next one is a full interval away, not due at once: left due,
       // the end of a Monitor tick fired it again, the judge met the next tick,
       // and a goal paid 145 judges in 90 minutes without a nudge (third review of 25/09).
@@ -305,10 +315,17 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
     if (info.end === "end_turn") resumedAfterBudget.delete(sk);
     // Claude Code clears its idle check-ins at the person's own prompt: a
     // message typed while the work runs re-enables them.
-    if (info.fromHuman) checkInCount.delete(sk);
+    if (info.fromHuman) resetCheckInCounts(sk);
     let goal;
     try {
       goal = getActiveGoal(deps.db, info.topicId);
+      // A goal set anew (from the bar, by the agent: a new id) starts with its
+      // own check-ins and its own stretch. Inherited, a goal rewritten during
+      // the pause got no check-in at all (fourth review of 25/09).
+      if (goal && countedGoal.get(sk) !== goal.id) {
+        if (countedGoal.has(sk)) { resetCheckInCounts(sk); dropWaiting(sk); }
+        countedGoal.set(sk, goal.id);
+      }
       // The person's message lifts a pause: a stall, or a question the loop
       // waited on. Claude Code pauses its check-ins until the next prompt too.
       if (info.fromHuman && goal?.loopState === "blocked") {
@@ -343,7 +360,7 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
       return defer({ ...still.info, backgroundWakeOnly: info.backgroundWakeOnly });
     }
     const waiting = dropWaiting(sk);
-    if (!info.backgroundWork) checkInCount.delete(sk);
+    if (!info.backgroundWork) resetCheckInCounts(sk);
     // The empty wake after the work reported: judge the turn that did it. Only
     // a wake the model closed by itself: a turn somebody stopped, or one that
     // failed, drops the waiting turn with it, or a Stop would buy a nudge.
@@ -359,7 +376,7 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
    */
   const stopWaiting = (sessionKey: string): void => {
     if (dropWaiting(sessionKey)) log(`goal-loop: ${sessionKey}: its background work was stopped, the goal stops waiting for it`);
-    checkInCount.delete(sessionKey);
+    resetCheckInCounts(sessionKey);
   };
   return Object.assign(onTurnEnd, { stopWaiting });
 
