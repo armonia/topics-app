@@ -1146,6 +1146,7 @@ async function watchHeadlessBody(
     },
   });
   try {
+    let lastDataAt = Date.now();
     while (true) {
       const { done, value } = await Promise.race<{ done: boolean; value?: Uint8Array }>([
         reader.read(),
@@ -1160,7 +1161,9 @@ async function watchHeadlessBody(
         if (peekTurnEnd(sessionKey)) reader.cancel().catch(() => {});
         break;
       }
-      if (!isSseCommentOnly(value)) detector.noteActivity();
+      if (!isSseCommentOnly(value)) { detector.noteActivity(); lastDataAt = Date.now(); }
+      // A ping every 20 s beats the grace above to every race: the same grace, counted on data.
+      else if (peekTurnEnd(sessionKey) && Date.now() - lastDataAt >= HEADLESS_END_GRACE_MS) { reader.cancel().catch(() => {}); break; }
     }
   }
   finally {
