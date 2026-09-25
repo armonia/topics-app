@@ -122,6 +122,60 @@ describe('mergeFetchedHistory — un turno solo, non due', () => {
     expect(out.map((m) => m.id)).toEqual(['u1', 'srv-uuid-1', 'msg_1765_abc']);
   });
 
+  it('the live turn seen over the wire past the server snapshot keeps its chunks', () => {
+    // Card 423e016f: the history was read at chunk 5, the socket delivered 6
+    // and 7 before the answer came back, and the answer replaced the bubble.
+    const existing = [utente('u1', 'vai'), parziale('srv-live', 'c-01 c-02 c-03 c-04 c-05 c-06 c-07 ')];
+    const fetched = [utente('u1', 'vai'), parziale('srv-live', 'c-01 c-02 c-03 c-04 c-05 ')];
+    const out = mergeFetchedHistory(existing, fetched);
+    expect(out.map((m) => m.content)).toEqual(['vai', 'c-01 c-02 c-03 c-04 c-05 c-06 c-07 ']);
+  });
+
+  it('the kept live bubble still carries the banner only the server row has', () => {
+    const existing = [utente('u1', 'vai'), msg('srv-live', 'abc', { partial: true, blocks: [{ kind: 'text', text: 'abc' }] })];
+    const fetched = [utente('u1', 'vai'), msg('srv-live', 'ab', { partial: true, blocks: [{ kind: 'woken' }, { kind: 'text', text: 'ab' }] })];
+    const tail = mergeFetchedHistory(existing, fetched).at(-1)!;
+    expect(tail.content).toBe('abc');
+    expect(tail.blocks).toEqual([{ kind: 'woken' }, { kind: 'text', text: 'abc' }] as never);
+  });
+
+  it('an answer read before a turn end seen here does not reopen the bubble the end closed', () => {
+    const existing = [utente('u1', 'vai'), msg('srv-live', 'c-01 c-02 c-03 ')];
+    const fetched = [utente('u1', 'vai'), parziale('srv-live', 'c-01 c-02 ')];
+    const tail = mergeFetchedHistory(existing, fetched, { endedMeanwhile: true }).at(-1)!;
+    expect(tail.partial).not.toBe(true);
+    expect(tail.content).toBe('c-01 c-02 c-03 ');
+  });
+
+  it('a bubble closed with no end seen during the read gives way to the server partial row', () => {
+    // Closed by the stream watchdog, say, while the server still streams.
+    const existing = [utente('u1', 'vai'), msg('srv-live', 'c-01 ')];
+    const fetched = [utente('u1', 'vai'), parziale('srv-live', 'c-01 c-02 ')];
+    expect(mergeFetchedHistory(existing, fetched)).toBe(fetched);
+  });
+
+  it('a partial row the server named and no longer has is not kept: the server deleted it', () => {
+    // An empty turn stopped before it said anything: the server deletes its
+    // row, and an answer read before the delete put it back here.
+    const existing = [utente('u1', 'vai'), msg('srv-ok', 'ok'), utente('u2', 'altro'), parziale('srv-ghost', '')];
+    const fetched = [utente('u1', 'vai'), msg('srv-ok', 'ok'), utente('u2', 'altro')];
+    expect(mergeFetchedHistory(existing, fetched).map((m) => m.id)).toEqual(['u1', 'srv-ok', 'u2']);
+  });
+
+  it('the row of the turn streaming here stays, even when the read is older than it', () => {
+    const existing = [utente('u1', 'vai'), parziale('srv-live', 'sto')];
+    const fetched = [utente('u1', 'vai')];
+    expect(mergeFetchedHistory(existing, fetched, { liveRowId: 'srv-live' }).map((m) => m.id)).toEqual(['u1', 'srv-live']);
+  });
+
+  it('a local bubble that does not start with the server text is replaced by it', () => {
+    // The bubble built from the live chunks alone, without the start: the
+    // server's copy is the one that holds the turn from its first word.
+    const existing = [utente('u1', 'vai'), parziale('srv-live', 'c-06 c-07 ')];
+    const fetched = [utente('u1', 'vai'), parziale('srv-live', 'c-01 c-02 c-03 c-04 c-05 ')];
+    expect(mergeFetchedHistory(existing, fetched)).toBe(fetched);
+  });
+
   it('lo stesso id da entrambe le parti non si duplica', () => {
     const existing = [utente('u1', 'vai'), msg('srv-uuid-1', 'ok')];
     const fetched = [utente('u1', 'vai'), msg('srv-uuid-1', 'ok')];

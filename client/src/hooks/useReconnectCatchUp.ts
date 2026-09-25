@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { RefObject } from 'react';
 import { subscribeReconnect } from '../lib/wsFrameBus';
+import { getExtraTopicIds, withExtraTopics } from '../state/topicSubscriptions';
 
 /**
  * The catch-up a client owes itself after the WS socket has been REPLACED.
@@ -22,6 +23,12 @@ import { subscribeReconnect } from '../lib/wsFrameBus';
  * The socket itself has no such smoothing: `subscribeReconnect` fires inside
  * `ws.onopen`, and only for the RE-opens, so the cold start (already served by
  * the mount effects of the chat pane and of the topic list) is not doubled.
+ *
+ * THE OPEN CHATS ARE NOT ONLY THE PANES. A chat inside a project pane is held
+ * by its mounted `ChatPane` (`state/topicSubscriptions.ts`) and is not in
+ * `openPanels`, which holds the project's id: reading the panes alone, a turn
+ * that ended while the socket was down stayed half drawn in every project
+ * chat until a refresh (card 1fc3a9fa).
  */
 export function useReconnectCatchUp(args: {
   /** Flush the messages typed while the socket was down. */
@@ -48,7 +55,7 @@ export function useReconnectCatchUp(args: {
     drainQueue();
     void loadTopics();
     if (refreshPreviews) void refreshPreviews();
-    for (const panelId of openPanelsRef.current ?? []) {
+    for (const panelId of withExtraTopics(openPanelsRef.current ?? [], getExtraTopicIds())) {
       const topic = topicsRef.current?.[panelId];
       if (topic) void loadHistory(topic.sessionKey);
     }

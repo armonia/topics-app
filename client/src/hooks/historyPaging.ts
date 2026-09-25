@@ -1,5 +1,5 @@
 import type { ChatMessage } from '../types';
-import { mergeFetchedHistory } from './reconcileMessages';
+import { mergeFetchedHistory, type MergeHistoryOptions } from './reconcileMessages';
 import { isClientGeneratedMessageId } from './streamCatchupMerge';
 
 /**
@@ -46,7 +46,7 @@ function at(m: ChatMessage): number {
  * dropped, a placeholder for the streaming turn is dropped, and a `message:new`
  * that landed during the fetch stays at the end.
  */
-export function mergeHistoryPage(existing: ChatMessage[], page: ChatMessage[]): ChatMessage[] {
+export function mergeHistoryPage(existing: ChatMessage[], page: ChatMessage[], opts: MergeHistoryOptions = {}): ChatMessage[] {
   if (existing.length === 0) return page;
   const pageIds = new Set<string>();
   for (const m of page) if (m.id) pageIds.add(m.id);
@@ -73,7 +73,7 @@ export function mergeHistoryPage(existing: ChatMessage[], page: ChatMessage[]): 
     older = existing.filter(isOlder);
     rest = existing.filter((m) => !isOlder(m));
   }
-  const merged = mergeFetchedHistory(rest, page);
+  const merged = mergeFetchedHistory(rest, page, opts);
   return older.length > 0 ? [...older, ...merged] : merged;
 }
 

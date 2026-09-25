@@ -10,6 +10,7 @@ import { isGlobalOrchestratorSession } from "../services/global-orchestrator-ses
 import { HISTORY_PAGE_MAX_BYTES } from "../../shared/history-paging";
 import { MACHINE_ROW_SQL, promptNumbers } from "../../shared/prompt-number";
 import { decodeCol } from "../../shared/message-blob";
+import { flushTurnBody } from "../lib/turn-body-flush";
 
 /**
  * Keep the TAIL of `msgs` that fits in `budget` serialized bytes, never fewer
@@ -111,6 +112,14 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
     // second pass by id would only add work.
     // Gate: tests/integration/history-limit-cost.test.ts.
     const cappedRead = !wantsAll;
+    // The row of a turn in flight is WRITTEN before it is read. Its `blocks`,
+    // the timeline the bubble draws, go through a throttle that can be 15 s
+    // behind the stream, while `content` is overlaid from memory below: a chat
+    // opened mid-turn drew a timeline without its last chunks, the live frames
+    // appended after it, and the bubble kept a hole for the rest of the turn
+    // (card 423e016f). With no turn in flight this does nothing, and a page
+    // `before` the tail does not hold the live row.
+    if (!before) flushTurnBody(sessionKey);
     const localMsgs = cappedRead
       ? loadLocalMessages(sessionKey, { withBlocks: false, withToolCalls: false })
       : loadLocalMessages(sessionKey);

@@ -64,6 +64,8 @@ export interface BlockPersistThrottle {
   persist(sizeBytes: number, force?: boolean): void;
   /** Write now if something is pending. The turn ending calls this. */
   flush(): void;
+  /** Is a write waiting for its timer? */
+  hasPending(): boolean;
   /** Drop the pending timer without writing. */
   dispose(): void;
   /** Diagnostics for the tests: how many writes went through, and how many were deferred. */
@@ -123,6 +125,7 @@ export function createBlockPersistThrottle(opts: BlockPersistThrottleOptions): B
       if (pendingSize !== null) doWrite(pendingSize);
       else clearTimer();
     },
+    hasPending: () => pendingSize !== null,
     dispose() {
       clearTimer();
       pendingSize = null;

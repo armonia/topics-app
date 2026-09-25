@@ -32,21 +32,75 @@
  * and one slot let either hide the other's pending write from the reader.
  */
 
-const flushers = new Map<string, Set<() => void>>();
+/** The writer of a live turn, as the readers and the failure paths reach it. */
+interface TurnWriter {
+  flush: () => void;
+  /** The row it writes, and how it stops: only the turn's own writer has them. */
+  rowId?: () => string;
+  stop?: () => void;
+}
+
+const flushers = new Map<string, Set<TurnWriter>>();
 
 /**
  * Publish the flush of a live turn. Returns the function that takes it back
  * down: the turn that registered is the only one allowed to unregister, so a
  * turn ending after a newer one started cannot remove somebody else's entry.
  */
-export function registerTurnBodyFlush(sessionKey: string, flush: () => void): () => void {
-  const own = flushers.get(sessionKey) ?? new Set<() => void>();
-  own.add(flush);
+export function registerTurnBodyFlush(
+  sessionKey: string,
+  flush: () => void,
+  owner?: { rowId: () => string; stop: () => void },
+): () => void {
+  const own = flushers.get(sessionKey) ?? new Set<TurnWriter>();
+  const writer: TurnWriter = { flush, ...owner };
+  own.add(writer);
   flushers.set(sessionKey, own);
   return () => {
-    own.delete(flush);
+    own.delete(writer);
     if (own.size === 0 && flushers.get(sessionKey) === own) flushers.delete(sessionKey);
   };
+}
+
+/**
+ * A turn closes on a FAILURE: the writer of its row writes the work it still
+ * owes and stops, and no reader reaches it any more.
+ *
+ * The failure paths of `routes/chat.ts` used to close the row and leave the
+ * writer registered. Once a flush wrote the whole body, the next reader of the
+ * chat (a history read, a catch-up, the outbound gate) wrote that body over
+ * the failure notice. Called BEFORE `endStream`, which closes the tools still
+ * running on the row: after it, the write would open them again.
+ */
+export function stopTurnBodyOf(rowId: string | null | undefined): void {
+  if (!rowId) return;
+  for (const [sessionKey, own] of flushers) {
+    for (const writer of [...own]) {
+      if (rowOf(writer) !== rowId) continue;
+      try {
+        writer.stop?.();
+      } catch {
+        // The failure is still written by the caller: a body that could not be
+        // written is not a reason to leave the writer running.
+      }
+      own.delete(writer);
+    }
+    if (own.size === 0 && flushers.get(sessionKey) === own) flushers.delete(sessionKey);
+  }
+}
+
+/**
+ * The row a writer writes, or undefined when it cannot say. A turn registers
+ * its writer BEFORE its row exists (`routes/chat.ts`), and one that dies in
+ * between leaves a writer whose row id throws: asking it must not stop the
+ * search for the row of another turn, or that turn's failure path breaks.
+ */
+function rowOf(writer: TurnWriter): string | undefined {
+  try {
+    return writer.rowId?.();
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -58,9 +112,9 @@ export function flushTurnBody(sessionKey: string): boolean {
   const own = flushers.get(sessionKey);
   if (!own || own.size === 0) return false;
   let flushed = true;
-  for (const flush of [...own]) {
+  for (const writer of [...own]) {
     try {
-      flush();
+      writer.flush();
     } catch {
       // A row that could not be written is not a reason to refuse a send: the
       // caller falls back to reading whatever is on disk.

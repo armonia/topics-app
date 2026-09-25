@@ -585,6 +585,11 @@ export default defineConfig({
         // An empty turn the machine stopped: one neutral line, no Riprova,
         // live and after a reload. Filmed on the engine that ships.
         "**/machine-stop-no-retry.spec.ts",
+        // A chat inside a project pane, or one opened mid-turn, shows the whole
+        // turn without a reload: a real server turn from a fake CLI, read in
+        // the DOM of the engine that ships.
+        "**/project-chat-live-turn.spec.ts",
+        "**/chat-join-mid-turn.spec.ts",
       ],
       use: {
         browserName: "webkit",

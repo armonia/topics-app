@@ -54,10 +54,17 @@ export interface TurnBodyPersist {
    */
   request(withText: boolean, sizeBytes: number, force?: boolean): void;
   /**
-   * Write what is still owed, now. For a reader that is about to open the ROW
-   * instead of following the stream - see lib/turn-body-flush.ts.
+   * Write the whole body now, text included. For a reader that is about to
+   * open the ROW instead of following the stream - see lib/turn-body-flush.ts.
    */
   flush(): void;
+  /**
+   * The turn closes on a failure: write the work it still owes, then stop.
+   * Only WORK is written. A body of banners alone (a woken turn, a resumed
+   * one) is not work: written, it read as a turn that produced something, and
+   * the notice of a failed start gave way to it, Retry included.
+   */
+  stop(): void;
   /** Drop a write still owed. Every caller rewrites the row whole right after. */
   dispose(): void;
 }
@@ -65,7 +72,17 @@ export interface TurnBodyPersist {
 export function createTurnBodyPersist(opts: TurnBodyPersistOptions): TurnBodyPersist {
   const { sessionKey, updateLastMessage, blocks } = opts;
 
+  // What the body looked like at the last write. Text and thinking only grow,
+  // and every other change of the timeline goes through `request`, so these
+  // lengths tell a flush whether there is anything new to write.
+  const mark = () => `${opts.content().length}:${opts.thinking().length}:${blocks.length}`;
+  let writtenMark = "";
+
   const writeNow = (withText: boolean) => {
+    // Taken before the write and kept only once it went through, and only by a
+    // write that carries the text: after a blocks-only write the row's text
+    // columns are still behind, and a flush must still write them.
+    const now = mark();
     const timeline = blocks.length > 0 ? blocks : undefined;
     const snapshot = opts.reattachSnapshot();
     const own = { rowId: opts.rowId() };
@@ -73,6 +90,7 @@ export function createTurnBodyPersist(opts: TurnBodyPersistOptions): TurnBodyPer
       updateLastMessage(sessionKey, withText
         ? { content: opts.content(), thinking: opts.thinking() || undefined, blocks: timeline }
         : { blocks: timeline }, own);
+      if (withText) writtenMark = now;
       return;
     }
     const merged = mergeReattachedRow(snapshot, {
@@ -86,6 +104,7 @@ export function createTurnBodyPersist(opts: TurnBodyPersistOptions): TurnBodyPer
       thinking: merged.thinking,
       blocks: (merged.blocks as ContentBlock[] | undefined) ?? timeline,
     }, own);
+    writtenMark = now;
   };
 
   // Sticky: a periodic save that gets deferred and then rides a later tool
@@ -95,12 +114,39 @@ export function createTurnBodyPersist(opts: TurnBodyPersistOptions): TurnBodyPer
     write: () => { const withText = owesText; owesText = false; writeNow(withText); },
   });
 
+  // The size of the last request: a forced write needs one, and it only
+  // decides when the NEXT deferred write goes out.
+  let lastSizeBytes = 0;
+
   return {
     request(withText: boolean, sizeBytes: number, force = false) {
+      lastSizeBytes = sizeBytes;
       if (withText) owesText = true;
       throttle.persist(sizeBytes, force);
     },
-    flush() { throttle.flush(); },
+    flush,
+    stop() {
+      const worked = opts.content().length > 0 || opts.thinking().length > 0
+        || blocks.some((b) => b.kind !== "woken" && b.kind !== "ripreso");
+      if (worked) flush();
+      throttle.dispose();
+    },
     dispose() { throttle.dispose(); },
   };
+
+  function flush(): void {
+    // What the throttle owes is not enough for a reader of the row: the text
+    // reaches it only at every tenth chunk (`SAVE_INTERVAL` in routes/chat.ts),
+    // so a turn of text alone had a row with no timeline for its first ten
+    // chunks. A chat opened mid-turn drew that empty timeline, appended the
+    // live chunks to it, and showed the turn without its start (card
+    // 423e016f). So the reader gets the body as it is NOW, in ONE write, and
+    // only when the row is behind: a write the throttle is holding, or text
+    // that arrived after the last write that carried it. Readers come at every
+    // socket open and every history read, and the throttle exists to bound
+    // these writes.
+    if (!throttle.hasPending() && mark() === writtenMark) return;
+    owesText = true;
+    throttle.persist(lastSizeBytes, true);
+  }
 }

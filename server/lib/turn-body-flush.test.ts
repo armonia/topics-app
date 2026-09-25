@@ -18,7 +18,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ContentBlock, StoredMessage } from "../types";
 import { createTurnBodyPersist } from "./turn-body-persist";
-import { registerTurnBodyFlush, flushTurnBody, _resetTurnBodyFlushers } from "./turn-body-flush";
+import { registerTurnBodyFlush, flushTurnBody, stopTurnBodyOf, _resetTurnBodyFlushers } from "./turn-body-flush";
 import { confirmOutbound, findWaitingToolRow, type OutboundGateDeps } from "./outbound-gate";
 import { cancelAsk } from "./ask-user-bridge";
 import { _resetRoutedAsks } from "../services/board-ask-routing";
@@ -90,6 +90,107 @@ describe("la riga di un turno vivo si fa scrivere PRIMA di leggerla", () => {
     });
     release();
     turn.persist.dispose();
+  });
+
+  test("a turn of text alone: the flush writes the text the periodic save has not written yet", () => {
+    // Card 423e016f. The text reaches the row at every tenth chunk, and the
+    // throttle owes nothing in between: a reader opening the row mid-turn got
+    // no timeline, and the chunks it saw live were drawn without the start.
+    const sessionKey = "topic:flush-text";
+    const blocks: ContentBlock[] = [];
+    let content = "";
+    let row: Partial<StoredMessage> = {};
+    let writes = 0;
+    const persist = createTurnBodyPersist({
+      sessionKey,
+      updateLastMessage: (_key: string, updates: Partial<StoredMessage>) => { writes++; row = { ...row, ...updates }; },
+      rowId: () => "row-text",
+      blocks,
+      content: () => content,
+      thinking: () => "",
+      trackedTools: () => 0,
+      reattachSnapshot: () => null,
+    });
+    for (let i = 1; i <= 7; i++) {
+      const chunk = `c-${i} `;
+      content += chunk;
+      const last = blocks[blocks.length - 1];
+      if (last && last.kind === "text") last.text += chunk;
+      else blocks.push({ kind: "text", text: chunk });
+    }
+    expect(row.blocks).toBeUndefined();
+
+    const release = registerTurnBodyFlush(sessionKey, () => persist.flush());
+    expect(flushTurnBody(sessionKey)).toBe(true);
+    expect(row.content).toBe("c-1 c-2 c-3 c-4 c-5 c-6 c-7 ");
+    expect(row.blocks).toEqual([{ kind: "text", text: "c-1 c-2 c-3 c-4 c-5 c-6 c-7 " }]);
+    // Readers come at every socket open and every history read: a flush with
+    // nothing new since the last write writes nothing.
+    flushTurnBody(sessionKey);
+    flushTurnBody(sessionKey);
+    expect(writes).toBe(1);
+
+    // A tool event writes the timeline alone: the text columns are behind
+    // again, and the next reader's flush writes them.
+    content += "c-8 ";
+    (blocks[0] as { text: string }).text += "c-8 ";
+    blocks.push({ kind: "tool", toolCall: { id: "t1", name: "Bash", args: {}, status: "running" } });
+    persist.request(false, 1, true);
+    expect(row.content).toBe("c-1 c-2 c-3 c-4 c-5 c-6 c-7 ");
+    flushTurnBody(sessionKey);
+    expect(row.content).toBe("c-1 c-2 c-3 c-4 c-5 c-6 c-7 c-8 ");
+    release();
+    persist.dispose();
+  });
+
+  test("a reader behind on a deferred tool write AND on new text pays one write, not two", () => {
+    const sessionKey = "topic:flush-once";
+    const blocks: ContentBlock[] = [];
+    let content = "";
+    let writes = 0;
+    let row: Partial<StoredMessage> = {};
+    const persist = createTurnBodyPersist({
+      sessionKey,
+      updateLastMessage: (_key: string, updates: Partial<StoredMessage>) => { writes++; row = { ...row, ...updates }; },
+      rowId: () => "row-once",
+      blocks,
+      content: () => content,
+      thinking: () => "",
+      trackedTools: () => blocks.length,
+      reattachSnapshot: () => null,
+    });
+    blocks.push(toolBlock("t1", "read_file"));
+    persist.request(false, MAX_DELAY_BYTES);
+    expect(writes).toBe(1);
+    content += "after the tool ";
+    blocks.push({ kind: "text", text: "after the tool " });
+    blocks.push(toolBlock("t2", "send_mail"));
+    persist.request(false, MAX_DELAY_BYTES + 1);
+    expect(writes).toBe(1);
+
+    const release = registerTurnBodyFlush(sessionKey, () => persist.flush());
+    flushTurnBody(sessionKey);
+    expect(writes).toBe(2);
+    expect(row.content).toBe("after the tool ");
+    expect(row.blocks).toHaveLength(3);
+    release();
+    persist.dispose();
+  });
+
+  test("a writer whose row does not exist yet does not stop the search for another row", () => {
+    // A turn registers its writer before its row exists, and one that died in
+    // between left a writer whose row id throws (a `const` read too early).
+    // In CI a test of the chat door left exactly that, and every later failure
+    // path in the same process threw instead of closing its own turn.
+    registerTurnBodyFlush("topic:dead-setup", () => {}, {
+      rowId: () => { throw new ReferenceError("Cannot access 'partialMsg' before initialization."); },
+      stop: () => {},
+    });
+    const stopped: string[] = [];
+    registerTurnBodyFlush("topic:failing", () => {}, { rowId: () => "row-failing", stop: () => stopped.push("row-failing") });
+    expect(() => stopTurnBodyOf("row-failing")).not.toThrow();
+    expect(stopped).toEqual(["row-failing"]);
+    expect(flushTurnBody("topic:failing")).toBe(false);
   });
 
   test("two turns of one session both get flushed, and releasing one keeps the other", () => {

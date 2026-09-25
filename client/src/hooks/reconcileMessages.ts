@@ -94,7 +94,18 @@ export function sameChatMessage(a: ChatMessage, b: ChatMessage): boolean {
  * che il server ancora non conosce) la seconda resta a schermo. Nascondere un
  * messaggio che c'è sarebbe un difetto peggiore di mostrarne uno di troppo.
  */
-export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessage[]): ChatMessage[] {
+export interface MergeHistoryOptions {
+  /**
+   * A turn of this session ended in this window while the answer was in
+   * flight: the answer's partial copy of that turn is older than the bubble
+   * the end closed here.
+   */
+  endedMeanwhile?: boolean;
+  /** The row of the turn streaming into this window now, if any. */
+  liveRowId?: string;
+}
+
+export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessage[], opts: MergeHistoryOptions = {}): ChatMessage[] {
   if (existing.length === 0) return fetched;
   const fetchedIds = new Set<string>();
   for (const m of fetched) if (m.id) fetchedIds.add(m.id);
@@ -114,9 +125,24 @@ export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessag
     echiDisponibili.set(k, (echiDisponibili.get(k) ?? 0) + 1);
   }
 
+  // The server's copy of the live turn is a snapshot taken when the request
+  // was READ, and the socket may have delivered more of the same turn before
+  // the answer arrived. Replacing the bubble with the older snapshot dropped
+  // those chunks, and the ones after were appended to it: a hole in the
+  // middle of the turn (card 423e016f). The local copy of the SAME row wins
+  // when it extends the server's text from its first character, or when the
+  // turn ended here while the answer was in flight and the end closed it.
+  const liveAhead = codaInVolo ? localAheadOf(existing, coda, opts.endedMeanwhile === true) : null;
+  const base = liveAhead ? [...fetched.slice(0, -1), liveAhead] : fetched;
+
   const localOnly = existing.filter((m) => {
     if (!m.id || fetchedIds.has(m.id)) return false;
     if (codaInVolo && m.role === 'assistant' && m.partial === true) return false;
+    // A partial row the SERVER named, which the server no longer has, is a row
+    // it deleted: an empty turn stopped or woken with nothing to say. Kept, it
+    // was a bubble with a spinner and a locked composer until a reload. Not
+    // the row of the turn streaming here: it can be younger than the read.
+    if (m.role === 'assistant' && m.partial === true && !isClientGeneratedMessageId(m.id) && m.id !== opts.liveRowId) return false;
     if (isClientGeneratedMessageId(m.id)) {
       const k = echoKey(m);
       const disponibili = k ? echiDisponibili.get(k) ?? 0 : 0;
@@ -127,7 +153,37 @@ export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessag
     }
     return true;
   });
-  return localOnly.length > 0 ? [...fetched, ...localOnly] : fetched;
+  return localOnly.length > 0 ? [...base, ...localOnly] : base;
+}
+
+/**
+ * The local copy of the server's live tail, when it is NEWER than it: same row
+ * id, and either closed by an end that came while the answer was in flight,
+ * or still partial with a text that starts with the server's and goes
+ * further. Null otherwise, and then the server's copy is the truth: a local
+ * bubble built from the live chunks alone does not start with the server's
+ * text, and that is exactly the one to replace.
+ *
+ * A closed bubble wins only on an answer older than an end seen HERE: a
+ * bubble closed for another reason (the stream watchdog, a frame lost) is not
+ * evidence that the server's partial row is stale.
+ */
+function localAheadOf(existing: ChatMessage[], serverTail: ChatMessage, endedMeanwhile: boolean): ChatMessage | null {
+  if (!serverTail.id) return null;
+  const local = existing.find((m) => m.id === serverTail.id);
+  if (!local || local.role !== 'assistant') return null;
+  if (local.partial !== true) return endedMeanwhile ? local : null;
+  const mine = local.content ?? '';
+  const theirs = serverTail.content ?? '';
+  if (!(mine.length > theirs.length && mine.startsWith(theirs))) return null;
+  // The row's banners (a woken turn, a resumed one) are written by the server
+  // at the start of the timeline and no live frame carries them: the local copy
+  // may not have them, and keeping it must not drop them for the whole turn.
+  const localBlocks = local.blocks ?? [];
+  const banners = (serverTail.blocks ?? []).filter(
+    (b) => (b.kind === 'woken' || b.kind === 'ripreso') && !localBlocks.some((l) => l.kind === b.kind),
+  );
+  return banners.length > 0 ? { ...local, blocks: [...banners, ...localBlocks] } : local;
 }
 
 /**
