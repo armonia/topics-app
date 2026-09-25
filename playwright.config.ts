@@ -548,6 +548,9 @@ export default defineConfig({
         // the wheel does not explain is a jerk (reported 24/09).
         "**/chat-scroll-down-jitter.spec.ts",
         "**/sender-sees-question.spec.ts",
+        // A turn silent in a tool keeps its Stop in a viewer: a real server
+        // turn from a fake CLI, filmed on the engine that ships.
+        "**/chat-silent-tool-live.spec.ts",
         "**/prompt-history.spec.ts",
         "**/goal-send-and-rate.spec.ts",
         // The goal bar starts closed, agent goal included, and opens on click.

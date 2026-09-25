@@ -221,6 +221,16 @@ function announceAlive(deps: StaleStreamSweepDeps, sessionKey: string, stream: S
   deps.broadcast({ type: "stream:alive", sessionKey, topicId: deps.getTopicId(sessionKey), messageId: stream.messageId });
 }
 
+/**
+ * The e2e bench's silence threshold, in place of the three minutes server.ts
+ * passes (`POST /api/test/stale-stream-clock`). A spec cannot wait three
+ * minutes for each tick to act; `null` gives the caller's back.
+ */
+let benchTimeoutMs: number | null = null;
+export function setBenchStaleTimeout(ms: number | null): void {
+  benchTimeoutMs = ms;
+}
+
 export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, SweepOutcome> {
   const now = deps.now();
   const outcomes = new Map<string, SweepOutcome>();
@@ -315,7 +325,7 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
       // every extension, so the frozen cap must be compared against this one or
       // it never fires at all.
       trueSilenceMs: now - silenceSince,
-      timeoutMs: deps.timeoutMs,
+      timeoutMs: benchTimeoutMs ?? deps.timeoutMs,
       childAlive: deps.childAlive(sessionKey),
       // BOTH columns. `tool_calls` is the list, `blocks` the timeline the
       // client renders when present: tool state lives in each of them, and
