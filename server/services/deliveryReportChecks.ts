@@ -77,6 +77,17 @@ export interface RepoProbe {
   readLine(path: string, line: number): string | null;
   /** `git log --all -S<simbolo>` found at least one commit. */
   symbolInHistory(name: string): boolean;
+  /**
+   * Asks the slow question ahead of `checkReport`, off the server's loop, so
+   * that `symbolInHistory` finds its answer ready. A probe without it answers
+   * inline, which is what the injected ones in the tests do.
+   */
+  warm?(symbols: readonly string[]): Promise<void>;
+}
+
+/** The symbols a report declares: the ones `symbolInHistory` is asked about. */
+export function declaredSymbols(report: string): string[] {
+  return extractClaims(report).filter((c) => c.kind === "simbolo").map((c) => (c as { name: string }).name);
 }
 
 /** Extensions that make a backticked token a path rather than a name. */
@@ -219,7 +230,7 @@ export function checkReport(report: string, probe: RepoProbe): Finding[] {
   const claims = extractClaims(report);
   const findings: Finding[] = [];
 
-  const symbols = claims.filter((c) => c.kind === "simbolo").map((c) => (c as { name: string }).name);
+  const symbols = declaredSymbols(report);
 
   // 1. Every cited sha must resolve.
   //    WHAT THIS FINDING MEANS CHANGED, and only forward. Until the delivery ref

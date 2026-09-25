@@ -10,6 +10,9 @@
  * @covers KANBAN-11
  */
 import { test, expect, describe, beforeEach } from "bun:test";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
 import { freshDb, PID } from "./tasks-test-db";
@@ -66,4 +69,26 @@ describe("the delivery verifier probes the card's repository", () => {
     expect(asked[0]?.assignedTopicId).toBeNull();
     expect(built).toEqual(["/projects/of/the-board"]);
   });
+});
+
+describe("the verifier's git does not hold the server's loop", () => {
+  test("a report whose symbol takes git 2 s to look up: the update returns at once, the note follows", async () => {
+    // A git that answers everything at once except `log -S`, which walks every
+    // ref: up to 20 s measured on a real repository. It finds nothing, so the
+    // note has something to say. In a process of its own, started with it on
+    // PATH: Bun's execFileSync resolves `git` against the PATH it started with.
+    const bin = mkdtempSync(join(tmpdir(), "slow-git-"));
+    writeFileSync(join(bin, "git"), '#!/bin/sh\ncase "$*" in *" -S "*) sleep 2;; esac\nexit 0\n');
+    chmodSync(join(bin, "git"), 0o755);
+    const child = Bun.spawn([process.execPath, join(import.meta.dir, "tasks.delivery-probe.slow-git.fixture.ts"), mkdtempSync(join(tmpdir(), "repo-"))], {
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const out = await new Response(child.stdout).text();
+    await child.exited;
+    const result = JSON.parse(out.trim().split("\n").at(-1) ?? "{}") as { note?: string | null; worstLagMs?: number };
+    expect(result.note).toContain("slowSymbolNeverWritten");
+    expect(result.worstLagMs, "the loop stood still while git looked the symbol up").toBeLessThan(50);
+  }, 20_000);
 });

@@ -21,7 +21,7 @@
  * optional injectable `now`/`uuid`, so tests run on a deterministic `:memory:`
  * DB without booting the server.
  */
-import { checkReport as checkDeliveryReport } from "./deliveryReportChecks";
+import { checkReport as checkDeliveryReport, declaredSymbols } from "./deliveryReportChecks";
 import { repoProbe, probeForRoot } from "./deliveryReportProbe";
 import type { RepoProbe } from "./deliveryReportChecks";
 import type { Database } from "bun:sqlite";
@@ -3214,27 +3214,36 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         const root = opts.repoRootFor?.({ taskId, projectId, assignedTopicId: (row?.assigned_topic_id as string | null) ?? null }) ?? null;
         if (root) probe = (opts.probeFor ?? probeForRoot)(root);
       } catch { /* the server's own checkout, as before */ }
-      const findings = rows.flatMap((r) => checkDeliveryReport(r.content ?? "", probe));
-      // "Nothing to check" is not a finding worth showing: that is a report
-      // written in prose, which is legitimate. Only what was LOOKED UP and not
-      // found gets annotated.
-      const real = findings.filter((f) => f.code !== "nothing-to-check");
-      if (real.length === 0) return;
+      const writeNote = (): void => {
+        const findings = rows.flatMap((r) => checkDeliveryReport(r.content ?? "", probe));
+        // "Nothing to check" is not a finding worth showing: that is a report
+        // written in prose, which is legitimate. Only what was LOOKED UP and not
+        // found gets annotated.
+        const real = findings.filter((f) => f.code !== "nothing-to-check");
+        if (real.length === 0) return;
 
-      const lines = [...new Set(real.map((f) => `- ${f.detail}`))].slice(0, 8);
-      emit({
-        taskId,
-        author: "verifier",
-        kind: "review-note",
-        ...(projectId ? { projectId } : {}),
-        replaces: DELIVERY_CLAIM_SLOT,
-        content:
-          `${DELIVERY_CLAIM_SLOT} ${lines.length} rivendicazione/i del rapporto non si verificano:\n` +
-          lines.join("\n") +
-          "\n\nNon blocca l'approvazione: e' un controllo meccanico e puo' sbagliare. " +
-          "Ma ognuna di queste si controlla in due secondi, ed e' esattamente cio' che nessuno " +
-          "faceva sulle 14 carte chiuse senza lavoro.",
-      });
+        const lines = [...new Set(real.map((f) => `- ${f.detail}`))].slice(0, 8);
+        emit({
+          taskId,
+          author: "verifier",
+          kind: "review-note",
+          ...(projectId ? { projectId } : {}),
+          replaces: DELIVERY_CLAIM_SLOT,
+          content:
+            `${DELIVERY_CLAIM_SLOT} ${lines.length} rivendicazione/i del rapporto non si verificano:\n` +
+            lines.join("\n") +
+            "\n\nNon blocca l'approvazione: e' un controllo meccanico e puo' sbagliare. " +
+            "Ma ognuna di queste si controlla in due secondi, ed e' esattamente cio' che nessuno " +
+            "faceva sulle 14 carte chiuse senza lavoro.",
+        });
+      };
+      // A report that declares symbols asks git `log -S` about them, which took
+      // up to 20 s inside this update: the probe asks off the loop first, and
+      // the note follows its answer.
+      const symbols = probe.warm ? rows.flatMap((r) => declaredSymbols(r.content ?? "")) : [];
+      if (symbols.length === 0) return writeNote();
+      const late = () => { try { writeNote(); } catch { /* as below */ } };
+      void probe.warm!(symbols).then(late, late);
     } catch {
       // See the docblock: a missing note is not a delivery failure.
     }

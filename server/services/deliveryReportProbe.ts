@@ -10,7 +10,7 @@
  * absent, or in a strange state has to degrade into "no finding" rather than
  * into an error on someone's card.
  */
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { RepoProbe } from "./deliveryReportChecks";
@@ -149,6 +149,25 @@ return {
         return null; // could not be asked
       }
     }),
+  // THE SAME QUESTION, ASKED WITHOUT HOLDING THE LOOP. `git log --all -S` walks
+  // every ref and took up to 20 s, synchronously, inside the update that moves
+  // a card to review: the whole server stood still meanwhile. In order, and
+  // only until one answers yes, like the `some` in `checkReport`.
+  warm: async (symbols) => {
+    for (const name of symbols) {
+      const hit = cache.get(`sym:${name}`);
+      let found = hit !== undefined && Date.now() - hit.at < TRACKED_TTL_MS ? hit.v : null;
+      if (found === null) {
+        found = await new Promise<boolean>((resolve) => {
+          execFile("git", ["log", "--all", "-S", name, "--format=%h", "-1"], { cwd: ROOT, encoding: "utf8", timeout: 20_000 }, (err, out) => {
+            resolve(err ? true : out.trim().length > 0); // could not be asked: no accusation, as in `memo`
+          });
+        });
+        cache.set(`sym:${name}`, { v: found, at: Date.now() });
+      }
+      if (found) return;
+    }
+  },
 };
 }
 
