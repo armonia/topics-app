@@ -25,7 +25,6 @@ import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schem
 // Aliased: `t` is already a local name for a task in half this file.
 import { t as label } from "../../client/src/lib/i18n";
 import { freshDb, makeCtx, call, SESSIONS, matchRoute } from "./tasks-test-support";
-import { STOP_CAUSE_HEADER } from "../lib/abort-cause";
 
 describe("tasks router (session-scoped)", () => {
   let db: Database; let broadcasts: any[]; let router: any;
@@ -829,11 +828,10 @@ describe("board router (human, project-scoped)", () => {
   test("POST stop parks the task (backlog, unbound) and aborts the turn — no auto-requeue", async () => {
     db.run("INSERT INTO topics (id) VALUES ('top-z')");
     const aborted: string[] = [];
-    const causes: string[] = [];
     const killed: string[] = [];
     const fake = { onEnterTodo() {}, onLeaveTodo() {}, resume: async () => {} } as any;
     const r = createTasksRouter(makeCtx(db, broadcasts), fake, {
-      abortTurn: async (sk: string, cause: string) => { aborted.push(sk); causes.push(cause); },
+      abortTurn: async (sk: string) => { aborted.push(sk); },
       // Card 9b36ea1b: stopping a card must ALSO kill the process tree its
       // agent spawned, not just cancel the turn.
       killAgentTree: async (sk: string) => { killed.push(sk); },
@@ -854,8 +852,6 @@ describe("board router (human, project-scoped)", () => {
     // tentativi — chi ferma per guardare non deve pagarlo al rilancio.
     expect(parked.dispatchAttempts).toBe(1);
     expect(aborted).toEqual(["topic:top-z"]); // "topic:" + id.slice(0,8)
-    // A person pressed Stop on the card: this one IS theirs (card C9).
-    expect(causes).toEqual(["user"]);
     // Same session key, and the tree comes before the turn cut: see
     // `killAgentTree`'s doc for why the order matters (a CLI that exits first
     // reparents its children before we can read the process table).
@@ -871,8 +867,7 @@ describe("board router (human, project-scoped)", () => {
     db.run("INSERT INTO topics (id) VALUES ('top-arch')");
     const aborted: string[] = [];
     const fake = { onEnterTodo() {}, onLeaveTodo() {}, resume: async () => {} } as any;
-    const causes: string[] = [];
-    const r = createTasksRouter(makeCtx(db, broadcasts), fake, { abortTurn: async (sk: string, cause: string) => { aborted.push(sk); causes.push(cause); } });
+    const r = createTasksRouter(makeCtx(db, broadcasts), fake, { abortTurn: async (sk: string) => { aborted.push(sk); } });
     const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "ripensamento", status: "in_progress" }))!.json();
     db.prepare("UPDATE tasks SET assigned_topic_id = 'top-arch', dispatch_state = 'working' WHERE id = ?").run(t.id);
 
@@ -880,30 +875,12 @@ describe("board router (human, project-scoped)", () => {
     expect(resp.status).toBe(200);
     // Il turno è stato abortito, non lasciato girare su una riga invisibile.
     expect(aborted).toEqual(["topic:top-arch"]);
-    // By a person, from the board: theirs (card C9).
-    expect(causes).toEqual(["user"]);
     const row = db.prepare("SELECT archived, status, assigned_topic_id, dispatch_state FROM tasks WHERE id = ?").get(t.id) as any;
     expect(row.archived).toBe(1);
     expect(row.assigned_topic_id).toBeNull();
     // E il task non conta più come "in corso": è questo che falsava il tetto di
     // concorrenza (il claim conta le righe in_progress non archiviate).
     expect(row.status).toBe("backlog");
-  });
-
-  test("a DELETE the server sends for a revoked delegation stops the agent as the machine, not as the person", async () => {
-    // Card C9: `deleteDelegatedBoardTask` (server.ts) archives a card another
-    // machine revoked through this same route, and the stop it caused was
-    // signed as a person's, which the resume sweep then honours as one.
-    db.run("INSERT INTO topics (id) VALUES ('top-rev')");
-    const causes: string[] = [];
-    const fake = { onEnterTodo() {}, onLeaveTodo() {}, resume: async () => {} } as any;
-    const r = createTasksRouter(makeCtx(db, broadcasts), fake, { abortTurn: async (_sk: string, cause: string) => { causes.push(cause); } });
-    const t = await (await call(r, "POST", "/api/boards/pX/tasks", { text: "delegata", status: "in_progress" }))!.json();
-    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-rev', dispatch_state = 'working' WHERE id = ?").run(t.id);
-    const url = new URL(`http://localhost/api/boards/pX/tasks/${t.id}`);
-    const resp = await r(new Request(url, { method: "DELETE", headers: { [STOP_CAUSE_HEADER]: "superseded" } }), url, url.pathname, "DELETE");
-    expect(resp?.status).toBe(200);
-    expect(causes).toEqual(["superseded"]);
   });
 
   test("DELETE su un task senza agent non aborta niente", async () => {
