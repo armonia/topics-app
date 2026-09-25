@@ -2256,6 +2256,17 @@ export function createTopicsRouter(
       }
     }
 
+    // GET /api/topics/:id/messages/:messageId - one row as it is, partial and empty included (the list
+    // hides those): send_chat_message waits on it after a cut stream. 404 means gone, not unseen.
+    {
+      const params = matchRoute(pathname, "/api/topics/:id/messages/:messageId");
+      if (params && method === "GET") {
+        const topic = getTopicById(params.id);
+        const row = topic && ctx.getMessageSessionKey(params.messageId) === topic.sessionKey ? ctx.getMessageById(params.messageId) : null;
+        return row ? json({ message: leanMessagesForWire([row])[0] }) : json({ error: "Message not found" }, 404);
+      }
+    }
+
     // GET /api/topics/:id/changes - the files THIS conversation wrote, crossed
     // with git limited to those paths (server/lib/topic-changes.ts). The chat
     // knew it all along, in its write tool calls: nothing was reading them back,

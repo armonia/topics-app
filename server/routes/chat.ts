@@ -19,6 +19,7 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { repeatsAnEnvelope, userRowMarks } from "../lib/user-row-marks";
+import { startSsePing } from "../lib/sse-ping";
 import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
 import { TopicsRoutingIncompatibleError } from "../providers/resolve-topic-provider";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
@@ -38,7 +39,7 @@ import { goalContinuationForChatRoute, type TurnEndInfo as GoalTurnEnd } from ".
 import { recordSessionContext } from "../db/session-context";
 import { buildContextUpdate } from "../usage/usage-update";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
-import { recordTurnEnd } from "../providers/turn-end-registry";
+import { readTurnEnd, recordTurnEnd } from "../providers/turn-end-registry";
 import { resumeAttemptOf } from "../lib/ripresa-boot";
 import { appendUsageRecord } from "../usage/store";
 import { autoreDaIdentita } from "../lib/message-author";
@@ -154,6 +155,8 @@ export interface ChatDeps {
   updateUnreadCount: (topicId: string) => void;
   browserNavigatedTopics: Set<string>;
   WORKSPACE_DIR: string;
+  /** The SSE ping's interval (`lib/sse-ping.ts`); tests only, the real one is 20 s. */
+  ssePingMs?: number;
   /**
    * The user's `turn-end` hook (HOOKS-02). Fired by this route AFTER the
    * stream is finalised, never awaited: the turn is over and the hook can
@@ -203,6 +206,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     resolveProvider, resolveProviderByName = getProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR, hooks,
+    ssePingMs,
   } = deps;
 
   /**
@@ -940,6 +944,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       // fondo: se schiantiamo dopo averla aperta, va chiusa lì — vedi
       // crashedTurnNotice.ts. Dichiarata fuori dal `try` apposta.
       let crashedPartialId: string | null = null;
+      let stopPing = () => {}; // out here too: the last catch stops it
       /**
        * La riga com'è ADESSO, per decidere se un cartello d'errore può scriverci
        * sopra. Le tre colonne servono tutte: `content` da solo direbbe «vuota»
@@ -1374,10 +1379,19 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (clientDisconnected) return;
             try { await writer.write(encoder.encode(`data: ${data}\n\n`)); } catch { clientDisconnected = true; }
           };
+          // A byte every 20 s while the turn lives: Bun's 255 s idle timeout cut this response mid-tool.
+          stopPing = startSsePing({ intervalMs: ssePingMs, alive: () => !clientDisconnected && streamState !== "finalized",
+            write: (chunk) => { if (!clientDisconnected) writer.write(chunk).catch(() => { clientDisconnected = true; }); } });
           const closeClient = async () => {
+            stopPing();
             if (clientDisconnected) return;
             try { await writer.close(); } catch { clientDisconnected = true; }
           };
+          // `turn` frames for send_chat_message: the first names the row a cut stream waits on, the
+          // last an end that is not a finished answer. Other readers look only at `choices`.
+          writeSSE(JSON.stringify({ turn: { messageId: partialMsg.id } }));
+          const writeTurnEnd = (info?: TurnEndInfo) => !info || info.end === "end_turn" ? Promise.resolve()
+            : writeSSE(JSON.stringify({ turn: { end: info.end, ...(info.cause ? { cause: info.cause } : {}) } }));
 
           // ── Stream timeout state machine (resilience layer) ────────────
           //
@@ -1595,7 +1609,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // No separate "grace expired" log line — the soft-timeout entry
             // already exists; recovery would have logged on the way out.
             // Failing to recover IS the absence of a recovery log entry.
-            writeSSE("[DONE]").then(() => closeClient())
+            writeTurnEnd(cancelled("watchdog")).then(() => writeSSE("[DONE]")).then(() => closeClient())
               .catch((err) => console.warn(`[StreamWS] DONE/close on grace-expiry failed:`, err));
             clearAllTimers();
           };
@@ -1648,7 +1662,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               durationMs: Date.now() - requestStartMs,
               toolCallCount: trackedToolCallIds.length,
             });
-            writeSSE("[DONE]").then(() => closeClient())
+            writeTurnEnd(cancelled("watchdog")).then(() => writeSSE("[DONE]")).then(() => closeClient())
               .catch((err) => console.warn(`[StreamWS] DONE/close on hard-timeout failed:`, err));
             clearAllTimers();
           };
@@ -1827,7 +1841,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             streamState = "finalized";
             clearAllTimers();
             topicProvider.unregisterStreamHandler?.(sessionKey);
-            writeSSE("[DONE]").then(() => closeClient())
+            // Deposited by whoever aborted (abort route, sweeper); an older one is another turn's.
+            const deposited = readTurnEnd(sessionKey);
+            writeTurnEnd(deposited && deposited.atMs >= requestStartMs ? deposited.info : { end: "cancelled" })
+              .then(() => writeSSE("[DONE]")).then(() => closeClient())
               .catch((err) => console.warn(`[StreamWS] DONE/close su abort esterno fallito:`, err));
           }, { once: true });
 
@@ -2454,7 +2471,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }, 500);
             }
 
-            // Close SSE response
+            // Close SSE response. An end_turn that left an error verdict (an empty reply) failed all the same.
+            await writeTurnEnd(turnError && endInfo.end === "end_turn" ? { end: "error" } : endInfo);
             await writeSSE("[DONE]");
             await closeClient();
 
@@ -3595,6 +3613,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               streamState = "finalized";
               const errorMsg = closeTurnWithFailure(err, partialMsg.id);
               await writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: errorMsg }, finish_reason: "stop" }] }));
+              await writeTurnEnd({ end: "error" });
               await writeSSE("[DONE]");
               await closeClient();
             });
@@ -3606,9 +3625,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // watchdog sono ancora armati.
             streamState = "finalized";
             const errorMsg = closeTurnWithFailure(err, partialMsg.id);
-            await writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: errorMsg }, finish_reason: "stop" }] }));
-            await writeSSE("[DONE]");
-            await closeClient();
+            // Not awaited: no reader before the Response below, and a write with no reader waits for ever.
+            writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: errorMsg }, finish_reason: "stop" }] }))
+              .then(() => writeTurnEnd({ end: "error" })).then(() => writeSSE("[DONE]")).then(() => closeClient())
+              .catch((e) => console.warn(`[StreamWS] error/close on sync setup error failed:`, e));
             return new Response(readable, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" } });
           }
 
@@ -3622,6 +3642,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
 
         } catch (err: any) {
           console.error(`[StreamWS] Unexpected error for ${sessionKey}:`, err);
+          stopPing();
           // Uscire di qui con un 502 e basta lasciava tre cose sul campo: la
           // riga assistente APERTA (e `partial` è il perno che il setaccio di
           // boot legge per decidere chi è vivo), lo stream registrato in

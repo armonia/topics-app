@@ -204,6 +204,7 @@ import { upgradeWebSocket } from "./server/lib/ws-upgrade";
 import { sendWsFrame } from "./server/lib/ws-send";
 import { markViaTunnel, isLocalTransport, clientIpOf, tunnelPort } from "./server/lib/tunnel";
 import { compressJson } from "./server/lib/compress-json";
+import { isSseCommentOnly } from "./server/lib/sse-ping";
 import { currentRouteFault, applyRouteFault } from "./server/lib/route-fault";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
 import { claudeTranscriptPath, isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
@@ -1146,7 +1147,7 @@ async function watchHeadlessBody(
   });
   try {
     while (true) {
-      const { done } = await Promise.race([
+      const { done, value } = await Promise.race<{ done: boolean; value?: Uint8Array }>([
         reader.read(),
         (async () => {
           while (true) {
@@ -1159,6 +1160,9 @@ async function watchHeadlessBody(
         if (peekTurnEnd(sessionKey)) reader.cancel().catch(() => {});
         break;
       }
+      // A ping is no sign of life. It means the route has not finalized, so it rightly holds
+      // off the end grace: an end deposited meanwhile is a superseded turn's, or not final yet.
+      if (isSseCommentOnly(value)) continue;
       detector.noteActivity();
     }
   }
