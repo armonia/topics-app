@@ -1139,8 +1139,9 @@ interface PersistentProcess {
   notificationTurnPending?: boolean;
   /** What the CLI last said about the work a closed turn left running (see `claude/background-work.ts`). */
   background?: BackgroundWork;
-  /** A config change arrived while this child could not be killed: the next send that finds it idle respawns it. */
-  configStale?: boolean;
+  /** A config change this child was too busy to take: the next send that finds it idle respawns it.
+   *  `hard` (a permission change) does not wait for background work, `soft` (model, effort) does. */
+  configStale?: "hard" | "soft";
   /** Scan outcome: the tail is open only because a `system/init` started a turn with nothing after it yet. */
   replayTailInitOnly?: boolean;
   /**
@@ -1989,15 +1990,20 @@ export class ClaudeCodeProvider implements AIProvider {
    * stream would drop the partial; the change then applies on the next natural
    * respawn instead. Idempotent: nothing to do if no process is pooled.
    */
-  refreshSessionConfig(sessionKey: string): void {
+  refreshSessionConfig(sessionKey: string, opts: { overBackgroundWork?: boolean } = {}): void {
     const pp = this.processes.get(sessionKey);
     if (!pp) return;
     // A turn in flight, by the same rule as the lifetime cap and the reaper
     // (`turnInFlight`): the change then applies on the next natural respawn.
     // Background work too: a model switch is not worth the agent it would kill.
-    // Either way the change is owed: the next send that finds the child idle
-    // respawns it, or an autonomy lowered now would never take effect.
-    if (turnInFlight(pp) || backgroundAlive(pp)) { pp.configStale = true; return; }
+    // A permission change is (`overBackgroundWork`): an autonomy lowered to ask
+    // must stop the next edit, not the one after the job ends. Either way the
+    // change is owed, and the next send that finds the child idle respawns it.
+    const hard = opts.overBackgroundWork === true;
+    if (turnInFlight(pp) || (!hard && backgroundAlive(pp))) {
+      pp.configStale = hard || pp.configStale === "hard" ? "hard" : "soft";
+      return;
+    }
     console.log(`[claude-code] refreshSessionConfig: dropping idle process for ${sessionKey} to pick up new config`);
     this.killProcess(pp, "config");
     this.processes.delete(sessionKey);
@@ -2235,7 +2241,8 @@ export class ClaudeCodeProvider implements AIProvider {
 
   private getOrCreateProcess(sessionKey: string): PersistentProcess {
     const existing = this.processes.get(sessionKey);
-    if (existing?.alive && existing.configStale && !turnInFlight(existing) && !backgroundAlive(existing)) {
+    if (existing?.alive && existing.configStale && !turnInFlight(existing)
+      && (existing.configStale === "hard" || !backgroundAlive(existing))) {
       console.log(`[claude-code] ${sessionKey}: respawning to apply the config change it was too busy to take`);
       this.killProcess(existing, "config");
       this.processes.delete(sessionKey);

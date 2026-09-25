@@ -1614,6 +1614,8 @@ export function createTopicsRouter(
         // Provider/model are spawn-time flags for the claude-code CLI (same
         // as effort below): track changes so we can force an idle respawn.
         let spawnConfigChanged = false;
+        // A permission change: applied even over the chat's background work.
+        let autonomyChanged = false;
         if (body.autonomyLevel !== undefined) {
           const valid: Topic['autonomyLevel'][] = ['ask', 'auto-apply', 'yolo'];
           // Un livello sconosciuto è un ERRORE del chiamante, non un `ask`.
@@ -1632,7 +1634,7 @@ export function createTopicsRouter(
           // come provider e modello: senza il respawn la scelta non avrebbe
           // effetto finché la chat non riparte da sola — cioè sembrerebbe
           // un'impostazione che non fa niente.
-          if (next !== topic.autonomyLevel) spawnConfigChanged = true;
+          if (next !== topic.autonomyLevel) { spawnConfigChanged = true; autonomyChanged = true; }
           topic.autonomyLevel = next;
         }
         if (body.provider !== undefined) {
@@ -1713,7 +1715,7 @@ export function createTopicsRouter(
         // applies on the next natural respawn) and must not block the PATCH
         // response.
         if (effortChanged || spawnConfigChanged) {
-          try { resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
+          try { resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey, { overBackgroundWork: autonomyChanged }); }
           catch (err) { console.warn(`[topics] refreshSessionConfig failed for ${topic.sessionKey}:`, err); }
           // Il ring cambia DENOMINATORE, non numeratore: cambiare modello cambia
           // la finestra, e l'ultima misura va riletta contro quella nuova. Senza

@@ -572,7 +572,7 @@ export interface AIProvider {
    * config; a no-op while a turn is streaming and for providers that read
    * config per-request. Fire-and-forget from the topic PATCH route.
    */
-  refreshSessionConfig?(sessionKey: string): void;
+  refreshSessionConfig?(sessionKey: string, opts?: { overBackgroundWork?: boolean }): void;
 
   /**
    * Re-inject the user's answer to a tool that paused the stream (via the

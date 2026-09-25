@@ -250,6 +250,16 @@ describe("ClaudeCodeProvider — inactivity reaper never fires during a turn", (
       expect(killed).toBe(1);
     });
 
+    test("a permission change does not wait for the work: autonomy lowered now stops the next edit", () => {
+      const sessionKey = "sess-inact-f7";
+      let killed = 0;
+      const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
+      const provider = setup(pp, sessionKey);
+      pp.background = fold(0, firstResult + 1);
+      provider.refreshSessionConfig(sessionKey, { overBackgroundWork: true });
+      expect(killed).toBe(1);
+    });
+
     test("the lifetime cap waits for the work too", async () => {
       const sessionKey = "sess-inact-f3";
       let killed = 0;
