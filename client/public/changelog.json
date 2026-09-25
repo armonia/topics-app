@@ -1,5 +1,46 @@
 [
   {
+    "version": "2.2.394",
+    "date": "2026-09-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "chat.ts and topics.ts back under their bloat ceilings, with C6+C9 merged in",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The row a restart cut carries no verdict; the tools read the cut from the missing latency",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The notice-deletion test counts the resend before it looks at the row",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A word the identifier gate knows in the notice-deletion test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "No conflict of ours with C6+C9's new head: an import, a field and the ping filter move",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "read_chat_messages finds the cut row itself; a lost POST or a non-busy 409 warns too",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.393",
     "date": "2026-09-25",
     "sections": {
@@ -51,6 +92,124 @@
         },
         {
           "it": "MachineStopCause is declared once, in shared, and both sides re-export it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the chat's SSE survives a silent tool, and a cut stream is not a reply",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "Bun counts no server write as activity, so the idle timeout must be off",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "The chat's SSE stays open through a silent tool: Bun's idle timeout off, a ping for the proxies",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "send_chat_message never hands back half a reply as the reply",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Name the SSE ping with words the identifier gate knows",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The reviewers' send_chat_message tests, as they wrote them",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The ping alone holds the chat's SSE open; the stall watch no longer takes it for life",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "send_chat_message waits on its own row, and says when a turn was stopped or failed",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The reviewers' stale-gap test types its expectation",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the send_chat_message tests in a file of their own, each test naming what it covers",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "The sse-ping import moves off the line C6+C9 also adds an import to",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "send_chat_message waits on its row read by id, with no clock to lose to",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "An empty turn's end frame says error",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A turn whose setup throws gets its answer: the writes no longer wait for a reader",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The concurrency bench reads the reply for its 20, not the raw bytes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The headless end grace is counted on data, so a ping no longer starves it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "English comment in the empty-turn route test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Undo the headless end grace change: a ping rightly holds the grace off",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "send_chat_message POSTs once, rides out a reload, and does not invite a resend",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The row the boot sweep closes carries the restart verdict; a real error names its cause",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The boot sweep's verdict goes on assistant rows only; others are only closed",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "English comment in the boot-sweep send test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "No second bubble for an empty cut row, and a warning against resending on every failure",
           "en": "",
           "scope": null
         }

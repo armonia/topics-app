@@ -2,6 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.394 — 2026-09-25
+
+### Sotto il cofano
+- chat.ts and topics.ts back under their bloat ceilings, with C6+C9 merged in
+- The row a restart cut carries no verdict; the tools read the cut from the missing latency
+- The notice-deletion test counts the resend before it looks at the row
+- A word the identifier gate knows in the notice-deletion test
+- No conflict of ours with C6+C9's new head: an import, a field and the ping filter move
+- read_chat_messages finds the cut row itself; a lost POST or a non-busy 409 warns too
+
 ## 2.2.393 — 2026-09-25
 
 ### Sotto il cofano
@@ -14,6 +24,29 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - A verbatim resend of the dispatcher's envelope keeps its mark
 - **e2e** · aggiorna durate shard dal nightly del 2026-09-25 [skip ci]
 - MachineStopCause is declared once, in shared, and both sides re-export it
+- the chat's SSE survives a silent tool, and a cut stream is not a reply
+- Bun counts no server write as activity, so the idle timeout must be off
+- The chat's SSE stays open through a silent tool: Bun's idle timeout off, a ping for the proxies
+- send_chat_message never hands back half a reply as the reply
+- Name the SSE ping with words the identifier gate knows
+- The reviewers' send_chat_message tests, as they wrote them
+- The ping alone holds the chat's SSE open; the stall watch no longer takes it for life
+- send_chat_message waits on its own row, and says when a turn was stopped or failed
+- The reviewers' stale-gap test types its expectation
+- the send_chat_message tests in a file of their own, each test naming what it covers
+- The sse-ping import moves off the line C6+C9 also adds an import to
+- send_chat_message waits on its row read by id, with no clock to lose to
+- An empty turn's end frame says error
+- A turn whose setup throws gets its answer: the writes no longer wait for a reader
+- The concurrency bench reads the reply for its 20, not the raw bytes
+- The headless end grace is counted on data, so a ping no longer starves it
+- English comment in the empty-turn route test
+- Undo the headless end grace change: a ping rightly holds the grace off
+- send_chat_message POSTs once, rides out a reload, and does not invite a resend
+- The row the boot sweep closes carries the restart verdict; a real error names its cause
+- The boot sweep's verdict goes on assistant rows only; others are only closed
+- English comment in the boot-sweep send test
+- No second bubble for an empty cut row, and a warning against resending on every failure
 
 ## 2.2.392 — 2026-09-25
 
