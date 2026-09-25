@@ -2018,7 +2018,7 @@ export function createAppContext(baseDir: string): AppContext {
    * here would kill the panel a few lines after installing it. Anything not
    * named in this list keeps the rule above.
    *
-   * `closedBecause` replaces the "Interrotto…" sentence when the turn was
+   * `closedBecause` replaces the interrupted-prefix sentence when the turn was
    * stopped on purpose (lib/abort-cause.ts): the boot's repair pass reads that
    * prefix as a turn to resume.
    */

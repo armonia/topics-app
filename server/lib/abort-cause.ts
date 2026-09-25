@@ -38,7 +38,7 @@ export function isWantedStop(cause: unknown): boolean {
 
 /**
  * What a tool still open says when the machine stopped its turn on purpose.
- * Never "Interrotto…": the boot's repair pass (`verdetto-turno-interrotto.ts`)
+ * Never the interrupted prefix: the boot's repair pass (`bonificaTurniMuti`)
  * reads that as a turn cut with no explanation and marks it to be resumed.
  */
 export function machineStopToolError(cause: MachineStopCause): string {

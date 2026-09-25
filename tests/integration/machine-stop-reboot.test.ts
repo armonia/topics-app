@@ -4,7 +4,7 @@
  *
  * The third round closed the turn in the route before calling the provider,
  * so claude-code's synchronous `onAborted` never reached the finalize. The
- * tools in flight were then closed by `endStream` with "Interrotto: …", and
+ * tools in flight were then closed by `endStream` with the interrupted prefix, and
  * the next boot's repair pass (`bonificaTurniMuti`) read that as a mute
  * interrupted turn and added the resumable «Riprende da solo»: the sweep
  * resent the message, which on main never happened.
@@ -50,7 +50,7 @@ afterAll(() => { try { removeProvider("openai"); } catch { /* already gone */ } 
 
 type State = "tool" | "question" | "permission";
 
-async function stoppedThenRebooted(sessionKey: string, state: State, cause: MachineStopCause | null) {
+async function stoppedThenRestarted(sessionKey: string, state: State, cause: MachineStopCause | null) {
   captured = undefined;
   resetTurnEndRegistry();
   const ctx: AppContext = await createTestAppContext();
@@ -137,7 +137,7 @@ describe("a stop the machine wanted is still silent after the next boot", () => 
   for (const cause of ["stall", "superseded", "wall-clock"] as const) {
     for (const state of ["tool", "question", "permission"] as const) {
       test(`${cause} with a ${state} open: no notice after the boot's repair, nothing resent`, async () => {
-        const r = await stoppedThenRebooted(`topic:reboot-${cause}-${state}`, state, cause);
+        const r = await stoppedThenRestarted(`topic:reboot-${cause}-${state}`, state, cause);
         expect(r.notices).toEqual([]);
         expect(r.resent).toEqual([]);
         // Main's path: the finalize closed the tool and timed the turn...
@@ -153,7 +153,7 @@ describe("a stop the machine wanted is still silent after the next boot", () => 
 
   for (const state of ["tool", "question", "permission"] as const) {
     test(`the person's Stop with a ${state} open: as on main, no notice and nothing resent`, async () => {
-      const r = await stoppedThenRebooted(`topic:reboot-person-${state}`, state, null);
+      const r = await stoppedThenRestarted(`topic:reboot-person-${state}`, state, null);
       expect(r.notices).toEqual([]);
       expect(r.resent).toEqual([]);
       expect(r.tool?.error).toBe("Aborted by user");

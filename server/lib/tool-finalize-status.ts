@@ -40,7 +40,7 @@ export function toolOutcomeAtTurnEnd(
   errorMsg?: string,
 ): ToolOutcome {
   if (reason === "aborted") {
-    // A stop the machine wanted says so, and not with "Interrotto…", which the
+    // A stop the machine wanted says so, and not with the interrupted prefix, which the
     // boot's repair pass reads as a turn to resume (lib/abort-cause.ts).
     const cause = turnEnd?.cause;
     return { status: "error", error: isMachineStop(cause) ? machineStopToolError(cause) : "Aborted by user" };
