@@ -33,6 +33,7 @@ import type { ChatGoalLoop } from "../services/goal-continuation";
 import { decodeCol } from "../../shared/message-blob";
 import { riprendiTurniInterrotti } from "../lib/ripresa-boot";
 import { resetTurnEndRegistry } from "../providers/turn-end-registry";
+import { userRowMarks } from "../lib/user-row-marks";
 
 const ROOT = testTmpDir("topics-background-config");
 beforeAll(() => setupTestDataDir(`${ROOT}/data`));
@@ -211,6 +212,41 @@ describe("the Stop of a chat whose turn is closed and whose work still runs", ()
       const rows = h.ctx.db.prepare(`SELECT id, parent_id FROM messages WHERE session_key = ? ORDER BY sort_order`).all(h.sessionKey) as Array<{ id: string; parent_id: string | null }>;
       expect(rows.some((r) => r.id === placeholder.id)).toBe(false);
       expect(h.notices()).toEqual([expect.objectContaining({ event: "closed", why: "silent", text: expect.stringContaining("closed after two hours") })]);
+    } finally {
+      ClaudeCodeProvider.observeBackgroundClosed(() => {});
+      removeProvider("claude-code");
+    }
+  });
+
+  test("a card's empty turn stopped for a stall with work listed leaves ONE service row: the stop and the work it closed", async () => {
+    const h = await harness("bg-card-stall", "yolo");
+    // Wired as server.ts wires it.
+    ClaudeCodeProvider.observeBackgroundClosed((sk, tasks, why) => {
+      postBackgroundNotice(h.ctx, { sessionKey: sk, topicId: h.topicId }, { kind: "background-notice", event: "closed", tasks, why });
+    });
+    try {
+      h.ctx.db.run(
+        "INSERT INTO tasks (id, project_id, text, status, archived, assigned_topic_id, created_at, updated_at) VALUES (?, 'p-bg', 'card', 'in_progress', 0, ?, ?, ?)",
+        ["card-bg-stall", h.topicId, new Date().toISOString(), new Date().toISOString()],
+      );
+      h.pp.background.lastSignalAt = Date.now() - 2 * 60 * 60_000 - 1_000;
+      const envelope = h.ctx.appendLocalMessage(h.sessionKey, "user", "Envelope della card: fai il merge", undefined, userRowMarks({ dispatched: true }));
+      const placeholder = h.ctx.createPartialMessage(h.sessionKey, "assistant");
+      h.ctx.startStream(h.sessionKey, placeholder.id, new AbortController());
+      h.pp.streamHandler = { onDelta() {}, onDone() {}, onError() {}, onAborted() {} };
+      const req = internalAbortRequest(h.sessionKey, "stall");
+      await h.router(req, new URL(req.url), "/api/chat/abort", "POST");
+      expect(h.killed.sigint).toBe(1);
+      // Past the notice's own wait (500 ms a step): no second row comes after it.
+      await new Promise((r) => setTimeout(r, 1_500));
+      const rows = (h.ctx.db.prepare(`SELECT id, role, content, blocks FROM messages WHERE session_key = ? ORDER BY sort_order`).all(h.sessionKey) as Array<{ id: string; role: string; content: string; blocks: unknown }>)
+        .map((r) => ({ ...r, blocks: JSON.parse(decodeCol(r.blocks as never) ?? "null") }));
+      expect(rows.map((r) => r.id)).toEqual([envelope.id, expect.any(String)]);
+      expect(rows[1]).toEqual(expect.objectContaining({ role: "assistant", content: "" }));
+      expect(rows[1].blocks).toEqual([
+        expect.objectContaining({ kind: "machine-stop", cause: "stall" }),
+        expect.objectContaining({ kind: "background-notice", event: "closed", why: "silent", tasks: expect.arrayContaining(["tick counter loop"]) }),
+      ]);
     } finally {
       ClaudeCodeProvider.observeBackgroundClosed(() => {});
       removeProvider("claude-code");

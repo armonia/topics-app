@@ -45,6 +45,39 @@ export function autonomyChangeOwed(prev: string | null | undefined, next: string
   return order.indexOf(next ?? "ask") < order.indexOf(from) || from === "ask";
 }
 
+/**
+ * The changes a PATCH made that the chat's background work may make wait,
+ * from the topic as it was before the PATCH and as it is now.
+ */
+export function owedChangesOf(
+  before: { autonomy?: string | null; model?: string | null },
+  topic: { autonomyLevel?: string | null; model?: string | null },
+  effortChanged: boolean,
+): Partial<Record<OwedChange, boolean>> {
+  return {
+    autonomy: before.autonomy !== topic.autonomyLevel && autonomyChangeOwed(before.autonomy, topic.autonomyLevel),
+    model: (before.model ?? null) !== (topic.model ?? null),
+    effort: effortChanged,
+  };
+}
+
+/**
+ * Apply a spawn-time change to the chat's CLI, and say in the chat the ones its
+ * background work makes wait. Never throws: the change is saved either way, and
+ * the next natural respawn applies it.
+ */
+export function refreshAndSay(
+  ctx: NoticeCtx,
+  provider: () => { refreshSessionConfig?: (sessionKey: string, owed?: OwedChange[]) => unknown },
+  topic: { id: string; sessionKey: string },
+  owed: Partial<Record<OwedChange, boolean>>,
+): { pending?: "background-work" } {
+  let outcome: unknown;
+  try { outcome = provider().refreshSessionConfig?.(topic.sessionKey, (Object.keys(owed) as OwedChange[]).filter((c) => owed[c])); }
+  catch (err) { console.warn(`[topics] refreshSessionConfig failed for ${topic.sessionKey}:`, err); }
+  return noticeOwedChanges(ctx, topic, outcome, owed);
+}
+
 /** Is this row a background notice and nothing else, blocks as parsed JSON? */
 export function isBackgroundNoticeRow(blocks: readonly { kind?: unknown }[] | null | undefined): boolean {
   return Array.isArray(blocks) && blocks.length > 0 && blocks.every((b) => b?.kind === "background-notice");
@@ -84,26 +117,49 @@ export function noticeOwedChanges(
 const NOTICE_WAIT_CAP_MS = 30 * 60_000;
 
 /**
+ * The closed-work notices waiting for their turn to close, by session. When the
+ * machine stopped that turn empty, its `machine-stop` line takes them into its
+ * own row (`takeClosedNotices`): a stop and the work it closed are one event,
+ * and two service rows under the envelope read as two.
+ */
+const pendingClosed = new Map<string, BackgroundNotice[]>();
+
+/** Take this session's closed-work notices still waiting, so no other row repeats them. */
+export function takeClosedNotices(sessionKey: string): BackgroundNotice[] {
+  const taken = pendingClosed.get(sessionKey) ?? [];
+  pendingClosed.delete(sessionKey);
+  return taken;
+}
+
+/**
  * Write the row and push it to every client. Never throws: a notice is not
  * worth a failed request.
  *
  * Not under a turn still open: the row would hang from that turn's placeholder,
  * and a turn that ends empty (the stall judge recycling a silent one) is only
  * discarded when nothing hangs from it, so it stayed as an empty bubble. The
- * notice waits for the turn to close and follows it.
+ * notice waits for the turn to close and follows it, unless that turn's stop
+ * line took it first.
  */
-export function postBackgroundNotice(
-  ctx: NoticeCtx,
-  target: { sessionKey: string; topicId: string },
-  facts: BackgroundNoticeFacts,
-  waitedMs = 0,
-): void {
+export function postBackgroundNotice(ctx: NoticeCtx, target: { sessionKey: string; topicId: string }, facts: BackgroundNoticeFacts): void {
+  const notice = { ...facts, text: backgroundNoticeText(facts) } as BackgroundNotice;
+  if (notice.event === "closed") pendingClosed.set(target.sessionKey, [...(pendingClosed.get(target.sessionKey) ?? []), notice]);
+  writeWhenTurnCloses(ctx, target, notice, 0);
+}
+
+function writeWhenTurnCloses(ctx: NoticeCtx, target: { sessionKey: string; topicId: string }, notice: BackgroundNotice, waitedMs: number): void {
   if (ctx.isStreaming(target.sessionKey) && waitedMs < NOTICE_WAIT_CAP_MS) {
-    const t = setTimeout(() => postBackgroundNotice(ctx, target, facts, waitedMs + 500), 500);
+    const t = setTimeout(() => writeWhenTurnCloses(ctx, target, notice, waitedMs + 500), 500);
     (t as { unref?: () => void }).unref?.();
     return;
   }
-  const notice = { ...facts, text: backgroundNoticeText(facts) } as BackgroundNotice;
+  if (notice.event === "closed") {
+    const waiting = pendingClosed.get(target.sessionKey) ?? [];
+    if (!waiting.includes(notice)) return; // the stop's line took it
+    const rest = waiting.filter((n) => n !== notice);
+    if (rest.length) pendingClosed.set(target.sessionKey, rest);
+    else pendingClosed.delete(target.sessionKey);
+  }
   try {
     const row = ctx.appendLocalMessage(target.sessionKey, "assistant", "", undefined, [notice]);
     // The live handler drops a `message:new` without text: the frame carries

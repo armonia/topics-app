@@ -487,7 +487,8 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
  * a mechanism whose pieces are scattered across it is one nobody re-reads. The
  * route keeps the ONE thing only it can give, which is itself: `useRoute` takes
  * the handler on the first request served, because a named function expression
- * is only in scope inside its own body.
+ * is only in scope inside its own body. Built by `routes/topics.ts`, not by
+ * the chat route: the Stop of a chat's background work and the boot need its handle.
  */
 export function goalContinuationForChatRoute(deps: {
   ctx: {

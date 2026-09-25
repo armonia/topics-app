@@ -12,6 +12,7 @@
  */
 import type { ContentBlock } from '../../types';
 import type { MachineStopCause } from '../../../../shared/types';
+import type { useT } from '../../hooks/useT';
 export type { MachineStopCause } from '../../../../shared/types';
 
 const MACHINE_KINDS = new Set(['goal-nudge', 'goal-stop', 'dispatched-envelope', 'machine-stop', 'background-notice']);
@@ -41,15 +42,31 @@ export function backgroundNoticeOf(blocks: readonly ContentBlock[] | undefined |
   return b && b.kind === 'background-notice' ? b : null;
 }
 
+const CLOSED_KEY = {
+  silent: 'background.notice.closed',
+  'stuck-turn': 'background.notice.closedWithTurn',
+  deadline: 'background.notice.closedDeadline',
+  superseded: 'background.notice.closedSuperseded',
+} as const;
+
+/** The notice's sentence: its own line (`BackgroundNoticeLine`) and the stop line that carries a closed one (`MachineStopLine`). */
+export function backgroundNoticeSentence(tr: ReturnType<typeof useT>, notice: BackgroundNoticeBlock): string {
+  return notice.event === 'closed'
+    ? tr(CLOSED_KEY[notice.why ?? 'silent'], { tasks: notice.tasks.join(', ') })
+    : tr(`background.notice.deferred.${notice.change}`);
+}
+
 /**
  * The chat's last word, past the background notices after it. A notice is a
  * service line written after a stop or a config change: read as the last
  * message it hid the cut turn under it, so neither «Retry» nor the interrupted
- * turn's banner came (second review of 25/09).
+ * turn's banner came (second review of 25/09). A machine's stop line that
+ * carries one is that stop's row, and IS the last word: it answers the envelope.
  */
 export function lastConversationMessage<M extends { blocks?: ContentBlock[] | null }>(messages: readonly M[]): M | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (!backgroundNoticeOf(messages[i].blocks)) return messages[i];
+    const blocks = messages[i].blocks;
+    if (!backgroundNoticeOf(blocks) || machineStopOf(blocks)) return messages[i];
   }
   return undefined;
 }

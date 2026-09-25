@@ -5,14 +5,7 @@
  */
 import { Layers } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import type { BackgroundNoticeBlock } from './machineRow';
-
-const CLOSED_KEY = {
-  silent: 'background.notice.closed',
-  'stuck-turn': 'background.notice.closedWithTurn',
-  deadline: 'background.notice.closedDeadline',
-  superseded: 'background.notice.closedSuperseded',
-} as const;
+import { backgroundNoticeSentence, type BackgroundNoticeBlock } from './machineRow';
 
 export function BackgroundNoticeLine({ notice }: { notice: BackgroundNoticeBlock }) {
   const tr = useT();
@@ -24,9 +17,7 @@ export function BackgroundNoticeLine({ notice }: { notice: BackgroundNoticeBlock
     >
       <Layers size={11} className="flex-shrink-0" />
       <span className="truncate" title={notice.event === 'closed' ? notice.tasks.join('\n') : undefined}>
-        {notice.event === 'closed'
-          ? tr(CLOSED_KEY[notice.why ?? 'silent'], { tasks: notice.tasks.join(', ') })
-          : tr(`background.notice.deferred.${notice.change}`)}
+        {backgroundNoticeSentence(tr, notice)}
       </span>
     </div>
   );

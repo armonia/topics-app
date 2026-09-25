@@ -289,7 +289,7 @@ export const MessageBubble = memo(function MessageBubble({
   // for a turn that redoes work already on main. One neutral line, no retry.
   // See server/lib/machine-stop-notice.ts.
   const machineStop = machineStopOf(msg.blocks);
-  if (machineStop) return <MachineStopLine cause={machineStop} />;
+  if (machineStop) return <MachineStopLine cause={machineStop} closed={backgroundNoticeOf(msg.blocks)} />;
 
   // What the chat's background work changed: a config change waiting for it,
   // or the work a clock closed. A service line (server/lib/background-notice.ts).

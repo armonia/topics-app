@@ -8,6 +8,8 @@ import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { backgroundNoticeOf, lastConversationMessage } from './machineRow';
 import { BackgroundNoticeLine } from './BackgroundNoticeLine';
+import { MachineStopLine } from './MachineStopLine';
+import { machineStopOf } from './machineRow';
 import { taskSessionSegments } from '../Board/taskSessionPresentation';
 import { decideMessageBanner } from '../../lib/notify/messageBanner';
 import type { ChatMessage } from '../../types';
@@ -23,6 +25,20 @@ describe('the background notice as a service line', () => {
   test('the chat\'s last word is the message before it, so an unanswered message still shows as one', () => {
     expect(lastConversationMessage([person, notice])).toBe(person);
     expect(lastConversationMessage([notice])).toBeUndefined();
+  });
+
+  test('a machine stop that closed the work is ONE row: the last word, drawn as one line with both', () => {
+    const envelope = { ...person, blocks: [{ kind: 'dispatched-envelope' }] } as unknown as ChatMessage;
+    const stop = {
+      ...notice, id: 's1',
+      blocks: [{ kind: 'machine-stop', cause: 'stall', text: 'Stopped' }, ...(notice.blocks ?? [])],
+    } as unknown as ChatMessage;
+    // It answers the envelope: no Retry for it.
+    expect(lastConversationMessage([envelope, stop])).toBe(stop);
+    const html = renderToStaticMarkup(<MachineStopLine cause={machineStopOf(stop.blocks)!} closed={backgroundNoticeOf(stop.blocks)} />);
+    expect(html.match(/data-testid="machine-stop-row"/g)?.length).toBe(1);
+    expect(html).toContain('data-cause="stall"');
+    expect(html).toContain('sleep 600');
   });
 
   test('it raises no OS banner', () => {

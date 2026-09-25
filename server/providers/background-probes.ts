@@ -66,6 +66,16 @@ export async function stopBackgroundWork(sessionKey: string, reason: AbortReason
   return "none";
 }
 
+/**
+ * The Stop route's answer when no turn is open but background work is, or null
+ * when there is none to stop. `onStopped`: a goal waiting for that work stops.
+ */
+export async function stopBackgroundOnly(sessionKey: string, reason: AbortReason, onStopped: () => void) {
+  const stopped = await stopBackgroundWork(sessionKey, reason);
+  if (stopped === "stopped") onStopped();
+  return stopped === "none" ? null : { ok: stopped === "stopped", reason: `background_${stopped}`, cleared: false };
+}
+
 /** Every session with background work, for the chat status that offers its Stop. */
 export function sessionsWithBackgroundWork(): string[] {
   const out: string[] = [];
@@ -74,6 +84,9 @@ export function sessionsWithBackgroundWork(): string[] {
   }
   return out;
 }
+
+/** A row of `/api/topics/streaming`: a reply in progress, one waiting for the person, or background work only. */
+export type StreamingStatusRow = { topicId: string; sessionKey: string; state: "streaming" | "waiting" | "background"; awaitingSince?: number };
 
 /**
  * The `/api/topics/streaming` rows for the sessions with no turn open but work
