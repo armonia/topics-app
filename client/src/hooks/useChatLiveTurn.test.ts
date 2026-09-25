@@ -430,7 +430,7 @@ describe('stream token rate wiring', () => {
  * A STOP THE MACHINE WANTED LEAVES NO INTERRUPTION BANNER, on screen or in the
  * cache a reload reads (fifth review of PR #135).
  *
- * After a land the amber «Turno interrotto» with Retry was false, and Retry
+ * After a land the amber interrupted-turn banner with Retry was false, and Retry
  * resent the envelope. The server now ends such a turn without a cause
  * (routes/chat.ts, and the abort route's own end); this pins what the page does
  * with that end. The watchdog's end is the control: the same path does draw
