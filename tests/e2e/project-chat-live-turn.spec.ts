@@ -326,17 +326,30 @@ test.describe("a chat inside a project pane shows the true state of its turn", (
    * the chunk was drawn twice, and the reconcile at the end was skipped as a
    * repeat within 5 s: the doubled chunk stayed until a refresh.
    */
-  test("the chat on screen, fast turns from outside: every chunk shows once", async ({ page }) => {
+  test("the chat on screen, fast turns from outside: every chunk shows once", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CCPROV-02" });
     test.setTimeout(180_000);
-    const sent = historyRequests(page, skA);
-    await openBoth(page, "P1");
-    const all = Array.from({ length: 150 }, (_, i) => i + 1);
-    for (let rep = 1; rep <= 6; rep++) {
-      await pastHistoryDedup(sent);
-      const tag = `f${rep}`;
-      await startTurn(skA, `FAST:150:20:${tag}`).done;
-      await expect.poll(() => chunksOf(page, a, tag), { timeout: 5_000, message: `turn ${rep}` }).toEqual(all);
+    // Its own chat: six turns of 150 chunks make a thread long enough that the
+    // virtualised list no longer draws its tail, and the tests after this one
+    // read the last bubble of theirs.
+    const d = (await createTopic(request, "Live fast", { projectPath: p1, provider: "claude-code" })).id;
+    try {
+      const skD = await sessionKeyOf(request, d);
+      await startTurn(skD, "warm up").done;
+      await seedLayout(request, p1, d, p2, b);
+      const sent = historyRequests(page, skD);
+      await goToApp(page);
+      await projectTab(page, p1).click();
+      await expect(page.locator(`[data-chat-topic-id="${d}"]`).first()).toBeVisible({ timeout: 20_000 });
+      const all = Array.from({ length: 150 }, (_, i) => i + 1);
+      for (let rep = 1; rep <= 6; rep++) {
+        await pastHistoryDedup(sent);
+        const tag = `f${rep}`;
+        await startTurn(skD, `FAST:150:20:${tag}`).done;
+        await expect.poll(() => chunksOf(page, d, tag), { timeout: 5_000, message: `turn ${rep}` }).toEqual(all);
+      }
+    } finally {
+      await deleteTopic(request, d).catch(() => {});
     }
   });
 
