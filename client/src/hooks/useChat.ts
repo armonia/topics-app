@@ -631,6 +631,10 @@ export function useChat() {
   const loadHistoryRef = useRef<((sk: string) => Promise<boolean>) | null>(null);
   // Track sessions with active local SSE streams (to avoid double content from WS broadcast)
   const localSSESessionsRef = useRef<Set<string>>(new Set());
+  // The turn's end reached this window while its own SSE held the session: the
+  // gate below swallows that frame, and a reply cut short must not relight on
+  // a history snapshot taken before it.
+  const endedDuringOwnSseRef = useRef<Set<string>>(new Set());
   // A late answer's opening flag whose chunk cleaned to nothing, by message id
   // (see `carryLateStart`).
   const pendingLateStartRef = useRef<Set<string>>(new Set());
@@ -1290,9 +1294,11 @@ export function useChat() {
     if (localSSESessionsRef.current.has(sessionKey) && !passaAncheAlMittente) {
       if (event.type === 'stream:end') {
         finishStreamTokenRate(sessionKey, event.usageCompletionTokens);
+        endedDuringOwnSseRef.current.add(sessionKey);
         scheduleSSEFailsafe(sessionKey);
       } else if (event.type === 'stream:error') {
         finishStreamTokenRate(sessionKey);
+        endedDuringOwnSseRef.current.add(sessionKey);
         scheduleSSEFailsafe(sessionKey);
       }
       return;
@@ -1831,7 +1837,10 @@ export function useChat() {
     let streamStarted = false; // Track if server received the request (don't re-queue if true)
     // The reply closed without [DONE] while the server still runs the turn (see the reload below).
     let liveAfterCut = false;
+    // ...or the reload's snapshot says so, but the turn ended or was stopped while it was in flight.
+    let staleSnapshot = false;
     localSSESessionsRef.current.add(sessionKey); // Block WS duplicates for this session
+    endedDuringOwnSseRef.current.delete(sessionKey);
     // Difesa in profondità: da qui parte un turno NUOVO, e il segnaposto lo conia
     // questa funzione con un id locale. Qualunque nome fosse rimasto appeso da un
     // turno precedente morto male è ormai il nome di una bolla morta, e le delta
@@ -2097,7 +2106,13 @@ export function useChat() {
         // No [DONE], and the server still has the turn in flight: what ended is
         // the response (a proxy, an idle timeout), not the turn. It stays lit and
         // the WS frames take over, named after the row it is writing.
-        liveAfterCut = !sawDone && historyResponse.isStreaming === true;
+        // Not if the turn's end already came through the gate above while the
+        // reload was in flight, or somebody pressed Stop: the snapshot predates
+        // both, and relighting on it kept a Stop up for ~25 s on a finished turn
+        // and brought a stopped one back.
+        const cutWhileLive = !sawDone && historyResponse.isStreaming === true;
+        staleSnapshot = cutWhileLive && (endedDuringOwnSseRef.current.has(sessionKey) || isQueueHeld(sessionKey));
+        liveAfterCut = cutWhileLive && !staleSnapshot;
         if (liveAfterCut && finalAssistant?.partial) streamMessageIdRef.current.begin(sessionKey, finalAssistant.id);
         else finishStreamTokenRate(sessionKey, finalAssistant?.usageCompletionTokens);
         hydratedSessionsRef.current.add(sessionKey);
@@ -2241,6 +2256,8 @@ export function useChat() {
         beginStreaming(sessionKey);
         resetStreamTimeout(sessionKey);
       }
+      // The rows on screen are that snapshot: read them again now the SSE is gone.
+      if (staleSnapshot) void loadHistoryRef.current?.(sessionKey);
     }
   }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, resetStreamTimeout]);
 
