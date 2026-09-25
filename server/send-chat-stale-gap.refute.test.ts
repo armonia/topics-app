@@ -1,11 +1,11 @@
 /**
  * @covers CHAT-STREAM-01
- * PREMISE, on the real code: a live turn inside a silent tool drops out of
- * GET /api/topics/streaming once its lastActivity is > 3 min old, while its row
- * is still partial with half a reply, and the real messages route serves that
- * half. This is exactly what awaitTurnEndAndReadReply read as "turn over" at
- * df9b2fd2e; since round 3 it reads the row by id and never the registry's
- * absence, so this test stays as the premise.
+ * A live turn inside a silent tool, on the real code: its row is partial with
+ * half a reply, and the real messages route serves that half. Until a06ff505 it
+ * also dropped out of GET /api/topics/streaming once its lastActivity was over
+ * 3 min old, which is what awaitTurnEndAndReadReply read as "turn over" at
+ * df9b2fd2e. Now the registry keeps it until the sweep ends it, and the reader
+ * reads the row by id anyway.
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";
@@ -43,7 +43,7 @@ afterAll(() => {
 });
 
 describe("stale gap on the real registry + routes", () => {
-  test("live turn, silent tool 181 s: /api/topics/streaming omits it, /messages serves the half", async () => {
+  test("live turn, silent tool 181 s: /api/topics/streaming lists it, /messages serves the half", async () => {
     ctx.appendLocalMessage(SK, "user", "ping");
     const partial = ctx.createPartialMessage(SK, "assistant");
     ctx.startStream(SK, partial.id, new AbortController(), true);
@@ -53,7 +53,7 @@ describe("stale gap on the real registry + routes", () => {
     ctx.activeStreams.get(SK)!.lastActivity = new Date(Date.now() - 181_000).toISOString();
 
     expect(ctx.activeStreams.has(SK)).toBe(true);        // turn still registered (alive)
-    expect(ctx.isStreaming(SK)).toBeUndefined();          // ...but "not streaming"
+    expect(ctx.isStreaming(SK)).toBeDefined();            // and streaming: silence is not death
 
     const router = createTopicsRouter(ctx);
     const get = async (p: string) => {
@@ -63,7 +63,7 @@ describe("stale gap on the real registry + routes", () => {
     };
     const streaming = await get("/api/topics/streaming");
     console.log("streaming =", JSON.stringify(streaming));
-    expect(streaming.sessions.find((s: any) => s.sessionKey === SK)).toBeUndefined();
+    expect(streaming.sessions.find((s: any) => s.sessionKey === SK)).toBeDefined();
 
     const msgs = await get(`/api/topics/${TID}/messages?limit=50`);
     const last = msgs.messages[msgs.messages.length - 1];
@@ -83,6 +83,6 @@ describe("stale gap on the real registry + routes", () => {
     } as never);
     console.log("sweep outcome =", outcomes.get(SK));
     expect(["rescued", "extended"]).toContain(outcomes.get(SK) as string);
-    expect(ctx.isStreaming(SK)).toBeDefined(); // back in the list after the tick: the gap was only a gap
+    expect(ctx.isStreaming(SK)).toBeDefined(); // still listed after the tick
   });
 });

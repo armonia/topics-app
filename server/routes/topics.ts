@@ -476,7 +476,7 @@ export function createTopicsRouter(
     loadUnread, saveUnread,
     loadLocalMessages, countMessagesBySession, saveLocalMessages, appendLocalMessage,
     updateLastMessage, updateToolCallFields, discardIfEmptyTurn,
-    endStream, isStreaming,
+    endStream,
     readJSON, json, matchRoute, errorResponse, slugify,
     searchTranscripts,
     activeStreams,
@@ -1095,7 +1095,7 @@ export function createTopicsRouter(
     // (useSignalsSync) polls this so a chat that was mid-reply when the page
     // (re)loaded shows its spinner even before its window mounts — the live WS
     // stream only drives the foreground session. Sourced from the authoritative
-    // in-memory activeStreams registry (isStreaming auto-expires stale entries),
+    // in-memory activeStreams registry (an entry lives until the sweep ends it),
     // NOT the DB `partial` flag which a crashed stream can leave set forever.
     // Replaces the route lost when Master was removed: the old client path
     // /api/topics/master/sessions 404'd, so hydration silently never fired.
@@ -1123,9 +1123,6 @@ export function createTopicsRouter(
         awaitingSince?: number;
       }[] = [];
       for (const sessionKey of activeStreams.keys()) {
-        // `isStreaming` is the staleness gate; it never deletes from the Map,
-        // the sweeper in server.ts owns that.
-        if (!isStreaming(sessionKey)) continue;
         const topic = getTopicBySessionKey(sessionKey);
         if (!topic?.sessionKey) continue;
         let awaitingSince: number | null = null;

@@ -587,6 +587,13 @@ export interface WSStreamResumedMessage {
   sessionKey: string;
   topicId?: string;
 }
+/** The server's stale-stream sweep asked this turn's child, and it is alive. */
+export interface WSStreamAliveMessage {
+  type: 'stream:alive';
+  sessionKey: string;
+  topicId?: string;
+  messageId: string;
+}
 /**
  * The provider's API call failed transiently (overload, 5xx, dropped
  * connection, token renewal) and the turn is waiting to try it again.
@@ -1183,6 +1190,7 @@ export type WSMessage =
   | WSStreamUsageMessage
   | WSStreamSlowMessage
   | WSStreamResumedMessage
+  | WSStreamAliveMessage
   | WSStreamRetryMessage
   | WSStreamErrorMessage
   | WSStreamCompactionMessage
