@@ -1,5 +1,63 @@
 [
   {
+    "version": "2.2.393",
+    "date": "2026-09-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "an empty turn the machine stopped must not offer Riprova after a reload",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "An empty turn the machine stopped leaves one service row, so Riprova is never offered for it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The machine-stop block carries its sentence, so an older client prints it instead of breaking the pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The stop line stays a card's, is never adopted by a reattach, and reads right on every surface",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The stop line is written by the lib, which keeps topics.ts under its size ceiling",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The stop line is decided by the envelope the turn answered, not by the card binding",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A verbatim resend of the dispatcher's envelope keeps its mark",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-25 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "MachineStopCause is declared once, in shared, and both sides re-export it",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.392",
     "date": "2026-09-25",
     "sections": {

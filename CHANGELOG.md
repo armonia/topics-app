@@ -2,6 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.393 — 2026-09-25
+
+### Sotto il cofano
+- an empty turn the machine stopped must not offer Riprova after a reload
+- An empty turn the machine stopped leaves one service row, so Riprova is never offered for it
+- The machine-stop block carries its sentence, so an older client prints it instead of breaking the pane
+- The stop line stays a card's, is never adopted by a reattach, and reads right on every surface
+- The stop line is written by the lib, which keeps topics.ts under its size ceiling
+- The stop line is decided by the envelope the turn answered, not by the card binding
+- A verbatim resend of the dispatcher's envelope keeps its mark
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-25 [skip ci]
+- MachineStopCause is declared once, in shared, and both sides re-export it
+
 ## 2.2.392 — 2026-09-25
 
 ### Sotto il cofano
