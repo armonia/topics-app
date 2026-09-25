@@ -21,6 +21,8 @@ import type { ContentBlock } from "../../shared/types";
 import type { AppContext } from "../types";
 
 export type BackgroundNotice = Extract<ContentBlock, { kind: "background-notice" }>;
+/** A notice before its sentence is written in (`text`, for older clients). */
+export type BackgroundNoticeFacts = BackgroundNotice extends infer N ? (N extends BackgroundNotice ? Omit<N, "text"> : never) : never;
 type NoticeCtx = Pick<AppContext, "appendLocalMessage" | "broadcastToAll" | "isStreaming">;
 
 /**
@@ -30,7 +32,7 @@ type NoticeCtx = Pick<AppContext, "appendLocalMessage" | "broadcastToAll" | "isS
  */
 export const BACKGROUND_NOTICE_PREFIX = "Background work:";
 
-export function backgroundNoticeText(n: BackgroundNotice): string {
+export function backgroundNoticeText(n: BackgroundNoticeFacts): string {
   if (n.event === "closed") {
     const why = n.why === "stuck-turn" ? "with a turn that was stuck" : "after two hours without news of it";
     return `${BACKGROUND_NOTICE_PREFIX} closed ${why}: ${n.tasks.join("; ")}.`;
@@ -71,15 +73,16 @@ const NOTICE_WAIT_CAP_MS = 30 * 60_000;
 export function postBackgroundNotice(
   ctx: NoticeCtx,
   target: { sessionKey: string; topicId: string },
-  notice: BackgroundNotice,
+  facts: BackgroundNoticeFacts,
   waitedMs = 0,
 ): void {
   if (ctx.isStreaming(target.sessionKey) && waitedMs < NOTICE_WAIT_CAP_MS) {
-    const t = setTimeout(() => postBackgroundNotice(ctx, target, notice, waitedMs + 500), 500);
+    const t = setTimeout(() => postBackgroundNotice(ctx, target, facts, waitedMs + 500), 500);
     (t as { unref?: () => void }).unref?.();
     return;
   }
-  const text = backgroundNoticeText(notice);
+  const text = backgroundNoticeText(facts);
+  const notice = { ...facts, text } as BackgroundNotice;
   try {
     const row = ctx.appendLocalMessage(target.sessionKey, "assistant", text, undefined, [notice]);
     ctx.broadcastToAll({

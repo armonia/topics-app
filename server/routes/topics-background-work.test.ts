@@ -89,7 +89,7 @@ describe("a config change against a chat's background work", () => {
     try {
       expect((await h.patch({ autonomyLevel: "ask" })).status).toBe(200);
       expect(h.killed.n).toBe(0);
-      expect(h.notices()).toEqual([{ kind: "background-notice", event: "deferred", change: "autonomy" }]);
+      expect(h.notices()).toEqual([expect.objectContaining({ kind: "background-notice", event: "deferred", change: "autonomy", text: expect.stringContaining("autonomy change") })]);
       // The work ends: the next change the child cannot take is applied at once.
       h.workOver();
       expect((await h.patch({ autonomyLevel: "auto-apply" })).status).toBe(200);
@@ -105,7 +105,7 @@ describe("a config change against a chat's background work", () => {
     try {
       await h.patch({ autonomyLevel: "auto-apply" });
       expect(h.killed.n).toBe(0);
-      expect(h.notices()).toEqual([{ kind: "background-notice", event: "deferred", change: "autonomy" }]);
+      expect(h.notices()).toEqual([expect.objectContaining({ kind: "background-notice", event: "deferred", change: "autonomy", text: expect.stringContaining("autonomy change") })]);
       // auto-apply to yolo: the permission bridge frees the session live.
       await h.patch({ autonomyLevel: "yolo" });
       expect(h.killed.n).toBe(0);
@@ -207,7 +207,7 @@ describe("the Stop of a chat whose turn is closed and whose work still runs", ()
       for (let i = 0; i < 40 && h.notices().length === 0; i++) await new Promise((r) => setTimeout(r, 100));
       const rows = h.ctx.db.prepare(`SELECT id, parent_id FROM messages WHERE session_key = ? ORDER BY sort_order`).all(h.sessionKey) as Array<{ id: string; parent_id: string | null }>;
       expect(rows.some((r) => r.id === placeholder.id)).toBe(false);
-      expect(h.notices()).toEqual([expect.objectContaining({ event: "closed", why: "silent" })]);
+      expect(h.notices()).toEqual([expect.objectContaining({ event: "closed", why: "silent", text: expect.stringContaining("closed after two hours") })]);
     } finally {
       ClaudeCodeProvider.observeBackgroundClosed(() => {});
       removeProvider("claude-code");
