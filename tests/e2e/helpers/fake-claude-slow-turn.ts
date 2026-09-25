@@ -17,6 +17,9 @@
  *   "FAST:<n>:<ms>:<tag>"  n text chunks `<tag>-001 ` .. `<tag>-NNN `, <ms>
  *                      apart: the token rate of a CLI that sends one token at
  *                      a time, faster than the window's animation frame.
+ *   "SILENT:<ms>"      nothing for <ms>, then "late": a turn stopped before it
+ *                      says anything leaves an empty row, which the server
+ *                      deletes at the end.
  *   anything else      "ok", at once.
  *
  * `--version` answers and exits 0; a one-shot (`--output-format json`, the
@@ -122,7 +125,12 @@ if (flag("--output-format") === "json") {
         const tool = /TOOLTURN:(\d+)/.exec(asked);
         const slow = /SLOW:(\d+):([A-Za-z0-9]+)/.exec(asked);
         const fast = /FAST:(\d+):(\d+):([A-Za-z0-9]+)/.exec(asked);
-        if (tool) await toolTurn(Number(tool[1]));
+        const silent = /SILENT:(\d+)/.exec(asked);
+        if (silent) {
+          await sleep(Number(silent[1]));
+          text("late");
+          result("late");
+        } else if (tool) await toolTurn(Number(tool[1]));
         else if (fast) await fastTurn(Number(fast[1]), Number(fast[2]), fast[3]!);
         else if (slow) await slowTurn(Number(slow[1]), slow[2]!);
         else {

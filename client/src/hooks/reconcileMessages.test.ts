@@ -154,6 +154,20 @@ describe('mergeFetchedHistory — un turno solo, non due', () => {
     expect(mergeFetchedHistory(existing, fetched)).toBe(fetched);
   });
 
+  it('a partial row the server named and no longer has is not kept: the server deleted it', () => {
+    // An empty turn stopped before it said anything: the server deletes its
+    // row, and an answer read before the delete put it back here.
+    const existing = [utente('u1', 'vai'), msg('srv-ok', 'ok'), utente('u2', 'altro'), parziale('srv-ghost', '')];
+    const fetched = [utente('u1', 'vai'), msg('srv-ok', 'ok'), utente('u2', 'altro')];
+    expect(mergeFetchedHistory(existing, fetched).map((m) => m.id)).toEqual(['u1', 'srv-ok', 'u2']);
+  });
+
+  it('the row of the turn streaming here stays, even when the read is older than it', () => {
+    const existing = [utente('u1', 'vai'), parziale('srv-live', 'sto')];
+    const fetched = [utente('u1', 'vai')];
+    expect(mergeFetchedHistory(existing, fetched, { liveRowId: 'srv-live' }).map((m) => m.id)).toEqual(['u1', 'srv-live']);
+  });
+
   it('a local bubble that does not start with the server text is replaced by it', () => {
     // The bubble built from the live chunks alone, without the start: the
     // server's copy is the one that holds the turn from its first word.

@@ -656,6 +656,10 @@ export function useChat() {
   // history answer read before an end that arrived while it was in flight
   // carries the turn as still running: `loadHistory` compares the two counts.
   const turnEndsRef = useRef<Map<string, number>>(new Map());
+  // Rows the server DELETED at a turn end (`stream:end.discardedMessageId`):
+  // an empty turn that was stopped, or woken with nothing to say. An answer
+  // read before the delete still carries them, and they must not come back.
+  const discardedRowsRef = useRef<Map<string, Set<string>>>(new Map());
   const HISTORY_DEDUP_MS = 5_000;
   // Per-session cache of the context-filtered message view. getSessionMessages is
   // called in the render body of EVERY mounted ChatPane (StandaloneChatGroup keeps
@@ -1617,7 +1621,11 @@ export function useChat() {
         // server ha CANCELLATO la riga, non finalizzata. Toglierla anche qui, o
         // questa finestra resta con una bolla vuota che il DB non ha più (e che
         // sparirebbe solo al reload).
-        if (event.discardedMessageId) dropEmptyTurn(sessionKey, event.discardedMessageId);
+        if (event.discardedMessageId) {
+          dropEmptyTurn(sessionKey, event.discardedMessageId);
+          const gone = discardedRowsRef.current.get(sessionKey) ?? new Set<string>();
+          discardedRowsRef.current.set(sessionKey, gone.add(event.discardedMessageId));
+        }
         // Strip any remaining browser markers (handles split-across-chunks case)
         //
         // La scrittura in cache sta FUORI dall'updater. Un updater di `setState`
@@ -2620,8 +2628,12 @@ export function useChat() {
       const wholeThread = response.messages.length >= total;
       const boundaryId = wholeThread ? null : (response.messages[0]?.id ?? null);
 
+      const discarded = discardedRowsRef.current.get(sessionKey);
+      // An answer read after the deletes no longer has those rows: the list
+      // has done its job. One read before them still does, and drops them here.
+      if (!endedMeanwhile) discardedRowsRef.current.delete(sessionKey);
       const chatMessages: ChatMessage[] = response.messages
-        .filter(msg => !isContextMessage(msg.content))
+        .filter(msg => !isContextMessage(msg.content) && !(msg.id && discarded?.has(msg.id)))
         .map(msg => ({
           ...msg,
           id: msg.id || generateMessageId(),
@@ -2647,9 +2659,10 @@ export function useChat() {
       flushLiveDeltas(sessionKey);
       setMessages(prev => {
         const existing = prev[sessionKey] || [];
+        const mergeOpts = { endedMeanwhile, liveRowId: streamMessageIdRef.current.get(sessionKey) };
         const merged = wholeThread
-          ? mergeFetchedHistory(existing, chatMessages, { endedMeanwhile })
-          : mergeHistoryPage(existing, chatMessages, { endedMeanwhile });
+          ? mergeFetchedHistory(existing, chatMessages, mergeOpts)
+          : mergeHistoryPage(existing, chatMessages, mergeOpts);
         // La storia che arriva è quasi sempre quella che è già a schermo: se lo
         // è, questa riga restituisce l'array PRECEDENTE e React salta il render
         // — niente ri-misura delle altezze, niente lista che si ri-assembla

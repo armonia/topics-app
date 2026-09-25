@@ -101,6 +101,8 @@ export interface MergeHistoryOptions {
    * the end closed here.
    */
   endedMeanwhile?: boolean;
+  /** The row of the turn streaming into this window now, if any. */
+  liveRowId?: string;
 }
 
 export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessage[], opts: MergeHistoryOptions = {}): ChatMessage[] {
@@ -136,6 +138,11 @@ export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessag
   const localOnly = existing.filter((m) => {
     if (!m.id || fetchedIds.has(m.id)) return false;
     if (codaInVolo && m.role === 'assistant' && m.partial === true) return false;
+    // A partial row the SERVER named, which the server no longer has, is a row
+    // it deleted: an empty turn stopped or woken with nothing to say. Kept, it
+    // was a bubble with a spinner and a locked composer until a reload. Not
+    // the row of the turn streaming here: it can be younger than the read.
+    if (m.role === 'assistant' && m.partial === true && !isClientGeneratedMessageId(m.id) && m.id !== opts.liveRowId) return false;
     if (isClientGeneratedMessageId(m.id)) {
       const k = echoKey(m);
       const disponibili = k ? echiDisponibili.get(k) ?? 0 : 0;

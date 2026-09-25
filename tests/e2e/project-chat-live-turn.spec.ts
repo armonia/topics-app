@@ -379,6 +379,54 @@ test.describe("a chat inside a project pane shows the true state of its turn", (
     await expectClosedTurn(page, app, answers, ["blip-01", "blip-02", "blip-03", "blip-04", "blip-05", "blip-06"]);
   });
 
+  /**
+   * A turn stopped before it said anything, with a history read in flight: no
+   * bubble is left behind. The server deletes an empty turn's row at its end
+   * (`stream:end.discardedMessageId`), and an answer read before the delete
+   * brought it back as a bubble with a spinner and a locked composer, until a
+   * reload. Its own chat: the fake CLI of the silent turn is still asleep when
+   * the test ends, and would hold up the next turn of a shared one.
+   */
+  test("a turn stopped before it said anything, a read in flight: no bubble left behind", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CCPROV-02" });
+    const c = (await createTopic(request, "Live silent", { projectPath: p1, provider: "claude-code" })).id;
+    try {
+      const skC = await sessionKeyOf(request, c);
+      await startTurn(skC, "warm up").done;
+      await seedLayout(request, p1, c, p2, b);
+      const sent = historyRequests(page, skC);
+      const app = await proxyAppSocket(page, skC);
+      const answers = holdHistoryUntil(page, skC, () => app.saw("stream:end"));
+      await goToApp(page);
+      await projectTab(page, p1).click();
+      await expect(page.locator(`[data-chat-topic-id="${c}"]`).first()).toBeVisible({ timeout: 20_000 });
+      await pastHistoryDedup(sent);
+      startTurn(skC, "SILENT:30000");
+      await expect.poll(() => app.saw("stream:start"), { timeout: 20_000 }).toBe(true);
+      answers.arm();
+      const opens = app.state.opens;
+      await app.cut();
+      app.state.refuse = false;
+      await expect.poll(() => app.state.opens, { timeout: 20_000, message: "the socket comes back" }).toBeGreaterThan(opens);
+      await expect.poll(() => answers.state.held, { timeout: 15_000, message: "the reconnect reads the history" }).toBeGreaterThan(0);
+      const stop = await fetch(`${E2E_BASE}/api/chat/abort`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+        body: JSON.stringify({ sessionKey: skC }),
+      });
+      expect(stop.ok, "the turn is stopped").toBeTruthy();
+      await expect.poll(() => app.saw("stream:end"), { timeout: 20_000 }).toBe(true);
+      await expect.poll(() => answers.state.delivered === answers.state.held, { timeout: 15_000 }).toBe(true);
+      const rows = ((await (await request.get(`${E2E_BASE}/api/topics/${c}/messages?limit=50`)).json()) as { messages: { role: string }[] })
+        .messages.filter((m) => m.role === "assistant").length;
+      const bubbles = () => page.locator(`[data-chat-topic-id="${c}"] [data-testid="chat-message"][data-role="assistant"]`).count();
+      await expect.poll(bubbles, { timeout: 5_000, message: "one bubble per assistant row of the database" }).toBe(rows);
+      await expect.poll(() => busy(page, c), { timeout: 5_000, message: "no turn running on screen" }).toBe(false);
+    } finally {
+      await deleteTopic(request, c).catch(() => {});
+    }
+  });
+
   test("the socket is down when the turn ends: its return reloads the chat", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "CCPROV-02" });
     const app = await proxyAppSocket(page, skA);
