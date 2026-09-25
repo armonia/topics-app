@@ -707,7 +707,7 @@ function App() {
     isPinnedRef,
     onWSMessage, sendWS, windowId,
     chatStreamHandlers: {
-      isOwnStream, getSessionMessages, addMessageFromWS, clearSession,
+      isOwnStream, isSessionStreaming, getSessionMessages, addMessageFromWS, clearSession,
       loadHistory, appendMediaToLastAssistant, sendMessage, drainQueue,
     },
     setSidebarCollapsed,

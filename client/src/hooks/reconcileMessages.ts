@@ -94,7 +94,16 @@ export function sameChatMessage(a: ChatMessage, b: ChatMessage): boolean {
  * che il server ancora non conosce) la seconda resta a schermo. Nascondere un
  * messaggio che c'è sarebbe un difetto peggiore di mostrarne uno di troppo.
  */
-export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessage[]): ChatMessage[] {
+export interface MergeHistoryOptions {
+  /**
+   * A turn of this session ended in this window while the answer was in
+   * flight: the answer's partial copy of that turn is older than the bubble
+   * the end closed here.
+   */
+  endedMeanwhile?: boolean;
+}
+
+export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessage[], opts: MergeHistoryOptions = {}): ChatMessage[] {
   if (existing.length === 0) return fetched;
   const fetchedIds = new Set<string>();
   for (const m of fetched) if (m.id) fetchedIds.add(m.id);
@@ -119,8 +128,9 @@ export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessag
   // the answer arrived. Replacing the bubble with the older snapshot dropped
   // those chunks, and the ones after were appended to it: a hole in the
   // middle of the turn (card 423e016f). The local copy of the SAME row wins
-  // when it extends the server's text from its first character.
-  const liveAhead = codaInVolo ? localAheadOf(existing, coda) : null;
+  // when it extends the server's text from its first character, or when the
+  // turn ended here while the answer was in flight and the end closed it.
+  const liveAhead = codaInVolo ? localAheadOf(existing, coda, opts.endedMeanwhile === true) : null;
   const base = liveAhead ? [...fetched.slice(0, -1), liveAhead] : fetched;
 
   const localOnly = existing.filter((m) => {
@@ -140,16 +150,22 @@ export function mergeFetchedHistory(existing: ChatMessage[], fetched: ChatMessag
 }
 
 /**
- * The local copy of the server's live tail, when it is AHEAD of it: same row
- * id, still partial, and a text that starts with the server's and goes
+ * The local copy of the server's live tail, when it is NEWER than it: same row
+ * id, and either closed by an end that came while the answer was in flight,
+ * or still partial with a text that starts with the server's and goes
  * further. Null otherwise, and then the server's copy is the truth: a local
  * bubble built from the live chunks alone does not start with the server's
  * text, and that is exactly the one to replace.
+ *
+ * A closed bubble wins only on an answer older than an end seen HERE: a
+ * bubble closed for another reason (the stream watchdog, a frame lost) is not
+ * evidence that the server's partial row is stale.
  */
-function localAheadOf(existing: ChatMessage[], serverTail: ChatMessage): ChatMessage | null {
+function localAheadOf(existing: ChatMessage[], serverTail: ChatMessage, endedMeanwhile: boolean): ChatMessage | null {
   if (!serverTail.id) return null;
   const local = existing.find((m) => m.id === serverTail.id);
-  if (!local || local.role !== 'assistant' || local.partial !== true) return null;
+  if (!local || local.role !== 'assistant') return null;
+  if (local.partial !== true) return endedMeanwhile ? local : null;
   const mine = local.content ?? '';
   const theirs = serverTail.content ?? '';
   if (!(mine.length > theirs.length && mine.startsWith(theirs))) return null;

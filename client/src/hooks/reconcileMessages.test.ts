@@ -139,6 +139,21 @@ describe('mergeFetchedHistory — un turno solo, non due', () => {
     expect(tail.blocks).toEqual([{ kind: 'woken' }, { kind: 'text', text: 'abc' }] as never);
   });
 
+  it('an answer read before a turn end seen here does not reopen the bubble the end closed', () => {
+    const existing = [utente('u1', 'vai'), msg('srv-live', 'c-01 c-02 c-03 ')];
+    const fetched = [utente('u1', 'vai'), parziale('srv-live', 'c-01 c-02 ')];
+    const tail = mergeFetchedHistory(existing, fetched, { endedMeanwhile: true }).at(-1)!;
+    expect(tail.partial).not.toBe(true);
+    expect(tail.content).toBe('c-01 c-02 c-03 ');
+  });
+
+  it('a bubble closed with no end seen during the read gives way to the server partial row', () => {
+    // Closed by the stream watchdog, say, while the server still streams.
+    const existing = [utente('u1', 'vai'), msg('srv-live', 'c-01 ')];
+    const fetched = [utente('u1', 'vai'), parziale('srv-live', 'c-01 c-02 ')];
+    expect(mergeFetchedHistory(existing, fetched)).toBe(fetched);
+  });
+
   it('a local bubble that does not start with the server text is replaced by it', () => {
     // The bubble built from the live chunks alone, without the start: the
     // server's copy is the one that holds the turn from its first word.

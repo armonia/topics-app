@@ -27,6 +27,8 @@ import type { SendMessageOptions } from '@/hooks/useChat';
  */
 export interface ChatStreamHandlers {
   isOwnStream: (sessionKey: string) => boolean;
+  /** A turn of this session is streaming into this window right now. */
+  isSessionStreaming: (sessionKey: string) => boolean;
   getSessionMessages: (sessionKey: string) => ChatMessage[];
   addMessageFromWS: (
     sessionKey: string,

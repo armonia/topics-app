@@ -1215,6 +1215,13 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         if (pending) clearTimeout(pending);
         timers.set(t.sessionKey, setTimeout(() => {
           timers.delete(t.sessionKey);
+          // Not while the turn streams into this window: its frames keep the
+          // chat in sync, and a snapshot read in the middle of the turn held
+          // the chunk still buffered for the next frame, drawn then twice.
+          // Checked when the timer fires, not when the frame came: the
+          // `topic:updated` that opens a turn arrives before its
+          // `stream:start`, the one that closes it after its `stream:end`.
+          if (chatHandlersRef.current.isSessionStreaming(t.sessionKey)) return;
           chatHandlersRef.current.loadHistory(t.sessionKey);
         }, 400));
       }

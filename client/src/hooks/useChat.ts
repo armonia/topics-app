@@ -652,6 +652,10 @@ export function useChat() {
   // can fire two concurrent fetches for the same session in one tick. This
   // collapses those onto one request.
   const inFlightHistoryRef = useRef<Set<string>>(new Set());
+  // How many turns of each session ended in this window (`stream:end`). A
+  // history answer read before an end that arrived while it was in flight
+  // carries the turn as still running: `loadHistory` compares the two counts.
+  const turnEndsRef = useRef<Map<string, number>>(new Map());
   const HISTORY_DEDUP_MS = 5_000;
   // Per-session cache of the context-filtered message view. getSessionMessages is
   // called in the render body of EVERY mounted ChatPane (StandaloneChatGroup keeps
@@ -1604,6 +1608,7 @@ export function useChat() {
         break;
 
       case 'stream:end':
+        turnEndsRef.current.set(sessionKey, (turnEndsRef.current.get(sessionKey) ?? 0) + 1);
         finishStreamTokenRate(sessionKey, event.usageCompletionTokens);
         clearStreamTimeout(sessionKey); // Clear watchdog
         setStreaming(prev => ({ ...prev, [sessionKey]: false }));
@@ -2585,6 +2590,7 @@ export function useChat() {
     // Collapse concurrent callers onto the in-flight request.
     if (inFlightHistoryRef.current.has(sessionKey)) return true;
     inFlightHistoryRef.current.add(sessionKey);
+    let endedMeanwhile = false;
 
     try {
       setError(prev => (prev[sessionKey] == null ? prev : { ...prev, [sessionKey]: null }));
@@ -2598,7 +2604,15 @@ export function useChat() {
       // chats (200 KB-2.6 MB each). A page of the last HISTORY_FIRST_PAGE rows
       // answers in tens of milliseconds; the rest is fetched by
       // `completeHistory`, only while nobody is looking at the list.
+      const endsBefore = turnEndsRef.current.get(sessionKey) ?? 0;
       const response = await chatApi.getHistory(sessionKey, { limit: HISTORY_FIRST_PAGE });
+      // A turn ended while this answer was in flight: it describes that turn
+      // as still running. Applied as it is, it brought the spinner back for
+      // good over the closed bubble (the reconcile at the end found this
+      // request in flight and skipped). Its rows are merged, the closed bubble
+      // wins over their partial copy (`mergeFetchedHistory`), and the history
+      // is read again once this request is out of the way.
+      endedMeanwhile = (turnEndsRef.current.get(sessionKey) ?? 0) !== endsBefore;
       // Fewer rows than the thread has: what came is a page, not the story.
       // Compared BEFORE the context-message filter below, which is client-side
       // and would otherwise make a complete thread look short.
@@ -2627,9 +2641,15 @@ export function useChat() {
       // local-only messages whose id isn't in the fetched set. A PAGE merges
       // around its pivot instead, so the local copy's rows older than the page
       // keep their place at the front (`mergeHistoryPage`).
+      // The chunks still buffered for the next frame go in first: a snapshot
+      // that already holds them would otherwise get them appended a second
+      // time when the frame comes.
+      flushLiveDeltas(sessionKey);
       setMessages(prev => {
         const existing = prev[sessionKey] || [];
-        const merged = wholeThread ? mergeFetchedHistory(existing, chatMessages) : mergeHistoryPage(existing, chatMessages);
+        const merged = wholeThread
+          ? mergeFetchedHistory(existing, chatMessages, { endedMeanwhile })
+          : mergeHistoryPage(existing, chatMessages, { endedMeanwhile });
         // La storia che arriva è quasi sempre quella che è già a schermo: se lo
         // è, questa riga restituisce l'array PRECEDENTE e React salta il render
         // — niente ri-misura delle altezze, niente lista che si ri-assembla
@@ -2657,8 +2677,9 @@ export function useChat() {
       // stops being true here (see `state/historyFromCache.ts`).
       clearHistoryFromCache(sessionKey);
       // Mark this session as freshly loaded — subsequent re-mounts within
-      // HISTORY_DEDUP_MS will short-circuit instead of re-fetching.
-      lastHistoryFetchAtRef.current.set(sessionKey, Date.now());
+      // HISTORY_DEDUP_MS will short-circuit instead of re-fetching. Not an
+      // answer older than a turn end: the read again must not be skipped.
+      if (!endedMeanwhile) lastHistoryFetchAtRef.current.set(sessionKey, Date.now());
       // The local messages map for this session is now backed by the
       // server's authoritative response; `stopSession` may rely on its
       // count to decide whether this is a brand-new chat that can be
@@ -2672,7 +2693,9 @@ export function useChat() {
       }
 
       // Restore streaming state from server (for cross-device sync)
-      if (response.isStreaming) {
+      if (endedMeanwhile) {
+        // Neither lit nor drained: the answer is older than the end.
+      } else if (response.isStreaming) {
         beginStreaming(sessionKey);
         if (response.streamState?.isThinking) {
           setThinking(prev => ({ ...prev, [sessionKey]: true }));
@@ -2732,8 +2755,9 @@ export function useChat() {
     } finally {
       inFlightHistoryRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
+      if (endedMeanwhile) void loadHistoryRef.current?.(sessionKey);
     }
-  }, [resetStreamTimeout, beginStreaming]);
+  }, [resetStreamTimeout, beginStreaming, flushLiveDeltas]);
 
   useEffect(() => { loadHistoryRef.current = loadHistory; }, [loadHistory]);
 
