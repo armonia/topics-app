@@ -226,6 +226,10 @@ describe("a closed turn writes on no row but its own", () => {
     expect(lateFrames.length).toBeGreaterThan(0);
     expect(lateFrames.every((m) => m.messageId === turnRowId)).toBe(true);
     expect(h.sent.some((m) => m.type === "stream:tool_call" && m.late === true && m.messageId === turnRowId)).toBe(true);
+    // The first late words say they open the late answer, so the client puts
+    // the same blank line under the cut as the row has; only the first.
+    const lateText = h.sent.filter((m) => m.type === "stream:content_chunk" && m.late === true);
+    expect(lateText.map((m) => m.lateStart === true)).toEqual(lateText.map((_, i) => i === 0));
   });
 
   test("the message a late answer answered is not resent: the sweep reads the answer under the cut", async () => {

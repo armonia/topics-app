@@ -494,6 +494,8 @@ export interface WSStreamThinkingStartMessage {
 export interface WSFrameRow {
   messageId?: string;
   late?: true;
+  /** The first words of a late answer: they open a paragraph and a block of their own. */
+  lateStart?: true;
 }
 export interface WSStreamThinkingChunkMessage extends WSFrameRow {
   type: 'stream:thinking_chunk';

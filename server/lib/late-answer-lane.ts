@@ -102,9 +102,11 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
   };
 
   // The first late text opens a paragraph and a block of its own: glued to
-  // the text above the cut, two answers read as one.
+  // the text above the cut, two answers read as one. Its frame says so
+  // (`lateStart`), and the client opens the same paragraph.
   const appendText = (text: string) => {
-    if (!lateText) {
+    const first = !lateText;
+    if (first) {
       const above = opts.content.get();
       opts.content.set(above.trim() ? `${above}\n\n` : "");
       opts.blocks.push({ kind: "text", text: "" });
@@ -112,17 +114,16 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
     lateText += text;
     opts.content.set(opts.content.get() + text);
     opts.appendTextBlock(text);
+    broadcastChunk("stream:content_chunk", text, first);
   };
-  const broadcastChunk = (type: "stream:content_chunk" | "stream:thinking_chunk", content: string) =>
-    opts.broadcast({ type, sessionKey, topicId: opts.topicId, content, messageId: opts.rowId(), late: true });
+  const broadcastChunk = (type: "stream:content_chunk" | "stream:thinking_chunk", content: string, lateStart = false) =>
+    opts.broadcast({ type, sessionKey, topicId: opts.topicId, content, messageId: opts.rowId(), late: true, ...(lateStart ? { lateStart: true } : {}) });
   // The end carries the whole final text; what the deltas did not bring is its
   // tail, and the tail is what was lost before.
   const takeTail = (message?: ProviderDoneMessage) => {
     const finalText = message ? opts.finalText(message) : null;
     if (finalText && finalText.length > lateText.length && finalText.startsWith(lateText)) {
-      const extra = finalText.slice(lateText.length);
-      appendText(extra);
-      broadcastChunk("stream:content_chunk", extra);
+      appendText(finalText.slice(lateText.length));
     }
   };
   const trailing = (how: string): boolean => {
@@ -143,7 +144,6 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
     onTextDelta: (text: string) => {
       if (!text) return;
       appendText(text);
-      broadcastChunk("stream:content_chunk", text);
       deltas += 1;
       if (deltas % opts.saveEvery === 0) opts.save(false);
     },

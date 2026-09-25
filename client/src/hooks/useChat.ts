@@ -8,7 +8,7 @@ import { decideClientWipeOnStop } from './stopSessionPolicy';
 import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder, CLIENT_MESSAGE_ID_PREFIX } from './streamCatchupMerge';
 import { clearPartialForReattach, reviveClosedBubble } from './streamReattachReset';
-import { LiveTurnIds, frameTargetIndex, liveAssistantIndex, shouldFillFromBroadcast } from './liveTurn';
+import { LiveTurnIds, frameTargetIndex, lateStartContent, liveAssistantIndex, shouldFillFromBroadcast } from './liveTurn';
 import { liveInterruptionBlock } from '../components/Chat/turnError';
 import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
@@ -992,14 +992,22 @@ export function useChat() {
         const updatedMessages = [...sessionMessages];
         const lastMsg = sessionMessages[lastMessageIndex];
 
+        // A late answer's first words open their own block and paragraph under
+        // the cut, as the server writes them.
+        const lateStart = !!(frame?.lateStart && contentDelta);
         let nextBlocks = lastMsg.blocks;
-        if (contentDelta) nextBlocks = appendBlock(nextBlocks, { kind: 'text', text: contentDelta });
+        if (contentDelta) {
+          nextBlocks = lateStart
+            ? [...(nextBlocks ?? []), { kind: 'text', text: contentDelta }]
+            : appendBlock(nextBlocks, { kind: 'text', text: contentDelta });
+        }
         if (thinkingDelta) nextBlocks = appendBlock(nextBlocks, { kind: 'thinking', text: thinkingDelta });
 
         // Create a new object without mutating the old state reference
         updatedMessages[lastMessageIndex] = {
           ...lastMsg,
-          content: contentDelta ? (lastMsg.content || '') + contentDelta : lastMsg.content,
+          content: lateStart ? lateStartContent(lastMsg.content, contentDelta!)
+            : contentDelta ? (lastMsg.content || '') + contentDelta : lastMsg.content,
           thinking: thinkingDelta ? (lastMsg.thinking || '') + thinkingDelta : lastMsg.thinking,
           blocks: nextBlocks,
         };

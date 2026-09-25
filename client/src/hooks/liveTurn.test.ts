@@ -137,3 +137,19 @@ describe('frameTargetIndex: the bubble a frame names', () => {
     expect(liveTurn.frameTargetIndex(msgs, undefined, undefined)).toBe(2);
   });
 });
+
+describe('lateStartContent: a late answer opens its own paragraph, as the server writes it', () => {
+  // The server puts "\n\n" between the text above the cut and a closed turn's
+  // late answer (lib/late-answer-lane.ts); the bubble glued them until a reload.
+  const lateStartContent = (liveTurn as Record<string, unknown>).lateStartContent as
+    ((above: string | undefined, delta: string) => string) | undefined;
+
+  test('under text: a blank line between', () => {
+    expect(lateStartContent?.('Response timed out.', 'Due problemi')).toBe('Response timed out.\n\nDue problemi');
+  });
+
+  test('under nothing, or only whitespace: the late text alone', () => {
+    expect(lateStartContent?.(undefined, 'Due problemi')).toBe('Due problemi');
+    expect(lateStartContent?.('  \n', 'Due problemi')).toBe('Due problemi');
+  });
+});

@@ -127,6 +127,15 @@ export function frameTargetIndex(
  * carry a TRUNCATED preview, and a shorter text must never overwrite the full
  * one we streamed.
  */
+/**
+ * A closed turn's late answer under the text above the cut, as the server
+ * writes it (`lib/late-answer-lane.ts`): a paragraph of its own, never glued
+ * to it. The frame that opens it says so (`lateStart`).
+ */
+export function lateStartContent(above: string | undefined, delta: string): string {
+  return (above && above.trim() ? `${above}\n\n` : '') + delta;
+}
+
 export function shouldFillFromBroadcast(existing: ChatMessage | undefined, incomingContent: string): boolean {
   if (!existing || existing.role !== 'assistant') return false;
   const held = existing.content ?? '';
