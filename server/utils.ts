@@ -2017,8 +2017,12 @@ export function createAppContext(baseDir: string): AppContext {
    * answer starts a new turn instead of unblocking this one. Cancelling it
    * here would kill the panel a few lines after installing it. Anything not
    * named in this list keeps the rule above.
+   *
+   * `closedBecause` replaces the "Interrotto…" sentence when the turn was
+   * stopped on purpose (lib/abort-cause.ts): the boot's repair pass reads that
+   * prefix as a turn to resume.
    */
-  function endStream(sessionKey: string, opts?: { keepAwaiting?: readonly string[] }): ToolCall[] {
+  function endStream(sessionKey: string, opts?: { keepAwaiting?: readonly string[]; closedBecause?: string }): ToolCall[] {
     const keepAwaiting = new Set(opts?.keepAwaiting ?? []);
     const stream = activeStreams.get(sessionKey);
     const interrupted: ToolCall[] = [];
@@ -2030,7 +2034,7 @@ export function createAppContext(baseDir: string): AppContext {
           if (tc && (tc.status === 'running' || tc.status === 'pending')) {
             tc.status = 'error';
             if (tc.endedAt == null) tc.endedAt = endedAt;
-            if (!tc.error) tc.error = 'Interrotto: il turno è terminato senza risultato';
+            if (!tc.error) tc.error = opts?.closedBecause ?? 'Interrotto: il turno è terminato senza risultato';
             return true;
           }
           // Un pannello a schermo su un turno finito è la variante peggiore:
@@ -2046,9 +2050,9 @@ export function createAppContext(baseDir: string): AppContext {
             tc.status = 'error';
             if (tc.endedAt == null) tc.endedAt = endedAt;
             if (!tc.error) {
-              tc.error = eraPermesso
+              tc.error = opts?.closedBecause ?? (eraPermesso
                 ? 'Interrotto: il turno è finito mentre il permesso era ancora a schermo. La decisione non avrebbe più raggiunto nessuno.'
-                : 'Interrotto: il turno è finito mentre la domanda era ancora a schermo. La risposta non avrebbe più raggiunto nessuno.';
+                : 'Interrotto: il turno è finito mentre la domanda era ancora a schermo. La risposta non avrebbe più raggiunto nessuno.');
             }
             releaseHumanHold(sessionKey, 'il turno è terminato mentre il pannello era a schermo');
             return true;

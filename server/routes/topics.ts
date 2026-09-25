@@ -27,7 +27,7 @@ import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
 import { getSessionContext } from "../db/session-context";
 import { markTargetNotificationsSeen, countUnseenNotifications } from "../db/notification-log";
 import { logStopPressed } from "../db/activity-log";
-import { stopCauseOf } from "../lib/abort-cause";
+import { isMachineStop, machineStopToolError, stopCauseOf } from "../lib/abort-cause";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
 import { createTaskService } from "../services/tasks";
@@ -2474,17 +2474,9 @@ export function createTopicsRouter(
       // del controller chiude la macchina a stati della route, quindi tutto ciò
       // che il provider ha ancora da dire su questo turno (il suo `onAborted`,
       // con la ragione autorevole) troverebbe un `finalizeStream` già spento.
-      //
-      // A stop the MACHINE wanted takes the other order, and that is the point:
-      // it must end as every route stop ended before (no notice, an empty row
-      // discarded, nothing to resume). claude-code answers an abort with a
-      // synchronous `onAborted`, and its finalize would write the cause's
-      // resumable notice; closed first, the turn hears that as its own trailing
-      // end and changes nothing, and the partial is finalized below.
-      if (cause !== "user") {
-        console.log(`[Abort] ${sessionKey}: stopped by the machine (${cause})`);
-        try { stream.abortController?.abort(); } catch {}
-      }
+      // A stop the machine wanted takes the same path, with its true cause: the
+      // finalize knows it and writes no notice for it (lib/abort-cause.ts).
+      if (cause !== "user") console.log(`[Abort] ${sessionKey}: stopped by the machine (${cause})`);
       if (abortProvider.connected) {
         abortProvider.abort?.(sessionKey, undefined, cause)?.catch((err: any) => console.warn(`[Abort] Provider abort failed:`, err));
         abortProvider.unregisterStreamHandler?.(sessionKey);
@@ -2530,10 +2522,13 @@ export function createTopicsRouter(
       // perde il contenuto parziale che l'utente stava per fermare.
       if (!clearedForReal) finalizeAborted();
 
-      // The tools the close cut are announced, as the watchdogs do (chat.ts
-      // `endStreamAndAnnounce`): a machine's stop never reaches the finalize
-      // that told the screens, and their spinners kept turning until a reload.
-      for (const tc of endStream(sessionKey)) {
+      // The tools still open are closed and announced, as the watchdogs do
+      // (chat.ts `endStreamAndAnnounce`): a provider whose abort ends the turn
+      // later (ACP, Codex) never reaches the finalize that told the screens.
+      // A machine's stop says so on them, not "Interrotto…", which the boot's
+      // repair pass would take for a turn to resume.
+      const closedBecause = isMachineStop(cause) ? machineStopToolError(cause) : undefined;
+      for (const tc of endStream(sessionKey, closedBecause ? { closedBecause } : undefined)) {
         broadcastToAll({
           type: "stream:tool_result", sessionKey, topicId, toolCallId: tc.id, status: "error",
           result: tc.result, error: tc.error, endedAt: tc.endedAt,

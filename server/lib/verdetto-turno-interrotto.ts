@@ -28,6 +28,7 @@
 import type { ContentBlock } from "../types";
 import { decodeCol, encodeCol } from "../../shared/message-blob";
 import { NOT_ARCHIVED_SQL } from "./archived-scope";
+import { MACHINE_STOP_CAUSE_LIST } from "./abort-cause";
 
 /**
  * Come si riconosce un tool che è morto CON il turno, e non per colpa sua.
@@ -90,7 +91,9 @@ export function bonificaTurniMuti(db: DbLike, testo: string): number {
   // Si raccoglie PRIMA di scrivere: aggiornare la tabella che si sta scorrendo
   // è un comportamento che SQLite non definisce.
   const toRepair: Array<{ id: string; blocks: string }> = [];
+  const onPurpose = stoppedOnPurpose(db);
   for (const row of iter) {
+    if (onPurpose.has(row.id)) continue;
     const bl = decodeCol(row.blocks);
     // Scarto a buon mercato prima di pagare il `JSON.parse`: le righe con un
     // tool interrotto sono poche, quelle da scorrere sono decine di migliaia.
@@ -115,6 +118,26 @@ export function bonificaTurniMuti(db: DbLike, testo: string): number {
  * Non si importa il tipo di `bun:sqlite`: questa funzione ha bisogno di due
  * verbi, e chiederne l'intera superficie legherebbe una regola a un driver.
  */
+/**
+ * The rows of turns the machine stopped ON PURPOSE (a land, a delegation's
+ * deadline, the stall judge): they explain themselves and resume nothing, so
+ * the repair above leaves them alone whatever their tools say (fourth review
+ * of PR #135). The finalize records the cause and the row in `activity_log`
+ * (routes/chat.ts); a database without that table is no evidence.
+ */
+function stoppedOnPurpose(db: DbLike): Set<string> {
+  try {
+    const rows = db.prepare(
+      `SELECT json_extract(metadata, '$.messageId') AS id FROM activity_log
+        WHERE category = 'stream' AND timestamp >= date('now', '-30 days')
+          AND json_extract(metadata, '$.cause') IN (${MACHINE_STOP_CAUSE_LIST.map(() => "?").join(",")})`,
+    ).all(...MACHINE_STOP_CAUSE_LIST) as Array<{ id: unknown }>;
+    return new Set(rows.flatMap((r) => (typeof r.id === "string" ? [r.id] : [])));
+  } catch {
+    return new Set();
+  }
+}
+
 interface DbLike {
   // `any` non per pigrizia: `bun:sqlite` tipizza `prepare` con generici che
   // vincolano il chiamante a dichiarare la forma della riga, e riscriverli qui

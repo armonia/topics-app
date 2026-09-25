@@ -55,6 +55,7 @@ import { isAwaitingHuman } from "../../shared/types";
 import { createTurnBodyPersist } from "../lib/turn-body-persist";
 import { guardFinalizedTurn } from "../lib/finalized-turn-guard";
 import { createLateAnswerLane } from "../lib/late-answer-lane";
+import { isMachineStop } from "../lib/abort-cause";
 import { registerTurnBodyFlush } from "../lib/turn-body-flush";
 import { setProviderHold, holdUntilLabel } from "../lib/provider-hold";
 import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
@@ -2197,7 +2198,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // predicate off the block, so a notice saying "Riprendo da solo"
               // is a promise the same code keeps.
               const riprendeDaSolo = isResumableCause(endInfo.cause);
-              const avviso = avvisoPerTurno(endInfo, { haProdotto, riprendeDaSolo });
+              // A stop the machine wanted explains nothing and resumes nothing,
+              // as a route stop did before (lib/abort-cause.ts).
+              const avviso = isMachineStop(endInfo.cause) ? null : avvisoPerTurno(endInfo, { haProdotto, riprendeDaSolo });
               if (avviso) {
                 blocks.push({ kind: "error", text: avviso.replace(/^⚠️\s*/, "") });
                 turnError = avviso;
@@ -2396,7 +2399,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // macchina manda a cercare dalla parte sbagliata: il 20/08 la riga
             // «stream aborted by user» era l'unica traccia di uno spegnimento
             // del server, e diceva il contrario di quello che era successo.
-            else if (reason === "aborted") logStreamAborted({ ...logCtx, title: abortLogTitle(endInfo) });
+            // The cause and the row go with it: the boot's repair pass reads them
+            // to leave alone a turn the machine stopped on purpose.
+            else if (reason === "aborted") logStreamAborted({ ...logCtx, title: abortLogTitle(endInfo), extra: { cause: endInfo.cause, messageId: partialMsg.id } });
             else if (reason === "error") logStreamError({ ...logCtx, errorMessage: errorMsg });
 
             // (Topic switching is now a tool — `switch_topic`/`new_topic` —

@@ -11,9 +11,11 @@
  * said "user stop", and after a restart the message would never be resumed.
  *
  * A stop the machine WANTED (a land, a delegation's deadline, the stall judge)
- * ends as every route stop ended before (third review of PR #135): no notice,
- * an empty row discarded, and the sweep reads the chat as it did then. The only
- * difference is that it is not written down as the person's.
+ * takes the path every route stop took before, through the finalize with its
+ * true cause (fourth review of PR #135): no notice, an empty row discarded,
+ * its tools closed with a sentence of their own, and the sweep reads the chat
+ * as it did then. The only difference is that it is not written down as the
+ * person's.
  *
  * Only a request built inside the server can name a machine cause: the mark
  * lives on the Request object, which a client cannot forge. Anything else is
@@ -22,11 +24,29 @@
 export type MachineStopCause = "stall" | "superseded" | "wall-clock";
 export type StopCause = "user" | MachineStopCause;
 
-const MACHINE_STOP_CAUSES: ReadonlySet<string> = new Set<MachineStopCause>(["stall", "superseded", "wall-clock"]);
+export const MACHINE_STOP_CAUSE_LIST: readonly MachineStopCause[] = ["stall", "superseded", "wall-clock"];
+const MACHINE_STOP_CAUSES: ReadonlySet<string> = new Set<string>(MACHINE_STOP_CAUSE_LIST);
+
+export function isMachineStop(cause: unknown): cause is MachineStopCause {
+  return typeof cause === "string" && MACHINE_STOP_CAUSES.has(cause);
+}
 
 /** A stop somebody asked for: the person, or the machine on purpose. Its end explains nothing. */
 export function isWantedStop(cause: unknown): boolean {
-  return cause === "user" || (typeof cause === "string" && MACHINE_STOP_CAUSES.has(cause));
+  return cause === "user" || isMachineStop(cause);
+}
+
+/**
+ * What a tool still open says when the machine stopped its turn on purpose.
+ * Never "Interrotto…": the boot's repair pass (`verdetto-turno-interrotto.ts`)
+ * reads that as a turn cut with no explanation and marks it to be resumed.
+ */
+export function machineStopToolError(cause: MachineStopCause): string {
+  switch (cause) {
+    case "stall": return "Fermato: il turno è stato riciclato perché sembrava fermo";
+    case "superseded": return "Fermato: il lavoro della card è già atterrato o è passato altrove";
+    case "wall-clock": return "Fermato: la delega ha raggiunto la durata massima";
+  }
 }
 const internalRequests = new WeakSet<Request>();
 
