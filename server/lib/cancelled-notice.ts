@@ -334,7 +334,7 @@ const CARTELLI_RIPRENDIBILI = [
   "il turno ha esaurito i",
   // From 25/09/2026: the resume sweep's notice for a person's message nobody
   // answered, when no restart happened (`UNANSWERED_NO_RESTART_NOTICE` in
-  // lib/ripresa-boot.ts). It becomes the row the resend is traced on, so the
+  // lib/resume-notices.ts). It becomes the row the resend is traced on, so the
   // next sweep has to read it as ours.
   "Turno interrotto: la risposta non è mai arrivata",
 ] as const;
