@@ -429,10 +429,12 @@ function latestEnd(a: RecordedTurnEnd | undefined, b: RecordedTurnEnd | undefine
  *  without it a stopped chat would repeat the same line every sweep for a day. */
 const stopsLogged = new Map<string, number>();
 
-/** Sessions whose queued-send line was already said in the current episode,
- *  which ends at the first sweep that finds the provider idle: without it a
- *  send stuck for half an hour said the same line every five minutes. */
-const busyLogged = new Set<string>();
+/** The row whose queued-send line was already said, per session. An episode
+ *  ends at the first sweep that finds the provider idle, or when the cut row
+ *  changes: a chat that never goes idle can get stuck again on a new row, and
+ *  that is news. Without it a send stuck for half an hour said the same line
+ *  every five minutes. */
+const busyLogged = new Map<string, string>();
 
 /** Whether a board card is working on this topic: those chats are the
  *  dispatcher's to resume (it re-sends its own kickoff), never this sweep's. */
@@ -609,8 +611,8 @@ export async function riprendiTurniInterrotti(
         // Said only when that reason alone changed the verdict: a live stream
         // or a card already says "no" without anybody's help.
         if (row.providerBusy && resumeVerdict({ ...row, providerBusy: false }, ora) !== "no") {
-          if (!busyLogged.has(r.sk)) {
-            busyLogged.add(r.sk);
+          if (busyLogged.get(r.sk) !== r.id) {
+            busyLogged.set(r.sk, r.id);
             console.log(`[ripresa] ${r.sk}: un invio per questa chat è ancora in coda sul provider, non lo rimando`);
           }
         } else if (row.lastTurnEnd && stoppedByPerson(row) && stopsLogged.get(r.sk) !== row.lastTurnEnd.atMs

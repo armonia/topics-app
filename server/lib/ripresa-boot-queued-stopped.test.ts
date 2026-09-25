@@ -291,6 +291,42 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
     expect(queuedLines()).toBe(2);
   });
 
+  test("(a) on a chat that never goes idle, a new cut row is a new episode and is said", async () => {
+    const sk = "topic:busy-rows";
+    const db = chatDb([
+      { id: "u0", role: "user", agoMs: 10 * 60_000 },
+      { id: "a0", role: "assistant", agoMs: 9 * 60_000, blocks: [proseBlock, watchdogCut], parent: "u0" },
+    ], sk);
+    const said: string[] = [];
+    const busySweep = async () => {
+      const log = console.log, warn = console.warn;
+      console.log = (...args: unknown[]) => { said.push(args.map(String).join(" ")); };
+      console.warn = () => {};
+      try {
+        await riprendiTurniInterrotti(
+          { db, getTopicBySessionKey: () => ({ archived: false }), providerBusy: () => true },
+          countingRoute([]), { responseMs: 500, streamMs: 500 },
+        );
+      } finally { console.log = log; console.warn = warn; }
+    };
+    const queuedLines = () => said.filter((l) => l.includes(sk) && l.includes("ancora in coda")).length;
+    await busySweep();
+    await busySweep();
+    expect(queuedLines()).toBe(1);
+    // A second, unrelated stuck send: the person wrote again and that turn was cut too.
+    const insert = (id: string, role: string, agoMs: number, parent: string, blocks: ContentBlock[] | null, order: number) => db.run(
+      "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,?,?,?,?,0,?,?,?,0)",
+      [id, sk, role, role === "user" ? "fai il merge" : "", blocks ? JSON.stringify(blocks) : null,
+        new Date(Date.now() - agoMs).toISOString(), order, parent],
+    );
+    insert("u1", "user", 4 * 60_000, "a0", null, 2);
+    insert("a2", "assistant", 3 * 60_000, "u1", [proseBlock, watchdogCut], 3);
+    await busySweep();
+    expect(queuedLines()).toBe(2);
+    await busySweep();
+    expect(queuedLines()).toBe(2);
+  });
+
   test("(b) the person pressed Stop: the route is never called and no notice is written", async () => {
     const db = chatDb([{ id: "u0", role: "user", agoMs: 230_000 }]);
     recordTurnEnd(SK, cancelled("user", "POST /api/chat/abort"));
