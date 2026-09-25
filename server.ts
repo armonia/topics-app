@@ -4155,7 +4155,12 @@ const opzioniServer = {
       // Dalla stessa porta della raffica: questo frame porta il TESTO di un
       // turno a metà, ed è quello che un ospite non deve vedere per una chat
       // che non è sua.
-      for (const frame of streamCatchupFrames(() => true)) inviaIniziale(frame);
+      // A guest is asked about the topic BEFORE its row is flushed: a turn it
+      // cannot see is not written for it.
+      const catchupWanted = ospiteWS
+        ? (topicId: string | undefined) => !!topicId && hasGrant(ctx.db, principaliDi(ws.data.deviceId!), "topic", topicId)
+        : () => true;
+      for (const frame of streamCatchupFrames(catchupWanted)) inviaIniziale(frame);
     },
     message(ws, message) {
       ws.data.lastPong = Date.now();
@@ -4541,8 +4546,11 @@ const opzioniServer = {
             // project chat mounting. It gets the turn so far, as a socket that
             // opens does (card 423e016f). Not on the first set: until then the
             // socket received every delta, and its open sent every catch-up.
-            if (before) {
-              const joined = (topicId: string | undefined) => !!topicId && next.has(topicId) && !before.has(topicId);
+            const joinedIds = before ? [...next].filter((id) => !before.has(id)) : [];
+            if (joinedIds.length > 0) {
+              const joined = (topicId: string | undefined) =>
+                !!topicId && joinedIds.includes(topicId) &&
+                (!guestSocket || hasGrant(ctx.db, principaliDi(ws.data.deviceId!), "topic", topicId));
               for (const frame of streamCatchupFrames(joined)) {
                 if (guestSocket && !guestMayReceiveFrame(ws.data.deviceId!, frame)) continue;
                 try { sendWsFrame(ws, JSON.stringify(frame), "stream:catchup"); } catch { /* socket closed */ }

@@ -65,7 +65,14 @@ export interface TurnBodyPersist {
 export function createTurnBodyPersist(opts: TurnBodyPersistOptions): TurnBodyPersist {
   const { sessionKey, updateLastMessage, blocks } = opts;
 
+  // What the body looked like at the last write. Text and thinking only grow,
+  // and every other change of the timeline goes through `request`, so these
+  // lengths tell a flush whether there is anything new to write.
+  const mark = () => `${opts.content().length}:${opts.thinking().length}:${blocks.length}`;
+  let writtenMark = "";
+
   const writeNow = (withText: boolean) => {
+    writtenMark = mark();
     const timeline = blocks.length > 0 ? blocks : undefined;
     const snapshot = opts.reattachSnapshot();
     const own = { rowId: opts.rowId() };
@@ -111,7 +118,11 @@ export function createTurnBodyPersist(opts: TurnBodyPersistOptions): TurnBodyPer
       // routes/chat.ts), so a turn of text alone had a row with no timeline for
       // its first ten chunks. A chat opened mid-turn drew that empty timeline,
       // appended the live chunks to it, and showed the turn without its start
-      // (card 423e016f). So the reader gets the body as it is NOW.
+      // (card 423e016f). So the reader gets the body as it is NOW, and only
+      // when it changed since the last write: readers come at every socket open
+      // and every history read, and the throttle exists to bound these writes.
+      throttle.flush();
+      if (mark() === writtenMark) return;
       owesText = true;
       throttle.persist(lastSizeBytes, true);
     },

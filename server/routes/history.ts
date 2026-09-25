@@ -117,8 +117,9 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
     // behind the stream, while `content` is overlaid from memory below: a chat
     // opened mid-turn drew a timeline without its last chunks, the live frames
     // appended after it, and the bubble kept a hole for the rest of the turn
-    // (card 423e016f). With no turn in flight this does nothing.
-    flushTurnBody(sessionKey);
+    // (card 423e016f). With no turn in flight this does nothing, and a page
+    // `before` the tail does not hold the live row.
+    if (!before) flushTurnBody(sessionKey);
     const localMsgs = cappedRead
       ? loadLocalMessages(sessionKey, { withBlocks: false, withToolCalls: false })
       : loadLocalMessages(sessionKey);

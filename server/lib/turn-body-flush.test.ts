@@ -100,9 +100,10 @@ describe("la riga di un turno vivo si fa scrivere PRIMA di leggerla", () => {
     const blocks: ContentBlock[] = [];
     let content = "";
     let row: Partial<StoredMessage> = {};
+    let writes = 0;
     const persist = createTurnBodyPersist({
       sessionKey,
-      updateLastMessage: (_key: string, updates: Partial<StoredMessage>) => { row = { ...row, ...updates }; },
+      updateLastMessage: (_key: string, updates: Partial<StoredMessage>) => { writes++; row = { ...row, ...updates }; },
       rowId: () => "row-text",
       blocks,
       content: () => content,
@@ -123,6 +124,11 @@ describe("la riga di un turno vivo si fa scrivere PRIMA di leggerla", () => {
     expect(flushTurnBody(sessionKey)).toBe(true);
     expect(row.content).toBe("c-1 c-2 c-3 c-4 c-5 c-6 c-7 ");
     expect(row.blocks).toEqual([{ kind: "text", text: "c-1 c-2 c-3 c-4 c-5 c-6 c-7 " }]);
+    // Readers come at every socket open and every history read: a flush with
+    // nothing new since the last write writes nothing.
+    flushTurnBody(sessionKey);
+    flushTurnBody(sessionKey);
+    expect(writes).toBe(1);
     release();
     persist.dispose();
   });
