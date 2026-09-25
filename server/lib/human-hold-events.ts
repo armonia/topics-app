@@ -46,6 +46,21 @@ type Listener = (change: HumanHoldChange) => void;
 
 const listeners: Listener[] = [];
 
+/**
+ * When each session last stopped waiting for a person. The CLI streams nothing
+ * while the ball is with the person, so a clock that measures silence from the
+ * last event counts that wait as silence, and the lifetime cap killed the
+ * command a person had just approved (PR #134 review). Recorded here, at the
+ * one point both bridges go through, so no reader has to have been ticking
+ * while the wait lasted.
+ */
+const lastReleasedAt = new Map<string, number>();
+
+/** The last moment this session stopped waiting for a person, if it ever did. */
+export function humanHoldReleasedAt(sessionKey: string): number | undefined {
+  return lastReleasedAt.get(sessionKey);
+}
+
 /** Registra un ascoltatore. Torna la funzione per disiscriversi. */
 export function onHumanHoldChange(fn: Listener): () => void {
   listeners.push(fn);
@@ -60,6 +75,7 @@ export function onHumanHoldChange(fn: Listener): () => void {
  * viene ignorato, perché il pannello dell'utente vale più della notifica.
  */
 export function emitHumanHoldChange(change: HumanHoldChange): void {
+  if (change.phase === "released") lastReleasedAt.set(change.sessionKey, Date.now());
   for (const fn of [...listeners]) {
     try {
       fn(change);
@@ -72,4 +88,5 @@ export function emitHumanHoldChange(change: HumanHoldChange): void {
 /** Solo per i test: svuota la lista fra un caso e l'altro. */
 export function resetHumanHoldListeners(): void {
   listeners.length = 0;
+  lastReleasedAt.clear();
 }

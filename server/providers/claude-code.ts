@@ -66,6 +66,7 @@ import { endAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
 // «Aspetta una persona» ha DUE sorgenti (una domanda, una richiesta di
 // permesso) e sei posti che devono saperlo. Porta unica: lib/human-hold.ts.
 import { isHumanHold, releaseHumanHold } from "../lib/human-hold";
+import { humanHoldReleasedAt } from "../lib/human-hold-events";
 import { armTurnDeadline, type TurnDeadline } from "../lib/turn-deadline";
 import { cancelled, classifyResultEvent } from "./stop-reason";
 import { warnThrottled } from "../lib/warn-throttled";
@@ -3204,6 +3205,10 @@ export class ClaudeCodeProvider implements AIProvider {
     // First the lines of a turn already judged: a declined one is dropped to
     // its `result`, and the `result` of one awaiting adoption is held for it.
     if (!pp.replayMute && !pp.replaySilent) {
+      // A declined or buffered spontaneous turn is the child working too, but
+      // its lines return just below, before the event clock further down: the
+      // lifetime cap read a turn that was writing as silent, and killed it.
+      if (line.kind === "content" || line.kind === "partial" || line.kind === "result") pp.lastEventAt = Date.now();
       const fate = unattendedLineFate(pp, event, line.kind);
       if (fate !== "pass") return;
     }
@@ -3849,12 +3854,15 @@ export class ClaudeCodeProvider implements AIProvider {
         // send hung for 30 minutes.
         const inTurn = !!pp.streamHandler || !!pp.pendingReject || pp.wokenBuffer != null || pp.declinedTurn === true;
         // Except a turn silent for longer than the turn watchdog's window. A
-        // sent turn never gets here (its own watchdog fires first, one rearm
-        // earlier); a woken turn has no watchdog, and the cap was the only
-        // thing ending it if it wedged. It still is, so waiting never becomes
-        // waiting forever. Not a second silence clock: this only ever fires
-        // past the 2 h mark, and only where the watchdog would have.
-        if (inTurn && Date.now() - pp.lastEventAt < wedgedMs + rearmMs) {
+        // woken turn has no watchdog, and the cap was the only thing ending it
+        // if it wedged. It still is, so waiting never becomes waiting forever.
+        // Not a second silence clock: this only ever fires past the 2 h mark.
+        // Silence counts from the last event OR from the moment a person last
+        // answered, whichever is later: the CLI prints nothing while a
+        // permission prompt or a question is open, nor while the command just
+        // approved runs, and counting that wait killed the approved command.
+        const quietSince = Math.max(pp.lastEventAt, humanHoldReleasedAt(sessionKey) ?? 0);
+        if (inTurn && Date.now() - quietSince < wedgedMs + rearmMs) {
           pp.lifetimeTimer = this.armLifetime(pp, sessionKey, { ms: rearmMs, rearmMs, wedgedMs });
           return;
         }
