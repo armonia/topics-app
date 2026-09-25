@@ -46,6 +46,7 @@ hermetic(test);
  *  waits for a pane to attach, before navigating and again after force-open. */
 const PANE_WAIT_MS = 2_500;
 const APP_WS = /\/ws(\?|$)/;
+const NO_CHROMIUM_HERE = process.platform === "darwin" && process.env.GITHUB_ACTIONS !== "true";
 
 /** A fresh project directory, by its canonical path (the one the app keys on). */
 function makeProject(tag: string): string {
@@ -307,8 +308,12 @@ test.describe("open_browser_pane attaches the project pane", () => {
    * the suspect of the card. Measured here, it does not unmount a live pane:
    * the pane socket reconnects by itself and the tool attaches through it.
    * This test keeps it that way.
+   *
+   * Nightly only, like `terminal-session-resume`, the other spec that restarts
+   * the server: on the PR gate a restart in the middle of the suite would be
+   * paid by whichever spec runs next.
    */
-  test("a server restart whose boot strips the pane's browser tombstone leaves the live pane attached", async ({ page, request }) => {
+  test("a server restart whose boot strips the pane's browser tombstone leaves the live pane attached @nightly", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "c5c1c68f" });
     const owner = makeProject("owner");
     const topic = await createTopic(request, "Pane attach, restart", { projectPath: owner });
@@ -362,8 +367,11 @@ async function portOpen(): Promise<boolean> {
  * it again with the environment it was born with. Returns its stdout, where the
  * boot cleanup reports what it rewrote.
  *
- * `CHROMIUM_PATH` points nowhere on purpose: a headless launch attempted by
- * mistake fails loudly instead of starting a Chromium on this Mac.
+ * On a Mac outside CI `CHROMIUM_PATH` points nowhere, on purpose: a headless
+ * launch attempted by mistake fails loudly instead of starting a Chromium
+ * there (the same condition as the Mac ban in `playwright.config.ts`).
+ * Elsewhere the server comes back with the environment it had, so the specs
+ * that run after this one still find the Chromium global-setup gave it.
  */
 async function restartServer(): Promise<string[]> {
   const pids = execSync(`lsof -ti :${E2E_PORT} -sTCP:LISTEN 2>/dev/null || true`).toString().trim();
@@ -374,7 +382,11 @@ async function restartServer(): Promise<string[]> {
   const proc = spawn("bash", [resolve(__dirname, "../../scripts/start-test-server.sh")], {
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
-    env: { ...process.env, ...testServerEnv(E2E_PORT), CHROMIUM_PATH: "/nonexistent/no-chromium-on-this-mac" },
+    env: {
+      ...process.env,
+      ...testServerEnv(E2E_PORT),
+      ...(NO_CHROMIUM_HERE ? { CHROMIUM_PATH: "/nonexistent/no-chromium-on-this-mac" } : {}),
+    },
   });
   proc.unref();
   proc.stdout?.on("data", (d: Buffer) => out.push(d.toString()));
