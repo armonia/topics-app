@@ -105,15 +105,27 @@ describe("send_chat_message across a server that died and booted", () => {
   test("died while the model wrote prose, no tool running: the restart verdict, with the half as what it had written", async () => {
     const rowId = turnCutMidway("boot-prose", false);
     await expect(send("boot-prose", serverThatDiesAndBoots("boot-prose", rowId, 3)))
-      .rejects.toThrow(`stream interrupted, and the turn then ended badly: ${RESTART_ROW_VERDICT}. What it had written: ${JSON.stringify(HALF.trim())}`);
+      .rejects.toThrow(`stream interrupted, and the turn then ended badly: ${RESTART_ROW_VERDICT} What it had written: ${JSON.stringify(HALF.trim())}`);
   });
 
   test("died during a silent tool: the same verdict, written once", async () => {
     const rowId = turnCutMidway("boot-tool", true);
     await expect(send("boot-tool", serverThatDiesAndBoots("boot-tool", rowId, 3)))
-      .rejects.toThrow(/stream interrupted, and the turn then ended badly/);
+      .rejects.toThrow(`stream interrupted, and the turn then ended badly: ${RESTART_ROW_VERDICT} What it had written`);
     const row = ctx.getMessageById(rowId)!;
     expect(row.blocks!.filter((b) => b.kind === "error")).toHaveLength(1);
+  });
+
+  test("died before anything was saved: no reply, a warning against resending, and no second bubble in the chat", async () => {
+    const tid = "boot-empty";
+    const sessionKey = `topic:${tid}`;
+    const now = new Date().toISOString();
+    ctx.saveSingleTopic({ id: tid, name: tid, slug: tid, parentId: null, links: [], sessionKey, color: "#aabbcc", icon: "chat", createdAt: now, updatedAt: now, archived: false } as Topic);
+    ctx.appendLocalMessage(sessionKey, "user", "ping");
+    const rowId = ctx.createPartialMessage(sessionKey, "assistant").id;
+    await expect(send(tid, serverThatDiesAndBoots(tid, rowId, 2)))
+      .rejects.toThrow(/the turn ended without leaving a reply\. Before sending it again, check read_chat_messages/);
+    expect(ctx.getMessageById(rowId)!.blocks).toBeUndefined();
   });
 
   test("the chat shows the same truth: the prose, then the verdict", async () => {

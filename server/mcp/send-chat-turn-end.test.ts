@@ -175,6 +175,9 @@ describe("callSendChatMessage when the turn does not finish on the stream", () =
         .then((reply) => `RESOLVED ${reply}`, (err: Error) => err.message);
       expect(out).toContain(`ended in an error (${cause}) before finishing its reply. It had written nothing.`);
       expect(out).not.toContain("can still land");
+      // A saturated API is resent by the resume sweep: resending by hand runs it twice.
+      expect(out).toContain("Before sending it again, check read_chat_messages");
+      expect(out).toContain("Topics resends some interrupted turns by itself");
     }
   });
 
@@ -205,11 +208,18 @@ describe("callSendChatMessage when the turn does not finish on the stream", () =
       .rejects.toThrow(/stream interrupted before the turn named its reply/);
   });
 
-  test("a turn stopped by a person says so, with what it had written", async () => {
+  test("a turn stopped by a person says so, with what it had written, and nothing about resending", async () => {
     const chat = frame({ turn: { messageId: "m1" } }) + delta("half") + frame({ turn: { end: "cancelled", cause: "user" } }) + "data: [DONE]\n\n";
     const fetchImpl = world({ chat, streaming: () => [], messages: () => [] });
+    const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST).catch((err: Error) => err.message);
+    expect(out).toMatch(/the turn was stopped by a person before finishing its reply\. What it had written: "half"/);
+    expect(out).not.toContain("Topics resends");
+  });
+
+  test("a cut turn whose row closed with nothing in it ended without a reply", async () => {
+    const fetchImpl = world({ streaming: () => [], messages: () => [{ id: "m1", role: "assistant", content: "" }] });
     await expect(callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST))
-      .rejects.toThrow(/the turn was stopped by a person before finishing its reply\. What it had written: "half"/);
+      .rejects.toThrow(/stream interrupted, and the turn ended without leaving a reply\. Before sending it again/);
   });
 
   test("a turn stopped by the machine or ended in an error says which", async () => {

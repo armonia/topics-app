@@ -47,5 +47,6 @@ describe("no regression / pre-existing", () => {
     const w = world(() => sse([`data: ${JSON.stringify({ turn: { messageId: "m1" } })}\n\n`, d("half ")]), (u) => { throw new TypeError("Unable to connect. Is the computer able to access the url?"); });
     const r = await callSendChatMessage(A, { topic_id: "t1", message: "x" }, w.f, { pollMs: 5, maxWaitMs: 60_000, unreachableMs: 200 }).then((x) => "RESOLVED " + x, (e) => "REJECTED " + e.message);
     console.log(r);
+    expect(r).toMatch(/^REJECTED send_chat_message: stream interrupted, and topics-app stayed unreachable/);
   });
 });

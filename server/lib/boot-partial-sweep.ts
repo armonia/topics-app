@@ -65,6 +65,9 @@ export interface SweepResult { cleared: number; kept: number }
  *   - `listConfirmed=true && liveSessions.has(sk)` → tenuto (il figlio e' vivo nel broker).
  *   - `listConfirmed=true && !liveSessions.has(sk)` → reset + notifica nella chat.
  *
+ * On a reset the closed assistant row also gets the restart verdict in its
+ * blocks (`timelineWithRestartVerdict`), so the row itself says it was cut.
+ *
  * La funzione e' pura rispetto al resto del server: non apre connessioni, non
  * fa broadcast, non conosce il broker. Chi la chiama ha gia' risolto queste
  * dipendenze e passa `liveSessions` gia' popolato.
@@ -105,11 +108,21 @@ export function runBootPartialSweep(
     // resume reads only a session's last row, and that is the notice.
     let resetChanges = 0;
     const rows = db
-      .query("SELECT id, role, content, blocks FROM messages WHERE session_key = ? AND partial = 1")
-      .all(row.sk) as Array<{ id: string; role: string; content: string | null; blocks: unknown }>;
+      .query("SELECT id, role, content, blocks, thinking, tool_calls FROM messages WHERE session_key = ? AND partial = 1")
+      .all(row.sk) as Array<{ id: string; role: string; content: string | null; blocks: unknown; thinking: string | null; tool_calls: unknown }>;
     for (const r of rows) {
       // A verdict is the assistant's to carry; any other row is only closed.
-      const timeline = r.role === "assistant" ? timelineWithRestartVerdict(r.content, decodeCol(r.blocks)) : null;
+      let timeline: ContentBlock[] | null = null;
+      if (r.role === "assistant") {
+        try {
+          const toolCalls = decodeCol(r.tool_calls);
+          timeline = timelineWithRestartVerdict(r.content, decodeCol(r.blocks), {
+            otherParts: Boolean(r.thinking?.trim()) || Boolean(toolCalls && toolCalls !== "[]"),
+          });
+        } catch {
+          // An unreadable column: the row is closed as before, and the sweep goes on.
+        }
+      }
       resetChanges += timeline
         ? db.run(
             "UPDATE messages SET partial = 0, streamed_at = NULL, blocks = ? WHERE id = ? AND partial = 1",
@@ -129,16 +142,21 @@ export function runBootPartialSweep(
 
 /**
  * The closed row's timeline with the restart verdict at the end, or `null` to
- * leave the blocks as they are (already explained, or unreadable).
+ * leave the blocks as they are.
  *
  * A row with prose and no blocks gets its prose as a text block first: the
  * renderer prints `content` only while `blocks` is absent, so a lone verdict
  * would hide the answer written so far (the trap `timelineWithInterruptedVerdict`
- * avoids by writing nothing).
+ * avoids by writing nothing). Left as they are: a row already explained, an
+ * unreadable timeline, a blockless row with reasoning or tool calls (the
+ * blocks branch would stop drawing them), and an EMPTY row, which the chat
+ * hides and the notice after it already explains; a verdict there would be a
+ * second bubble saying the same sentence.
  */
 export function timelineWithRestartVerdict(
   content: string | null | undefined,
   blocksJson: string | null,
+  opts: { otherParts?: boolean } = {},
 ): ContentBlock[] | null {
   let blocks: ContentBlock[] = [];
   if (blocksJson) {
@@ -153,7 +171,8 @@ export function timelineWithRestartVerdict(
   if (blocks.some((b) => b?.kind === "error")) return null;
   const verdict: ContentBlock = { kind: "error", text: RESTART_ROW_VERDICT };
   if (blocks.length > 0) return [...blocks, verdict];
-  return content?.trim() ? [{ kind: "text", text: content }, verdict] : [verdict];
+  if (opts.otherParts || !content?.trim()) return null;
+  return [{ kind: "text", text: content }, verdict];
 }
 
 /**

@@ -1526,6 +1526,15 @@ async function postChatReadSSE(
   return { text: out.trim(), complete, messageId, end };
 }
 
+/**
+ * The line every failure but a person's Stop ends with. Topics resends some
+ * interrupted turns by itself (a restart, a saturated API, the watchdog: the
+ * resume sweep, every 5 min), and a caller that resends too runs the message
+ * twice (round-4 review of card 63e01ac0).
+ */
+const beforeResending = (topicId: string) =>
+  `Before sending it again, check read_chat_messages(topic_id="${topicId}"): Topics resends some interrupted turns by itself.`;
+
 /** What the tool says for a turn that ended without finishing its answer. */
 function unfinishedTurn(end: TurnEndFrame, text: string, topicId: string): string {
   // The route's empty-reply verdict (an error with no cause) is not always the
@@ -1540,7 +1549,7 @@ function unfinishedTurn(end: TurnEndFrame, text: string, topicId: string): strin
     : end.end === "error" ? `ended in an error${end.cause ? ` (${end.cause})` : ""}` : `ended early (${end.end})`;
   return `send_chat_message: the turn ${how} before finishing its reply.`
     + (text ? ` What it had written: ${JSON.stringify(text)}.` : " It had written nothing.")
-    + ` See read_chat_messages(topic_id="${topicId}").`;
+    + (end.end === "cancelled" && end.cause === "user" ? ` See read_chat_messages(topic_id="${topicId}").` : ` ${beforeResending(topicId)}`);
 }
 
 /** How long a cut send waits for the turn's real end, and how often it looks. */
@@ -1558,7 +1567,7 @@ const CUT_SEND_MAX_WAIT_MS = 30 * 60_000;
 // is adopted again after it (38 s after the cut, on 24/09): the wait rides it out.
 const CUT_SEND_UNREACHABLE_MS = 2 * 60_000;
 
-type ChatRow = { id?: string; role?: string; content?: string; partial?: boolean; blocks?: Array<{ kind?: string; text?: string }> };
+type ChatRow = { id?: string; role?: string; content?: string; partial?: boolean; blocks?: Array<{ kind?: string; text?: string }>; toolCalls?: unknown[] };
 
 /**
  * The stream was cut before `[DONE]` while the turn may still be running. Wait
@@ -1602,7 +1611,7 @@ async function awaitTurnEndAndReadReply(
       unreachableSince = null;
     } catch (err: unknown) {
       if (err instanceof HttpAnswerError && err.status === 404) {
-        throw new Error(`send_chat_message: stream interrupted, and the turn ended without leaving a reply. ${see}.`);
+        throw new Error(`send_chat_message: stream interrupted, and the turn ended without leaving a reply. ${beforeResending(topicId)}`);
       }
       // The server is reloading, or busy: the turn may well be alive. Ask again.
       unreachableSince ??= Date.now();
@@ -1614,8 +1623,14 @@ async function awaitTurnEndAndReadReply(
       const text = (row.content ?? "").trim();
       const verdict = row.blocks?.find((b) => b?.kind === "error");
       if (verdict) {
-        throw new Error(`send_chat_message: stream interrupted, and the turn then ended badly: ${verdict.text ?? "error"}.`
-          + (text ? ` What it had written: ${JSON.stringify(text)}.` : "") + ` ${see}.`);
+        throw new Error(`send_chat_message: stream interrupted, and the turn then ended badly: ${(verdict.text ?? "error").replace(/[.\s]+$/, "")}.`
+          + (text ? ` What it had written: ${JSON.stringify(text)}.` : "") + ` ${beforeResending(topicId)}`);
+      }
+      // Closed with nothing in it: never a finished turn (an empty reply gets a
+      // verdict, a tools-only one has its tools). The boot sweep leaves an
+      // empty row that way, hidden in the chat under its restart notice.
+      if (!text && !row.blocks?.length && !row.toolCalls?.length) {
+        throw new Error(`send_chat_message: stream interrupted, and the turn ended without leaving a reply. ${beforeResending(topicId)}`);
       }
       return text;
     }

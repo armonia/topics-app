@@ -34,6 +34,8 @@ import { decodeCol, encodeCol } from "../../shared/message-blob";
 // Schema minimo: solo le colonne che il sweep e insertRestartNotification toccano.
 const DDL = `
   CREATE TABLE messages (
+    thinking TEXT,
+    tool_calls TEXT,
     id TEXT PRIMARY KEY,
     session_key TEXT NOT NULL,
     role TEXT NOT NULL,
@@ -198,9 +200,6 @@ describe("runBootPartialSweep", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// BARRA 2: insertRestartNotification (logica di inserimento in isolamento)
-// ---------------------------------------------------------------------------
 /**
  * THE ROW THE SWEEP CLOSES SAYS IT WAS CUT.
  *
@@ -239,7 +238,7 @@ describe("the row the boot sweep closes carries the restart verdict", () => {
     ]);
   });
 
-  it("a timeline gets the verdict appended; an empty row gets the verdict alone", () => {
+  it("a timeline gets the verdict appended; an empty row stays blockless, hidden under its notice", () => {
     const timeline = [{ kind: "text", text: "sto per" }, { kind: "tool", toolCall: { id: "t1", name: "Bash", status: "running" } }];
     insert("m1", { content: "sto per", blocks: timeline });
     sweep();
@@ -248,7 +247,35 @@ describe("the row the boot sweep closes carries the restart verdict", () => {
     db.run("DELETE FROM messages");
     insert("m2", {});
     sweep();
-    expect(blocksOf("m2").blocks).toEqual([{ kind: "error", text: RESTART_ROW_VERDICT }]);
+    // A verdict here would be a second bubble saying the notice's sentence.
+    expect(blocksOf("m2")).toEqual({ blocks: null, content: "", partial: 0 });
+  });
+
+  it("a blockless row with reasoning or tool calls is left as it was, not redrawn without them", () => {
+    db.run(
+      "INSERT INTO messages (id, session_key, role, content, thinking, partial, timestamp, sort_order) VALUES (?, 'topic:cut', 'assistant', ?, ?, 1, 't', 0)",
+      ["m1", "meta", "ragiono"],
+    );
+    db.run(
+      "INSERT INTO messages (id, session_key, role, content, tool_calls, partial, timestamp, sort_order) VALUES (?, 'topic:cut', 'assistant', ?, ?, 1, 't', 1)",
+      ["m2", "meta", JSON.stringify([{ id: "t1", name: "Read", status: "running" }])],
+    );
+    sweep();
+    expect(blocksOf("m1").blocks).toBeNull();
+    expect(blocksOf("m2").blocks).toBeNull();
+  });
+
+  it("an unreadable timeline closes its row as before, and the sweep goes on to the next chat", () => {
+    db.run(
+      "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order) VALUES ('bad', 'topic:a', 'assistant', 'meta', ?, 1, 't', 0)",
+      [new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8])],
+    );
+    db.run("INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order) VALUES ('ok', 'topic:b', 'assistant', 'meta', 1, 't', 0)");
+    let notices = 0;
+    expect(runBootPartialSweep(db, { listConfirmed: true, liveSessions: new Set(), generateId: () => `notice-${notices++}`, now: () => "t" }).cleared).toBe(2);
+    expect(notices).toBe(2);
+    expect((db.query("SELECT partial FROM messages WHERE id = 'bad'").get() as { partial: number }).partial).toBe(0);
+    expect(blocksOf("ok").blocks).toEqual([{ kind: "text", text: "meta" }, { kind: "error", text: RESTART_ROW_VERDICT }]);
   });
 
   it("a partial row that is not the assistant's is closed with no verdict", () => {
@@ -271,6 +298,9 @@ describe("the row the boot sweep closes carries the restart verdict", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// BARRA 2: insertRestartNotification (logica di inserimento in isolamento)
+// ---------------------------------------------------------------------------
 describe("insertRestartNotification", () => {
   let db: Database;
 
