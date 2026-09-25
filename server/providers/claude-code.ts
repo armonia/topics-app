@@ -2822,6 +2822,14 @@ export class ClaudeCodeProvider implements AIProvider {
     return run;
   }
   private probes = new Map<string, Promise<"open" | "idle" | "unknown">>();
+  private silentAtProbe = new Map<string, string[]>();
+
+  /** The listed work the last probe found past the two hours without news, for the boot reap to name. Read once. */
+  takeSilentBackground(sessionKey: string): string[] {
+    const tasks = this.silentAtProbe.get(sessionKey) ?? [];
+    this.silentAtProbe.delete(sessionKey);
+    return tasks;
+  }
 
   private async brokerTurnStateNow(
     sessionKey: string,
@@ -2855,6 +2863,10 @@ export class ClaudeCodeProvider implements AIProvider {
         // session's process, still attached, so the wake it will bring is
         // heard and the reaper sees what it would kill.
         keep = backgroundAlive(pp) && !this.processes.has(sessionKey);
+        // Listed but past the bound: the boot reaps it, and the chat has to
+        // hear what went with it (`takeSilentBackground`).
+        if (!keep && pp.background?.tasks.size) this.silentAtProbe.set(sessionKey, [...pp.background.tasks.values()].map((t) => t.description || t.type));
+        else this.silentAtProbe.delete(sessionKey);
         return "idle";
       }
       // «open» è l'unica risposta che porta a una riadozione, quindi l'unica in

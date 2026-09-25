@@ -1186,6 +1186,8 @@ async function watchHeadlessBody(
       // off the end grace: an end deposited meanwhile is a superseded turn's, or not final yet.
       if (isSseCommentOnly(value)) continue;
       detector.noteActivity();
+      // A new stretch of silence logs its first rearm again.
+      lastRearm = null;
     }
   }
   finally {
@@ -5442,6 +5444,9 @@ async function reattachSurvivingChatTurns(): Promise<void> {
       ? (topic.archived ? "archived topic" : `no in-flight turn (DB partial=no, broker=${brokerSays})`)
       : "topic gone";
     console.log(`[chat-reattach] reaping idle broker session ${s.id} (${why})`);
+    // Its listed background work, silent past the bound, dies with it: the chat says so.
+    const silent = (tryGetProvider("claude-code") as { takeSilentBackground?: (sk: string) => string[] } | undefined)?.takeSilentBackground?.(s.id) ?? [];
+    if (topic && silent.length) postBackgroundNotice(ctx, { sessionKey: s.id, topicId: topic.id }, { kind: "background-notice", event: "closed", tasks: silent, why: "silent" });
     try { client.kill(s.id); } catch { /* daemon hiccup — next boot retries */ }
   }
 }

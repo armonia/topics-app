@@ -966,6 +966,8 @@ export interface CommandResult {
   message?: string;
   model?: string;
   error?: string;
+  /** The change waits for the chat's background work to end (`/model`, `/effort`). */
+  pending?: 'background-work';
 }
 
 export interface CustomSlashCommand { name: string; description: string; kind: 'command' | 'skill'; }

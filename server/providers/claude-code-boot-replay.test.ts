@@ -483,6 +483,10 @@ describe("boot · the agent's lines after the last result", () => {
       expect(await late.brokerTurnState(sessionKey)).toBe("idle");
       expect(late.hasBackgroundWork(sessionKey)).toBe(false);
       expect((late as any).processes.has(sessionKey)).toBe(false);
+      // The boot reaps it: what it lists is handed over once, for the chat row.
+      expect(late.takeSilentBackground(sessionKey)).toEqual(expect.arrayContaining(["tick counter loop"]));
+      expect(late.takeSilentBackground(sessionKey)).toEqual([]);
+      expect(fresh.takeSilentBackground(sessionKey)).toEqual([]);
     } finally {
       bridge.attach = vero;
       try { bridge.kill(sessionKey); } catch { /* best-effort cleanup */ }

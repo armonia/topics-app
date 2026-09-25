@@ -122,6 +122,11 @@ describe("a config change against a chat's background work", () => {
       expect(h.killed.n).toBe(0);
       expect(answer.pending).toBe("background-work");
       expect(h.notices().map((n) => n.change)).toEqual(["model", "effort"]);
+      // The command's own path for the model, not only the PATCH.
+      const viaCommand = await (await h.command("model", { model: "claude-opus-5-5" })).json() as { pending?: string };
+      expect(viaCommand.pending).toBe("background-work");
+      expect(h.killed.n).toBe(0);
+      expect(h.notices().map((n) => n.change)).toEqual(["model", "effort", "model"]);
     } finally {
       removeProvider("claude-code");
     }

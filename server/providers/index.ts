@@ -15,7 +15,7 @@
 export * from "./types";
 
 import { syncDirectEndpointProviders } from "./direct-endpoint-registry";
-import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, OpenAIProviderConfig, AcpProviderConfig } from "./types";
+import type { AbortReason, AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, OpenAIProviderConfig, AcpProviderConfig } from "./types";
 import { providerNameForConfig } from "./types";
 import { readApiProviderKey } from "../services/api-provider-credentials";
 import { KNOWN_ACP_AGENTS, mergeAcpAgents, parseAcpAgentsEnv } from "./acp/agents";
@@ -779,11 +779,11 @@ export function stallBackgroundHold(sessionKey: string): () => boolean {
  * providers), and the old child keeps running its work. `stopped` only once
  * that provider no longer reports any.
  */
-export async function stopBackgroundWork(sessionKey: string): Promise<"none" | "stopped" | "failed"> {
+export async function stopBackgroundWork(sessionKey: string, reason: AbortReason = "user"): Promise<"none" | "stopped" | "failed"> {
   for (const [, p] of _providers) {
     try {
       if (!(p as BackgroundProbe).hasBackgroundWork?.(sessionKey) || !p.abort) continue;
-      await p.abort(sessionKey, undefined, "user");
+      await p.abort(sessionKey, undefined, reason);
       return (p as BackgroundProbe).hasBackgroundWork?.(sessionKey) ? "failed" : "stopped";
     } catch { return "failed"; }
   }

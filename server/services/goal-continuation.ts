@@ -312,7 +312,7 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
    * check-in would judge the waiting turn and nudge the work back to life.
    */
   const stopWaiting = (sessionKey: string): void => {
-    if (dropWaiting(sessionKey)) log(`goal-loop: ${sessionKey}: background work stopped by the person, the goal stops waiting for it`);
+    if (dropWaiting(sessionKey)) log(`goal-loop: ${sessionKey}: its background work was stopped, the goal stops waiting for it`);
     checkInCount.delete(sessionKey);
   };
   return Object.assign(onTurnEnd, { stopWaiting });
@@ -495,6 +495,9 @@ export function goalContinuationForChatRoute(deps: {
         }),
         url, "/api/chat", "POST",
       );
+      // Refused (a 409: a wake took the session while the judge thought) is not
+      // sent: say so, instead of logging a continuation nobody received.
+      if (resp && !resp.ok) throw new Error(`the chat route answered ${resp.status}`);
       // The stream is drained to the end: the route finalizes the row when the
       // turn is over, not when it starts, and that finalization ends in this
       // same hook and decides whether to continue once more. Reading it is what
