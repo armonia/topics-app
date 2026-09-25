@@ -57,20 +57,20 @@ export interface GatewaySseProcessorOpts {
   // --- stream state ---
 
   updateStreamContent: (sessionKey: string, content: string, thinking: string) => void;
+  /** `opts.rowId`: the turn's own row. Without it the LAST row of the session is written. */
   updateLastMessage: (sessionKey: string, update: {
     content?: string;
     thinking?: string;
     partial?: undefined;
     streamedAt?: undefined;
-  }) => void;
+  }, opts?: { rowId?: string }) => void;
   endStream: (sessionKey: string) => void;
   isStreaming: (sessionKey: string) => ActiveStream | undefined;
 
   // --- tool call persistence ---
 
-  addToolCallToLastMessage: (sessionKey: string, toolCall: ToolCall) => unknown;
-  /** Called with (sessionKey, toolCallId, result) — additional params optional. */
-  updateToolCallResult: (sessionKey: string, toolCallId: string, result: string) => unknown;
+  addToolCallToLastMessage: (sessionKey: string, toolCall: ToolCall, opts?: { rowId?: string }) => unknown;
+  updateToolCallResult: (sessionKey: string, toolCallId: string, result: string, opts?: { rowId?: string }) => unknown;
 
   // --- SAVE_INTERVAL ---
 
@@ -136,6 +136,10 @@ export function makeGatewaySseProcessor(opts: GatewaySseProcessorOpts): GatewayS
   } = opts;
 
   let lastSaveChunk = 0;
+  // Every write names the turn's row: a row born after it (a notice, a
+  // sub-agent's report, a system message) is the LAST one, and took the turn's
+  // text and tools. Only the id: this path has no blocks to mirror tools into.
+  const own = { rowId: partialMsgId };
 
   const broadcastStreamToTopic = (msg: OutboundMessage): void => {
     if (matchedTopic?.id) broadcastToTopicSubscribers(matchedTopic.id, msg);
@@ -156,7 +160,7 @@ export function makeGatewaySseProcessor(opts: GatewaySseProcessorOpts): GatewayS
         thinking: thinkingRef.value || undefined,
         partial: undefined,
         streamedAt: undefined,
-      });
+      }, own);
       endStream(sessionKey);
       // Route-specific: the caller broadcasts stream:end with its own extra
       // fields and handles post-stream cleanup (unregister, finalize, unread).
@@ -193,7 +197,7 @@ export function makeGatewaySseProcessor(opts: GatewaySseProcessorOpts): GatewayS
         updateStreamContent(sessionKey, contentRef.value, thinkingRef.value);
         if (chunkCountRef.value - lastSaveChunk >= saveInterval) {
           lastSaveChunk = chunkCountRef.value;
-          updateLastMessage(sessionKey, { content: contentRef.value, thinking: thinkingRef.value || undefined });
+          updateLastMessage(sessionKey, { content: contentRef.value, thinking: thinkingRef.value || undefined }, own);
         }
       }
 
@@ -211,7 +215,7 @@ export function makeGatewaySseProcessor(opts: GatewaySseProcessorOpts): GatewayS
               status: 'running',
               contentOffset: contentRef.value.length,
             };
-            addToolCallToLastMessage(sessionKey, toolCall);
+            addToolCallToLastMessage(sessionKey, toolCall, own);
             broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall });
             // Forward as an extra SSE frame to the HTTP client
             const payload = JSON.stringify({
@@ -237,7 +241,7 @@ export function makeGatewaySseProcessor(opts: GatewaySseProcessorOpts): GatewayS
           id?: string; status?: string; result?: string;
         };
         if (trId) {
-          updateToolCallResult(sessionKey, trId, trResult ?? 'completed');
+          updateToolCallResult(sessionKey, trId, trResult ?? 'completed', own);
           broadcastStreamToTopic({
             type: "stream:tool_result",
             sessionKey,
@@ -318,7 +322,7 @@ export function makeGatewaySseProcessor(opts: GatewaySseProcessorOpts): GatewayS
           thinking: thinkingRef.value || undefined,
           partial: undefined,
           streamedAt: undefined,
-        });
+        }, own);
         endStream(sessionKey);
         broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsgId });
         onStreamEnd();

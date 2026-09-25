@@ -3708,7 +3708,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               ? "⚠️ Rate limit reached. The AI service is temporarily overloaded. Please wait a moment and try again."
               : `⚠️ AI service error (${resp.status}). Please try again.`;
             const errorPartial = createPartialMessage(sessionKey, "assistant");
-            updateLastMessage(sessionKey, { content: errorMsg, partial: undefined, streamedAt: undefined });
+            updateLastMessage(sessionKey, { content: errorMsg, partial: undefined, streamedAt: undefined }, { rowId: errorPartial.id });
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: errorPartial.id, content: errorMsg, preview: errorMsg.slice(0, 100) });
@@ -3777,14 +3777,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               onThinkingDelta() {},
               onToolStart(toolCallId: string, name: string, args?: Record<string, unknown>) {
                 const toolCall = { id: toolCallId, name, args: args ?? {}, status: 'running' as const, contentOffset: contentRef.value.length };
-                addToolCallToLastMessage(sessionKey, toolCall);
+                addToolCallToLastMessage(sessionKey, toolCall, { rowId: partialMsg.id });
                 broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall }, matchedTopic?.id);
               },
               onToolUpdate(toolCallId: string, partialResult: string) {
                 broadcastStreamToTopic({ type: "stream:tool_update", sessionKey, topicId: matchedTopic?.id, toolCallId, partialResult }, matchedTopic?.id);
               },
               onToolResult(toolCallId: string, result: string) {
-                updateToolCallResult(sessionKey, toolCallId, result);
+                updateToolCallResult(sessionKey, toolCallId, result, undefined, undefined, { rowId: partialMsg.id });
                 broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result }, matchedTopic?.id);
               },
               onDone() {},      // Handled by HTTP SSE [DONE]
@@ -3822,7 +3822,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             endStream,
             isStreaming,
             addToolCallToLastMessage,
-            updateToolCallResult: (sk, id, result) => updateToolCallResult(sk, id, result),
+            updateToolCallResult: (sk, id, result, own) => updateToolCallResult(sk, id, result, undefined, undefined, own),
             saveInterval: SAVE_INTERVAL,
             onDone: () => {
               // chat.ts-specific: unregister handler, broadcast message:new,
