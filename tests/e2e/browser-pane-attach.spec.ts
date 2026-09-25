@@ -178,6 +178,9 @@ async function proxyAppSocket(page: Page): Promise<{ send: (frame: Record<string
   };
 }
 
+/** The project browser's row in the sidebar, by the title the layout seeds. */
+const sidebarBrowserRow = (page: Page) =>
+  page.getByRole("navigation", { name: "Topics sidebar" }).getByText("Project page", { exact: true }).first();
 const projectTab = (page: Page, path: string) => page.locator(`[role="tab"][data-pane-id="${projectPaneId(path)}"]`).first();
 const innerTab = (page: Page, paneId: string) => page.locator(`[role="tab"][data-pane-id="${paneId}"]`).first();
 
@@ -411,6 +414,83 @@ test.describe("open_browser_pane attaches the project pane", () => {
   });
 
   /**
+   * The same hole on the user's side: a click on the project's browser in the
+   * sidebar. It went through the same focus-only branch, plus a request to the
+   * owner window that nobody hears when residency has evicted that window.
+   */
+  test("a sidebar click on the browser of an evicted project window shows it and attaches it", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "BROWSER-CHAT-04" });
+    const owner = makeProject("owner");
+    const others = [1, 2, 3, 4].map((i) => makeProject(`other${i}`));
+    const topic = await createTopic(request, "Pane attach, sidebar evicted", { projectPath: owner });
+    const ctx = topic.id;
+    await seedProjectTabs(request, [owner, ...others]);
+    await seedProjectLayout(request, owner, ctx);
+    for (const p of others) await seedProjectLayout(request, p, null);
+
+    await fakeTauriShell(page);
+    const watch = watchPage(page, ctx);
+    try {
+      await goToApp(page);
+      await leaveBrowserInBackground(page, owner, ctx);
+      await expect.poll(() => watch.opensSince(0), { timeout: 15_000 }).toBeGreaterThan(0);
+      const visitsFrom = Date.now();
+      for (const p of others) {
+        await projectTab(page, p).click();
+        await expect(projectTab(page, p)).toHaveAttribute("data-active", "true");
+      }
+      await expect
+        .poll(() => watch.closesSince(visitsFrom), { timeout: 20_000, message: "residency evicts the owner window and its pane socket" })
+        .toBeGreaterThan(0);
+
+      const clickedAt = Date.now();
+      await sidebarBrowserRow(page).click();
+      await expect(projectTab(page, owner)).toHaveAttribute("data-active", "true");
+      await expect(innerTab(page, `browser:${ctx}`)).toHaveAttribute("data-active", "true");
+      await expect
+        .poll(() => watch.opensSince(clickedAt), { timeout: slackMs(PANE_WAIT_MS), message: "the pane socket attaches after the click" })
+        .toBeGreaterThan(0);
+    } finally {
+      await watch.attach();
+    }
+  });
+
+  test("a sidebar click on the browser of a project window never mounted in this page shows it and attaches it", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "BROWSER-CHAT-04" });
+    const owner = makeProject("owner");
+    const other = makeProject("other");
+    const topic = await createTopic(request, "Pane attach, sidebar never mounted", { projectPath: owner });
+    const ctx = topic.id;
+    await seedProjectTabs(request, [owner, other]);
+    await seedProjectLayout(request, owner, ctx);
+    await seedProjectLayout(request, other, null);
+
+    await fakeTauriShell(page);
+    const watch = watchPage(page, ctx);
+    try {
+      await goToApp(page);
+      await leaveBrowserInBackground(page, owner, ctx);
+      await projectTab(page, other).click();
+      await expect(projectTab(page, other)).toHaveAttribute("data-active", "true");
+      const reloadedAt = Date.now();
+      await page.reload();
+      await expect(projectTab(page, other)).toHaveAttribute("data-active", "true", { timeout: 15_000 });
+      await expect(innerTab(page, `chat:${ctx}`), "the owner's window is not mounted").toHaveCount(0);
+
+      const clickedAt = Date.now();
+      await sidebarBrowserRow(page).click();
+      await expect(projectTab(page, owner)).toHaveAttribute("data-active", "true");
+      await expect(innerTab(page, `browser:${ctx}`)).toHaveAttribute("data-active", "true");
+      await expect
+        .poll(() => watch.opensSince(clickedAt), { timeout: slackMs(PANE_WAIT_MS), message: "the pane socket attaches after the click" })
+        .toBeGreaterThan(0);
+      expect(watch.opensSince(reloadedAt)).toBeGreaterThan(0);
+    } finally {
+      await watch.attach();
+    }
+  });
+
+  /**
    * The restart of 24/09, played for real: the server goes down with SIGTERM
    * and comes back, and at boot its orphan cleanup strips the browser
    * tombstone of the topic (a chat's browser context IS its topic id). It was
@@ -458,6 +538,12 @@ test.describe("open_browser_pane attaches the project pane", () => {
       const answer = await openPaneRoute(request, ctx, "https://example.com/after-restart");
       expect(answer.visible).toBe(true);
       expect(watch.lines.filter((l) => l.includes("pane socket released")), "the pane was never unmounted").toEqual([]);
+      // The client's trace of that call is in the server's log, where an
+      // incident gets read afterwards (POST /api/client-trace).
+      await expect
+        // eslint-disable-next-line no-control-regex -- Bun colours what it logs
+        .poll(() => boot.join("").replace(/\x1b\[[0-9;]*m/g, ""), { timeout: 10_000, message: "the client's [pane-attach] lines reach the server log" })
+        .toMatch(new RegExp(`\\[client-trace\\] \\S+ \\S+ pane-attach reuse existing pane .*browser:${ctx}`));
     } finally {
       await watch.attach();
     }

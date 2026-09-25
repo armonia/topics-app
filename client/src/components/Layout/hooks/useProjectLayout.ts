@@ -56,6 +56,7 @@ import {
   getBrowserTombstones,
   recordBrowserOrigin,
   drainProjectBrowserReopens,
+  drainProjectPaneFocus,
 } from '../../../state/pane/adapters';
 import type { ClosedTabRecord } from '../../../state/pane/adapters/hooks/useClosedTabs';
 import { findPreviewPane, replacePaneInGroup } from '../../../lib/previewTabs';
@@ -934,7 +935,16 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         window.dispatchEvent(new CustomEvent('topic-unarchive-on-open', { detail: { topicId: pane.topicId } }));
       }
       setGroups(prev => {
-        if (prev.some(g => g.paneIds.includes(pane.id))) return prev;
+        // Already in a group (reopened meanwhile, or a sidebar click on a pane
+        // the window restored as a background tab): what was asked is to see
+        // it, so it becomes the active tab. Leaving it where it was is how a
+        // click on a project's browser brought up the project and not the page.
+        const host = prev.find(g => g.paneIds.includes(pane.id));
+        if (host) {
+          return host.activePaneId === pane.id
+            ? prev
+            : prev.map(g => (g.id === host.id ? { ...g, activePaneId: pane.id } : g));
+        }
         const targetGroup = prev.find(g => g.id === record.groupId) || prev[0];
         if (!targetGroup) return prev;
         const insertIdx = Math.min(record.groupIndex, targetGroup.paneIds.length);
@@ -989,6 +999,25 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
     window.addEventListener('topics:focus-project-pane', handler);
     return () => window.removeEventListener('topics:focus-project-pane', handler);
   }, [groups, projectPath]);
+
+  // The same request, parked by openBrowserPane because this window was not
+  // mounted when it came. Replayed after the other effects of the mount: the
+  // chat sync restores the saved active chat in this same flush, and a pane
+  // activated before it loses to it (see the parked navigates in
+  // useProjectBrowserPanes).
+  useEffect(() => {
+    const parked = drainProjectPaneFocus(projectPath);
+    if (parked.length === 0) return;
+    queueMicrotask(() => {
+      for (const paneId of parked) {
+        tracePaneAttach('parked focus drained', { projectPath, paneId });
+        window.dispatchEvent(new CustomEvent('topics:focus-project-pane', {
+          detail: { projectPath, paneId },
+          cancelable: true,
+        }));
+      }
+    });
+  }, [projectPath]);
 
   // Drain any reopen parked for THIS project by openBrowserPane's not-open path:
   // when a pinned browser is reopened while its ProjectWindow is closed, that

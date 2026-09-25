@@ -66,6 +66,7 @@ import {
   getBrowserOrigin,
   enqueueProjectBrowserReopen,
   enqueueProjectBrowserNavigate,
+  enqueueProjectPaneFocus,
   PROJECT_BROWSER_HAND_OVER_EVENT,
   type ProjectBrowserHandOver,
 } from '../state/pane/adapters';
@@ -855,10 +856,16 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       // (claim protocol handled in useProjectLayout) — this was the "click on
       // a sidebar browser does nothing" report: the window focused, the tab
       // never switched.
-      window.dispatchEvent(new CustomEvent('topics:focus-project-pane', {
+      const focusRequest = new CustomEvent('topics:focus-project-pane', {
         detail: { projectPath: owningProject, paneId },
         cancelable: true,
-      }));
+      });
+      window.dispatchEvent(focusRequest);
+      // Nobody claimed it: the owner window is not mounted (residency evicted
+      // it), and it remounts on the layout it saved, browser in the background.
+      // Parked, the request is applied once the window is back.
+      if (!focusRequest.defaultPrevented) enqueueProjectPaneFocus(owningProject, paneId);
+      tracePaneAttach('sidebar focus request', { paneId, owner: owningProject, claimed: focusRequest.defaultPrevented });
       if (isMobile) setSidebarCollapsed(true);
       return;
     }

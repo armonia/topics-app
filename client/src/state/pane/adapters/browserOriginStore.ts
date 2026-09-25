@@ -216,6 +216,31 @@ export function enqueueProjectBrowserNavigate(projectPath: string, nav: PendingB
 }
 
 /**
+ * A request to show a pane that already lives in a project window, parked
+ * because no window claimed it: the window was not mounted (residency evicts
+ * hidden project windows past three). `openBrowserPane` parks it when a sidebar
+ * click on a project's browser finds nobody to activate the tab, and the window
+ * drains it on mount. Without it the click brought the project to the front
+ * and left the browser a background tab, not mounted (card c5c1c68f).
+ * In-memory, one session, like the queues above.
+ */
+const pendingPaneFocus = new Map<string, string[]>();
+
+export function enqueueProjectPaneFocus(projectPath: string, paneId: string): void {
+  if (!projectPath || !paneId) return;
+  const list = pendingPaneFocus.get(projectPath) ?? [];
+  if (!list.includes(paneId)) list.push(paneId);
+  pendingPaneFocus.set(projectPath, list);
+}
+
+export function drainProjectPaneFocus(projectPath: string): string[] {
+  const list = pendingPaneFocus.get(projectPath);
+  if (!list || list.length === 0) return [];
+  pendingPaneFocus.delete(projectPath);
+  return list;
+}
+
+/**
  * `browser:force-open` handing a browser to the project window that hosts it
  * (card c5c1c68f). Cancelable: the window of `projectPath` claims it with
  * `preventDefault()` and activates or creates the pane; when nobody claims it
