@@ -36,8 +36,10 @@ const BATCH = 50;
 const MAX_QUEUED = 200;
 /** Lines that happen together travel together. */
 const FLUSH_DELAY_MS = 500;
-/** A server that is restarting is back within seconds. */
+/** A server that is restarting is back within seconds: first retry soon. */
 const RETRY_DELAY_MS = 5_000;
+/** A server that stays unreachable is asked less and less often, up to this. */
+const MAX_RETRY_DELAY_MS = 5 * 60_000;
 
 let send: TraceSend | null = null;
 const queue: TraceEvent[] = [];
@@ -46,6 +48,7 @@ let dropped = 0;
 // One batch at a time: two in flight could come back failed in either order,
 // and put their lines back out of order.
 let sending = false;
+let retryDelay = RETRY_DELAY_MS;
 
 function schedule(ms: number): void {
   if (timer || !send) return;
@@ -79,9 +82,11 @@ async function flush(): Promise<void> {
     // lines matter: put them back and try again, bounded.
     queue.unshift(...(lost > 0 ? batch.slice(1) : batch));
     trimQueue();
-    schedule(RETRY_DELAY_MS);
+    schedule(retryDelay);
+    retryDelay = Math.min(retryDelay * 2, MAX_RETRY_DELAY_MS);
     return;
   }
+  retryDelay = RETRY_DELAY_MS;
   dropped -= lost;
   if (queue.length > 0) schedule(0);
 }
@@ -102,8 +107,12 @@ export function tracePaneAttach(event: string, fields: Record<string, unknown> =
 
 /**
  * Start sending the trace to the server. Called once, at app boot. A refusal
- * (4xx: a guest, or a server without the route) turns the sink off for this
- * page instead of retrying forever; a network error or a 5xx is retried.
+ * the page can read (4xx: a guest, or a server without the route, on the web)
+ * turns the sink off for this page. A network error or a 5xx is retried with
+ * a growing delay, and so is a refusal the page cannot read: under Tauri the
+ * app can be newer than its server, whose 404 carries no CORS header, so the
+ * fetch fails like a network error. Asked every 5 minutes at most, that costs
+ * nothing, and a server that comes back gets the lines.
  */
 export function installPaneAttachTraceSink(clientId: () => string): void {
   if (send || typeof fetch !== 'function') return;
@@ -130,6 +139,7 @@ export function __setPaneAttachTraceSendForTests(next: TraceSend | null): void {
   queue.length = 0;
   dropped = 0;
   sending = false;
+  retryDelay = RETRY_DELAY_MS;
   if (timer) clearTimeout(timer);
   timer = null;
 }
@@ -138,6 +148,10 @@ export async function __flushPaneAttachTraceForTests(): Promise<void> {
   if (timer) clearTimeout(timer);
   timer = null;
   await flush();
+}
+/** Test-only: the delay the next retry will wait. */
+export function __retryDelayForTests(): number {
+  return retryDelay;
 }
 /** Test-only: what is still waiting to be sent. */
 export function __queuedPaneAttachTraceForTests(): TraceEvent[] {

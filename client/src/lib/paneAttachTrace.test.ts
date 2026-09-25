@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import {
   __flushPaneAttachTraceForTests,
   __queuedPaneAttachTraceForTests,
+  __retryDelayForTests,
   __setPaneAttachTraceSendForTests,
   installPaneAttachTraceSink,
   tracePaneAttach,
@@ -70,6 +71,22 @@ describe('paneAttachTrace', () => {
     for (let n = 0; n < 6; n++) await __flushPaneAttachTraceForTests();
     expect(sent[0]).toMatchObject({ event: 'trace lines dropped', fields: { count: 30 } });
     expect(sent.slice(1).map((e) => e.event)).toEqual(Array.from({ length: 200 }, (_, i) => `e${i + 30}`));
+  });
+
+  it('asks a server that stays unreachable less and less often, and resets once it answers', async () => {
+    let up = false;
+    __setPaneAttachTraceSendForTests(async () => up);
+    tracePaneAttach('pane socket released');
+    const delays: number[] = [];
+    for (let n = 0; n < 9; n++) {
+      delays.push(__retryDelayForTests());
+      await __flushPaneAttachTraceForTests();
+    }
+    expect(delays).toEqual([5_000, 10_000, 20_000, 40_000, 80_000, 160_000, 300_000, 300_000, 300_000]);
+    up = true;
+    await __flushPaneAttachTraceForTests();
+    expect(__retryDelayForTests()).toBe(5_000);
+    expect(__queuedPaneAttachTraceForTests()).toEqual([]);
   });
 
   it('a refusal turns the sink off instead of retrying forever', async () => {

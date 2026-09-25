@@ -991,8 +991,14 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       const owner = groups.find(g => g.paneIds.includes(detail.paneId!));
       if (!owner) return; // not mounted in this window — leave unclaimed
       e.preventDefault();
+      // Membership checked again on `prev`: a request replayed at mount (the
+      // parked one below) reads the groups of the mount, and a pane that the
+      // same mount's reconcile is removing must not become the active tab of a
+      // group that no longer holds it.
       setGroups(prev => prev.map(g =>
-        g.id === owner.id && g.activePaneId !== detail.paneId ? { ...g, activePaneId: detail.paneId! } : g,
+        g.id === owner.id && g.paneIds.includes(detail.paneId!) && g.activePaneId !== detail.paneId
+          ? { ...g, activePaneId: detail.paneId! }
+          : g,
       ));
       setFocusedGroupId(owner.id);
     };
