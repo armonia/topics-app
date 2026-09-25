@@ -21,6 +21,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync, existsSync, r
 import { join } from "path";
 import { tmpdir } from "os";
 import { recordedBackgroundSession } from "./claude/background-work.fixture";
+import { BACKGROUND_WORK_CAP_MS } from "./claude/background-work";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 let tempDir = "";
@@ -335,7 +336,9 @@ describe("boot · the agent's lines after the last result", () => {
       // Before the fix: "open", and the boot adopted a turn nobody had opened.
       expect(await prov.brokerTurnState(sessionKey, { park: true })).toBe("idle");
       expect((prov as any).parkedScans.size).toBe(0);
-      // Not reaped either: the probe kept the session, and the boot asks this.
+      // Not reaped either: the probe kept the session as its process, and the
+      // boot asks exactly that before it reaps.
+      expect(prov.ownsSession(sessionKey)).toBe(true);
       expect(prov.hasBackgroundWork(sessionKey)).toBe(true);
       expect(prov.isTurnProcessAlive(sessionKey)).toBe(false);
 
@@ -425,6 +428,16 @@ describe("boot · the agent's lines after the last result", () => {
       expect(await fresh.brokerTurnState(sessionKey)).toBe("idle");
       expect(fresh.hasBackgroundWork(sessionKey)).toBe(true);
       fresh.stop();
+      // Written forty minutes ago: a long silent job. The stall judge may look
+      // again, but the child is kept, and kept as the session's process, so the
+      // boot's reap, which asks for exactly that, leaves it alone.
+      bridge.attach = async (id: string, from: number) => ({ ...(await vero(id, from)), lastDataAt: Date.now() - 40 * 60_000 });
+      const quiet = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+      expect(await quiet.brokerTurnState(sessionKey)).toBe("idle");
+      expect(quiet.ownsSession(sessionKey)).toBe(true);
+      expect(quiet.hasBackgroundWork(sessionKey)).toBe(true);
+      expect(quiet.hasBackgroundWork(sessionKey, BACKGROUND_WORK_CAP_MS)).toBe(false);
+      quiet.stop();
       // The same store, last written three hours ago.
       bridge.attach = async (id: string, from: number) => ({ ...(await vero(id, from)), lastDataAt: Date.now() - 3 * 60 * 60_000 });
       const late = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });

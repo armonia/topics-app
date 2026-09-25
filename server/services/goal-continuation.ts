@@ -218,8 +218,10 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
   async function checkIn(sessionKey: string): Promise<void> {
     const info = deferred.get(sessionKey)?.info;
     if (!info) return;
+    // A turn in flight ends by itself, and its end decides. The deferred turn
+    // stays for it: if that turn is the empty last wake, it is the one to judge.
+    if (deps.isBusy?.(sessionKey)) { deferred.set(sessionKey, { info, timer: null }); return; }
     deferred.delete(sessionKey);
-    if (deps.isBusy?.(sessionKey)) return; // that turn ends by itself, and its end decides
     checkInCount.set(sessionKey, (checkInCount.get(sessionKey) ?? 0) + 1);
     log(`goal-loop: ${sessionKey}: checking in on the goal after its background work ran without reporting`);
     await judge({ ...info, backgroundWork: false }, deps.backgroundWork?.(sessionKey) === true)
@@ -238,8 +240,10 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
       return "error";
     }
     if (info.backgroundWork && turnCanContinueGoal({ ...info, backgroundWork: false }, goal)) return defer(info);
-    if (info.discarded && waiting) {
-      // The empty wake after the work reported: judge the turn that did it.
+    // The empty wake after the work reported: judge the turn that did it. Only
+    // a wake the model closed by itself: a turn somebody stopped, or one that
+    // failed, drops the waiting turn with it, or a Stop would buy a nudge.
+    if (info.discarded && waiting && info.end === "end_turn" && !info.dispatched) {
       if (info.backgroundWork) return defer(waiting);
       return judge({ ...waiting, backgroundWork: false }, false);
     }

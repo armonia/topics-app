@@ -338,6 +338,35 @@ describe("a goal deferred on background work", () => {
     await close();
   });
 
+  test("a Stop on an empty turn drops the waiting turn: no nudge now, none in thirty minutes", async () => {
+    // Stopped before its first token, the turn is discarded like an empty wake;
+    // treating it as one bought a paid turn the person had just refused.
+    const t = await bench("goal-stop-empty", ["continue"]);
+    await t.onTurnEnd(t.turn());
+    t.timers.length = 0;
+    expect(await t.onTurnEnd(t.turn({ end: "cancelled", discarded: true, lastAssistantText: "" }))).toBe("skipped");
+    t.stop();
+    expect(await t.onTurnEnd(t.turn({ end: "cancelled", discarded: true, backgroundWork: false, lastAssistantText: "" }))).toBe("skipped");
+    expect(t.timers).toEqual([]);
+    expect(t.judged).toEqual([]);
+    expect(t.sent).toEqual([]);
+    await close();
+  });
+
+  test("a check-in that meets the last wake in flight leaves the waiting turn to that wake", async () => {
+    let busy = true;
+    const t = await bench("goal-checkin-meets-wake", ["continue"], () => busy);
+    await t.onTurnEnd(t.turn({ lastAssistantText: "the suite is running on the PC" }));
+    await t.fire();
+    expect(t.judged).toEqual([]);
+    busy = false;
+    t.stop();
+    // The wake it met turns out empty and is discarded: the waiting turn is still there to judge.
+    expect(await t.onTurnEnd(t.turn({ discarded: true, backgroundWork: false, lastAssistantText: "" }))).toBe("continued");
+    expect(t.judged[0]).toContain("the suite is running on the PC");
+    await close();
+  });
+
   test("the empty wake after the last report hands the judge the turn that did the work", async () => {
     const t = await bench("goal-empty-wake", ["continue"]);
     await t.onTurnEnd(t.turn({ lastAssistantText: "fixed four of five, the fifth is running" }));

@@ -15,7 +15,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";
-import { BACKGROUND_KILL_CAP_MS, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
+import { BACKGROUND_KILL_CAP_MS, BACKGROUND_WORK_CAP_MS, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
 import { recordedBackgroundSession } from "./claude/background-work.fixture";
 
 function fakePP(over: Record<string, unknown> = {}) {
@@ -203,9 +203,10 @@ describe("ClaudeCodeProvider — inactivity reaper never fires during a turn", (
       (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });
       await new Promise((r) => setTimeout(r, 30));
       expect(killed).toBe(0);
-      // Waiting is another matter: past thirty minutes the goal loop checks in
-      // and the stall judge may look again.
-      expect(provider.hasBackgroundWork(sessionKey)).toBe(false);
+      // The goal loop keeps waiting on it; the stall judge, past thirty minutes
+      // without news, may look again.
+      expect(provider.hasBackgroundWork(sessionKey)).toBe(true);
+      expect(provider.hasBackgroundWork(sessionKey, BACKGROUND_WORK_CAP_MS)).toBe(false);
 
       pp.background = { ...open, lastSignalAt: Date.now() - BACKGROUND_KILL_CAP_MS };
       (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });

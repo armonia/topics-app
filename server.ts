@@ -239,6 +239,7 @@ import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
 // it (see server/lib/stall-detector.ts + stall-judge.ts). `dispatchTimeoutMin`
 // is downgraded to a reporting-only comparison below.
 import { armStallDetector } from "./server/lib/stall-detector";
+import { BACKGROUND_WORK_CAP_MS } from "./server/providers/claude/background-work";
 import { judgeStall } from "./server/lib/stall-judge";
 import { internalAbortRequest, internalRequest, STOP_CAUSE_HEADER, type StopCause } from "./server/lib/abort-cause";
 import { runBootPartialSweep } from "./server/lib/boot-partial-sweep";
@@ -1127,8 +1128,9 @@ async function watchHeadlessBody(
     isWaitingForChecks: () => isChecksHold(sessionKey),
     // A command of this session is STOPped by us: that silence is ours.
     isFrozen: () => isSwapFreezeHold(sessionKey),
-    // Its CLI still reports on an agent, a Bash or a Monitor: that wait is the model's own.
-    isWaitingForBackground: () => sessionHasBackgroundWork(sessionKey),
+    // Its CLI still reports on an agent, a Bash or a Monitor: that wait is the
+    // model's own. Thirty minutes without news and the judge may look again.
+    isWaitingForBackground: () => sessionHasBackgroundWork(sessionKey, BACKGROUND_WORK_CAP_MS),
     getTail: () => stallTranscriptTail(sessionKey),
     judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
     onRearm: (reason) => console.log(
@@ -5406,11 +5408,15 @@ async function reattachSurvivingChatTurns(): Promise<void> {
       if (prov?.isTurnProcessAlive?.(s.id)) continue; // adopted by a live turn — hands off
     } catch { /* provider not up yet — reap anyway, a turn can't be running */ }
     // No turn, but the probe above found the work its last turn left running
-    // and kept the session attached: reaping it would kill that work.
-    if (adoptable && sessionHasBackgroundWork(s.id)) {
-      console.log(`[chat-reattach] keeping ${s.id}: no turn in flight, but its background work is still running`);
-      continue;
-    }
+    // and kept the session attached as its process: reaping it would kill that
+    // work, and leave a process in the map for a child that no longer exists.
+    try {
+      const prov = tryGetProvider("claude-code") as { ownsSession?: (sk: string) => boolean } | undefined;
+      if (adoptable && prov?.ownsSession?.(s.id)) {
+        console.log(`[chat-reattach] keeping ${s.id}: no turn in flight, but its background work is still running`);
+        continue;
+      }
+    } catch { /* provider not up yet: nothing was kept */ }
     // Il motivo va scritto con le PROVE che l'hanno deciso: quando questo reap
     // si rivelerà di nuovo sbagliato, il log deve dire da quale delle due fonti
     // è arrivata la bugia, non solo che qualcuno è stato ucciso.

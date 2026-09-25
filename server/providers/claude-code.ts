@@ -917,6 +917,17 @@ function turnInFlight(pp: PersistentProcess): boolean {
   return !!pp.streamHandler || !!pp.pendingReject || pp.wokenBuffer != null || pp.declinedTurn === true;
 }
 
+/**
+ * A replay folds every background line with "now". The child's last write is
+ * the true age of that news: a job silent for hours must not look fresh after
+ * every restart, or no clock ever collects a lost one.
+ */
+function datedByLastWrite(pp: PersistentProcess, lastDataAt: number | undefined): void {
+  if (pp.background && typeof lastDataAt === "number" && lastDataAt < pp.background.lastSignalAt) {
+    pp.background = { ...pp.background, lastSignalAt: lastDataAt };
+  }
+}
+
 /** Killing this child would also kill the Agent, Bash or Monitor its last turn left running. */
 function backgroundAlive(pp: PersistentProcess): boolean {
   return isBackgroundWorkAlive(pp.background, Date.now(), BACKGROUND_KILL_CAP_MS);
@@ -2677,10 +2688,16 @@ export class ClaudeCodeProvider implements AIProvider {
     return !!pp && pp.alive && pp.streamHandler !== null;
   }
 
-  /** The session's last turn left an Agent, a Bash or a Monitor running, and the CLI still reports on it. */
-  hasBackgroundWork(sessionKey: string): boolean {
+  /**
+   * The session's last turn left an Agent, a Bash or a Monitor running, and
+   * the CLI has said something about it within `quietMs`. Two hours by
+   * default, the bound under which the child is not killed: the goal loop
+   * waits that long, checking in on its own schedule. The stall judge asks
+   * with thirty minutes (`BACKGROUND_WORK_CAP_MS`).
+   */
+  hasBackgroundWork(sessionKey: string, quietMs: number = BACKGROUND_KILL_CAP_MS): boolean {
     const pp = this.processes.get(sessionKey);
-    return !!pp && pp.alive && isBackgroundWorkAlive(pp.background, Date.now());
+    return !!pp && pp.alive && isBackgroundWorkAlive(pp.background, Date.now(), quietMs);
   }
 
   /**
@@ -2800,12 +2817,7 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.replayLastResult = undefined;
     pp.replayAfterLastResultOffset = 0;
     const scan = await client.attach(sessionKey, 0);
-    // The replay dated every background line "now". The child's last write is
-    // the true age of that news: a job silent for hours must not look fresh
-    // after every restart, or no clock ever collects a lost one.
-    if (pp.background && typeof scan.lastDataAt === "number" && scan.lastDataAt < pp.background.lastSignalAt) {
-      pp.background = { ...pp.background, lastSignalAt: scan.lastDataAt };
-    }
+    datedByLastWrite(pp, scan.lastDataAt);
     return { missing: scan.missing === true, alive: scan.alive === true };
   }
 
@@ -3076,6 +3088,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
     const res = await client.attach(sessionKey, pp.replayAfterLastResultOffset ?? 0);
     pp.replaySilent = false;
+    datedByLastWrite(pp, res.lastDataAt);
 
     // Replay is fully folded now (synchronous onData). Classify from pp state.
     if (res.missing) { this.finalizeDeadReattach(pp); return "dead"; }
