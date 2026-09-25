@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.397",
+    "date": "2026-09-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "The e2e cleanups kill a saved PID only while it is still a test server",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.396",
     "date": "2026-09-25",
     "sections": {
@@ -9,6 +25,11 @@
       "internal": [
         {
           "it": "The reread after a cut reply goes past the history dedup, so a turn started meanwhile from another window gets its Stop",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The e2e setup refuses the live server's port and kills only test servers, at every place that kills by port",
           "en": "",
           "scope": null
         },

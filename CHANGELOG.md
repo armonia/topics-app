@@ -2,10 +2,16 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.397 — 2026-09-25
+
+### Sotto il cofano
+- The e2e cleanups kill a saved PID only while it is still a test server
+
 ## 2.2.396 — 2026-09-25
 
 ### Sotto il cofano
 - The reread after a cut reply goes past the history dedup, so a turn started meanwhile from another window gets its Stop
+- The e2e setup refuses the live server's port and kills only test servers, at every place that kills by port
 - A busy check-in doubles the interval without moving the pause, and a goal set anew starts its own check-ins
 
 ## 2.2.395 — 2026-09-25
