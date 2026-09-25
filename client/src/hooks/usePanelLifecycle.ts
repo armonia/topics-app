@@ -65,6 +65,7 @@ import {
   getPaneConfig,
   getBrowserOrigin,
   enqueueProjectBrowserReopen,
+  enqueueProjectBrowserNavigate,
   isProjectWindowMounted,
 } from '../state/pane/adapters';
 import { findPaneLocation, usePaneStore } from '../state/pane/store';
@@ -958,22 +959,44 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         // project window already lists this browser pane.
         const browserPaneId = `browser:${msg.contextId}`;
         const owner = owningRenderedProject(browserPaneId);
-        tracePaneAttach('force-open received', {
-          contextId: msg.contextId,
-          owner,
-          ownerMounted: owner ? isProjectWindowMounted(owner) : null,
-        });
-        if (owner) {
-          // A LIVE project window owns and renders this pane — its
-          // open-near-pane handler already mounted the browser beside the
-          // spawner and activated the browser's in-cell tab. The one thing it
-          // could NOT do is surface a project tab that's a background app-level
-          // tab (display:none). Bring that project tab to the front so the pane
-          // is actually visible (idempotent when the project is already active).
-          setFocusedPanelId(createPaneId('project', owner));
+        // The project whose window must show this browser. A project topic's
+        // browser lives in that project's layout, so with no owner entry (the
+        // window never mounted in this session) the topic or the recorded
+        // origin names it. A pane already open at app level stays there.
+        const host = owner
+          ?? (openPanelsRef.current.includes(browserPaneId)
+            ? null
+            : getBrowserOrigin(msg.contextId)?.projectPath ?? topicsRef.current[msg.contextId]?.projectPath ?? null);
+        const hostMounted = host ? isProjectWindowMounted(host) : null;
+        tracePaneAttach('force-open received', { contextId: msg.contextId, owner, host, hostMounted });
+        if (host) {
+          // Bringing the project to the front is not enough, and focusing it was
+          // all this branch did (card c5c1c68f). force-open means nothing
+          // attached, so the pane is not mounted: either its window is not
+          // mounted (residency evicts hidden project windows past three, and one
+          // never shown this session was never mounted), or the pane is a
+          // background tab of its cell. A remounted window restores the layout
+          // it had, background tab included, and a background tab nobody
+          // activated is not mounted either. And the page the agent asked for
+          // was never loaded in it: `browser:navigate` reached no mounted window.
+          //
+          // So the host window gets the same request as a navigate: activate
+          // this pane, or create it, and load `url`. A mounted window takes it
+          // live; a window that is not mounted finds it parked when it mounts,
+          // which bringing it to the front below makes happen.
+          if (hostMounted) {
+            window.dispatchEvent(new CustomEvent('browser:open-and-navigate', {
+              detail: { projectPath: host, url: msg.url, contextId: msg.contextId },
+            }));
+          } else {
+            enqueueProjectBrowserNavigate(host, { url: msg.url, contextId: msg.contextId });
+          }
+          const projectPaneId = createPaneId('project', host);
+          if (openPanelsRef.current.includes(projectPaneId)) setFocusedPanelId(projectPaneId);
+          else handleProjectClickRef.current?.(host);
           return;
         }
-        // No live owner — either no project ever owned it, OR the only entry is
+        // No project hosts it, OR the only ownership entry is
         // STALE from a project tab that was since closed (owningRenderedProject
         // returns null for those). Mount a visible standalone pane so a
         // session-initiated open ALWAYS surfaces something, instead of being
@@ -985,7 +1008,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         openBrowserPane(msg.contextId);
       }
     });
-  }, [onWSMessage, openBrowserPane, owningRenderedProject]);
+  }, [onWSMessage, openBrowserPane, owningRenderedProject, openPanelsRef, topicsRef]);
 
   // Reconcile: a browser pane OWNED by a project window must never ALSO live at
   // the app level (group:default). The force-open fallback racing a project's

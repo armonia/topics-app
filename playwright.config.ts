@@ -575,6 +575,10 @@ export default defineConfig({
         "**/board-dispatch-load-gauge.spec.ts",
         "**/board-settings-dropdown.spec.ts",
         "**/board-topbar-legibility.spec.ts",
+        // open_browser_pane has to end with an attached pane socket, after a
+        // server restart and with the owning project window unmounted. The
+        // pane under test is the native (Tauri) one, and Tauri ships WebKit.
+        "**/browser-pane-attach.spec.ts",
       ],
       use: {
         browserName: "webkit",

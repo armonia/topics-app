@@ -381,10 +381,21 @@ export function useProjectBrowserPanes({
     // SINCRONO dallo snapshot al mount (`useState(() => initial.groups)`),
     // quindi zero gruppi vuol dire zero gruppi, non «non ancora caricati» — e
     // la navigazione parcheggiata deve aprire la sua pane anche lì.
-    for (const nav of drainProjectBrowserNavigates(projectPath)) {
-      tracePaneAttach('parked navigate drained', { projectPath, contextId: nav.contextId ?? null });
-      ensureBrowserPaneAndNavigateRef.current?.(nav.url, undefined, nav.spawnerKey ?? nav.contextId, nav.contextId);
-    }
+    const parked = drainProjectBrowserNavigates(projectPath);
+    if (parked.length === 0) return;
+    // Applied AFTER the other effects of this commit. When the window has just
+    // mounted, the chat sync (`useProjectChatSync`, called after this hook)
+    // restores the chat that was active last time in the same flush. A browser
+    // pane activated here, in that chat's cell, lost to it and stayed a
+    // background tab, so it never mounted (card c5c1c68f). A request that
+    // waited for this window is newer than the layout it was saved with, so it
+    // goes last.
+    queueMicrotask(() => {
+      for (const nav of parked) {
+        tracePaneAttach('parked navigate drained', { projectPath, contextId: nav.contextId ?? null });
+        ensureBrowserPaneAndNavigateRef.current?.(nav.url, undefined, nav.spawnerKey ?? nav.contextId, nav.contextId);
+      }
+    });
   }, [projectPath, groups.length]);
 
   // Consume a queued browser split: once the freshly added browser pane is
