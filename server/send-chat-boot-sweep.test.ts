@@ -108,7 +108,7 @@ describe("send_chat_message across a server that died and booted", () => {
   test("died while the model wrote prose, no tool running: closed before it finished, the half as what it had written", async () => {
     const rowId = turnCutMidway("boot-prose", false);
     await expect(send("boot-prose", serverThatDiesAndBoots("boot-prose", rowId, 3)))
-      .rejects.toThrow(`stream interrupted, and the turn was closed before it finished (a restart, a stop or the watchdog). What it had written: ${JSON.stringify(HALF.trim())}. Before sending it again`);
+      .rejects.toThrow(`stream interrupted, and the turn was closed from outside before it finished (a restart or a watchdog). What it had written: ${JSON.stringify(HALF.trim())}. Before sending it again`);
   });
 
   test("died during a silent tool: the interrupted tool's verdict, written once", async () => {
@@ -127,7 +127,7 @@ describe("send_chat_message across a server that died and booted", () => {
     ctx.appendLocalMessage(sessionKey, "user", "ping");
     const rowId = ctx.createPartialMessage(sessionKey, "assistant").id;
     await expect(send(tid, serverThatDiesAndBoots(tid, rowId, 2)))
-      .rejects.toThrow(/closed before it finished \(a restart, a stop or the watchdog\)\. It had written nothing\. Before sending it again, check read_chat_messages/);
+      .rejects.toThrow(/closed from outside before it finished \(a restart or a watchdog\)\. It had written nothing\. Before sending it again, check read_chat_messages/);
     expect(ctx.getMessageById(rowId)!.blocks).toBeUndefined();
   });
 
@@ -145,6 +145,23 @@ describe("send_chat_message across a server that died and booted", () => {
 });
 
 describe("read_chat_messages after the same restart", () => {
+  test("a sub-agent's result that landed while the turn ran does not take the cut row's note", async () => {
+    const tid = "boot-read-sub";
+    const rowId = turnCutMidway(tid, false);
+    // What deliverExit / deliverMessage do while the turn runs: a plain assistant row after the turn's row.
+    ctx.appendLocalMessage(`topic:${tid}`, "assistant", "Sotto-agente Lane A, esito: fatto.");
+    await send(tid, serverThatDiesAndBoots(tid, rowId, 1)).catch(() => {});
+    const router = createTopicsRouter(ctx);
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const u = new URL(String(input));
+      return (await router(new Request(u), u, u.pathname, "GET"))!;
+    }) as typeof fetch;
+    const out = JSON.parse(await callReadChatMessages({ baseUrl: "http://x", sessionKey: "topic:caller" }, { topic_id: tid }, fetchImpl)) as { messages: Array<{ content: string; note?: string }> };
+    const noteOf = (content: string) => out.messages.find((m) => m.content === content)?.note;
+    expect(noteOf(HALF)).toBe("cut by a server restart before it finished");
+    expect(noteOf("Sotto-agente Lane A, esito: fatto.")).toBeUndefined();
+  });
+
   test("the cut row says it was cut, a verdict row says how it ended, a finished answer says nothing", async () => {
     const tid = "boot-read";
     const rowId = turnCutMidway(tid, false);

@@ -1466,22 +1466,30 @@ async function postChatReadSSE(
 ): Promise<{ text: string; complete: boolean; messageId?: string; end?: TurnEndFrame }> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (args.gatewayToken) headers["X-Gateway-Token"] = args.gatewayToken;
-  const resp = await fetchImpl(`${args.baseUrl}/api/chat`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ sessionKey: targetSessionKey, messages: [{ role: "user", content: message }] }),
-    // A socket of its own. On a reused keep-alive socket that the server closes
-    // mid-response, Bun's fetch sends the POST again by itself and glues the
-    // second answer onto this body: the message reached the chat twice.
-    keepalive: false,
-    ...loopbackInit(),
-  });
+  let resp: Response;
+  try {
+    resp = await fetchImpl(`${args.baseUrl}/api/chat`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ sessionKey: targetSessionKey, messages: [{ role: "user", content: message }] }),
+      // A socket of its own. On a reused keep-alive socket that the server closes
+      // mid-response, Bun's fetch sends the POST again by itself and glues the
+      // second answer onto this body: the message reached the chat twice.
+      keepalive: false,
+      ...loopbackInit(),
+    });
+  } catch (err: unknown) {
+    // The request may have arrived before the connection went: the chat may hold it.
+    throw new Error(`send_chat_message: chat request lost (${err instanceof Error ? err.message : String(err)}). ${beforeResending(topicId)}`);
+  }
   if (!resp.ok || !resp.body) {
     const t = await resp.text().catch(() => "");
     // 409 non è un guasto: la topic sta già rispondendo a qualcun altro. Detto
     // com'è, invece che come un errore HTTP crudo, perché è azionabile — si
     // riprova quando ha finito (la chat dell'UI invece accoda da sola).
-    if (resp.status === 409) {
+    // Only that 409 (`stream_in_flight`) is refused before anything is written;
+    // another one can come after the person's row is saved.
+    if (resp.status === 409 && t.includes("stream_in_flight")) {
       throw new Error("send_chat_message: c'è già un turno in volo su questa topic — riprova quando ha finito");
     }
     throw new Error(`send_chat_message: chat request failed (HTTP ${resp.status}) ${t.slice(0, 200)}. ${beforeResending(topicId)}`);
@@ -1629,11 +1637,12 @@ async function awaitTurnEndAndReadReply(
       }
       // CLOSED FROM OUTSIDE, not finished: only a turn's own completion writes
       // `latency_ms` (the discriminant `reuseOrCreatePartialForReattach` already
-      // relies on). The boot sweep after a crash, a Stop, the sweeper close the
-      // row without it, and the boot sweep writes no verdict on the row: the
-      // person reads the restart notice after it, and one notice is enough.
+      // relies on). The boot sweep after a crash and the stale-stream sweeper
+      // close the row without it, and the boot sweep writes no verdict on it:
+      // the person reads the restart notice after it, one notice is enough. A
+      // Stop that the provider finalizes writes it, and stays the open case.
       if (row.latencyMs == null) {
-        throw new Error(`send_chat_message: stream interrupted, and the turn was closed before it finished (a restart, a stop or the watchdog).`
+        throw new Error(`send_chat_message: stream interrupted, and the turn was closed from outside before it finished (a restart or a watchdog).`
           + (text ? ` What it had written: ${JSON.stringify(text)}.` : " It had written nothing.") + ` ${beforeResending(topicId)}`);
       }
       return text;
@@ -1699,23 +1708,39 @@ type ListedRow = { role?: string; content?: string; partial?: boolean; latencyMs
 /** How the boot sweep's restart notice opens (`RESTART_INTERRUPTED_MARKER`, lib/boot-partial-sweep.ts). */
 export const RESTART_NOTICE_OPENING = "Turno interrotto da un riavvio del server";
 
+/** The error verdict a row carries, if any. */
+const verdictOf = (row: ListedRow | undefined) => row?.blocks?.find((b) => b?.kind === "error")?.text;
+
+/**
+ * The rows a restart cut: for each restart notice, the turn's own row, which is
+ * the first answer after the person's message before it, when no completion
+ * closed it. The notice hangs from the session's LAST row, and a sub-agent's
+ * result or a system line can land after the turn's row while it runs.
+ */
+function rowsCutByRestart(rows: ListedRow[]): Set<number> {
+  const cut = new Set<number>();
+  rows.forEach((row, i) => {
+    if (row.role !== "assistant" || !`${row.content ?? ""} ${verdictOf(row) ?? ""}`.includes(RESTART_NOTICE_OPENING)) return;
+    let asked = i - 1;
+    while (asked >= 0 && rows[asked].role !== "user") asked--;
+    const turn = asked >= 0 ? asked + 1 : -1;
+    if (turn > 0 && turn < i && rows[turn].role === "assistant" && rows[turn].latencyMs == null && !verdictOf(rows[turn])) cut.add(turn);
+  });
+  return cut;
+}
+
 /**
  * What `content` alone does not say about a row: a turn that ended badly, one
  * still being written, one a restart cut. The last carries nothing of its own
- * (the person reads the restart notice right after it, one notice is enough),
- * so it is told by that notice following a row no completion closed.
+ * (the person reads the restart notice after it, one notice is enough).
  */
-function turnNote(row: ListedRow, next: ListedRow | undefined): string | undefined {
+function turnNote(row: ListedRow, cutByRestart: boolean): string | undefined {
   if (row.role !== "assistant") return undefined;
-  const verdict = row.blocks?.find((b) => b?.kind === "error")?.text;
+  const verdict = verdictOf(row);
   // A notice row is its own verdict: its content already says it.
   if (verdict) return (row.content ?? "").includes(verdict) ? undefined : `ended badly: ${verdict}`;
   if (row.partial) return "still being written";
-  const nextSays = `${next?.content ?? ""} ${next?.blocks?.find((b) => b?.kind === "error")?.text ?? ""}`;
-  if (row.latencyMs == null && next?.role === "assistant" && nextSays.includes(RESTART_NOTICE_OPENING)) {
-    return "cut by a server restart before it finished";
-  }
-  return undefined;
+  return cutByRestart ? "cut by a server restart before it finished" : undefined;
 }
 
 export async function callReadChatMessages(
@@ -1734,8 +1759,9 @@ export async function callReadChatMessages(
     args, "GET", path, undefined, fetchImpl,
   );
   const msgs = Array.isArray(body?.messages) ? body!.messages : [];
+  const cut = rowsCutByRestart(msgs);
   const compact = msgs.map((m, i) => {
-    const note = turnNote(m, msgs[i + 1]);
+    const note = turnNote(m, cut.has(i));
     return {
       role: m.role ?? "?",
       // Cap each message so a long transcript doesn't blow the tool-result budget.

@@ -226,7 +226,7 @@ describe("callSendChatMessage when the turn does not finish on the stream", () =
     for (const content of ["", "half an answer"]) {
       const fetchImpl = world({ streaming: () => [], messages: () => [{ id: "m1", role: "assistant", content }] });
       await expect(callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST))
-        .rejects.toThrow(/stream interrupted, and the turn was closed before it finished \(a restart, a stop or the watchdog\)\. (It had written nothing|What it had written: "half an answer")\. Before sending it again/);
+        .rejects.toThrow(/stream interrupted, and the turn was closed from outside before it finished \(a restart or a watchdog\)\. (It had written nothing|What it had written: "half an answer")\. Before sending it again/);
     }
   });
 
@@ -242,11 +242,26 @@ describe("callSendChatMessage when the turn does not finish on the stream", () =
       const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST).catch((err: Error) => err.message);
       expect(`${name}: ${out}`).toContain("Before sending it again, check read_chat_messages");
     }
-    const busy = stubFetch(async (url) => String(url).endsWith("/api/topics/t1")
+    const refusing = (status: number, body: unknown) => stubFetch(async (url) => String(url).endsWith("/api/topics/t1")
       ? Response.json({ topic: { sessionKey: "topic:target", name: "Target" } })
-      : new Response("busy", { status: 409 }));
-    const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, busy, FAST).catch((err: Error) => err.message);
-    expect(out).not.toContain("Before sending it again");
+      : Response.json(body, { status }));
+    // The busy 409 (chat.ts, before anything is written) is the one refusal that accepted nothing.
+    const busy = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, refusing(409, { error: "a response is already streaming for this session", code: "stream_in_flight" }), FAST)
+      .catch((err: Error) => err.message);
+    expect(busy).toContain("riprova quando ha finito");
+    expect(busy).not.toContain("Before sending it again");
+    // Another 409 can come after the person's row is saved.
+    const routing = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, refusing(409, { error: "no engine", code: "topics_routing_incompatible" }), FAST)
+      .catch((err: Error) => err.message);
+    expect(routing).toContain("chat request failed (HTTP 409)");
+    expect(routing).toContain("Before sending it again");
+    // A POST that never got an answer may have arrived all the same.
+    const lost = stubFetch(async (url) => {
+      if (String(url).endsWith("/api/topics/t1")) return Response.json({ topic: { sessionKey: "topic:target", name: "Target" } });
+      throw new TypeError("socket hang up");
+    });
+    const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, lost, FAST).catch((err: Error) => err.message);
+    expect(out).toMatch(/chat request lost \(socket hang up\)\. Before sending it again/);
   });
 
   test("a turn stopped by the machine or ended in an error says which", async () => {
