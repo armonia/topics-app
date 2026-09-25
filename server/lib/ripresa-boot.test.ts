@@ -453,11 +453,11 @@ describe("la catena dei riavvii ha un tetto", () => {
   test("the person deletes the restart notice: the row the boot closed, last again, is not resent", async () => {
     const db = freshDb();
     for (const col of ["streamed_at", "thinking", "tool_calls"]) db.run(`ALTER TABLE messages ADD COLUMN ${col} TEXT`);
-    const earlier = new Date(Date.now() - 5 * 60_000).toISOString();
-    db.run("UPDATE messages SET timestamp = ? WHERE id = 'u0'", [earlier]);
+    const sentAt = new Date(Date.now() - 5 * 60_000).toISOString();
+    db.run("UPDATE messages SET timestamp = ? WHERE id = 'u0'", [sentAt]);
     db.run(
       "INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, parent_id, branch_index) VALUES ('cut','topic:x','assistant','Faccio il deploy: ',1,?,1,'u0',0)",
-      [earlier],
+      [sentAt],
     );
     runBootPartialSweep(db as unknown as Parameters<typeof runBootPartialSweep>[0], {
       listConfirmed: true, liveSessions: new Set(), generateId: () => "restart-notice",
