@@ -4,7 +4,8 @@ import { boardApi, type DiffFileStat } from '../../lib/board';
 import { useT } from '../../hooks/useT';
 import { ChangedFileList } from '../Git/ChangedFileList';
 import { rowFromDiffStat } from '../Git/changedFiles';
-import { showsGitChangesChip } from '../../lib/gitVisibility';
+import { deliveryMeasure, showsGitChangesChip } from '../../lib/gitVisibility';
+import { diffFocusFor, type OpenTask } from './constants';
 
 /**
  * THE CARD'S GIT CHANGES, as a chip that opens.
@@ -39,9 +40,13 @@ import { showsGitChangesChip } from '../../lib/gitVisibility';
  * the app mounts (`Git/ChangedFileList`): same letter, same colours, same place
  * where the path is cut. What used to be here showed `+/-` and never said
  * whether the file had been added or deleted.
+ *
+ * A ROW OPENS THE FILE'S DIFF. With `onOpen` the row is a button that opens the
+ * task on its changes panel with that file expanded (`diffFocusFor`): the
+ * list said which files, and then there was no way to read one of them.
  */
 
-export function DeliveryFiles({ projectId, taskId, files, insertions, deletions, commit, live }: {
+export function DeliveryFiles({ projectId, taskId, files, insertions, deletions, commit, live, onOpen }: {
   projectId: string;
   taskId: string;
   /** The COUNT recorded at delivery. `null` = not measured yet (the turn is
@@ -52,6 +57,8 @@ export function DeliveryFiles({ projectId, taskId, files, insertions, deletions,
   commit: string | null;
   /** The worktree is still moving: what you read is of this instant. */
   live?: boolean;
+  /** Opens the task. Present = each row opens that file's diff in the task. */
+  onOpen?: OpenTask;
 }) {
   const tr = useT();
   const [aperto, setAperto] = useState(false);
@@ -84,26 +91,26 @@ export function DeliveryFiles({ projectId, taskId, files, insertions, deletions,
   }, [aperto, stat, caricando, live, projectId, taskId]);
 
   const rows = useMemo(() => stat?.map(rowFromDiffStat) ?? null, [stat]);
-  /** On a running turn the numbers do NOT come from the task (they do not
-   *  exist yet): they are summed from what was just read. Before the first
-   *  open there is no number to show, and that is the honest state. */
-  const misura = useMemo(() => {
-    if (files !== null) return { files, insertions, deletions };
-    if (!stat) return null;
-    return {
-      files: stat.length,
-      // A binary file is -1 in git's numstat: summing it would subtract lines
-      // nobody removed.
-      insertions: stat.reduce((n, f) => n + Math.max(0, f.additions), 0),
-      deletions: stat.reduce((n, f) => n + Math.max(0, f.deletions), 0),
-    };
-  }, [files, insertions, deletions, stat]);
+  /** Before the first open the counter; after it, what was read. On a running
+   *  turn there is no counter yet, and "no number" is the honest state. */
+  const misura = useMemo(
+    () => deliveryMeasure({ files, insertions, deletions }, stat),
+    [files, insertions, deletions, stat],
+  );
+  const openRow = useMemo(
+    () => (onOpen ? (row: { path: string }) => onOpen(taskId, diffFocusFor(row.path)) : undefined),
+    [onOpen, taskId],
+  );
 
   // A COUNTED ZERO IS NO CHIP. Once the read comes back empty the turn touched
   // nothing, and "0 files +0 -0" is a control that opens on an empty list.
   // Before any count exists the chip stays: "not measured yet" is a different
   // statement from "nothing changed", and it is the one the live label makes.
-  if (!showsGitChangesChip(misura)) return null;
+  // AN OPEN CHIP STAYS: when the person opened it, the empty read is the
+  // answer to show in the list («no file in the delivery commit»), not a
+  // reason to pull the chip from under the click. Without this, a delivery the
+  // DB counted and git could not resolve vanished the moment it was opened.
+  if (!aperto && !showsGitChangesChip(misura)) return null;
 
   return (
     <div className="relative" data-testid="card-delivery-files">
@@ -151,6 +158,7 @@ export function DeliveryFiles({ projectId, taskId, files, insertions, deletions,
               "not yet". */}
           <ChangedFileList
             rows={rows}
+            onOpen={openRow}
             loading={caricando}
             error={!!errore}
             emptyLabel={tr(live ? 'board.card.gitChangesEmpty' : 'board.card.deliveryFilesEmpty')}

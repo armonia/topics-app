@@ -443,3 +443,11 @@ provider-hold.json
 # ancora i non tracciati ai file cambiati.
 mem-samples.json
 mem-samples.json.tmp
+
+# The swap freezer's ledger (server/services/swap-freeze-ledger.ts), same place
+# as the two files above: `resolveStateDir(process.cwd())` puts it in the repo
+# root under start-prod. Runtime state, rewritten on every freeze: an agent's
+# `git add -A` would commit it, and `check-e2e-touched.ts` counts it as a
+# changed file. Found untracked in the prod checkout on 24/09/2026.
+swap-freeze.json
+swap-freeze.json.tmp

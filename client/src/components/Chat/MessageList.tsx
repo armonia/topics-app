@@ -33,6 +33,7 @@ import { SkeletonChatMessages } from '../Shared/Skeleton';
 import { listPaintedAndWhole } from './listPaintedAndWhole';
 import { decideHistoryCompletion } from './historyCompletionDecision';
 import { isHistoryIncomplete, requestHistoryCompletion, useHistoryCompleteness } from '../../state/historyCompleteness';
+import { resolvePromptNumbers } from './promptNumber';
 import { usePaneAlive } from '../../state/paneLiveness';
 import type { QueuedTurn } from '../../state/chatQueue';
 import { QueuedTurns } from './QueuedTurns';
@@ -477,6 +478,13 @@ export function MessageList({
    */
   const completeness = useHistoryCompleteness(topic.sessionKey);
   const historyPartial = isHistoryIncomplete(completeness);
+  // «#50»: which prompt of the person each bubble is, in the whole thread.
+  // Computed on the settled rows (the live tail is the assistant turn), so a
+  // token of the answer does not recount the prompts.
+  const promptNumbers = useMemo(
+    () => resolvePromptNumbers(settledItems, completeness.state === 'complete'),
+    [settledItems, completeness.state],
+  );
   const missingAbove = isHistoryIncomplete(completeness) ? completeness.missing : 0;
   /** The pane has a box in the layout: hidden tabs (keep-alive) are `false`. */
   const paneAlive = usePaneAlive();
@@ -2057,8 +2065,16 @@ export function MessageList({
             const hoistOwnSummary = idx === 0
               ? !!leadingSummary
               : !!(prev && markersAfter(prev)?.length);
+            // `flow-root` is not cosmetic: it keeps the children's margins
+            // INSIDE the row. The bubble has `mb-1.5`, and without a block
+            // formatting context that margin collapsed out of the item, so
+            // Virtuoso measured every row 6px shorter than the space it took.
+            // When a row left the top, the padding grew by its MEASURED height
+            // while the DOM lost height + 6: the content jumped up 6px (12 with
+            // two rows) under the wheel. That was the "it jerks scrolling
+            // down" of 24/09, measured in `chat-scroll-down-jitter.spec.ts`.
             return (
-              <>
+              <div className="flow-root">
               {idx === 0 && historyPartial && (
                 <LoadOlderDivider count={missingAbove} loading={olderLoading} onLoad={loadOlder} />
               )}
@@ -2101,13 +2117,14 @@ export function MessageList({
                   onSwitchBranch={onSwitchBranch}
                   onMessage={onMessage}
                   onRetry={isLastAssistant ? onRetry : undefined}
+                  promptNumber={promptNumbers.get(msg.id)}
                 />
               </div>
               </CompactionHoistContext.Provider>
               {trailingMarkers && trailingMarkers.map((mk) => (
                 <CompactionDivider key={mk.id} marker={mk} summary={trailingSummary ?? undefined} />
               ))}
-              </>
+              </div>
             );
           }}
           components={virtuosoComponents}

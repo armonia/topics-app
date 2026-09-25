@@ -1,4 +1,5 @@
 import { costTokens, partsFromMessage } from '../../../shared/token-cost';
+import { StreamTokenRateIndicator } from './Chat/StreamTokenRateIndicator';
 import { useT } from '../hooks/useT';
 import { useEffect, useState } from 'react';
 import { OrbitLoader } from './Layout/StreamingIndicator';
@@ -243,7 +244,7 @@ export function TurnActivityIndicator({
       data-slow={state === 'slow' ? 'true' : undefined}
       data-retry={state === 'retry' ? 'true' : undefined}
       data-waiting={state === 'waiting' ? 'true' : undefined}
-      className="flex items-center gap-2 mt-1 text-mini leading-none select-none"
+      className="flex items-center gap-2 text-mini leading-none select-none"
       role="status"
       aria-live="polite"
       aria-label={
@@ -350,6 +351,8 @@ export function TurnActivityIndicator({
             : ''}
         </span>
       )}
+      {/* The speed of the answer, in line with the other numbers of the turn. */}
+      {sessionKey && state !== 'waiting' && <StreamTokenRateIndicator sessionKey={sessionKey} />}
     </div>
     {/* Un turno fermo su una domanda si CHIUDE come un messaggio qualunque.
         Tecnicamente non è finito — la riga resta `partial`, il processo è vivo

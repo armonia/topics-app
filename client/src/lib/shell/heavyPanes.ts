@@ -43,6 +43,8 @@ export interface ShellWebviewRow {
   label: string;
   pid: number;
   cpu_percent: number | null;
+  /** Footprint of the WebContent process, MB. Only for the copy, never the verdict. */
+  memory_mb?: number;
 }
 
 /** What the hook knows about its pane at the time a sample arrives. */
@@ -152,7 +154,33 @@ export function attributeSample(rows: readonly ShellWebviewRow[]): Map<string, n
 
 // ── The store of this document ─────────────────────────────────────────────
 
-export interface HeavyVerdict { heavy: boolean; cpu: number }
+/**
+ * `cpu` is % of ONE core, the scale the thresholds above are calibrated on.
+ * `memMb` is the pane's footprint at the last sample, when the shell gave it.
+ * Neither is what a person reads: `machineShare` turns them into shares of
+ * the Mac, which is the copy (23/09: «37% di un core» meant nothing).
+ */
+export interface HeavyVerdict { heavy: boolean; cpu: number; memMb?: number }
+
+/** What a pane costs, as a share of the WHOLE machine: CPU over all its cores,
+ *  memory over its physical RAM. `null` where the denominator is unknown. */
+export function machineShare(
+  v: { cpu: number; memMb?: number },
+  machine: { cores: number; memMb: number | null },
+): { cpuPct: number; memPct: number | null } {
+  const cores = Math.max(1, machine.cores);
+  return {
+    cpuPct: v.cpu / cores,
+    memPct: v.memMb != null && machine.memMb ? (v.memMb / machine.memMb) * 100 : null,
+  };
+}
+
+/** Whole percent, but never a flat «0%» for something that is running. */
+export function formatShare(pct: number): string {
+  if (!Number.isFinite(pct) || pct <= 0) return '0';
+  if (pct < 1) return '<1';
+  return String(Math.round(pct));
+}
 
 const contexts = new Map<string, PaneSampleContext>();
 const verdicts = new Map<string, PaneVerdictState>();
@@ -178,20 +206,68 @@ export function forgetPane(contextId: string): void {
   if (published.delete(contextId)) emit(contextId);
 }
 
+/** Physical RAM of the Mac as the shell reported it; null until it does. */
+let systemMemMb: number | null = null;
+export function noteSystemMemory(mb: number | null | undefined): void {
+  if (typeof mb === 'number' && mb > 0) systemMemMb = mb;
+}
+export function machineMemoryMb(): number | null {
+  return systemMemMb;
+}
+
+/** Footprint per pane, summed over its own processes (same attribution rule
+ *  as the CPU: a pid shared with another label belongs to nobody). */
+function memoryByPane(rows: readonly ShellWebviewRow[]): Map<string, number> {
+  const owners = new Map<number, Set<string>>();
+  for (const row of rows) {
+    const owner = paneIdFromWebviewLabel(row.label) ?? `label:${row.label}`;
+    const set = owners.get(row.pid) ?? new Set<string>();
+    set.add(owner);
+    owners.set(row.pid, set);
+  }
+  const out = new Map<string, number>();
+  const seen = new Set<number>();
+  for (const row of rows) {
+    const paneId = paneIdFromWebviewLabel(row.label);
+    if (paneId === null || typeof row.memory_mb !== 'number') continue;
+    if ((owners.get(row.pid)?.size ?? 0) > 1 || seen.has(row.pid)) continue;
+    seen.add(row.pid);
+    out.set(paneId, (out.get(paneId) ?? 0) + row.memory_mb);
+  }
+  return out;
+}
+
 export function noteWebviewSample(rows: readonly ShellWebviewRow[] | undefined, receivedAt: number): void {
   if (!rows) return;
   lastSampleAt = receivedAt;
   const byPane = attributeSample(rows);
+  const memByPane = memoryByPane(rows);
   for (const [contextId, ctx] of contexts) {
     const prev = verdicts.get(contextId) ?? initialVerdict(ctx.urlKey);
     const cpu = byPane.get(contextId) ?? null;
     const next = stepVerdict(prev, cpu, receivedAt, ctx);
     verdicts.set(contextId, next);
-    if (next.heavy === prev.heavy && (!next.heavy || next.cpu === prev.cpu)) continue;
-    if (next.heavy) published.set(contextId, { heavy: true, cpu: next.cpu });
+    const memMb = memByPane.get(contextId);
+    const shown = published.get(contextId);
+    // Memory moves on every sample; the copy is rounded to whole percent, so a
+    // new object only when that rounding would change (identity is what
+    // `useSyncExternalStore` compares).
+    const memMoved = next.heavy && memMb !== undefined
+      && Math.round(memMb / 64) !== Math.round((shown?.memMb ?? -64) / 64);
+    if (next.heavy === prev.heavy && (!next.heavy || (next.cpu === prev.cpu && !memMoved))) continue;
+    if (next.heavy) published.set(contextId, { heavy: true, cpu: next.cpu, ...(memMb !== undefined ? { memMb } : shown?.memMb !== undefined ? { memMb: shown.memMb } : {}) });
     else published.delete(contextId);
     emit(contextId);
   }
+}
+
+/** Tests only: the module keeps per-document state. */
+export function __resetHeavyPanesForTests(): void {
+  contexts.clear();
+  verdicts.clear();
+  published.clear();
+  systemMemMb = null;
+  lastSampleAt = 0;
 }
 
 export function heavyVerdict(contextId: string): HeavyVerdict | null {

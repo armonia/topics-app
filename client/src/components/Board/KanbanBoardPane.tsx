@@ -33,7 +33,8 @@ import {
   type PublishProject, type DiffBundle,
 } from '../../lib/board';
 import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
-import { cpuPercent, loadAdvice } from './dispatchLoad';
+import { loadAdvice } from './dispatchLoad';
+import { MachineBusyLine } from '../Shared/MachineBusyLine';
 import { applyPendingWrites, groupByStatus, manualStatusTarget, planDrop, type DropPlan, type OrderScope } from '../../lib/boardOrder';
 import { COLUMN_FLASH_MS, landedInColumn, statusSnapshot } from '../../lib/columnFlash';
 import { useBoardMotion } from './useBoardMotion';
@@ -469,13 +470,18 @@ function LoadAdviceChip() {
           <p className="text-compact font-medium text-app-text-heading">
             {tr('board.load.headline', { running: cap.running ?? 0, recommended: cap.recommended })}
           </p>
-          {cap.oursCores != null && cap.cores > 0 ? (
-            <p>{tr('board.load.usage', { pct: Math.round((cap.oursCores / cap.cores) * 100) })}</p>
-          ) : (
-            <p>{tr('board.load.machineBusy', { pct: cpuPercent(cap) ?? 0 })}</p>
-          )}
-          <p className="text-app-text-muted">{cap.reason}</p>
+          {/* How busy the Mac is, in the one number every load surface says.
+              The server's own derivation ("12 core -> base 4 ...") is true and
+              technical: it waits under "Details" for whoever asks. */}
+          <MachineBusyLine shares={cap} />
           <p>{tr('board.load.advice')}</p>
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center gap-1 text-mini text-app-text-muted hover:text-app-text-secondary">
+              <ChevronRight size={10} className="transition-transform group-open:rotate-90" aria-hidden="true" />
+              {tr('board.gauge.details')}
+            </summary>
+            <p className="mt-1 text-app-text-muted">{cap.reason}</p>
+          </details>
         </div>
       </Menu>
     </>

@@ -30,12 +30,24 @@ let tempDir = "";
 const savedEnv: Record<string, string | undefined> = {};
 function setEnv(k: string, v: string) { savedEnv[k] = process.env[k]; process.env[k] = v; }
 
-beforeAll(() => {
+beforeAll(async () => {
+  // The ai-bridge client is a process-wide singleton bound to the data dir it
+  // first saw. Another integration file in the same `bun test` process leaves
+  // one behind pointing at its own temp dir, deleted by its afterAll: without
+  // this reset the spawn here lands on a dead store (ENOENT) and times out.
+  const { __resetAiBridgeClientForTests } = await import("../lib/ai-bridge-client");
+  __resetAiBridgeClientForTests();
   tempDir = mkdtempSync(join(tmpdir(), "compact-turn-"));
   mkdirSync(join(tempDir, "data"), { recursive: true });
   setEnv("DATA_DIR", join(tempDir, "data"));
   setEnv("TOPICS_DATA_DIR", join(tempDir, "data"));
   setEnv("HOME", tempDir);
+  // Its own daemon socket, inside the temp dir. The socket path otherwise comes
+  // from the environment, and in the full suite an earlier file leaves
+  // TOPICS_AI_BRIDGE_SOCKET set: two of these files then share one daemon,
+  // whose store points at the data dir of whichever file started it, deleted
+  // by that file's afterAll (CI 36015524316, "store open failed: ENOENT").
+  setEnv("TOPICS_AI_BRIDGE_SOCKET", join(tempDir, "ai-bridge.sock"));
 
   // La CLI finta emette la sequenza REGISTRATA di una compattazione vera
   // (init → compact_boundary → result vuoto). Vive in tests/e2e/helpers perché
@@ -48,6 +60,8 @@ beforeAll(() => {
 });
 
 afterAll(async () => {
+  const { __resetAiBridgeClientForTests } = await import("../lib/ai-bridge-client");
+  __resetAiBridgeClientForTests();
   try {
     const { closeDatabase } = await import("../db");
     closeDatabase();

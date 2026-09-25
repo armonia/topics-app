@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
+import { memo, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useT } from '../../hooks/useT';
 import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Target, Trash2 } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
@@ -6,8 +6,11 @@ import type { PlanDecisionHandler } from './planDetection';
 import { MessageMetaFooter } from './MessageMetaFooter';
 import { isWorkOnlyAssistant } from './coalesceToolRun';
 import { MessageContent } from '../MessageContent';
+import { TurnActivityIndicator } from '../MessageParts';
+import { isAwaitingHuman } from '../../../../shared/types';
 import { turnIsOnlyError } from './turnError';
 import { goalLoopRowOf } from './goalLoopRow';
+import { StreamTokenRateIndicator } from './StreamTokenRateIndicator';
 import { isDispatchedEnvelope } from './dispatchedEnvelope';
 import { isMachineWork } from './taskWorkFold';
 import { TaskWorkAccordion } from './TaskWorkAccordion';
@@ -113,6 +116,9 @@ interface MessageBubbleProps {
    *  ghost from a lost stream:end) can never paint a SECOND running indicator
    *  under the real, current turn. */
   isLast?: boolean;
+  /** Which prompt of the person this bubble is in the whole thread («#50»),
+   *  or undefined when it is not a person prompt or is not known yet. */
+  promptNumber?: number;
 }
 
 /**
@@ -146,6 +152,7 @@ export const MessageBubble = memo(function MessageBubble({
   onMessage,
   onRetry,
   isLast,
+  promptNumber,
 }: MessageBubbleProps) {
   const tr = useT();
   // Only inside the chat of a board task, and only on wordless machine work.
@@ -157,6 +164,19 @@ export const MessageBubble = memo(function MessageBubble({
     (msg.usagePromptTokens ?? 0) > 0 ||
     (msg.usageCompletionTokens ?? 0) > 0 ||
     (msg.costCents ?? 0) > 0;
+  // The running turn: an assistant row still `partial`, and only the LAST one
+  // (a ghost partial left earlier by a lost stream:end must not paint a second
+  // indicator under the real turn).
+  const liveTurn = msg.role === 'assistant' && !!msg.partial && isLast !== false;
+  // Is the turn stopped on a question to the human? Both sources, as before:
+  // the `blocks` timeline and the legacy `toolCalls` bucket.
+  const awaitingInput = useMemo(
+    () => liveTurn && (
+      (msg.blocks ?? []).some((b) => b.kind === 'tool' && isAwaitingHuman(b.toolCall.status))
+      || (msg.toolCalls ?? []).some((tc) => isAwaitingHuman(tc.status))
+    ),
+    [liveTurn, msg.blocks, msg.toolCalls],
+  );
 
   const grouped = idx > 0 && prev && prev.role === msg.role && msg.timestamp && prev.timestamp && (new Date(msg.timestamp).getTime() - new Date(prev.timestamp).getTime() < 120000);
   const dateSep = getDateSeparator(msg.timestamp, prev?.timestamp);
@@ -326,6 +346,19 @@ export const MessageBubble = memo(function MessageBubble({
       <div
         className={`group flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} ${!grouped ? 'message-appear' : ''} ${grouped && isCompact ? 'mt-0.5' : ''}`}
       >
+        {/* «#50»: which prompt of the person this is, in the whole thread.
+            Beside the bubble at its top, always on (not a hover detail): it is
+            how you find «the one I asked around the fortieth» when scrolling
+            back. Out of the bubble's own box, so its height never changes. */}
+        {msg.role === 'user' && promptNumber != null && (
+          <span
+            data-testid="prompt-number"
+            className="self-start mt-2 mr-1.5 flex-shrink-0 select-none text-micro tabular-nums text-app-text-muted"
+            title={tr('chat.message.promptNumber', { n: promptNumber })}
+          >
+            #{promptNumber}
+          </span>
+        )}
         <div
           // NO overflow-hidden here: this div is the containing block of the
           // absolutely-positioned hover toolbar below (`bottom-full` = above the
@@ -433,18 +466,9 @@ export const MessageBubble = memo(function MessageBubble({
                 blocks={msg.blocks}
                 media={msg.media}
                 partial={msg.partial}
-                isLast={isLast}
-                turnStartedAt={Date.parse(msg.timestamp)}
-                usagePromptTokens={msg.usagePromptTokens}
-                cacheReadTokens={msg.cacheReadTokens}
-                cacheCreationTokens={msg.cacheCreationTokens}
-                cacheCreation1hTokens={msg.cacheCreation1hTokens}
-                usageCompletionTokens={msg.usageCompletionTokens}
-                costCents={msg.costCents}
                 onPlanDecision={onPlanDecision}
                 sessionKey={topic.sessionKey}
                 messageId={msg.id}
-                onMessage={onMessage}
               />
               </FoldWork>
             </div>
@@ -531,7 +555,37 @@ export const MessageBubble = memo(function MessageBubble({
               Il confine è avere i numeri, non avere la prosa: un turno fermo su
               una domanda è senza prosa ma si CHIUDE come un messaggio finito,
               con la sua durata e il suo costo, e quella riga gli serve. */}
-          {(!isWorkOnlyAssistant(msg) || hasTurnMetrics) && msg.timestamp && !(msg.role === 'user' && (msg.queued || msg.partial)) && (
+          {/* THE LIVE TURN INDICATOR LIVES ON THIS SAME ROW, and that is the
+              whole point of where it sits. It used to be the last line INSIDE
+              the bubble and vanished at the end of the turn: the bubble lost
+              17px (576 -> 559, measured in WebKit on 23/09), the browser
+              clamped the pinned scroll 16px up and the pin brought it back 6px
+              a frame later. That is the "chat goes up and down" at the end of
+              every answer. Here the row is the same height in both states, so
+              the swap from "working" to "time, duration, cost" moves nothing.
+              While live it is always visible, not on hover: it is the only
+              sign that the turn is running. */}
+          {liveTurn && (
+            <div
+              data-testid="message-meta-row"
+              data-live="true"
+              className="text-mini mt-0.5 min-h-[14px] flex items-center whitespace-nowrap overflow-x-auto scrollbar-none justify-start"
+            >
+              <TurnActivityIndicator
+                since={Date.parse(msg.timestamp)}
+                sessionKey={topic.sessionKey}
+                onMessage={onMessage}
+                awaitingInput={awaitingInput}
+                promptTokens={msg.usagePromptTokens}
+                completionTokens={msg.usageCompletionTokens}
+                costCents={msg.costCents}
+                cacheReadTokens={msg.cacheReadTokens}
+                cacheCreationTokens={msg.cacheCreationTokens}
+                cacheCreation1hTokens={msg.cacheCreation1hTokens}
+              />
+            </div>
+          )}
+          {!liveTurn && (!isWorkOnlyAssistant(msg) || hasTurnMetrics) && msg.timestamp && !(msg.role === 'user' && (msg.queued || msg.partial)) && (
             <div
               data-testid="message-meta-row"
               className={`text-mini mt-0.5 min-h-[14px] transition-opacity flex items-center gap-1.5 whitespace-nowrap overflow-x-auto scrollbar-none ${
@@ -564,6 +618,10 @@ export const MessageBubble = memo(function MessageBubble({
                   completionTokens={msg.usageCompletionTokens}
                   costCents={msg.costCents}
                 />
+              )}
+              {msg.role === 'assistant' && !msg.partial && isLast && (
+                // The rate is the session's LAST turn: only its bubble says it.
+                <StreamTokenRateIndicator sessionKey={topic.sessionKey} />
               )}
             </div>
           )}

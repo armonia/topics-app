@@ -742,6 +742,26 @@ describe('ClaudeSessionTracker — message import sweep (adopted sessions)', () 
     expect(fake.append).toHaveLength(1);
   });
 
+  /** A tool-only terminal turn has no text for `message:new`: open panes learn of it from the announcement (23/09). */
+  it('a tool-only terminal turn tells the open panes the thread changed', async () => {
+    const db = freshDb();
+    const fake = makeSink();
+    const announced: string[] = [];
+    fake.sink.announceThreadChanged = (sk) => announced.push(sk);
+    const path = tmpTranscript();
+    const initial = jline({ type: 'user', message: { role: 'user', content: 'ciao' } }) + '\n';
+    writeFileSync(path, initial);
+    seedAdopted(db, 'topic-tools', 'cli-tools', path, Buffer.byteLength(initial, 'utf-8'));
+    const tracker = makeTracker(db, makeRecorder(), { importSink: fake.sink });
+    writeFileSync(path, initial + [
+      jline({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-1', name: 'Bash', input: { command: 'ls' } }] } }),
+      jline({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu-1', content: 'a.txt' }] } }),
+    ].join('\n') + '\n');
+    await tracker.importOnce();
+    await tracker.importOnce(); // nothing new: nothing announced
+    expect(announced).toEqual(['topic-tools']);
+  });
+
   it('does NOT re-import while Topics drives the session, but advances the cursor', async () => {
     const db = freshDb();
     const rec = makeRecorder();
@@ -763,6 +783,95 @@ describe('ClaudeSessionTracker — message import sweep (adopted sessions)', () 
     // but the cursor moved past the Topics-authored bytes (no re-import later)
     const row = db.prepare(`SELECT import_offset FROM claude_code_sessions WHERE session_key = 'topic-b'`).get() as any;
     expect(row.import_offset).toBe(Buffer.byteLength(initial + turn, 'utf-8'));
+  });
+
+  // The duplicate seen on topic:cd85be85: a sweep mid-turn moves the cursor to
+  // where the file was THEN, the turn's final answer lands before the next tick,
+  // the turn ends, and the next tick (no longer "driven") imported that answer a
+  // second time, bare (no model, no blocks).
+  describe('a Topics-driven turn that ends between two ticks', () => {
+    const userLine = (text: string) => jline({ type: 'user', message: { role: 'user', content: text } });
+    const assistantLine = (text: string) =>
+      jline({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } });
+
+    function setup(key: string) {
+      const db = freshDb();
+      const rec = makeRecorder();
+      const fake = makeSink();
+      const path = tmpTranscript();
+      const initial = userLine('adopted-history') + '\n';
+      writeFileSync(path, initial);
+      seedAdopted(db, key, `cli-${key}`, path, Buffer.byteLength(initial, 'utf-8'));
+      let driven = false;
+      let onGuard: (() => void) | null = null;
+      const tracker = makeTracker(db, rec, {
+        importSink: fake.sink,
+        isSessionLocallyDriven: () => { onGuard?.(); return driven; },
+      });
+      const importOffset = () =>
+        (db.prepare(`SELECT import_offset FROM claude_code_sessions WHERE session_key = ?`).get(key) as any).import_offset;
+      return {
+        fake, path, initial, tracker, importOffset,
+        setDriven: (v: boolean) => { driven = v; },
+        setOnGuard: (fn: () => void) => { onGuard = fn; },
+      };
+    }
+
+    it('imports nothing once the turn is over', async () => {
+      const s = setup('topic-end');
+      s.setDriven(true);
+      const midTurn = s.initial + userLine('asked-from-topics') + '\n';
+      writeFileSync(s.path, midTurn);
+      expect(await s.tracker.importOnce()).toBe(0); // tick while driven: cursor moves, no import
+      expect(s.importOffset()).toBe(Buffer.byteLength(midTurn, 'utf-8'));
+
+      const end = midTurn + assistantLine('final-answer') + '\n';
+      writeFileSync(s.path, end);
+      s.setDriven(false);
+      expect(s.tracker.syncImportOffsetToEnd('topic-end')).toBe(true); // what the provider fires at turn end
+
+      expect(await s.tracker.importOnce()).toBe(0);
+      expect(s.fake.append).toEqual([]);
+      expect(s.importOffset()).toBe(Buffer.byteLength(end, 'utf-8'));
+    });
+
+    it('still imports a turn typed in the terminal afterwards', async () => {
+      const s = setup('topic-after');
+      s.setDriven(true);
+      const local = s.initial + userLine('asked-from-topics') + '\n' + assistantLine('topics-answer') + '\n';
+      writeFileSync(s.path, local);
+      s.setDriven(false);
+      s.tracker.syncImportOffsetToEnd('topic-after');
+      expect(await s.tracker.importOnce()).toBe(0);
+
+      writeFileSync(s.path, local + userLine('typed-in-terminal') + '\n' + assistantLine('terminal-answer') + '\n');
+      expect(await s.tracker.importOnce()).toBe(1);
+      expect(s.fake.append.flat().map((m: any) => [m.role, m.content])).toEqual([
+        ['user', 'typed-in-terminal'],
+        ['assistant', 'terminal-answer'],
+      ]);
+    });
+
+    it('drops the chunk when the turn ends while the tick is reading it', async () => {
+      const s = setup('topic-race');
+      s.setDriven(true);
+      const end = s.initial + userLine('asked-from-topics') + '\n' + assistantLine('topics-answer') + '\n';
+      writeFileSync(s.path, end);
+      // The guard is consulted after the tick's awaits: end the turn right there,
+      // so the tick holds bytes it read while the turn was still running.
+      s.setOnGuard(() => { s.setDriven(false); s.tracker.syncImportOffsetToEnd('topic-race'); });
+      expect(await s.tracker.importOnce()).toBe(0);
+      expect(s.fake.append).toEqual([]);
+      expect(s.importOffset()).toBe(Buffer.byteLength(end, 'utf-8'));
+    });
+
+    it('is a no-op on a session that was never adopted', () => {
+      const db = freshDb();
+      seedSession(db, 'topic-plain', 'cli-plain');
+      const tracker = makeTracker(db, makeRecorder(), { importSink: makeSink().sink });
+      expect(tracker.syncImportOffsetToEnd('topic-plain')).toBe(false);
+      expect(tracker.syncImportOffsetToEnd('topic-missing')).toBe(false);
+    });
   });
 
   it('resolves a tool_result whose tool_use arrived in an earlier sweep (cross-chunk)', async () => {

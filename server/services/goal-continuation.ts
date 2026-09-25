@@ -131,6 +131,9 @@ function writeStopNotice(
     messageId: id,
     content: text,
     preview: text.slice(0, 100),
+    // The block is what the client draws its one translated line from; without
+    // it the live window printed the English `content` as a normal answer.
+    blocks: [{ kind: "goal-stop", reason }],
   });
 }
 

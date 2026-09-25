@@ -53,6 +53,7 @@ import { statfsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import type { Database } from "bun:sqlite";
 import { fleetLoadSync, fleetSessionCoreUnits, type FleetLoadReading } from "../lib/fleet-usage";
+import { machineCpuPct as sampleMachineCpuPct } from "../lib/machine-cpu";
 import { recentCardMemPeaksGB } from "../lib/card-memory-peaks";
 import { machineCores } from "../lib/machine-cores";
 import { MEM_WINDOW_MS, parseSwapTotalMB, parseSwapUsedMB, type HeldMemory, type MemSample } from "./mem-signal";
@@ -475,6 +476,27 @@ function readVmStatSync(): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The memory reading `computeDispatchCapacity` uses when nobody injects one.
+ *
+ * Out of the box it is `availableMemGB`, a SYNCHRONOUS `vm_stat`: 1,4 ms of
+ * event loop stopped on a quiet Mac (median of 50, 23/09) and seconds under
+ * thrash, paid on every board poll, every night-mode tick and every terminal
+ * cap check. The server already samples the very same number asynchronously
+ * every 10 s (`mem-signal.ts`), so it plugs that sample in here at boot and
+ * the sync spawn is left only for when no fresh sample exists (first beat,
+ * a probe that failed).
+ */
+let availMemReader: () => number | null = () => availableMemGB();
+
+export function setAvailableMemReader(read: (() => number | null) | null): void {
+  availMemReader = read ?? (() => availableMemGB());
+}
+
+function currentAvailableMemGB(): number | null {
+  return availMemReader();
 }
 
 /** The fields of one `vm_stat` answer the memory readers use; `null` = the line is missing. */
@@ -1047,7 +1069,7 @@ export function computeDispatchCapacity(
   running = 0,
   probe: () => FleetLoadReading | null = fleetLoadSync,
   agentsAreProcesses = true,
-  readAvailMemGB: () => number | null = availableMemGB,
+  readAvailMemGB: () => number | null = currentAvailableMemGB,
   /** The knob of the "by resources" mode and how many runs the governor has
    *  frozen right now. They travel through the capacity because the panel, the
    *  gauge and the gate must read ONE reading: a second probe for the same
@@ -1059,6 +1081,9 @@ export function computeDispatchCapacity(
     coreUnits: fleetSessionCoreUnits,
     memGB: recentCardMemPeaksGB,
   },
+  /** The whole-machine CPU%, injectable like every other probe. It receives
+   *  the fleet's own sum as the fallback for when it has nothing to diff. */
+  readMachineCpuPct: (fallbackPct: number | null) => number | null = sampleMachineCpuPct,
 ): DispatchCapacity {
   const cores = machineCores();
   const totalMemGB = os.totalmem() / 1e9;
@@ -1139,9 +1164,52 @@ export function computeDispatchCapacity(
     availableMemGB: availMemGB != null && Number.isFinite(availMemGB) ? Math.round(availMemGB * 10) / 10 : null,
     agentCostMemGB: round(agentCost.memGB),
     freeQuotaMemGB: budgetNow.freeQuotaMemGB == null ? null : round(budgetNow.freeQuotaMemGB),
+    ...machinePercents(fleet, availMemGB, cores, totalMemGB, readMachineCpuPct),
     reason,
     running,
   };
+}
+
+/**
+ * THE WHOLE MAC IN TWO PERCENTAGES, for the one number a person is shown.
+ *
+ * CPU comes from the kernel's tick counters (`machine-cpu.ts` says why they
+ * beat the fleet's process sum). The fleet sum, RAW and not the smoothed
+ * `otherCoreUnits` the gate reads, is passed as the fallback for the first
+ * reading after boot. Memory is the share not available, from the same
+ * `availableMemGB` the gate reads; `null` off macOS stays `null`.
+ */
+export function machinePercents(
+  fleet: FleetLoadReading | null,
+  availMemGB: number | null,
+  cores: number,
+  totalMemGB: number,
+  readCpu: (fallbackPct: number | null) => number | null,
+): { machineCpuPct: number | null; machineMemPct: number | null } {
+  const fleetPct = fleet && cores > 0
+    ? ((fleet.coreUnits + fleet.scriptsCoreUnits + fleet.otherCoreUnits) / cores) * 100
+    : null;
+  let cpu: number | null = null;
+  try { cpu = readCpu(fleetPct); } catch { cpu = null; }
+  const mem = availMemGB != null && Number.isFinite(availMemGB) && totalMemGB > 0
+    ? (1 - Math.max(0, availMemGB) / totalMemGB) * 100
+    : null;
+  const pct = (n: number | null) => n == null || !Number.isFinite(n) ? null : Math.round(Math.min(100, Math.max(0, n)));
+  return { machineCpuPct: pct(cpu), machineMemPct: pct(mem) };
+}
+
+/**
+ * The two whole-Mac percentages alone, for surfaces that are not the board
+ * (the status dot, the performance panel read `/api/system/status`). Same
+ * probes as the capacity reading, so the dot and the board cannot disagree:
+ * the plugged memory sample and the shared tick sampler, no fleet fallback
+ * (the status route has no fleet reading of its own to lend).
+ */
+export function machineSharesNow(
+  readCpu: (fallbackPct: number | null) => number | null = sampleMachineCpuPct,
+): { machineCpuPct: number | null; machineMemPct: number | null } {
+  const avail = (() => { try { return currentAvailableMemGB(); } catch { return null; } })();
+  return machinePercents(null, avail, machineCores(), os.totalmem() / 1e9, readCpu);
 }
 
 /**

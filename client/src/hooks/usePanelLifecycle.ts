@@ -72,6 +72,7 @@ import { isLiveSpaceId } from '../state/pane/reducers/spaces';
 import { DEFAULT_SPACE_ID } from '../state/pane/types';
 import { seedBrowserPaneInitialUrl } from '../state/pane/browserPaneUrl';
 import { applyMessagePreview, clearTopicPreview, hydrateTopicPreviews } from '../state/topicPreviews';
+import { isMachineRow } from '../components/Chat/machineRow';
 import { resolveTerminalBrowserContext } from '../state/browserSpawner';
 import {
   buildTerminalSessionBody,
@@ -1217,7 +1218,12 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         // già il messaggio in pagina — ma la riga in sidebar no, e sotto il bail
         // la chat che stai davvero guardando sarebbe l'unica a restare con
         // l'anteprima vecchia.
-        applyMessagePreview(msg.topicId, msg.role, msg.content ?? msg.preview ?? '');
+        // A row the machine wrote (goal continuation, its stop notice, the
+        // board's envelope) is not "the last thing said": the preview keeps
+        // the previous line instead of «Objective still open: ...».
+        if (!isMachineRow(msg.blocks)) {
+          applyMessagePreview(msg.topicId, msg.role, msg.content ?? msg.preview ?? '');
+        }
         if (chatHandlersRef.current.isOwnStream(msg.sessionKey)) return;
         const fullContent = msg.content ?? msg.preview ?? '';
         if (!fullContent) return;
@@ -1240,6 +1246,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
           role: msg.role,
           content: fullContent,
           timestamp: new Date().toISOString(),
+          // The marks decide how the row is drawn: without them the goal's
+          // continuation landed here as the person's own bubble.
+          ...(msg.blocks?.length ? { blocks: msg.blocks } : {}),
         });
       }
       // Il banner del messaggio a finestra nascosta NON sta più qui.
@@ -1403,7 +1412,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // stays with the mount effects of ChatPane and useTopics — piling a second
   // loadHistory on top of them flashed the message list to a skeleton and
   // back, which is why `subscribeReconnect` (re-opens only) is the trigger.
-  useReconnectCatchUp({ drainQueue, loadTopics, loadHistory, openPanelsRef, topicsRef });
+  useReconnectCatchUp({ drainQueue, loadTopics, loadHistory, openPanelsRef, topicsRef, refreshPreviews: hydrateTopicPreviews });
 
   // ---- Auto-expand projects on openPanels change ----
   const [expandedProjects, setExpandedProjects] = useState<string[]>(() => {
@@ -1524,14 +1533,26 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         mode?: 'preview' | 'permanent';
         /** Direct server projection for creation while WebSocket is offline. */
         topic?: Topic;
+        /**
+         * On the phone, also close the drawer so the chat is what you see.
+         * Opt-in: the boot re-assertion of a `/topic/<id>` deep link sends this
+         * same event on every hydrate wave, and closing the drawer each time
+         * took the home screen away under the person's finger.
+         */
+        reveal?: boolean;
       }>).detail;
       if (!detail?.topicId) return;
       if (detail.topic) applyTopicFromWS(detail.topic);
       openPanel(detail.topicId, detail.mode ?? 'preview', true, detail.topic);
+      // On the phone the drawer IS the home screen and covers the pane, and
+      // `openPanel` closes it only on the project route: a row of the unsent
+      // band pointing at an already-open chat left it hidden behind the drawer,
+      // and the tap looked like it did nothing.
+      if (isMobile && detail.reveal) setSidebarCollapsed(true);
     };
     window.addEventListener('topics:open-topic', onOpenTopic as EventListener);
     return () => window.removeEventListener('topics:open-topic', onOpenTopic as EventListener);
-  }, [openPanel, applyTopicFromWS]);
+  }, [openPanel, applyTopicFromWS, isMobile, setSidebarCollapsed]);
 
 
   // Keep the openPanelRef (declared up top, before the WS effects) pointed at

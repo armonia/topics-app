@@ -8,6 +8,8 @@ import { leanMessagesForWire, leanMessagesForHistory } from "../../shared/lean-t
 import { isTurnStillLive, shouldConsultBroker, type BrokerTurnState } from "./historyCleanupPolicy";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { HISTORY_PAGE_MAX_BYTES } from "../../shared/history-paging";
+import { MACHINE_ROW_SQL, promptNumbers } from "../../shared/prompt-number";
+import { decodeCol } from "../../shared/message-blob";
 
 /**
  * Keep the TAIL of `msgs` that fits in `budget` serialized bytes, never fewer
@@ -191,7 +193,19 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
       const pool = beforeAt >= 0 ? completeMsgs.slice(0, beforeAt) : completeMsgs;
       const sliced = offset > 0 ? pool.slice(0, Math.max(0, pool.length - offset)) : pool;
       const capped = wantsAll ? sliced : sliced.slice(-limit);
-      const result = cappedRead ? hydrateMessageBodies(capped) : capped;
+      const hydrated = cappedRead ? hydrateMessageBodies(capped) : capped;
+      // «This is my 50th prompt»: numbered on the WHOLE thread, since the page
+      // may be its tail. The lean read left `blocks` in the table, so the rows
+      // the machine wrote are asked of SQLite by their marks (a few bytes of
+      // plain JSON, below the blob compression threshold). See `prompt-number.ts`.
+      const machineIds = new Set((ctx.db.prepare(
+        `SELECT id FROM messages WHERE session_key = ? AND role = 'user' AND ${MACHINE_ROW_SQL}`,
+      ).all(sessionKey) as Array<{ id: string }>).map((r) => r.id));
+      const numbers = promptNumbers(completeMsgs, machineIds);
+      const result = hydrated.map((m) => {
+        const n = numbers.get(m.id);
+        return n ? { ...m, promptNumber: n } : m;
+      });
       const currentStream = isStreaming(sessionKey);
 
       // Overlay in-memory stream content onto the last assistant message
@@ -315,6 +329,28 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
 }
 
 /**
+ * How many messages after the carrier the fallback reads. A coalesced run is
+ * one work-only message per action, so this is the longest run whose last row
+ * can still find its text. Bounded so a stale or forged id never scans a whole
+ * session.
+ */
+const CARRIER_RUN_SCAN_LIMIT = 500;
+
+type ToolBlock = Extract<ContentBlock, { kind: "tool" }>;
+
+function findToolCall(msg: StoredMessage, toolCallId: string) {
+  // The tool call lives in `blocks`; `toolCalls` is the legacy bucket the
+  // renderer stopped reading, and the history route drops it whenever blocks
+  // are present. Both are searched anyway: a message persisted before blocks
+  // existed has the call only in the second one, and a 404 there would read
+  // as "the text is gone" when it is merely somewhere else.
+  const fromBlocks = (msg.blocks ?? []).find(
+    (b): b is ToolBlock => b.kind === "tool" && b.toolCall?.id === toolCallId,
+  )?.toolCall;
+  return fromBlocks ?? (msg.toolCalls ?? []).find((c) => c.id === toolCallId);
+}
+
+/**
  * GET /api/messages/:messageId/tool/:toolCallId/detail — the FULL detail and
  * the FULL args of one tool call, read fresh from the DB.
  *
@@ -344,6 +380,39 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
 export function createToolDetailRouter(ctx: AppContext): RouteHandler {
   const { json, matchRoute, getMessageById } = ctx;
 
+  /**
+   * The call is not in the message the client named: look in the messages
+   * that FOLLOW it in the same session. That is the shape `coalesceToolRuns`
+   * produces on the client: consecutive work-only messages become one item
+   * carrying the id of the first, and every row inside asks with that id.
+   * Only forward, only the same session_key, only CARRIER_RUN_SCAN_LIMIT rows:
+   * a run never reaches backwards or into another session.
+   */
+  function findInFollowingMessages(carrierId: string, toolCallId: string) {
+    const at = ctx.db
+      .query(`SELECT session_key, sort_order FROM messages WHERE id = ?`)
+      .get(carrierId) as { session_key: string; sort_order: number } | null;
+    if (!at) return undefined;
+    const rows = ctx.db
+      .query(
+        `SELECT id, blocks, tool_calls FROM messages
+          WHERE session_key = ? AND sort_order > ?
+          ORDER BY sort_order ASC LIMIT ?`,
+      )
+      .all(at.session_key, at.sort_order, CARRIER_RUN_SCAN_LIMIT) as Array<{ id: string; blocks: unknown; tool_calls: unknown }>;
+    for (const row of rows) {
+      // Cheap text probe first: only the row that mentions the id pays for
+      // the full parse + sanitize of getMessageById.
+      const mentions = (decodeCol(row.blocks) ?? "").includes(toolCallId)
+        || (decodeCol(row.tool_calls) ?? "").includes(toolCallId);
+      if (!mentions) continue;
+      const msg = getMessageById(row.id);
+      const tc = msg ? findToolCall(msg, toolCallId) : undefined;
+      if (tc) return tc;
+    }
+    return undefined;
+  }
+
   return async function toolDetailRouter(_req: Request, _url: URL, pathname: string, method: string): Promise<Response | null> {
     if (method !== "GET") return null;
     const params = matchRoute(pathname, "/api/messages/:messageId/tool/:toolCallId/detail");
@@ -352,15 +421,8 @@ export function createToolDetailRouter(ctx: AppContext): RouteHandler {
     const msg = getMessageById(params.messageId);
     if (!msg) return json({ error: "message not found" }, 404);
 
-    // The tool call lives in `blocks`; `toolCalls` is the legacy bucket the
-    // renderer stopped reading, and the history route drops it whenever blocks
-    // are present. Both are searched anyway: a message persisted before blocks
-    // existed has the call only in the second one, and a 404 there would read
-    // as "the text is gone" when it is merely somewhere else.
-    const fromBlocks = (msg.blocks ?? []).find(
-      (b): b is Extract<ContentBlock, { kind: "tool" }> => b.kind === "tool" && b.toolCall?.id === params.toolCallId,
-    )?.toolCall;
-    const tc = fromBlocks ?? (msg.toolCalls ?? []).find((c) => c.id === params.toolCallId);
+    const tc = findToolCall(msg, params.toolCallId)
+      ?? findInFollowingMessages(params.messageId, params.toolCallId);
     if (!tc) return json({ error: "tool call not found" }, 404);
 
     return json({ detail: tc.detail ?? null, args: tc.args ?? null });

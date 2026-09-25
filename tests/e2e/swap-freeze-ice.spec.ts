@@ -29,6 +29,13 @@
  *          stopped sliding, or the slide alone invents an overlap.
  *  ICE-05  under `prefers-reduced-motion` the frost is there already finished,
  *          and it goes at once when the tree thaws.
+ *  ICE-06  the WORDS carry the meaning, without hovering (request of 24/09:
+ *          "nobody understands the frozen effect"): on the card, the pane and the
+ *          sidebar row the visible text says what is paused, why in plain words
+ *          (the Mac is short of memory) and that it resumes by itself; the jargon
+ *          (swap, pages, SIGSTOP) is allowed only in the tooltip. The row
+ *          says what and why on its second line; the tab shows the word
+ *          "pausa"; neither title is left with less room than before.
  *
  * It runs in both engines (`chromium` and `webkit`): the app lives inside a
  * WKWebView on this Mac, and canvas 2D and keyframes are engine code.
@@ -36,7 +43,7 @@
  * @covers KANBAN-85
  */
 import { test } from "./fixtures/layout.fixture";
-import { expect, type APIRequestContext, type Browser, type Page } from "@playwright/test";
+import { expect, type APIRequestContext, type Browser, type Locator, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
 import { projectRow } from "./helpers/project-row";
 import { E2E_BASE } from "./helpers/test-server";
@@ -96,6 +103,25 @@ async function setFrozen(page: Page, views: unknown[]): Promise<void> {
   const res = await page.request.post(`${API}/test/swap-freeze`, { data: { views } });
   expect(res.ok(), "the test-only freeze verb is mounted").toBe(true);
 }
+
+/** What a person reads without hovering: `innerText`, never `title`. */
+const PAUSED = /in pausa/i;
+const CAUSE = /memoria/i;
+const RESUMES = /riprende da sol[oa]/i;
+const JARGON = /swap|pagin[ae]|sigstop/i;
+
+async function expectPlainWords(loc: Locator, where: string): Promise<string> {
+  const text = await loc.innerText();
+  expect(text, `${where}: says WHAT is paused`).toMatch(PAUSED);
+  expect(text, `${where}: says WHY, in plain words`).toMatch(CAUSE);
+  expect(text, `${where}: says it comes back by itself`).toMatch(RESUMES);
+  expect(text, `${where}: no jargon in the visible text`).not.toMatch(JARGON);
+  return text;
+}
+
+/** The resume deadline as the page itself prints a clock time. */
+const clockOf = (page: Page, at: number) =>
+  page.evaluate((t) => new Date(t).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }), at);
 
 function openContext(browser: Browser, opts: { dark?: boolean; reduced?: boolean } = {}) {
   return browser.newContext({
@@ -236,10 +262,16 @@ test.describe("La brina di un comando congelato", () => {
         const card = page.locator(`[data-task-card="${taskIds[0]}"]`);
         await expect(card).toBeVisible({ timeout: 20_000 });
 
-        await setFrozen(page, [freezeView()]);
+        const view = freezeView();
+        await setFrozen(page, [view]);
         await expect(card).toHaveAttribute("data-swap-ice", "frozen", { timeout: 10_000 });
-        await expect(card.getByTestId("swap-freeze-label")).toContainText("bun batteria.ts");
-        await expect(card.getByTestId("swap-freeze-label")).toContainText("2,1 GB");
+        const label = card.getByTestId("swap-freeze-label");
+        // The command stays, as the detail; the weight moves to the tooltip.
+        await expect(label).toContainText("bun batteria.ts");
+        await expect(label).toHaveAttribute("title", /2,1 GB/);
+        // ICE-06: the sentence is readable without hovering, and it says when.
+        await expectPlainWords(label, `card (${theme})`);
+        await expect(label).toContainText(await clockOf(page, view.thawBy as number));
         await expect(card.locator("canvas.swap-ice")).toHaveCount(1);
 
         // ICE-03: the frost is not an overlay of the native shell.
@@ -333,6 +365,12 @@ test.describe("La brina di un comando congelato", () => {
       // wherever it is, and a top-level row is the one a click can reach here.
       const row = page.getByRole("treeitem", { name: new RegExp(`E2E-SwapIce-Row-${STAMP}`) }).first();
       await expect(row).toBeVisible({ timeout: 20_000 });
+      const tab = page.locator(`[data-pane-id="chat:${topicId}"]`).first();
+      await expect(tab).toBeVisible({ timeout: 20_000 });
+      // The title's room before the freeze, to compare with the room after.
+      const tabTitleW = () => tab.getByTestId("pane-tab-label").evaluate((el) => el.getBoundingClientRect().width);
+      const rowNameW = () => row.locator('[data-row-name="chat"]').evaluate((el) => el.getBoundingClientRect().width);
+      const before = { tab: await tabTitleW(), row: await rowNameW() };
 
       await setFrozen(page, [freezeView(), freezeView({
         id: `tree-row-${STAMP}`, sessionKey: `topic:${rowTopicId}`, topicId: rowTopicId, taskId: null,
@@ -341,11 +379,50 @@ test.describe("La brina di un comando congelato", () => {
       await expect(pane).toHaveAttribute("data-swap-frozen", "true", { timeout: 10_000 });
       await expect(row).toHaveAttribute("data-swap-ice", "frozen", { timeout: 10_000 });
       // The third surface: the tab of the frozen conversation.
-      await expect(page.locator(`[data-pane-id="chat:${topicId}"]`).first())
-        .toHaveAttribute("data-swap-ice", "frozen", { timeout: 10_000 });
+      await expect(tab).toHaveAttribute("data-swap-ice", "frozen", { timeout: 10_000 });
 
       const banner = pane.getByTestId("swap-freeze-label");
       await expect(banner).toBeVisible();
+
+      // The room the titles keep, read BEFORE any assertion on the words so the
+      // same number prints on a build that still fails them.
+      const after = { tab: await tabTitleW(), row: await rowNameW() };
+      console.log(`[ICE-06] title room before/after freeze: tab ${before.tab.toFixed(0)}/${after.tab.toFixed(0)} px, row ${before.row.toFixed(0)}/${after.row.toFixed(0)} px`);
+
+      // ICE-06: the words, on every surface, without hovering.
+      await expectPlainWords(banner, "pane");
+      await expect(banner).toContainText("bun batteria.ts");
+      // The row's own line and not the whole row: the chat's NAME is
+      // "E2E-SwapIce-Row-..." and would trip the jargon check by itself.
+      const rowLine = row.getByTestId("swap-freeze-line");
+      await expect(rowLine).toBeVisible();
+      // A row is a COMPACT surface: its second line has 165 px at the default
+      // 256 px sidebar, and the whole sentence measured 216 px in WebKit on
+      // 24/09. So the row says WHAT and WHY, and "riprende da solo" is carried
+      // by the card, the pane and the tooltip.
+      const rowText = await rowLine.innerText();
+      expect(rowText, "sidebar row: says WHAT is paused").toMatch(PAUSED);
+      expect(rowText, "sidebar row: says WHY, in plain words").toMatch(CAUSE);
+      expect(rowText, "sidebar row: no jargon").not.toMatch(JARGON);
+      await expect(rowLine).toHaveAttribute("title", RESUMES);
+      // And what it says has to FIT: an ellipsis that eats the cause would
+      // leave the row saying only half of it.
+      // The words are the LAST child (the glyph comes first), and that span is
+      // the one that carries the ellipsis.
+      const clipped = await rowLine.evaluate((el) => {
+        const words = el.lastElementChild as HTMLElement;
+        return words.scrollWidth - words.clientWidth;
+      });
+      expect(clipped, "the row's pause line is not truncated at the default sidebar width").toBeLessThanOrEqual(1);
+      await expect(tab).toContainText(/pausa/i);
+      // The row says it on its second line, so the NAME keeps all its room
+      // (it lost 36 px to the close ring the frost pulled back into the flow).
+      expect(before.row - after.row, "the row name keeps its room").toBeLessThanOrEqual(1);
+      // On a 150 px tab the word costs room. The bar is the code before the
+      // words: with the snowflake alone the title went from 126 to 78 px
+      // (WebKit, 24/09), because the frost also pulled the close ring into the
+      // flow. No worse than that.
+      expect(before.tab - after.tab, "the tab title keeps at least the room it kept before").toBeLessThanOrEqual(48);
       // IN FLOW: the banner pushes, it does not cover.
       //
       // BOTH RECTANGLES COME FROM ONE LAYOUT INSTANT, and only once the dock has

@@ -18,6 +18,14 @@
  *    was half a cure: the panel appeared and never went away. After clicking
  *    "allow" the four buttons stayed grey with a spinner for the whole duration
  *    of the tool, while the answer scrolled underneath.
+ *  · `stream:tool_user_input_required` - the question panel. Same story as the
+ *    permission one, found on 23/09 ("I have to refresh to see the real state
+ *    of a topic"): the sidebar said "waiting for you", the chat you sent from
+ *    showed a spinner, and only a reload painted the form. Writes a status and
+ *    a schema.
+ *  · `stream:tool_detail` - a sub-agent's live progress. A whole snapshot that
+ *    replaces the previous one.
+ *  · `stream:compaction` - the compaction divider. An upsert by marker id.
  *
  * THE RULE FOR ADDING ONE, which is the part that matters: the event must write
  * a FIXED state on the row, not accumulate. Receiving it twice has to leave the
@@ -27,13 +35,19 @@
 export type SenderVisibleEventType =
   | 'stream:usage'
   | 'stream:tool_permission_required'
-  | 'stream:tool_permission_resolved';
+  | 'stream:tool_permission_resolved'
+  | 'stream:tool_user_input_required'
+  | 'stream:tool_detail'
+  | 'stream:compaction';
 
 /** The exceptions, in one place, so a test can count them. */
 export const SENDER_ALSO_SEES: readonly SenderVisibleEventType[] = [
   'stream:usage',
   'stream:tool_permission_required',
   'stream:tool_permission_resolved',
+  'stream:tool_user_input_required',
+  'stream:tool_detail',
+  'stream:compaction',
 ];
 
 /** Should this event also be delivered to whoever owns that session's SSE? */

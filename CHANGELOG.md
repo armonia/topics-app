@@ -2,6 +2,135 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.387 — 2026-09-25
+
+### Correzioni
+- **swap-freeze** · comando su una riga nel log, skip ripetuti detti una volta
+
+### Sotto il cofano
+- Il server muore di SIGTERM dopo un Chromium: Playwright gli smonta il gestore
+- **swap-freeze** · il log del freezer ripete comandi multi-riga e skip a ogni beat
+- Il taglio del comando nel log non spezza un'emoji a metà
+- I test di oneLine in un file loro: il test del freezer restava sotto le 800 righe
+- RGATE-07: il SIGTERM arriva sempre a gracefulShutdown
+- Il test del SIGTERM non tocca la cartella dati vera e ripulisce la sua
+- Il registro del freezer non resta non tracciato nella radice di prod
+- Il perché giusto per ignorare swap-freeze.json
+
+## 2.2.386 — 2026-09-24
+
+### Sotto il cofano
+- La chat non scatta più scendendo: il margine della bolla stava fuori dalla riga
+- La spec dello scatto rispetta le barre: attese contate in pagina, nomi e commento in inglese
+
+## 2.2.385 — 2026-09-24
+
+### Sotto il cofano
+- Say in words what a frozen command is, why, and that it resumes
+
+## 2.2.384 — 2026-09-24
+
+### Sotto il cofano
+- A fan-out attempt's agent gets its Monitor back too
+- wait for the reply box to settle after the 768px remount
+
+## 2.2.383 — 2026-09-24
+
+### Sotto il cofano
+- Skip a leftover notification's empty result instead of ending the turn with it
+- Never write the next turn into a child that is dying after a stop
+- Keep the next turn's handler off a stopped child
+- A second Stop reaches the send that waits for the dying child
+- Drop a replaced child's exit while its successor is still being spawned
+- a running task's agent gets its Monitor back, a declined wake leaks nowhere
+- Disarm the notification skip at every send
+- The resume sweep leaves a chat alone while a turn is live on it
+- Each fake-CLI integration test owns its ai-bridge daemon
+
+## 2.2.382 — 2026-09-24
+
+### Correzioni
+- **chat** · unsent messages live in their own chat, not in a toast over a random pane
+
+### Sotto il cofano
+- Close the phone drawer only for the unsent band, and quote the report
+
+## 2.2.381 — 2026-09-24
+
+### Sotto il cofano
+- Goal bar: start closed even when the agent wrote the goal
+
+## 2.2.380 — 2026-09-24
+
+### Sotto il cofano
+- board-conversation-details green on WebKit, and in the WebKit CI project
+- Turn fold: a compaction recap is a boundary, not work
+- Manual /compact: the next turn fills the post-compaction size
+
+## 2.2.379 — 2026-09-24
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-24 [skip ci]
+- A finished turn shows its answer; the work before it folds into one row
+- Turn fold: a turn watched live stays open when it ends
+- Task drawer: no turn fold inside «Session details»
+
+## 2.2.378 — 2026-09-24
+
+### Sotto il cofano
+- Goal loop: a turn that ran and finished tools is not idle
+- Goal loop rows read as machinery everywhere, not as the person
+- ↑/↓ recall your prompts; each prompt shows its number
+- Sub-agents named Agent lost their description
+- Chat strip: an 'unknown' tool detail is not a verdict, derive the write by name
+- Changed-files list: «and N more» opens the rest, and a long list gets a filter
+- Tool rows in a coalesced run lost their output
+- Shell command block had no height cap
+- /goal sends the goal; the goal bar opens whole; tok/s in the turn's row
+- Goal steps rendered as anonymous JSON
+- Task diff route: ?file=<path> returns one file's patch on the bundle's range
+- Card chip and diff panel: real counts, clickable rows, lazy per-file patch
+- MultiEdit card: every edit on screen, as hunks of one diff
+- Failures inside a closed tool group were unreachable
+- Shell row header showed the cd, not the command
+- Heavy tab pause: shares of the Mac, and keep it running once or always
+- Tool-UX comments in English and tests traced to their requirement
+- Clear four red gates inherited from the base commits
+- English comments and names, lint (refs in render, fast refresh)
+- e2e (WebKit): the card chip walked end to end, and the cut note stops sending you away
+- the failure badge opens the group on the failed row
+- E2E badge test: English identifier (check:identifier-language)
+- Comments in English and an identifier the language gate knows
+- Composer history: clear the four QA-gate reds it landed with
+- Delivery chip stays open on an empty read; bundle baseline for the 23/09 batch
+
+## 2.2.377 — 2026-09-23
+
+### Sotto il cofano
+- Fix mergeHistoryPage dropping an optimistic bubble before the pivot
+- Add e2e regression for the pre-pivot ghost bubble surviving a server stall
+- claude-import: snap the import cursor to EOF when a Topics turn ends
+- one-off cleanup of duplicated imported Claude messages
+- Rewrite the ghost e2e in English and stop counting virtualized DOM rows
+- swap-freeze: name a skipped or unrecognised pid once, not on every beat
+- a 404 on the context probe is an answer, not a warning
+- dispatch-capacity: read memory from the async sample, not a vm_stat per call
+- git-status: concurrent callers on one folder share a single round of git
+- trace the turn-release test, allow 'reparent', count only this call's waits
+- git-status, swap-freeze: close the two holes the verifier found
+- the chat at rest and during a stream, in WebKit (streaming case RED)
+- the live turn indicator sits on the meta row, so the end of a turn moves nothing
+- ai-bridge: a child being killed is never handed to the next spawn
+- a response body cut off mid-read is a lost leg, not an empty answer
+- the window you sent from also receives the question panel
+- a terminal turn made of tools reaches the open chat too
+- the sidebar previews catch up too
+- one window bounce per burst of screen changes, and a log you can read
+- keep the tracker test file under its size ceiling (1146 -> 1131 lines)
+- ai-bridge: a dying child talks to nobody, and its store ages out
+- the window that sent the message sees the question, in WebKit
+- English name in the sender-question spec (CI identifier-language gate)
+
 ## 2.2.375 — 2026-09-23
 
 ### Sotto il cofano

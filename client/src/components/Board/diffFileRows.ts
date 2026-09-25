@@ -81,3 +81,12 @@ export function buildFileRows(bundle: Pick<DiffBundle, 'stat' | 'patch' | 'trunc
   }
   return rows;
 }
+
+/**
+ * The chunk of `path` inside a per-file answer. `null` when git said nothing:
+ * the file is in the stat and has no text diff left to show.
+ */
+export function chunkFromFilePatch(path: string, patch: string): DiffFileChunk | null {
+  const chunks = splitPatch(patch);
+  return chunks.find((c) => c.path === path) ?? chunks[0] ?? null;
+}

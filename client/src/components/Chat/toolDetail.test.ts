@@ -245,3 +245,71 @@ describe('il piano scritto su file È un piano, non una scrittura', () => {
     expect(d.type).toBe('write');
   });
 });
+
+// Goal steps are a todo: same shape (content + status), same card. They used
+// to fall into the generic MCP card, headed "topics · update_goal_steps" with
+// no summary, because their only argument is an array. The server stores them
+// as `mcp` (or `unknown` on old bare-name rows): the conversion happens at
+// render time, so it covers the whole history.
+describe('toolDetail — update_goal_steps / set_goal', () => {
+  const steps = [
+    { content: 'Mappare', status: 'completed' },
+    { content: 'Pila di schede', status: 'in_progress' },
+    { content: 'Marcare le schede', status: 'pending' },
+  ];
+
+  test('update_goal_steps, con e senza prefisso MCP, diventa una todo', () => {
+    for (const name of ['mcp__topics__update_goal_steps', 'update_goal_steps']) {
+      const d = deriveToolDetail(name, { steps });
+      expect(d.type, name).toBe('todo');
+      expect(buildToolDisplayLabel(d, name)).toEqual({ name: 'Goal steps', summary: '1/3 · Pila di schede' });
+    }
+  });
+
+  test('una riga salvata come `mcp` dal server si disegna come todo', () => {
+    // The real DB shape: an mcp detail, args emptied by the history trim.
+    const tc: ToolCall = {
+      id: 't1', name: 'mcp__topics__update_goal_steps', status: 'success', args: {},
+      detail: { type: 'mcp', server: 'topics', tool: 'update_goal_steps', args: { steps } },
+    };
+    const d = resolveToolDetail(tc);
+    expect(d.type).toBe('todo');
+    if (d.type === 'todo') expect(d.items.map((i) => i.status)).toEqual(['completed', 'in_progress', 'pending']);
+  });
+
+  test('uno status sconosciuto non si traveste: resta la card generica', () => {
+    const d = deriveToolDetail('update_goal_steps', { steps: [{ content: 'x', status: 'deleted' }] });
+    expect(d.type).not.toBe('todo');
+  });
+
+  test('set_goal mostra la frase dell\'obiettivo, non «content: …»', () => {
+    const d = deriveToolDetail('mcp__topics__set_goal', { content: 'Rendere leggibili le righe dei tool' });
+    expect(buildToolDisplayLabel(d, 'mcp__topics__set_goal')).toEqual({ name: 'Goal', summary: 'Rendere leggibili le righe dei tool' });
+  });
+});
+
+// The shell row header read "cd /Users/.../project && ..." and the real
+// command fell past the ~80 characters that get read. The leading `cd` goes
+// ONLY from the header: the open card shows the whole command.
+describe('shell label: a leading `cd <dir> &&` is not the command', () => {
+  const label = (command: string) => buildToolDisplayLabel({ type: 'shell', command }).summary;
+
+  test('strips a plain, a quoted and a chained cd', () => {
+    expect(label('cd /Users/me/Projects/app && bun test')).toBe('bun test');
+    expect(label('cd "/Users/me/My Projects/app" && git status')).toBe('git status');
+    expect(label("cd '/tmp/x y' && ls -la")).toBe('ls -la');
+    expect(label('cd /a && cd b && make')).toBe('make');
+  });
+
+  test('leaves alone what is not a leading cd-and', () => {
+    expect(label('bun test && cd /tmp')).toBe('bun test && cd /tmp');
+    expect(label('cd /tmp')).toBe('cd /tmp');
+    expect(label('cd /tmp; ls')).toBe('cd /tmp; ls');
+    expect(label('cdk deploy && echo ok')).toBe('cdk deploy && echo ok');
+  });
+
+  test('the detail keeps the whole command for the open card', () => {
+    const d = deriveToolDetail('Bash', { command: 'cd /repo && bun test' });
+    if (d.type === 'shell') expect(d.command).toBe('cd /repo && bun test');
+  });
+});

@@ -29,9 +29,9 @@
  *    the three states a list has before it has rows (loading, error, empty) and
  *    the tail it declares instead of dropping in silence.
  */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useT } from '../../hooks/useT';
-import { splitPath, type ChangedFileRow, type ChangedFileStatus } from './changedFiles';
+import { MAX_ROWS, splitPath, visibleChangedRows, type ChangedFileRow, type ChangedFileStatus } from './changedFiles';
 
 /**
  * The letter and its colour. `text-*-600 dark:text-*-400` and not a single
@@ -174,13 +174,6 @@ export function ChangedFileCounts({ row }: { row: ChangedFileRow }) {
   );
 }
 
-/**
- * How many rows before the list says "and N more". A longer list than this
- * inside a dropdown does not get read: the whole of it lives in the surface
- * that owns the diff.
- */
-const MAX_ROWS = 12;
-
 export function ChangedFileList({ rows, onOpen, loading, error, emptyLabel, testId = 'changed-file-list' }: {
   /** `null` = not read yet; `[]` = read, and nothing changed. Different statements. */
   rows: ChangedFileRow[] | null;
@@ -194,14 +187,35 @@ export function ChangedFileList({ rows, onOpen, loading, error, emptyLabel, test
   testId?: string;
 }) {
   const tr = useT();
-  const shown = rows?.slice(0, MAX_ROWS) ?? [];
-  const rest = (rows?.length ?? 0) - shown.length;
+  const [expanded, setExpanded] = useState(false);
+  const [query, setQuery] = useState('');
+  const all = rows ?? [];
+  const { shown, rest } = visibleChangedRows(all, { expanded, query });
+  const long = all.length > MAX_ROWS;
   return (
     <div data-testid={testId}>
       {loading && <div className="px-1 py-1 text-micro text-app-text-muted">{tr('git.files.loading')}</div>}
       {error && <div className="px-1 py-1 text-micro text-red-600 dark:text-red-400">{tr('git.files.error')}</div>}
       {!loading && !error && rows?.length === 0 && (
         <div className="px-1 py-1 text-micro text-app-text-muted">{emptyLabel ?? tr('git.files.empty')}</div>
+      )}
+      {long && (
+        <input
+          type="search"
+          data-testid="changed-file-filter"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          // The dropdowns this lives in close or open a card on a click that
+          // bubbles: typing in the filter must not be read as one.
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+          placeholder={tr('git.files.filter', { n: String(all.length) })}
+          aria-label={tr('git.files.filter', { n: String(all.length) })}
+          className="mb-1 w-full rounded border border-app-border bg-transparent px-1.5 py-0.5 text-mini text-app-text outline-none placeholder:text-app-placeholder focus:border-app-text-muted"
+        />
+      )}
+      {long && query.trim() && shown.length === 0 && (
+        <div className="px-1 py-1 text-micro text-app-text-muted">{tr('git.files.noMatch')}</div>
       )}
       {shown.map((row) => {
         const inner = <ChangedFileEntry row={row} />;
@@ -226,8 +240,16 @@ export function ChangedFileList({ rows, onOpen, loading, error, emptyLabel, test
       })}
       {rest > 0 && (
         // The tail is DECLARED instead of vanishing: a list truncated in
-        // silence makes you believe you saw all of it.
-        <div className="px-1 pt-1 text-micro text-app-text-muted">{tr('git.files.more', { n: String(rest) })}</div>
+        // silence makes you believe you saw all of it. And it OPENS: a
+        // count with nothing behind it only tells you what you cannot read.
+        <button
+          type="button"
+          data-testid="changed-file-more"
+          onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
+          className="w-full rounded px-1 pt-1 text-left text-micro text-app-text-muted underline-offset-2 hover:bg-app-hover hover:text-app-text hover:underline"
+        >
+          {tr('git.files.more', { n: String(rest) })}
+        </button>
       )}
     </div>
   );

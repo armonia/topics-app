@@ -108,7 +108,11 @@ function writtenPath(tc: ToolCall): string | undefined {
 /** The one line that has to be worth the fold: how many actions, how long,
  *  how many files, how many failures, how many sub-agents. */
 export function summarizeWork(messages: ChatMessage[]): WorkSummary {
-  const tools = messages.flatMap(toolsOf);
+  return summarizeTools(messages.flatMap(toolsOf));
+}
+
+/** The same line for a list of calls: what a finished turn folds (`turnFold.ts`). */
+export function summarizeTools(tools: ToolCall[]): WorkSummary {
   const files: string[] = [];
   let subAgents = 0;
   for (const tc of tools) {

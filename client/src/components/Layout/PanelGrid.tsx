@@ -15,6 +15,7 @@ import { usePanelGridPersistence } from './usePanelGridPersistence';
 import { startDragPreview } from '../../lib/dragPreview';
 import { getProjectLabel } from '../../lib/buildSidebarItems';
 import { detachPaneToNewSpace } from '../../lib/popOutSpace';
+import { useUnsent } from '../../state/unsentMessages';
 // A banner for a RARE state (messages that expired unsent): as a static import
 // it and its grouping sat in the eager entry for every boot (3 KB raw,
 // measured 2026-09-06). Its first mount is an event, not a paint: a fallback
@@ -291,11 +292,6 @@ interface PanelGridProps {
   switchBranch?: (sessionKey: string, messageId: string, branchIndex: number) => Promise<boolean>;
   loadHistory: (sessionKey: string) => Promise<boolean>;
   chatError: Record<string, string | null>;
-  expiredMessages?: { sessionKey: string; content: string; timestamp: string; options?: SendMessageOptions }[];
-  retryExpired?: (item: { sessionKey: string; content: string; timestamp: string; options?: SendMessageOptions }) => void;
-  clearExpired?: () => void;
-  /** Discard the expired messages of ONE chat (the banner is per chat). */
-  dismissExpiredSession?: (sessionKey: string) => void;
   sendWS: (msg: WSMessage) => void;
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void;
   onUpdateTopic: (id: string, data: UpdateTopicRequest) => Promise<Topic | null>;
@@ -369,10 +365,6 @@ export function PanelGrid({
   switchBranch,
   loadHistory,
   chatError,
-  expiredMessages,
-  retryExpired,
-  clearExpired,
-  dismissExpiredSession,
   sendWS,
   onWSMessage,
   onUpdateTopic,
@@ -407,6 +399,10 @@ export function PanelGrid({
   // Mobile detection for single-column layout: the shared layout predicate,
   // so that «are there splits here?» has one answer and not one per file.
   const isMobile = useLayoutMobile();
+
+  // Only whether anything is unsent: the band itself reads the queue, and
+  // stays out of the eager bundle until there is something to show.
+  const hasUnsent = useUnsent().messages.length > 0;
 
   /* ---- All panels are treated flat (no project grouping) ---- */
   /* Device-local layout persistence (rows, row heights, solo IDs) — see
@@ -2949,6 +2945,20 @@ export function PanelGrid({
     );
   }, [itemMap, keyPos, effectiveGridRows, gridDropTarget, draggingGridKey, handleGridItemDragOverCapture, handleGridItemDropCapture, renderGroupForKey, handleCellStackResize, isAnyDragActive, isZoomed, zoomCellKeys, cellGutters]);
 
+  // Unsent messages of chats that are NOT on screen (the ones on screen show
+  // their own strip above their composer). Rendered as a sibling of the grid,
+  // in flow, not as an overlay inside it: the band takes its own height
+  // instead of covering a pane, and nothing inside the grid can clip it. Both
+  // branches below render it: with no tab open the closed chats' messages are
+  // the ONLY thing to show. On the phone it lives in the alarm band above the
+  // bottom bar instead (`MobileTransportBand`): the phone's home screen is the
+  // drawer, which covers this grid entirely.
+  const unsentBand = hasUnsent && !isMobile && (
+    <Suspense fallback={null}>
+      <UnsentBanner className="mx-2 mb-2" />
+    </Suspense>
+  );
+
   /* ---- empty state ---- */
   if (naturalGridItems.length === 0) {
     // I gruppi non stanno più qui sopra: stanno in fondo alla SIDEBAR, accanto
@@ -3010,6 +3020,7 @@ export function PanelGrid({
           )}
         </div>
       </div>
+      {unsentBand}
       </div>
     );
   }
@@ -3317,33 +3328,8 @@ export function PanelGrid({
           dies. Click focuses the window or reopens its topics here on false. */}
       <DetachedWindowMarker topics={topics} onReopenTopic={(id) => onOpenPanelAt(id, openPanels.length)} />
 
-      {/* Unsent messages: one row per chat, click opens that chat. */}
-      {expiredMessages && expiredMessages.length > 0 && (
-        <Suspense fallback={null}>
-          <UnsentBanner
-            messages={expiredMessages}
-            topics={topics}
-            mobile={isMobile}
-            onRetrySession={(sessionKey) => {
-              expiredMessages
-                .filter((m) => m.sessionKey === sessionKey)
-                .forEach((m) => retryExpired?.(m));
-            }}
-            onDismissSession={dismissExpiredSession}
-            onDismissAll={clearExpired}
-            onOpenChat={(topicId) => {
-              // Same funnel as a notification click: usePanelLifecycle's
-              // `topics:open-topic` listener opens the topic through openPanel,
-              // which routes a project topic to its project pane (switching
-              // project) instead of leaving a ghost tab behind.
-              window.dispatchEvent(
-                new CustomEvent('topics:open-topic', { detail: { topicId, mode: 'permanent' } }),
-              );
-            }}
-          />
-        </Suspense>
-      )}
     </div>
+      {unsentBand}
     </div>
   );
 }

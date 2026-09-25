@@ -4,6 +4,7 @@ import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
 import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { NOT_ARCHIVED_SQL } from "./server/lib/archived-scope";
+import { wakeVerdict, runningTaskOwnsTopic } from "./server/lib/wake-adoption";
 import { riprendiTurniInterrotti } from "./server/lib/ripresa-boot";
 import { providerHold, isProviderHeld, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
 import { resolveStateDir } from "./server/lib/data-dir";
@@ -93,7 +94,7 @@ import { createExternalSessionsRouter } from "./server/routes/external-sessions"
 import { createTaskDispatcher } from "./server/services/task-dispatcher";
 import { isChecksHold as isChecksHoldOf, sweepStaleChecksLights as sweepStaleChecksLightsOf } from "./server/services/checks-lights";
 import { refreshLiveJobQuotas } from "./server/services/agent-job-quota";
-import { budgetSample, computeDispatchCapacity, dispatchResourceVerdict, probeVm } from "./server/services/dispatch-capacity";
+import { availableMemGB, budgetSample, computeDispatchCapacity, dispatchResourceVerdict, probeVm, setAvailableMemReader } from "./server/services/dispatch-capacity";
 import { createMemSignal, fileMemSampleStore, formatMemorySignalLine } from "./server/services/mem-signal";
 import { OUR_APP_MARKERS } from "./server/services/memory-owners";
 import { createMemoryOwnersReader } from "./server/services/memory-owners-probe";
@@ -772,6 +773,12 @@ const claudeSessionTracker = createClaudeSessionTracker({
     resolveToolResult: (sk, toolUseId, result, isError) =>
       ctx.updateToolCallResult(sk, toolUseId, isError ? "" : result, isError ? result : undefined),
     topicIdForSessionKey: (sk) => ctx.getTopicBySessionKey(sk)?.id ?? null,
+    // `topic:updated` is what an open pane reconciles its thread on
+    // (usePanelLifecycle): the imported tool rows and results reach it too.
+    announceThreadChanged: (sk) => {
+      const topic = ctx.getTopicBySessionKey(sk);
+      if (topic) ctx.broadcastToAll({ type: "topic:updated", topic });
+    },
   },
   // Double-import guard: while Topics owns a live claude child for the session,
   // the chat provider streams + persists those turns itself.
@@ -782,6 +789,12 @@ const claudeSessionTracker = createClaudeSessionTracker({
     } catch { return false; }
   },
 });
+
+// The other half of the double-import guard: `isSessionLocallyDriven` only
+// protects bytes the sweep sees mid-turn, so the moment a Topics-driven turn
+// ends the import cursor jumps past everything it wrote. Armed on the class,
+// like `observeWokenTurns`, because claude-code is not registered yet at boot.
+ClaudeCodeProvider.observeTurnReleased((sk) => { claudeSessionTracker.syncImportOffsetToEnd(sk); });
 
 // La porta unica del parcheggio (lib/session-parking.ts): archiviare un topic
 // deve anche mettere a riposo la sua sessione, o la fase resta viva per sempre
@@ -1580,7 +1593,10 @@ const memSignal = createMemSignal({
   store: fileMemSampleStore(join(resolveStateDir(process.cwd()), "mem-samples.json")),
 });
 void memSignal.sample();
-
+// The capacity reading takes its memory from this sample instead of a
+// synchronous `vm_stat` per request; the sync probe stays only as the fallback
+// when no fresh sample exists (see `setAvailableMemReader`).
+setAvailableMemReader(() => memSignal.latestAvailGB() ?? availableMemGB());
 // La passata di parcheggio dei terminali stringe la soglia quando la macchina e'
 // al soffitto. `sustained` e' gia' la misura di «lo swap morde davvero» (due
 // porte, tarate sul log vero: vedi mem-signal.ts), quindi non se ne inventa una
@@ -5644,13 +5660,17 @@ function adottaTurniRisvegliati(): void {
   // quella a sondare il PATH e a registrarlo — quindi un `tryGetProvider` qui
   // troverebbe `undefined` e uscirebbe zitto: la sveglia sarebbe cablata e mai
   // collegata. Vedi `ClaudeCodeProvider.observeWokenTurns`.
-  ClaudeCodeProvider.observeWokenTurns((sessionKey, label) => {
+  ClaudeCodeProvider.observeWokenTurns((sessionKey, label, abandon) => {
     const topic = ctx.getTopicBySessionKey(sessionKey);
-    if (!topic || topic.archived) {
+    // A task agent's topic is born archived yet is alive while its task runs:
+    // the rule, and the 8 wakes it used to drop, in `lib/wake-adoption.ts`.
+    const verdict = wakeVerdict(topic, (id) => runningTaskOwnsTopic(ctx.db, id));
+    if (verdict !== "adopt") {
       // Nessuna chat dove metterlo: adottarlo vorrebbe dire scrivere una riga
-      // in un posto che l'utente non ha. Si lascia cadere, come prima.
+      // in un posto che l'utente non ha. `false` tells the provider to drop
+      // the turn, so it never lands in the next turn somebody asks for.
       console.log(`[woken] ${sessionKey}: turno spontaneo su una topic assente o archiviata — lasciato cadere`);
-      return;
+      return false;
     }
     console.log(`[woken] ${sessionKey}: la CLI ha aperto un turno da sola (Monitor o simile) — lo adotto`);
     // L'ATTESA È FINITA, e va detto PRIMA di guidare il turno.
@@ -5664,11 +5684,17 @@ function adottaTurniRisvegliati(): void {
     // di una spia che non si accende mai.
     try { claudeSessionTracker.noteWatchDelivered(sessionKey); }
     catch (err) { console.warn(`[woken] ${sessionKey}: attesa non disarmata:`, err); }
+    // Whatever the outcome, give the held turn up once the route is done with
+    // it. After a real adoption the buffer is already drained and `abandon`
+    // does nothing; when the route refused before adopting (a 4xx/5xx, a
+    // throw) it drops the turn instead of leaving it for the next sender.
     void runHeadlessWoken(sessionKey, label)
       .then((end) => {
         if (end.end !== "end_turn") console.warn(`[woken] ${sessionKey}: ${describeTurnEnd(end)}`);
       })
-      .catch((err) => console.warn(`[woken] ${sessionKey} non adottato:`, err?.message ?? err));
+      .catch((err) => console.warn(`[woken] ${sessionKey} non adottato:`, err?.message ?? err))
+      .finally(abandon);
+    return true;
   });
 }
 adottaTurniRisvegliati();

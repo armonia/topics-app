@@ -34,7 +34,12 @@ import { BrowserFavicon } from './BrowserFavicon';
 import { useBrowserPaneChrome } from '../../state/browserPaneChrome';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
-import { useT } from '../../hooks/useT';
+import { useActiveLocale, useT } from '../../hooks/useT';
+import { machineMemoryMb } from '../../lib/shell/heavyPanes';
+import { pageSharePct } from './pausedUsage';
+import { pctPlaceholders } from '../../lib/machineBusy';
+
+const CPU_CORES = Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 1) || 1);
 
 /** Stop the tab underneath from also handling the gesture. A click on the
  *  reload button must reload, not activate-and-reload; a pointerdown must not
@@ -130,6 +135,7 @@ export function BrowserTabIcon({ paneId, url }: { paneId: string; url: string })
 export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
   const chrome = useBrowserPaneChrome(paneId);
   const t = useT();
+  const locale = useActiveLocale();
   if (!chrome) return null;
 
   // The order of the kinds, and why the agent comes first, is in `browserTabKind`.
@@ -160,7 +166,7 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
     : kind === 'connecting' ? t('browser.tab.kind.connecting')
     : kind === 'degraded' ? t('browser.tab.kind.degraded')
     : kind === 'heavy-paused' ? t('browser.tab.kind.heavyPaused')
-    : kind === 'heavy' ? t('browser.tab.kind.heavy', { cpu: String(Math.round(chrome.heavy?.cpu ?? 0)) })
+    : kind === 'heavy' ? t('browser.tab.kind.heavy', pctPlaceholders(locale, { pct: pageSharePct({ cpu: chrome.heavy?.cpu ?? 0 }, { cores: CPU_CORES, memMb: machineMemoryMb() }) }))
     : kind === 'chromium' ? t('browser.tab.kind.chromium', { n: String(chrome.engineExtensions ?? 0) })
     : t('browser.tab.kind.shared');
 

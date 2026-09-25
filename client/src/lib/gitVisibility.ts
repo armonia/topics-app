@@ -1,3 +1,5 @@
+import { diffTotals, type DiffFileStat } from './board';
+
 /**
  * WHEN A GIT SURFACE IS WORTH A ROW.
  *
@@ -45,4 +47,26 @@ export function hasGitStateToShow(status: GitCounts): boolean {
  */
 export function showsGitChangesChip(measure: { files: number } | null): boolean {
   return measure === null || measure.files > 0;
+}
+
+/**
+ * The numbers the chip shows.
+ *
+ * Once the list is READ it is the truth: the DB counter was measured at
+ * delivery and the list is the diff of now, and they drift (task 1c19bf48:
+ * 101 on the chip, 34 in the list). Showing both made the chip promise files
+ * the list did not have. Before the first read the counter is all there is.
+ */
+export function deliveryMeasure(
+  counter: { files: number | null; insertions: number; deletions: number },
+  stat: DiffFileStat[] | null,
+): { files: number; insertions: number; deletions: number } | null {
+  if (stat) {
+    // `diffTotals` skips git's `-1` for a binary: summing it would subtract
+    // lines nobody removed.
+    const t = diffTotals(stat);
+    return { files: t.files, insertions: t.additions, deletions: t.deletions };
+  }
+  if (counter.files === null) return null;
+  return { files: counter.files, insertions: counter.insertions, deletions: counter.deletions };
 }

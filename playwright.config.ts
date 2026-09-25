@@ -541,9 +541,40 @@ export default defineConfig({
       // `testIgnore`), because the point is the SAME tree asserted on the two
       // engines.
       testMatch: [
+        // The chat at rest: the pin loop documented in MessageList depends on
+        // how the engine measures Virtuoso's rows, and WebKit is what ships.
+        "**/chat-scroll-at-rest.spec.ts",
+        // Scrolling down to the bottom with a trackpad: every frame whose motion
+        // the wheel does not explain is a jerk (reported 24/09).
+        "**/chat-scroll-down-jitter.spec.ts",
+        "**/sender-sees-question.spec.ts",
+        "**/prompt-history.spec.ts",
+        "**/goal-send-and-rate.spec.ts",
+        // The goal bar starts closed, agent goal included, and opens on click.
+        "**/chat-goal.spec.ts",
         "**/drag-preview.spec.ts",
         "**/swap-freeze-ice.spec.ts",
         "**/split-dnd-matrix.spec.ts",
+        // The card's changed-files chip end to end: count, show-all, filter,
+        // row -> the task's diff on that file. Filmed on the shipping engine.
+        "**/changed-files-complete.spec.ts",
+        "**/chat-tool-run-grouping.spec.ts",
+        "**/turn-fold.spec.ts",
+        "**/board-conversation-details.spec.ts",
+        "**/chat-compact-command.spec.ts",
+        "**/chat-compact-drain.spec.ts",
+        "**/chat-compaction-fold.spec.ts",
+        // Where the unsent messages land, measured on the DOM: bounding boxes
+        // against the clip of every overflow ancestor and against the composer.
+        // Layout is decided by the engine that ships, so it is measured there.
+        "**/unsent-placement.spec.ts",
+        "**/unsent-banner.spec.ts",
+        // "The Mac is X% busy": the one number every load surface says, and
+        // no technical word outside "Dettagli" (24/09). Text and colour are
+        // read on the engine that ships.
+        "**/board-dispatch-load-gauge.spec.ts",
+        "**/board-settings-dropdown.spec.ts",
+        "**/board-topbar-legibility.spec.ts",
       ],
       use: {
         browserName: "webkit",

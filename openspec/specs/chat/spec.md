@@ -2324,6 +2324,31 @@ in basso, non sopra il composer.
 - **WHEN** la persona scarta la prima
 - **THEN** la seconda SHALL restare
 
+### Requirement: CHAT-QUEUE-06 — Il messaggio non inviato sta nella SUA chat, e niente lo copre o lo taglia
+
+Un messaggio non inviato di una chat che è A SCHERMO SHALL comparire dentro
+quella chat, come striscia sopra il suo composer, con il testo, «Riprova» e
+«Scarta». La striscia sta nel flusso: NON SHALL coprire il composer.
+
+I messaggi delle chat NON a schermo SHALL comparire in una fascia che non copre
+nessuna pane: sul desktop sotto la griglia, nel flusso; sul telefono nella fascia
+degli avvisi sopra la barra in basso, visibile anche col cassetto aperto. Nessuna
+delle due SHALL essere tagliata da un contenitore o dal bordo della finestra.
+Toccare una riga della fascia SHALL portare alla chat (sul telefono chiudendo il
+cassetto), e da lì il messaggio passa nella striscia della chat.
+
+Motivo: il 24/09 il vecchio avviso galleggiava sopra la griglia, e con tre
+colonne cadeva sul composer della pane al centro, qualunque fosse la chat del
+messaggio, ed era tagliato.
+
+#### Scenario: tre colonne, un messaggio nella colonna di destra
+- **GIVEN** tre chat aperte in tre colonne e un messaggio non inviato della chat di destra
+- **THEN** la striscia SHALL stare dentro la chat di destra, intera, senza sovrapporsi a nessun composer
+
+#### Scenario: un messaggio di una chat chiusa
+- **GIVEN** un messaggio non inviato di una chat senza tab
+- **THEN** la fascia SHALL mostrarlo intero, senza sovrapporsi a nessuna chat
+
 ### Requirement: CHAT-BUBBLE-01 — La bolla porta l'id del SERVER, e una riadozione non la raddoppia
 
 Il segnaposto disegnato quando parte un turno SHALL portare l'IDENTIFICATIVO che

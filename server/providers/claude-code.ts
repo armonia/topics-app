@@ -28,7 +28,7 @@ import type {
 import { probeBinaryPath } from "../utils/executable";
 import { getDatabase } from "../db";
 import { demoteAgentCli } from "./agent-cli-priority";
-import { SidechainTracker } from "./claude/sidechain-tracker";
+import { SidechainTracker, isSubAgentToolName } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
@@ -52,7 +52,7 @@ import {
   type AssistantBlock,
   type CallUsage,
 } from "./claude/events";
-import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor } from "./claude/woken-turn";
+import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor, unattendedLineFate, type WakeObserver } from "./claude/woken-turn";
 import { observePlanUsage } from "./native/usage-window";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
@@ -156,6 +156,9 @@ export function turnWatchdogDecision(opts: {
   return { action: "rearm", delayMs: remaining };
 }
 const KILL_GRACE_MS = 3_000;                       // 3s between SIGTERM and SIGKILL
+/** How long a send waits for a stopped child to exit before killing it. The
+ *  CLI exits 0.3-0.7 s after SIGINT (measured 24/09, CLI 2.1.280). */
+const STOPPED_CHILD_EXIT_WAIT_MS = 5_000;
 // Heartbeat (Fix B in stream-timeout-resilience):
 //   Re-emit `onSubAgentUpdate` snapshots when the provider has gone quiet
 //   for ≥ HEARTBEAT_QUIET_MS while Task() sub-agents are still pending.
@@ -906,6 +909,14 @@ interface PersistentProcess {
    *  the CLI exits code 0 on SIGINT, and without this flag onSessionClosed
    *  surfaced it as "⚠️ Process exited with code 0". */
   aborting?: boolean;
+  /**
+   * Resolved when this child exits. Created by `abort()`: in stream-json mode
+   * the CLI does not survive a SIGINT (it prints the stopped turn's tail and
+   * exits 0 within a second, measured 24/09 with CLI 2.1.280), so a stopped
+   * child is never reused. `processForTurn` waits on this instead, and
+   * `handleStreamEvent` drops the tail while it is set.
+   */
+  stoppedExit?: { done: Promise<void>; resolve: () => void };
   /** Who asked for the abort — "user" (default) or "watchdog" (stream
    *  timeout). Only affects the exit log label so a watchdog kill is never
    *  misread as the human pressing stop. */
@@ -931,6 +942,9 @@ interface PersistentProcess {
    * eventi vanno ripiegati appena arriva l'handler, NELL'ORDINE.
    */
   wokenBuffer?: unknown[] | null;
+  /** See `WokenSlot` in `claude/woken-turn.ts`. */
+  declinedTurn?: boolean;
+  bufferedTurnEnded?: boolean;
   /** `description` dell'ultimo `Monitor`: il «COSA» del risveglio. */
   ultimoMonitor?: string;
   /** Pending promise resolvers for sendChat */
@@ -1031,6 +1045,13 @@ interface PersistentProcess {
    */
   lastEventKind?: string;
   /**
+   * A `system/task_notification` arrived and its turn has not ended yet: the
+   * next empty `result` with no model turn in it is the notification's answer,
+   * not the end of the turn the person is waiting on. See the `noise` branch
+   * of `handleStreamEvent`.
+   */
+  notificationTurnPending?: boolean;
+  /**
    * Set when this process was spawned with `--session-id` because the prior
    * `claude_session_id` was either missing on disk or never existed, but the
    * topics-app DB *does* contain prior user/assistant turns for this
@@ -1121,6 +1142,14 @@ export class ClaudeCodeProvider implements AIProvider {
   private config: ClaudeCodeProviderConfig;
   private processes = new Map<string, PersistentProcess>();
   /**
+   * The send that is waiting for a stopped child to exit (`processForTurn`),
+   * per session. It is the session's current turn even though no child has it
+   * yet, so a Stop pressed on it must reach it here: otherwise the SIGINT hit
+   * the child already dying, the wait ended, and the stopped send was written
+   * to a fresh child anyway (and stole the handler of the message after it).
+   */
+  private waitingSends = new Map<string, { handler: StreamHandler; cancelled: boolean }>();
+  /**
    * Gli scan della sonda TENUTI IN VITA per chi li adotterà — deliberatamente
    * fuori da `this.processes`, che è la mappa di chi sta GUIDANDO una sessione.
    *
@@ -1157,10 +1186,35 @@ export class ClaudeCodeProvider implements AIProvider {
    * usciva zitta: cablaggio perfetto, mai collegato. Vale anche a caldo, perché
    * `registerProvider` SOSTITUISCE l'istanza a ogni cambio di modello.
    */
-  static observeWokenTurns(fn: (sessionKey: string, label?: string) => void): void {
+  static observeWokenTurns(fn: WakeObserver): void {
     ClaudeCodeProvider.onWokenTurn = fn;
   }
-  private static onWokenTurn: ((sessionKey: string, label?: string) => void) | null = null;
+  private static onWokenTurn: WakeObserver | null = null;
+
+  /**
+   * Who wants to know that a Topics-driven turn is OVER: the moment
+   * `isTurnProcessAlive` flips back to false. The adopted-session import sweep
+   * uses it to move its cursor past the turn's bytes right now, instead of
+   * finding them unguarded at its next tick and importing a second copy.
+   * Static for the same boot-order reason as `observeWokenTurns`.
+   */
+  static observeTurnReleased(fn: (sessionKey: string) => void): void {
+    ClaudeCodeProvider.onTurnReleased = fn;
+  }
+  private static onTurnReleased: ((sessionKey: string) => void) | null = null;
+
+  /**
+   * The ONLY way a turn's handler is cleared, so every end (result, abort,
+   * error, timeout, process death, route unregister) tells the observer. Only a
+   * real handler-to-null transition counts: clearing an already-null slot is
+   * not a turn ending.
+   */
+  private releaseStreamHandler(pp: PersistentProcess): void {
+    if (!pp.streamHandler) return;
+    pp.streamHandler = null;
+    try { ClaudeCodeProvider.onTurnReleased?.(pp.sessionKey); }
+    catch (err) { console.warn(`[claude-code] turn-release observer failed for ${pp.sessionKey}:`, err); }
+  }
 
   /**
    * IL TURNO È STATO CHIESTO — anche se non è ancora partito.
@@ -1180,8 +1234,17 @@ export class ClaudeCodeProvider implements AIProvider {
     // l'handler da sé. Crearlo qui spawnerebbe un figlio per una route che
     // potrebbe rigettare un attimo dopo.
     if (!pp) return;
+    // A stopped child is on its way out and no turn is ever written to it
+    // (`processForTurn`). Handing it the new turn's handler meant its exit, a
+    // moment later, closed that new turn as «stopped» before it started.
+    // `sendChatInternal` installs the handler on the fresh child instead.
+    if (pp.stoppedExit) return;
     pp.streamHandler = handler;
     // Se aspettavamo un adottatore, quel turno ha trovato il suo padrone.
+    // Unless it already ended: its held `result` would close whatever turn is
+    // registering now with an answer it never asked for. A finished turn goes
+    // only to `adoptWokenTurn`, and to nobody if someone else took the session.
+    if (pp.bufferedTurnEnded) return;
     this.drainWokenBuffer(pp);
   }
 
@@ -1195,7 +1258,7 @@ export class ClaudeCodeProvider implements AIProvider {
     const pp = this.processes.get(sessionKey);
     if (!pp) return;
     if (handler && pp.streamHandler !== handler) return; // ha già preso qualcun altro
-    pp.streamHandler = null;
+    this.releaseStreamHandler(pp);
   }
 
   /**
@@ -1213,13 +1276,15 @@ export class ClaudeCodeProvider implements AIProvider {
    */
   adoptWokenTurn(sessionKey: string, handler: StreamHandler): boolean {
     const pp = this.processes.get(sessionKey);
-    if (!pp || !pp.alive) return false;
+    // A stopped child opens no turn of its own: its tail is dropped.
+    if (!pp || !pp.alive || pp.stoppedExit) return false;
     // «Occupata da sé stessa» non è occupata: la route registra l'handler PRIMA
     // di guidare. Con `!== null` si rifiutava OGNI risveglio (dieci sveglie,
     // zero risposte): si guarda CHI c'è, non SE.
     if (pp.streamHandler && pp.streamHandler !== handler) {
       // Guida davvero qualcun altro: quegli eventi appartengono al suo stream.
       pp.wokenBuffer = null;
+      pp.bufferedTurnEnded = false;
       return false;
     }
     pp.streamHandler = handler;
@@ -1307,6 +1372,15 @@ export class ClaudeCodeProvider implements AIProvider {
   stop(): void {
     this.started = false;
     if (this.unsubscribeReconnect) { this.unsubscribeReconnect(); this.unsubscribeReconnect = null; }
+    // A send still waiting for a stopped child to exit must not spawn a new
+    // child on a provider that is going away (in direct mode that child would
+    // outlive the server). It ends here, and its chat says why.
+    for (const [key, waiting] of this.waitingSends) {
+      if (waiting.cancelled) continue;
+      waiting.cancelled = true;
+      try { waiting.handler.onAborted?.({ turnEnd: cancelled("server-shutdown") }); }
+      catch (err) { console.warn(`[claude-code] shutdown notice not delivered to the waiting send on ${key}:`, err); }
+    }
     for (const [key, pp] of this.processes) {
       if (USE_AI_BRIDGE && pp.alive) {
         // The child lives in the DETACHED ai-bridge daemon and must SURVIVE a
@@ -1337,7 +1411,7 @@ export class ClaudeCodeProvider implements AIProvider {
         // certa, quindi si dice con la sua causa e il cartello arriva in chat.
         if (pp.alive && pp.streamHandler) {
           const h = pp.streamHandler;
-          pp.streamHandler = null;
+          this.releaseStreamHandler(pp);
           try { h.onAborted?.({ turnEnd: cancelled("server-shutdown") }); }
           catch (err) { console.warn(`[claude-code] avviso di spegnimento non consegnato per ${key}:`, err); }
         }
@@ -1424,7 +1498,10 @@ export class ClaudeCodeProvider implements AIProvider {
     retriedReset = false,
     resetFallbackContent?: string,
   ): Promise<{ runId?: string }> {
-    const pp = this.getOrCreateProcess(sessionKey);
+    const pp = await this.processForTurn(sessionKey, STOPPED_CHILD_EXIT_WAIT_MS, handler);
+    // Stopped before it had a child (see `waitingSends`): `abort()` already
+    // told the handler, and nothing was written anywhere.
+    if (!pp) return { runId: undefined };
     const runId = crypto.randomUUID();
 
     pp.streamHandler = handler;
@@ -1536,6 +1613,14 @@ export class ClaudeCodeProvider implements AIProvider {
         return;
       }
 
+      // A notification seen BEFORE this send belongs to no turn of ours. If it
+      // got no result of its own (the CLI marks some ambient), a flag left
+      // armed would skip this turn's end whenever it is an empty zero-turn
+      // result (`/reset`, `/new`, `/compact` with nothing to compact) and hang
+      // the send until the watchdog (adversarial check, 24/09). The resume case
+      // the flag exists for is unaffected: there the CLI prints the
+      // notification after reading this write, so it arms after this line.
+      pp.notificationTurnPending = false;
       pp.io.writeStdin(input);
     });
 
@@ -1545,7 +1630,7 @@ export class ClaudeCodeProvider implements AIProvider {
     } catch (err: any) {
       clearTimeout(messageTimeout);
       const errMsg = err?.message ?? "";
-      pp.streamHandler = null;
+      this.releaseStreamHandler(pp);
       pp.pendingResolve = null;
       pp.pendingReject = null;
       this.stopHeartbeat(pp);
@@ -1797,6 +1882,15 @@ export class ClaudeCodeProvider implements AIProvider {
   // --- Abort ---
 
   async abort(sessionKey: string, _runId: string | undefined, reason: AbortReason): Promise<void> {
+    // The turn being stopped may not have a child yet: it is waiting for the
+    // previous stopped child to exit. Stop THAT, and leave the dying child be.
+    const waiting = this.waitingSends.get(sessionKey);
+    if (waiting && !waiting.cancelled) {
+      waiting.cancelled = true;
+      try { waiting.handler.onAborted?.({ turnEnd: cancelled(reason) }); }
+      catch (err) { console.warn(`[claude-code] onAborted threw for the waiting send on ${sessionKey}:`, err); }
+      return;
+    }
     const pp = this.processes.get(sessionKey);
     if (!pp || !pp.alive) return;
 
@@ -1805,8 +1899,15 @@ export class ClaudeCodeProvider implements AIProvider {
     // reason keeps the exit log honest ("watchdog stop" vs "user stop").
     pp.aborting = true;
     pp.abortReason = reason;
+    if (!pp.stoppedExit) {
+      let resolve!: () => void;
+      const done = new Promise<void>((r) => { resolve = r; });
+      pp.stoppedExit = { done, resolve };
+    }
 
-    // SIGINT cancels the current turn without killing the process
+    // SIGINT cancels the current turn. In stream-json mode it also ends the
+    // child (exit 0 within a second, see `stoppedExit`): the next send waits
+    // for that exit in `processForTurn` and spawns a fresh `--resume`.
     try {
       pp.io.signal("SIGINT");
     } catch (err) {
@@ -1824,7 +1925,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // content as a finalized message instead of an error stub.
     if (pp.streamHandler) {
       pp.streamHandler.onAborted?.({ turnEnd: cancelled(reason) });
-      pp.streamHandler = null;
+      this.releaseStreamHandler(pp);
     }
     this.stopHeartbeat(pp);
 
@@ -1955,6 +2056,44 @@ export class ClaudeCodeProvider implements AIProvider {
     const pp = this.spawnPersistentProcess(sessionKey);
     this.processes.set(sessionKey, pp);
     return pp;
+  }
+
+  /**
+   * The child a new turn is written to. A stopped child (`abort()` was called
+   * on it) is never reused: the CLI answers a SIGINT by printing the stopped
+   * turn's tail and exiting, so a send landing in that window read the tail's
+   * result as the end of ITS turn and wrote its text into a dying process
+   * (topic d6158ec6, 22/09: two task updates lost, «no reply» in 5 and 38 ms).
+   * Wait for the exit, kill at the cap, then spawn a fresh one.
+   */
+  private async processForTurn(
+    sessionKey: string,
+    waitMs = STOPPED_CHILD_EXIT_WAIT_MS,
+    handler?: StreamHandler,
+  ): Promise<PersistentProcess | null> {
+    const existing = this.processes.get(sessionKey);
+    if (existing?.stoppedExit && existing.alive) {
+      const waiting = handler ? { handler, cancelled: false } : null;
+      if (waiting) this.waitingSends.set(sessionKey, waiting);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const capped = new Promise<"timeout">((r) => { timer = setTimeout(() => r("timeout"), waitMs); });
+      let outcome: "exited" | "timeout";
+      try {
+        outcome = await Promise.race([existing.stoppedExit.done.then(() => "exited" as const), capped]);
+      } finally {
+        clearTimeout(timer);
+        if (waiting && this.waitingSends.get(sessionKey) === waiting) this.waitingSends.delete(sessionKey);
+      }
+      if (outcome === "timeout" && existing.alive) {
+        console.warn(`[claude-code] ${sessionKey}: the stopped child did not exit within ${waitMs} ms, killing it before the next turn`);
+        this.killProcess(existing);
+      }
+      if (this.processes.get(sessionKey) === existing) this.processes.delete(sessionKey);
+      // Stopped while it waited (a second Stop, or the provider shutting down):
+      // no child is spawned for it.
+      if (waiting?.cancelled) return null;
+    }
+    return this.getOrCreateProcess(sessionKey);
   }
 
   /**
@@ -2775,7 +2914,7 @@ export class ClaudeCodeProvider implements AIProvider {
       r({ runId: "" });
     }
     const sink = pp.streamHandler ?? handler;
-    pp.streamHandler = null;
+    this.releaseStreamHandler(pp);
     sink.onError(`Riadozione del turno non riuscita: ${detail}`);
     return "dead";
   }
@@ -2787,7 +2926,7 @@ export class ClaudeCodeProvider implements AIProvider {
     if (pp.pendingResolve) { const r = pp.pendingResolve; pp.pendingResolve = null; pp.pendingReject = null; r({ runId: "" }); }
     if (pp.streamHandler) {
       pp.streamHandler.onAborted?.({ turnEnd: { end: "end_turn", detail: "reattach: nessun turno in volo nello store" } });
-      pp.streamHandler = null;
+      this.releaseStreamHandler(pp);
     }
   }
 
@@ -2798,7 +2937,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // fermato nessuno, è finito il processo sotto.
     if (pp.streamHandler) {
       pp.streamHandler.onAborted?.({ turnEnd: { end: "error", cause: "process-died" } });
-      pp.streamHandler = null;
+      this.releaseStreamHandler(pp);
     }
     this.cleanupTimers(pp);
   }
@@ -2847,7 +2986,7 @@ export class ClaudeCodeProvider implements AIProvider {
           if (pp.pendingReject === reject) {
             pp.pendingResolve = null;
             pp.pendingReject = null;
-            pp.streamHandler = null;
+            this.releaseStreamHandler(pp);
             reject(new Error("RATE_LIMIT"));
           }
         },
@@ -2859,6 +2998,7 @@ export class ClaudeCodeProvider implements AIProvider {
   // pending turn and surfaces the error to a live stream, then drops timers.
   private onSessionClosed(pp: PersistentProcess, code: number | null): void {
     pp.alive = false;
+    pp.stoppedExit?.resolve();
     // Il CLI è morto: il suo pid non è più un'ancora valida (il sistema può
     // riciclare il numero). Le shell che gli pendevano sotto le riconcilia
     // `routes/processes.ts` guardando se il processo è ancora vivo.
@@ -2904,7 +3044,7 @@ export class ClaudeCodeProvider implements AIProvider {
       } else {
         this.tellHandlerSafely(pp, "onError", () => pp.streamHandler?.onError(`Process exited with code ${code}`));
       }
-      pp.streamHandler = null;
+      this.releaseStreamHandler(pp);
     }
     this.cleanupTimers(pp);
   }
@@ -2940,7 +3080,7 @@ export class ClaudeCodeProvider implements AIProvider {
     }
     if (pp.streamHandler) {
       this.tellHandlerSafely(pp, "onError", () => pp.streamHandler?.onError(err.message));
-      pp.streamHandler = null;
+      this.releaseStreamHandler(pp);
     }
     this.cleanupTimers(pp);
   }
@@ -2956,8 +3096,23 @@ export class ClaudeCodeProvider implements AIProvider {
     // qui restano solo le decisioni che hanno bisogno dello stato del processo.
     const line = classifyStreamLine(event);
 
+    // A STOPPED CHILD'S TAIL BELONGS TO NOBODY. After `abort()` the CLI still
+    // prints the stopped turn's last lines («[Request interrupted by user]»
+    // and an error result) before it exits. The turn is already closed and no
+    // new one is ever written to this child (`processForTurn`), so every line
+    // from here on is dropped: read as content it woke a spontaneous turn that
+    // stole the next send (topic 8f56c2c4, 22/09 14:45), read as a result it
+    // closed the next send as «no reply».
+    if (pp.stoppedExit && !pp.replayMute && !pp.replaySilent) return;
+
     // ── IL TURNO CHE NASCE DA SOLO ──
     // Il perché e le tre esclusioni stanno in `claude/woken-turn.ts`.
+    // First the lines of a turn already judged: a declined one is dropped to
+    // its `result`, and the `result` of one awaiting adoption is held for it.
+    if (!pp.replayMute && !pp.replaySilent) {
+      const fate = unattendedLineFate(pp, event, line.kind);
+      if (fate !== "pass") return;
+    }
     if (isWokenTurnLine({
       hasHandler: !!handler,
       replayMute: !!pp.replayMute,
@@ -2975,6 +3130,9 @@ export class ClaudeCodeProvider implements AIProvider {
     // `system` drop below. Skip during reattach replay (replayMute scan /
     // replaySilent fold) so re-reading the store never double-fires the marker.
     if (line.kind === "compaction") {
+      // The empty result after a boundary is the compaction's, and it closes
+      // the turn (CCLI-05): a notification seen earlier must not swallow it.
+      if (!pp.replayMute) pp.notificationTurnPending = false;
       if (!pp.replayMute && !pp.replaySilent) {
         const marker = parseCompactBoundary(event);
         if (marker) {
@@ -3007,7 +3165,20 @@ export class ClaudeCodeProvider implements AIProvider {
     }
 
     // Filter noise
-    if (line.kind === "noise") return;
+    if (line.kind === "noise") {
+      // A LEFTOVER TASK NOTIFICATION IS A TURN OF ITS OWN. A resumed session
+      // that had a background task when it last ended delivers the task's
+      // notification before it reads the next message, and answers it with an
+      // empty `result` (num_turns 0). That result is the notification's, not
+      // the person's: it closed their turn as «no reply» in 1.5 s (24/09,
+      // topic 33966f4e; recorded with CLI 2.1.280, see
+      // `claude-code-resume-notification.test.ts`). Armed here, spent on the
+      // next result. Armed during the reattach fold too (`replaySilent`): that
+      // fold closes turns on `result` like live traffic does. Not during the
+      // scan (`replayMute`), which reads history and would leak the flag.
+      if (line.label === "system/task_notification" && !pp.replayMute) pp.notificationTurnPending = true;
+      return;
+    }
 
     // Reattach SCAN pass: record the store's tail shape, emit nothing.
     if (pp.replayMute) {
@@ -3092,6 +3263,15 @@ export class ClaudeCodeProvider implements AIProvider {
       // corso (vedi `RESULT_WAITING` nelle fixture).
       const resultText = typeof event.result === "string" ? event.result : "";
       if (resultText === "waiting for message") return;
+      // The notification's own turn ends here: a clean success with zero model
+      // turns and no text. It is not the person's answer, so the turn they are
+      // waiting on stays open and the result that follows is theirs. Anything
+      // else (text, a turn the model actually ran, an error) is a real end,
+      // and the flag is dropped with it: an error must never be swallowed.
+      if (pp.notificationTurnPending) {
+        pp.notificationTurnPending = false;
+        if (!resultText && event.num_turns === 0 && event.subtype === "success" && event.is_error !== true) return;
+      }
 
       if (handler) {
         // PERCHÉ è finito: la CLI lo dice qui e finora lo buttavamo via. A valle
@@ -3107,7 +3287,7 @@ export class ClaudeCodeProvider implements AIProvider {
           costUsd: event.total_cost_usd,
           turnEnd,
         });
-        pp.streamHandler = null;
+        this.releaseStreamHandler(pp);
         // Stream finished — drop heartbeat. The sendChatInternal `finally`
         // path also clears it, but doing it here avoids one tick of
         // unnecessary keep-alive between `result` and the await resolution.
@@ -3311,8 +3491,11 @@ export class ClaudeCodeProvider implements AIProvider {
             // sub-agent parent so its child events get aggregated. We do this
             // before onToolStart so the route handler sees the right state if
             // it queries the tracker.
-            if (toolName === "Task") {
-              pp.sidechain.registerParent(toolId, block.input);
+            if (isSubAgentToolName(toolName)) {
+              // updateParentInput, not registerParent: the sidechain branch
+              // may already have created an empty placeholder, and
+              // registerParent on a known id is a no-op.
+              pp.sidechain.updateParentInput(toolId, block.input);
             }
             handler.onToolStart(toolId, toolName, input);
             // Announced with the full input already in hand — mark finalized
@@ -3446,7 +3629,7 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.activeToolCalls.add(partial.id);
       // Task parents register immediately (empty input, back-filled by
       // finalizeToolArgs) so early sidechain child events find their parent.
-      if (toolName === "Task") pp.sidechain.registerParent(partial.id, {});
+      if (isSubAgentToolName(toolName)) pp.sidechain.registerParent(partial.id, {});
       handler?.onToolStart(partial.id, toolName, {});
     } else if (partial.kind === "input_delta") {
       const entry = pp.streamingToolInputs?.get(index);
@@ -3500,7 +3683,7 @@ export class ClaudeCodeProvider implements AIProvider {
     const finalized = (pp.argsFinalized ??= new Set<string>());
     if (finalized.has(toolId) || pp.settledToolCalls?.has(toolId)) return;
     finalized.add(toolId);
-    if (toolName === "Task") pp.sidechain.updateParentInput(toolId, args);
+    if (isSubAgentToolName(toolName)) pp.sidechain.updateParentInput(toolId, args);
     handler?.onToolArgsUpdate?.(toolId, args);
     this.detectUserInputForTool(pp, handler, toolId, toolName, args);
   }
@@ -3737,6 +3920,10 @@ export class ClaudeCodeProvider implements AIProvider {
 
   private killProcess(pp: PersistentProcess): void {
     pp.alive = false;
+    // Killed on purpose (e.g. `/clear` while a send waits for this stopped
+    // child): nobody will hear its exit in broker mode, because `kill` drops
+    // the handlers for the key, so the wait ends now instead of at its cap.
+    pp.stoppedExit?.resolve();
     this.cleanupTimers(pp);
     try { pp.readline?.close(); } catch {}
     pp.io.kill();

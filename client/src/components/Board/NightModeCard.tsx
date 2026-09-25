@@ -17,7 +17,10 @@
  */
 import { useEffect, useState } from 'react';
 import { Moon } from 'lucide-react';
-import { useT, useLocale } from '../../hooks/useT';
+import { useActiveLocale, useT, useLocale } from '../../hooks/useT';
+import { useGlobalDispatchCap } from '../../state/globalDispatchCap';
+import { machineBusyPct, pctPlaceholders } from '../../lib/machineBusy';
+import { MachineBusyLine } from '../Shared/MachineBusyLine';
 import { boardApi } from '../../lib/board';
 // Il testo sta in un modulo suo: e' la parte pura, e tenerla qui spegneva il
 // fast refresh di tutta la card.
@@ -33,9 +36,6 @@ interface Props {
 }
 
 const POLL_MS = 15_000;
-/** La stessa soglia per core del server (`night-mode.ts`), solo per disegnare la barra. */
-const MAX_LOAD_PER_CORE = 1.5;
-
 async function defaultFetch(projectId: string): Promise<NightStatus | null> {
   // Via `boardApi` come tutto il resto della board: un `fetch` a mano qui si
   // porterebbe dietro base URL, errori e intestazioni diverse dagli altri.
@@ -53,6 +53,10 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
   const [asked, setAsked] = useState(false);
   const tr = useT();
   const locale = useLocale();
+  const active = useActiveLocale();
+  // The one number every load surface says, from the same capacity reading
+  // the board already polls: not a second probe of the machine.
+  const machine = useGlobalDispatchCap().capacity;
 
   // Quando l'interruttore cambia, lo stato raccolto prima non vale piu'. Il
   // reset si fa QUI, durante il render, che e' il modo che React documenta per
@@ -81,9 +85,18 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
   }, [projectId, enabled, fetchStatus]);
 
   const info = describeNight(st, enabled, asked);
-  const detail = info.detailText ?? (info.detailKey ? tr(info.detailKey) : null);
-  const soglia = Math.max(1, (st?.cores ?? 1)) * MAX_LOAD_PER_CORE;
-  const loadPct = st ? Math.min(100, Math.round((st.load1 / soglia) * 100)) : 0;
+  // WAITING ON THE MACHINE is said in the one number. The server's sentence
+  // ("carico 18.3 (soglia 18.0)") is a run-queue length against a per-core
+  // threshold: true, and meaningless to most readers, so it moves to the
+  // hover. It is the load wait whenever nobody is attached: those are the
+  // only two reasons `decideNight` waits for (the deadline expires instead).
+  // No resume percentage: the night gate reads the run queue, not the CPU%,
+  // and no honest conversion between the two exists.
+  const busyPct = machineBusyPct(machine);
+  const loadWait = st?.action === 'wait' && st.busySessions === 0;
+  const detail = loadWait
+    ? (busyPct == null ? tr('board.dispatch.verdictWaitBusyUnknown') : tr('board.night.waitBusy', pctPlaceholders(active, { pct: busyPct })))
+    : info.detailText ?? (info.detailKey ? tr(info.detailKey) : null);
 
   const toneRing =
     info.tone === 'go' ? 'border-emerald-500/40 bg-emerald-500/5'
@@ -134,31 +147,19 @@ export function NightModeCard({ projectId, enabled, until, onChange, fetchStatus
             <div className="min-w-0">
               <div className="text-mini font-medium text-app-text">{tr(info.titleKey)}</div>
               {detail && (
-                <div className="text-mini leading-snug text-app-text-muted">{detail}</div>
+                <div className="text-mini leading-snug text-app-text-muted" title={loadWait ? st?.reason ?? undefined : undefined}>{detail}</div>
               )}
             </div>
           </div>
 
           {st && (
             <>
-              {/* Load as a BAR and as a CPU percentage, not as "15.3 / 18.0
-                  cores": that number says nothing to someone who does not
-                  know what a core is. The threshold is the same percentage on
-                  every machine, because it is already relative to the cores
-                  available. */}
-              <div className="mt-2">
-                <div className="flex items-baseline justify-between text-micro text-app-text-muted">
-                  <span>{tr('board.night.load')}</span>
-                  <span className="tabular-nums">
-                    {Math.round((st.load1 / Math.max(1, st.cores)) * 100)}% ({tr('board.night.cpuThreshold', { pct: Math.round(MAX_LOAD_PER_CORE * 100) })})
-                  </span>
-                </div>
-                <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className={`h-full rounded-full transition-[width] ${loadPct >= 100 ? 'bg-amber-400' : 'bg-emerald-400'}`}
-                    style={{ width: `${loadPct}%` }}
-                  />
-                </div>
+              {/* How busy the Mac is, as ONE number and a bar: the same line
+                  as the board's gauge, so night mode and the board never say
+                  two different things about the same machine. */}
+              <div className="mt-2" data-testid="night-mode-busy">
+                <div className="text-micro text-app-text-muted">{tr('board.night.load')}</div>
+                <MachineBusyLine shares={machine} />
               </div>
 
               <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-micro text-app-text-muted">

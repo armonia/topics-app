@@ -16,6 +16,7 @@ import { isAwaitingHuman } from '../../../../shared/types';
 import { autoOpenSchedule, bodyIsOpen } from './toolRowDisclosure';
 import { ErrorBoundary } from '../Shared/ErrorBoundary';
 import { SpinnerFallback } from '../Shared/Spinner';
+import { ToolDetailFetchStatus, type ToolDetailFetchState } from './ToolDetailFetchStatus';
 
 // The answer form only exists for the few calls that stop and ask, so it does
 // not belong in the entry. It is also the ONE lazy surface here that appears
@@ -95,6 +96,11 @@ interface Props {
    * Absent for streaming rows (their blocks always arrive whole).
    */
   messageId?: string;
+  /**
+   * The group opened ON this row (the «✗ N fallite» badge of ToolGroupRow):
+   * ring it, open it and bring it into view. Transient, the group clears it.
+   */
+  highlighted?: boolean;
 }
 
 /**
@@ -116,10 +122,21 @@ interface Props {
  * tool cambia — testualmente "so React.memo sees a real prop change" — quindi
  * una riga aggiornata ha davvero una prop diversa e non resta indietro.
  */
-export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionKey, messageId, onPlanDecision }: Props) {
+export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionKey, messageId, onPlanDecision, highlighted }: Props) {
   const tr = useT();
+  const rowRef = useRef<HTMLDivElement>(null);
   const settledMetricClass = useSettledMetricClass('tool');
-  const [open, setOpen] = useState(false);
+  // The row the failure badge opened the group on opens itself, so the error
+  // reads without a second click. Two cases: mounted highlighted (the group
+  // was closed, its rows are born with that click) or highlighted later (the
+  // group was already open). It opens on the EDGE of the highlight, not while
+  // it lasts, or it would close again when the highlight fades.
+  const [open, setOpen] = useState(() => !!highlighted);
+  const [wasHighlighted, setWasHighlighted] = useState(!!highlighted);
+  if (!!highlighted !== wasHighlighted) {
+    setWasHighlighted(!!highlighted);
+    if (highlighted) setOpen(true);
+  }
 
   // Lazy body: the history payload ships a tool call in its closed-row form —
   // the large text fields of `detail` (output, content, result) blank, every
@@ -131,6 +148,11 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   // nothing pollutes the store, and nothing travels on the wire until the
   // user explicitly opens the row.
   const [fetched, setFetched] = useState<{ detail: Record<string, unknown> | null; args: Record<string, unknown> | null } | null>(null);
+  // The fetch state is shown: without it, an output on its way and a lost one
+  // (404, network) were the same card, a command with nothing under it. Only
+  // the OUTCOME is stored, per id; "loading" is derived below (open, trimmed,
+  // no outcome yet) instead of being set inside the effect.
+  const [fetchOutcome, setFetchOutcome] = useState<{ forId: string; state: 'done' | 'error'; error?: string } | null>(null);
   const fetchedForRef = useRef<string | null>(null);
   const strippedBytes = (toolCall.detailBytes ?? 0) + (toolCall.argsBytes ?? 0);
 
@@ -206,6 +228,11 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
     isHumanTurn,
     autoOpen,
   });
+  useEffect(() => {
+    if (!highlighted) return;
+    // `?.` on the method too: old WebKit and layout-less test benches lack it.
+    rowRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+  }, [highlighted]);
 
   const onToggle = () => {
     setUserToggled(true);
@@ -220,17 +247,23 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
     if (strippedBytes === 0) return;
     if (fetchedForRef.current === toolCall.id) return; // already fetched
     fetchedForRef.current = toolCall.id;
+    const forId = toolCall.id;
     chatApi.fetchToolDetail(messageId, toolCall.id).then(({ detail: fullDetail, args: fullArgs }) => {
       const asRecord = (v: unknown): Record<string, unknown> | null =>
         v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
       const next = { detail: asRecord(fullDetail), args: asRecord(fullArgs) };
       if (next.detail || next.args) setFetched(next);
-    }).catch(() => {
-      // Non-fatal: the row still renders with the trimmed call. The missing
-      // text is blank or cut, which is what it was before the user opened
-      // the row.
+      setFetchOutcome({ forId, state: 'done' });
+    }).catch((err: unknown) => {
+      // The row still renders with the trimmed call, but it SAYS the rest did
+      // not arrive: a blank output here is a lost one, not an empty one.
+      setFetchOutcome({ forId, state: 'error', error: err instanceof Error ? err.message : String(err) });
     });
   }, [effectiveOpen, messageId, toolCall.id, strippedBytes]);
+  const outcome = fetchOutcome?.forId === toolCall.id ? fetchOutcome : null;
+  const fetchState: { state: ToolDetailFetchState; error?: string } = outcome
+    ? outcome
+    : effectiveOpen && messageId && strippedBytes > 0 ? { state: 'loading' } : { state: 'idle' };
 
   // C'è davvero qualcosa da aprire? Una `Skill` senza istruzioni — cioè ogni
   // riga scritta prima che il provider imparasse a raccoglierle — apriva un
@@ -269,6 +302,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
 
   return (
     <div
+      ref={rowRef}
       data-testid={`tool-call-row-${toolCall.id}`}
       // Lo stato sta sulla RIGA, non su una colonna a destra. Ci stava finché
       // quella colonna portava la spunta: tolta la spunta — che confermava la
@@ -277,6 +311,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
       // «visibile» per nessuno, test compresi. Lo stato è una proprietà della
       // riga, e adesso è scritto dove vive davvero.
       data-status={status}
+      data-highlighted={highlighted ? 'true' : undefined}
       className={`text-compact rounded-md transition-colors ${
         // "In use" state must be unmissable: the active tool gets a soft
         // primary tint + hairline ring (negative margin keeps the text
@@ -285,7 +320,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
         // del messaggio, che è `overflow-hidden` — un anello disegnato FUORI dal
         // bordo veniva tagliato a metà proprio sui due lati lunghi.
         isRunning ? 'bg-primary/5 ring-1 ring-inset ring-primary/10 -mx-1.5 px-1.5' : ''
-      }`}
+      } ${highlighted ? 'bg-red-500/5 ring-1 ring-inset ring-red-500/40' : ''}`}
     >
       {/* Un bottone SOLO se c'è qualcosa da aprire. Renderlo comunque e poi
           disabilitarlo sarebbe una promessa fatta e ritirata: chi naviga da
@@ -471,6 +506,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           ) : (
             <ToolCardBody detail={detail} isError={isError} isRunning={isRunning} sessionKey={sessionKey} />
           )}
+          <ToolDetailFetchStatus state={fetchState.state} error={fetchState.error} />
           {toolCall.userResponse && status !== 'waiting_for_input' && (
             <div className="mt-1.5 text-mini text-app-text-muted">
               <span className="uppercase tracking-wide">Answered</span>

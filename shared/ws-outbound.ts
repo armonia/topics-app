@@ -656,6 +656,7 @@ const messageNewSchema = z.looseObject({
   messageId: z.string(),
   content: z.string(),
   preview: z.optional(z.string()),
+  blocks: z.optional(z.array(z.looseObject({ kind: z.string() }))),
 });
 
 const messageMediaSchema = z.looseObject({

@@ -19,7 +19,7 @@ import { AgentLines, WorkSignals } from './AgentLines';
 import { PerfSection } from './PerfSection';
 import { VersionChip } from './VersionChip';
 import { bundleDrift } from './bundleDrift';
-import { loadTint } from './loadTint';
+import { busyDotColor, busyTone } from '../../lib/machineBusy';
 import type { WorkSignal } from './workSignals';
 import type { UsageRange } from '@/hooks/useProjectUsage';
 
@@ -316,7 +316,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
               className="flex flex-shrink-0 items-center gap-1.5 text-app-text-secondary tabular-nums"
             >
               {load?.misurato && (
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: loadTint(load.livello) }} />
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: busyDotColor(busyTone(Math.round(load.livello * 100))) }} />
               )}
               {load?.totalMB != null && <span>{formatMemoryMB(load.totalMB, { partial: load.partial })}</span>}
               {load?.totalCpu != null && <span>{Math.round(load.totalCpu)}%</span>}

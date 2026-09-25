@@ -134,8 +134,9 @@ export interface NativeBrowserHandle {
    */
   takeControl: () => void;
   /** Optional - Tauri only. The page keeps burning CPU (`lib/shell/heavyPanes`):
-   *  `cpu` is % of one core. A heavy pane is live only while it has the focus. */
-  heavy?: { cpu: number } | null;
+   *  `cpu` is % of one core, `memMb` its footprint; the copy turns both into
+   *  shares of the machine. A heavy pane is live only while it has the focus. */
+  heavy?: { cpu: number; memMb?: number } | null;
   /** Optional - Tauri only. The heavy pane is paused: its view is hidden behind
    *  `pausedImage` (a 1x still of the page, or null when none could be taken). */
   paused?: boolean;
@@ -143,6 +144,10 @@ export interface NativeBrowserHandle {
   /** Optional - Tauri only. Focus this pane and bring the paused page back live,
    *  the same document, without a reload. */
   resume?: () => void;
+  /** Optional - Tauri only. Resume and keep this page live until it navigates. */
+  keepLiveOnce?: () => void;
+  /** Optional - Tauri only. Resume and never pause this site again. */
+  keepLiveAlways?: () => void;
   ready: boolean;             // native webview opened (browser_open resolved)
   viewId: string | null;
   /** Optional — Tauri only. A base64 PNG data-URL still of the page, shown in the

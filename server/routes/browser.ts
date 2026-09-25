@@ -168,7 +168,9 @@ export function createBrowserRouter(
     const getMatch = matchRoute(pathname, "/api/browsers/:id");
     if (method === "GET" && getMatch && !pathname.includes("/snapshot") && !pathname.includes("/console") && !pathname.includes("/interact")) {
       const info = browserService.getUrl(getMatch.id);
-      if (!info) return errorResponse(404, "Browser context not found");
+      // A probe, not a fault: `contextHasPage` and the fallback poll ask on
+      // purpose, so "not there yet" is the answer, not something to log.
+      if (!info) return errorResponse(404, "Browser context not found", { log: false });
       return json(info);
     }
 

@@ -1,129 +1,131 @@
-// UnsentBanner — the messages that never reached the server, grouped BY CHAT.
+// UnsentBanner: the unsent messages of chats that are NOT on screen, grouped
+// BY CHAT, in a band at the foot of the grid.
 //
-// It used to be one amber pill reading "1 message not sent": a global count,
-// in English only, with a Retry that resent everything at once. Reported from
-// the board: you could see that something had not been sent, but not WHICH
-// chat, and there was no way to get there. So the banner now says the chat's
-// name, shows a one-line preview of the first message it is holding, and the
-// row itself is the way in: clicking it opens (or focuses) that chat, going
-// through the same `topics:open-topic` funnel the notifications use, which
-// routes a project topic to its project pane and therefore switches project
-// on its own.
+// History. It started as one amber pill reading "1 message not sent": a global
+// count, English only, one Retry for everything. Then it named the chat and
+// took you there (CHAT-QUEUE-05). It still floated `absolute` over the grid,
+// though, and on 24/09 it was reported sitting on top of a random pane's
+// composer and cut off: with three columns the centred toast landed on
+// whatever pane was under the middle of the screen.
 //
-// Retry and discard are PER ROW, because a row is a chat: retrying everything
-// because one chat is worth retrying is exactly the gesture the reporter did
-// not have. "Retry all" survives only when there is more than one chat.
+// Now a message of a chat on screen is shown INSIDE that chat, above its
+// composer (`UnsentStrip`), and this band only lists the rest. It is laid out
+// IN FLOW, never as an overlay: under the grid on the desktop, so it takes its
+// own height instead of covering a pane; inside the alarm band above the
+// bottom bar on the phone, which reserves its own height and stays visible
+// with the drawer open (the phone's home screen IS the drawer).
+//
+// A row is still the way in: clicking it opens (or focuses) that chat through
+// the same `topics:open-topic` funnel the notifications use, and once the chat
+// is on screen its message moves into the chat's own strip. Retry and discard
+// stay PER ROW; "all" appears only with more than one chat, and acts on the
+// rows of this band only, not on the messages already shown inside a chat.
 import { useMemo } from 'react';
+import { TriangleAlert } from 'lucide-react';
 import { useT } from '../../hooks/useT';
-import type { Topic } from '@/types';
-import { groupUnsentBySession, previewLine, type UnsentGroup, type UnsentMessage } from './unsentGroups';
+import { useTopics } from '../../contexts/TopicsContext';
+import { openUnsentChat, useOnScreenSessions, useUnsent } from '../../state/unsentMessages';
+import { groupUnsentBySession, previewLine, type UnsentGroup } from './unsentGroups';
 
 interface UnsentBannerProps {
-  messages: UnsentMessage[];
-  topics: Record<string, Topic>;
-  /** Mobile lifts the banner above the bottom bar instead of floating centred. */
-  mobile?: boolean;
-  /** Resend every unsent message of ONE chat. */
-  onRetrySession?: (sessionKey: string) => void;
-  onDismissSession?: (sessionKey: string) => void;
-  onDismissAll?: () => void;
-  onOpenChat?: (topicId: string) => void;
+  /** Outer spacing, which belongs to the host: the grid foot and the phone's
+   *  alarm band inset their rows differently. */
+  className?: string;
 }
 
-export function UnsentBanner({
-  messages,
-  topics,
-  mobile = false,
-  onRetrySession,
-  onDismissSession,
-  onDismissAll,
-  onOpenChat,
-}: UnsentBannerProps) {
+export function UnsentBanner({ className = '' }: UnsentBannerProps) {
   const tr = useT();
-  const groups = useMemo(() => groupUnsentBySession(messages, topics), [messages, topics]);
+  const topics = useTopics();
+  const { messages, retrySession, dismissSession } = useUnsent();
+  const onScreen = useOnScreenSessions();
+  const groups = useMemo(
+    () => groupUnsentBySession([...messages], topics).filter((g) => !onScreen.has(g.sessionKey)),
+    [messages, topics, onScreen],
+  );
   if (groups.length === 0) return null;
 
-  const retryGroup = (group: UnsentGroup) => onRetrySession?.(group.sessionKey);
+  const count = groups.reduce((n, g) => n + g.items.length, 0);
+  const retryGroup = (group: UnsentGroup) => retrySession(group.sessionKey);
 
   return (
     <div
       data-testid="unsent-banner"
-      className={
-        mobile
-          // Above the bottom bar and full width: on a phone the banner used to
-          // sit on top of the composer, i.e. on top of the very thing you need
-          // to write the message again.
-          ? 'fixed left-0 right-0 z-50 px-2 flex flex-col gap-1 rounded-t-lg border-t border-amber-500/30 bg-amber-500/15 py-1.5 text-compact text-amber-700 dark:text-amber-400 backdrop-blur-sm'
-          : 'absolute bottom-2 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-1 px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-compact shadow-lg backdrop-blur-sm max-w-[min(28rem,90vw)]'
-      }
-      style={mobile ? { bottom: 'calc(var(--mobile-chrome-h, 0px) + var(--mobile-transport-h, 0px) + 0.25rem)' } : undefined}
+      role="status"
+      className={`flex-shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-amber-700 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-400 ${className}`}
     >
-      <span className="font-medium">
-        {tr(messages.length === 1 ? 'app.unsent.title.one' : 'app.unsent.title.many', { n: messages.length })}
-      </span>
-      {groups.map((group) => {
-        const label = group.name ?? tr('app.unsent.unknownChat');
-        return (
-          <div
-            key={group.sessionKey}
-            data-testid="unsent-row"
-            data-session-key={group.sessionKey}
-            className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-amber-500/10"
-          >
+      <div className="flex items-center gap-2">
+        <TriangleAlert size={14} aria-hidden="true" className="flex-shrink-0 text-amber-600 dark:text-amber-500" />
+        <span className="min-w-0 flex-1 truncate text-mini font-medium">
+          {tr(count === 1 ? 'app.unsent.title.one' : 'app.unsent.title.many', { n: count })}
+        </span>
+        {groups.length > 1 && (
+          <>
             <button
               type="button"
-              data-testid="unsent-row-open"
-              onClick={() => { if (group.topicId && onOpenChat) onOpenChat(group.topicId); }}
-              disabled={!group.topicId || !onOpenChat}
-              title={tr('app.unsent.openChat', { name: label })}
-              className="flex min-w-0 flex-1 flex-col items-start text-left disabled:cursor-default"
+              data-testid="unsent-retry-all"
+              onClick={() => groups.forEach(retryGroup)}
+              className="flex-shrink-0 rounded-md px-2 py-0.5 text-mini font-medium transition-colors hover:bg-amber-500/15"
             >
-              <span className="truncate font-medium max-w-full">
-                {tr(group.items.length === 1 ? 'app.unsent.chatLine.one' : 'app.unsent.chatLine.many', { name: label, n: group.items.length })}
-              </span>
-              <span className="truncate opacity-70 max-w-full">
-                {previewLine(group.items[0]?.content ?? '')}
-              </span>
+              {tr('app.unsent.retryAll')}
             </button>
             <button
               type="button"
-              data-testid="unsent-row-retry"
-              onClick={() => retryGroup(group)}
-              className="rounded bg-amber-500/20 px-2 py-0.5 font-medium transition-colors hover:bg-amber-500/30"
+              data-testid="unsent-dismiss-all"
+              onClick={() => groups.forEach((g) => dismissSession(g.sessionKey))}
+              className="flex-shrink-0 rounded-md px-2 py-0.5 text-mini transition-colors hover:bg-amber-500/15"
             >
-              {tr('app.unsent.retry')}
+              {tr('app.unsent.discardAll')}
             </button>
-            <button
-              type="button"
-              data-testid="unsent-row-dismiss"
-              onClick={() => onDismissSession?.(group.sessionKey)}
-              className="rounded px-1.5 py-0.5 transition-colors hover:bg-amber-500/20"
+          </>
+        )}
+      </div>
+      {/* A long list scrolls inside the band instead of pushing the grid
+          off screen: the band takes height from the panes, so it is capped. */}
+      <div className="max-h-32 overflow-y-auto">
+        {groups.map((group) => {
+          const label = group.name ?? tr('app.unsent.unknownChat');
+          return (
+            <div
+              key={group.sessionKey}
+              data-testid="unsent-row"
+              data-session-key={group.sessionKey}
+              className="flex items-center gap-2 rounded-md py-0.5 pl-[22px]"
             >
-              {tr('app.unsent.discard')}
-            </button>
-          </div>
-        );
-      })}
-      {groups.length > 1 && (
-        <div className="flex items-center gap-2 self-end">
-          <button
-            type="button"
-            data-testid="unsent-retry-all"
-            onClick={() => groups.forEach(retryGroup)}
-            className="rounded bg-amber-500/20 px-2 py-0.5 font-medium transition-colors hover:bg-amber-500/30"
-          >
-            {tr('app.unsent.retryAll')}
-          </button>
-          <button
-            type="button"
-            data-testid="unsent-dismiss-all"
-            onClick={() => onDismissAll?.()}
-            className="rounded px-1.5 py-0.5 transition-colors hover:bg-amber-500/20"
-          >
-            {tr('app.unsent.discardAll')}
-          </button>
-        </div>
-      )}
+              <button
+                type="button"
+                data-testid="unsent-row-open"
+                onClick={() => { if (group.topicId) openUnsentChat(group.topicId); }}
+                disabled={!group.topicId}
+                title={tr('app.unsent.openChat', { name: label })}
+                className="flex min-w-0 flex-1 items-baseline gap-2 rounded text-left text-mini hover:underline disabled:cursor-default disabled:no-underline"
+              >
+                <span className="flex-shrink-0 font-medium max-w-[50%] truncate">
+                  {tr(group.items.length === 1 ? 'app.unsent.chatLine.one' : 'app.unsent.chatLine.many', { name: label, n: group.items.length })}
+                </span>
+                <span className="min-w-0 truncate text-amber-600 dark:text-amber-500">
+                  {previewLine(group.items[0]?.content ?? '')}
+                </span>
+              </button>
+              <button
+                type="button"
+                data-testid="unsent-row-retry"
+                onClick={() => retryGroup(group)}
+                className="flex-shrink-0 rounded-md bg-amber-500 px-2.5 py-0.5 text-mini text-white transition-colors hover:bg-amber-600"
+              >
+                {tr('app.unsent.retry')}
+              </button>
+              <button
+                type="button"
+                data-testid="unsent-row-dismiss"
+                onClick={() => dismissSession(group.sessionKey)}
+                className="flex-shrink-0 rounded-md px-2 py-0.5 text-mini transition-colors hover:bg-amber-500/15"
+              >
+                {tr('app.unsent.discard')}
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

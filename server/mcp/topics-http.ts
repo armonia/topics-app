@@ -131,7 +131,22 @@ export async function httpJson<T>(
     }
   }
 
-  const text = await resp.text().catch(() => "");
+  // A body that fails to ARRIVE is a lost request, not an answer. It used to
+  // be swallowed into "", and "" parsed as `undefined`: every caller reads that
+  // as "the server said nothing", and the permission channel turns it into a
+  // NO. On 23/09 a plan the person was approving was denied that way: the leg
+  // ran 40.5s under load and the 45s deadline fired mid-read. Thrown as a lost
+  // request, the callers that poll in legs simply ask again.
+  let text: string;
+  try {
+    text = await resp.text();
+  } catch (err: unknown) {
+    // A refusal is still a refusal even when its body is unreadable: the
+    // status line already arrived, and `HttpAnswerError` is what tells the
+    // retrying callers not to repeat a request the server did receive.
+    if (!resp.ok) throw new HttpAnswerError(resp.status, `HTTP ${resp.status}: ${resp.statusText}`);
+    throw lostRequestError(err, method, path);
+  }
   let parsed: (T & { error?: unknown; available?: unknown; duplicates?: unknown }) | undefined;
   try { parsed = text ? JSON.parse(text) : undefined; } catch { parsed = undefined; }
 

@@ -91,6 +91,7 @@ const CHAT_IT: Dict = {
   // a hint on hover and the second has to say WHAT it acts on.
   'chat.message.edit': 'Modifica',
   'chat.message.editAria': 'Modifica il messaggio',
+  'chat.message.promptNumber': 'Il tuo prompt numero {n} in questa chat',
   'chat.message.reply': 'Rispondi',
   'chat.message.copy': 'Copia',
   'chat.message.copyAria': 'Copia il messaggio',
@@ -145,6 +146,9 @@ const CHAT_IT: Dict = {
   'chat.tool.finalResult': 'Risultato finale',
   'chat.tool.skillInstructions': 'Istruzioni caricate',
   'chat.tool.noSessionContext': "L'agente sta chiedendo una risposta, ma questa vista non ha il contesto della sessione. Ricarica per rispondere.",
+  'chat.tool.detailLoading': "Carico l'output completo…",
+  'chat.tool.detailFailed': "Non sono riuscito a caricare l'output completo.",
+  'toolgroup.jumpToFailure': 'Apri il gruppo sulla prima azione fallita',
 };
 
 export default CHAT_IT;

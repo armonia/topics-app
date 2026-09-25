@@ -117,6 +117,20 @@ export function summarizeToolGroup(tools: ToolCall[]): ToolGroupSummary {
 }
 
 /**
+ * The first failed call of the run and the first non-empty line of its error:
+ * what the failure badge quotes in its title and opens the group on. `error`
+ * before `result`, because it is the field the provider fills on purpose; the
+ * result is the fallback for old rows.
+ */
+export function firstFailedTool(tools: ToolCall[]): { id: string; firstLine: string } | null {
+  const tc = tools.find((t) => t.status === 'error');
+  if (!tc) return null;
+  const text = typeof tc.error === 'string' && tc.error.trim() ? tc.error : typeof tc.result === 'string' ? tc.result : '';
+  const firstLine = text.split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? '';
+  return { id: tc.id, firstLine: firstLine.length > 200 ? `${firstLine.slice(0, 199)}…` : firstLine };
+}
+
+/**
  * La corsa è fallita per INTERO: nessuna azione si è salvata.
  *
  * È l'unica condizione che autorizza il rosso sul titolo del gruppo. Prima

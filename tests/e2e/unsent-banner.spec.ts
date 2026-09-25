@@ -66,8 +66,12 @@ test.describe.serial("Unsent messages banner", () => {
     if (secondId) await deleteTopic(request, secondId);
   });
 
+  // Neither chat is open: since 24/09 a chat ON SCREEN shows its unsent
+  // messages in its own strip above the composer (unsent-placement.spec.ts),
+  // and the band lists only the chats you cannot see. That is the case this
+  // file is about: the band has to name them and take you there.
   test.beforeEach(async ({ request }) => {
-    await resetPaneStore(request, [firstId, secondId]);
+    await resetPaneStore(request, []);
   });
 
   /** Every send fails, and the bodies are recorded so a retry can be measured. */
@@ -128,6 +132,13 @@ test.describe.serial("Unsent messages banner", () => {
       timeout: 15_000,
     });
 
+    // The chat is on screen now, so its row moved into the chat's own strip
+    // (same testids), and the band keeps only the other chat.
+    await expect(
+      page.locator(`[data-testid="chat-panel"][data-chat-topic-id="${firstId}"] [data-testid="unsent-strip"]`),
+    ).toBeVisible();
+    await expect(banner(page).getByTestId("unsent-row")).toHaveCount(1);
+
     // Per-row retry resends that chat only.
     sent.length = 0;
     await firstRow.getByTestId("unsent-row-retry").click();
@@ -175,9 +186,10 @@ test.describe.serial("Unsent messages banner", () => {
 
     const box = await banner(page).boundingBox();
     expect(box).not.toBeNull();
-    // Full width, and lifted by the bottom bar's own height so it cannot cover
-    // the composer that writing the message again needs.
-    expect(box!.width).toBeGreaterThan(370);
+    // Nearly full width (the alarm band insets its rows by 12px a side), and
+    // lifted by the bottom bar's own height so it cannot cover the composer
+    // that writing the message again needs.
+    expect(box!.width).toBeGreaterThan(350);
     const barHeight = await page.evaluate(() =>
       parseFloat(
         getComputedStyle(document.documentElement).getPropertyValue("--mobile-chrome-h") || "0",

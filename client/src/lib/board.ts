@@ -29,7 +29,7 @@ export type { GlobalDispatchCap } from '../../../shared/board';
 // gate does not use.
 export {
   capMode, livePressureBand,
-  budgetShare, BUDGET_SHARE_MIN, BUDGET_SHARE_MAX, ADMIT_RESUME_FRACTION,
+  budgetShare, BUDGET_SHARE_MIN, BUDGET_SHARE_MAX,
 } from '../../../shared/board';
 export type { DispatchCapMode, ThresholdBand, GlobalCapPatch } from '../../../shared/board';
 // The comparison the SERVER matches a picked option with, and the one reserved
@@ -1141,6 +1141,10 @@ export const boardApi = {
    *  task: è così che si confrontano N alternative prima di sceglierne una. */
   taskDiff: (projectId: string, taskId: string, attemptId?: string) =>
     req<DiffBundle>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/diff${attemptId ? `?attempt=${enc(attemptId)}` : ''}`),
+  /** The patch of ONE file on the bundle's range: how a file left past the
+   *  payload cap gets read. */
+  taskDiffFile: (projectId: string, taskId: string, path: string, attemptId?: string) =>
+    req<{ path: string; patch: string; truncated: boolean }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/diff?file=${enc(path)}${attemptId ? `&attempt=${enc(attemptId)}` : ''}`),
   /** I tentativi paralleli di un fan-out. Lista vuota = task dispatchato normalmente. */
   attempts: (projectId: string, taskId: string) =>
     req<{ attempts: TaskAttempt[] }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/attempts`).then(r => r.attempts),

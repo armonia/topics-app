@@ -194,6 +194,25 @@ export interface SwapFreezer {
 
 const gb = (n: number | null | undefined): string => (n == null || !Number.isFinite(n) ? "?" : n.toFixed(1));
 
+/** Longest command a log line carries; the full one stays in the ledger. */
+export const LOG_COMMAND_MAX = 120;
+
+/**
+ * A command as a log line shows it: whitespace and newlines collapsed, cut at
+ * LOG_COMMAND_MAX with an ellipsis. Printed whole, one heredoc filled the
+ * production error log with dozens of unprefixed lines on every beat. Only for
+ * logs: deciding and identifying always use the real command.
+ */
+export function oneLine(command: string, max = LOG_COMMAND_MAX): string {
+  const flat = command.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  // The cut counts UTF-16 units: a high surrogate left alone at the end is
+  // half an emoji, which reaches the log file as U+FFFD.
+  return `${flat.slice(0, max - 1).replace(/[\uD800-\uDBFF]$/, "")}…`;
+}
+
+type OncePerPidKind = "foreground" | "unrecognised" | "agentCli" | "guarded" | "peers";
+
 export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
   const now = deps.now ?? Date.now;
   const frozen = new Map<string, FrozenTree>();
@@ -214,6 +233,27 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
   let disabled = false;
   let saidExhausted = false;
   let saidNothing = false;
+  /**
+   * Pids whose "skipped" or "unrecognised" line has already been written. The
+   * beat runs every 10 s for the whole swap episode and those facts do not
+   * change while the pid lives: before this the same line came out on every
+   * beat (46 times for one pid, 1.669 lines out of 5 MB of the production log
+   * on 23/09). Keyed by pid AND kind, so being named for one reason never
+   * hides the other; pruned against the live table on every beat and emptied
+   * when the episode ends, so a recycled pid or a new episode is named again.
+   */
+  const namedPids = new Map<number, Map<OncePerPidKind, string>>();
+  /**
+   * `fact` is what makes the line news: the same kind with the same fact is
+   * silent, a different fact (a peer count that moved) is said again.
+   */
+  const logOncePerPid = (pid: number, kind: OncePerPidKind, line: string, fact = ""): void => {
+    const kinds = namedPids.get(pid) ?? new Map<OncePerPidKind, string>();
+    if (kinds.get(kind) === fact) return;
+    kinds.set(kind, fact);
+    namedPids.set(pid, kinds);
+    deps.log(line);
+  };
   let episodeSince: number | null = null;
   let ticking = false;
 
@@ -270,15 +310,15 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         try { deps.signal(-g.pgid, "SIGCONT"); } catch { /* the group is gone */ }
       }
     }
-    if (recycled > 0) deps.log(`[freeze] thaw of "${tree.root.command}": ${recycled} recorded pid(s) now hold another process, not continued`);
-    if (live === null) deps.log(`[freeze] thaw of "${tree.root.command}": ps did not answer, every recorded pid continued unchecked`);
+    if (recycled > 0) deps.log(`[freeze] thaw of "${oneLine(tree.root.command)}": ${recycled} recorded pid(s) now hold another process, not continued`);
+    if (live === null) deps.log(`[freeze] thaw of "${oneLine(tree.root.command)}": ps did not answer, every recorded pid continued unchecked`);
     frozen.delete(tree.treeId);
     deps.ledger.release(tree.treeId);
     const t = now();
     const frozenMs = t - tree.frozenAt;
     noteInterval(tree.root.sessionKey, tree.frozenAt, t);
     try { deps.onThawTree?.(tree.root, frozenMs); } catch { /* the thaw holds anyway */ }
-    deps.log(`[freeze] thawed "${tree.root.command}" after ${Math.round(frozenMs / 1000)} s: ${reason}`);
+    deps.log(`[freeze] thawed "${oneLine(tree.root.command)}" after ${Math.round(frozenMs / 1000)} s: ${reason}`);
     try { deps.announce?.({ kind: "thawed", view: viewOf(tree), reason, frozenMs }); } catch { /* best effort */ }
   }
 
@@ -304,7 +344,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
       if (age >= NO_EFFECT_FROM_MS && !tree.effectAlreadyRead) {
         tree.effectAlreadyRead = true;
         deps.log(
-          `[freeze] effect of "${tree.root.command}" after ${Math.round(age / 1000)} s: ` +
+          `[freeze] effect of "${oneLine(tree.root.command)}" after ${Math.round(age / 1000)} s: ` +
           `swapin/s ${gb(tree.pagesReadBackAtFreeze)} -> ${gb(i.swap.pagesReadBackPerS)}, ` +
           `debt/min ${signed(tree.debtAtFreeze)} -> ${signed(i.swap.debtGBPerMin)}`,
         );
@@ -322,7 +362,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
     const byPid = new Map(table.map((r) => [r.pid, r]));
     const commandOf = (pid: number): string | undefined => byPid.get(pid)?.command;
     const { roots, foreground, unrecognised } = toolRoots({ rows: table, sessions: deps.sessions(), natives: deps.natives() });
-    for (const u of unrecognised) deps.log(`[freeze] unrecognised child ${u.pid} of ${u.sessionKey}: "${u.command}", never signalled`);
+    for (const u of unrecognised) logOncePerPid(u.pid, "unrecognised", `[freeze] unrecognised child ${u.pid} of ${u.sessionKey}: "${oneLine(u.command)}", never signalled`);
     const frozenRoots = new Set([...frozen.values()].map((t) => t.root.pid));
     const rootRefs = await deps.lstartOf(roots.map((r) => r.pid)).catch(() => null);
     if (rootRefs === null) {
@@ -341,11 +381,11 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
       const tree = descendantPids(table, root.pid);
       const cli = containsAgentCli(table, tree);
       if (cli !== null) {
-        deps.log(`[freeze] skipped "${root.command}": its tree contains an agent CLI (${cli}), never frozen`);
+        logOncePerPid(root.pid, "agentCli", `[freeze] skipped "${oneLine(root.command)}": its tree contains an agent CLI (${cli}), never frozen`, String(cli));
         continue;
       }
       if ([...tree].some((p) => guard.has(p))) {
-        deps.log(`[freeze] skipped "${root.command}": its tree reaches a guarded process, never frozen`);
+        logOncePerPid(root.pid, "guarded", `[freeze] skipped "${oneLine(root.command)}": its tree reaches a guarded process, never frozen`);
         continue;
       }
       const xpcPids: number[] = [];
@@ -395,7 +435,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
       // Half a table is worse than none: the children forked since the walk
       // would keep running while their parent is stopped, and the guard set is
       // built from this very table.
-      deps.log(`[freeze] refused "${candidate.root.command}": ps did not answer with a process table`);
+      deps.log(`[freeze] refused "${oneLine(candidate.root.command)}": ps did not answer with a process table`);
       return false;
     }
     const guard = guardSet(table, guardRolesFor(table));
@@ -405,7 +445,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
     const all = new Set<number>([...tree, ...groupPids, ...candidate.xpcPids]);
     const offender = [...all].find((p) => guard.has(p));
     if (offender != null) {
-      deps.log(`[freeze] refused: pid ${offender} is guarded (server, CLI, MCP or sidecar) and is in the set of "${candidate.root.command}"; freezer off`);
+      deps.log(`[freeze] refused: pid ${offender} is guarded (server, CLI, MCP or sidecar) and is in the set of "${oneLine(candidate.root.command)}"; freezer off`);
       disabled = true;
       return false;
     }
@@ -415,12 +455,12 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
     // views - the one outcome the ledger exists to make impossible.
     const startTimes = await deps.lstartOf([...all]).catch(() => null);
     if (startTimes === null) {
-      deps.log(`[freeze] refused "${candidate.root.command}": ps did not answer with the start times of its ${all.size} pids; nothing signalled`);
+      deps.log(`[freeze] refused "${oneLine(candidate.root.command)}": ps did not answer with the start times of its ${all.size} pids; nothing signalled`);
       return false;
     }
     const rootLstart = startTimes.get(candidate.root.pid);
     if (!rootLstart) {
-      deps.log(`[freeze] refused "${candidate.root.command}": its root (pid ${candidate.root.pid}) is already gone`);
+      deps.log(`[freeze] refused "${oneLine(candidate.root.command)}": its root (pid ${candidate.root.pid}) is already gone`);
       return false;
     }
     // A pid `ps` ANSWERED about and did not list has exited since the table was
@@ -450,7 +490,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
       // harmlessly. The other order leaves a stopped pid nobody knows about.
       deps.ledger.addBatch(treeId, batch);
       batches.push(batch);
-      deps.log(`[freeze] batch ${batches.length} of "${candidate.root.command}" (${candidate.root.sessionKey}): groups=[${batch.groups.map((g) => g.pgid).join(",")}] pids=[${pids.join(",")}] on disk, SIGSTOP`);
+      deps.log(`[freeze] batch ${batches.length} of "${oneLine(candidate.root.command)}" (${candidate.root.sessionKey}): groups=[${batch.groups.map((g) => g.pgid).join(",")}] pids=[${pids.join(",")}] on disk, SIGSTOP`);
       for (const g of groupsOfBatch) { try { deps.signal(-g.pgid, "SIGSTOP"); } catch { /* the group is gone */ } }
       for (const pid of pids) {
         if (groupsOfBatch.some((g) => g.members.includes(pid))) continue;
@@ -481,11 +521,11 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
       // this reading only corroborates it. Undoing a freeze because `ps` went
       // quiet would cost the lever the one beat it gets every 120 s and buy a
       // certainty nobody can measure, so the freeze stands and says so.
-      deps.log(`[freeze] post-check of "${candidate.root.command}" skipped: ps did not answer; the guard was still checked before the first signal`);
+      deps.log(`[freeze] post-check of "${oneLine(candidate.root.command)}" skipped: ps did not answer; the guard was still checked before the first signal`);
     } else {
       const guardStopped = guardSample.find((p) => stats.get(p)?.startsWith("T"));
       if (guardStopped != null) {
-        deps.log(`[freeze] guard tripped: pid ${guardStopped} reads T after the freeze of "${candidate.root.command}"; continuing everything, freezer off`);
+        deps.log(`[freeze] guard tripped: pid ${guardStopped} reads T after the freeze of "${oneLine(candidate.root.command)}"; continuing everything, freezer off`);
         undo();
         disabled = true;
         return false;
@@ -495,7 +535,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
       // announced as frozen, frost and all, while it went on touching pages.
       const known = stoppedPids.filter((p) => stats.has(p));
       if (known.length > 0 && !known.some((p) => stats.get(p)!.startsWith("T"))) {
-        deps.log(`[freeze] no effect: none of the ${known.length} signalled pid(s) of "${candidate.root.command}" reads T; nothing is frozen`);
+        deps.log(`[freeze] no effect: none of the ${known.length} signalled pid(s) of "${oneLine(candidate.root.command)}" reads T; nothing is frozen`);
         undo();
         // And it is not tried again in this episode: the next beat would spend
         // its one action on the same non-freeze instead of the next heaviest.
@@ -525,7 +565,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
     lastFreezeAt = at;
     try { deps.onFreezeTree?.(candidate.root); } catch { /* the freeze holds anyway */ }
     deps.log(
-      `[freeze] froze "${candidate.root.command}": tree ${gb(candidate.footprintGB)} GB footprint, ${gb(candidate.residentGB)} GB resident, ` +
+      `[freeze] froze "${oneLine(candidate.root.command)}": tree ${gb(candidate.footprintGB)} GB footprint, ${gb(candidate.residentGB)} GB resident, ` +
       `${candidate.cpuCores.toFixed(2)} core, ${candidate.treePids.length} pids + ${candidate.xpcPids.length} XPC [${candidate.xpcPids.join(",")}], ` +
       `${candidate.root.kind}; ${swapSigns(swap)}; ` +
       `thaw by ${new Date(at + FREEZE_MAX_MS).toISOString()}; guard disjoint; freeze ${n} of ${FREEZES_PER_TREE}`,
@@ -550,7 +590,7 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
       try {
         await thawPass({ swap, held });
         if (disabled || !swap.sustained) {
-          if (!swap.sustained) { episodeSince = null; saidNothing = false; saidExhausted = false; noEffectThisEpisode.clear(); }
+          if (!swap.sustained) { episodeSince = null; saidNothing = false; saidExhausted = false; noEffectThisEpisode.clear(); namedPids.clear(); }
           return;
         }
         // A beat that has just continued a tree does not freeze another: the
@@ -575,8 +615,9 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
         // this the file grows for every tree ever frozen, with an fsync each.
         const livePids = new Set(table.map((r) => r.pid));
         deps.ledger.pruneCounts((c) => livePids.has(c.pid));
+        for (const pid of namedPids.keys()) if (!livePids.has(pid)) namedPids.delete(pid);
         const { candidates, foreground } = await measure(table, guard);
-        for (const f of foreground) deps.log(`[freeze] skipped "${f.command}" (pid ${f.pid}): foreground Bash, never frozen`);
+        for (const f of foreground) logOncePerPid(f.pid, "foreground", `[freeze] skipped "${oneLine(f.command)}" (pid ${f.pid}): foreground Bash, never frozen`);
         let { victim, skipped } = pickVictim(candidates);
         // A tree serving somebody outside itself is skipped for the next heaviest.
         const tried = new Set<ToolRoot>();
@@ -584,9 +625,10 @@ export function createSwapFreezer(deps: SwapFreezerDeps): SwapFreezer {
           tried.add(victim.root);
           const peers = await deps.outsidePeers([...victim.treePids, ...victim.xpcPids]).catch(() => null);
           if (peers !== null && peers.length === 0) break;
-          deps.log(peers === null
-            ? `[freeze] skipped "${victim.root.command}": lsof did not answer, so who is connected to it was never measured`
-            : `[freeze] skipped "${victim.root.command}": ${peers.length} established peer(s) outside its tree`);
+          logOncePerPid(victim.root.pid, "peers", peers === null
+            ? `[freeze] skipped "${oneLine(victim.root.command)}": lsof did not answer, so who is connected to it was never measured`
+            : `[freeze] skipped "${oneLine(victim.root.command)}": ${peers.length} established peer(s) outside its tree`,
+          peers === null ? "mute" : String(peers.length));
           ({ victim, skipped } = pickVictim(candidates.filter((c) => !tried.has(c.root))));
         }
         if (!victim) {

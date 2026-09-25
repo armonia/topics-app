@@ -33,7 +33,8 @@ afterAll(() => { try { removeProvider("openai"); } catch { /* gia' tolto */ } })
 async function banco(name: string, verdicts: string[]) {
   const sessionKey = `topic:${name}`;
   const ctx = await createTestAppContext();
-  (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = () => {};
+  const frames: Array<Record<string, unknown>> = [];
+  (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = (m) => { frames.push(m as Record<string, unknown>); };
   (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void })
     .broadcastToTopicSubscribers = () => {};
 
@@ -108,7 +109,7 @@ async function banco(name: string, verdicts: string[]) {
     .query(`SELECT role, content, blocks FROM messages WHERE session_key = ? ORDER BY sort_order ASC`)
     .all(sessionKey) as Array<{ role: string; content: string; blocks: string | null }>;
 
-  return { ctx: ctx as AppContext, topic, goal, handlers, judged, send, finish, rows, sessionKey };
+  return { ctx: ctx as AppContext, topic, goal, handlers, judged, send, finish, rows, sessionKey, frames };
 }
 
 function blocksOf(row: { blocks: string | null }): ContentBlock[] {
@@ -188,6 +189,44 @@ describe("fine turno con un obiettivo attivo", () => {
 
     const warning = b.rows().find((r) => blocksOf(r).some((x) => x.kind === "goal-stop"));
     expect(warning?.content).toContain(String(MAX_GOAL_CONTINUATIONS));
+    await close();
+  });
+
+  // topic:33966f4e, 23/09: two continuations that ran Bash, Read and the browser
+  // tools were stopped as «2 turns in a row with no tool run». The route read the
+  // tools still IN FLIGHT at the end of the turn, a list every finished tool
+  // leaves: at `onDone` it is empty by construction, so every turn looked idle.
+  test("un turno che ha usato tool finiti non conta come fermo", async () => {
+    const b = await banco("goal-tools-ran", ["continue", "continue", "met"]);
+    await b.send("comincia");
+    for (const text of ["primo giro", "secondo giro"]) {
+      const h = b.handlers[b.handlers.length - 1]!;
+      h.onToolStart(`tool-${text}`, "Bash", { command: "ls" });
+      h.onToolResult(`tool-${text}`, "ok");
+      await b.finish(text);
+    }
+    expect(getActiveGoal(b.ctx.db, b.topic.id)?.idleTurns).toBe(0);
+    expect(b.rows().some((r) => blocksOf(r).some((x) => x.kind === "goal-stop"))).toBe(false);
+    expect(b.handlers.length).toBe(3);
+    await close();
+  });
+
+  // The live window draws what the FRAME says, not what the row says: before
+  // 23/09 `message:new` went out without the marks, and every window watching
+  // the chat showed «Objective still open: ...» as the person's own bubble
+  // until a reload read the row back.
+  test("i frame message:new portano la marcatura della riga", async () => {
+    const b = await banco("goal-frames", ["continue", "continue"]);
+    await b.send("comincia");
+    await b.finish("primo giro senza tool");
+    await b.finish("secondo giro senza tool");
+    const news = b.frames.filter((f) => f.type === "message:new");
+    const nudge = news.find((f) => f.role === "user" && String(f.content).startsWith("Objective still open"));
+    expect(nudge?.blocks).toEqual([{ kind: "goal-nudge", attempt: 1 }]);
+    const stop = news.find((f) => f.role === "assistant" && String(f.content).startsWith("Auto-continuation stopped"));
+    expect(stop?.blocks).toEqual([{ kind: "goal-stop", reason: "stalled" }]);
+    const human = news.find((f) => f.role === "user" && f.content === "comincia");
+    expect(human && "blocks" in human).toBe(false);
     await close();
   });
 

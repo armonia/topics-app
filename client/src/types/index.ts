@@ -78,6 +78,12 @@ export interface ChatMessage extends Message {
    * thinking/content/toolCalls buckets in that case.
    */
   blocks?: ContentBlock[];
+  /**
+   * Which prompt of the person this is in the whole thread (1-based), stamped
+   * by the history route. Absent on assistant rows, machine rows, and prompts
+   * sent since the last load (`promptNumber.ts` fills those).
+   */
+  promptNumber?: number;
   media?: string[];               // Media file paths
   partial?: boolean;              // True if message is still streaming
   queued?: boolean;               // True if message is queued to send (offline)
@@ -760,6 +766,9 @@ export interface WSMessageNewMessage {
   content?: string;
   /** First 100 chars, used for unread previews. */
   preview?: string;
+  /** Marks written on the row (goal continuation, goal stop, board envelope):
+   *  they decide how the row is drawn and keep it out of the sidebar preview. */
+  blocks?: ContentBlock[];
   message?: { id: string; role: string; content: string; timestamp?: string };
 }
 
@@ -1457,6 +1466,12 @@ export interface AppSettings {
   // (Topic.muted, migration 073); this is the project-wide counterpart, keyed
   // by projectPath because a project has no guaranteed per-entity settings row.
   mutedProjects: string[];
+  /**
+   * Sites (origin, e.g. `http://localhost:4600`) whose heavy tab is never paused:
+   * the «keep always» button of the pause card. Per origin, not per page, because
+   * the heavy page is the app you are developing and its routes change.
+   */
+  keepLiveSites: string[];
   // NB: `enableNewChat` è stato RIMOSSO (2026-08-06). Esisteva perché una chat
   // nuova sembrava un turno a consumo; non lo è — il path `claude-code` pesca
   // dall'abbonamento Pro/Max. Il default era già passato a `true`, ma il valore

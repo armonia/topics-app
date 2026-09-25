@@ -155,6 +155,67 @@ describe("ai-bridge daemon", () => {
     owner.close(); restarted.close();
   });
 
+  /**
+   * Regression (23/09, "Process exited with code 143" after approving a plan):
+   * approving changes the topic's config, `refreshSessionConfig` kills the
+   * idle child and the next turn spawns at once. The kill only SENDS SIGTERM,
+   * so the child is still `alive` when the spawn lands, and the idempotent
+   * branch handed the caller that DYING child (`resumed: true`). It exited
+   * 143 a moment later and the turn died with it; the Retry button worked because by
+   * then the old child was gone. A child being killed is not reusable: the
+   * spawn must get a fresh one.
+   */
+  test("a spawn that lands while the child is being killed gets a FRESH child", async () => {
+    const c = await connect();
+    const id = "topic:killrace";
+    // A child that ignores nothing: SIGTERM ends it, but not before the spawn
+    // below reaches the daemon (same socket, next frame).
+    c.send({ type: "spawn", id, cliPath: "cat", args: [], cwd: storeDir, env: {} });
+    const first = await c.next((m) => m.type === "spawned" && m.id === id);
+    c.send({ type: "kill", id });
+    c.send({ type: "spawn", id, cliPath: "cat", args: [], cwd: storeDir, env: {} });
+    const second = await c.next((m) => m.type === "spawned" && m.id === id);
+    expect(second.resumed, "handed the dying child back").not.toBe(true);
+    expect(second.pid).not.toBe(first.pid);
+    // And the new child really answers: the turn does not die with the old one.
+    c.send({ type: "write", id, data: "hello\n" });
+    const live = await c.next((m) => m.type === "data" && m.id === id && b64(m.chunk).includes("hello"));
+    expect(b64(live.chunk)).toContain("hello");
+    c.send({ type: "list" });
+    const list = await c.next((m) => m.type === "list");
+    expect(list.sessions.filter((s: any) => s.id === id && s.alive).map((s: any) => s.pid)).toEqual([second.pid]);
+    // The old child's exit (143 from SIGTERM) must not be announced under this
+    // id: the client would route it to the NEW child's handler and end its turn.
+    await expect(c.next((m) => m.type === "exit" && m.id === id, 1500)).rejects.toThrow("frame timeout");
+    // The new child's store survived the old one's teardown: an attach from 0
+    // still replays what it said.
+    c.send({ type: "attach", id, fromOffset: 0 });
+    const attached = await c.next((m) => m.type === "attached" && m.id === id);
+    expect(attached.alive).toBe(true);
+    expect(attached.endOffset).toBeGreaterThan(0);
+    c.close();
+  });
+
+  /**
+   * The same race, from the output side (found by the verifier on 23/09):
+   * frames carry only the id, so whatever the dying child prints during its
+   * SIGTERM grace would reach the NEW child's handler as if it had said it.
+   */
+  test("output of a dying child never reaches the caller as the id's output", async () => {
+    const c = await connect();
+    const id = "topic:killtalk";
+    // Prints on SIGTERM, then exits a beat later.
+    const script = "trap 'echo last-words; sleep 0.3; exit 0' TERM; while :; do sleep 0.05; done";
+    c.send({ type: "spawn", id, cliPath: "/bin/sh", args: ["-c", script], cwd: storeDir, env: {} });
+    await c.next((m) => m.type === "spawned" && m.id === id);
+    await new Promise((r) => setTimeout(r, 150)); // let the trap be installed
+    c.send({ type: "kill", id });
+    await expect(
+      c.next((m) => m.type === "data" && m.id === id && b64(m.chunk).includes("last-words"), 1200),
+    ).rejects.toThrow("frame timeout");
+    c.close();
+  });
+
   test("list reports the session; kill removes it", async () => {
     const c = await connect();
     const id = "topic:kill1";

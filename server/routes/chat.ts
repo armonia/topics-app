@@ -556,7 +556,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         // l'unica cosa giusta da fare.
         if (idempotencySlot) chatIdempotency.remember(idempotencySlot, storedUserMsg.id);
         if (matchedTopic) {
-          broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user", messageId: storedUserMsg.id, content: lastUserMsg.content, preview: lastUserMsg.content.slice(0, 100) });
+          // The marks travel WITH the frame. Without them every other window
+          // drew the goal continuation as the person saying «Objective still
+          // open: ...» in a bubble, until a reload read the row back with its
+          // block (23/09).
+          broadcastToAll({
+            type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user",
+            messageId: storedUserMsg.id, content: lastUserMsg.content, preview: lastUserMsg.content.slice(0, 100),
+            ...(storedUserMsg.blocks?.length ? { blocks: storedUserMsg.blocks } : {}),
+          });
           // Bump the topic's own timestamp on every real message, not just
           // metadata edits (rename/archive/autoname/…). Without this the
           // sidebar's lastActivity (topicTimestamp) freezes at whatever
@@ -1056,6 +1064,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const SAVE_INTERVAL = 10;
           const trackedToolCallIds: string[] = [];
           /**
+           * How many tools this turn STARTED, finished or not. Not the same as
+           * `trackedToolCallIds.length`: that list holds the tools still in
+           * flight and every finished tool leaves it, so at the end of a turn it
+           * is empty by construction. The goal loop read it as "did this turn
+           * run a tool?" and stopped a working chase as «2 turns with no tool
+           * run» (topic:33966f4e, 23/09, after Bash, Read and browser calls).
+           */
+          let toolsStartedThisTurn = 0;
+          /**
            * The ids of the tools that are actually RUNNING, not merely announced.
            *
            * `trackedToolCallIds` is filled in `onToolStart`, which fires at
@@ -1194,6 +1211,18 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // turn's `prompt_tokens` (the compacted context that was sent) is the
           // post-compaction size to backfill onto the just-created marker.
           let compactedThisTurn = false;
+          // A MANUAL /compact ENDS AT THE BOUNDARY: the turn that made it has no
+          // model call after it, so nothing ever measured the compacted context
+          // and the divider kept «~445k token before» for good (10 manual
+          // markers of 10 on the prod DB, 24/09, none with a post count). The
+          // first call of the NEXT turn is that measurement, so a turn that
+          // starts with the session's latest marker still open takes it.
+          // `backfillPostTokens` targets exactly that marker and refuses a
+          // number that is not smaller than the pre count.
+          const openCompaction = (ctx.db.prepare(
+            `SELECT post_tokens FROM compaction_markers WHERE session_key = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+          ).get(sessionKey) as { post_tokens: number | null } | undefined);
+          const inheritsOpenCompaction = !!openCompaction && openCompaction.post_tokens == null;
           // First per-call context size seen AFTER a compaction boundary — that
           // single measurement IS the post-compaction context. Latched so later
           // calls in the same turn (which grow again as work resumes) can't
@@ -2273,7 +2302,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // stop: `interrupted` carries the tools still awaiting a human,
                 // and the plan approval is kept out of it on purpose above.
                 pendingAsk: askingPlanApproval || interrupted.length > 0,
-                usedTools: trackedToolCallIds.length > 0,
+                usedTools: toolsStartedThisTurn > 0,
                 lastAssistantText: fullContent,
               };
               setTimeout(() => {
@@ -2495,6 +2524,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // raro a quotidiano. Una tool call È attività: si dichiara qui.
               updateStreamActivity(sessionKey);
               trackedToolCallIds.push(toolCallId);
+              toolsStartedThisTurn += 1;
               // DOPO la push, mai prima: `armSoftTimer` si sospende sull'insieme
               // che vede in questo istante. Vedi l'invariante su `armSoftTimer`.
               resetStreamTimer();
@@ -3030,7 +3060,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // so a long turn reported a post-compaction size far bigger than
               // the pre one and the divider read "48.9k → 1.2M token", i.e. the
               // context appeared to EXPLODE during compaction.
-              if (!compactedThisTurn || postCompactionFilled) return;
+              if (!(compactedThisTurn || inheritsOpenCompaction) || postCompactionFilled) return;
               postCompactionFilled = true;
               try {
                 const filled = backfillPostTokens(ctx.db, sessionKey, tokens);

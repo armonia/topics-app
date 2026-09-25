@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { WifiOff, Loader2, DatabaseZap } from 'lucide-react';
 import { IdentityBlock } from './IdentityBlock';
 import type { SidebarCommands } from './ProfileMenu';
@@ -12,6 +12,14 @@ import { useProviderHold } from '@/state/providerHold';
 import { usePlanUsage } from '@/state/planUsage';
 import { PLAN_USAGE_WARN_AT } from '../../../../shared/provider-hold';
 import { ProviderLimitNotice } from './ProviderLimitNotice';
+import { useUnsent } from '@/state/unsentMessages';
+
+// Rare state (messages that expired unsent): kept out of the eager bundle, the
+// same way the grid loads it.
+const UnsentBanner = lazy(async () => {
+  const { UnsentBanner: Body } = await import('../Layout/UnsentBanner');
+  return { default: Body };
+});
 
 /**
  * IL FONDO DELLA COLONNA: chi sei, e cosa non va.
@@ -261,6 +269,7 @@ export function MobileTransportBand({ wsStatus, dataNotice, keyboardVisible }: {
     if (band) observer.observe(band);
     return () => { observer.disconnect(); root.style.removeProperty('--mobile-transport-h'); };
   }, [keyboardVisible]);
+  const hasUnsent = useUnsent().messages.length > 0;
   // Like the mobile navigation, leave the visual viewport to the editor when
   // the software keyboard is open. The height reservation is released too.
   return (
@@ -278,6 +287,15 @@ export function MobileTransportBand({ wsStatus, dataNotice, keyboardVisible }: {
         hidden={keyboardVisible}
         inset={{ left: 'max(12px, var(--sal))', right: 'max(12px, var(--sar))' }}
       />
+      {/* Unsent messages of chats not on screen. Here and not over the grid:
+          the phone's home screen is the drawer, which covers the grid, and
+          this band is the one place that stays visible above the bottom bar
+          whatever is open, reserving its own height so it covers nothing. */}
+      {hasUnsent && !keyboardVisible && (
+        <Suspense fallback={null}>
+          <UnsentBanner className="mx-[max(12px,var(--sal))] my-1" />
+        </Suspense>
+      )}
     </div>
   );
 }

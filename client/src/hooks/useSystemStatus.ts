@@ -41,6 +41,9 @@ export interface FleetSessionRow {
 
 export interface SystemStatus {
   timestamp: string;
+  /** The whole Mac in percent (0-100), `null` = not measured. Absent on an
+   *  older server. The one number the status dot says is the larger. */
+  machine?: { machineCpuPct: number | null; machineMemPct: number | null };
   gateway: {
     online: boolean;
     status: GatewayStatus;

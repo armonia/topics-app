@@ -69,8 +69,12 @@ export function useDismissable({ open, onClose, refs, restoreFocus = true, exclu
     if (!open) return;
     // Snapshot the trigger: the element the user activated (activeElement at
     // open) is the truest restore target; fall back to the declared trigger.
+    // `<body>` is not a target: WebKit (Safari, and the Tauri app) does not
+    // focus a button on click, so after a mouse open `activeElement` is the
+    // body, and "restoring" to it left the focus nowhere (DROP-02 on WebKit).
+    const active = document.activeElement as HTMLElement | null;
     triggerRef.current =
-      (document.activeElement as HTMLElement | null) ?? refsRef.current[0]?.current ?? null;
+      (active && active !== document.body ? active : null) ?? refsRef.current[0]?.current ?? null;
 
     const inside = (t: Node): boolean => refsRef.current.some((r) => !!r.current?.contains(t));
 

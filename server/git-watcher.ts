@@ -58,7 +58,9 @@ function resolveGitDir(projectPath: string): string | null {
 // push", as before.
 async function computeGitStatusQuietly(resolvedDir: string): Promise<ComputedGitStatus | null> {
   try {
-    return await computeGitStatus(resolvedDir);
+    // Fresh: this runs BECAUSE the tree changed, so a round already in flight
+    // (started before the change) must not be the answer that gets pushed.
+    return await computeGitStatus(resolvedDir, { fresh: true });
   } catch {
     return null;
   }

@@ -166,14 +166,15 @@ test('an analysis branch offers no merge; a delivery with changes still does', a
   await post(request, `/api/test/tasks/${taskId}/anchored-comment`, {
     content: '```question\nHow should we proceed?\n- Landa su main\n- Continue analysis\n```', author: 'agent', messageId: message.id,
   });
-  let filesChanged = 0;
-  await page.route(`**/api/boards/${projectId}/tasks/${taskId}`, async (route) => {
-    const response = await route.fetch();
-    const data = await response.json();
-    data.task = { ...data.task, deliveryBranch: 'task/analysis', deliveryFilesChanged: filesChanged,
-      deliveryCommit: filesChanged ? 'delivered-commit' : null, deliveryUncommittedFiles: null };
-    await route.fulfill({ response, json: data });
+  // The delivery goes through the REAL writer (`recordDelivery`, the test
+  // door `/api/test/tasks/:id/delivery`), not a `page.route` rewrite of the
+  // task. WebKit serves the reload's GET without calling the route handler
+  // again (24/09: one handler call for two page loads), so the mocked count
+  // stayed at 0 and the land button never appeared.
+  const deliver = (filesChanged: number) => post(request, `/api/test/tasks/${taskId}/delivery`, {
+    branch: 'task/analysis', commit: filesChanged ? 'delivered-commit' : null, filesChanged, insertions: filesChanged, deletions: 0,
   });
+  await deliver(0);
   await page.goto(`/task/${taskId}`);
   const drawer = page.getByTestId('task-detail-drawer');
   await expect(drawer.getByTestId('task-delivery-panel')).toHaveCount(0);
@@ -184,11 +185,11 @@ test('an analysis branch offers no merge; a delivery with changes still does', a
   await expect(drawer.getByTestId('task-question-options').getByRole('button', { name: 'Continue analysis', exact: true })).toBeVisible();
   await expect(drawer.getByTestId('task-question-options').getByRole('button', { name: 'Landa su main', exact: true })).toHaveCount(0);
   await expect(drawer.getByTestId('task-land')).toHaveCount(0);
-  filesChanged = 2;
+  await deliver(2);
   await page.reload();
   await drawer.getByTestId('task-delivery-toggle').click();
   await expect(drawer.getByTestId('task-land')).toBeVisible();
-  filesChanged = 0;
+  await deliver(0);
   await page.reload();
   await drawer.getByTestId('task-delivery-toggle').click();
   await expect(drawer.getByTestId('task-approve')).toBeVisible();
@@ -342,10 +343,17 @@ test('live progress shares one expandable session detail; a drafted reply sends 
   // Present a working task without dispatching a provider. The write routes
   // below are intercepted too: this test exercises the user's gesture only.
   await page.route(`**/api/boards/${projectId}/tasks/${taskId}`, async (route) => {
-    const response = await route.fetch();
-    const data = await response.json();
+    // A request whose page navigated away meanwhile has its response disposed
+    // (WebKit, 24/09: «Response has been disposed», 1 run in 4). Nobody reads
+    // the answer to that request any more, so it is dropped, not failed.
+    let data: { task?: Record<string, unknown> };
+    try {
+      data = await (await route.fetch()).json();
+    } catch {
+      return;
+    }
     data.task = { ...data.task, status: 'in_progress', dispatchState: 'working', inProgressAt };
-    await route.fulfill({ response, json: data });
+    await route.fulfill({ json: data }).catch(() => {});
   });
   let stops = 0;
   await page.route(`**/api/boards/${projectId}/tasks/${taskId}/stop`, async (route) => {
@@ -449,11 +457,15 @@ test('the floating composer leaves the latest answer readable through multiline 
       drawer.boundingBox(), overlay.boundingBox(), composer.boundingBox(), input.boundingBox(), latest.boundingBox(), scroller.boundingBox(),
       scroller.evaluate((el) => ({ padding: parseFloat(getComputedStyle(el).paddingBottom), remaining: el.scrollHeight - el.scrollTop - el.clientHeight, overflow: el.scrollHeight - el.clientHeight })),
     ]);
-    return { drawer: drawerBox!, overlay: overlayBox!, card: cardBox!, input: inputBox!, answer: answerBox!, scroller: scrollBox!, scroll };
+    return { drawer: drawerBox!, overlay: overlayBox!, card: cardBox!, input: inputBox!, answer: answerBox!, scroller: scrollBox!, scroll } as const;
   };
   const verify = async (label: string, multiline: boolean) => {
     await expect.poll(async () => {
       const m = await measure();
+      // The drawer remounts when a resize crosses 768px (see the comment at the
+      // resize), up to twice per resize on WebKit: a read in that frame has no
+      // boxes. That is «not laid out yet», so the poll asks again.
+      if (Object.values(m).some((v) => v === null)) return null;
       return {
         answerAboveOverlay: m.answer.y + m.answer.height <= m.overlay.y + 1,
         answerBelowHeader: m.answer.y >= m.scroller.y - 1,
@@ -477,6 +489,13 @@ test('the floating composer leaves the latest answer readable through multiline 
       await expect(drawer.getByTestId('task-detail-wide-toggle')).toHaveAttribute('aria-pressed', 'true');
       await expect(drawer.getByTestId('task-workspace-toggle')).toHaveAttribute('data-open', '0');
     }
+    // Crossing 768px swaps the grid's renderer (stacked columns below, the
+    // split tree above: `PanelGrid`), which remounts the board pane and the
+    // drawer with it; the draft survives on the server. Measuring in that
+    // frame read six null boxes (WebKit, 3 runs in 5 on 24/09). Wait for the
+    // remounted drawer to have its answer and its field back.
+    await expect(latest).toBeVisible();
+    await expect(input).toBeVisible();
     const label = viewport.width === 1600 ? '1600-wide' : String(viewport.width);
     // On subsequent viewports, keep the existing multiline draft during the
     // resize. No scroll reset can hide a broken follow/measurement lifecycle.
@@ -489,14 +508,25 @@ test('the floating composer leaves the latest answer readable through multiline 
   }
   // A short wrapped draft must also shrink when the panel widens; a field
   // stuck at the previous width's line count wastes the conversation's space.
-  await page.setViewportSize({ width: 375, height: 844 });
+  // THE PANEL WIDENS THROUGH ITS OWN TOGGLE, not through a resize to 375 and
+  // back: crossing 768px remounts the drawer (see the loop above), and that
+  // made this check both flaky and empty. The fill could land on the field
+  // being replaced, whose successor reloaded the 12-line draft from the server
+  // (1 run in 10 on WebKit, on main too, 24/09), and a freshly mounted field
+  // cannot be "stuck at the previous width" in the first place. The toggle
+  // grows the same field from 24rem to its wide width, which is the case.
+  const wideToggle = drawer.getByTestId('task-detail-wide-toggle');
+  await wideToggle.click();
+  await expect(wideToggle).toHaveAttribute('aria-pressed', 'false');
   const shortDraft = 'Keep the source selected for this chart. Explain which saved query supplies its data and where I can edit it. Preserve the existing filters and show the result before the technical details.';
   await input.fill(shortDraft);
   await expect(input).toHaveValue(shortDraft);
   const narrowHeight = (await input.boundingBox())!.height;
-  await page.setViewportSize({ width: 1600, height: 900 });
+  await wideToggle.click();
+  await expect(wideToggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(input).toBeVisible();
   await expect(input).toHaveValue(shortDraft);
-  await expect.poll(async () => (await input.boundingBox())!.height).toBeLessThan(narrowHeight);
+  await expect.poll(async () => (await input.boundingBox())?.height ?? Infinity).toBeLessThan(narrowHeight);
   await testInfo.attach('floating-composer-geometry', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' });
 });
 
@@ -574,6 +604,11 @@ test('the current question is actionable once; history and centered status stay 
   await input.fill('Explain which source supplies the chart.\nKeep the SQL details in the expandable session.\nInclude a concrete example.');
   await expect(input).toHaveAccessibleName(/correzione|correction/);
   await expect(drawer.getByTestId('task-composer').getByTestId('task-composer-submit')).toHaveAccessibleName(/Invia all.agente|Send to agent/);
+  // The resize to 390px crosses 768px, and the drawer remounts there (see the
+  // poll in the floating-composer test above): the fill can land while the new
+  // textarea has not been grown yet. CI read 32px once (run 36030171515). The
+  // assertion is about the settled layout, so it waits for it.
+  await expect.poll(async () => (await input.boundingBox())?.height ?? 0).toBeGreaterThan(60);
   const inputBox = await input.boundingBox();
   expect(inputBox!.height).toBeGreaterThan(60);
   expect(inputBox!.height).toBeLessThanOrEqual(140);

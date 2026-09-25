@@ -1,0 +1,118 @@
+/**
+ * STOP, THEN A MESSAGE AT ONCE: the message reaches a live child and gets its
+ * answer. Proved by spawning a real (fake) CLI that dies on SIGINT the way
+ * Claude Code 2.1.280 does (see `tests/e2e/helpers/fake-claude-sigint-exit.ts`).
+ *
+ * Before the fix the second `sendChat` reused the stopping child: it ended on
+ * the stopped turn's error result, and its text died with the process
+ * (topic d6158ec6, 22/09: «no reply» in 5 and 38 ms, two task updates lost).
+ * @covers CCLI-01
+ */
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync, existsSync, cpSync, chmodSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
+
+const REPO_ROOT = join(import.meta.dir, "..", "..");
+let tempDir = "";
+const savedEnv: Record<string, string | undefined> = {};
+function setEnv(k: string, v: string) { savedEnv[k] = process.env[k]; process.env[k] = v; }
+
+beforeAll(async () => {
+  // The ai-bridge client is a process-wide singleton bound to the data dir it
+  // first saw. Another integration file in the same `bun test` process leaves
+  // one behind pointing at its own temp dir, deleted by its afterAll: without
+  // this reset the spawn here lands on a dead store (ENOENT) and times out.
+  const { __resetAiBridgeClientForTests } = await import("../lib/ai-bridge-client");
+  __resetAiBridgeClientForTests();
+  tempDir = mkdtempSync(join(tmpdir(), "abort-send-"));
+  mkdirSync(join(tempDir, "data"), { recursive: true });
+  setEnv("DATA_DIR", join(tempDir, "data"));
+  setEnv("TOPICS_DATA_DIR", join(tempDir, "data"));
+  setEnv("HOME", tempDir);
+  // Its own daemon socket, inside the temp dir. The socket path otherwise comes
+  // from the environment, and in the full suite an earlier file leaves
+  // TOPICS_AI_BRIDGE_SOCKET set: two of these files then share one daemon,
+  // whose store points at the data dir of whichever file started it, deleted
+  // by that file's afterAll (CI 36015524316, "store open failed: ENOENT").
+  setEnv("TOPICS_AI_BRIDGE_SOCKET", join(tempDir, "ai-bridge.sock"));
+  const src = join(REPO_ROOT, "tests", "e2e", "helpers", "fake-claude-sigint-exit.ts");
+  const fake = join(tempDir, "fake-claude-sigint-exit.ts");
+  cpSync(src, fake);
+  chmodSync(fake, 0o755);
+  setEnv("TOPICS_CLAUDE_CLI_PATH", fake);
+});
+
+afterAll(async () => {
+  const { __resetAiBridgeClientForTests } = await import("../lib/ai-bridge-client");
+  __resetAiBridgeClientForTests();
+  try {
+    const { closeDatabase } = await import("../db");
+    closeDatabase();
+  } catch { /* never opened */ }
+  for (const [k, v] of Object.entries(savedEnv)) {
+    if (v === undefined) delete process.env[k]; else process.env[k] = v;
+  }
+  if (tempDir && existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
+});
+
+describe("stop then send at once (whole chain, real child)", () => {
+  test("the message sent right after a stop gets its own answer", async () => {
+    const { initDatabase, getDatabase } = await import("../db");
+    initDatabase(REPO_ROOT);
+    const now = new Date().toISOString();
+    getDatabase().prepare(
+      `INSERT INTO topics (id, name, slug, session_key, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run("t-as", "as", "as", "topic:abort-send-test", now, now);
+
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+
+    const log: string[] = [];
+    const handler = (tag: string, settle: () => void) => ({
+      onTextDelta: () => {},
+      onToolStart: () => { log.push(`${tag}:tool`); },
+      onToolResult: () => {},
+      onSubAgentUpdate: () => {},
+      onUserInputRequired: () => {},
+      onAborted: () => { log.push(`${tag}:aborted`); settle(); },
+      onCompaction: () => {},
+      onDone: (m?: { result?: string }) => { log.push(`${tag}:done:${m?.result ?? ""}`); settle(); },
+      onError: (e: string) => { log.push(`${tag}:error:${e}`); settle(); },
+    }) as never;
+
+    // 1) A turn that works until stopped.
+    let toolSeen!: () => void;
+    const toolStarted = new Promise<void>((r) => { toolSeen = r; });
+    const first = new Promise<void>((settle) => {
+      const h = handler("first", settle) as Record<string, unknown>;
+      const onToolStart = h.onToolStart as () => void;
+      h.onToolStart = () => { onToolStart(); toolSeen(); };
+      void provider.sendChat("topic:abort-send-test", "do some work", h as never);
+    });
+    await toolStarted;
+
+    // 2) Stop it, and send the next message in the same tick, as the
+    //    dispatcher does with a task update. Same order as the route
+    //    (`routes/chat.ts`): the handler is registered BEFORE `sendChat`, so
+    //    it reaches the provider while the stopped child is still alive.
+    await provider.abort("topic:abort-send-test", undefined, "user");
+    // The next send is a separate HTTP request: by the time it lands, the
+    // stopped turn's own teardown (the catch in `sendChatInternal`) has run.
+    // Without this tick that teardown ran AFTER the registration below and
+    // wiped the new handler, which hid the bug this test is about.
+    await new Promise((r) => setTimeout(r, 0));
+    const second = new Promise<void>((settle) => {
+      const h = handler("second", settle);
+      provider.registerStreamHandler("topic:abort-send-test", undefined, h);
+      void provider.sendChat("topic:abort-send-test", "tutto ok?", h);
+    });
+    await Promise.all([first, second]);
+
+    expect(log).toContain("first:aborted");
+    expect(log.filter((l) => l.startsWith("second:"))).toEqual(["second:done:ricevuto: tutto ok?"]);
+
+    await provider.stop();
+  }, 30_000);
+});

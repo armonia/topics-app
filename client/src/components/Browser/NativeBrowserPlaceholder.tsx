@@ -507,7 +507,14 @@ export function NativeBrowserPlaceholder({ browser, isVisible = true }: NativeBr
         />
       )}
       {browser.paused && (
-        <PausedPane cpu={browser.heavy?.cpu ?? 0} hasStill={!!browser.pausedImage} onResume={browser.resume} />
+        <PausedPane
+          cpu={browser.heavy?.cpu ?? 0}
+          memMb={browser.heavy?.memMb}
+          hasStill={!!browser.pausedImage}
+          onResume={browser.resume}
+          onKeepOnce={browser.keepLiveOnce}
+          onKeepAlways={browser.keepLiveAlways}
+        />
       )}
       {browser.frozenImage && (
         <img

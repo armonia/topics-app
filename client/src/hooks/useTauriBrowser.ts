@@ -804,8 +804,10 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
   }, [engagedEdge]);
   useEffect(() => { liveEdge.set(pause.pauseState === 'live'); }, [liveEdge, pause.pauseState]);
   useEffect(() => { syncEngaged(); }, [syncEngaged, isVisible, agentActive]);
-  const { resume: resumePause } = pause;
+  const { resume: resumePause, keepOnce: keepOncePause, keepAlways: keepAlwaysPause } = pause;
   const resume = useCallback(() => { onFocusedRef.current?.(); resumePause(); }, [resumePause]);
+  const keepLiveOnce = useCallback(() => { onFocusedRef.current?.(); keepOncePause(); }, [keepOncePause]);
+  const keepLiveAlways = useCallback(() => { onFocusedRef.current?.(); keepAlwaysPause(); }, [keepAlwaysPause]);
 
   // Create the native webview once per contextId; close on unmount. (Electron
   // keeps the view durable across unmount; for Tier-1 we close — simpler, and a
@@ -1934,6 +1936,8 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     paused: pause.pauseState === 'paused',
     pausedImage: pause.pausedImage,
     resume,
+    keepLiveOnce,
+    keepLiveAlways,
     ready,
     viewId,
     faviconUrl,
@@ -1981,7 +1985,7 @@ export function useTauriBrowser(contextId: string, initialUrl?: string, isVisibl
     freeze,
     thaw,
   }), [
-    url, title, loading, agentActive, agentAction, takeControl, pause.heavy, pause.pauseState, pause.pausedImage, resume,
+    url, title, loading, agentActive, agentAction, takeControl, pause.heavy, pause.pauseState, pause.pausedImage, resume, keepLiveOnce, keepLiveAlways,
     ready, viewId, faviconUrl, frozenImage,
     navError, clearNavError, retryNav, parked, parkedChecking, retryParked,
     navigate, goBack, goForward, reload, goHome, setBounds, animateBounds, toggleDevTools, findInPage, stopFind,

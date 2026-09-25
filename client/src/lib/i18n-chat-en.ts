@@ -74,6 +74,7 @@ const CHAT_EN: Dict = {
 
   'chat.message.edit': 'Edit',
   'chat.message.editAria': 'Edit message',
+  'chat.message.promptNumber': 'Your prompt number {n} in this chat',
   'chat.message.reply': 'Reply',
   'chat.message.copy': 'Copy',
   'chat.message.copyAria': 'Copy message',
@@ -125,6 +126,9 @@ const CHAT_EN: Dict = {
   'chat.tool.finalResult': 'Final result',
   'chat.tool.skillInstructions': 'Loaded instructions',
   'chat.tool.noSessionContext': 'The agent is asking for input but this view has no session context. Reload to answer.',
+  'chat.tool.detailLoading': 'Loading the full output…',
+  'chat.tool.detailFailed': 'Could not load the full output.',
+  'toolgroup.jumpToFailure': 'Open the group on the first failed action',
 };
 
 export default CHAT_EN;

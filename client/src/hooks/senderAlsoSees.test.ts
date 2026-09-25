@@ -34,6 +34,24 @@ describe('the events that also reach whoever owns the SSE', () => {
     expect(senderAlsoSees('stream:usage')).toBe(true);
   });
 
+  /**
+   * Reported on 23/09 as "sometimes I have to refresh to see the real state of
+   * a topic". The question panel (`ask_user_question`, a plan to approve from a
+   * question) travels ONLY over WS (server/routes/chat.ts, the
+   * `stream:tool_user_input_required` frames) and the SSE parser in `useChat`
+   * reads only content, tool_calls and tool_result. The window you sent from
+   * dropped it: the sidebar said "waiting for you" while the chat showed a
+   * spinner, and only a reload painted the form. A sub-agent's live progress
+   * (`stream:tool_detail`) and the compaction divider (`stream:compaction`) had
+   * the same fate. All three write a FIXED state: a status plus a schema, a
+   * whole snapshot replacing the previous one, an upsert by marker id.
+   */
+  test('the question panel, a sub-agent snapshot and the compaction divider reach the sender', () => {
+    expect(senderAlsoSees('stream:tool_user_input_required')).toBe(true);
+    expect(senderAlsoSees('stream:tool_detail')).toBe(true);
+    expect(senderAlsoSees('stream:compaction')).toBe(true);
+  });
+
   test('events that ACCUMULATE stay out', () => {
     // The rule of the list: whoever writes a fixed state may enter, whoever
     // adds up may not. A text delta delivered twice would double the answer on
@@ -47,6 +65,6 @@ describe('the events that also reach whoever owns the SSE', () => {
     // If it grows, it grows for a written reason: every entry costs one event
     // delivered twice to someone who already receives it on the SSE.
     expect(new Set(SENDER_ALSO_SEES).size).toBe(SENDER_ALSO_SEES.length);
-    expect(SENDER_ALSO_SEES.length).toBeLessThanOrEqual(4);
+    expect(SENDER_ALSO_SEES.length).toBeLessThanOrEqual(6);
   });
 });

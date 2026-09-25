@@ -1,5 +1,33 @@
 [
   {
+    "version": "2.2.387",
+    "date": "2026-09-25",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "comando su una riga nel log, skip ripetuti detti una volta",
+          "scope": "swap-freeze"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
+    "version": "2.2.382",
+    "date": "2026-09-24",
+    "sections": {
+      "new": [],
+      "fixes": [
+        {
+          "text": "unsent messages live in their own chat, not in a toast over a random pane",
+          "scope": "chat"
+        }
+      ],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.339",
     "date": "2026-09-17",
     "sections": {

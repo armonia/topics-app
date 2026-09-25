@@ -12,7 +12,6 @@ import type { PlanDecisionHandler } from './Chat/planDetection';
 import { getFileIconDef } from '../lib/fileIcons';
 import { getMediaUrl } from '../lib/api';
 import { basename } from '../lib/path-utils';
-import { TurnActivityIndicator } from './MessageParts';
 import { ToolCallRow } from './Chat/ToolCallRow';
 import { GroupedToolRows } from './Chat/ToolGroupRow';
 import { ReasoningRow } from './Chat/ReasoningRow';
@@ -20,6 +19,9 @@ import { Spinner } from './Shared/Spinner';
 import { useToast } from './Shared/Toast';
 import { SlashCommandChip } from './Chat/SlashCommandChip';
 import { TurnErrorBanner } from './Chat/TurnErrorBanner';
+import { TurnWorkRow } from './Chat/TurnWorkRow';
+import { foldFinishedTurn, noteWatchedLive, wasWatchedLive } from './Chat/turnFold';
+import { useTaskWorkFold } from './Chat/taskWorkFoldContext';
 import type { ToolCall } from '../types';
 import { LEGACY_ERROR_PREFIX, turnErrorOf } from './Chat/turnError';
 import { releaseAudio } from '../lib/releaseAudio';
@@ -27,7 +29,6 @@ import { ImageLightbox, ZoomableImage } from './Shared/ImageLightbox';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
 import { DiffBlock, type DiffBlockHandle } from './Chat/DiffBlock';
 import { parseSlashInvocation } from '../../../shared/slash-invocation';
-import { isAwaitingHuman } from '../../../shared/types';
 import { extractMediaPaths, splitBlockMedia } from './messageMedia';
 
 /**
@@ -922,24 +923,6 @@ interface MessageContentProps {
   blocks?: import('../types').ContentBlock[];
   media?: string[];
   partial?: boolean;
-  /** Whether this is the last row in the transcript. The live turn indicator is
-   *  gated on it so a stale/ghost partial can't render a second indicator. */
-  isLast?: boolean;
-  /**
-   * Turn start (ms epoch), from the streaming message's `timestamp`. Anchors
-   * the live turn timer inside <TurnActivityIndicator>. Only read while
-   * `partial`; undefined/NaN degrades gracefully (elapsed from mount).
-   */
-  turnStartedAt?: number;
-  // Consumo del turno — serve alla striscia VIVA (TurnActivityIndicator). La
-  // striscia di chiusura è salita in <MessageBubble>, che legge `msg` da sé:
-  // per questo `latencyMs` e `model` non passano più di qui.
-  usagePromptTokens?: number | null;
-  cacheReadTokens?: number | null;
-  cacheCreationTokens?: number | null;
-  cacheCreation1hTokens?: number | null;
-  usageCompletionTokens?: number | null;
-  costCents?: number | null;
   /** La decisione presa su un piano proposto — vedi <ToolCallRow>. */
   onPlanDecision?: PlanDecisionHandler;
   // Session viewer
@@ -959,8 +942,6 @@ interface MessageContentProps {
    * streaming messages (they never arrive trimmed).
    */
   messageId?: string;
-  // WebSocket message subscription
-  onMessage?: (handler: (msg: import('../types').WSMessage) => void) => () => void;
 }
 
 /** Una tratta della timeline di un messaggio assistant: testo, ragionamento, o
@@ -1023,7 +1004,7 @@ function RipresoBanner() {
   );
 }
 
-export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, isLast, turnStartedAt, usagePromptTokens, usageCompletionTokens, costCents, cacheReadTokens, cacheCreationTokens, cacheCreation1hTokens, onPlanDecision, sessionKey, messageId, onMessage }: MessageContentProps) {
+export const MessageContent = memo(function MessageContent({ content, role, thinking, toolCalls, blocks, media, partial, onPlanDecision, sessionKey, messageId }: MessageContentProps) {
   const { cleanText: rawCleanText, mediaPaths: extractedMediaPaths, voicePaths } = useMemo(() => {
     const result = extractMediaPaths(content);
     return result;
@@ -1073,16 +1054,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     () => (role === 'user' ? parseSlashInvocation(cleanText) : null),
     [role, cleanText],
   );
-
-  // Il turno è fermo su una domanda a schermo? Guarda entrambe le sorgenti: la
-  // timeline `blocks` (percorso attuale) e il vecchio secchio `toolCalls`, così
-  // l'indicatore dice la verità in tutti e due i rami di render.
-  const awaitingInput = useMemo(() => {
-    const inBlocks = (blocks ?? []).some(
-      (b) => b.kind === 'tool' && isAwaitingHuman(b.toolCall.status),
-    );
-    return inBlocks || (toolCalls ?? []).some((tc) => isAwaitingHuman(tc.status));
-  }, [blocks, toolCalls]);
 
   // Raggruppamento della timeline dei blocchi, calcolato UNA volta per `blocks`.
   //
@@ -1156,6 +1127,26 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     return paths;
   }, [extractedMediaPaths, mediaFromBlocks, media]);
 
+  // A finished turn shows its answer and folds the work before it into one row
+  // (`Chat/turnFold.ts` for the rule and for what never folds). Inside a board
+  // task the per-message accordion already does it, so it is not done twice.
+  //
+  // NOT THE TURN YOU JUST WATCHED. A turn that streamed in front of you stays
+  // spread out when it ends: folding it at `stream:end` shrank the bubble by
+  // hundreds of pixels under the reader's eyes, and the pinned list jumped up
+  // (chat-scroll-at-rest, 3793 -> 3312). It folds the next time it is drawn
+  // from history, which is when the wall of rows is in the way.
+  const inTaskFold = useTaskWorkFold();
+  // Remembered by message id in a module set, not in component state: the list
+  // does not key its rows by message, so the bubble that streamed can remount
+  // with `partial: false` and a fresh state would fold it anyway.
+  if (partial && messageId) noteWatchedLive(messageId);
+  const watched = !!messageId && wasWatchedLive(messageId);
+  const turnFold = useMemo(
+    () => (role === 'assistant' && !inTaskFold && !watched ? foldFinishedTurn(blockGroups, partial) : null),
+    [role, inTaskFold, watched, blockGroups, partial],
+  );
+
   if (role === 'user') {
     const renderUserText = (text: string) => {
       const lines = text.split('\n');
@@ -1219,15 +1210,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   // each piece of content so reasoning that happens *between* tool calls
   // appears where it occurred, not lifted to the top.
   if (blocks && blocks.length > 0) {
-    // Group consecutive tool blocks so we can render them as a single
-    // vertical timeline (connected by a left border line) instead of N
-    // unrelated rows. Visually lighter, easier to scan.
-    return (
-      <div data-testid="message-content-assistant">
-        {ripreso && <RipresoBanner />}
-        {woken && <WokenBanner label={woken.label} />}
-        {turnError && <TurnErrorBanner text={turnError} />}
-        {blockGroups.map((g) => {
+    const renderGroup = (g: BlockGroup) => {
           if (g.kind === 'thinking') {
             return (
               <ReasoningRow
@@ -1279,7 +1262,24 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
               <ProseBlock text={text} components={markdownComponents} />
             </div>
           );
-        })}
+    };
+    // Group consecutive tool blocks so we can render them as a single
+    // vertical timeline (connected by a left border line) instead of N
+    // unrelated rows. Visually lighter, easier to scan.
+    return (
+      <div data-testid="message-content-assistant">
+        {ripreso && <RipresoBanner />}
+        {woken && <WokenBanner label={woken.label} />}
+        {turnError && <TurnErrorBanner text={turnError} />}
+        {turnFold ? (
+          <>
+            {turnFold.head.map(renderGroup)}
+            <TurnWorkRow tools={turnFold.tools}>
+              {turnFold.work.map(renderGroup)}
+            </TurnWorkRow>
+            {turnFold.shown.map(renderGroup)}
+          </>
+        ) : blockGroups.map(renderGroup)}
 
         {/* Media — rendered after content blocks */}
         {allMediaPaths.map((path, i) => (
@@ -1287,10 +1287,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
             <MediaRenderer path={path} isVoice={voicePaths.has(path)} isUserMessage={false} />
           </div>
         ))}
-
-        {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} sessionKey={sessionKey} onMessage={onMessage} awaitingInput={awaitingInput}
-          promptTokens={usagePromptTokens} completionTokens={usageCompletionTokens} costCents={costCents}
-          cacheReadTokens={cacheReadTokens} cacheCreationTokens={cacheCreationTokens} cacheCreation1hTokens={cacheCreation1hTokens} />}
 
         {/* La striscia di chiusura non sta più qui. A messaggio finito vive
             nella riga che <MessageBubble> apre sotto la bolla, insieme all'ora
@@ -1367,12 +1363,6 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
 
       {/* Media — rendered after content so images appear inline */}
       {allMediaPaths.map((path, i) => <div key={i} className="mb-2"><MediaRenderer path={path} isVoice={voicePaths.has(path)} isUserMessage={false} /></div>)}
-
-      {/* Live turn-activity indicator (playful phrase + timer) — covers empty
-          placeholder and mid-stream alike. */}
-      {partial && isLast !== false && <TurnActivityIndicator since={turnStartedAt} sessionKey={sessionKey} onMessage={onMessage} awaitingInput={awaitingInput}
-          promptTokens={usagePromptTokens} completionTokens={usageCompletionTokens} costCents={costCents}
-          cacheReadTokens={cacheReadTokens} cacheCreationTokens={cacheCreationTokens} cacheCreation1hTokens={cacheCreation1hTokens} />}
 
       {/* Vedi sopra: la striscia di chiusura è salita in <MessageBubble>, sulla
           riga dell'ora. */}

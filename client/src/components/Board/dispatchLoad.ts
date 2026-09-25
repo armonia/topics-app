@@ -18,9 +18,10 @@
  * Nothing here decides the cap: the cap is `currentCapLimit`, the machine is the
  * probe, and this only turns the pair into something a person reads.
  */
-import { ADMIT_RESUME_FRACTION, capMode } from '../../lib/board';
+import { capMode } from '../../lib/board';
 import type { DispatchAdmission, DispatchCapacity } from '../../lib/board';
 import type { GlobalDispatchCapState } from '../../state/globalDispatchCap';
+import { machineBusyPct, pctPlaceholders } from '../../lib/machineBusy';
 import { currentCapLimit } from '../../state/globalDispatchCap';
 
 /** Which brake is holding new agents right now, as the gate said it. */
@@ -88,57 +89,6 @@ export function gateCoreNumbers(c: DispatchCapacity | null): { used: number | nu
     return { used: a.usedCoreUnits, usable: Math.max(0, a.usableCoreUnits), pending: Math.max(0, a.pendingAdmissions ?? 0) };
   }
   return { used: c?.usedCoreUnits ?? null, usable: Math.max(0, c?.usableCoreUnits ?? 0), pending: 0 };
-}
-
-/**
- * CPU, AS A PERCENT OF THE WHOLE MAC. `load1` (the one-minute average) over
- * `cores` is the same ratio the gate itself reads the machine with; this only
- * turns it into the number a person compares without knowing what a core is.
- * `null` when the probe has not answered (never drawn as "0%": that reads as
- * an idle machine, not as "not measured yet").
- */
-export function cpuPercent(cap: DispatchCapacity | null): number | null {
-  if (!cap || !(cap.cores > 0)) return null;
-  return Math.round(Math.min(1, Math.max(0, cap.load1 / cap.cores)) * 100);
-}
-
-/**
- * MEMORY, AS A PERCENT OF THE WHOLE MAC. `availableMemGB` is `null` off
- * macOS (no probe there), and that has to stay a "not measured" on screen,
- * never a fake 0%: a 0% memory reading looks like the safest state there is,
- * which is the opposite of "we don't know".
- */
-export function memPercent(cap: DispatchCapacity | null): number | null {
-  if (!cap || !(cap.totalMemGB > 0) || cap.availableMemGB == null) return null;
-  return Math.round(Math.min(1, Math.max(0, 1 - cap.availableMemGB / cap.totalMemGB)) * 100);
-}
-
-/** The three buckets both the CPU and the memory bar are painted in, so a 61%
- *  CPU and a 61% memory reading always mean the same colour. */
-export type PctTone = 'ok' | 'busy' | 'critical';
-
-export function pctTone(pct: number | null): PctTone {
-  if (pct == null) return 'ok';
-  if (pct > 85) return 'critical';
-  if (pct >= 60) return 'busy';
-  return 'ok';
-}
-
-/** Text colour per bucket. Amber/rose match the ring's own tone tokens
- *  (`loadToneClass`); emerald is the calm end, the same family already used
- *  for a healthy reading elsewhere on the board (the budget live band, the
- *  night-mode dot). */
-export function pctToneTextClass(tone: PctTone): string {
-  if (tone === 'critical') return 'text-rose-300';
-  if (tone === 'busy') return 'text-amber-300';
-  return 'text-emerald-300';
-}
-
-/** Bar-fill colour per bucket, the same three tones as `pctToneTextClass`. */
-export function pctToneBarClass(tone: PctTone): string {
-  if (tone === 'critical') return 'bg-rose-400';
-  if (tone === 'busy') return 'bg-amber-400';
-  return 'bg-emerald-400';
 }
 
 /** Who is holding, from the verdict on the wire. A pass is not a hold. */
@@ -249,28 +199,36 @@ export interface VerdictText {
   title?: string;
 }
 
-/** The first sentence of a composed reason, shaped to follow the verdict's own
- *  colon: initial lowered, and its colon turned into a comma so the line does
- *  not read "wait: memory low: 5.5 GB". A decimal point is never followed by a
- *  space ("5.5 GB"), so it does not split there. */
-function headline(reason: string): string {
-  const first = reason.split(/\.\s/)[0]!.trim().replace(/\.$/, '').replace(': ', ', ');
-  return first.charAt(0).toLowerCase() + first.slice(1);
+/**
+ * The verdict as the sentence on screen. Its numbers are percentages and the
+ * Italian sentence needs each one with its article ("all'88%"), which depends
+ * on the language being drawn: so the caller passes it, and every surface that
+ * prints a verdict prints the same words.
+ */
+export function verdictSentence(
+  v: VerdictText,
+  tr: (k: string, vars?: Record<string, string | number>) => string,
+  locale: 'it' | 'en',
+): string {
+  const nums: Record<string, number> = {};
+  for (const [k, n] of Object.entries(v.params ?? {})) if (typeof n === 'number') nums[k] = n;
+  return tr(v.key, { ...v.params, ...pctPlaceholders(locale, nums) });
 }
 
 /**
- * THE VERDICT, ONLY IN A PERCENTAGE A PERSON ALREADY OWNS: how loaded the
- * whole Mac reads right now, and (when the gate's own numbers make it honest)
- * the point it un-sticks by itself. Core-units and gigabytes stayed the
- * gate's private currency; this only borrows `cores`/`totalMemGB` from the
- * capacity reading to turn them into the same percentage the two big numbers
- * in the popover already show, so "held" and "how loaded" are never printed
- * in two different units.
+ * THE VERDICT, IN THE ONE NUMBER: "Waiting: the Mac is 92% busy". Core-units
+ * and gigabytes stay the gate's private currency; the sentence speaks in the
+ * same percentage as the headline of every load surface (`machineBusyPct`),
+ * so "held" and "how busy" are never said in two units.
  *
- * The resume clause ("starts again by itself under X%") is added only where
- * the maths behind it is real: the gate's own admitted/usable pair for CPU,
- * the footprint ceiling for memory. Elsewhere the sentence stops after the
- * current reading rather than invent a threshold nobody measured.
+ * NO RESUME POINT ("starts by itself under X%"). The gate decides on TOPICS'
+ * share and the number is the WHOLE Mac, so no point on the number is where
+ * the gate reopens: the Mac can fall 40 points because another app closed and
+ * the gate still holds, since Topics did not move. A clause computed as "the
+ * number minus the drop the gate needs" was checked against the real gate
+ * (card 07909147): it promised "under 52%", the Mac reached 50%, the gate
+ * held. The wait says how busy the Mac is and that it restarts by itself; the
+ * gate's own figures stay in the server's sentence, one hover away.
  */
 export function admissionVerdictText(a: DispatchAdmission, cap: DispatchCapacity | null): VerdictText {
   if (a.admit) {
@@ -280,46 +238,14 @@ export function admissionVerdictText(a: DispatchAdmission, cap: DispatchCapacity
   }
   const wait = (key: string, params?: Record<string, string | number>): VerdictText =>
     ({ key, params, tone: 'wait', title: a.reason ?? undefined });
-  if (a.blockedBy === 'floor') {
-    // The server composes this sentence itself (disk/swap wording, out of this
-    // module's scope). If it ever picks up the retired core/core-unit/load-average
-    // vocabulary, fall back to the bare sentence rather than surface it verbatim.
-    const clean = a.reason != null && !/\b(core|core-unit|load average)\b/i.test(a.reason);
-    return clean ? wait('board.dispatch.verdictWaitFloor', { reason: headline(a.reason as string) }) : wait('board.dispatch.verdictWaitFloorBare');
-  }
+  // The floor (disk or memory under the hard line) and a planned restart hold
+  // the whole machine. The server's own sentence carries GB and stays one
+  // hover away in `title`; the line says what it means in plain words.
+  if (a.blockedBy === 'floor') return wait('board.dispatch.verdictWaitFloor');
   if (a.blockedBy === 'drain') return wait('board.dispatch.verdictWaitDrain');
-  if (a.blockedBy === 'memory') {
-    const pct = memPercent(cap);
-    // Footprint: Topics' own tree is over its ceiling. The ceiling as a share
-    // of the whole machine's RAM is the resume line: the same percentage
-    // vocabulary as the reading above it, never Topics' private GB budget.
-    if (a.memClause === 'footprint' && cap && cap.totalMemGB > 0 && a.usableMemGB != null && pct != null) {
-      const resume = Math.round(Math.min(100, Math.max(0, (a.usableMemGB / cap.totalMemGB) * 100)));
-      return wait('board.dispatch.verdictWaitMemory', { pct, resume });
-    }
-    if (pct != null) return wait('board.dispatch.verdictWaitMemoryBare', { pct });
-    return wait('board.dispatch.verdictWaitMemoryUnmeasured');
-  }
-  // Held on the CPU while one more agent would fit under the ceiling: that is
-  // the resume line (once holding, the gate restarts under 80% of it), and the
-  // cost alone would read as a contradiction of the numbers beside it.
-  // The number printed is the one the USE beside it has to reach. The gate
-  // compares use PLUS the cost of one more agent with 80% of the usable, so the
-  // use resumes at that line minus the cost, not at the line itself: printing
-  // the bare 80% said "under 4.4" next to a use of 3.5 that was still holding.
-  // Both numbers are turned into a share of `cores`, so "92%" and "starts
-  // again by itself under 70%" are the same unit as the CPU reading above them.
-  const pct = cpuPercent(cap);
-  const { usedCoreUnits: used, usableCoreUnits: usable } = a;
-  if (cap && cap.cores > 0 && used != null && usable != null && used + a.costCoreUnits <= usable && pct != null) {
-    const resume = Math.round(Math.min(100, Math.max(0, (usable * ADMIT_RESUME_FRACTION - a.costCoreUnits) / cap.cores * 100)));
-    return wait('board.dispatch.verdictWaitCpu', { pct, resume });
-  }
-  if (cap && cap.cores > 0) {
-    const cost = Math.round(Math.min(100, Math.max(0, a.costCoreUnits / cap.cores * 100)));
-    return wait('board.dispatch.verdictWaitCpuBare', { cost });
-  }
-  return wait('board.dispatch.verdictWaitCpuUnmeasured');
+  const pct = machineBusyPct(cap);
+  if (pct == null) return wait('board.dispatch.verdictWaitBusyUnknown');
+  return wait('board.dispatch.verdictWaitBusy', { pct });
 }
 
 /**

@@ -12,8 +12,15 @@
 import { describe, expect, test } from 'bun:test';
 import {
   CLEAR_SPAN_MS,
+  __resetHeavyPanesForTests,
   attributeSample,
+  forgetPane,
+  formatShare,
+  heavyVerdict,
   initialVerdict,
+  machineShare,
+  noteWebviewSample,
+  reportPaneContext,
   stepVerdict,
   type PaneSampleContext,
   type PaneVerdictState,
@@ -131,5 +138,45 @@ describe('attribution', () => {
       { label: 'browserpane-a', pid: 7, cpu_percent: 4 },
     ]);
     expect(withMain.get('a')).toBeNull();
+  });
+});
+
+/**
+ * THE COPY SPEAKS IN SHARES OF THE MAC (23/09). «37% di un core» asked the
+ * reader to know what a core is and how many the Mac has; the pause card and
+ * the tab now say how much of the whole machine the page takes, CPU over all
+ * cores and memory over physical RAM. The verdict still runs on per-core CPU:
+ * only the words changed scale.
+ */
+describe('share of the machine', () => {
+  test('37% of one core on a 12-core Mac is 3% of its CPU', () => {
+    expect(formatShare(machineShare({ cpu: 37 }, { cores: 12, memMb: null }).cpuPct)).toBe('3');
+  });
+
+  test('memory is a share of physical RAM, and absent when RAM is unknown', () => {
+    expect(machineShare({ cpu: 20, memMb: 1_638.4 }, { cores: 12, memMb: 32_768 }).memPct).toBeCloseTo(5, 5);
+    expect(machineShare({ cpu: 20, memMb: 1_024 }, { cores: 12, memMb: null }).memPct).toBeNull();
+    expect(machineShare({ cpu: 20 }, { cores: 12, memMb: 32_768 }).memPct).toBeNull();
+  });
+
+  test('something running never reads as a flat zero', () => {
+    expect(formatShare(0.4)).toBe('<1');
+    expect(formatShare(0)).toBe('0');
+  });
+});
+
+describe('the verdict carries the pane memory', () => {
+  const PANE = 'mem-pane';
+  test('a heavy pane publishes its footprint, summed over its own pids', () => {
+    __resetHeavyPanesForTests();
+    reportPaneContext(PANE, { ...LIVE });
+    for (let t = 8_000; t <= 18_000; t += 5_000) {
+      noteWebviewSample([
+        { label: `browserpane-${PANE}`, pid: 40, cpu_percent: 20, memory_mb: 900 },
+        { label: `browserpane-~1~${PANE}`, pid: 41, cpu_percent: 1, memory_mb: 100 },
+      ], t);
+    }
+    expect(heavyVerdict(PANE)).toEqual({ heavy: true, cpu: 21, memMb: 1_000 });
+    forgetPane(PANE);
   });
 });

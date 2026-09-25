@@ -20,12 +20,13 @@
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type MutableRefObject } from 'react';
 import { isTauri } from '../lib/shell';
+import { loadSettings, saveSettings, SETTINGS_CHANGED_EVENT } from '../lib/settings';
 import { PAUSE_DWELL_MS, paneLive } from '../lib/shell/nativePaneLive';
 import { toPausedStill } from '../lib/shell/pausedStill';
 import { tauriInvoke } from '../lib/shell/tauri';
 import { subscribeWindowFocus, windowFocused } from '../lib/shell/windowFocus';
 import {
-  forgetPane, heavyVerdict, holdSampleFallback, reportPaneContext, subscribeHeavyVerdict,
+  forgetPane, heavyVerdict, holdSampleFallback, noteSystemMemory, reportPaneContext, subscribeHeavyVerdict,
   type HeavyVerdict, type ShellWebviewRow,
 } from '../lib/shell/heavyPanes';
 
@@ -36,8 +37,16 @@ const STILL_TIMEOUT_MS = 1_500;
 
 /** Stable for `useSyncExternalStore`: a fresh function per render resubscribes. */
 const subscribeFocusChange = (cb: () => void): (() => void) => subscribeWindowFocus(() => cb());
+const subscribeSettings = (cb: () => void): (() => void) => {
+  const onChange = () => { keptCache = null; cb(); };
+  window.addEventListener(SETTINGS_CHANGED_EVENT, onChange);
+  return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, onChange);
+};
 const readPanePerf = (): Promise<readonly ShellWebviewRow[] | undefined> =>
-  tauriInvoke<{ webviews?: ShellWebviewRow[] }>('perf_metrics').then((m) => m?.webviews);
+  tauriInvoke<{ webviews?: ShellWebviewRow[]; system_mem_mb?: number | null }>('perf_metrics').then((m) => {
+    noteSystemMemory(m?.system_mem_mb);
+    return m?.webviews;
+  });
 /** An element of the page in full screen. WebKit moves it into a window of its
  *  own, which takes the key state from Topics: without this the video or canvas
  *  on screen would go black at the end of the dwell. */
@@ -78,6 +87,25 @@ export interface NativePanePause {
   pauseState: PauseState;
   pausedImage: string | null;
   resume: () => void;
+  /** «Keep it this time»: resume, and do not pause this page again
+   *  until it navigates somewhere else or the pane is reopened. */
+  keepOnce: () => void;
+  /** «Keep always»: resume, and never pause this site (origin) again. */
+  keepAlways: () => void;
+}
+
+/** origin of a URL, or '' for one that has none (about:blank, a file). */
+function originOf(u: string): string {
+  try { const o = new URL(u).origin; return o === 'null' ? '' : o; } catch { return ''; }
+}
+
+/** The sites the person chose to keep live. Read from the settings once and
+ *  again on every settings change (a choice made on another device arrives
+ *  through the settings sync), not on every render of every browser pane. */
+let keptCache: readonly string[] | null = null;
+function keptSites(): readonly string[] {
+  if (keptCache === null) keptCache = loadSettings().keepLiveSites ?? [];
+  return keptCache;
 }
 
 function revoke(url: string | null): void {
@@ -91,11 +119,22 @@ export function useNativePanePause(d: PauseDeps): NativePanePause {
     () => heavyVerdict(id),
   );
   const winFocus = useSyncExternalStore(subscribeFocusChange, windowFocused);
+  // The two «keep» choices are exemptions of the same kind as an agent
+  // driving the page: the pane stays live without focus. «Once» is tied to the
+  // page (origin + path) it was given on; «always» to the site.
+  const [keptOnceKey, setKeptOnceKey] = useState<string | null>(null);
+  const pageKey = urlKeyOf(d.url);
+  const origin = originOf(d.url);
+  const keptAlways = useSyncExternalStore(
+    subscribeSettings,
+    () => (origin ? keptSites().includes(origin) : false),
+  );
+  const kept = keptAlways || (keptOnceKey !== null && keptOnceKey === pageKey);
   // Ops in flight and an open inspector are read when the dwell ends, not here:
   // neither is render state.
   const live = paneLive({
     heavy: !!heavyNow, paneFocused: d.hasFocus, windowFocused: winFocus,
-    agentActive: d.agentActive, opsInFlight: 0, devtoolsOpen: false,
+    agentActive: d.agentActive, opsInFlight: 0, devtoolsOpen: false, keptLive: kept,
   });
   const [pauseState, setPauseStateValue] = useState<PauseState>('live');
   const [pausedImage, setPausedImage] = useState<string | null>(null);
@@ -254,5 +293,19 @@ export function useNativePanePause(d: PauseDeps): NativePanePause {
     return () => { release(); forgetPane(id); };
   }, [id]);
 
-  return { heavy: heavyNow, pauseState, pausedImage, resume };
+  const keepOnce = useCallback(() => {
+    setKeptOnceKey(urlKeyOf(depsRef.current.url));
+    resume();
+  }, [resume]);
+  const keepAlways = useCallback(() => {
+    const o = originOf(depsRef.current.url);
+    if (o) {
+      const s = loadSettings();
+      const cur = s.keepLiveSites ?? [];
+      if (!cur.includes(o)) saveSettings({ ...s, keepLiveSites: [...cur, o] });
+    }
+    resume();
+  }, [resume]);
+
+  return { heavy: heavyNow, pauseState, pausedImage, resume, keepOnce, keepAlways };
 }

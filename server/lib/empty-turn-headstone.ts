@@ -27,6 +27,14 @@
  * whole DB: 14 notices, 8 of them followed by the real answer within two
  * minutes.
  *
+ * -- Since 24/09 the provider stops the cause --------------------------------
+ * The CLI announces that turn on stdout (`system/task_notification`, then an
+ * empty `result` with `num_turns: 0`), and `claude-code.ts` now skips that
+ * result instead of closing the send with it (recorded on a resume with CLI
+ * 2.1.280; see `claude-code-resume-notification.test.ts`). The headstone stays
+ * as the net for an ordering the provider cannot see: a notification whose own
+ * turn lands after another result has already spent the skip.
+ *
  * -- Why REUSE the row instead of deleting it --------------------------------
  * There is no «message deleted» event: whoever is watching the chat would keep
  * the notice bubble until the next reload. Reusing the row instead points the

@@ -115,6 +115,29 @@ describe("quando niente funziona, si NEGA — e non si lancia", () => {
     expect(out.behavior).toBe("deny");
   });
 
+  /**
+   * 23/09, topic 3019832f: the plan was denied with an "empty answer from
+   * Topics" message while the person was approving it. The leg took 40.5s on the
+   * server (the loop stalled 10s under load) and the bridge's own 45s deadline
+   * fired while it was READING the body: `text()` rejected, became "", and ""
+   * was read as the server saying nothing. A body that never arrived is a lost
+   * request, not an answer: the leg is repeated, and the decision still lands.
+   */
+  test("a body cut off mid-read is a lost leg, not an empty answer", async () => {
+    let i = 0;
+    const cutThenAllow = (async () => {
+      i++;
+      if (i === 1) {
+        const body = new ReadableStream({ start(c) { c.error(new DOMException("The operation timed out.", "TimeoutError")); } });
+        return new Response(body, { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ decision: "allow" }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+    const out = parse(await callApprovalPrompt(ARGS, { tool_name: "ExitPlanMode", input: INPUT, tool_use_id: "t1" }, cutThenAllow, { backoffMs: [0] }));
+    expect(out.behavior).toBe("allow");
+    expect(i).toBe(2);
+  });
+
   test("richiesta senza nome dello strumento", async () => {
     const out = parse(await callApprovalPrompt(ARGS, { input: INPUT, tool_use_id: "t1" }, stub([{ decision: "allow" }])));
     expect(out.behavior).toBe("deny");
