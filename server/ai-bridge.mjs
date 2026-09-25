@@ -29,6 +29,11 @@ function realHome() {
   return _realHome;
 }
 
+// What this daemon's frames carry. A live daemon outlives server deploys (it
+// holds the CLIs), so a server may talk to an older one and must know it.
+// 2: `attached` carries `lastDataAt`, the child's last write. Absent means 1.
+const PROTOCOL = 2;
+
 // --- Configuration ---
 function argOf(flag) {
   const i = process.argv.indexOf(flag);
@@ -285,9 +290,9 @@ function handleMessage(msg, client) {
     }
     case 'attach': {
       const s = sessions.get(msg.id);
-      if (!s) { sendTo(client, { type: 'attached', id: msg.id, endOffset: 0, alive: false, exitCode: null, missing: true }); break; }
+      if (!s) { sendTo(client, { type: 'attached', id: msg.id, endOffset: 0, alive: false, exitCode: null, missing: true, protocol: PROTOCOL }); break; }
       replayTo(s, client, msg.fromOffset || 0);
-      sendTo(client, { type: 'attached', id: msg.id, endOffset: s.endOffset, alive: s.alive, exitCode: s.exitCode, lastDataAt: s.lastDataAt ?? null });
+      sendTo(client, { type: 'attached', id: msg.id, endOffset: s.endOffset, alive: s.alive, exitCode: s.exitCode, lastDataAt: s.lastDataAt ?? null, protocol: PROTOCOL });
       break;
     }
     case 'detach': {
@@ -334,7 +339,7 @@ function handleMessage(msg, client) {
     case 'list': {
       const list = [];
       for (const [id, s] of sessions) list.push({ id, pid: s.pid, alive: s.alive, exitCode: s.exitCode, endOffset: s.endOffset, createdAt: s.createdAt });
-      sendTo(client, { type: 'list', sessions: list });
+      sendTo(client, { type: 'list', sessions: list, protocol: PROTOCOL });
       break;
     }
     case 'ping': {

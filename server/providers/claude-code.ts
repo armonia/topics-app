@@ -917,9 +917,20 @@ function turnInFlight(pp: PersistentProcess): boolean {
   return !!pp.streamHandler || !!pp.pendingReject || pp.wokenBuffer != null || pp.declinedTurn === true;
 }
 
-/** A replay's background news, dated by the daemon's record of the child's last write when it has one. */
-function dateReplay(pp: PersistentProcess, lastDataAt: number | undefined): void {
-  if (pp.background && typeof lastDataAt === "number") datedByLastWrite(pp.background, lastDataAt);
+/**
+ * A replay's background news, dated by the daemon's record of the child's last
+ * write. A daemon older than that record (protocol 1, still holding the CLIs
+ * of a server deployed before it) cannot date it: the replay's news then counts
+ * from the reattach, so a job silent for hours gets two more hours after each
+ * restart. Said once per server process, not per attach.
+ */
+let oldDaemonDeclared = false;
+function dateReplay(pp: PersistentProcess, scan: { lastDataAt?: number; protocol?: number }): void {
+  if ((scan.protocol ?? 2) < 2 && !oldDaemonDeclared) {
+    oldDaemonDeclared = true;
+    console.warn(`[claude-code] the ai-bridge daemon speaks protocol ${scan.protocol}, before lastDataAt: background work found at a reattach is dated from the reattach, not from its last output. Restart the daemon when it holds no live CLI to date it exactly.`);
+  }
+  if (pp.background && typeof scan.lastDataAt === "number") datedByLastWrite(pp.background, scan.lastDataAt);
 }
 
 /** Killing this child would also kill the Agent, Bash or Monitor its last turn left running. */
@@ -2842,7 +2853,7 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.replayLastResult = undefined;
     pp.replayAfterLastResultOffset = 0;
     const scan = await client.attach(sessionKey, 0);
-    dateReplay(pp, scan.lastDataAt);
+    dateReplay(pp, scan);
     return { missing: scan.missing === true, alive: scan.alive === true };
   }
 
@@ -3113,7 +3124,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
     const res = await client.attach(sessionKey, pp.replayAfterLastResultOffset ?? 0);
     pp.replaySilent = false;
-    dateReplay(pp, res.lastDataAt);
+    dateReplay(pp, res);
 
     // Replay is fully folded now (synchronous onData). Classify from pp state.
     if (res.missing) { this.finalizeDeadReattach(pp); return "dead"; }
