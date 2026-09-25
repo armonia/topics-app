@@ -30,7 +30,7 @@ import { getDatabase } from "../db";
 import { demoteAgentCli } from "./agent-cli-priority";
 import { SidechainTracker, isSubAgentToolName } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
-import { answersTheRow, foldResult, sealScan, storeWrittenAt, type ClosedTurn } from "./claude/closed-turn";
+import { foldRowTurns, isDeliveryMark, isNotificationTurnEnd, rowTurn, type RowTurns } from "./claude/row-turn";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
 import { applyJobQuota } from "../services/agent-job-quota";
@@ -837,7 +837,7 @@ export function aiBridgeEnabled(): boolean {
  * stderr scan, close handling) is shared via the extracted methods.
  */
 interface SessionIO {
-  writeStdin(data: string): void;
+  writeStdin(data: string, mark?: string): void;
   signal(sig: string): void;
   kill(): void;
 }
@@ -855,7 +855,7 @@ function directIO(proc: ChildProcess): SessionIO {
 
 function brokerIO(client: AiBridgeClient, sessionKey: string): SessionIO {
   return {
-    writeStdin: (data) => client.write(sessionKey, data),
+    writeStdin: (data, mark) => client.write(sessionKey, data, mark),
     signal: (sig) => client.signal(sessionKey, sig),
     kill: () => client.kill(sessionKey),
   };
@@ -987,8 +987,8 @@ interface PersistentProcess {
   /** Scan outcome: consumed-store offset right after the last `result` —
    *  where the LIVE second attach starts so old turns are never re-emitted. */
   replayAfterLastResultOffset?: number;
-  /** Scan outcome for a store that ends on a `result`: its last turn (`claude/closed-turn.ts`). */
-  replayClosedTurn?: ClosedTurn;
+  /** Scan outcome: where each marked row's own turn lies in the store (`claude/row-turn.ts`). */
+  replayRowTurns?: RowTurns;
   /** Offset assoluto appena DOPO l'ultima riga NDJSON piegata. Non è
    *  `consumedOffset`, che si muove a CHUNK e per giunta solo a fold finito:
    *  qui si è precisi alla riga, mentre la riga passa. È ciò che fa ripartire
@@ -1605,7 +1605,7 @@ export class ClaudeCodeProvider implements AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
-    options?: { model?: string; resetFallbackContent?: string; fastMode?: boolean },
+    options?: { model?: string; resetFallbackContent?: string; fastMode?: boolean; rowId?: string },
   ): Promise<{ runId?: string; notSent?: boolean }> {
     if (isRawGlobalCoordinator(sessionKey)) {
       // Do not enqueue or re-use a generic persistent process.  The only
@@ -1641,7 +1641,7 @@ export class ClaudeCodeProvider implements AIProvider {
       // torna null e non si manda niente — un `/fast on` rifiutato tornerebbe
       // come un messaggio dell'assistente dentro la chat.
       await this.applyFastMode(sessionKey, options?.fastMode === true);
-      return await this.sendChatInternal(sessionKey, message, handler, false, options?.resetFallbackContent);
+      return await this.sendChatInternal(sessionKey, message, handler, false, options?.resetFallbackContent, options?.rowId);
     } finally {
       resolveQueue();
     }
@@ -1678,6 +1678,7 @@ export class ClaudeCodeProvider implements AIProvider {
     handler: StreamHandler,
     retriedReset = false,
     resetFallbackContent?: string,
+    rowId?: string,
   ): Promise<{ runId?: string; notSent?: boolean }> {
     const pp = await this.processForTurn(sessionKey, STOPPED_CHILD_EXIT_WAIT_MS, handler);
     // Stopped before it had a child (see `waitingSends`): `abort()` already
@@ -1820,7 +1821,7 @@ export class ClaudeCodeProvider implements AIProvider {
       // the flag exists for is unaffected: there the CLI prints the
       // notification after reading this write, so it arms after this line.
       pp.notificationTurnPending = false;
-      pp.io.writeStdin(input);
+      pp.io.writeStdin(input, rowId);
     });
 
     try {
@@ -1900,7 +1901,7 @@ export class ClaudeCodeProvider implements AIProvider {
           // progetto, memoria e pinned. Il recap prologue ricostruisce i turni,
           // non i blocchi di sistema. Qui si rimanda la versione integra.
           const forFreshSession = resetFallbackContent ?? message;
-          return this.sendChatInternal(sessionKey, forFreshSession, handler, true, resetFallbackContent);
+          return this.sendChatInternal(sessionKey, forFreshSession, handler, true, resetFallbackContent, rowId);
         }
         handler.onError("La sessione era scaduta ed è stata ripristinata. Riprova.");
         return { runId };
@@ -2928,10 +2929,9 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.replayTailInitOnly = false;
     pp.replayLastResult = undefined;
     pp.replayAfterLastResultOffset = 0;
-    pp.replayClosedTurn = undefined;
+    pp.replayRowTurns = undefined;
     const scan = await client.attach(sessionKey, 0);
     dateReplay(pp, scan);
-    pp.replayClosedTurn = sealScan(pp.replayClosedTurn, { endOffset: scan.endOffset, lastDataAt: scan.lastDataAt ?? storeWrittenAt(client.storeDir, sessionKey) });
     return { missing: scan.missing === true, alive: scan.alive === true };
   }
 
@@ -3076,7 +3076,7 @@ export class ClaudeCodeProvider implements AIProvider {
    *                  died turn so the caller degrades to resume-from-scratch.
    * Resolves when the turn ends (like sendChatInternal), returning the outcome.
    */
-  async reattach(sessionKey: string, handler: StreamHandler, opts: { answeredAt?: number } = {}): Promise<"completed" | "live" | "awaiting-input" | "dead"> {
+  async reattach(sessionKey: string, handler: StreamHandler, opts: { rowId?: string } = {}): Promise<"completed" | "live" | "awaiting-input" | "dead"> {
     const existing = this.processes.get(sessionKey);
     if (existing && existing.alive && existing.streamHandler) return "live"; // already driving
 
@@ -3114,7 +3114,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // essere riusata e la rifusione dello snapshot vive dentro `finalizeStream`,
     // che quel `.catch` non chiama mai. Vedi `finalizeFailedReattach`.
     try {
-      return await this.reattachDrive(sessionKey, handler, pp, parked !== null, opts.answeredAt);
+      return await this.reattachDrive(sessionKey, handler, pp, parked !== null, opts.rowId);
     } catch (err) {
       return this.finalizeFailedReattach(sessionKey, pp, handler, err);
     }
@@ -3131,8 +3131,8 @@ export class ClaudeCodeProvider implements AIProvider {
     pp: PersistentProcess,
     /** Il `pp` viene da uno scan PARCHEGGIATO: la fase 1 l'ha già fatta la sonda, sugli stessi byte. */
     preScanned: boolean,
-    /** When the person's message this row answers arrived (epoch ms), if the route knows it. */
-    answeredAt?: number,
+    /** The row being adopted: its own turn is the one its message's mark starts. */
+    rowId?: string,
   ): Promise<"completed" | "live" | "awaiting-input" | "dead"> {
     const client = getAiBridgeClient();
 
@@ -3142,10 +3142,8 @@ export class ClaudeCodeProvider implements AIProvider {
     // does anything follow the last `result` (open turn), and what was that
     // last result (to deliver it if the turn completed while detached)?
     //
-    // Su un pp parcheggiato non si attacca niente: lo scan è già suo, e restando
-    // attaccato e muto ha continuato a seguire la coda dal vivo. `alive` è la
-    // verità corrente (`onSessionClosed` lo abbassa se il figlio è morto nel
-    // frattempo), e «missing» non può esserlo: il daemon ce l'aveva un attimo fa.
+    // A parked pp attaches nothing: its scan stayed attached and muted, following the tail live. `alive`
+    // is current (`onSessionClosed` lowers it), and it cannot be missing: the daemon had it a moment ago.
     const scan = preScanned
       ? { missing: false, alive: pp.alive }
       : await this.scanBrokerStore(client, sessionKey, pp);
@@ -3156,42 +3154,38 @@ export class ClaudeCodeProvider implements AIProvider {
       return "dead";
     }
 
-    if (!pp.replayTailOpen) {
-      // The store ends on a result: no turn in flight.
-      if (pp.replayLastResult) {
-        // The turn COMPLETED while we were detached: the row has what the old
-        // process flushed, the store has the whole turn. Replayed as an open
-        // turn is, so the row gets its text and closes on the result, which
-        // alone carries no text the route reads (card 98ce88d1). Only a turn
-        // that began after this row's message: else the result alone, as before.
+    // The row's own turn, where the daemon marked its message; without the mark, the store's tail decides, as on main.
+    const own = rowTurn(pp.replayRowTurns, rowId);
+    if (own ? own.end !== undefined : !pp.replayTailOpen) {
+      // No turn of this row in flight.
+      if (pp.replayLastResult || own) {
+        // The row's turn COMPLETED while we were detached: replayed from its mark, the row gets the
+        // text the old process never flushed and closes on its result (card 98ce88d1). What follows (a
+        // wake, an Agent's late lines) folds with no handler, silently, and keeps the background current.
         pp.streamHandler = handler;
-        if (answersTheRow(pp.replayClosedTurn, answeredAt)) {
+        if (own) {
           pp.replaySilent = true;
-          dateReplay(pp, await client.attach(sessionKey, pp.replayClosedTurn!.from));
+          dateReplay(pp, await client.attach(sessionKey, own.from));
           pp.replaySilent = false;
         }
-        if (pp.streamHandler) this.handleStreamEvent(pp, pp.replayLastResult); // the replay did not reach it
+        if (pp.streamHandler && pp.replayLastResult) this.handleStreamEvent(pp, pp.replayLastResult); // the replay did not reach it
         return "completed";
       }
       // Empty store (child idle since spawn, or nothing meaningful): nothing
       // to adopt.
       pp.streamHandler = handler;
-      // Un figlio che il broker giura VIVO non è un figlio morto: chiudere qui
-      // il turno con `process-died` era una bugia che si propagava — `alive`
-      // passava a false nella nostra mappa, e da lì `isTurnProcessAlive` e il
-      // setaccio di boot leggevano «morto» su un processo che stava benissimo,
-      // fermo ad aspettare una risposta. Non c'era un turno da adottare: è una
-      // fine normale, non una morte.
+      // A child the broker swears is ALIVE is not dead: closing with `process-died` set `alive` false here,
+      // and `isTurnProcessAlive` and the boot sweep then read «dead» on a process waiting for a message.
+      // There was no turn to adopt: a normal end, not a death.
       if (scan.alive) { this.finalizeIdleReattach(pp); return "completed"; }
       this.finalizeDeadReattach(pp);
       return "dead";
     }
 
     // ── Phase 2 · LIVE ──
-    // An open turn exists. Attach from just past the last completed turn so
-    // ONLY the in-flight turn folds into the fresh handler (replaySilent
-    // still suppresses live-only side effects during this replay), then keep
-    // driving until the live result.
+    // An open turn exists. Attach from the row's mark, or just past the last completed turn, so ONLY the
+    // in-flight turn folds into the fresh handler (replaySilent still mutes live-only side effects), then
+    // keep driving until the live result.
     pp.streamHandler = handler;
     pp.replaySilent = true;
     const turnDone = new Promise<void>((resolve, reject) => {
@@ -3204,7 +3198,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // rejection: the whole server went down. The awaits below still see it.
     turnDone.catch(() => {});
 
-    const res = await client.attach(sessionKey, pp.replayAfterLastResultOffset ?? 0);
+    const res = await client.attach(sessionKey, own?.from ?? pp.replayAfterLastResultOffset ?? 0);
     pp.replaySilent = false;
     dateReplay(pp, res);
 
@@ -3461,6 +3455,9 @@ export class ClaudeCodeProvider implements AIProvider {
     // stole the next send (topic 8f56c2c4, 22/09 14:45), read as a result it
     // closed the next send as «no reply».
     if (pp.stoppedExit && !pp.replayMute && !pp.replaySilent) return;
+    // Each row's own turn, for the reattach; a delivery mark is Topics' line, not the CLI's (`claude/row-turn.ts`).
+    if (pp.replayMute) pp.replayRowTurns = foldRowTurns(pp.replayRowTurns, event, pp.lineEndOffset ?? pp.consumedOffset);
+    if (isDeliveryMark(event)) { if (pp.replayMute) pp.replayTailOpen = true; return; }
 
     // Background work first, in every mode: the reattach scan rebuilds it from
     // the store the same way live traffic keeps it (`claude/background-work.ts`).
@@ -3571,7 +3568,6 @@ export class ClaudeCodeProvider implements AIProvider {
           pp.replayTailOpen = false;
         }
         pp.replayTailInitOnly = false;
-        if (rt !== "waiting for message") pp.replayClosedTurn = foldResult(pp.replayClosedTurn, pp.lineEndOffset ?? pp.consumedOffset, event);
       } else if (readParentToolUseId(event) === null) {
         pp.replayTailInitOnly = false;
         // A background agent's line after the last `result` is not a turn in
@@ -3649,7 +3645,7 @@ export class ClaudeCodeProvider implements AIProvider {
       // and the flag is dropped with it: an error must never be swallowed.
       if (pp.notificationTurnPending) {
         pp.notificationTurnPending = false;
-        if (!resultText && event.num_turns === 0 && event.subtype === "success" && event.is_error !== true) return;
+        if (isNotificationTurnEnd(event)) return;
       }
 
       if (handler) {

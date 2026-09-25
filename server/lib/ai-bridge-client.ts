@@ -626,7 +626,8 @@ export class AiBridgeClient {
    * Ora tornano un booleano onesto e `throwOnDrop` lo trasforma in eccezione per
    * chi ha una rete pronta a riceverla.
    */
-  write(id: string, data: string): void { this.throwOnDrop(this.send({ type: "write", id, data }), `write ${id}`); }
+  /** `mark`: the row this message answers, left in the store by a protocol-3 daemon (claude/row-turn.ts). */
+  write(id: string, data: string, mark?: string): void { this.throwOnDrop(this.send({ type: "write", id, data, ...(mark ? { mark } : {}) }), `write ${id}`); }
   detach(id: string): void { this.send({ type: "detach", id }); }
   signal(id: string, sig: string): void { this.throwOnDrop(this.send({ type: "signal", id, signal: sig }), `signal ${sig} ${id}`); }
 

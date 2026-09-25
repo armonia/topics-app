@@ -44,6 +44,8 @@ beforeAll(async () => {
   cpSync(join(REPO_ROOT, "tests", "e2e", "helpers", "fake-claude-final-after-detach.ts"), fake);
   chmodSync(fake, 0o755);
   setEnv("TOPICS_CLAUDE_CLI_PATH", fake);
+  // The fake's "FIXTUREBG" turn replays the recorded CLI session from its working directory.
+  cpSync(join(REPO_ROOT, "tests", "fixtures", "claude-cli-2.1.282-background-work.ndjson"), join(tempDir, "background-work.ndjson"));
 });
 
 afterAll(async () => {
@@ -69,7 +71,7 @@ async function bench(name: string) {
   const { createTopicsRouter } = await import("../../server/routes/topics");
   const { registerProvider, removeProvider } = await import("../../server/providers");
   const { __resetAiBridgeClientForTests, getAiBridgeClient } = await import("../../server/lib/ai-bridge-client");
-  for (const f of ["finish-turn", "got-delayed"]) rmSync(join(tempDir, f), { force: true });
+  for (const f of ["finish-turn", "got-delayed", "bg-done", "woken-done", "fx-done"]) rmSync(join(tempDir, f), { force: true });
   const ctx = await createTestAppContext();
   const frames: Array<{ type?: string }> = [];
   (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = (m) => frames.push(m as { type?: string });
@@ -87,7 +89,7 @@ async function bench(name: string) {
   const provider = registerProvider({ type: "claude-code", defaultWorkspace: tempDir } as never) as { stop: () => void };
   const router = createTopicsRouter(ctx);
   return {
-    frames, post: (body: Record<string, unknown>) => post(router, body),
+    frames, db: ctx.db, sk, post: (body: Record<string, unknown>) => post(router, body),
     rows: () => ctx.db.query("SELECT id, role, content, partial FROM messages WHERE session_key = ? ORDER BY sort_order").all(sk) as Array<{ id: string; role: string; content: string; partial: number }>,
     store: () => join(getAiBridgeClient().storeDir, `${sk.replace(/[^a-zA-Z0-9_-]/g, "_")}.ndjson`),
     /** The shutdown detaches the broker session (claude-code `stop()`), then the process goes. */
@@ -98,13 +100,27 @@ async function bench(name: string) {
       __resetAiBridgeClientForTests();
       ctx.activeStreams.delete(sk);
     },
-    /** The next boot: a fresh provider and fresh routes adopt the session (`runHeadlessReattach`'s request). */
+    /** The next boot's provider, before anything adopts the session. */
+    bootProvider: () => registerProvider({ type: "claude-code", defaultWorkspace: tempDir } as never) as unknown as {
+      brokerTurnState: (sk: string, o: { park: boolean }) => Promise<string>; backgroundState: (sk: string) => string;
+    },
+    /** The boot's adoption: fresh routes, `runHeadlessReattach`'s request. */
+    reattach: () => post(createTopicsRouter(ctx), { messages: [], mode: "reattach", dispatched: true, provider: "claude-code" }),
+    /** The next boot: a fresh provider and fresh routes adopt the session. */
     boot: () => {
       registerProvider({ type: "claude-code", defaultWorkspace: tempDir } as never);
       return post(createTopicsRouter(ctx), { messages: [], mode: "reattach", dispatched: true, provider: "claude-code" });
     },
+    /** A daemon older than protocol 3: the store gets no delivery marks. */
+    withoutMarks: () => {
+      const client = getAiBridgeClient();
+      const write = client.write.bind(client);
+      client.write = (id: string, data: string) => write(id, data);
+    },
   };
 }
+
+const has = (file: string, text: string) => existsSync(file) && readFileSync(file, "utf8").includes(text);
 
 const finish = () => writeFileSync(join(tempDir, "finish-turn"), "");
 
@@ -137,7 +153,9 @@ describe("a turn that ended while the server was away is written whole at the ne
   // Review of #145: a SIGTERM after the message reached stdin but before the
   // CLI's init (its UserPromptSubmit hooks run first) leaves the PREVIOUS turn
   // last in the store. It is not this row's, and its answer must not be copied.
-  test("the store's last turn is older than the row: its answer stays out of the new row, as on main", async () => {
+  // The mark the daemon left when it wrote the message says the turn is on its
+  // way: the boot waits for it instead of closing the row.
+  test("the store's last turn is older than the row: its answer stays out of the new row, and the row gets its own", async () => {
     const b = await bench("older");
     await b.post({ messages: [{ role: "user", content: "OLDTURN" }] });
     await waitFor("the old turn closed", () => b.rows().some((r) => r.role === "assistant" && r.partial === 0 && r.content.includes("OLD-B")));
@@ -145,11 +163,14 @@ describe("a turn that ended while the server was away is written whole at the ne
     await waitFor("the child to read the message", () => existsSync(join(tempDir, "got-delayed")));
     await waitFor("the new partial row", () => { const r = b.rows(); return r.length === 4 && r[3].partial === 1; });
     b.shutdown();
-    await b.boot();
+    void b.boot();
     await Bun.sleep(1000);
+    finish();
+    await waitFor("the adopted row to close", () => b.rows().every((r) => r.partial === 0), 30_000);
     const newRow = b.rows()[3];
     expect(newRow.content).not.toContain("OLD-A");
     expect(newRow.content).not.toContain("OLD-B");
+    expect(newRow.content).toContain("DELAYED-ANSWER.");
   }, 60_000);
 
   // Review of #145: the first turn after a `/compact` begins at the compaction's
@@ -167,5 +188,61 @@ describe("a turn that ended while the server was away is written whole at the ne
     const last = b.rows().at(-1)!;
     expect(last.content).toContain("AC-FINAL report.");
     expect(last.content).not.toContain("OLD-B");
+  }, 60_000);
+
+  // Second review of #145, W: 87 of 1724 closed turns (5%) in 30 days had a
+  // woken turn within 20 s of their end. The woken turn's text is not the
+  // person's answer, with or without the marks.
+  for (const marks of [true, false]) {
+    test(`the row's turn ends, then its background command wakes the CLI, all while the server is away${marks ? "" : ": a daemon without marks, as on main"}`, async () => {
+      const b = await bench(marks ? "woken" : "wokenold");
+      if (!marks) b.withoutMarks();
+      void b.post({ messages: [{ role: "user", content: "BGREPORT" }] });
+      await waitFor("the background command in the store", () => has(b.store(), "toolu_t1"));
+      await waitFor("the tool to start", () => b.frames.some((f) => /tool/.test(f.type ?? "")));
+      b.shutdown(finish);
+      await waitFor("the turn's result", () => has(b.store(), '"result":"T1-FINAL'));
+      writeFileSync(join(tempDir, "bg-done"), "");
+      await waitFor("the woken turn's result", () => existsSync(join(tempDir, "woken-done")) && has(b.store(), '"result":"W2'));
+      const provider = b.bootProvider();
+      await b.reattach();
+      await waitFor("the adopted row to close", () => b.rows().every((r) => r.partial === 0), 30_000);
+      const row = b.rows().find((r) => r.role === "assistant")!;
+      expect(row.content).not.toContain("W2");
+      if (marks) expect(row.content).toContain("T1-FINAL: the PR is pushed, CI is running.");
+      // The command reported and the wake answered it: nothing is left running.
+      expect(provider.backgroundState(b.sk)).toBe("none");
+    }, 60_000);
+  }
+
+  // H: the recorded CLI 2.1.282 session, whose background Agent keeps printing after the turn's result.
+  test("the row's turn ends during the shutdown while its background Agent keeps printing: the row gets its final text", async () => {
+    const b = await bench("bgagent");
+    void b.post({ messages: [{ role: "user", content: "FIXTUREBG" }] });
+    await waitFor("the recorded tools in the store", () => has(b.store(), '"name":"Monitor"'));
+    await Bun.sleep(1000);
+    b.shutdown(finish);
+    await waitFor("the recorded turn's end", () => existsSync(join(tempDir, "fx-done")));
+    await b.boot();
+    await waitFor("the adopted row to close", () => b.rows().every((r) => r.partial === 0), 30_000);
+    expect(b.rows().find((r) => r.role === "assistant")!.content).toContain("Launched.");
+  }, 60_000);
+
+  // P: a row closed from outside while the child lived goes through the boot's
+  // probe, which parks its scan; the turn ends before the adoption claims it.
+  test("the turn ends between the boot's probe and the adoption: the row gets its final text", async () => {
+    const b = await bench("parked");
+    void b.post({ messages: [{ role: "user", content: "write the report" }] });
+    await waitFor("the tool to start", () => b.frames.some((f) => /tool/.test(f.type ?? "")));
+    b.shutdown();
+    const row = b.rows().find((r) => r.role === "assistant")!;
+    b.db.run("UPDATE messages SET partial = 0 WHERE id = ?", [row.id]);
+    expect(await b.bootProvider().brokerTurnState(b.sk, { park: true })).toBe("open");
+    finish();
+    await waitFor("the turn's end in the broker store", () => has(b.store(), `"result":${JSON.stringify(FINAL_REPORT)}`));
+    await Bun.sleep(300);
+    await b.reattach();
+    await waitFor("the adopted row to close", () => b.rows().every((r) => r.partial === 0), 30_000);
+    expect(b.rows().find((r) => r.id === row.id)!.content).toContain(FINAL_REPORT);
   }, 60_000);
 });

@@ -114,6 +114,30 @@ describe("ai-bridge daemon", () => {
     c.close(); c2.close(); c3.close();
   });
 
+  // Protocol 3 (server/providers/claude/row-turn.ts): where a row's message
+  // reached the child. Never inside a line: a mark written in the middle of the
+  // child's JSON line would break that line for every reader of the store.
+  test("a write's mark goes into the store at the next line boundary, before the child's answer", async () => {
+    const c = await connect();
+    const id = "topic:marks";
+    const markLine = (m: string) => JSON.stringify({ type: "topics_delivered", mark: m }) + "\n";
+    c.send({ type: "spawn", id, cliPath: "cat", args: [], cwd: storeDir, env: {} });
+    await c.next((m) => m.type === "spawned" && m.id === id);
+    c.send({ type: "write", id, data: "abc" });
+    await c.next((m) => m.type === "data" && m.id === id && b64(m.chunk) === "abc");
+    c.send({ type: "write", id, data: "def\nxyz\n", mark: "R1" });
+    await c.next((m) => m.type === "data" && m.id === id && b64(m.chunk) === "xyz\n");
+    c.send({ type: "write", id, data: "q\n", mark: "R2" });
+    await c.next((m) => m.type === "data" && m.id === id && b64(m.chunk) === "q\n");
+
+    const c2 = await connect();
+    c2.send({ type: "attach", id, fromOffset: 0 });
+    const replay = await c2.next((m) => m.type === "data" && m.id === id);
+    expect(b64(replay.chunk)).toBe(`abcdef\n${markLine("R1")}xyz\n${markLine("R2")}q\n`);
+    expect((await c2.next((m) => m.type === "attached" && m.id === id)).protocol).toBe(3);
+    c.close(); c2.close();
+  });
+
   test("spawn is idempotent per id (never a second child on the same transcript)", async () => {
     const c = await connect();
     const id = "topic:idem1";

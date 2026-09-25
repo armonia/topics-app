@@ -15,15 +15,23 @@
  * The review of PR #145 added the turns around it (its probe's fake, ported):
  * "OLDTURN" answers at once; "COMPACTNOW" is a `/compact` (an init, a boundary,
  * an empty result); "AFTERCOMPACT" waits for `finish-turn` like "report";
- * "DELAYED" is read but its turn never starts (the SIGTERM that comes before
- * the CLI's init). Every `duration_ms` is the turn's real length.
+ * "DELAYED" is read, and its turn starts only at `finish-turn` (the SIGTERM
+ * that comes before the CLI's init). Every `duration_ms` is the turn's real length.
+ *
+ * Its second review added three more, ported the same way:
+ *   - "BGREPORT": the turn starts a background command and ends at
+ *     `finish-turn`; at `bg-done` the command's notification wakes the CLI in
+ *     a turn of its own ("W2"), as recorded in topic 4e5e2d76;
+ *   - "FIXTUREBG": the recorded CLI 2.1.282 session (tests/fixtures, copied
+ *     next to this file by the test): its turn ends at `finish-turn` while its
+ *     background Agent keeps printing after the `result`.
  */
 
 // A module, not a global script: the other fake CLIs in this folder declare
 // the same top-level names, and the typecheck sees them all at once.
 export {};
 
-import { existsSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 const SESSION_ID = "00000000-0000-4000-8000-000000000098";
@@ -95,6 +103,40 @@ function reviewTurn(text: string): boolean {
     });
   } else if (/DELAYED/.test(text)) {
     touch("got-delayed");
+    whenFile("finish-turn", () => { init(); assistant([{ type: "text", text: "DELAYED-ANSWER." }]); result("DELAYED-ANSWER.", started, 1); });
+  } else if (/BGREPORT/.test(text)) {
+    init();
+    assistant([{ type: "text", text: "T1-FIRST: committing, then watching CI in background." }]);
+    assistant([{ type: "tool_use", id: "toolu_t1", name: "Bash", input: { command: "gh run watch", run_in_background: true } }]);
+    const task = (tasks: unknown[]) => out({ type: "system", subtype: "background_tasks_changed", tasks, session_id: SESSION_ID });
+    out({ type: "system", subtype: "task_started", task_id: "b1", tool_use_id: "toolu_t1", session_id: SESSION_ID });
+    task([{ task_id: "b1", task_type: "local_bash", description: "gh run watch" }]);
+    whenFile("finish-turn", () => {
+      out({ type: "user", session_id: SESSION_ID, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_t1", content: "Command running in background with ID: b1" }] } });
+      assistant([{ type: "text", text: "T1-FINAL: the PR is pushed, CI is running." }]);
+      result("T1-FINAL: the PR is pushed, CI is running.", started, 3);
+      whenFile("bg-done", () => {
+        const wakeStarted = Date.now();
+        task([]);
+        out({ type: "system", subtype: "task_updated", task_id: "b1", patch: { status: "completed", end_time: wakeStarted }, session_id: SESSION_ID });
+        out({ type: "system", subtype: "task_notification", task_id: "b1", tool_use_id: "toolu_t1", status: "completed", summary: "Background command \"gh run watch\" completed (exit code 0)", session_id: SESSION_ID });
+        init();
+        assistant([{ type: "text", text: "W2: CI is green too." }]);
+        result("W2: CI is green too.", wakeStarted, 1);
+        touch("woken-done");
+      });
+    });
+  } else if (/FIXTUREBG/.test(text)) {
+    const events = readFileSync(join(process.cwd(), "background-work.ndjson"), "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+    const end = events.findIndex((e) => e.type === "result");
+    const next = events.findIndex((e, i) => i > end && e.type === "system" && e.subtype === "init");
+    for (const e of events.slice(0, 120)) out(e);
+    whenFile("finish-turn", () => {
+      for (const e of events.slice(120, end)) out(e);
+      out({ ...events[end], duration_ms: Date.now() - started });
+      for (const e of events.slice(end + 1, next)) out(e);
+      touch("fx-done");
+    });
   } else {
     return false;
   }
