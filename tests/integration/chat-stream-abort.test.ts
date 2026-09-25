@@ -355,11 +355,17 @@ describe("la promessa di ripresa sul cartello", () => {
     expect(testo).not.toContain("«Riprova»");
   });
 
-  test("watchdog e limite di tempo: promettono la ripresa, perché lo sweep li riprende", async () => {
-    for (const cause of ["watchdog", "wall-clock"] as const) {
+  // The silence cap reports through `onError` (`classifyTurnError` reads
+  // "wall-clock" off the message); an `onAborted` carrying wall-clock is the
+  // delegation's deadline, a stop the machine wanted (fourth review of PR #135).
+  test("watchdog e limite di silenzio: promettono la ripresa, perché lo sweep li riprende", async () => {
+    const ends = {
+      watchdog: (hd: StreamHandler) => hd.onAborted?.({ result: "", turnEnd: { end: "cancelled", cause: "watchdog" } }),
+      "wall-clock": (hd: StreamHandler) => hd.onError("Turn exceeded the wall-clock cap"),
+    };
+    for (const [cause, end] of Object.entries(ends)) {
       const h = await harness(`topic:ripresa-${cause}`);
-      const handler = await h.startTurn();
-      handler.onAborted?.({ result: "", turnEnd: { end: "cancelled", cause } });
+      end(await h.startTurn());
       await new Promise((r) => setTimeout(r, 50));
 
       const m = h.ctx.loadLocalMessages(`topic:ripresa-${cause}`).filter((x) => x.role === "assistant").pop()!;
@@ -368,6 +374,14 @@ describe("la promessa di ripresa sul cartello", () => {
       expect(testo, cause).toContain("Riprendo da solo");
       expect(testo, cause).not.toContain("«Riprova»");
     }
+  });
+
+  test("scadenza della delega: nessun cartello, riga vuota scartata, come su main", async () => {
+    const h = await harness("topic:ripresa-delega");
+    const handler = await h.startTurn();
+    handler.onAborted?.({ result: "", turnEnd: { end: "cancelled", cause: "wall-clock" } });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(h.ctx.loadLocalMessages("topic:ripresa-delega").filter((x) => x.role === "assistant")).toEqual([]);
   });
 
   test("fermato da una persona: nessuna promessa, e nemmeno il bottone che rimanda", async () => {
