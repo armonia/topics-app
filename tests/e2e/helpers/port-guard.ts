@@ -10,15 +10,18 @@
  *   - never on the live server's port (`~/.topics/daemon-state.json`), 3333 or
  *     3434, whatever E2E_PORT says: refused before anything is looked up;
  *   - only a listener that IS a test server: `start-test-server` on its command
- *     line, or a DATA_DIR under the test data root. Any other is named and left
- *     alive, and the caller stops.
+ *     line, where both launchers put it. Any other is named and left alive, and
+ *     the caller stops. Not a DATA_DIR: macOS reads it from `ps -E`, split on
+ *     spaces, so any argument spelling `DATA_DIR=` passed for one.
+ *
+ * A PID saved earlier, the server global-setup spawned, is killed under the
+ * same rule (`killSavedTestServer`).
  */
 import { execFileSync } from "child_process";
-import { readFileSync, realpathSync } from "fs";
+import { readFileSync } from "fs";
 import { homedir } from "os";
-import { join, sep } from "path";
-import { IS_WINDOWS, killPids, listenerPids } from "./platform";
-import { canonicalTmpRoot } from "./test-server";
+import { join } from "path";
+import { IS_WINDOWS, killPids, killProcessTree, listenerPids } from "./platform";
 
 /** The live server's ports on this machine: the app listens on 3333 and 3434. */
 export const PRODUCTION_PORTS: readonly number[] = [3333, 3434];
@@ -53,27 +56,29 @@ function commandOf(pid: string): string {
   }
 }
 
-/** The process's DATA_DIR: /proc on Linux, `ps -E` on macOS (own processes only), unknown on Windows. */
-function dataDirOf(pid: string): string | null {
-  if (IS_WINDOWS) return null;
-  try {
-    const env = process.platform === "linux"
-      ? readFileSync(`/proc/${pid}/environ`, "utf8").split("\0")
-      : execFileSync("ps", ["-wwE", "-o", "command=", "-p", pid], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).split(/\s+/);
-    const dir = env.find((e) => e.startsWith("DATA_DIR="))?.slice("DATA_DIR=".length);
-    if (!dir) return null;
-    try { return realpathSync(dir); } catch { return dir; }
-  } catch {
-    return null;
-  }
+/** A test server: `--started-by=start-test-server`, the tag both launchers in scripts/ pass to the server. */
+export function isTestServer(pid: string): boolean {
+  return commandOf(pid).includes("start-test-server");
 }
 
-/** A test server: launched by `start-test-server`, or with its data under the test data root. */
-export function isTestServer(pid: string): boolean {
-  if (commandOf(pid).includes("start-test-server")) return true;
-  const dir = dataDirOf(pid);
-  const root = join(canonicalTmpRoot(), "topics-test-data");
-  return !!dir && (dir === root || dir.startsWith(`${root}-`) || dir.startsWith(`${root}${sep}`));
+/**
+ * The server global-setup spawned (`__TEST_SERVER_PID`), if that PID is still a
+ * test server. A spec that restarts the server leaves the saved PID pointing at
+ * nothing, and this Mac hands PIDs out again about every two hours: a review
+ * probe saw the teardown kill a `sleep` given the old number. The setup drops
+ * the variable when its server exits; this covers an exit not seen yet.
+ */
+export function killSavedTestServer(): void {
+  const pid = process.env.__TEST_SERVER_PID;
+  const command = pid ? commandOf(pid) : "";
+  if (!pid || !command) return;
+  if (!command.includes("start-test-server")) {
+    console.warn(`[port-guard] PID ${pid} is no longer the test server (${command}), left alive.`);
+    return;
+  }
+  // The whole tree: a process group signal on POSIX, `taskkill /T` on Windows, then the process itself.
+  killProcessTree(Number(pid));
+  killPids([pid]);
 }
 
 /**
