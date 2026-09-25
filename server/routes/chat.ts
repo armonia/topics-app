@@ -1178,13 +1178,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           const persistBlocks = (force = false) =>
             persistTurnBody(false, force || (streamState === "finalized" && !late.isOpen()));
           const appendToolBlock = (tc: ToolCall) => {
-            late.adopt();
             blocks.push({ kind: "tool", toolCall: tc });
             blocksBytes += JSON.stringify(tc).length;
             persistBlocks();
           };
           const updateBlockTool = (id: string, patch: Partial<ToolCall>) => {
-            late.adopt();
             for (let i = 0; i < blocks.length; i++) {
               const b = blocks[i];
               if (b.kind === "tool" && b.toolCall.id === id) {

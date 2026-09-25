@@ -22,6 +22,11 @@
  *   - whatever ends it saves it. An error or an abort lost everything after
  *     the last periodic save, and a failure now leaves the notice a live turn
  *     leaves, the one the sweep resumes.
+ *
+ * And an END with nothing late before it is not a late answer: it is the turn
+ * itself ending twice (claude-code reports a dead child on the session and
+ * again on the send; Codex's abort arrives after the Stop already closed the
+ * turn). Only something late opens the lane, so those are logged and left.
  */
 import type { ContentBlock, StoredMessage } from "../types";
 import type { ProviderDoneMessage, StreamHandler } from "../providers/types";
@@ -30,6 +35,8 @@ import { classifyTurnError, type TurnEndInfo } from "../providers/stop-reason";
 import { avvisoPerTurno, isResumableCause } from "./cancelled-notice";
 
 interface Slot { get: () => string; set: (value: string) => void }
+
+const END_EVENTS: ReadonlySet<string> = new Set(["onDone", "onError", "onAborted"]);
 
 export interface LateAnswerLaneOptions {
   sessionKey: string;
@@ -63,8 +70,6 @@ export interface LateAnswerLane {
   onHeard: (event: string) => void;
   /** For `guardFinalizedTurn`: a callback reached the closed turn and went nowhere. */
   onDropped: (event: string) => void;
-  /** The row as its closer left it becomes the timeline, once. For writers outside the handler too. */
-  adopt: () => void;
   /** A late answer is running: its end will write the row. */
   isOpen: () => boolean;
 }
@@ -78,6 +83,9 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
   let deltas = 0;
   let dropped = 0;
 
+  // Only from `onHeard`, i.e. from the provider's callbacks after the close:
+  // the route's own finalize runs with the turn already marked closed and
+  // must keep its live body, not the throttle's last write.
   const adopt = () => {
     if (adopted || !opts.isClosed()) return;
     adopted = true;
@@ -117,6 +125,11 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
       broadcastChunk("stream:content_chunk", extra);
     }
   };
+  const trailing = (how: string): boolean => {
+    if (open) return false;
+    console.warn(`[StreamWS] ${sessionKey}: ${how} after the close of ${opts.rowId()} with nothing late before it, the turn's own end: left alone`);
+    return true;
+  };
   const end = (how: string, notice: string | null) => {
     if (notice) opts.blocks.push({ kind: "error", text: notice.replace(/^⚠️\s*/, "") });
     ended = true;
@@ -141,6 +154,7 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
       broadcastChunk("stream:thinking_chunk", text);
     },
     onDone: (message?: ProviderDoneMessage) => {
+      if (trailing("onDone")) return;
       takeTail(message);
       end("ended", null);
     },
@@ -148,20 +162,24 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
     // `onError`: that one also rolls back the inline preamble mark, and after
     // the close the mark may belong to the next turn.
     onError: (error: string) => {
+      if (trailing(`onError (${error})`)) return;
       const notice = avvisoPerTurno(classifyTurnError(error, "provider-error"), { haProdotto: true, riprendeDaSolo: true });
       end(`failed (${error})`, notice ?? error);
     },
-    // No notice for a person's Stop: `avvisoPerTurno` is silent on it.
+    // A notice only for a cause the provider named: `avvisoPerTurno` is
+    // silent on a person's Stop, and an abort with no cause is most often one.
     onAborted: (message?: ProviderDoneMessage) => {
+      if (trailing("onAborted")) return;
       takeTail(message);
-      const info: TurnEndInfo = message?.turnEnd ?? { end: "cancelled" };
-      end("aborted", avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: isResumableCause(info.cause) }));
+      const info: TurnEndInfo | undefined = message?.turnEnd;
+      end("aborted", info ? avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: isResumableCause(info.cause) }) : null);
     },
   };
 
   return {
     handlers,
-    onHeard: () => {
+    onHeard: (event: string) => {
+      if (END_EVENTS.has(event)) return;
       adopt();
       if (!open && !ended) { open = true; opts.onOpen(); }
     },
@@ -171,7 +189,6 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
         console.warn(`[StreamWS] ${sessionKey}: ${event} reached the closed turn ${opts.rowId()} and was dropped (only its text, tools and end are kept)`);
       }
     },
-    adopt,
     isOpen: () => open,
   };
 }

@@ -509,3 +509,50 @@ describe("a late answer is kept whole, cheaply, on the row as its closer left it
     expect(result?.messageId).toBe(turnRowId);
   });
 });
+
+describe("the turn's own end is not a late answer", () => {
+  test("a live turn that ends with a tool still open keeps every word and block it streamed", async () => {
+    // The finalize closes the tools still open AFTER it has marked the turn
+    // closed; re-reading the row there swapped the live body for the
+    // throttle's last write, and the end of the answer was lost.
+    const h = await harness("topic:live-open-tool-end");
+    const handler = await h.startTurn();
+    const turnRowId = h.lastRowId();
+    let total = "";
+    for (const d of ["A", "B", "C"]) { total += d; handler.onTextDelta(d, total); }
+    handler.onToolStart("toolu_open", "Bash", { command: "sleep 600" } as never);
+    for (const d of ["D", "E"]) { total += d; handler.onTextDelta(d, total); }
+    handler.onDone({ content: [{ type: "text", text: total }] } as never);
+    await until(() => h.sent.some((m) => m.type === "stream:end"));
+    expect(h.ctx.getMessageById(turnRowId)?.content).toBe("ABCDE");
+    const text = h.blocksOf(turnRowId).filter((b) => b.kind === "text").map((b) => (b as { text: string }).text).join("");
+    expect(text).toBe("ABCDE");
+  });
+
+  test("a crash ends the turn once: the second report of the same death adds no second notice", async () => {
+    // claude-code reports a dead child twice on the same handler: the session
+    // closing, then the send's rejection.
+    const h = await harness("topic:double-error");
+    const handler = await h.startTurn();
+    const turnRowId = h.lastRowId();
+    handler.onTextDelta("mezza risposta", "mezza risposta");
+    handler.onError("Process exited with code 1");
+    handler.onError("Process died unexpectedly");
+    await sleep(20);
+    expect(h.blocksOf(turnRowId).filter((b) => b.kind === "error")).toHaveLength(1);
+  });
+
+  test("an abort that trails a closed turn with nothing late in between writes no notice and no copy of the text", async () => {
+    // Codex after a Stop: the route closes the turn at once, the child's
+    // abort arrives later with the text so far and no cause. It is the same
+    // turn ending, not a late answer, and a person's Stop leaves no notice.
+    const h = await harness("topic:trailing-abort");
+    const handler = await h.startTurn();
+    const turnRowId = h.lastRowId();
+    await until(() => h.sent.some((m) => m.type === "stream:end"));
+    const before = h.raw(turnRowId);
+    handler.onAborted?.({ content: [{ type: "text", text: "quello che era arrivato" }] } as never);
+    await sleep(20);
+    expect(h.raw(turnRowId)).toEqual(before);
+  });
+});
