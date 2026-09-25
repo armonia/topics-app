@@ -1,28 +1,30 @@
 /**
- * THE CHAT'S SSE STREAM OUTLIVES A SILENT TOOL.
+ * THE CHAT'S SSE STREAM OUTLIVES A SILENT TOOL, AND SAYS WHICH TURN IT IS.
  * @covers CCLI-03
  *
  * Measured on 2026-09-24 (chat 3019832f): a Bash with a 300 s timeout started
  * at 23:35:30Z, and the SSE response of POST /api/chat closed at 23:39:45Z,
  * 255 s later to the second, with HTTP 200 and no `data: [DONE]`. The turn went
- * on (re-attached at 23:40:23Z). 255 was Bun's `idleTimeout` (server.ts), and
+ * on (re-attached at 23:40:23Z). 255 is Bun's `idleTimeout` (server.ts), and
  * `send_chat_message` read that close as the end of the turn.
  *
- * Three facts, one test each: Bun counts a server write as no activity (so no
- * keepalive can hold a finite idle timeout open, and the timeout has to be off);
- * the production servers run with it off; and the chat's stream still puts a
- * comment line on the wire while a tool is silent, for the proxies between the
- * client and us (relay, tunnel) that do count bytes.
+ * Bun resets the idle timeout on every write, so a ping holds the stream open.
+ * Its socket timers tick every 4 s, and any timeout up to 4 s is one tick that
+ * no write can stretch: the proof below runs at 8 s, where a write counts.
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { setupTestDataDir, createTestAppContext, cleanupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createChatRouter } from "./chat";
+import { armStallDetector } from "../lib/stall-detector";
+import { isSseCommentOnly } from "../lib/sse-ping";
+import { cancelled } from "../providers/stop-reason";
+import { recordTurnEnd } from "../providers/turn-end-registry";
 import type { AIProvider, StreamHandler } from "../providers/types";
-import type { Topic } from "../types";
+import type { AppContext, Topic } from "../types";
 
-const ROOT = testTmpDir("chat-sse-keepalive");
+const ROOT = testTmpDir("chat-sse-ping");
 beforeAll(() => setupTestDataDir(`${ROOT}/data`));
 afterAll(() => cleanupTestDataDir(ROOT));
 
@@ -44,116 +46,220 @@ async function readAll(resp: Response): Promise<{ body: string; cut: boolean }> 
   }
 }
 
-describe("Bun's idle timeout and a streaming response", () => {
-  test("a server write every 300 ms does not keep a 1 s idle timeout from closing the response", async () => {
-    // The fact the server's configuration rests on: if a future Bun counts a
-    // write as activity, this turns red, and a finite idle timeout plus the
-    // keepalive becomes enough. Bun's socket timers tick at about 4 s, so a
-    // 1 s timeout cuts after 4 to 8 s (measured: 4.07 s, 13 pings through).
-    const server = Bun.serve({
+function saveTopic(ctx: AppContext, id: string): string {
+  const sessionKey = `topic:${id}`;
+  ctx.saveSingleTopic({
+    id, name: id, slug: id, parentId: null, links: [], sessionKey,
+    color: "#5865f2", icon: "MessageSquare", createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(), archived: false, provider: "claude-code",
+  } as unknown as Topic);
+  return sessionKey;
+}
+
+/**
+ * A provider whose turn starts a tool that prints nothing. With `silentMs` the
+ * tool ends and the answer follows; without it the turn stays silent until the
+ * test drives the handler.
+ */
+function silentToolProvider(silentMs?: number) {
+  const handlers = new Map<string, StreamHandler>();
+  const provider = {
+    name: "claude-code",
+    capabilities: new Set(["streaming"]),
+    contextStrategy: "history-aware",
+    get connected() { return true; },
+    registerStreamHandler: () => {},
+    unregisterStreamHandler: () => {},
+    sendChat: async (sk: string, _msg: string, h: StreamHandler) => {
+      handlers.set(sk, h);
+      h.onToolStart("toolu_silent", "Bash", { command: "sleep 300" });
+      if (silentMs !== undefined) {
+        void Bun.sleep(silentMs).then(() => {
+          h.onToolResult("toolu_silent", "done", false);
+          h.onTextDelta("finished", "finished");
+          h.onDone(undefined as never);
+        });
+      }
+      return { runId: "run-1" };
+    },
+    defaultModel: () => "fake-model",
+    abort: async () => {},
+    isTurnProcessAlive: () => true,
+    start: () => {}, stop: () => {},
+    complete: async () => ({ content: "" }),
+  } as unknown as AIProvider;
+  return { provider, handlers };
+}
+
+function chatRouterFor(ctx: AppContext, provider: AIProvider, ssePingMs: number) {
+  return createChatRouter(ctx, {
+    resolveProvider: () => provider,
+    detectLocalhostAutoNav: () => {},
+    bindTopicToProject: () => {},
+    resolveProjectRef: () => null,
+    getProjectIdForTopic: () => null,
+    getWorkspaceProjects: () => [],
+    autoBindProject: () => {},
+    watchSessionForSubagents: () => {},
+    updateUnreadCount: () => {},
+    browserNavigatedTopics: new Set<string>(),
+    WORKSPACE_DIR: ROOT,
+    ssePingMs,
+  } as never);
+}
+
+function chatRequest(sessionKey: string, base = "http://localhost"): Request {
+  return new Request(`${base}/api/chat`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: "run the long command" }] }),
+  });
+}
+
+/** POST /api/chat in the same process, the way the board's headless turns call it. */
+async function postInProcess(router: ReturnType<typeof createChatRouter>, sessionKey: string): Promise<Response> {
+  const req = chatRequest(sessionKey);
+  const url = new URL(req.url);
+  const resp = await router(req, url, url.pathname, "POST");
+  expect(resp?.status).toBe(200);
+  return resp!;
+}
+
+describe("the chat's SSE response during a silent tool, behind Bun's idle timeout", () => {
+  test("silent, it is cut without [DONE]; with the ping, it reaches [DONE]", async () => {
+    const ctx = await createTestAppContext();
+    const silentKey = saveTopic(ctx, "sse-silent");
+    const pingKey = saveTopic(ctx, "sse-ping");
+    // 14 s of silence against an 8 s idle timeout: the cut lands at 8 to 12 s.
+    const silent = chatRouterFor(ctx, silentToolProvider(14_000).provider, 60_000);
+    const pinged = chatRouterFor(ctx, silentToolProvider(14_000).provider, 2_000);
+    const serve = (router: ReturnType<typeof createChatRouter>) => Bun.serve({
       port: 0,
-      idleTimeout: 1,
-      fetch() {
-        const encoder = new TextEncoder();
-        const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-        const w = writable.getWriter();
-        const ping = setInterval(() => { w.write(encoder.encode(": ping\n\n")).catch(() => {}); }, 300);
-        setTimeout(() => {
-          clearInterval(ping);
-          w.write(encoder.encode("data: [DONE]\n\n")).then(() => w.close()).catch(() => {});
-        }, 9_000);
-        return new Response(readable, { headers: { "Content-Type": "text/event-stream" } });
+      idleTimeout: 8,
+      fetch: async (req) => {
+        const url = new URL(req.url);
+        return (await router(req, url, url.pathname, req.method)) ?? new Response("not found", { status: 404 });
       },
     });
+    const silentServer = serve(silent);
+    const pingServer = serve(pinged);
     try {
-      const { body, cut } = await readAll(await fetch(`http://127.0.0.1:${server.port}/`));
-      expect(body).toContain(": ping");
-      expect(cut || !body.includes("[DONE]")).toBe(true);
-    } finally {
-      server.stop(true);
-    }
-  }, 20_000);
+      const [cutRun, pingRun] = await Promise.all([
+        fetch(chatRequest(silentKey, `http://127.0.0.1:${silentServer.port}`)).then(readAll),
+        fetch(chatRequest(pingKey, `http://127.0.0.1:${pingServer.port}`)).then(readAll),
+      ]);
 
-  test("the production servers run with the idle timeout off", () => {
-    // Both listeners (main port and tunnel) spread the same options object, so
-    // this one line is the whole setting.
+      expect(cutRun.body).not.toContain("[DONE]");
+      expect(cutRun.body).not.toContain("finished");
+
+      expect(pingRun.cut).toBe(false);
+      expect((pingRun.body.match(/^: ping$/gm) ?? []).length).toBeGreaterThanOrEqual(3);
+      expect(pingRun.body).toContain("finished");
+      expect(pingRun.body.trimEnd().endsWith("data: [DONE]")).toBe(true);
+    } finally {
+      silentServer.stop(true);
+      pingServer.stop(true);
+    }
+  }, 40_000);
+});
+
+describe("the board's stall watch with pings on the stream", () => {
+  test("a stuck turn is still judged within the idle window while pings flow", async () => {
+    const ctx = await createTestAppContext();
+    const sessionKey = saveTopic(ctx, "sse-stall");
+    const { provider } = silentToolProvider();
+    const resp = await postInProcess(chatRouterFor(ctx, provider, 100), sessionKey);
+    const reader = resp.body!.getReader();
+
+    // The reader of `watchHeadlessBody` (server.ts), with a 1 s idle window
+    // standing in for `dispatchIdleMin`.
+    const t0 = Date.now();
+    let stuckAfterMs: number | null = null;
+    let pings = 0;
+    const detector = armStallDetector({
+      idleMs: 1_000,
+      isWaitingForHuman: () => false,
+      getTail: () => "the tail",
+      judge: async () => "stuck",
+      onStuck: () => { stuckAfterMs = Date.now() - t0; reader.cancel().catch(() => {}); },
+    });
+    const giveUp = setTimeout(() => reader.cancel().catch(() => {}), 4_000);
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (isSseCommentOnly(value)) pings++;
+        else detector.noteActivity();
+      }
+    } catch { /* cancelled */ }
+    finally {
+      clearTimeout(giveUp);
+      detector.clear();
+    }
+
+    expect(pings).toBeGreaterThanOrEqual(5);
+    expect(stuckAfterMs).not.toBeNull();
+    expect(stuckAfterMs!).toBeLessThan(2_500);
+    ctx.activeStreams.get(sessionKey)?.abortController?.abort();
+  }, 10_000);
+
+  test("the headless reader in server.ts counts no comment-only chunk as activity", () => {
+    // The loop lives inside server.ts, which starts a server on import: its
+    // wiring is checked on the source.
     const source = readFileSync(join(REPO_ROOT, "server.ts"), "utf8");
-    expect(source).toMatch(/^\s*idleTimeout:\s*0\b/m);
+    const reader = source.slice(source.indexOf("async function watchHeadlessBody("));
+    expect(reader.slice(0, reader.indexOf("finally {"))).toMatch(/if \(!isSseCommentOnly\(value\)\) detector\.noteActivity\(\);/);
+  });
+
+  test("a comment-only chunk is a ping; a chunk with data is activity", () => {
+    const enc = (s: string) => new TextEncoder().encode(s);
+    expect(isSseCommentOnly(enc(": ping\n\n"))).toBe(true);
+    expect(isSseCommentOnly(enc(": ping\n\n: ping\n\n"))).toBe(true);
+    expect(isSseCommentOnly(enc(": ping\n\ndata: {}\n\n"))).toBe(false);
+    expect(isSseCommentOnly(enc("data: [DONE]\n\n"))).toBe(false);
+    expect(isSseCommentOnly(enc(""))).toBe(false);
+    expect(isSseCommentOnly(undefined)).toBe(false);
   });
 });
 
-describe("the chat's SSE response during a silent tool", () => {
-  test("puts a comment line on the wire while the tool is silent, and still ends with [DONE]", async () => {
+describe("the turn frames the chat's SSE carries for its readers", () => {
+  const firstData = (body: string) => JSON.parse(body.split("\n").find((l) => l.startsWith("data: "))!.slice(6));
+
+  test("the first frame names the turn's row, and a finished turn sends no end frame", async () => {
     const ctx = await createTestAppContext();
-    const sessionKey = "topic:sse-keepalive";
-    ctx.saveSingleTopic({
-      id: "t-sse-keepalive", name: "sse", slug: "sse", parentId: null, links: [], sessionKey,
-      color: "#5865f2", icon: "MessageSquare", createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(), archived: false, provider: "claude-code",
-    } as unknown as Topic);
+    const sessionKey = saveTopic(ctx, "sse-row");
+    const { provider } = silentToolProvider(50);
+    const { body } = await readAll(await postInProcess(chatRouterFor(ctx, provider, 60_000), sessionKey));
 
-    const provider = {
-      name: "claude-code",
-      capabilities: new Set(["streaming"]),
-      contextStrategy: "history-aware",
-      get connected() { return true; },
-      registerStreamHandler: () => {},
-      unregisterStreamHandler: () => {},
-      // A tool that prints nothing for a while, then the answer.
-      sendChat: async (_sk: string, _msg: string, h: StreamHandler) => {
-        h.onToolStart("toolu_silent", "Bash", { command: "sleep 300" });
-        await Bun.sleep(2_000);
-        h.onToolResult("toolu_silent", "done", false);
-        h.onTextDelta("finished", "finished");
-        h.onDone(undefined as never);
-        return { runId: "run-1" };
-      },
-      defaultModel: () => "fake-model",
-      abort: async () => {},
-      start: () => {}, stop: () => {},
-      complete: async () => ({ content: "" }),
-    } as unknown as AIProvider;
+    const rows = ctx.loadLocalMessages(sessionKey);
+    const answer = rows[rows.length - 1];
+    expect(answer.role).toBe("assistant");
+    expect(firstData(body)).toEqual({ turn: { messageId: answer.id } });
+    expect(body).not.toContain('"end"');
+    expect(body.trimEnd().endsWith("data: [DONE]")).toBe(true);
+  });
 
-    const chatRouter = createChatRouter(ctx, {
-      resolveProvider: () => provider,
-      detectLocalhostAutoNav: () => {},
-      bindTopicToProject: () => {},
-      resolveProjectRef: () => null,
-      getProjectIdForTopic: () => null,
-      getWorkspaceProjects: () => [],
-      autoBindProject: () => {},
-      watchSessionForSubagents: () => {},
-      updateUnreadCount: () => {},
-      browserNavigatedTopics: new Set<string>(),
-      WORKSPACE_DIR: ROOT,
-      ssePingMs: 200,
-    } as never);
+  test("a turn a person stops says so before [DONE]", async () => {
+    const ctx = await createTestAppContext();
+    const sessionKey = saveTopic(ctx, "sse-stop");
+    const { provider } = silentToolProvider();
+    const resp = await postInProcess(chatRouterFor(ctx, provider, 60_000), sessionKey);
+    // What POST /api/chat/abort does: deposit the cause, then abort the stream.
+    setTimeout(() => {
+      recordTurnEnd(sessionKey, cancelled("user", "POST /api/chat/abort"));
+      ctx.activeStreams.get(sessionKey)!.abortController!.abort();
+    }, 100);
+    const { body } = await readAll(resp);
+    expect(body).toContain(`data: ${JSON.stringify({ turn: { end: "cancelled", cause: "user" } })}\n\ndata: [DONE]`);
+  });
 
-    // Served as production serves it: idle timeout off.
-    const server = Bun.serve({
-      port: 0,
-      idleTimeout: 0,
-      fetch: async (req) => {
-        const url = new URL(req.url);
-        return (await chatRouter(req, url, url.pathname, req.method)) ?? new Response("not found", { status: 404 });
-      },
-    });
-    try {
-      const resp = await fetch(`http://127.0.0.1:${server.port}/api/chat`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: "run the long command" }] }),
-      });
-      expect(resp.status).toBe(200);
-      const { body, cut } = await readAll(resp);
-
-      expect(cut).toBe(false);
-      // About ten ticks in two seconds; a loaded machine may run fewer.
-      expect((body.match(/^: ping$/gm) ?? []).length).toBeGreaterThanOrEqual(3);
-      expect(body).toContain("finished");
-      expect(body.trimEnd().endsWith("data: [DONE]")).toBe(true);
-    } finally {
-      server.stop(true);
-    }
-  }, 20_000);
+  test("a turn that ends in a provider error says so before [DONE]", async () => {
+    const ctx = await createTestAppContext();
+    const sessionKey = saveTopic(ctx, "sse-error");
+    const { provider, handlers } = silentToolProvider();
+    const resp = await postInProcess(chatRouterFor(ctx, provider, 60_000), sessionKey);
+    setTimeout(() => handlers.get(sessionKey)!.onError("upstream connection reset"), 100);
+    const { body } = await readAll(resp);
+    expect(body).toMatch(/data: \{"turn":\{"end":"error","cause":"[a-z-]+"\}\}\n\ndata: \[DONE\]/);
+  });
 });

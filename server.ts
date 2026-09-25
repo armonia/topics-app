@@ -238,6 +238,7 @@ import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
 // it (see server/lib/stall-detector.ts + stall-judge.ts). `dispatchTimeoutMin`
 // is downgraded to a reporting-only comparison below.
 import { armStallDetector } from "./server/lib/stall-detector";
+import { isSseCommentOnly } from "./server/lib/sse-ping";
 import { judgeStall } from "./server/lib/stall-judge";
 import { internalAbortRequest, internalRequest, STOP_CAUSE_HEADER, type StopCause } from "./server/lib/abort-cause";
 import { runBootPartialSweep } from "./server/lib/boot-partial-sweep";
@@ -1146,7 +1147,7 @@ async function watchHeadlessBody(
   });
   try {
     while (true) {
-      const { done } = await Promise.race([
+      const { done, value } = await Promise.race<{ done: boolean; value?: Uint8Array }>([
         reader.read(),
         (async () => {
           while (true) {
@@ -1159,7 +1160,7 @@ async function watchHeadlessBody(
         if (peekTurnEnd(sessionKey)) reader.cancel().catch(() => {});
         break;
       }
-      detector.noteActivity();
+      if (!isSseCommentOnly(value)) detector.noteActivity();
     }
   }
   finally {
@@ -3176,7 +3177,7 @@ const opzioniServer = {
   // lock (acquired before Bun.serve) is the primary guard; this is defense in
   // depth for any server that bypasses it via a custom TOPICS_HOME.
   reusePort: false,
-  idleTimeout: 0, // off: Bun counts no server write as activity, so a silent tool cut the chat SSE at 255 s (server/lib/sse-ping.ts)
+  idleTimeout: 255,
   ...(useTls ? {
     tls: {
       cert: Bun.file(tlsCert),
