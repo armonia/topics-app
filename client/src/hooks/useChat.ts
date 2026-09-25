@@ -766,6 +766,23 @@ export function useChat() {
   // l'helper che questo file usa già per lo stesso scopo.
   const resetStreamTimeoutRef = useRefMirror(resetStreamTimeout);
 
+  const stoppedByUserRef = useRefMirror(stoppedByUser);
+  /**
+   * A live frame of a turn this window had already settled lights it again.
+   *
+   * `stream:start` was the only frame that lit a turn, and it came and went: a
+   * window that took the turn for over (the registry dropped it, the reply's
+   * SSE closed early) showed a finished chat with no Stop while the answer kept
+   * arriving. A turn the person stopped stays stopped: the frames still in
+   * flight before the server's abort must not bring the Stop back.
+   */
+  const relightSettledTurn = useCallback((sessionKey: string, messageId?: string) => {
+    if (streamingRef.current[sessionKey] || stoppedByUserRef.current[sessionKey]) return;
+    beginStreaming(sessionKey);
+    resetStreamTimeout(sessionKey);
+    if (messageId) streamMessageIdRef.current.begin(sessionKey, messageId);
+  }, [beginStreaming, resetStreamTimeout, streamingRef, stoppedByUserRef]);
+
   const clearStreamTimeout = useCallback((sessionKey: string) => {
     if (streamingTimeoutRef.current[sessionKey]) {
       clearTimeout(streamingTimeoutRef.current[sessionKey]);
@@ -1382,6 +1399,7 @@ export function useChat() {
             break;
           }
           if (cleanedChunk) bufferLiveDelta(sessionKey, cleanedChunk, undefined);
+          relightSettledTurn(sessionKey);
           resetStreamTimeout(sessionKey); // Reset watchdog on each chunk (immediate, not deferred)
         }
         break;
@@ -1403,6 +1421,7 @@ export function useChat() {
 
       case 'stream:tool_call':
         if (event.toolCall) {
+          if (!event.late) relightSettledTurn(sessionKey, event.messageId);
           addToolCallToLastMessage(sessionKey, event.toolCall as ToolCall, event);
         }
         break;
@@ -1671,6 +1690,11 @@ export function useChat() {
         settleTurn(sessionKey);
         break;
 
+      case 'stream:alive':
+        // The server's stale-stream sweep asked this turn's child, and it is alive.
+        relightSettledTurn(sessionKey, event.messageId);
+        break;
+
       case 'stream:catchup':
         // Full buffer catch-up from server on WS connect — set streaming
         // state and create/update the assistant message with accumulated
@@ -1717,7 +1741,7 @@ export function useChat() {
         }
         break;
     }
-  }, [addToolCallToLastMessage, appendToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn]);
+  }, [addToolCallToLastMessage, appendToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {
@@ -1805,6 +1829,8 @@ export function useChat() {
     const idemKey = options?.clientMessageId ?? crypto.randomUUID();
 
     let streamStarted = false; // Track if server received the request (don't re-queue if true)
+    // The reply closed without [DONE] while the server still runs the turn (see the reload below).
+    let liveAfterCut = false;
     localSSESessionsRef.current.add(sessionKey); // Block WS duplicates for this session
     // Difesa in profondità: da qui parte un turno NUOVO, e il segnaposto lo conia
     // questa funzione con un id locale. Qualunque nome fosse rimasto appeso da un
@@ -1868,6 +1894,7 @@ export function useChat() {
       let assistantMessageCreated = true;
       let currentContent = '';
       let isInThinking = false;
+      let sawDone = false;
 
       try {
         while (true) {
@@ -1906,6 +1933,7 @@ export function useChat() {
             const data = line.slice(6).trim();
             if (data === '[DONE]') {
               isDone = true;
+              sawDone = true;
               continue;
             }
 
@@ -2066,7 +2094,12 @@ export function useChat() {
           }));
         setMessages(prev => ({ ...prev, [sessionKey]: chatMessages }));
         const finalAssistant = [...chatMessages].reverse().find((message) => message.role === 'assistant');
-        finishStreamTokenRate(sessionKey, finalAssistant?.usageCompletionTokens);
+        // No [DONE], and the server still has the turn in flight: what ended is
+        // the response (a proxy, an idle timeout), not the turn. It stays lit and
+        // the WS frames take over, named after the row it is writing.
+        liveAfterCut = !sawDone && historyResponse.isStreaming === true;
+        if (liveAfterCut && finalAssistant?.partial) streamMessageIdRef.current.begin(sessionKey, finalAssistant.id);
+        else finishStreamTokenRate(sessionKey, finalAssistant?.usageCompletionTokens);
         hydratedSessionsRef.current.add(sessionKey);
         // The whole thread, in one answer: nothing is missing above it.
         markHistoryComplete(sessionKey);
@@ -2074,7 +2107,7 @@ export function useChat() {
 
       // Turno concluso in casa (SSE locale): stessa regola dello `stream:end`
       // via WS — tocca alla coda, se non è stata messa in freno da uno stop.
-      drainTurnQueueRef.current?.(sessionKey);
+      if (!liveAfterCut) drainTurnQueueRef.current?.(sessionKey);
 
       return true;
     } catch (err) {
@@ -2204,8 +2237,12 @@ export function useChat() {
       setStreaming(prev => ({ ...prev, [sessionKey]: false }));
       setThinking(prev => ({ ...prev, [sessionKey]: false }));
       delete abortControllersRef.current[sessionKey];
+      if (liveAfterCut) {
+        beginStreaming(sessionKey);
+        resetStreamTimeout(sessionKey);
+      }
     }
-  }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming]);
+  }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, resetStreamTimeout]);
 
   /**
    * Fa partire quello che è in coda, se è il momento — TUTTO INSIEME, in un
