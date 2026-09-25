@@ -37,21 +37,26 @@ const TEST_DATA = testTmpDir("machine-stop-reboot-data");
 beforeAll(() => setupTestDataDir(TEST_DATA));
 
 let captured: StreamHandler | undefined;
+// "claude-code" answers the abort at once; "native" answers nothing, and its
+// tool, cancelled by the abort, reports late with the sentence the repair pass
+// looks for (`MOTIVO_ANNULLATO` in providers/native/tools.ts).
+let answers: "claude-code" | "native" = "claude-code";
 const registered = registerProvider({ type: "openai", apiKey: "" } as never) as unknown as Record<string, unknown>;
 Object.defineProperty(registered, "connected", { configurable: true, get: () => true });
 registered.unregisterStreamHandler = () => { captured = undefined; };
-// claude-code: a synchronous onAborted with the reason it got, then the handler released.
 registered.abort = async (_sk: string, _runId: string | undefined, reason: string) => {
   const h = captured;
   captured = undefined;
-  h?.onAborted?.({ turnEnd: { end: "cancelled", cause: reason } } as never);
+  if (answers === "native") setTimeout(() => h?.onToolResult("toolu_x", "[comando interrotto: il turno è stato annullato mentre girava]", true), 20);
+  else h?.onAborted?.({ turnEnd: { end: "cancelled", cause: reason } } as never);
 };
 afterAll(() => { try { removeProvider("openai"); } catch { /* already gone */ } });
 
 type State = "tool" | "question" | "permission";
 
-async function stoppedThenRestarted(sessionKey: string, state: State, cause: MachineStopCause | null) {
+async function stoppedThenRestarted(sessionKey: string, state: State, cause: MachineStopCause | null, reporter: typeof answers = "claude-code") {
   captured = undefined;
+  answers = reporter;
   resetTurnEndRegistry();
   const ctx: AppContext = await createTestAppContext();
   (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = () => {};
@@ -100,6 +105,7 @@ async function stoppedThenRestarted(sessionKey: string, state: State, cause: Mac
     : internalAbortRequest(sessionKey, cause);
   const stopped = await topics(stop, new URL(stop.url), "/api/chat/abort", "POST") as Response;
   expect(stopped.status).toBe(200);
+  await new Promise((r) => setTimeout(r, 60));
 
   // The next boot: the registry is empty, the repair pass runs, then the sweep.
   ctx.db.run("UPDATE messages SET timestamp = ? WHERE session_key = ? AND role = 'user'", [new Date(Date.now() - 10 * 60_000).toISOString(), sessionKey]);
@@ -149,6 +155,16 @@ describe("a stop the machine wanted is still silent after the next boot", () => 
         expect(r.titles).not.toContain("stop pressed by user");
       });
     }
+  }
+
+  // The provider's own report can come after the route closed the turn, and
+  // overwrite the tool's sentence: the stop is known from the log instead.
+  for (const cause of ["stall", "superseded", "wall-clock"] as const) {
+    test(`${cause} on a provider whose tool reports late: nothing resent after the boot`, async () => {
+      const r = await stoppedThenRestarted(`topic:reboot-native-${cause}`, "tool", cause, "native");
+      expect(r.notices).toEqual([]);
+      expect(r.resent).toEqual([]);
+    });
   }
 
   for (const state of ["tool", "question", "permission"] as const) {

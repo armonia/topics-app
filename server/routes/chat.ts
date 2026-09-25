@@ -2401,7 +2401,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // del server, e diceva il contrario di quello che era successo.
             // The cause and the row go with it: the boot's repair pass reads them
             // to leave alone a turn the machine stopped on purpose.
-            else if (reason === "aborted") logStreamAborted({ ...logCtx, title: abortLogTitle(endInfo), extra: { cause: endInfo.cause, messageId: partialMsg.id } });
+            else if (reason === "aborted") logStreamAborted({ ...logCtx, title: abortLogTitle(endInfo) });
             else if (reason === "error") logStreamError({ ...logCtx, errorMessage: errorMsg });
 
             // (Topic switching is now a tool — `switch_topic`/`new_topic` —

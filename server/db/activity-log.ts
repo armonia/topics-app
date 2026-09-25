@@ -240,6 +240,25 @@ export function logStopPressed(ctx: { sessionKey: string; topicId?: string }): v
 }
 
 /**
+ * The machine stopped a live turn on purpose (lib/abort-cause.ts). Written by
+ * `/api/chat/abort` for the same reason as `logStopPressed`: a provider that
+ * reports late finds the finalize closed, and its tool's own sentence then
+ * reaches the row. The boot's repair pass reads the row id here, so it never
+ * takes that sentence for a mute turn and marks it to be resumed.
+ */
+export function logMachineStop(ctx: { sessionKey: string; topicId?: string; cause: string; messageId: string }): void {
+  logActivity({
+    category: "stream",
+    level: "info",
+    title: `machine stop (${ctx.cause})`,
+    sessionKey: ctx.sessionKey,
+    entityType: "topic",
+    entityId: ctx.topicId,
+    metadata: { cause: ctx.cause, messageId: ctx.messageId },
+  });
+}
+
+/**
  * Provider recovered after a soft timeout — late event arrived during the
  * grace period and we resumed streaming. Useful to spot how often the
  * resilience layer actually saves a stream.

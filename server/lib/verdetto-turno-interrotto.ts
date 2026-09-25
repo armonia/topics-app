@@ -122,8 +122,8 @@ export function bonificaTurniMuti(db: DbLike, testo: string): number {
  * The rows of turns the machine stopped ON PURPOSE (a land, a delegation's
  * deadline, the stall judge): they explain themselves and resume nothing, so
  * the repair above leaves them alone whatever their tools say (fourth review
- * of PR #135). The finalize records the cause and the row in `activity_log`
- * (routes/chat.ts); a database without that table is no evidence.
+ * of PR #135). `/api/chat/abort` records the cause and the row in
+ * `activity_log` (`logMachineStop`); a database without that table is no evidence.
  */
 function stoppedOnPurpose(db: DbLike): Set<string> {
   try {

@@ -26,7 +26,7 @@ import { resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
 import { getSessionContext } from "../db/session-context";
 import { markTargetNotificationsSeen, countUnseenNotifications } from "../db/notification-log";
-import { logStopPressed } from "../db/activity-log";
+import { logMachineStop, logStopPressed } from "../db/activity-log";
 import { isMachineStop, machineStopToolError, stopCauseOf } from "../lib/abort-cause";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
@@ -2469,6 +2469,7 @@ export function createTopicsRouter(
       // message after the next restart (topic c5d57a41, 24/09). A person's
       // Stop only: a machine's recycle recorded here was never resumed.
       if (cause === "user") logStopPressed({ sessionKey, topicId });
+      else if (stream.messageId) logMachineStop({ sessionKey, topicId, cause, messageId: stream.messageId });
 
       // PRIMA il provider, POI il controller dell'SSE. L'ordine conta: l'abort
       // del controller chiude la macchina a stati della route, quindi tutto ciò
