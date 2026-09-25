@@ -863,7 +863,9 @@ function brokerIO(client: AiBridgeClient, sessionKey: string): SessionIO {
 /** Who killed a child on purpose. Travels with the rejection of the send that
  *  was waiting on it, so the chat says what ended the turn. */
 type KillCause = "lifetime" | "idle" | "clear" | "config" | "watchdog" | "stopped-child" | "dead" | "shutdown";
-type BackgroundClosedObserver = (sessionKey: string, tasks: string[], why: "silent" | "stuck-turn") => void;
+type ClosedWhy = "silent" | "stuck-turn" | "deadline" | "superseded";
+type BackgroundClosedObserver = (sessionKey: string, tasks: string[], why: ClosedWhy) => void;
+type OwedChange = "autonomy" | "model" | "effort";
 
 const KILL_CAUSE_TEXT: Record<KillCause, string> = {
   lifetime: "the 2 hour lifetime cap",
@@ -1149,6 +1151,8 @@ interface PersistentProcess {
   configStale?: boolean;
   /** The chat was already told this child's background work is closed. */
   backgroundClosedSaid?: boolean;
+  /** Config changes owed by a turn in flight, said in the chat if that turn leaves background work. */
+  owedChanges?: Set<OwedChange>;
   /** Scan outcome: the tail is open only because a `system/init` started a turn with nothing after it yet. */
   replayTailInitOnly?: boolean;
   /**
@@ -1328,12 +1332,30 @@ export class ClaudeCodeProvider implements AIProvider {
   private static onBackgroundClosed: BackgroundClosedObserver | null = null;
 
   /**
-   * Say it before the child goes: `silent` = its work had no news for two
-   * hours (the reaper, the lifetime cap, a config respawn, the stall judge,
-   * which all wait for that bound); `stuck-turn` = a clock ended a wedged turn
-   * (turn watchdog, wall clock) and the work, alive or not, goes with it.
+   * Who says in the chat that a change owed by a turn in flight now waits for
+   * the background work that turn started: at PATCH time only the turn was
+   * known, and the change stayed owed in silence (second review of 25/09, R1).
    */
-  private sayBackgroundClosed(pp: PersistentProcess, why: "silent" | "stuck-turn", by: string): void {
+  static observeConfigOwed(fn: (sessionKey: string, changes: OwedChange[]) => void): void {
+    ClaudeCodeProvider.onConfigOwed = fn;
+  }
+  private static onConfigOwed: ((sessionKey: string, changes: OwedChange[]) => void) | null = null;
+
+  /** The owed changes, said once, when the work that makes them wait appears. */
+  private sayConfigOwed(pp: PersistentProcess): void {
+    if (!pp.owedChanges?.size || !pp.background?.tasks.size || !pp.configStale) return;
+    const changes = [...pp.owedChanges];
+    pp.owedChanges.clear();
+    try { ClaudeCodeProvider.onConfigOwed?.(pp.sessionKey, changes); }
+    catch (err) { console.warn(`[claude-code] config-owed observer failed for ${pp.sessionKey}:`, err); }
+  }
+
+  /**
+   * Say it before the child goes: `silent` = no news for two hours (every clock
+   * waits for that bound); `stuck-turn` = a watchdog ended a wedged turn;
+   * `deadline` = a delegation's maximum duration; `superseded` = a card gave way.
+   */
+  private sayBackgroundClosed(pp: PersistentProcess, why: ClosedWhy, by: string): void {
     const listed = pp.background?.tasks;
     // Once per child: a second clock in the 0.8 s between SIGINT and exit is the same close.
     if (!pp.alive || !listed?.size || pp.backgroundClosedSaid) return;
@@ -2026,7 +2048,7 @@ export class ClaudeCodeProvider implements AIProvider {
    * stream would drop the partial; the change then applies on the next natural
    * respawn instead. Idempotent: nothing to do if no process is pooled.
    */
-  refreshSessionConfig(sessionKey: string): "applied" | "deferred-turn" | "deferred-background" | "none" {
+  refreshSessionConfig(sessionKey: string, owed: OwedChange[] = []): "applied" | "deferred-turn" | "deferred-background" | "none" {
     const pp = this.processes.get(sessionKey);
     if (!pp) return "none";
     // A turn in flight, by the same rule as the lifetime cap and the reaper
@@ -2039,7 +2061,10 @@ export class ClaudeCodeProvider implements AIProvider {
     // work over respawns it.
     if (turnInFlight(pp) || backgroundAlive(pp)) {
       pp.configStale = true;
-      return backgroundAlive(pp) ? "deferred-background" : "deferred-turn";
+      if (backgroundAlive(pp)) return "deferred-background";
+      // Only a turn so far: if it starts background work, the chat hears of it then.
+      for (const c of owed) (pp.owedChanges ??= new Set()).add(c);
+      return "deferred-turn";
     }
     console.log(`[claude-code] refreshSessionConfig: dropping idle process for ${sessionKey} to pick up new config`);
     this.killProcess(pp, "config");
@@ -2133,7 +2158,9 @@ export class ClaudeCodeProvider implements AIProvider {
     // The judge is asked only once the work is past the bound, unless it
     // reported while the judge thought: then it went with a stuck turn.
     if (reason === "stall") this.sayBackgroundClosed(pp, backgroundAlive(pp) ? "stuck-turn" : "silent", "the stall judge");
-    if (reason === "watchdog" || reason === "wall-clock") this.sayBackgroundClosed(pp, "stuck-turn", `the ${reason} stop`);
+    if (reason === "watchdog") this.sayBackgroundClosed(pp, "stuck-turn", "the watchdog stop");
+    if (reason === "wall-clock") this.sayBackgroundClosed(pp, "deadline", "the delegation's deadline");
+    if (reason === "superseded") this.sayBackgroundClosed(pp, "superseded", "a superseded card");
     // Mark BEFORE signalling: the CLI exits (code 0) on SIGINT, so the exit
     // event that follows must be read as a clean stop, not a crash. The
     // reason keeps the exit log honest ("watchdog stop" vs "user stop").
@@ -3437,6 +3464,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // Background work first, in every mode: the reattach scan rebuilds it from
     // the store the same way live traffic keeps it (`claude/background-work.ts`).
     noteBackgroundLine(pp.background ??= newBackgroundWork(), event, Date.now(), { unattended: !pp.streamHandler });
+    this.sayConfigOwed(pp);
 
     // ── IL TURNO CHE NASCE DA SOLO ──
     // Il perché e le tre esclusioni stanno in `claude/woken-turn.ts`.

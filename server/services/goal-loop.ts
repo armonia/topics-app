@@ -115,6 +115,8 @@ export interface FinishedTurn {
   backgroundWakeOnly?: boolean;
   /** The turn answered a message the person typed (not a nudge, a wake, a resume or a card). */
   fromHuman?: boolean;
+  /** The CLI woke itself: its background work gave news (a report, a Monitor event). */
+  woken?: boolean;
   /** At least one tool ran. This is what "progress" means here. */
   usedTools: boolean;
   /** The assistant's last words, for the judge. */
@@ -210,7 +212,10 @@ export function goalLoopStep(input: {
 
   const idleTurns = usedTools ? 0 : counters.idleTurns + 1;
   if (idleTurns >= IDLE_TURNS_LIMIT) {
-    return { action: { kind: "stalled" }, loop: { ...counters, idleTurns, state: "stopped" } };
+    // A pause, not a stop: the person's next message lifts it, as it lifts
+    // Claude Code's paused check-ins (`goal-continuation.ts`). Stopped, the loop
+    // stayed off for good after one false alarm (second review of 25/09).
+    return { action: { kind: "stalled" }, loop: { ...counters, idleTurns, state: "blocked" } };
   }
 
   const attempt = counters.continuations + 1;
@@ -324,7 +329,7 @@ export function goalStopNotice(action: GoalLoopAction, goal: string): string | n
     case "capped":
       return `Auto-continuation stopped: ${MAX_GOAL_CONTINUATIONS} continuations in a row on "${goal}". The objective is still here: write to it to carry on.`;
     case "stalled":
-      return `Auto-continuation stopped: ${IDLE_TURNS_LIMIT} turns in a row with no tool run, so nothing is moving. The objective is still here: write to it to carry on.`;
+      return `Auto-continuation paused: ${IDLE_TURNS_LIMIT} turns in a row with no tool run, so nothing is moving. It resumes at the next message.`;
     default:
       return null;
   }

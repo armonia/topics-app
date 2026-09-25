@@ -309,6 +309,28 @@ export function attemptsOnRow(blocks: ContentBlock[] | null | undefined): number
 import type { Database } from "bun:sqlite";
 import { decodeCol, encodeCol } from "../../shared/message-blob";
 import { insertRestartNotification, type PartialSweepDb } from "./boot-partial-sweep";
+import { isBackgroundNoticeRow } from "./background-notice";
+
+/** A chat's last row, as the sweep reads it. */
+interface LastRow { sk: string; id: string; ruolo: string; blocks: unknown; ts: string }
+
+/**
+ * The row before a run of background notices: the chat's real last word. At
+ * most a few back, since notices come one per stop or per config change.
+ */
+function previousConversationRow(db: Database, row: LastRow): LastRow | null {
+  const before = db.query(
+    `SELECT session_key AS sk, id, role AS ruolo, blocks, timestamp AS ts FROM messages
+      WHERE session_key = ? AND rowid < (SELECT rowid FROM messages WHERE id = ?)
+      ORDER BY rowid DESC LIMIT 5`,
+  ).all(row.sk, row.id) as LastRow[];
+  for (const r of before) {
+    let blocks: unknown = null;
+    try { blocks = JSON.parse(decodeCol(r.blocks as never) ?? "null"); } catch { return null; }
+    if (!isBackgroundNoticeRow(blocks as never)) return r;
+  }
+  return null;
+}
 
 /** Quel poco del contesto del server che serve al giro. */
 export interface CtxRipresa {
@@ -523,12 +545,20 @@ export async function riprendiTurniInterrotti(
          JOIN (SELECT session_key, MAX(rowid) AS r FROM messages GROUP BY session_key) u
            ON u.r = m.rowid
         WHERE m.timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-25 hours')`,
-    ).all() as Array<{ sk: string; id: string; ruolo: string; blocks: unknown; ts: string }>;
+    ).all() as LastRow[];
     const ora = Date.now();
     const bootedAtMs = ctx.bootedAtMs ?? ora - process.uptime() * 1000;
-    for (const r of righe) {
+    for (const found of righe) {
       let blocks: ContentBlock[] | null = null;
-      try { blocks = JSON.parse(decodeCol(r.blocks) ?? "null") as ContentBlock[] | null; } catch { continue; }
+      try { blocks = JSON.parse(decodeCol(found.blocks) ?? "null") as ContentBlock[] | null; } catch { continue; }
+      // A background notice is a service line, not the chat's last word: the
+      // turn it follows is the one that may have been cut (second review of
+      // 25/09: a stall recycle of a person's message was never resent).
+      const r = isBackgroundNoticeRow(blocks) ? previousConversationRow(ctx.db, found) : found;
+      if (!r) continue;
+      if (r !== found) {
+        try { blocks = JSON.parse(decodeCol(r.blocks) ?? "null") as ContentBlock[] | null; } catch { continue; }
+      }
       const attempts = attemptsInChain(ctx.db, r.sk, r.id);
       const topic = ctx.getTopicBySessionKey(r.sk);
       if (!topic || topic.archived) continue;

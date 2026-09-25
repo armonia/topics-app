@@ -32,3 +32,24 @@ export function machineStopOf(blocks: readonly ContentBlock[] | undefined | null
   const b = blocks?.find((x) => x.kind === 'machine-stop');
   return b && b.kind === 'machine-stop' ? b.cause : null;
 }
+
+export type BackgroundNoticeBlock = Extract<ContentBlock, { kind: 'background-notice' }>;
+
+/** The background notice this row is, or null (server/lib/background-notice.ts). */
+export function backgroundNoticeOf(blocks: readonly ContentBlock[] | undefined | null): BackgroundNoticeBlock | null {
+  const b = blocks?.find((x) => x.kind === 'background-notice');
+  return b && b.kind === 'background-notice' ? b : null;
+}
+
+/**
+ * The chat's last word, past the background notices after it. A notice is a
+ * service line written after a stop or a config change: read as the last
+ * message it hid the cut turn under it, so neither «Retry» nor the interrupted
+ * turn's banner came (second review of 25/09).
+ */
+export function lastConversationMessage<M extends { blocks?: ContentBlock[] | null }>(messages: readonly M[]): M | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (!backgroundNoticeOf(messages[i].blocks)) return messages[i];
+  }
+  return undefined;
+}

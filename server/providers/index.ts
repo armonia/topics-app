@@ -15,7 +15,7 @@
 export * from "./types";
 
 import { syncDirectEndpointProviders } from "./direct-endpoint-registry";
-import type { AbortReason, AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, OpenAIProviderConfig, AcpProviderConfig } from "./types";
+import type { AIProvider, ProviderConfig, OpenClawProviderConfig, ClaudeProviderConfig, ClaudeCodeProviderConfig, CodexProviderConfig, OpenAIProviderConfig, AcpProviderConfig } from "./types";
 import { providerNameForConfig } from "./types";
 import { readApiProviderKey } from "../services/api-provider-credentials";
 import { KNOWN_ACP_AGENTS, mergeAcpAgents, parseAcpAgentsEnv } from "./acp/agents";
@@ -749,52 +749,7 @@ export async function sessionHasPendingSend(sessionKey: string): Promise<boolean
   return false;
 }
 
-/**
- * Is this session's CLI still reporting on work its last turn left running (an
- * Agent with `run_in_background`, a Bash, a Monitor)? The one door the stall
- * detector and the goal loop ask, the way `sessionHasPendingSend` is the resume
- * sweep's. Only claude-code answers today; any other session is `false`, which
- * is what every clock assumed before. A probe that throws claims nothing.
- */
-/** The two background probes, answered today by claude-code alone. */
-type BackgroundProbe = { hasBackgroundWork?: (sk: string) => boolean; backgroundSessionKeys?: () => string[] };
-
-export function sessionHasBackgroundWork(sessionKey: string): boolean {
-  for (const [, p] of _providers) {
-    try {
-      if ((p as BackgroundProbe).hasBackgroundWork?.(sessionKey)) return true;
-    } catch { /* a failing probe claims nothing */ }
-  }
-  return false;
-}
-
-/** The stall detector's background hold, as `server.ts` wires it: the same bound as every clock that kills. */
-export function stallBackgroundHold(sessionKey: string): () => boolean {
-  return () => sessionHasBackgroundWork(sessionKey);
-}
-
-/**
- * The Stop of a session's background work, sent to the provider that HAS it:
- * the topic's provider may have changed since (a model switch across
- * providers), and the old child keeps running its work. `stopped` only once
- * that provider no longer reports any.
- */
-export async function stopBackgroundWork(sessionKey: string, reason: AbortReason = "user"): Promise<"none" | "stopped" | "failed"> {
-  for (const [, p] of _providers) {
-    try {
-      if (!(p as BackgroundProbe).hasBackgroundWork?.(sessionKey) || !p.abort) continue;
-      await p.abort(sessionKey, undefined, reason);
-      return (p as BackgroundProbe).hasBackgroundWork?.(sessionKey) ? "failed" : "stopped";
-    } catch { return "failed"; }
-  }
-  return "none";
-}
-
-/** Every session with background work, for the chat status that offers its Stop. */
-export function sessionsWithBackgroundWork(): string[] {
-  const out: string[] = [];
-  for (const [, p] of _providers) {
-    try { out.push(...((p as BackgroundProbe).backgroundSessionKeys?.() ?? [])); } catch { /* a failing probe claims nothing */ }
-  }
-  return out;
+/** The registered providers, for the probes that ask each of them (`background-probes.ts`). */
+export function registeredProviders(): Iterable<AIProvider> {
+  return _providers.values();
 }

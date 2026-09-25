@@ -9,12 +9,19 @@
  *     applying it respawns the CLI and the respawn kills the work. Lowering the
  *     autonomy while it waits means the running CLI keeps the permissions the
  *     person just took away, and the person has to know;
- *   - a clock closes the CLI after two hours without news of work still listed
- *     (`BACKGROUND_WORK_CAP_MS`), and the work goes with it.
+ *   - a clock closes the CLI with work still listed, and the work goes with it.
  *
- * One assistant row with a `background-notice` block, the shape of the goal
- * loop's stop line: the client draws one translated line from the block, the
- * English sentence in `content` is what a reader of the raw transcript sees.
+ * -- A service row, the shape of `machine-stop` (lib/machine-stop-notice.ts) --
+ * One assistant row whose `content` is EMPTY and whose only block is a
+ * `background-notice`, drawn by the client as a service line. Empty on
+ * purpose, because every reader that must not see it reads `content` alone:
+ * the model's history (the claude-code recap, the native rehydrate, the API
+ * providers) and the dispatcher's "last words of the agent". The second review
+ * of 25/09 found the sentence in all three, and the row taken for the chat's
+ * last word: the resume sweep and the client read the LAST row, so a notice
+ * written under a cut turn hid it (`ripresa-boot.ts`, `lastConversationMessage`
+ * on the client look past it now). The block carries `text` for clients older
+ * than it, which print an unknown block as prose.
  */
 
 import type { ContentBlock } from "../../shared/types";
@@ -24,20 +31,23 @@ export type BackgroundNotice = Extract<ContentBlock, { kind: "background-notice"
 /** A notice before its sentence is written in (`text`, for older clients). */
 export type BackgroundNoticeFacts = BackgroundNotice extends infer N ? (N extends BackgroundNotice ? Omit<N, "text"> : never) : never;
 type NoticeCtx = Pick<AppContext, "appendLocalMessage" | "broadcastToAll" | "isStreaming">;
+export type OwedChange = "autonomy" | "model" | "effort";
 
-/**
- * The prefix every notice's text starts with, so a reader that loads rows
- * without their blocks (the dispatcher's mirror of the agent's last words) can
- * still tell the line from the agent's prose.
- */
-export const BACKGROUND_NOTICE_PREFIX = "Background work:";
+/** Is this row a background notice and nothing else, blocks as parsed JSON? */
+export function isBackgroundNoticeRow(blocks: readonly { kind?: unknown }[] | null | undefined): boolean {
+  return Array.isArray(blocks) && blocks.length > 0 && blocks.every((b) => b?.kind === "background-notice");
+}
+
+const CLOSED_WHY: Record<NonNullable<Extract<BackgroundNoticeFacts, { event: "closed" }>["why"]>, string> = {
+  "silent": "after two hours without news of it",
+  "stuck-turn": "with a turn that was stuck",
+  "deadline": "when the delegation reached its maximum duration",
+  "superseded": "with the card's turn, superseded",
+};
 
 export function backgroundNoticeText(n: BackgroundNoticeFacts): string {
-  if (n.event === "closed") {
-    const why = n.why === "stuck-turn" ? "with a turn that was stuck" : "after two hours without news of it";
-    return `${BACKGROUND_NOTICE_PREFIX} closed ${why}: ${n.tasks.join("; ")}.`;
-  }
-  return `${BACKGROUND_NOTICE_PREFIX} the ${n.change} change applies from the first message after the work running in the background ends; until then the running CLI, and the turns it wakes for that work, keep the previous one.`;
+  if (n.event === "closed") return `Background work closed ${CLOSED_WHY[n.why ?? "silent"]}: ${n.tasks.join("; ")}.`;
+  return `The ${n.change} change applies from the first message after the background work ends; until then the running CLI keeps the previous one. Stop ends that work now.`;
 }
 
 /**
@@ -49,7 +59,7 @@ export function noticeOwedChanges(
   ctx: NoticeCtx,
   topic: { id: string; sessionKey: string },
   outcome: unknown,
-  changes: { autonomy?: boolean; model?: boolean; effort?: boolean },
+  changes: Partial<Record<OwedChange, boolean>>,
 ): { pending?: "background-work" } {
   if (outcome !== "deferred-background") return {};
   for (const change of ["autonomy", "model", "effort"] as const) {
@@ -81,19 +91,14 @@ export function postBackgroundNotice(
     (t as { unref?: () => void }).unref?.();
     return;
   }
-  const text = backgroundNoticeText(facts);
-  const notice = { ...facts, text } as BackgroundNotice;
+  const notice = { ...facts, text: backgroundNoticeText(facts) } as BackgroundNotice;
   try {
-    const row = ctx.appendLocalMessage(target.sessionKey, "assistant", text, undefined, [notice]);
+    const row = ctx.appendLocalMessage(target.sessionKey, "assistant", "", undefined, [notice]);
+    // The live handler drops a `message:new` without text: the frame carries
+    // the sentence a client falls back to, and the block is what it draws.
     ctx.broadcastToAll({
-      type: "message:new",
-      topicId: target.topicId,
-      sessionKey: target.sessionKey,
-      role: "assistant",
-      messageId: row.id,
-      content: text,
-      preview: text.slice(0, 100),
-      blocks: [notice],
+      type: "message:new", topicId: target.topicId, sessionKey: target.sessionKey, role: "assistant",
+      messageId: row.id, content: notice.text, preview: "", blocks: [notice],
     });
   } catch (err) {
     console.warn(`[background] cannot write the notice for ${target.sessionKey}:`, err);

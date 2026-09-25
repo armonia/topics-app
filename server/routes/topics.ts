@@ -6,7 +6,8 @@ import { join, resolve, dirname } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic, ToolCall } from "../types";
-import { getProvider, getDefaultProvider, getDefaultProviderName, sessionsWithBackgroundWork, stopBackgroundWork, type AIProvider } from "../providers";
+import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
+import { sessionsWithBackgroundWork, stopBackgroundWork } from "../providers/background-probes";
 import { createTopicProviderResolver } from "../providers/topic-provider-resolver";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { routesThroughGateway } from "./commandRouting";
@@ -14,7 +15,7 @@ import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter, createToolDetailRouter } from "./history";
 import { blocksForDisk, leanMessagesForWire, toolCallsColumnForRow } from "../../shared/lean-tool-call";
 import { MACHINE_ROW_SQL } from "../../shared/prompt-number";
-import { noticeOwedChanges } from "../lib/background-notice";
+import { noticeOwedChanges, type OwedChange } from "../lib/background-notice";
 import { goalContinuationForChatRoute, type ChatGoalLoop } from "../services/goal-continuation";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
@@ -881,8 +882,8 @@ export function createTopicsRouter(
   // The two doors that leave the machine (mail and Google): same treatment as
   // the human channel, because the confirmation they impose IS that channel.
   const outboundRouter = createOutboundRouter(ctx);
-  const refreshConfig = (topic: Topic) => { // apply a spawn-time change, or learn why it waits
-    try { return resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
+  const refreshConfig = (topic: Topic, owed: Partial<Record<OwedChange, boolean>>) => { // apply a spawn-time change, or learn why it waits
+    try { return resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey, (Object.keys(owed) as OwedChange[]).filter((c) => owed[c])); }
     catch (err) { console.warn(`[topics] refreshSessionConfig failed for ${topic.sessionKey}:`, err); }
   };
   // Built here, not in the chat route: the Stop below and the boot need its handle.
@@ -894,6 +895,7 @@ export function createTopicsRouter(
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR,
     hooks: extra.hooks, goalLoop,
   }, browserService);
+  goalLoop.useRoute(async (...a) => chatRouter(...a)); // now: a boot check-in may come before any request
   // Il ponte MCP del browser (le sei rotte `…/browser/*` in due forme
   // d'indirizzo) sta in `browser-bridge.ts` con i tre helper di risoluzione del
   // contesto che usava SOLO lui. `browserNavigatedTopics` è la stessa istanza
@@ -1738,8 +1740,8 @@ export function createTopicsRouter(
         // response.
         if (effortChanged || spawnConfigChanged) {
           // A change the chat's background work makes wait is said in the chat.
-          const outcome = refreshConfig(topic);
-          noticeOwedChanges(ctx, topic, outcome, { autonomy: autonomyOwed, model: modelChanged, effort: effortChanged });
+          const owed = { autonomy: autonomyOwed, model: modelChanged, effort: effortChanged };
+          noticeOwedChanges(ctx, topic, refreshConfig(topic, owed), owed);
           // Il ring cambia DENOMINATORE, non numeratore: cambiare modello cambia
           // la finestra, e l'ultima misura va riletta contro quella nuova. Senza
           // questo il ring resta fermo sul vecchio rapporto fino al turno dopo —
@@ -2473,9 +2475,7 @@ export function createTopicsRouter(
       if (!stream) {
         // Only background work left: the Stop is for it (SIGINT, exit 0 in 0.8 s
         // on 2.1.282), and a goal waiting for it stops, or its check-in revives it.
-        // The person's Stop or a superseded card; a stall/wall-clock stop was for a turn now over.
-        const bgCause = stopCauseOf(req, body?.cause);
-        const stopped = bgCause === "user" || bgCause === "superseded" ? await stopBackgroundWork(sessionKey, bgCause) : "none";
+        const stopped = await stopBackgroundWork(sessionKey, stopCauseOf(req, body?.cause));
         if (stopped === "stopped") goalLoop.stopWaiting(sessionKey);
         if (stopped !== "none") return json({ ok: stopped === "stopped", reason: `background_${stopped}`, cleared: false });
         // Niente da fermare: turno già finito, oppure una finestra che stava
@@ -2965,7 +2965,7 @@ export function createTopicsRouter(
             topic.updatedAt = new Date().toISOString();
             saveSingleTopic(topic);
             broadcastToAll({ type: "topic:updated", topic });
-            const outcome = (topic.model ?? null) !== prevModel ? refreshConfig(topic) : undefined;
+            const outcome = (topic.model ?? null) !== prevModel ? refreshConfig(topic, { model: true }) : undefined;
             const pending = noticeOwedChanges(ctx, topic, outcome, { model: true });
             return json({ ok: true, command: "model", model: topic.model, ...pending, message: `Modello impostato: ${topic.model}. Attivo dal prossimo turno.` });
           }
@@ -2987,7 +2987,7 @@ export function createTopicsRouter(
             topic.updatedAt = new Date().toISOString();
             saveSingleTopic(topic);
             broadcastToAll({ type: "topic:updated", topic });
-            const outcome = (topic.effort ?? null) !== prevEffort ? refreshConfig(topic) : undefined;
+            const outcome = (topic.effort ?? null) !== prevEffort ? refreshConfig(topic, { effort: true }) : undefined;
             const pending = noticeOwedChanges(ctx, topic, outcome, { effort: true });
             return json({ ok: true, command: "effort", level: tier, ...pending, message: `Effort impostato: ${tier}. Attivo dal prossimo turno.` });
           }

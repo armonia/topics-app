@@ -1100,9 +1100,9 @@ function ChatPaneComponent({
       }
       return true;
     }
-    if (cmd.startsWith('/model ')) { const m = text.slice(7).trim(); if (!m) return false; setCommandLoading(true); try { const r = await commandApi.setModel(topic.sessionKey, m); setCommandResult({ type: 'success', message: r.pending ? tr('background.notice.deferred.model') : r.message || `Model set to: ${m}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    if (cmd.startsWith('/model ')) { const m = text.slice(7).trim(); if (!m) return false; setCommandLoading(true); try { const r = await commandApi.setModel(topic.sessionKey, m); setCommandResult({ type: 'success', message: r.pending ? tr('chat.command.modelSet', { model: m }) : r.message || `Model set to: ${m}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/effort') { setCommandResult({ type: 'error', message: 'Uso: /effort <low|medium|high|xhigh|max>' }); return true; }
-    if (cmd.startsWith('/effort ')) { const tier = text.slice(8).trim().toLowerCase(); if (!tier) return false; setCommandLoading(true); try { const r = await commandApi.setEffort(topic.sessionKey, tier); setCommandResult({ type: 'success', message: r.pending ? tr('background.notice.deferred.effort') : r.message || `Effort set to: ${tier}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
+    if (cmd.startsWith('/effort ')) { const tier = text.slice(8).trim().toLowerCase(); if (!tier) return false; setCommandLoading(true); try { const r = await commandApi.setEffort(topic.sessionKey, tier); setCommandResult({ type: 'success', message: r.pending ? tr('chat.command.effortSet', { level: tier }) : r.message || `Effort set to: ${tier}` }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
 
     // /project — info / create <name> / open <path-or-name>
     if (cmd === '/project' || cmd.startsWith('/project ')) {

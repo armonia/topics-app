@@ -6,7 +6,7 @@ import { isActiveTool } from '../Chat/toolGrouping';
 import { LEGACY_ERROR_PREFIX, turnErrorOf } from '../Chat/turnError';
 import { extractMediaPaths, splitBlockMedia } from '../messageMedia';
 import { parseQuestionBlock } from '../../../../shared/board';
-import { machineStopOf } from '../Chat/machineRow';
+import { backgroundNoticeOf, machineStopOf } from '../Chat/machineRow';
 
 export interface SessionSegment {
   message: ChatMessage;
@@ -40,6 +40,9 @@ export function taskSessionSegments(message: ChatMessage, hasThreadReply = false
   // The line under a turn the machine stopped: nothing to fold, and folded it
   // was an empty «session details» row.
   if (machineStopOf(message.blocks)) return visible();
+  // The service line about the chat's background work: nothing to fold, and
+  // folded it was an empty «session details» row.
+  if (backgroundNoticeOf(message.blocks)) return visible();
   const tools = toolsOf(message);
   const inFlight = activeRun || !!message.partial || tools.some(isActiveTool);
 

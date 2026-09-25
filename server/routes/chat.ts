@@ -2393,6 +2393,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // Claude Code re-enables its paused check-ins at the person's
                 // next message, not at any turn.
                 fromHuman: !isWoken && !isReattach && !dispatched && !body.goalNudge && !resumeAttempt,
+                woken: isWoken,
                 usedTools: toolsStartedThisTurn > 0,
                 lastAssistantText: fullContent,
               };

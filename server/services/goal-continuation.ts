@@ -49,7 +49,7 @@ import {
 } from "./goal-loop";
 import { insertRestartNotification, type PartialSweepDb } from "../lib/boot-partial-sweep";
 import { MAX_ITERATIONS } from "../providers/native/agent-loop";
-import { sessionHasBackgroundWork } from "../providers";
+import { sessionBackgroundState, sessionHasBackgroundWork } from "../providers/background-probes";
 
 export interface GoalContinuationDeps {
   db: Database;
@@ -84,6 +84,8 @@ export interface GoalContinuationDeps {
   isBusy?: (sessionKey: string) => boolean;
   /** The session's background work is still running, asked again when a check-in fires. */
   backgroundWork?: (sessionKey: string) => boolean;
+  /** A task just reported and the CLI is about to wake for it: a check-in now would meet that wake. */
+  wakeQueued?: (sessionKey: string) => boolean;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (handle: unknown) => void;
   now?: () => number;
@@ -259,14 +261,36 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
     // A turn in flight ends by itself, and its end decides. The deferred turn
     // stays for it: if that turn is the empty last wake, it is the one to judge.
     if (deps.isBusy?.(sessionKey)) { w.timer = null; return; }
+    // A task just reported and its wake is about to start: look again then.
+    if (deps.wakeQueued?.(sessionKey)) { w.timer = setTimer(() => { void checkIn(sessionKey); }, GOAL_WAKE_RECHECK_MS); return; }
     deferred.delete(sessionKey);
     // A wake that did not come is not a check-in: nothing to count.
     if (!w.wakeOnly) checkInCount.set(sessionKey, (checkInCount.get(sessionKey) ?? 0) + 1);
     log(`goal-loop: ${sessionKey}: ` + (w.wakeOnly
       ? "the wake a background report promised did not come, judging the waiting turn"
       : "checking in on the goal after its background work ran without reporting"));
-    await judge({ ...w.info, backgroundWork: false }, deps.backgroundWork?.(sessionKey) === true)
-      .catch((err) => log(`goal-loop: the check-in failed (${err instanceof Error ? err.message : String(err)})`));
+    // The judge takes 18 to 25 s: a Monitor event can wake the CLI meanwhile,
+    // and a nudge sent then is refused with a 409 (second review of 25/09).
+    const free = () => !deps.isBusy?.(sessionKey) && !deps.wakeQueued?.(sessionKey);
+    const outcome = await judge({ ...w.info, backgroundWork: false }, deps.backgroundWork?.(sessionKey) === true, free)
+      .catch((err) => { log(`goal-loop: the check-in failed (${err instanceof Error ? err.message : String(err)})`); return "error"; });
+    if (outcome === "busy") {
+      // The turn that took the session ends by itself and decides; this check-in is not spent.
+      if (!w.wakeOnly) checkInCount.set(sessionKey, Math.max(0, (checkInCount.get(sessionKey) ?? 1) - 1));
+      if (!deferred.has(sessionKey)) deferred.set(sessionKey, { ...w, timer: null });
+    }
+  }
+
+  /**
+   * A turn deferred on background work is not judged, so its tools never
+   * reset the idle streak: the first judged turn with no tool after it, most
+   * often the wake that reports the work finished, stopped the loop as
+   * "nothing is moving" (second review of 25/09). A deferred turn that ran a
+   * tool, or a wake (the listed work gave news), is progress.
+   */
+  function noteProgress(goal: ReturnType<typeof getActiveGoal>, info: TurnEndInfo): void {
+    if (!goal || goal.idleTurns === 0 || !(info.usedTools || info.woken)) return;
+    try { setGoalLoop(deps.db, goal.id, { idleTurns: 0 }); } catch { /* the next judged turn counts again */ }
   }
 
   const onTurnEnd = async function onTurnEnd(info: TurnEndInfo): Promise<string> {
@@ -278,6 +302,12 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
     let goal;
     try {
       goal = getActiveGoal(deps.db, info.topicId);
+      // The person's message lifts a pause: a stall, or a question the loop
+      // waited on. Claude Code pauses its check-ins until the next prompt too.
+      if (info.fromHuman && goal?.loopState === "blocked") {
+        goal = setGoalLoop(deps.db, goal.id, { state: "running", idleTurns: 0 }) ?? goal;
+        deps.announce(info.topicId);
+      }
     } catch (err) {
       log(`goal-loop: cannot read the goal (${err instanceof Error ? err.message : String(err)})`);
       return "error";
@@ -285,6 +315,7 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
     if (info.backgroundWork && turnCanContinueGoal({ ...info, backgroundWork: false }, goal)) {
       // A message typed while the goal waited starts a fresh stretch.
       if (info.fromHuman) dropWaiting(sk);
+      noteProgress(goal, info);
       return defer(info);
     }
     // An empty wake (a Monitor tick answered "No response requested.") with
@@ -292,11 +323,16 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
     // work, and its clock too. Dropping the entry first re-armed the check-in
     // from now at every silent tick, G1 again (review of 25/09); and a check-in
     // that fell due while that wake ran fires now instead of in thirty minutes.
+    // A wake that failed (an API error, a machine stop) with the work still
+    // listed keeps the wait too: dropped, no later tick re-armed a check-in.
+    // Only the person's own Stop ends it.
     const still = deferred.get(sk);
-    if (info.discarded && still && info.end === "end_turn" && !info.dispatched && info.backgroundWork) {
+    const emptyOrFailed = (info.discarded && info.end === "end_turn") || info.end === "error" || (info.end === "cancelled" && info.cause !== "user");
+    if (emptyOrFailed && still && !info.dispatched && info.backgroundWork) {
       // Unless the empty turn was the person's own (a /compact): that starts a
       // fresh stretch, like any message of theirs.
       if (info.fromHuman) dropWaiting(sk);
+      noteProgress(goal, info);
       return defer({ ...still.info, backgroundWakeOnly: info.backgroundWakeOnly });
     }
     const waiting = dropWaiting(sk);
@@ -320,7 +356,7 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
   };
   return Object.assign(onTurnEnd, { stopWaiting });
 
-  async function judge(info: TurnEndInfo, backgroundStillRunning: boolean): Promise<string> {
+  async function judge(info: TurnEndInfo, backgroundStillRunning: boolean, stillFree?: () => boolean): Promise<string> {
     let goal;
     try {
       goal = getActiveGoal(deps.db, info.topicId);
@@ -380,6 +416,11 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
       usedTools: info.usedTools,
     });
     if (action.kind === "undecided") return "undecided";
+    // Nothing is spent on a session somebody else took while the judge thought.
+    if (stillFree && !stillFree()) {
+      log(`goal-loop: ${info.sessionKey}: a turn started while the judge thought, it decides instead`);
+      return "busy";
+    }
 
     // THE COUNTERS GO DOWN BEFORE THE TURN IS BOUGHT. If the resend below dies
     // halfway, or the server dies with it, the attempt is still spent: the
@@ -517,6 +558,7 @@ export function goalContinuationForChatRoute(deps: {
     log: deps.log,
     isBusy: (sk) => !!ctx.isStreaming(sk),
     backgroundWork: sessionHasBackgroundWork,
+    wakeQueued: (sk) => sessionBackgroundState(sk) === "wake-queued",
   });
 
   return {

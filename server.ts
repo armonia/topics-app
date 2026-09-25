@@ -159,7 +159,8 @@ import { createBillingRouter, isBillingWebhookPath } from "./server/routes/billi
 import { createAccountRouter } from "./server/routes/account";
 import { createPeopleRouter } from "./server/routes/people";
 import { getGatewayWS } from "./server/gateway-ws";
-import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend, sessionsWithBackgroundWork, stallBackgroundHold } from "./server/providers";
+import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend } from "./server/providers";
+import { sessionsWithBackgroundWork, stallBackgroundHold } from "./server/providers/background-probes";
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import type { AbortReason } from "./server/providers/types";
@@ -247,7 +248,7 @@ import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } fr
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 import { decodeCol, encodeCol } from "./shared/message-blob";
 import { budgetShare, capMode, governorReading, TURN_ERROR_PREFIX } from "./shared/board";
-import { BACKGROUND_NOTICE_PREFIX, postBackgroundNotice } from "./server/lib/background-notice";
+import { noticeOwedChanges, postBackgroundNotice } from "./server/lib/background-notice";
 import type { ChatGoalLoop } from "./server/services/goal-continuation";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
@@ -805,6 +806,10 @@ ClaudeCodeProvider.observeTurnReleased((sk) => { claudeSessionTracker.syncImport
 ClaudeCodeProvider.observeBackgroundClosed((sessionKey, tasks, why) => {
   const topic = ctx.getTopicBySessionKey(sessionKey);
   if (topic) postBackgroundNotice(ctx, { sessionKey, topicId: topic.id }, { kind: "background-notice", event: "closed", tasks, why });
+});
+ClaudeCodeProvider.observeConfigOwed((sessionKey, changes) => {
+  const topic = ctx.getTopicBySessionKey(sessionKey);
+  if (topic) noticeOwedChanges(ctx, topic, "deferred-background", Object.fromEntries(changes.map((c) => [c, true])));
 });
 
 // La porta unica del parcheggio (lib/session-parking.ts): archiviare un topic
@@ -2029,8 +2034,6 @@ const taskDispatcher = createTaskDispatcher({
         // (`turnError.ts`): li si SALTA e si continua a scendere, perche' sotto
         // c'e' quasi sempre la prosa che stiamo cercando.
         if (testo.startsWith(TURN_ERROR_PREFIX)) continue;
-        // Nor the line about the chat's background work: the machine wrote it.
-        if (testo.startsWith(BACKGROUND_NOTICE_PREFIX)) continue;
         // The ID comes back with the words: the note that mirrors them is a
         // card comment, and its anchor has to be the row it quotes, not the
         // last row of the session.

@@ -31,7 +31,7 @@ registerProvider({ type: "openai", apiKey: "" } as never);
 afterAll(() => { try { removeProvider("openai"); } catch { /* gia' tolto */ } });
 
 /** The bench: a topic with an active goal and the real route on top. */
-async function banco(name: string, verdicts: string[], opts: { backgroundWork?: () => boolean } = {}) {
+async function banco(name: string, verdicts: string[], opts: { backgroundWork?: () => boolean; backgroundState?: () => string; goalLoop?: unknown } = {}) {
   const sessionKey = `topic:${name}`;
   const ctx = await createTestAppContext();
   const frames: Array<Record<string, unknown>> = [];
@@ -61,6 +61,7 @@ async function banco(name: string, verdicts: string[], opts: { backgroundWork?: 
     defaultModel: () => "fake-model",
     abort: async () => {},
     ...(opts.backgroundWork ? { hasBackgroundWork: opts.backgroundWork } : {}),
+    ...(opts.backgroundState ? { backgroundState: opts.backgroundState } : {}),
     start: () => {}, stop: () => {},
     complete: async (msgs: Array<{ content: string }>) => {
       judged.push(msgs[0]?.content ?? "");
@@ -80,15 +81,16 @@ async function banco(name: string, verdicts: string[], opts: { backgroundWork?: 
     updateUnreadCount: () => {},
     browserNavigatedTopics: new Set<string>(),
     WORKSPACE_DIR: testTmpDir(`${name}-ws`),
+    ...(opts.goalLoop ? { goalLoop: opts.goalLoop } : {}),
   } as never);
 
-  async function send(content: string) {
+  async function send(content: string, extra: Record<string, unknown> = {}) {
     const url = new URL("http://topics.test/api/chat");
     const resp = await router(
       new Request(url.toString(), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }] }),
+        body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }], ...extra }),
       }),
       url, "/api/chat", "POST",
     );
@@ -247,7 +249,7 @@ describe("fine turno con un obiettivo attivo", () => {
     const news = b.frames.filter((f) => f.type === "message:new");
     const nudge = news.find((f) => f.role === "user" && String(f.content).startsWith("Objective still open"));
     expect(nudge?.blocks).toEqual([{ kind: "goal-nudge", attempt: 1 }]);
-    const stop = news.find((f) => f.role === "assistant" && String(f.content).startsWith("Auto-continuation stopped"));
+    const stop = news.find((f) => f.role === "assistant" && String(f.content).startsWith("Auto-continuation paused"));
     expect(stop?.blocks).toEqual([{ kind: "goal-stop", reason: "stalled" }]);
     const human = news.find((f) => f.role === "user" && f.content === "comincia");
     expect(human && "blocks" in human).toBe(false);
@@ -355,9 +357,9 @@ describe("a goal deferred on background work", () => {
     const t = await bench("goal-stop-empty", ["continue"]);
     await t.onTurnEnd(t.turn());
     t.timers.length = 0;
-    expect(await t.onTurnEnd(t.turn({ end: "cancelled", discarded: true, lastAssistantText: "" }))).toBe("skipped");
+    expect(await t.onTurnEnd(t.turn({ end: "cancelled", cause: "user", discarded: true, lastAssistantText: "" }))).toBe("skipped");
     t.stop();
-    expect(await t.onTurnEnd(t.turn({ end: "cancelled", discarded: true, backgroundWork: false, lastAssistantText: "" }))).toBe("skipped");
+    expect(await t.onTurnEnd(t.turn({ end: "cancelled", cause: "user", discarded: true, backgroundWork: false, lastAssistantText: "" }))).toBe("skipped");
     expect(t.timers).toEqual([]);
     expect(t.judged).toEqual([]);
     expect(t.sent).toEqual([]);
@@ -521,6 +523,157 @@ describe("a goal deferred on background work", () => {
     expect(await t.onTurnEnd(t.turn({ discarded: true, backgroundWork: false, lastAssistantText: "" }))).toBe("continued");
     expect(t.judged.length).toBe(1);
     expect(t.judged[0]).toContain("fixed four of five");
+    await close();
+  });
+});
+
+/**
+ * The second review of 25/09, on the real stack with the recorded CLI (r1:
+ * Workflow + Monitor): the turns deferred on background work were never
+ * judged, so their tools never reset the idle streak, and the wake reporting
+ * the work finished stopped the loop as "nothing is moving". And a check-in
+ * whose judge thought for 18 to 25 s met a Monitor's wake with a 409.
+ */
+describe("a goal waiting on background work, second review", () => {
+  const MIN = 60_000;
+  async function stack(name: string, opts: { judge?: () => Promise<string>; busy?: () => boolean; wakeQueued?: () => boolean } = {}) {
+    const b = await banco(name, []);
+    let clock = 0;
+    let running = true;
+    const timers: Array<{ fn: () => void; ms: number; due: number }> = [];
+    const judged: string[] = [];
+    const sent: string[] = [];
+    const onTurnEnd = createGoalContinuation({
+      db: b.ctx.db,
+      judge: async (prompt) => { judged.push(prompt); return opts.judge ? opts.judge() : "continue"; },
+      resend: async ({ text }) => { if (opts.busy?.()) throw new Error("the chat route answered 409"); sent.push(text); },
+      announce: () => {}, broadcast: () => {},
+      isBusy: opts.busy ?? (() => false),
+      backgroundWork: () => running,
+      wakeQueued: opts.wakeQueued,
+      setTimer: (fn, ms) => { const h = { fn, ms, due: clock + ms }; timers.push(h); return h; },
+      clearTimer: (h) => { const i = timers.indexOf(h as never); if (i >= 0) timers.splice(i, 1); },
+      now: () => clock,
+    });
+    const turn = (over: Partial<TurnEndInfo> = {}): TurnEndInfo => ({
+      sessionKey: b.sessionKey, topicId: b.topic.id, dispatched: false, end: "end_turn",
+      discarded: false, pendingAsk: false, usedTools: true, lastAssistantText: "", backgroundWork: true, ...over,
+    });
+    const advance = async (ms: number) => {
+      const end = clock + ms;
+      for (;;) {
+        const next = timers.filter((x) => x.due <= end).sort((a, c) => a.due - c.due)[0];
+        if (!next) break;
+        clock = next.due; timers.splice(timers.indexOf(next), 1); next.fn();
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      clock = end;
+    };
+    const goal = () => getActiveGoal(b.ctx.db, b.topic.id)!;
+    return { b, timers, judged, sent, onTurnEnd, turn, advance, goal, done: () => { running = false; }, setClock: (t: number) => { clock = t; } };
+  }
+
+  test("the wake that reports the work finished continues the goal: deferred turns that ran tools, and wakes, are progress", async () => {
+    const t = await stack("goal-r1-final-wake");
+    // The person's turn launches Workflow and Monitor, then two Monitor ticks answered in words.
+    expect(await t.onTurnEnd(t.turn({ fromHuman: true, lastAssistantText: "Both are running" }))).toBe("background");
+    for (let i = 1; i <= 2; i++) {
+      await t.advance(10 * MIN);
+      expect(await t.onTurnEnd(t.turn({ woken: true, usedTools: false, lastAssistantText: `The monitor printed tick-${i}.` }))).toBe("background");
+    }
+    await t.advance(10 * MIN);
+    expect(t.judged.length).toBe(1);
+    // The nudge's turn checks with a tool, the work still listed: deferred.
+    expect(await t.onTurnEnd(t.turn({ usedTools: true, lastAssistantText: "Checked: step 3/5" }))).toBe("background");
+    await t.advance(15 * MIN);
+    t.done();
+    expect(await t.onTurnEnd(t.turn({ woken: true, backgroundWork: false, usedTools: false, lastAssistantText: "The workflow finished: 5/5" }))).toBe("continued");
+    expect(t.goal().loopState).toBe("running");
+    await close();
+  });
+
+  test("a stall pauses the loop, and the person's next message lifts the pause", async () => {
+    const t = await stack("goal-stall-pause");
+    t.done();
+    await t.onTurnEnd(t.turn({ backgroundWork: false, usedTools: false, lastAssistantText: "thinking about it" }));
+    expect(await t.onTurnEnd(t.turn({ backgroundWork: false, usedTools: false, lastAssistantText: "still thinking" }))).toBe("stalled");
+    expect(t.goal().loopState).toBe("blocked");
+    expect(await t.onTurnEnd(t.turn({ backgroundWork: false, fromHuman: true, usedTools: true, lastAssistantText: "done what you asked" }))).toBe("continued");
+    expect(t.goal().loopState).toBe("running");
+    await close();
+  });
+
+  test("a check-in whose judge meets a wake spends nothing, sends nothing, and keeps the goal waiting", async () => {
+    let busy = false;
+    let release: (v: string) => void = () => {};
+    const t = await stack("goal-checkin-race", { judge: () => new Promise((r) => { release = r; }), busy: () => busy });
+    await t.onTurnEnd(t.turn({ fromHuman: true, lastAssistantText: "deploy started, Monitor on its log" }));
+    t.setClock(30 * MIN);
+    t.timers.shift()!.fn();
+    busy = true; // a Monitor's event woke the CLI while the judge thought
+    release("continue");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(t.sent).toEqual([]);
+    expect(t.goal().continuations).toBe(0);
+    busy = false;
+    // The tick is answered with nothing: the goal keeps waiting, with a check-in armed.
+    expect(await t.onTurnEnd(t.turn({ woken: true, discarded: true, usedTools: false }))).toBe("background");
+    expect(t.timers.length).toBe(1);
+    await close();
+  });
+
+  test("a check-in that finds a wake queued looks again in a minute, without paying the judge", async () => {
+    let queued = true;
+    const t = await stack("goal-checkin-wake-queued", { wakeQueued: () => queued });
+    await t.onTurnEnd(t.turn({ fromHuman: true, lastAssistantText: "suite running" }));
+    await t.advance(30 * MIN);
+    expect(t.judged).toEqual([]);
+    expect(t.timers.map((x) => x.ms)).toEqual([GOAL_WAKE_RECHECK_MS]);
+    queued = false;
+    await t.advance(GOAL_WAKE_RECHECK_MS);
+    expect(t.judged.length).toBe(1);
+    await close();
+  });
+
+  test("a wake that fails while the work runs keeps the goal waiting; only the person's Stop ends it", async () => {
+    const t = await stack("goal-failed-wake");
+    await t.onTurnEnd(t.turn({ fromHuman: true, lastAssistantText: "deploy started" }));
+    await t.advance(5 * MIN);
+    await t.onTurnEnd(t.turn({ woken: true, end: "error", cause: "provider-error", usedTools: false, lastAssistantText: "API Error: 529" }));
+    expect(t.timers.length).toBe(1);
+    await t.onTurnEnd(t.turn({ end: "cancelled", cause: "user", discarded: true, usedTools: false }));
+    expect(t.timers).toEqual([]);
+    await close();
+  });
+});
+
+/**
+ * What the chat route tells the goal about a turn, read off the real route: the
+ * second review of 25/09 mutated `fromHuman: false` and `backgroundWakeOnly:
+ * false` in chat.ts and 59 and 79 tests stayed green, because every goal test
+ * injected those flags by hand.
+ */
+describe("the chat route's turn end, as the goal hears it", () => {
+  function listener() {
+    const seen: TurnEndInfo[] = [];
+    return { seen, loop: { useRoute() {}, stopWaiting() {}, resumeAfterBoot: async () => {}, onTurnEnd: async (i: TurnEndInfo) => { seen.push(i); return "seen"; } } };
+  }
+
+  test("a person's message is fromHuman, and a queued wake is said as such", async () => {
+    const l = listener();
+    const b = await banco("goal-wiring-human", [], { backgroundState: () => "wake-queued", goalLoop: l.loop });
+    await b.send("controlla la suite");
+    await b.finish("lanciata, aspetto il report");
+    expect(l.seen.at(-1)).toMatchObject({ fromHuman: true, woken: false, backgroundWork: true, backgroundWakeOnly: true });
+    await close();
+  });
+
+  test("the goal's own continuation is not the person, and running work is not a queued wake", async () => {
+    const l = listener();
+    const b = await banco("goal-wiring-nudge", [], { backgroundState: () => "running", goalLoop: l.loop });
+    await b.send("Objective still open: carry on", { goalNudge: 1 });
+    await b.finish("ancora in corso");
+    expect(l.seen.at(-1)).toMatchObject({ fromHuman: false, backgroundWork: true, backgroundWakeOnly: false });
     await close();
   });
 });

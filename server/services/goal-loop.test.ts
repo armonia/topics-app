@@ -121,14 +121,15 @@ describe("goalLoopStep", () => {
     expect(d.loop).toEqual(counters);
   });
 
-  it("stops after two turns in a row that ran no tool", () => {
+  it("pauses after two turns in a row that ran no tool, until the person's next message", () => {
     const first = goalLoopStep({ verdict: "continue", counters, usedTools: false });
     expect(first.action).toEqual({ kind: "continue", attempt: 1 });
     expect(first.loop.idleTurns).toBe(1);
 
     const second = goalLoopStep({ verdict: "continue", counters: first.loop, usedTools: false });
     expect(second.action.kind).toBe("stalled");
-    expect(second.loop.state).toBe("stopped");
+    // A pause (`blocked`), not a stop: the person's next message lifts it.
+    expect(second.loop.state).toBe("blocked");
     expect(IDLE_TURNS_LIMIT).toBe(2);
   });
 

@@ -41,7 +41,7 @@ import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { shortcut } from '../../lib/shortcutLabel';
 import { topicsRoutingBlocked } from '../../lib/topicsRoutingGate';
 import { IDLE as HISTORY_IDLE, historyEntries, onArrow, type PromptHistoryState } from './promptHistory';
-import { isMachineRow } from './machineRow';
+import { isMachineRow, lastConversationMessage } from './machineRow';
 
 // Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
 // the composer's initial bundle and only fetch it the first time the popover opens.
@@ -639,7 +639,7 @@ export function ChatInput({
    */
   const interruptedTurn = useMemo(() => {
     if (currentStreaming) return null;
-    const last = currentMessages[currentMessages.length - 1];
+    const last = lastConversationMessage(currentMessages);
     if (last?.role !== 'assistant') return null;
     return interruptedTurnOf(last);
   }, [currentMessages, currentStreaming]);
@@ -1132,7 +1132,7 @@ export function ChatInput({
           `GET /api/topics/streaming` → `hydratedStreamTopics` → `useTopicLoading`.
           La regola sta in `turnLooksUnanswered`, con i suoi test. */}
       {turnLooksUnanswered({
-        lastMessageIsUser: currentMessages[currentMessages.length - 1]?.role === 'user',
+        lastMessageIsUser: lastConversationMessage(currentMessages)?.role === 'user',
         locallyStreaming: currentStreaming,
         serverSaysOpen: serverTurnOpen,
         serverAsked: serverTurnAsked,

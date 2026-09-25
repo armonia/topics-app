@@ -25,11 +25,14 @@ import { registerProvider, removeProvider } from "../providers";
 import { ClaudeCodeProvider } from "../providers/claude-code";
 import { takeTurnEnd } from "../providers/turn-end-registry";
 import { internalAbortRequest } from "../lib/abort-cause";
-import { postBackgroundNotice } from "../lib/background-notice";
+import { noticeOwedChanges, postBackgroundNotice } from "../lib/background-notice";
 import { SidechainTracker } from "../providers/claude/sidechain-tracker";
 import { recordedBackgroundSession } from "../providers/claude/background-work.fixture";
 import type { AppContext, Topic } from "../types";
 import type { ChatGoalLoop } from "../services/goal-continuation";
+import { decodeCol } from "../../shared/message-blob";
+import { riprendiTurniInterrotti } from "../lib/ripresa-boot";
+import { resetTurnEndRegistry } from "../providers/turn-end-registry";
 
 const ROOT = testTmpDir("topics-background-config");
 beforeAll(() => setupTestDataDir(`${ROOT}/data`));
@@ -69,9 +72,9 @@ async function harness(name: string, autonomyLevel: Topic["autonomyLevel"]) {
     const req = new Request(url.toString(), { method, headers: { "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     return (await router(req, url, url.pathname, method)) as Response;
   };
-  const notices = () => (ctx.db.prepare(
-    `SELECT content, blocks FROM messages WHERE session_key = ? AND blocks LIKE '%background-notice%' ORDER BY sort_order`,
-  ).all(sessionKey) as Array<{ content: string; blocks: string }>).map((r) => JSON.parse(r.blocks)[0]);
+  // Decoded, not LIKE'd: a notice naming three tasks is over the blob threshold.
+  const notices = () => (ctx.db.prepare(`SELECT blocks FROM messages WHERE session_key = ? ORDER BY sort_order`).all(sessionKey) as Array<{ blocks: unknown }>)
+    .map((r) => JSON.parse(decodeCol(r.blocks as never) ?? "null")?.[0]).filter((b) => b?.kind === "background-notice");
   return {
     provider, pp, killed, notices, sessionKey, goalLoop: goalLoop!, ctx, router, topicId: topic.id,
     patch: (body: Record<string, unknown>) => call(`/api/topics/${topic.id}`, "PATCH", body),
@@ -223,5 +226,102 @@ describe("the Stop of a chat whose turn is closed and whose work still runs", ()
     } finally {
       removeProvider("claude-code");
     }
+  });
+});
+
+/** The launch of a background agent, as the recorded CLI printed it: its snapshot and its start. */
+const agentSnap = events.find((e: any) => e.subtype === "background_tasks_changed" && e.tasks?.length === 1) as any;
+const agentStarted = events.find((e: any) => e.subtype === "task_started" && e.task_id === agentSnap.tasks[0].task_id) as any;
+
+describe("second review of 25/09: every deferred change and every close is said, with its own reason", () => {
+  for (const [label, body, change] of [
+    ["R1: lowering the autonomy while a turn runs", { autonomyLevel: "ask" }, "autonomy"],
+    ["R6: a model change while a turn runs", { model: "claude-sonnet-5" }, "model"],
+  ] as const) {
+    test(`${label}, when that turn then starts background work, is said in the chat and kills nothing`, async () => {
+      const h = await harness(`bg-owed-${change}`, "yolo");
+      // Wired as server.ts wires it.
+      ClaudeCodeProvider.observeConfigOwed((sk, changes) => {
+        noticeOwedChanges(h.ctx, { id: h.topicId, sessionKey: sk }, "deferred-background", Object.fromEntries(changes.map((c) => [c, true])));
+      });
+      try {
+        h.workOver();
+        h.pp.background.tasks.clear();
+        h.pp.streamHandler = { onDelta() {}, onDone() {}, onError() {}, onAborted() {} };
+        expect((await h.patch(body)).status).toBe(200);
+        // Only a turn so far: nothing to say yet.
+        expect(h.notices()).toEqual([]);
+        // The same turn launches a background agent.
+        (h.provider as any).handleStreamEvent(h.pp, agentSnap);
+        (h.provider as any).handleStreamEvent(h.pp, agentStarted);
+        expect(h.notices()).toEqual([expect.objectContaining({ event: "deferred", change, text: expect.stringContaining("Stop ends that work now") })]);
+        h.pp.streamHandler = null; h.pp.wokenBuffer = null; h.pp.declinedTurn = false;
+        expect((h.provider as any).getOrCreateProcess(h.sessionKey)).toBe(h.pp);
+        expect(h.killed.n).toBe(0);
+        // Said once, not at every later snapshot.
+        (h.provider as any).handleStreamEvent(h.pp, agentSnap);
+        expect(h.notices().length).toBe(1);
+      } finally { ClaudeCodeProvider.observeConfigOwed(() => {}); removeProvider("claude-code"); }
+    });
+  }
+
+  test("R2: a delegation's deadline on a working turn says so, not «a stuck turn»", async () => {
+    const h = await harness("bg-deadline", "yolo");
+    ClaudeCodeProvider.observeBackgroundClosed((sk, tasks, why) => {
+      postBackgroundNotice(h.ctx, { sessionKey: sk, topicId: h.topicId }, { kind: "background-notice", event: "closed", tasks, why });
+    });
+    try {
+      h.ctx.appendLocalMessage(h.sessionKey, "user", "fai la card");
+      const placeholder = h.ctx.createPartialMessage(h.sessionKey, "assistant");
+      h.ctx.startStream(h.sessionKey, placeholder.id, new AbortController());
+      h.pp.streamHandler = { onDelta() {}, onDone() {}, onError() {}, onAborted() {} };
+      const req = internalAbortRequest(h.sessionKey, "wall-clock");
+      await h.router(req, new URL(req.url), "/api/chat/abort", "POST");
+      for (let i = 0; i < 40 && h.notices().length === 0; i++) await new Promise((r) => setTimeout(r, 100));
+      expect(h.killed.sigint).toBe(1);
+      expect(h.notices()).toEqual([expect.objectContaining({ event: "closed", why: "deadline", text: expect.stringContaining("maximum duration") })]);
+    } finally { ClaudeCodeProvider.observeBackgroundClosed(() => {}); removeProvider("claude-code"); }
+  });
+
+  test("R5: a superseded card with no turn open stops its live work and leaves the row that says so", async () => {
+    const h = await harness("bg-superseded-row", "yolo");
+    ClaudeCodeProvider.observeBackgroundClosed((sk, tasks, why) => {
+      postBackgroundNotice(h.ctx, { sessionKey: sk, topicId: h.topicId }, { kind: "background-notice", event: "closed", tasks, why });
+    });
+    try {
+      const req = internalAbortRequest(h.sessionKey, "superseded");
+      expect(await (await h.router(req, new URL(req.url), "/api/chat/abort", "POST"))!.json()).toEqual({ ok: true, reason: "background_stopped", cleared: false });
+      expect(h.killed.sigint).toBe(1);
+      expect(h.notices()).toEqual([expect.objectContaining({ event: "closed", why: "superseded", tasks: expect.arrayContaining(["tick counter loop"]) })]);
+    } finally { ClaudeCodeProvider.observeBackgroundClosed(() => {}); removeProvider("claude-code"); }
+  });
+
+  test("the stall judge recycling a person's message with work listed: the resume sweep still resends it, as on main", async () => {
+    resetTurnEndRegistry();
+    const h = await harness("bg-person-recycle", "yolo");
+    ClaudeCodeProvider.observeBackgroundClosed((sk, tasks, why) => {
+      postBackgroundNotice(h.ctx, { sessionKey: sk, topicId: h.topicId }, { kind: "background-notice", event: "closed", tasks, why });
+    });
+    try {
+      h.pp.background.lastSignalAt = Date.now() - 2 * 60 * 60_000 - 1_000;
+      const user = h.ctx.appendLocalMessage(h.sessionKey, "user", "continua il task");
+      const placeholder = h.ctx.createPartialMessage(h.sessionKey, "assistant");
+      h.ctx.startStream(h.sessionKey, placeholder.id, new AbortController());
+      h.pp.streamHandler = { onDelta() {}, onDone() {}, onError() {}, onAborted() {} };
+      const req = internalAbortRequest(h.sessionKey, "stall");
+      await h.router(req, new URL(req.url), "/api/chat/abort", "POST");
+      for (let i = 0; i < 40 && h.notices().length === 0; i++) await new Promise((r) => setTimeout(r, 100));
+      expect(h.notices().length).toBe(1);
+      // The person's message is older than the sweep's grace.
+      h.ctx.db.run("UPDATE messages SET timestamp = ? WHERE id = ?", [new Date(Date.now() - 5 * 60_000).toISOString(), user.id]);
+      const resent: Array<{ sessionKey?: string }> = [];
+      const log = console.log, warn = console.warn;
+      console.log = () => {}; console.warn = () => {};
+      try {
+        await riprendiTurniInterrotti({ db: h.ctx.db as never, getTopicBySessionKey: (sk) => h.ctx.getTopicBySessionKey(sk), isStreaming: (sk) => h.ctx.isStreaming(sk) },
+          async (r) => { resent.push(await r.json()); return new Response(new ReadableStream({ start(c) { c.close(); } }), { status: 200 }); });
+      } finally { console.log = log; console.warn = warn; }
+      expect(resent.filter((c) => c.sessionKey === h.sessionKey).length).toBe(1);
+    } finally { ClaudeCodeProvider.observeBackgroundClosed(() => {}); removeProvider("claude-code"); }
   });
 });

@@ -21,7 +21,8 @@ import { recordedBackgroundSession } from "./claude/background-work.fixture";
 /** Two hours: the one bound every killing clock shares (`BACKGROUND_WORK_CAP_MS`). */
 const TWO_HOURS = 2 * 60 * 60_000;
 import { armStallDetector } from "../lib/stall-detector";
-import { registerProvider, removeProvider, stallBackgroundHold } from "./index";
+import { registerProvider, removeProvider } from "./index";
+import { stallBackgroundHold } from "./background-probes";
 
 const events = recordedBackgroundSession();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
