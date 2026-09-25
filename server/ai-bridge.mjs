@@ -538,6 +538,14 @@ async function start() {
     const drop = () => { clients.delete(socket); connectedAt.delete(socket); serverPids.delete(socket); for (const s of sessions.values()) s.attached.delete(socket); };
     socket.on('close', drop);
     socket.on('error', drop);
+    // 'end' is the client hanging up, and it is the one event Bun is sure to
+    // give. With frames still queued for a client that has gone, Bun (1.3.8)
+    // emits 'end' and then neither 'finish' nor 'close': the socket reads
+    // closed, `drop` never runs, and the orphan monitor counts the corpse as a
+    // server that came back. Nine test daemons were still alive twelve hours
+    // on (25/09). The protocol has no use for a half-open client, so hanging up
+    // is leaving.
+    socket.on('end', () => { drop(); socket.destroy(); });
   });
 
   // IL PID PRIMA DI `listen()`, non dentro il suo callback.

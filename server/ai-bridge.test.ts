@@ -435,6 +435,50 @@ describe("ai-bridge orphan monitor", () => {
     }
   }, 25_000);
 
+  test("a client that hangs up while the daemon still has bytes for it does not keep the orphan alive", async () => {
+    // How nine test daemons were still alive twelve hours on (25/09). A client
+    // went away with frames still queued for it: Bun emitted 'end' on the
+    // daemon's side and then neither 'finish' nor 'close', so the socket stayed
+    // in `clients` for good and the monitor took it for a server that had come
+    // back. The real claude-code provider test hit it 4 runs out of 5; a client
+    // that stops reading and hangs up under a flood hits it every time.
+    const sock = join(tmpdir(), `ai-bridge-hangup-${process.pid}.sock`);
+    const store = mkdtempSync(join(tmpdir(), "ai-bridge-hangup-store-"));
+    const corpse = Bun.spawn(["/usr/bin/true"], { stdout: "ignore", stderr: "ignore" });
+    await corpse.exited;
+
+    const orphan = Bun.spawn(
+      [process.execPath, join(import.meta.dir, "ai-bridge.mjs"),
+        "--socket", sock, "--store-dir", store, "--parent-pid", String(corpse.pid)],
+      // REAL_CLIENT_MS at 1s: the client counts as a server that came back
+      // before it hangs up, which is the state the stale entry froze.
+      { stdout: "ignore", stderr: "ignore", env: { ...process.env, ...FAST_ENV,
+        TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "1000", TOPICS_AI_BRIDGE_REAL_CLIENT_MS: "1000" } },
+    );
+    let client: net.Socket | null = null;
+    try {
+      expect(await until(() => existsSync(sock), 10_000)).toBe(true);
+      let exited = false;
+      void orphan.exited.then(() => { exited = true; });
+      client = net.connect({ path: sock, allowHalfOpen: true });
+      await new Promise<void>((r) => client!.once("connect", () => r()));
+      client.pause();
+      // Four megabytes the client never reads, then a child that stays alive.
+      client.write(JSON.stringify({ type: "spawn", id: "hangup", cliPath: "/bin/sh",
+        args: ["-c", "head -c 4000000 /dev/zero; exec sleep 600"], cwd: store, env: {} }) + "\n");
+      await new Promise((r) => setTimeout(r, 1_500));
+      client.end();
+      await new Promise((r) => setTimeout(r, 300));
+      client.destroy();
+      // Monitor tick 500ms and a 1s grace from the hang-up: about 2s.
+      expect(await until(() => exited, 8_000)).toBe(true);
+    } finally {
+      client?.destroy();
+      try { orphan.kill(); } catch { /* already gone — that's the pass case */ }
+      try { rmSync(store, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+  }, 25_000);
+
   test("a daemon with a LIVE parent stays up", async () => {
     const sock = join(tmpdir(), `ai-bridge-live-${process.pid}.sock`);
     const store = mkdtempSync(join(tmpdir(), "ai-bridge-live-store-"));
