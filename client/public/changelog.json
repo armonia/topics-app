@@ -1,5 +1,41 @@
 [
   {
+    "version": "2.2.400",
+    "date": "2026-09-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "A turn that ended while the server was away is replayed whole at the next boot, not handed over as its result alone",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The reattach replays a closed turn only if it began after the row's message, and from the end of the result before it, an empty one included",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The reattach replays a row's own turn, from the mark its send left in the store",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "No handler but the adopted row's sees a closed turn's replay",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "chat.ts back under its ceiling after the rebase on main",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.399",
     "date": "2026-09-25",
     "sections": {

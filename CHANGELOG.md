@@ -2,6 +2,15 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.400 — 2026-09-25
+
+### Sotto il cofano
+- A turn that ended while the server was away is replayed whole at the next boot, not handed over as its result alone
+- The reattach replays a closed turn only if it began after the row's message, and from the end of the result before it, an empty one included
+- The reattach replays a row's own turn, from the mark its send left in the store
+- No handler but the adopted row's sees a closed turn's replay
+- chat.ts back under its ceiling after the rebase on main
+
 ## 2.2.399 — 2026-09-25
 
 ### Sotto il cofano
