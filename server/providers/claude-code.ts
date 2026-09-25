@@ -1205,6 +1205,9 @@ export class ClaudeCodeProvider implements AIProvider {
    * them cancelled; `sendChat` checks the mark before it does anything.
    */
   private queuedSends = new Map<string, Set<{ handler: StreamHandler; cancelled: boolean }>>();
+  /** The send watchdog's window of silence. A field only so tests can shrink
+   *  it: thirty minutes cannot be waited for in a test. */
+  private turnWatchdogMs = MESSAGE_TIMEOUT_MS;
   /**
    * Gli scan della sonda TENUTI IN VITA per chi li adotterà — deliberatamente
    * fuori da `this.processes`, che è la mappa di chi sta GUIDANDO una sessione.
@@ -1658,7 +1661,7 @@ export class ClaudeCodeProvider implements AIProvider {
         const d = turnWatchdogDecision({
           pendingAsk: isHumanHold(sessionKey),
           idleMs: Date.now() - pp.lastEventAt,
-          windowMs: MESSAGE_TIMEOUT_MS,
+          windowMs: this.turnWatchdogMs,
         });
         if (d.action === "reject") {
           reject(new Error("TIMEOUT"));
@@ -1666,7 +1669,7 @@ export class ClaudeCodeProvider implements AIProvider {
         }
         messageTimeout = setTimeout(arm, d.delayMs);
       };
-      messageTimeout = setTimeout(arm, MESSAGE_TIMEOUT_MS);
+      messageTimeout = setTimeout(arm, this.turnWatchdogMs);
     });
 
     // Broker mode: wait for the child to actually exist before the first stdin
@@ -1745,7 +1748,7 @@ export class ClaudeCodeProvider implements AIProvider {
         // e la diagnosi resta un'ipotesi.
         const idleMin = Math.round((Date.now() - pp.lastEventAt) / 60000);
         console.warn(
-          `[claude-code] No model activity for ${Math.round(MESSAGE_TIMEOUT_MS / 60000)}min on ${sessionKey} — child appears wedged, killing process ` +
+          `[claude-code] No model activity for ${Math.round(this.turnWatchdogMs / 60000)}min on ${sessionKey} — child appears wedged, killing process ` +
           `(silenzio reale ${idleMin} min, ultimo evento: ${pp.lastEventKind ?? "nessuno"})`,
         );
         // Only a child that is still ours and alive. In broker mode the kill
@@ -3883,7 +3886,7 @@ export class ClaudeCodeProvider implements AIProvider {
     opts: { ms?: number; rearmMs?: number; wedgedMs?: number } = {},
   ): TurnDeadline {
     const rearmMs = opts.rearmMs ?? LIFETIME_REARM_MS;
-    const wedgedMs = opts.wedgedMs ?? MESSAGE_TIMEOUT_MS;
+    const wedgedMs = opts.wedgedMs ?? this.turnWatchdogMs;
     return armTurnDeadline({
       ms: opts.ms ?? MAX_LIFETIME_MS,
       rearmMs,
