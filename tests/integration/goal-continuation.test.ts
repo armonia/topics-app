@@ -680,6 +680,31 @@ describe("a goal waiting on background work, second review", () => {
  * false` in chat.ts and 59 and 79 tests stayed green, because every goal test
  * injected those flags by hand.
  */
+describe("the tool budget's second cut, with no goal driving", () => {
+  test("the stop notice reaches the open windows as the row the database holds (card 09d3b815)", async () => {
+    const b = await banco("budget-stop-live", []);
+    setGoalLoop(b.ctx.db, b.goal.id, { state: "stopped" });
+    const frames: Array<Record<string, unknown>> = [];
+    const onTurnEnd = createGoalContinuation({
+      db: b.ctx.db, judge: async () => "continue", resend: async () => {}, announce: () => {},
+      broadcast: (m) => { frames.push(m as Record<string, unknown>); },
+    });
+    const cut: TurnEndInfo = {
+      sessionKey: b.sessionKey, topicId: b.topic.id, dispatched: false, end: "error", cause: "tool-budget",
+      discarded: false, pendingAsk: false, usedTools: true, backgroundWork: false, lastAssistantText: "",
+    };
+    expect(await onTurnEnd(cut)).toBe("tool-budget-resumed");
+    expect(await onTurnEnd(cut)).toBe("tool-budget-stopped");
+    const notice = b.ctx.db.query(
+      "SELECT id, content FROM messages WHERE session_key = ? ORDER BY sort_order DESC, rowid DESC LIMIT 1",
+    ).get(b.sessionKey) as { id: string; content: string };
+    expect(frames.filter((f) => f.type === "message:new")).toEqual([{
+      type: "message:new", topicId: b.topic.id, sessionKey: b.sessionKey, role: "assistant", messageId: notice.id,
+      content: notice.content, preview: notice.content.slice(0, 100), blocks: [{ kind: "error", text: notice.content }],
+    }]);
+  });
+});
+
 describe("the chat route's turn end, as the goal hears it", () => {
   function listener() {
     const seen: TurnEndInfo[] = [];
