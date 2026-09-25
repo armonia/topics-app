@@ -62,7 +62,7 @@ import {
   decideMessageResidency,
   type MessageResidencyInput,
 } from '../state/messageResidency';
-import { senderAlsoSees } from './senderAlsoSees';
+import { senderAlsoSeesFrame } from './senderAlsoSees';
 import { toolUpdatePatch, type ToolUpdateEvent } from './toolUpdatePatch';
 import {
   beginStreamTokenRate,
@@ -1256,7 +1256,9 @@ export function useChat() {
     // The list itself now lives in `senderAlsoSees.ts`, with the rule for
     // adding to it and a test that counts it: it turned out to be incomplete
     // twice, and here it could not fail in a test.
-    const passaAncheAlMittente = senderAlsoSees(event.type);
+    // A late frame of a turn the server closed is let through too: this SSE
+    // is the next turn's, and it never carries it.
+    const passaAncheAlMittente = senderAlsoSeesFrame(event);
     if (localSSESessionsRef.current.has(sessionKey) && !passaAncheAlMittente) {
       if (event.type === 'stream:end') {
         finishStreamTokenRate(sessionKey, event.usageCompletionTokens);
