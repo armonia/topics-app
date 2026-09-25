@@ -213,6 +213,17 @@ describe('liveInterruptionBlock - the verdict built from stream:end', () => {
     expect(liveInterruptionBlock({ stopCause: undefined })).toBeNull();
   });
 
+  test('a stop the machine wanted draws no banner, live or from the cache', () => {
+    // A land, a delegation's deadline, the stall judge: the server persists no
+    // notice and its `stream:end` carries no cause (routes/chat.ts, and the
+    // abort route's own end). The row keeps only its tools, closed «Fermato».
+    const row = [{ kind: 'tool' as const, toolCall: { id: 't1', name: 'Bash', status: 'error', error: 'Fermato: il lavoro della card è già atterrato o è passato altrove' } }] as ContentBlock[];
+    const end = { stopReason: 'cancelled' } as { stopCause?: string; error?: string };
+    expect(liveInterruptionBlock({ stopCause: end.stopCause, error: end.error, blocks: row })).toBeNull();
+    expect(interruptedTurnOf({ blocks: row })).toBeNull();
+    expect(turnErrorOf({ content: '', blocks: row })).toBeNull();
+  });
+
   test('a stop by hand writes nothing: it has its own banner', () => {
     expect(liveInterruptionBlock({ stopCause: 'user' })).toBeNull();
   });

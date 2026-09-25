@@ -145,6 +145,14 @@ describe("abortLogTitle — il registro non dà la colpa a chi non c'era", () =>
     expect(abortLogTitle({ end: "cancelled", cause: "user" })).toBe("stream aborted by user");
   });
 
+  test("the stall judge's recycle names the judge, not a bare abort", () => {
+    expect(abortLogTitle({ end: "cancelled", cause: "stall" })).toBe("stream aborted by the stall judge");
+  });
+
+  test("superseded does not claim a newer turn: after a land there is none", () => {
+    expect(abortLogTitle({ end: "cancelled", cause: "superseded" })).not.toContain("newer turn on the same session");
+  });
+
   test("watchdog e wall-clock non si travestono da utente", () => {
     expect(abortLogTitle({ end: "cancelled", cause: "watchdog" })).not.toContain("user");
     expect(abortLogTitle({ end: "cancelled", cause: "wall-clock" })).not.toContain("user");

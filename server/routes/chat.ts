@@ -1891,6 +1891,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Depositata PRIMA di chiudere l'SSE: chi guida un turno headless la
             // ritira appena il drain finisce, e il drain finisce con `[DONE]`.
             recordTurnEnd(sessionKey, endInfo);
+            // A land, a delegation's deadline, the stall judge (lib/abort-cause.ts).
+            // The silence cap shares `wall-clock` but ends through `onError`.
+            const wantedByMachine = reason === "aborted" && isMachineStop(endInfo.cause);
 
             if (reason === "error" && errorMsg) {
               // Il verdetto entra nei BLOCCHI, che sono ciò che il client rende.
@@ -2200,7 +2203,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               const riprendeDaSolo = isResumableCause(endInfo.cause);
               // A stop the machine wanted explains nothing and resumes nothing,
               // as a route stop did before (lib/abort-cause.ts).
-              const avviso = isMachineStop(endInfo.cause) ? null : avvisoPerTurno(endInfo, { haProdotto, riprendeDaSolo });
+              const avviso = wantedByMachine ? null : avvisoPerTurno(endInfo, { haProdotto, riprendeDaSolo });
               if (avviso) {
                 blocks.push({ kind: "error", text: avviso.replace(/^⚠️\s*/, "") });
                 turnError = avviso;
@@ -2310,7 +2313,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // Vocabolario ACP sul filo. `error` NON è una ragione ACP: resta
                 // fuori da `stopReason` e viaggia come `reason` dello stream.
                 ...(isAcpStopReason(endInfo.end) ? { stopReason: endInfo.end } : {}),
-                ...(endInfo.cause ? { stopCause: endInfo.cause } : {}),
+                // Not for a stop the machine wanted: the row carries no notice
+                // for it, and the client draws its live banner (and caches it)
+                // from this cause. The abort route's own end omits it too.
+                ...(endInfo.cause && !wantedByMachine ? { stopCause: endInfo.cause } : {}),
                 // Marcatore POSITIVo di fine pulita, letto SOLO dalla push di
                 // fine risposta (push-triggers): `end_turn` = il modello ha
                 // chiuso da solo. Su max_tokens/refusal/cancelled/error resta
@@ -2399,8 +2405,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // macchina manda a cercare dalla parte sbagliata: il 20/08 la riga
             // «stream aborted by user» era l'unica traccia di uno spegnimento
             // del server, e diceva il contrario di quello che era successo.
-            // The cause and the row go with it: the boot's repair pass reads them
-            // to leave alone a turn the machine stopped on purpose.
+            // Only the title: the durable record of a machine stop, with its
+            // cause and row, is written by `/api/chat/abort` (`logMachineStop`).
             else if (reason === "aborted") logStreamAborted({ ...logCtx, title: abortLogTitle(endInfo) });
             else if (reason === "error") logStreamError({ ...logCtx, errorMessage: errorMsg });
 
