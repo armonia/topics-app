@@ -238,7 +238,6 @@ import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
 // it (see server/lib/stall-detector.ts + stall-judge.ts). `dispatchTimeoutMin`
 // is downgraded to a reporting-only comparison below.
 import { armStallDetector } from "./server/lib/stall-detector";
-import { isSseCommentOnly } from "./server/lib/sse-ping";
 import { judgeStall } from "./server/lib/stall-judge";
 import { internalAbortRequest, internalRequest, STOP_CAUSE_HEADER, type StopCause } from "./server/lib/abort-cause";
 import { runBootPartialSweep } from "./server/lib/boot-partial-sweep";
@@ -247,6 +246,7 @@ import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } fr
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 import { decodeCol, encodeCol } from "./shared/message-blob";
 import { budgetShare, capMode, governorReading, TURN_ERROR_PREFIX } from "./shared/board";
+import { isSseCommentOnly } from "./server/lib/sse-ping";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
