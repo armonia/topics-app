@@ -56,7 +56,12 @@ function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterab
       // `boardTaskForSession` and the tool-row lookup share this one stub: a
       // test that declares a card gets the card row, the others get the chat
       // row they asked for.
-      prepare: () => ({ get: () => (options.card ?? row) }),
+      prepare: () => ({
+        get: () => (options.card ?? row),
+        // The recent-rows read (the row that carries a tool is found there):
+        // the same chat row, with the id the writes are aimed at.
+        all: () => (row ? [{ id: "chat-row", ...row }] : []),
+      }),
       // This deliberately models only the raw registry lookup. A coordinator
       // with corrupt provider/project fields is still a registry role and must
       // be rejected before any generic bridge side effect.
@@ -66,6 +71,8 @@ function makeHarness(row: Row = undefined, options: { rawGlobalSessions?: Iterab
           : null,
       }),
     },
+    // The active thread the recent-rows read walks: the one chat row.
+    loadActiveThread: () => (row ? [{ id: "chat-row" }] : []),
     json: (data: unknown, status = 200) =>
       new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } }),
     readJSON: async (req: Request) => { try { return await req.json(); } catch { return null; } },
@@ -676,7 +683,12 @@ describe("«Passa a libero»: consente ORA e libera la sessione", () => {
     // niente da chiedere: se restasse aperto, il turno resterebbe «in attesa di
     // una persona» — cioè fuori dalla vista di watchdog e reaper — mentre la
     // persona ha già risposto per tutti.
-    const h = makeHarness({ tool_calls: callRow("tu_due_1") });
+    // Both tool_use blocks of that message are on the same row, as the CLI
+    // writes them: an outcome is written on the row that carries its tool.
+    const h = makeHarness({ tool_calls: JSON.stringify([
+      { id: "tu_due_1", name: "Bash", status: "running" },
+      { id: "tu_due_2", name: "Write", status: "running" },
+    ]) });
     const sk = "free:due";
     const primo = h.call("POST", `/api/sessions/${sk}/permission`, { toolName: "Bash", toolUseId: "tu_due_1", legMs: 5_000 });
     const secondo = h.call("POST", `/api/sessions/${sk}/permission`, { toolName: "Write", toolUseId: "tu_due_2", legMs: 5_000 });

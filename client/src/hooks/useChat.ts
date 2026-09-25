@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { ChatMessage, ChatRequest, CompactionMarker, ContentBlock, HistoryMessage, Message, ToolCall, WSMessage } from '../types';
+import type { ChatMessage, ChatRequest, CompactionMarker, ContentBlock, HistoryMessage, Message, ToolCall, WSFrameRow, WSMessage } from '../types';
 import { chatApi, apiErrorCode } from '../lib/api';
 import { decideClientWipeOnStop } from './stopSessionPolicy';
 // "Un turno che non ha prodotto niente non lascia niente" — la STESSA regola che
@@ -8,7 +8,7 @@ import { decideClientWipeOnStop } from './stopSessionPolicy';
 import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder, CLIENT_MESSAGE_ID_PREFIX } from './streamCatchupMerge';
 import { clearPartialForReattach, reviveClosedBubble } from './streamReattachReset';
-import { LiveTurnIds, liveAssistantIndex, shouldFillFromBroadcast } from './liveTurn';
+import { LiveTurnIds, carryLateStart, frameTargetIndex, lateStartContent, liveAssistantIndex, shouldFillFromBroadcast } from './liveTurn';
 import { liveInterruptionBlock } from '../components/Chat/turnError';
 import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
@@ -62,7 +62,7 @@ import {
   decideMessageResidency,
   type MessageResidencyInput,
 } from '../state/messageResidency';
-import { senderAlsoSees } from './senderAlsoSees';
+import { senderAlsoSeesFrame } from './senderAlsoSees';
 import { toolUpdatePatch, type ToolUpdateEvent } from './toolUpdatePatch';
 import {
   beginStreamTokenRate,
@@ -631,6 +631,9 @@ export function useChat() {
   const loadHistoryRef = useRef<((sk: string) => Promise<boolean>) | null>(null);
   // Track sessions with active local SSE streams (to avoid double content from WS broadcast)
   const localSSESessionsRef = useRef<Set<string>>(new Set());
+  // A late answer's opening flag whose chunk cleaned to nothing, by message id
+  // (see `carryLateStart`).
+  const pendingLateStartRef = useRef<Set<string>>(new Set());
   // Per-session timestamp of the last successful loadHistory fetch. Used to
   // dedup rapid re-mounts (a tab switch in StandaloneChatGroup unmounts the
   // active ChatPane and re-mounts a new one — without dedup the user sees
@@ -983,23 +986,31 @@ export function useChat() {
     return arr;
   };
 
-  const appendToLastMessage = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string) => {
+  const appendToLastMessage = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string, frame?: WSFrameRow) => {
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
-      const lastMessageIndex = liveAssistantIndex(sessionMessages, streamMessageIdRef.current.get(sessionKey));
+      const lastMessageIndex = frameTargetIndex(sessionMessages, streamMessageIdRef.current.get(sessionKey), frame);
 
       if (lastMessageIndex >= 0) {
         const updatedMessages = [...sessionMessages];
         const lastMsg = sessionMessages[lastMessageIndex];
 
+        // A late answer's first words open their own block and paragraph under
+        // the cut, as the server writes them.
+        const lateStart = !!(frame?.lateStart && contentDelta);
         let nextBlocks = lastMsg.blocks;
-        if (contentDelta) nextBlocks = appendBlock(nextBlocks, { kind: 'text', text: contentDelta });
+        if (contentDelta) {
+          nextBlocks = lateStart
+            ? [...(nextBlocks ?? []), { kind: 'text', text: contentDelta }]
+            : appendBlock(nextBlocks, { kind: 'text', text: contentDelta });
+        }
         if (thinkingDelta) nextBlocks = appendBlock(nextBlocks, { kind: 'thinking', text: thinkingDelta });
 
         // Create a new object without mutating the old state reference
         updatedMessages[lastMessageIndex] = {
           ...lastMsg,
-          content: contentDelta ? (lastMsg.content || '') + contentDelta : lastMsg.content,
+          content: lateStart ? lateStartContent(lastMsg.content, contentDelta!)
+            : contentDelta ? (lastMsg.content || '') + contentDelta : lastMsg.content,
           thinking: thinkingDelta ? (lastMsg.thinking || '') + thinkingDelta : lastMsg.thinking,
           blocks: nextBlocks,
         };
@@ -1014,10 +1025,10 @@ export function useChat() {
     });
   }, []);
 
-  const addToolCallToLastMessage = useCallback((sessionKey: string, toolCall: ToolCall) => {
+  const addToolCallToLastMessage = useCallback((sessionKey: string, toolCall: ToolCall, frame?: WSFrameRow) => {
     setMessages(prev => {
       const sessionMessages = prev[sessionKey] || [];
-      const lastMessageIndex = liveAssistantIndex(sessionMessages, streamMessageIdRef.current.get(sessionKey));
+      const lastMessageIndex = frameTargetIndex(sessionMessages, streamMessageIdRef.current.get(sessionKey), frame);
 
       if (lastMessageIndex >= 0) {
         const updatedMessages = [...sessionMessages];
@@ -1256,7 +1267,9 @@ export function useChat() {
     // The list itself now lives in `senderAlsoSees.ts`, with the rule for
     // adding to it and a test that counts it: it turned out to be incomplete
     // twice, and here it could not fail in a test.
-    const passaAncheAlMittente = senderAlsoSees(event.type);
+    // A late frame of a turn the server closed is let through too: this SSE
+    // is the next turn's, and it never carries it.
+    const passaAncheAlMittente = senderAlsoSeesFrame(event);
     if (localSSESessionsRef.current.has(sessionKey) && !passaAncheAlMittente) {
       if (event.type === 'stream:end') {
         finishStreamTokenRate(sessionKey, event.usageCompletionTokens);
@@ -1338,7 +1351,14 @@ export function useChat() {
 
       case 'stream:thinking_chunk':
         if (event.content) {
-          bufferLiveDelta(sessionKey, undefined, event.content);
+          // A closed turn's late answer goes straight to the bubble it names,
+          // outside the live buffer, which belongs to the turn in flight.
+          if (event.late) {
+            flushLiveDeltas(sessionKey);
+            appendToLastMessage(sessionKey, undefined, event.content, event);
+          } else {
+            bufferLiveDelta(sessionKey, undefined, event.content);
+          }
         }
         break;
 
@@ -1349,6 +1369,18 @@ export function useChat() {
       case 'stream:content_chunk':
         if (event.content) {
           const cleanedChunk = cleanInvisibleMarkers(event.content);
+          if (event.late) {
+            // Same as the thinking above; and no watchdog reset, it guards the
+            // turn in flight, not this one.
+            flushLiveDeltas(sessionKey);
+            const opens = carryLateStart(pendingLateStartRef.current, event, !!cleanedChunk);
+            if (cleanedChunk) {
+              appendToLastMessage(sessionKey, cleanedChunk, undefined, {
+                messageId: event.messageId, late: event.late, ...(opens ? { lateStart: true as const } : {}),
+              });
+            }
+            break;
+          }
           if (cleanedChunk) bufferLiveDelta(sessionKey, cleanedChunk, undefined);
           resetStreamTimeout(sessionKey); // Reset watchdog on each chunk (immediate, not deferred)
         }
@@ -1371,7 +1403,7 @@ export function useChat() {
 
       case 'stream:tool_call':
         if (event.toolCall) {
-          addToolCallToLastMessage(sessionKey, event.toolCall as ToolCall);
+          addToolCallToLastMessage(sessionKey, event.toolCall as ToolCall, event);
         }
         break;
 
@@ -1685,7 +1717,7 @@ export function useChat() {
         }
         break;
     }
-  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn]);
+  }, [addToolCallToLastMessage, appendToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {

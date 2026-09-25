@@ -2672,6 +2672,12 @@ export class ClaudeCodeProvider implements AIProvider {
     return this.processes.has(sessionKey);
   }
 
+  /** A send in flight or queued, read off the queue tail and not process liveness: see `sessionHasPendingSend`. */
+  async hasPendingSend(sessionKey: string): Promise<boolean> {
+    const tail = this.queues.get(sessionKey), pending = Symbol("pending");
+    return !!tail && (await Promise.race([tail, Promise.resolve(pending)])) === pending; // RAW tail: `tail.then()` adds a tick and always loses
+  }
+
   /**
    * C'è un turno IN VOLO in questa sessione, secondo il BROKER?
    *
@@ -3186,7 +3192,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // is ABORTED. Only a genuine non-zero exit is PROCESS_DIED.
     const graceful = pp.aborting === true || code === 0;
     const kind = pp.recovering ? " (session reset)"
-      : pp.aborting ? (pp.abortReason === "watchdog" ? " (watchdog stop)" : " (user stop)")
+      : pp.aborting ? ` (${pp.abortReason ?? "user"} stop)`
       : "";
     console.log(`[claude-code] Process exited with code ${code}${kind}`);
     if (pp.pendingReject) {
@@ -3210,7 +3216,7 @@ export class ClaudeCodeProvider implements AIProvider {
         // una causa inventata.
         this.tellHandlerSafely(pp, "onAborted", () => pp.streamHandler?.onAborted?.({
           turnEnd: pp.aborting
-            ? cancelled(pp.abortReason === "watchdog" ? "watchdog" : "user")
+            ? cancelled(pp.abortReason ?? "user")
             : { end: "cancelled" },
         }));
       } else {

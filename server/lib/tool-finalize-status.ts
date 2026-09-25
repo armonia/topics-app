@@ -19,6 +19,7 @@
  * declared written.
  */
 import type { TurnEndInfo } from "../providers/stop-reason";
+import { isMachineStop, machineStopToolError } from "./abort-cause";
 
 export interface ToolOutcome {
   status: "success" | "error";
@@ -38,7 +39,12 @@ export function toolOutcomeAtTurnEnd(
   turnEnd: TurnEndInfo | undefined,
   errorMsg?: string,
 ): ToolOutcome {
-  if (reason === "aborted") return { status: "error", error: "Aborted by user" };
+  if (reason === "aborted") {
+    // A stop the machine wanted says so, and not with the interrupted prefix, which the
+    // boot's repair pass reads as a turn to resume (lib/abort-cause.ts).
+    const cause = turnEnd?.cause;
+    return { status: "error", error: isMachineStop(cause) ? machineStopToolError(cause) : "Aborted by user" };
+  }
   if (reason === "error") return { status: "error", error: errorMsg || "Stream ended with error" };
   if (turnEnd?.end === "max_tokens") {
     return {

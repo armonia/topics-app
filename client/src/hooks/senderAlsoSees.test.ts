@@ -21,7 +21,7 @@
  * @covers PERM-08
  */
 import { describe, expect, test } from 'bun:test';
-import { senderAlsoSees, SENDER_ALSO_SEES } from './senderAlsoSees';
+import { senderAlsoSees, senderAlsoSeesFrame, SENDER_ALSO_SEES } from './senderAlsoSees';
 
 describe('the events that also reach whoever owns the SSE', () => {
   test('a permission outcome gets through, or the panel never switches off', () => {
@@ -59,6 +59,22 @@ describe('the events that also reach whoever owns the SSE', () => {
     for (const t of ['stream:chunk', 'stream:tool_update', 'stream:thinking', 'stream:start', 'stream:end']) {
       expect(senderAlsoSees(t)).toBe(false);
     }
+  });
+
+  /**
+   * A late answer: the watchdog closed T1 while its send waited in the
+   * provider's queue, the person sent T2 from this window, and T1's answer
+   * arrived. Its frames say `late` and name T1's row, and none of them is on
+   * T2's SSE, so the gate dropped them all: the window you were working in
+   * never showed T1's tools, and a question or a permission among them held
+   * the CLI, and T2 behind it, on a panel nobody could see (review of PR #135).
+   */
+  test('every frame of a closed turn reaches the sender, deltas included: none of them is on its SSE', () => {
+    for (const type of ['stream:tool_call', 'stream:tool_result', 'stream:content_chunk', 'stream:thinking_chunk']) {
+      expect(senderAlsoSeesFrame({ type, late: true })).toBe(true);
+      expect(senderAlsoSeesFrame({ type })).toBe(false);
+    }
+    expect(senderAlsoSeesFrame({ type: 'stream:usage' })).toBe(true);
   });
 
   test('the list is short and has no duplicates', () => {

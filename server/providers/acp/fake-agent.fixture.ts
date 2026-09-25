@@ -192,6 +192,12 @@ async function handlePrompt(params: Record<string, unknown>): Promise<Record<str
     return { stopReason: "refusal" };
   }
 
+  // Ends the turn as cancelled with nobody having asked: the provider must not
+  // read it as a person's Stop.
+  if (text.includes("SELFCANCEL")) {
+    return { stopReason: "cancelled" };
+  }
+
   // L'eco porta con sé l'id di sessione e come è nata: è così che i test
   // verificano il riuso della sessione senza guardare dentro al provider.
   update(sessionId, {

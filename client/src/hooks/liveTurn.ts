@@ -84,6 +84,62 @@ export function liveAssistantIndex(msgs: ChatMessage[], liveId: string | undefin
 }
 
 /**
+ * The bubble a FRAME names, when it names one.
+ *
+ * A turn the server already closed can still receive its answer (a send that
+ * waited in the provider's queue), and the server keeps it on that turn's row.
+ * The client had cleared the turn's live id at `stream:end`, so the late frames
+ * fell to "the last assistant message": the sweep's notice, or the next turn
+ * while it streams (review of PR #135). A frame that names its row goes there;
+ * a LATE frame whose bubble is not in view goes nowhere, since the database has
+ * it and a reload shows it where it belongs. A live frame whose name is unknown
+ * here (a window that only watches another's turn holds a local id) keeps the
+ * long-standing fallback.
+ */
+export function frameTargetIndex(
+  msgs: ChatMessage[],
+  liveId: string | undefined,
+  frame: { messageId?: string; late?: true } | undefined,
+): number {
+  if (frame?.messageId) {
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].id === frame.messageId && msgs[i].role === 'assistant') return i;
+    }
+    if (frame.late) return -1;
+  }
+  return liveAssistantIndex(msgs, liveId);
+}
+
+/**
+ * A closed turn's late answer under the text above the cut, as the server
+ * writes it (`lib/late-answer-lane.ts`): a paragraph of its own, never glued
+ * to it. The frame that opens it says so (`lateStart`).
+ */
+export function lateStartContent(above: string | undefined, delta: string): string {
+  return (above && above.trim() ? `${above}\n\n` : '') + delta;
+}
+
+/**
+ * Whether this late chunk opens the late answer. The server marks the FIRST
+ * chunk (`lateStart`); when the client cleans that one to nothing (invisible
+ * markers), the flag waits for the first chunk with text, or the late answer
+ * would glue to the text above the cut. `pending` holds the waiting flags by
+ * message id.
+ */
+export function carryLateStart(
+  pending: Set<string>,
+  frame: { messageId?: string; lateStart?: true },
+  hasText: boolean,
+): boolean {
+  const key = frame.messageId ?? '';
+  if (!hasText) {
+    if (frame.lateStart) pending.add(key);
+    return false;
+  }
+  return pending.delete(key) || frame.lateStart === true;
+}
+
+/**
  * A persisted row arrived for a message we ALREADY have. Does its content still
  * need to land?
  *

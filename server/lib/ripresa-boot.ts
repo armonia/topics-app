@@ -20,9 +20,21 @@
  * Una ripresa automatica sbagliata costa un turno vero, a pagamento, e in un
  * ciclo li costa tutti. Quindi:
  *
- *   · si riprende SOLO chi porta il verdetto di un'interruzione NOSTRA (il
- *     blocco `error` scritto da `avvisoPerTurno`/`bonificaTurniMuti`): un
- *     turno fermato dall'utente non ha quel blocco, per costruzione;
+ *   · only a turn carrying the verdict of an interruption of OURS (the
+ *     `error` block written by `avvisoPerTurno`/`bonificaTurniMuti`) is
+ *     resumed. For an answer row a Stop is kept out by construction, since
+ *     `cancelledNotice` writes no block for it. A person's message nobody
+ *     answered carries no block at all, so there the Stop is read from the
+ *     turn-end registry (`readTurnEnd`) and, since the registry dies with
+ *     every reload, from `activity_log`: a Stop recorded at or after the
+ *     message means they stopped it (topic c5d57a41, 24/09);
+ *   · and only if nothing was produced after the LAST such verdict: a late
+ *     answer of a closed turn is saved on its own row, under the verdict, and
+ *     a row that carries one was answered whatever the verdict above it says.
+ *     Resending it runs the message a second time (the 3019832f shape);
+ *   · never while a provider still holds a send for the chat
+ *     (`sessionHasPendingSend`): a send queued behind a stuck turn is live
+ *     even with no stream and no process (topic 3019832f, 24/09);
  *   · at most MAX_RESUME_ATTEMPTS times per MESSAGE, counted along the chain
  *     of resends (`parent_id`) and not on the single row; the trace lives in
  *     the DB (`kind: 'ripreso'`, with the attempt number), not in memory,
@@ -37,7 +49,15 @@
  *     in mente.
  */
 import type { ContentBlock } from "../types";
-import { eCartelloDiInterruzione, isResumableCause } from "./cancelled-notice";
+import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
+import { readTurnEnd, type RecordedTurnEnd } from "../providers/turn-end-registry";
+import {
+  eCartelloDiInterruzione, isRestartNotice, isResumableCause,
+  STOP_PRESSED_LOG_TITLE, USER_ABORT_LOG_TITLE,
+} from "./cancelled-notice";
+import {
+  UNANSWERED_NOTICE, unansweredNotice, capNotice, capLastCut,
+} from "./resume-notices";
 
 /** Quanto indietro si va a riprendere. Oltre, è storia. */
 // 24 hours, not 30 minutes (2026-09-04, asked out loud: every interrupted
@@ -82,23 +102,35 @@ export const MAX_RESUME_ATTEMPTS = 4;
  * no stream on the chat, is an interruption of ours that never got its notice.
  */
 export const USER_TAIL_GRACE_MS = 2 * 60_000;
-/** The notice written on such a chat BEFORE it is resumed (RESUME-02: first the
- *  explanation in the thread, then the resend). Its opening words are one of
- *  `CARTELLI_RIPRENDIBILI`, so the resume that follows recognises it. */
-export const UNANSWERED_NOTICE =
-  "⚠️ Turno interrotto: il server si è riavviato prima che la risposta partisse: il messaggio è rimasto senza risposta.";
+// The words the sweep writes in a chat: lib/resume-notices.ts.
+export { UNANSWERED_NOTICE, unansweredNotice };
+export const RESUME_CAP_MARKER = capNotice(MAX_RESUME_ATTEMPTS, capLastCut({ restarted: true }));
+export function resumeCapNotice(opts: { restarted: boolean; cause?: unknown }): string {
+  return capNotice(MAX_RESUME_ATTEMPTS, capLastCut(opts));
+}
 
-/**
- * The notice written in the chat when the chain has spent its attempts. Same
- * shape as RESTART_INTERRUPTED_MARKER (⚠️ prefix, error block only), so the
- * client renders the amber banner and the "Riprova" button without a change.  allow-italian: button label
- *
- * It must NOT start with one of the openings `eCartelloDiInterruzione`
- * recognises, or the next boot would read it as one more interruption of ours
- * and resume the chain it just closed.
- */
-export const RESUME_CAP_MARKER =
-  `⚠️ Ripresa automatica sospesa: il server si e' riavviato ${MAX_RESUME_ATTEMPTS} volte di fila sotto questo turno e ogni volta l'aveva ripreso da capo. Il messaggio che hai inviato e' ancora qui: premi Riprova quando vuoi rimandarlo.`;
+/** An interruption verdict of ours: recognised by its text or by its cause. */
+function isInterruptionVerdict(b: ContentBlock | null | undefined): boolean {
+  if (b?.kind !== "error") return false;
+  const text = (b as { text?: unknown }).text;
+  return eCartelloDiInterruzione(typeof text === "string" ? text : "")
+    || isResumableCause((b as { cause?: unknown }).cause);
+}
+
+/** Where the last interruption verdict sits among a row's blocks, or -1. */
+function lastInterruptionIndex(blocks: ContentBlock[] | null): number {
+  if (!Array.isArray(blocks)) return -1;
+  for (let i = blocks.length - 1; i >= 0; i--) if (isInterruptionVerdict(blocks[i])) return i;
+  return -1;
+}
+
+/** Something a turn produced: prose with words in it, or a tool call. The
+ *  resend trace (`ripreso`) and an empty text block are not an answer. */
+function isProducedContent(b: ContentBlock | null | undefined): boolean {
+  if (b?.kind === "tool") return true;
+  const text = (b as { text?: unknown } | null | undefined)?.text;
+  return b?.kind === "text" && typeof text === "string" && text.trim() !== "";
+}
 
 export interface RigaDaValutare {
   sessionKey: string;
@@ -114,8 +146,32 @@ export interface RigaDaValutare {
   attempts: number;
   /** A turn is live on this chat right now (`ctx.isStreaming`). */
   streaming?: boolean;
+  /** A provider still holds a send for this chat, in flight or queued
+   *  (`sessionHasPendingSend`), which a live stream alone does not show. */
+  providerBusy?: boolean;
+  /** The last turn end recorded for this session and when (`readTurnEnd`);
+   *  empty after a restart. */
+  lastTurnEnd?: RecordedTurnEnd | null;
   /** The chat belongs to a board card: the dispatcher resumes those itself. */
   boundToCard?: boolean;
+  /** ...and that card is done or archived, with none left on the board: its
+   *  work landed, and a cut turn there has nothing left to resume. */
+  cardLanded?: boolean;
+}
+
+/** The person pressed Stop on this message's turn, or on a later one. A Stop
+ *  recorded before the message belongs to the turn before it. */
+function stoppedByPerson(r: RigaDaValutare): boolean {
+  const e = r.lastTurnEnd;
+  return !!e && e.info.end === "cancelled" && e.info.cause === "user" && e.atMs >= r.timestampMs;
+}
+
+/** The message's turn ran and ended normally, and its answer was empty and
+ *  discarded: a manual /compact, a CLI sentinel. It was answered. Only
+ *  `end_turn` counts: a cancellation or an error left it unanswered. */
+function endedNormallyAfter(r: RigaDaValutare): boolean {
+  const e = r.lastTurnEnd;
+  return !!e && e.info.end === "end_turn" && e.atMs >= r.timestampMs;
 }
 
 /** The rule's answer: resend, stop AND say so, leave the row alone - or, for a
@@ -138,7 +194,13 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
     // ever answered (see USER_TAIL_GRACE_MS). A card's chat is the
     // dispatcher's, which re-sends its own kickoff. Window and cap apply as
     // for any other interruption of ours.
-    if (r.streaming || r.boundToCard) return "no";
+    // A send still queued on the provider is the answer on its way, and a
+    // message the person stopped stays unanswered because they chose so.
+    // A normal end after the message is an answer nobody kept: a /compact
+    // ends with an empty result and the route discards the empty row.
+    if (r.streaming || r.providerBusy || r.boundToCard) return "no";
+    if (stoppedByPerson(r)) return "no";
+    if (endedNormallyAfter(r)) return "no";
     if (oraMs - r.timestampMs < USER_TAIL_GRACE_MS) return "no";
     if (oraMs - r.timestampMs > FINESTRA_RIPRESA_MS) return "no";
     if (r.attempts >= MAX_RESUME_ATTEMPTS) return "capped";
@@ -149,8 +211,14 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   // answered right now. Without this the capped branch below fired on EVERY
   // sweep while the resumed turn was still working: topic 3019832f on 24/09
   // got «Ripresa automatica sospesa» six times in 30 minutes, one each 5 min,
-  // under an agent that was answering.
-  if (r.streaming) return "no";
+  // under an agent that was answering. A send still waiting in the provider's
+  // queue is the same case with no stream to show it (3019832f again: four
+  // resends behind the send the watchdog had orphaned).
+  if (r.streaming || r.providerBusy) return "no";
+  // A landed or archived card's chat: after a land the sweep resent the card's
+  // last envelope, and an agent redid work already on main (third review of
+  // PR #135). A card still on the board keeps main's rule (fourth review).
+  if (r.cardLanded) return "no";
   if (!Array.isArray(r.blocks) || r.blocks.length === 0) return "no";
   // Fuori finestra: una risposta che arriva domani a una domanda di ieri è
   // rumore, non un recupero.
@@ -174,11 +242,14 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   // cause is what reaches every cut of ours whatever sentence it wore. The
   // sweeper's cut (`INTERRUPTED_MARKER` in lib/stale-stream-sweep.ts) was
   // recognised by neither until 05/09/2026: no chat it closed was ever resumed.
-  const interrupted = r.blocks.some((b) => b?.kind === "error" && (
-    eCartelloDiInterruzione(typeof (b as { text?: unknown }).text === "string" ? (b as { text: string }).text : "")
-    || isResumableCause((b as { cause?: unknown }).cause)
-  ));
-  if (!interrupted) return "no";
+  const lastCut = lastInterruptionIndex(r.blocks);
+  if (lastCut < 0) return "no";
+  // ANSWERED AFTER THE CUT. A late answer of a closed turn is saved on its own
+  // row, under the verdict: prose or a tool after the LAST verdict means the
+  // message was answered, and a resend would run it a second time. Past the
+  // cap too: an answered chain gets no cap notice. A resumed row that is cut
+  // again ends with its own verdict, so only the last one is read.
+  if (r.blocks.slice(lastCut + 1).some(isProducedContent)) return "no";
   // Resumed TOO MANY times, on the CHAIN. The trace is written BEFORE the
   // resend, on purpose: written after, a resend that dies halfway would be
   // retried at every boot forever. And it is a counter, not a switch: a resend
@@ -245,16 +316,76 @@ export interface CtxRipresa {
   getTopicBySessionKey(sessionKey: string): { id?: string; archived?: boolean | number } | undefined | null;
   /** Truthy when a turn is live on that chat (`ctx.isStreaming` in production). */
   isStreaming?(sessionKey: string): unknown;
+  /** Whether a provider still holds a send for that chat, in flight or queued
+   *  (`sessionHasPendingSend` in production). Absent means nobody can tell.
+   *  It must answer from memory, with no I/O: see the loop that awaits it. */
+  providerBusy?(sessionKey: string): boolean | Promise<boolean>;
+  /** The last recorded turn end and when; defaults to the process registry.
+   *  A person's Stop is also read from `activity_log`, which survives a restart. */
+  lastTurnEnd?(sessionKey: string): RecordedTurnEnd | undefined;
+  /** When this server process started: a person's message older than this
+   *  lived through a restart. Defaults to the process start. */
+  bootedAtMs?: number;
 }
 
-/** Whether a board card is working on this topic: those chats are the
- *  dispatcher's to resume (it re-sends its own kickoff), never this sweep's. */
-function cardBound(db: Pick<Database, "query">, topicId: string): boolean {
+/** The last interruption verdict of a row: the cut, with its cause and its text. */
+function lastInterruption(blocks: ContentBlock[] | null): { cause?: unknown; text?: string } | undefined {
+  const i = lastInterruptionIndex(blocks);
+  if (i < 0 || !blocks) return undefined;
+  const b = blocks[i] as { cause?: unknown; text?: unknown };
+  return { cause: b.cause, text: typeof b.text === "string" ? b.text : undefined };
+}
+
+/**
+ * The newest DURABLE trace of a person's Stop on this session at or after
+ * `sinceIso`, as a turn end. The registry is memory and the server reloads on
+ * every save: on the first boot after a Stop it is empty, and the stopped
+ * message would be resent as "unanswered" (topic c5d57a41, 24/09). A database
+ * without `activity_log` is no evidence, not an error.
+ */
+function durableStopSince(db: Pick<Database, "query">, sessionKey: string, sinceIso: string): RecordedTurnEnd | undefined {
   try {
-    return db.query(
-      `SELECT 1 FROM tasks WHERE assigned_topic_id = ? AND archived = 0 AND status IN ('todo','in_progress','review') LIMIT 1`,
-    ).get(topicId) != null;
-  } catch { return false; }
+    const row = db.query(
+      `SELECT timestamp FROM activity_log
+        WHERE session_key = ? AND category = 'stream' AND title IN (?, ?) AND timestamp >= ?
+        ORDER BY timestamp DESC LIMIT 1`,
+    ).get(sessionKey, USER_ABORT_LOG_TITLE, STOP_PRESSED_LOG_TITLE, sinceIso) as { timestamp: string } | undefined | null;
+    const atMs = row ? Date.parse(row.timestamp) : NaN;
+    return Number.isFinite(atMs) ? { info: cancelled("user", "activity_log"), atMs } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Of two recorded ends, the latest. */
+function latestEnd(a: RecordedTurnEnd | undefined, b: RecordedTurnEnd | undefined): RecordedTurnEnd | undefined {
+  if (!a || !b) return a ?? b;
+  return b.atMs > a.atMs ? b : a;
+}
+
+/** Stops already reported in the log, per session, by the time of the Stop:
+ *  without it a stopped chat would repeat the same line every sweep for a day. */
+const stopsLogged = new Map<string, number>();
+
+/** The row whose queued-send line was already said, per session. An episode
+ *  ends at the first sweep that finds the provider idle, or when the cut row
+ *  changes: a chat that never goes idle can get stuck again on a new row, and
+ *  that is news. Without it a send stuck for half an hour said the same line
+ *  every five minutes. */
+const busyLogged = new Map<string, string>();
+
+/** Whether a board card owns this topic (those chats are the dispatcher's to
+ *  resume: it re-sends its own kickoff), and whether its work has landed: a
+ *  card done or archived, none left on the board. */
+function cardHold(db: Pick<Database, "query">, topicId: string): { bound: boolean; landed: boolean } {
+  try {
+    const cards = db.query(
+      `SELECT status, archived FROM tasks WHERE assigned_topic_id = ?
+          AND (status IN ('todo','in_progress','review','done') OR archived = 1)`,
+    ).all(topicId) as Array<{ status: string; archived: number }>;
+    const onBoard = cards.some((c) => !c.archived && c.status !== "done");
+    return { bound: cards.length > 0, landed: cards.length > 0 && !onBoard };
+  } catch { return { bound: false, landed: false }; }
 }
 
 /** A chain longer than this is not a chain: `parent_id` is cyclic or corrupt. */
@@ -366,11 +497,13 @@ async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | typeof
  * mostra solo su un turno SENZA lavoro, mentre quello morto a metà lavoro è la
  * forma normale del guasto.
  *
- * Quindi lo riprende il server. Chi merita la ripresa lo decide
- * `lib/ripresa-boot.ts`, provato a parte, con i suoi cinque freni: solo
- * l'ultimo turno, solo se porta il verdetto di un'interruzione NOSTRA (un turno
- * fermato dall'utente non ce l'ha, per costruzione), al più MAX_RESUME_ATTEMPTS volte per messaggio, dentro
- * mezz'ora, e solo se l'utente non ha già ripreso lui.
+ * So the server resumes it. Who deserves the resume is `resumeVerdict`'s call,
+ * tested on its own: only the last turn, only an interruption of OURS, never a
+ * message the person stopped (read from the turn-end registry and from
+ * `activity_log`, because an unanswered message has no block to say so),
+ * never while a provider still holds a send for the chat, at most
+ * MAX_RESUME_ATTEMPTS times per message, inside FINESTRA_RIPRESA_MS, and only
+ * if the person has not resumed it.
  *
  * Il rimando passa dalla STESSA route della chat: qui non si fabbrica un turno,
  * si rimanda il messaggio che era rimasto senza risposta.
@@ -392,18 +525,56 @@ export async function riprendiTurniInterrotti(
         WHERE m.timestamp >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-25 hours')`,
     ).all() as Array<{ sk: string; id: string; ruolo: string; blocks: unknown; ts: string }>;
     const ora = Date.now();
+    const bootedAtMs = ctx.bootedAtMs ?? ora - process.uptime() * 1000;
     for (const r of righe) {
       let blocks: ContentBlock[] | null = null;
       try { blocks = JSON.parse(decodeCol(r.blocks) ?? "null") as ContentBlock[] | null; } catch { continue; }
       const attempts = attemptsInChain(ctx.db, r.sk, r.id);
       const topic = ctx.getTopicBySessionKey(r.sk);
       if (!topic || topic.archived) continue;
-      let verdict: ResumeVerdict = resumeVerdict({
+      const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false };
+      const row: RigaDaValutare = {
         sessionKey: r.sk, ruolo: r.ruolo, blocks, timestampMs: Date.parse(r.ts), attempts,
         streaming: Boolean(ctx.isStreaming?.(r.sk)),
-        boundToCard: topic.id ? cardBound(ctx.db, topic.id) : false,
-      }, ora);
-      if (verdict === "no") continue;
+        // Settles in microtasks (a queue tail, no I/O), so reading the rows
+        // and writing the traces still happen inside one macrotask, and a
+        // second sweep started by a timer cannot pick the same row.
+        providerBusy: Boolean(await ctx.providerBusy?.(r.sk)),
+        // Newest wins between the registry and, for a person's message, the
+        // durable Stop: after a restart only the second is left.
+        lastTurnEnd: latestEnd(
+          ctx.lastTurnEnd ? ctx.lastTurnEnd(r.sk) : readTurnEnd(r.sk),
+          r.ruolo === "user" ? durableStopSince(ctx.db, r.sk, r.ts) : undefined,
+        ) ?? null,
+        boundToCard: card.bound,
+        cardLanded: card.landed,
+      };
+      if (!row.providerBusy) busyLogged.delete(r.sk);
+      let verdict: ResumeVerdict = resumeVerdict(row, ora);
+      if (verdict === "no") {
+        // Said only when that reason alone changed the verdict: a live stream
+        // or a card already says "no" without anybody's help.
+        if (row.providerBusy && resumeVerdict({ ...row, providerBusy: false }, ora) !== "no") {
+          if (busyLogged.get(r.sk) !== r.id) {
+            busyLogged.set(r.sk, r.id);
+            console.log(`[ripresa] ${r.sk}: un invio per questa chat è ancora in coda sul provider, non lo rimando`);
+          }
+        } else if (row.lastTurnEnd && stoppedByPerson(row) && stopsLogged.get(r.sk) !== row.lastTurnEnd.atMs
+          && resumeVerdict({ ...row, lastTurnEnd: null }, ora) !== "no") {
+          stopsLogged.set(r.sk, row.lastTurnEnd.atMs);
+          console.log(`[ripresa] ${r.sk}: il turno l'ha fermato l'utente, il messaggio resta senza risposta e non lo rimando`);
+        }
+        continue;
+      }
+      // A person's message that predates this process lived through a restart:
+      // the fallback evidence for their notices when no cause is known. Unless
+      // a turn ended for it after the boot: then its answer started after the
+      // restart, and the restart is not what left it unanswered. Never used
+      // for an answer row, whose cut says what cut it.
+      const endedSinceBoot = !!row.lastTurnEnd && row.lastTurnEnd.atMs >= Math.max(bootedAtMs, row.timestampMs);
+      const restartLeftItUnanswered = row.timestampMs < bootedAtMs && !endedSinceBoot;
+      // The recorded end speaks for this message only if it came after it.
+      const ownEnd = row.lastTurnEnd && row.lastTurnEnd.atMs >= row.timestampMs ? row.lastTurnEnd.info : null;
       let resendRowId = r.id;
       let rowBlocks: ContentBlock[] = blocks ?? [];
       if (verdict === "unanswered") {
@@ -412,7 +583,7 @@ export async function riprendiTurniInterrotti(
         // the row the resend is traced on: the next sweep counts this chain
         // like any other, and a second boot does not resend it again.
         try {
-          insertRestartNotification(ctx.db as unknown as PartialSweepDb, r.sk, { text: UNANSWERED_NOTICE });
+          insertRestartNotification(ctx.db as unknown as PartialSweepDb, r.sk, { text: unansweredNotice({ restarted: restartLeftItUnanswered, lastEnd: ownEnd }) });
         } catch (err) {
           console.warn(`[ripresa] ${r.sk}: messaggio senza risposta, ma non riesco a scrivere il cartello, lo salto:`, err);
           continue;
@@ -436,8 +607,14 @@ export async function riprendiTurniInterrotti(
       // this chain again. Written once: the boot after finds it and says "no".
       if (verdict === "capped") {
         try {
-          insertRestartNotification(ctx.db as unknown as PartialSweepDb, r.sk, { text: RESUME_CAP_MARKER });
-          console.warn(`[ripresa] ${r.sk}: ripreso gia' ${attempts} volte di fila su questo messaggio, mi fermo e lo scrivo in chat`);
+          const cut = lastInterruption(blocks);
+          const text = r.ruolo === "user"
+            ? resumeCapNotice({ restarted: restartLeftItUnanswered, cause: ownEnd?.cause })
+            // An answer row carries its cut: the block's cause, or a restart
+            // notice's text (the boot sweep writes a hard kill's with no cause).
+            : resumeCapNotice({ restarted: isRestartNotice(cut?.text), cause: cut?.cause });
+          insertRestartNotification(ctx.db as unknown as PartialSweepDb, r.sk, { text });
+          console.warn(`[ripresa] ${r.sk}: ripreso gia' ${attempts} volte su questo messaggio, mi fermo e lo scrivo in chat`);
         } catch (err) {
           console.warn(`[ripresa] ${r.sk}: tetto raggiunto ma non riesco a scriverlo in chat:`, err);
         }

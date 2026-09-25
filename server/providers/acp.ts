@@ -653,8 +653,11 @@ export class AcpProvider implements AIProvider {
 
       state.promptInFlight = false;
       const raw = stopReason?.stopReason;
+      // A cancel carries the reason WE asked it with, and nothing when we did
+      // not ask: defaulting to "user" logged «stream aborted by user», which  allow-italian: quotes the log title
+      // the resume sweep reads as the person having pressed Stop.
       const end: TurnEndInfo = isAcpStopReason(raw)
-        ? { end: raw, ...(raw === "cancelled" ? { cause: state.aborting ?? "user" } : {}) }
+        ? { end: raw, ...(raw === "cancelled" && state.aborting ? { cause: state.aborting } : {}) }
         : { end: "end_turn" };
       const done: ProviderDoneMessage = { result: state.fullText, turnEnd: end };
       if (end.end === "cancelled") handler.onAborted?.(done);
@@ -692,6 +695,16 @@ export class AcpProvider implements AIProvider {
    */
   ownsSession(sessionKey: string): boolean {
     return this.sessions.has(sessionKey);
+  }
+
+  /**
+   * Is a prompt for this session still in flight? Asked by the resume sweep
+   * before it resends (`sessionHasPendingSend`): a prompt still running behind
+   * a turn the watchdog closed is live even with no stream. ACP runs one
+   * prompt per session and keeps no queue, so the flag is the whole answer.
+   */
+  async hasPendingSend(sessionKey: string): Promise<boolean> {
+    return this.sessions.get(sessionKey)?.promptInFlight === true;
   }
 
   /**

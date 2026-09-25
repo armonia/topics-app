@@ -30,6 +30,7 @@ import { createTopicsRouter } from "../../server/routes/topics";
 import { registerProvider, removeProvider } from "../../server/providers";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, Topic } from "../../server/types";
+import { liveInterruptionBlock } from "../../client/src/components/Chat/turnError";
 
 const TEST_DATA = testTmpDir("chat-stream-abort-data");
 beforeAll(() => setupTestDataDir(TEST_DATA));
@@ -48,13 +49,16 @@ interface Harness {
   abort: () => Promise<Response | null>;
   row: () => { content: string; blocksText: string };
   fanout: { all: number; toTopic: number };
+  /** The `stream:end` events the route broadcast. */
+  ends: () => Array<Record<string, unknown>>;
 }
 
 async function harness(sessionKey: string): Promise<Harness> {
   const ctx = await createTestAppContext();
 
   const fanout = { all: 0, toTopic: 0 };
-  (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = () => { fanout.all++; };
+  const sent: Array<Record<string, unknown>> = [];
+  (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = (m) => { fanout.all++; sent.push(m as Record<string, unknown>); };
   (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void })
     .broadcastToTopicSubscribers = () => { fanout.toTopic++; };
 
@@ -138,7 +142,8 @@ async function harness(sessionKey: string): Promise<Harness> {
     return { content: assistant.content, blocksText };
   };
 
-  return { ctx, startTurn, abort, row, fanout };
+  const ends = () => sent.filter((m) => m.type === "stream:end");
+  return { ctx, startTurn, abort, row, fanout, ends };
 }
 
 /** Quindici delta: cinque oltre l'ultimo salvataggio periodico (SAVE_INTERVAL = 10). */
@@ -355,11 +360,17 @@ describe("la promessa di ripresa sul cartello", () => {
     expect(testo).not.toContain("«Riprova»");
   });
 
-  test("watchdog e limite di tempo: promettono la ripresa, perché lo sweep li riprende", async () => {
-    for (const cause of ["watchdog", "wall-clock"] as const) {
+  // The silence cap reports through `onError` (`classifyTurnError` reads
+  // "wall-clock" off the message); an `onAborted` carrying wall-clock is the
+  // delegation's deadline, a stop the machine wanted (fourth review of PR #135).
+  test("watchdog e limite di silenzio: promettono la ripresa, perché lo sweep li riprende", async () => {
+    const ends = {
+      watchdog: (hd: StreamHandler) => hd.onAborted?.({ result: "", turnEnd: { end: "cancelled", cause: "watchdog" } }),
+      "wall-clock": (hd: StreamHandler) => hd.onError("Turn exceeded the wall-clock cap"),
+    };
+    for (const [cause, end] of Object.entries(ends)) {
       const h = await harness(`topic:ripresa-${cause}`);
-      const handler = await h.startTurn();
-      handler.onAborted?.({ result: "", turnEnd: { end: "cancelled", cause } });
+      end(await h.startTurn());
       await new Promise((r) => setTimeout(r, 50));
 
       const m = h.ctx.loadLocalMessages(`topic:ripresa-${cause}`).filter((x) => x.role === "assistant").pop()!;
@@ -368,6 +379,42 @@ describe("la promessa di ripresa sul cartello", () => {
       expect(testo, cause).toContain("Riprendo da solo");
       expect(testo, cause).not.toContain("«Riprova»");
     }
+  });
+
+  // The client draws its live banner from `stopCause` on `stream:end`
+  // (`liveInterruptionBlock`) and caches it. A stop the machine wanted
+  // persists no notice, so its end carries no cause either, as the abort
+  // route's own `stream:end` does: after a land «a newer turn took its place»
+  // was false, and Retry resent the envelope (fifth review of PR #135).
+  test("una fermata della macchina non manda la causa al client, il watchdog e il silenzio sì", async () => {
+    // The real events through the client's own reader, so the two halves fail together.
+    const banner = (e: Record<string, unknown>) => {
+      const block = liveInterruptionBlock({ stopCause: e.stopCause as string | undefined, error: e.error as string | undefined });
+      return block?.kind === "error" ? block.cause : null;
+    };
+    for (const cause of ["stall", "superseded", "wall-clock"] as const) {
+      const h = await harness(`topic:fine-${cause}`);
+      (await h.startTurn()).onAborted?.({ result: "", turnEnd: { end: "cancelled", cause } });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(h.ends().map((e) => e.stopCause), cause).toEqual([undefined]);
+      expect(h.ends().map(banner), cause).toEqual([null]);
+    }
+    const dog = await harness("topic:fine-watchdog");
+    (await dog.startTurn()).onAborted?.({ result: "", turnEnd: { end: "cancelled", cause: "watchdog" } });
+    const quiet = await harness("topic:fine-silenzio");
+    (await quiet.startTurn()).onError("Turn exceeded the wall-clock cap");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(dog.ends().map((e) => e.stopCause)).toEqual(["watchdog"]);
+    expect(quiet.ends().map((e) => e.stopCause)).toEqual(["wall-clock"]);
+    expect([...dog.ends(), ...quiet.ends()].map(banner)).toEqual(["watchdog", "wall-clock"]);
+  });
+
+  test("scadenza della delega: nessun cartello, riga vuota scartata, come su main", async () => {
+    const h = await harness("topic:ripresa-delega");
+    const handler = await h.startTurn();
+    handler.onAborted?.({ result: "", turnEnd: { end: "cancelled", cause: "wall-clock" } });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(h.ctx.loadLocalMessages("topic:ripresa-delega").filter((x) => x.role === "assistant")).toEqual([]);
   });
 
   test("fermato da una persona: nessuna promessa, e nemmeno il bottone che rimanda", async () => {

@@ -530,11 +530,12 @@ export interface AppContext {
   /** A spontaneous turn picks up the «no answer» headstone before it, when
    *  there is one: see `lib/empty-turn-headstone.ts`. */
   reuseHeadstoneOrCreate: (sessionKey: string) => StoredMessage;
-  updateLastMessage: (sessionKey: string, updates: Partial<StoredMessage>) => StoredMessage | null;
+  /** `opts.rowId` writes that row of the session instead of the last one. */
+  updateLastMessage: (sessionKey: string, updates: Partial<StoredMessage>, opts?: { rowId?: string }) => StoredMessage | null;
   appendToLastMessage: (sessionKey: string, contentDelta: string, thinkingDelta?: string) => StoredMessage | null;
   finalizeLastMessage: (sessionKey: string) => StoredMessage | null;
-  addToolCallToLastMessage: (sessionKey: string, toolCall: ToolCall, opts?: { mirroredInBlocks?: boolean }) => StoredMessage | null;
-  updateToolCallResult: (sessionKey: string, toolCallId: string, result: string, error?: string, extra?: Partial<ToolCall>, opts?: { mirroredInBlocks?: boolean }) => StoredMessage | null;
+  addToolCallToLastMessage: (sessionKey: string, toolCall: ToolCall, opts?: { mirroredInBlocks?: boolean; rowId?: string }) => StoredMessage | null;
+  updateToolCallResult: (sessionKey: string, toolCallId: string, result: string, error?: string, extra?: Partial<ToolCall>, opts?: { mirroredInBlocks?: boolean; rowId?: string }) => StoredMessage | null;
   /**
    * Patch arbitrary fields on a single ToolCall of the last assistant
    * message. Used by the user-input flow (status='waiting_for_input',
@@ -542,7 +543,7 @@ export interface AppContext {
    * non-terminal state — a client reloading mid-pause re-renders the
    * form instead of an open spinner.
    */
-  updateToolCallFields: (sessionKey: string, toolCallId: string, patch: Partial<ToolCall>) => StoredMessage | null;
+  updateToolCallFields: (sessionKey: string, toolCallId: string, patch: Partial<ToolCall>, opts?: { rowId?: string }) => StoredMessage | null;
   /**
    * `survivesRestart`: does this turn withstand a server restart? The caller
    * knows, holding the resolved provider - see `ActiveStream`. The `false`
@@ -554,7 +555,7 @@ export interface AppContext {
   updateStreamActivity: (sessionKey: string, isThinking?: boolean) => void;
   updateStreamContent: (sessionKey: string, content: string, thinking: string) => void;
   getStreamContent: (sessionKey: string) => { content: string; thinking: string; messageId: string } | null;
-  endStream: (sessionKey: string, opts?: { keepAwaiting?: readonly string[] }) => ToolCall[];
+  endStream: (sessionKey: string, opts?: { keepAwaiting?: readonly string[]; closedBecause?: string }) => ToolCall[];
   isStreaming: (sessionKey: string) => ActiveStream | undefined;
   readJSON: (req: Request) => Promise<any>;
   json: (data: any, status?: number) => Response;
@@ -590,7 +591,7 @@ export interface AppContext {
    */
   fileExistsSync?: (filepath: string) => boolean;
   findNewMediaFiles: (sinceMs: number) => Promise<string[]>;
-  updateLastMessageWithMedia: (sessionKey: string, mediaPaths: string[]) => void;
+  updateLastMessageWithMedia: (sessionKey: string, mediaPaths: string[], opts?: { rowId?: string }) => void;
   atomicWriteJSON: (filepath: string, data: object) => void;
   logRequest: (method: string, path: string, status: number, startTime: number) => void;
   searchTranscripts: (query: string, limit?: number) => any[];

@@ -44,9 +44,10 @@ import {
   type OutboundGateDeps,
 } from "../lib/outbound-gate";
 
-type Row = { tool_calls?: string | null; blocks?: string | null };
+type Row = { id: string; tool_calls?: string | null; blocks?: string | null };
 
 const sendRow = (id: string): Row => ({
+  id: `row-of-${id}`,
   tool_calls: JSON.stringify([{ id, name: "mcp__topics__send_mail", status: "running" }]),
   blocks: null,
 });
@@ -58,7 +59,7 @@ const sendRow = (id: string): Row => ({
  */
 function makeHarness(row: Row) {
   const broadcasts: Array<{ type: string } & Record<string, unknown>> = [];
-  const toolCallWrites: Array<{ toolCallId: string; fields: Record<string, unknown> }> = [];
+  const toolCallWrites: Array<{ toolCallId: string; fields: Record<string, unknown>; rowId?: string }> = [];
   const json = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 
@@ -66,9 +67,13 @@ function makeHarness(row: Row) {
     // No handler on this path reads it; the router dereferences it on mount.
     OPENCLAW_DIR: tmpdir(),
     db: {
-      prepare: () => ({ get: () => undefined, all: () => [] }),
+      // The session's recent rows, as the answer route reads them to find the
+      // row that carries the panel it writes on.
+      prepare: (sql: string) => ({ get: () => undefined, all: () => (String(sql).includes("FROM messages") ? [row] : []) }),
       query: () => ({ get: () => null, all: () => [] }),
     },
+    // The active thread the recent-rows read walks: the one row above.
+    loadActiveThread: () => [{ id: row.id }],
     json,
     errorResponse: (status: number, error: string) => json({ error }, status),
     readJSON: async (req: Request) => { try { return await req.json(); } catch { return null; } },
@@ -86,8 +91,8 @@ function makeHarness(row: Row) {
     broadcastToAll: (msg: { type: string } & Record<string, unknown>) => { broadcasts.push(msg); },
     getTopicBySessionKey: (key: string) => ({ id: `topic-of-${key}`, sessionKey: key, autonomyLevel: "auto-apply" }),
     saveSingleTopic: () => {},
-    updateToolCallFields: (_sessionKey: string, toolCallId: string, fields: Record<string, unknown>) => {
-      toolCallWrites.push({ toolCallId, fields });
+    updateToolCallFields: (_sessionKey: string, toolCallId: string, fields: Record<string, unknown>, opts?: { rowId?: string }) => {
+      toolCallWrites.push({ toolCallId, fields, rowId: opts?.rowId });
     },
   } as any;
 
@@ -181,7 +186,8 @@ describe("POST /api/chat/tool-response: la risposta nomina la domanda", () => {
       }))!;
       expect(right.status).toBe(200);
       expect((await send).state).toBe("granted");
-      expect(h.toolCallWrites.map((w) => w.toolCallId)).toEqual(["tool-7001"]);
+      // On the send's own row, by id: the panel lives there.
+      expect(h.toolCallWrites.map((w) => [w.toolCallId, w.rowId])).toEqual([["tool-7001", "row-of-tool-7001"]]);
     } finally {
       cancelAsk(sk);
       _resetOutboundHolds();

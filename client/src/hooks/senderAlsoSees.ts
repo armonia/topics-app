@@ -54,3 +54,12 @@ export const SENDER_ALSO_SEES: readonly SenderVisibleEventType[] = [
 export function senderAlsoSees(eventType: string): boolean {
   return (SENDER_ALSO_SEES as readonly string[]).includes(eventType);
 }
+
+/**
+ * The same gate on a whole frame. A frame of a turn the server already closed
+ * (`late: true`) is never a copy of the local SSE, which belongs to the NEXT
+ * turn.
+ */
+export function senderAlsoSeesFrame(frame: { type: string; late?: unknown }): boolean {
+  return frame.late === true || senderAlsoSees(frame.type);
+}

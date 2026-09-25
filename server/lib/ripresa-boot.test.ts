@@ -7,7 +7,7 @@
  *
  * @covers RESUME-01, RESUME-03
  */
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import {
   chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
   RESPONSE_CEILING_MS, STREAM_CEILING_MS, RESUME_CAP_MARKER, attemptsInChain, attemptsOnRow,
@@ -17,7 +17,13 @@ import { Database } from "bun:sqlite";
 import { insertRestartNotification } from "./boot-partial-sweep";
 import { eCartelloDiInterruzione } from "./cancelled-notice";
 import { decodeCol } from "../../shared/message-blob";
+import { resetTurnEndRegistry } from "../providers/turn-end-registry";
 import type { ContentBlock } from "../types";
+
+// The sweep reads the last turn end of each session from a process-wide
+// registry: an end left behind by another test (or another file in the same
+// shard) would decide a verdict here.
+beforeEach(() => resetTurnEndRegistry());
 
 const ORA = Date.UTC(2026, 7, 20, 21, 0, 0);
 const interrotto: ContentBlock = { kind: "error", text: "Turno interrotto: il server si è riavviato." };
@@ -417,7 +423,9 @@ describe("la catena dei riavvii ha un tetto", () => {
     const db = freshDb();
     db.run("UPDATE messages SET timestamp = ? WHERE id = 'u0'", [new Date(Date.now() - 5 * 60_000).toISOString()]);
     const calls: Array<Record<string, unknown>> = [];
-    await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
+    // The server booted AFTER the message: the restart is what left it
+    // unanswered, and the notice may say so.
+    await quietly(() => riprendiTurniInterrotti({ ...ctxOf(db), bootedAtMs: Date.now() }, chatRoute(db, calls)));
     expect(calls.map((c) => (c.messages as Array<{ content: string }>)[0]?.content)).toEqual([MESSAGE]);
     expect(calls[0]?.ripresa).toBe(1);
     // The explanation came first (RESUME-02), parented to the person's row,

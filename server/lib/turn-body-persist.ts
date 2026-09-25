@@ -25,7 +25,14 @@ import { createBlockPersistThrottle } from "./block-persist-throttle";
 
 export interface TurnBodyPersistOptions {
   sessionKey: string;
-  updateLastMessage: (sessionKey: string, updates: Partial<StoredMessage>) => unknown;
+  updateLastMessage: (sessionKey: string, updates: Partial<StoredMessage>, opts?: { rowId?: string }) => unknown;
+  /**
+   * The turn's OWN row, which every write targets. Not "the last row of the
+   * session": a notice written after the turn is the last row, and it got this
+   * turn's body (card 1046df0b). A function for the same reason as
+   * `reattachSnapshot`: the row is born further down the handler than this.
+   */
+  rowId: () => string;
   /** The live timeline of the turn: read at write time, never copied. */
   blocks: ContentBlock[];
   content: () => string;
@@ -61,10 +68,11 @@ export function createTurnBodyPersist(opts: TurnBodyPersistOptions): TurnBodyPer
   const writeNow = (withText: boolean) => {
     const timeline = blocks.length > 0 ? blocks : undefined;
     const snapshot = opts.reattachSnapshot();
+    const own = { rowId: opts.rowId() };
     if (!snapshot) {
       updateLastMessage(sessionKey, withText
         ? { content: opts.content(), thinking: opts.thinking() || undefined, blocks: timeline }
-        : { blocks: timeline });
+        : { blocks: timeline }, own);
       return;
     }
     const merged = mergeReattachedRow(snapshot, {
@@ -77,7 +85,7 @@ export function createTurnBodyPersist(opts: TurnBodyPersistOptions): TurnBodyPer
       content: merged.content,
       thinking: merged.thinking,
       blocks: (merged.blocks as ContentBlock[] | undefined) ?? timeline,
-    });
+    }, own);
   };
 
   // Sticky: a periodic save that gets deferred and then rides a later tool

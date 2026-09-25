@@ -1,11 +1,11 @@
-import { rowsCarryAsk, type AskHaystackRow } from "../lib/ask-answer-routing";
+import { recentActiveRows, rowCarryingAsk, rowCarryingTool, type AskHaystackRow } from "../lib/ask-answer-routing";
 import { canonicalProjectPath } from "../lib/canonical-project-path";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { join, resolve, dirname } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
-import type { AppContext, RouteHandler, Topic } from "../types";
+import type { AppContext, RouteHandler, Topic, ToolCall } from "../types";
 import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
 import { createTopicProviderResolver } from "../providers/topic-provider-resolver";
 import { getSnapshotManager } from "../providers/snapshot-manager";
@@ -26,6 +26,8 @@ import { resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
 import { getSessionContext } from "../db/session-context";
 import { markTargetNotificationsSeen, countUnseenNotifications } from "../db/notification-log";
+import { logMachineStop, logStopPressed } from "../db/activity-log";
+import { isMachineStop, machineStopToolError, stopCauseOf } from "../lib/abort-cause";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
 import { createTaskService } from "../services/tasks";
@@ -476,7 +478,6 @@ export function createTopicsRouter(
     endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
     searchTranscripts,
-    getMessageById,
     activeStreams,
     worktreeStore,
     projectStore,
@@ -2457,14 +2458,28 @@ export function createTopicsRouter(
       //
       // `cancelled("user")` è quello che il provider stesso depositerebbe: se la
       // sua finalizzazione arriva comunque, riscrive lo stesso verdetto.
-      recordTurnEnd(sessionKey, cancelled("user", "POST /api/chat/abort"));
+      //
+      // WHO stopped it is said by the caller (lib/abort-cause.ts, card C9): a
+      // request from outside is the person; the server's own callers (the
+      // stall judge, the board, the dispatcher's clocks) name theirs.
+      const cause = stopCauseOf(req, body?.cause);
+      recordTurnEnd(sessionKey, cancelled(cause, "POST /api/chat/abort"));
+      // The registry above is memory, and the server reloads on every save: the
+      // durable trace is what keeps the resume sweep from resending a stopped
+      // message after the next restart (topic c5d57a41, 24/09). A person's
+      // Stop only: a machine's recycle recorded here was never resumed.
+      if (cause === "user") logStopPressed({ sessionKey, topicId });
+      else if (stream.messageId) logMachineStop({ sessionKey, topicId, cause, messageId: stream.messageId });
 
       // PRIMA il provider, POI il controller dell'SSE. L'ordine conta: l'abort
       // del controller chiude la macchina a stati della route, quindi tutto ciò
       // che il provider ha ancora da dire su questo turno (il suo `onAborted`,
       // con la ragione autorevole) troverebbe un `finalizeStream` già spento.
+      // A stop the machine wanted takes the same path, with its true cause: the
+      // finalize knows it and writes no notice for it (lib/abort-cause.ts).
+      if (cause !== "user") console.log(`[Abort] ${sessionKey}: stopped by the machine (${cause})`);
       if (abortProvider.connected) {
-        abortProvider.abort?.(sessionKey, undefined, "user")?.catch((err: any) => console.warn(`[Abort] Provider abort failed:`, err));
+        abortProvider.abort?.(sessionKey, undefined, cause)?.catch((err: any) => console.warn(`[Abort] Provider abort failed:`, err));
         abortProvider.unregisterStreamHandler?.(sessionKey);
       }
 
@@ -2486,13 +2501,20 @@ export function createTopicsRouter(
       // o una tool call sono invece lavoro fatto e restano (vedi shared/empty-turn.ts).
       let discardedMessageId: string | null = null;
       const finalizeAborted = () => {
-        // Indirizzato per id, non "l'ultima riga": la finalize del provider
-        // (`onAborted` → finalizeStream in chat.ts) può aver già scartato il
-        // segnaposto di questo stream. Se non c'è più non c'è niente da
-        // finalizzare — e `updateLastMessage`, che è posizionale, scriverebbe
-        // sulla riga dell'UTENTE.
-        if (stream.messageId && !getMessageById(stream.messageId)) return;
-        const finalized = updateLastMessage(sessionKey, { content: stream.content, thinking: stream.thinking || undefined, partial: undefined, streamedAt: undefined });
+        // ON THIS TURN'S ROW, by id, never on "the last row": a row born after
+        // the turn (a resend's user row, a sweep notice) took the partial
+        // answer over its own text, or was blanked by a Stop before the first
+        // token (card 1046df0b). A row the provider's own finalize already
+        // discarded (`onAborted` -> finalizeStream in chat.ts) is not found,
+        // and then nothing is written and nothing is discarded.
+        if (!stream.messageId) return;
+        const finalized = updateLastMessage(
+          sessionKey,
+          { content: stream.content, thinking: stream.thinking || undefined, partial: undefined, streamedAt: undefined },
+          { rowId: stream.messageId },
+        );
+        // An empty placeholder with rows under it is kept by the discard itself
+        // (`discardIfEmptyTurn`): what hangs from it was born during the turn.
         discardedMessageId = discardIfEmptyTurn(sessionKey, finalized);
         if (discardedMessageId) console.log(`[Abort] ${sessionKey}: turno vuoto scartato (${discardedMessageId})`);
       };
@@ -2501,11 +2523,28 @@ export function createTopicsRouter(
       // perde il contenuto parziale che l'utente stava per fermare.
       if (!clearedForReal) finalizeAborted();
 
-      endStream(sessionKey);
+      // The tools still open are closed and announced, as the watchdogs do
+      // (chat.ts `endStreamAndAnnounce`): a provider whose abort ends the turn
+      // later (ACP, Codex) never reaches the finalize that told the screens.
+      // A machine's stop says so on them, not "Interrotto…", which the boot's
+      // repair pass would take for a turn to resume.
+      const closedBecause = isMachineStop(cause) ? machineStopToolError(cause) : undefined;
+      for (const tc of endStream(sessionKey, closedBecause ? { closedBecause } : undefined)) {
+        broadcastToAll({
+          type: "stream:tool_result", sessionKey, topicId, toolCallId: tc.id, status: "error",
+          result: tc.result, error: tc.error, endedAt: tc.endedAt,
+          ...(stream.messageId ? { messageId: stream.messageId } : {}),
+        });
+      }
       // user_abort: user explicitly clicked stop — they are present in the tab,
       // so we intentionally do NOT increment unread count. This is a design
-      // choice, not an omission.
-      broadcastToAll({ type: "stream:end", sessionKey, topicId, reason: "user_abort", ...(discardedMessageId ? { discardedMessageId } : {}) });
+      // choice, not an omission. A machine's stop says it was cancelled, with
+      // no cause: a cause would paint the live banner the row does not carry.
+      broadcastToAll({
+        type: "stream:end", sessionKey, topicId,
+        ...(cause === "user" ? { reason: "user_abort" } : { reason: "aborted", stopReason: "cancelled" }),
+        ...(discardedMessageId ? { discardedMessageId } : {}),
+      });
 
       return json({ ok: true, cleared: clearedForReal });
     }
@@ -2562,20 +2601,27 @@ export function createTopicsRouter(
       // processo: se è il pannello, la risposta va al rendez-vous — che se non
       // c'è nessuno in ascolto la mette da parte per la gamba successiva
       // (`deliverAnswer` bufferizza apposta).
-      const answeringBridgeAsk = (() => {
-        if (response.kind !== 'questions') return false;
-        if (hasPendingAsk(sessionKey)) return true;
-        try {
-          // NOT ONLY THE LAST ROW - the rule and its measurement live in
-          // `lib/ask-answer-routing.ts`. The window is short on purpose: the
-          // question being answered belongs to this exchange, and a scan of the
-          // whole session would cost a table walk per answer.
-          const rows = ctx.db.prepare(
-            "SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 20",
-          ).all(sessionKey) as AskHaystackRow[];
-          return rowsCarryAsk(rows, toolCallId, decodeCol);
-        } catch { return false; }
+      // NOT ONLY THE LAST ROW - the rule and its measurement live in
+      // `lib/ask-answer-routing.ts`. The window is short on purpose: the
+      // question being answered belongs to this exchange, and a scan of the
+      // whole session would cost a table walk per answer.
+      const recentRows = (() => {
+        try { return recentActiveRows(ctx, sessionKey); }
+        catch { return [] as AskHaystackRow[]; }
       })();
+      const askRowId = response.kind === 'questions' ? rowCarryingAsk(recentRows, toolCallId, decodeCol) : null;
+      // EVERY WRITE OF THIS ROUTE GOES ON THE ROW THAT CARRIES THE TOOL, by id,
+      // whatever the tool: a question, the outbound gate's confirmation painted
+      // on its `send_mail` row, a plan, a provider's paused tool. The last row
+      // is that row only while nothing was written after it: a sweep notice, a
+      // resend, a woken turn (card 1046df0b). `null` means the tool was never
+      // announced in the window, and then nothing is written: never "the last
+      // row" instead.
+      const toolRowId = rowCarryingTool(recentRows, toolCallId, decodeCol);
+      const patchToolRow = (patch: Partial<ToolCall>) => {
+        if (toolRowId) updateToolCallFields(sessionKey, toolCallId, patch, { rowId: toolRowId });
+      };
+      const answeringBridgeAsk = response.kind === 'questions' && (hasPendingAsk(sessionKey) || askRowId !== null);
       if (answeringBridgeAsk) {
         // AND THE ANSWER NAMES THE QUESTION, here too.
         //
@@ -2619,7 +2665,11 @@ export function createTopicsRouter(
         // re-open the panel for an already-answered question. We intentionally
         // do NOT call resumeWithToolResponse — the bridge return is the result.
         try { resolveProvider(topic).clearPendingInput?.(sessionKey, toolCallId); } catch { /* provider gone; nothing to clear */ }
-        updateToolCallFields(sessionKey, toolCallId, {
+        // On the panel's own row: a question asked by a turn the watchdog had
+        // already closed sits above the sweep's notice, and the last row does
+        // not carry it (card 1046df0b). No row carries it: the answer is
+        // delivered all the same, and nothing is written on the last row.
+        patchToolRow({
           status: 'running',
           userResponse: normalised,
         });
@@ -2649,7 +2699,7 @@ export function createTopicsRouter(
       if (response.kind === 'questions' && isPlanApprovalAnswer(response)) {
         const submittedAt = new Date().toISOString();
         const topicForPlan = getTopicBySessionKey(sessionKey);
-        updateToolCallFields(sessionKey, toolCallId, {
+        patchToolRow({
           status: 'success',
           userResponse: { ...response, submittedAt },
         });
@@ -2678,7 +2728,7 @@ export function createTopicsRouter(
         const errMsg = provider.resumeWithToolResponse
           ? `provider ${provider.name} is not connected`
           : `provider ${provider.name} does not support user input`;
-        updateToolCallFields(sessionKey, toolCallId, {
+        patchToolRow({
           status: 'error',
           error: errMsg,
         });
@@ -2721,7 +2771,7 @@ export function createTopicsRouter(
         // Provider rejected (no pending input, process dead, stdin write
         // failed). Flag the tool as errored so the UI unblocks; the next
         // user turn can retry from scratch.
-        updateToolCallFields(sessionKey, toolCallId, {
+        patchToolRow({
           status: 'error',
           error: msg,
         });
@@ -2739,7 +2789,7 @@ export function createTopicsRouter(
         return errorResponse(status, msg);
       }
 
-      updateToolCallFields(sessionKey, toolCallId, {
+      patchToolRow({
         status: 'running',
         userResponse: normalised,
       });

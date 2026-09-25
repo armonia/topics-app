@@ -58,6 +58,7 @@ import { PLAN_DISPATCH_HOLD_AT, providerHoldKey, providerHoldLabel } from "../..
 import { languageDirective } from "../lib/topics-agent-prompt";
 import { resolveOutputLanguage } from "./app-settings";
 import { OUTPUT_LANGUAGES, type OutputLanguage } from "../../shared/types";
+import type { StopCause } from "../lib/abort-cause";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import { effectiveDelegatedSettings, runWithDelegatedDeadline } from "./task-dispatcher-delegated";
 
@@ -513,7 +514,7 @@ export interface DispatcherDeps {
     outcome?: string | null;
   }) => boolean | number;
   /** Stops a live local turn when its authorizing capability is revoked. */
-  abortTurn?: (sessionKey: string) => Promise<void>;
+  abortTurn?: (sessionKey: string, cause: StopCause) => Promise<void>;
 }
 
 export interface TaskDispatcher {
@@ -5849,10 +5850,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         inFlight.delete(task.id);
         endLiveTurn(task.id);
         if (slot.sessionKey && deps.abortTurn) {
-          try { await deps.abortTurn(slot.sessionKey); } catch { /* release still closes authority */ }
+          try { await deps.abortTurn(slot.sessionKey, "superseded"); } catch { /* release still closes authority */ }
         }
       } else if (task.assignedTopicId && deps.abortTurn) {
-        try { await deps.abortTurn(`topic:${task.assignedTopicId.slice(0, 8)}`); } catch { /* release still closes authority */ }
+        try { await deps.abortTurn(`topic:${task.assignedTopicId.slice(0, 8)}`, "superseded"); } catch { /* release still closes authority */ }
       }
       if (task.status === "todo") {
         try { emit(deps.svc.setDispatchState({ taskId: task.id, state: null, error: "delegated_capability_revoked" })); }

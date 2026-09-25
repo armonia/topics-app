@@ -95,16 +95,28 @@ export function cancelledNotice(info: TurnEndInfo): string | null {
 export function abortLogTitle(info: TurnEndInfo): string {
   if (info.end !== "cancelled") return "stream aborted";
   switch (info.cause) {
-    case "user": return "stream aborted by user";
+    case "user": return USER_ABORT_LOG_TITLE;
     case "watchdog": return "stream aborted by watchdog";
     case "wall-clock": return "stream aborted by wall-clock cap";
     case "server-shutdown": return "stream aborted by server shutdown";
     case "session-reset": return "stream aborted by session reset";
     case "turn-in-flight": return "stream not started (turn already in flight)";
-    case "superseded": return "stream aborted by a newer turn on the same session";
+    case "stall": return "stream aborted by the stall judge";
+    case "superseded": return "stream aborted: superseded (landed, revoked, or a newer turn)";
     default: return "stream aborted";
   }
 }
+
+/**
+ * The two `activity_log` titles that say a PERSON stopped a turn, and the only
+ * durable trace of it: the turn-end registry lives in memory and the server
+ * reloads on every save. `finalizeStream` writes the first through
+ * `abortLogTitle`, but only if it is still open when the provider reports the
+ * abort; `/api/chat/abort` writes the second itself, before telling anyone.
+ * The resume sweep reads both (`lib/ripresa-boot.ts`).
+ */
+export const USER_ABORT_LOG_TITLE = "stream aborted by user";
+export const STOP_PRESSED_LOG_TITLE = "stop pressed by user";
 
 /**
  * Il cartello COMPLETO: il perché, più l'unica cosa che chi legge può fare.
@@ -212,6 +224,22 @@ export function eCartelloDiInterruzione(testo: string | null | undefined): boole
 }
 
 /**
+ * Does this notice say the SERVER restarted under the turn? The two openings
+ * that do, both already in `CARTELLI_RIPRENDIBILI`: the graceful shutdown's
+ * and the boot sweep's (`RESTART_INTERRUPTED_MARKER`, written with no `cause`
+ * and a timestamp after the boot, so only its text tells a hard kill apart).
+ */
+export function isRestartNotice(text: string | null | undefined): boolean {
+  const t = (text ?? "").trim().replace(/^⚠️\s*/, "");
+  return RESTART_OPENINGS.some((opening) => t.startsWith(opening));
+}
+
+const RESTART_OPENINGS = [
+  "Turno interrotto: il server si è riavviato",
+  "Turno interrotto da un riavvio del server",
+] as const;
+
+/**
  * The causes that come from an interruption of OURS, i.e. the same three
  * `CAUSE_DA_RIPRENDERE` admits. `cancelledNotice`'s `default` branch (cancelled
  * with no declared cause) stays OUT, for the same reason
@@ -305,4 +333,9 @@ const CARTELLI_RIPRENDIBILI = [
   // text with no `cause`: topic 514354ce sat idle for hours on it while its
   // goal was still open. Newer rows also carry `cause: "tool-budget"`.
   "il turno ha esaurito i",
+  // From 25/09/2026: the resume sweep's notice for a person's message nobody
+  // answered, when no restart happened (`UNANSWERED_NO_RESTART_NOTICE` in
+  // lib/resume-notices.ts). It becomes the row the resend is traced on, so the
+  // next sweep has to read it as ours.
+  "Turno interrotto: la risposta non è mai arrivata",
 ] as const;

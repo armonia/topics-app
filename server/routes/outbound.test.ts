@@ -101,16 +101,19 @@ function makeHarness(options: {
   env?: Record<string, string>;
   card?: boolean;
   workspace?: string;
-  /** The last persisted row of the session, read fresh: the gate forces a write before looking. */
-  lastRow?: () => { tool_calls?: unknown; blocks?: unknown } | undefined;
+  /** The session's persisted rows, newest first, read fresh: the gate forces a write before looking. */
+  rows?: () => Array<{ id: string; tool_calls?: unknown; blocks?: unknown }>;
 } = {}) {
   const comments: Array<{ id: string; taskId: string; content: string; options: string[]; quiet?: boolean }> = [];
+  /** Every panel write, with the row it was aimed at (`opts` absent = the session's last row). */
+  const paints: Array<{ toolCallId: string; opts?: { rowId?: string } }> = [];
   const ctx = {
     db: {
       prepare: (sql: string) => ({
         get: () => (String(sql).includes("FROM messages")
-          ? options.lastRow?.()
+          ? options.rows?.()[0]
           : (options.card === false ? undefined : CARD)),
+        all: () => (String(sql).includes("FROM messages") ? options.rows?.() ?? [] : []),
       }),
       query: () => ({ get: () => null }),
     },
@@ -130,7 +133,9 @@ function makeHarness(options: {
     },
     broadcastToAll: () => {},
     getTopicBySessionKey: (key: string) => ({ id: `topic-of-${key}`, sessionKey: key, projectPath: options.workspace ?? root }),
-    updateToolCallFields: () => {},
+    updateToolCallFields: (_sk: string, toolCallId: string, _patch: unknown, opts?: { rowId?: string }) => {
+      paints.push({ toolCallId, ...(opts ? { opts } : {}) });
+    },
   } as never;
   const router = createOutboundRouter(ctx, {
     env: options.env ?? ENV,
@@ -153,7 +158,7 @@ function makeHarness(options: {
     });
     return router(req, url, url.pathname, "POST") as Promise<Response | null>;
   };
-  return { call, comments };
+  return { call, comments, paints };
 }
 
 /**
@@ -858,17 +863,35 @@ describe("la riga su cui si dipinge la domanda", () => {
     // so there was no second leg either.
     const sessionKey = "chat:outbound-flush";
     const running = (id: string, name: string) => ({ kind: "tool", toolCall: { id, name, args: {}, status: "running" } });
-    let row = { tool_calls: "[]", blocks: JSON.stringify([running("t1", "read_file")]) };
+    let row = { id: "turn-row", tool_calls: "[]", blocks: JSON.stringify([running("t1", "read_file")]) };
     const release = registerTurnBodyFlush(sessionKey, () => {
-      row = { tool_calls: "[]", blocks: JSON.stringify([running("t1", "read_file"), running("t2", "send_mail")]) };
+      row = { id: "turn-row", tool_calls: "[]", blocks: JSON.stringify([running("t1", "read_file"), running("t2", "send_mail")]) };
     });
-    const h = makeHarness({ card: false, lastRow: () => row });
+    const h = makeHarness({ card: false, rows: () => [row] });
     const resp = (await h.call(mailPath(sessionKey), { ...message, legMs: 150 }))!;
     // Pending: the question is on the tool row and the person is reading it.
     expect(await resp.json()).toEqual({ pending: true, hold: expect.any(String) });
     expect(recorded()).toEqual([]);
     cancelAsk(sessionKey, "fine del test");
     release();
+  });
+
+  test("a send under a newer notice is asked on the tool's own row, by id", async () => {
+    // A turn the watchdog closed keeps working under the resume sweep's
+    // notice, so its tool row is no longer the session's last (card 1046df0b).
+    // Reading only the last row answered "nobody could confirm" to a person
+    // who was there, and a panel written on it would land on the notice.
+    const sessionKey = "chat:outbound-under-notice";
+    const rows = [
+      { id: "notice-row", tool_calls: null, blocks: JSON.stringify([{ kind: "error", text: "Ripresa automatica sospesa" }]) },
+      { id: "turn-row", tool_calls: "[]", blocks: JSON.stringify([{ kind: "tool", toolCall: { id: "t-send", name: "send_mail", args: {}, status: "running" } }]) },
+    ];
+    const h = makeHarness({ card: false, rows: () => rows });
+    const resp = (await h.call(mailPath(sessionKey), { ...message, legMs: 150 }))!;
+    expect(await resp.json()).toEqual({ pending: true, hold: expect.any(String) });
+    expect(h.paints).toEqual([{ toolCallId: "t-send", opts: { rowId: "turn-row" } }]);
+    expect(recorded()).toEqual([]);
+    cancelAsk(sessionKey, "fine del test");
   });
 });
 

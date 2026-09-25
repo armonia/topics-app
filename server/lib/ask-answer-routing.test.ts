@@ -11,7 +11,7 @@
  * the native runtime does not have.
  */
 import { describe, expect, test } from "bun:test";
-import { rowsCarryAsk, type AskHaystackRow } from "./ask-answer-routing";
+import { rowCarryingAsk, rowCarryingTool, rowsCarryAsk, type AskHaystackRow } from "./ask-answer-routing";
 
 const decode = (v: unknown) => (typeof v === "string" ? v : null);
 const ID = "toolu_01Sd41TjzoJUW7UWVvPzUbAH";
@@ -54,5 +54,41 @@ describe("rowsCarryAsk", () => {
       tool_calls: JSON.stringify([{ id: "toolu_altro", name: "ask_user_question" }]),
     };
     expect(rowsCarryAsk([otherAsk], ID, decode)).toBe(false);
+  });
+});
+
+describe("rowCarryingAsk", () => {
+  const decode = (v: unknown) => (typeof v === "string" ? v : null);
+  const ask = (id: string, toolId: string): AskHaystackRow =>
+    ({ id, blocks: JSON.stringify([{ kind: "tool", toolCall: { id: toolId, name: "mcp__topics__ask_user_question" } }]) });
+
+  test("the question sits under a newer notice: the answer goes to the question's row", () => {
+    const notice: AskHaystackRow = { id: "notice", blocks: JSON.stringify([{ kind: "error", text: "Ripresa automatica sospesa" }]) };
+    expect(rowCarryingAsk([notice, ask("turn", "toolu_ask")], "toolu_ask", decode)).toBe("turn");
+  });
+
+  test("no row carries it: nothing to aim at", () => {
+    expect(rowCarryingAsk([ask("turn", "toolu_other")], "toolu_ask", decode)).toBeNull();
+  });
+});
+
+describe("rowCarryingTool", () => {
+  const decode = (v: unknown) => (typeof v === "string" ? v : null);
+  const withTool = (id: string, toolId: string, name = "Bash"): AskHaystackRow =>
+    ({ id, blocks: JSON.stringify([{ kind: "tool", toolCall: { id: toolId, name } }]) });
+
+  test("any tool, found under newer rows: the id of the row that announced it", () => {
+    const notice: AskHaystackRow = { id: "notice", blocks: JSON.stringify([{ kind: "error", text: "Ripresa automatica sospesa" }]) };
+    expect(rowCarryingTool([notice, withTool("turn", "toolu_perm")], "toolu_perm", decode)).toBe("turn");
+  });
+
+  test("in the tool_calls column too, for rows written before blocks", () => {
+    const old: AskHaystackRow = { id: "old", tool_calls: JSON.stringify([{ id: "toolu_old", name: "Write" }]) };
+    expect(rowCarryingTool([old], "toolu_old", decode)).toBe("old");
+  });
+
+  test("nobody announced it, or no id at all: null, never the last row", () => {
+    expect(rowCarryingTool([withTool("turn", "toolu_other")], "toolu_perm", decode)).toBeNull();
+    expect(rowCarryingTool([withTool("turn", "toolu_other")], "", decode)).toBeNull();
   });
 });

@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { LIVE_TURN_MAX_SESSIONS, LiveTurnIds, liveAssistantIndex, shouldFillFromBroadcast } from './liveTurn';
+// New in the review of PR #135: through the namespace, so the rest of this file
+// still loads on the code before it.
+import * as liveTurn from './liveTurn';
 import type { ChatMessage } from '../types';
 
 /**
@@ -108,5 +111,65 @@ describe('shouldFillFromBroadcast', () => {
 
   test('niente da riempire se la riga non ce', () => {
     expect(shouldFillFromBroadcast(undefined, 'testo')).toBe(false);
+  });
+});
+
+describe('frameTargetIndex: the bubble a frame names', () => {
+  const msgs = [
+    { id: 'u1', role: 'user' },
+    { id: 'turn-1', role: 'assistant' },
+    { id: 'notice', role: 'assistant' },
+  ] as never;
+
+  test('a late frame of a closed turn lands on its bubble, not on the last one', () => {
+    // The turn's live id was cleared at stream:end, so the old fallback picked
+    // the notice below it.
+    expect(liveTurn.frameTargetIndex(msgs, undefined, { messageId: 'turn-1', late: true })).toBe(1);
+  });
+
+  test('a late frame whose bubble is not in view goes nowhere', () => {
+    expect(liveTurn.frameTargetIndex(msgs, undefined, { messageId: 'not-loaded', late: true })).toBe(-1);
+  });
+
+  test('a live frame with an unknown name keeps the long-standing fallback', () => {
+    // A window that only watches another's turn holds a local placeholder id.
+    expect(liveTurn.frameTargetIndex(msgs, undefined, { messageId: 'server-id' })).toBe(2);
+    expect(liveTurn.frameTargetIndex(msgs, undefined, undefined)).toBe(2);
+  });
+});
+
+describe('lateStartContent: a late answer opens its own paragraph, as the server writes it', () => {
+  // The server puts "\n\n" between the text above the cut and a closed turn's
+  // late answer (lib/late-answer-lane.ts); the bubble glued them until a reload.
+  const lateStartContent = (liveTurn as Record<string, unknown>).lateStartContent as
+    ((above: string | undefined, delta: string) => string) | undefined;
+
+  test('under text: a blank line between', () => {
+    expect(lateStartContent?.('Response timed out.', 'Due problemi')).toBe('Response timed out.\n\nDue problemi');
+  });
+
+  test('under nothing, or only whitespace: the late text alone', () => {
+    expect(lateStartContent?.(undefined, 'Due problemi')).toBe('Due problemi');
+    expect(lateStartContent?.('  \n', 'Due problemi')).toBe('Due problemi');
+  });
+});
+
+describe('carryLateStart: the flag that opens a late answer waits for its first visible words', () => {
+  // A first late chunk the client cleans to nothing (invisible markers) used
+  // to take `lateStart` with it, and the late answer glued to the text above.
+  const carryLateStart = (liveTurn as Record<string, unknown>).carryLateStart as
+    ((pending: Set<string>, frame: { messageId?: string; lateStart?: true }, hasText: boolean) => boolean) | undefined;
+
+  test('a first chunk that cleans to nothing hands the flag to the next one with text', () => {
+    const pending = new Set<string>();
+    expect(carryLateStart?.(pending, { messageId: 'T1', lateStart: true }, false)).toBe(false);
+    expect(carryLateStart?.(pending, { messageId: 'T1' }, true)).toBe(true);
+    expect(carryLateStart?.(pending, { messageId: 'T1' }, true)).toBe(false);
+  });
+
+  test('a first chunk with text opens it at once, and only once', () => {
+    const pending = new Set<string>();
+    expect(carryLateStart?.(pending, { messageId: 'T1', lateStart: true }, true)).toBe(true);
+    expect(carryLateStart?.(pending, { messageId: 'T1' }, true)).toBe(false);
   });
 });

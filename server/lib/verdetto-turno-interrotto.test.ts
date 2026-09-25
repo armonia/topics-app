@@ -150,6 +150,30 @@ describe("bonifica dei turni muti", () => {
     expect(leggi("vecchio").some((b) => b.kind === "error")).toBe(false);
   });
 
+  test("a turn the machine stopped on purpose is left alone, whatever its tools say", () => {
+    // Fourth review of PR #135: a land, a delegation's deadline or the stall
+    // judge stop a turn on purpose, and the finalize records it with its row.
+    // Repaired, that turn got «Riprende da solo» and the sweep resent it.
+    const db = dbDiProva();
+    db.run(`CREATE TABLE activity_log (id TEXT, timestamp TEXT, category TEXT, title TEXT, session_key TEXT, metadata TEXT)`);
+    const silent = () => [
+      { kind: "tool", toolCall: { id: "a", name: "bash", args: {}, status: "error", error: "Interrotto: il turno è terminato senza risultato" } },
+    ];
+    inserisci(db, "fermato-apposta", silent());
+    inserisci(db, "fermato-dalla-persona", silent());
+    const record = (messageId: string, cause: string) => db.prepare(
+      `INSERT INTO activity_log (id, timestamp, category, title, session_key, metadata) VALUES (?, ?, 'stream', 'stream aborted', 'sk-aperto', ?)`,
+    ).run(`log-${messageId}`, ora, JSON.stringify({ cause, messageId }));
+    record("fermato-apposta", "stall");
+    record("fermato-dalla-persona", "user");
+
+    expect(bonificaTurniMuti(db as never, "TESTO DEL CARTELLO")).toBe(1);
+    const leggi = (id: string) =>
+      JSON.parse(decodeCol((db.query(`SELECT blocks FROM messages WHERE id=?`).get(id) as { blocks: unknown }).blocks) || "[]") as ContentBlock[];
+    expect(leggi("fermato-apposta").some((b) => b.kind === "error")).toBe(false);
+    expect(leggi("fermato-dalla-persona").some((b) => b.kind === "error")).toBe(true);
+  });
+
   test("il topic archiviato non si scorre nemmeno, quello aperto sì", () => {
     // 98% of the rows this pass scans belong to archived topics, and their
     // "interrupted" tools are false positives nobody will ever see: reading

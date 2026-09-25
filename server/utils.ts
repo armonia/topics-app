@@ -377,6 +377,31 @@ export function createAppContext(baseDir: string): AppContext {
               author_device_id
        FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`,
     ),
+    /**
+     * THE SAME THREE READS, BY ROW ID. The "last row of the session" is the
+     * right target only while nothing was written after the turn, and a turn
+     * does not control that: the resume sweep writes its notices, a boot writes
+     * its own, a woken turn opens a row. A turn that wrote on the last row
+     * wrote on THOSE (card 1046df0b, 24/09 on chat 3019832f). The chat route
+     * knows its row from the start and passes it as `rowId`; the session key
+     * stays in the WHERE so an id can never reach another conversation.
+     */
+    getMessageForBodyUpdateById: db.prepare(
+      `SELECT id, session_key, role, content, thinking, media, partial, streamed_at,
+              plan_status, timestamp, parent_id, branch_index, latency_ms,
+              usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens,
+              cache_creation_tokens, cache_creation_1h_tokens, model, author_person_id,
+              author_device_id
+       FROM messages WHERE id = ? AND session_key = ?`,
+    ),
+    getMessageForToolUpdateById: db.prepare(
+      `SELECT id, session_key, role, content, thinking, tool_calls, media, partial, streamed_at, plan_status, timestamp,
+              CASE WHEN blocks IS NULL OR blocks IN ('', '[]', 'null') THEN 0 ELSE 1 END AS has_blocks,
+              CASE WHEN tool_calls IS NULL OR tool_calls IN ('', '[]', 'null') THEN 0 ELSE 1 END AS has_tool_calls
+       FROM messages WHERE id = ? AND session_key = ?`,
+    ),
+    getMessageForToolFieldsById: db.prepare(`SELECT id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp FROM messages WHERE id = ? AND session_key = ?`),
+    getAssistantMessageById: db.prepare(`SELECT id, content FROM messages WHERE id = ? AND session_key = ? AND role = 'assistant'`),
     /** Le due sonde di `getLastMessageForBodyUpdate`, per id. Vedi `discardIfEmptyTurn`. */
     messageBodyPresence: db.prepare(
       `SELECT CASE WHEN tool_calls IS NULL OR tool_calls IN ('', '[]', 'null') THEN 0 ELSE 1 END AS has_tool_calls,
@@ -391,6 +416,8 @@ export function createAppContext(baseDir: string): AppContext {
      *  lettura mirata invece che l'intera riga, e su un cammino che si percorre
      *  quasi mai. */
     getMessageBlocks: db.prepare(`SELECT blocks FROM messages WHERE id = ?`),
+    /** Whether any row hangs from this one. Read by `discardIfEmptyTurn` only. */
+    messageHasChildren: db.prepare(`SELECT 1 FROM messages WHERE session_key = ? AND parent_id = ? LIMIT 1`),
     getLastAssistantMessage: db.prepare(`SELECT id, content FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC LIMIT 1`),
     appendMessageContent: db.prepare(`UPDATE messages SET content = ? WHERE id = ?`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
@@ -1671,7 +1698,8 @@ export function createAppContext(baseDir: string): AppContext {
     } as StoredMessage;
   }
 
-  function updateLastMessage(sessionKey: string, updates: Partial<StoredMessage>): StoredMessage | null {
+  /** `opts.rowId`: write THAT row of the session instead of the last one (see `getMessageForBodyUpdateById`). */
+  function updateLastMessage(sessionKey: string, updates: Partial<StoredMessage>, opts?: { rowId?: string }): StoredMessage | null {
     // Lettura magra: `blocks` e `tool_calls` non arrivano nemmeno da SQLite.
     // Questa funzione non li legge — riscrive `tool_calls` solo se glielo passa
     // il chiamante, e `blocks` passa da `metaParams(updates)`, cioè sempre dal
@@ -1683,7 +1711,9 @@ export function createAppContext(baseDir: string): AppContext {
     // colonne prenderebbe per vuoto un turno fatto di SOLI tool o SOLI blocchi e
     // lo cancellerebbe. Le colonne non gli servono: gli serve sapere se ci sono,
     // e quello se lo chiede lui con `messageBodyPresence`.
-    const row = stmts.getLastMessageForBodyUpdate.get(sessionKey) as any;
+    const row = (opts?.rowId
+      ? stmts.getMessageForBodyUpdateById.get(opts.rowId, sessionKey)
+      : stmts.getLastMessageForBodyUpdate.get(sessionKey)) as any;
     if (!row) return null;
     const msg = rowToMessage(row, { withBlocks: false, withToolCalls: false });
     Object.assign(msg, updates);
@@ -1785,8 +1815,15 @@ export function createAppContext(baseDir: string): AppContext {
     return row.has_tool_calls === 1 ? 'clear' : 'skip';
   }
 
-  function addToolCallToLastMessage(sessionKey: string, toolCall: ToolCall, opts?: { mirroredInBlocks?: boolean }): StoredMessage | null {
-    const row = stmts.getLastMessageForToolUpdate.get(sessionKey) as any;
+  /** The row the two hot tool writers patch: the named one, or the session's last. */
+  function toolUpdateRow(sessionKey: string, rowId: string | undefined): any {
+    return rowId
+      ? stmts.getMessageForToolUpdateById.get(rowId, sessionKey)
+      : stmts.getLastMessageForToolUpdate.get(sessionKey);
+  }
+
+  function addToolCallToLastMessage(sessionKey: string, toolCall: ToolCall, opts?: { mirroredInBlocks?: boolean; rowId?: string }): StoredMessage | null {
+    const row = toolUpdateRow(sessionKey, opts?.rowId);
     if (!row) return null;
     const msg = rowToMessage(row, { withBlocks: false });
     if (!msg.toolCalls) msg.toolCalls = [];
@@ -1821,8 +1858,8 @@ export function createAppContext(baseDir: string): AppContext {
     return msg;
   }
 
-  function updateToolCallResult(sessionKey: string, toolCallId: string, result: string, error?: string, extra?: Partial<ToolCall>, opts?: { mirroredInBlocks?: boolean }): StoredMessage | null {
-    const row = stmts.getLastMessageForToolUpdate.get(sessionKey) as any;
+  function updateToolCallResult(sessionKey: string, toolCallId: string, result: string, error?: string, extra?: Partial<ToolCall>, opts?: { mirroredInBlocks?: boolean; rowId?: string }): StoredMessage | null {
+    const row = toolUpdateRow(sessionKey, opts?.rowId);
     if (!row) return null;
     const msg = rowToMessage(row, { withBlocks: false });
     const mode = toolColumnWriteMode(row, opts?.mirroredInBlocks === true);
@@ -1878,11 +1915,13 @@ export function createAppContext(baseDir: string): AppContext {
    * answers a paused tool. `status` patching here goes through the same
    * SQLite row so a reload renders the pending form correctly.
    */
-  function updateToolCallFields(sessionKey: string, toolCallId: string, patch: Partial<ToolCall>): StoredMessage | null {
+  function updateToolCallFields(sessionKey: string, toolCallId: string, patch: Partial<ToolCall>, opts?: { rowId?: string }): StoredMessage | null {
     // L'UNICA statement che porta `blocks`: qui servono davvero (vedi sotto), e
     // questa via si percorre quando un tool si ferma a chiedere qualcosa a una
     // persona, non a ogni evento di tool.
-    const row = stmts.getLastMessageForToolFields.get(sessionKey) as any;
+    const row = (opts?.rowId
+      ? stmts.getMessageForToolFieldsById.get(opts.rowId, sessionKey)
+      : stmts.getLastMessageForToolFields.get(sessionKey)) as any;
     if (!row) return null;
     const msg = rowToMessage(row, { withBlocks: true });
     const tc = msg.toolCalls?.find(t => t.id === toolCallId);
@@ -1978,8 +2017,12 @@ export function createAppContext(baseDir: string): AppContext {
    * answer starts a new turn instead of unblocking this one. Cancelling it
    * here would kill the panel a few lines after installing it. Anything not
    * named in this list keeps the rule above.
+   *
+   * `closedBecause` replaces the interrupted-prefix sentence when the turn was
+   * stopped on purpose (lib/abort-cause.ts): the boot's repair pass reads that
+   * prefix as a turn to resume.
    */
-  function endStream(sessionKey: string, opts?: { keepAwaiting?: readonly string[] }): ToolCall[] {
+  function endStream(sessionKey: string, opts?: { keepAwaiting?: readonly string[]; closedBecause?: string }): ToolCall[] {
     const keepAwaiting = new Set(opts?.keepAwaiting ?? []);
     const stream = activeStreams.get(sessionKey);
     const interrupted: ToolCall[] = [];
@@ -1991,7 +2034,7 @@ export function createAppContext(baseDir: string): AppContext {
           if (tc && (tc.status === 'running' || tc.status === 'pending')) {
             tc.status = 'error';
             if (tc.endedAt == null) tc.endedAt = endedAt;
-            if (!tc.error) tc.error = 'Interrotto: il turno è terminato senza risultato';
+            if (!tc.error) tc.error = opts?.closedBecause ?? 'Interrotto: il turno è terminato senza risultato';
             return true;
           }
           // Un pannello a schermo su un turno finito è la variante peggiore:
@@ -2007,9 +2050,9 @@ export function createAppContext(baseDir: string): AppContext {
             tc.status = 'error';
             if (tc.endedAt == null) tc.endedAt = endedAt;
             if (!tc.error) {
-              tc.error = eraPermesso
+              tc.error = opts?.closedBecause ?? (eraPermesso
                 ? 'Interrotto: il turno è finito mentre il permesso era ancora a schermo. La decisione non avrebbe più raggiunto nessuno.'
-                : 'Interrotto: il turno è finito mentre la domanda era ancora a schermo. La risposta non avrebbe più raggiunto nessuno.';
+                : 'Interrotto: il turno è finito mentre la domanda era ancora a schermo. La risposta non avrebbe più raggiunto nessuno.');
             }
             releaseHumanHold(sessionKey, 'il turno è terminato mentre il pannello era a schermo');
             return true;
@@ -2356,10 +2399,12 @@ export function createAppContext(baseDir: string): AppContext {
     return results;
   }
 
-  function updateLastMessageWithMedia(sessionKey: string, mediaPaths: string[]): void {
+  function updateLastMessageWithMedia(sessionKey: string, mediaPaths: string[], opts?: { rowId?: string }): void {
     // Targeted lookup — the previous version fetched the WHOLE session just to
     // walk backwards to the newest assistant row.
-    const row = stmts.getLastAssistantMessage.get(sessionKey) as any;
+    const row = (opts?.rowId
+      ? stmts.getAssistantMessageById.get(opts.rowId, sessionKey)
+      : stmts.getLastAssistantMessage.get(sessionKey)) as any;
     if (!row) return;
     const mediaLines = mediaPaths.map((p: string) => `\nMEDIA:${p}`).join("");
     stmts.appendMessageContent.run((row.content || '') + mediaLines, row.id);
@@ -2673,6 +2718,12 @@ export function createAppContext(baseDir: string): AppContext {
       // stores it as zstd above 512 bytes, and the predicate wants the JSON.
       if (!isEmptyAssistantTurn({ role: "assistant", blocks: decodeCol(row?.blocks) })) return null;
     }
+    // An empty placeholder with rows under it stays. The turn is finalized by
+    // id, so this can be a row that others were born after, and those hang
+    // from it (`appendLocalMessage` parents to the last row): the user's
+    // resend, a sub-agent's exit report. The delete below takes a SUBTREE, and
+    // an empty bubble costs less than a lost message.
+    if (stmts.messageHasChildren.get(sessionKey, msg.id)) return null;
     return deleteMessageSubtree(sessionKey, msg.id) ? msg.id : null;
   }
 

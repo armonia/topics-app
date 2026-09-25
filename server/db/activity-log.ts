@@ -18,6 +18,7 @@
  */
 
 import { getDatabase } from "../db";
+import { STOP_PRESSED_LOG_TITLE, USER_ABORT_LOG_TITLE } from "../lib/cancelled-notice";
 
 /** Maximum rows kept in `activity_log`. Older rows are deleted on insert. */
 const MAX_ROWS = 10_000;
@@ -207,7 +208,7 @@ export function logStreamAborted(ctx: StreamLogContext & { title?: string }): vo
   logActivity({
     category: "stream",
     level: "info",
-    title: ctx.title ?? "stream aborted by user",
+    title: ctx.title ?? USER_ABORT_LOG_TITLE,
     sessionKey: ctx.sessionKey,
     entityType: "topic",
     entityId: ctx.topicId,
@@ -216,6 +217,44 @@ export function logStreamAborted(ctx: StreamLogContext & { title?: string }): vo
       toolCallCount: ctx.toolCallCount,
       ...ctx.extra,
     },
+  });
+}
+
+/**
+ * The person pressed Stop on a live turn. Written by `/api/chat/abort` before
+ * the provider is told, because `logStreamAborted` is not guaranteed: the
+ * route aborts the SSE controller right after the provider, and a provider
+ * that reports the abort later finds `finalizeStream` already closed. The
+ * resume sweep reads this row after a restart, when the in-memory turn-end
+ * registry is empty, so it never resends a message the person stopped.
+ */
+export function logStopPressed(ctx: { sessionKey: string; topicId?: string }): void {
+  logActivity({
+    category: "stream",
+    level: "info",
+    title: STOP_PRESSED_LOG_TITLE,
+    sessionKey: ctx.sessionKey,
+    entityType: "topic",
+    entityId: ctx.topicId,
+  });
+}
+
+/**
+ * The machine stopped a live turn on purpose (lib/abort-cause.ts). Written by
+ * `/api/chat/abort` for the same reason as `logStopPressed`: a provider that
+ * reports late finds the finalize closed, and its tool's own sentence then
+ * reaches the row. The boot's repair pass reads the row id here, so it never
+ * takes that sentence for a mute turn and marks it to be resumed.
+ */
+export function logMachineStop(ctx: { sessionKey: string; topicId?: string; cause: string; messageId: string }): void {
+  logActivity({
+    category: "stream",
+    level: "info",
+    title: `machine stop (${ctx.cause})`,
+    sessionKey: ctx.sessionKey,
+    entityType: "topic",
+    entityId: ctx.topicId,
+    metadata: { cause: ctx.cause, messageId: ctx.messageId },
   });
 }
 

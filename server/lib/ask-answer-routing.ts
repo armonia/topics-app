@@ -15,6 +15,7 @@
 
 /** One stored message, as the columns come out of SQLite. */
 export interface AskHaystackRow {
+  id?: string;
   tool_calls?: unknown;
   blocks?: unknown;
 }
@@ -44,3 +45,65 @@ export function rowsCarryAsk(
     return haystack.includes(toolCallId) && haystack.includes("ask_user_question");
   });
 }
+
+/**
+ * WHICH row carries this question: the answer is written on THAT row.
+ *
+ * Same window and same match as `rowsCarryAsk`, but the id comes back. The
+ * answer route used to patch the session's LAST row, which is the question's
+ * row only while nothing was written after it: a question asked by a turn the
+ * watchdog had already closed sits on that turn's own row, above the sweep's
+ * notice, and the answer went to the notice, which has no such tool (review of
+ * card 1046df0b). Rows are expected newest first; `null` when none carries it.
+ */
+export function rowCarryingAsk(
+  rows: readonly AskHaystackRow[],
+  toolCallId: string,
+  decode: (value: unknown) => string | null | undefined,
+): string | null {
+  const row = rows.find((r) => rowsCarryAsk([r], toolCallId, decode));
+  return typeof row?.id === "string" ? row.id : null;
+}
+
+/**
+ * WHICH row carries this tool call, whatever the tool: permission panels,
+ * outbound confirmations and plan approvals are patched on THAT row by id.
+ *
+ * The same reason as `rowCarryingAsk`: "the last row" is the tool's row only
+ * while nothing was written after it, and a turn closed by the watchdog keeps
+ * working under the sweep's notice. Rows newest first; `null` when none of the
+ * window carries the id, which the caller must treat as "not announced", never
+ * as "the last row".
+ */
+export function rowCarryingTool(
+  rows: readonly AskHaystackRow[],
+  toolCallId: string,
+  decode: (value: unknown) => string | null | undefined,
+): string | null {
+  if (!toolCallId) return null;
+  const row = rows.find((r) => `${decode(r?.tool_calls) ?? ""}${decode(r?.blocks) ?? ""}`.includes(toolCallId));
+  return typeof row?.id === "string" ? row.id : null;
+}
+
+/** What `recentActiveRows` needs from the app: the database and the active thread. */
+export interface ActiveRowsSource {
+  db: { prepare: (sql: string) => { all: (...params: string[]) => unknown } };
+  loadActiveThread: (sessionKey: string, opts: { withBlocks: false; withToolCalls: false }) => Array<{ id: string }>;
+}
+
+/**
+ * The session's last rows ON THE ACTIVE BRANCH, newest first, with the two
+ * columns a tool lookup reads. A row a regenerate or an edit left on another
+ * branch is on no screen: a panel painted there is one nobody sees, so a tool
+ * found only there counts as "no row" (third review of PR #135).
+ */
+export function recentActiveRows(src: ActiveRowsSource, sessionKey: string, limit = 20): Array<AskHaystackRow & { id: string }> {
+  const ids = src.loadActiveThread(sessionKey, { withBlocks: false, withToolCalls: false }).slice(-limit).map((m) => m.id).reverse();
+  if (ids.length === 0) return [];
+  const rows = src.db
+    .prepare(`SELECT id, tool_calls, blocks FROM messages WHERE id IN (${ids.map(() => "?").join(",")})`)
+    .all(...ids) as Array<AskHaystackRow & { id: string }>;
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return ids.flatMap((id) => { const row = byId.get(id); return row ? [row] : []; });
+}
+

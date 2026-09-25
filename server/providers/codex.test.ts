@@ -395,6 +395,18 @@ describe("routeCodexEvent — text + tool wiring", () => {
     expect(h.errors).toEqual(["context too long"]);
   });
 
+  test("after a stop, the trailing turn.failed is its echo: no onError, the close reports onAborted", () => {
+    // The CLI flushes a `turn.failed` after SIGINT (see `abort`). As an error it
+    // reached the late-answer lane of the closed turn and wrote a notice on a
+    // stop somebody asked for (fifth review of PR #135).
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    pushEvent(provider, "s1", { type: "turn.started" }, h);
+    (provider as unknown as { sessionState: Map<string, { aborted: boolean }> }).sessionState.get("s1")!.aborted = true;
+    pushEvent(provider, "s1", { type: "turn.failed", error: { message: "turn interrupted" } }, h);
+    expect(h.errors).toEqual([]);
+  });
+
   test("unknown event types are ignored", () => {
     const provider = new CodexProvider({ type: "codex" });
     const h = makeHandler();
