@@ -182,15 +182,16 @@ export function useProjectBrowserPanes({
       const existing = contextId
         ? panesRef.current.find(p => p.id === createPaneId('browser', contextId))
         : panesRef.current.find(p => p.type === 'browser');
-      if (existing) {
-        const grp = groupsRef.current.find(g => g.paneIds.includes(existing.id));
-        // No group hosting an existing pane means nothing gets activated: the
-        // tab stays wherever it was, and a background tab is not mounted.
-        tracePaneAttach('reuse existing pane', { projectPath, paneId: existing.id, groupId: grp?.id ?? null, wasActive: grp?.activePaneId === existing.id });
-        if (grp) {
-          setGroups(prev => prev.map(g => (g.id === grp.id ? { ...g, activePaneId: existing.id } : g)));
-          setFocusedGroupId(grp.id);
-        }
+      const grp = existing ? groupsRef.current.find(g => g.paneIds.includes(existing.id)) : undefined;
+      // A pane that exists but sits in no group (transient: between a hydrate
+      // and its reconcile) has no tab to activate. It goes down the creation
+      // path below, which dedups the pane by id, puts it in the target group
+      // and activates it; left here, the request was claimed and did nothing.
+      if (existing && !grp) tracePaneAttach('existing pane in no group, placing it', { projectPath, paneId: existing.id });
+      if (existing && grp) {
+        tracePaneAttach('reuse existing pane', { projectPath, paneId: existing.id, groupId: grp.id, wasActive: grp.activePaneId === existing.id });
+        setGroups(prev => prev.map(g => (g.id === grp.id ? { ...g, activePaneId: existing.id } : g)));
+        setFocusedGroupId(grp.id);
         const ctx = getBrowserContextFromPaneId(existing.id);
         if (ctx && spawnerKey) setBrowserSpawner(ctx, spawnerKey);
         seedPaneUrl(existing.id);
@@ -202,11 +203,14 @@ export function useProjectBrowserPanes({
       // it lands in its own space-aware cell BESIDE the chat/terminal instead
       // of sitting hidden as a tab. The split effect below consumes this once
       // the pane is committed and picks side-by-side vs stacked by space.
+      // The existing pane's own context when it is the one being placed, so
+      // the add finds it by id instead of minting a second browser.
+      const createContextId = contextId ?? (existing ? getBrowserContextFromPaneId(existing.id) ?? undefined : undefined);
       queueMicrotask(async () => {
         const newId = fgid
-          ? await handleAddPaneToGroupRef.current?.(fgid, 'browser', undefined, contextId)
-          : await handleAddPaneWhenEmptyRef.current?.('browser', undefined, contextId);
-        tracePaneAttach('create pane', { projectPath, contextId: contextId ?? null, groupId: fgid ?? null, paneId: newId ?? null });
+          ? await handleAddPaneToGroupRef.current?.(fgid, 'browser', undefined, createContextId)
+          : await handleAddPaneWhenEmptyRef.current?.('browser', undefined, createContextId);
+        tracePaneAttach('create pane', { projectPath, contextId: createContextId ?? null, groupId: fgid ?? null, paneId: newId ?? null });
         if (newId) {
           const ctx = getBrowserContextFromPaneId(newId);
           if (ctx && spawnerKey) setBrowserSpawner(ctx, spawnerKey);
