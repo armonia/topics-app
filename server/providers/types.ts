@@ -41,8 +41,7 @@ export type ToolArgs = Record<string, unknown>;
  * passa, ma vale la regola opposta a quella dei valori di default: se la sai,
  * la dici. Un annullamento etichettato `user` mette a tacere il cartello che
  * spiega all'utente cos'è successo — vedi `stop-reason.ts`, `server-shutdown`.
- * The last three are stops the machine wanted, passed through as they are
- * (lib/abort-cause.ts, card C9).
+ * The last three: stops the machine wanted, as they are (lib/abort-cause.ts, C9).
  */
 export type AbortReason = "user" | "watchdog" | "server-shutdown" | "stall" | "superseded" | "wall-clock";
 
