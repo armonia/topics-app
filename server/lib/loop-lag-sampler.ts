@@ -66,6 +66,17 @@ export interface LoopLagSample {
   diskFaults: number | null;
   /** One-minute load average of the machine. */
   load1: number;
+  /** CPU this process spent, user + system, in ms. Cumulative, like the page-ins. */
+  cpuMs?: number | null;
+  /**
+   * How long this process's threads were runnable, in ms (`ri_runnable_time`):
+   * running OR ready and waiting for a core. Measured on 25/09: 500 ms of busy
+   * loop under load gave +524 ms of it against +268 ms of CPU. So the wait in
+   * the scheduler's queue is this minus `cpuMs`, and that is what the line
+   * prints: on 25/09 the loop stood still 3127 s against 912 s of CPU, and
+   * nothing in the line said where the rest had gone. Cumulative.
+   */
+  runnableMs?: number | null;
 }
 
 /** The line a stall leaves, or `null` when the loop kept its schedule. */
@@ -75,6 +86,8 @@ export function loopLagLine(input: {
   thresholdMs: number;
   sample: LoopLagSample;
   previousDiskFaults: number | null;
+  previousCpuMs?: number | null;
+  previousRunnableMs?: number | null;
 }): string | null {
   const { now, lagMs, thresholdMs, sample, previousDiskFaults } = input;
   if (lagMs <= thresholdMs) return null;
@@ -83,11 +96,17 @@ export function loopLagLine(input: {
       ? sample.diskFaults - previousDiskFaults
       : null;
   const mb = (v: number | null) => (v === null ? "?" : String(Math.round(v)));
+  const grew = (v: number | null | undefined, before: number | null | undefined) =>
+    v == null || before == null ? null : v - before;
+  const cpu = grew(sample.cpuMs, input.previousCpuMs);
+  const runnable = grew(sample.runnableMs, input.previousRunnableMs);
+  const ms = (v: number | null) => (v === null ? "?" : `+${Math.round(Math.max(0, v))}ms`);
   return (
     `${now.toISOString()} [LAG] loop stopped ${Math.round(lagMs)}ms` +
     ` footprint=${mb(sample.footprintMB)}MB compressed=${mb(sample.compressedMB)}MB` +
     ` resident=${mb(sample.residentMB)}MB disk-faults=${delta === null ? "?" : `+${delta}`}` +
-    ` load1=${sample.load1.toFixed(2)}`
+    ` load1=${sample.load1.toFixed(2)}` +
+    ` cpu=${ms(cpu)} queued=${ms(cpu === null || runnable === null ? null : runnable - cpu)}`
   );
 }
 
@@ -102,8 +121,8 @@ export function loopLagLine(input: {
  * `null` everywhere off macOS or without FFI. A missing number prints as `?`
  * rather than as a zero that would read like a measurement.
  */
-export const readSelfMemory: () => Omit<LoopLagSample, "load1"> = (() => {
-  const absent = { footprintMB: null, compressedMB: null, residentMB: null, diskFaults: null };
+export const readSelfMemory: () => Omit<LoopLagSample, "load1" | "cpuMs"> = (() => {
+  const absent = { footprintMB: null, compressedMB: null, residentMB: null, diskFaults: null, runnableMs: null };
   if (process.platform !== "darwin") return () => absent;
   try {
     const { dlopen, FFIType, ptr } = require("bun:ffi") as typeof import("bun:ffi");
@@ -111,10 +130,13 @@ export const readSelfMemory: () => Omit<LoopLagSample, "load1"> = (() => {
       proc_pid_rusage: { args: [FFIType.i32, FFIType.i32, FFIType.ptr], returns: FFIType.i32 },
       task_self_trap: { args: [], returns: FFIType.u32 },
       task_info: { args: [FFIType.u32, FFIType.i32, FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
+      mach_timebase_info: { args: [FFIType.ptr], returns: FFIType.i32 },
     });
-    // rusage_info_v2: 16 bytes of uuid, then `uint64_t` fields. Offsets from the
+    // rusage_info_v4: 16 bytes of uuid, then `uint64_t` fields. Offsets from the
     // header: ri_pageins is the fifth (16 + 4*8), ri_phys_footprint the eighth
-    // (16 + 7*8), the same one `fleet-usage.ts` reads.
+    // (16 + 7*8), the same one `fleet-usage.ts` reads; v4 only adds fields after
+    // them, and ri_runnable_time is the last of those (16 + 34*8).
+    const RUSAGE_INFO_V4 = 4;
     const resourceUsage = new BigUint64Array(64);
     const resourceUsageView = new DataView(resourceUsage.buffer);
     // task_vm_info: resident_size at 16, compressed at 120, both `mach_vm_size_t`.
@@ -123,15 +145,20 @@ export const readSelfMemory: () => Omit<LoopLagSample, "load1"> = (() => {
     const vmCount = new Uint32Array(1);
     const TASK_VM_INFO = 22;
     const MB = 1024 * 1024;
+    // Mach ticks, not nanoseconds: 125/3 ns each on Apple Silicon.
+    const ticksToNs = new Uint32Array(2);
+    const nsPerTick = lib.symbols.mach_timebase_info(ptr(ticksToNs)) === 0 && ticksToNs[1] ? ticksToNs[0]! / ticksToNs[1]! : null;
     return () => {
       let footprintMB: number | null = null;
       let diskFaults: number | null = null;
+      let runnableMs: number | null = null;
       let residentMB: number | null = null;
       let compressedMB: number | null = null;
       try {
-        if (lib.symbols.proc_pid_rusage(process.pid, 2, resourceUsage) === 0) {
+        if (lib.symbols.proc_pid_rusage(process.pid, RUSAGE_INFO_V4, resourceUsage) === 0) {
           footprintMB = Number(resourceUsageView.getBigUint64(72, true)) / MB;
           diskFaults = Number(resourceUsageView.getBigUint64(48, true));
+          if (nsPerTick !== null) runnableMs = (Number(resourceUsageView.getBigUint64(288, true)) * nsPerTick) / 1e6;
         }
         vmCount[0] = vmInfo.byteLength / 4;
         if (lib.symbols.task_info(lib.symbols.task_self_trap(), TASK_VM_INFO, ptr(vmInfo), ptr(vmCount)) === 0) {
@@ -141,7 +168,7 @@ export const readSelfMemory: () => Omit<LoopLagSample, "load1"> = (() => {
       } catch {
         return absent;
       }
-      return { footprintMB, compressedMB, residentMB, diskFaults };
+      return { footprintMB, compressedMB, residentMB, diskFaults, runnableMs };
     };
   } catch {
     return () => absent;
@@ -160,23 +187,29 @@ export function startLoopLagSampler(deps: {
   tickMs?: number;
   thresholdMs?: number;
   now?: () => number;
-  sample?: () => Omit<LoopLagSample, "load1">;
+  sample?: () => Omit<LoopLagSample, "load1" | "cpuMs">;
   load1?: () => number;
+  cpuMs?: () => number;
 }): ReturnType<typeof setInterval> {
   const tickMs = deps.tickMs ?? LOOP_LAG_TICK_MS;
   const thresholdMs = deps.thresholdMs ?? LOOP_LAG_THRESHOLD_MS;
   const now = deps.now ?? Date.now;
   const sample = deps.sample ?? readSelfMemory;
   const load1 = deps.load1 ?? (() => loadavg()[0] ?? 0);
+  const cpuMs = deps.cpuMs ?? (() => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; });
   let due = now() + tickMs;
   let previousDiskFaults: number | null = null;
+  let previousCpuMs: number | null = null;
+  let previousRunnableMs: number | null = null;
   const timer = setInterval(() => {
     const at = now();
     const lagMs = at - due;
     due = at + tickMs;
-    const taken = { ...sample(), load1: load1() };
-    const line = loopLagLine({ now: new Date(at), lagMs, thresholdMs, sample: taken, previousDiskFaults });
+    const taken = { ...sample(), cpuMs: cpuMs(), load1: load1() };
+    const line = loopLagLine({ now: new Date(at), lagMs, thresholdMs, sample: taken, previousDiskFaults, previousCpuMs, previousRunnableMs });
     previousDiskFaults = taken.diskFaults;
+    previousCpuMs = taken.cpuMs;
+    previousRunnableMs = taken.runnableMs ?? null;
     if (line !== null) deps.log(line);
   }, tickMs);
   timer.unref?.();
