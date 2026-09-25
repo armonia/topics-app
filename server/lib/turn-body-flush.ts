@@ -76,7 +76,7 @@ export function stopTurnBodyOf(rowId: string | null | undefined): void {
   if (!rowId) return;
   for (const [sessionKey, own] of flushers) {
     for (const writer of [...own]) {
-      if (writer.rowId?.() !== rowId) continue;
+      if (rowOf(writer) !== rowId) continue;
       try {
         writer.stop?.();
       } catch {
@@ -86,6 +86,20 @@ export function stopTurnBodyOf(rowId: string | null | undefined): void {
       own.delete(writer);
     }
     if (own.size === 0 && flushers.get(sessionKey) === own) flushers.delete(sessionKey);
+  }
+}
+
+/**
+ * The row a writer writes, or undefined when it cannot say. A turn registers
+ * its writer BEFORE its row exists (`routes/chat.ts`), and one that dies in
+ * between leaves a writer whose row id throws: asking it must not stop the
+ * search for the row of another turn, or that turn's failure path breaks.
+ */
+function rowOf(writer: TurnWriter): string | undefined {
+  try {
+    return writer.rowId?.();
+  } catch {
+    return undefined;
   }
 }
 

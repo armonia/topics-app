@@ -18,7 +18,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ContentBlock, StoredMessage } from "../types";
 import { createTurnBodyPersist } from "./turn-body-persist";
-import { registerTurnBodyFlush, flushTurnBody, _resetTurnBodyFlushers } from "./turn-body-flush";
+import { registerTurnBodyFlush, flushTurnBody, stopTurnBodyOf, _resetTurnBodyFlushers } from "./turn-body-flush";
 import { confirmOutbound, findWaitingToolRow, type OutboundGateDeps } from "./outbound-gate";
 import { cancelAsk } from "./ask-user-bridge";
 import { _resetRoutedAsks } from "../services/board-ask-routing";
@@ -175,6 +175,22 @@ describe("la riga di un turno vivo si fa scrivere PRIMA di leggerla", () => {
     expect(row.blocks).toHaveLength(3);
     release();
     persist.dispose();
+  });
+
+  test("a writer whose row does not exist yet does not stop the search for another row", () => {
+    // A turn registers its writer before its row exists, and one that died in
+    // between left a writer whose row id throws (a `const` read too early).
+    // In CI a test of the chat door left exactly that, and every later failure
+    // path in the same process threw instead of closing its own turn.
+    registerTurnBodyFlush("topic:dead-setup", () => {}, {
+      rowId: () => { throw new ReferenceError("Cannot access 'partialMsg' before initialization."); },
+      stop: () => {},
+    });
+    const stopped: string[] = [];
+    registerTurnBodyFlush("topic:failing", () => {}, { rowId: () => "row-failing", stop: () => stopped.push("row-failing") });
+    expect(() => stopTurnBodyOf("row-failing")).not.toThrow();
+    expect(stopped).toEqual(["row-failing"]);
+    expect(flushTurnBody("topic:failing")).toBe(false);
   });
 
   test("two turns of one session both get flushed, and releasing one keeps the other", () => {
