@@ -201,6 +201,8 @@ export function createE2eRouter(ctx: AppContext): RouteHandler {
       // own, but a spec that dies mid-hold would leave it armed on the next
       // file: here, where the files separate, it is dropped regardless.
       releaseDispatchHold();
+      // Same for the stale-stream threshold a spec cut to 1 s.
+      setBenchStaleTimeout(null);
       const snap = loadBaseline();
       if (!snap) {
         // Meglio un errore esplicito che un reset silenziosamente saltato: chi

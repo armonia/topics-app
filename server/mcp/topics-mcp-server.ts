@@ -1582,7 +1582,7 @@ type ChatRow = { id?: string; role?: string; content?: string; partial?: boolean
  * The stream was cut before `[DONE]` while the turn may still be running. Wait
  * on the turn's own row, by the id the stream named, read ONE row at a time:
  * the list hides a partial row with no text yet, and the streaming registry
- * hides a turn silent for over 3 min, so neither can say the turn is over.
+ * only says a turn is registered, so neither can say the turn is over.
  * The row can: it is the reply once it is no longer partial, and gone (404)
  * when the turn was dropped without writing anything. A turn waiting for a
  * person, still running past the wait, or closed with an error verdict is an

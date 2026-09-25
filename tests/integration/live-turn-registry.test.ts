@@ -18,10 +18,12 @@
  * `sweepStaleStreams`, the tick the 30 s interval in server.ts runs.
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { spawn } from "node:child_process";
 import { setupTestDataDir, createTestAppContext, cleanupTestDataDir, testTmpDir } from "./helpers";
 import { createTopicsRouter } from "../../server/routes/topics";
 import { createChatRouter } from "../../server/routes/chat";
 import { sweepStaleStreams, type SilenceMark, type SweepOutcome } from "../../server/lib/stale-stream-sweep";
+import { childAliveForSweep, registerProvider, removeProvider } from "../../server/providers";
 import type { AppContext, Topic } from "../../server/types";
 
 const ROOT = testTmpDir("live-turn-registry");
@@ -73,14 +75,14 @@ async function postChat(ctx: AppContext, sessionKey: string): Promise<number | "
   }
 }
 
-function sweep(ctx: AppContext, state: { rescued: Set<string>; silence: Map<string, SilenceMark> }, childAlive: boolean) {
+function sweep(ctx: AppContext, state: { rescued: Set<string>; silence: Map<string, SilenceMark> }, childAlive: boolean | ((sk: string) => boolean | undefined)) {
   const broadcasts: Array<Record<string, unknown>> = [];
   const outcomes: Map<string, SweepOutcome> = sweepStaleStreams({
     now: () => Date.now(), timeoutMs: 3 * 60_000, askTtlMs: 10 * 60_000,
     activeStreams: ctx.activeStreams as never, rescued: state.rescued, silence: state.silence,
     getMessageById: (id) => ctx.getMessageById(id) as never,
     humanHoldAgeMs: () => null,
-    childAlive: () => childAlive,
+    childAlive: (sk) => (typeof childAlive === "function" ? childAlive(sk) : childAlive),
     resyncStream: () => {}, cancelAsk: () => {},
     updateStreamActivity: (sk) => ctx.updateStreamActivity(sk),
     getTopicId: (sk) => ctx.getTopicBySessionKey(sk)?.id,
@@ -148,5 +150,31 @@ describe("a live turn silent in a tool for more than three minutes", () => {
     expect(broadcasts.some((m) => m.type === "stream:alive")).toBe(false);
     expect(await registry(ctx)).toEqual([]);
     expect(await postChat(ctx, sessionKey)).toBe("past the gate");
+  });
+
+  test("a codex turn is asked too: its live child is kept, and closed once it exits", async () => {
+    const ctx = await createTestAppContext();
+    const sessionKey = saveTopic(ctx, "silent-codex");
+    const codex = registerProvider({ type: "codex" } as never) as unknown as { activeChildren: Map<string, unknown> };
+    const child = spawn("sleep", ["60"]);
+    try {
+      codex.activeChildren.set(sessionKey, child);
+      const row = ctx.createPartialMessage(sessionKey, "assistant");
+      ctx.startStream(sessionKey, row.id, new AbortController(), true);
+      const state = { rescued: new Set<string>(), silence: new Map<string, SilenceMark>() };
+
+      // The probe the sweep uses in production (server.ts), not a stand-in.
+      silentFor(ctx, sessionKey, SILENT_TOOL_MS);
+      const alive = sweep(ctx, state, childAliveForSweep);
+      expect(alive.outcomes.get(sessionKey)).toBe("rescued");
+      expect(alive.broadcasts.map((m) => m.type)).toEqual(["stream:alive"]);
+
+      await new Promise((resolve) => { child.once("exit", resolve); child.kill("SIGKILL"); });
+      silentFor(ctx, sessionKey, SILENT_TOOL_MS);
+      expect(sweep(ctx, state, childAliveForSweep).outcomes.get(sessionKey)).toBe("finalized");
+    } finally {
+      child.kill("SIGKILL");
+      removeProvider("codex");
+    }
   });
 });

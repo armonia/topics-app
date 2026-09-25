@@ -215,6 +215,8 @@ const GUEST_SAFE_FRAMES = new Set<string>([
   'stream:start',
   'stream:content_chunk',
   'stream:end',
+  // The sweep found a silent turn alive: a guest who took it for over lights it again.
+  'stream:alive',
   // Il recupero a metà turno. Manca**va**, ed è la mancanza che pesava di più:
   // il catch-up porta `content` e `blocks`, cioè il TESTO, non un id. Senza
   // questo nome nella lista un ospite non lo riceve nemmeno per una chat che
