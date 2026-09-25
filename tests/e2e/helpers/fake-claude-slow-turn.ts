@@ -14,6 +14,9 @@
  *   "SLOW:<n>:<tag>"   n text chunks `<tag>-01 ` .. `<tag>-NN `, one a second.
  *                      A window that shows the turn must show them as a
  *                      contiguous prefix, whenever it looks.
+ *   "FAST:<n>:<ms>:<tag>"  n text chunks `<tag>-001 ` .. `<tag>-NNN `, <ms>
+ *                      apart: the token rate of a CLI that sends one token at
+ *                      a time, faster than the window's animation frame.
  *   anything else      "ok", at once.
  *
  * `--version` answers and exits 0; a one-shot (`--output-format json`, the
@@ -70,6 +73,17 @@ if (flag("--output-format") === "json") {
     result(pieces.join(""));
   }
 
+  async function fastTurn(n: number, ms: number, tag: string): Promise<void> {
+    let all = "";
+    for (let i = 1; i <= n; i++) {
+      const chunk = `${tag}-${String(i).padStart(3, "0")} `;
+      all += chunk;
+      text(chunk);
+      await sleep(ms);
+    }
+    result(all);
+  }
+
   async function slowTurn(n: number, tag: string): Promise<void> {
     let all = "";
     for (let i = 1; i <= n; i++) {
@@ -107,7 +121,9 @@ if (flag("--output-format") === "json") {
         init();
         const tool = /TOOLTURN:(\d+)/.exec(asked);
         const slow = /SLOW:(\d+):([A-Za-z0-9]+)/.exec(asked);
+        const fast = /FAST:(\d+):(\d+):([A-Za-z0-9]+)/.exec(asked);
         if (tool) await toolTurn(Number(tool[1]));
+        else if (fast) await fastTurn(Number(fast[1]), Number(fast[2]), fast[3]!);
         else if (slow) await slowTurn(Number(slow[1]), slow[2]!);
         else {
           text("ok");

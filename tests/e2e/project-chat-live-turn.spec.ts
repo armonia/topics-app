@@ -80,6 +80,8 @@ async function seedLayout(request: APIRequestContext, p1: string, a: string, p2:
 interface Turn {
   /** The server said the turn ran its tool (the SSE of the request carries it). */
   ranTool: () => boolean;
+  /** What the turn's event stream carried so far. */
+  said: () => string;
   /** Resolves when the server has closed the turn. */
   done: Promise<void>;
 }
@@ -105,7 +107,7 @@ function startTurn(sessionKey: string, content: string): Turn {
   // Awaited by the test at the end; handled now, so a refusal is reported there
   // and not as an unhandled rejection in the middle of the run.
   done.catch(() => {});
-  return { ranTool: () => sse.includes("tool-visible"), done };
+  return { ranTool: () => sse.includes("tool-visible"), said: () => sse, done };
 }
 
 /**
@@ -166,6 +168,59 @@ async function bubbleOf(page: Page, topicId: string): Promise<{ start: boolean; 
 
 const WHOLE = { start: true, middle: true, end: true, tools: 1 };
 
+/** The chunk numbers `<tag>-NNN` the last assistant bubble of a chat shows, in order. */
+async function chunksOf(page: Page, topicId: string, tag: string): Promise<number[]> {
+  const text = await page.evaluate((id) => {
+    const bubbles = document.querySelector(`[data-chat-topic-id="${id}"]`)?.querySelectorAll('[data-testid="chat-message"][data-role="assistant"]');
+    return bubbles?.[bubbles.length - 1]?.textContent ?? "";
+  }, topicId);
+  return (text.match(new RegExp(`${tag}-(\\d{3})`, "g")) ?? []).map((c) => Number(c.slice(-3)));
+}
+
+/** The chat still says a turn is running: the streaming indicator, or the Stop button. */
+const busy = (page: Page, topicId: string) =>
+  page.evaluate((id) => {
+    const pane = document.querySelector(`[data-chat-topic-id="${id}"]`);
+    return !!pane?.querySelector('[data-testid="chat-streaming-indicator"], button[aria-label="Stop streaming"], button[aria-label="Ferma la risposta"]');
+  }, topicId);
+
+/**
+ * Holds every history answer of a session, once armed, until `until()` holds.
+ * `held` and `delivered` count them.
+ */
+function holdHistoryUntil(page: Page, sessionKey: string, until: () => boolean) {
+  const state = { armed: false, held: 0, delivered: 0 };
+  void page.route(`**/api/history/${encodeURIComponent(sessionKey)}`, async (route) => {
+    if (!state.armed) return route.continue();
+    state.held++;
+    const response = await route.fetch();
+    const body = await response.text();
+    const since = Date.now();
+    while (!until() && Date.now() - since < 20_000) await new Promise((r) => setTimeout(r, 50));
+    await route.fulfill({ response, body });
+    state.delivered++;
+  });
+  return { state, arm: () => { state.armed = true; } };
+}
+
+/** Every history request of a session, by the time it left. */
+function historyRequests(page: Page, sessionKey: string): number[] {
+  const at: number[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes(`/api/history/${encodeURIComponent(sessionKey)}`)) at.push(Date.now());
+  });
+  return at;
+}
+
+/**
+ * A history read of a chat less than 5 s old is answered from memory
+ * (`HISTORY_DEDUP_MS` in useChat.ts): a case that needs the next read to reach
+ * the server waits for the last one to be older than that.
+ */
+async function pastHistoryDedup(sent: number[]): Promise<void> {
+  await expect.poll(() => Date.now() - Math.max(0, ...sent), { timeout: 10_000 }).toBeGreaterThan(5_500);
+}
+
 test.describe("a chat inside a project pane shows the true state of its turn", () => {
   let uninstall: () => void = () => {};
   let p1 = "";
@@ -210,6 +265,28 @@ test.describe("a chat inside a project pane shows the true state of its turn", (
     }
   }
 
+  /**
+   * The turn ended on the page and every held answer landed after it: A,
+   * brought on screen, shows no running turn and holds `words`.
+   */
+  async function expectClosedTurn(
+    page: Page,
+    app: { saw: (type: string) => boolean },
+    answers: ReturnType<typeof holdHistoryUntil>,
+    words: string[],
+  ): Promise<void> {
+    const { state } = answers;
+    await expect.poll(() => app.saw("stream:end"), { timeout: 20_000 }).toBe(true);
+    await expect
+      .poll(() => state.delivered > 0 && state.delivered === state.held, { timeout: 15_000, message: "the held answers have landed" })
+      .toBe(true);
+    await projectTab(page, p1).click();
+    await expect(page.locator(`[data-chat-topic-id="${a}"]`).first()).toBeVisible();
+    await expect.poll(() => busy(page, a), { timeout: 5_000, message: "no turn running on screen" }).toBe(false);
+    const text = (await page.locator(`[data-chat-topic-id="${a}"] [data-testid="chat-message"][data-role="assistant"]`).last().textContent()) ?? "";
+    for (const word of words) expect(text, "the last bubble holds the whole turn").toContain(word);
+  }
+
   test("the focus leaves the chat mid-turn: the bubble still ends whole", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "CCPROV-02" });
     const app = await proxyAppSocket(page, skA);
@@ -239,6 +316,67 @@ test.describe("a chat inside a project pane shows the true state of its turn", (
       .poll(() => bubbleOf(page, a), { timeout: 1_000, message: `within 1 s of the end, frames about A: ${app.state.frames.join(",")}` })
       .toEqual(WHOLE);
     await turn.done;
+  });
+
+  /**
+   * The chat on screen, fast turns from outside, one token at a time as Codex
+   * sends them: every chunk shows once. A history read in the middle of the
+   * turn (the reconcile on `topic:updated`) answered with a snapshot that
+   * already held the chunk the window was still buffering for its next frame,
+   * the chunk was drawn twice, and the reconcile at the end was skipped as a
+   * repeat within 5 s: the doubled chunk stayed until a refresh.
+   */
+  test("the chat on screen, fast turns from outside: every chunk shows once", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CCPROV-02" });
+    test.setTimeout(180_000);
+    const sent = historyRequests(page, skA);
+    await openBoth(page, "P1");
+    const all = Array.from({ length: 150 }, (_, i) => i + 1);
+    for (let rep = 1; rep <= 6; rep++) {
+      await pastHistoryDedup(sent);
+      const tag = `f${rep}`;
+      await startTurn(skA, `FAST:150:20:${tag}`).done;
+      await expect.poll(() => chunksOf(page, a, tag), { timeout: 5_000, message: `turn ${rep}` }).toEqual(all);
+    }
+  });
+
+  /**
+   * A history answer that lands after the turn ended does not open it again.
+   * It carries the turn as the server had it when the request was READ: still
+   * partial, still streaming. Applied after the end, it brought the spinner
+   * back for good over the closed bubble, and the reconcile at the end found
+   * the request in flight and skipped. The answer is held until the page has
+   * seen the end, as the network of a phone or a loaded server does.
+   *
+   * Two ways a read can be in flight across the end: the reconcile on the
+   * `topic:updated` that opens a turn, and the reload after a socket blip.
+   */
+  test("a history answer older than the end of the turn does not reopen it", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CCPROV-02" });
+    const sent = historyRequests(page, skA);
+    const app = await proxyAppSocket(page, skA);
+    const answers = holdHistoryUntil(page, skA, () => app.saw("stream:end"));
+    await openBoth(page, "P2");
+    await pastHistoryDedup(sent);
+    answers.arm();
+    await startTurn(skA, "SLOW:1:qq").done;
+    await expectClosedTurn(page, app, answers, ["qq-01"]);
+  });
+
+  test("a socket blip mid-turn: the reload that lands after the end does not reopen it", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "CCPROV-02" });
+    const app = await proxyAppSocket(page, skA);
+    const answers = holdHistoryUntil(page, skA, () => app.saw("stream:end"));
+    await openBoth(page, "P2");
+    const turn = startTurn(skA, "SLOW:6:blip");
+    await expect.poll(() => turn.said().includes("blip-04"), { timeout: 30_000 }).toBe(true);
+    answers.arm();
+    const opens = app.state.opens;
+    await app.cut();
+    app.state.refuse = false;
+    await expect.poll(() => app.state.opens, { timeout: 20_000, message: "the socket comes back" }).toBeGreaterThan(opens);
+    await turn.done;
+    await expectClosedTurn(page, app, answers, ["blip-01", "blip-02", "blip-03", "blip-04", "blip-05", "blip-06"]);
   });
 
   test("the socket is down when the turn ends: its return reloads the chat", async ({ page }) => {
