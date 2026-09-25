@@ -48,10 +48,30 @@ describe("formatClientTraceLines", () => {
     expect(lines![0]).toContain("tab?1");
   });
 
-  it("caps what one event can put in the log", () => {
+  it("caps what one event can put in the log, cutting before it escapes", () => {
     const lines = formatClientTraceLines({ events: [{ at: AT, event: "e".repeat(500), fields: { big: "f".repeat(5000) } }] }, null);
     expect(lines![0].length).toBeLessThan(900);
-    expect(lines![0]).toContain("pane-attach " + "e".repeat(80) + "…");
+    expect(lines![0]).toContain("pane-attach " + "e".repeat(80) + "...");
+    // A field of 50 MB is not walked character by character: cut first.
+    const huge = "x".repeat(50 * 1024 * 1024);
+    const t0 = performance.now();
+    formatClientTraceLines({ events: [{ at: AT, event: huge }] }, null);
+    expect(performance.now() - t0).toBeLessThan(200);
+  });
+
+  it("escapes what is not ASCII instead of losing it, and still neutralises what splits a line", () => {
+    const lines = formatClientTraceLines(
+      { events: [{ at: AT, event: "città", fields: { p: "~/Musica/città" } }] },
+      "tab-1",
+    );
+    expect(lines![0]).toContain("pane-attach citt\\u00e0 ");
+    expect(lines![0]).toContain("Musica/citt\\u00e0");
+    const hostile = formatClientTraceLines(
+      { events: [{ at: AT, event: "a\u2028b\u2029c\u0085d\u001b[31me\rf\ng\u007f" }] },
+      "t",
+    );
+    expect(hostile![0]).toContain("pane-attach a?b?c?d?[31me?f?g?");
+    expect(hostile![0]).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/);
   });
 
   it("refuses anything that is not a batch of 1 to 50 well-formed events", () => {
@@ -78,6 +98,64 @@ describe("POST /api/client-trace", () => {
     const res = await router(post("not json"), new URL("http://x/api/client-trace"), "/api/client-trace", "POST");
     expect(res?.status).toBe(400);
     expect(logged).toEqual([]);
+  });
+
+  it("refuses a body declared over 64 KB without reading it", async () => {
+    const logged: string[] = [];
+    const router = createClientTraceRouter(ctx, (l) => logged.push(l));
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) { pulled++; c.enqueue(new Uint8Array(1024)); },
+    });
+    const req = new Request("http://x/api/client-trace", {
+      method: "POST",
+      headers: { "content-type": "application/json", "content-length": String(50 * 1024 * 1024) },
+      body,
+      // @ts-expect-error -- Bun needs it for a stream body; the DOM types do not know it
+      duplex: "half",
+    });
+    const res = await router(req, new URL("http://x/api/client-trace"), "/api/client-trace", "POST");
+    expect(res?.status).toBe(413);
+    expect(pulled).toBeLessThanOrEqual(1);
+    expect(logged).toEqual([]);
+  });
+
+  it("stops reading a body with no declared length at 64 KB", async () => {
+    const router = createClientTraceRouter(ctx, () => {});
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) { pulled++; c.enqueue(new Uint8Array(16 * 1024)); },
+    });
+    const req = new Request("http://x/api/client-trace", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+      // @ts-expect-error -- Bun needs it for a stream body; the DOM types do not know it
+      duplex: "half",
+    });
+    const res = await router(req, new URL("http://x/api/client-trace"), "/api/client-trace", "POST");
+    expect(res?.status).toBe(413);
+    expect(pulled).toBeLessThan(10);
+  });
+
+  it("writes at most 600 lines a minute across clients, and says how many it dropped", async () => {
+    const logged: string[] = [];
+    let t = 1_000_000;
+    const router = createClientTraceRouter(ctx, (l) => logged.push(l), () => t);
+    const batch = { events: Array.from({ length: 50 }, (_, i) => ({ at: AT, event: `e${i}` })) };
+    const statuses: number[] = [];
+    for (let n = 0; n < 13; n++) {
+      const res = await router(post(batch, `tab-${n}`), new URL("http://x/api/client-trace"), "/api/client-trace", "POST");
+      statuses.push(res!.status);
+    }
+    expect(statuses.every((s) => s === 204)).toBe(true);
+    expect(logged).toHaveLength(600);
+    t += 60_000;
+    await router(post({ events: [{ at: AT, event: "next minute" }] }), new URL("http://x/api/client-trace"), "/api/client-trace", "POST");
+    expect(logged.slice(600)).toEqual([
+      "[client-trace] 50 line(s) dropped in the last minute (cap 600/min)",
+      "[client-trace] 2026-09-24T10:42:02.174Z tab-1 pane-attach next minute",
+    ]);
   });
 
   it("leaves every other path to the next router", async () => {
