@@ -1469,6 +1469,10 @@ async function postChatReadSSE(
     method: "POST",
     headers,
     body: JSON.stringify({ sessionKey: targetSessionKey, messages: [{ role: "user", content: message }] }),
+    // A socket of its own. On a reused keep-alive socket that the server closes
+    // mid-response, Bun's fetch sends the POST again by itself and glues the
+    // second answer onto this body: the message reached the chat twice.
+    keepalive: false,
     ...loopbackInit(),
   });
   if (!resp.ok || !resp.body) {
@@ -1507,7 +1511,8 @@ async function postChatReadSSE(
             choices?: Array<{ delta?: { content?: string } }>;
             turn?: { messageId?: string; end?: string; cause?: string };
           };
-          if (typeof j?.turn?.messageId === "string") messageId = j.turn.messageId;
+          // The first turn named is ours: anything after it on this body is not.
+          if (typeof j?.turn?.messageId === "string") messageId ??= j.turn.messageId;
           if (typeof j?.turn?.end === "string") end = { end: j.turn.end, ...(j.turn.cause ? { cause: j.turn.cause } : {}) };
           const d = j?.choices?.[0]?.delta?.content;
           if (d) out += d;
@@ -1523,6 +1528,12 @@ async function postChatReadSSE(
 
 /** What the tool says for a turn that ended without finishing its answer. */
 function unfinishedTurn(end: TurnEndFrame, text: string, topicId: string): string {
+  // The route's empty-reply verdict is not always the last word: the answer can
+  // land in that same row a moment later (lib/empty-turn-headstone.ts), and a
+  // /clear ends this way too. Sending again on it would run the message twice.
+  if (end.end === "error" && !text) {
+    return `send_chat_message: the turn closed without writing a reply. Before sending again, check read_chat_messages(topic_id="${topicId}"): the answer can still land in that row a moment later, and a /clear ends this way too.`;
+  }
   const how = end.end === "cancelled"
     ? `was stopped${end.cause === "user" ? " by a person" : end.cause ? ` (${end.cause})` : ""}`
     : end.end === "error" ? "ended in an error" : `ended early (${end.end})`;
@@ -1535,11 +1546,16 @@ function unfinishedTurn(end: TurnEndFrame, text: string, topicId: string): strin
 export interface SendChatWait {
   pollMs?: number;
   maxWaitMs?: number;
+  /** How long the server may stay unreachable, in a row, before the wait gives up. */
+  unreachableMs?: number;
 }
 const CUT_SEND_POLL_MS = 2_000;
 // A tool call cannot hold its caller for ever: past this it answers, and
 // read_chat_messages has the rest. It is not the turn's limit, a live turn has none.
 const CUT_SEND_MAX_WAIT_MS = 30 * 60_000;
+// A save under server/ reloads the server here, and a turn in a child process
+// is adopted again after it (38 s after the cut, on 24/09): the wait rides it out.
+const CUT_SEND_UNREACHABLE_MS = 2 * 60_000;
 
 type ChatRow = { id?: string; role?: string; content?: string; partial?: boolean; blocks?: Array<{ kind?: string; text?: string }> };
 
@@ -1567,16 +1583,31 @@ async function awaitTurnEndAndReadReply(
   }
   const pollMs = wait.pollMs ?? CUT_SEND_POLL_MS;
   const maxWaitMs = wait.maxWaitMs ?? CUT_SEND_MAX_WAIT_MS;
+  const unreachableMs = wait.unreachableMs ?? CUT_SEND_UNREACHABLE_MS;
   const deadline = Date.now() + maxWaitMs;
+  let unreachableSince: number | null = null;
   for (;;) {
     let row: ChatRow | undefined;
+    let live: { sessionKey?: string; state?: string } | undefined;
     try {
       row = (await httpJson<{ message?: ChatRow }>(
         args, "GET", `/api/topics/${encodeURIComponent(topicId)}/messages/${encodeURIComponent(messageId)}`, undefined, fetchImpl,
       ))?.message;
+      if (!row || row.partial) {
+        live = (await httpJson<{ sessions?: Array<{ sessionKey?: string; state?: string }> }>(
+          args, "GET", "/api/topics/streaming", undefined, fetchImpl,
+        ))?.sessions?.find((s) => s.sessionKey === sessionKey);
+      }
+      unreachableSince = null;
     } catch (err: unknown) {
-      if (!(err instanceof HttpAnswerError && err.status === 404)) throw err;
-      throw new Error(`send_chat_message: stream interrupted, and the turn ended without leaving a reply. ${see}.`);
+      if (err instanceof HttpAnswerError && err.status === 404) {
+        throw new Error(`send_chat_message: stream interrupted, and the turn ended without leaving a reply. ${see}.`);
+      }
+      // The server is reloading, or busy: the turn may well be alive. Ask again.
+      unreachableSince ??= Date.now();
+      if (Date.now() - unreachableSince >= unreachableMs) {
+        throw new Error(`send_chat_message: stream interrupted, and topics-app stayed unreachable for ${Math.round(unreachableMs / 1000)} s while the turn was awaited (${err instanceof Error ? err.message : String(err)}). ${see} later.`);
+      }
     }
     if (row && !row.partial) {
       const text = (row.content ?? "").trim();
@@ -1587,9 +1618,6 @@ async function awaitTurnEndAndReadReply(
       }
       return text;
     }
-    const live = (await httpJson<{ sessions?: Array<{ sessionKey?: string; state?: string }> }>(
-      args, "GET", "/api/topics/streaming", undefined, fetchImpl,
-    ))?.sessions?.find((s) => s.sessionKey === sessionKey);
     if (live?.state === "waiting") {
       throw new Error(`send_chat_message: stream interrupted, and the turn is waiting for a person's answer in that chat. ${see} once it is answered.`);
     }

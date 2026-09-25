@@ -3,7 +3,9 @@
  * PREMISE, on the real code: a live turn inside a silent tool drops out of
  * GET /api/topics/streaming once its lastActivity is > 3 min old, while its row
  * is still partial with half a reply, and the real messages route serves that
- * half. This is exactly what awaitTurnEndAndReadReply reads as "turn over".
+ * half. This is exactly what awaitTurnEndAndReadReply read as "turn over" at
+ * df9b2fd2e; since round 3 it reads the row by id and never the registry's
+ * absence, so this test stays as the premise.
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "fs";

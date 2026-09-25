@@ -65,7 +65,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 answered() {
   local reply
   reply="$(bun "$HERE/sse-reply.ts" "$1")" || return 1
-  [[ "$reply" == *20* ]] && ! grep -q 'Not logged in' "$1"
+  # Un frame di fine vuol dire fermato o fallito: anche «... retry-after 20s»
+  # dentro un messaggio d'errore conterebbe come risposta.
+  [[ "$reply" == *20* ]] && ! grep -q 'Not logged in' "$1" && ! grep -q '"turn":{"end"' "$1"
 }
 
 # UN TURNO DI PROVA PRIMA DI SPENDERE. Il server di test sandboxa `HOME`: se le
@@ -147,7 +149,7 @@ json.dump({
  'measured_at':datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
  'base':sys.argv[1],'model':sys.argv[2],
  'metric':'RSS del server prima/dopo la raffica, diviso N',
- 'answered_means':\"il testo della risposta contiene '20' e non e' 'Not logged in' — [DONE] arriva anche sugli errori\",
+ 'answered_means':\"il testo della risposta contiene '20', senza frame di fine e senza 'Not logged in' — [DONE] arriva anche sugli errori\",
  'runs':json.loads(sys.argv[3]),
 }, open(sys.argv[4],'w'), indent=1, ensure_ascii=False)" "$BASE" "$MODEL" "$ROWS" "$OUT"
   echo

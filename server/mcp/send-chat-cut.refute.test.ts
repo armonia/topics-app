@@ -73,7 +73,7 @@ describe("REFUTE: cut stream fallback", () => {
     expect(out).toBe("half an answer, and then the rest of it");
   });
 
-  /** Even without a gap: the fallback never looks at `partial` (kept on the wire, shared/lean-tool-call.ts:124). */
+  /** Even without a gap: at df9b2fd2e the fallback never looked at `partial` (kept on the wire, shared/lean-tool-call.ts:124). */
   test("a row still partial=true is never returned as the reply", async () => {
     const fetchImpl = world({
       streaming: () => [],

@@ -2,8 +2,9 @@
  * @covers CHAT-INT-01
  * Copied from the independent review of df9b2fd2e (card 63e01ac0). Adapted to
  * the fix: the streams carry the route's `turn` frames (the row that is cut,
- * the end of a stopped turn), and the stopped turn may answer with an explicit
- * failure, which is what it does.
+ * the end of a stopped turn), the stopped turn may answer with an explicit
+ * failure, which is what it does, and since round 3 the restart case gives the
+ * server 200 ms to come back instead of the real 2 min.
  */
 import { describe, test, expect } from "bun:test";
 import { callSendChatMessage } from "./topics-mcp-server";
@@ -44,7 +45,7 @@ describe("no regression / pre-existing", () => {
 
   test("restart cut: server gone during the wait -> transport error, not a wait", async () => {
     const w = world(() => sse([`data: ${JSON.stringify({ turn: { messageId: "m1" } })}\n\n`, d("half ")]), (u) => { throw new TypeError("Unable to connect. Is the computer able to access the url?"); });
-    const r = await callSendChatMessage(A, { topic_id: "t1", message: "x" }, w.f, { pollMs: 5, maxWaitMs: 60_000 }).then((x) => "RESOLVED " + x, (e) => "REJECTED " + e.message);
+    const r = await callSendChatMessage(A, { topic_id: "t1", message: "x" }, w.f, { pollMs: 5, maxWaitMs: 60_000, unreachableMs: 200 }).then((x) => "RESOLVED " + x, (e) => "REJECTED " + e.message);
     console.log(r);
   });
 });

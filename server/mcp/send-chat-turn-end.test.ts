@@ -10,7 +10,7 @@
  * route's first `turn` frame, until it is no longer partial. And a `[DONE]`
  * after a `turn` frame with an end is a turn stopped or failed halfway.
  */
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, setSystemTime } from "bun:test";
 import { callSendChatMessage } from "./topics-mcp-server";
 
 function stubFetch(impl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) {
@@ -102,24 +102,77 @@ describe("callSendChatMessage when the turn does not finish on the stream", () =
    * tool usually has no text yet (content is saved every 10 deltas), so the
    * list hides it, and past 3 min of silence the streaming registry hides the
    * turn until the next sweep. Waiting on those two was a race against a 45 s
-   * margin that a loaded Mac loses (the loop stalled 7-87 s on 14/09). Here
-   * both stay blind for 1.5 s while the turn is alive: the reply still comes.
+   * margin that a loaded Mac loses (the loop stalled 7-87 s on 14/09). Here the
+   * registry stays blind while the clock jumps 10 min at every look: any rule
+   * that calls a turn gone after some time fails, and the list is never read.
    */
-  test("a live turn invisible to the list and to the registry is still waited on, by its row", async () => {
-    const t0 = Date.now();
-    const fetchImpl = world({
-      streaming: () => [],
+  test("a live turn invisible to the list and to the registry is still waited on, by its row, however long", async () => {
+    let clock = Date.now();
+    let looks = 0;
+    let listReads = 0;
+    const inner = world({
+      streaming: () => {
+        looks++;
+        clock += 10 * 60_000;
+        setSystemTime(new Date(clock));
+        return [];
+      },
       messages: () => [
         { id: "u1", role: "user", content: "ping" },
-        Date.now() - t0 < 1_500
+        looks < 5
           ? { id: "m1", role: "assistant", content: "", partial: true }
           : { id: "m1", role: "assistant", content: "the whole answer" },
       ],
     });
-    const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, { pollMs: 5, maxWaitMs: 5_000 });
-    expect(out).toBe("the whole answer");
-    expect(Date.now() - t0).toBeGreaterThanOrEqual(1_500);
-  }, 10_000);
+    const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).includes("/messages?")) listReads++;
+      return inner(url, init);
+    }) as typeof fetch;
+    try {
+      const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, { pollMs: 5, maxWaitMs: 2 * 60 * 60_000 });
+      expect(out).toBe("the whole answer");
+      expect(looks).toBe(5);
+      expect(listReads).toBe(0);
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  test("a stream that names two turns is waited on for the first, its own", async () => {
+    const chat = frame({ turn: { messageId: "m1" } }) + delta("half ") + frame({ turn: { messageId: "m2" } });
+    const fetchImpl = world({
+      chat,
+      streaming: () => [],
+      messages: () => [
+        { id: "m1", role: "assistant", content: "our answer" },
+        { id: "m2", role: "assistant", content: "someone else's answer" },
+      ],
+    });
+    expect(await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST)).toBe("our answer");
+  });
+
+  test("a server that reloads during the wait is waited through, and one that stays down is said to be", async () => {
+    let reads = 0;
+    const reloading = world({ streaming: () => [], messages: () => [{ id: "m1", role: "assistant", content: "the whole answer" }] });
+    const flaky = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).includes("/messages/") && ++reads <= 3) throw new TypeError("Unable to connect. Is the computer able to access the url?");
+      return reloading(url, init);
+    }) as typeof fetch;
+    expect(await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, flaky, { ...FAST, maxWaitMs: 5_000, unreachableMs: 2_000 })).toBe("the whole answer");
+
+    const down = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).includes("/messages/")) throw new TypeError("Unable to connect. Is the computer able to access the url?");
+      return reloading(url, init);
+    }) as typeof fetch;
+    await expect(callSendChatMessage(A, { topic_id: "t1", message: "ping" }, down, { ...FAST, maxWaitMs: 5_000, unreachableMs: 100 }))
+      .rejects.toThrow(/stream interrupted, and topics-app stayed unreachable/);
+  });
+
+  test("a turn that closed with nothing written says so, and warns against sending again", async () => {
+    const chat = frame({ turn: { messageId: "m1" } }) + frame({ turn: { end: "error" } }) + "data: [DONE]\n\n";
+    await expect(callSendChatMessage(A, { topic_id: "t1", message: "ping" }, world({ chat, streaming: () => [], messages: () => [] }), FAST))
+      .rejects.toThrow(/closed without writing a reply\. Before sending again, check read_chat_messages/);
+  });
 
   test("a row that is gone says the turn ended without a reply, at once", async () => {
     const fetchImpl = world({ streaming: () => LIVE, messages: () => [{ id: "u1", role: "user", content: "ping" }] });
@@ -165,4 +218,61 @@ describe("callSendChatMessage when the turn does not finish on the stream", () =
     expect(await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, fetchImpl, FAST)).toBe("Hello");
     expect(extra).toBe(0);
   });
+});
+
+/**
+ * ONE SEND IS ONE POST, EVEN WHEN THE SERVER CUTS THE STREAM.
+ *
+ * Bun 1.3.8's fetch sends a POST again, on its own, when the server closes a
+ * reused keep-alive socket halfway through the response, and glues the second
+ * response onto the same body (review of 4b1e2a1d1). send_chat_message reads
+ * the topic first and then POSTs on the same socket: behind a cut, the message
+ * reached the chat twice, and with the turn hidden from the busy gate a second
+ * turn ran it again.
+ */
+describe("callSendChatMessage against a server that cuts the stream", () => {
+  test("the chat is POSTed once, and the wait follows the first turn it named", async () => {
+    let posts = 0;
+    let rowReads = 0;
+    const server = Bun.serve({
+      port: 0,
+      idleTimeout: 8,
+      fetch: async (req) => {
+        const { pathname } = new URL(req.url);
+        if (pathname === "/api/topics/t1") return Response.json({ topic: { sessionKey: "topic:target", name: "Target" } });
+        if (pathname === "/api/chat") {
+          await req.json();
+          posts++;
+          const turn = `m${posts}`;
+          const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ turn: { messageId: turn } })}\n\n`));
+              // Then silence: the idle timeout cuts the response.
+            },
+          });
+          return new Response(body, { headers: { "Content-Type": "text/event-stream" } });
+        }
+        if (pathname === "/api/topics/streaming") return Response.json({ sessions: [] });
+        const row = pathname.match(/^\/api\/topics\/t1\/messages\/([^/]+)$/);
+        if (row) {
+          rowReads++;
+          return Response.json({ message: { id: row[1], role: "assistant", content: `answer of ${row[1]}` } });
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    try {
+      const out = await callSendChatMessage(
+        { baseUrl: `http://127.0.0.1:${server.port}`, sessionKey: "topic:mine" },
+        { topic_id: "t1", message: "ping" },
+        fetch,
+        { pollMs: 50, maxWaitMs: 30_000 },
+      );
+      expect(posts).toBe(1);
+      expect(out).toBe("answer of m1");
+      expect(rowReads).toBeGreaterThanOrEqual(1);
+    } finally {
+      server.stop(true);
+    }
+  }, 40_000);
 });
