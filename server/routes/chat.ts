@@ -35,7 +35,7 @@ import {
 } from "./processes";
 import { insertCompactionMarkerIfNew, backfillPostTokens } from "../db/compaction-markers";
 import { getActiveGoal, replaceSteps } from "../services/goals";
-import { goalContinuationForChatRoute, type TurnEndInfo as GoalTurnEnd } from "../services/goal-continuation";
+import { backgroundOfTurn, goalContinuationForChatRoute, type ChatGoalLoop, type TurnEndInfo as GoalTurnEnd } from "../services/goal-continuation";
 import { recordSessionContext } from "../db/session-context";
 import { buildContextUpdate } from "../usage/usage-update";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
@@ -163,6 +163,7 @@ export interface ChatDeps {
    * only add a line to the chat. Native runtime only.
    */
   hooks?: LifecycleHookRunner;
+  goalLoop?: ChatGoalLoop; // when the caller holds it too (the Stop, the boot)
 }
 
 /**
@@ -237,7 +238,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
    * function expression, whose name is in scope only inside its own body, so it
    * hands itself over on the first request it serves (see `selfRoute` below).
    */
-  const goalLoop = goalContinuationForChatRoute({
+  const goalLoop = deps.goalLoop ?? goalContinuationForChatRoute({
     ctx, resolveProvider, log: (m) => console.log(`[goal] ${m}`),
   });
 
@@ -2378,6 +2379,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // stop: `interrupted` carries the tools still awaiting a human,
                 // and the plan approval is kept out of it on purpose above.
                 pendingAsk: askingPlanApproval || interrupted.length > 0,
+                ...backgroundOfTurn(topicProvider, sessionKey), // see goal-continuation.ts
+                fromHuman: !isWoken && !isReattach && !dispatched && !body.goalNudge && !resumeAttempt,
+                woken: isWoken,
                 usedTools: toolsStartedThisTurn > 0,
                 lastAssistantText: fullContent,
               };

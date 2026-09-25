@@ -89,6 +89,12 @@ kill a turn whose provider process is still alive.
 - **THEN** the grace window is extended instead of finalizing
 - **AND** only the 30-minute hard cap, and only on a dead process, ends the turn
 
+#### Scenario: The stall judge is not asked while background work runs
+- **GIVEN** a headless turn under the stall detector whose session's CLI still reports background work (an Agent, a Bash, a Monitor)
+- **WHEN** the idle window expires
+- **THEN** the detector SHALL rearm without asking the judge, as for a human, the checks or a freeze
+- **AND** once that work reports its end, or thirty minutes pass with no news of it, the judge SHALL be asked again
+
 ### Requirement: CHAT-REL-06 — A transient API failure is retried, not reported
 
 The native runtime SHALL try a failed model call again when the failure is the

@@ -275,7 +275,7 @@ export const chatApi = {
    * (vedi `shared/clear-messages-policy.ts`) e vede anche le righe fuori dal
    * ramo attivo, che il client non ha.
    */
-  async abort(sessionKey: string, clearMessages?: boolean): Promise<{ ok: boolean; cleared?: boolean }> {
+  async abort(sessionKey: string, clearMessages?: boolean): Promise<{ ok: boolean; cleared?: boolean; reason?: string }> {
     return request<{ ok: boolean; cleared?: boolean }>('/chat/abort', {
       method: 'POST',
       body: JSON.stringify({ sessionKey, clearMessages }),
@@ -966,6 +966,8 @@ export interface CommandResult {
   message?: string;
   model?: string;
   error?: string;
+  /** The change waits for the chat's background work to end (`/model`, `/effort`). */
+  pending?: 'background-work';
 }
 
 export interface CustomSlashCommand { name: string; description: string; kind: 'command' | 'skill'; }

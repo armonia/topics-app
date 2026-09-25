@@ -1,7 +1,8 @@
 /**
  * Is this row one the MACHINE wrote, not the person or the model?
  *
- * The goal loop's continuation (`goal-nudge`), its stop notice (`goal-stop`)
+ * The goal loop's continuation (`goal-nudge`), its stop notice (`goal-stop`),
+ * the line about a chat's background work (`background-notice`)
  * and the board's envelope (`dispatched-envelope`) are rows of the transcript
  * because a provider only answers a `user` turn, but none of them is
  * something anybody said. The chat draws them as a service line
@@ -11,9 +12,10 @@
  */
 import type { ContentBlock } from '../../types';
 import type { MachineStopCause } from '../../../../shared/types';
+import type { useT } from '../../hooks/useT';
 export type { MachineStopCause } from '../../../../shared/types';
 
-const MACHINE_KINDS = new Set(['goal-nudge', 'goal-stop', 'dispatched-envelope', 'machine-stop']);
+const MACHINE_KINDS = new Set(['goal-nudge', 'goal-stop', 'dispatched-envelope', 'machine-stop', 'background-notice']);
 
 export function isMachineRow(blocks: readonly ContentBlock[] | undefined | null): boolean {
   if (!blocks || blocks.length === 0) return false;
@@ -30,4 +32,64 @@ export function isMachineRow(blocks: readonly ContentBlock[] | undefined | null)
 export function machineStopOf(blocks: readonly ContentBlock[] | undefined | null): MachineStopCause | null {
   const b = blocks?.find((x) => x.kind === 'machine-stop');
   return b && b.kind === 'machine-stop' ? b.cause : null;
+}
+
+export type BackgroundNoticeBlock = Extract<ContentBlock, { kind: 'background-notice' }>;
+
+/** The background notice this row is, or null (server/lib/background-notice.ts). */
+export function backgroundNoticeOf(blocks: readonly ContentBlock[] | undefined | null): BackgroundNoticeBlock | null {
+  const b = blocks?.find((x) => x.kind === 'background-notice');
+  return b && b.kind === 'background-notice' ? b : null;
+}
+
+const CLOSED_KEY = {
+  silent: 'background.notice.closed',
+  'stuck-turn': 'background.notice.closedWithTurn',
+  deadline: 'background.notice.closedDeadline',
+  superseded: 'background.notice.closedSuperseded',
+} as const;
+
+/** The notice's sentence: its own line (`BackgroundNoticeLine`) and the stop line that carries a closed one (`MachineStopLine`). */
+export function backgroundNoticeSentence(tr: ReturnType<typeof useT>, notice: BackgroundNoticeBlock): string {
+  return notice.event === 'closed'
+    ? tr(CLOSED_KEY[notice.why ?? 'silent'], { tasks: notice.tasks.join(', ') })
+    : tr(`background.notice.deferred.${notice.change}`);
+}
+
+/**
+ * The chat's last word, past the background notices after it. A notice is a
+ * service line written after a stop or a config change: read as the last
+ * message it hid the cut turn under it, so neither «Retry» nor the interrupted
+ * turn's banner came (second review of 25/09). A machine's stop line that
+ * carries one is that stop's row, and IS the last word: it answers the envelope.
+ */
+export function lastConversationMessage<M extends { blocks?: ContentBlock[] | null }>(messages: readonly M[]): M | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const blocks = messages[i].blocks;
+    if (!backgroundNoticeOf(blocks) || machineStopOf(blocks)) return messages[i];
+  }
+  return undefined;
+}
+
+/**
+ * What a Retry resends: the last user row with words in it. Not the chat's last
+ * row, which may be a service line with the notice's own sentence as `content`
+ * (live) or nothing (after a reload): resent, the model answered the notice and
+ * the person's message was lost (third review of 25/09).
+ */
+export function lastPersonText(messages: readonly { role: string; content?: string | null }[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === 'user' && m.content?.trim()) return m.content;
+  }
+  return null;
+}
+
+/**
+ * The message auto-TTS reads: the chat's last word when it is the model's, and
+ * never a service line, whose live `content` is the notice's English sentence.
+ */
+export function messageToSpeak<M extends { role: string; content?: string | null; blocks?: ContentBlock[] | null }>(messages: readonly M[]): M | undefined {
+  const last = lastConversationMessage(messages);
+  return last?.role === 'assistant' && last.content && !isMachineRow(last.blocks) ? last : undefined;
 }

@@ -105,6 +105,25 @@ describe("AiBridgeClient", () => {
     expect(replay.text).toBe("one\ntwo\n");
   });
 
+  test("attach dates the child's last write, not the attach, and names the protocol that carries it", async () => {
+    // A reattach replays hours of output in one go: this date is the only thing
+    // that keeps a background job silent for hours from looking fresh after
+    // every restart (claude/background-work.ts, `datedByLastWrite`).
+    const id = "topic:cli-dated";
+    const col = collector();
+    client.registerHandlers(id, { onData: col.onData });
+    await client.spawn(id, { cliPath: "cat", args: [], cwd: dataDir, env: {} });
+    const before = Date.now();
+    client.write(id, "tick\n");
+    await col.wait((c) => c.text === "tick\n");
+    const after = Date.now();
+    await new Promise((r) => setTimeout(r, 300));
+    const res = await client.attach(id, 0);
+    expect(res.protocol).toBe(2);
+    expect(res.lastDataAt).toBeGreaterThanOrEqual(before);
+    expect(res.lastDataAt).toBeLessThanOrEqual(after);
+  });
+
   test("kill removes the session", async () => {
     const id = "topic:cli-kill";
     client.registerHandlers(id, { onData: () => {} });

@@ -49,6 +49,9 @@ import {
 } from "./goal-loop";
 import { insertRestartNotification, type PartialSweepDb } from "../lib/boot-partial-sweep";
 import { MAX_ITERATIONS } from "../providers/native/agent-loop";
+import { sessionBackgroundState, sessionHasBackgroundWork } from "../providers/background-probes";
+import { rowsBack, type BackRow } from "../lib/background-notice";
+import { hasMachineMark } from "../../shared/prompt-number";
 
 export interface GoalContinuationDeps {
   db: Database;
@@ -79,12 +82,51 @@ export interface GoalContinuationDeps {
   announce: (topicId: string) => void;
   broadcast: (msg: OutboundMessage) => void;
   log?: (msg: string) => void;
+  /** A turn is in flight on this session: its own end decides, a check-in stays out. */
+  isBusy?: (sessionKey: string) => boolean;
+  /** The session's background work is still running, asked again when a check-in fires. */
+  backgroundWork?: (sessionKey: string) => boolean;
+  /** A task just reported and the CLI is about to wake for it: a check-in now would meet that wake. */
+  wakeQueued?: (sessionKey: string) => boolean;
+  setTimer?: (fn: () => void, ms: number) => unknown;
+  clearTimer?: (handle: unknown) => void;
+  now?: () => number;
 }
+
+/**
+ * When a goal deferred on background work checks in anyway, the way Claude Code
+ * does (2.1.282: `CLAUDE_CODE_GOAL_CHECKIN_MINUTES`, default 30, doubling up to
+ * two hours, three check-ins, then paused until the next message). Without it a
+ * background job that never reports, a dev server, a lost task, left the goal
+ * active on the bar and nobody pursuing it.
+ */
+export const GOAL_CHECK_IN_MS = 30 * 60_000;
+export const GOAL_CHECK_IN_LIMIT = 3;
+export function goalCheckInDelayMs(spentCheckIns: number): number {
+  return GOAL_CHECK_IN_MS * 2 ** Math.min(spentCheckIns, 2);
+}
+
+/**
+ * A task reported and the CLI is about to answer it: wait for that wake instead
+ * of judging, and look again after this long if it never comes. Claude Code
+ * re-arms by the same 60 s in the same state (`A.length===0&&queued`).
+ */
+export const GOAL_WAKE_RECHECK_MS = 60_000;
 
 /** What the route hands over once a turn is finalized. */
 export interface TurnEndInfo extends FinishedTurn {
   sessionKey: string;
   topicId: string;
+}
+
+/** A goal turn waiting on background work, with what will look at it again. */
+interface Waiting {
+  info: TurnEndInfo;
+  /** When this stretch of waiting began: the check-in counts from here. */
+  since: number;
+  timer: unknown;
+  /** Waiting only for the wake a reported task promised, not for running work. */
+  wakeOnly: boolean;
 }
 
 /**
@@ -154,8 +196,174 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
    */
   const resumedAfterBudget = new Set<string>();
 
-  return async function onTurnEnd(info: TurnEndInfo): Promise<string> {
-    if (info.end === "end_turn") resumedAfterBudget.delete(info.sessionKey);
+  /**
+   * THE TURN A GOAL IS WAITING TO JUDGE, per session: the last turn that ended
+   * while its background work ran, with the check-in armed for it. In memory,
+   * like the set above: a restart forgets it, and the next turn end judges.
+   *
+   * It is kept, and not just skipped, for two turns that would otherwise leave
+   * the goal silent for good: a background job that never reports (a dev
+   * server: the CLI never wakes, so no turn ends), and the empty wake that
+   * often follows the last report ("No response requested."), which the route
+   * discards and so never reaches the judge. The first gets the check-in, the
+   * second hands the judge the turn that did the work.
+   */
+  const deferred = new Map<string, Waiting>();
+  /** Check-ins already spent on the current stretch of background work. */
+  const checkInCount = new Map<string, number>();
+  const now = deps.now ?? (() => Date.now());
+  const setTimer = deps.setTimer ?? ((fn: () => void, ms: number) => {
+    const t = setTimeout(fn, ms);
+    (t as { unref?: () => void }).unref?.();
+    return t;
+  });
+  const clearTimer = deps.clearTimer ?? ((h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>));
+
+  function dropWaiting(sessionKey: string): Waiting | null {
+    const w = deferred.get(sessionKey);
+    if (!w) return null;
+    if (w.timer != null) clearTimer(w.timer);
+    deferred.delete(sessionKey);
+    return w;
+  }
+
+  /**
+   * Wait for the background work, and arm what looks again if it never
+   * reports. The check-in counts from when the goal STARTED waiting, as Claude
+   * Code's `deferredSince` does: a turn that ends meanwhile (a Monitor tick, a
+   * partial report) replaces the turn to judge and leaves the clock alone.
+   * Re-arming from each turn end kept a goal whose Monitor ticked every twenty
+   * minutes from ever checking in (the verification of 25/09, G1).
+   */
+  function defer(info: TurnEndInfo): string {
+    const sk = info.sessionKey;
+    const t = now();
+    const prev = deferred.get(sk);
+    const wakeOnly = info.backgroundWakeOnly === true;
+    if (prev && prev.wakeOnly === wakeOnly && prev.timer != null) {
+      prev.info = info;
+      return "background";
+    }
+    if (prev?.timer != null) clearTimer(prev.timer);
+    const since = prev && !prev.wakeOnly && !wakeOnly ? prev.since : t;
+    const spent = checkInCount.get(sk) ?? 0;
+    const delay = wakeOnly ? GOAL_WAKE_RECHECK_MS : spent < GOAL_CHECK_IN_LIMIT ? Math.max(0, since + goalCheckInDelayMs(spent) - t) : null;
+    const timer = delay === null ? null : setTimer(() => { void checkIn(sk); }, delay);
+    deferred.set(sk, { info, since, timer, wakeOnly });
+    log(`goal-loop: ${sk}: ` + (wakeOnly
+      ? "a background task just reported, the goal waits for the wake answering it"
+      : "background work still running, the goal waits for the turn it wakes"
+        + (timer ? ` (check-in in ${Math.round((delay ?? 0) / 60_000)} min)` : " (check-ins paused until the next message)")));
+    return "background";
+  }
+
+  async function checkIn(sessionKey: string): Promise<void> {
+    const w = deferred.get(sessionKey);
+    if (!w) return;
+    // A turn in flight ends by itself, and its end decides. The deferred turn
+    // stays for it: if that turn is the empty last wake, it is the one to judge.
+    if (deps.isBusy?.(sessionKey)) { w.timer = null; return; }
+    // A task just reported and its wake is about to start: look again then.
+    if (deps.wakeQueued?.(sessionKey)) { w.timer = setTimer(() => { void checkIn(sessionKey); }, GOAL_WAKE_RECHECK_MS); return; }
+    deferred.delete(sessionKey);
+    // A wake that did not come is not a check-in: nothing to count.
+    if (!w.wakeOnly) checkInCount.set(sessionKey, (checkInCount.get(sessionKey) ?? 0) + 1);
+    log(`goal-loop: ${sessionKey}: ` + (w.wakeOnly
+      ? "the wake a background report promised did not come, judging the waiting turn"
+      : "checking in on the goal after its background work ran without reporting"));
+    // The judge takes 18 to 25 s: a Monitor event can wake the CLI meanwhile,
+    // and a nudge sent then is refused with a 409 (second review of 25/09).
+    const free = () => !deps.isBusy?.(sessionKey) && !deps.wakeQueued?.(sessionKey);
+    const outcome = await judge({ ...w.info, backgroundWork: false }, deps.backgroundWork?.(sessionKey) === true, free)
+      .catch((err) => { log(`goal-loop: the check-in failed (${err instanceof Error ? err.message : String(err)})`); return "error"; });
+    if (outcome === "busy") {
+      // The turn that took the session ends by itself and decides; this check-in is not spent.
+      const spent = w.wakeOnly ? 0 : Math.max(0, (checkInCount.get(sessionKey) ?? 1) - 1);
+      if (!w.wakeOnly) checkInCount.set(sessionKey, spent);
+      // And the next one is a full interval away, not due at once: left due,
+      // the end of a Monitor tick fired it again, the judge met the next tick,
+      // and a goal paid 145 judges in 90 minutes without a nudge (third review of 25/09).
+      const delay = w.wakeOnly ? GOAL_WAKE_RECHECK_MS : goalCheckInDelayMs(spent);
+      if (!deferred.has(sessionKey)) deferred.set(sessionKey, { ...w, timer: setTimer(() => { void checkIn(sessionKey); }, delay) });
+    }
+  }
+
+  /**
+   * A turn deferred on background work is not judged, so its tools never
+   * reset the idle streak: the first judged turn with no tool after it, most
+   * often the wake that reports the work finished, stopped the loop as
+   * "nothing is moving" (second review of 25/09). A deferred turn that ran a
+   * tool, or a wake (the listed work gave news), is progress.
+   */
+  function noteProgress(goal: ReturnType<typeof getActiveGoal>, info: TurnEndInfo): void {
+    if (!goal || goal.idleTurns === 0 || !(info.usedTools || info.woken)) return;
+    try { setGoalLoop(deps.db, goal.id, { idleTurns: 0 }); } catch { /* the next judged turn counts again */ }
+  }
+
+  const onTurnEnd = async function onTurnEnd(info: TurnEndInfo): Promise<string> {
+    const sk = info.sessionKey;
+    if (info.end === "end_turn") resumedAfterBudget.delete(sk);
+    // Claude Code clears its idle check-ins at the person's own prompt: a
+    // message typed while the work runs re-enables them.
+    if (info.fromHuman) checkInCount.delete(sk);
+    let goal;
+    try {
+      goal = getActiveGoal(deps.db, info.topicId);
+      // The person's message lifts a pause: a stall, or a question the loop
+      // waited on. Claude Code pauses its check-ins until the next prompt too.
+      if (info.fromHuman && goal?.loopState === "blocked") {
+        goal = setGoalLoop(deps.db, goal.id, { state: "running", idleTurns: 0 }) ?? goal;
+        deps.announce(info.topicId);
+      }
+    } catch (err) {
+      log(`goal-loop: cannot read the goal (${err instanceof Error ? err.message : String(err)})`);
+      return "error";
+    }
+    if (info.backgroundWork && turnCanContinueGoal({ ...info, backgroundWork: false }, goal)) {
+      // A message typed while the goal waited starts a fresh stretch.
+      if (info.fromHuman) dropWaiting(sk);
+      noteProgress(goal, info);
+      return defer(info);
+    }
+    // An empty wake (a Monitor tick answered "No response requested.") with
+    // the work still listed: the goal keeps waiting on the turn that did the
+    // work, and its clock too. Dropping the entry first re-armed the check-in
+    // from now at every silent tick, G1 again (review of 25/09); and a check-in
+    // that fell due while that wake ran fires now instead of in thirty minutes.
+    // A wake that failed (an API error, a machine stop) with the work still
+    // listed keeps the wait too: dropped, no later tick re-armed a check-in.
+    // Only the person's own Stop ends it.
+    const still = deferred.get(sk);
+    const emptyOrFailed = (info.discarded && info.end === "end_turn") || info.end === "error" || (info.end === "cancelled" && info.cause !== "user");
+    if (emptyOrFailed && still && !info.dispatched && info.backgroundWork) {
+      // Unless the empty turn was the person's own (a /compact): that starts a
+      // fresh stretch, like any message of theirs.
+      if (info.fromHuman) dropWaiting(sk);
+      noteProgress(goal, info);
+      return defer({ ...still.info, backgroundWakeOnly: info.backgroundWakeOnly });
+    }
+    const waiting = dropWaiting(sk);
+    if (!info.backgroundWork) checkInCount.delete(sk);
+    // The empty wake after the work reported: judge the turn that did it. Only
+    // a wake the model closed by itself: a turn somebody stopped, or one that
+    // failed, drops the waiting turn with it, or a Stop would buy a nudge.
+    if (info.discarded && waiting && info.end === "end_turn" && !info.dispatched) {
+      return judge({ ...waiting.info, backgroundWork: false }, false);
+    }
+    return judge(info, false);
+  };
+  /**
+   * The person stopped the background work the goal was waiting for (the Stop
+   * of a chat whose turn is closed): no turn ends for it, so without this the
+   * check-in would judge the waiting turn and nudge the work back to life.
+   */
+  const stopWaiting = (sessionKey: string): void => {
+    if (dropWaiting(sessionKey)) log(`goal-loop: ${sessionKey}: its background work was stopped, the goal stops waiting for it`);
+    checkInCount.delete(sessionKey);
+  };
+  return Object.assign(onTurnEnd, { stopWaiting });
+
+  async function judge(info: TurnEndInfo, backgroundStillRunning: boolean, stillFree?: () => boolean): Promise<string> {
     let goal;
     try {
       goal = getActiveGoal(deps.db, info.topicId);
@@ -215,6 +423,11 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
       usedTools: info.usedTools,
     });
     if (action.kind === "undecided") return "undecided";
+    // Nothing is spent on a session somebody else took while the judge thought.
+    if (stillFree && !stillFree()) {
+      log(`goal-loop: ${info.sessionKey}: a turn started while the judge thought, it decides instead`);
+      return "busy";
+    }
 
     // THE COUNTERS GO DOWN BEFORE THE TURN IS BOUGHT. If the resend below dies
     // halfway, or the server dies with it, the attempt is still spent: the
@@ -263,14 +476,14 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
     try {
       await deps.resend({
         sessionKey: info.sessionKey,
-        text: goalNudgeText(active.content),
+        text: goalNudgeText(active.content, { backgroundStillRunning }),
         attempt: action.attempt,
       });
     } catch (err) {
       log(`goal-loop: the continuation did not go through (${err instanceof Error ? err.message : String(err)})`);
     }
     return "continued";
-  };
+  }
 }
 
 /**
@@ -281,13 +494,16 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
  * a mechanism whose pieces are scattered across it is one nobody re-reads. The
  * route keeps the ONE thing only it can give, which is itself: `useRoute` takes
  * the handler on the first request served, because a named function expression
- * is only in scope inside its own body.
+ * is only in scope inside its own body. Built by `routes/topics.ts`, not by
+ * the chat route: the Stop of a chat's background work and the boot need its handle.
  */
 export function goalContinuationForChatRoute(deps: {
   ctx: {
     db: Database;
     getTopicById: (id: string) => Topic | null;
+    getTopicBySessionKey: (sessionKey: string) => Topic | null;
     broadcastToAll: (msg: OutboundMessage) => void;
+    activeStreams: { has: (sessionKey: string) => boolean };
   };
   resolveProvider: (topic?: Topic | null) => {
     name: string;
@@ -331,6 +547,9 @@ export function goalContinuationForChatRoute(deps: {
         }),
         url, "/api/chat", "POST",
       );
+      // Refused (a 409: a wake took the session while the judge thought) is not
+      // sent: say so, instead of logging a continuation nobody received.
+      if (resp && !resp.ok) throw new Error(`the chat route answered ${resp.status}`);
       // The stream is drained to the end: the route finalizes the row when the
       // turn is over, not when it starts, and that finalization ends in this
       // same hook and decides whether to continue once more. Reading it is what
@@ -345,11 +564,59 @@ export function goalContinuationForChatRoute(deps: {
     },
     broadcast: ctx.broadcastToAll,
     log: deps.log,
+    isBusy: (sk) => ctx.activeStreams.has(sk), // the entry, not `isStreaming`: that one drops a turn silent for 3 min
+    backgroundWork: sessionHasBackgroundWork,
+    wakeQueued: (sk) => sessionBackgroundState(sk) === "wake-queued",
   });
 
   return {
     /** The route hands itself over on the first request it serves. */
     useRoute(handler: ChatRouteLike) { route ??= handler; },
     onTurnEnd,
+    stopWaiting: onTurnEnd.stopWaiting,
+    /**
+     * THE GOALS THAT WAITED, BACK AFTER A RESTART. The waiting turns and their
+     * check-ins lived in the old process. A session the boot kept for its
+     * background work (`keepScanAsProcess`) waits again, its check-in counted
+     * from now, as if its last turn had just ended: otherwise a job that never
+     * reports leaves its goal unpursued for good. A job that reports ends a
+     * turn of its own, which is judged as usual.
+     */
+    async resumeAfterBoot(sessionKeys: string[]): Promise<void> {
+      for (const sessionKey of sessionKeys) {
+        const topic = ctx.getTopicBySessionKey(sessionKey);
+        if (!topic || topic.archived) continue;
+        try {
+          // The model's last words, past the service lines after them: a notice's
+          // content is empty, and the judge read «(the assistant said nothing)».
+          let last: BackRow | undefined;
+          for (const r of rowsBack(ctx.db, sessionKey)) {
+            if (r.role === "assistant" && !hasMachineMark(r.decoded)) { last = r; break; }
+          }
+          // A board card's turns are the dispatcher's, as they are at any turn end.
+          const dispatched = !!ctx.db.query(`SELECT 1 FROM tasks WHERE status = 'in_progress' AND assigned_topic_id = ?`).get(topic.id);
+          await onTurnEnd({
+            sessionKey, topicId: topic.id, dispatched, end: "end_turn", discarded: false, pendingAsk: false,
+            usedTools: true, backgroundWork: true, lastAssistantText: last?.content ?? "",
+          });
+        } catch (err) {
+          deps.log?.(`goal-loop: ${sessionKey}: cannot resume the waiting goal (${err instanceof Error ? err.message : String(err)})`);
+        }
+      }
+    },
   };
+}
+
+/** The chat route's goal loop, as the Stop and the boot hold it. */
+export type ChatGoalLoop = ReturnType<typeof goalContinuationForChatRoute>;
+
+/**
+ * What the goal reads of the session's background work when a turn ends, asked
+ * of the provider that ran it right after its `result` (the CLI prints its
+ * snapshot before it). Used by the chat route.
+ */
+export function backgroundOfTurn(provider: unknown, sessionKey: string): { backgroundWork: boolean; backgroundWakeOnly: boolean } {
+  const p = provider as { backgroundState?: (sk: string) => string; hasBackgroundWork?: (sk: string) => boolean };
+  const state = p.backgroundState?.(sessionKey) ?? (p.hasBackgroundWork?.(sessionKey) ? "running" : "none");
+  return { backgroundWork: state !== "none", backgroundWakeOnly: state === "wake-queued" };
 }

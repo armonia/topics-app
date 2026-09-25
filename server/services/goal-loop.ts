@@ -36,6 +36,13 @@
  *   · never when the turn is parked on a question to the human
  *     (`ask_user_question`, a plan waiting for approval): continuing there
  *     answers a question the human never saw;
+ *   · never while the session's background work is running (an Agent with
+ *     `run_in_background`, a Bash, a Monitor): the CLI wakes itself when that
+ *     work reports, and the turn it wakes is judged like any other. Nudging
+ *     before then bought a paid turn every ~25 s, each answering "still
+ *     running" (chat 7e9caa28, 24/09: five in 104 s). Claude Code defers its own
+ *     check-in the same way, and checks in after thirty minutes as it does
+ *     (`goal-continuation.ts`);
  *   · a ceiling of MAX_GOAL_CONTINUATIONS in a row per goal;
  *   · a stop after IDLE_TURNS_LIMIT turns in a row that ran no tool - a model
  *     answering "I'll continue" without touching anything is not advancing, it
@@ -102,6 +109,14 @@ export interface FinishedTurn {
   discarded: boolean;
   /** The turn is parked on a question to the human. */
   pendingAsk: boolean;
+  /** The session still has background work running, which will wake it when it reports. */
+  backgroundWork?: boolean;
+  /** Only a wake is pending: a task just reported and the CLI is about to answer it. */
+  backgroundWakeOnly?: boolean;
+  /** The turn answered a message the person typed (not a nudge, a wake, a resume or a card). */
+  fromHuman?: boolean;
+  /** The CLI woke itself: its background work gave news (a report, a Monitor event). */
+  woken?: boolean;
   /** At least one tool ran. This is what "progress" means here. */
   usedTools: boolean;
   /** The assistant's last words, for the judge. */
@@ -123,6 +138,7 @@ export function turnCanContinueGoal(turn: FinishedTurn, goal: TopicGoal | null):
   if (turn.end !== "end_turn" && !endedOnOurToolBudget(turn)) return false;
   if (turn.discarded) return false;
   if (turn.pendingAsk) return false;
+  if (turn.backgroundWork) return false;
   return true;
 }
 
@@ -196,7 +212,10 @@ export function goalLoopStep(input: {
 
   const idleTurns = usedTools ? 0 : counters.idleTurns + 1;
   if (idleTurns >= IDLE_TURNS_LIMIT) {
-    return { action: { kind: "stalled" }, loop: { ...counters, idleTurns, state: "stopped" } };
+    // A pause, not a stop: the person's next message lifts it, as it lifts
+    // Claude Code's paused check-ins (`goal-continuation.ts`). Stopped, the loop
+    // stayed off for good after one false alarm (second review of 25/09).
+    return { action: { kind: "stalled" }, loop: { ...counters, idleTurns, state: "blocked" } };
   }
 
   const attempt = counters.continuations + 1;
@@ -293,9 +312,13 @@ export function parseGoalVerdict(raw: string): GoalVerdict | null {
  * of the loop (finishing), and a model that cannot finish keeps going until a
  * ceiling stops it.
  */
-export const goalNudgeText = (goal: string) =>
+export const goalNudgeText = (goal: string, opts: { backgroundStillRunning?: boolean } = {}) =>
   [
     `Objective still open: ${goal}`,
+    // A check-in while background work runs: say so, or the model launches it again.
+    ...(opts.backgroundStillRunning
+      ? ["Background work you launched is still running: check on it before starting anything new."]
+      : []),
     "Continue. When it is reached AND verified, call close_goal(achieved) with the evidence.",
     "If you need a decision from the user, ask it and stop.",
   ].join(" ");
@@ -306,7 +329,7 @@ export function goalStopNotice(action: GoalLoopAction, goal: string): string | n
     case "capped":
       return `Auto-continuation stopped: ${MAX_GOAL_CONTINUATIONS} continuations in a row on "${goal}". The objective is still here: write to it to carry on.`;
     case "stalled":
-      return `Auto-continuation stopped: ${IDLE_TURNS_LIMIT} turns in a row with no tool run, so nothing is moving. The objective is still here: write to it to carry on.`;
+      return `Auto-continuation paused: ${IDLE_TURNS_LIMIT} turns in a row with no tool run, so nothing is moving. It resumes at the next message.`;
     default:
       return null;
   }

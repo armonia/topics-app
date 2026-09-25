@@ -17,6 +17,7 @@
  */
 import type { AutonomyLevel, ChatMessage } from '../../types';
 import { findPendingAsk } from '../../state/pendingAsk';
+import { lastConversationMessage } from './machineRow';
 import { isPlanApprovalSchema, planDecisionFrom } from '../../../../shared/plan-decision';
 
 /**
@@ -92,8 +93,8 @@ export function findPendingPlan(opts: {
   if (opts.autonomy !== 'ask') return null;
   const msgs = opts.messages;
   if (!msgs?.length) return null;
-  const last = msgs[msgs.length - 1];
-  if (last.role !== 'assistant') return null;
+  const last = lastConversationMessage(msgs); // past a background notice: it asks nothing
+  if (last?.role !== 'assistant') return null;
   // Su questo turno una decisione è già stata presa: riproporla sarebbe
   // chiedere due volte la stessa cosa.
   const tools = last.blocks?.length

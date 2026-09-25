@@ -162,6 +162,23 @@ describe("read_chat_messages after the same restart", () => {
     expect(noteOf("Sotto-agente Lane A, esito: fatto.")).toBeUndefined();
   });
 
+  test("a background notice before the restart notice carries no turn, so nothing is called cut (third review of 25/09)", async () => {
+    const sessionKey = "topic:boot-read-notice";
+    ctx.appendLocalMessage(sessionKey, "user", "continua il task");
+    ctx.appendLocalMessage(sessionKey, "assistant", "", undefined, [{ kind: "background-notice", event: "closed", tasks: ["sleep 600"], why: "stuck-turn", text: "Background work closed" }]);
+    ctx.appendLocalMessage(sessionKey, "assistant", RESTART_INTERRUPTED_MARKER);
+    const router = createTopicsRouter(ctx);
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const u = new URL(String(input));
+      return (await router(new Request(u), u, u.pathname, "GET"))!;
+    }) as typeof fetch;
+    ctx.saveSingleTopic({ id: "boot-read-notice", name: "n", slug: "n", parentId: null, links: [], sessionKey, color: "#000", icon: "x",
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), archived: false } as never);
+    const out = JSON.parse(await callReadChatMessages({ baseUrl: "http://x", sessionKey: "topic:caller" }, { topic_id: "boot-read-notice" }, fetchImpl)) as { messages: Array<{ note?: string }> };
+    expect(out.messages.length).toBe(3);
+    expect(out.messages.filter((m) => m.note?.startsWith("cut by a server restart"))).toEqual([]);
+  });
+
   test("the cut row says it was cut, a verdict row says how it ended, a finished answer says nothing", async () => {
     const tid = "boot-read";
     const rowId = turnCutMidway(tid, false);

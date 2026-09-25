@@ -748,3 +748,8 @@ export async function sessionHasPendingSend(sessionKey: string): Promise<boolean
   }
   return false;
 }
+
+/** The registered providers, for the probes that ask each of them (`background-probes.ts`). */
+export function registeredProviders(): Iterable<AIProvider> {
+  return _providers.values();
+}

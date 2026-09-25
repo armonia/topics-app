@@ -1086,6 +1086,8 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       // what happened inside the turn, and the one that draws them is
       // `MessageBubble` (one compact system line instead of a bubble).
       if (b.kind === 'goal-nudge' || b.kind === 'goal-stop') continue;
+      // Nor the line about the background work: `MessageBubble` draws it.
+      if (b.kind === 'background-notice') continue;
       // Nor the dispatcher's envelope mark: like those two it says WHY this row
       // exists, and `MessageBubble` draws it as a collapsed service line.
       if (b.kind === 'dispatched-envelope') continue;

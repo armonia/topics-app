@@ -40,9 +40,15 @@
  * delegation's deadline it would turn a card that produced nothing into a
  * delivery (`recoverAgentWords`). The block is what keeps the row: a non-text
  * block is work for `isEmptyAssistantTurn`, so no later pass discards it.
+ *
+ * -- With the background work the stop closed ---------------------------------
+ * A stop that also closes the chat's background work (lib/background-notice.ts)
+ * is one event, so it is one row: the `background-notice` block rides in this
+ * row after the `machine-stop` one, and no second row follows it.
  */
 import type { AppContext, ContentBlock } from "../types";
 import { machineStopToolError, type MachineStopCause } from "./abort-cause";
+import { takeClosedNotices } from "./background-notice";
 
 /** The block, with the sentence a client older than it prints as prose. */
 export function machineStopBlock(cause: MachineStopCause): Extract<ContentBlock, { kind: "machine-stop" }> {
@@ -88,13 +94,13 @@ export function leaveMachineStopNotice(
   if (!isMachineEnvelope(deps.getMessageById(turn.answeredMessageId))) return;
   const thread = deps.loadLocalMessages(turn.sessionKey, { withBlocks: false, withToolCalls: false });
   if (!needsMachineStopNotice(thread, turn.answeredMessageId)) return;
-  const block = machineStopBlock(turn.cause);
-  const notice = deps.appendLocalMessage(turn.sessionKey, "assistant", "", undefined, [block]);
+  const blocks: ContentBlock[] = [machineStopBlock(turn.cause), ...takeClosedNotices(turn.sessionKey)];
+  const notice = deps.appendLocalMessage(turn.sessionKey, "assistant", "", undefined, blocks);
   // The row's `content` is empty on purpose, but the live handler drops a
   // `message:new` without text: the frame carries the sentence the client
-  // falls back to, and the block is what it draws.
+  // falls back to, and the blocks are what it draws.
   deps.broadcastToAll({
     type: "message:new", topicId: turn.topicId, sessionKey: turn.sessionKey, role: "assistant",
-    messageId: notice.id, content: block.text, preview: "", blocks: [block],
+    messageId: notice.id, content: blocks.map((b) => ("text" in b ? b.text : "")).join(" "), preview: "", blocks,
   });
 }

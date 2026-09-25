@@ -1003,6 +1003,23 @@ export type ContentBlock =
    */
   | { kind: 'machine-stop'; cause: MachineStopCause; text: string }
   /**
+   * What the background work of a closed turn changed in this chat, said where
+   * the person reads it (server/lib/background-notice.ts): a change of
+   * autonomy, model or effort waiting for the work to end, because applying it
+   * respawns the CLI and the respawn kills the work; or the work closed by a
+   * clock, `tasks` naming what was closed: after two hours without news of it
+   * (`silent`, the default), with a wedged turn a watchdog ended, at a
+   * delegation's deadline, or with a superseded card's turn. The row's
+   * `content` is empty: it is a service line (server/lib/background-notice.ts).
+   *
+   * `text` is the English sentence, for clients older than this block: their
+   * renderer takes a block it does not know for prose, and one without `text`
+   * breaks the whole pane (the same lesson as `machine-stop`). Current clients
+   * draw the translated line from the other fields.
+   */
+  | { kind: 'background-notice'; event: 'deferred'; change: 'autonomy' | 'model' | 'effort'; text: string }
+  | { kind: 'background-notice'; event: 'closed'; tasks: string[]; why?: 'silent' | 'stuck-turn' | 'deadline' | 'superseded'; text: string }
+  /**
    * THIS ROW IS AN ENVELOPE THE DISPATCHER WROTE, not something a person typed.
    *
    * A board turn starts by POSTing a generated text to the chat as a `user`

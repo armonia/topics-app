@@ -83,6 +83,8 @@ import { useTaskBrowserGroupLayout, type TaskBrowserGroupLayout, type RenderSurf
 import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
 import { machineStopOf } from '../Chat/machineRow';
 import { MachineStopLine } from '../Chat/MachineStopLine';
+import { backgroundNoticeOf } from '../Chat/machineRow';
+import { BackgroundNoticeLine } from '../Chat/BackgroundNoticeLine';
 
 /** Feature flag (per-client kill-switch): the task's browser lives as a
  *  task-owned tiling group driven by the app's real GroupLayout engine (split /
@@ -3433,7 +3435,9 @@ const SessionRun = memo(function SessionRun({ items, sessionKey }: {
   return <div className={`text-body-lg leading-5 text-app-text ${COMPACT_MD_CLS}`} data-testid="task-session-item" data-message-id={items[0].msg.id}>
     {groups.map(({ folded, parts, summary, key }) => {
       const content = parts.map(({ message, originalId }) => machineStopOf(message.blocks)
-        ? <MachineStopLine key={message.id} cause={machineStopOf(message.blocks)!} />
+        ? <MachineStopLine key={message.id} cause={machineStopOf(message.blocks)!} closed={backgroundNoticeOf(message.blocks)} />
+        : backgroundNoticeOf(message.blocks)
+        ? <BackgroundNoticeLine key={message.id} notice={backgroundNoticeOf(message.blocks)!} />
         : <MessageContent
         key={message.id}
         content={message.content ?? ''} role={message.role}

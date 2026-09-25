@@ -80,6 +80,7 @@ const CHAT_IT: Dict = {
 
   // The one button on the right of the composer, in its four states.
   'chat.send.stopStreaming': 'Ferma la risposta',
+  'chat.send.stopBackground': 'Ferma il lavoro in background',
   'chat.send.queueTitle': 'Metti in coda (Invio)',
   'chat.send.sendTitle': 'Invia (Invio)',
   'chat.send.queue': 'Metti il messaggio in coda',

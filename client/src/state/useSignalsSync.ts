@@ -116,7 +116,11 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
         const ids = new Set<string>();
         const sessionKeys = new Set<string>();
         const waiting = new Set<string>();
+        const background = new Set<string>();
         for (const s of body.sessions ?? []) {
+          // Work a closed turn left running is not a turn: it stays out of the
+          // streaming sets (and of the self-heal), it only gives the composer a Stop.
+          if (s.state === 'background') { if (s.sessionKey) background.add(s.sessionKey); continue; }
           // `waiting` è un turno APERTO, non uno finito: va tenuto qui dentro o
           // il self-heal qui sotto spegnerebbe la chat ferma su una domanda.
           // Cambia solo come la si racconta, non se è viva.
@@ -126,6 +130,7 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
           if (s.state === 'waiting' && s.topicId) waiting.add(s.topicId);
         }
         signalsActions.setHydratedStreamTopics(ids);
+        signalsActions.setBackgroundWorkSessions(background);
         setAskWaiting(waiting);
         // Self-heal: this server snapshot is authoritative, so any chat we still
         // show as streaming but the server doesn't is an orphaned flag (lost

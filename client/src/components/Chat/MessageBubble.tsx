@@ -1,6 +1,8 @@
 import { memo, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useT } from '../../hooks/useT';
 import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Target, Trash2 } from 'lucide-react';
+import { backgroundNoticeOf } from './machineRow';
+import { BackgroundNoticeLine } from './BackgroundNoticeLine';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
 import { MessageMetaFooter } from './MessageMetaFooter';
@@ -287,7 +289,12 @@ export const MessageBubble = memo(function MessageBubble({
   // for a turn that redoes work already on main. One neutral line, no retry.
   // See server/lib/machine-stop-notice.ts.
   const machineStop = machineStopOf(msg.blocks);
-  if (machineStop) return <MachineStopLine cause={machineStop} />;
+  if (machineStop) return <MachineStopLine cause={machineStop} closed={backgroundNoticeOf(msg.blocks)} />;
+
+  // What the chat's background work changed: a config change waiting for it,
+  // or the work a clock closed. A service line (server/lib/background-notice.ts).
+  const backgroundNotice = backgroundNoticeOf(msg.blocks);
+  if (backgroundNotice) return <BackgroundNoticeLine notice={backgroundNotice} />;
 
   // THE BOARD'S ENVELOPE TALKS, IT DOES NOT IMPERSONATE. The row itself lives
   // in `DispatchEnvelopeRow`, shared with the card's conversation: two surfaces

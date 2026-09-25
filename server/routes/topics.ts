@@ -7,6 +7,7 @@ import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic, ToolCall } from "../types";
 import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
+import { backgroundStatusRows, stopBackgroundOnly, type StreamingStatusRow } from "../providers/background-probes";
 import { createTopicProviderResolver } from "../providers/topic-provider-resolver";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { routesThroughGateway } from "./commandRouting";
@@ -14,6 +15,8 @@ import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter, createToolDetailRouter } from "./history";
 import { blocksForDisk, leanMessagesForWire, toolCallsColumnForRow } from "../../shared/lean-tool-call";
 import { MACHINE_ROW_SQL } from "../../shared/prompt-number";
+import { owedChangesOf, refreshAndSay } from "../lib/background-notice";
+import { goalContinuationForChatRoute, type ChatGoalLoop } from "../services/goal-continuation";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
@@ -466,7 +469,7 @@ export function createTopicsRouter(
   browserService?: BrowserService,
   paneAttachedTo: (contextId: string) => boolean = () => false,
   /** What the chat route needs from the outside and this closure does not own. */
-  extra: { hooks?: LifecycleHookRunner } = {},
+  extra: { hooks?: LifecycleHookRunner; exposeGoalLoop?: (loop: ChatGoalLoop) => void } = {},
 ): RouteHandler {
   const {
     GATEWAY_URL, GATEWAY_TOKEN, OPENCLAW_DIR,
@@ -879,12 +882,15 @@ export function createTopicsRouter(
   // The two doors that leave the machine (mail and Google): same treatment as
   // the human channel, because the confirmation they impose IS that channel.
   const outboundRouter = createOutboundRouter(ctx);
+  const goalLoop = goalContinuationForChatRoute({ ctx, resolveProvider, log: (m) => console.log(`[goal] ${m}`) });
+  extra.exposeGoalLoop?.(goalLoop);
   const chatRouter = createChatRouter(ctx, {
     resolveProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR,
-    hooks: extra.hooks,
+    hooks: extra.hooks, goalLoop,
   }, browserService);
+  goalLoop.useRoute(async (...a) => chatRouter(...a)); // now: a boot check-in may come before any request
   // Il ponte MCP del browser (le sei rotte `…/browser/*` in due forme
   // d'indirizzo) sta in `browser-bridge.ts` con i tre helper di risoluzione del
   // contesto che usava SOLO lui. `browserNavigatedTopics` è la stessa istanza
@@ -1116,12 +1122,7 @@ export function createTopicsRouter(
       // agente che in realtà sta aspettando noi da mezz'ora. `awaitingSince` è
       // l'istante in cui ha smesso di lavorare, così chi disegna può dire da
       // quanto senza tenere un proprio cronometro.
-      const sessions: {
-        topicId: string;
-        sessionKey: string;
-        state: "streaming" | "waiting";
-        awaitingSince?: number;
-      }[] = [];
+      const sessions: StreamingStatusRow[] = [];
       for (const sessionKey of activeStreams.keys()) {
         // `isStreaming` is the staleness gate; it never deletes from the Map,
         // the sweeper in server.ts owns that.
@@ -1159,6 +1160,7 @@ export function createTopicsRouter(
           ...(awaitingSince != null ? { awaitingSince } : {}),
         });
       }
+      sessions.push(...backgroundStatusRows(sessions, getTopicBySessionKey));
       return json({ sessions });
     }
 
@@ -1614,6 +1616,7 @@ export function createTopicsRouter(
         // Provider/model are spawn-time flags for the claude-code CLI (same
         // as effort below): track changes so we can force an idle respawn.
         let spawnConfigChanged = false;
+        const configBefore = { autonomy: topic.autonomyLevel, model: topic.model }; // see `owedChangesOf`
         if (body.autonomyLevel !== undefined) {
           const valid: Topic['autonomyLevel'][] = ['ask', 'auto-apply', 'yolo'];
           // Un livello sconosciuto è un ERRORE del chiamante, non un `ask`.
@@ -1713,8 +1716,8 @@ export function createTopicsRouter(
         // applies on the next natural respawn) and must not block the PATCH
         // response.
         if (effortChanged || spawnConfigChanged) {
-          try { resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
-          catch (err) { console.warn(`[topics] refreshSessionConfig failed for ${topic.sessionKey}:`, err); }
+          // A change the chat's background work makes wait is said in the chat.
+          refreshAndSay(ctx, () => resolveProvider(topic), topic, owedChangesOf(configBefore, topic, effortChanged));
           // Il ring cambia DENOMINATORE, non numeratore: cambiare modello cambia
           // la finestra, e l'ultima misura va riletta contro quella nuova. Senza
           // questo il ring resta fermo sul vecchio rapporto fino al turno dopo —
@@ -2446,6 +2449,8 @@ export function createTopicsRouter(
       };
 
       if (!stream) {
+        const background = await stopBackgroundOnly(sessionKey, stopCauseOf(req, body?.cause), () => goalLoop.stopWaiting(sessionKey));
+        if (background) return json(background); // only background work was left: the Stop was for it
         // Niente da fermare: turno già finito, oppure una finestra che stava
         // solo guardando quello di un'altra. Nessun effetto — né sul provider
         // (un `abort` alla cieca taglierebbe un turno headless che questo
@@ -2933,11 +2938,8 @@ export function createTopicsRouter(
             topic.updatedAt = new Date().toISOString();
             saveSingleTopic(topic);
             broadcastToAll({ type: "topic:updated", topic });
-            if ((topic.model ?? null) !== prevModel) {
-              try { resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
-              catch (err) { console.warn(`[command] refreshSessionConfig (model) failed:`, err); }
-            }
-            return json({ ok: true, command: "model", model: topic.model, message: `Modello impostato: ${topic.model}. Attivo dal prossimo turno.` });
+            const pending = (topic.model ?? null) !== prevModel ? refreshAndSay(ctx, () => resolveProvider(topic), topic, { model: true }) : {};
+            return json({ ok: true, command: "model", model: topic.model, ...pending, message: `Modello impostato: ${topic.model}. Attivo dal prossimo turno.` });
           }
           case "effort": {
             // Per-topic reasoning-effort tier for claude-code (spawn-time
@@ -2957,11 +2959,8 @@ export function createTopicsRouter(
             topic.updatedAt = new Date().toISOString();
             saveSingleTopic(topic);
             broadcastToAll({ type: "topic:updated", topic });
-            if ((topic.effort ?? null) !== prevEffort) {
-              try { resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
-              catch (err) { console.warn(`[command] refreshSessionConfig (effort) failed:`, err); }
-            }
-            return json({ ok: true, command: "effort", level: tier, message: `Effort impostato: ${tier}. Attivo dal prossimo turno.` });
+            const pending = (topic.effort ?? null) !== prevEffort ? refreshAndSay(ctx, () => resolveProvider(topic), topic, { effort: true }) : {};
+            return json({ ok: true, command: "effort", level: tier, ...pending, message: `Effort impostato: ${tier}. Attivo dal prossimo turno.` });
           }
           case "reasoning": {
             const level = args?.level || "on";

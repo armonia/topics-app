@@ -39,6 +39,10 @@ export interface AttachResult {
   exitCode: number | null;
   /** True when the daemon had no session for this id (nothing to re-attach). */
   missing?: boolean;
+  /** When the child last wrote to its store (epoch ms); absent from a daemon older than the field. */
+  lastDataAt?: number;
+  /** The daemon's frame protocol (`PROTOCOL` in ai-bridge.mjs); 1 for a daemon that predates the field. */
+  protocol: number;
 }
 export interface SessionInfo {
   id: string;
@@ -583,7 +587,11 @@ export class AiBridgeClient {
       ATTACH_ACK_TIMEOUT_MS,
       `attach ${id}`,
     );
-    return { endOffset: m.endOffset, alive: m.alive, exitCode: m.exitCode ?? null, missing: m.missing === true };
+    return {
+      endOffset: m.endOffset, alive: m.alive, exitCode: m.exitCode ?? null, missing: m.missing === true,
+      ...(typeof m.lastDataAt === "number" ? { lastDataAt: m.lastDataAt } : {}),
+      protocol: typeof m.protocol === "number" ? m.protocol : 1,
+    };
   }
 
   /**

@@ -15,6 +15,8 @@
  */
 import { describe, test, expect } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";
+import { BACKGROUND_WORK_CAP_MS, newBackgroundWork, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
+import { recordedBackgroundSession } from "./claude/background-work.fixture";
 
 function fakePP(over: Record<string, unknown> = {}) {
   return {
@@ -152,5 +154,136 @@ describe("ClaudeCodeProvider — inactivity reaper never fires during a turn", (
     // the re-arm. A dead child must not carry a live reaper handle.
     expect(pp.inactivityTimer).toBeNull();
     expect((provider as any).processes.get(sessionKey)).toBeUndefined();
+  });
+
+  /**
+   * Card C9: a turn that ends with an Agent, a Bash or a Monitor still running
+   * leaves a child with no handler, which every clock used to read as idle.
+   * Killing it kills the work (exit 137). Background state folded from the
+   * recorded CLI session (`claude/background-work.fixture.ts`).
+   */
+  describe("(f) a child whose closed turn left background work is not idle", () => {
+    const events = recordedBackgroundSession();
+    const firstResult = events.findIndex((e) => e.type === "result");
+    const fold = (from: number, to: number, work: BackgroundWork = newBackgroundWork()) => {
+      for (let i = from; i < to; i++) noteBackgroundLine(work, events[i], Date.now(), { unattended: i > firstResult });
+      return work;
+    };
+
+    test("the reaper re-arms while the work runs, and reaps once it is over", async () => {
+      const sessionKey = "sess-inact-f1";
+      let killed = 0;
+      const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
+      const provider = setup(pp, sessionKey);
+      pp.background = fold(0, firstResult + 1);
+
+      (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(killed).toBe(0);
+      expect((provider as any).processes.get(sessionKey)).toBe(pp);
+      expect(provider.hasBackgroundWork(sessionKey)).toBe(true);
+
+      // The last task reported: the recorded session ends on an empty snapshot.
+      pp.background = fold(firstResult + 1, events.length, pp.background);
+      expect(provider.hasBackgroundWork(sessionKey)).toBe(false);
+      (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(killed).toBe(1);
+    });
+
+    test("a background Bash silent for 45 minutes is a long job, not a lost one, for every clock; two hours without news is", async () => {
+      // A background Bash prints nothing until it ends (the recorded `sleep 40`
+      // is silent for its whole run): a suite on the PC looks exactly like this.
+      const sessionKey = "sess-inact-f5";
+      let killed = 0;
+      const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
+      const provider = setup(pp, sessionKey);
+      pp.background = fold(0, firstResult + 1);
+      pp.background.lastSignalAt = Date.now() - 45 * 60_000;
+      (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(killed).toBe(0);
+      // One bound: the goal loop and the stall judge read the same answer.
+      expect(provider.hasBackgroundWork(sessionKey)).toBe(true);
+
+      pp.background.lastSignalAt = Date.now() - BACKGROUND_WORK_CAP_MS;
+      (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(killed).toBe(1);
+    });
+
+    test("a config change waits for the work instead of killing it", () => {
+      const sessionKey = "sess-inact-f2";
+      let killed = 0;
+      const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
+      const provider = setup(pp, sessionKey);
+      pp.background = fold(0, firstResult + 1);
+      provider.refreshSessionConfig(sessionKey);
+      expect(killed).toBe(0);
+      pp.background = fold(firstResult + 1, events.length, pp.background);
+      provider.refreshSessionConfig(sessionKey);
+      expect(killed).toBe(1);
+    });
+
+    test("the config change it was too busy to take is applied at the next send that finds it idle", () => {
+      // A model, effort or autonomy change while a background job runs: skipping
+      // the kill must not mean skipping the change. It is owed, and the next send
+      // that finds the child idle with the job over respawns it.
+      const sessionKey = "sess-inact-f6";
+      let killed = 0;
+      const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
+      const provider = new ClaudeCodeProvider({ type: "claude-code" });
+      const p = provider as any;
+      const fresh = fakePP();
+      p.spawnPersistentProcess = () => fresh;
+      p.processes.set(sessionKey, pp);
+      pp.background = fold(0, firstResult + 1);
+      provider.refreshSessionConfig(sessionKey);
+      expect(killed).toBe(0);
+      // Still working: the next send keeps the child and its work.
+      expect(p.getOrCreateProcess(sessionKey)).toBe(pp);
+      pp.background = fold(firstResult + 1, events.length, pp.background);
+      // Idle now: the owed respawn happens here.
+      expect(p.getOrCreateProcess(sessionKey)).toBe(fresh);
+      expect(killed).toBe(1);
+    });
+
+    test("a config change deferred by background work says so, so the route can tell the chat", () => {
+      const sessionKey = "sess-inact-f7";
+      let killed = 0;
+      const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
+      const provider = setup(pp, sessionKey);
+      pp.background = fold(0, firstResult + 1);
+      expect(provider.refreshSessionConfig(sessionKey)).toBe("deferred-background");
+      expect(killed).toBe(0);
+      pp.background = fold(firstResult + 1, events.length, pp.background);
+      expect(provider.refreshSessionConfig(sessionKey)).toBe("applied");
+      expect(killed).toBe(1);
+    });
+
+    test("the lifetime cap waits for the work too", async () => {
+      const sessionKey = "sess-inact-f3";
+      let killed = 0;
+      const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
+      const provider = setup(pp, sessionKey);
+      pp.background = fold(0, firstResult + 1);
+      (pp as any).lifetimeTimer = (provider as any).armLifetime(pp, sessionKey, { ms: 5, rearmMs: 5, wedgedMs: 5 });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(killed).toBe(0);
+      pp.background = fold(firstResult + 1, events.length, pp.background);
+      await new Promise((r) => setTimeout(r, 30));
+      expect(killed).toBe(1);
+      (pp as any).lifetimeTimer?.clear?.();
+    });
+
+    test("a dead child reports no background work, whatever it said last", () => {
+      const sessionKey = "sess-inact-f4";
+      const pp = fakePP() as ReturnType<typeof fakePP> & { background?: BackgroundWork };
+      const provider = setup(pp, sessionKey);
+      pp.background = fold(0, firstResult + 1);
+      (provider as any).onSessionClosed(pp, 0);
+      expect(provider.hasBackgroundWork(sessionKey)).toBe(false);
+      expect(pp.background).toBeUndefined();
+    });
   });
 });

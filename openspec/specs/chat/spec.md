@@ -1039,6 +1039,13 @@ An armed `Monitor` does not deliver its event inside the turn that armed it: tha
 - **WHEN** the line is classified
 - **THEN** it SHALL NOT be treated as a woken turn, so a server restart never rewrites yesterday's answer into the chat
 
+#### Scenario: A background agent's line opens no turn
+- **GIVEN** a turn that ended with an Agent still running in the background, whose lines keep arriving with `parent_tool_use_id` and no handler registered
+- **WHEN** those lines are classified, live or in the reattach scan of the broker store
+- **THEN** they SHALL NOT open a woken turn, and SHALL NOT make the store tail read as a turn in flight
+- **AND** the CLI's own wake, which starts on a line of the model, SHALL still be adopted, with any agent line that arrives while it is held delivered to it in order
+- **AND** the session's process SHALL NOT be reaped, killed for a config change or recycled by the lifetime cap while that background work is alive (two hours without news of it presume it lost), nor reaped at boot, and SHALL stay attached so its wake is heard; a config change it could not take SHALL be applied at the next send that finds it idle
+
 #### Scenario: The wake fires once per turn, not once per event
 - **GIVEN** a session with no handler
 - **WHEN** three successive assistant content events arrive
@@ -3384,6 +3391,13 @@ tetto che si azzera al riavvio non è un tetto.
 - **WHEN** il turno finisce con una domanda all'utente
 - **THEN** nessun turno nuovo parte
 - **AND** l'obiettivo resta attivo, in attesa
+
+#### Scenario: Lavoro in background ancora vivo
+- **GIVEN** un topic con un obiettivo attivo e un turno che finisce lasciando un Agent, un Bash o un Monitor in background
+- **WHEN** il turno finisce `end_turn`, anche dopo aver usato tool
+- **THEN** il giudice NON viene interrogato e nessun turno nuovo parte
+- **AND** il turno che la CLI apre da sola quando quel lavoro riporta viene giudicato come ogni altro; se quel turno è vuoto e viene scartato, si giudica il turno rimasto in attesa
+- **AND** se nessun turno finisce, il ciclo fa un check-in dopo 30, 60 e 120 minuti, come Claude Code, e poi aspetta il prossimo messaggio
 
 Il tetto dei giri di tool per turno è una fine della MACCHINA, non del modello:
 il turno che lo raggiunge SHALL finire con la causa `tool-budget`, e NON SHALL

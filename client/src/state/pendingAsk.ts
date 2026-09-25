@@ -23,6 +23,7 @@
  */
 import type { ChatMessage, ToolCall, ToolUserResponse, UserInputSchema } from '../types';
 import { isPlanApprovalSchema } from '../../../shared/plan-decision';
+import { lastConversationMessage } from '../components/Chat/machineRow';
 
 export interface PendingAsk {
   toolCallId: string;
@@ -40,9 +41,9 @@ export interface PendingAsk {
  * più. È lo stesso confine che usa la striscia di attività con `isLast`.
  */
 export function findPendingAsk(messages: readonly ChatMessage[] | undefined): PendingAsk | null {
-  if (!messages?.length) return null;
-  const last = messages[messages.length - 1];
-  if (last.role !== 'assistant') return null;
+  // The last word, past a background notice: a service line is not a turn.
+  const last = messages?.length ? lastConversationMessage(messages) : undefined;
+  if (last?.role !== 'assistant') return null;
   const tools: ToolCall[] = last.blocks?.length
     ? last.blocks.flatMap((b) => (b.kind === 'tool' ? [b.toolCall] : []))
     : (last.toolCalls ?? []);

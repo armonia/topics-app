@@ -1712,10 +1712,10 @@ export const RESTART_NOTICE_OPENING = "Turno interrotto da un riavvio del server
 const verdictOf = (row: ListedRow | undefined) => row?.blocks?.find((b) => b?.kind === "error")?.text;
 
 /**
- * The rows a restart cut: for each restart notice, the turn's own row, which is
- * the first answer after the person's message before it, when no completion
- * closed it. The notice hangs from the session's LAST row, and a sub-agent's
- * result or a system line can land after the turn's row while it runs.
+ * The rows a restart cut: for each restart notice, the turn's own row, the first
+ * answer (not a service line) after the person's message before it, when no
+ * completion closed it. The notice hangs from the session's LAST row, and a
+ * sub-agent's result or a system line can land after the turn's row meanwhile.
  */
 function rowsCutByRestart(rows: ListedRow[]): Set<number> {
   const cut = new Set<number>();
@@ -1723,7 +1723,8 @@ function rowsCutByRestart(rows: ListedRow[]): Set<number> {
     if (row.role !== "assistant" || !`${row.content ?? ""} ${verdictOf(row) ?? ""}`.includes(RESTART_NOTICE_OPENING)) return;
     let asked = i - 1;
     while (asked >= 0 && rows[asked].role !== "user") asked--;
-    const turn = asked >= 0 ? asked + 1 : -1;
+    let turn = asked >= 0 ? asked + 1 : -1;
+    while (turn > 0 && turn < i && rows[turn].blocks?.some((b) => b?.kind === "background-notice" || b?.kind === "machine-stop")) turn++;
     if (turn > 0 && turn < i && rows[turn].role === "assistant" && rows[turn].latencyMs == null && !verdictOf(rows[turn])) cut.add(turn);
   });
   return cut;

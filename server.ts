@@ -160,6 +160,7 @@ import { createAccountRouter } from "./server/routes/account";
 import { createPeopleRouter } from "./server/routes/people";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend } from "./server/providers";
+import { sessionsWithBackgroundWork, stallBackgroundHold } from "./server/providers/background-probes";
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import type { AbortReason } from "./server/providers/types";
@@ -247,6 +248,8 @@ import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } fr
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
 import { decodeCol, encodeCol } from "./shared/message-blob";
 import { budgetShare, capMode, governorReading, TURN_ERROR_PREFIX } from "./shared/board";
+import { noticeOwedChanges, postBackgroundNotice } from "./server/lib/background-notice";
+import type { ChatGoalLoop } from "./server/services/goal-continuation";
 
 // ─── Early signal handlers (registered BEFORE any await in init) ───────────
 // The full gracefulShutdown is only wired at the very bottom of this file,
@@ -798,6 +801,16 @@ const claudeSessionTracker = createClaudeSessionTracker({
 // ends the import cursor jumps past everything it wrote. Armed on the class,
 // like `observeWokenTurns`, because claude-code is not registered yet at boot.
 ClaudeCodeProvider.observeTurnReleased((sk) => { claudeSessionTracker.syncImportOffsetToEnd(sk); });
+// A clock closed a CLI with background work still listed: the chat says what
+// died and why (server/lib/background-notice.ts), not only the log.
+ClaudeCodeProvider.observeBackgroundClosed((sessionKey, tasks, why) => {
+  const topic = ctx.getTopicBySessionKey(sessionKey);
+  if (topic) postBackgroundNotice(ctx, { sessionKey, topicId: topic.id }, { kind: "background-notice", event: "closed", tasks, why });
+});
+ClaudeCodeProvider.observeConfigOwed((sessionKey, changes) => {
+  const topic = ctx.getTopicBySessionKey(sessionKey);
+  if (topic) noticeOwedChanges(ctx, topic, "deferred-background", Object.fromEntries(changes.map((c) => [c, true])));
+});
 
 // La porta unica del parcheggio (lib/session-parking.ts): archiviare un topic
 // deve anche mettere a riposo la sua sessione, o la fase resta viva per sempre
@@ -835,7 +848,8 @@ const paneAttachedTo = (contextId: string): boolean => {
   return false;
 };
 // The user's `turn-end` hook reaches the chat route from here (HOOKS-02).
-const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo, { hooks: defaultLifecycleHooks() });
+let goalLoop: ChatGoalLoop | null = null;
+const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo, { hooks: defaultLifecycleHooks(), exposeGoalLoop: (l) => { goalLoop = l; } });
 const orchestratorSessionsRouter = createOrchestratorSessionsRouter(ctx);
 const filesRouter = createFilesRouter(ctx);
 const voiceRouter = createVoiceRouter(ctx);
@@ -1120,6 +1134,7 @@ async function watchHeadlessBody(
   tag: "" | " (reattach)",
 ): Promise<TurnEndInfo> {
   let stalled = false;
+  let lastRearm: string | null = null;
   const t0 = Date.now();
   const detector = armStallDetector({
     idleMs: opts.idleMs ?? DEFAULT_STALL_IDLE_MS,
@@ -1127,17 +1142,29 @@ async function watchHeadlessBody(
     isWaitingForChecks: () => isChecksHold(sessionKey),
     // A command of this session is STOPped by us: that silence is ours.
     isFrozen: () => isSwapFreezeHold(sessionKey),
+    // Its CLI still reports on an agent, a Bash or a Monitor: that wait is the
+    // model's own. The same bound as every other clock that kills the child:
+    // the judge's recycle is a SIGINT, and it takes the work with it.
+    isWaitingForBackground: stallBackgroundHold(sessionKey),
     getTail: () => stallTranscriptTail(sessionKey),
     judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
-    onRearm: (reason) => console.log(
-      reason === "human"
-        ? `[turn] stall watch rearmed on ${sessionKey}: a person is in the loop (question or permission), their time doesn't count`
-        : reason === "freeze"
-          ? `[turn] stall watch rearmed on ${sessionKey}: one of its commands is frozen by the swap brake, that wait is ours`
-        : reason === "checks"
-          ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
-          : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
-    ),
+    // Once per change of reason: a hold lasting an hour rearmed every five
+    // minutes and wrote the same line twelve times.
+    onRearm: (reason) => {
+      if (reason === lastRearm) return;
+      lastRearm = reason;
+      console.log(
+        reason === "human"
+          ? `[turn] stall watch rearmed on ${sessionKey}: a person is in the loop (question or permission), their time doesn't count`
+          : reason === "freeze"
+            ? `[turn] stall watch rearmed on ${sessionKey}: one of its commands is frozen by the swap brake, that wait is ours`
+          : reason === "background"
+            ? `[turn] stall watch rearmed on ${sessionKey}: its background work is still running, the judge is not asked`
+          : reason === "checks"
+            ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
+            : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
+      );
+    },
     onStuck: () => {
       stalled = true;
       console.warn(`[turn] stall detector recycling ${sessionKey}${tag}: judge found it stuck`);
@@ -1164,6 +1191,8 @@ async function watchHeadlessBody(
       // off the end grace: an end deposited meanwhile is a superseded turn's, or not final yet.
       if (isSseCommentOnly(value)) continue;
       detector.noteActivity();
+      // A new stretch of silence logs its first rearm again.
+      lastRearm = null;
     }
   }
   finally {
@@ -5401,6 +5430,16 @@ async function reattachSurvivingChatTurns(): Promise<void> {
       const prov = tryGetProvider("claude-code") as { isTurnProcessAlive?: (sk: string) => boolean } | undefined;
       if (prov?.isTurnProcessAlive?.(s.id)) continue; // adopted by a live turn — hands off
     } catch { /* provider not up yet — reap anyway, a turn can't be running */ }
+    // No turn, but the probe above found the work its last turn left running
+    // and kept the session attached as its process: reaping it would kill that
+    // work, and leave a process in the map for a child that no longer exists.
+    try {
+      const prov = tryGetProvider("claude-code") as { ownsSession?: (sk: string) => boolean } | undefined;
+      if (adoptable && prov?.ownsSession?.(s.id)) {
+        console.log(`[chat-reattach] keeping ${s.id}: no turn in flight, but its background work is still running`);
+        continue;
+      }
+    } catch { /* provider not up yet: nothing was kept */ }
     // Il motivo va scritto con le PROVE che l'hanno deciso: quando questo reap
     // si rivelerà di nuovo sbagliato, il log deve dire da quale delle due fonti
     // è arrivata la bugia, non solo che qualcuno è stato ucciso.
@@ -5408,6 +5447,9 @@ async function reattachSurvivingChatTurns(): Promise<void> {
       ? (topic.archived ? "archived topic" : `no in-flight turn (DB partial=no, broker=${brokerSays})`)
       : "topic gone";
     console.log(`[chat-reattach] reaping idle broker session ${s.id} (${why})`);
+    // Its listed background work, silent past the bound, dies with it: the chat says so.
+    const silent = (tryGetProvider("claude-code") as { takeSilentBackground?: (sk: string) => string[] } | undefined)?.takeSilentBackground?.(s.id) ?? [];
+    if (topic && silent.length) postBackgroundNotice(ctx, { sessionKey: s.id, topicId: topic.id }, { kind: "background-notice", event: "closed", tasks: silent, why: "silent" });
     try { client.kill(s.id); } catch { /* daemon hiccup — next boot retries */ }
   }
 }
@@ -5734,6 +5776,8 @@ reattachSurvivingChatTurns()
   .then(() => reconcileOrphanedTranscripts())
   .then(() => reconcileArchivedTopicSessions())
   .then(() => riprendiTurniInterrotti(resumeCtx, topicsRouter))
+  // The sessions the reattach kept for their background work: their goals wait again.
+  .then(() => goalLoop?.resumeAfterBoot(sessionsWithBackgroundWork()))
   .catch((err) => console.error("[chat-reattach] boot sweep failed", err))
   .finally(() => scheduleResumeSweep());
 

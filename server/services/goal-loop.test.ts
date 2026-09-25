@@ -81,6 +81,16 @@ describe("turnCanContinueGoal", () => {
     expect(turnCanContinueGoal(turn(), goal({ loopState: "blocked" }))).toBe(false);
     expect(turnCanContinueGoal(turn(), goal({ loopState: "stopped" }))).toBe(false);
   });
+
+  it("says no while the session's background work runs, and yes again once it reports", () => {
+    // Card C6, chat 7e9caa28, 24/09: five nudges in 104 s while it waited for
+    // five of its own verifiers, each answer "still running" and each a paid
+    // turn. The turn that used tools to check is exactly the one that used to
+    // pass every other brake.
+    expect(turnCanContinueGoal(turn({ backgroundWork: true, usedTools: true }), goal())).toBe(false);
+    // The CLI wakes itself when the last task reports; that turn is judged.
+    expect(turnCanContinueGoal(turn({ backgroundWork: false }), goal())).toBe(true);
+  });
 });
 
 describe("goalLoopStep", () => {
@@ -111,14 +121,15 @@ describe("goalLoopStep", () => {
     expect(d.loop).toEqual(counters);
   });
 
-  it("stops after two turns in a row that ran no tool", () => {
+  it("pauses after two turns in a row that ran no tool, until the person's next message", () => {
     const first = goalLoopStep({ verdict: "continue", counters, usedTools: false });
     expect(first.action).toEqual({ kind: "continue", attempt: 1 });
     expect(first.loop.idleTurns).toBe(1);
 
     const second = goalLoopStep({ verdict: "continue", counters: first.loop, usedTools: false });
     expect(second.action.kind).toBe("stalled");
-    expect(second.loop.state).toBe("stopped");
+    // A pause (`blocked`), not a stop: the person's next message lifts it.
+    expect(second.loop.state).toBe("blocked");
     expect(IDLE_TURNS_LIMIT).toBe(2);
   });
 

@@ -6,7 +6,7 @@ import { decideComposerAction } from './composerAction';
 import { COMPOSER_CARD, COMPOSER_TEXTAREA } from './composerStyles';
 import { SLASH_COMMANDS } from './slashCommands';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
-import { useServerTurnAsked, useTopicLoading } from '../../state/signals';
+import { useServerTurnAsked, useSessionBackgroundWork, useTopicLoading } from '../../state/signals';
 import { turnLooksUnanswered, interruptedTurnOf, TURN_CAUSE_KEY } from './turnError';
 import { useServerResume } from '../../hooks/useServerResume';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
@@ -41,7 +41,7 @@ import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { shortcut } from '../../lib/shortcutLabel';
 import { topicsRoutingBlocked } from '../../lib/topicsRoutingGate';
 import { IDLE as HISTORY_IDLE, historyEntries, onArrow, type PromptHistoryState } from './promptHistory';
-import { isMachineRow } from './machineRow';
+import { isMachineRow, lastConversationMessage, lastPersonText, messageToSpeak } from './machineRow';
 
 // Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
 // the composer's initial bundle and only fetch it the first time the popover opens.
@@ -385,6 +385,7 @@ export function ChatInput({
    * agente al lavoro. Vedi `turnLooksUnanswered`.
    */
   const serverTurnOpen = useTopicLoading(topic?.id);
+  const backgroundWork = useSessionBackgroundWork(topic?.sessionKey);
   const serverTurnAsked = useServerTurnAsked();
   // Context pills state. Excluded pills derive from the topic's SERVER-side
   // disabledContextSources (id format `file:<path>` — the same channel the
@@ -638,19 +639,13 @@ export function ChatInput({
    */
   const interruptedTurn = useMemo(() => {
     if (currentStreaming) return null;
-    const last = currentMessages[currentMessages.length - 1];
+    const last = lastConversationMessage(currentMessages);
     if (last?.role !== 'assistant') return null;
     return interruptedTurnOf(last);
   }, [currentMessages, currentStreaming]);
 
-  /** What Retry resends: the last user message before the dead turn. */
-  const lastUserText = useMemo(() => {
-    for (let i = currentMessages.length - 1; i >= 0; i--) {
-      const m = currentMessages[i];
-      if (m.role === 'user' && m.content?.trim()) return m.content;
-    }
-    return null;
-  }, [currentMessages]);
+  /** What both Retry buttons resend: the last user message before the dead turn. */
+  const lastUserText = useMemo(() => lastPersonText(currentMessages), [currentMessages]);
 
   // Dettatura. Il testo entra AL CURSORE, non in coda: chi detta a metà di una
   // frase già scritta si aspetta che la voce continui da lì, ed è anche l'unico
@@ -769,8 +764,8 @@ export function ChatInput({
   // message is never spoken twice when this effect re-runs for other reasons.
   useEffect(() => {
     if (!autoTTS) return;
-    const lastMsg = currentMessages[currentMessages.length - 1];
-    if (lastMsg?.role === 'assistant' && !currentStreaming && lastMsg.content && lastMsg.id !== spokenIdRef.current) {
+    const lastMsg = messageToSpeak(currentMessages);
+    if (lastMsg?.content && !currentStreaming && lastMsg.id !== spokenIdRef.current) {
       spokenIdRef.current = lastMsg.id;
       const textToSpeak = lastMsg.content.slice(0, 500);
       speak(textToSpeak);
@@ -1131,7 +1126,7 @@ export function ChatInput({
           `GET /api/topics/streaming` → `hydratedStreamTopics` → `useTopicLoading`.
           La regola sta in `turnLooksUnanswered`, con i suoi test. */}
       {turnLooksUnanswered({
-        lastMessageIsUser: currentMessages[currentMessages.length - 1]?.role === 'user',
+        lastMessageIsUser: lastConversationMessage(currentMessages)?.role === 'user',
         locallyStreaming: currentStreaming,
         serverSaysOpen: serverTurnOpen,
         serverAsked: serverTurnAsked,
@@ -1159,7 +1154,7 @@ export function ChatInput({
             )}
           </div>
           <button
-            onClick={() => { const lastMsg = currentMessages[currentMessages.length - 1]; if (lastMsg?.content) sendMessageDirect(lastMsg.content); }}
+            onClick={() => { if (lastUserText) void sendMessageDirect(lastUserText); }}
             className={`px-3 py-1.5 text-mini rounded-md transition-colors flex items-center gap-1 ${
               stoppedByUser
                 ? 'bg-app-border text-app-text hover:bg-app-border-light'
@@ -1489,7 +1484,9 @@ export function ChatInput({
                     busy: currentStreaming,
                     hasContent,
                     awaitingAnswer,
+                    backgroundWork,
                   });
+                  const stopTitle = !currentStreaming && backgroundWork ? tr('chat.send.stopBackground') : tr('chat.send.stopStreaming');
 
                   if (action.kind === 'stop') {
                     return (
@@ -1497,8 +1494,9 @@ export function ChatInput({
                         type="button"
                         onClick={onStop}
                         className="w-8 h-8 flex items-center justify-center rounded-lg bg-app-text/15 text-app-text hover:bg-app-text/25 transition-all"
-                        title={tr('chat.send.stopStreaming')}
-                        aria-label={tr('chat.send.stopStreaming')}
+                        data-composer-action="stop"
+                        title={stopTitle}
+                        aria-label={stopTitle}
                       >
                         <Square size={12} fill="currentColor" />
                       </button>

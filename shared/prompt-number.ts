@@ -12,7 +12,7 @@ import type { ContentBlock } from "./types";
 
 /** The block kinds that mark a row as written by the machine, not a person or
  *  the model. Twin of `isMachineRow` on the client. */
-export const MACHINE_ROW_KINDS = ["goal-nudge", "goal-stop", "dispatched-envelope", "machine-stop"] as const;
+export const MACHINE_ROW_KINDS = ["goal-nudge", "goal-stop", "dispatched-envelope", "machine-stop", "background-notice"] as const;
 
 /** Does a row carry one of those marks? Blocks as parsed JSON. */
 export function hasMachineMark(blocks: readonly { kind?: unknown }[] | null | undefined): boolean {

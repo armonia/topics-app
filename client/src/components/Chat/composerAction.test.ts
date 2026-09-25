@@ -63,6 +63,16 @@ describe("decideComposerAction", () => {
     });
   });
 
+  describe("work a closed turn left running in the background", () => {
+    test("an empty composer offers Stop for it instead of a dead button", () => {
+      expect(decideComposerAction({ busy: false, hasContent: false, backgroundWork: true })).toEqual({ kind: "stop" });
+    });
+
+    test("typed text still sends: the CLI answers it while the work runs", () => {
+      expect(decideComposerAction({ busy: false, hasContent: true, backgroundWork: true })).toEqual({ kind: "send" });
+    });
+  });
+
   test("decision is pure: same input → same output (no hidden state)", () => {
     const probe = { busy: true, hasContent: false };
     const first = decideComposerAction(probe);
