@@ -464,11 +464,11 @@ describe("la catena dei riavvii ha un tetto", () => {
     });
     db.run("DELETE FROM messages WHERE id = 'restart-notice'");
     expect(lastRow(db).id).toBe("cut");
-    expect(blocksOf(lastRow(db).blocks).some((b) => b.kind === "error")).toBe(false);
 
     const calls: Array<Record<string, unknown>> = [];
     await quietly(() => riprendiTurniInterrotti({ ...ctxOf(db), bootedAtMs: Date.now() }, chatRoute(db, calls)));
-    expect(calls).toHaveLength(0);
+    expect(calls.map((c) => c.ripresa)).toEqual([]);
+    expect(blocksOf(lastRow(db).blocks).some((b) => b.kind === "error")).toBe(false);
   });
 
   test("l'ultima riga è dell'utente ma un turno è in volo, o è fresca: non si tocca", async () => {
