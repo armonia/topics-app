@@ -95,10 +95,10 @@ export interface GoalContinuationDeps {
  * background job that never reports, a dev server, a lost task, left the goal
  * active on the bar and nobody pursuing it.
  */
-export const GOAL_CHECKIN_MS = 30 * 60_000;
-export const GOAL_CHECKINS_MAX = 3;
-export function goalCheckInDelayMs(checkInsSoFar: number): number {
-  return GOAL_CHECKIN_MS * 2 ** Math.min(checkInsSoFar, 2);
+export const GOAL_CHECK_IN_MS = 30 * 60_000;
+export const GOAL_CHECK_IN_LIMIT = 3;
+export function goalCheckInDelayMs(spentCheckIns: number): number {
+  return GOAL_CHECK_IN_MS * 2 ** Math.min(spentCheckIns, 2);
 }
 
 /** What the route hands over once a turn is finalized. */
@@ -188,7 +188,7 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
    */
   const deferred = new Map<string, { info: TurnEndInfo; timer: unknown }>();
   /** Check-ins already spent on the current stretch of background work. */
-  const checkIns = new Map<string, number>();
+  const checkInCount = new Map<string, number>();
   const setTimer = deps.setTimer ?? ((fn: () => void, ms: number) => {
     const t = setTimeout(fn, ms);
     (t as { unref?: () => void }).unref?.();
@@ -205,8 +205,8 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
   }
 
   function defer(info: TurnEndInfo): string {
-    const spent = checkIns.get(info.sessionKey) ?? 0;
-    const timer = spent < GOAL_CHECKINS_MAX
+    const spent = checkInCount.get(info.sessionKey) ?? 0;
+    const timer = spent < GOAL_CHECK_IN_LIMIT
       ? setTimer(() => { void checkIn(info.sessionKey); }, goalCheckInDelayMs(spent))
       : null;
     deferred.set(info.sessionKey, { info, timer });
@@ -220,7 +220,7 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
     if (!info) return;
     deferred.delete(sessionKey);
     if (deps.isBusy?.(sessionKey)) return; // that turn ends by itself, and its end decides
-    checkIns.set(sessionKey, (checkIns.get(sessionKey) ?? 0) + 1);
+    checkInCount.set(sessionKey, (checkInCount.get(sessionKey) ?? 0) + 1);
     log(`goal-loop: ${sessionKey}: checking in on the goal after its background work ran without reporting`);
     await judge({ ...info, backgroundWork: false }, deps.backgroundWork?.(sessionKey) === true)
       .catch((err) => log(`goal-loop: the check-in failed (${err instanceof Error ? err.message : String(err)})`));
@@ -229,7 +229,7 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
   return async function onTurnEnd(info: TurnEndInfo): Promise<string> {
     if (info.end === "end_turn") resumedAfterBudget.delete(info.sessionKey);
     const waiting = takeDeferred(info.sessionKey);
-    if (!info.backgroundWork) checkIns.delete(info.sessionKey);
+    if (!info.backgroundWork) checkInCount.delete(info.sessionKey);
     let goal;
     try {
       goal = getActiveGoal(deps.db, info.topicId);

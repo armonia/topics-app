@@ -20,7 +20,7 @@ import { createChatRouter } from "../../server/routes/chat";
 import { registerProvider, removeProvider } from "../../server/providers";
 import { setGoal, getActiveGoal, setGoalLoop } from "../../server/services/goals";
 import { MAX_GOAL_CONTINUATIONS } from "../../server/services/goal-loop";
-import { createGoalContinuation, GOAL_CHECKINS_MAX, goalCheckInDelayMs, type TurnEndInfo } from "../../server/services/goal-continuation";
+import { createGoalContinuation, GOAL_CHECK_IN_LIMIT, goalCheckInDelayMs, type TurnEndInfo } from "../../server/services/goal-continuation";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, ContentBlock, Topic } from "../../server/types";
 
@@ -319,11 +319,11 @@ describe("a goal deferred on background work", () => {
 
   test("check-ins stop after three, until a turn ends with the work over", async () => {
     const t = await bench("goal-checkin-cap", ["continue", "continue", "continue"]);
-    for (let i = 0; i < GOAL_CHECKINS_MAX; i++) {
+    for (let i = 0; i < GOAL_CHECK_IN_LIMIT; i++) {
       await t.onTurnEnd(t.turn());
       await t.fire();
     }
-    expect(t.judged.length).toBe(GOAL_CHECKINS_MAX);
+    expect(t.judged.length).toBe(GOAL_CHECK_IN_LIMIT);
     await t.onTurnEnd(t.turn());
     expect(t.timers).toEqual([]);
     await close();
