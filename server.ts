@@ -1129,6 +1129,7 @@ async function watchHeadlessBody(
   tag: "" | " (reattach)",
 ): Promise<TurnEndInfo> {
   let stalled = false;
+  let lastRearm: string | null = null;
   const t0 = Date.now();
   const detector = armStallDetector({
     idleMs: opts.idleMs ?? DEFAULT_STALL_IDLE_MS,
@@ -1142,17 +1143,23 @@ async function watchHeadlessBody(
     isWaitingForBackground: stallBackgroundHold(sessionKey),
     getTail: () => stallTranscriptTail(sessionKey),
     judge: (tail) => judgeStall({ complete: stallJudgeComplete }, tail),
-    onRearm: (reason) => console.log(
-      reason === "human"
-        ? `[turn] stall watch rearmed on ${sessionKey}: a person is in the loop (question or permission), their time doesn't count`
-        : reason === "freeze"
-          ? `[turn] stall watch rearmed on ${sessionKey}: one of its commands is frozen by the swap brake, that wait is ours`
-        : reason === "background"
-          ? `[turn] stall watch rearmed on ${sessionKey}: its background work is still running, the judge is not asked`
-        : reason === "checks"
-          ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
-          : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
-    ),
+    // Once per change of reason: a hold lasting an hour rearmed every five
+    // minutes and wrote the same line twelve times.
+    onRearm: (reason) => {
+      if (reason === lastRearm) return;
+      lastRearm = reason;
+      console.log(
+        reason === "human"
+          ? `[turn] stall watch rearmed on ${sessionKey}: a person is in the loop (question or permission), their time doesn't count`
+          : reason === "freeze"
+            ? `[turn] stall watch rearmed on ${sessionKey}: one of its commands is frozen by the swap brake, that wait is ours`
+          : reason === "background"
+            ? `[turn] stall watch rearmed on ${sessionKey}: its background work is still running, the judge is not asked`
+          : reason === "checks"
+            ? `[turn] stall watch rearmed on ${sessionKey}: our pre-review checks are running for its card, that wait is ours`
+            : `[turn] stall watch rearmed on ${sessionKey}: judge says alive, still watching`,
+      );
+    },
     onStuck: () => {
       stalled = true;
       console.warn(`[turn] stall detector recycling ${sessionKey}${tag}: judge found it stuck`);

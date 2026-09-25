@@ -360,6 +360,48 @@ describe("boot · the agent's lines after the last result", () => {
     }
   }, 40_000);
 
+  test("two probes at once: the session is kept once and the wake is still heard", async () => {
+    // The boot sweep and a /api/chat probe can ask about the same key together.
+    // Each used to scan with its own attach; the second, finding the first one
+    // kept, tore its scan down by KEY and detached the kept one with it.
+    const events = recordedBackgroundSession();
+    const firstResult = events.findIndex((e) => e.type === "result");
+    const nextInit = events.findIndex((e, i) => i > firstResult && e.type === "system" && e.subtype === "init");
+    const wakeEnd = events.findIndex((e, i) => i > nextInit && e.type === "result");
+    const before = join(tempDir, "bg2-before.ndjson");
+    const wake = join(tempDir, "bg2-wake.ndjson");
+    const trigger = join(tempDir, "bg2-wake.go");
+    writeFileSync(before, events.slice(0, nextInit).map((e) => JSON.stringify(e)).join("\n") + "\n");
+    writeFileSync(wake, events.slice(nextInit, wakeEnd + 1).map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const cli = join(tempDir, "fake-bgstore2.sh");
+    writeFileSync(cli, `#!/bin/sh\nread line\ncat '${before}'\nwhile [ ! -f '${trigger}' ]; do sleep 0.05; done\ncat '${wake}'\nsleep 30\n`);
+    chmodSync(cli, 0o755);
+    setEnv("TOPICS_CLAUDE_CLI_PATH", cli);
+
+    const sessionKey = "topic:boot-bg-twice";
+    await seedSurvivingSession(sessionKey, "t-boot-bg-twice");
+    const prov = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    try {
+      expect(await Promise.all([prov.brokerTurnState(sessionKey, { park: true }), prov.brokerTurnState(sessionKey)])).toEqual(["idle", "idle"]);
+      expect(prov.hasBackgroundWork(sessionKey)).toBe(true);
+      const wakes: string[] = [];
+      let done = null as string | null;
+      ProviderCtor.observeWokenTurns((sk: string) => {
+        wakes.push(sk);
+        const h = makeHandler();
+        h.handler.onDone = (r: { result?: string }) => { done = r?.result ?? ""; };
+        prov.adoptWokenTurn(sk, h.handler);
+      });
+      writeFileSync(trigger, "");
+      await waitFor(() => done !== null, 10_000);
+      expect(wakes).toEqual([sessionKey]);
+    } finally {
+      ProviderCtor.observeWokenTurns(() => {});
+      try { getAiBridgeClient().kill(sessionKey); } catch { /* best-effort cleanup */ }
+    }
+  }, 40_000);
+
   /** A store written by the fake CLI and left there: `lines` then sleep. */
   function storeCli(name: string, lines: unknown[]): string {
     const body = join(tempDir, `${name}.ndjson`);

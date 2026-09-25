@@ -2791,6 +2791,22 @@ export class ClaudeCodeProvider implements AIProvider {
      */
     opts?: { park?: boolean },
   ): Promise<"open" | "idle" | "unknown"> {
+    // One probe per key at a time. Two at once each scanned with its own
+    // attach, and the second, finding the first one kept, tore its scan down
+    // BY KEY: the kept session lost its attach and the wake it waited for went
+    // unheard. In line, the second finds the first one's answer in memory.
+    const prev = this.probes.get(sessionKey);
+    const run = (prev ?? Promise.resolve()).catch(() => {}).then(() => this.brokerTurnStateNow(sessionKey, opts));
+    this.probes.set(sessionKey, run);
+    void run.finally(() => { if (this.probes.get(sessionKey) === run) this.probes.delete(sessionKey); }).catch(() => {});
+    return run;
+  }
+  private probes = new Map<string, Promise<"open" | "idle" | "unknown">>();
+
+  private async brokerTurnStateNow(
+    sessionKey: string,
+    opts?: { park?: boolean },
+  ): Promise<"open" | "idle" | "unknown"> {
     if (!USE_AI_BRIDGE) return "unknown";
     // Sessione già guidata da questo processo: la verità è in memoria, e una
     // seconda scansione dello store le passerebbe sopra.
