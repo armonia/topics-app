@@ -986,6 +986,8 @@ interface PersistentProcess {
   /** Scan outcome: consumed-store offset right after the last `result` —
    *  where the LIVE second attach starts so old turns are never re-emitted. */
   replayAfterLastResultOffset?: number;
+  /** Scan outcome: where the turn that last `result` closed begins (the end of the one before). */
+  replayLastTurnOffset?: number;
   /** Offset assoluto appena DOPO l'ultima riga NDJSON piegata. Non è
    *  `consumedOffset`, che si muove a CHUNK e per giunta solo a fold finito:
    *  qui si è precisi alla riga, mentre la riga passa. È ciò che fa ripartire
@@ -1346,11 +1348,7 @@ export class ClaudeCodeProvider implements AIProvider {
     catch (err) { console.warn(`[claude-code] config-owed observer failed for ${pp.sessionKey}:`, err); }
   }
 
-  /**
-   * Say it before the child goes: `silent` = no news for two hours (every clock
-   * waits for that bound); `stuck-turn` = a watchdog ended a wedged turn;
-   * `deadline` = a delegation's maximum duration; `superseded` = a card gave way.
-   */
+  /** Said before the child goes: `silent` (two hours without news), `stuck-turn`, `deadline` or `superseded`. */
   private sayBackgroundClosed(pp: PersistentProcess, why: ClosedWhy, by: string): void {
     const listed = pp.background?.tasks;
     // Once per child: a second clock in the 0.8 s between SIGINT and exit is the same close.
@@ -2152,10 +2150,8 @@ export class ClaudeCodeProvider implements AIProvider {
     const pp = this.processes.get(sessionKey);
     if (!pp || !pp.alive) return;
 
-    // A clock's stop takes the listed background work with it: the stall judge
-    // only after two hours without news of it, the watchdogs on a wedged turn.
-    // The judge is asked only once the work is past the bound, unless it
-    // reported while the judge thought: then it went with a stuck turn.
+    // A clock's stop takes the listed work with it: the stall judge past the
+    // two-hour bound (or with a stuck turn if the work reported meanwhile).
     if (reason === "stall") this.sayBackgroundClosed(pp, backgroundAlive(pp) ? "stuck-turn" : "silent", "the stall judge");
     if (reason === "watchdog") this.sayBackgroundClosed(pp, "stuck-turn", "the watchdog stop");
     if (reason === "wall-clock") this.sayBackgroundClosed(pp, "deadline", "the delegation's deadline");
@@ -2844,10 +2840,8 @@ export class ClaudeCodeProvider implements AIProvider {
      */
     opts?: { park?: boolean },
   ): Promise<"open" | "idle" | "unknown"> {
-    // One probe per key at a time. Two at once each scanned with its own
-    // attach, and the second, finding the first one kept, tore its scan down
-    // BY KEY: the kept session lost its attach and the wake it waited for went
-    // unheard. In line, the second finds the first one's answer in memory.
+    // One probe per key at a time: a second, finding the first one's scan kept,
+    // tore it down BY KEY and the wake it waited for went unheard.
     const prev = this.probes.get(sessionKey);
     const run = (prev ?? Promise.resolve()).catch(() => {}).then(() => this.brokerTurnStateNow(sessionKey, opts));
     this.probes.set(sessionKey, run);
@@ -2932,7 +2926,7 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.replayTailOpen = false;
     pp.replayTailInitOnly = false;
     pp.replayLastResult = undefined;
-    pp.replayAfterLastResultOffset = 0;
+    pp.replayAfterLastResultOffset = pp.replayLastTurnOffset = 0;
     const scan = await client.attach(sessionKey, 0);
     dateReplay(pp, scan);
     return { missing: scan.missing === true, alive: scan.alive === true };
@@ -3165,11 +3159,16 @@ export class ClaudeCodeProvider implements AIProvider {
     if (!pp.replayTailOpen) {
       // The store ends on a result: no turn in flight.
       if (pp.replayLastResult) {
-        // The turn COMPLETED while we were detached — deliver the missed
-        // final result through the normal onDone path so the route finalizes
-        // the bubble with the real content instead of dropping it.
+        // The turn COMPLETED while we were detached: the row has what the old
+        // process flushed, the store has the whole turn. Replayed as an open
+        // turn is, so the row gets its text and closes on the result, which
+        // alone carries no text the route reads (card 98ce88d1).
         pp.streamHandler = handler;
-        this.handleStreamEvent(pp, pp.replayLastResult);
+        pp.replaySilent = true;
+        const res = await client.attach(sessionKey, pp.replayLastTurnOffset ?? 0);
+        pp.replaySilent = false;
+        dateReplay(pp, res);
+        if (pp.streamHandler) this.handleStreamEvent(pp, pp.replayLastResult); // the replay did not reach it
         return "completed";
       }
       // Empty store (child idle since spawn, or nothing meaningful): nothing
@@ -3560,6 +3559,7 @@ export class ClaudeCodeProvider implements AIProvider {
         if (rt && rt !== "waiting for message") {
           pp.replayTailOpen = false;
           pp.replayLastResult = event;
+          pp.replayLastTurnOffset = pp.replayAfterLastResultOffset ?? 0;
           // Alla RIGA, non alla fetta — e la fetta era anche peggio di come
           // suona. `consumedOffset` si aggiorna DOPO il fold dell'intero chunk,
           // quindi mentre le righe scorrono qui dentro vale ancora quello del
