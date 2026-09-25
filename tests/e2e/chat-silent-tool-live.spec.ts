@@ -259,6 +259,37 @@ test.describe("a turn silent in a tool for longer than the stale threshold", () 
     }
   });
 
+  test("a turn started from another window while the cut reply's history is in flight gets its Stop", async ({ page, request, chatPage }) => {
+    const ended = recordStreamEnds(page);
+    const { topic, sessionKey } = await openChat(page, request, chatPage, "cut-next");
+    try {
+      // The pane was opened a moment ago, as when this goes wrong: its first
+      // history read is still inside the 5 s dedup when the cut reply's reread
+      // comes. The page's clock stops here to hold that, whatever the machine's
+      // load; its timers keep running.
+      await page.clock.setFixedTime(new Date());
+      const history = await holdNextHistory(page, sessionKey);
+      await cutFirstReply(page, request, sessionKey, history.arm);
+      await chatPage.sendMessage("silent 3");
+      await history.held;
+      await expect.poll(() => ended.has(sessionKey), { timeout: 30_000, intervals: [200] }).toBe(true);
+      // The next turn starts elsewhere; its stream:start reaches this page while
+      // the page's own SSE still holds the session, so only a fresh read shows it.
+      const next = request.post(`${E2E_BASE}/api/chat`, { data: { sessionKey, messages: [{ role: "user", content: "silent 25" }] }, timeout: 150_000 });
+      await expect.poll(() => serverStreaming(request, sessionKey), { timeout: 20_000, intervals: [200] }).toBe(true);
+      history.release();
+
+      const trace = await watchStop(page, 12_000);
+      expect(await serverStreaming(request, sessionKey), "the next turn still runs").toBe(true);
+      expect(trace.at(-1)?.on, `a live turn without its Stop: ${JSON.stringify(trace)}`).toBe(true);
+      const lastOff = [...trace].reverse().find((x) => !x.on)?.t ?? 0;
+      expect(lastOff, `a live turn dark too long: ${JSON.stringify(trace)}`).toBeLessThan(4);
+      expect((await next).ok()).toBe(true);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+    }
+  });
+
   test("a Stop pressed while the cut reply's history is in flight stays pressed, and the queue stays put", async ({ page, request, chatPage }) => {
     const { topic, sessionKey } = await openChat(page, request, chatPage, "cut-stop", true);
     try {

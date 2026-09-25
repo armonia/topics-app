@@ -2256,8 +2256,13 @@ export function useChat() {
         beginStreaming(sessionKey);
         resetStreamTimeout(sessionKey);
       }
-      // The rows on screen are that snapshot: read them again now the SSE is gone.
-      if (staleSnapshot) void loadHistoryRef.current?.(sessionKey);
+      // The rows on screen are that snapshot: read them again now the SSE is gone,
+      // past the dedup too. A pane opened under HISTORY_DEDUP_MS ago skipped the
+      // read, and a turn started meanwhile from another window stayed dark.
+      if (staleSnapshot) {
+        lastHistoryFetchAtRef.current.delete(sessionKey);
+        void loadHistoryRef.current?.(sessionKey);
+      }
     }
   }, [addMessage, addToolCallToLastMessage, updateLastMessage, bufferLiveDelta, flushLiveDeltas, clearSSEFailsafe, beginStreaming, resetStreamTimeout]);
 
