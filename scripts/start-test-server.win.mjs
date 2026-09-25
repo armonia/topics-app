@@ -101,7 +101,8 @@ if (!existsSync(stubCmd)) {
   writeFileSync(stubCmd, `@echo off\r\nnode "%~dp0claude-stub.mjs" %*\r\n`);
 }
 
-const server = spawn("bun", ["run", "server.ts"], {
+// The name tag the tests' port guard reads (see start-test-server.sh); server.ts ignores it.
+const server = spawn("bun", ["run", "server.ts", "--started-by=start-test-server"], {
   cwd: REPO_ROOT,
   env,
   stdio: "inherit",

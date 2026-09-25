@@ -23,17 +23,16 @@ import {
   testServerEnv,
 } from "./helpers/test-server";
 import { handDownTimeSlack } from "./helpers/time-slack-handoff";
-import { acquireRunLock, releaseRunLock } from "./helpers/run-lock";
+import { acquireRunLock, liveLockHolder, releaseRunLock } from "./helpers/run-lock";
 import {
   IS_WINDOWS,
   killPids,
-  killProcessTree,
-  listenerPids,
   playwrightChromiumPids,
 } from "./helpers/platform";
 // Same question the build, the land and the runtime probe ask: one authority.
 import { missingBundleAssets } from "../../server/lib/client-bundle";
 import { SERVER_DEATH_GRACE_MS, portHolders } from "./helpers/server-death";
+import { killSavedTestServer, killTestListeners, refuseProductionPort } from "./helpers/port-guard";
 import { removeTmpDir } from "./helpers/file-project";
 
 // Test server runs WITHOUT TLS for simplicity (NO_TLS=1)
@@ -359,6 +358,8 @@ async function startTestServer(): Promise<void> {
   // fuori (tipicamente il globalSetup di un altro checkout che ammazza chi
   // tiene la porta), uscita con codice = è crashato da solo.
   serverProcess.on("exit", (code, signal) => {
+    // From here its PID can be handed to another process: nothing may kill by it (helpers/port-guard.ts).
+    delete process.env.__TEST_SERVER_PID;
     // Morte ATTESA (global-teardown / emergencyCleanup l'hanno appena ucciso):
     // silenzio. Il flag passa da env perché global-teardown.ts è un modulo a
     // parte nello stesso processo — come già fa __TEST_SERVER_PID.
@@ -409,6 +410,8 @@ async function startTestServer(): Promise<void> {
 }
 
 async function globalSetup() {
+  // First of all, before any lookup or kill: never the live server's port (helpers/port-guard.ts).
+  refuseProductionPort(TEST_SERVER_PORT);
   // Il bundle deve esistere ED ESSERE AGGIORNATO prima di ogni altra cosa, o
   // ogni test mente — in due modi diversi.
   //
@@ -498,17 +501,11 @@ async function globalSetup() {
   // for every worker, breaking browser launch for the whole suite.
   if (!process.env.OPENCLAW_DIR) process.env.OPENCLAW_DIR = `${TEST_DATA_DIR}/.openclaw`;
 
-  // Kill any stale test server processes on the test port before starting.
-  // `-sTCP:LISTEN`: senza, lsof elenca anche i socket che hanno questa porta
-  // come capo REMOTO — cioè i client. Vogliamo chi TIENE la porta, non chi la
-  // sta usando (vedi killServer in terminal-session-resume.spec.ts).
-  {
-    const stalePids = listenerPids(TEST_SERVER_PORT);
-    if (stalePids.length) {
-      killPids(stalePids);
-      console.log(`[global-setup] Killed stale test processes on port ${TEST_SERVER_PORT}`);
-      await new Promise((r) => setTimeout(r, 1000));
-    }
+  // Kill the stale TEST servers on the test port before starting; anything
+  // else holding it stops the run with its name (helpers/port-guard.ts).
+  if (killTestListeners(TEST_SERVER_PORT).length) {
+    console.log(`[global-setup] Killed stale test processes on port ${TEST_SERVER_PORT}`);
+    await new Promise((r) => setTimeout(r, 1000));
   }
 
   // Pulizia dello stato browser della run PRECEDENTE — SOLO sotto la cartella
@@ -773,12 +770,15 @@ function emergencyCleanup() {
     runLockHeld = false;
     try { releaseRunLock(TEST_SERVER_PORT); } catch {}
   }
-  if (serverProcess?.pid) killProcessTree(serverProcess.pid);
+  killSavedTestServer(); // only while that PID is still a test server (helpers/port-guard.ts)
   try {
     // `-sTCP:LISTEN` o si ammazzano anche i CLIENT della porta: senza il filtro
     // lsof elenca i Chromium connessi al server di test, e questo kill li porta
     // via insieme al server (il fallimento poi esce altrove, come flake).
-    killPids(listenerPids(TEST_SERVER_PORT));
+    // Only test servers (helpers/port-guard.ts), and not while another live run
+    // holds the port: a run the lock turned away exits through here too, and
+    // the other run's server is a test server (the teardown's 25/08 case).
+    if (!liveLockHolder(TEST_SERVER_PORT)) killTestListeners(TEST_SERVER_PORT, { onForeign: "warn" });
     // Kill only the Chromiums THIS run is responsible for. The previous version
     // killed every ms-playwright Chromium on the machine, which reaches across
     // repos: a concurrent E2E run in another project (and its results) died

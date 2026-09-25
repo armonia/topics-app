@@ -207,4 +207,7 @@ if [ -n "${GATEWAY_URL:-}" ]; then export GATEWAY_URL; fi
 mkdir -p "$DATA_DIR" "$TOPICS_HOME" "$OPENCLAW_DIR" "$HOME"
 
 cd "$REPO_ROOT"
-exec bun run server.ts
+# The argument is a name tag, and server.ts ignores it: after `exec` this
+# script's name is gone from the process, and the tests' port guard
+# (tests/e2e/helpers/port-guard.ts) kills a listener only if it is a test server.
+exec bun run server.ts --started-by=start-test-server

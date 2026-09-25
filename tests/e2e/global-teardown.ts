@@ -5,17 +5,17 @@
  */
 
 import { execFileSync } from "child_process";
-import { existsSync, readFileSync, unlinkSync } from "fs";
+import { existsSync, unlinkSync } from "fs";
 import {
   isAlive,
   killPids,
-  killProcessTree,
   listenerPids,
   playwrightChromiumPids,
   processRows,
 } from "./helpers/platform";
 import { E2E_PORT, descendantsOf, testServerEnv } from "./helpers/test-server";
 import { liveLockHolder, releaseRunLock } from "./helpers/run-lock";
+import { killSavedTestServer, killTestListeners } from "./helpers/port-guard";
 
 const TEST_PORT = E2E_PORT;
 
@@ -35,28 +35,16 @@ const TEST_PORT = E2E_PORT;
  * questa lista. L'invariante è controllata da
  * tests/unit/pty-bridge-e2e-isolation.test.ts.
  */
-function bankBridgePids(socket: string, pidFile: string): number[] {
-  const pids = new Set<number>();
-
-  // 1. Il pidfile che il ponte scrive accanto al suo socket.
-  try {
-    if (existsSync(pidFile)) {
-      const pid = Number(readFileSync(pidFile, "utf-8").trim());
-      if (Number.isInteger(pid) && pid > 0) pids.add(pid);
-    }
-  } catch { /* pidfile illeggibile: resta la scansione qui sotto */ }
-
-  // 2. Cintura: un ponte morto male può non aver lasciato il pidfile, e un ponte
-  //    RINATO dopo la scrittura può averlo lasciato stantio. Si cerca per riga
-  //    di comando, ancorata al path ESATTO del socket del banco.
-  for (const row of processRows()) {
-    if (!row.command.includes(socket)) continue;
-    const pid = Number(row.pid);
-    if (Number.isInteger(pid) && pid > 0) pids.add(pid);
-  }
-
-  // Vivi soltanto: un pid morto nel pidfile non è un orfano da riportare.
-  return [...pids].filter(isAlive);
+function bankBridgePids(socket: string): number[] {
+  // By `--socket <bench socket>` on the command line, which a live bridge always
+  // carries (server/routes/terminal.ts). Not by the pidfile it writes next to
+  // the socket: a bridge that died leaves that file behind and its PID is handed
+  // out again (a review probe saw a stray `perl` killed that way). Not by the
+  // bare path either: a shell loop waiting for the socket names it too.
+  return processRows()
+    .filter((row) => row.command.includes(`--socket ${socket}`))
+    .map((row) => Number(row.pid))
+    .filter((pid) => Number.isInteger(pid) && pid > 0 && isAlive(pid));
 }
 
 /**
@@ -78,10 +66,11 @@ async function waitForServersGone(port: number, timeoutMs = 10_000): Promise<voi
   }
   // Non se n'è andato con le buone: si insiste, poi si va avanti comunque —
   // il ponte va spento anche se un server si è impuntato.
+  // Only test servers: anything else is named and left alive (helpers/port-guard.ts).
   const rimasti = listeners();
   if (rimasti.length) {
-    console.warn(`[global-teardown] Server ancora in ascolto su ${port} (PID ${rimasti.join(", ")}): SIGKILL.`);
-    killPids(rimasti, { force: true });
+    console.warn(`[global-teardown] Server ancora in ascolto su ${port} (PID ${rimasti.join(", ")}): SIGKILL ai server di test.`);
+    killTestListeners(port, { force: true, onForeign: "warn" });
     await new Promise((r) => setTimeout(r, 500));
   }
 }
@@ -98,7 +87,7 @@ async function killBankPtyBridge(port: number): Promise<void> {
   // Si ripassa finché una scansione non trova più niente; il server ormai è
   // morto, quindi la lista converge a zero.
   for (let pass = 0; pass < 4; pass++) {
-    const pids = bankBridgePids(socket, pidFile);
+    const pids = bankBridgePids(socket);
     if (!pids.length) break;
     for (const pid of pids) killed.add(pid);
     killPids(pids);
@@ -109,7 +98,7 @@ async function killBankPtyBridge(port: number): Promise<void> {
     try { if (existsSync(f)) unlinkSync(f); } catch { /* non nostro / già sparito */ }
   }
 
-  const rimasti = bankBridgePids(socket, pidFile);
+  const rimasti = bankBridgePids(socket);
   if (rimasti.length) {
     // Non si alza la voce a vuoto: se resta, resta detto — un ponte orfano tiene
     // aperti i PTY e si accumula una run dopo l'altra.
@@ -127,10 +116,7 @@ async function globalTeardown() {
 
   if (pid) {
     console.log(`[global-teardown] Killing test server (PID: ${pid})...`);
-    // The whole tree: a process group signal on POSIX, `taskkill /T` on Windows
-    // (see helpers/platform.ts), then the process itself as a fallback.
-    killProcessTree(Number(pid));
-    killPids([pid]);
+    killSavedTestServer(); // only if that PID is still a test server (helpers/port-guard.ts)
   }
 
   // Also kill any stale processes on the test port.
@@ -160,11 +146,8 @@ async function globalTeardown() {
     return;
   }
   {
-    const pids = listenerPids(TEST_PORT);
-    if (pids.length) {
-      killPids(pids);
-      console.log(`[global-teardown] Killed stale processes on port ${TEST_PORT}: ${pids.join(", ")}`);
-    }
+    const pids = killTestListeners(TEST_PORT, { onForeign: "warn" }); // only test servers
+    if (pids.length) console.log(`[global-teardown] Killed stale processes on port ${TEST_PORT}: ${pids.join(", ")}`);
   }
 
   console.log("[global-teardown] Test server stopped.");
