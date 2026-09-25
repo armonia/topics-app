@@ -1,5 +1,31 @@
 [
   {
+    "version": "2.2.392",
+    "date": "2026-09-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "The hand-over records the chat as spawner when nothing else did",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The dropped-lines count of client-trace names the minute it is about",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The restart test reads the pane's registration in the new server's log",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.391",
     "date": "2026-09-25",
     "sections": {
@@ -7,6 +33,11 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "Trace every decision between open_browser_pane and an attached pane socket",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "Test rosso: un turno chiuso scrive sulla riga del cartello dopo di lui",
           "en": "",
@@ -198,7 +229,22 @@
           "scope": null
         },
         {
+          "it": "force-open hands the browser to its project window instead of only focusing it",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "L'eco di una fermata voluta non scrive cartelli, e i tool che la fermata chiude si spengono anche a schermo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The restart guard runs nightly and keeps CI's Chromium",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The spec waits on conditions, and calls the route only through a registered pane",
           "en": "",
           "scope": null
         },
@@ -214,6 +260,11 @@
         },
         {
           "it": "Il client tiene lateStart finche' arriva testo, e lateStartContent torna fuori dal JSDoc altrui",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "force-open hands the pane over on an event only project windows hear",
           "en": "",
           "scope": null
         },
@@ -238,6 +289,26 @@
           "scope": null
         },
         {
+          "it": "The [pane-attach] trace reaches the server log",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A sidebar click on a project's browser shows the page, not only the project",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The trace sink test types its fetch stub the way tsconfig.test wants",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Two findings of the independent review, both minor and both real",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "A stop the machine wanted sends no cause to the client, so no banner live or from the cache; the log names the stall judge",
           "en": "",
           "scope": null
@@ -249,6 +320,21 @@
         },
         {
           "it": "English comment in the hook test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A browser opened from a terminal keeps the terminal as its spawner",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "/api/client-trace has caps, and keeps what is not ASCII readable",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A browser pane that exists in no group is placed, not skipped",
           "en": "",
           "scope": null
         }

@@ -2,9 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.392 — 2026-09-25
+
+### Sotto il cofano
+- The hand-over records the chat as spawner when nothing else did
+- The dropped-lines count of client-trace names the minute it is about
+- The restart test reads the pane's registration in the new server's log
+
 ## 2.2.391 — 2026-09-25
 
 ### Sotto il cofano
+- Trace every decision between open_browser_pane and an attached pane socket
 - Test rosso: un turno chiuso scrive sulla riga del cartello dopo di lui
 - Test rossi: la ripresa rimanda un invio ancora in coda e un messaggio fermato
 - Un turno chiuso non scrive piu' sulla riga di un altro
@@ -43,17 +51,28 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Il permesso e la risposta a un pannello cercano il tool solo sul ramo attivo
 - La risposta tardiva apre il suo paragrafo anche nella bolla, non solo nella riga
 - types.ts torna a 800 righe: il commento sulle cause della macchina in una riga
+- force-open hands the browser to its project window instead of only focusing it
 - L'eco di una fermata voluta non scrive cartelli, e i tool che la fermata chiude si spengono anche a schermo
+- The restart guard runs nightly and keeps CI's Chromium
+- The spec waits on conditions, and calls the route only through a registered pane
 - Una fermata della macchina torna al percorso di main, e resta muta anche dopo il riavvio
 - Il sweep lascia stare solo le card atterrate o archiviate, le altre tornano come su main
 - Il client tiene lateStart finche' arriva testo, e lateStartContent torna fuori dal JSDoc altrui
+- force-open hands the pane over on an event only project windows hear
 - The delegation's deadline writes no notice; the silence cap, through onError, still promises the resume
 - English comments and names for the machine-stop path
 - The route records a machine stop for every provider: a tool reporting late cannot make the boot resume it
 - English comment in the reboot test
+- The [pane-attach] trace reaches the server log
+- A sidebar click on a project's browser shows the page, not only the project
+- The trace sink test types its fetch stub the way tsconfig.test wants
+- Two findings of the independent review, both minor and both real
 - A stop the machine wanted sends no cause to the client, so no banner live or from the cache; the log names the stall judge
 - The client half of the machine stop runs on the real hook and the real route events; Codex's echo of a stop is not an error
 - English comment in the hook test
+- A browser opened from a terminal keeps the terminal as its spawner
+- /api/client-trace has caps, and keeps what is not ASCII readable
+- A browser pane that exists in no group is placed, not skipped
 
 ## 2.2.390 — 2026-09-25
 
