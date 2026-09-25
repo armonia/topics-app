@@ -57,8 +57,16 @@ rss_kb() { ps -o rss= -p "$1" | tr -d ' '; }
 # chiude lo stream regolarmente: contando i DONE, quattro turni con dentro
 # «Not logged in» risultavano riusciti. Si cerca la RISPOSTA — e questo e' il
 # motivo per cui il prompt chiede una cosa verificabile invece di «Rispondi OK».
+# Sul TESTO della risposta, non sui byte: il primo frame nomina la riga del
+# turno con un UUID, e un UUID su undici contiene «20» (7 turni falliti su 60
+# risultavano risposti). Vedi `sse-reply.ts`.
 PROMPT="Conta da 1 a 20, solo i numeri separati da spazio."
-answered() { grep -q '20' "$1" && ! grep -q 'Not logged in' "$1"; }
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+answered() {
+  local reply
+  reply="$(bun "$HERE/sse-reply.ts" "$1")" || return 1
+  [[ "$reply" == *20* ]] && ! grep -q 'Not logged in' "$1"
+}
 
 # UN TURNO DI PROVA PRIMA DI SPENDERE. Il server di test sandboxa `HOME`: se le
 # credenziali non c'erano al suo AVVIO, ogni turno risponde «Not logged in» e lo
@@ -139,7 +147,7 @@ json.dump({
  'measured_at':datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
  'base':sys.argv[1],'model':sys.argv[2],
  'metric':'RSS del server prima/dopo la raffica, diviso N',
- 'answered_means':\"la risposta contiene '20' e non e' 'Not logged in' — [DONE] arriva anche sugli errori\",
+ 'answered_means':\"il testo della risposta contiene '20' e non e' 'Not logged in' — [DONE] arriva anche sugli errori\",
  'runs':json.loads(sys.argv[3]),
 }, open(sys.argv[4],'w'), indent=1, ensure_ascii=False)" "$BASE" "$MODEL" "$ROWS" "$OUT"
   echo
