@@ -7,7 +7,7 @@
  * had produced nothing, its row is discarded, as every empty stop is, and the
  * chat ends on the message the turn was answering: for a card, the
  * dispatcher's envelope. The client reads that shape as a reply that never came
- * (`turnLooksUnanswered`) and offers «Riprova», which resends the envelope: a
+ * (`turnLooksUnanswered`) and offers its Retry button, which resends the envelope: a
  * paid turn to redo work that is already on main, or that the dispatcher is
  * about to continue on its own. Measured on the production DB before this fix:
  * 11 card chats ending on an envelope, each card landed about a second later.
@@ -28,10 +28,11 @@
  * block is work for `isEmptyAssistantTurn`, so no later pass discards it.
  */
 import type { ContentBlock } from "../types";
-import type { MachineStopCause } from "./abort-cause";
+import { machineStopToolError, type MachineStopCause } from "./abort-cause";
 
-export function machineStopBlock(cause: MachineStopCause): ContentBlock {
-  return { kind: "machine-stop", cause };
+/** The block, with the sentence a client older than it prints as prose. */
+export function machineStopBlock(cause: MachineStopCause): Extract<ContentBlock, { kind: "machine-stop" }> {
+  return { kind: "machine-stop", cause, text: machineStopToolError(cause) };
 }
 
 /**

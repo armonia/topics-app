@@ -13,8 +13,8 @@ hermetic(test);
  *
  * A land, a delegation's deadline or the stall judge stops a turn on purpose.
  * When that turn had said nothing, its row is discarded and the chat used to
- * end on the card's envelope: the composer showed «Nessuna risposta» with
- * «Riprova», and Riprova resent the envelope, a paid turn to redo work already
+ * end on the card's envelope: the composer showed its no-reply banner with a
+ * Retry button, and Retry resent the envelope, a paid turn to redo work already
  * on main. The server now writes one row carrying only a `machine-stop` block
  * (`server/lib/machine-stop-notice.ts`); this spec is the client half of that
  * contract, on the engine that ships: the row as the server stores it (after a
@@ -59,7 +59,7 @@ test.describe("an empty turn the machine stopped", () => {
     const topicId = await seedTopic(request, name, [
       { role: "user", content: ENVELOPE, blocks: [{ kind: "dispatched-envelope" }] },
       // What `/api/chat/abort` writes: no text, the block is the whole row.
-      { role: "assistant", content: "", blocks: [{ kind: "machine-stop", cause: "superseded" }] },
+      { role: "assistant", content: "", blocks: [{ kind: "machine-stop", cause: "superseded", text: LANDED }] },
     ]);
     made.push(topicId);
     await resetPaneStore(request, [topicId]);
@@ -110,7 +110,7 @@ test.describe("an empty turn the machine stopped", () => {
     wire.send({ type: "stream:end", sessionKey, topicId, messageId: turn, discardedMessageId: turn, stopReason: "cancelled", completed: false });
     wire.send({
       type: "message:new", topicId, sessionKey, role: "assistant", messageId: `stop-${Date.now()}`,
-      content: LANDED, preview: "", blocks: [{ kind: "machine-stop", cause: "superseded" }],
+      content: LANDED, preview: "", blocks: [{ kind: "machine-stop", cause: "superseded", text: LANDED }],
     });
 
     await expect(page.getByTestId("machine-stop-row")).toHaveText(LANDED, { timeout: 10_000 });

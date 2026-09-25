@@ -290,7 +290,7 @@ export const MessageBubble = memo(function MessageBubble({
 
   // A TURN THE MACHINE STOPPED BEFORE IT SAID ANYTHING: a land, a
   // delegation's deadline, the stall judge. The row exists only so the chat
-  // does not end on an unanswered message, which would offer «Riprova» and pay
+  // does not end on an unanswered message, which would offer Retry and pay
   // for a turn that redoes work already on main. One neutral line, no retry.
   // See server/lib/machine-stop-notice.ts.
   const machineStop = machineStopOf(msg.blocks);

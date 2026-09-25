@@ -282,7 +282,7 @@ describe("a stop the machine wanted ends as on main, and is not the person's", (
  * A stop the machine wanted discards an empty turn's row (above), and the chat
  * then ends on the message that turn was answering: for a card, the
  * dispatcher's envelope. The client reads that shape as a reply that never
- * came (`turnLooksUnanswered`) and offers «Riprova», which resends the envelope:
+ * came (`turnLooksUnanswered`) and offers Retry, which resends the envelope:
  * a paid turn to redo work already on main. Measured on the production DB
  * before the fix: 11 card chats ending on an envelope, the card landed about a
  * second later, nothing under it.
@@ -325,14 +325,14 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
         const notice = rows.at(-1)!;
         expect(notice.role).toBe("assistant");
         expect(notice.content).toBe("");
-        expect(notice.blocks).toEqual([{ kind: "machine-stop", cause }]);
+        expect(notice.blocks).toEqual([{ kind: "machine-stop", cause, text: expect.stringMatching(/^Fermato: /) }]);
         expect(notice.parentId).toBe(rows.at(-2)!.id);
         // A window watching the chat gets it live, before the stop's end: its
         // handler drops a `message:new` without text, so the frame carries one.
         const live = c.sent.findIndex((m) => m.type === "message:new" && m.messageId === notice.id);
         expect(live).toBeGreaterThanOrEqual(0);
         expect(c.sent[live]).toMatchObject({ role: "assistant", blocks: [{ kind: "machine-stop", cause }] });
-        expect(String(c.sent[live].content ?? "")).not.toBe("");
+        expect(c.sent[live].content).toBe((notice.blocks![0] as { text: string }).text);
         const routeEnd = c.sent.findLastIndex((m) => m.type === "stream:end");
         expect(live).toBeLessThan(routeEnd);
         expect(await c.resentAfterRestart()).toEqual([]);
@@ -384,7 +384,7 @@ describe("an empty turn the machine stopped offers no retry, after a reload too"
 
   test("the opposite: a turn that really came back empty keeps its notice and its retry", async () => {
     // No stop at all: the provider closed the turn with nothing. That is a
-    // failure the person can act on, and «Riprova» is the right offer.
+    // failure the person can act on, and Retry is the right offer.
     const sk = "topic:empty-for-real";
     const c = await chatWith(sk);
     await c.post({ messages: [{ role: "user", content: "rispondi" }] });

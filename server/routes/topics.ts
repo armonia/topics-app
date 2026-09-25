@@ -2545,7 +2545,7 @@ export function createTopicsRouter(
       }
       // An empty turn the machine stopped leaves one service row, so the chat
       // does not end on the unanswered message and the client offers no
-      // «Riprova» for it, live or after a reload (lib/machine-stop-notice.ts).
+      // Retry for it, live or after a reload (lib/machine-stop-notice.ts).
       // Written here, after both finalizes, because whichever ran first
       // discarded the row, and before the `stream:end` below, so a watching
       // window never paints the no-reply banner in between.
@@ -2559,7 +2559,7 @@ export function createTopicsRouter(
           // client falls back to, and the block is what it draws.
           broadcastToAll({
             type: "message:new", topicId, sessionKey, role: "assistant",
-            messageId: notice.id, content: machineStopToolError(cause), preview: "", blocks: [block],
+            messageId: notice.id, content: block.text, preview: "", blocks: [block],
           });
         }
       }

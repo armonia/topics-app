@@ -987,8 +987,13 @@ export type ContentBlock =
    * offers to resend. The block is the whole row: `content` stays empty so
    * neither the model's history nor the dispatcher's "last words of the agent"
    * read it. See `server/lib/machine-stop-notice.ts`.
+   *
+   * `text` is the sentence, for clients older than this block: their renderer
+   * takes any block it does not know for prose, and one without `text` broke
+   * the whole pane ("undefined is not an object", measured on the previous
+   * client). Current clients draw the line from `cause`.
    */
-  | { kind: 'machine-stop'; cause: 'superseded' | 'wall-clock' | 'stall' }
+  | { kind: 'machine-stop'; cause: 'superseded' | 'wall-clock' | 'stall'; text: string }
   /**
    * THIS ROW IS AN ENVELOPE THE DISPATCHER WROTE, not something a person typed.
    *
