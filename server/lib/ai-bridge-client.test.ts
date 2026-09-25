@@ -2,7 +2,8 @@
  * @covers RUNTIME-06
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { stopOwnAiBridges } from "../../scripts/stray-ai-bridges";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -46,12 +47,11 @@ beforeAll(async () => {
   await client.ensureConnected();
 });
 
-afterAll(() => {
-  // The daemon is detached; kill it via its pidfile.
-  try {
-    const pidPath = SOCK.replace(/\.sock$/, ".pid");
-    if (existsSync(pidPath)) process.kill(Number(readFileSync(pidPath, "utf8").trim()), "SIGTERM");
-  } catch { /* already gone */ }
+afterAll(async () => {
+  // The client first: left open, it takes the daemon's death for a crash and
+  // spawns a new one, which is how this file used to leave a daemon behind.
+  client?.dispose();
+  await stopOwnAiBridges();
   try { rmSync(dataDir, { recursive: true, force: true }); } catch {}
 });
 

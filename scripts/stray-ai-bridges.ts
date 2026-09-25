@@ -108,6 +108,51 @@ function isAlive(pid: number): boolean {
 }
 
 /**
+ * The daemons a process's own client spawned: the client passes its pid as
+ * `--parent-pid`. Asked while that process is alive, so the pid cannot have been
+ * reused by anyone else.
+ */
+function aiBridgesSpawnedBy(parentPid: number): number[] {
+  if (process.platform === "win32") return [];
+  let out = "";
+  try {
+    out = execFileSync("ps", ["-A", "-ww", "-o", "pid=,args="], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  } catch {
+    return [];
+  }
+  const parent = new RegExp(`--parent-pid ${parentPid}(?:\\s|$)`);
+  return out.split("\n").filter((l) => DAEMON_ARGV.test(l) && parent.test(l)).map((l) => Number(l.trim().split(/\s+/)[0]));
+}
+
+/** SIGTERM, so each daemon takes its CLIs down with it; SIGKILL for one still there after `graceMs`. */
+async function endAiBridges(pids: number[], graceMs = 3_000): Promise<void> {
+  for (const pid of pids) { try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ } }
+  const deadline = Date.now() + graceMs;
+  while (pids.some(isAlive) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+  for (const pid of pids) { if (isAlive(pid)) { try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ } } }
+}
+
+/**
+ * Stops the real ai-bridge daemons THIS test process started.
+ *
+ * The daemon is detached on purpose: in production it outlives a server
+ * restart and keeps the CLIs alive. In a test the same design leaves it behind,
+ * on a socket in a temp dir nobody reconnects to, watching a parent that is the
+ * whole `bun test` process. A file that drives the real client calls this from
+ * its `afterAll`, which bun runs after a failed or timed-out test too, and the
+ * preload calls it once more at the end of the run.
+ */
+export async function stopOwnAiBridges(): Promise<void> {
+  const pids = aiBridgesSpawnedBy(process.pid);
+  if (pids.length === 0) return;
+  // The client first. Left connected, it takes the daemon's death for a crash
+  // and spawns a new one.
+  const { __resetAiBridgeClientForTests } = await import("../server/lib/ai-bridge-client");
+  __resetAiBridgeClientForTests();
+  await endAiBridges(pids);
+}
+
+/**
  * Lists the strays, then ends them: they are this run's own processes, proven
  * by the marker, and every minute they stay costs the machine. The run stays red
  * either way. SIGTERM first so the daemon takes its CLIs down with it.
@@ -116,11 +161,8 @@ export async function reportAndEndStrays(strays: StrayDaemon[], log: (line: stri
   if (strays.length === 0) return;
   log(`stray-ai-bridges: ${strays.length} ai-bridge daemon(s) started by this run are still alive:`);
   for (const s of strays) log(`  pid ${s.pid}  socket ${s.socket ?? "?"}`);
-  log("stray-ai-bridges: a test that starts a daemon has to stop it (see stopSpawnedAiBridges in server/lib/ai-bridge-client.ts). Ending them now.");
-  for (const s of strays) { try { process.kill(s.pid, "SIGTERM"); } catch { /* already gone */ } }
-  const deadline = Date.now() + 3_000;
-  while (strays.some((s) => isAlive(s.pid)) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
-  for (const s of strays) { if (isAlive(s.pid)) { try { process.kill(s.pid, "SIGKILL"); } catch { /* already gone */ } } }
+  log("stray-ai-bridges: a test that starts a daemon has to stop it (stopOwnAiBridges in scripts/stray-ai-bridges.ts). Ending them now.");
+  await endAiBridges(strays.map((s) => s.pid));
 }
 
 // Not `import.meta.main` and no top-level await: the e2e teardown imports this

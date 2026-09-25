@@ -9,6 +9,7 @@
  * @covers CCLI-01
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { stopOwnAiBridges } from "../../scripts/stray-ai-bridges";
 import { mkdtempSync, mkdirSync, rmSync, existsSync, cpSync, chmodSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -44,8 +45,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  const { __resetAiBridgeClientForTests } = await import("../lib/ai-bridge-client");
-  __resetAiBridgeClientForTests();
+  // Resets the client and stops the daemon it started, which is detached.
+  await stopOwnAiBridges();
   try {
     const { closeDatabase } = await import("../db");
     closeDatabase();

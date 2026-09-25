@@ -199,6 +199,11 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     TOPICS_PTY_SOCKET: bridgeSocket("pty-bridge", port),
     // Stessa storia per il broker stream-json.
     TOPICS_AI_BRIDGE_SOCKET: bridgeSocket("ai-bridge", port),
+    // A bank daemon whose server died gives up after 15s, not the 90s meant for
+    // a production restart. The teardown stops it anyway; this covers a run
+    // killed before its teardown. The two specs that restart the server test
+    // the browser and the terminal, not a claude turn surviving it.
+    TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "15000",
     // Il bundle servito è la fotografia fatta dal globalSetup, non `public/` del
     // repo: vedi publicDirForPort qui sopra.
     TOPICS_PUBLIC_DIR: publicDirForPort(port),
