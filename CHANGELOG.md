@@ -2,6 +2,39 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.395 — 2026-09-25
+
+### Sotto il cofano
+- Record what the CLI prints about background work, and fold it into one answer
+- A background agent's lines open no turn, and no clock kills the work a closed turn left running
+- The goal loop waits for background work instead of nudging every 25 seconds
+- The reaper test fails on the kill, not on the missing probe
+- background work opens no turn, holds the stall judge, and defers the goal loop
+- A goal deferred on background work checks in like Claude Code, and an empty last wake still gets judged
+- Killing needs a stronger presumption than waiting; the boot hears the last wake and dates its replay
+- the goal checks in on background work, and killing waits two hours without news
+- English words in the check-in names, as the identifier gate asks
+- One bound per question, the boot keeps what the probe kept, and a Stop drops the waiting goal turn
+- A permission change does not wait for background work
+- One bound for every clock that kills, and a Monitor's event is news
+- The goal check-in counts from when the goal started waiting, a person's message re-enables it, and a queued wake is waited for
+- A config change waits for the background work and says so in the chat; a clock that closes silent work says what it closed
+- The Stop of a chat whose turn is closed stops its background work, and the goal stops waiting for it
+- After a restart the goals that waited on background work wait again, with their check-in
+- The ai-bridge daemon names its protocol, and a server on an older daemon says what it loses
+- One broker probe per key at a time, and the stall watch logs a rearm once per reason
+- An empty wake with the work still listed keeps the goal's check-in clock
+- The Stop of background work reaches the provider that has it, and a test pins the goal wiring
+- The stall judge and the watchdogs say in the chat what background work they closed
+- Review follow-ups: honest deferral text, machine stops signed as such, the boot reap names what it closes
+- Verifier follow-ups: a /compact starts a fresh wait, a notice follows the turn it would hang from, a stall stop leaves live work alone
+- A background notice carries its sentence, so an older client prints it instead of breaking the pane
+- Second review: the background notice is a service row, a stall pauses the goal, a change the background work makes wait is said, and each close names its reason
+- A wake is news of a listed Monitor only, and the routes hand their background code to its modules
+- A machine's stop and the background work it closed are one row, and the routes stay under their ceiling
+- Third review: the notice waits for the turn's real end, the goal pays one judge per interval, and every reader looks past service lines
+- Retry, auto-TTS, a plan's buttons and a pending question look past a service line, and its sentence wraps on a phone
+
 ## 2.2.394 — 2026-09-25
 
 ### Sotto il cofano

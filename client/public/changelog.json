@@ -1,5 +1,163 @@
 [
   {
+    "version": "2.2.395",
+    "date": "2026-09-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Record what the CLI prints about background work, and fold it into one answer",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A background agent's lines open no turn, and no clock kills the work a closed turn left running",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The goal loop waits for background work instead of nudging every 25 seconds",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The reaper test fails on the kill, not on the missing probe",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "background work opens no turn, holds the stall judge, and defers the goal loop",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "A goal deferred on background work checks in like Claude Code, and an empty last wake still gets judged",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Killing needs a stronger presumption than waiting; the boot hears the last wake and dates its replay",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the goal checks in on background work, and killing waits two hours without news",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "English words in the check-in names, as the identifier gate asks",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "One bound per question, the boot keeps what the probe kept, and a Stop drops the waiting goal turn",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A permission change does not wait for background work",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "One bound for every clock that kills, and a Monitor's event is news",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The goal check-in counts from when the goal started waiting, a person's message re-enables it, and a queued wake is waited for",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A config change waits for the background work and says so in the chat; a clock that closes silent work says what it closed",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The Stop of a chat whose turn is closed stops its background work, and the goal stops waiting for it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "After a restart the goals that waited on background work wait again, with their check-in",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The ai-bridge daemon names its protocol, and a server on an older daemon says what it loses",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "One broker probe per key at a time, and the stall watch logs a rearm once per reason",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "An empty wake with the work still listed keeps the goal's check-in clock",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The Stop of background work reaches the provider that has it, and a test pins the goal wiring",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The stall judge and the watchdogs say in the chat what background work they closed",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Review follow-ups: honest deferral text, machine stops signed as such, the boot reap names what it closes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Verifier follow-ups: a /compact starts a fresh wait, a notice follows the turn it would hang from, a stall stop leaves live work alone",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A background notice carries its sentence, so an older client prints it instead of breaking the pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Second review: the background notice is a service row, a stall pauses the goal, a change the background work makes wait is said, and each close names its reason",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A wake is news of a listed Monitor only, and the routes hand their background code to its modules",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A machine's stop and the background work it closed are one row, and the routes stay under their ceiling",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Third review: the notice waits for the turn's real end, the goal pays one judge per interval, and every reader looks past service lines",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Retry, auto-TTS, a plan's buttons and a pending question look past a service line, and its sentence wraps on a phone",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.394",
     "date": "2026-09-25",
     "sections": {
