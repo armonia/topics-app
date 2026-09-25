@@ -2,6 +2,9 @@
  * @covers EXTSESS-01, EXTSESS-02, EXTSESS-03, EXTSESS-09
  */
 import { describe, test, expect, beforeEach } from "bun:test";
+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   parseTranscriptFacts,
   resolveOwningProject,
@@ -223,5 +226,41 @@ describe("scanExternalClaudeSessions", () => {
       }),
     });
     expect(sessions).toEqual([]);
+  });
+});
+
+describe("the census at 600 transcripts in the window", () => {
+  beforeEach(() => clearExternalSessionCache());
+
+  test("bench: after the first pass no pass goes over 100 ms, a few transcripts changing each time", () => {
+    // Real files, the tail the scanner reads (64 KB) and more. 711 were in the
+    // window on this machine on 25/09; the cache used to empty itself at 500.
+    const root = mkdtempSync(join(tmpdir(), "claude-census-"));
+    const filler = Array.from({ length: 300 }, (_, i) => line({ type: "assistant", message: { content: "y".repeat(220) }, i })).join("\n");
+    const paths: string[] = [];
+    for (let d = 0; d < 30; d++) {
+      const dir = join(root, `-Users-me-Projects-p${d}`);
+      mkdirSync(dir);
+      for (let f = 0; f < 20; f++) {
+        const path = join(dir, `session-${d}-${f}.jsonl`);
+        writeFileSync(path, `${filler}\n${line({ type: "user", cwd: `/Users/me/Projects/p${d}`, gitBranch: "main", entrypoint: "cli" })}\n`);
+        paths.push(path);
+      }
+    }
+    const scan = () => scanExternalClaudeSessions({
+      projectsDir: root, knownSessionIds: new Set(), candidatePaths: [], projectIdFor: (p) => p,
+      worktreeRoot: "/nowhere", windowMs: 24 * 3600_000,
+    });
+    expect(scan()).toHaveLength(600);
+
+    const passes: number[] = [];
+    for (let pass = 0; pass < 10; pass++) {
+      for (let k = 0; k < 3; k++) appendFileSync(paths[(pass * 3 + k) % paths.length]!, `${line({ type: "user", cwd: "/Users/me/Projects/p0" })}\n`);
+      const t = performance.now();
+      expect(scan()).toHaveLength(600);
+      passes.push(performance.now() - t);
+    }
+    console.log(`[bench] claude census, 600 transcripts, 3 changed per pass: ${passes.map((ms) => ms.toFixed(0)).join(" ")} ms`);
+    expect(Math.max(...passes)).toBeLessThan(100);
   });
 });
