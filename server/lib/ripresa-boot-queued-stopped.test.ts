@@ -505,6 +505,29 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
       expect(text.includes("ha smesso di rispondere"), label).toBe(wording === "stall");
     }
   });
+
+  /**
+   * The capped notice is the chat's last word, and nothing starts after it: a
+   * window open on the chat learnt of it only on a reload (card 09d3b815).
+   */
+  test("(d) capped: the open windows get the notice once, as the row the database holds", async () => {
+    for (const [label, make, bootedAt] of cappedCases) {
+      const db = make();
+      const frames: unknown[] = [];
+      const ctx = { db, getTopicBySessionKey: () => ({ id: "t-x", archived: false }), broadcast: (m: unknown) => frames.push(m), bootedAtMs: bootedAt() };
+      await sweep(ctx, []);
+      const notice = db.query(
+        "SELECT id, content FROM messages WHERE session_key = ? ORDER BY sort_order DESC, rowid DESC LIMIT 1",
+      ).get(SK) as { id: string; content: string };
+      expect(frames, label).toEqual([{
+        type: "message:new", topicId: "t-x", sessionKey: SK, role: "assistant", messageId: notice.id,
+        content: notice.content, preview: notice.content.slice(0, 100), blocks: [{ kind: "error", text: notice.content }],
+      }]);
+      // The next sweep finds the notice and says nothing more.
+      await sweep(ctx, []);
+      expect(frames, label).toHaveLength(1);
+    }
+  });
 });
 
 /**

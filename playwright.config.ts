@@ -590,6 +590,9 @@ export default defineConfig({
         // the DOM of the engine that ships.
         "**/project-chat-live-turn.spec.ts",
         "**/chat-join-mid-turn.spec.ts",
+        // The capped resume notice reaches both windows open on the chat,
+        // written by the real sweep, with no reload.
+        "**/ripresa-capped-live.spec.ts",
       ],
       use: {
         browserName: "webkit",

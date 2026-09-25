@@ -5808,6 +5808,7 @@ const resumeCtx: CtxRipresa = {
   isStreaming: (sk) => ctx.isStreaming(sk),
   providerBusy: sessionHasPendingSend,
   bootedAtMs: SERVER_STARTED_AT,
+  broadcast: (msg) => ctx.broadcastToAll(msg),
 };
 
 // Chain reconcile AFTER reattach: reattach adopts survivors (keeps their broker
