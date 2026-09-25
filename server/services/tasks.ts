@@ -4230,10 +4230,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       // Only SOMEONE ELSE'S words count: the machine's own notes of the same
       // kind (the boot note and the wait note are written one after the other
       // at every boot) would otherwise overtake each other and rewrite both.
-      const overtaken = dupe != null && openings.length > 0 && db.prepare(
+      const buried = dupe != null && openings.length > 0 && db.prepare(
         "SELECT 1 FROM task_comments WHERE task_id = ? AND created_at > ? AND NOT (author = ? AND kind = ?) LIMIT 1",
       ).get(taskId, dupe.created_at, author, commentKind) != null;
-      if (dupe && !overtaken) {
+      if (dupe && !buried) {
         // THE SLOT STILL HOLDS ONE ROW when the text is already there. The
         // dedupe used to return before the slot was emptied, so a pile written
         // before the slot existed survived every later write of the same text:
