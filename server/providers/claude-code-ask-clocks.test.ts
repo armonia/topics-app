@@ -27,6 +27,7 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";
 import { beginAsk, endAsk, hasPendingAsk } from "../lib/ask-user-bridge";
+import { beginPermission, endPermission } from "../lib/permission-bridge";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -38,6 +39,7 @@ async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
 
 function fakePP() {
   return {
+    sessionKey: "",
     alive: true,
     inactivityTimer: null,
     lifetimeTimer: null as { clear: () => void } | null,
@@ -55,6 +57,7 @@ function setup(sessionKey: string) {
   const provider = new ClaudeCodeProvider({ type: "claude-code" });
   const p = provider as any;
   const pp = fakePP();
+  pp.sessionKey = sessionKey;
   p.processes.set(sessionKey, pp);
   let killed = 0;
   p.killProcess = () => { killed++; };
@@ -160,20 +163,40 @@ describe("lifetime cap and the turn in flight", () => {
     expect(killed()).toBe(1);
   });
 
-  test("a woken turn not adopted yet, or declined, holds the cap too", async () => {
-    // Both flags clear on the turn's own `result`, so holding on them never
-    // turns into holding forever.
-    for (const flags of [{ wokenBuffer: [] }, { declinedTurn: true }]) {
-      const sessionKey = `sess-life-woken-${Object.keys(flags)[0]}`;
+  /**
+   * A spontaneous turn the route has not adopted yet, or has declined, is the
+   * child working too. Its lines leave `handleStreamEvent` early (buffered, or
+   * dropped), and they used to leave before the event clock: a child idle for
+   * over half an hour before the wake read as wedged, and the cap killed it
+   * while it wrote. The lines go through the real `handleStreamEvent` here,
+   * after a long idle: fixing `lastEventAt` by hand is what let the previous
+   * version of this test pass by construction (adversarial review, PR #134).
+   */
+  for (const flags of [{ declinedTurn: true }, { wokenBuffer: [] as unknown[] }]) {
+    const name = Object.keys(flags)[0];
+    test(`a spontaneous turn that is writing (${name}) is not killed by the cap`, async () => {
+      const sessionKey = `sess-life-${name}`;
       const { p, pp, killed } = setup(sessionKey);
       Object.assign(pp, flags);
+      pp.lastEventAt = Date.now() - 1_000;
 
-      p.armLifetime(pp, sessionKey, { ms: 20, rearmMs: 10 });
-      await sleep(100);
+      let lines = 0;
+      const pump = setInterval(() => {
+        p.handleStreamEvent(pp, {
+          type: "assistant",
+          message: { id: `msg_${lines}`, role: "assistant", content: [{ type: "text", text: `working ${lines}` }] },
+        });
+        lines++;
+      }, 5);
+      p.armLifetime(pp, sessionKey, { ms: 20, rearmMs: 10, wedgedMs: 200 });
+      await sleep(150);
+      clearInterval(pump);
       pp.lifetimeTimer?.clear();
+
+      expect(lines).toBeGreaterThan(10);
       expect(killed()).toBe(0);
-    }
-  });
+    });
+  }
 
   test("a turn silent past the watchdog window is still recycled", async () => {
     // A woken turn has no turn watchdog: if it wedges, this cap is the only
@@ -188,6 +211,85 @@ describe("lifetime cap and the turn in flight", () => {
     pp.lifetimeTimer?.clear();
 
     expect(killed()).toBe(1);
+    expect(p.processes.get(sessionKey)).toBeUndefined();
+  });
+
+  /**
+   * The person's time is not silence. While a permission prompt or a question
+   * is open the cap re-arms (`isHumanHold`), but `lastEventAt` stays at the
+   * `tool_use` that asked: once the person answers, the first tick found more
+   * than the watchdog window of "silence" and killed the child while the
+   * approved command ran, and a Bash that was approved prints nothing until it
+   * ends (adversarial review, PR #134).
+   */
+  test("an approved permission after a long wait: the command it runs is not killed", async () => {
+    const sessionKey = "sess-life-permission";
+    const { p, pp, killed } = setup(sessionKey);
+    pp.streamHandler = {};
+    (pp as any).pendingReject = () => {};
+    pp.lastEventAt = Date.now() - 1_000;
+    beginPermission(sessionKey, "toolu_perm");
+
+    p.armLifetime(pp, sessionKey, { ms: 20, rearmMs: 10, wedgedMs: 200 });
+    await sleep(60);
+    const duringHold = killed();
+
+    endPermission(sessionKey, "toolu_perm");
+    // The approved command runs without output.
+    await sleep(50);
+    const whileToolRuns = killed();
+    pp.lifetimeTimer?.clear();
+
+    expect(duringHold).toBe(0);
+    expect(whileToolRuns).toBe(0);
+  });
+
+  test("a question just answered: the turn it resumes is not killed", async () => {
+    const sessionKey = "sess-life-answered";
+    KEYS.push(sessionKey);
+    const { p, pp, killed } = setup(sessionKey);
+    pp.streamHandler = {};
+    (pp as any).pendingReject = () => {};
+    pp.lastEventAt = Date.now() - 1_000;
+    beginAsk(sessionKey);
+
+    p.armLifetime(pp, sessionKey, { ms: 20, rearmMs: 10, wedgedMs: 200 });
+    await sleep(60);
+    expect(killed()).toBe(0);
+
+    endAsk(sessionKey);
+    // The CLI's tool_result arrives a moment after the answer.
+    await sleep(25);
+    pp.lastEventAt = Date.now();
+    await sleep(40);
+    pp.lifetimeTimer?.clear();
+
+    expect(killed()).toBe(0);
+  });
+
+  test("a wedged spontaneous turn killed by the cap ends on its handler, as a watchdog stop", async () => {
+    // Adopted, so it has a handler, but no send: nothing awaits a rejection,
+    // and in broker mode no exit frame comes. The row stayed open until the
+    // route's watchdog wrote «Response timed out» two minutes later.
+    const sessionKey = "sess-life-wedged-woken";
+    const provider = new ClaudeCodeProvider({ type: "claude-code" });
+    const p = provider as any;
+    const pp = fakePP();
+    pp.sessionKey = sessionKey;
+    p.processes.set(sessionKey, pp);
+    const ends: unknown[] = [];
+    pp.streamHandler = {
+      onAborted: (m: { turnEnd?: unknown }) => ends.push(m?.turnEnd),
+      onError: (e: string) => ends.push(`error:${e}`),
+    };
+    pp.lastEventAt = Date.now() - 1_000;
+
+    p.armLifetime(pp, sessionKey, { ms: 20, rearmMs: 10, wedgedMs: 200 });
+    await waitFor(() => ends.length > 0);
+
+    expect(ends).toHaveLength(1);
+    expect(ends[0]).toMatchObject({ end: "cancelled", cause: "watchdog" });
+    expect(pp.streamHandler).toBeNull();
     expect(p.processes.get(sessionKey)).toBeUndefined();
   });
 
@@ -248,6 +350,26 @@ describe("reaper d'inattività", () => {
 
     endAsk(sessionKey);
     await sleep(40);
+    expect(killed()).toBe(1);
+  });
+});
+
+describe("a config change and the turn in flight", () => {
+  test("refreshSessionConfig does not kill a child with a send still pending", async () => {
+    // Same rule as the lifetime cap: a send waiting on the child is a turn in
+    // flight even after the route released its handler. The change applies at
+    // the next natural respawn instead.
+    const sessionKey = "sess-config-pending";
+    const { p, pp, killed } = setup(sessionKey);
+    (pp as any).pendingReject = () => {};
+
+    p.refreshSessionConfig(sessionKey);
+
+    expect(killed()).toBe(0);
+    expect(p.processes.get(sessionKey)).toBe(pp);
+
+    (pp as any).pendingReject = null;
+    p.refreshSessionConfig(sessionKey);
     expect(killed()).toBe(1);
   });
 });

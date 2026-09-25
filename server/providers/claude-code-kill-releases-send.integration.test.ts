@@ -59,7 +59,10 @@ beforeAll(async () => {
     `INSERT INTO topics (id, name, slug, session_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
   );
   insert.run("t-krs-a", "krs-a", "krs-a", "topic:kill-releases-send", now, now);
-  insert.run("t-krs-a2", "krs-a2", "krs-a2", "topic:kill-releases-send-config", now, now);
+  insert.run("t-krs-a2", "krs-a2", "krs-a2", "topic:kill-releases-send-cap", now, now);
+  insert.run("t-krs-e", "krs-e", "krs-e", "topic:clear-drops-queued", now, now);
+  insert.run("t-krs-f", "krs-f", "krs-f", "topic:stop-drops-queued", now, now);
+  insert.run("t-krs-g", "krs-g", "krs-g", "topic:stop-before-ready", now, now);
   insert.run("t-krs-b", "krs-b", "krs-b", "topic:queued-send-stopped", now, now);
   insert.run("t-krs-c", "krs-c", "krs-c", "topic:reattach-killed-clear", now, now);
   insert.run("t-krs-d", "krs-d", "krs-d", "topic:reattach-killed-stop", now, now);
@@ -93,7 +96,7 @@ function recorder(tag: string, log: { at: number; ev: string }[]) {
     onToolResult: () => push("tool-result"),
     onSubAgentUpdate: () => push("subagent"),
     onUserInputRequired: () => push("input"),
-    onAborted: () => push("aborted"),
+    onAborted: (m?: { turnEnd?: { cause?: string } }) => push(m?.turnEnd?.cause ? `aborted:${m.turnEnd.cause}` : "aborted"),
     onCompaction: () => push("compaction"),
     onDone: (m?: { result?: string }) => push(`done:${m?.result ?? ""}`),
     onError: (e: string) => push(`error:${e}`),
@@ -112,26 +115,30 @@ async function waitFor(cond: () => boolean, timeoutMs: number): Promise<boolean>
 describe("a killed child and the session queue (real broker, real child)", () => {
   /**
    * Two ways a child dies under a live send. `/clear` is the person throwing
-   * the turn away: it ends as a cancel, like Stop, with no error and no error
-   * push. Any other kill is an error that says who did it; here a config change
-   * on a turn the route stopped watching (handler released, send still
-   * pending), the one system kill that can still land on a turn in flight.
+   * the turn away: it ends as a cancel by the user, like Stop, with no error
+   * and no error push. A kill by the machine ends as a watchdog stop, the cause
+   * the route's own watchdog writes, which the resume reads as "the agent
+   * stopped answering". After the guards, the one machine kill that still
+   * lands on a turn in flight is the lifetime cap on a turn silent past the
+   * watchdog window: here at test scale.
    */
   const KILLS = [
     {
       name: "/clear",
       sk: "topic:kill-releases-send",
       kill: async (provider: any, sk: string) => { await provider.resetSession(sk); },
-      ending: (ev: string) => ev === "A:aborted",
+      ending: (ev: string) => ev === "A:aborted:user",
     },
     {
-      name: "a config change",
-      sk: "topic:kill-releases-send-config",
+      name: "the lifetime cap on a silent turn",
+      sk: "topic:kill-releases-send-cap",
       kill: async (provider: any, sk: string) => {
-        provider.unregisterStreamHandler(sk);
-        provider.refreshSessionConfig(sk);
+        const pp = provider.processes.get(sk);
+        pp.lifetimeTimer?.clear();
+        pp.lifetimeTimer = provider.armLifetime(pp, sk, { ms: 20, rearmMs: 10, wedgedMs: 100 });
+        await waitFor(() => !pp.alive, slackMs(5_000));
       },
-      ending: (ev: string) => ev === "A:error:Turn ended: the Claude Code process was stopped by a configuration change.",
+      ending: (ev: string) => ev === "A:aborted:watchdog",
     },
   ];
   for (const k of KILLS) {
@@ -154,8 +161,8 @@ describe("a killed child and the session queue (real broker, real child)", () =>
       expect(log.some((l) => l.ev.startsWith("B:"))).toBe(false);
 
       // Kill A's child mid-turn.
-      const killedAt = Date.now();
       await k.kill(provider, sk);
+      const killedAt = Date.now();
 
       expect(ppA.pendingReject).toBeNull();
       expect(await waitFor(() => log.some((l) => k.ending(l.ev)), slackMs(100))).toBe(true);
@@ -270,4 +277,99 @@ describe("a killed child and the session queue (real broker, real child)", () =>
       }
     }, 30_000);
   }
+
+  /** Every stdin write for one session, whichever child it goes to. */
+  async function spyWrites(sk: string) {
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const client = getAiBridgeClient() as any;
+    const writes: string[] = [];
+    const realWrite = client.write.bind(client);
+    client.write = (id: string, data: string) => {
+      if (id === sk) writes.push(data);
+      return realWrite(id, data);
+    };
+    return { client, writes, restore: () => { client.write = realWrite; } };
+  }
+
+  test("/clear also drops the sends queued behind the turn it kills", async () => {
+    // /clear deletes every row, the queued messages' too: a send that ran
+    // afterwards answered, on the fresh session, a row that no longer exists.
+    const sk = "topic:clear-drops-queued";
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    const log: { at: number; ev: string }[] = [];
+    const spy = await spyWrites(sk);
+    try {
+      void provider.sendChat(sk, "do some work", recorder("A", log) as never);
+      expect(await waitFor(() => log.some((l) => l.ev === "A:tool"), slackMs(10_000))).toBe(true);
+      const sendB = provider.sendChat(sk, "tutto ok?", recorder("B", log) as never);
+      await sleep(50);
+
+      await provider.resetSession(sk);
+
+      // The route does not close a queued stream on /clear: the send says so itself.
+      expect(await sendB).toEqual({ runId: undefined, notSent: true });
+      expect(log.filter((l) => l.ev.startsWith("B:")).map((l) => l.ev)).toEqual(["B:aborted:user"]);
+      expect(spy.writes.some((w) => w.includes("tutto ok?"))).toBe(false);
+    } finally {
+      spy.restore();
+      provider.stop();
+    }
+  }, 30_000);
+
+  test("stop() tells the sends queued in the provider that the server is going away", async () => {
+    // A queued send's stream is still open, and the provider is going away
+    // under it. Direct mode used to spawn a new child for it after the stop.
+    const sk = "topic:stop-drops-queued";
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    const log: { at: number; ev: string }[] = [];
+    void provider.sendChat(sk, "do some work", recorder("A", log) as never);
+    expect(await waitFor(() => log.some((l) => l.ev === "A:tool"), slackMs(10_000))).toBe(true);
+    void provider.sendChat(sk, "tutto ok?", recorder("B", log) as never);
+    await sleep(50);
+
+    provider.stop();
+
+    expect(log.filter((l) => l.ev.startsWith("B:")).map((l) => l.ev)).toEqual(["B:aborted:server-shutdown"]);
+  }, 30_000);
+
+  test("a Stop before the fresh child is ready: nothing is written, and the queue moves", async () => {
+    // Between the spawn and its ack no send is waiting yet, so `abort()` finds
+    // nothing to reject, and a SIGINT sent before the spawn reaches nobody.
+    // The message then went to a child whose every line is dropped as a
+    // stopped child's tail: the send hung until the 30 minute watchdog, and
+    // the queue with it (adversarial review, PR #134; also on origin/main).
+    const sk = "topic:stop-before-ready";
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    const p = provider as any;
+    const log: { at: number; ev: string }[] = [];
+    const spy = await spyWrites(sk);
+    const realSpawn = spy.client.spawn.bind(spy.client);
+    spy.client.spawn = async (id: string, opts: unknown) => {
+      if (id === sk) await sleep(300);
+      return realSpawn(id, opts);
+    };
+    try {
+      const handlerA = recorder("A", log);
+      const sendA = provider.sendChat(sk, "stoppami", handlerA as never);
+      expect(await waitFor(() => p.processes.get(sk)?.streamHandler === handlerA, slackMs(5_000))).toBe(true);
+
+      await provider.abort(sk, undefined, "user");
+
+      const settled = await Promise.race([sendA, sleep(slackMs(2_000)).then(() => "still pending")]);
+      expect(settled).toEqual({ runId: undefined, notSent: true });
+      expect(spy.writes.some((w) => w.includes("stoppami"))).toBe(false);
+      expect(log.filter((l) => l.ev.startsWith("A:")).map((l) => l.ev)).toEqual(["A:aborted:user"]);
+
+      // The next message is not stuck behind it.
+      void provider.sendChat(sk, "tutto ok?", recorder("B", log) as never);
+      expect(await waitFor(() => log.some((l) => l.ev.startsWith("B:done")), slackMs(15_000))).toBe(true);
+    } finally {
+      spy.client.spawn = realSpawn;
+      spy.restore();
+      provider.stop();
+    }
+  }, 45_000);
 });
