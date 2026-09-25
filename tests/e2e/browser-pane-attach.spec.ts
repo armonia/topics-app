@@ -186,6 +186,13 @@ async function proxyAppSocket(page: Page): Promise<{ send: (frame: Record<string
   };
 }
 
+/** The browser's spawner as the page recorded it (session storage), or null. */
+const spawnerOf = (page: Page, ctx: string) =>
+  page.evaluate((c) => {
+    const raw = sessionStorage.getItem("topics:browser-spawners:v1");
+    return raw ? ((JSON.parse(raw) as { browserToTopic?: Record<string, string> }).browserToTopic?.[c] ?? null) : null;
+  }, ctx);
+
 /** The project browser's row in the sidebar, by the title the layout seeds. */
 const sidebarBrowserRow = (page: Page) =>
   page.getByRole("navigation", { name: "Topics sidebar" }).getByText("Project page", { exact: true }).first();
@@ -317,6 +324,10 @@ test.describe("open_browser_pane attaches the project pane", () => {
         .toBeGreaterThan(0);
       await expect(innerTab(page, `browser:${ctx}`)).toHaveAttribute("data-active", "true");
       await expect(page.locator('[role="tab"][data-pane-id^="browser:"]'), "one browser tab, the project's").toHaveCount(1);
+      // No navigate reached this window, so nothing recorded who opened the
+      // browser: the hand-over records the chat (a chat's context IS its
+      // topic id), as a navigate would have.
+      expect(await spawnerOf(page, ctx), "the chat is the browser's spawner").toBe(ctx);
 
       await waitForExecutor(request, () => watch.opensSince(forcedAt), ctx);
       const answer = await openPaneRoute(request, ctx, url);
@@ -591,11 +602,6 @@ test.describe("open_browser_pane from a terminal", () => {
     const app = await proxyAppSocket(page);
     const traces: string[] = [];
     page.on("console", (m) => { if (m.text().includes("[pane-attach]")) traces.push(m.text()); });
-    const spawnerOf = (ctx: string) =>
-      page.evaluate((c) => {
-        const raw = sessionStorage.getItem("topics:browser-spawners:v1");
-        return raw ? ((JSON.parse(raw) as { browserToTopic?: Record<string, string> }).browserToTopic?.[c] ?? null) : null;
-      }, ctx);
 
     await gotoTerminalProject(page, topicName);
     await openShellViaSidebar(page, new TerminalPage(page));
@@ -605,13 +611,13 @@ test.describe("open_browser_pane from a terminal", () => {
 
     app.send({ type: "browser:open-near-pane", paneId: terminalPaneId, contextId: ctx, url: "https://example.com/from-the-terminal" });
     await expect(innerTab(page, `browser:${ctx}`)).toBeVisible({ timeout: 15_000 });
-    await expect.poll(() => spawnerOf(ctx), { message: "open-near-pane records the terminal" }).toBe(terminalPaneId);
+    await expect.poll(() => spawnerOf(page, ctx), { message: "open-near-pane records the terminal" }).toBe(terminalPaneId);
 
     app.send({ type: "browser:force-open", contextId: ctx, url: "https://example.com/forced" });
     await expect
       .poll(() => traces.some((t) => t.includes("force-open handed to this window")), { timeout: 10_000 })
       .toBe(true);
-    expect(await spawnerOf(ctx), "the hand-over keeps the terminal as the spawner").toBe(terminalPaneId);
+    expect(await spawnerOf(page, ctx), "the hand-over keeps the terminal as the spawner").toBe(terminalPaneId);
     await expect(innerTab(page, `browser:${ctx}`)).toHaveAttribute("data-active", "true");
   });
 });

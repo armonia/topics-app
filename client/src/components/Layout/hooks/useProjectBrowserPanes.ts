@@ -293,9 +293,13 @@ export function useProjectBrowserPanes({
       const d = (e as CustomEvent<ProjectBrowserHandOver>).detail;
       if (!d?.url || !d.contextId || d.projectPath !== projectPath) return;
       e.preventDefault();
-      const spawner = spawnerOfBrowser(d.contextId);
+      // The recorded spawner first (a terminal's, above all); with none, the
+      // context itself, as the drain below and the base did. A chat's browser
+      // context IS its topic id, so that keeps the chat-browser link when the
+      // window mounted after the navigate that would have recorded it.
+      const spawner = spawnerOfBrowser(d.contextId) ?? d.contextId;
       tracePaneAttach('force-open handed to this window', { projectPath, contextId: d.contextId, spawner });
-      ensureBrowserPaneAndNavigate(d.url, groupHosting(spawner), spawner ?? undefined, d.contextId);
+      ensureBrowserPaneAndNavigate(d.url, groupHosting(spawner), spawner, d.contextId);
     };
     window.addEventListener(PROJECT_BROWSER_HAND_OVER_EVENT, handOverHandler);
 
