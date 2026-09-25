@@ -1379,21 +1379,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             if (clientDisconnected) return;
             try { await writer.write(encoder.encode(`data: ${data}\n\n`)); } catch { clientDisconnected = true; }
           };
-          // A byte every 20 s while the turn lives: Bun's 255 s idle timeout cut this
-          // response into a silent tool (chat 3019832f), and every write resets it.
-          stopPing = startSsePing({
-            write: (chunk) => { if (!clientDisconnected) writer.write(chunk).catch(() => { clientDisconnected = true; }); },
-            alive: () => !clientDisconnected && streamState !== "finalized",
-            intervalMs: ssePingMs,
-          });
+          // A byte every 20 s while the turn lives: Bun's 255 s idle timeout cut this response mid-tool.
+          stopPing = startSsePing({ intervalMs: ssePingMs, alive: () => !clientDisconnected && streamState !== "finalized",
+            write: (chunk) => { if (!clientDisconnected) writer.write(chunk).catch(() => { clientDisconnected = true; }); } });
           const closeClient = async () => {
             stopPing();
             if (clientDisconnected) return;
             try { await writer.close(); } catch { clientDisconnected = true; }
           };
-          // `turn` frames, for send_chat_message: the first names this turn's row (what
-          // a cut stream waits on), the last says an end that is not a finished answer,
-          // so a stopped half is never the reply. Other readers look only at `choices`.
+          // `turn` frames for send_chat_message: the first names the row a cut stream waits on, the
+          // last an end that is not a finished answer. Other readers look only at `choices`.
           writeSSE(JSON.stringify({ turn: { messageId: partialMsg.id } }));
           const writeTurnEnd = (info?: TurnEndInfo) => !info || info.end === "end_turn" ? Promise.resolve()
             : writeSSE(JSON.stringify({ turn: { end: info.end, ...(info.cause ? { cause: info.cause } : {}) } }));
@@ -2476,8 +2471,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }, 500);
             }
 
-            // Close SSE response. A turn that ended normally but left an error
-            // verdict (an empty reply) failed all the same, and the frame says so.
+            // Close SSE response. An end_turn that left an error verdict (an empty reply) failed all the same.
             await writeTurnEnd(turnError && endInfo.end === "end_turn" ? { end: "error" } : endInfo);
             await writeSSE("[DONE]");
             await closeClient();
@@ -3631,8 +3625,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // watchdog sono ancora armati.
             streamState = "finalized";
             const errorMsg = closeTurnWithFailure(err, partialMsg.id);
-            // Not awaited: nobody reads this stream before the Response below
-            // is returned, and a write with no reader waits for one for ever.
+            // Not awaited: no reader before the Response below, and a write with no reader waits for ever.
             writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { content: errorMsg }, finish_reason: "stop" }] }))
               .then(() => writeTurnEnd({ end: "error" })).then(() => writeSSE("[DONE]")).then(() => closeClient())
               .catch((e) => console.warn(`[StreamWS] error/close on sync setup error failed:`, e));
