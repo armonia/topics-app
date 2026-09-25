@@ -65,6 +65,7 @@ import {
   getPaneConfig,
   getBrowserOrigin,
   enqueueProjectBrowserReopen,
+  isProjectWindowMounted,
 } from '../state/pane/adapters';
 import { findPaneLocation, usePaneStore } from '../state/pane/store';
 import { filterVisiblePaneIds, resolvePaneSpace } from '../state/pane/selectors';
@@ -110,6 +111,7 @@ import {
   type FocusIntent,
 } from './focusIntent';
 import { useShallow } from 'zustand/react/shallow';
+import { tracePaneAttach } from '../lib/paneAttachTrace';
 
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 
@@ -956,6 +958,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         // project window already lists this browser pane.
         const browserPaneId = `browser:${msg.contextId}`;
         const owner = owningRenderedProject(browserPaneId);
+        tracePaneAttach('force-open received', {
+          contextId: msg.contextId,
+          owner,
+          ownerMounted: owner ? isProjectWindowMounted(owner) : null,
+        });
         if (owner) {
           // A LIVE project window owns and renders this pane — its
           // open-near-pane handler already mounted the browser beside the

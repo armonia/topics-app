@@ -93,6 +93,7 @@ import { createTerminalSession } from '../../../lib/terminalActions';
 import { deleteTerminalSession } from '../../../lib/terminalRosterRetry';
 import { useToast } from '../../Shared/Toast';
 import { useT } from '../../../hooks/useT';
+import { tracePaneAttach } from '../../../lib/paneAttachTrace';
 
 // --- Module-local helpers (mirrors of ProjectWindow.tsx helpers) ---
 
@@ -267,7 +268,9 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       .filter(p => {
         if (p.type === 'browser') {
           const ctx = getBrowserContextFromPaneId(p.id);
-          return !(ctx && browserTombstones.has(ctx));
+          const tombstoned = !!ctx && browserTombstones.has(ctx);
+          if (tombstoned) tracePaneAttach('tombstoned pane dropped at mount', { projectPath, paneId: p.id });
+          return !tombstoned;
         }
         if (p.type === 'chat' || p.type === 'terminal') return true;
         return !viewTombstones.has(viewTombstoneKey(projectPath, p.type));

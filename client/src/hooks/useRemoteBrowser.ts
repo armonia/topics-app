@@ -7,6 +7,7 @@ import { browserClientId } from '../lib/browserClientId';
 import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 import { attachViewerChannel, pushViewerCount } from '../lib/viewerCountBus';
 import { mapCoordinates } from './browserCoords';
+import { tracePaneAttach } from '../lib/paneAttachTrace';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
 
@@ -1097,7 +1098,9 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     window.addEventListener('online', onWake);
     window.addEventListener('focus', onWake);
 
+    tracePaneAttach('pane socket opened', { contextId, shell: 'web' });
     return () => {
+      tracePaneAttach('pane socket released', { contextId, shell: 'web' });
       mountedRef.current = false;
       window.removeEventListener('online', onWake);
       window.removeEventListener('focus', onWake);

@@ -39,6 +39,7 @@ import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../../lib/openLink';
 import { insertPaneAfter, resolveOpenTabTarget } from '../../../lib/openTabTarget';
 import { setBrowserSpawner } from '../../../state/browserSpawner';
 import { chooseSplitOrientation } from '../gridWidths';
+import { tracePaneAttach } from '../../../lib/paneAttachTrace';
 
 export interface UseProjectBrowserPanesArgs {
   projectPath: string;
@@ -95,7 +96,14 @@ export function useProjectBrowserPanes({
   // Dichiara questa finestra al registro: chi vorrebbe promuovere qualcosa nel
   // workspace (la board, con «Apri nel workspace») può così sapere se la
   // finestra c'è GIÀ, invece di sparare `topics:open-project` a ogni click.
-  useEffect(() => registerProjectWindow(projectPath), [projectPath]);
+  useEffect(() => {
+    tracePaneAttach('project window mounted', { projectPath });
+    const release = registerProjectWindow(projectPath);
+    return () => {
+      tracePaneAttach('project window unmounted', { projectPath });
+      release();
+    };
+  }, [projectPath]);
 
   // --- Browser-navigate listener (parity with StandaloneChatGroup) -----------
   //
@@ -169,6 +177,9 @@ export function useProjectBrowserPanes({
         : panesRef.current.find(p => p.type === 'browser');
       if (existing) {
         const grp = groupsRef.current.find(g => g.paneIds.includes(existing.id));
+        // No group hosting an existing pane means nothing gets activated: the
+        // tab stays wherever it was, and a background tab is not mounted.
+        tracePaneAttach('reuse existing pane', { projectPath, paneId: existing.id, groupId: grp?.id ?? null, wasActive: grp?.activePaneId === existing.id });
         if (grp) {
           setGroups(prev => prev.map(g => (g.id === grp.id ? { ...g, activePaneId: existing.id } : g)));
           setFocusedGroupId(grp.id);
@@ -188,6 +199,7 @@ export function useProjectBrowserPanes({
         const newId = fgid
           ? await handleAddPaneToGroupRef.current?.(fgid, 'browser', undefined, contextId)
           : await handleAddPaneWhenEmptyRef.current?.('browser', undefined, contextId);
+        tracePaneAttach('create pane', { projectPath, contextId: contextId ?? null, groupId: fgid ?? null, paneId: newId ?? null });
         if (newId) {
           const ctx = getBrowserContextFromPaneId(newId);
           if (ctx && spawnerKey) setBrowserSpawner(ctx, spawnerKey);
@@ -206,27 +218,32 @@ export function useProjectBrowserPanes({
     // board "Apri nel workspace" that arrived while this window was still closed.
     ensureBrowserPaneAndNavigateRef.current = ensureBrowserPaneAndNavigate;
 
-    const topicBelongsToThisProject = (topicId: string | undefined): boolean => {
-      if (!topicId) return false;
+    // Why a topic belongs here, or null. The reason only feeds the trace; the
+    // callers need the boolean below.
+    const topicMembership = (topicId: string | undefined): 'open-chat' | 'project-path' | null => {
+      if (!topicId) return null;
       // Match if the topic is currently rendered as a chat pane here OR if its
       // projectPath matches ours. The latter handles broadcasts that arrive
       // before the user has explicitly opened the chat pane in this window.
       const inOpenChats = panesRef.current.some(
         p => p.type === 'chat' && p.topicId === topicId,
       );
-      if (inOpenChats) return true;
+      if (inOpenChats) return 'open-chat';
       const t = topics[topicId];
-      return !!t && t.projectPath === projectPath;
+      return t && t.projectPath === projectPath ? 'project-path' : null;
     };
+    const topicBelongsToThisProject = (topicId: string | undefined): boolean => topicMembership(topicId) !== null;
 
     const unsubWS = onWSMessage((msg: WSMessage) => {
       const m = msg as unknown as { type?: string; topicId?: string; url?: string; paneId?: string; contextId?: string };
-      if (m.type === 'browser:navigate' && m.url && topicBelongsToThisProject(m.topicId)) {
+      if (m.type === 'browser:navigate' && m.url) {
+        const membership = topicMembership(m.topicId);
+        tracePaneAttach('navigate received', { projectPath, topicId: m.topicId ?? null, contextId: m.contextId ?? null, membership });
         // Bind the pane to the server-resolved contextId (== topic.id) so the
         // native CDP target registers under the id the agent's browser_* tools
         // resolve to (no invisible Playwright phantom). Falls back to topicId
         // (the chat-topic contextId) when the broadcast predates the field.
-        ensureBrowserPaneAndNavigate(m.url, undefined, m.topicId, m.contextId ?? m.topicId);
+        if (membership) ensureBrowserPaneAndNavigate(m.url, undefined, m.topicId, m.contextId ?? m.topicId);
       }
       // Terminal-originated open: only the project window whose layout actually
       // contains the terminal pane reacts; it opens the browser beside that
@@ -247,6 +264,7 @@ export function useProjectBrowserPanes({
       const belongs =
         (!!detail.projectPath && detail.projectPath === projectPath) ||
         topicBelongsToThisProject(detail.topicId);
+      tracePaneAttach('open-and-navigate received', { projectPath, contextId: detail.contextId ?? null, belongs });
       if (!belongs) return;
       // chat-topic contextId === topicId (resolveContextIdForTopic); the board
       // passes an explicit contextId so the pane is steerable by the agent later.
@@ -364,6 +382,7 @@ export function useProjectBrowserPanes({
     // quindi zero gruppi vuol dire zero gruppi, non «non ancora caricati» — e
     // la navigazione parcheggiata deve aprire la sua pane anche lì.
     for (const nav of drainProjectBrowserNavigates(projectPath)) {
+      tracePaneAttach('parked navigate drained', { projectPath, contextId: nav.contextId ?? null });
       ensureBrowserPaneAndNavigateRef.current?.(nav.url, undefined, nav.spawnerKey ?? nav.contextId, nav.contextId);
     }
   }, [projectPath, groups.length]);
