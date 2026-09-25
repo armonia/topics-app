@@ -1026,7 +1026,17 @@ const repoRootForCard = ({ projectId, assignedTopicId }: { taskId: string; proje
 const dispatcherSvc = createTaskService(ctx.db, {
   writeDeliverySheet: makeSheetWriter(ctx.OPENCLAW_DIR),
   repoRootFor: repoRootForCard,
+  onLateDeliveryNote: (taskId, projectId) => {
+    const noted = dispatcherSvc.get(taskId, { projectId })?.task;
+    if (noted) ctx.broadcastToAll({ type: "task:updated", projectId, task: noted });
+  },
 });
+// A delivery note that was waiting on git when the previous process stopped
+// died with it: the deliveries of the last ten minutes that have none are
+// checked again, off the loop like the first time.
+try { dispatcherSvc.recheckRecentDeliveries(new Date(Date.now() - 10 * 60_000).toISOString()); } catch (err) {
+  console.warn("[tasks] delivery notes not rechecked at boot:", err);
+}
 
 /** Stops a turn from inside the server. The cause is required and is never
  *  `user` unless a person pressed something: see lib/abort-cause.ts (card C9). */

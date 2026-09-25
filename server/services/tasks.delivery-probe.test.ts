@@ -14,7 +14,7 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { createTaskService, type TaskService } from "./tasks";
+import { createTaskService, deliveryNotesInFlight, type TaskService } from "./tasks";
 import { freshDb, PID } from "./tasks-test-db";
 import type { RepoProbe } from "./deliveryReportChecks";
 
@@ -68,6 +68,42 @@ describe("the delivery verifier probes the card's repository", () => {
 
     expect(asked[0]?.assignedTopicId).toBeNull();
     expect(built).toEqual(["/projects/of/the-board"]);
+  });
+});
+
+describe("a note that died with the process is written at the next boot", () => {
+  const findsNothing: RepoProbe = { ...silentProbe, symbolInHistory: () => false };
+
+  test("the agent deliveries still in review without a note are checked again; the others are not", async () => {
+    const db = freshDb();
+    // The process that delivered never wrote the note (it stopped while git
+    // was being asked): modelled by a probe that finds nothing to say.
+    const before = createTaskService(db, { repoRootFor: () => "/r", probeFor: () => silentProbe });
+    const deliver = (text: string) => {
+      const t = before.create({ projectId: PID, text, status: "in_progress" });
+      before.update({ taskId: t.id, actor: "agent", by: "agent-1", patch: { status: "review", summary: "Nuovo `neverWrittenSymbol`." } });
+      return t.id;
+    };
+    const lost = deliver("persa");
+    const bySystem = deliver("portata dal sistema");
+    const old = deliver("vecchia");
+    db.run("UPDATE tasks SET delivered_by = 'system' WHERE id = ?", [bySystem]);
+    db.run("UPDATE tasks SET updated_at = '2020-01-01T00:00:00.000Z' WHERE id = ?", [old]);
+
+    const told: string[] = [];
+    const next = createTaskService(db, {
+      repoRootFor: () => "/r",
+      probeFor: () => ({ ...findsNothing, prepare: async () => findsNothing }),
+      onLateDeliveryNote: (taskId) => told.push(taskId),
+    });
+    expect(next.recheckRecentDeliveries(new Date(Date.now() - 60_000).toISOString())).toBe(1);
+    await deliveryNotesInFlight();
+    const noteOf = (id: string) => next.get(id)!.comments.filter((c) => c.kind === "review-note").map((c) => c.content).join("\n");
+    expect(noteOf(lost)).toContain("neverWrittenSymbol");
+    expect([noteOf(bySystem), noteOf(old)]).toEqual(["", ""]);
+    expect(told).toEqual([lost]);
+    // Once written, the note is there: a second boot has nothing left to do.
+    expect(next.recheckRecentDeliveries(new Date(Date.now() - 60_000).toISOString())).toBe(0);
   });
 });
 

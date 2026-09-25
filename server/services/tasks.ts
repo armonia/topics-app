@@ -336,6 +336,12 @@ interface ServiceOpts {
   repoRootFor?: (args: { taskId: string; projectId: string | undefined; assignedTopicId: string | null }) => string | null;
   /** How a root becomes a probe (tests pass a fake). */
   probeFor?: (root: string) => RepoProbe;
+  /**
+   * A delivery note that waited on git has just been written: after the update
+   * that asked for it returned, so after its caller broadcast the card. The
+   * host sends the card again, or an open board or drawer never shows the note.
+   */
+  onLateDeliveryNote?: (taskId: string, projectId: string | undefined) => void;
 }
 
 /** Cosa e' stato spostato da una fusione. I conti servono a chi la annuncia. */
@@ -420,6 +426,13 @@ export interface TaskService {
    * which is exactly why they piled up.
    */
   addComment(args: { taskId: string; author: string; content: string; mentions?: string[]; media?: string[]; projectId?: string; questionOptions?: string[]; kind?: "comment" | "review-note" | "service" | "delivery"; once?: boolean; replaces?: string | string[]; messageId?: string | null; origin?: TaskActionOrigin; quiet?: boolean }): TaskComment;
+  /**
+   * Checks again the claims of the agent deliveries still in review, touched
+   * since `sinceIso`, that carry no delivery note. A note waiting on git dies
+   * with the process that was asking, and nothing else asks again: the boot
+   * calls this. Checking a clean delivery twice writes nothing.
+   */
+  recheckRecentDeliveries(sinceIso: string): number;
   /**
    * Una interruzione, una riga.
    *
@@ -3236,13 +3249,14 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         if (root) probe = (opts.probeFor ?? probeForRoot)(root);
       } catch { /* the server's own checkout, as before */ }
       const reports = rows.map((r) => r.content ?? "");
-      const writeNote = (answers: RepoProbe): void => {
+      /** True when a note was written. */
+      const writeNote = (answers: RepoProbe): boolean => {
         const findings = reports.flatMap((r) => checkDeliveryReport(r, answers));
         // "Nothing to check" is not a finding worth showing: that is a report
         // written in prose, which is legitimate. Only what was LOOKED UP and not
         // found gets annotated.
         const real = findings.filter((f) => f.code !== "nothing-to-check");
-        if (real.length === 0) return;
+        if (real.length === 0) return false;
 
         const lines = [...new Set(real.map((f) => `- ${f.detail}`))].slice(0, 8);
         emit({
@@ -3258,6 +3272,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             "Ma ognuna di queste si controlla in due secondi, ed e' esattamente cio' che nessuno " +
             "faceva sulle 14 carte chiuse senza lavoro.",
         });
+        return true;
       };
       // Git is never asked inside this update (`git log -S` took up to 20 s
       // here, with the whole server standing still): the probe asks off the
@@ -3268,14 +3283,16 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         const q = gitQuestions(r);
         return q.shas.length > 0 || q.citesFiles || q.symbols.length > 0;
       });
-      if (!probe.prepare || !asksGit) return writeNote(probe);
+      if (!probe.prepare || !asksGit) { writeNote(probe); return; }
       const late = (answers: RepoProbe): void => {
         // THE NOTE ANSWERS FOR ITS OWN DELIVERY. If the card was delivered
         // again meanwhile, that delivery emptied the slot and this report is
         // no longer the one under review: written now, an old accusation
         // would sit under a clean delivery (PR #147, second review).
         if (deliveryGeneration.get(taskId) !== generation) return;
-        try { writeNote(answers); } catch { /* as below */ }
+        try {
+          if (writeNote(answers)) opts.onLateDeliveryNote?.(taskId, projectId);
+        } catch { /* as below */ }
       };
       trackDeliveryNote(probe.prepare(reports).then(late, () => {}));
     } catch {
@@ -4199,6 +4216,17 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         childLeftFlight(row.parent_task_id as string, by, this);
       }
       return rowToTask(getTaskRow(taskId));
+    },
+
+    recheckRecentDeliveries(sinceIso: string): number {
+      const rows = db.prepare(
+        `SELECT id, project_id FROM tasks t
+          WHERE t.status = 'review' AND t.delivered_by = 'agent' AND t.updated_at >= ?
+            AND NOT EXISTS (SELECT 1 FROM task_comments c
+                             WHERE c.task_id = t.id AND c.kind = 'review-note' AND c.content LIKE ?)`,
+      ).all(sinceIso, `${DELIVERY_CLAIM_SLOT}%`) as Array<{ id: string; project_id: string | null }>;
+      for (const r of rows) annotateDeliveryClaims(r.id, r.project_id ?? undefined, (a) => this.addComment(a));
+      return rows.length;
     },
 
     addComment({ taskId, author, content, mentions, media, projectId, questionOptions, kind, once, replaces, messageId, origin, quiet }): TaskComment {
