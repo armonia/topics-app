@@ -5,7 +5,7 @@
  * @covers RESUME-02
  */
 import { describe, expect, test } from "bun:test";
-import { foldRowTurns, rowTurn, type RowTurns } from "./row-turn";
+import { foldRowTurns, rowTurn, wakeMark, type RowTurns } from "./row-turn";
 
 const mark = (row: string) => ({ type: "topics_delivered", mark: row });
 const init = { type: "system", subtype: "init" };
@@ -54,5 +54,30 @@ describe("a row's own turn in the broker store", () => {
     expect(rowTurn(scan([mark("OTHER"), init, result("x")]).turns, "R")).toBeUndefined();
     expect(rowTurn(scan([mark("R"), init, text("half")]).turns, "R")?.end).toBeUndefined();
     expect(rowTurn(scan([mark("R")]).turns, undefined)).toBeUndefined();
+  });
+
+  // A wake has no stdin write: its adopter marks it after it began, with the offset where it did.
+  describe("a wake's row", () => {
+    const wake = (row: string, at: number) => ({ type: "topics_delivered", mark: wakeMark(row, at) });
+
+    test("marked while it runs: from its first line to its own result, and the next wake is not its", () => {
+      const head = scan([mark("R"), init, text("T1"), result("T1"), notification, init]);
+      const at = head.ends.at(-1)!;
+      const { turns, ends } = scan([mark("R"), init, text("T1"), result("T1"), notification, init, text("W1-FIRST"), wake("W1", at), result("W1-FINAL"), notification, init, text("W2"), result("W2")]);
+      expect(rowTurn(turns, "W1")).toEqual({ from: at, end: ends[8] });
+    });
+
+    test("a short wake is over before its row exists: the mark finds the result already folded", () => {
+      const head = scan([result("old"), notification, init]);
+      const at = head.ends.at(-1)!;
+      const { turns, ends } = scan([result("old"), notification, init, text("W1"), result("W1"), wake("W1", at)]);
+      expect(rowTurn(turns, "W1")).toEqual({ from: at, end: ends[4] });
+    });
+
+    test("a wake's mark opens nothing for a person's row, and a mark that is not an offset is a person's", () => {
+      const { turns, ends } = scan([mark("R"), init, text("R"), wake("W1", 0), result("R")]);
+      expect(rowTurn(turns, "R")).toEqual({ from: ends[0], end: ends[4] });
+      expect(rowTurn(scan([{ type: "topics_delivered", mark: "odd@row@x" }, result("x")]).turns, "odd@row@x")?.end).toBeGreaterThan(0);
+    });
   });
 });

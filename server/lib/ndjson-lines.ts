@@ -63,7 +63,8 @@ export type LineFolder = ((chunk: Buffer) => void) & {
  * spezzata dentro il decoder — semplicemente non sono ancora contati.
  */
 export function createLineFolder(
-  onLine: (line: string, endOffset: number) => void,
+  /** `startOffset`: where the line's first byte is, for a wake that must say where its turn began. */
+  onLine: (line: string, endOffset: number, startOffset: number) => void,
   startOffset = 0,
 ): LineFolder {
   const decoder = new StringDecoder("utf8");
@@ -77,8 +78,9 @@ export function createLineFolder(
     if (nl === -1) { carry = s; return; }
     while (nl !== -1) {
       const line = s.slice(start, nl);
+      const lineStart = cursor;
       cursor += Buffer.byteLength(line) + 1;
-      onLine(line, cursor);
+      onLine(line, cursor, lineStart);
       start = nl + 1;
       nl = s.indexOf("\n", start);
     }
