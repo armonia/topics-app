@@ -19,6 +19,7 @@
  * are real, and the provider behaves like claude-code on abort.
  *
  * @covers RESUME-02
+ * @covers CHAT-01
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
@@ -31,6 +32,8 @@ import { readTurnEnd, resetTurnEndRegistry } from "../../server/providers/turn-e
 import { registerProvider, removeProvider } from "../../server/providers";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, ContentBlock, StoredMessage, Topic } from "../../server/types";
+import { HEADSTONE_PREFIX } from "../../server/lib/empty-turn-headstone";
+import { turnIsOnlyError, turnLooksUnanswered } from "../../client/src/components/Chat/turnError";
 
 const TEST_DATA = testTmpDir("machine-stop-parity-data");
 beforeAll(() => setupTestDataDir(TEST_DATA));
@@ -39,11 +42,14 @@ let captured: StreamHandler | undefined;
 const reasons: string[] = [];
 /** What the provider still says between the stop and its abort echo (ACP, native). */
 let beforeEcho: ((h: StreamHandler) => void) | null = null;
+/** false = a provider whose abort ends the turn later (ACP, Codex): the route finalizes first. */
+let echoesAbort = true;
 const registered = registerProvider({ type: "openai", apiKey: "" } as never) as unknown as Record<string, unknown>;
 Object.defineProperty(registered, "connected", { configurable: true, get: () => true });
 // Like claude-code's abort(): a synchronous onAborted with the reason it got.
 registered.abort = async (_sk: string, _runId: string | undefined, reason: string) => {
   reasons.push(reason);
+  if (!echoesAbort) return;
   if (captured && beforeEcho) beforeEcho(captured);
   captured?.onAborted?.({ turnEnd: { end: "cancelled", cause: reason } } as never);
 };
@@ -54,6 +60,7 @@ const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString(
 async function chatWith(sessionKey: string, rows: StoredMessage[] = []) {
   captured = undefined;
   beforeEcho = null;
+  echoesAbort = true;
   reasons.length = 0;
   const ctx: AppContext = await createTestAppContext();
   const sent: Array<Record<string, unknown>> = [];
@@ -265,5 +272,129 @@ describe("a stop the machine wanted ends as on main, and is not the person's", (
     expect(reasons).toEqual(["user"]);
     expect(readTurnEnd(sk)?.info).toMatchObject({ cause: "user" });
     expect(c.stopsOnRecord()).toBe(1);
+  });
+});
+
+/**
+ * AN EMPTY TURN THE MACHINE STOPPED OFFERS NO RETRY, AFTER A RELOAD TOO (card
+ * 46617a7f).
+ *
+ * A stop the machine wanted discards an empty turn's row (above), and the chat
+ * then ends on the message that turn was answering: for a card, the
+ * dispatcher's envelope. The client reads that shape as a reply that never
+ * came (`turnLooksUnanswered`) and offers «Riprova», which resends the envelope:
+ * a paid turn to redo work already on main. Measured on the production DB
+ * before the fix: 11 card chats ending on an envelope, the card landed about a
+ * second later, nothing under it.
+ *
+ * "Reload" here is what the history route serves (`loadLocalMessages`), read
+ * by the client's own rules, so the verdict survives a reload by construction.
+ */
+describe("an empty turn the machine stopped offers no retry, after a reload too", () => {
+  /** What the client decides on the rows the history route serves. */
+  const retryOffered = (rows: StoredMessage[]) => {
+    const last = rows.at(-1);
+    const banner = turnLooksUnanswered({
+      lastMessageIsUser: last?.role === "user",
+      locallyStreaming: false,
+      serverSaysOpen: false,
+      serverAsked: true,
+    });
+    const bubble = last?.role === "assistant" && turnIsOnlyError(last);
+    return banner || bubble;
+  };
+
+  for (const cause of ["superseded", "wall-clock", "stall"] as const) {
+    for (const echoes of [true, false]) {
+      const order = echoes ? "the provider finalizes first (claude-code)" : "the route finalizes first (ACP, Codex)";
+      test(`${cause}, ${order}: a service row under the envelope, no retry, nothing resent`, async () => {
+        const sk = `topic:empty-${cause}-${echoes ? "echo" : "late"}`;
+        const c = await chatWith(sk);
+        echoesAbort = echoes;
+        await c.post({ messages: [{ role: "user", content: "Envelope della card: fai il merge" }] });
+        const turnRowId = c.assistantRows().at(-1)!.id;
+
+        await c.abort(internalAbortRequest(sk, cause));
+
+        const rows = c.ctx.loadLocalMessages(sk);
+        expect(rows.some((m) => m.id === turnRowId)).toBe(false);
+        expect(retryOffered(rows)).toBe(false);
+        // The row that says why. Its `content` is empty on purpose: the model's
+        // history and the dispatcher's "last words of the agent" read only
+        // `content`, and a sentence there would reach both.
+        const notice = rows.at(-1)!;
+        expect(notice.role).toBe("assistant");
+        expect(notice.content).toBe("");
+        expect(notice.blocks).toEqual([{ kind: "machine-stop", cause }]);
+        expect(notice.parentId).toBe(rows.at(-2)!.id);
+        // A window watching the chat gets it live, before the stop's end: its
+        // handler drops a `message:new` without text, so the frame carries one.
+        const live = c.sent.findIndex((m) => m.type === "message:new" && m.messageId === notice.id);
+        expect(live).toBeGreaterThanOrEqual(0);
+        expect(c.sent[live]).toMatchObject({ role: "assistant", blocks: [{ kind: "machine-stop", cause }] });
+        expect(String(c.sent[live].content ?? "")).not.toBe("");
+        const routeEnd = c.sent.findLastIndex((m) => m.type === "stream:end");
+        expect(live).toBeLessThan(routeEnd);
+        expect(await c.resentAfterRestart()).toEqual([]);
+      });
+    }
+  }
+
+  test("a turn that produced something keeps its own row, and gets no service row", async () => {
+    const sk = "topic:kept-superseded";
+    const c = await chatWith(sk);
+    await c.post({ messages: [{ role: "user", content: "Envelope della card" }] });
+    captured!.onTextDelta("Comincio il merge", "Comincio il merge");
+
+    await c.abort(internalAbortRequest(sk, "superseded"));
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    expect(rows.at(-1)?.content).toContain("Comincio il merge");
+    expect(rows.flatMap((m) => m.blocks ?? []).some((b) => b.kind === "machine-stop")).toBe(false);
+  });
+
+  test("the stall judge on an empty woken row under an answer: nothing to explain, no service row", async () => {
+    // The chat ends on an answer once the woken row is gone: no retry was on
+    // offer, and a line saying a turn was stopped would sit under a reply.
+    const sk = "topic:woken-no-notice";
+    const c = await chatWith(sk, [
+      { id: `${sk}-u`, role: "user", content: "Fai il giro", timestamp: minutesAgo(40) },
+      { id: `${sk}-a`, role: "assistant", content: "Fatto.", timestamp: minutesAgo(20), parentId: `${sk}-u` },
+      { id: `${sk}-w`, role: "assistant", content: "", timestamp: minutesAgo(15), partial: true, parentId: `${sk}-a` },
+    ] as StoredMessage[]);
+    await c.post({ messages: [], mode: "reattach", dispatched: true, provider: "openai" });
+
+    await c.abort(internalAbortRequest(sk, "stall"));
+
+    expect(c.ctx.loadLocalMessages(sk).map((m) => m.id)).toEqual([`${sk}-u`, `${sk}-a`]);
+    expect(c.sent.some((m) => m.type === "message:new")).toBe(false);
+  });
+
+  test("the person's Stop on an empty turn is not the machine's: no service row", async () => {
+    const sk = "topic:empty-person";
+    const c = await chatWith(sk);
+    await c.post({ messages: [{ role: "user", content: "fermati pure" }] });
+
+    await c.clientAbort();
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    expect(rows.at(-1)?.role).toBe("user");
+    expect(rows.flatMap((m) => m.blocks ?? []).some((b) => b.kind === "machine-stop")).toBe(false);
+  });
+
+  test("the opposite: a turn that really came back empty keeps its notice and its retry", async () => {
+    // No stop at all: the provider closed the turn with nothing. That is a
+    // failure the person can act on, and «Riprova» is the right offer.
+    const sk = "topic:empty-for-real";
+    const c = await chatWith(sk);
+    await c.post({ messages: [{ role: "user", content: "rispondi" }] });
+
+    captured!.onDone({} as never);
+
+    const rows = c.ctx.loadLocalMessages(sk);
+    const last = rows.at(-1)!;
+    expect(last.content.startsWith(HEADSTONE_PREFIX)).toBe(true);
+    expect(retryOffered(rows)).toBe(true);
+    expect(rows.flatMap((m) => m.blocks ?? []).some((b) => b.kind === "machine-stop")).toBe(false);
   });
 });
