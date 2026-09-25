@@ -77,3 +77,30 @@ describe("the ai-bridge through a stalled server loop", () => {
     expect(after).toEqual({ sameSocket: true, cliAlive: true });
   }, 120_000);
 });
+
+describe("our stalls are taken off the bridge's silence, not a reason to start it over", () => {
+  // A beat, then 2.6 s of loop standing still, every time: each beat comes
+  // late by more than the 2 s the watchdog forgives. The timings are shrunk
+  // (beat 0.5 s, pong 1.5 s) in a process of its own, where they are read.
+  async function run(mode: "mute" | "answers", cycles: number) {
+    const child = Bun.spawn(
+      [process.execPath, join(import.meta.dir, "ai-bridge-watchdog-stall.fixture.ts"), join(tmpdir(), `ai-bridge-drip-${process.pid}-${mode}.sock`), mode, String(cycles)],
+      { env: { ...process.env, TOPICS_AI_BRIDGE_WATCHDOG_MS: "500", TOPICS_AI_BRIDGE_PONG_MS: "1500" }, stdout: "pipe", stderr: "pipe" },
+    );
+    const out = await new Response(child.stdout).text();
+    await child.exited;
+    return JSON.parse(out.trim().split("\n").at(-1) ?? "{}") as { recycledAfterMs?: number; sameSocket?: boolean };
+  }
+
+  test("a daemon that never answers is recycled all the same", async () => {
+    // Restarting the silence at every late beat excused it for ever: 8 beats,
+    // same socket (PR #147, second review).
+    const r = await run("mute", 8);
+    expect(r.recycledAfterMs).toBeGreaterThan(0);
+  }, 60_000);
+
+  test("a daemon that answers keeps its socket through the same stalls", async () => {
+    const r = await run("answers", 5);
+    expect(r.sameSocket).toBe(true);
+  }, 60_000);
+});

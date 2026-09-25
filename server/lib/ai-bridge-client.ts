@@ -547,11 +547,15 @@ export class AiBridgeClient {
   private startWatchdog(): void {
     if (this.watchdog) return;
     let dueAt = Date.now() + WATCHDOG_EVERY_MS;
-    // Silence is counted from here at the earliest: the end of our own stall.
-    let awakeSince = 0;
+    // Our own stalls since the bridge last spoke: taken off its silence, and
+    // back to zero the moment it speaks again.
+    let excusedMs = 0;
+    let heardAt = 0;
     this.watchdog = setInterval(() => {
       if (!this.ready) return;
       const now = Date.now();
+      const heard = Math.max(this.lastPongAt, this.lastByteAt);
+      if (heard !== heardAt) { heardAt = heard; excusedMs = 0; }
       // A BEAT FAR LATER THAN ITS PERIOD MEASURES US, NOT THE BRIDGE. After a
       // loop that stood still for a minute (287 s measured on 25/09) this timer
       // runs before the socket's pending bytes are even read, so the pong and
@@ -559,9 +563,16 @@ export class AiBridgeClient {
       // socket, and its reconnect then waited behind the next stall long enough
       // for the daemon's grace to run out and take the CLIs with it (card
       // 51fb9359). The same forgiveness the ack waiters apply (`arm`).
-      if (now - dueAt > LOOP_STALL_FORGIVENESS_MS) awakeSince = now;
+      //
+      // The stall is SUBTRACTED from the silence, not a reason to start it
+      // over: restarting it at every late beat excused, for ever, a daemon that
+      // never answered while a stall of over 2 s landed on each beat (PR #147,
+      // second review). A ceiling on wall time instead would bring the 287 s
+      // case back.
+      const late = now - dueAt;
+      if (late > LOOP_STALL_FORGIVENESS_MS) excusedMs += late;
       dueAt = now + WATCHDOG_EVERY_MS;
-      if (shouldRecycleSocket(now, Math.max(this.lastPongAt, awakeSince), Math.max(this.lastByteAt, awakeSince), PONG_TIMEOUT_MS)) {
+      if (shouldRecycleSocket(now - excusedMs, this.lastPongAt, this.lastByteAt, PONG_TIMEOUT_MS)) {
         console.warn("[AI Bridge] watchdog: né pong né byte — riciclo il socket");
         try { this.socket?.destroy(); } catch { /* 'close' handles reconnect */ }
         return;
