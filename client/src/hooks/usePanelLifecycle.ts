@@ -2674,28 +2674,36 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       focusedTopicId: focusedTopicForPresence,
       tabs: presenceTabs,
     });
-    // Same trigger, WIDER set: declare the open topics for per-token delta
-    // routing (server → WSData.openTopicIds), plus the ones a non-pane surface
-    // is holding. Kept in lock-step with the presence announce so a window never
-    // has a stale subscription and misses its stream; a window that never sends
-    // this still receives everything (legacy branch).
-    //
-    // The presence announce above stays on `presenceTopicIds` alone: a drawer
-    // reading a session is not "a chat open in this window" for the peers, and
-    // declaring it there would draw an "open elsewhere" marker nobody asked for.
+  }, [windowId, isDetached, presenceTopicIds, focusedTopicForPresence, presenceTabs, sendWS]);
+  // Same triggers, WIDER set: declare the open topics for per-token delta
+  // routing (server → WSData.openTopicIds), plus the ones a non-pane surface
+  // is holding; a window that never sends this still receives everything
+  // (legacy branch).
+  //
+  // The presence announce above stays on `presenceTopicIds` alone: a drawer
+  // reading a session is not "a chat open in this window" for the peers, and
+  // declaring it there would draw an "open elsewhere" marker nobody asked for.
+  // And a separate callback, so a hold does not announce the presence again:
+  // every chat inside a project holds its topic when it mounts, and each
+  // presence announce makes the server send every window the roster again.
+  const announceSubscription = useCallback(() => {
     sendWS({ type: 'subscribe', topicIds: subscribedTopicIds });
-  }, [windowId, isDetached, presenceTopicIds, subscribedTopicIds, focusedTopicForPresence, presenceTabs, sendWS]);
+  }, [subscribedTopicIds, sendWS]);
   useEffect(() => { announcePresence(); }, [announcePresence]);
+  useEffect(() => { announceSubscription(); }, [announceSubscription]);
   // Mirrored so the subscription below is registered once and still sends the
   // CURRENT snapshot: re-subscribing on every set change would tear the
   // listener down and up dozens of times per session for nothing.
   const announcePresenceRef = useRefMirror(announcePresence);
-  // Every open, first one included: the effect above runs at mount, when the
+  const announceSubscriptionRef = useRefMirror(announceSubscription);
+  // Every open, first one included: the effects above run at mount, when the
   // socket is usually still handshaking, so without this the boot announce
   // would be the one that gets dropped.
   useEffect(() => subscribeLifecycle((event) => {
-    if (event === 'open') announcePresenceRef.current();
-  }), [announcePresenceRef]);
+    if (event !== 'open') return;
+    announcePresenceRef.current();
+    announceSubscriptionRef.current();
+  }), [announcePresenceRef, announceSubscriptionRef]);
 
   return {
     state: {
