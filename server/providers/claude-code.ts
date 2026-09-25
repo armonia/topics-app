@@ -888,13 +888,21 @@ class ProcessKilledError extends Error {
   }
 }
 
-/** How a turn whose child was killed ends on its handler. `/clear` is the person
- *  throwing the turn away, the same gesture as Stop: a cancel, not a failure,
- *  so no error notice and no error push. Any other kill is an error that says
- *  who did it. */
+/**
+ * How a turn whose child was killed ends on its handler. `/clear` is the person
+ * throwing the turn away, the same gesture as Stop: a cancel by the user, so no
+ * error notice and no error push. A shutdown says so. Any other kill is the
+ * machine giving up on a turn: once the guards spare every turn in flight, the
+ * one left is the lifetime cap on a turn silent past the watchdog window, a
+ * stall. It ends with the cause the route's own watchdog writes, which the
+ * resume reads as "the agent stopped answering" and acts on; a bare `onError`
+ * carried no cause, so nothing resumed it.
+ */
 function endKilledTurn(handler: StreamHandler, err: ProcessKilledError): void {
-  if (err.killCause === "clear") handler.onAborted?.({ turnEnd: cancelled("user") });
-  else handler.onError(err.notice);
+  if (!handler.onAborted) { handler.onError(err.notice); return; }
+  if (err.killCause === "clear") handler.onAborted({ turnEnd: cancelled("user") });
+  else if (err.killCause === "shutdown") handler.onAborted({ turnEnd: cancelled("server-shutdown") });
+  else handler.onAborted({ turnEnd: cancelled("watchdog", err.notice) });
 }
 
 interface PersistentProcess {
@@ -1911,7 +1919,10 @@ export class ClaudeCodeProvider implements AIProvider {
   refreshSessionConfig(sessionKey: string): void {
     const pp = this.processes.get(sessionKey);
     if (!pp) return;
-    if (pp.streamHandler) return; // live turn — apply on next respawn
+    // A turn in flight, by the same rule as the lifetime cap: a handler, or a
+    // send still waiting on the child after the route released its handler.
+    // The change then applies on the next natural respawn.
+    if (pp.streamHandler || pp.pendingReject) return;
     console.log(`[claude-code] refreshSessionConfig: dropping idle process for ${sessionKey} to pick up new config`);
     this.killProcess(pp, "config");
     this.processes.delete(sessionKey);
@@ -4059,6 +4070,14 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.pendingResolve = null;
       pp.pendingReject = null;
       reject(new ProcessKilledError(cause));
+    } else if (pp.streamHandler) {
+      // A turn with no send waiting on it (a spontaneous turn the route
+      // adopted): no rejection has a reader, and in broker mode no exit frame
+      // follows, so the handler ends here, or the row stayed open until the
+      // route's watchdog wrote «Response timed out».
+      const handler = pp.streamHandler;
+      this.releaseStreamHandler(pp);
+      this.tellHandlerSafely(pp, "onAborted", () => endKilledTurn(handler, new ProcessKilledError(cause)));
     }
     this.cleanupTimers(pp);
     try { pp.readline?.close(); } catch {}

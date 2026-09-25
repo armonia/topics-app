@@ -171,6 +171,8 @@ describe("lifetime cap and the turn in flight", () => {
    * while it wrote. The lines go through the real `handleStreamEvent` here,
    * after a long idle: fixing `lastEventAt` by hand is what let the previous
    * version of this test pass by construction (adversarial review, PR #134).
+   * Scale: 5 s of idle before the wake against a 1 s window, so only a missing
+   * fix turns these red, not a machine that pauses for 200 ms.
    */
   for (const flags of [{ declinedTurn: true }, { wokenBuffer: [] as unknown[] }]) {
     const name = Object.keys(flags)[0];
@@ -178,7 +180,7 @@ describe("lifetime cap and the turn in flight", () => {
       const sessionKey = `sess-life-${name}`;
       const { p, pp, killed } = setup(sessionKey);
       Object.assign(pp, flags);
-      pp.lastEventAt = Date.now() - 1_000;
+      pp.lastEventAt = Date.now() - 5_000;
 
       let lines = 0;
       const pump = setInterval(() => {
@@ -188,7 +190,7 @@ describe("lifetime cap and the turn in flight", () => {
         });
         lines++;
       }, 5);
-      p.armLifetime(pp, sessionKey, { ms: 20, rearmMs: 10, wedgedMs: 200 });
+      p.armLifetime(pp, sessionKey, { ms: 20, rearmMs: 10, wedgedMs: 1_000 });
       await sleep(150);
       clearInterval(pump);
       pp.lifetimeTimer?.clear();
@@ -227,10 +229,10 @@ describe("lifetime cap and the turn in flight", () => {
     const { p, pp, killed } = setup(sessionKey);
     pp.streamHandler = {};
     (pp as any).pendingReject = () => {};
-    pp.lastEventAt = Date.now() - 1_000;
+    pp.lastEventAt = Date.now() - 5_000;
     beginPermission(sessionKey, "toolu_perm");
 
-    p.armLifetime(pp, sessionKey, { ms: 20, rearmMs: 10, wedgedMs: 200 });
+    p.armLifetime(pp, sessionKey, { ms: 20, rearmMs: 10, wedgedMs: 1_000 });
     await sleep(60);
     const duringHold = killed();
 
@@ -250,10 +252,10 @@ describe("lifetime cap and the turn in flight", () => {
     const { p, pp, killed } = setup(sessionKey);
     pp.streamHandler = {};
     (pp as any).pendingReject = () => {};
-    pp.lastEventAt = Date.now() - 1_000;
+    pp.lastEventAt = Date.now() - 5_000;
     beginAsk(sessionKey);
 
-    p.armLifetime(pp, sessionKey, { ms: 20, rearmMs: 10, wedgedMs: 200 });
+    p.armLifetime(pp, sessionKey, { ms: 20, rearmMs: 10, wedgedMs: 1_000 });
     await sleep(60);
     expect(killed()).toBe(0);
 
