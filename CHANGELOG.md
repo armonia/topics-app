@@ -2,6 +2,11 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.396 — 2026-09-25
+
+### Sotto il cofano
+- The reread after a cut reply goes past the history dedup, so a turn started meanwhile from another window gets its Stop
+
 ## 2.2.395 — 2026-09-25
 
 ### Sotto il cofano
@@ -29,11 +34,16 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Review follow-ups: honest deferral text, machine stops signed as such, the boot reap names what it closes
 - Verifier follow-ups: a /compact starts a fresh wait, a notice follows the turn it would hang from, a stall stop leaves live work alone
 - A background notice carries its sentence, so an older client prints it instead of breaking the pane
+- A window that took a live turn for over lights it again: on stream:alive, on a live chunk or tool, and when its reply closes without [DONE] while the server still runs the turn
+- a turn silent in a tool keeps its Stop, in a viewer and in a sender whose reply was cut short
+- alive joins the locked set of outbound frames: 99 -> 100
 - Second review: the background notice is a service row, a stall pauses the goal, a change the background work makes wait is said, and each close names its reason
 - A wake is news of a listed Monitor only, and the routes hand their background code to its modules
 - A machine's stop and the background work it closed are one row, and the routes stay under their ceiling
 - Third review: the notice waits for the turn's real end, the goal pays one judge per interval, and every reader looks past service lines
 - Retry, auto-TTS, a plan's buttons and a pending question look past a service line, and its sentence wraps on a phone
+- A reply cut short relights only a turn still running: not one that ended, or was stopped, while its history was in flight
+- The codex probe is asked, guests get stream:alive, the bench threshold resets with the test DB
 
 ## 2.2.394 — 2026-09-25
 
@@ -44,6 +54,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - A word the identifier gate knows in the notice-deletion test
 - No conflict of ours with C6+C9's new head: an import, a field and the ping filter move
 - read_chat_messages finds the cut row itself; a lost POST or a non-busy 409 warns too
+- A live turn silent in a tool for three minutes: the registry, the 409 gate and the sweep's broadcast, on the real code
+- Silence no longer ends a turn in the registry: only the sweep, which asks the child, does, and it says so when it keeps one
 
 ## 2.2.393 — 2026-09-25
 

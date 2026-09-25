@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.396",
+    "date": "2026-09-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "The reread after a cut reply goes past the history dedup, so a turn started meanwhile from another window gets its Stop",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.395",
     "date": "2026-09-25",
     "sections": {
@@ -130,6 +146,23 @@
           "scope": null
         },
         {
+          "it": "A window that took a live turn for over lights it again: on stream:alive, on a live chunk or tool, and when its reply closes without [DONE] while the server still runs the turn",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "a turn silent in a tool keeps its Stop, in a viewer and in a sender whose reply was cut short",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "alive joins the locked set of outbound frames: 99 -> 100",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Second review: the background notice is a service row, a stall pauses the goal, a change the background work makes wait is said, and each close names its reason",
           "en": "",
           "scope": null
@@ -151,6 +184,16 @@
         },
         {
           "it": "Retry, auto-TTS, a plan's buttons and a pending question look past a service line, and its sentence wraps on a phone",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A reply cut short relights only a turn still running: not one that ended, or was stopped, while its history was in flight",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The codex probe is asked, guests get stream:alive, the bench threshold resets with the test DB",
           "en": "",
           "scope": null
         }
@@ -192,6 +235,16 @@
         },
         {
           "it": "read_chat_messages finds the cut row itself; a lost POST or a non-busy 409 warns too",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A live turn silent in a tool for three minutes: the registry, the 409 gate and the sweep's broadcast, on the real code",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Silence no longer ends a turn in the registry: only the sweep, which asks the child, does, and it says so when it keeps one",
           "en": "",
           "scope": null
         }
