@@ -186,6 +186,7 @@ const IT: Dict = {
   'chat.dispatchEnvelope.title': 'Questo messaggio l\u2019ha scritto la board per far partire o riprendere il turno dell\u2019agente. Non l\u2019hai scritto tu, quindi non si modifica: aprilo per leggere cosa \u00e8 stato dato all\u2019agente.',
   'goal.loop.stalled': 'Obiettivo: auto-continuazione fermata, non si muoveva niente',
   'background.notice.closed': 'Lavoro in background chiuso dopo 2 h senza notizie: {tasks}',
+  'background.notice.closedWithTurn': 'Lavoro in background chiuso insieme a un turno bloccato: {tasks}',
   'background.notice.deferred.autonomy': "Il cambio di autonomia vale quando finisce il lavoro in background",
   'background.notice.deferred.model': 'Il cambio di modello vale quando finisce il lavoro in background',
   'background.notice.deferred.effort': "Il cambio di effort vale quando finisce il lavoro in background",

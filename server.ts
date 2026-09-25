@@ -802,9 +802,9 @@ const claudeSessionTracker = createClaudeSessionTracker({
 ClaudeCodeProvider.observeTurnReleased((sk) => { claudeSessionTracker.syncImportOffsetToEnd(sk); });
 // A clock closed a CLI with background work still listed: the chat says what
 // died and why (server/lib/background-notice.ts), not only the log.
-ClaudeCodeProvider.observeBackgroundClosed((sessionKey, tasks) => {
+ClaudeCodeProvider.observeBackgroundClosed((sessionKey, tasks, why) => {
   const topic = ctx.getTopicBySessionKey(sessionKey);
-  if (topic) postBackgroundNotice(ctx, { sessionKey, topicId: topic.id }, { kind: "background-notice", event: "closed", tasks });
+  if (topic) postBackgroundNotice(ctx, { sessionKey, topicId: topic.id }, { kind: "background-notice", event: "closed", tasks, why });
 });
 
 // La porta unica del parcheggio (lib/session-parking.ts): archiviare un topic

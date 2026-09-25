@@ -186,6 +186,7 @@ const EN = {
   'chat.dispatchEnvelope.title': 'The board wrote this message to start or resume the agent turn. It is not something you typed, so it is not editable: open it to read what the agent was given.',
   'goal.loop.stalled': 'Goal: auto-continuation stopped, nothing was moving',
   'background.notice.closed': 'Background work closed after 2 h without news: {tasks}',
+  'background.notice.closedWithTurn': 'Background work closed with a stuck turn: {tasks}',
   'background.notice.deferred.autonomy': 'The autonomy change applies when the background work ends',
   'background.notice.deferred.model': 'The model change applies when the background work ends',
   'background.notice.deferred.effort': 'The effort change applies when the background work ends',

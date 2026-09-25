@@ -303,7 +303,7 @@ export const MessageBubble = memo(function MessageBubble({
         <Layers size={11} className="flex-shrink-0" />
         <span className="truncate" title={backgroundNotice.event === 'closed' ? backgroundNotice.tasks.join('\n') : undefined}>
           {backgroundNotice.event === 'closed'
-            ? tr('background.notice.closed', { tasks: backgroundNotice.tasks.join(', ') })
+            ? tr(backgroundNotice.why === 'stuck-turn' ? 'background.notice.closedWithTurn' : 'background.notice.closed', { tasks: backgroundNotice.tasks.join(', ') })
             : tr(`background.notice.deferred.${backgroundNotice.change}`)}
         </span>
       </div>

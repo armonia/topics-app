@@ -135,6 +135,18 @@ describe("background work, lines the fixture lacks (verifiers' recordings, CLI 2
     expect(isWakeQueued(work, 33)).toBe(false);
   });
 
+  test("a snapshot that changes only an ambient entry is not news for the tasks listed next to it", () => {
+    const work = newBackgroundWork();
+    noteBackgroundLine(work, snapshot([{ task_id: "b1", task_type: "local_bash", description: "suite" }]), 10, { unattended: true });
+    noteBackgroundLine(work, snapshot([
+      { task_id: "b1", task_type: "local_bash", description: "suite" },
+      { task_id: "d1", task_type: "dream", description: "dream", ambient: true },
+    ]), 5_000, { unattended: true });
+    expect(work.lastSignalAt).toBe(10);
+    noteBackgroundLine(work, snapshot([{ task_id: "b1", task_type: "local_bash", description: "suite" }, { task_id: "b2", task_type: "local_bash", description: "build" }]), 6_000, { unattended: true });
+    expect(work.lastSignalAt).toBe(6_000);
+  });
+
   test("a replay is dated by the child's last write, the queued wake too", () => {
     const work = newBackgroundWork();
     noteBackgroundLine(work, snapshot([{ task_id: "b1", task_type: "local_bash", description: "suite" }]), 5_000_000, { unattended: true });

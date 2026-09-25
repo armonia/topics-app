@@ -863,6 +863,7 @@ function brokerIO(client: AiBridgeClient, sessionKey: string): SessionIO {
 /** Who killed a child on purpose. Travels with the rejection of the send that
  *  was waiting on it, so the chat says what ended the turn. */
 type KillCause = "lifetime" | "idle" | "clear" | "config" | "watchdog" | "stopped-child" | "dead" | "shutdown";
+type BackgroundClosedObserver = (sessionKey: string, tasks: string[], why: "silent" | "stuck-turn") => void;
 
 const KILL_CAUSE_TEXT: Record<KillCause, string> = {
   lifetime: "the 2 hour lifetime cap",
@@ -1319,10 +1320,25 @@ export class ClaudeCodeProvider implements AIProvider {
    * child, and a log line was the only trace of it (verification of 25/09).
    * Static for the same boot-order reason as `observeWokenTurns`.
    */
-  static observeBackgroundClosed(fn: (sessionKey: string, tasks: string[]) => void): void {
+  static observeBackgroundClosed(fn: BackgroundClosedObserver): void {
     ClaudeCodeProvider.onBackgroundClosed = fn;
   }
-  private static onBackgroundClosed: ((sessionKey: string, tasks: string[]) => void) | null = null;
+  private static onBackgroundClosed: BackgroundClosedObserver | null = null;
+
+  /**
+   * Say it before the child goes: `silent` = its work had no news for two
+   * hours (the reaper, the lifetime cap, a config respawn, the stall judge,
+   * which all wait for that bound); `stuck-turn` = a clock ended a wedged turn
+   * (turn watchdog, wall clock) and the work, alive or not, goes with it.
+   */
+  private sayBackgroundClosed(pp: PersistentProcess, why: "silent" | "stuck-turn", by: string): void {
+    const listed = pp.background?.tasks;
+    if (!pp.alive || !listed?.size) return;
+    const tasks = [...listed.values()].map((t) => t.description || t.type);
+    console.log(`[claude-code] ${pp.sessionKey}: ${by} closes background work (${why}): ${tasks.join("; ")}`);
+    try { ClaudeCodeProvider.onBackgroundClosed?.(pp.sessionKey, tasks, why); }
+    catch (err) { console.warn(`[claude-code] background-closed observer failed for ${pp.sessionKey}:`, err); }
+  }
 
   /**
    * The ONLY way a turn's handler is cleared, so every end (result, abort,
@@ -2108,6 +2124,10 @@ export class ClaudeCodeProvider implements AIProvider {
     const pp = this.processes.get(sessionKey);
     if (!pp || !pp.alive) return;
 
+    // A clock's stop takes the listed background work with it: the stall judge
+    // only after two hours without news of it, the watchdogs on a wedged turn.
+    if (reason === "stall") this.sayBackgroundClosed(pp, "silent", "the stall judge");
+    if (reason === "watchdog" || reason === "wall-clock") this.sayBackgroundClosed(pp, "stuck-turn", `the ${reason} stop`);
     // Mark BEFORE signalling: the CLI exits (code 0) on SIGINT, so the exit
     // event that follows must be read as a clean stop, not a crash. The
     // reason keeps the exit log honest ("watchdog stop" vs "user stop").
@@ -4257,15 +4277,10 @@ export class ClaudeCodeProvider implements AIProvider {
   }
 
   private killProcess(pp: PersistentProcess, cause: KillCause): void {
+    if (cause === "idle" || cause === "lifetime" || cause === "config") this.sayBackgroundClosed(pp, "silent", KILL_CAUSE_TEXT[cause]);
+    if (cause === "watchdog") this.sayBackgroundClosed(pp, "stuck-turn", KILL_CAUSE_TEXT[cause]);
     const wasAlive = pp.alive;
     pp.alive = false;
-    const listed = pp.background?.tasks;
-    if (wasAlive && listed?.size && (cause === "idle" || cause === "lifetime" || cause === "config")) {
-      const tasks = [...listed.values()].map((t) => t.description || t.type);
-      console.log(`[claude-code] ${pp.sessionKey}: ${KILL_CAUSE_TEXT[cause]} closes background work silent for two hours: ${tasks.join("; ")}`);
-      try { ClaudeCodeProvider.onBackgroundClosed?.(pp.sessionKey, tasks); }
-      catch (err) { console.warn(`[claude-code] background-closed observer failed for ${pp.sessionKey}:`, err); }
-    }
     // Killed on purpose (e.g. `/clear` while a send waits for this stopped
     // child): nobody will hear its exit in broker mode, because `kill` drops
     // the handlers for the key, so the wait ends now instead of at its cap.

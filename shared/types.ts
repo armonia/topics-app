@@ -1007,10 +1007,11 @@ export type ContentBlock =
    * the person reads it (server/lib/background-notice.ts): a change of
    * autonomy, model or effort waiting for the work to end, because applying it
    * respawns the CLI and the respawn kills the work; or the work closed by a
-   * clock after two hours without news of it, `tasks` naming what was closed.
+   * clock, `tasks` naming what was closed: after two hours without news of it
+   * (`silent`, the default), or with a wedged turn a watchdog ended.
    */
   | { kind: 'background-notice'; event: 'deferred'; change: 'autonomy' | 'model' | 'effort' }
-  | { kind: 'background-notice'; event: 'closed'; tasks: string[] }
+  | { kind: 'background-notice'; event: 'closed'; tasks: string[]; why?: 'silent' | 'stuck-turn' }
   /**
    * THIS ROW IS AN ENVELOPE THE DISPATCHER WROTE, not something a person typed.
    *

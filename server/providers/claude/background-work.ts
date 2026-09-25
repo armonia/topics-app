@@ -90,6 +90,7 @@ export function noteBackgroundLine(
 ): void {
   const snapshot = readBackgroundTasks(event);
   if (snapshot) {
+    const before = work.tasks;
     work.tasks = new Map();
     for (const t of snapshot) {
       // The CLI's own schema: "hosts should exclude them from activity
@@ -100,7 +101,10 @@ export function noteBackgroundLine(
       if (f) f.listed = true;
       else work.facts.set(t.id, { subagent: false, listed: true });
     }
-    work.lastSignalAt = now;
+    // News only when OUR set changed: the CLI also re-emits the snapshot when
+    // an ambient entry comes, goes or flips, and that says nothing about a lost
+    // Bash listed next to it (review of 25/09).
+    if (work.tasks.size !== before.size || [...work.tasks.keys()].some((id) => !before.has(id))) work.lastSignalAt = now;
     return;
   }
   const e = event as { type?: unknown; subtype?: unknown; task_id?: unknown; tool_use_id?: unknown; owned_by_subagent?: unknown } | null;

@@ -31,7 +31,8 @@ export const BACKGROUND_NOTICE_PREFIX = "Background work:";
 
 export function backgroundNoticeText(n: BackgroundNotice): string {
   if (n.event === "closed") {
-    return `${BACKGROUND_NOTICE_PREFIX} closed after two hours without news of it: ${n.tasks.join("; ")}.`;
+    const why = n.why === "stuck-turn" ? "with a turn that was stuck" : "after two hours without news of it";
+    return `${BACKGROUND_NOTICE_PREFIX} closed ${why}: ${n.tasks.join("; ")}.`;
   }
   return `${BACKGROUND_NOTICE_PREFIX} the ${n.change} change applies when the work running in the background ends; until then the running CLI keeps the previous one.`;
 }

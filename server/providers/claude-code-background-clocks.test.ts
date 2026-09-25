@@ -96,6 +96,44 @@ describe("the clocks that kill, against background work", () => {
     }
   });
 
+  test("the stall judge, past the same bound, closes the listed work and says so; a watchdog says it went with a stuck turn", async () => {
+    const closed: Array<{ sk: string; tasks: string[]; why: string }> = [];
+    ClaudeCodeProvider.observeBackgroundClosed((key, tasks, why) => { closed.push({ sk: key, tasks, why }); });
+    try {
+      const sk = "topic:clocks-stall-closed";
+      const { provider, pp, counts, feed } = stub(sk);
+      feed(events.slice(0, firstResult + 1));
+      pp.wokenBuffer = null; pp.declinedTurn = false;
+      pp.background.lastSignalAt = Date.now() - TWO_HOURS - 1;
+      pp.streamHandler = { onAborted() {} };
+      let judged = 0;
+      let clock = Date.now();
+      const timers: Array<() => void> = [];
+      armStallDetector({
+        idleMs: 5 * 60_000,
+        isWaitingForHuman: () => false, isWaitingForChecks: () => false, isFrozen: () => false,
+        isWaitingForBackground: () => provider.hasBackgroundWork(sk),
+        getTail: () => "assistant: tool_use Bash (bun run dev) ...",
+        judge: async () => { judged++; return "stuck"; },
+        onStuck: () => { void provider.abort(sk, undefined, "stall"); },
+        setTimer: (fn) => { timers.push(fn); return timers.length; }, clearTimer: () => {}, now: () => clock,
+      });
+      clock += 5 * 60_000; timers.shift()!();
+      await sleep(10);
+      expect(judged).toBe(1);
+      expect(counts.sigint).toBe(1);
+      expect(closed).toEqual([{ sk, tasks: expect.arrayContaining(["tick counter loop"]), why: "silent" }]);
+
+      const sk2 = "topic:clocks-watchdog-closed";
+      const second = stub(sk2);
+      second.feed(events.slice(0, firstResult + 1));
+      (second.provider as any).killProcess(second.pp, "watchdog");
+      expect(closed[1]).toEqual({ sk: sk2, tasks: expect.arrayContaining(["tick counter loop"]), why: "stuck-turn" });
+    } finally {
+      ClaudeCodeProvider.observeBackgroundClosed(() => {});
+    }
+  });
+
   test("B2: the stall judge waits exactly as long as the other clocks: a Bash silent for 31 minutes is not judged", async () => {
     const sk = "topic:clocks-stall";
     // Registered, so the server's own door (`sessionHasBackgroundWork`) finds it.
