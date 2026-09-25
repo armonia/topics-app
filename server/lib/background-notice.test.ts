@@ -39,7 +39,7 @@ describe("the background notice", () => {
     expect(JSON.parse(row.blocks)[0]).toMatchObject({ kind: "background-notice", text: expect.stringContaining("Explore agent") });
   });
 
-  test("a watchdog cut that promised «Riprende da solo» is resent even with a notice after it", async () => {
+  for (const notices of [1, 6]) test(`a watchdog cut that promised «Riprende da solo» is resent even with ${notices} notice(s) after it`, async () => {
     const db = new Database(":memory:");
     db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
       partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER)`);
@@ -48,7 +48,7 @@ describe("the background notice", () => {
     const cut = JSON.stringify([{ kind: "error", text: INTERRUPTED_MARKER, cause: "watchdog", at: t0 }]);
     db.run("INSERT INTO messages VALUES ('a0','topic:x','assistant',?,?,0,?,1,'u0',0)", [INTERRUPTED_MARKER, cut, new Date(Date.now() - 3 * 60_000).toISOString()]);
     const noticeCtx = {
-      isStreaming: () => false, broadcastToAll: () => {},
+      activeStreams: new Map(), broadcastToAll: () => {},
       appendLocalMessage: (sk: string, role: string, content: string, _a: unknown, blocks?: unknown[]) => {
         const last = db.query("SELECT id, sort_order FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1").get(sk) as { id: string; sort_order: number };
         const id = crypto.randomUUID();
@@ -56,7 +56,9 @@ describe("the background notice", () => {
         return { id };
       },
     };
+    // Six: config changes made while the work runs write one each, and the sweep once looked back five rows only.
     postBackgroundNotice(noticeCtx as never, { sessionKey: "topic:x", topicId: "t" }, { kind: "background-notice", event: "closed", tasks: ["sleep 600"], why: "stuck-turn" });
+    for (let i = 1; i < notices; i++) postBackgroundNotice(noticeCtx as never, { sessionKey: "topic:x", topicId: "t" }, { kind: "background-notice", event: "deferred", change: "model" });
     const resent: unknown[] = [];
     const log = console.log, warn = console.warn;
     console.log = () => {}; console.warn = () => {};

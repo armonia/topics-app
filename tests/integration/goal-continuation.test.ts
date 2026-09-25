@@ -488,6 +488,33 @@ describe("a goal deferred on background work", () => {
     await close();
   });
 
+  test("the boot's check-in judges the model's last words, not a notice written after them (third review of 25/09)", async () => {
+    const b = await banco("goal-boot-notice", []);
+    b.ctx.appendLocalMessage(b.sessionKey, "assistant", "started the dev server, watching it");
+    b.ctx.appendLocalMessage(b.sessionKey, "assistant", "", undefined, [{ kind: "background-notice", event: "deferred", change: "model", text: "The model change applies" }]);
+    const prompts: string[] = [];
+    const armed: Array<() => void> = [];
+    const realSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void, ms?: number) => {
+      if ((ms ?? 0) >= GOAL_CHECK_IN_MS) { armed.push(fn); return { unref() {} }; }
+      return realSetTimeout(fn, ms);
+    }) as never;
+    try {
+      const loop = goalContinuationForChatRoute({
+        ctx: b.ctx as never,
+        resolveProvider: () => ({ name: "fake", complete: async (m) => { prompts.push(m[0].content); return { content: "done" }; } }),
+        log: () => {},
+      });
+      await loop.resumeAfterBoot([b.sessionKey]);
+      armed.shift()!();
+      for (let i = 0; i < 50 && !prompts.length; i++) await Bun.sleep(20);
+    } finally { globalThis.setTimeout = realSetTimeout; }
+    expect(prompts.length).toBe(1);
+    expect(prompts[0]).toContain("started the dev server, watching it");
+    expect(prompts[0]).not.toContain("said nothing");
+    await close();
+  });
+
   test("after a restart the boot hands back the goals that waited: the check-in is armed again", async () => {
     // The waiting turns lived in the old process. A session kept for its
     // background work, whose job never reports, left its goal unpursued for good.

@@ -1153,6 +1153,8 @@ interface PersistentProcess {
   backgroundClosedSaid?: boolean;
   /** Config changes owed by a turn in flight, said in the chat if that turn leaves background work. */
   owedChanges?: Set<OwedChange>;
+  /** The topic's choices this child was spawned with: a change back to one of them is owed by nobody. */
+  spawnedWith?: Record<OwedChange, string | null>;
   /** Scan outcome: the tail is open only because a `system/init` started a turn with nothing after it yet. */
   replayTailInitOnly?: boolean;
   /**
@@ -1321,9 +1323,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
   /**
    * Who says in the chat that a clock closed a CLI whose background work was
-   * still listed: the reaper, the lifetime cap or a config change, which close
-   * it only after two hours without news of that work. The work dies with the
-   * child, and a log line was the only trace of it (verification of 25/09).
+   * still listed, which dies with it: a log line was its only trace (25/09).
    * Static for the same boot-order reason as `observeWokenTurns`.
    */
   static observeBackgroundClosed(fn: BackgroundClosedObserver): void {
@@ -1331,11 +1331,7 @@ export class ClaudeCodeProvider implements AIProvider {
   }
   private static onBackgroundClosed: BackgroundClosedObserver | null = null;
 
-  /**
-   * Who says in the chat that a change owed by a turn in flight now waits for
-   * the background work that turn started: at PATCH time only the turn was
-   * known, and the change stayed owed in silence (second review of 25/09, R1).
-   */
+  /** Who says in the chat that a change owed by a turn in flight now waits for the work that turn started (second review of 25/09, R1). */
   static observeConfigOwed(fn: (sessionKey: string, changes: OwedChange[]) => void): void {
     ClaudeCodeProvider.onConfigOwed = fn;
   }
@@ -2053,14 +2049,17 @@ export class ClaudeCodeProvider implements AIProvider {
     if (!pp) return "none";
     // A turn in flight, by the same rule as the lifetime cap and the reaper
     // (`turnInFlight`): the change then applies on the next natural respawn.
-    // Background work too, for every change, a permission change included:
-    // raising the autonomy must not kill the agent it would unblock, and
-    // lowering it while the work runs is deferred and said in the chat by the
-    // caller (the verification of 25/09, and the MONITOR-02 scenario). Either
-    // way the change is owed: the next send that finds the child idle and its
-    // work over respawns it.
+    // Background work too, for every change: raising the autonomy must not kill
+    // the agent it would unblock (MONITOR-02). The next send that finds the
+    // child idle, its work over, respawns it.
     if (turnInFlight(pp) || backgroundAlive(pp)) {
       pp.configStale = true;
+      // Owed is only what the running child lacks (yolo, ask, yolo again owes
+      // nothing: third review of 25/09, V6), and `owed` is narrowed to it for the caller.
+      const topicNow = getTopicSpawnOverridesForSession(sessionKey);
+      const lacks = (c: OwedChange) => !pp.spawnedWith || (topicNow[c] ?? null) !== (pp.spawnedWith[c] ?? null);
+      owed.splice(0, owed.length, ...owed.filter(lacks));
+      for (const c of pp.owedChanges ?? []) if (!lacks(c)) pp.owedChanges!.delete(c);
       if (backgroundAlive(pp)) return "deferred-background";
       // Only a turn so far: if it starts background work, the chat hears of it then.
       for (const c of owed) (pp.owedChanges ??= new Set()).add(c);
@@ -2593,6 +2592,7 @@ export class ClaudeCodeProvider implements AIProvider {
       consumedOffset: 0,
       stderrBuf: "",
       spawnMeta: { claudeSessionId, isNewSession },
+      spawnedWith: { autonomy: overrides.autonomy, model: overrides.model, effort: overrides.effort },
       createdAt: Date.now(),
       lastActivity: Date.now(),
       alive: true,

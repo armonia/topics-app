@@ -24,13 +24,15 @@
  * than it, which print an unknown block as prose.
  */
 
+import type { Database } from "bun:sqlite";
 import type { ContentBlock } from "../../shared/types";
+import { decodeCol } from "../../shared/message-blob";
 import type { AppContext } from "../types";
 
 export type BackgroundNotice = Extract<ContentBlock, { kind: "background-notice" }>;
 /** A notice before its sentence is written in (`text`, for older clients). */
 export type BackgroundNoticeFacts = BackgroundNotice extends infer N ? (N extends BackgroundNotice ? Omit<N, "text"> : never) : never;
-type NoticeCtx = Pick<AppContext, "appendLocalMessage" | "broadcastToAll" | "isStreaming">;
+type NoticeCtx = Pick<AppContext, "appendLocalMessage" | "broadcastToAll" | "activeStreams">;
 export type OwedChange = "autonomy" | "model" | "effort";
 
 /**
@@ -73,9 +75,37 @@ export function refreshAndSay(
   owed: Partial<Record<OwedChange, boolean>>,
 ): { pending?: "background-work" } {
   let outcome: unknown;
-  try { outcome = provider().refreshSessionConfig?.(topic.sessionKey, (Object.keys(owed) as OwedChange[]).filter((c) => owed[c])); }
+  // The provider narrows the list to what its running child lacks: a change
+  // back to what that child already runs waits for nothing.
+  const changes = (Object.keys(owed) as OwedChange[]).filter((c) => owed[c]);
+  try { outcome = provider().refreshSessionConfig?.(topic.sessionKey, changes); }
   catch (err) { console.warn(`[topics] refreshSessionConfig failed for ${topic.sessionKey}:`, err); }
-  return noticeOwedChanges(ctx, topic, outcome, owed);
+  return noticeOwedChanges(ctx, topic, outcome, Object.fromEntries(changes.map((c) => [c, true])));
+}
+
+/** A chat's row as `rowsBack` reads it, `decoded` = its blocks parsed (null when there are none or they do not parse). */
+export type BackRow = { rowid: number; id: string; role: string; content: string | null; blocks: unknown; timestamp: string; decoded: ContentBlock[] | null };
+
+/**
+ * A chat's rows from the newest back, below `rowid` (none: from its last row).
+ * Paged, not capped: a chat whose config changed six times while its work ran
+ * has six notices in a row, and a cap of five read that chat as having no last
+ * word (third review of 25/09).
+ */
+export function* rowsBack(db: Database, sessionKey: string, rowid = Number.MAX_SAFE_INTEGER): Generator<BackRow> {
+  const page = db.query(
+    `SELECT rowid, id, role, content, blocks, timestamp FROM messages WHERE session_key = ? AND rowid < ? ORDER BY rowid DESC LIMIT 20`,
+  );
+  for (let below = rowid; ;) {
+    const rows = page.all(sessionKey, below) as Omit<BackRow, "decoded">[];
+    for (const r of rows) {
+      let decoded: ContentBlock[] | null = null;
+      try { decoded = JSON.parse(decodeCol(r.blocks as never) ?? "null"); } catch { /* unreadable: not a service line */ }
+      yield { ...r, decoded };
+    }
+    if (rows.length < 20) return;
+    below = rows[rows.length - 1].rowid;
+  }
 }
 
 /** Is this row a background notice and nothing else, blocks as parsed JSON? */
@@ -140,6 +170,12 @@ export function takeClosedNotices(sessionKey: string): BackgroundNotice[] {
  * discarded when nothing hangs from it, so it stayed as an empty bubble. The
  * notice waits for the turn to close and follows it, unless that turn's stop
  * line took it first.
+ *
+ * "Closed" is the stream's entry gone from `activeStreams`, not `isStreaming`:
+ * that one called a turn silent for 3 minutes over while its entry was still
+ * there, which is exactly the turn the stall judge recycles (5 minutes of
+ * silence). The notice then hung from the placeholder, which stayed, and took
+ * the machine-stop line's place (third review of 25/09).
  */
 export function postBackgroundNotice(ctx: NoticeCtx, target: { sessionKey: string; topicId: string }, facts: BackgroundNoticeFacts): void {
   const notice = { ...facts, text: backgroundNoticeText(facts) } as BackgroundNotice;
@@ -148,7 +184,7 @@ export function postBackgroundNotice(ctx: NoticeCtx, target: { sessionKey: strin
 }
 
 function writeWhenTurnCloses(ctx: NoticeCtx, target: { sessionKey: string; topicId: string }, notice: BackgroundNotice, waitedMs: number): void {
-  if (ctx.isStreaming(target.sessionKey) && waitedMs < NOTICE_WAIT_CAP_MS) {
+  if (ctx.activeStreams.has(target.sessionKey) && waitedMs < NOTICE_WAIT_CAP_MS) {
     const t = setTimeout(() => writeWhenTurnCloses(ctx, target, notice, waitedMs + 500), 500);
     (t as { unref?: () => void }).unref?.();
     return;

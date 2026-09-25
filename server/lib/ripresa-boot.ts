@@ -309,25 +309,16 @@ export function attemptsOnRow(blocks: ContentBlock[] | null | undefined): number
 import type { Database } from "bun:sqlite";
 import { decodeCol, encodeCol } from "../../shared/message-blob";
 import { insertRestartNotification, type PartialSweepDb } from "./boot-partial-sweep";
-import { isBackgroundNoticeRow } from "./background-notice";
+import { isBackgroundNoticeRow, rowsBack } from "./background-notice";
 
 /** A chat's last row, as the sweep reads it. */
 interface LastRow { sk: string; id: string; ruolo: string; blocks: unknown; ts: string }
 
-/**
- * The row before a run of background notices: the chat's real last word. At
- * most a few back, since notices come one per stop or per config change.
- */
+/** The row before a run of background notices: the chat's real last word. */
 function previousConversationRow(db: Database, row: LastRow): LastRow | null {
-  const before = db.query(
-    `SELECT session_key AS sk, id, role AS ruolo, blocks, timestamp AS ts FROM messages
-      WHERE session_key = ? AND rowid < (SELECT rowid FROM messages WHERE id = ?)
-      ORDER BY rowid DESC LIMIT 5`,
-  ).all(row.sk, row.id) as LastRow[];
-  for (const r of before) {
-    let blocks: unknown = null;
-    try { blocks = JSON.parse(decodeCol(r.blocks as never) ?? "null"); } catch { return null; }
-    if (!isBackgroundNoticeRow(blocks as never)) return r;
+  const below = (db.query(`SELECT rowid FROM messages WHERE id = ?`).get(row.id) as { rowid: number } | null)?.rowid;
+  for (const r of below == null ? [] : rowsBack(db, row.sk, below)) {
+    if (!isBackgroundNoticeRow(r.decoded)) return { sk: row.sk, id: r.id, ruolo: r.role, blocks: r.blocks, ts: r.timestamp };
   }
   return null;
 }

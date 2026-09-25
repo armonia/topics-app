@@ -50,6 +50,8 @@ import {
 import { insertRestartNotification, type PartialSweepDb } from "../lib/boot-partial-sweep";
 import { MAX_ITERATIONS } from "../providers/native/agent-loop";
 import { sessionBackgroundState, sessionHasBackgroundWork } from "../providers/background-probes";
+import { rowsBack, type BackRow } from "../lib/background-notice";
+import { hasMachineMark } from "../../shared/prompt-number";
 
 export interface GoalContinuationDeps {
   db: Database;
@@ -276,8 +278,13 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
       .catch((err) => { log(`goal-loop: the check-in failed (${err instanceof Error ? err.message : String(err)})`); return "error"; });
     if (outcome === "busy") {
       // The turn that took the session ends by itself and decides; this check-in is not spent.
-      if (!w.wakeOnly) checkInCount.set(sessionKey, Math.max(0, (checkInCount.get(sessionKey) ?? 1) - 1));
-      if (!deferred.has(sessionKey)) deferred.set(sessionKey, { ...w, timer: null });
+      const spent = w.wakeOnly ? 0 : Math.max(0, (checkInCount.get(sessionKey) ?? 1) - 1);
+      if (!w.wakeOnly) checkInCount.set(sessionKey, spent);
+      // And the next one is a full interval away, not due at once: left due,
+      // the end of a Monitor tick fired it again, the judge met the next tick,
+      // and a goal paid 145 judges in 90 minutes without a nudge (third review of 25/09).
+      const delay = w.wakeOnly ? GOAL_WAKE_RECHECK_MS : goalCheckInDelayMs(spent);
+      if (!deferred.has(sessionKey)) deferred.set(sessionKey, { ...w, timer: setTimer(() => { void checkIn(sessionKey); }, delay) });
     }
   }
 
@@ -496,7 +503,7 @@ export function goalContinuationForChatRoute(deps: {
     getTopicById: (id: string) => Topic | null;
     getTopicBySessionKey: (sessionKey: string) => Topic | null;
     broadcastToAll: (msg: OutboundMessage) => void;
-    isStreaming: (sessionKey: string) => unknown;
+    activeStreams: { has: (sessionKey: string) => boolean };
   };
   resolveProvider: (topic?: Topic | null) => {
     name: string;
@@ -557,7 +564,7 @@ export function goalContinuationForChatRoute(deps: {
     },
     broadcast: ctx.broadcastToAll,
     log: deps.log,
-    isBusy: (sk) => !!ctx.isStreaming(sk),
+    isBusy: (sk) => ctx.activeStreams.has(sk), // the entry, not `isStreaming`: that one drops a turn silent for 3 min
     backgroundWork: sessionHasBackgroundWork,
     wakeQueued: (sk) => sessionBackgroundState(sk) === "wake-queued",
   });
@@ -580,9 +587,12 @@ export function goalContinuationForChatRoute(deps: {
         const topic = ctx.getTopicBySessionKey(sessionKey);
         if (!topic || topic.archived) continue;
         try {
-          const last = ctx.db.query(
-            `SELECT content FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC, rowid DESC LIMIT 1`,
-          ).get(sessionKey) as { content: string | null } | null;
+          // The model's last words, past the service lines after them: a notice's
+          // content is empty, and the judge read «(the assistant said nothing)».
+          let last: BackRow | undefined;
+          for (const r of rowsBack(ctx.db, sessionKey)) {
+            if (r.role === "assistant" && !hasMachineMark(r.decoded)) { last = r; break; }
+          }
           // A board card's turns are the dispatcher's, as they are at any turn end.
           const dispatched = !!ctx.db.query(`SELECT 1 FROM tasks WHERE status = 'in_progress' AND assigned_topic_id = ?`).get(topic.id);
           await onTurnEnd({

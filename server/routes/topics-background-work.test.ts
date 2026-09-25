@@ -60,6 +60,8 @@ async function harness(name: string, autonomyLevel: Topic["autonomyLevel"]) {
     pendingInputs: new Map(), lastEventAt: Date.now(), inactivityTimer: null, lifetimeTimer: null, heartbeatInterval: null,
     readline: { close() {} },
     io: { writeStdin: () => {}, signal: (s: string) => { if (s === "SIGINT") killed.sigint++; }, kill: () => { killed.n++; } },
+    // As `spawnPersistentProcess` records it: the topic's choices at spawn.
+    spawnedWith: { autonomy: autonomyLevel, model: null, effort: null },
   };
   (provider as any).processes.set(sessionKey, pp);
   for (const e of events.slice(0, firstResult + 1)) (provider as any).handleStreamEvent(pp, e);
@@ -85,6 +87,11 @@ async function harness(name: string, autonomyLevel: Topic["autonomyLevel"]) {
     /** The CLI's last snapshot is empty and the report's wake has run: the work is over. */
     workOver: () => { (provider as any).handleStreamEvent(pp, { type: "system", subtype: "background_tasks_changed", tasks: [] }); pp.background.wakeQueuedAt = null; },
   };
+}
+
+/** The pose of a turn silent for `minutes`: its stream entry is there, its last activity old. */
+function silent(h: { ctx: AppContext; sessionKey: string }, minutes: number) {
+  if (minutes) h.ctx.activeStreams.get(h.sessionKey)!.lastActivity = new Date(Date.now() - minutes * 60_000).toISOString();
 }
 
 describe("a config change against a chat's background work", () => {
@@ -218,40 +225,45 @@ describe("the Stop of a chat whose turn is closed and whose work still runs", ()
     }
   });
 
-  test("a card's empty turn stopped for a stall with work listed leaves ONE service row: the stop and the work it closed", async () => {
-    const h = await harness("bg-card-stall", "yolo");
-    // Wired as server.ts wires it.
-    ClaudeCodeProvider.observeBackgroundClosed((sk, tasks, why) => {
-      postBackgroundNotice(h.ctx, { sessionKey: sk, topicId: h.topicId }, { kind: "background-notice", event: "closed", tasks, why });
+  // Fresh, and in the pose a silent turn really has when the stall judge or a
+  // clock stops it: no activity for over 3 minutes, its stream entry still there.
+  for (const [cause, why, silentMin] of [["stall", "silent", 0], ["stall", "silent", 3.5], ["wall-clock", "deadline", 3.5]] as const) {
+    test(`a card's empty turn stopped by ${cause}${silentMin ? `, silent for ${silentMin} min,` : ""} with work listed leaves ONE service row: the stop and the work it closed`, async () => {
+      const h = await harness(`bg-card-${cause}-${silentMin}`, "yolo");
+      // Wired as server.ts wires it.
+      ClaudeCodeProvider.observeBackgroundClosed((sk, tasks, closedWhy) => {
+        postBackgroundNotice(h.ctx, { sessionKey: sk, topicId: h.topicId }, { kind: "background-notice", event: "closed", tasks, why: closedWhy });
+      });
+      try {
+        h.ctx.db.run(
+          "INSERT INTO tasks (id, project_id, text, status, archived, assigned_topic_id, created_at, updated_at) VALUES (?, 'p-bg', 'card', 'in_progress', 0, ?, ?, ?)",
+          [`card-${cause}-${silentMin}`, h.topicId, new Date().toISOString(), new Date().toISOString()],
+        );
+        h.pp.background.lastSignalAt = Date.now() - 2 * 60 * 60_000 - 1_000;
+        const envelope = h.ctx.appendLocalMessage(h.sessionKey, "user", "Envelope della card: fai il merge", undefined, userRowMarks({ dispatched: true }));
+        const placeholder = h.ctx.createPartialMessage(h.sessionKey, "assistant");
+        h.ctx.startStream(h.sessionKey, placeholder.id, new AbortController());
+        silent(h, silentMin);
+        h.pp.streamHandler = { onDelta() {}, onDone() {}, onError() {}, onAborted() {} };
+        const req = internalAbortRequest(h.sessionKey, cause);
+        await h.router(req, new URL(req.url), "/api/chat/abort", "POST");
+        expect(h.killed.sigint).toBe(1);
+        // Past the notice's own wait (500 ms a step): no second row comes after it.
+        await new Promise((r) => setTimeout(r, 1_500));
+        const rows = (h.ctx.db.prepare(`SELECT id, role, content, blocks FROM messages WHERE session_key = ? ORDER BY sort_order`).all(h.sessionKey) as Array<{ id: string; role: string; content: string; blocks: unknown }>)
+          .map((r) => ({ ...r, blocks: JSON.parse(decodeCol(r.blocks as never) ?? "null") }));
+        expect(rows.map((r) => r.id)).toEqual([envelope.id, expect.any(String)]);
+        expect(rows[1]).toEqual(expect.objectContaining({ role: "assistant", content: "" }));
+        expect(rows[1].blocks).toEqual([
+          expect.objectContaining({ kind: "machine-stop", cause }),
+          expect.objectContaining({ kind: "background-notice", event: "closed", why, tasks: expect.arrayContaining(["tick counter loop"]) }),
+        ]);
+      } finally {
+        ClaudeCodeProvider.observeBackgroundClosed(() => {});
+        removeProvider("claude-code");
+      }
     });
-    try {
-      h.ctx.db.run(
-        "INSERT INTO tasks (id, project_id, text, status, archived, assigned_topic_id, created_at, updated_at) VALUES (?, 'p-bg', 'card', 'in_progress', 0, ?, ?, ?)",
-        ["card-bg-stall", h.topicId, new Date().toISOString(), new Date().toISOString()],
-      );
-      h.pp.background.lastSignalAt = Date.now() - 2 * 60 * 60_000 - 1_000;
-      const envelope = h.ctx.appendLocalMessage(h.sessionKey, "user", "Envelope della card: fai il merge", undefined, userRowMarks({ dispatched: true }));
-      const placeholder = h.ctx.createPartialMessage(h.sessionKey, "assistant");
-      h.ctx.startStream(h.sessionKey, placeholder.id, new AbortController());
-      h.pp.streamHandler = { onDelta() {}, onDone() {}, onError() {}, onAborted() {} };
-      const req = internalAbortRequest(h.sessionKey, "stall");
-      await h.router(req, new URL(req.url), "/api/chat/abort", "POST");
-      expect(h.killed.sigint).toBe(1);
-      // Past the notice's own wait (500 ms a step): no second row comes after it.
-      await new Promise((r) => setTimeout(r, 1_500));
-      const rows = (h.ctx.db.prepare(`SELECT id, role, content, blocks FROM messages WHERE session_key = ? ORDER BY sort_order`).all(h.sessionKey) as Array<{ id: string; role: string; content: string; blocks: unknown }>)
-        .map((r) => ({ ...r, blocks: JSON.parse(decodeCol(r.blocks as never) ?? "null") }));
-      expect(rows.map((r) => r.id)).toEqual([envelope.id, expect.any(String)]);
-      expect(rows[1]).toEqual(expect.objectContaining({ role: "assistant", content: "" }));
-      expect(rows[1].blocks).toEqual([
-        expect.objectContaining({ kind: "machine-stop", cause: "stall" }),
-        expect.objectContaining({ kind: "background-notice", event: "closed", why: "silent", tasks: expect.arrayContaining(["tick counter loop"]) }),
-      ]);
-    } finally {
-      ClaudeCodeProvider.observeBackgroundClosed(() => {});
-      removeProvider("claude-code");
-    }
-  });
+  }
 
   test("with the work over there is nothing to stop, as before", async () => {
     const h = await harness("bg-stop-over", "yolo");
@@ -301,6 +313,37 @@ describe("second review of 25/09: every deferred change and every close is said,
     });
   }
 
+  test("V6: a change taken back while the work runs is owed by nobody: the running child already has it", async () => {
+    const h = await harness("bg-owed-back", "yolo");
+    ClaudeCodeProvider.observeConfigOwed((sk, changes) => {
+      noticeOwedChanges(h.ctx, { id: h.topicId, sessionKey: sk }, "deferred-background", Object.fromEntries(changes.map((c) => [c, true])));
+    });
+    try {
+      h.workOver();
+      h.pp.background.tasks.clear();
+      h.pp.streamHandler = { onDelta() {}, onDone() {}, onError() {}, onAborted() {} };
+      // Lowered mid-turn, and the turn starts background work: said once.
+      await h.patch({ autonomyLevel: "ask" });
+      (h.provider as any).handleStreamEvent(h.pp, agentSnap);
+      (h.provider as any).handleStreamEvent(h.pp, agentStarted);
+      expect(h.notices().map((n) => n.change)).toEqual(["autonomy"]);
+      // Back to yolo while the work runs: the child spawned yolo, nothing waits.
+      const back = await (await h.command("model", { model: "claude-opus-5-5" })).json() as { pending?: string };
+      expect(back.pending).toBe("background-work");
+      await h.patch({ autonomyLevel: "yolo" });
+      expect(h.notices().map((n) => n.change)).toEqual(["autonomy", "model"]);
+      // Mid-turn and back again before any work: the autonomy stays owed to
+      // nobody, the effort the child really lacks stays owed.
+      h.pp.owedChanges = new Set();
+      h.workOver(); h.pp.background.tasks.clear();
+      await h.patch({ autonomyLevel: "ask", effort: "high" });
+      expect([...h.pp.owedChanges].sort()).toEqual(["autonomy", "effort"]);
+      await h.patch({ autonomyLevel: "yolo" });
+      expect([...h.pp.owedChanges]).toEqual(["effort"]);
+      expect(h.killed.n).toBe(0);
+    } finally { ClaudeCodeProvider.observeConfigOwed(() => {}); removeProvider("claude-code"); }
+  });
+
   test("R2: a delegation's deadline on a working turn says so, not «a stuck turn»", async () => {
     const h = await harness("bg-deadline", "yolo");
     ClaudeCodeProvider.observeBackgroundClosed((sk, tasks, why) => {
@@ -332,9 +375,9 @@ describe("second review of 25/09: every deferred change and every close is said,
     } finally { ClaudeCodeProvider.observeBackgroundClosed(() => {}); removeProvider("claude-code"); }
   });
 
-  test("the stall judge recycling a person's message with work listed: the resume sweep still resends it, as on main", async () => {
+  for (const silentMin of [0, 3.5]) test(`the stall judge recycling a person's message with work listed${silentMin ? `, silent for ${silentMin} min` : ""}: the resume sweep still resends it, as on main`, async () => {
     resetTurnEndRegistry();
-    const h = await harness("bg-person-recycle", "yolo");
+    const h = await harness(`bg-person-recycle-${silentMin}`, "yolo");
     ClaudeCodeProvider.observeBackgroundClosed((sk, tasks, why) => {
       postBackgroundNotice(h.ctx, { sessionKey: sk, topicId: h.topicId }, { kind: "background-notice", event: "closed", tasks, why });
     });
@@ -343,11 +386,14 @@ describe("second review of 25/09: every deferred change and every close is said,
       const user = h.ctx.appendLocalMessage(h.sessionKey, "user", "continua il task");
       const placeholder = h.ctx.createPartialMessage(h.sessionKey, "assistant");
       h.ctx.startStream(h.sessionKey, placeholder.id, new AbortController());
+      silent(h, silentMin);
       h.pp.streamHandler = { onDelta() {}, onDone() {}, onError() {}, onAborted() {} };
       const req = internalAbortRequest(h.sessionKey, "stall");
       await h.router(req, new URL(req.url), "/api/chat/abort", "POST");
       for (let i = 0; i < 40 && h.notices().length === 0; i++) await new Promise((r) => setTimeout(r, 100));
       expect(h.notices().length).toBe(1);
+      // The empty turn went, and the notice follows the person's message, not a placeholder.
+      expect(h.ctx.getMessageById(placeholder.id)).toBeFalsy();
       // The person's message is older than the sweep's grace.
       h.ctx.db.run("UPDATE messages SET timestamp = ? WHERE id = ?", [new Date(Date.now() - 5 * 60_000).toISOString(), user.id]);
       const resent: Array<{ sessionKey?: string }> = [];
