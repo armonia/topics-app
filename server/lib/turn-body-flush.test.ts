@@ -92,6 +92,26 @@ describe("la riga di un turno vivo si fa scrivere PRIMA di leggerla", () => {
     turn.persist.dispose();
   });
 
+  test("two turns of one session both get flushed, and releasing one keeps the other", () => {
+    // A closed turn's late answer (lib/late-answer-lane.ts) registers its
+    // flush while the NEXT turn of the same chat is live. One slot per session
+    // let the later registration hide the other turn's pending write from the
+    // permission route, which then refused a permission it could not see.
+    const sessionKey = "topic:flush-two";
+    const flushed: string[] = [];
+    const releaseLive = registerTurnBodyFlush(sessionKey, () => flushed.push("live"));
+    const releaseLate = registerTurnBodyFlush(sessionKey, () => flushed.push("late"));
+    expect(flushTurnBody(sessionKey)).toBe(true);
+    expect(flushed.sort()).toEqual(["late", "live"]);
+
+    releaseLate();
+    flushed.length = 0;
+    expect(flushTurnBody(sessionKey)).toBe(true);
+    expect(flushed).toEqual(["live"]);
+    releaseLive();
+    expect(flushTurnBody(sessionKey)).toBe(false);
+  });
+
   test("senza turno vivo non c'e' niente da forzare, e lo dice", () => {
     // A finalized row is already whole: the gate reads it as it is, and the
     // absence of a flusher is not an error.

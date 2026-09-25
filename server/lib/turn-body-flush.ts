@@ -22,13 +22,17 @@
  * the writer of the turn it is reading - the throttle lives inside the handler,
  * which is where it has to live, since it owns the timeline.
  *
- * It is a plain map and not a WeakMap or a queue: one entry per streaming
- * session, removed by the handler that owns it when the turn ends. A flush for
- * a session with no live turn does nothing and says so, which is the honest
- * answer for a row that is already final.
+ * It is a plain map and not a WeakMap or a queue, each entry removed by the
+ * handler that owns it when its turn ends. A flush for a session with no live
+ * turn does nothing and says so, which is the honest answer for a row that is
+ * already final.
+ *
+ * A SET per session, not one slot: a closed turn's late answer registers its
+ * flush while the next turn of the same chat is live (lib/late-answer-lane.ts),
+ * and one slot let either hide the other's pending write from the reader.
  */
 
-const flushers = new Map<string, () => void>();
+const flushers = new Map<string, Set<() => void>>();
 
 /**
  * Publish the flush of a live turn. Returns the function that takes it back
@@ -36,9 +40,12 @@ const flushers = new Map<string, () => void>();
  * turn ending after a newer one started cannot remove somebody else's entry.
  */
 export function registerTurnBodyFlush(sessionKey: string, flush: () => void): () => void {
-  flushers.set(sessionKey, flush);
+  const own = flushers.get(sessionKey) ?? new Set<() => void>();
+  own.add(flush);
+  flushers.set(sessionKey, own);
   return () => {
-    if (flushers.get(sessionKey) === flush) flushers.delete(sessionKey);
+    own.delete(flush);
+    if (own.size === 0 && flushers.get(sessionKey) === own) flushers.delete(sessionKey);
   };
 }
 
@@ -48,16 +55,19 @@ export function registerTurnBodyFlush(sessionKey: string, flush: () => void): ()
  * the row either way, and the difference only matters to a test.
  */
 export function flushTurnBody(sessionKey: string): boolean {
-  const flush = flushers.get(sessionKey);
-  if (!flush) return false;
-  try {
-    flush();
-    return true;
-  } catch {
-    // A row that could not be written is not a reason to refuse a send: the
-    // caller falls back to reading whatever is on disk.
-    return false;
+  const own = flushers.get(sessionKey);
+  if (!own || own.size === 0) return false;
+  let flushed = true;
+  for (const flush of [...own]) {
+    try {
+      flush();
+    } catch {
+      // A row that could not be written is not a reason to refuse a send: the
+      // caller falls back to reading whatever is on disk.
+      flushed = false;
+    }
   }
+  return flushed;
 }
 
 /** Only for the tests: the registry is process memory. */
