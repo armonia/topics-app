@@ -14,7 +14,7 @@ import {
   type MailAccount,
 } from "../lib/outbound-config";
 import { resolveCliPath, runCli, CLI_SEARCH_DIRS } from "../lib/outbound-cli";
-import { confirmOutbound, type ConfirmOutcome, type OutboundGateDeps } from "../lib/outbound-gate";
+import { confirmOutbound, findWaitingToolRow, type ConfirmOutcome, type OutboundGateDeps } from "../lib/outbound-gate";
 import { discardStaging, freezeAttachments, OutboundStagingError, verifyFrozen, type FrozenAttachments } from "../lib/outbound-staging";
 import { announcedCut, decodeRawMail, gmailSendsMail, googleWriteSummary } from "../lib/outbound-summary";
 import { flushTurnBody } from "../lib/turn-body-flush";
@@ -247,7 +247,7 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
     db: ctx.db,
     comment: addComment,
     deliver: (sessionKey, answers) => deliverAnswer(sessionKey, answers),
-    lastToolRow: (sessionKey) => {
+    lastToolRow: (sessionKey, toolName) => {
       try {
         // THE ROW IS WRITTEN LATE, so it is asked for first. `blocks` is the
         // only column carrying tool calls on a modern row, and it goes through
@@ -256,18 +256,28 @@ export function createOutboundRouter(ctx: AppContext, options: OutboundRouterOpt
         // there yet, and "not persisted yet" was being read as "nobody to ask".
         // Same move `routes/chat.ts` already makes when a tool stops to ask.
         flushTurnBody(sessionKey);
-        const row = ctx.db
-          .prepare("SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1")
-          .get(sessionKey) as { tool_calls?: unknown; blocks?: unknown } | undefined;
-        if (!row) return null;
-        return { tool_calls: decodeCol(row.tool_calls), blocks: decodeCol(row.blocks) };
+        // NOT ONLY THE LAST ROW. A turn the watchdog closed keeps working under
+        // the resume sweep's notice, and reading the notice alone refused the
+        // send with "nobody could confirm" while the person was there (card
+        // 1046df0b). Same short window as the answer route's lookup
+        // (`lib/ask-answer-routing.ts`), newest first, stopping at the first hit.
+        const rows = ctx.db
+          .prepare("SELECT id, tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 20")
+          .all(sessionKey) as Array<{ id: string; tool_calls?: unknown; blocks?: unknown }>;
+        for (const row of rows) {
+          const columns = { id: String(row.id), tool_calls: decodeCol(row.tool_calls), blocks: decodeCol(row.blocks) };
+          if (findWaitingToolRow(columns, toolName)) return columns;
+        }
+        return null;
       } catch {
         return null;
       }
     },
-    paint: ({ sessionKey, toolCallId, schema }) => {
+    paint: ({ sessionKey, toolCallId, schema, rowId }) => {
       const topic = getTopicBySessionKey(sessionKey);
-      updateToolCallFields(sessionKey, toolCallId, { status: "waiting_for_input", userInputSchema: schema });
+      // On the row the call was found on, by id: the last row may be a notice
+      // written after it. The reader above always hands the id over.
+      if (rowId) updateToolCallFields(sessionKey, toolCallId, { status: "waiting_for_input", userInputSchema: schema }, { rowId });
       broadcastToAll({
         type: "stream:tool_user_input_required",
         sessionKey,

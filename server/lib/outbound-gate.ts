@@ -79,8 +79,10 @@ export const CONFIRM_ENDED_LINE =
 export const CONFIRM_ANSWERED_ELSEWHERE_LINE =
   "A questa conferma e' stato risposto dal pannello della chat: il blocco qui sopra non aspetta piu' una risposta.";
 
-/** The last persisted row of a session, with the two columns that draw tools. */
+/** A persisted row of a session, with the two columns that draw tools. */
 export interface ToolRowColumns {
+  /** The row's id: the panel is written on THIS row, never on "the last one". */
+  id?: string;
   tool_calls?: string | null;
   blocks?: string | null;
 }
@@ -89,6 +91,8 @@ export interface WaitingToolRow {
   toolCallId: string;
   /** True when the panel is already on that row: do not paint it twice. */
   alreadyWaiting: boolean;
+  /** The row carrying the call, when the reader handed its id over. */
+  rowId?: string;
 }
 
 interface ShownCall {
@@ -166,9 +170,10 @@ export function findWaitingToolRow(
     if (typeof call.id !== "string" || !call.id) continue;
     if (!sameTool(call.name, toolName)) continue;
     const status = typeof call.status === "string" ? call.status : "";
-    if (status === "waiting_for_input") return { toolCallId: call.id, alreadyWaiting: true };
+    const onRow = row.id ? { rowId: row.id } : {};
+    if (status === "waiting_for_input") return { toolCallId: call.id, alreadyWaiting: true, ...onRow };
     if (status === "running" || status === "pending" || status === "") {
-      return { toolCallId: call.id, alreadyWaiting: false };
+      return { toolCallId: call.id, alreadyWaiting: false, ...onRow };
     }
   }
   return null;
@@ -180,10 +185,14 @@ export interface OutboundGateDeps {
   comment: AskRoutingDeps["comment"];
   /** Hands an answer back to the waiting rendez-vous. */
   deliver: AskRoutingDeps["deliver"];
-  /** The last persisted row of this session, or null when there is none. */
-  lastToolRow: (sessionKey: string) => ToolRowColumns | null;
-  /** Puts the panel on screen: persist the schema and announce it. */
-  paint: (args: { sessionKey: string; toolCallId: string; schema: UserInputSchema }) => void;
+  /**
+   * The newest persisted row of this session carrying a live call of
+   * `toolName`, or null. Not necessarily the session's last row: a turn the
+   * watchdog closed keeps working under the resume sweep's notice.
+   */
+  lastToolRow: (sessionKey: string, toolName: string) => ToolRowColumns | null;
+  /** Puts the panel on screen: persist the schema on row `rowId` and announce it. */
+  paint: (args: { sessionKey: string; toolCallId: string; schema: UserInputSchema; rowId?: string }) => void;
   /**
    * The clock the LEASE is measured on, injectable for one reason: the rule
    * "a hold expires" is a rule about time, and a test that fakes the lapse by
@@ -485,11 +494,11 @@ async function confirmHeld(
   const schema = schemaFor(request);
 
   // The chat panel, on the row of the tool that is waiting.
-  const target = findWaitingToolRow(deps.lastToolRow(request.sessionKey), request.toolName);
+  const target = findWaitingToolRow(deps.lastToolRow(request.sessionKey, request.toolName), request.toolName);
   if (target) {
     asked = true;
     if (!target.alreadyWaiting) {
-      deps.paint({ sessionKey: request.sessionKey, toolCallId: target.toolCallId, schema });
+      deps.paint({ sessionKey: request.sessionKey, toolCallId: target.toolCallId, schema, rowId: target.rowId });
     }
   }
 
