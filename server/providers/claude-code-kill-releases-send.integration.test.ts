@@ -416,8 +416,8 @@ describe("a killed child and the session queue (real broker, real child)", () =>
     // A permission prompt stops the CLI's output, and so does the command it
     // approves. The watchdog re-armed while the prompt was open, but then
     // measured silence from the tool_use that asked: its first check after
-    // the answer killed the approved command while it ran, «Nessuna attività
-    // dal modello per 30 minuti» (a 5 minute build: about one time in six).
+    // the answer killed the approved command while it ran, with the "no model
+    // activity for 30 minutes" notice (a 5 minute build: about one time in six).
     // Scale: a 2 s window, a 3 s wait, a check 1.5 s after the answer.
     const sk = "topic:watchdog-after-hold";
     const { ClaudeCodeProvider } = await import("./claude-code");
