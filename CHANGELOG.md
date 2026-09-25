@@ -2,10 +2,36 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.389 — 2026-09-25
+
+### Sotto il cofano
+- A Stop before the fresh child is ready writes nothing and lets the queue move
+- Record the size claude-code.ts grew to for the second round of lifetime fixes
+- The send watchdog's window is a field, so a test can shrink it
+- a dead child's cleanup must not end the next message, and the person's wait is not silence for the watchdog or the reaper
+- A dead child in the map no longer takes, and loses, the next message's handler
+- The send watchdog and the idle reaper read the same two rules as the lifetime cap
+- Record the size claude-code.ts grew to for the third round of lifetime fixes
+- Say the watchdog notice in English in the test comment that quotes it
+
 ## 2.2.388 — 2026-09-25
 
 ### Sotto il cofano
 - Il campo che si restringe allargando il pannello si prova col toggle, non con un resize a 375
+- the lifetime cap must not kill a child in the middle of a turn
+- The lifetime cap waits for the turn to end instead of killing it
+- a killed child must release its send, and a send stopped in the queue must not run
+- A killed child settles its send, and a send stopped in the queue never runs
+- Record the size claude-code.ts grew to for the two lifetime and queue fixes
+- The lifetime cap still ends a woken turn that wedged, and waits for one not adopted yet
+- A kill or a Stop during a re-adoption no longer takes the server down
+- The turn watchdog kills only a child that is still in the map
+- A turn killed by /clear ends as a cancel, and a send stopped in the queue undoes its marks
+- Tests pin the re-arm interval, the kill notice and the spy, instead of timing
+- the holes the second review found in the lifetime cap and the kill paths
+- The lifetime cap counts neither the person's wait nor a buffered turn as silence
+- A machine kill ends the turn as a watchdog stop, and tells a turn with no send
+- /clear and stop() drop the sends queued behind the turn they end
 
 ## 2.2.387 — 2026-09-24
 

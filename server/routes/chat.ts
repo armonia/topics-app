@@ -2237,7 +2237,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // Niente `message:new` per un turno scartato: annuncerebbe agli
               // altri client un messaggio assistente vuoto — cioè ricreerebbe in
               // pagina la bolla che il DB non ha più.
-              if (!discardedMessageId) {
+              // Same for a row that is gone: `/clear` in the middle of this turn
+              // deleted it, and the turn it killed ends here afterwards.
+              if (!discardedMessageId && finalizedMsg) {
                 broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: partialMsg.id, content: fullContent, preview: fullContent.slice(0, 100) });
               }
               broadcastToAll({
@@ -3464,6 +3466,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                   Object.keys(sendOptions).length > 0 ? sendOptions : undefined,
                 );
             drive.then((result) => {
+              // Stopped in the provider's queue before anything was written: the
+              // inline context marked as sent above never reached the session,
+              // so the next message must carry it again. Whoever stopped it has
+              // closed this stream already.
+              if ((result as { notSent?: boolean }).notSent) {
+                undoInlineMark();
+                console.log(`[StreamWS] ${sessionKey}: send stopped in the queue, nothing written`);
+                return;
+              }
               // SOLO SE IL TURNO È ANCORA VIVO. `sendChat` risolve quando il
               // turno è FINITO, non quando parte: qui si arrivava dopo `onDone`
               // e si reinstallava un handler morto, dopo di che ogni risveglio

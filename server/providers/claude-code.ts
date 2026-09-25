@@ -66,8 +66,9 @@ import { endAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
 // «Aspetta una persona» ha DUE sorgenti (una domanda, una richiesta di
 // permesso) e sei posti che devono saperlo. Porta unica: lib/human-hold.ts.
 import { isHumanHold, releaseHumanHold } from "../lib/human-hold";
+import { humanHoldReleasedAt } from "../lib/human-hold-events";
 import { armTurnDeadline, type TurnDeadline } from "../lib/turn-deadline";
-import { cancelled, classifyResultEvent } from "./stop-reason";
+import { cancelled, classifyResultEvent, type TurnEndInfo } from "./stop-reason";
 import { warnThrottled } from "../lib/warn-throttled";
 import { clearSessionCliPid, setSessionCliPid } from "./session-pids";
 import { defaultChatModel, discoverClaudeModels } from "./claude-models";
@@ -858,6 +859,74 @@ function brokerIO(client: AiBridgeClient, sessionKey: string): SessionIO {
   };
 }
 
+/** Who killed a child on purpose. Travels with the rejection of the send that
+ *  was waiting on it, so the chat says what ended the turn. */
+type KillCause = "lifetime" | "idle" | "clear" | "config" | "watchdog" | "stopped-child" | "dead" | "shutdown";
+
+const KILL_CAUSE_TEXT: Record<KillCause, string> = {
+  lifetime: "the 2 hour lifetime cap",
+  idle: "the idle reaper",
+  clear: "/clear",
+  config: "a configuration change",
+  watchdog: "the turn watchdog",
+  "stopped-child": "a stop that did not complete",
+  dead: "the cleanup of a dead process",
+  shutdown: "the server shutting down",
+};
+
+/**
+ * The rejection `killProcess` hands to the send waiting on the child. Its
+ * message is the marker `sendChatInternal` switches on, like `ABORTED` or
+ * `TIMEOUT`; the cause rides along for the text the chat shows.
+ */
+class ProcessKilledError extends Error {
+  constructor(readonly killCause: KillCause) {
+    super("KILLED");
+  }
+  get notice(): string {
+    return `Turn ended: the Claude Code process was stopped by ${KILL_CAUSE_TEXT[this.killCause]}.`;
+  }
+}
+
+/**
+ * How a turn whose child was killed ends on its handler. `/clear` is the person
+ * throwing the turn away, the same gesture as Stop: a cancel by the user, so no
+ * error notice and no error push. A shutdown says so. Any other kill is the
+ * machine giving up on a turn: once the guards spare every turn in flight, the
+ * one left is the lifetime cap on a turn silent past the watchdog window, a
+ * stall. It ends with the cause the route's own watchdog writes, which the
+ * resume reads as "the agent stopped answering" and acts on; a bare `onError`
+ * carried no cause, so nothing resumed it.
+ */
+function endKilledTurn(handler: StreamHandler, err: ProcessKilledError): void {
+  if (!handler.onAborted) { handler.onError(err.notice); return; }
+  if (err.killCause === "clear") handler.onAborted({ turnEnd: cancelled("user") });
+  else if (err.killCause === "shutdown") handler.onAborted({ turnEnd: cancelled("server-shutdown") });
+  else handler.onAborted({ turnEnd: cancelled("watchdog", err.notice) });
+}
+
+/**
+ * A child in the middle of a turn: a stream handler (sent, woken or reattached
+ * turn), a send still waiting on it (a turn the route stopped watching while
+ * the CLI works on), or a spontaneous turn waiting for its adopter or declined
+ * (both flags clear on the turn's own `result`). The one rule for every clock
+ * that may kill the child: the lifetime cap, the idle reaper, a config change.
+ */
+function turnInFlight(pp: PersistentProcess): boolean {
+  return !!pp.streamHandler || !!pp.pendingReject || pp.wokenBuffer != null || pp.declinedTurn === true;
+}
+
+/**
+ * Since when the child counts as quiet: its last event, or the moment a person
+ * last answered it, whichever is later. The CLI prints nothing while a
+ * permission prompt or a question is open, nor while the command just approved
+ * runs, and a clock counting from the tool_use that asked killed that command.
+ * Read by the lifetime cap and by the send watchdog.
+ */
+function quietSince(pp: PersistentProcess, sessionKey: string): number {
+  return Math.max(pp.lastEventAt, humanHoldReleasedAt(sessionKey) ?? 0);
+}
+
 interface PersistentProcess {
   /** Set in DIRECT mode only (the spawned child); null in broker mode. */
   proc: ChildProcess | null;
@@ -1150,6 +1219,18 @@ export class ClaudeCodeProvider implements AIProvider {
    */
   private waitingSends = new Map<string, { handler: StreamHandler; cancelled: boolean }>();
   /**
+   * The sends parked on `await prev` in `sendChat`, behind another turn of the
+   * same session. A send there has no child and no handler installed anywhere,
+   * so `abort()` reached it nowhere: the route closed its stream, and when the
+   * turn ahead let go the send ran anyway, writing to the CLI and streaming
+   * into a handler already closed (chat 3019832f, 2026-09-24). `abort()` marks
+   * them cancelled; `sendChat` checks the mark before it does anything.
+   */
+  private queuedSends = new Map<string, Set<{ handler: StreamHandler; cancelled: boolean }>>();
+  /** The send watchdog's window of silence. A field only so tests can shrink
+   *  it: thirty minutes cannot be waited for in a test. */
+  private turnWatchdogMs = MESSAGE_TIMEOUT_MS;
+  /**
    * Gli scan della sonda TENUTI IN VITA per chi li adotterà — deliberatamente
    * fuori da `this.processes`, che è la mappa di chi sta GUIDANDO una sessione.
    *
@@ -1238,7 +1319,11 @@ export class ClaudeCodeProvider implements AIProvider {
     // (`processForTurn`). Handing it the new turn's handler meant its exit, a
     // moment later, closed that new turn as «stopped» before it started.
     // `sendChatInternal` installs the handler on the fresh child instead.
-    if (pp.stoppedExit) return;
+    // A DEAD child likewise: nothing takes it out of the map when it exits, and
+    // the kill that cleans it up before the next spawn used to find this new
+    // turn's handler on it and end the turn as a watchdog stop, while the CLI
+    // went on to answer into a closed row (PR #134 review, round 2).
+    if (pp.stoppedExit || !pp.alive) return;
     pp.streamHandler = handler;
     // Se aspettavamo un adottatore, quel turno ha trovato il suo padrone.
     // Unless it already ended: its held `result` would close whatever turn is
@@ -1381,6 +1466,9 @@ export class ClaudeCodeProvider implements AIProvider {
       try { waiting.handler.onAborted?.({ turnEnd: cancelled("server-shutdown") }); }
       catch (err) { console.warn(`[claude-code] shutdown notice not delivered to the waiting send on ${key}:`, err); }
     }
+    // Same for the sends queued behind a turn: in direct mode they would run
+    // as soon as the kill below releases the turn ahead, on a stopped provider.
+    for (const key of [...this.queuedSends.keys()]) this.dropQueuedSends(key, cancelled("server-shutdown"));
     for (const [key, pp] of this.processes) {
       if (USE_AI_BRIDGE && pp.alive) {
         // The child lives in the DETACHED ai-bridge daemon and must SURVIVE a
@@ -1414,8 +1502,15 @@ export class ClaudeCodeProvider implements AIProvider {
           this.releaseStreamHandler(pp);
           try { h.onAborted?.({ turnEnd: cancelled("server-shutdown") }); }
           catch (err) { console.warn(`[claude-code] avviso di spegnimento non consegnato per ${key}:`, err); }
+          // The handler has its ending: the send settles as ABORTED, the pairing
+          // `abort()` uses, or `killProcess` would reject it as KILLED and the
+          // same turn would get an `onError` after its `onAborted`.
+          const reject = pp.pendingReject;
+          pp.pendingResolve = null;
+          pp.pendingReject = null;
+          reject?.(new Error("ABORTED"));
         }
-        this.killProcess(pp);
+        this.killProcess(pp, "shutdown");
       }
     }
     // Gli scan parcheggiati non sono in `this.processes` — e proprio per questo
@@ -1434,7 +1529,7 @@ export class ClaudeCodeProvider implements AIProvider {
     message: string,
     handler: StreamHandler,
     options?: { model?: string; resetFallbackContent?: string; fastMode?: boolean },
-  ): Promise<{ runId?: string }> {
+  ): Promise<{ runId?: string; notSent?: boolean }> {
     if (isRawGlobalCoordinator(sessionKey)) {
       // Do not enqueue or re-use a generic persistent process.  The only
       // supported provider for this role is Codex; the explicit server-owned
@@ -1448,9 +1543,18 @@ export class ClaudeCodeProvider implements AIProvider {
     let resolveQueue!: () => void;
     const myTurn = new Promise<void>((r) => { resolveQueue = r; });
     this.queues.set(sessionKey, prev.then(() => myTurn));
+    const queued = { handler, cancelled: false };
+    const parked = this.queuedSends.get(sessionKey) ?? new Set<{ handler: StreamHandler; cancelled: boolean }>();
+    parked.add(queued);
+    this.queuedSends.set(sessionKey, parked);
     await prev;
+    parked.delete(queued);
+    if (parked.size === 0 && this.queuedSends.get(sessionKey) === parked) this.queuedSends.delete(sessionKey);
 
     try {
+      // Stopped while it waited in the queue: whoever aborted it has closed its
+      // stream, so nothing is written and the handler hears nothing.
+      if (queued.cancelled) return { runId: undefined, notSent: true };
       // Note: per-message `options.model` override is intentionally ignored —
       // claude-code spawns a long-lived child whose --model is set at spawn
       // time. Switching models requires respawning, which we don't do mid-flow.
@@ -1497,11 +1601,11 @@ export class ClaudeCodeProvider implements AIProvider {
     handler: StreamHandler,
     retriedReset = false,
     resetFallbackContent?: string,
-  ): Promise<{ runId?: string }> {
+  ): Promise<{ runId?: string; notSent?: boolean }> {
     const pp = await this.processForTurn(sessionKey, STOPPED_CHILD_EXIT_WAIT_MS, handler);
     // Stopped before it had a child (see `waitingSends`): `abort()` already
     // told the handler, and nothing was written anywhere.
-    if (!pp) return { runId: undefined };
+    if (!pp) return { runId: undefined, notSent: true };
     const runId = crypto.randomUUID();
 
     pp.streamHandler = handler;
@@ -1582,8 +1686,8 @@ export class ClaudeCodeProvider implements AIProvider {
       const arm = () => {
         const d = turnWatchdogDecision({
           pendingAsk: isHumanHold(sessionKey),
-          idleMs: Date.now() - pp.lastEventAt,
-          windowMs: MESSAGE_TIMEOUT_MS,
+          idleMs: Date.now() - quietSince(pp, sessionKey),
+          windowMs: this.turnWatchdogMs,
         });
         if (d.action === "reject") {
           reject(new Error("TIMEOUT"));
@@ -1591,13 +1695,31 @@ export class ClaudeCodeProvider implements AIProvider {
         }
         messageTimeout = setTimeout(arm, d.delayMs);
       };
-      messageTimeout = setTimeout(arm, MESSAGE_TIMEOUT_MS);
+      messageTimeout = setTimeout(arm, this.turnWatchdogMs);
     });
 
     // Broker mode: wait for the child to actually exist before the first stdin
     // write (spawn + write share the socket FIFO, but spawn's send is behind an
     // ensureConnected microtask). No-op in direct mode (ready resolved at spawn).
     await pp.ready;
+    // Stopped, or taken off this turn, while the child was being spawned. No
+    // send was waiting yet, so `abort()` had nothing to reject and told the
+    // handler itself, and a SIGINT sent before the spawn reached nobody.
+    // Writing now handed the message to a child whose every line is dropped as
+    // a stopped child's tail, and the send hung until the watchdog with the
+    // queue behind it (PR #134 review; on origin/main too).
+    if (pp.stoppedExit || pp.streamHandler !== handler) {
+      clearTimeout(messageTimeout);
+      this.stopHeartbeat(pp);
+      // The Stop the person pressed lands now that the child exists: it exits
+      // clean in under a second, instead of being killed by key after
+      // `processForTurn`'s 5 s wait, whose exit the daemon can hand to the
+      // child spawned next under the same key.
+      if (pp.stoppedExit) {
+        try { pp.io.signal("SIGINT"); } catch { /* the wait in processForTurn kills it */ }
+      }
+      return { runId: undefined, notSent: true };
+    }
 
     const messagePromise = new Promise<{ runId: string }>((resolve, reject) => {
       pp.pendingResolve = resolve;
@@ -1652,12 +1774,28 @@ export class ClaudeCodeProvider implements AIProvider {
         // e la diagnosi resta un'ipotesi.
         const idleMin = Math.round((Date.now() - pp.lastEventAt) / 60000);
         console.warn(
-          `[claude-code] No model activity for ${Math.round(MESSAGE_TIMEOUT_MS / 60000)}min on ${sessionKey} — child appears wedged, killing process ` +
+          `[claude-code] No model activity for ${Math.round(this.turnWatchdogMs / 60000)}min on ${sessionKey} — child appears wedged, killing process ` +
           `(silenzio reale ${idleMin} min, ultimo evento: ${pp.lastEventKind ?? "nessuno"})`,
         );
-        this.killProcess(pp);
-        this.processes.delete(sessionKey);
+        // Only a child that is still ours and alive. In broker mode the kill
+        // goes BY KEY, and the key may belong to someone else by now: a
+        // successor after a death, or the child a new provider instance
+        // re-adopted after this one's `stop()` detached it (still `alive`
+        // here, no longer in the map). A second kill, or a blind delete, would
+        // take the successor down with it.
+        const ours = this.processes.get(sessionKey) === pp;
+        if (ours && pp.alive) this.killProcess(pp, "watchdog");
+        if (ours) this.processes.delete(sessionKey);
         handler.onError("Nessuna attività dal modello per 30 minuti. Turno terminato.");
+        return { runId };
+      }
+
+      if (err instanceof ProcessKilledError) {
+        // Whoever killed the child has already dealt with the map; this only
+        // ends the turn, with the cause, so the queue behind it moves now.
+        if (this.processes.get(sessionKey) === pp) this.processes.delete(sessionKey);
+        console.warn(`[claude-code] ${sessionKey}: turn ended by a kill (${err.killCause})`);
+        endKilledTurn(handler, err);
         return { runId };
       }
 
@@ -1831,9 +1969,11 @@ export class ClaudeCodeProvider implements AIProvider {
   refreshSessionConfig(sessionKey: string): void {
     const pp = this.processes.get(sessionKey);
     if (!pp) return;
-    if (pp.streamHandler) return; // live turn — apply on next respawn
+    // A turn in flight, by the same rule as the lifetime cap and the reaper
+    // (`turnInFlight`): the change then applies on the next natural respawn.
+    if (turnInFlight(pp)) return;
     console.log(`[claude-code] refreshSessionConfig: dropping idle process for ${sessionKey} to pick up new config`);
-    this.killProcess(pp);
+    this.killProcess(pp, "config");
     this.processes.delete(sessionKey);
   }
 
@@ -1859,9 +1999,10 @@ export class ClaudeCodeProvider implements AIProvider {
    * non tocca a noi cancellarla — semplicemente non ci torniamo più sopra.
    */
   async resetSession(sessionKey: string): Promise<void> {
+    this.dropQueuedSends(sessionKey, cancelled("user"));
     const pp = this.processes.get(sessionKey);
     if (pp) {
-      this.killProcess(pp);
+      this.killProcess(pp, "clear");
       this.processes.delete(sessionKey);
     }
     // Una domanda aperta su questa sessione muore QUI, esplicitamente.
@@ -1881,7 +2022,30 @@ export class ClaudeCodeProvider implements AIProvider {
 
   // --- Abort ---
 
+  /**
+   * Stops every send queued on this session and tells each one why. For the
+   * two callers whose own caller closes no stream: `/clear`, which deleted the
+   * rows those sends would answer (they ran on the fresh session anyway), and
+   * `stop()`, which takes the provider away from under them. `abort()` marks
+   * them too, silently: its callers close the stream themselves.
+   */
+  private dropQueuedSends(sessionKey: string, turnEnd: TurnEndInfo): void {
+    for (const queued of this.queuedSends.get(sessionKey) ?? []) {
+      if (queued.cancelled) continue;
+      queued.cancelled = true;
+      try { queued.handler.onAborted?.({ turnEnd }); }
+      catch (err) { console.warn(`[claude-code] a queued send on ${sessionKey} did not take its end:`, err); }
+    }
+  }
+
   async abort(sessionKey: string, _runId: string | undefined, reason: AbortReason): Promise<void> {
+    // Sends still queued behind another turn of this session. The route lets
+    // one stream per session live at a time (the 409 gate), so a queued send is
+    // either the stream being stopped now or one already closed: none of them
+    // may run. Their handlers are not called: every caller of `abort` (the
+    // Stop route, both route watchdogs, the stale-stream sweep) closes the
+    // stream itself, and a send that never started has nothing to flush.
+    for (const queued of this.queuedSends.get(sessionKey) ?? []) queued.cancelled = true;
     // The turn being stopped may not have a child yet: it is waiting for the
     // previous stopped child to exit. Stop THAT, and leave the dying child be.
     const waiting = this.waitingSends.get(sessionKey);
@@ -2049,7 +2213,7 @@ export class ClaudeCodeProvider implements AIProvider {
 
     // Clean up dead process
     if (existing) {
-      this.killProcess(existing);
+      this.killProcess(existing, "dead");
       this.processes.delete(sessionKey);
     }
 
@@ -2086,7 +2250,7 @@ export class ClaudeCodeProvider implements AIProvider {
       }
       if (outcome === "timeout" && existing.alive) {
         console.warn(`[claude-code] ${sessionKey}: the stopped child did not exit within ${waitMs} ms, killing it before the next turn`);
-        this.killProcess(existing);
+        this.killProcess(existing, "stopped-child");
       }
       if (this.processes.get(sessionKey) === existing) this.processes.delete(sessionKey);
       // Stopped while it waited (a second Stop, or the provider shutting down):
@@ -2851,6 +3015,11 @@ export class ClaudeCodeProvider implements AIProvider {
       pp.pendingResolve = () => resolve();
       pp.pendingReject = (e) => reject(e);
     });
+    // Nobody awaits this until the attach below returns, and on the `missing`
+    // and `!alive` paths nobody ever does. A kill (`/clear`) or a Stop in that
+    // window rejected it with no listener, and Bun exits on an unhandled
+    // rejection: the whole server went down. The awaits below still see it.
+    turnDone.catch(() => {});
 
     const res = await client.attach(sessionKey, pp.replayAfterLastResultOffset ?? 0);
     pp.replaySilent = false;
@@ -2915,7 +3084,10 @@ export class ClaudeCodeProvider implements AIProvider {
     }
     const sink = pp.streamHandler ?? handler;
     this.releaseStreamHandler(pp);
-    sink.onError(`Riadozione del turno non riuscita: ${detail}`);
+    // A kill during the adopted turn is not a failed re-adoption: it ends the
+    // way `sendChatInternal` ends a turn it sent.
+    if (err instanceof ProcessKilledError) endKilledTurn(sink, err);
+    else sink.onError(`Riadozione del turno non riuscita: ${detail}`);
     return "dead";
   }
 
@@ -3110,6 +3282,10 @@ export class ClaudeCodeProvider implements AIProvider {
     // First the lines of a turn already judged: a declined one is dropped to
     // its `result`, and the `result` of one awaiting adoption is held for it.
     if (!pp.replayMute && !pp.replaySilent) {
+      // A declined or buffered spontaneous turn is the child working too, but
+      // its lines return just below, before the event clock further down: the
+      // lifetime cap read a turn that was writing as silent, and killed it.
+      if (line.kind === "content" || line.kind === "partial" || line.kind === "result") pp.lastEventAt = Date.now();
       const fate = unattendedLineFate(pp, event, line.kind);
       if (fate !== "pass") return;
     }
@@ -3732,19 +3908,34 @@ export class ClaudeCodeProvider implements AIProvider {
     pp: PersistentProcess,
     sessionKey: string,
     /** Solo per i test: due ore non si aspettano, e la regola va provata. */
-    opts: { ms?: number; rearmMs?: number } = {},
+    opts: { ms?: number; rearmMs?: number; wedgedMs?: number } = {},
   ): TurnDeadline {
+    const rearmMs = opts.rearmMs ?? LIFETIME_REARM_MS;
+    const wedgedMs = opts.wedgedMs ?? this.turnWatchdogMs;
     return armTurnDeadline({
       ms: opts.ms ?? MAX_LIFETIME_MS,
-      rearmMs: opts.rearmMs ?? LIFETIME_REARM_MS,
+      rearmMs,
       isWaitingForHuman: () => isHumanHold(sessionKey),
       onExpired: () => {
-        console.log("[claude-code] Max lifetime reached, killing process");
-        this.killProcess(pp);
-        // Find and remove from map
-        for (const [key, p] of this.processes) {
-          if (p === pp) { this.processes.delete(key); break; }
+        // Identity first, as in `resetInactivityTimer`: in broker mode
+        // `killProcess` kills BY KEY, so a cap left armed on a replaced `pp`
+        // would kill the child of whoever holds the key now.
+        if (this.processes.get(sessionKey) !== pp) { pp.lifetimeTimer = null; return; }
+        // The cap is a wall clock on purpose (it recycles the child), so it
+        // waits for a turn in flight to end and fires on the first tick after
+        // it. On 2026-09-24 (chat 3019832f) it killed a streaming CLI at 12:42
+        // and the send hung for 30 minutes.
+        // Except a turn quiet for longer than the turn watchdog's window. A
+        // woken turn has no watchdog, and the cap was the only thing ending it
+        // if it wedged. It still is, so waiting never becomes waiting forever.
+        // Not a second silence clock: this only ever fires past the 2 h mark.
+        if (turnInFlight(pp) && Date.now() - quietSince(pp, sessionKey) < wedgedMs + rearmMs) {
+          pp.lifetimeTimer = this.armLifetime(pp, sessionKey, { ms: rearmMs, rearmMs, wedgedMs });
+          return;
         }
+        console.log(`[claude-code] Max lifetime reached for ${sessionKey}, killing process`);
+        this.killProcess(pp, "lifetime");
+        this.processes.delete(sessionKey);
       },
     });
   }
@@ -3903,9 +4094,11 @@ export class ClaudeCodeProvider implements AIProvider {
       // by the previous turn's end fired and killed it mid-work, and the chat
       // showed a running turn for hours with nothing behind it. The invariant
       // belongs where the kill happens: never reap a child that is streaming.
-      if (pp.streamHandler) { this.resetInactivityTimer(key, pp, opts); return; }
+      // The same holds for a spontaneous turn declined or waiting for its
+      // adopter: no handler, and the child writing (PR #134 review, round 2).
+      if (turnInFlight(pp)) { this.resetInactivityTimer(key, pp, opts); return; }
       console.log(`[claude-code] Inactivity timeout for ${key}`);
-      this.killProcess(pp);
+      this.killProcess(pp, "idle");
       this.processes.delete(key);
     }, opts.ms ?? INACTIVITY_TIMEOUT_MS);
   }
@@ -3918,12 +4111,35 @@ export class ClaudeCodeProvider implements AIProvider {
     if (pp.inactivityTimer) { clearTimeout(pp.inactivityTimer); pp.inactivityTimer = null; }
   }
 
-  private killProcess(pp: PersistentProcess): void {
+  private killProcess(pp: PersistentProcess, cause: KillCause): void {
+    const wasAlive = pp.alive;
     pp.alive = false;
     // Killed on purpose (e.g. `/clear` while a send waits for this stopped
     // child): nobody will hear its exit in broker mode, because `kill` drops
     // the handlers for the key, so the wait ends now instead of at its cap.
     pp.stoppedExit?.resolve();
+    // Same reason for the send waiting on THIS child: no exit frame will ever
+    // reach `onSessionClosed`, so without this the send hangs until the 30
+    // minute watchdog, and the session queue behind it (chat 3019832f,
+    // 2026-09-24: five messages timed out on the route, then ran anyway).
+    // Cleared before rejecting, so the direct-mode `close` that follows finds
+    // nothing left to reject.
+    const reject = pp.pendingReject;
+    if (reject) {
+      pp.pendingResolve = null;
+      pp.pendingReject = null;
+      reject(new ProcessKilledError(cause));
+    } else if (pp.streamHandler && wasAlive) {
+      // A turn with no send waiting on it (a spontaneous turn the route
+      // adopted): no rejection has a reader, and in broker mode no exit frame
+      // follows, so the handler ends here, or the row stayed open until the
+      // route's watchdog wrote «Response timed out». Only on a child that was
+      // alive: a dead one already ended its turn in `onSessionClosed`, and a
+      // handler found on it belongs to nobody it could end.
+      const handler = pp.streamHandler;
+      this.releaseStreamHandler(pp);
+      this.tellHandlerSafely(pp, "onAborted", () => endKilledTurn(handler, new ProcessKilledError(cause)));
+    }
     this.cleanupTimers(pp);
     try { pp.readline?.close(); } catch {}
     pp.io.kill();

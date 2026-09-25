@@ -1,5 +1,57 @@
 [
   {
+    "version": "2.2.389",
+    "date": "2026-09-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "A Stop before the fresh child is ready writes nothing and lets the queue move",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Record the size claude-code.ts grew to for the second round of lifetime fixes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The send watchdog's window is a field, so a test can shrink it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "a dead child's cleanup must not end the next message, and the person's wait is not silence for the watchdog or the reaper",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "A dead child in the map no longer takes, and loses, the next message's handler",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The send watchdog and the idle reaper read the same two rules as the lifetime cap",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Record the size claude-code.ts grew to for the third round of lifetime fixes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Say the watchdog notice in English in the test comment that quotes it",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.388",
     "date": "2026-09-25",
     "sections": {
@@ -9,6 +61,79 @@
       "internal": [
         {
           "it": "Il campo che si restringe allargando il pannello si prova col toggle, non con un resize a 375",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the lifetime cap must not kill a child in the middle of a turn",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "The lifetime cap waits for the turn to end instead of killing it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "a killed child must release its send, and a send stopped in the queue must not run",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "A killed child settles its send, and a send stopped in the queue never runs",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Record the size claude-code.ts grew to for the two lifetime and queue fixes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The lifetime cap still ends a woken turn that wedged, and waits for one not adopted yet",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A kill or a Stop during a re-adoption no longer takes the server down",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The turn watchdog kills only a child that is still in the map",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A turn killed by /clear ends as a cancel, and a send stopped in the queue undoes its marks",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tests pin the re-arm interval, the kill notice and the spy, instead of timing",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "the holes the second review found in the lifetime cap and the kill paths",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "The lifetime cap counts neither the person's wait nor a buffered turn as silence",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A machine kill ends the turn as a watchdog stop, and tells a turn with no send",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "/clear and stop() drop the sends queued behind the turn they end",
           "en": "",
           "scope": null
         }
