@@ -68,7 +68,7 @@ import { endAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
 import { isHumanHold, releaseHumanHold } from "../lib/human-hold";
 import { humanHoldReleasedAt } from "../lib/human-hold-events";
 import { armTurnDeadline, type TurnDeadline } from "../lib/turn-deadline";
-import { cancelled, classifyResultEvent } from "./stop-reason";
+import { cancelled, classifyResultEvent, type TurnEndInfo } from "./stop-reason";
 import { warnThrottled } from "../lib/warn-throttled";
 import { clearSessionCliPid, setSessionCliPid } from "./session-pids";
 import { defaultChatModel, discoverClaudeModels } from "./claude-models";
@@ -1204,7 +1204,7 @@ export class ClaudeCodeProvider implements AIProvider {
    * into a handler already closed (chat 3019832f, 2026-09-24). `abort()` marks
    * them cancelled; `sendChat` checks the mark before it does anything.
    */
-  private queuedSends = new Map<string, Set<{ cancelled: boolean }>>();
+  private queuedSends = new Map<string, Set<{ handler: StreamHandler; cancelled: boolean }>>();
   /**
    * Gli scan della sonda TENUTI IN VITA per chi li adotterà — deliberatamente
    * fuori da `this.processes`, che è la mappa di chi sta GUIDANDO una sessione.
@@ -1437,6 +1437,9 @@ export class ClaudeCodeProvider implements AIProvider {
       try { waiting.handler.onAborted?.({ turnEnd: cancelled("server-shutdown") }); }
       catch (err) { console.warn(`[claude-code] shutdown notice not delivered to the waiting send on ${key}:`, err); }
     }
+    // Same for the sends queued behind a turn: in direct mode they would run
+    // as soon as the kill below releases the turn ahead, on a stopped provider.
+    for (const key of [...this.queuedSends.keys()]) this.dropQueuedSends(key, cancelled("server-shutdown"));
     for (const [key, pp] of this.processes) {
       if (USE_AI_BRIDGE && pp.alive) {
         // The child lives in the DETACHED ai-bridge daemon and must SURVIVE a
@@ -1511,8 +1514,8 @@ export class ClaudeCodeProvider implements AIProvider {
     let resolveQueue!: () => void;
     const myTurn = new Promise<void>((r) => { resolveQueue = r; });
     this.queues.set(sessionKey, prev.then(() => myTurn));
-    const queued = { cancelled: false };
-    const parked = this.queuedSends.get(sessionKey) ?? new Set<{ cancelled: boolean }>();
+    const queued = { handler, cancelled: false };
+    const parked = this.queuedSends.get(sessionKey) ?? new Set<{ handler: StreamHandler; cancelled: boolean }>();
     parked.add(queued);
     this.queuedSends.set(sessionKey, parked);
     await prev;
@@ -1950,6 +1953,7 @@ export class ClaudeCodeProvider implements AIProvider {
    * non tocca a noi cancellarla — semplicemente non ci torniamo più sopra.
    */
   async resetSession(sessionKey: string): Promise<void> {
+    this.dropQueuedSends(sessionKey, cancelled("user"));
     const pp = this.processes.get(sessionKey);
     if (pp) {
       this.killProcess(pp, "clear");
@@ -1971,6 +1975,22 @@ export class ClaudeCodeProvider implements AIProvider {
   }
 
   // --- Abort ---
+
+  /**
+   * Stops every send queued on this session and tells each one why. For the
+   * two callers whose own caller closes no stream: `/clear`, which deleted the
+   * rows those sends would answer (they ran on the fresh session anyway), and
+   * `stop()`, which takes the provider away from under them. `abort()` marks
+   * them too, silently: its callers close the stream themselves.
+   */
+  private dropQueuedSends(sessionKey: string, turnEnd: TurnEndInfo): void {
+    for (const queued of this.queuedSends.get(sessionKey) ?? []) {
+      if (queued.cancelled) continue;
+      queued.cancelled = true;
+      try { queued.handler.onAborted?.({ turnEnd }); }
+      catch (err) { console.warn(`[claude-code] a queued send on ${sessionKey} did not take its end:`, err); }
+    }
+  }
 
   async abort(sessionKey: string, _runId: string | undefined, reason: AbortReason): Promise<void> {
     // Sends still queued behind another turn of this session. The route lets
