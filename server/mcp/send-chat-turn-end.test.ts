@@ -168,6 +168,16 @@ describe("callSendChatMessage when the turn does not finish on the stream", () =
       .rejects.toThrow(/stream interrupted, and topics-app stayed unreachable/);
   });
 
+  test("a real error with nothing written names its cause, and does not say the answer may still come", async () => {
+    for (const cause of ["rate-limit", "process-died", "provider-error"]) {
+      const chat = frame({ turn: { messageId: "m1" } }) + frame({ turn: { end: "error", cause } }) + "data: [DONE]\n\n";
+      const out = await callSendChatMessage(A, { topic_id: "t1", message: "ping" }, world({ chat, streaming: () => [], messages: () => [] }), FAST)
+        .then((reply) => `RESOLVED ${reply}`, (err: Error) => err.message);
+      expect(out).toContain(`ended in an error (${cause}) before finishing its reply. It had written nothing.`);
+      expect(out).not.toContain("can still land");
+    }
+  });
+
   test("a turn that closed with nothing written says so, and warns against sending again", async () => {
     const chat = frame({ turn: { messageId: "m1" } }) + frame({ turn: { end: "error" } }) + "data: [DONE]\n\n";
     await expect(callSendChatMessage(A, { topic_id: "t1", message: "ping" }, world({ chat, streaming: () => [], messages: () => [] }), FAST))

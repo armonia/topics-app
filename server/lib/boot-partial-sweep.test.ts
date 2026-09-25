@@ -27,7 +27,9 @@ import {
   insertRestartNotification,
   runBootPartialSweep,
   RESTART_INTERRUPTED_MARKER,
+  RESTART_ROW_VERDICT,
 } from "./boot-partial-sweep";
+import { decodeCol, encodeCol } from "../../shared/message-blob";
 
 // Schema minimo: solo le colonne che il sweep e insertRestartNotification toccano.
 const DDL = `
@@ -199,6 +201,70 @@ describe("runBootPartialSweep", () => {
 // ---------------------------------------------------------------------------
 // BARRA 2: insertRestartNotification (logica di inserimento in isolamento)
 // ---------------------------------------------------------------------------
+/**
+ * THE ROW THE SWEEP CLOSES SAYS IT WAS CUT.
+ *
+ * It was closed with `partial = 0` and nothing else, the notice going into a
+ * new row after it: read by id, the closed row was a finished answer. On
+ * 25/09 send_chat_message, waiting on it across a server that died without a
+ * clean shutdown, returned the half as the reply (round-3 review of card
+ * 63e01ac0). The verdict goes in its blocks, the prose stays visible.
+ */
+describe("the row the boot sweep closes carries the restart verdict", () => {
+  let db: Database;
+  beforeEach(() => {
+    db = makeDb();
+  });
+
+  const insert = (id: string, fields: { content?: string; blocks?: unknown[]; partial?: number }) =>
+    db.run(
+      "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order) VALUES (?, 'topic:cut', 'assistant', ?, ?, ?, 't', 0)",
+      [id, fields.content ?? "", fields.blocks ? (encodeCol(JSON.stringify(fields.blocks)) ?? null) : null, fields.partial ?? 1],
+    );
+  const blocksOf = (id: string) => {
+    const r = db.query("SELECT blocks, content, partial FROM messages WHERE id = ?").get(id) as { blocks: unknown; content: string; partial: number };
+    return { blocks: JSON.parse(decodeCol(r.blocks) ?? "null"), content: r.content, partial: r.partial };
+  };
+  const sweep = () => runBootPartialSweep(db, { listConfirmed: true, liveSessions: new Set(), generateId: () => "notice", now: () => "t" });
+
+  it("prose with no blocks: the prose becomes a text block, then the verdict, and content is untouched", () => {
+    insert("m1", { content: "Ecco la prima meta' della risposta, " });
+    expect(sweep().cleared).toBe(1);
+    const row = blocksOf("m1");
+    expect(row.partial).toBe(0);
+    expect(row.content).toBe("Ecco la prima meta' della risposta, ");
+    expect(row.blocks).toEqual([
+      { kind: "text", text: "Ecco la prima meta' della risposta, " },
+      { kind: "error", text: RESTART_ROW_VERDICT },
+    ]);
+  });
+
+  it("a timeline gets the verdict appended; an empty row gets the verdict alone", () => {
+    const timeline = [{ kind: "text", text: "sto per" }, { kind: "tool", toolCall: { id: "t1", name: "Bash", status: "running" } }];
+    insert("m1", { content: "sto per", blocks: timeline });
+    sweep();
+    expect(blocksOf("m1").blocks).toEqual([...timeline, { kind: "error", text: RESTART_ROW_VERDICT }]);
+
+    db.run("DELETE FROM messages");
+    insert("m2", {});
+    sweep();
+    expect(blocksOf("m2").blocks).toEqual([{ kind: "error", text: RESTART_ROW_VERDICT }]);
+  });
+
+  it("a row already explained keeps its verdict, a live session is not touched, and the notice still follows", () => {
+    const explained = [{ kind: "text", text: "meta'" }, { kind: "error", text: "Limite di richieste" }];
+    insert("m1", { content: "meta'", blocks: explained });
+    sweep();
+    expect(blocksOf("m1").blocks).toEqual(explained);
+    expect(blocksOf("notice").content).toBe(RESTART_INTERRUPTED_MARKER);
+
+    const live = makeDb();
+    live.run("INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order) VALUES ('v1', 'topic:vivo', 'assistant', 'parziale', 1, 't', 0)");
+    runBootPartialSweep(live, { listConfirmed: true, liveSessions: new Set(["topic:vivo"]) });
+    expect(live.query("SELECT blocks, partial FROM messages WHERE id = 'v1'").get()).toEqual({ blocks: null, partial: 1 });
+  });
+});
+
 describe("insertRestartNotification", () => {
   let db: Database;
 

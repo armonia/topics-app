@@ -1528,15 +1528,16 @@ async function postChatReadSSE(
 
 /** What the tool says for a turn that ended without finishing its answer. */
 function unfinishedTurn(end: TurnEndFrame, text: string, topicId: string): string {
-  // The route's empty-reply verdict is not always the last word: the answer can
-  // land in that same row a moment later (lib/empty-turn-headstone.ts), and a
-  // /clear ends this way too. Sending again on it would run the message twice.
-  if (end.end === "error" && !text) {
+  // The route's empty-reply verdict (an error with no cause) is not always the
+  // last word: the answer can land in that same row a moment later
+  // (lib/empty-turn-headstone.ts), and a /clear ends this way too. Sending
+  // again on it would run the message twice. A real error carries its cause.
+  if (end.end === "error" && !end.cause && !text) {
     return `send_chat_message: the turn closed without writing a reply. Before sending again, check read_chat_messages(topic_id="${topicId}"): the answer can still land in that row a moment later, and a /clear ends this way too.`;
   }
   const how = end.end === "cancelled"
     ? `was stopped${end.cause === "user" ? " by a person" : end.cause ? ` (${end.cause})` : ""}`
-    : end.end === "error" ? "ended in an error" : `ended early (${end.end})`;
+    : end.end === "error" ? `ended in an error${end.cause ? ` (${end.cause})` : ""}` : `ended early (${end.end})`;
   return `send_chat_message: the turn ${how} before finishing its reply.`
     + (text ? ` What it had written: ${JSON.stringify(text)}.` : " It had written nothing.")
     + ` See read_chat_messages(topic_id="${topicId}").`;
