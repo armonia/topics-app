@@ -287,7 +287,7 @@ describe("the turn frames the chat's SSE carries for its readers", () => {
     const ctx = await createTestAppContext();
     const sessionKey = saveTopic(ctx, "sse-empty");
     const { provider } = silentToolProvider();
-    // Ends at once: no text, no tool. The route writes the «Nessuna risposta» verdict.
+    // Ends at once: no text, no tool. The route writes its empty-reply verdict.
     (provider as unknown as { sendChat: unknown }).sendChat = async (_sk: string, _msg: string, h: StreamHandler) => {
       h.onDone(undefined as never);
       return { runId: "run-empty" };
