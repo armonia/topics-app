@@ -37,11 +37,14 @@ beforeAll(() => setupTestDataDir(TEST_DATA));
 
 let captured: StreamHandler | undefined;
 const reasons: string[] = [];
+/** What the provider still says between the stop and its abort echo (ACP, native). */
+let beforeEcho: ((h: StreamHandler) => void) | null = null;
 const registered = registerProvider({ type: "openai", apiKey: "" } as never) as unknown as Record<string, unknown>;
 Object.defineProperty(registered, "connected", { configurable: true, get: () => true });
 // Like claude-code's abort(): a synchronous onAborted with the reason it got.
 registered.abort = async (_sk: string, _runId: string | undefined, reason: string) => {
   reasons.push(reason);
+  if (captured && beforeEcho) beforeEcho(captured);
   captured?.onAborted?.({ turnEnd: { end: "cancelled", cause: reason } } as never);
 };
 afterAll(() => { try { removeProvider("openai"); } catch { /* already gone */ } });
@@ -50,10 +53,12 @@ const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString(
 
 async function chatWith(sessionKey: string, rows: StoredMessage[] = []) {
   captured = undefined;
+  beforeEcho = null;
   reasons.length = 0;
   const ctx: AppContext = await createTestAppContext();
-  (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = () => {};
-  (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void }).broadcastToTopicSubscribers = () => {};
+  const sent: Array<Record<string, unknown>> = [];
+  (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = (m) => { sent.push(m as Record<string, unknown>); };
+  (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void }).broadcastToTopicSubscribers = (_id, m) => { sent.push(m as Record<string, unknown>); };
   ctx.saveSingleTopic({
     id: `t-${sessionKey}`, name: "stop parity", slug: "stop-parity", parentId: null, links: [], sessionKey,
     color: "#5865f2", icon: "MessageSquare", createdAt: new Date().toISOString(),
@@ -123,7 +128,7 @@ async function chatWith(sessionKey: string, rows: StoredMessage[] = []) {
     } finally { console.log = log; console.warn = warn; }
     return resent;
   };
-  return { ctx, post, abort, clientAbort, assistantRows, notices, stopsOnRecord, resentAfterRestart };
+  return { ctx, sent, post, abort, clientAbort, assistantRows, notices, stopsOnRecord, resentAfterRestart };
 }
 
 describe("a stop the machine wanted ends as on main, and is not the person's", () => {
@@ -147,6 +152,38 @@ describe("a stop the machine wanted ends as on main, and is not the person's", (
       expect(await c.resentAfterRestart()).toEqual([]);
     });
   }
+
+  test("an event the provider still sends before its abort echo does not turn the echo into a notice (ACP, native)", async () => {
+    // ACP may send a tool update after `session/cancel`, and the native loop
+    // reports the tool it killed before `onAborted`: either opened the late
+    // lane, and the echo that followed wrote the cause's notice.
+    const sk = "topic:machine-echo";
+    const c = await chatWith(sk);
+    await c.post({ messages: [{ role: "user", content: "rallenta pure" }] });
+    captured!.onToolStart("toolu_slow", "Bash", { command: "sleep 600" } as never);
+    beforeEcho = (h) => h.onToolResult("toolu_slow", "killed", true);
+
+    await c.abort(internalAbortRequest(sk, "wall-clock"));
+
+    expect(c.notices()).toEqual([]);
+    expect(await c.resentAfterRestart()).toEqual([]);
+  });
+
+  test("a tool in flight when the machine stops the turn is closed on screen too, not left spinning", async () => {
+    // A machine stop no longer passes through the finalize that announced the
+    // tools it closed; `endStream` closes them in the row, and the screens are
+    // told as the watchdogs tell them (chat.ts `endStreamAndAnnounce`).
+    const sk = "topic:machine-tool";
+    const c = await chatWith(sk);
+    await c.post({ messages: [{ role: "user", content: "lancia la suite" }] });
+    captured!.onToolStart("toolu_suite", "Bash", { command: "bun test" } as never);
+    const rowId = c.assistantRows().at(-1)!.id;
+
+    await c.abort(internalAbortRequest(sk, "stall"));
+
+    const result = c.sent.find((m) => m.type === "stream:tool_result" && m.toolCallId === "toolu_suite");
+    expect(result).toMatchObject({ status: "error", messageId: rowId });
+  });
 
   test("the stall judge recycling an empty woken row: the row is discarded and the answered message is not resent", async () => {
     // The shape of 3019832f on 25/09: an answered message, then a woken row the

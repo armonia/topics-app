@@ -2530,7 +2530,16 @@ export function createTopicsRouter(
       // perde il contenuto parziale che l'utente stava per fermare.
       if (!clearedForReal) finalizeAborted();
 
-      endStream(sessionKey);
+      // The tools the close cut are announced, as the watchdogs do (chat.ts
+      // `endStreamAndAnnounce`): a machine's stop never reaches the finalize
+      // that told the screens, and their spinners kept turning until a reload.
+      for (const tc of endStream(sessionKey)) {
+        broadcastToAll({
+          type: "stream:tool_result", sessionKey, topicId, toolCallId: tc.id, status: "error",
+          result: tc.result, error: tc.error, endedAt: tc.endedAt,
+          ...(stream.messageId ? { messageId: stream.messageId } : {}),
+        });
+      }
       // user_abort: user explicitly clicked stop — they are present in the tab,
       // so we intentionally do NOT increment unread count. This is a design
       // choice, not an omission. A machine's stop says it was cancelled, with

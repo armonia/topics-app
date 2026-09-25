@@ -11,9 +11,9 @@
  * said "user stop", and after a restart the message would never be resumed.
  *
  * A stop the machine WANTED (a land, a delegation's deadline, the stall judge)
- * ends as every route stop ended before: no notice, an empty row discarded,
- * nothing to resume (third review of PR #135). The only difference is that it
- * is not written down as the person's.
+ * ends as every route stop ended before (third review of PR #135): no notice,
+ * an empty row discarded, and the sweep reads the chat as it did then. The only
+ * difference is that it is not written down as the person's.
  *
  * Only a request built inside the server can name a machine cause: the mark
  * lives on the Request object, which a client cannot forge. Anything else is
@@ -23,6 +23,11 @@ export type MachineStopCause = "stall" | "superseded" | "wall-clock";
 export type StopCause = "user" | MachineStopCause;
 
 const MACHINE_STOP_CAUSES: ReadonlySet<string> = new Set<MachineStopCause>(["stall", "superseded", "wall-clock"]);
+
+/** A stop somebody asked for: the person, or the machine on purpose. Its end explains nothing. */
+export function isWantedStop(cause: unknown): boolean {
+  return cause === "user" || (typeof cause === "string" && MACHINE_STOP_CAUSES.has(cause));
+}
 const internalRequests = new WeakSet<Request>();
 
 /**

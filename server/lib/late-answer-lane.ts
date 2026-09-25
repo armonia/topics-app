@@ -33,6 +33,7 @@ import type { ProviderDoneMessage, StreamHandler } from "../providers/types";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { classifyTurnError, type TurnEndInfo } from "../providers/stop-reason";
 import { avvisoPerTurno, isResumableCause } from "./cancelled-notice";
+import { isWantedStop } from "./abort-cause";
 
 interface Slot { get: () => string; set: (value: string) => void }
 
@@ -166,13 +167,16 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
       const notice = avvisoPerTurno(classifyTurnError(error, "provider-error"), { haProdotto: true, riprendeDaSolo: true });
       end(`failed (${error})`, notice ?? error);
     },
-    // A notice only for a cause the provider named: `avvisoPerTurno` is
-    // silent on a person's Stop, and an abort with no cause is most often one.
+    // A notice only for a cause the provider named, and not for the echo of a
+    // stop somebody asked for (the person, or the machine on purpose): ACP and
+    // the native loop can still speak between the stop and that echo, and the
+    // stop explains itself (lib/abort-cause.ts).
     onAborted: (message?: ProviderDoneMessage) => {
       if (trailing("onAborted")) return;
       takeTail(message);
       const info: TurnEndInfo | undefined = message?.turnEnd;
-      end("aborted", info ? avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: isResumableCause(info.cause) }) : null);
+      const explained = !info || isWantedStop(info.cause);
+      end("aborted", explained ? null : avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: isResumableCause(info.cause) }));
     },
   };
 
