@@ -109,19 +109,30 @@ function isAlive(pid: number): boolean {
 
 /**
  * The daemons a process's own client spawned: the client passes its pid as
- * `--parent-pid`. Asked while that process is alive, so the pid cannot have been
- * reused by anyone else.
+ * `--parent-pid`, AND the kernel still names this process as their parent.
+ *
+ * The argv alone is not an identity. Production's daemon carries the pid of
+ * the server that spawned it, dead since a restart (53082 carried 62481 on
+ * 25/09), and macOS hands pids out again: the day a `bun test` got that pid,
+ * this matched production and its afterAll sent it SIGTERM, then SIGKILL. A
+ * daemon this process started is its child while it lives; one whose spawner
+ * died has launchd for a parent.
  */
 function aiBridgesSpawnedBy(parentPid: number): number[] {
   if (process.platform === "win32") return [];
   let out = "";
   try {
-    out = execFileSync("ps", ["-A", "-ww", "-o", "pid=,args="], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    out = execFileSync("ps", ["-A", "-ww", "-o", "pid=,ppid=,args="], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   } catch {
     return [];
   }
   const parent = new RegExp(`--parent-pid ${parentPid}(?:\\s|$)`);
-  return out.split("\n").filter((l) => DAEMON_ARGV.test(l) && parent.test(l)).map((l) => Number(l.trim().split(/\s+/)[0]));
+  return out
+    .split("\n")
+    .filter((l) => DAEMON_ARGV.test(l) && parent.test(l))
+    .map((l) => l.trim().split(/\s+/).map(Number))
+    .filter(([, ppid]) => ppid === parentPid)
+    .map(([pid]) => pid!);
 }
 
 /** SIGTERM, so each daemon takes its CLIs down with it; SIGKILL for one still there after `graceMs`. */
