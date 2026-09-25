@@ -15,8 +15,8 @@ import {
   processRows,
 } from "./helpers/platform";
 import { E2E_PORT, descendantsOf, testServerEnv } from "./helpers/test-server";
-import { liveLockHolder, releaseRunLock } from "./helpers/run-lock";
 import { TEST_RUN_ENV, reportAndEndStrays, strayAiBridges } from "../../scripts/stray-ai-bridges";
+import { liveLockHolder, releaseRunLock } from "./helpers/run-lock";
 
 const TEST_PORT = E2E_PORT;
 
