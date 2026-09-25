@@ -143,6 +143,40 @@ describe("la riga di un turno vivo si fa scrivere PRIMA di leggerla", () => {
     persist.dispose();
   });
 
+  test("a reader behind on a deferred tool write AND on new text pays one write, not two", () => {
+    const sessionKey = "topic:flush-once";
+    const blocks: ContentBlock[] = [];
+    let content = "";
+    let writes = 0;
+    let row: Partial<StoredMessage> = {};
+    const persist = createTurnBodyPersist({
+      sessionKey,
+      updateLastMessage: (_key: string, updates: Partial<StoredMessage>) => { writes++; row = { ...row, ...updates }; },
+      rowId: () => "row-once",
+      blocks,
+      content: () => content,
+      thinking: () => "",
+      trackedTools: () => blocks.length,
+      reattachSnapshot: () => null,
+    });
+    blocks.push(toolBlock("t1", "read_file"));
+    persist.request(false, MAX_DELAY_BYTES);
+    expect(writes).toBe(1);
+    content += "after the tool ";
+    blocks.push({ kind: "text", text: "after the tool " });
+    blocks.push(toolBlock("t2", "send_mail"));
+    persist.request(false, MAX_DELAY_BYTES + 1);
+    expect(writes).toBe(1);
+
+    const release = registerTurnBodyFlush(sessionKey, () => persist.flush());
+    flushTurnBody(sessionKey);
+    expect(writes).toBe(2);
+    expect(row.content).toBe("after the tool ");
+    expect(row.blocks).toHaveLength(3);
+    release();
+    persist.dispose();
+  });
+
   test("two turns of one session both get flushed, and releasing one keeps the other", () => {
     // A closed turn's late answer (lib/late-answer-lane.ts) registers its
     // flush while the NEXT turn of the same chat is live. One slot per session

@@ -58,6 +58,13 @@ export interface TurnBodyPersist {
    * open the ROW instead of following the stream - see lib/turn-body-flush.ts.
    */
   flush(): void;
+  /**
+   * The turn closes on a failure: write the work it still owes, then stop.
+   * Only WORK is written. A body of banners alone (a woken turn, a resumed
+   * one) is not work: written, it read as a turn that produced something, and
+   * the notice of a failed start gave way to it, Retry included.
+   */
+  stop(): void;
   /** Drop a write still owed. Every caller rewrites the row whole right after. */
   dispose(): void;
 }
@@ -117,20 +124,29 @@ export function createTurnBodyPersist(opts: TurnBodyPersistOptions): TurnBodyPer
       if (withText) owesText = true;
       throttle.persist(sizeBytes, force);
     },
-    flush() {
-      // What the throttle owes is not enough for a reader of the row: the text
-      // reaches it only at every tenth chunk (`SAVE_INTERVAL` in
-      // routes/chat.ts), so a turn of text alone had a row with no timeline for
-      // its first ten chunks. A chat opened mid-turn drew that empty timeline,
-      // appended the live chunks to it, and showed the turn without its start
-      // (card 423e016f). So the reader gets the body as it is NOW, and only
-      // when it changed since the last write: readers come at every socket open
-      // and every history read, and the throttle exists to bound these writes.
-      throttle.flush();
-      if (mark() === writtenMark) return;
-      owesText = true;
-      throttle.persist(lastSizeBytes, true);
+    flush,
+    stop() {
+      const worked = opts.content().length > 0 || opts.thinking().length > 0
+        || blocks.some((b) => b.kind !== "woken" && b.kind !== "ripreso");
+      if (worked) flush();
+      throttle.dispose();
     },
     dispose() { throttle.dispose(); },
   };
+
+  function flush(): void {
+    // What the throttle owes is not enough for a reader of the row: the text
+    // reaches it only at every tenth chunk (`SAVE_INTERVAL` in routes/chat.ts),
+    // so a turn of text alone had a row with no timeline for its first ten
+    // chunks. A chat opened mid-turn drew that empty timeline, appended the
+    // live chunks to it, and showed the turn without its start (card
+    // 423e016f). So the reader gets the body as it is NOW, in ONE write, and
+    // only when the row is behind: a write the throttle is holding, or text
+    // that arrived after the last write that carried it. Readers come at every
+    // socket open and every history read, and the throttle exists to bound
+    // these writes.
+    if (!throttle.hasPending() && mark() === writtenMark) return;
+    owesText = true;
+    throttle.persist(lastSizeBytes, true);
+  }
 }

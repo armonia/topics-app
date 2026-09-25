@@ -31,7 +31,11 @@ beforeAll(() => setupTestDataDir(TEST_DATA));
  * One turn through the chat route, with a provider whose send rejects after
  * `drive` has played what the CLI did before dying.
  */
-async function failedTurn(sessionKey: string, drive: (handler: StreamHandler | undefined) => void): Promise<AppContext> {
+async function failedTurn(
+  sessionKey: string,
+  drive: (handler: StreamHandler | undefined) => void,
+  opts: { resumed?: boolean } = {},
+): Promise<AppContext> {
   const ctx = await createTestAppContext();
   (ctx as { broadcastToAll: (m: unknown) => void }).broadcastToAll = () => {};
   (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void }).broadcastToTopicSubscribers = () => {};
@@ -79,7 +83,11 @@ async function failedTurn(sessionKey: string, drive: (handler: StreamHandler | u
   const resp = (await chatRouter(new Request(url.toString(), {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: "hello" }], provider: "claude-code" }),
+    body: JSON.stringify({
+      sessionKey, messages: [{ role: "user", content: "hello" }], provider: "claude-code",
+      // The resend of a turn a restart cut: its timeline opens with the banner.
+      ...(opts.resumed ? { ripresa: 1 } : {}),
+    }),
   }), url, "/api/chat", "POST")) as Response | null;
   expect(resp?.status).toBe(200);
   // The failure path writes its message, [DONE], and closes the stream.
@@ -122,5 +130,27 @@ describe("a turn that fails", () => {
     expect(kinds(row)).toEqual(["tool:success", "text", "error"]);
     expect(row?.blocks?.find((b) => b.kind === "text")).toMatchObject({ text: "c-1 c-2 c-3 c-4 c-5 " });
     expect(flushTurnBody(sessionKey)).toBe(false);
+  });
+
+  test("with a tool still running: the tool ends closed, not running on a closed turn", async () => {
+    const sessionKey = "topic:failrunning";
+    const ctx = await failedTurn(sessionKey, (h) => {
+      h!.onTextDelta("before ", "");
+      h!.onToolStart("tool-bbbbbbbb", "Bash", { command: "sleep 600" });
+      for (let i = 1; i <= 3; i++) h!.onTextDelta(`c-${i} `, "");
+    });
+    await new Promise((r) => setTimeout(r, 1_200));
+    expect(kinds(lastAssistant(ctx, sessionKey))).toEqual(["text", "tool:error", "text", "error"]);
+  });
+
+  test("a resumed turn that fails before any work keeps the notice and its Retry", async () => {
+    // Its timeline holds the resume banner alone, and a banner is not work:
+    // written, it read as a turn that produced something, the notice gave way
+    // to it, and the client offers Retry only on a row of errors.
+    const sessionKey = "topic:failresumed";
+    const ctx = await failedTurn(sessionKey, () => {}, { resumed: true });
+    const row = lastAssistant(ctx, sessionKey);
+    expect(row?.content).toContain("Non sono riuscito ad avviare il turno");
+    expect(kinds(row)).toEqual(["error"]);
   });
 });

@@ -57,7 +57,7 @@ import { createTurnBodyPersist } from "../lib/turn-body-persist";
 import { guardFinalizedTurn } from "../lib/finalized-turn-guard";
 import { createLateAnswerLane } from "../lib/late-answer-lane";
 import { isMachineStop } from "../lib/abort-cause";
-import { registerTurnBodyFlush } from "../lib/turn-body-flush";
+import { registerTurnBodyFlush, stopTurnBodyOf } from "../lib/turn-body-flush";
 import { setProviderHold, holdUntilLabel } from "../lib/provider-hold";
 import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
 
@@ -977,10 +977,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         // in `updateMessage`, che lascia la colonna dov'è.
         return undefined;
       };
-      // Every failure path stops the turn's writer, after writing what it owes:
-      // left registered, its flush let the next reader of the chat write the
-      // body over the notice. Set once the writer exists, a no-op before.
-      let stopTurnBody: () => void = () => {};
       /**
        * Chiude il turno quando non si è potuto GUIDARE: `sendChat` ha rigettato,
        * o il montaggio è morto prima di partire.
@@ -1001,7 +997,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
        * lo terrebbe appeso.
        */
       const closeTurnWithFailure = (err: unknown, rowId: string): string => {
-        stopTurnBody();
         const row = readRowForNotice(rowId);
         const notice = sendFailureNotice(row, err);
         const verdetto = `Non sono riuscito ad avviare il turno: ${shortErrorDetail(err)}`;
@@ -1181,8 +1176,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // and the throttle above can still owe that write for up to fifteen
           // seconds: a confirmation would find no row and refuse a send nobody
           // had a chance to see. Published here, taken down with the turn.
-          const releaseTurnBodyFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush());
-          stopTurnBody = () => { try { turnBody.flush(); } catch { /* the notice is still written */ } turnBody.dispose(); releaseTurnBodyFlush(); };
+          const releaseTurnBodyFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush(), { rowId: () => partialMsg.id, stop: () => turnBody.stop() });
           // A turn already finalized has no write budget left to save: whatever
           // still arrives (a tool result that came back after the end) is
           // written NOW. Deferring it would leave the row without it until an
@@ -3596,7 +3590,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 console.log(`[StreamWS] ${sessionKey}: il turno spontaneo era già stato preso da qualcun altro — chiudo senza scrivere niente`);
                 undoInlineMark();
                 topicProvider.unregisterStreamHandler?.(sessionKey);
-                stopTurnBody();
+                stopTurnBodyOf(partialMsg.id);
                 endStream(sessionKey);
                 streamState = "finalized";
                 // `discardIfEmptyTurn` vuole la RIGA, non un id, e verifica in
@@ -3617,6 +3611,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // restano i throw sincroni; la classe grossa passa da `onError`.
               undoInlineMark();
               topicProvider.unregisterStreamHandler?.(sessionKey);
+              stopTurnBodyOf(partialMsg.id);
               endStream(sessionKey);
               // Il turno è chiuso: un `onDone` in ritardo non deve riaprirlo e
               // riscrivere la riga da `finalizeStream`. Mancava, ed era un buco
@@ -3631,6 +3626,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           } catch (err: any) {
             console.error(`[StreamWS] sync setup error for ${sessionKey}:`, err);
             topicProvider.unregisterStreamHandler?.(sessionKey);
+            stopTurnBodyOf(partialMsg.id);
             endStream(sessionKey);
             // Come il gemello asincrono: il turno è chiuso, e i timer del
             // watchdog sono ancora armati.
@@ -3654,7 +3650,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         } catch (err: any) {
           console.error(`[StreamWS] Unexpected error for ${sessionKey}:`, err);
           stopPing();
-          try { stopTurnBody(); } catch { /* the turn is still closed below */ }
           // Uscire di qui con un 502 e basta lasciava tre cose sul campo: la
           // riga assistente APERTA (e `partial` è il perno che il setaccio di
           // boot legge per decidere chi è vivo), lo stream registrato in
@@ -3664,6 +3659,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // temporarily unavailable»: generico, e falso, perché il guasto era
           // nostro. Si chiude qui, dicendo cosa è successo davvero.
           try {
+            stopTurnBodyOf(crashedPartialId);
             endStream(sessionKey);
             if (crashedPartialId) {
               const notice = crashedTurnNotice(readRowForNotice(crashedPartialId), err);
