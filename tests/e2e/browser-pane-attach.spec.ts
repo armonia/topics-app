@@ -547,9 +547,14 @@ test.describe("open_browser_pane attaches the project pane", () => {
       const boot = await restartServer();
       // eslint-disable-next-line no-control-regex -- Bun colours the object it logs
       expect(boot.join("").replace(/\x1b\[[0-9;]*m/g, ""), "the boot cleanup rewrote tombstones-browser").toMatch(/key: "tombstones-browser"/);
-      // The pane socket reconnects by itself and registers again.
-      const back = Date.now();
-      await waitForExecutor(request, () => watch.opensSince(back), ctx);
+      // The pane socket reconnects by itself and registers again. Read in the
+      // new server's own log: counting socket opens from here would race, the
+      // reconnect ladder can land while the boot answers its first requests,
+      // before `restartServer` returns.
+      await expect
+        // eslint-disable-next-line no-control-regex -- Bun colours what it logs
+        .poll(() => boot.join("").replace(/\x1b\[[0-9;]*m/g, ""), { timeout: 20_000, message: "the pane registers with the new server" })
+        .toContain(`native executor registered for ctx ${ctx}`);
       // The tool's answer is the observation: the route attaches through a pane
       // only if one is attached. No clock is added on top: the one delayed
       // unmount on the client is residency's, and it does not touch the only,
