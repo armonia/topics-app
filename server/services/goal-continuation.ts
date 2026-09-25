@@ -277,14 +277,20 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
     const outcome = await judge({ ...w.info, backgroundWork: false }, deps.backgroundWork?.(sessionKey) === true, free)
       .catch((err) => { log(`goal-loop: the check-in failed (${err instanceof Error ? err.message : String(err)})`); return "error"; });
     if (outcome === "busy") {
-      // The turn that took the session ends by itself and decides; this check-in is not spent.
-      const spent = w.wakeOnly ? 0 : Math.max(0, (checkInCount.get(sessionKey) ?? 1) - 1);
-      if (!w.wakeOnly) checkInCount.set(sessionKey, spent);
+      // The turn that took the session ends by itself and decides. The check-in
+      // is spent all the same, as Claude Code spends it: the judge was paid.
+      // Given back, the interval never doubled and the check-ins never paused,
+      // and a Monitor ticking every 25 s paid 11 judges in 6 hours with no
+      // nudge (fourth review of 25/09).
+      const spent = checkInCount.get(sessionKey) ?? 0;
       // And the next one is a full interval away, not due at once: left due,
       // the end of a Monitor tick fired it again, the judge met the next tick,
       // and a goal paid 145 judges in 90 minutes without a nudge (third review of 25/09).
-      const delay = w.wakeOnly ? GOAL_WAKE_RECHECK_MS : goalCheckInDelayMs(spent);
-      if (!deferred.has(sessionKey)) deferred.set(sessionKey, { ...w, timer: setTimer(() => { void checkIn(sessionKey); }, delay) });
+      const delay = w.wakeOnly ? GOAL_WAKE_RECHECK_MS : spent < GOAL_CHECK_IN_LIMIT ? goalCheckInDelayMs(spent) : null;
+      if (!deferred.has(sessionKey)) {
+        deferred.set(sessionKey, { ...w, timer: delay === null ? null : setTimer(() => { void checkIn(sessionKey); }, delay) });
+        if (delay === null) log(`goal-loop: ${sessionKey}: ${GOAL_CHECK_IN_LIMIT} check-ins spent, check-ins paused until the next message`);
+      }
     }
   }
 
