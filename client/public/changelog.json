@@ -1,5 +1,21 @@
 [
   {
+    "version": "2.2.390",
+    "date": "2026-09-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Il commento dice cosa conta davvero per spostare la nota in fondo",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.389",
     "date": "2026-09-25",
     "sections": {
@@ -14,6 +30,16 @@
         },
         {
           "it": "Record the size claude-code.ts grew to for the second round of lifetime fixes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le tre riserve del verifier sulle note d'attesa: traccia del tick, episodio nuovo in fondo, un frame dopo il riavvio",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Un nome che il cancello dei nomi conosce: buried",
           "en": "",
           "scope": null
         },
@@ -193,6 +219,21 @@
         },
         {
           "it": "Escape rimette il fuoco sul ⚙ anche in WebKit: Safari non dà il fuoco a un bottone cliccato, e il bersaglio salvato era <body>",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Test rossi: le note di una card trattenuta si impilano a ogni boot e il chip in coda resta su una card in review",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Le note di una card trattenuta sono uno stato: una riga per card, non una per boot",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Il test del resume che rinuncia legge lo slot: una riga d'attesa, quella nuova",
           "en": "",
           "scope": null
         },
