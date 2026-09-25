@@ -2502,15 +2502,9 @@ export function createTopicsRouter(
           { content: stream.content, thinking: stream.thinking || undefined, partial: undefined, streamedAt: undefined },
           { rowId: stream.messageId },
         );
-        // An empty placeholder with rows under it is KEPT: the discard deletes
-        // the whole subtree, and what hangs from a live turn was born during it
-        // (a sub-agent's exit report, `lib/subagent-watch.ts`). Unknown counts
-        // as "rows under it": an empty bubble costs less than a lost row.
-        const turnHasChildren = (() => {
-          try { return !!db.prepare("SELECT 1 FROM messages WHERE parent_id = ? LIMIT 1").get(stream.messageId); }
-          catch { return true; }
-        })();
-        discardedMessageId = turnHasChildren ? null : discardIfEmptyTurn(sessionKey, finalized);
+        // An empty placeholder with rows under it is kept by the discard itself
+        // (`discardIfEmptyTurn`): what hangs from it was born during the turn.
+        discardedMessageId = discardIfEmptyTurn(sessionKey, finalized);
         if (discardedMessageId) console.log(`[Abort] ${sessionKey}: turno vuoto scartato (${discardedMessageId})`);
       };
       const clearedForReal = decideClear();

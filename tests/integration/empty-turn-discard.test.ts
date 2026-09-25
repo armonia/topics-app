@@ -114,4 +114,23 @@ describe("stop su un turno che non ha prodotto niente", () => {
     expect(ctx.getSiblingMessages("e5-u1").map(s => s.branchIndex)).toEqual([0]);
     expect(thread[1].siblingCount ?? 1).toBe(1);
   });
+
+  test("an empty placeholder with rows under it stays: the discard would take them too", async () => {
+    // The turn is finalized BY ID (card 1046df0b), so the discard now lands on
+    // the placeholder even when rows were born after it. A row appended in the
+    // meantime hangs from it (`appendLocalMessage` parents to the last row):
+    // the user's resend, a sub-agent's exit report. The discard deletes a
+    // SUBTREE, so it took them with it.
+    const ctx = await createTestAppContext();
+    const placeholder = seedTurnInFlight(ctx, "topic:empty-6", "e6");
+    const resend = ctx.appendLocalMessage("topic:empty-6", "user", "ci sei?");
+    expect(resend.parentId).toBe(placeholder.id);
+
+    const finalized = ctx.updateLastMessage("topic:empty-6", { content: "", partial: undefined, streamedAt: undefined }, { rowId: placeholder.id });
+    const discarded = ctx.discardIfEmptyTurn("topic:empty-6", finalized);
+
+    expect(discarded).toBeNull();
+    expect(ctx.getMessageById(resend.id)?.content).toBe("ci sei?");
+    expect(ctx.loadActiveThread("topic:empty-6").map(m => m.id)).toEqual(["e6-u1", placeholder.id, resend.id]);
+  });
 });

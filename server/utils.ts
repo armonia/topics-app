@@ -416,6 +416,8 @@ export function createAppContext(baseDir: string): AppContext {
      *  lettura mirata invece che l'intera riga, e su un cammino che si percorre
      *  quasi mai. */
     getMessageBlocks: db.prepare(`SELECT blocks FROM messages WHERE id = ?`),
+    /** Whether any row hangs from this one. Read by `discardIfEmptyTurn` only. */
+    messageHasChildren: db.prepare(`SELECT 1 FROM messages WHERE session_key = ? AND parent_id = ? LIMIT 1`),
     getLastAssistantMessage: db.prepare(`SELECT id, content FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC LIMIT 1`),
     appendMessageContent: db.prepare(`UPDATE messages SET content = ? WHERE id = ?`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
@@ -2712,6 +2714,12 @@ export function createAppContext(baseDir: string): AppContext {
       // stores it as zstd above 512 bytes, and the predicate wants the JSON.
       if (!isEmptyAssistantTurn({ role: "assistant", blocks: decodeCol(row?.blocks) })) return null;
     }
+    // An empty placeholder with rows under it stays. The turn is finalized by
+    // id, so this can be a row that others were born after, and those hang
+    // from it (`appendLocalMessage` parents to the last row): the user's
+    // resend, a sub-agent's exit report. The delete below takes a SUBTREE, and
+    // an empty bubble costs less than a lost message.
+    if (stmts.messageHasChildren.get(sessionKey, msg.id)) return null;
     return deleteMessageSubtree(sessionKey, msg.id) ? msg.id : null;
   }
 
