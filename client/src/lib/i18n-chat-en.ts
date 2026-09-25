@@ -65,6 +65,7 @@ const CHAT_EN: Dict = {
   'chat.reply.toAssistant': 'Replying to assistant',
 
   'chat.send.stopStreaming': 'Stop streaming',
+  'chat.send.stopBackground': 'Stop the work running in the background',
   'chat.send.queueTitle': 'Queue message (Enter)',
   'chat.send.sendTitle': 'Send (Enter)',
   'chat.send.queue': 'Queue message',

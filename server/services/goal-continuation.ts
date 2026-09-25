@@ -298,7 +298,16 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
     }
     return judge(info, false);
   };
-  return onTurnEnd;
+  /**
+   * The person stopped the background work the goal was waiting for (the Stop
+   * of a chat whose turn is closed): no turn ends for it, so without this the
+   * check-in would judge the waiting turn and nudge the work back to life.
+   */
+  const stopWaiting = (sessionKey: string): void => {
+    if (dropWaiting(sessionKey)) log(`goal-loop: ${sessionKey}: background work stopped by the person, the goal stops waiting for it`);
+    checkInCount.delete(sessionKey);
+  };
+  return Object.assign(onTurnEnd, { stopWaiting });
 
   async function judge(info: TurnEndInfo, backgroundStillRunning: boolean): Promise<string> {
     let goal;
@@ -499,5 +508,6 @@ export function goalContinuationForChatRoute(deps: {
     /** The route hands itself over on the first request it serves. */
     useRoute(handler: ChatRouteLike) { route ??= handler; },
     onTurnEnd,
+    stopWaiting: onTurnEnd.stopWaiting,
   };
 }

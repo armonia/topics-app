@@ -6,7 +6,7 @@ import { join, resolve, dirname } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic, ToolCall } from "../types";
-import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
+import { getProvider, getDefaultProvider, getDefaultProviderName, sessionHasBackgroundWork, sessionsWithBackgroundWork, type AIProvider } from "../providers";
 import { createTopicProviderResolver } from "../providers/topic-provider-resolver";
 import { getSnapshotManager } from "../providers/snapshot-manager";
 import { routesThroughGateway } from "./commandRouting";
@@ -14,7 +14,8 @@ import { createAutoNameRouter } from "./autoname";
 import { createHistoryRouter, createToolDetailRouter } from "./history";
 import { blocksForDisk, leanMessagesForWire, toolCallsColumnForRow } from "../../shared/lean-tool-call";
 import { MACHINE_ROW_SQL } from "../../shared/prompt-number";
-import { postBackgroundNotice } from "../lib/background-notice";
+import { noticeOwedChanges } from "../lib/background-notice";
+import { goalContinuationForChatRoute } from "../services/goal-continuation";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
@@ -880,11 +881,18 @@ export function createTopicsRouter(
   // The two doors that leave the machine (mail and Google): same treatment as
   // the human channel, because the confirmation they impose IS that channel.
   const outboundRouter = createOutboundRouter(ctx);
+  /** Apply a spawn-time config change to the session's child, or learn why it waits. */
+  const refreshConfig = (topic: Topic) => {
+    try { return resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
+    catch (err) { console.warn(`[topics] refreshSessionConfig failed for ${topic.sessionKey}:`, err); }
+  };
+  // Built here and not inside the chat route: the Stop below needs its handle.
+  const goalLoop = goalContinuationForChatRoute({ ctx, resolveProvider, log: (m) => console.log(`[goal] ${m}`) });
   const chatRouter = createChatRouter(ctx, {
     resolveProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR,
-    hooks: extra.hooks,
+    hooks: extra.hooks, goalLoop,
   }, browserService);
   // Il ponte MCP del browser (le sei rotte `…/browser/*` in due forme
   // d'indirizzo) sta in `browser-bridge.ts` con i tre helper di risoluzione del
@@ -1120,7 +1128,7 @@ export function createTopicsRouter(
       const sessions: {
         topicId: string;
         sessionKey: string;
-        state: "streaming" | "waiting";
+        state: "streaming" | "waiting" | "background";
         awaitingSince?: number;
       }[] = [];
       for (const sessionKey of activeStreams.keys()) {
@@ -1159,6 +1167,12 @@ export function createTopicsRouter(
           state: awaitingSince != null ? "waiting" : "streaming",
           ...(awaitingSince != null ? { awaitingSince } : {}),
         });
+      }
+      // No turn open, but work a closed one left running: the Stop still applies.
+      for (const sessionKey of sessionsWithBackgroundWork()) {
+        if (sessions.some((s) => s.sessionKey === sessionKey)) continue;
+        const topic = getTopicBySessionKey(sessionKey);
+        if (topic?.sessionKey) sessions.push({ topicId: topic.id, sessionKey: topic.sessionKey, state: "background" });
       }
       return json({ sessions });
     }
@@ -1723,18 +1737,9 @@ export function createTopicsRouter(
         // applies on the next natural respawn) and must not block the PATCH
         // response.
         if (effortChanged || spawnConfigChanged) {
-          let outcome: string | void = undefined;
-          try { outcome = resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
-          catch (err) { console.warn(`[topics] refreshSessionConfig failed for ${topic.sessionKey}:`, err); }
-          // The respawn would kill the chat's background work, so the change
-          // waits for it, and the chat says so: a lowered autonomy the CLI does
-          // not have yet is not something to learn from a log.
-          if (outcome === "deferred-background") {
-            const owed = { autonomy: autonomyOwed, model: modelChanged, effort: effortChanged };
-            for (const change of (["autonomy", "model", "effort"] as const).filter((c) => owed[c])) {
-              postBackgroundNotice(ctx, { sessionKey: topic.sessionKey, topicId: topic.id }, { kind: "background-notice", event: "deferred", change });
-            }
-          }
+          // A change the chat's background work makes wait is said in the chat.
+          const outcome = refreshConfig(topic);
+          noticeOwedChanges(ctx, topic, outcome, { autonomy: autonomyOwed, model: modelChanged, effort: effortChanged });
           // Il ring cambia DENOMINATORE, non numeratore: cambiare modello cambia
           // la finestra, e l'ultima misura va riletta contro quella nuova. Senza
           // questo il ring resta fermo sul vecchio rapporto fino al turno dopo —
@@ -2466,6 +2471,13 @@ export function createTopicsRouter(
       };
 
       if (!stream) {
+        // Only background work left: the Stop is for it (SIGINT, exit 0 in 0.8 s
+        // on 2.1.282), and a goal waiting for it stops, or its check-in revives it.
+        if (sessionHasBackgroundWork(sessionKey) && abortProvider.abort) {
+          await abortProvider.abort(sessionKey, undefined, "user");
+          goalLoop.stopWaiting(sessionKey);
+          return json({ ok: true, reason: "background_stopped", cleared: false });
+        }
         // Niente da fermare: turno già finito, oppure una finestra che stava
         // solo guardando quello di un'altra. Nessun effetto — né sul provider
         // (un `abort` alla cieca taglierebbe un turno headless che questo
@@ -2953,14 +2965,8 @@ export function createTopicsRouter(
             topic.updatedAt = new Date().toISOString();
             saveSingleTopic(topic);
             broadcastToAll({ type: "topic:updated", topic });
-            let outcome: string | void = undefined;
-            if ((topic.model ?? null) !== prevModel) {
-              try { outcome = resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
-              catch (err) { console.warn(`[command] refreshSessionConfig (model) failed:`, err); }
-            }
-            // Owed to the background work: the chat says it, translated.
-            const pending = outcome === "deferred-background" ? { pending: "background-work" } : {};
-            if (pending.pending) postBackgroundNotice(ctx, { sessionKey, topicId: topic.id }, { kind: "background-notice", event: "deferred", change: "model" });
+            const outcome = (topic.model ?? null) !== prevModel ? refreshConfig(topic) : undefined;
+            const pending = noticeOwedChanges(ctx, topic, outcome, { model: true });
             return json({ ok: true, command: "model", model: topic.model, ...pending, message: `Modello impostato: ${topic.model}. Attivo dal prossimo turno.` });
           }
           case "effort": {
@@ -2981,13 +2987,8 @@ export function createTopicsRouter(
             topic.updatedAt = new Date().toISOString();
             saveSingleTopic(topic);
             broadcastToAll({ type: "topic:updated", topic });
-            let outcome: string | void = undefined;
-            if ((topic.effort ?? null) !== prevEffort) {
-              try { outcome = resolveProvider(topic).refreshSessionConfig?.(topic.sessionKey); }
-              catch (err) { console.warn(`[command] refreshSessionConfig (effort) failed:`, err); }
-            }
-            const pending = outcome === "deferred-background" ? { pending: "background-work" } : {};
-            if (pending.pending) postBackgroundNotice(ctx, { sessionKey, topicId: topic.id }, { kind: "background-notice", event: "deferred", change: "effort" });
+            const outcome = (topic.effort ?? null) !== prevEffort ? refreshConfig(topic) : undefined;
+            const pending = noticeOwedChanges(ctx, topic, outcome, { effort: true });
             return json({ ok: true, command: "effort", level: tier, ...pending, message: `Effort impostato: ${tier}. Attivo dal prossimo turno.` });
           }
           case "reasoning": {

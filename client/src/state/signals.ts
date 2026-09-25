@@ -249,6 +249,8 @@ interface SignalsState {
    *  before that the hydrated set is empty because nobody asked, not because
    *  nothing is open. */
   hydratedStreamAsked: boolean;
+  /** Sessions (by sessionKey) with no turn open but work a closed turn left running: the composer offers its Stop. */
+  backgroundWorkSessions: Set<string>;
   terminalBusyIds: Set<string>;      // server-tracked pty busy, by session id (fallback heuristic)
   browserBusyPaneIds: Set<string>;   // browser panel loading/agent, by pane id
   // claude-code terminals whose known phase is active (running/tool-running).
@@ -369,7 +371,7 @@ export interface TerminalRosterEntry {
   busy?: boolean;
 }
 
-type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics' | 'claudeAttentionTopics' | 'awaitingFeedbackTopics' | 'awaitingInputTopics';
+type TopicSetKey = 'liveStreamTopics' | 'hydratedStreamTopics' | 'backgroundWorkSessions' | 'claudeAttentionTopics' | 'awaitingFeedbackTopics' | 'awaitingInputTopics';
 
 export function setsEqual(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
   if (a.size !== b.size) return false;
@@ -469,6 +471,7 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   liveStreamTopics: new Set(),
   hydratedStreamTopics: new Set(),
   hydratedStreamAsked: false,
+  backgroundWorkSessions: new Set(),
   terminalBusyIds: new Set(),
   browserBusyPaneIds: new Set(),
   claudePhaseActiveTermIds: new Set(),
@@ -618,6 +621,15 @@ export const signalsActions = {
     const st = useSignalsStore.getState();
     st.setTopicSet('hydratedStreamTopics', ids);
     st.markHydratedStreamAsked();
+  },
+  setBackgroundWorkSessions: (keys: Set<string>) => useSignalsStore.getState().setTopicSet('backgroundWorkSessions', keys),
+  /** The Stop just ended this session's background work: no need to wait for the next poll to say so. */
+  dropBackgroundWork: (sessionKey: string) => {
+    const st = useSignalsStore.getState();
+    if (!st.backgroundWorkSessions.has(sessionKey)) return;
+    const next = new Set(st.backgroundWorkSessions);
+    next.delete(sessionKey);
+    st.setTopicSet('backgroundWorkSessions', next);
   },
   setClaudeAttentionTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('claudeAttentionTopics', ids),
   setAwaitingFeedbackTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingFeedbackTopics', ids),
@@ -1018,6 +1030,11 @@ export function projectAttentionTier(
  *  «no reply» banner must not speak before it has. */
 export function useServerTurnAsked(): boolean {
   return useSignalsStore((s) => s.hydratedStreamAsked);
+}
+
+/** No turn open, but work a closed turn left running (server registry, polled). */
+export function useSessionBackgroundWork(sessionKey: string | undefined): boolean {
+  return useSignalsStore((s) => !!sessionKey && s.backgroundWorkSessions.has(sessionKey));
 }
 
 /** A topic is loading if it has a live stream or a hydrated mid-reply. */

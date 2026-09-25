@@ -2711,10 +2711,15 @@ export class ClaudeCodeProvider implements AIProvider {
     return this.backgroundState(sessionKey) !== "none";
   }
 
+  backgroundSessionKeys(): string[] {
+    return [...this.processes.keys()].filter((sk) => this.hasBackgroundWork(sk));
+  }
+
   /** `running`: listed tasks with news. `wake-queued`: only a reported task, the CLI is about to answer it. */
   backgroundState(sessionKey: string): "running" | "wake-queued" | "none" {
     const pp = this.processes.get(sessionKey);
-    if (!pp?.alive) return "none";
+    // A child told to stop takes its work with it: nothing to wait for.
+    if (!pp?.alive || pp.stoppedExit) return "none";
     const now = Date.now();
     if (hasLiveTasks(pp.background, now)) return "running";
     return isWakeQueued(pp.background, now) ? "wake-queued" : "none";

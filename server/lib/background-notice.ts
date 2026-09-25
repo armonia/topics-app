@@ -36,6 +36,24 @@ export function backgroundNoticeText(n: BackgroundNotice): string {
   return `${BACKGROUND_NOTICE_PREFIX} the ${n.change} change applies when the work running in the background ends; until then the running CLI keeps the previous one.`;
 }
 
+/**
+ * The changes a config route could not apply because the chat's background
+ * work runs (`refreshSessionConfig` said `deferred-background`), one line each.
+ * Returns the field the route's answer carries, so its caller knows too.
+ */
+export function noticeOwedChanges(
+  ctx: Pick<AppContext, "appendLocalMessage" | "broadcastToAll">,
+  topic: { id: string; sessionKey: string },
+  outcome: unknown,
+  changes: { autonomy?: boolean; model?: boolean; effort?: boolean },
+): { pending?: "background-work" } {
+  if (outcome !== "deferred-background") return {};
+  for (const change of ["autonomy", "model", "effort"] as const) {
+    if (changes[change]) postBackgroundNotice(ctx, { sessionKey: topic.sessionKey, topicId: topic.id }, { kind: "background-notice", event: "deferred", change });
+  }
+  return { pending: "background-work" };
+}
+
 /** Write the row and push it to every client. Never throws: a notice is not worth a failed request. */
 export function postBackgroundNotice(
   ctx: Pick<AppContext, "appendLocalMessage" | "broadcastToAll">,

@@ -6,7 +6,7 @@ import { decideComposerAction } from './composerAction';
 import { COMPOSER_CARD, COMPOSER_TEXTAREA } from './composerStyles';
 import { SLASH_COMMANDS } from './slashCommands';
 import { canAnswerWithText, findPendingAsk } from '../../state/pendingAsk';
-import { useServerTurnAsked, useTopicLoading } from '../../state/signals';
+import { useServerTurnAsked, useSessionBackgroundWork, useTopicLoading } from '../../state/signals';
 import { turnLooksUnanswered, interruptedTurnOf, TURN_CAUSE_KEY } from './turnError';
 import { useServerResume } from '../../hooks/useServerResume';
 import type { Topic, ChatMessage, UpdateTopicRequest, WSMessage } from '../../types';
@@ -385,6 +385,7 @@ export function ChatInput({
    * agente al lavoro. Vedi `turnLooksUnanswered`.
    */
   const serverTurnOpen = useTopicLoading(topic?.id);
+  const backgroundWork = useSessionBackgroundWork(topic?.sessionKey);
   const serverTurnAsked = useServerTurnAsked();
   // Context pills state. Excluded pills derive from the topic's SERVER-side
   // disabledContextSources (id format `file:<path>` — the same channel the
@@ -1489,7 +1490,9 @@ export function ChatInput({
                     busy: currentStreaming,
                     hasContent,
                     awaitingAnswer,
+                    backgroundWork,
                   });
+                  const stopTitle = !currentStreaming && backgroundWork ? tr('chat.send.stopBackground') : tr('chat.send.stopStreaming');
 
                   if (action.kind === 'stop') {
                     return (
@@ -1497,8 +1500,9 @@ export function ChatInput({
                         type="button"
                         onClick={onStop}
                         className="w-8 h-8 flex items-center justify-center rounded-lg bg-app-text/15 text-app-text hover:bg-app-text/25 transition-all"
-                        title={tr('chat.send.stopStreaming')}
-                        aria-label={tr('chat.send.stopStreaming')}
+                        data-composer-action="stop"
+                        title={stopTitle}
+                        aria-label={stopTitle}
                       >
                         <Square size={12} fill="currentColor" />
                       </button>

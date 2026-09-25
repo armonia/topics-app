@@ -12,6 +12,7 @@
  *   ─ idle & input has content   → send (submit message)
  *   ─ busy & input empty         → stop (abort the in-flight turn)
  *   ─ busy & input has content   → queue (accoda; will auto-send on stream end)
+ *   ─ idle & empty & background  → stop (the work a closed turn left running)
  *   ─ domanda a schermo & filled → answer (il testo VA alla domanda)
  *
  * "Busy" is anything that means the agent owns the turn right now:
@@ -60,6 +61,13 @@ export interface ComposerActionInput {
    * su un turno appeso è ancora annullarlo.
    */
   awaitingAnswer?: boolean;
+  /**
+   * No turn open, but the last one left work running in the background (an
+   * agent, a Bash, a Monitor). An empty composer offers Stop for that work
+   * instead of a dead button; typed text still sends, the CLI answers it
+   * while the work runs.
+   */
+  backgroundWork?: boolean;
 }
 
 export function decideComposerAction(input: ComposerActionInput): ComposerAction {
@@ -67,5 +75,6 @@ export function decideComposerAction(input: ComposerActionInput): ComposerAction
   if (input.busy) {
     return input.hasContent ? { kind: "queue" } : { kind: "stop" };
   }
-  return input.hasContent ? { kind: "send" } : { kind: "disabled" };
+  if (input.hasContent) return { kind: "send" };
+  return input.backgroundWork ? { kind: "stop" } : { kind: "disabled" };
 }

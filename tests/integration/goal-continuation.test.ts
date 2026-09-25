@@ -432,6 +432,21 @@ describe("a goal deferred on background work", () => {
     await close();
   });
 
+  test("a Stop of the background work: the goal stops waiting, and no check-in revives it", async () => {
+    // The Stop of a chat whose turn is closed ends no turn, so nothing else
+    // would drop the waiting one (`/api/chat/abort`, reason `background_stopped`).
+    const t = await bench("goal-background-stopped", ["continue"]);
+    await t.onTurnEnd(t.turn({ lastAssistantText: "the suite is running" }));
+    expect(t.timers.length).toBe(1);
+    t.onTurnEnd.stopWaiting(t.b.sessionKey);
+    t.stop();
+    expect(t.timers).toEqual([]);
+    await t.advance(GOAL_CHECK_IN_MS * 8);
+    expect(t.judged).toEqual([]);
+    expect(t.sent).toEqual([]);
+    await close();
+  });
+
   test("the empty wake after the last report hands the judge the turn that did the work", async () => {
     const t = await bench("goal-empty-wake", ["continue"]);
     await t.onTurnEnd(t.turn({ lastAssistantText: "fixed four of five, the fifth is running" }));

@@ -1,5 +1,6 @@
 /**
- * A CONFIG CHANGE AGAINST A CHAT'S BACKGROUND WORK, through the real routes.
+ * A CHAT'S BACKGROUND WORK, through the real routes: a config change against
+ * it, and the Stop of it.
  *
  * Applying an autonomy, model or effort change respawns the CLI, and the
  * respawn kills the agent, the Bash or the Monitor a closed turn left running.
@@ -11,7 +12,9 @@
  *
  *   - no change kills it, a raise of the autonomy least of all;
  *   - a change the running CLI cannot take is said in the chat, one row;
- *   - once the work is over the same change respawns the child.
+ *   - once the work is over the same change respawns the child;
+ *   - with no turn open, the Stop stops the work (it answered `no_active_stream`
+ *     and left it running), and the status route offers that Stop.
  *
  * @covers MONITOR-02
  */
@@ -20,6 +23,7 @@ import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir 
 import { createTopicsRouter } from "./topics";
 import { registerProvider, removeProvider } from "../providers";
 import { ClaudeCodeProvider } from "../providers/claude-code";
+import { takeTurnEnd } from "../providers/turn-end-registry";
 import { SidechainTracker } from "../providers/claude/sidechain-tracker";
 import { recordedBackgroundSession } from "../providers/claude/background-work.fixture";
 import type { AppContext, Topic } from "../types";
@@ -41,14 +45,14 @@ async function harness(name: string, autonomyLevel: Topic["autonomyLevel"]) {
   } as Topic;
   ctx.saveSingleTopic(topic);
   const provider = registerProvider({ type: "claude-code" } as never) as ClaudeCodeProvider;
-  const killed = { n: 0 };
+  const killed = { n: 0, sigint: 0 };
   // The child of a turn that closed with an agent, a Bash and a Monitor still running.
   const pp: any = {
     sessionKey, alive: true, streamHandler: null, pendingResolve: null, pendingReject: null,
     fullText: "", activeToolCalls: new Set(), subAgentEmit: new Map(), sidechain: new SidechainTracker(),
     pendingInputs: new Map(), lastEventAt: Date.now(), inactivityTimer: null, lifetimeTimer: null, heartbeatInterval: null,
     readline: { close() {} },
-    io: { writeStdin: () => {}, signal: () => {}, kill: () => { killed.n++; } },
+    io: { writeStdin: () => {}, signal: (s: string) => { if (s === "SIGINT") killed.sigint++; }, kill: () => { killed.n++; } },
   };
   (provider as any).processes.set(sessionKey, pp);
   for (const e of events.slice(0, firstResult + 1)) (provider as any).handleStreamEvent(pp, e);
@@ -58,7 +62,7 @@ async function harness(name: string, autonomyLevel: Topic["autonomyLevel"]) {
   const router = createTopicsRouter(ctx);
   const call = async (path: string, method: string, body: unknown) => {
     const url = new URL(`http://topics.test${path}`);
-    const req = new Request(url.toString(), { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const req = new Request(url.toString(), { method, headers: { "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     return (await router(req, url, url.pathname, method)) as Response;
   };
   const notices = () => (ctx.db.prepare(
@@ -68,6 +72,8 @@ async function harness(name: string, autonomyLevel: Topic["autonomyLevel"]) {
     provider, pp, killed, notices, sessionKey,
     patch: (body: Record<string, unknown>) => call(`/api/topics/${topic.id}`, "PATCH", body),
     command: (command: string, args: Record<string, unknown>) => call("/api/command", "POST", { command, sessionKey, args }),
+    stop: () => call("/api/chat/abort", "POST", { sessionKey }),
+    status: async () => ((await (await call("/api/topics/streaming", "GET", undefined)).json()) as { sessions: Array<{ sessionKey: string; state: string }> }).sessions,
     /** The CLI's last snapshot is empty and the report's wake has run: the work is over. */
     workOver: () => { (provider as any).handleStreamEvent(pp, { type: "system", subtype: "background_tasks_changed", tasks: [] }); pp.background.wakeQueuedAt = null; },
   };
@@ -114,6 +120,37 @@ describe("a config change against a chat's background work", () => {
       expect(h.killed.n).toBe(0);
       expect(answer.pending).toBe("background-work");
       expect(h.notices().map((n) => n.change)).toEqual(["model", "effort"]);
+    } finally {
+      removeProvider("claude-code");
+    }
+  });
+});
+
+describe("the Stop of a chat whose turn is closed and whose work still runs", () => {
+  test("the status offers it, the Stop stops the work, and nothing is recorded as a turn", async () => {
+    const h = await harness("bg-stop", "yolo");
+    try {
+      expect(await h.status()).toContainEqual(expect.objectContaining({ sessionKey: h.sessionKey, state: "background" }));
+      const resp = await h.stop();
+      expect(await resp.json()).toEqual({ ok: true, reason: "background_stopped", cleared: false });
+      expect(h.killed.sigint).toBe(1);
+      // No turn was stopped: a headless driver must not read a cancelled turn here.
+      expect(takeTurnEnd(h.sessionKey)).toBeUndefined();
+      // The child is on its way out with its work: no Stop left to offer, no second SIGINT.
+      expect((await h.status()).some((s) => s.sessionKey === h.sessionKey)).toBe(false);
+      expect(await (await h.stop()).json()).toEqual({ ok: false, reason: "no_active_stream", cleared: false });
+      expect(h.killed.sigint).toBe(1);
+    } finally {
+      removeProvider("claude-code");
+    }
+  });
+
+  test("with the work over there is nothing to stop, as before", async () => {
+    const h = await harness("bg-stop-over", "yolo");
+    try {
+      h.workOver();
+      expect(await (await h.stop()).json()).toEqual({ ok: false, reason: "no_active_stream", cleared: false });
+      expect(h.killed.sigint).toBe(0);
     } finally {
       removeProvider("claude-code");
     }

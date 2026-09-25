@@ -163,6 +163,8 @@ export interface ChatDeps {
    * only add a line to the chat. Native runtime only.
    */
   hooks?: LifecycleHookRunner;
+  /** The goal loop, when the caller needs its handle too (the Stop of background work). */
+  goalLoop?: ReturnType<typeof goalContinuationForChatRoute>;
 }
 
 /**
@@ -244,7 +246,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
    * function expression, whose name is in scope only inside its own body, so it
    * hands itself over on the first request it serves (see `selfRoute` below).
    */
-  const goalLoop = goalContinuationForChatRoute({
+  const goalLoop = deps.goalLoop ?? goalContinuationForChatRoute({
     ctx, resolveProvider, log: (m) => console.log(`[goal] ${m}`),
   });
 

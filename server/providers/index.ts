@@ -756,18 +756,28 @@ export async function sessionHasPendingSend(sessionKey: string): Promise<boolean
  * sweep's. Only claude-code answers today; any other session is `false`, which
  * is what every clock assumed before. A probe that throws claims nothing.
  */
+/** The two background probes, answered today by claude-code alone. */
+type BackgroundProbe = { hasBackgroundWork?: (sk: string) => boolean; backgroundSessionKeys?: () => string[] };
+
+export function sessionHasBackgroundWork(sessionKey: string): boolean {
+  for (const [, p] of _providers) {
+    try {
+      if ((p as BackgroundProbe).hasBackgroundWork?.(sessionKey)) return true;
+    } catch { /* a failing probe claims nothing */ }
+  }
+  return false;
+}
+
 /** The stall detector's background hold, as `server.ts` wires it: the same bound as every clock that kills. */
 export function stallBackgroundHold(sessionKey: string): () => boolean {
   return () => sessionHasBackgroundWork(sessionKey);
 }
 
-export function sessionHasBackgroundWork(sessionKey: string): boolean {
+/** Every session with background work, for the chat status that offers its Stop. */
+export function sessionsWithBackgroundWork(): string[] {
+  const out: string[] = [];
   for (const [, p] of _providers) {
-    const probe = p as unknown as { hasBackgroundWork?: (sk: string) => boolean };
-    if (typeof probe.hasBackgroundWork !== "function") continue;
-    try {
-      if (probe.hasBackgroundWork(sessionKey)) return true;
-    } catch { /* a failing probe claims nothing */ }
+    try { out.push(...((p as BackgroundProbe).backgroundSessionKeys?.() ?? [])); } catch { /* a failing probe claims nothing */ }
   }
-  return false;
+  return out;
 }
