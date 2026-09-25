@@ -340,6 +340,34 @@ describe("reaper d'inattività", () => {
     expect(ppA.inactivityTimer).toBeNull();
   });
 
+  /**
+   * A spontaneous turn nobody adopted (declined), or one waiting for its
+   * adopter, is the child working: the reaper armed at the end of the turn
+   * before killed it while it wrote. Same rule of "a turn in flight" as the
+   * lifetime cap and refreshSessionConfig (PR #134 review, round 2).
+   */
+  for (const flags of [{ declinedTurn: true }, { wokenBuffer: [] as unknown[] }]) {
+    const name = Object.keys(flags)[0];
+    test(`does not reap a spontaneous turn that is writing (${name})`, async () => {
+      const sessionKey = `sess-inact-${name}`;
+      const { p, pp, killed } = setup(sessionKey);
+      Object.assign(pp, flags);
+
+      let lines = 0;
+      const pump = setInterval(() => {
+        p.handleStreamEvent(pp, { type: "assistant", message: { id: `m${lines}`, role: "assistant", content: [{ type: "text", text: "x" }] } });
+        lines++;
+      }, 5);
+      p.resetInactivityTimer(sessionKey, pp, { ms: 50 });
+      await sleep(150);
+      clearInterval(pump);
+      if (pp.inactivityTimer) clearTimeout(pp.inactivityTimer as never);
+
+      expect(lines).toBeGreaterThan(10);
+      expect(killed()).toBe(0);
+    });
+  }
+
   test("non miete un processo fermo su una domanda a schermo", async () => {
     const sessionKey = "sess-inact-ask";
     KEYS.push(sessionKey);
@@ -374,6 +402,20 @@ describe("a config change and the turn in flight", () => {
     p.refreshSessionConfig(sessionKey);
     expect(killed()).toBe(1);
   });
+
+  for (const flags of [{ declinedTurn: true }, { wokenBuffer: [] as unknown[] }]) {
+    const name = Object.keys(flags)[0];
+    test(`refreshSessionConfig does not kill a spontaneous turn in flight (${name})`, async () => {
+      const sessionKey = `sess-config-${name}`;
+      const { p, pp, killed } = setup(sessionKey);
+      Object.assign(pp, flags);
+
+      p.refreshSessionConfig(sessionKey);
+
+      expect(killed()).toBe(0);
+      expect(p.processes.get(sessionKey)).toBe(pp);
+    });
+  }
 });
 
 describe("/clear non lascia una domanda fantasma dietro di sé", () => {

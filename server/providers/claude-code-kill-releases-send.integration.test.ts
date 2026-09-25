@@ -61,6 +61,9 @@ beforeAll(async () => {
   insert.run("t-krs-a", "krs-a", "krs-a", "topic:kill-releases-send", now, now);
   insert.run("t-krs-a2", "krs-a2", "krs-a2", "topic:kill-releases-send-cap", now, now);
   insert.run("t-krs-f", "krs-f", "krs-f", "topic:stop-drops-queued", now, now);
+  insert.run("t-krs-h", "krs-h", "krs-h", "topic:dead-between-turns", now, now);
+  insert.run("t-krs-i", "krs-i", "krs-i", "topic:watchdog-after-hold", now, now);
+  insert.run("t-krs-j", "krs-j", "krs-j", "topic:watchdog-control", now, now);
   insert.run("t-krs-g", "krs-g", "krs-g", "topic:stop-before-ready", now, now);
   insert.run("t-krs-b", "krs-b", "krs-b", "topic:queued-send-stopped", now, now);
   insert.run("t-krs-c", "krs-c", "krs-c", "topic:reattach-killed-clear", now, now);
@@ -359,4 +362,84 @@ describe("a killed child and the session queue (real broker, real child)", () =>
       provider.stop();
     }
   }, 45_000);
+
+  test("a child dead between turns: the next send, registered first as the route does, gets its answer", async () => {
+    // The child exits on its own between two turns and stays in the map, dead.
+    // The route registers the next send's handler BEFORE sendChat, and it
+    // landed on that dead pp; the spawn of a fresh child then cleans the dead
+    // one up with a kill, which ended that handler as a watchdog stop. The
+    // message still reached the CLI and was answered, into a closed turn: with
+    // the resume of PR #135 on top, the same message went out again and again
+    // (PR #134 review, round 2; red on fe5d829d0 only).
+    const sk = "topic:dead-between-turns";
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    const p = provider as any;
+    const log: { at: number; ev: string }[] = [];
+    try {
+      await provider.sendChat(sk, "ciao", recorder("A", log) as never);
+      expect(log.some((l) => l.ev.startsWith("A:done"))).toBe(true);
+      const ppA = p.processes.get(sk);
+      getAiBridgeClient().signal(sk, "SIGINT");
+      expect(await waitFor(() => !ppA.alive, slackMs(5_000))).toBe(true);
+      expect(p.processes.get(sk)).toBe(ppA);
+
+      const hB = recorder("B", log);
+      provider.registerStreamHandler(sk, undefined, hB as never);
+      await provider.sendChat(sk, "tutto ok?", hB as never);
+
+      const bEvents = log.filter((l) => l.ev.startsWith("B:") && l.ev !== "B:delta").map((l) => l.ev);
+      expect(bEvents).toEqual(["B:done:ricevuto: tutto ok?"]);
+    } finally {
+      provider.stop();
+    }
+  }, 30_000);
+
+  test("control: a turn silent past the send watchdog's window, with nobody waiting, is ended", async () => {
+    // Proves the shrunk window really bites, so the test below cannot pass
+    // just because the watchdog never ran.
+    const sk = "topic:watchdog-control";
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    (provider as any).turnWatchdogMs = 1_000;
+    const log: { at: number; ev: string }[] = [];
+    try {
+      void provider.sendChat(sk, "do some work", recorder("A", log) as never);
+      expect(await waitFor(() => log.some((l) => l.ev.startsWith("A:error:Nessuna attività")), slackMs(5_000))).toBe(true);
+    } finally {
+      provider.stop();
+    }
+  }, 30_000);
+
+  test("the send watchdog does not count a permission wait as silence", async () => {
+    // A permission prompt stops the CLI's output, and so does the command it
+    // approves. The watchdog re-armed while the prompt was open, but then
+    // measured silence from the tool_use that asked: its first check after
+    // the answer killed the approved command while it ran, «Nessuna attività
+    // dal modello per 30 minuti» (a 5 minute build: about one time in six).
+    // Scale: a 2 s window, a 3 s wait, a check 1.5 s after the answer.
+    const sk = "topic:watchdog-after-hold";
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const { beginPermission, endPermission } = await import("../lib/permission-bridge");
+    const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    (provider as any).turnWatchdogMs = 2_000;
+    const log: { at: number; ev: string }[] = [];
+    try {
+      const sentAt = Date.now();
+      void provider.sendChat(sk, "do some work", recorder("A", log) as never);
+      expect(await waitFor(() => log.some((l) => l.ev === "A:tool"), slackMs(5_000))).toBe(true);
+      beginPermission(sk, "toolu_long");
+
+      await sleep(Math.max(0, sentAt + 3_000 - Date.now()));
+      endPermission(sk, "toolu_long");
+      // The approved command runs, printing nothing.
+      await sleep(1_500);
+
+      expect(log.filter((l) => /^A:(error|aborted|done)/.test(l.ev))).toEqual([]);
+    } finally {
+      await provider.abort(sk, undefined, "user");
+      provider.stop();
+    }
+  }, 30_000);
 });
