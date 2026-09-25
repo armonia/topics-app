@@ -21,7 +21,7 @@
  * optional injectable `now`/`uuid`, so tests run on a deterministic `:memory:`
  * DB without booting the server.
  */
-import { checkReport as checkDeliveryReport, declaredSymbols } from "./deliveryReportChecks";
+import { checkReport as checkDeliveryReport, gitQuestions } from "./deliveryReportChecks";
 import { repoProbe, probeForRoot } from "./deliveryReportProbe";
 import type { RepoProbe } from "./deliveryReportChecks";
 import type { Database } from "bun:sqlite";
@@ -1066,6 +1066,23 @@ export interface TaskService {
 
 /** Reserved board_settings row that carries the global auto-dispatch switch. */
 const GLOBAL_SETTINGS_KEY = "*";
+
+/** Delivery notes waiting on git (see `annotateDeliveryClaims`). */
+const deliveryNotes = new Set<Promise<void>>();
+function trackDeliveryNote(p: Promise<void>): void {
+  deliveryNotes.add(p);
+  void p.finally(() => deliveryNotes.delete(p));
+}
+
+/**
+ * Resolves once every delivery note already on its way has been written or
+ * dropped. A note that needs git is written after the update returns, so a test
+ * that reads it, or checks it is absent, waits here first: an absence read too
+ * early would pass for the wrong reason.
+ */
+export async function deliveryNotesInFlight(): Promise<void> {
+  while (deliveryNotes.size > 0) await Promise.all([...deliveryNotes]);
+}
 
 export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskService {
   const now = opts.now ?? (() => new Date().toISOString());
@@ -3194,6 +3211,10 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
       db.prepare(
         "DELETE FROM task_comments WHERE task_id = ? AND kind = 'review-note' AND content LIKE ?",
       ).run(taskId, `${DELIVERY_CLAIM_SLOT}%`);
+      // And a note still on its way for the previous delivery must not land
+      // after this: see `late` below.
+      const generation = (deliveryGeneration.get(taskId) ?? 0) + 1;
+      deliveryGeneration.set(taskId, generation);
 
       const turnStart = lastTurnStart(taskId);
       // 'delivery' belongs here, and is in fact the FIRST thing to check: it is
@@ -3214,8 +3235,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
         const root = opts.repoRootFor?.({ taskId, projectId, assignedTopicId: (row?.assigned_topic_id as string | null) ?? null }) ?? null;
         if (root) probe = (opts.probeFor ?? probeForRoot)(root);
       } catch { /* the server's own checkout, as before */ }
-      const writeNote = (): void => {
-        const findings = rows.flatMap((r) => checkDeliveryReport(r.content ?? "", probe));
+      const reports = rows.map((r) => r.content ?? "");
+      const writeNote = (answers: RepoProbe): void => {
+        const findings = reports.flatMap((r) => checkDeliveryReport(r, answers));
         // "Nothing to check" is not a finding worth showing: that is a report
         // written in prose, which is legitimate. Only what was LOOKED UP and not
         // found gets annotated.
@@ -3237,13 +3259,25 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
             "faceva sulle 14 carte chiuse senza lavoro.",
         });
       };
-      // A report that declares symbols asks git `log -S` about them, which took
-      // up to 20 s inside this update: the probe asks off the loop first, and
-      // the note follows its answer.
-      const symbols = probe.warm ? rows.flatMap((r) => declaredSymbols(r.content ?? "")) : [];
-      if (symbols.length === 0) return writeNote();
-      const late = () => { try { writeNote(); } catch { /* as below */ } };
-      void probe.warm!(symbols).then(late, late);
+      // Git is never asked inside this update (`git log -S` took up to 20 s
+      // here, with the whole server standing still): the probe asks off the
+      // loop, and the note follows its answers. A report that asks git nothing
+      // is written now, and so is anything checked by a probe that answers
+      // inline, as the injected ones in the tests do.
+      const asksGit = reports.some((r) => {
+        const q = gitQuestions(r);
+        return q.shas.length > 0 || q.citesFiles || q.symbols.length > 0;
+      });
+      if (!probe.prepare || !asksGit) return writeNote(probe);
+      const late = (answers: RepoProbe): void => {
+        // THE NOTE ANSWERS FOR ITS OWN DELIVERY. If the card was delivered
+        // again meanwhile, that delivery emptied the slot and this report is
+        // no longer the one under review: written now, an old accusation
+        // would sit under a clean delivery (PR #147, second review).
+        if (deliveryGeneration.get(taskId) !== generation) return;
+        try { writeNote(answers); } catch { /* as below */ }
+      };
+      trackDeliveryNote(probe.prepare(reports).then(late, () => {}));
     } catch {
       // See the docblock: a missing note is not a delivery failure.
     }
@@ -3251,6 +3285,9 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
 
   /** Slot prefix: `replaces` uses it to empty before filling. */
   const DELIVERY_CLAIM_SLOT = "[consegna]";
+  /** Per card, how many times it has been annotated: a late note checks it is
+   *  still the latest before writing. */
+  const deliveryGeneration = new Map<string, number>();
 
   /**
    * Promote the agent's last plain comment to `kind = 'delivery'` when the

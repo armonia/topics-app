@@ -6,7 +6,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { ARCHIVE_PARKED_LABEL, commentAsksHuman, createTaskService, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, REQUEUE_PARKED_LABEL, TaskServiceError, type TaskService } from "./tasks";
+import { ARCHIVE_PARKED_LABEL, commentAsksHuman, createTaskService, deliveryNotesInFlight, isLandActionLabel, isPublishActionLabel, LAND_ACTION_LABEL, PUBLISH_ACTION_LABEL, projectIdForPath, REQUEUE_PARKED_LABEL, TaskServiceError, type TaskService } from "./tasks";
 import { PARKED_WAITED_OUT, WAIT_SERIES_MAX_MS, WAIT_STREAK_CAP, parseQuestionBlock, pendingQuestion } from "../../shared/board";
 import { freshDb, svc, PID } from "./tasks-test-db";
 
@@ -346,7 +346,7 @@ describe("review gate (KANBAN-05)", () => {
     expect(ev[0]!.content).toBe("todo→in_progress · il land ha fatto conflitto con main");
   });
 
-  test("il confine del turno regge quando la transizione porta la sua RAGIONE", () => {
+  test("il confine del turno regge quando la transizione porta la sua RAGIONE", async () => {
     // Il buco che una ragione appesa avrebbe aperto in silenzio: l'inizio del
     // turno si leggeva col suffisso (`…in_progress`), e `done→in_progress · …`
     // no longer ends with the status. Whoever reads that boundary — today the
@@ -374,6 +374,8 @@ describe("review gate (KANBAN-05)", () => {
       taskId: t.id, actor: "agent", by: "claude",
       patch: { status: "review", summary: "conflitti risolti, guarda il ramo" },
     });
+    // A note that asks git lands after the update: its absence counts only once settled.
+    await deliveryNotesInFlight();
     const note = s.get(t.id)!.comments.filter((c) => c.kind === "review-note").map((c) => c.content).join("\n");
     expect(note).not.toContain("0000000deadbee1");
   });

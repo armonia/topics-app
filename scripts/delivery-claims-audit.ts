@@ -208,7 +208,7 @@ export function defaultDbPath(): string {
     : join(import.meta.dir, "..", "data", "topics.db");
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const flag = (name: string): string | undefined => {
     const i = argv.indexOf(name);
@@ -223,7 +223,9 @@ function main(): void {
   const list = argv.includes("--list");
 
   const cards = loadCards(dbPath);
-  const results = (["review", "thread"] as const).map((p) => audit(cards, p));
+  // The real probe asks git only here, once for every report it will check.
+  const probe = (await repoProbe.prepare?.(cards.flatMap((c) => c.all))) ?? repoProbe;
+  const results = (["review", "thread"] as const).map((p) => audit(cards, p, probe));
 
   if (argv.includes("--json")) {
     console.log(
@@ -256,4 +258,4 @@ function main(): void {
   }
 }
 
-if (import.meta.main) main();
+if (import.meta.main) void main();

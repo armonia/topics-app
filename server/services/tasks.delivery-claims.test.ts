@@ -18,7 +18,7 @@
 import { describe, expect, test, beforeEach } from "bun:test";
 import { type Database } from "bun:sqlite";
 import { freshDb } from "./tasks-test-db";
-import { createTaskService } from "./tasks";
+import { createTaskService, deliveryNotesInFlight } from "./tasks";
 
 const PID = "topics-app-test01";
 let db: Database;
@@ -35,9 +35,12 @@ beforeEach(() => {
  * there — not in some comment left earlier. The claim check reads the declared
  * delivery, so the test delivers it where the check looks.
  */
-function deliver(report: string): string {
+async function deliver(report: string): Promise<string> {
   const t = svc.create({ projectId: PID, text: "una card" });
   svc.update({ taskId: t.id, actor: "agent", by: "agent-1", patch: { status: "review", summary: report } });
+  // The note follows git's answers, after the update returns: read it, or
+  // read its absence, once it is settled.
+  await deliveryNotesInFlight();
   return t.id;
 }
 
@@ -46,53 +49,54 @@ const note = (id: string): string[] =>
     .map((r) => r.content);
 
 describe("la nota compare quando una rivendicazione non regge", () => {
-  test("uno sha inventato viene nominato nella nota", () => {
-    const id = deliver("Fatto (commit 0000000deadbee1). Tutto verde.");
+  test("uno sha inventato viene nominato nella nota", async () => {
+    const id = await deliver("Fatto (commit 0000000deadbee1). Tutto verde.");
     const n = note(id).join("\n");
     expect(n).toContain("0000000deadbee1");
   });
 
-  test("e la card e' comunque in review", () => {
+  test("e la card e' comunque in review", async () => {
     // The point of this whole file: annotating is not stopping.
-    const id = deliver("Fatto (commit 0000000deadbee1).");
+    const id = await deliver("Fatto (commit 0000000deadbee1).");
     expect(svc.get(id)?.task.status).toBe("review");
   });
 
-  test("la nota dice che non blocca, cosi' chi legge sa cosa farne", () => {
-    const id = deliver("Fatto (commit 0000000deadbee1).");
+  test("la nota dice che non blocca, cosi' chi legge sa cosa farne", async () => {
+    const id = await deliver("Fatto (commit 0000000deadbee1).");
     expect(note(id).join("\n")).toContain("Non blocca");
   });
 });
 
 describe("la nota NON compare quando non c'e' niente da dire", () => {
-  test("un rapporto in prosa, senza rivendicazioni, non produce niente", () => {
+  test("un rapporto in prosa, senza rivendicazioni, non produce niente", async () => {
     // "Nothing to check" is the legitimate case of someone reporting in prose.
     // Annotating it would turn the note into noise on every single delivery.
-    const id = deliver("Ho guardato il problema e ho deciso di non toccarlo: la causa e' altrove.");
+    const id = await deliver("Ho guardato il problema e ho deciso di non toccarlo: la causa e' altrove.");
     expect(note(id)).toEqual([]);
   });
 
-  test("una rivendicazione VERA non viene accusata", () => {
+  test("una rivendicazione VERA non viene accusata", async () => {
     // The half that decides whether the note is useful or merely annoying.
-    const id = deliver("Fatto: vedi `server/services/tasks.ts`.");
+    const id = await deliver("Fatto: vedi `server/services/tasks.ts`.");
     expect(note(id)).toEqual([]);
   });
 });
 
 describe("una deliver arriva in review comunque", () => {
-  test("anche con un rapporto che sbaglia tutto", () => {
-    const id = deliver("Fatto (commit 1111111abcdef22), migration 999, vedi `file/che/non/esiste.ts`.");
+  test("anche con un rapporto che sbaglia tutto", async () => {
+    const id = await deliver("Fatto (commit 1111111abcdef22), migration 999, vedi `file/che/non/esiste.ts`.");
     expect(svc.get(id)?.task.status, "un rilievo non deve mai fermare una deliver").toBe("review");
     expect(note(id).length).toBeGreaterThan(0);
   });
 
-  test("la nota sta in UNO slot, non in una pila", () => {
+  test("la nota sta in UNO slot, non in una pila", async () => {
     // `annotateDeliveryClaims` runs on every transition into review. Without
     // `replaces` the thread would gain an identical line every time.
-    const id = deliver("Fatto (commit 0000000deadbee1).");
+    const id = await deliver("Fatto (commit 0000000deadbee1).");
     svc.update({ taskId: id, actor: "human", by: "u", patch: { status: "in_progress" } });
     svc.addComment({ taskId: id, author: "agent-1", content: "Rifatto (commit 0000000deadbee1)." });
     svc.update({ taskId: id, actor: "agent", by: "agent-1", patch: { status: "review", summary: "riassunto della consegna" } });
+    await deliveryNotesInFlight();
     expect(note(id).length, "due giri, due note: lo slot non ha tenuto").toBe(1);
   });
 });

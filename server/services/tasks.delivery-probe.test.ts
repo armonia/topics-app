@@ -10,7 +10,7 @@
  * @covers KANBAN-11
  */
 import { test, expect, describe, beforeEach } from "bun:test";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -72,23 +72,63 @@ describe("the delivery verifier probes the card's repository", () => {
 });
 
 describe("the verifier's git does not hold the server's loop", () => {
-  test("a report whose symbol takes git 2 s to look up: the update returns at once, the note follows", async () => {
-    // A git that answers everything at once except `log -S`, which walks every
-    // ref: up to 20 s measured on a real repository. It finds nothing, so the
-    // note has something to say. In a process of its own, started with it on
-    // PATH: Bun's execFileSync resolves `git` against the PATH it started with.
+  // A git that answers everything at once except `log -S`, which walks every
+  // ref (up to 20 s measured on a real repository): 3 s here, and it finds
+  // only `foundSymbolHere`. It stamps the start and end of each `-S` so the
+  // fixture can tell whether the loop ran meanwhile.
+  function runFixture(mode: "single" | "multirow" | "race") {
     const bin = mkdtempSync(join(tmpdir(), "slow-git-"));
-    writeFileSync(join(bin, "git"), '#!/bin/sh\ncase "$*" in *" -S "*) sleep 2;; esac\nexit 0\n');
+    const marks = mkdtempSync(join(tmpdir(), "slow-git-marks-"));
+    writeFileSync(
+      join(bin, "git"),
+      [
+        "#!/bin/sh",
+        "sym=",
+        `case "$*" in *" -S "*) sym=$(printf '%s\\n' "$*" | sed 's/.* -S \\([^ ]*\\).*/\\1/');; esac`,
+        '[ -n "$sym" ] && touch "$MARKS/start-$sym"',
+        'case "$sym" in foundSymbolHere) echo abc1234;; "") ;; *) sleep 3;; esac',
+        '[ -n "$sym" ] && touch "$MARKS/end-$sym"',
+        "exit 0",
+        "",
+      ].join("\n"),
+    );
     chmodSync(join(bin, "git"), 0o755);
-    const child = Bun.spawn([process.execPath, join(import.meta.dir, "tasks.delivery-probe.slow-git.fixture.ts"), mkdtempSync(join(tmpdir(), "repo-"))], {
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const out = await new Response(child.stdout).text();
-    await child.exited;
-    const result = JSON.parse(out.trim().split("\n").at(-1) ?? "{}") as { note?: string | null; worstLagMs?: number };
-    expect(result.note).toContain("slowSymbolNeverWritten");
-    expect(result.worstLagMs, "the loop stood still while git looked the symbol up").toBeLessThan(50);
-  }, 20_000);
+    const child = Bun.spawn(
+      [process.execPath, join(import.meta.dir, "tasks.delivery-probe.slow-git.fixture.ts"), mkdtempSync(join(tmpdir(), "repo-")), mode],
+      { env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, MARKS: marks }, stdout: "pipe", stderr: "pipe" },
+    );
+    return (async () => {
+      const out = await new Response(child.stdout).text();
+      await child.exited;
+      return JSON.parse(out.trim().split("\n").at(-1) ?? "{}") as { beatsWhileGitRan?: number | null; notes?: string[] };
+    })();
+  }
+
+  test("one report: the update returns at once, and the note follows git's answer", async () => {
+    const r = await runFixture("single");
+    expect(r.notes?.join("\n")).toContain("slowSymbolNeverWritten");
+    expect(r.beatsWhileGitRan, "the loop stood still while git looked the symbol up").toBeGreaterThan(0);
+  }, 30_000);
+
+  test("several rows in the turn: git is asked row by row, off the loop, and the note reads only those answers", async () => {
+    // The first version asked until the first symbol found across ALL rows, so
+    // the older row's symbol was never asked ahead and the check asked it
+    // synchronously: 2081 ms of loop held (PR #147, second review).
+    const r = await runFixture("multirow");
+    expect(r.notes?.join("\n")).toContain("slowSymbolNeverWritten");
+    expect(r.beatsWhileGitRan, "the loop stood still while git looked the older row's symbol up").toBeGreaterThan(0);
+  }, 30_000);
+
+  test("a note still on its way for turn 1 does not land under turn 2's clean delivery", async () => {
+    const r = await runFixture("race");
+    expect(r.beatsWhileGitRan, "git was asked about turn 1's symbol").not.toBeNull();
+    expect(r.notes).toEqual([]);
+  }, 30_000);
+
+  test("the probe has no synchronous git left to fall back on", () => {
+    // What the three cases above measure, said once where it cannot drift: the
+    // only way this module reaches git is `execFile`, answered off the loop.
+    const src = readFileSync(join(import.meta.dir, "deliveryReportProbe.ts"), "utf8");
+    expect(src.split("\n").filter((l) => /execFileSync|spawnSync|execSync/.test(l))).toEqual([]);
+  });
 });
