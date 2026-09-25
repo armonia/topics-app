@@ -27,6 +27,7 @@ import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
 import { getSessionContext } from "../db/session-context";
 import { markTargetNotificationsSeen, countUnseenNotifications } from "../db/notification-log";
 import { logStopPressed } from "../db/activity-log";
+import { abortCauseOf, providerAbortReason } from "../lib/abort-cause";
 import { classifyContext, windowForMeasure } from "../usage/context-window";
 import { contextUpdateFromUsage } from "../usage/usage-update";
 import { createTaskService } from "../services/tasks";
@@ -2457,18 +2458,24 @@ export function createTopicsRouter(
       //
       // `cancelled("user")` è quello che il provider stesso depositerebbe: se la
       // sua finalizzazione arriva comunque, riscrive lo stesso verdetto.
-      recordTurnEnd(sessionKey, cancelled("user", "POST /api/chat/abort"));
+      //
+      // WHO stopped it is said by the caller (lib/abort-cause.ts, card C9): the
+      // client sends no cause and is the person; the server's own callers (the
+      // stall judge, the board, the dispatcher's clocks) always name theirs.
+      const cause = abortCauseOf(body);
+      recordTurnEnd(sessionKey, cancelled(cause, "POST /api/chat/abort"));
       // The registry above is memory, and the server reloads on every save: the
       // durable trace is what keeps the resume sweep from resending a stopped
-      // message after the next restart (topic c5d57a41, 24/09).
-      logStopPressed({ sessionKey, topicId });
+      // message after the next restart (topic c5d57a41, 24/09). A person's
+      // Stop only: a machine's recycle recorded here was never resumed.
+      if (cause === "user") logStopPressed({ sessionKey, topicId });
 
       // PRIMA il provider, POI il controller dell'SSE. L'ordine conta: l'abort
       // del controller chiude la macchina a stati della route, quindi tutto ciò
       // che il provider ha ancora da dire su questo turno (il suo `onAborted`,
       // con la ragione autorevole) troverebbe un `finalizeStream` già spento.
       if (abortProvider.connected) {
-        abortProvider.abort?.(sessionKey, undefined, "user")?.catch((err: any) => console.warn(`[Abort] Provider abort failed:`, err));
+        abortProvider.abort?.(sessionKey, undefined, providerAbortReason(cause))?.catch((err: any) => console.warn(`[Abort] Provider abort failed:`, err));
         abortProvider.unregisterStreamHandler?.(sessionKey);
       }
 
@@ -2515,8 +2522,12 @@ export function createTopicsRouter(
       endStream(sessionKey);
       // user_abort: user explicitly clicked stop — they are present in the tab,
       // so we intentionally do NOT increment unread count. This is a design
-      // choice, not an omission.
-      broadcastToAll({ type: "stream:end", sessionKey, topicId, reason: "user_abort", ...(discardedMessageId ? { discardedMessageId } : {}) });
+      // choice, not an omission. A machine's stop says so instead.
+      broadcastToAll({
+        type: "stream:end", sessionKey, topicId,
+        ...(cause === "user" ? { reason: "user_abort" } : { reason: "aborted", stopReason: "cancelled", stopCause: cause }),
+        ...(discardedMessageId ? { discardedMessageId } : {}),
+      });
 
       return json({ ok: true, cleared: clearedForReal });
     }

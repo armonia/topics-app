@@ -71,6 +71,7 @@ describe("un land riuscito: cosa chiude e chi ferma", () => {
    */
   test("un land riuscito FERMA l'agente che sta ancora lavorando su quella card", async () => {
     const aborted: string[] = [];
+    const causes: string[] = [];
     let statusAtStop: string | undefined;
     let taskId = "";
     const d = freshDb(); const b: any[] = [];
@@ -80,8 +81,9 @@ describe("un land riuscito: cosa chiude e chi ferma", () => {
       // is not a style detail. `onTurnEnd` on a card still `in_progress`
       // resumes the agent, so cutting before closing would restart it — paying
       // again for the very turn being avoided.
-      abortTurn: async (key: string) => {
+      abortTurn: async (key: string, cause: string) => {
         aborted.push(key);
+        causes.push(cause);
         statusAtStop = (d.prepare("SELECT status FROM tasks WHERE id = ?").get(taskId) as any)?.status;
       },
     });
@@ -97,6 +99,8 @@ describe("un land riuscito: cosa chiude e chi ferma", () => {
 
     // The session key is `topic:<first 8>` — the same one the Stop button uses.
     expect(aborted).toEqual(["topic:485cb19a"]);
+    // The machine closed the card, nobody pressed Stop: never `user` (card C9).
+    expect(causes).toEqual(["superseded"]);
     const after = createTaskService(d).get(t.id)!;
     expect(after.task.status).toBe("done");
     // And the thread says somebody was stopped, otherwise the agent vanishes

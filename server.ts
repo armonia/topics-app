@@ -58,7 +58,7 @@ import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
-import type { ContentBlock } from "./shared/types";
+import type { ContentBlock, TurnEndCause } from "./shared/types";
 import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
@@ -238,6 +238,7 @@ import { isHumanHold, humanHoldAgeMs } from "./server/lib/human-hold";
 // is downgraded to a reporting-only comparison below.
 import { armStallDetector } from "./server/lib/stall-detector";
 import { judgeStall } from "./server/lib/stall-judge";
+import { internalAbortRequest } from "./server/lib/abort-cause";
 import { runBootPartialSweep } from "./server/lib/boot-partial-sweep";
 import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/delivery-backfill";
 import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } from "./server/services/delivery-ref-keep";
@@ -1011,13 +1012,12 @@ const dispatcherSvc = createTaskService(ctx.db, {
   repoRootFor: repoRootForCard,
 });
 
-async function abortHeadlessTurn(sessionKey: string): Promise<void> {
-  const url = new URL("http://localhost/api/chat/abort");
+/** Stops a turn from inside the server. The cause is required and is never
+ *  `user` unless a person pressed something: see lib/abort-cause.ts (card C9). */
+async function abortHeadlessTurn(sessionKey: string, cause: TurnEndCause): Promise<void> {
+  const req = internalAbortRequest(sessionKey, cause);
   try {
-    await topicsRouter(
-      new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionKey }) }),
-      url, "/api/chat/abort", "POST",
-    );
+    await topicsRouter(req, new URL(req.url), "/api/chat/abort", "POST");
   } catch { /* best-effort */ }
 }
 
@@ -1139,7 +1139,7 @@ async function watchHeadlessBody(
     onStuck: () => {
       stalled = true;
       console.warn(`[turn] stall detector recycling ${sessionKey}${tag}: judge found it stuck`);
-      abortHeadlessTurn(sessionKey).catch(() => {});
+      abortHeadlessTurn(sessionKey, "stall").catch(() => {});
       reader.cancel().catch(() => {});
     },
   });

@@ -88,6 +88,7 @@ import { createDeliveryCapture } from "../services/task-delivery-capture";
 import { makeSheetWriter } from "../services/delivery-sheet";
 import { resolveTaskDiffRange } from "../services/task-diff-range";
 import { isTaskLabel, normalizeLabels, type TaskFile } from "../../shared/task-labels";
+import type { TurnEndCause } from "../../shared/types";
 import { probeUrl, invalidateProbeCache } from "../services/url-probe-cache";
 import {
   getEligibleGlobalOrchestratorSessionBySessionKey,
@@ -234,7 +235,7 @@ export interface TasksRouterOpts {
   /** Workspace root for scaffolding a NEW project from the board. */
   workspaceDir?: string;
   /** Abort a running headless turn (human "stop" on a dispatched task). */
-  abortTurn?: (sessionKey: string) => Promise<void>;
+  abortTurn?: (sessionKey: string, cause: TurnEndCause) => Promise<void>;
   /**
    * Kill the WHOLE process tree an agent's Bash tool spawned for this session
    * — not just the CLI turn. `abortTurn` cuts the turn (SIGINT to the CLI,
@@ -1642,6 +1643,8 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
   function cutLiveTurn(
     t: { id: string; assignedTopicId: string | null; dispatchState: string | null },
     reason: string,
+    // A person's Stop on the card is `user`; the machine closing it is not (card C9).
+    cause: TurnEndCause,
   ): boolean {
     let running: TaskAttempt[] = [];
     try { running = attempts.list(t.id).filter((a) => a.state === "running"); }
@@ -1663,7 +1666,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       for (const key of keys) void opts.killAgentTree(key).catch(() => { /* best-effort */ });
     }
     if (opts?.abortTurn) {
-      for (const key of keys) void opts.abortTurn(key).catch(() => { /* best-effort */ });
+      for (const key of keys) void opts.abortTurn(key, cause).catch(() => { /* best-effort */ });
     }
     return true;
   }
@@ -1959,7 +1962,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         // AFTER `settleLanded`, never before: the end of the turn goes through
         // `onTurnEnd`, which RESUMES the agent on a card still `in_progress`.
         // Cutting before closing the card would make it start again.
-        if (closed && cutLiveTurn(closed, "il lavoro di questa card è atterrato su main: il turno non serve più")) {
+        if (closed && cutLiveTurn(closed, "il lavoro di questa card è atterrato su main: il turno non serve più", "superseded")) {
           svc.addComment({
             taskId, author: "system",
             content: "Fermato l'agente che stava ancora lavorando su questa card: il suo lavoro è appena atterrato su main.",
@@ -3612,7 +3615,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
         t: { id: string; assignedTopicId: string | null; dispatchState: string | null },
         reason: string,
       ): Task | null => {
-        if (!cutLiveTurn(t, reason)) return null;
+        if (!cutLiveTurn(t, reason, "user")) return null;
         // `stopped` e non NULL: un park senza stato è indistinguibile da un task
         // mai dispacciato, e la card tornava in Backlog senza dire perché.
         return svc.release({ taskId: t.id, requeue: false, by: HUMAN, reason, parkState: PARKED_STOPPED });
