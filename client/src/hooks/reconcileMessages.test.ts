@@ -131,6 +131,14 @@ describe('mergeFetchedHistory — un turno solo, non due', () => {
     expect(out.map((m) => m.content)).toEqual(['vai', 'c-01 c-02 c-03 c-04 c-05 c-06 c-07 ']);
   });
 
+  it('the kept live bubble still carries the banner only the server row has', () => {
+    const existing = [utente('u1', 'vai'), msg('srv-live', 'abc', { partial: true, blocks: [{ kind: 'text', text: 'abc' }] })];
+    const fetched = [utente('u1', 'vai'), msg('srv-live', 'ab', { partial: true, blocks: [{ kind: 'woken' }, { kind: 'text', text: 'ab' }] })];
+    const tail = mergeFetchedHistory(existing, fetched).at(-1)!;
+    expect(tail.content).toBe('abc');
+    expect(tail.blocks).toEqual([{ kind: 'woken' }, { kind: 'text', text: 'abc' }] as never);
+  });
+
   it('a local bubble that does not start with the server text is replaced by it', () => {
     // The bubble built from the live chunks alone, without the start: the
     // server's copy is the one that holds the turn from its first word.

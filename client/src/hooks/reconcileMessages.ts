@@ -152,7 +152,15 @@ function localAheadOf(existing: ChatMessage[], serverTail: ChatMessage): ChatMes
   if (!local || local.role !== 'assistant' || local.partial !== true) return null;
   const mine = local.content ?? '';
   const theirs = serverTail.content ?? '';
-  return mine.length > theirs.length && mine.startsWith(theirs) ? local : null;
+  if (!(mine.length > theirs.length && mine.startsWith(theirs))) return null;
+  // The row's banners (a woken turn, a resumed one) are written by the server
+  // at the start of the timeline and no live frame carries them: the local copy
+  // may not have them, and keeping it must not drop them for the whole turn.
+  const localBlocks = local.blocks ?? [];
+  const banners = (serverTail.blocks ?? []).filter(
+    (b) => (b.kind === 'woken' || b.kind === 'ripreso') && !localBlocks.some((l) => l.kind === b.kind),
+  );
+  return banners.length > 0 ? { ...local, blocks: [...banners, ...localBlocks] } : local;
 }
 
 /**
