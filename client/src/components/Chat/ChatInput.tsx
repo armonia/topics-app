@@ -914,6 +914,20 @@ export function ChatInput({
   // `promptHistory.ts`). The entries are read only when an arrow is pressed:
   // recomputing them on every streamed token of the answer would be waste.
   const historyRef = useRef<PromptHistoryState>(HISTORY_IDLE);
+  // Where the caret goes once a recalled entry is in the field: the end, where
+  // the shell leaves it, so the next ↑ goes further back only from the first
+  // line and a long entry is read, not skipped. Written by the handler, applied
+  // in the layout effect of the commit that shows the entry, which runs before
+  // the next key event. It used to be a requestAnimationFrame, and a second ↑
+  // arriving before that frame had its caret move undone: the third ↑ then went
+  // nowhere (WebKit: 1 run in 4 on main, 3 in 3 on one CI round).
+  const historyCaretRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const at = historyCaretRef.current;
+    if (at === null) return;
+    historyCaretRef.current = null;
+    textareaRef.current?.setSelectionRange(at, at);
+  }, [message, textareaRef]);
   const handleHistoryArrow = (e: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
     if ((e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey) return false;
     if (e.nativeEvent.isComposing) return false;
@@ -938,13 +952,8 @@ export function ChatInput({
     historyRef.current = result.state;
     if (!result.handled) return false;
     e.preventDefault();
+    historyCaretRef.current = result.value.length;
     setMessage(result.value);
-    // Caret at the end, where the shell leaves it: the next ↑ goes further
-    // back only from the first line, so a long entry is read, not skipped.
-    requestAnimationFrame(() => {
-      const el = textareaRef.current;
-      if (el) el.setSelectionRange(result.value.length, result.value.length);
-    });
     return true;
   };
 

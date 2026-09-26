@@ -49,6 +49,7 @@ test.describe("composer history and prompt numbers", () => {
 
   test("↑ recalls the person's prompts, each one is numbered, machine rows are not", async ({ page, chatPage }) => {
     const ws = await interceptWebSocket(page);
+    await page.clock.install();
     await goToApp(page);
     await page.keyboard.press("Escape");
     await openTopic(page, new RegExp(topicName));
@@ -58,6 +59,12 @@ test.describe("composer history and prompt numbers", () => {
     await expect(page.getByTestId("prompt-number")).toHaveText(["#1", "#2"], { timeout: 15_000 });
     await expect(page.getByTestId("goal-loop-row")).toHaveCount(1);
 
+    // The page's clock stands still through the three ↑: where a recall puts
+    // the caret has to be settled before the next key, not a frame later. A
+    // frame late, it moved the caret back to the last line after ↑ had taken it
+    // to the first, and the third ↑ went nowhere (WebKit: 1 run in 4 on main,
+    // 3 in 3 on one CI round).
+    await page.clock.pauseAt(Date.now() + 1_000);
     // ↑ from empty: the newest prompt, whole (two lines).
     const input = chatPage.messageInput;
     await input.click();
@@ -66,6 +73,8 @@ test.describe("composer history and prompt numbers", () => {
     // The caret is at the end, on the second line: ↑ moves it, it does not skip.
     await input.press("ArrowUp");
     await expect(input).toHaveValue("arti più lunghi\ne volto più largo");
+    // Whatever a pending frame would do lands here, between the two keys.
+    await page.clock.runFor(100);
     // From the first line, ↑ goes further back, past the machine's row.
     await input.press("ArrowUp");
     await expect(input).toHaveValue("rifai le zanne come nella guida");
@@ -75,6 +84,7 @@ test.describe("composer history and prompt numbers", () => {
     await input.press("ArrowDown");
     await input.press("ArrowDown");
     await expect(input).toHaveValue("");
+    await page.clock.resume();
 
     // A continuation arriving LIVE, the way the server sends it now: with its
     // marks. It must land as a service line, never as the person's bubble.

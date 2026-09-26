@@ -89,6 +89,43 @@ function aliveByDefault(pid: number): boolean {
   }
 }
 
+/** The four fields the census reads from a session file. */
+interface SessionFields {
+  id: string | null;
+  cwd: string | null;
+  pid: number | null;
+  status: string;
+}
+
+/**
+ * What each session file said, kept while the file stays the same size and
+ * mtime. A jcode session carries its whole transcript (96 MB measured on
+ * 25/09), and parsing the ones in the window took 168-232 ms at every census,
+ * every 20 s, on the server's loop. Now a file is parsed once per rewrite, at
+ * the end of its turn. `null` is a file that would not parse (half written):
+ * its next write changes size or mtime, so that is not remembered for good.
+ */
+const parsedFiles = new Map<string, { mtimeMs: number; size: number; fields: SessionFields | null }>();
+
+function readFields(path: string, mtimeMs: number, size: number): SessionFields | null {
+  const known = parsedFiles.get(path);
+  if (known && known.mtimeMs === mtimeMs && known.size === size) return known.fields;
+  let fields: SessionFields | null = null;
+  try {
+    const d = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    fields = {
+      id: typeof d.id === "string" ? d.id : null,
+      cwd: typeof d.working_dir === "string" ? d.working_dir : null,
+      pid: typeof d.last_pid === "number" ? d.last_pid : null,
+      status: typeof d.status === "string" ? d.status.toLowerCase() : "",
+    };
+  } catch {
+    // a half-written file is not a lost session
+  }
+  parsedFiles.set(path, { mtimeMs, size, fields });
+  return fields;
+}
+
 /** The git branch of a directory, if it is a checkout. Best effort: a cwd that
  *  is not a repository is not an error. */
 function branchOf(cwd: string): string | null {
@@ -122,16 +159,17 @@ export function scanJcodeSessions(opts: ScanJcodeOptions = {}): ExternalClaudeSe
 
   if (!existsSync(dir)) return [];
 
-  let files: Array<{ path: string; mtimeMs: number }>;
+  let files: Array<{ path: string; mtimeMs: number; size: number }>;
   try {
     files = readdirSync(dir)
       .filter((f) => f.endsWith(".json"))
       .map((f) => {
         const path = join(dir, f);
         try {
-          return { path, mtimeMs: statSync(path).mtimeMs };
+          const st = statSync(path);
+          return { path, mtimeMs: st.mtimeMs, size: st.size };
         } catch {
-          return { path, mtimeMs: 0 };
+          return { path, mtimeMs: 0, size: 0 };
         }
       })
       .filter((f) => f.mtimeMs > 0 && now - f.mtimeMs <= windowMs)
@@ -141,20 +179,16 @@ export function scanJcodeSessions(opts: ScanJcodeOptions = {}): ExternalClaudeSe
     return [];
   }
 
+  // Only the files still in the window stay remembered.
+  const inWindow = new Set(files.map((f) => f.path));
+  for (const path of parsedFiles.keys()) if (!inWindow.has(path)) parsedFiles.delete(path);
+
   const out: ExternalClaudeSession[] = [];
   for (const f of files) {
-    let d: Record<string, unknown>;
-    try {
-      d = JSON.parse(readFileSync(f.path, "utf8")) as Record<string, unknown>;
-    } catch {
-      continue; // a half-written file is not a lost session
-    }
-
-    const cwd = typeof d.working_dir === "string" ? d.working_dir : null;
+    const fields = readFields(f.path, f.mtimeMs, f.size);
+    if (!fields) continue;
+    const { cwd, pid, status } = fields;
     if (!cwd) continue;
-
-    const pid = typeof d.last_pid === "number" ? d.last_pid : null;
-    const status = typeof d.status === "string" ? d.status.toLowerCase() : "";
     const age = now - f.mtimeMs;
 
     // Three conditions, all of them necessary: jcode says it is active, the
@@ -166,7 +200,7 @@ export function scanJcodeSessions(opts: ScanJcodeOptions = {}): ExternalClaudeSe
     const projectPath = resolveOwningProject(cwd, candidatePaths);
 
     out.push({
-      sessionId: (typeof d.id === "string" ? d.id : f.path).replace(/^.*\//, "").replace(/\.json$/, ""),
+      sessionId: (fields.id ?? f.path).replace(/^.*\//, "").replace(/\.json$/, ""),
       cwd,
       projectPath,
       projectId: projectPath ? projectIdFor(projectPath) : null,
