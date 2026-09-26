@@ -53,7 +53,7 @@ import {
   type AssistantBlock,
   type CallUsage,
 } from "./claude/events";
-import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor, unattendedLineFate, type WakeObserver } from "./claude/woken-turn";
+import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
 import { datedByLastWrite, hasLiveTasks, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
 import { observePlanUsage } from "./native/usage-window";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
@@ -1039,7 +1039,7 @@ interface PersistentProcess {
    * `null` = non aspettiamo nessuno; un array = c'è un'adozione in volo e questi
    * eventi vanno ripiegati appena arriva l'handler, NELL'ORDINE.
    */
-  wokenBuffer?: unknown[] | null;
+  wokenBuffer?: HeldEvent[] | null;
   /** See `WokenSlot` in `claude/woken-turn.ts`. */
   declinedTurn?: boolean;
   bufferedTurnEnded?: boolean;

@@ -93,23 +93,34 @@ export const WOKEN_BUFFER_MAX = 200;
  * e `claude-code.ts` è già al suo tetto di righe.
  */
 export function drainWoken(
-  slot: { wokenBuffer?: unknown[] | null; sessionKey: string },
+  slot: WokenSlot,
   consegna: (ev: unknown) => void,
 ): void {
   const pending = slot.wokenBuffer;
   slot.wokenBuffer = null;
-  (slot as WokenSlot).bufferedTurnEnded = false;
+  slot.bufferedTurnEnded = false;
   if (!pending || pending.length === 0) return;
-  for (const ev of pending) {
-    try { consegna(ev); }
+  // The drain replays lines the store reader passed long ago: the reader's
+  // offset is where its LAST line starts. A wake that opens here (the next
+  // notification's lines joined this buffer) must start where its own line did.
+  const reader = slot.lineStartOffset;
+  for (const { event, at } of pending) {
+    slot.lineStartOffset = at;
+    try { consegna(event); }
     catch (err) { console.warn(`[claude-code] evento del risveglio non consegnato su ${slot.sessionKey}:`, err); }
   }
+  slot.lineStartOffset = reader;
 }
+
+/** One held event, with the store offset where its line starts (broker sessions only). */
+export interface HeldEvent { event: unknown; at?: number }
 
 /** Lo slot del processo che questo modulo tocca. */
 export interface WokenSlot {
   sessionKey: string;
-  wokenBuffer?: unknown[] | null;
+  wokenBuffer?: HeldEvent[] | null;
+  /** Where the line being processed starts in the broker store (`createLineFolder`). */
+  lineStartOffset?: number;
   streamHandler: unknown;
   /** La `description` dell'ultimo Monitor armato: viaggia con la sveglia
    *  perché è la sola cosa che risponde a «arrivato COSA». */
@@ -175,7 +186,7 @@ export function unattendedLineFate(
     return kind === "content" || kind === "partial" ? "drop" : "pass";
   }
   if (closes && slot.wokenBuffer != null) {
-    slot.wokenBuffer.push(event);
+    slot.wokenBuffer.push({ event, at: slot.lineStartOffset });
     slot.bufferedTurnEnded = true;
     return "hold";
   }
@@ -207,7 +218,7 @@ export function bufferWoken(
   at?: number,
 ): boolean {
   if (slot.wokenBuffer == null) {
-    const held: unknown[] = [];
+    const held: HeldEvent[] = [];
     slot.wokenBuffer = held;
     slot.bufferedTurnEnded = false;
     // Before the observer: it may adopt on the spot, and the adoption marks this offset.
@@ -232,10 +243,10 @@ export function bufferWoken(
   // svuotato da `drainWoken` e non c'è niente da tenere.
   if (slot.streamHandler) return false;
   const buf = slot.wokenBuffer ?? (slot.wokenBuffer = []);
-  if (buf.length < WOKEN_BUFFER_MAX) buf.push(event);
+  if (buf.length < WOKEN_BUFFER_MAX) buf.push({ event, at });
   else if (buf.length === WOKEN_BUFFER_MAX) {
     console.warn(`[claude-code] turno spontaneo su ${slot.sessionKey}: nessuno l'ha adottato entro ${WOKEN_BUFFER_MAX} eventi, smetto di tenerli`);
-    buf.push(event); // supera il tetto: il ramo sopra non ripete il log
+    buf.push({ event, at }); // supera il tetto: il ramo sopra non ripete il log
   }
   return true;
 }

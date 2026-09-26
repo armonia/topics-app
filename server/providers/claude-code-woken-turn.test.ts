@@ -353,6 +353,37 @@ describe("claude-code · il turno che nasce da solo", () => {
     expect(pp.streamHandler).toBeNull();
   });
 
+  // Two notifications back to back (review of PR #151): the first wake ends
+  // and the second one's lines join the same held buffer before the route
+  // adopts. The drain replays them without the store reader, so the second
+  // wake opened there used to take the reader's offset (its LAST line) as its
+  // start: a reattach then replayed it from that line and lost the first ones.
+  test("a wake opened while the previous wake's buffer drains is marked where its first line starts", () => {
+    const { provider, pp } = makeProviderWithStubProcess("topic:wakes2");
+    const marks: unknown[] = [];
+    pp.io.writeStdin = (_data: string, mark?: string) => { marks.push(mark); };
+    const wakes: string[] = [];
+    ClaudeCodeProvider.observeWokenTurns((sk) => { wakes.push(sk); return true; });
+    const line = (at: number, event: unknown) => { pp.lineStartOffset = at; emit(provider, pp, event); };
+    const said = (id: string, text: string) => ({ type: "assistant", message: { id, role: "assistant", content: [{ type: "text", text }] } });
+
+    line(100, said("w1", "W1"));
+    line(200, result("W1"));
+    line(300, said("w2a", "L2a "));
+    line(400, said("w2b", "L2b "));
+    line(500, said("w2c", "L2c"));
+
+    const first = makeHandler();
+    expect(provider.adoptWokenTurn("topic:wakes2", first.handler, "row1")).toBe(true);
+    expect(first.done).toBe("W1");
+    expect(wakes).toEqual(["topic:wakes2", "topic:wakes2"]);
+    const second = makeHandler();
+    expect(provider.adoptWokenTurn("topic:wakes2", second.handler, "row2")).toBe(true);
+
+    expect(second.texts.join("")).toBe("L2a L2b L2c");
+    expect(marks).toEqual(["row1@100", "row2@300"]);
+  });
+
   test("senza nessuno in ascolto il comportamento resta quello di prima", () => {
     // Sveglia esplicitamente SPENTA: l'osservatore è statico, quindi «non
     // averlo mai armato» non si ottiene non facendo niente — lo si dichiara.
