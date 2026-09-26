@@ -4,7 +4,8 @@
  *
  * The toggle next to search does not open anything: it REWRITES the board.
  * In kanban view the columns sit side by side, each its own carousel lane;
- * in list view they stack vertically at full width, and a column with no
+ * in list view they stack vertically, as wide as the row up to a 48rem
+ * reading cap, and a column with no
  * card and no draft in flight does not even draw its header — that is the
  * defect the list view exists to fix (in kanban view that same empty column
  * stays a visible drop target).

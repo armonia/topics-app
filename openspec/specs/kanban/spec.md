@@ -4723,10 +4723,12 @@ in quale vista ci si trova, non solo la switchi.
 una preferenza di chi guarda la board, non un dato della board stessa, quindi
 non SHALL viaggiare sul server ne' propagarsi agli altri client aperti.
 
-**In vista lista le colonne SHALL impilarsi verticali a piena larghezza**,
-invece di stare affiancate come corsie di un carosello — lo scopo e' portare
-le card piu' in alto nello schermo, non solo cambiare la direzione dello
-scroll.
+**In vista lista le colonne SHALL impilarsi verticali, a tutta riga fino a un
+tetto di lettura (48rem, `max-w-3xl`) e centrate**, invece di stare affiancate
+come corsie di un carosello — lo scopo e' portare le card piu' in alto nello
+schermo, non solo cambiare la direzione dello scroll. Il tetto c'e' perche' una
+lista a tutta larghezza su un pannello ultrawide e' stata segnalata come
+inutilizzabile, non piu' leggibile (card a551b940).
 
 #### Scenario: il tasto alterna e ricorda
 - **GIVEN** la board e' in vista kanban

@@ -59,8 +59,16 @@ describe('la colonna Review si allarga quando ha lavoro dentro', () => {
   test('Review piena reclama più riga di Review vuota', () => {
     const widthBlock = CARD.slice(CARD.indexOf('const widthCls ='), CARD.indexOf('if (layout ==='));
     expect(widthBlock).toContain('reviewHasWork');
-    expect(widthBlock).toContain("lg:basis-[35rem] lg:max-w-[42rem]");
+    expect(widthBlock).toContain("lg:basis-[35rem] lg:max-w-[44rem]");
     expect(widthBlock).toContain("lg:basis-[32rem] lg:max-w-[44rem]");
+  });
+
+  test('Review piena non ha mai un tetto più basso di Review vuota', () => {
+    const widthBlock = CARD.slice(CARD.indexOf('const widthCls ='), CARD.indexOf('if (layout ==='));
+    const caps = [...widthBlock.matchAll(/lg:max-w-\[(\d+)rem\]/g)].map((m) => Number(m[1]));
+    // The first lg cap is the Review with work, the second the empty one.
+    expect(caps.length).toBeGreaterThanOrEqual(2);
+    expect(caps[0]).toBeGreaterThanOrEqual(caps[1]);
   });
 
   test('la larghezza cambia con una transizione, non a scatto', () => {
