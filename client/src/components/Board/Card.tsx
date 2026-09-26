@@ -150,13 +150,32 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // Vale per TUTTE le colonne, non solo Review: la stessa card in Todo avrebbe
   // sfondato allo stesso modo il suo `max-w`.
   // List view is not a carousel: no column has a neighbour to peek at, so the
-  // width fills the whole row instead of stopping at the `basis` meant for
-  // sitting side by side.
+  // section fills the row up to a reading-width cap instead of stretching
+  // edge to edge on a wide pane — a full-bleed card list on an ultrawide pane
+  // was reported unusable, not more readable (card a551b940).
+  //
+  // REVIEW GROWS FURTHER THE MOMENT IT HOLDS SOMETHING: the reviewer asked
+  // for Review to dominate the row whenever there is something to look at
+  // (card a551b940). It cannot grow as far as "roughly half the row" though:
+  // the column width drives the preview image's width 1:1
+  // (`PREVIEW_CARD_MAX_RATIO`, see PreviewMedia and KANBAN-40), and the
+  // contract a review card must show its preview WHOLE, never scrolled
+  // (tests/e2e/board-preview-cap.spec.ts, PREVIEW-CAP-02) caps how wide a
+  // review column can get before the card taller than the column itself.
+  // Measured against that ceiling: 35rem/42rem is the widest step up from
+  // the old 32rem/44rem that still leaves headroom on a short viewport.
+  // An empty Review is unaffected (nothing there to overflow). `transition-
+  // [flex-basis,max-width]` animates the claim/release instead of snapping.
+  const reviewHasWork = isReview && (tasks.length > 0 || !!draft);
   const widthCls = layout === 'list'
-    ? 'w-full'
-    : isReview
-      ? 'min-w-0 grow basis-full sm:basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
-      : 'min-w-0 grow basis-72 max-w-[26rem]';
+    ? 'mx-auto w-full max-w-3xl'
+    : `min-w-0 grow transition-[flex-basis,max-width] duration-200 ease-out ${
+        reviewHasWork
+          ? 'basis-full sm:basis-[24rem] max-w-[36rem] lg:basis-[35rem] lg:max-w-[42rem]'
+          : isReview
+            ? 'basis-full sm:basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
+            : 'basis-72 max-w-[26rem]'
+      }`;
   // A section with no tasks and no draft in flight carries nothing to read in
   // a vertical list (unlike the grid, where an empty column is still a visible
   // drop target): skip it, so when only one status is populated the list is
