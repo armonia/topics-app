@@ -267,7 +267,7 @@ export interface DispatcherDeps {
    * provider/catalog errors stay actionable and never cross to another provider.
    */
   /** The classifier selects model/provider, reasoning effort and independent machine weight. */
-  pickAutoModel?: (task: Task, selection?: string, options?: { effort?: string }) => Promise<{ model: string | null; provider?: string; effort?: string | null; weight?: string | null }>;
+  pickAutoModel?: (task: Task, selection?: string, options?: { effort?: string; topicsRouting?: boolean }) => Promise<{ model: string | null; provider?: string; effort?: string | null; weight?: string | null }>;
   /** An unconstrained Auto task may choose a ready coding runtime that is not itself held right now. */
   automaticModelAvailable?: () => boolean;
   /** Live machine capacity (CPU/load) for the ONE machine-wide cap, used when
@@ -2804,7 +2804,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // automatic effort falls back to medium until a paired value exists;
       // never ask a provider-only classifier to judge another model's effort.
       if (!modelIsConcrete && !reuseTopicId && deps.pickAutoModel) {
-        const picked = await deps.pickAutoModel(task, requestedSelection, { effort: settings.effort });
+        const picked = await deps.pickAutoModel(task, requestedSelection, { effort: settings.effort, topicsRouting: settings.topicsRouting });
         // Il peso PRIMA di tutto il resto: se questo lancio non doveva avvenire,
         // deve fermarsi qui — prima del worktree, prima del topic, prima
         // dell'agente. (Il modello non si persiste in quel caso: al prossimo giro
@@ -3454,7 +3454,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         ? task.modelEffort!
         : settings.effort === "auto" ? DEFAULT_AUTO_EFFORT : settings.effort;
       if (!modelIsConcrete && deps.pickAutoModel) {
-        const picked = await deps.pickAutoModel(task, requestedSelection, { effort: settings.effort });
+        const picked = await deps.pickAutoModel(task, requestedSelection, { effort: settings.effort, topicsRouting: settings.topicsRouting });
         // Vale a maggior ragione qui: un task pesante in fan-out sono N
         // macinate in parallelo, cioè il caso peggiore che il peso esiste per
         // evitare. Il `finally` restituisce gli slot prenotati.

@@ -1,7 +1,9 @@
-/** @covers AGPT-01 AGPT-02 */
+/** @covers AGPT-01 AGPT-02 AICTRL-01 */
 import { describe, expect, test } from 'bun:test';
 import { pickCodingTaskPlan, TASK_CLASSIFIER_TIMEOUT_MS, type CodingModel } from './task-auto-plan';
 import { pickAutomaticTaskModel, automaticTaskModels, automaticTaskProvider } from './task-auto-model';
+import { resolveDispatchTopicIdentity } from './dispatch-topic-identity';
+import { TopicsRoutingUnavailableError } from '../../shared/task-coding-models';
 import type { AIProvider, CompletionOptions } from '../providers/types';
 import type { ProvidersSnapshot } from '../../shared/types';
 
@@ -202,6 +204,37 @@ describe('general automatic catalog and constraints', () => {
     });
     expect(plan.model).toBe('claude-opus-5');
     expect(accessed).toEqual(['topics']);
+  });
+
+  test('Automatic with the Topics switch ON only offers what the Topics engine routes', async () => {
+    const fleet = { defaultProvider: 'codex', providers: [
+      { name: 'topics', status: 'ready', models: ['claude-sonnet-5', 'claude-opus-5'] },
+      { name: 'claude-code', status: 'ready', models: ['claude-sonnet-5', 'claude-opus-5'] },
+      { name: 'codex', status: 'ready', models: ['gpt-5.5'] },
+    ] } as ProvidersSnapshot;
+    const prompts: string[] = [];
+    const plan = await pickAutomaticTaskModel({ text: 'Task' }, undefined, {
+      snapshot: fleet, topicsRouting: true,
+      codexModels: () => [{ ...models[1]!, slug: 'gpt-5.5' }],
+      getProvider: () => ({ connected: true, complete: async (messages: Array<{ content: string }>) => {
+        prompts.push(messages[0]!.content);
+        // The classifier votes Codex: with ON it must not be on the ballot.
+        return { content: '{"provider":"codex","model":"gpt-5.5","effort":"medium","weight":"light"}' };
+      } }) as unknown as AIProvider,
+    });
+    expect(prompts[0]).not.toContain('gpt-5.5');
+    expect(plan.provider).not.toBe('codex');
+    // The plan passes the same gate the dispatcher applies when it creates the topic.
+    expect(resolveDispatchTopicIdentity({ provider: plan.provider, model: plan.model, topicsRouting: true }, fleet).executor).toBe('topics');
+  });
+
+  test('an explicit Codex runtime with the Topics switch ON is refused with the routing reason', async () => {
+    let classified = false;
+    await expect(pickAutomaticTaskModel({ text: 'Task' }, 'codex:auto', {
+      snapshot, topicsRouting: true, codexModels: () => models,
+      getProvider: () => { classified = true; return undefined; },
+    })).rejects.toThrow(TopicsRoutingUnavailableError);
+    expect(classified).toBe(false);
   });
 
   test('fixed effort filters execution candidates while retaining a cheap classifier', async () => {

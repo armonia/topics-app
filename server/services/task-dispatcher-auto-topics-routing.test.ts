@@ -1,0 +1,153 @@
+/**
+ * AICTRL-01, "ON with provider Automatic": Topics picks by its own rules, so the
+ * automatic picker may only choose what the Topics engine routes. It used to
+ * pick Codex (the board default here), and the topic gate then parked the card
+ * with "Topics routing cannot dispatch to codex".
+ *
+ * @covers AICTRL-01
+ */
+import { describe, expect, it } from "bun:test";
+import { Database } from "bun:sqlite";
+import { readFileSync } from "fs";
+import { join } from "path";
+import { createTaskService, type TaskService } from "./tasks";
+import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
+import { createTaskAttemptStore } from "./task-attempts";
+import { pickAutomaticTaskModel } from "./task-auto-model";
+import { resolveDispatchTopicIdentity, type DispatchTopicIdentity } from "./dispatch-topic-identity";
+import type { AIProvider } from "../providers/types";
+import type { TurnEndInfo } from "../providers/stop-reason";
+import type { ProvidersSnapshot } from "../../shared/types";
+import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
+
+function freshDb(): Database {
+  const db = new Database(":memory:");
+  db.run("PRAGMA foreign_keys = ON");
+  db.run(`CREATE TABLE topics (id TEXT PRIMARY KEY)`);
+  db.run(TASKS_DDL);
+  db.run(TASKS_FK_STUBS_DDL);
+  db.run(TASK_LABELS_DDL);
+  db.run(`CREATE TABLE board_settings (
+    project_id TEXT PRIMARY KEY, require_approval_for_done INTEGER DEFAULT 0,
+    require_review_before_done INTEGER DEFAULT 0, block_status_with_pending INTEGER DEFAULT 0,
+    only_lead_can_change_status INTEGER DEFAULT 0, max_agents INTEGER DEFAULT 5, auto_expire_hours INTEGER DEFAULT 24,
+    auto_dispatch INTEGER NOT NULL DEFAULT 0, dispatch_effort TEXT NOT NULL DEFAULT 'medium', dispatch_model TEXT,
+    dispatch_use_worktree INTEGER NOT NULL DEFAULT 1, dispatch_timeout_min INTEGER NOT NULL DEFAULT 20,
+    dispatch_idle_min INTEGER NOT NULL DEFAULT 5,
+    dispatch_mcp TEXT,
+    dispatch_retry_cap INTEGER, dispatch_retry_backoff_s INTEGER,
+    max_agents_auto INTEGER, dispatch_fanout INTEGER,
+    dispatch_paused INTEGER NOT NULL DEFAULT 0,
+    dispatch_topics_routing INTEGER CHECK (dispatch_topics_routing IN (0, 1))
+  )`);
+  db.run(`CREATE TABLE task_comments (
+    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, author TEXT NOT NULL DEFAULT 'user',
+    content TEXT NOT NULL, mentions TEXT, media TEXT, created_at TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'comment', message_id TEXT
+  )`);
+  db.run(`CREATE TABLE approvals (
+    id TEXT PRIMARY KEY, task_id TEXT NOT NULL, requested_by TEXT NOT NULL,
+    approval_type TEXT NOT NULL, from_status TEXT, to_status TEXT, confidence_score REAL,
+    rubric_scores TEXT, justification TEXT, status TEXT NOT NULL DEFAULT 'pending',
+    reviewed_by TEXT, review_comment TEXT, created_at TEXT NOT NULL, reviewed_at TEXT, expires_at TEXT
+  )`);
+  db.run(`CREATE TABLE task_attempts (
+    id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    idx INTEGER NOT NULL, topic_id TEXT, worktree_id TEXT, branch TEXT, model TEXT,
+    state TEXT NOT NULL DEFAULT 'running', commit_sha TEXT, files_changed INTEGER,
+    insertions INTEGER, deletions INTEGER, summary TEXT, error TEXT,
+    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL, ended_at TEXT, selected_at TEXT,
+    UNIQUE (task_id, idx)
+  )`);
+  return db;
+}
+
+const PID = "alpha-abc123";
+const entry = (name: string, models: string[]) => ({ name, label: name, status: "ready", models, requirements: [] });
+// Codex is the default and ready: exactly the fleet where Automatic used to land on it.
+const FLEET = {
+  defaultProvider: "codex",
+  providers: [
+    entry("topics", ["claude-sonnet-5", "claude-opus-5"]),
+    entry("claude-code", ["claude-sonnet-5", "claude-opus-5"]),
+    entry("codex", ["gpt-5.5"]),
+  ],
+} as unknown as ProvidersSnapshot;
+const CODEX_MODELS = [{ slug: "gpt-5.5", description: "Reliable workhorse", defaultEffort: "medium", efforts: ["low", "medium", "high"] }];
+
+function harness() {
+  const db = freshDb();
+  const svc: TaskService = createTaskService(db);
+  const topics: DispatchTopicIdentity[] = [];
+  const deps: DispatcherDeps = {
+    svc,
+    attempts: createTaskAttemptStore(db),
+    resolveProject: () => ({ path: "/Users/x/Projects/alpha", projectStoreId: "store-1" }),
+    // Same wiring as server.ts: the real picker, with a classifier that always votes Codex.
+    pickAutoModel: (task, selection, options) => pickAutomaticTaskModel(task, selection, {
+      snapshot: FLEET,
+      codexModels: () => CODEX_MODELS,
+      getProvider: () => ({ connected: true, complete: async () => ({ content: '{"provider":"codex","model":"gpt-5.5","effort":"medium","weight":"light"}' }) }) as unknown as AIProvider,
+      topicsRouting: options?.topicsRouting,
+    }),
+    // Same gate as server.ts createTopic: this is what threw and parked the card.
+    createTopic: (o) => {
+      topics.push(resolveDispatchTopicIdentity(o, FLEET));
+      const id = `topic-${topics.length}`;
+      db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", [id]);
+      return { topicId: id, sessionKey: `topic:${id}` };
+    },
+    createWorktree: async () => "wt-1",
+    deleteWorktree: async () => {},
+    runTurn: () => new Promise<TurnEndInfo | void>(() => {}),
+    broadcast: () => {},
+    graceMs: 10,
+    retryBackoffMs: 0,
+    log: () => {},
+  };
+  return { db, svc, dispatcher: createTaskDispatcher(deps), topics };
+}
+
+const flush = async (n = 40) => {
+  for (let i = 0; i < n; i++) await Promise.resolve();
+  await new Promise((r) => setTimeout(r, 5));
+};
+
+async function dispatchAutomaticWithRoutingOn(fanOut?: number) {
+  const h = harness();
+  h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchTopicsRouting: true, ...(fanOut ? { dispatchFanOut: fanOut } : {}) });
+  h.svc.setGlobalCap({ auto: false, max: 5 });
+  const ts = new Date().toISOString();
+  h.db.run(
+    `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, topics_routing)
+     VALUES ('t1', ?, 'task', 'todo', ?, ?, 0, NULL, NULL)`,
+    [PID, ts, ts],
+  );
+  await h.dispatcher.tick(PID);
+  await flush();
+  return h;
+}
+
+describe("Automatic with Topics routing ON never picks what the switch cannot route", () => {
+  for (const [label, fanOut] of [["single launch", undefined], ["fan-out", 2]] as const) {
+    it(`${label}: the card starts on the Topics engine instead of parking`, async () => {
+      const h = await dispatchAutomaticWithRoutingOn(fanOut);
+      const task = h.svc.get("t1")!.task;
+      expect(task.dispatchError ?? "").not.toContain("Topics routing cannot dispatch");
+      expect(task.dispatchState).not.toBe("blocked");
+      expect(h.topics.length).toBeGreaterThan(0);
+      for (const topic of h.topics) {
+        expect(topic.executor).toBe("topics");
+        expect(topic.model?.startsWith("claude-")).toBe(true);
+      }
+    });
+  }
+
+  it("server.ts hands the task's switch to the picker", () => {
+    // Secondary: the cases above prove the rule, this that the real host forwards it.
+    const source = readFileSync(join(import.meta.dir, "../../server.ts"), "utf8");
+    const call = source.slice(source.indexOf("pickAutomaticTaskModel(task, selection"));
+    expect(call.slice(0, call.indexOf("});"))).toContain("topicsRouting: options?.topicsRouting");
+  });
+});

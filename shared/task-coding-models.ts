@@ -165,6 +165,18 @@ export function topicsRoutingAvailable(
   return isRoutableThroughTopics(provider, model ?? undefined, ready);
 }
 
+/** With the switch ON, whether a task bound to this runtime can run: the
+ * native engine is the router itself, any other runtime must be a target it
+ * reaches. The topic gate and the automatic task picker both ask this, so what
+ * Automatic may pick is exactly what the gate lets through. */
+export function runsWithTopicsRouting(
+  provider: string,
+  model: string | null | undefined,
+  snapshot?: ProvidersSnapshot | null,
+): boolean {
+  return provider === 'topics' || topicsRoutingAvailable(provider, model, snapshot);
+}
+
 /** AICTRL-04: a task created before this switch existed stored its "run via
  * Topics" decision by prefixing the model value itself (`topics:<model>`). A
  * routing field that was never set explicitly (`null`/`undefined`) still

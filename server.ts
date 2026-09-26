@@ -1776,6 +1776,8 @@ const taskDispatcher = createTaskDispatcher({
       // only Claude. Claude keeps one extra reason (the approaching-limit
       // window has no equivalent for Codex, which has no usage endpoint).
       isHeld: (provider) => isProviderHeld(provider) || (providerHoldKey(provider) === "claude" && claudeApproachingLimit),
+      // AICTRL-01: with the switch ON only what Topics routes is a candidate.
+      topicsRouting: options?.topicsRouting,
       requiredEffort: options?.effort && options.effort !== "auto" ? options.effort : undefined,
       log: (message) => console.log(`[dispatcher] ${message}`),
     });

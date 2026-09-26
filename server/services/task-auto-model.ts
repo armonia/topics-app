@@ -1,4 +1,4 @@
-import { taskModelSelection, taskProviderForModel } from '../../shared/task-coding-models';
+import { runsWithTopicsRouting, taskModelSelection, taskProviderForModel } from '../../shared/task-coding-models';
 import { EFFORT_TIERS } from '../../shared/effort';
 import type { ProvidersSnapshot } from '../../shared/types';
 import { familyOf } from '../providers/claude-models';
@@ -44,7 +44,10 @@ export function automaticTaskProvider(provider: string, model: string | undefine
   return provider;
 }
 
-/** General Auto compares eligible runtimes; a legacy provider alias still restricts its catalog. */
+/** General Auto compares eligible runtimes; a legacy provider alias still restricts its catalog.
+ *  With the Topics switch ON (AICTRL-01) Topics picks by its own rules, so the
+ *  catalog holds only what the topic gate lets through: picking Codex there
+ *  parked the card with "Topics routing cannot dispatch". */
 export async function pickAutomaticTaskModel(
   task: { text: string; description?: string | null },
   selection: string | null | undefined,
@@ -52,16 +55,18 @@ export async function pickAutomaticTaskModel(
     snapshot: ProvidersSnapshot | null;
     getProvider: (name: string) => AIProvider | undefined;
     isHeld?: HeldCheck;
+    topicsRouting?: boolean;
     requiredEffort?: string;
     codexModels?: typeof readCodexModels;
     log?: (message: string) => void;
   },
 ) {
   const restrictedProvider = taskModelSelection(selection).provider;
-  if (restrictedProvider) taskProviderForModel(selection, deps.snapshot);
+  if (restrictedProvider) taskProviderForModel(selection, deps.snapshot, deps.topicsRouting);
   const isHeld = deps.isHeld ?? (() => false);
   const models = automaticTaskModels(deps.snapshot, (deps.codexModels ?? readCodexModels)(), isHeld)
-    .filter(model => !restrictedProvider || model.provider === restrictedProvider);
+    .filter(model => !restrictedProvider || model.provider === restrictedProvider)
+    .filter(model => !deps.topicsRouting || runsWithTopicsRouting(model.provider, model.slug, deps.snapshot));
   if (!models.length && deps.snapshot?.providers.some(p => p.status === 'loading'
     && (restrictedProvider ? p.name === restrictedProvider : !isHeld(p.name) && (p.name === 'codex' || CLAUDE_TASK_RUNTIMES.has(p.name))))) {
     throw Object.assign(new Error('Waiting for coding provider discovery.'), { code: 'task_provider_pending' });
