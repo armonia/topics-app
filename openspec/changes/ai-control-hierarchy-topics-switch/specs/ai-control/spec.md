@@ -57,11 +57,20 @@ restrizione della UX per far entrare il caso nel contratto esistente.
 - **THEN** l'esecuzione e' **diretta** su quel provider e modello
 - **AND** il turno non passa dal routing leggero
 
-#### Scenario: provider non instradabile
+#### Scenario: provider non instradabile, switch OFF
 - **GIVEN** un provider che il routing leggero non sa instradare
+- **AND** lo switch e' **OFF**
 - **WHEN** l'utente apre il controllo
 - **THEN** lo switch e' **visibile e disabilitato**, con il **motivo**
 - **AND** non cambia in silenzio provider, modello o strada
+
+#### Scenario: provider non instradabile, switch gia' ON
+- **GIVEN** un provider che il routing leggero non sa instradare
+- **AND** lo switch e' gia' **ON** (una scelta fatta prima, o diventata incompatibile dopo)
+- **WHEN** l'utente apre il controllo
+- **THEN** lo switch resta **visibile** con il **motivo**, e **cliccabile solo per spegnerlo**
+- **AND** il turno in chat non parte e la card si ferma **bloccata**, sempre con il **motivo**
+- **AND** non cambia in silenzio provider, modello o strada: niente reinstradamento verso altro
 - **AND** in nessun caso lo switch resta attivo comportandosi da no-op
 
 #### Scenario: nessun provider Topics visibile
