@@ -141,7 +141,7 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
         // `createBranchPartialMessage` alloca l'indice giusto sotto l'ancora e attiva
         // il ramo nuovo — è quello che fa già il percorso in streaming qui sotto.
         const storedAssistant = createBranchPartialMessage(sessionKey, newUserMsgId);
-        updateLastMessage(sessionKey, { content: result.content, partial: undefined, streamedAt: undefined });
+        updateLastMessage(sessionKey, { content: result.content, partial: undefined, streamedAt: undefined }, { rowId: storedAssistant.id });
         if (matchedTopic) broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: storedAssistant.id, content: result.content, preview: result.content.slice(0, 100) });
         const ssePayload = `data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}\n\ndata: {"choices":[{"index":0,"delta":{"content":${JSON.stringify(result.content)}},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`;
         return new Response(ssePayload, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
@@ -205,7 +205,7 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
         endStream,
         isStreaming,
         addToolCallToLastMessage,
-        updateToolCallResult: (sk, id, result) => updateToolCallResult(sk, id, result),
+        updateToolCallResult: (sk, id, result, own) => updateToolCallResult(sk, id, result, undefined, undefined, own),
         saveInterval: SAVE_INTERVAL,
         onDone: (msgId: string) => {
           // edit.ts-specific: broadcast stream:end and update unread count
