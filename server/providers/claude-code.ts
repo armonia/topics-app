@@ -30,7 +30,7 @@ import { getDatabase } from "../db";
 import { demoteAgentCli } from "./agent-cli-priority";
 import { SidechainTracker, isSubAgentToolName } from "./claude/sidechain-tracker";
 import { parseCompactBoundary } from "./claude/compaction";
-import { foldRowTurns, isDeliveryMark, isNotificationTurnEnd, rowTurn, type RowTurns } from "./claude/row-turn";
+import { foldRowTurns, isDeliveryMark, isNotificationTurnEnd, isWakeMark, rowTurn, wakeMark, type RowTurns } from "./claude/row-turn";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
 import { applyJobQuota } from "../services/agent-job-quota";
@@ -994,6 +994,7 @@ interface PersistentProcess {
    *  qui si è precisi alla riga, mentre la riga passa. È ciò che fa ripartire
    *  la fase 2 esattamente dopo il `result`. Vedi `createLineFolder`. */
   lineEndOffset?: number;
+  lineStartOffset?: number; // where that line began: a wake's turn starts there (`claude/woken-turn.ts`)
   /** Accumulated stderr tail for the rate-limit / missing-session scan. */
   stderrBuf: string;
   /** Spawn-time facts the stderr scan + reattach need. */
@@ -1044,6 +1045,7 @@ interface PersistentProcess {
   bufferedTurnEnded?: boolean;
   /** `description` dell'ultimo `Monitor`: il «COSA» del risveglio. */
   ultimoMonitor?: string;
+  wokenFrom?: number; // see `WokenSlot`
   /** Pending promise resolvers for sendChat */
   pendingResolve: ((result: { runId: string }) => void) | null;
   pendingReject: ((err: Error) => void) | null;
@@ -1437,7 +1439,7 @@ export class ClaudeCodeProvider implements AIProvider {
    * — una persona che scrive mentre il Monitor consegna. Vince il turno vero e
    * il risveglio si fonde con lui: gli eventi in buffer sono dello stesso figlio.
    */
-  adoptWokenTurn(sessionKey: string, handler: StreamHandler): boolean {
+  adoptWokenTurn(sessionKey: string, handler: StreamHandler, rowId?: string): boolean {
     const pp = this.processes.get(sessionKey);
     // A stopped child opens no turn of its own: its tail is dropped.
     if (!pp || !pp.alive || pp.stoppedExit) return false;
@@ -1451,6 +1453,8 @@ export class ClaudeCodeProvider implements AIProvider {
       return false;
     }
     pp.streamHandler = handler;
+    // Where this wake's turn began, for a reattach of its row (`claude/row-turn.ts`): no stdin write marked it.
+    if (rowId && pp.wokenFrom !== undefined) try { pp.io.writeStdin("", wakeMark(rowId, pp.wokenFrom)); } catch { /* unmarked: as on main */ }
     // The adopted turn is a turn: the idle reaper armed at the previous turn's
     // end must stand down exactly as it does for a turn the server sends.
     this.clearInactivityTimer(pp);
@@ -2694,8 +2698,8 @@ export class ClaudeCodeProvider implements AIProvider {
     // sulla dimensione del chunk, e con `StringDecoder` al posto di
     // `chunk.toString()` — i frame ora arrivano a fette e una fetta può cadere
     // in mezzo a una sequenza UTF-8.
-    const fold = createLineFolder((line, endOffset) => {
-      pp.lineEndOffset = endOffset;
+    const fold = createLineFolder((line, endOffset, startOffset) => {
+      pp.lineEndOffset = endOffset; pp.lineStartOffset = startOffset;
       onLine(line);
     });
     client.registerHandlers(sessionKey, {
@@ -3460,7 +3464,7 @@ export class ClaudeCodeProvider implements AIProvider {
     if (pp.stoppedExit && !pp.replayMute && !pp.replaySilent) return;
     // Each row's own turn, for the reattach; a delivery mark is Topics' line, not the CLI's (`claude/row-turn.ts`).
     if (pp.replayMute) pp.replayRowTurns = foldRowTurns(pp.replayRowTurns, event, pp.lineEndOffset ?? pp.consumedOffset);
-    if (isDeliveryMark(event)) { if (pp.replayMute) pp.replayTailOpen = true; return; }
+    if (isDeliveryMark(event)) { if (pp.replayMute && !isWakeMark(event)) pp.replayTailOpen = true; return; }
 
     // Background work first, in every mode: the reattach scan rebuilds it from
     // the store the same way live traffic keeps it (`claude/background-work.ts`).
@@ -3489,7 +3493,7 @@ export class ClaudeCodeProvider implements AIProvider {
     })) {
       // Tenuto da parte finché qualcuno non adotta: `bufferWoken` apre il
       // buffer, chiama la sveglia e dice se fermarsi qui.
-      if (bufferWoken(pp, event, ClaudeCodeProvider.onWokenTurn)) return;
+      if (bufferWoken(pp, event, ClaudeCodeProvider.onWokenTurn, pp.lineStartOffset)) return;
       // Adozione sincrona riuscita: da qui in giù vale il nuovo handler.
       handler = pp.streamHandler;
     }

@@ -3534,9 +3534,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             const reattachFn = (topicProvider as unknown as { reattach?: (sk: string, h: StreamHandler, o?: { rowId?: string }) => Promise<string> }).reattach;
             // Il risveglio si adotta in modo SINCRONO (gli eventi sono già nel
             // provider). `false` = l'ha preso qualcun altro, o il figlio è morto.
-            const adoptWoken = (topicProvider as unknown as { adoptWokenTurn?: (sk: string, h: StreamHandler) => boolean }).adoptWokenTurn;
+            const adoptWoken = (topicProvider as unknown as { adoptWokenTurn?: (sk: string, h: StreamHandler, rowId?: string) => boolean }).adoptWokenTurn;
             const drive = isWoken
-              ? (adoptWoken!.call(topicProvider, sessionKey, handler)
+              ? (adoptWoken!.call(topicProvider, sessionKey, handler, partialMsg.id)
                   ? Promise.resolve({ runId: "woken" })
                   : Promise.reject(new Error("WOKEN_TURN_GONE")))
               : isReattach

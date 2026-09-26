@@ -121,6 +121,8 @@ export interface WokenSlot {
   /** The buffered turn already produced its `result`: it is a finished turn
    *  waiting for its adopter, not one a new sender can merge into. */
   bufferedTurnEnded?: boolean;
+  /** Where the held turn's first line starts in the broker store: its adopter marks it there (`row-turn.ts`). */
+  wokenFrom?: number;
 }
 
 /**
@@ -201,11 +203,15 @@ export function bufferWoken(
   slot: WokenSlot,
   event: unknown,
   sveglia: WakeObserver | null,
+  /** The store offset where this line starts, if the child is a broker session. */
+  at?: number,
 ): boolean {
   if (slot.wokenBuffer == null) {
     const held: unknown[] = [];
     slot.wokenBuffer = held;
     slot.bufferedTurnEnded = false;
+    // Before the observer: it may adopt on the spot, and the adoption marks this offset.
+    slot.wokenFrom = at;
     let answer: boolean | void = sveglia ? undefined : false;
     try {
       if (sveglia) answer = sveglia(slot.sessionKey, slot.ultimoMonitor, () => {

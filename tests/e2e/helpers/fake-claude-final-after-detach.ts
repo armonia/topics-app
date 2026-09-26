@@ -26,8 +26,13 @@
  *   - "FIXTUREBG": the recorded CLI 2.1.282 session (tests/fixtures, copied
  *     next to this file by the test): its turn ends at `finish-turn` while its
  *     background Agent keeps printing after the `result`.
- * And one after the third: "LONGTAIL" ends at `finish-turn` with 3 MB of an
- * Agent's lines after its `result`, then a wake: a replay that spans reads.
+ * And one after the third: "LONGTAIL" ends at `finish-turn` with 3 MB (or the
+ * MB in `tail-mb`) of an Agent's lines after its `result`, then a wake: a
+ * replay that spans reads.
+ *
+ * "BGWAKES" answers at once, then wakes by itself twice: at `bg-done` a wake
+ * that ends at `w1-finish`, then at `bg2-done` a second one that ends at
+ * `w2-finish` (wakes carry no stdin write, so no delivery mark).
  */
 
 // A module, not a global script: the other fake CLIs in this folder declare
@@ -100,12 +105,36 @@ function reviewTurn(text: string): boolean {
       assistant([{ type: "text", text: "LT-FINAL report." }]);
       result("LT-FINAL report.", started);
       const agentLine = JSON.stringify({ type: "assistant", session_id: SESSION_ID, parent_tool_use_id: "toolu_agent", message: { role: "assistant", content: [{ type: "text", text: "x".repeat(1000) }] } }) + "\n";
-      process.stdout.write(agentLine.repeat(3000));
+      const mbFile = join(process.cwd(), "tail-mb");
+      const lines = Math.round(((existsSync(mbFile) ? Number(readFileSync(mbFile, "utf8")) : 0) || 3) * 1024 * 1024 / agentLine.length);
+      for (let i = 0; i < lines; i += 1000) process.stdout.write(agentLine.repeat(Math.min(1000, lines - i)));
       out({ type: "system", subtype: "task_notification", task_id: "a1", status: "completed", session_id: SESSION_ID });
       init();
       assistant([{ type: "text", text: "LT-WAKE." }]);
       result("LT-WAKE.", started, 1);
       touch("lt-done");
+    });
+  } else if (/BGWAKES/.test(text)) {
+    init();
+    assistant([{ type: "text", text: "T1: watching CI and the deploy." }]);
+    result("T1: watching CI and the deploy.", started, 1);
+    const wake = (task: string) => { out({ type: "system", subtype: "task_notification", task_id: task, status: "completed", session_id: SESSION_ID }); init(); };
+    whenFile("bg-done", () => {
+      const first = Date.now();
+      wake("b1");
+      assistant([{ type: "text", text: "W1-FIRST: CI finished, reading the logs." }]);
+      assistant([{ type: "tool_use", id: "toolu_w1", name: "Bash", input: { command: "gh run view --log" } }]);
+      whenFile("w1-finish", () => {
+        out({ type: "user", session_id: SESSION_ID, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_w1", content: "ok" }] } });
+        assistant([{ type: "text", text: "W1-FINAL: all green." }]);
+        result("W1-FINAL: all green.", first);
+        whenFile("bg2-done", () => {
+          const second = Date.now();
+          wake("b2");
+          assistant([{ type: "text", text: "W2-TEXT: the deploy finished." }]);
+          whenFile("w2-finish", () => result("W2-TEXT: the deploy finished.", second, 1));
+        });
+      });
     });
   } else if (/SLOWCOMPACT/.test(text)) {
     init();
