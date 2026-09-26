@@ -66,6 +66,22 @@ const KEEP_RECENT = 6;
 /** Il testo che prende il posto di un risultato buttato. */
 const DROPPED = "[risultato rimosso per fare spazio: la conversazione era troppo lunga]"; // allow-italian: testo che legge il modello, non UI
 
+function hasImageBlock(blocks: unknown[]): boolean {
+  return blocks.some((b) => (b as { type?: string })?.type === "image");
+}
+
+/**
+ * What replaces a pruned image: the path `read_file` / `browser_screenshot`
+ * already wrote into the sibling text block, pulled back out with the same
+ * pattern their own caption uses (`"<path> (..."`), or a generic notice when
+ * no path can be recovered.
+ */
+function imagePlaceholder(blocks: unknown[]): string {
+  const caption = blocks.find((b) => (b as { type?: string })?.type === "text") as { text?: string } | undefined;
+  const path = caption?.text?.match(/^(\S+) \(/)?.[1];
+  return path ? `[immagine rimossa per fare spazio: ${path}]` : "[immagine rimossa per fare spazio]"; // allow-italian: testo che legge il modello, non UI
+}
+
 /**
  * How many characters we assume make a token until the API tells us better.
  *
@@ -118,12 +134,61 @@ export function estimateChars(messages: AgentMessage[], overheadChars = 0): numb
     for (const b of m.content) {
       chars += (b.text?.length ?? 0) + (b.thinking?.length ?? 0);
       if (typeof b.content === "string") chars += b.content.length;
+      else if (Array.isArray(b.content)) chars += charsOfNestedBlocks(b.content);
       else if (b.content != null) chars += JSON.stringify(b.content).length;
       if (b.input) chars += JSON.stringify(b.input).length;
     }
   }
   return chars;
 }
+
+/**
+ * The text weight of a nested content array: a `tool_result` carrying an
+ * image alongside its caption (`agent-loop.ts`'s `[{type:"text"},
+ * {type:"image",...}]` shape).
+ *
+ * `image` blocks are SKIPPED here on purpose. Their `source.data` is base64,
+ * not text, and `JSON.stringify`-ing it used to count every one of those
+ * bytes as a character — a single screenshot could outweigh the rest of the
+ * conversation in the estimate while costing the API a few hundred real
+ * tokens. `estimateTokens` adds an image's real weight back afterwards, as a
+ * fixed count per image instead of a character count that means nothing for
+ * binary data.
+ */
+function charsOfNestedBlocks(blocks: unknown[]): number {
+  let chars = 0;
+  for (const b of blocks) {
+    const block = b as { type?: string; text?: string };
+    if (block?.type === "image") continue;
+    chars += JSON.stringify(block).length;
+  }
+  return chars;
+}
+
+/**
+ * How many `image` content blocks a history carries, nested inside
+ * `tool_result` arrays only (the one shape that produces them today).
+ */
+function countImageBlocks(messages: AgentMessage[]): number {
+  let n = 0;
+  for (const m of messages) {
+    if (typeof m.content === "string") continue;
+    for (const b of m.content) {
+      if (!Array.isArray(b.content)) continue;
+      for (const sub of b.content as unknown[]) {
+        if ((sub as { type?: string })?.type === "image") n++;
+      }
+    }
+  }
+  return n;
+}
+
+/**
+ * Anthropic's own ballpark for an image resized to its recommended long edge
+ * (1568px, the same ceiling `tools.ts` resizes to): about 1600 tokens,
+ * regardless of the exact pixel count or how long the base64 string is.
+ */
+const IMAGE_TOKEN_ESTIMATE = 1600;
 
 /**
  * Una stima dei token, non un conteggio.
@@ -142,7 +207,8 @@ export function estimateTokens(
   charsPerToken: number = DEFAULT_CHARS_PER_TOKEN,
 ): number {
   const ratio = charsPerToken > 0 ? charsPerToken : DEFAULT_CHARS_PER_TOKEN;
-  return Math.ceil(estimateChars(messages, overheadChars) / ratio);
+  const textTokens = Math.ceil(estimateChars(messages, overheadChars) / ratio);
+  return textTokens + countImageBlocks(messages) * IMAGE_TOKEN_ESTIMATE;
 }
 
 /**
@@ -366,6 +432,17 @@ function lightenMiddle(messages: AgentMessage[]): AgentMessage[] {
       // un guasto.
       if (b.type === "tool_result" && typeof b.content === "string" && b.content.length > DROPPED.length) {
         return { ...b, content: DROPPED };
+      }
+      // AN IMAGE NEVER LEAVES ON ITS OWN, one prune at a time is not enough:
+      // `typeof b.content === "string"` above is false for an image-bearing
+      // result (its content is `[text, image]`), so without this branch an old
+      // screenshot or a `read_file` on a picture would survive every pass this
+      // function makes and just sit there at full weight forever. It is
+      // replaced by the same kind of placeholder as a text result, built from
+      // the caption `read_file` / `browser_screenshot` already wrote alongside
+      // it, so the model still knows WHAT was there even after the pixels go.
+      if (b.type === "tool_result" && Array.isArray(b.content) && hasImageBlock(b.content)) {
+        return { ...b, content: imagePlaceholder(b.content) };
       }
       // THE ARGUMENTS WEIGH MORE THAN THE RESULTS, and this file never acted
       // like it until now.

@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-25",
+  "generated": "2026-09-26",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -1204,7 +1204,6 @@
       "dsf",
       "dsfRef",
       "failWebrtc",
-      "fetchScreenshot",
       "psf",
       "psfChanged",
       "retryWebrtc",
@@ -2642,8 +2641,7 @@
       "CSP_MARKER"
     ],
     "server/browser-dom-walker.ts": [
-      "buf",
-      "captureAnnotatedScreenshotOnPage"
+      "buf"
     ],
     "server/browser-focused-field.test.ts": [
       "email",
@@ -2731,18 +2729,14 @@
       "hostnameOf"
     ],
     "server/browser-tool-dispatcher.ts": [
-      "buf",
-      "nativeScreenshotOp"
+      "buf"
     ],
     "server/browser-tools-adapters.ts": [
       "isPassthroughProvider"
     ],
     "server/browser-tools-handler.ts": [
       "buf",
-      "handleBrowserEval",
-      "handleBrowserScreenshot",
-      "wantScreenshot",
-      "writeAgentScreenshot"
+      "handleBrowserEval"
     ],
     "server/context/adapt-dedup.test.ts": [
       "normale",
@@ -4063,7 +4057,6 @@
     ],
     "server/routes/browser.ts": [
       "agentEvalMatch",
-      "agentScreenshotMatch",
       "buf",
       "evalResult"
     ],
@@ -6062,8 +6055,7 @@
       "buf"
     ],
     "tests/e2e/browser-ws-streaming.spec.ts": [
-      "bandwidthKbps",
-      "screenshotImg"
+      "bandwidthKbps"
     ],
     "tests/e2e/changelog.spec.ts": [
       "Versione",

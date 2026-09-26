@@ -13,7 +13,10 @@
   * @covers RT-09
  */
 import { describe, expect, test } from "bun:test";
-import { topicsToolSpecs, isTopicsTool, executeTopicsTool } from "./topics-tools";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { topicsToolSpecs, isTopicsTool, executeTopicsTool, inlineScreenshot } from "./topics-tools";
 import { CODING_TOOLS } from "./tools";
 
 describe("gli schemi dei tool di Topics", () => {
@@ -89,4 +92,30 @@ describe("eseguire un mestiere di Topics", () => {
     expect(typeof r.content).toBe("string");
     expect(r.content.length).toBeGreaterThan(0);
   }, 30_000);
+});
+
+describe("`browser_screenshot` con `inline: true`", () => {
+  const dir = mkdtempSync(join(tmpdir(), "inline-screenshot-"));
+
+  test("un path e un format validi diventano un'immagine", () => {
+    const p = join(dir, "shot.png");
+    writeFileSync(p, "byte finti, basta che ci siano");
+    const images = inlineScreenshot(JSON.stringify({ path: p, format: "png" }));
+    expect(images).toBeDefined();
+    expect(images![0]!.mediaType).toBe("image/png");
+  });
+
+  test("un format sconosciuto non produce immagine: il testo resta l'unica risposta", () => {
+    const p = join(dir, "shot.bmp");
+    writeFileSync(p, "x");
+    expect(inlineScreenshot(JSON.stringify({ path: p, format: "bmp" }))).toBeUndefined();
+  });
+
+  test("un path che non esiste torna undefined invece di sollevare", () => {
+    expect(inlineScreenshot(JSON.stringify({ path: "/non/esiste.png", format: "png" }))).toBeUndefined();
+  });
+
+  test("una risposta che non è JSON (un handler diverso da browser_screenshot) torna undefined", () => {
+    expect(inlineScreenshot("non è json")).toBeUndefined();
+  });
 });

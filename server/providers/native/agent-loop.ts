@@ -27,7 +27,7 @@ import {
 } from "./retry";
 import { saturationHold, releaseHoldIfFreed } from "./usage-window";
 import { providerHold } from "../../lib/provider-hold";
-import { CODING_TOOLS, executeTool, type ToolContext, type ToolSpec } from "./tools";
+import { CODING_TOOLS, executeTool, type ToolContext, type ToolResult, type ToolSpec } from "./tools";
 import { detectUserInputRequest } from "../ask-user-detector";
 import type { ProviderUsage } from "../types";
 import { decide, DEFAULT_AUTONOMY } from "./permissions";
@@ -667,6 +667,35 @@ function refusalDetail(details: StopDetails | null): string {
 }
 
 /**
+ * The `tool_result.content` an API-bound message carries for one tool call.
+ *
+ * EVERY RESULT IS CLIPPED HERE, whichever family produced it (machine, Topics,
+ * MCP): one place, one budget. The UI above gets the whole output; what enters
+ * the history is head and tail with a notice on how to read the rest. Without
+ * this, two big reads in one round could push a 200k window past its limit on
+ * their own, and the resulting 400 sat in the session for good. The same clip,
+ * tighter, is what the compaction applies to the tail when everything else has
+ * failed.
+ *
+ * AN IMAGE NEVER GOES THROUGH `clipToolResult`: that function slices a string
+ * by character count, and slicing base64 produces bytes that no longer decode
+ * to anything. Only the text half of an image result is clipped; the image
+ * blocks ride along untouched.
+ */
+export function toolResultContent(out: ToolResult): string | Block[] {
+  const clippedText = clipToolResult(out.content, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS);
+  const images = out.images;
+  if (!images || images.length === 0) return clippedText;
+  return [
+    { type: "text", text: clippedText },
+    ...images.map((img) => ({
+      type: "image",
+      source: { type: "base64", media_type: img.mediaType, data: img.data },
+    })),
+  ] as Block[];
+}
+
+/**
  * Il turno completo: gira finché il modello non ha più tool da chiedere.
  *
  * IL CICLO È IL PUNTO. `stop_reason: "tool_use"` significa «ho chiesto degli
@@ -890,10 +919,15 @@ export async function runAgentTurn(
       // a 200k window past its limit on their own, and the resulting 400 sat
       // in the session for good. The same clip, tighter, is what the
       // compaction applies to the tail when everything else has failed.
+      //
+      // AN IMAGE NEVER GOES THROUGH `clipToolResult`: that function slices a
+      // string by character count, and slicing base64 produces bytes that no
+      // longer decode to anything. Only the text half of an image result is
+      // clipped; the image blocks ride along untouched.
       results.push({
         type: "tool_result",
         tool_use_id: t.id,
-        content: clipToolResult(out.content, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS),
+        content: toolResultContent(out),
         ...(out.isError ? { is_error: true } : {}),
       });
       // IL TURNO PUÒ ESSERE MORTO MENTRE QUESTO TOOL GIRAVA.

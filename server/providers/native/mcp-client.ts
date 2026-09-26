@@ -46,6 +46,13 @@ export interface McpPromptDescriptor {
   description?: string;
 }
 
+/** What a tool call answers with: the flattened text, plus any pictures it carried. */
+export interface McpToolCallResult {
+  content: string;
+  images?: { mediaType: string; data: string }[];
+  isError: boolean;
+}
+
 export interface McpConnection {
   readonly transport: "http" | "stdio";
   readonly serverInfo: { name?: string; version?: string } | null;
@@ -60,7 +67,7 @@ export interface McpConnection {
   readonly listChanged: boolean;
   listTools(): Promise<McpToolDescriptor[]>;
   listPrompts(): Promise<McpPromptDescriptor[]>;
-  callTool(name: string, args: Record<string, unknown>): Promise<{ content: string; isError: boolean }>;
+  callTool(name: string, args: Record<string, unknown>): Promise<McpToolCallResult>;
   close(): void;
 }
 
@@ -124,24 +131,31 @@ function failure(err: RpcError | undefined, method: string): Error {
 }
 
 /**
- * The text a model gets back from a tool call.
+ * The text AND the images a model gets back from a tool call.
  *
- * MCP answers with a list of typed content blocks; the native loop's tool
- * results are a single string. Text blocks are joined, and anything else is
- * announced rather than dropped: an agent that receives an empty result for an
- * image retries the same call forever.
+ * MCP answers with a list of typed content blocks; the native loop wants a
+ * single string plus, separately, any images (`ToolResult.images`, the same
+ * shape `read_file` produces for a picture). Text blocks are joined into the
+ * string; an `image` block (`{ type: "image", data, mimeType }` per the MCP
+ * spec) is pulled out instead of being flattened away — a server that answers
+ * a screenshot tool used to get back `[image content]` and nothing else, which
+ * is indistinguishable from an empty result to whoever reads it. Any other
+ * block type is still announced rather than silently dropped.
  */
-function flattenContent(result: unknown): string {
+export function flattenContent(result: unknown): { content: string; images?: { mediaType: string; data: string }[] } {
   const blocks = (result as { content?: unknown })?.content;
-  if (typeof blocks === "string") return blocks;
-  if (!Array.isArray(blocks)) return JSON.stringify(result ?? null);
+  if (typeof blocks === "string") return { content: blocks };
+  if (!Array.isArray(blocks)) return { content: JSON.stringify(result ?? null) };
   const parts: string[] = [];
+  const images: { mediaType: string; data: string }[] = [];
   for (const b of blocks) {
-    const block = b as { type?: string; text?: string };
+    const block = b as { type?: string; text?: string; data?: string; mimeType?: string };
     if (block?.type === "text" && typeof block.text === "string") parts.push(block.text);
-    else if (block?.type) parts.push(`[${block.type} content]`);
+    else if (block?.type === "image" && typeof block.data === "string" && typeof block.mimeType === "string") {
+      images.push({ mediaType: block.mimeType, data: block.data });
+    } else if (block?.type) parts.push(`[${block.type} content]`);
   }
-  return parts.join("\n");
+  return { content: parts.join("\n"), ...(images.length > 0 ? { images } : {}) };
 }
 
 // ---- HTTP (Streamable HTTP) transport ------------------------------------
@@ -308,7 +322,7 @@ class HttpMcpConnection implements McpConnection {
 
   async callTool(name: string, args: Record<string, unknown>) {
     const result = (await this.send("tools/call", { name, arguments: args })) as { isError?: boolean };
-    return { content: flattenContent(result), isError: Boolean(result?.isError) };
+    return { ...flattenContent(result), isError: Boolean(result?.isError) };
   }
 
   close(): void {
@@ -428,7 +442,7 @@ class StdioMcpConnection implements McpConnection {
 
   async callTool(name: string, args: Record<string, unknown>) {
     const result = (await this.send("tools/call", { name, arguments: args })) as { isError?: boolean };
-    return { content: flattenContent(result), isError: Boolean(result?.isError) };
+    return { ...flattenContent(result), isError: Boolean(result?.isError) };
   }
 
   close(): void {

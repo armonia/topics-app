@@ -141,6 +141,12 @@ export const PROJECT_WORDS = new Set([
   // says which events it knows, `viewportFromRecorderEvent` would not
   // (2026-09-14, `client/src/lib/browserFit.ts`).
   "rrweb",
+  // Another dictionary hole, same shape as `screencast` above: `browser_screenshot`
+  // is the MCP tool's own name, and `SCREENSHOT_MEDIA_TYPE`/`inlineScreenshot`
+  // name the thing it produces. The baseline already grandfathered
+  // `screenshotImg` (`browser-screenshot-file.test.ts`) rather than face this
+  // (2026-09-27, `server/providers/native/topics-tools.ts`).
+  "screenshot",
   // The opposite of zooming a cell, and this app's own name for it: the menu
   // entry is `tab.menu.unzoom` and the control is `tab-menu-unzoom`, so the
   // word is already in the product before it is in a variable (2026-09-11,

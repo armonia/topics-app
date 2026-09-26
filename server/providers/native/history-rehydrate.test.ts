@@ -325,3 +325,37 @@ describe("historyFromPersistedThread — il tetto sulla storia ricostruita", () 
     expect(out[0]).toEqual({ role: "user", content: "lavora sul repo" });
   });
 });
+
+/**
+ * A REHYDRATED IMAGE ALWAYS COMES BACK AS TEXT, NEVER AS BASE64.
+ *
+ * `read_file` on an image only ever saves the caption to disk
+ * (`onToolResult` receives `out.content`, which is always text: the base64
+ * lives only in `ToolResult.images`, never in what lands in the DB). So
+ * `ToolCall.result` never holds image bytes, but if something someday wrote
+ * them anyway, this function has no branch that produces a `type: "image"`
+ * block: it always reads back text only. This test locks in that guarantee,
+ * not a behavior that already cannot happen today.
+ */
+describe("historyFromPersistedThread — an image never comes back as base64", () => {
+  test("il risultato persistito di un read_file su un'immagine è la didascalia, non i byte", () => {
+    const out = historyFromPersistedThread([
+      u("leggi lo screenshot"),
+      { role: "assistant", content: "Leggo l'immagine.", toolCalls: [
+        { id: "t1", name: "read_file", args: { path: "shot.png" }, status: "success",
+          result: "shot.png (1024x768, image attached)", contentOffset: 17 },
+      ] },
+      u("cosa vedi?"),
+    ]);
+    const resultBlock = (out[2]!.content as Block[])[0]!;
+    expect(resultBlock).toEqual({
+      type: "tool_result", tool_use_id: "t1", content: "shot.png (1024x768, image attached)",
+    });
+    // No `image` block: the function has no branch that produces one.
+    expect((resultBlock as any).content).not.toContain("data:image");
+    for (const m of out) {
+      if (typeof m.content === "string") continue;
+      for (const b of m.content) expect(b.type).not.toBe("image");
+    }
+  });
+});
