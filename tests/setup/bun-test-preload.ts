@@ -54,6 +54,7 @@ import { afterAll, setDefaultTimeout } from "bun:test";
 import { readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { acquireSlot, claimOutfile, slotCount, alreadyHeld, GATE_HELD_ENV } from "../../scripts/gate-slot.ts";
+import { stopOwnAiBridges } from "../../scripts/stray-ai-bridges.ts";
 
 /**
  * 30s: sei volte il default di bun. Il numero e' una misura, non un gusto. Col
@@ -368,7 +369,35 @@ function guardDomGlobals(): void {
   });
 }
 
+/**
+ * THE AI-BRIDGE DAEMONS THIS PROCESS STARTED GO WITH IT.
+ *
+ * A test that drives the real claude-code provider makes the client spawn a
+ * detached daemon, and a detached daemon outlives its parent by design.
+ * Measured on 25/09: seven left behind per round of one card's tests, some
+ * still alive twelve hours later. Each file that starts one stops it in its
+ * `afterAll` (stopOwnAiBridges in scripts/stray-ai-bridges.ts). This is the net
+ * under them.
+ *
+ * At the end of the run it stops every daemon whose `--parent-pid` is this
+ * process. An `afterAll`, not `process.on("exit")`: measured on bun 1.3.8, an
+ * exit handler never runs when `bun test` finishes on its own.
+ *
+ * For a run killed outright, where no handler runs, a daemon spawned from here
+ * gives up 15s after its parent dies instead of 90s. The 90s exist so a
+ * restarting SERVER finds its CLIs alive. The parent here is `bun test`
+ * itself, and nothing reconnects to a dead test run's socket. A test that
+ * exercises the grace sets its own value, which wins.
+ */
+export const TEST_ORPHAN_GRACE_MS = "15000";
+
+function retireOwnAiBridges(): void {
+  process.env.TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS ??= TEST_ORPHAN_GRACE_MS;
+  afterAll(stopOwnAiBridges);
+}
+
 claimOwnOutfile();
 holdGateSlot();
 boundOwnRuntime();
 guardDomGlobals();
+retireOwnAiBridges();

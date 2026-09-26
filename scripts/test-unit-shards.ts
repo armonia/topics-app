@@ -79,6 +79,7 @@ import { tmpdir, loadavg, cpus } from "os";
 import { GATE_HELD_ENV } from "./gate-slot.ts";
 import { clampSlowdown, gateSlowdownLine } from "../shared/gate-slowdown.ts";
 import { TIME_SLACK_ENV, timeSlack, timeSlackNote } from "../shared/test-time-slack.ts";
+import { TEST_RUN_ENV, newTestRunId, reportAndEndStrays, strayAiBridges } from "./stray-ai-bridges.ts";
 
 /**
  * How many shards to run on THIS machine, with the serial suite's timeout.
@@ -424,6 +425,10 @@ if (import.meta.main) {
     console.error(gateSlowdownLine(plan.slowdown, reason));
   }
   const shardsN = plan.shards;
+  // Every shard inherits it, and so does every daemon a test starts: the check
+  // at the end finds this run's leftovers by it (scripts/stray-ai-bridges.ts).
+  const runId = newTestRunId();
+  process.env[TEST_RUN_ENV] = runId;
 
   const files = enumerateTestFiles(SUITE_ROOTS, REPO_ROOT);
   if (files.length === 0) {
@@ -492,7 +497,11 @@ if (import.meta.main) {
     for (const f of r.failures.slice(0, MAX_NAMED)) console.error(`  ✗ ${f.file} › ${f.test}`);
     if (r.failures.length > MAX_NAMED) console.error(`  … e altri ${r.failures.length - MAX_NAMED}`);
   }
-  const codes = [...phase1.map((r) => r.code), ...(phase2 ? [phase2.code] : [])];
+  // Last on stderr for the same reason as the names above. A daemon the run
+  // left alive turns a green run red.
+  const strays = await strayAiBridges(runId);
+  await reportAndEndStrays(strays);
+  const codes = [...phase1.map((r) => r.code), ...(phase2 ? [phase2.code] : []), strays.length > 0 ? 1 : 0];
   const verdict = aggregateVerdict(codes);
   console.log(
     `  ${verdict === 0 ? "PASS" : "FAIL"}  ${files.length} file (${parallel.length} par / ${serial.length} ser) in ${N} shard  wall ${totalWallS.toFixed(1)}s` +
