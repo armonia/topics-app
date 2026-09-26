@@ -138,7 +138,11 @@ function watched(cmd: string, args: string[]) {
 async function runTeardown(port: number, serverPid: number, bridgePid: number) {
   writeFileSync(`/tmp/topics-pty-bridge-e2e-${port}.pid`, String(bridgePid));
   const env: Record<string, string> = { ...(process.env as Record<string, string>) };
-  for (const k of ["PORT", "DATA_DIR", "E2E_PORT"]) delete env[k];
+  // TOPICS_TEST_RUN_ID too: the teardown kills every ai-bridge daemon that
+  // carries the run's id, and under the unit shards that id is shared with
+  // files in other shards holding a live daemon. Without it the child's
+  // testServerEnv mints a fresh id that matches nothing.
+  for (const k of ["PORT", "DATA_DIR", "E2E_PORT", "TOPICS_TEST_RUN_ID"]) delete env[k];
   Object.assign(env, { E2E_PORT: String(port), HOME: fakeHome(`home-teardown-${port}`, 3333), __TEST_SERVER_PID: String(serverPid) });
   const script = `const { default: teardown } = await import(${JSON.stringify(TEARDOWN)}); await teardown();`;
   // cwd outside the repo: the teardown's screenshot review looks for its script there.
