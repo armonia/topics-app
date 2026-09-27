@@ -5830,16 +5830,21 @@ const resumeCtx: CtxRipresa = {
 // then re-homed every survivor, so a missing transcript is proof of a dead cwd.
 // In coda `riprendiTurniInterrotti`: rimanda i turni uccisi dal riavvio che
 // nessuno riadotterà (`lib/ripresa-boot.ts`).
-reattachSurvivingChatTurns()
-  .then(() => reconcileOrphanedBusyPhases())
-  .then(() => reconcileOrphanedTranscripts())
-  .then(() => reconcileArchivedTopicSessions())
-  // The ends of `run_command` processes reach their topics from here on, the
-  // surviving turns adopted: before, a session could look free mid-turn.
+const survivingTurnsAdopted = reattachSurvivingChatTurns();
+// The ends of `run_command` processes reach their topics once the surviving
+// turns are adopted (before, a session could look free mid-turn), in a branch
+// of their own: a sweep below that throws skips the rest of its chain, and the
+// wakes would have waited for the next boot without a word in the log.
+void survivingTurnsAdopted
+  .catch(() => { /* logged by the chain below */ })
   .then(() => startProcessExitWakes({
     db: ctx.db, getTopicById: ctx.getTopicById, isBusy: (sk) => activeStreams.has(sk), route: topicsRouter,
     log: (m) => console.log(`[process-exit] ${m}`),
-  }))
+  }));
+survivingTurnsAdopted
+  .then(() => reconcileOrphanedBusyPhases())
+  .then(() => reconcileOrphanedTranscripts())
+  .then(() => reconcileArchivedTopicSessions())
   .then(() => riprendiTurniInterrotti(resumeCtx, topicsRouter))
   // The sessions the reattach kept for their background work: their goals wait again.
   .then(() => goalLoop?.resumeAfterBoot(sessionsWithBackgroundWork()))
