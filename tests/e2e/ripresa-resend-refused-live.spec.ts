@@ -17,12 +17,14 @@
  * while hidden, and both keep Retry with no redone-answer banner; a reload
  * shows the same.
  *
- * WHAT TELLS BASE FROM THIS BRANCH IN A LIVE WINDOW is the read, not the DOM.
- * The trace is not drawn (it is the sweep's, not a redone answer) and does not
- * take Retry, so a window that read it and one that did not look the same: the
- * DOM checks on the live windows only guard that the trace stays invisible.
- * The read is counted on the network, with the time it landed; the DOM tells
- * the two apart after the reload.
+ * WHAT TELLS BASE FROM THIS BRANCH IN A LIVE WINDOW is the read, not the DOM,
+ * and that is by design: the trace is not drawn (it is the sweep's, not a
+ * redone answer) and does not take Retry, so a window that read it and one
+ * that did not look the same. The frame keeps each window's copy of the row
+ * equal to what a reload reads. The read is counted on the network, with the
+ * time it landed; what the person sees differs after the reload, where base
+ * took Retry away and drew the banner. The checks from the reads on are soft,
+ * so a red on base names every one of those differences, not only the first.
  *
  * Window B is hidden the way the repo hides one (`idle-frame-budget.spec.ts`):
  * under Playwright a page in front stays `visible`, and the client reads
@@ -32,11 +34,16 @@
  * The sweep is woken as in `ripresa-capped-live.spec.ts`: a stale stream on
  * another chat, closed by the stale tick with its silence threshold cut to 1 s.
  *
+ * Both windows are filmed (`recordVideo`: the `video` of `test.use` films only
+ * the fixture's own page), and the two clips are attached to the result.
+ *
  * The other half of the card, the end of a boot reattach leg, has no spec: that
  * `.finally` runs only when a broker child survived a restart, which the test
  * server never has. It is covered by `server/lib/turno-troncato.test.ts` (the
- * helper, and the server.ts wiring read from the source) and by
- * `client/src/hooks/useChatThreadChanged.test.ts` (the frame to the read).
+ * helper, and the server.ts wiring read from the source),
+ * `client/src/hooks/usePanelLifecycle.threadChanged.test.ts` (the app's pane
+ * lifecycle turns the frame into a fresh read) and
+ * `client/src/hooks/useChatThreadChanged.test.ts` (that read past the dedup).
  *
  * @covers RESUME-02
  */
@@ -47,7 +54,6 @@ import { hermetic } from "./fixtures/hermetic";
 import { openTwoDevices } from "./helpers/multi-client";
 
 hermetic(test);
-test.use({ video: "on" });
 test.describe.configure({ timeout: 180_000 });
 
 /** The boot's own restart notice (`RESTART_INTERRUPTED_MARKER`), which the resume recognises. */
@@ -120,7 +126,10 @@ test.describe("a resend the chat route refused, with the chat open in two window
     await sessionRow(request, a, "assistant", NOTICE, [{ kind: "error", text: NOTICE }]);
     const noticeId = (await rowsOf(request, a)).at(-1)!.id;
 
-    const devices = await openTwoDevices(browser, { seed: (r) => resetPaneStore(r, [a]) });
+    const devices = await openTwoDevices(browser, {
+      seed: (r) => resetPaneStore(r, [a]),
+      contextOptions: { recordVideo: { dir: test.info().outputPath("videos") } },
+    });
     try {
       const { pageA, pageB } = devices;
       const pages = [["A", pageA], ["B", pageB]] as const;
@@ -150,27 +159,34 @@ test.describe("a resend the chat route refused, with the chat open in two window
 
       // Each window read the row again with its trace, B while hidden, within
       // 1 s of the write. Waited for longer, so a red says "never" or "late".
+      const soft = expect.configure({ soft: true });
       for (const [name] of pages) {
-        await expect.poll(() => reads[name].at, { timeout: 5_000, message: `window ${name} reads the traced row` }).toBeGreaterThan(0);
-        expect(reads[name].at - seenAt, `window ${name} reads it within 1 s of the write`).toBeLessThanOrEqual(1_000 - POLL_MS);
+        await soft.poll(() => reads[name].at, { timeout: 5_000, message: `window ${name} reads the traced row` }).toBeGreaterThan(0);
+        soft(reads[name].at - seenAt, `window ${name} reads it within 1 s of the write`).toBeLessThanOrEqual(1_000 - POLL_MS);
       }
       await setHidden(pageB, false);
       for (const [name, p] of pages) {
         // Guards, not the proof (see the header): nothing was resent, so the
         // notice keeps the Retry it asks for, and it is not "the redone answer".
-        await expect(noticeOf(p, a, noticeId).locator('[data-testid="message-retry"]'), `window ${name} keeps Retry`).toBeVisible({ timeout: 1_000 });
-        await expect(panelOf(p, a).locator('[data-testid="ripreso-banner"]'), `window ${name} claims no redone answer`).toHaveCount(0);
-        expect(await p.evaluate(() => (window as unknown as { __noReload?: boolean }).__noReload), `window ${name} was not reloaded`).toBe(true);
+        await soft(noticeOf(p, a, noticeId).locator('[data-testid="message-retry"]'), `window ${name} keeps Retry`).toBeVisible({ timeout: 1_000 });
+        await soft(panelOf(p, a).locator('[data-testid="ripreso-banner"]'), `window ${name} claims no redone answer`).toHaveCount(0);
+        soft(await p.evaluate(() => (window as unknown as { __noReload?: boolean }).__noReload), `window ${name} was not reloaded`).toBe(true);
       }
 
       // A reload reads the same row: the same Retry, the same missing banner.
       // On base this is where the DOM differs: the trace took Retry away and
       // drew the banner.
       await pageA.reload();
-      await expect(noticeOf(pageA, a, noticeId).locator('[data-testid="message-retry"]'), "after a reload, Retry is there").toBeVisible({ timeout: 20_000 });
-      await expect(panelOf(pageA, a).locator('[data-testid="ripreso-banner"]'), "after a reload, no redone answer").toHaveCount(0);
+      await expect(noticeOf(pageA, a, noticeId), "after a reload, the notice is there").toBeVisible({ timeout: 20_000 });
+      await soft(noticeOf(pageA, a, noticeId).locator('[data-testid="message-retry"]'), "after a reload, Retry is there").toBeVisible({ timeout: 5_000 });
+      await soft(panelOf(pageA, a).locator('[data-testid="ripreso-banner"]'), "after a reload, no redone answer").toHaveCount(0);
     } finally {
       await devices.dispose();
+      // Final once the contexts are closed.
+      for (const [name, p] of [["A", devices.pageA], ["B", devices.pageB]] as const) {
+        const clip = await p.video()?.path().catch(() => null);
+        if (clip) await test.info().attach(`window ${name}`, { path: clip, contentType: "video/webm" });
+      }
       await deleteTopic(request, a).catch(() => {});
       await deleteTopic(request, b).catch(() => {});
     }
