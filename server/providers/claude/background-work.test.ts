@@ -272,4 +272,11 @@ describe("a session cron, from the recorded CLI session (CronCreate, CLI 2.1.282
     noteBackgroundLine(work, { type: "command_lifecycle", command_uuid: "peer-1", state: "started" }, 20_001, { unattended: true });
     expect(isBackgroundWorkAlive(work, 20_002)).toBe(true);
   });
+
+  test("a durable cron arms nothing: it lives in .claude/scheduled_tasks.json and the next launch resumes it", () => {
+    const work = newBackgroundWork();
+    noteBackgroundLine(work, cronCreate("toolu_d", true), 10_000, { unattended: false });
+    noteBackgroundLine(work, { ...cronScheduled("toolu_d", "d", true, 10_000), tool_use_result: { id: "d", humanSchedule: "*/10 * * * *", recurring: true, durable: true } }, 10_000, { unattended: false });
+    expect(isBackgroundWorkAlive(work, 20_000)).toBe(false);
+  });
 });

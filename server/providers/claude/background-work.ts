@@ -190,7 +190,9 @@ export function noteBackgroundLine(
 }
 
 /**
- * CronCreate's result arms the cron under the id it returned. Dated by the
+ * CronCreate's result arms the cron under the id it returned, unless durable:
+ * that one survives the child ("on next launch they resume automatically",
+ * the CLI's own description), so closing the CLI loses nothing. Dated by the
  * line's own `timestamp`: a reattach replays the store with "now", and a cron
  * armed hours ago must not look freshly armed after every restart.
  *
@@ -201,12 +203,13 @@ export function noteBackgroundLine(
  * of 27/09). A CronDelete needs nothing of the kind: the replay folds it again.
  */
 function noteCronScheduled(work: BackgroundWork, event: unknown, now: number): void {
-  const e = event as { timestamp?: unknown; tool_use_result?: { id?: unknown; recurring?: unknown; humanSchedule?: unknown }; message?: { content?: unknown } };
+  const e = event as { timestamp?: unknown; tool_use_result?: { id?: unknown; recurring?: unknown; humanSchedule?: unknown; durable?: unknown }; message?: { content?: unknown } };
   if (!Array.isArray(e.message?.content)) return;
   for (const b of e.message.content as Array<{ type?: unknown; tool_use_id?: unknown }>) {
     if (b?.type !== "tool_result" || typeof b.tool_use_id !== "string" || !work.cronCalls.delete(b.tool_use_id)) continue;
     const id = e.tool_use_result?.id;
     if (typeof id !== "string" || work.fired.has(id)) continue; // refused (nothing armed), or fired since
+    if (e.tool_use_result?.durable === true) continue; // in .claude/scheduled_tasks.json: the next launch resumes it
     const at = typeof e.timestamp === "string" ? Date.parse(e.timestamp) : NaN;
     const schedule = typeof e.tool_use_result?.humanSchedule === "string" ? e.tool_use_result.humanSchedule : id;
     work.crons.set(id, { recurring: e.tool_use_result?.recurring !== false, armedAt: Number.isFinite(at) ? at : now, schedule });
