@@ -113,6 +113,29 @@ describe("gitDiffBundle untracked inclusion", () => {
     for (const f of names) expect([f, ...counted[f]!]).toEqual([f, ...(await byGit(f))]);
   });
 
+  test("an untracked file .gitattributes marks `-diff`, `binary` or `diff` is counted the way git counts it", async () => {
+    // `-diff` and `binary` turn a text file into «Binary files differ» in the
+    // patch of the same bundle; `diff` forces text on a file with a NUL.
+    writeFileSync(join(dir, ".gitattributes"), "*.lock -diff\n*.dat binary\n*.txt diff\n");
+    await git(dir, ["add", ".gitattributes"]);
+    await git(dir, ["commit", "-qm", "attributes"]);
+    writeFileSync(join(dir, "x.lock"), "a\nb\nc\n");
+    writeFileSync(join(dir, "y.dat"), "a\nb\n");
+    writeFileSync(join(dir, "z.txt"), Buffer.from([0x61, 0x00, 0x62, 0x0a]));
+    writeFileSync(join(dir, "w.md"), "q\n");
+    const names = ["w.md", "x.lock", "y.dat", "z.txt"];
+    const byGit = async (f: string): Promise<[number, number]> => {
+      const p = Bun.spawn(["git", "diff", "--no-index", "--numstat", "--", "/dev/null", f], { cwd: dir, stdout: "pipe" });
+      const [a, d] = (await new Response(p.stdout).text()).split("\t");
+      return [a === "-" ? -1 : Number(a), d === "-" ? -1 : Number(d)];
+    };
+
+    const { stat } = await gitDiffStat(dir, "HEAD", { includeUntracked: true });
+    const counted = Object.fromEntries(stat.map((s) => [s.path, [s.additions, s.deletions]]));
+    expect(Object.keys(counted).sort()).toEqual(names);
+    for (const f of names) expect([f, ...counted[f]!]).toEqual([f, ...(await byGit(f))]);
+  });
+
   test("paths with spaces survive (-z NUL split)", async () => {
     mkdirSync(join(dir, "docs"));
     writeFileSync(join(dir, "docs", "domande di chiarimento.md"), "q\n");

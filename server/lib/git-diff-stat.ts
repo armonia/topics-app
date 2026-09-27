@@ -36,19 +36,37 @@ const LINE_FEED = 0x0a;
 const UNTRACKED_READS_AT_ONCE = 16;
 
 /**
+ * The `diff` attribute of each path, from ONE `git check-attr` for the whole
+ * list: `unset` (`-diff`, or the `binary` macro) is binary whatever the bytes
+ * say, `set` is text even with a NUL. Lockfiles and generated data are marked
+ * this way in real projects, and the patch of the same bundle already says
+ * «Binary files differ» for them.
+ */
+async function diffAttributes(cwd: string, paths: string[]): Promise<Map<string, string>> {
+  const byPath = new Map<string, string>();
+  if (!paths.length) return byPath;
+  const out = (await runGitRead(cwd, ["check-attr", "-z", "diff", "--", ...paths])).text.split("\0");
+  // `-z` prints `<path> NUL <attribute> NUL <value> NUL` per path.
+  for (let i = 0; i + 2 < out.length; i += 3) byPath.set(out[i]!, out[i + 2]!);
+  return byPath;
+}
+
+/**
  * What `git diff --no-index --numstat /dev/null <file>` prints for an
  * untracked file, counted here instead. That was one git process per file, in
  * sequence, and the chat's strip asks at the end of every turn: 50 untracked
  * artifacts cost 685 ms and 50 spawns. A symlink is its target's path, one line
- * with no newline; a NUL in the first 8000 bytes is binary (`-1`), as git has it.
+ * with no newline; a NUL in the first 8000 bytes is binary (`-1`), as git has
+ * it, unless the `diff` attribute (`diffAttributes`) already decided.
  */
-async function untrackedCounts(path: string): Promise<{ additions: number; deletions: number }> {
+async function untrackedCounts(path: string, diffAttr: string | undefined): Promise<{ additions: number; deletions: number }> {
   const binary = { additions: -1, deletions: -1 };
   try {
     const info = await lstat(path);
     if (info.isSymbolicLink()) return { additions: 1, deletions: 0 };
     if (!info.isFile()) return { additions: 0, deletions: 0 };
-    if (info.size > BIG_FILE_BYTES) return binary;
+    if (diffAttr === "unset" || info.size > BIG_FILE_BYTES) return binary;
+    const sniff = diffAttr !== "set";
     let lines = 0;
     let seen = 0;
     let last = LINE_FEED;
@@ -57,7 +75,7 @@ async function untrackedCounts(path: string): Promise<{ additions: number; delet
     try {
       for (let read = await reader.read(); !read.done; read = await reader.read()) {
         const chunk = read.value;
-        if (seen < BINARY_SNIFF_BYTES && chunk.subarray(0, BINARY_SNIFF_BYTES - seen).includes(0)) return binary;
+        if (sniff && seen < BINARY_SNIFF_BYTES && chunk.subarray(0, BINARY_SNIFF_BYTES - seen).includes(0)) return binary;
         for (let i = chunk.indexOf(LINE_FEED); i !== -1; i = chunk.indexOf(LINE_FEED, i + 1)) lines++;
         if (chunk.length) last = chunk[chunk.length - 1]!;
         seen += chunk.length;
@@ -145,10 +163,11 @@ export async function gitDiffStat(
     // -z: NUL-separated, so paths with spaces/newlines survive intact.
     const others = (await runGitRead(cwd, ["ls-files", "--others", "--exclude-standard", "-z"])).text;
     const files = others.split("\0").filter(Boolean).slice(0, opts.untrackedCap ?? UNTRACKED_FILE_CAP);
+    const attrs = await diffAttributes(cwd, files);
     // A few at a time: 500 open files at once would compete with the server's own descriptors.
     for (let i = 0; i < files.length; i += UNTRACKED_READS_AT_ONCE) {
       const batch = files.slice(i, i + UNTRACKED_READS_AT_ONCE);
-      const counts = await Promise.all(batch.map((f) => untrackedCounts(join(cwd, f))));
+      const counts = await Promise.all(batch.map((f) => untrackedCounts(join(cwd, f), attrs.get(f))));
       batch.forEach((f, j) => stat.push({ path: f, ...counts[j]!, status: "A" }));
       untracked.push(...batch);
     }
