@@ -229,14 +229,17 @@ async function replayOpenPaneWithoutAttach(page: Page, app: { send: (f: Record<s
 }
 
 /**
- * The pane's executor socket, passed through with its `register_native_executor`
- * held back until `release()`: the window between the socket's open and its
- * registration, kept open for as long as the test needs it. `ops()` are the
- * tool-calls the server delegated to the pane over that socket.
+ * The pane's executor socket, passed through. `ops()` are the tool-calls the
+ * server delegated to the pane over it, reconnections included: the only proof
+ * that a navigation reached the pane, since the headless side answers
+ * `visible: true` as well wherever a Chromium is installed. With
+ * `holdRegistration`, its `register_native_executor` is held back until
+ * `release()`: the window between the socket's open and its registration, kept
+ * open for as long as the test needs it.
  */
-async function holdExecutorRegistration(page: Page, ctx: string) {
+async function proxyExecutorSocket(page: Page, ctx: string, { holdRegistration = false } = {}) {
   let held: (() => void) | null = null;
-  let released = false;
+  let released = !holdRegistration;
   const ops: Array<{ tool?: string; args?: { url?: string } }> = [];
   await page.routeWebSocket(new RegExp(`/ws/browser/${ctx}\\?`), (ws) => {
     const server = ws.connectToServer();
@@ -462,7 +465,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
     await seedProjectLayout(request, owner, ctx);
 
     await fakeTauriShell(page);
-    const executor = await holdExecutorRegistration(page, ctx);
+    const executor = await proxyExecutorSocket(page, ctx, { holdRegistration: true });
     const url = "https://example.com/opened-while-registering";
     let announced = false;
     page.on("websocket", (ws) => {
@@ -587,6 +590,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
     await seedProjectLayout(request, owner, ctx);
 
     await fakeTauriShell(page);
+    const executor = await proxyExecutorSocket(page, ctx);
     const watch = watchPage(page, ctx);
     try {
       await goToApp(page);
@@ -614,12 +618,19 @@ test.describe("open_browser_pane attaches the project pane", () => {
         // eslint-disable-next-line no-control-regex -- Bun colours what it logs
         .poll(() => boot.join("").replace(/\x1b\[[0-9;]*m/g, ""), { timeout: 20_000, message: "the pane socket reconnects to the new server" })
         .toMatch(new RegExp(`\\[WS\\]\\[browser\\] Open: \\S+ -> ctx ${ctx}`));
-      // The tool's answer is the observation: the route attaches through a pane
-      // only if one is attached. No clock is added on top: the one delayed
+      // The observation is where the navigation went: `visible` alone is true
+      // on the headless side too, wherever a Chromium is installed (the CI
+      // has one), so the op the pane received is what says the route waited
+      // for its registration. No clock is added on top: the one delayed
       // unmount on the client is residency's, and it does not touch the only,
       // visible, project window of this test.
-      const answer = await openPaneRoute(request, ctx, "https://example.com/after-restart");
+      const url = "https://example.com/after-restart";
+      const answer = await openPaneRoute(request, ctx, url);
       expect(answer.visible).toBe(true);
+      expect(
+        executor.ops().map((op) => [op.tool, op.args?.url]),
+        "the navigation was delegated to the pane, not run on a headless context",
+      ).toContainEqual(["browser_open", url]);
       expect(watch.lines.filter((l) => l.includes("pane socket released")), "the pane was never unmounted").toEqual([]);
       // The client's trace of that call is in the server's log, where an
       // incident gets read afterwards (POST /api/client-trace).
