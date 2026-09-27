@@ -3186,13 +3186,13 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (!branch) return json({ error: "detached HEAD", code: "invalid_input" }, 400);
       const upstream = (await runGitCap(path, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])).out.trim();
       const range = upstream && !upstream.includes("fatal") ? `${upstream}..HEAD` : `origin/${branch}..HEAD`;
-      // `?file=` (with `context=full`, or `blob=` for the bytes): one file, on the same range.
+      // `?file=` (with `context=full` and a rename's `orig`, or `blob=` for the bytes): one file, on the same range.
       const q = new URL(req.url).searchParams;
       const onlyFile = q.get("file");
       const blob = q.get("blob");
       if (onlyFile !== null && blob !== null) return serveDiffBlob({ cwd: path, range, live: false }, onlyFile, blob);
       if (onlyFile !== null) {
-        const one = await gitDiffFilePatch(path, range, onlyFile, { fullContext: q.get("context") === "full" });
+        const one = await gitDiffFilePatch(path, range, onlyFile, { fullContext: q.get("context") === "full", origPath: q.get("orig") });
         return one ? json({ branch, range, ...one }) : json({ error: "invalid file path", code: "invalid_input" }, 400);
       }
       const [bundle, revs] = await Promise.all([gitDiffBundle(path, range), revsOfRange(gitRunner, path, range, false)]);
@@ -3270,11 +3270,11 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // è già storia) l'albero di lavoro non c'entra niente.
       // `?file=<path>`: the patch of ONE file, on the same range the bundle
       // used. It is how a file past the bundle's cap gets read, and with
-      // `context=full` how the panel shows the whole file (see
-      // `gitDiffFilePatch`); the bundle itself is untouched.
+      // `context=full` how the panel shows the whole file; `orig` names a
+      // rename's old path (see `gitDiffFilePatch`). The bundle is untouched.
       if (onlyFile !== null) {
         const one = await gitDiffFilePatch(range.cwd, range.range, onlyFile, {
-          includeUntracked: range.live, fullContext: q.get("context") === "full",
+          includeUntracked: range.live, fullContext: q.get("context") === "full", origPath: q.get("orig"),
         });
         if (!one) return json({ error: "invalid file path", code: "invalid_input" }, 400);
         return json({ branch, base: range.range, source: range.source, ...one });

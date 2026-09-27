@@ -463,6 +463,28 @@ describe("GET /tasks/:id/diff: revs and ?file=&blob=", () => {
     expect(full.patch).toContain(" line 80\n");
     expect(full.patch).toContain("-line 40\n+line 40 changed");
   });
+
+  test("a renamed text file is read together with its old path: one changed line, not a whole new file", async () => {
+    // With the new path alone in the pathspec git cannot see the rename, and
+    // "Full file" drew 80 green rows with no old side for a note to hang on.
+    await git(repo, ["mv", "long.ts", "longer.ts"]);
+    await git(repo, ["commit", "-qm", "rename"]);
+    const bundle = await (await call(router, url("")))!.json();
+    expect(bundle.stat.find((s: { path: string }) => s.path === "longer.ts")?.origPath).toBe("long.ts");
+
+    const plain = await (await call(router, url("?file=longer.ts&orig=long.ts")))!.json();
+    expect(plain.patch).toContain("rename from long.ts");
+    expect(plain.patch).toContain("-line 40\n+line 40 changed");
+
+    const full = await (await call(router, url("?file=longer.ts&orig=long.ts&context=full")))!.json();
+    expect(full.patch).toContain("rename from long.ts");
+    expect(full.patch).toContain("@@ -1,80 +1,80 @@");
+    expect(full.patch).toContain(" line 1\n");
+    expect(full.patch).toContain("-line 40\n+line 40 changed");
+
+    // The old path is held to the same rules as the path.
+    expect((await call(router, url("?file=longer.ts&orig=../long.ts")))!.status).toBe(400);
+  });
 });
 
 /**
@@ -482,6 +504,7 @@ describe("GET /publish-diff: revs and the per-file answers", () => {
     await git(repo, ["config", "commit.gpgsign", "false"]);
     writeFileSync(join(repo, "logo.png"), PNG_A);
     writeFileSync(join(repo, "a.ts"), "export const a = 1;\n");
+    writeFileSync(join(repo, "lines.ts"), Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n") + "\n");
     await git(repo, ["add", "-A"]);
     await git(repo, ["commit", "-qm", "pushed"]);
     // What the remote has: the fallback range is `origin/<branch>..HEAD`.
@@ -511,5 +534,16 @@ describe("GET /publish-diff: revs and the per-file answers", () => {
     expect(one.patch).not.toContain("logo.png");
     const full = await (await call(router, `/api/boards/${pid}/publish-diff?file=a.ts&context=full`))!.json();
     expect(full.patch).toContain("+export const a = 2;");
+  });
+
+  test("a renamed file's whole-file patch follows the rename on the publish range too", async () => {
+    await git(repo, ["mv", "lines.ts", "moved.ts"]);
+    writeFileSync(join(repo, "moved.ts"), Array.from({ length: 20 }, (_, i) => (i === 9 ? "line 10 changed" : `line ${i + 1}`)).join("\n") + "\n");
+    await git(repo, ["add", "-A"]);
+    await git(repo, ["commit", "-qm", "rename"]);
+    const full = await (await call(router, `/api/boards/${pid}/publish-diff?file=moved.ts&orig=lines.ts&context=full`))!.json();
+    expect(full.patch).toContain("rename from lines.ts");
+    expect(full.patch).toContain(" line 1\n");
+    expect(full.patch).toContain("-line 10\n+line 10 changed");
   });
 });

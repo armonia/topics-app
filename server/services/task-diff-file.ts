@@ -61,17 +61,24 @@ function isListablePath(path: string): boolean {
  *
  * Full context keeps the line numbers of the plain diff, so a review note
  * anchored on (path, line, side) lands on the same row in both views.
+ *
+ * `origPath` is where a renamed or copied file came from (the bundle's
+ * `origPath`). Git pairs a rename only among the paths it is shown: with the
+ * new path alone the file is "new", every line added and no old side, while
+ * the bundle drew one changed line.
  */
 export async function gitDiffFilePatch(
   cwd: string,
   range: string,
   path: string,
-  gopts?: { includeUntracked?: boolean; fullContext?: boolean; runGit?: GitRunner },
+  gopts?: { includeUntracked?: boolean; fullContext?: boolean; origPath?: string | null; runGit?: GitRunner },
 ): Promise<{ path: string; patch: string; truncated: boolean } | null> {
-  if (!isListablePath(path)) return null;
+  const orig = gopts?.origPath;
+  if (!isListablePath(path) || (orig != null && !isListablePath(orig))) return null;
   const run = gopts?.runGit ?? defaultRunGit;
   const context = gopts?.fullContext ? ["-U100000"] : [];
-  let patch = (await run(cwd, ["--literal-pathspecs", "diff", ...context, range, "--", path])).stdout;
+  const paths = orig ? [orig, path] : [path];
+  let patch = (await run(cwd, ["--literal-pathspecs", "diff", ...context, range, "--", ...paths])).stdout;
   if (!patch && gopts?.includeUntracked) {
     const others = (await run(cwd, ["--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "-z", "--", path])).stdout;
     if (others.split("\0").includes(path)) {
