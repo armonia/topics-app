@@ -192,9 +192,10 @@ export async function landedMergeRange(
  *   · il commit ha ancora del suo fuori da main — è il caso del cherry-pick, le
  *     cui copie su main hanno altri sha: si misura dal padre del più vecchio,
  *     esattamente come sul worktree vivo;
- *   · il commit è già DENTRO main — allora ci è entrato con un merge, e il primo
- *     merge sul cammino fra i due è quello che l'ha portato. Serve quando il
+ *   · il commit è già DENTRO main — allora ci è entrato con un merge. Serve quando il
  *     messaggio del merge non si fa trovare (rinominato a mano, o tagliato).
+ *     The merge is the oldest one on main's first-parent line that holds the
+ *     commit; a land by fast-forward has none, and gets `null`.
  */
 export async function deliveryCommitRange(
   repoPath: string,
@@ -225,11 +226,18 @@ export async function deliveryCommitRange(
     return { source: "delivery-commit", cwd: repoPath, range: `${base}..${sha}`, live: false };
   }
 
-  const anc = await run(repoPath, ["rev-list", "--ancestry-path", "--merges", `${sha}..${mainRef}`]);
-  if (anc.code !== 0) return null;
-  // `rev-list` va dal più recente: il più VECCHIO dei merge sul cammino è quello
-  // che ha introdotto il commit, i successivi se lo sono solo portati dietro.
-  const introducing = lines(anc.stdout).at(-1);
+  // The merge that brought the delivery in sits on main's FIRST-PARENT line: a
+  // merge of main into the delivering branch after the delivery (the routine
+  // realign before a land) is on the ancestry path too, and older, but it is
+  // the branch's own and main was not in it yet. `rev-list` goes newest first,
+  // so the introducing merge is the oldest one on both lists.
+  const [anc, firstParent] = await Promise.all([
+    run(repoPath, ["rev-list", "--ancestry-path", "--merges", `${sha}..${mainRef}`]),
+    run(repoPath, ["rev-list", "--first-parent", "--merges", `${sha}..${mainRef}`]),
+  ]);
+  if (anc.code !== 0 || firstParent.code !== 0) return null;
+  const onMain = new Set(lines(firstParent.stdout));
+  const introducing = lines(anc.stdout).filter((m) => onMain.has(m)).at(-1);
   if (!introducing || !SHA_RE.test(introducing)) return null;
   // The merge speaks for this card only when what it merged IS the delivery.
   // One whose branch went on past it carried other work too: a card born from
@@ -241,7 +249,10 @@ export async function deliveryCommitRange(
   }
   const met = await run(repoPath, ["merge-base", `${introducing}^1`, sha]);
   const base = met.stdout.trim();
-  if (met.code !== 0 || !SHA_RE.test(base)) return null;
+  // `base === sha`: main already had the delivery before that merge (a land by
+  // fast-forward), so no merge says where it came from. `sha..sha` would read
+  // as "verified: no code", which is not what is known.
+  if (met.code !== 0 || !SHA_RE.test(base) || base === sha) return null;
   return { source: "delivery-commit", cwd: repoPath, range: `${base}..${sha}`, live: false };
 }
 

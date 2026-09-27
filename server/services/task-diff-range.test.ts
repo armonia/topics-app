@@ -218,6 +218,56 @@ describe("task-diff-range", () => {
       expect(await filesOf(dir, r!.range)).toEqual(["consegna.ts"]);
     });
 
+    test("a realign merge on the branch that carried the delivery is not the merge that brought it to main", async () => {
+      // Same as above, plus the routine realign before the land: B merges main
+      // AFTER the delivery commit. That merge is on the ancestry path too, and
+      // it is older than the land's, but it lives on B, not on main.
+      await git(dir, ["checkout", "-q", "-b", "topics/b", "topics/card"]);
+      await commit(dir, "b-only.ts", "b\n", "card B's work");
+      await git(dir, ["checkout", "-q", "main"]);
+      await commit(dir, "main-avanza.txt", "altro\n", "lavoro su main");
+      await git(dir, ["checkout", "-q", "topics/b"]);
+      await git(dir, ["merge", "--no-ff", "-m", "Riporta main nel ramo prima del land", "main"]);
+      await git(dir, ["checkout", "-q", "main"]);
+      await git(dir, ["merge", "--no-ff", "-m", "merge task T-7: card B", "topics/b"]);
+      await git(dir, ["branch", "-qD", "topics/card"]);
+      await git(dir, ["branch", "-qD", "topics/b"]);
+
+      const r = await deliveryCommitRange(dir, { branch: "topics/card", commit: cardCommit });
+      expect(r).not.toBeNull();
+      expect(r!.source).toBe("delivery-commit");
+      expect(await filesOf(dir, r!.range)).toEqual(["consegna.ts"]);
+    });
+
+    test("a delivery realigned and merged into an integration branch main fast-forwarded to is measured on its own", async () => {
+      await commit(dir, "main-avanza.txt", "altro\n", "lavoro su main");
+      await git(dir, ["checkout", "-q", "topics/card"]);
+      await git(dir, ["merge", "--no-ff", "-m", "Riporta main nel ramo prima del land", "main"]);
+      await git(dir, ["checkout", "-q", "-b", "integra/tornata", "main"]);
+      await commit(dir, "other-card.ts", "x\n", "another card on the integration branch");
+      await git(dir, ["merge", "--no-ff", "-m", "Merge branch 'topics/card' into integra/tornata", "topics/card"]);
+      await git(dir, ["checkout", "-q", "main"]);
+      await git(dir, ["merge", "--ff-only", "integra/tornata"]);
+      await git(dir, ["branch", "-qD", "topics/card"]);
+      await git(dir, ["branch", "-qD", "integra/tornata"]);
+
+      const r = await deliveryCommitRange(dir, { branch: "topics/card", commit: cardCommit });
+      expect(r).not.toBeNull();
+      expect(await filesOf(dir, r!.range)).toEqual(["consegna.ts"]);
+    });
+
+    test("a delivery main holds on its own first-parent line has no merge to read: no range, not an empty one", async () => {
+      // Landed by fast-forward: every merge after it already had it in its first parent.
+      await git(dir, ["merge", "--ff-only", "topics/card"]);
+      await git(dir, ["branch", "-qD", "topics/card"]);
+      await git(dir, ["checkout", "-q", "-b", "topics/later"]);
+      await commit(dir, "dopo.txt", "altro\n", "lavoro successivo");
+      await git(dir, ["checkout", "-q", "main"]);
+      await git(dir, ["merge", "--no-ff", "-m", "merge task T-9: later", "topics/later"]);
+
+      expect(await deliveryCommitRange(dir, { branch: "topics/card", commit: cardCommit })).toBeNull();
+    });
+
     test("un commit di consegna che non esiste più non produce il diff di qualcos'altro", async () => {
       expect(await deliveryCommitRange(dir, { branch: "topics/card", commit: "0".repeat(40) })).toBeNull();
       expect(await deliveryCommitRange(dir, { branch: "topics/card", commit: null })).toBeNull();
