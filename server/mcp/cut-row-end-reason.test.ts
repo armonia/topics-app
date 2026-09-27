@@ -226,6 +226,48 @@ describe("the reattach and the send wait on the turn's own row", () => {
     await expect(sendCut(tid, turn.id)).resolves.toBe(FINAL);
   });
 
+  test("B: the turn's row closed from outside before the reattach takes it (a pane's history cleanup, the stale sweeper), with a report after it: the reattach still takes that row, and the send gets the final text", async () => {
+    for (const closer of ["history", "stale"] as const) {
+      const tid = `endr-closed-first-${closer}`;
+      const sk = topic(tid);
+      const FINAL = "Risposta finale del turno.";
+      let turn, report;
+      if (closer === "history") {
+        ({ turn, report } = turnWithReport(sk));
+        boot([sk]);
+        // A window reloads right after the restart, before the boot's reattach request reaches the turn.
+        await openHistory(sk);
+      } else {
+        // The sweeper gives up on a turn gone silent while its child works on; the sub-agent reports after that.
+        ctx.appendLocalMessage(sk, "user", "ping");
+        turn = ctx.createPartialMessage(sk, "assistant");
+        ctx.updateLastMessage(sk, { content: "Lancio il sotto-agente, " }, { rowId: turn.id });
+        finalizeStaleRow(ctx.db, { messageId: turn.id, marker: null, interruption: { text: "silent", cause: "watchdog", at: new Date().toISOString() } });
+        report = ctx.appendLocalMessage(sk, "assistant", "Sotto-agente Lane A, esito: fatto.");
+      }
+      expect(ctx.getMessageById(turn.id)?.endReason).toBe("closed-outside");
+      await reattachLeg(sk, (h) => { h.onTextDelta(FINAL, FINAL); h.onDone({ result: FINAL } as never); });
+      await endReattachLeg(ctx.db, sk, broker("idle"));
+      expect(ctx.loadLocalMessages(sk).map((m) => m.id)).toHaveLength(3);
+      expect(ctx.getMessageById(turn.id)?.content).toBe(FINAL);
+      expect(ctx.getMessageById(report.id)?.content).toBe("Sotto-agente Lane A, esito: fatto.");
+      await expect(sendCut(tid, turn.id)).resolves.toBe(FINAL);
+    }
+  });
+
+  test("a row closed from outside above a turn that finished after it is not taken back: the next turn gets a row of its own", async () => {
+    const sk = topic("endr-closed-then-done");
+    ctx.appendLocalMessage(sk, "user", "ping");
+    const cut = ctx.createPartialMessage(sk, "assistant");
+    ctx.updateLastMessage(sk, { content: "meta'" }, { rowId: cut.id });
+    finalizeStaleRow(ctx.db, { messageId: cut.id, marker: null, interruption: { text: "silent", cause: "watchdog", at: new Date().toISOString() } });
+    // A woken turn after it, finished by its own route.
+    const woken = ctx.reuseHeadstoneOrCreate(sk);
+    finished(sk, woken.id, "risveglio finito");
+    const adopted = ctx.reuseOrCreatePartialForReattach(sk);
+    expect([adopted.id === cut.id, adopted.id === woken.id]).toEqual([false, false]);
+  });
+
   test("C: a reattach leg closed with its latency, lit again because the broker says open, then killed: the row is cut, not a reply", async () => {
     const tid = "endr-reopen";
     const sk = topic(tid);

@@ -318,9 +318,15 @@ export function createAppContext(baseDir: string): AppContext {
        FROM messages WHERE session_key = ? ORDER BY sort_order ASC`,
     ),
     getLastMessage: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
-    /** The last assistant row still open after the person's last message. See `reuseOrCreatePartialForReattach`. */
-    getOpenTurnRow: db.prepare(
-      `SELECT * FROM messages WHERE session_key = $sk AND role = 'assistant' AND partial = 1
+    /**
+     * The last row after the person's last message that a turn wrote: still
+     * open, closed from outside, or finished by its turn (`done` with a
+     * latency). A report or a notice written whole is not one. See
+     * `reuseOrCreatePartialForReattach`.
+     */
+    getTurnRow: db.prepare(
+      `SELECT * FROM messages WHERE session_key = $sk AND role = 'assistant'
+         AND (partial = 1 OR end_reason = 'closed-outside' OR (end_reason = 'done' AND latency_ms IS NOT NULL))
          AND sort_order > COALESCE((SELECT MAX(sort_order) FROM messages WHERE session_key = $sk AND role = 'user'), -1)
        ORDER BY sort_order DESC LIMIT 1`,
     ),
@@ -1649,14 +1655,18 @@ export function createAppContext(baseDir: string): AppContext {
    *  (`routes/chat.ts`, `Date.now() - turnStartMs`, never null), and none of
    *  the external closes pass it.
    *
-   *  THE TURN'S OPEN ROW COMES FIRST, not the session's last one. With the
-   *  child alive the boot sweep leaves the turn's row open, and a sub-agent's
-   *  report written while the turn ran sits after it: adopting the LAST row
-   *  poured the replay over the report, and the turn's own row was closed
-   *  from outside once the leg ended, so a send waiting on it heard "a restart
-   *  or a watchdog" for an answer that had completed (card a57e6d4d, test B). */
+   *  THE TURN'S ROW COMES FIRST, not the session's last one. With the child
+   *  alive the boot sweep leaves the turn's row open, and a sub-agent's report
+   *  written while the turn ran sits after it: adopting the LAST row poured
+   *  the replay over the report, and the turn's own row was closed from
+   *  outside once the leg ended, so a send waiting on it heard "a restart or a
+   *  watchdog" for an answer that had completed (card a57e6d4d, test B). The
+   *  same when the row was closed from outside before the reattach reached it:
+   *  a window reloading after the restart runs the history cleanup first, and
+   *  the stale sweeper may have given up on the turn. A turn that finished
+   *  after such a row is the last turn row, and it is not taken. */
   function reuseOrCreatePartialForReattach(sessionKey: string): ReattachedPartial {
-    const row = (stmts.getOpenTurnRow.get({ $sk: sessionKey }) ?? stmts.getLastMessage.get(sessionKey)) as any;
+    const row = (stmts.getTurnRow.get({ $sk: sessionKey }) ?? stmts.getLastMessage.get(sessionKey)) as any;
     const isAssistant = row && row.role === "assistant";
     const stillPartial = isAssistant && (row.partial === 1 || row.partial === true);
     // A row the MACHINE wrote (a goal's stop line, the line under a turn the
