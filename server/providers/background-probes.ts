@@ -30,7 +30,7 @@ export function sessionHasBackgroundWork(sessionKey: string): boolean {
   return false;
 }
 
-/** `running`, `wake-queued` (a task reported, its wake is about to start) or `none`. */
+/** `running`, `wake-queued` (a task reported or the CLI started a command, its turn is about to start) or `none`. */
 export function sessionBackgroundState(sessionKey: string): string {
   for (const p of probes()) {
     try {

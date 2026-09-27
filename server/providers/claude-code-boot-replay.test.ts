@@ -572,6 +572,28 @@ describe("boot · the agent's lines after the last result", () => {
     }
   }, 40_000);
 
+  test("a restart between a one-shot's fire and its turn's init: the boot keeps the CLI for the turn it is starting", async () => {
+    const twentyMinutesAgo = new Date(Date.now() - 20 * 60_000).toISOString();
+    setEnv("TOPICS_CLAUDE_CLI_PATH", storeCli("cron-fire-started", [
+      { type: "system", subtype: "init", session_id: "s" },
+      ...cronArmed("A", twentyMinutesAgo, false),
+      { type: "result", subtype: "success", is_error: false, num_turns: 1, result: "scheduled" },
+      { type: "command_lifecycle", command_uuid: "fire-A", state: "started", session_id: "s" },
+    ]));
+    const sessionKey = "topic:boot-cron-fire-started";
+    await seedSurvivingSession(sessionKey, "t-boot-cron-fire-started");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const prov = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    try {
+      expect(await prov.brokerTurnState(sessionKey)).toBe("idle");
+      // Kept attached, so the CRON-FIRED turn is heard when its init comes.
+      expect((prov as any).processes.has(sessionKey)).toBe(true);
+      expect(prov.backgroundState(sessionKey)).toBe("wake-queued");
+    } finally {
+      try { getAiBridgeClient().kill(sessionKey); } catch { /* best-effort cleanup */ }
+    }
+  }, 40_000);
+
   test("a /loop armed three hours ago is past the bound: the boot reaps its CLI, and the chat hears the cron went", async () => {
     const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60_000).toISOString();
     setEnv("TOPICS_CLAUDE_CLI_PATH", storeCli("cron-past-bound", [

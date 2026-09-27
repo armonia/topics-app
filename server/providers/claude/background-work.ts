@@ -55,9 +55,10 @@ import { readBackgroundTasks, readParentToolUseId } from "./events";
 export const BACKGROUND_WORK_CAP_MS = 2 * 60 * 60_000;
 
 /**
- * How long a reported task keeps the session busy until the CLI wakes to answer
- * it. Recorded, the wake's `system/init` follows the notification by 0.3 to
- * 1.1 s; Claude Code re-checks its own goal after 60 s in the same state.
+ * How long a reported task, or a command the CLI started by itself, keeps the
+ * session busy until the CLI wakes to answer it. Recorded, the wake's
+ * `system/init` follows the notification by 0.3 to 1.1 s, and a cron's fire by
+ * 182 ms; Claude Code re-checks its own goal after 60 s in the same state.
  */
 export const WAKE_QUEUED_MS = 60_000;
 
@@ -80,7 +81,7 @@ export interface BackgroundWork {
   lastSignalAt: number;
   /** Tasks seen starting or listed, until their `task_notification`. */
   facts: Map<string, TaskFacts>;
-  /** A background task of the model reported and the wake answering it has not started yet. */
+  /** A background task of the model reported, or the CLI started a command of its own, and the turn answering it has not started yet. */
   wakeQueuedAt: number | null;
   /** Tool calls of the Monitor tool not yet matched to their task. */
   monitorCalls: Set<string>;
@@ -153,6 +154,11 @@ export function noteBackgroundLine(
   // deferred turn's resume. A peer's message is `queued` first, a cron trigger
   // never is; the other two look like a fire and are read as one.
   if (e?.type === "command_lifecycle" && (e.state === "queued" || e.state === "started")) noteCronFired(work, e.command_uuid, e.state);
+  // With no turn of ours open, a started command opens the CLI's own turn. Its
+  // init comes 182 ms later in the recording, and until then no turn is
+  // visible: the fire has just disarmed its one-shot, and a clock ticking in
+  // between kills the CLI as it starts the fire (review of 27/09).
+  if (e?.type === "command_lifecycle" && e.state === "started" && opts.unattended) work.wakeQueuedAt = now;
   if (e?.type === "system" && typeof e.subtype === "string") {
     const id = typeof e.task_id === "string" ? e.task_id : null;
     if (e.subtype === "init") {
@@ -249,7 +255,7 @@ export function datedByLastWrite(work: BackgroundWork, lastDataAt: number): void
   if (work.wakeQueuedAt !== null && lastDataAt < work.wakeQueuedAt) work.wakeQueuedAt = lastDataAt;
 }
 
-/** A reported task whose wake has not started yet, within `WAKE_QUEUED_MS`. */
+/** A reported task, or a command the CLI started, whose turn has not started yet, within `WAKE_QUEUED_MS`. */
 export function isWakeQueued(work: BackgroundWork | undefined, now: number): boolean {
   return !!work && work.wakeQueuedAt !== null && now - work.wakeQueuedAt < WAKE_QUEUED_MS;
 }

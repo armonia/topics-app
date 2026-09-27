@@ -11,6 +11,7 @@ import {
   BACKGROUND_WORK_CAP_MS,
   WAKE_QUEUED_MS,
   datedByLastWrite,
+  hasArmedCron,
   isBackgroundWorkAlive,
   isWakeQueued,
   newBackgroundWork,
@@ -207,8 +208,17 @@ describe("a session cron, from the recorded CLI session (CronCreate, CLI 2.1.282
   });
 
   test("its fire disarms the one-shot: the CRON-FIRED turn is the CLI's own, and nothing is left to wait for", () => {
-    expect(isBackgroundWorkAlive(foldCron(fire + 1), at(fire))).toBe(false);
+    expect(isBackgroundWorkAlive(foldCron(fire + 2), at(fire + 1))).toBe(false);
     expect(isBackgroundWorkAlive(foldCron(lines.length), at(lines.length - 1))).toBe(false);
+  });
+
+  test("between the fire and its turn's init the session is about to answer, as after a task's report", () => {
+    // 182 ms recorded with no turn visible yet: read as idle, a reaper tick
+    // there kills the CLI as it starts the fire, and the chat hears nothing.
+    const work = foldCron(fire + 1);
+    expect(hasArmedCron(work, at(fire))).toBe(false);
+    expect(isWakeQueued(work, at(fire))).toBe(true);
+    expect(isBackgroundWorkAlive(work, at(fire) + 1_000)).toBe(true);
   });
 
   test("a fire that lands while a turn of ours is open disarms it too", () => {

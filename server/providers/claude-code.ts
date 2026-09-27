@@ -2782,7 +2782,7 @@ export class ClaudeCodeProvider implements AIProvider {
     return [...this.processes.keys()].filter((sk) => this.hasBackgroundWork(sk));
   }
 
-  /** `running`: listed tasks with news, or an armed session cron. `wake-queued`: only a reported task, the CLI is about to answer it. */
+  /** `running`: listed tasks with news, or an armed session cron. `wake-queued`: only a reported task or a command the CLI started, and the CLI is about to answer it. */
   backgroundState(sessionKey: string): "running" | "wake-queued" | "none" {
     const pp = this.processes.get(sessionKey);
     // A child told to stop takes its work with it: nothing to wait for.
