@@ -249,6 +249,20 @@ describe('one catalog for the three surfaces', () => {
     expect(surfaces.drawer).toContain('boardValue={boardDispatchModel}');
   });
 
+  // The all-boards view lists every board's cards while the pane holds its own
+  // board's settings: the drawer judges a card with its OWN board's defaults,
+  // and the composer, which picks its target there, with none.
+  test('in the all-boards view the drawer reads the card\'s own board and the composer no board', () => {
+    const composer = surfaces.board.slice(surfaces.board.indexOf('<FloatingTaskComposer'), surfaces.board.indexOf('<TaskDetail'));
+    const drawer = surfaces.board.slice(surfaces.board.indexOf('<TaskDetail'));
+    expect(surfaces.board).toContain('cardBoardSettings(selected?.projectId, projectId, settings, otherBoard)');
+    expect(drawer).toContain('boardTopicsRoutingDefault={cardSettings?.dispatchTopicsRouting ?? null}');
+    expect(drawer).toContain('boardDispatchModel={cardSettings?.dispatchModel ?? null}');
+    expect(surfaces.board).toContain("const composerSettings = mode === 'all' ? null : settings;");
+    expect(composer).toContain('boardTopicsRoutingDefault={composerSettings?.dispatchTopicsRouting ?? null}');
+    expect(composer).toContain('boardDispatchModel={composerSettings?.dispatchModel ?? null}');
+  });
+
   test('each surface gives the catalog its stored value so a removed selection stays visible', () => {
     expect(surfaces.composer).toContain('useTaskModelCatalog(model)');
     expect(surfaces.drawer).toContain('useTaskModelCatalog(task?.model)');

@@ -4,7 +4,7 @@
  * @covers AICTRL-05
  */
 import { describe, it, expect } from "bun:test";
-import { topicsRoutingBlocked, boardTopicsRoutingEnabled } from "./topicsRoutingGate";
+import { topicsRoutingBlocked, boardTopicsRoutingEnabled, cardBoardSettings } from "./topicsRoutingGate";
 import type { ProvidersSnapshot } from "../types";
 
 function snapshot(providers: ProvidersSnapshot["providers"]): ProvidersSnapshot {
@@ -56,5 +56,25 @@ describe("boardTopicsRoutingEnabled", () => {
   it("switch esplicito vince sempre sul prefisso legacy del modello", () => {
     expect(boardTopicsRoutingEnabled(false, "topics:claude-sonnet-5")).toBe(false);
     expect(boardTopicsRoutingEnabled(true, "claude-sonnet-5")).toBe(true);
+  });
+});
+
+// The all-boards view lists every board's cards inside one project pane, whose
+// settings are its own board's: a card of another board read that default.
+describe("cardBoardSettings", () => {
+  const pane = { dispatchModel: "codex" };
+  const other = { dispatchModel: "claude-sonnet-5" };
+
+  it("a card of the pane's board reads the pane's settings", () => {
+    expect(cardBoardSettings("alpha", "alpha", pane, null)).toBe(pane);
+  });
+
+  it("a card of another board reads that board's settings once they arrive", () => {
+    expect(cardBoardSettings("beta", "alpha", pane, { projectId: "beta", settings: other })).toBe(other);
+  });
+
+  it("until they arrive, or with a third board's in hand, the default is unknown, never the pane's", () => {
+    expect(cardBoardSettings("beta", "alpha", pane, null)).toBeNull();
+    expect(cardBoardSettings("beta", "alpha", pane, { projectId: "gamma", settings: other })).toBeNull();
   });
 });
