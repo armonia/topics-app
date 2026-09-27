@@ -229,21 +229,37 @@ async function replayOpenPaneWithoutAttach(page: Page, app: { send: (f: Record<s
 }
 
 /**
- * The pane is its context's executor, per the server: its socket is open, and
- * it no longer counts as a viewer, which it does from the socket's open until
- * `register_native_executor` is handled. Awaited before the route, because
- * the route counts a pane as attached as soon as its socket opens, and a call
- * that lands before the registration drives the headless context instead of
- * the pane, which starts a Chromium.
+ * The pane's executor socket, passed through with its `register_native_executor`
+ * held back until `release()`: the window between the socket's open and its
+ * registration, kept open for as long as the test needs it. `ops()` are the
+ * tool-calls the server delegated to the pane over that socket.
  */
-async function waitForExecutor(request: APIRequestContext, opened: () => number, ctx: string): Promise<void> {
-  await expect.poll(opened, { timeout: 20_000, message: "the pane socket is open" }).toBeGreaterThan(0);
-  await expect
-    .poll(async () => ((await (await request.get(`${E2E_BASE}/api/browsers/${encodeURIComponent(ctx)}/viewers`)).json()) as { count: number }).count, {
-      timeout: 20_000,
-      message: "the pane registered as its context's executor",
-    })
-    .toBe(0);
+async function holdExecutorRegistration(page: Page, ctx: string) {
+  let held: (() => void) | null = null;
+  let released = false;
+  const ops: Array<{ tool?: string; args?: { url?: string } }> = [];
+  await page.routeWebSocket(new RegExp(`/ws/browser/${ctx}\\?`), (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((m) => {
+      if (!released && typeof m === "string" && m.includes('"register_native_executor"')) {
+        held = () => server.send(m);
+        return;
+      }
+      server.send(m);
+    });
+    server.onMessage((m) => {
+      if (typeof m === "string" && m.includes('"browser_op"')) ops.push(JSON.parse(m) as { tool?: string; args?: { url?: string } });
+      ws.send(m);
+    });
+  });
+  return {
+    held: () => held !== null,
+    release: () => {
+      released = true;
+      held?.();
+    },
+    ops: () => ops,
+  };
 }
 
 /** The route the MCP tool calls, once a pane is attached to answer it. */
@@ -327,7 +343,6 @@ test.describe("open_browser_pane attaches the project pane", () => {
       // topic id), as a navigate would have.
       expect(await spawnerOf(page, ctx), "the chat is the browser's spawner").toBe(ctx);
 
-      await waitForExecutor(request, () => watch.opensSince(forcedAt), ctx);
       const answer = await openPaneRoute(request, ctx, url);
       expect(answer.visible).toBe(true);
       await expect(page.locator('[role="tab"][data-pane-id^="browser:"]'), "still one browser tab").toHaveCount(1);
@@ -374,7 +389,6 @@ test.describe("open_browser_pane attaches the project pane", () => {
       await expect(projectTab(page, owner)).toHaveAttribute("data-active", "true");
       await expect(innerTab(page, `browser:${ctx}`)).toHaveAttribute("data-active", "true");
 
-      await waitForExecutor(request, () => watch.opensSince(forcedAt), ctx);
       const answer = await openPaneRoute(request, ctx, url);
       expect(answer.visible).toBe(true);
     } finally {
@@ -422,12 +436,57 @@ test.describe("open_browser_pane attaches the project pane", () => {
       await expect(projectTab(page, owner)).toHaveAttribute("data-active", "true");
       await expect(innerTab(page, `browser:${ctx}`)).toHaveAttribute("data-active", "true");
 
-      await waitForExecutor(request, () => watch.opensSince(forcedAt), ctx);
       const answer = await openPaneRoute(request, ctx, url);
       expect(answer.visible).toBe(true);
     } finally {
       await watch.attach();
     }
+  });
+
+  /**
+   * The window of card f811bdae, held open on purpose: the pane's socket is
+   * open and its `register_native_executor` is still on the wire when the tool
+   * is called. The route counted the open socket as an attached pane and
+   * navigated at once, so the navigation went to a headless context: a
+   * Chromium launched for nothing, or `500 launch: Failed to launch chromium`
+   * where there is none, and the pane left on its old page. The register frame
+   * is released when the route's announce reaches the page, which is after the
+   * route used to pick the headless side (no await sits between the two).
+   */
+  test("a call that lands between the pane socket's open and its registration navigates the pane", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "BROWSER-CHAT-04" });
+    const owner = makeProject("owner");
+    const topic = await createTopic(request, "Pane attach, registration in flight", { projectPath: owner });
+    const ctx = topic.id;
+    await seedProjectTabs(request, [owner]);
+    await seedProjectLayout(request, owner, ctx);
+
+    await fakeTauriShell(page);
+    const executor = await holdExecutorRegistration(page, ctx);
+    const url = "https://example.com/opened-while-registering";
+    let announced = false;
+    page.on("websocket", (ws) => {
+      if (!APP_WS.test(ws.url())) return;
+      ws.on("framereceived", (f) => {
+        if (typeof f.payload === "string" && f.payload.includes('"browser:navigate"') && f.payload.includes(url)) announced = true;
+      });
+    });
+    await goToApp(page);
+    await projectTab(page, owner).click();
+    await expect
+      .poll(() => executor.held(), { timeout: 15_000, message: "the pane socket is open and its registration held" })
+      .toBe(true);
+
+    const call = request.post(`${E2E_BASE}/api/topics/${ctx}/browser/open-pane`, { data: { url } });
+    await expect.poll(() => announced, { timeout: 10_000, message: "the route announced the navigation to the page" }).toBe(true);
+    executor.release();
+    const res = await call;
+    expect(res.status(), await res.text()).toBe(200);
+    expect(((await res.json()) as { visible: boolean }).visible).toBe(true);
+    expect(
+      executor.ops().map((op) => [op.tool, op.args?.url]),
+      "the navigation was delegated to the pane, not run on a headless context",
+    ).toContainEqual(["browser_open", url]);
   });
 
   /**
@@ -545,14 +604,16 @@ test.describe("open_browser_pane attaches the project pane", () => {
       const boot = await restartTestServer();
       // eslint-disable-next-line no-control-regex -- Bun colours the object it logs
       expect(boot.join("").replace(/\x1b\[[0-9;]*m/g, ""), "the boot cleanup rewrote tombstones-browser").toMatch(/key: "tombstones-browser"/);
-      // The pane socket reconnects by itself and registers again. Read in the
-      // new server's own log: counting socket opens from here would race, the
-      // reconnect ladder can land while the boot answers its first requests,
-      // before `restartTestServer` returns.
+      // The pane socket reconnects by itself. Read in the new server's own log:
+      // counting socket opens from here would race, the reconnect ladder can
+      // land while the boot answers its first requests, before
+      // `restartTestServer` returns. Its registration is NOT awaited: on 25/09
+      // the tool was called 60 ms after the reconnect, before it, and covering
+      // that gap is the route's job (card f811bdae).
       await expect
         // eslint-disable-next-line no-control-regex -- Bun colours what it logs
-        .poll(() => boot.join("").replace(/\x1b\[[0-9;]*m/g, ""), { timeout: 20_000, message: "the pane registers with the new server" })
-        .toContain(`native executor registered for ctx ${ctx}`);
+        .poll(() => boot.join("").replace(/\x1b\[[0-9;]*m/g, ""), { timeout: 20_000, message: "the pane socket reconnects to the new server" })
+        .toMatch(new RegExp(`\\[WS\\]\\[browser\\] Open: \\S+ -> ctx ${ctx}`));
       // The tool's answer is the observation: the route attaches through a pane
       // only if one is attached. No clock is added on top: the one delayed
       // unmount on the client is residency's, and it does not touch the only,

@@ -69,6 +69,37 @@ export function countSharedViewers(
   return n;
 }
 
+/** The two `ws.data` fields that say whether an open socket is an attached pane. */
+export interface AttachFlags {
+  /** Opened with `?executor=1`: a native pane that has still to register. */
+  expectsExecutor?: boolean;
+  /** Its `register_native_executor` was handled: it now takes the tool-calls. */
+  _nativeDelegate?: boolean;
+}
+
+/**
+ * Is a pane ATTACHED to this context, for `open_browser_pane`?
+ *
+ * The route waits for this before it navigates, and the navigation goes to the
+ * native pane only if it is already the context's executor, otherwise to a
+ * headless context (server/browser-tool-dispatcher.ts). So a native executor
+ * socket attaches when it has registered, not when it opens: counted at open,
+ * a call landing between the two (60 ms after a reconnect, on 25/09) launched
+ * a headless Chromium, left the pane on its old page, and without Chromium
+ * answered 500. A web pane never registers, so its open socket is enough.
+ */
+export function hasAttachedPane(
+  clients: Iterable<{ readyState: number; data: AttachFlags }> | undefined | null,
+): boolean {
+  if (!clients) return false;
+  for (const c of clients) {
+    if (c.readyState !== 1) continue;
+    if (c.data.expectsExecutor && !c.data._nativeDelegate) continue;
+    return true;
+  }
+  return false;
+}
+
 /**
  * Who pushes the count to the panes, and when.
  *

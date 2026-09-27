@@ -138,7 +138,7 @@ import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } fr
 import { applyEngineSwitch } from "./server/browser-engine-switch";
 import { browserEngineRegistry, chromiumExtensionsCount, chromiumSidecar } from "./server/browser-engine-registry";
 import { nativeDelegateRegistry, handleNativeDelegationFrame } from "./server/browser-native-delegate";
-import { countSharedViewers, createViewerCountPublisher } from "./server/browser-viewer-count";
+import { countSharedViewers, createViewerCountPublisher, hasAttachedPane } from "./server/browser-viewer-count";
 import { createViewportWiring } from "./server/browser-viewport-wiring";
 import { seedNativeFromShared } from "./server/browser-session-handoff";
 import { parseChatWsInbound } from "./server/schemas/chat-ws-inbound";
@@ -836,18 +836,13 @@ configureNativeHistorySource((sessionKey) => nativeHistorySource(ctx, sessionKey
 const webrtcBridge = createWebrtcBridge();
 
 // Create route handlers
-// «Qualcuno sta VEDENDO questo contextId?» — un socket `/ws/browser/<ctx>`
-// aperto e vivo. Lo apre sia la pane nativa (che poi si registra come delegato)
-// sia quella web (che guarda lo screencast), quindi è il segnale più vicino a
-// «la pane è montata» che il server abbia: il contesto headless, da solo, esiste
-// anche quando nessuna pane si è montata. `open-pane` lo usa per armare il
-// ripiego `browser:force-open` e per rispondere la verità (`visible`).
-const paneAttachedTo = (contextId: string): boolean => {
-  const set = browserWsClients.get(contextId);
-  if (!set) return false;
-  for (const w of set) if (w.readyState === 1) return true;
-  return false;
-};
+// "Is a pane attached to this contextId?" An open `/ws/browser/<ctx>` socket
+// is the closest the server gets to "the pane is mounted": the headless
+// context exists without any pane. A native pane's executor socket counts only
+// once it registered, because `open-pane` navigates right after this answers
+// yes (browser-viewer-count.ts, `hasAttachedPane`). `open-pane` also uses it to
+// arm the `browser:force-open` fallback and to answer `visible` truthfully.
+const paneAttachedTo = (contextId: string): boolean => hasAttachedPane(browserWsClients.get(contextId));
 // The user's `turn-end` hook reaches the chat route from here (HOOKS-02).
 let goalLoop: ChatGoalLoop | null = null;
 const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo, { hooks: defaultLifecycleHooks(), exposeGoalLoop: (l) => { goalLoop = l; } });

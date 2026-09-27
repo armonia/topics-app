@@ -125,6 +125,19 @@ describe('native pane executor socket', () => {
     expect(h.sockets[0].types()).toEqual(['register_native_executor']);
   });
 
+  test('every socket, the reconnections too, says at open that it is an executor', () => {
+    // The server does not count it as an attached pane until it registered: a
+    // navigation sent in between would drive a headless context instead.
+    const h = harness();
+    h.sockets[0].open();
+    h.sockets[0].die();
+    h.tick();
+    expect(h.sockets.map((s) => s.url)).toEqual([
+      'ws://127.0.0.1:3333/ws/browser/ctx-1?executor=1',
+      'ws://127.0.0.1:3333/ws/browser/ctx-1?executor=1',
+    ]);
+  });
+
   test('THE DEFECT: after the server restarts, a LATER tool-call runs, with no remount', async () => {
     const h = harness();
     h.sockets[0].open();

@@ -27,7 +27,7 @@
  * passed, before and after the fix.
  */
 import { nextAgentActive } from './agentActivity';
-import { parseBrowserWsMessage } from '../../../shared/browser-ws-messages';
+import { NATIVE_EXECUTOR_PARAM, parseBrowserWsMessage } from '../../../shared/browser-ws-messages';
 
 /** First retry after 1s, doubling, never slower than this (same ceiling as the streaming pane). */
 const MAX_RECONNECT_DELAY_MS = 10000;
@@ -129,6 +129,9 @@ const defaultSchedule: Schedule = (fn, ms) => {
 export function startNativeExecutorSocket(opts: NativeExecutorSocketOptions): NativeExecutorSocketRun {
   const createSocket = opts.createSocket ?? webSocketFactory;
   const schedule = opts.schedule ?? defaultSchedule;
+  // Said at open, before the register frame: the server does not count this
+  // socket as an attached pane until it has registered (NATIVE_EXECUTOR_PARAM).
+  const url = `${opts.url}${opts.url.includes('?') ? '&' : '?'}${NATIVE_EXECUTOR_PARAM}=1`;
 
   let stopped = false;
   let socket: ExecutorSocket | null = null;
@@ -170,7 +173,7 @@ export function startNativeExecutorSocket(opts: NativeExecutorSocketOptions): Na
       },
     };
     try {
-      self = createSocket(opts.url, handlers);
+      self = createSocket(url, handlers);
       socket = self;
     } catch {
       // Construction itself failed (no server at all yet): retry on the same ladder.

@@ -2,7 +2,11 @@
  * @covers VIEWCNT-01
  */
 import { test, expect } from "bun:test";
-import { countSharedViewers, createViewerCountPublisher, isSharedViewer, type ViewerFlags } from "./browser-viewer-count";
+import type { Server } from "bun";
+import { countSharedViewers, createViewerCountPublisher, hasAttachedPane, isSharedViewer, type ViewerFlags } from "./browser-viewer-count";
+import { upgradeWebSocket } from "./lib/ws-upgrade";
+import type { WSData } from "./types";
+import { startNativeExecutorSocket } from "../client/src/hooks/nativeExecutorSocket";
 
 const sockets = (...datas: ViewerFlags[]) => datas.map((data) => ({ data }));
 
@@ -100,4 +104,67 @@ test("publish(ctx, except) passa il socket escluso a chi spedisce", () => {
   expect(pub.publish("c1", me)).toBe(3);
   expect(sent).toEqual([{ ctx: "c1", n: 3, except: me }]);
   expect(pub.publish("c1")).toBeNull();
+});
+
+/**
+ * `open_browser_pane` waits for a pane to attach, then navigates the context
+ * (server/routes/browser-open-pane-flow.ts). A native pane takes that
+ * navigation only once it is the context's executor, i.e. after the server
+ * handled its `register_native_executor` frame. Seen on 25/09, 60 ms after a
+ * pane reconnected: a call that lands between the socket's open and that frame
+ * drove a headless context instead, and on a machine with no Chromium the
+ * route answered `500 launch: Failed to launch chromium`.
+ *
+ * The sockets here are what the server really holds: the URL is the one the
+ * native pane's executor socket opens, stamped by the same upgrade the request
+ * path runs.
+ */
+function serverSocketFor(url: string): { readyState: number; data: WSData } {
+  let data: WSData | undefined;
+  const server = {
+    upgrade: (_req: Request, opts: { data: WSData }) => { data = opts.data; return true; },
+  } as unknown as Pick<Server<WSData>, "upgrade">;
+  const { pathname } = new URL(url);
+  expect(upgradeWebSocket(new Request(url.replace(/^ws/, "http")), pathname, server, null, false)).toBeUndefined();
+  if (!data) throw new Error("the upgrade did not stamp the socket");
+  return { readyState: 1, data };
+}
+
+/** The URL the native pane's executor socket opens for `paneUrl`. */
+function nativeExecutorUrl(paneUrl: string): string {
+  let opened = "";
+  const run = startNativeExecutorSocket({
+    url: paneUrl,
+    createSocket: (url) => { opened = url; return { send() {}, close() {} }; },
+    runOp: async () => ({}),
+    onAgentActive: () => {},
+  });
+  run.stop();
+  return opened;
+}
+
+const PANE_URL = "ws://127.0.0.1:3333/ws/browser/ctx-1?client=pane-a";
+
+test("a native pane attaches when it registers as the executor, not when its socket opens", () => {
+  const pane = serverSocketFor(nativeExecutorUrl(PANE_URL));
+  expect(hasAttachedPane([pane]), "open but not registered: the navigation would go to a headless context").toBe(false);
+  pane.data._nativeDelegate = true;
+  expect(hasAttachedPane([pane])).toBe(true);
+});
+
+test("a web pane attaches as soon as its socket opens: it never registers", () => {
+  expect(hasAttachedPane([serverSocketFor(PANE_URL)])).toBe(true);
+});
+
+test("a native pane still registering does not hide a web pane already attached", () => {
+  const native = serverSocketFor(nativeExecutorUrl(PANE_URL));
+  const web = serverSocketFor("ws://127.0.0.1:3333/ws/browser/ctx-1?client=pane-b");
+  expect(hasAttachedPane([native, web])).toBe(true);
+});
+
+test("a socket that is no longer open attaches nothing, and no socket attaches nothing", () => {
+  const pane = serverSocketFor(PANE_URL);
+  pane.readyState = 3;
+  expect(hasAttachedPane([pane])).toBe(false);
+  expect(hasAttachedPane(undefined)).toBe(false);
 });
