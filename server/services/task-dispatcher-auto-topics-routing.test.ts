@@ -156,6 +156,48 @@ describe("Automatic with Topics routing ON never picks what the switch cannot ro
 beforeEach(() => { resetProviderHoldStore(); clearProviderHold(); clearProviderHold("codex"); clearPlanUsage(); });
 afterEach(() => { clearProviderHold(); clearProviderHold("codex"); clearPlanUsage(); });
 
+const fleetOf = (...providers: ReturnType<typeof entry>[]) => ({ defaultProvider: "codex", providers }) as unknown as ProvidersSnapshot;
+const CLAUDE_MODELS = ["claude-sonnet-5", "claude-opus-5"];
+
+// The engine is ready and the menu shows the switch as routable, but no Claude
+// Code target is: the CLI is missing, or it did not answer discovery.
+describe("Automatic with Topics routing ON and the engine up without a Claude Code target", () => {
+  const fleets = {
+    "Claude Code unavailable": fleetOf(entry("topics", CLAUDE_MODELS), entry("claude-code", [], "unavailable"), entry("codex", ["gpt-5.5"])),
+    "the engine alone": fleetOf(entry("topics", CLAUDE_MODELS)),
+  };
+  for (const [label, fleet] of Object.entries(fleets)) {
+    for (const [launch, fanOut] of [["single launch", undefined], ["fan-out", 2]] as const) {
+      it(`${label}, ${launch}: the card runs on the engine, pinned to no runtime`, async () => {
+        const h = await dispatchAutomaticWithRoutingOn(fanOut, fleet);
+        const task = h.svc.get("t1")!.task;
+        expect(task).toMatchObject({ status: "in_progress", dispatchState: "working" });
+        expect(h.topics.length).toBeGreaterThan(0);
+        for (const topic of h.topics) {
+          expect(topic).toMatchObject({ executor: "topics", topicsRouting: true });
+          expect(topic.provider).toBeUndefined();
+        }
+        // Stored without the legacy `topics:` pin, so OFF later is a real OFF.
+        expect(task.model?.startsWith("topics:")).toBe(false);
+      });
+    }
+  }
+
+  it("Claude Code still in discovery: the card waits for it, then starts pinned to it", async () => {
+    const fleet = fleetOf(entry("topics", CLAUDE_MODELS), entry("claude-code", [], "loading"), entry("codex", ["gpt-5.5"]));
+    const h = await dispatchAutomaticWithRoutingOn(undefined, fleet);
+    const task = h.svc.get("t1")!.task;
+    expect(task).toMatchObject({ status: "todo", dispatchState: "queued", dispatchAttempts: 0 });
+    expect(task.dispatchError).toBe("Waiting for claude-code provider discovery.");
+    expect(h.topics).toHaveLength(0);
+    Object.assign(fleet.providers[1]!, { status: "ready", models: CLAUDE_MODELS });
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topics).toHaveLength(1);
+    expect(h.topics[0]).toMatchObject({ provider: "claude-code", executor: "topics" });
+  });
+});
+
 describe("Automatic with Topics routing ON and no routable candidate", () => {
   it("the Topics engine down: the card parks with the switch's reason, not the effort one", async () => {
     const engineDown = { ...FLEET, providers: [entry("topics", [], "error"), ...FLEET.providers.slice(1)] } as unknown as ProvidersSnapshot;

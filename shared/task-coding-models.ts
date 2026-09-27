@@ -167,8 +167,9 @@ export function topicsRoutingAvailable(
 
 /** With the switch ON, whether a task bound to this runtime can run: the
  * native engine is the router itself, any other runtime must be a target it
- * reaches. The topic gate asks this; the automatic task picker offers only
- * the targets (topicsRoutingAvailable), a subset the gate always lets through. */
+ * reaches. The topic gate and the automatic task picker both ask this; the
+ * picker prefers the targets and offers the engine's own catalog, unpinned,
+ * only when no target is ready. */
 export function runsWithTopicsRouting(
   provider: string,
   model: string | null | undefined,
