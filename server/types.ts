@@ -173,6 +173,22 @@ export interface ThreadLoadOpts {
   withToolCalls?: boolean;
 }
 
+/**
+ * How an assistant row was closed, written by the same UPDATE that turns
+ * `partial` off (migration 20260927091818, card a57e6d4d):
+ *   - `done`: the row holds its whole text, a turn that completed or a row
+ *     written in one piece (a regenerated reply, an import, a sub-agent report);
+ *   - `stopped`: a Stop, the person's or the machine's;
+ *   - `error`: the turn failed and the route closed it saying so;
+ *   - `closed-outside`: something other than the turn closed it (the stale
+ *     stream sweeper, a watchdog, the end of a reattach leg), and its process
+ *     may still be alive;
+ *   - `cut-by-restart`: the boot sweep closed it, its process was dead.
+ * Absent on a row still open and on every row written before the column: the
+ * readers keep the `latency_ms` rule for those.
+ */
+export type MessageEndReason = "done" | "stopped" | "error" | "closed-outside" | "cut-by-restart";
+
 export interface StoredMessage {
   id: string;
   role: "user" | "assistant";
@@ -180,6 +196,7 @@ export interface StoredMessage {
   timestamp: string;
   thinking?: string;
   toolCalls?: ToolCall[];
+  endReason?: MessageEndReason;
   /**
    * Unified chronological timeline of content blocks. Populated for new
    * assistant messages produced by the streaming pipeline; absent on legacy

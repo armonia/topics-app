@@ -94,8 +94,10 @@ export function runBootPartialSweep(
       continue;
     }
 
+    // The row says the restart cut it: that is what `read_chat_messages` and
+    // `send_chat_message` read, instead of guessing from a missing latency.
     const resetChanges = db.run(
-      "UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1",
+      "UPDATE messages SET partial = 0, streamed_at = NULL, end_reason = 'cut-by-restart' WHERE session_key = ? AND partial = 1",
       [row.sk]
     ).changes;
     cleared += resetChanges;

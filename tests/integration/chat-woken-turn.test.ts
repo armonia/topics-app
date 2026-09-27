@@ -33,7 +33,7 @@ interface Harness {
   rigaPrecedente: (content: string, blocks: unknown[]) => void;
   /** Chiama la route in modalità `woken` e torna lo handler che ha registrato. */
   adotta: (opts?: { adottabile?: boolean }) => Promise<{ resp: Response | null; handler?: StreamHandler }>;
-  righe: () => Array<{ role: string; content: string; partial: boolean }>;
+  righe: () => Array<{ role: string; content: string; partial: boolean; endReason?: string }>;
 }
 
 async function harness(sessionKey: string): Promise<Harness> {
@@ -117,7 +117,7 @@ async function harness(sessionKey: string): Promise<Harness> {
 
   const righe = () =>
     ctx.loadLocalMessages(sessionKey).map((m) => ({
-      role: m.role, content: m.content, partial: m.partial === true,
+      role: m.role, content: m.content, partial: m.partial === true, endReason: m.endReason,
     }));
 
   return { ctx, adotta, righe, rigaPrecedente };
@@ -142,6 +142,9 @@ describe("il turno risvegliato dal Monitor finisce in chat", () => {
     expect(assistente[0]!.content).toBe("Il build è fallito: BUILD-FALLITO-XYZ");
     // Turno chiuso, non una riga rimasta a metà.
     expect(assistente[0]!.partial).toBe(false);
+    // And the row says it completed: a woken turn has no user row of its own,
+    // so a restart after it can only be told apart by this (card a57e6d4d).
+    expect(assistente[0]!.endReason).toBe("done");
   });
 
   /**

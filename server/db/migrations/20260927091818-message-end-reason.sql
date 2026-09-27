@@ -1,0 +1,21 @@
+-- HOW an assistant row was closed, written by the same UPDATE that turns
+-- `partial` off (card a57e6d4d).
+--
+-- Until now the readers GUESSED it. `send_chat_message`, `read_chat_messages`
+-- and the post-restart reattach took a missing `latency_ms` for "nobody
+-- completed this row", because only the chat route's finalize writes it. An
+-- independent verifier broke that guess five ways: a regenerated reply, a
+-- transcript import and a sub-agent's report are whole rows without latency (so
+-- they were called cut, or adopted by the reattach), a reattach leg's latency
+-- survives the row being lit again and then killed (so the half came back as
+-- the answer; 66 restart notices on rows with a latency on the live database,
+-- 25/09), and a Stop the route closes has no latency either (so it read as "a
+-- restart or a watchdog").
+--
+-- The values (server/types.ts, `MessageEndReason`): done, stopped, error,
+-- closed-outside, cut-by-restart.
+--
+-- NULL is what every row written before this column says, and what a row still
+-- open says: the readers keep the latency rule for those, so history reads as
+-- it did.
+ALTER TABLE messages ADD COLUMN end_reason TEXT DEFAULT NULL;

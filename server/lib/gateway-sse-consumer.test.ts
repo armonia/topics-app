@@ -178,6 +178,8 @@ describe("makeGatewaySseProcessor — processLine", () => {
     processLine("data: [DONE]");
 
     expect(updateLastMessage.mock.calls.length).toBeGreaterThanOrEqual(1);
+    // The row is whole with no latency: without its reason the chat tools read it as cut (card a57e6d4d).
+    expect(updateLastMessage.mock.calls.at(-1)![1]).toMatchObject({ endReason: "done" });
     expect(endStream.mock.calls.length).toBe(1);
     expect(onDoneCalled.value).toBe(true);
   });
@@ -192,6 +194,7 @@ describe("makeGatewaySseProcessor — processLine", () => {
 
     // contentRef gets the error message
     expect(contentRef.value).toContain("No response received");
+    expect(updateLastMessage.mock.calls.at(-1)![1]).toMatchObject({ endReason: "error" });
   });
 
   test("non-data lines are silently ignored", () => {
@@ -253,7 +256,8 @@ describe("makeGatewaySseProcessor — consumeGateway", () => {
 
   test("abrupt stream end triggers onStreamEnd (not onDone)", async () => {
     const isStreamingFn = mock((_sk: string) => ({ id: "active" } as never));
-    const { opts, onDoneCalled, onStreamEndCalled } = makeOpts({ isStreaming: isStreamingFn });
+    const updateLastMessage = mock((_sk: string, _u: object) => null);
+    const { opts, onDoneCalled, onStreamEndCalled } = makeOpts({ isStreaming: isStreamingFn, updateLastMessage });
     const { consumeGateway } = makeGatewaySseProcessor(opts);
 
     // Stream closes without [DONE]
@@ -266,6 +270,7 @@ describe("makeGatewaySseProcessor — consumeGateway", () => {
 
     expect(onDoneCalled.value).toBe(false);
     expect(onStreamEndCalled.value).toBe(true);
+    expect(updateLastMessage.mock.calls.at(-1)![1]).toMatchObject({ endReason: "error" });
   });
 
   test("tool_call id defaults to 'tool-<timestamp>' when absent", () => {

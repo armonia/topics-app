@@ -157,6 +157,8 @@ export function parseTranscriptDelta(text: string, opts?: DeltaParseOptions): De
         timestamp: ts,
         parentId: out.length ? out[out.length - 1]!.id : startParentId,
         branchIndex: 0,
+        // A transcript holds finished turns: the row is whole, with no latency to show it.
+        endReason: "done",
       });
       continue;
     }
