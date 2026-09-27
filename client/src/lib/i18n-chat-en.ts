@@ -130,6 +130,11 @@ const CHAT_EN: Dict = {
   'chat.tool.detailLoading': 'Loading the full output…',
   'chat.tool.detailFailed': 'Could not load the full output.',
   'toolgroup.jumpToFailure': 'Open the group on the first failed action',
+  'chat.processExit.line': 'Command {label} finished · exit {code}',
+  'chat.processExit.lineUnknown': 'Command {label} finished · unknown outcome',
+  'chat.processExit.title': 'The command started with run_command ended and Topics woke the agent with its outcome. You did not type this.',
+  'chat.processExit.show': 'show the output',
+  'chat.processExit.hide': 'hide the output',
 };
 
 export default CHAT_EN;

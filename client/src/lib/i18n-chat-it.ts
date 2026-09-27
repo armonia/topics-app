@@ -150,6 +150,11 @@ const CHAT_IT: Dict = {
   'chat.tool.detailLoading': "Carico l'output completo…",
   'chat.tool.detailFailed': "Non sono riuscito a caricare l'output completo.",
   'toolgroup.jumpToFailure': 'Apri il gruppo sulla prima azione fallita',
+  'chat.processExit.line': 'Comando {label} finito · exit {code}',
+  'chat.processExit.lineUnknown': 'Comando {label} finito · esito sconosciuto',
+  'chat.processExit.title': "Il comando lanciato con run_command è finito e Topics ha svegliato l'agente con l'esito. Non l'hai scritto tu.",
+  'chat.processExit.show': "mostra l'output",
+  'chat.processExit.hide': "nascondi l'output",
 };
 
 export default CHAT_IT;

@@ -914,13 +914,16 @@ export interface ScriptProcessInfo {
   ports: number[];
   /** 'detected' = auto-discovered server started inside a Claude session (logs
    *  not captured); 'shell' = shell lasciata in background dall'agente
-   *  (`Bash(run_in_background)`), output dai suoi `BashOutput`;
+   *  (`Bash(run_in_background)`), output from the file the CLI writes;
+   *  'command' = any command an agent started with `run_command`;
    *  'script'/undefined = launched via Topics run_script/UI. */
-  source?: 'script' | 'detected' | 'shell';
+  source?: 'script' | 'detected' | 'shell' | 'command';
   /** Solo per `source: 'shell'`: l'id con cui l'agente la chiama. */
   shellId?: string;
-  /** Solo per `source: 'shell'`: la topic da cui è partita, se nota. */
+  /** For `source: 'shell'` and `'command'`: the topic it came from, if known. */
   topicId?: string | null;
+  /** For `source: 'command'`: ended by a Stop, not by itself. */
+  stopped?: boolean;
   /** Chi sta ASPETTANDO la fine di questo processo (`wait_for_process`).
    *  Assente quando nessuno aspetta: e' il caso normale. */
   watchers?: { label: string; since: string; until?: string }[];
