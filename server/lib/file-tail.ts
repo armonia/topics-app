@@ -57,10 +57,10 @@ export function readTail(tail: FileTail, maxBytes = TAIL_MAX_BYTES): { text: str
     }
     const length = size - tail.offset;
     if (length <= 0) return { text: "", skipped };
-    const buf = Buffer.alloc(length);
-    const read = readSync(fd, buf, 0, length, tail.offset);
+    const bytes = Buffer.alloc(length);
+    const read = readSync(fd, bytes, 0, length, tail.offset);
     tail.offset += read;
-    return { text: tail.decoder.decode(buf.subarray(0, read), { stream: true }), skipped };
+    return { text: tail.decoder.decode(bytes.subarray(0, read), { stream: true }), skipped };
   } finally {
     closeSync(fd);
   }

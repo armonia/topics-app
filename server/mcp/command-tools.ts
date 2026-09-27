@@ -2,7 +2,7 @@
  * `run_command`: ANY COMMAND, AS A PROCESS OF TOPICS.
  *
  * `run_script` runs only what the project's manifest declares, and that gate
- * stays. An ad hoc command (a retry loop, `/tmp/kv/nuovo_v02.sh`) had nowhere
+ * stays. An ad hoc command (a retry loop, a one-off script in /tmp) had nowhere
  * to go but `Bash(run_in_background)`: invisible in the Processes panel, dead
  * with the CLI session, and a wake that belongs to the CLI. On 24/09 a two-hour
  * retry died that way and nobody was woken. This tool gives the command a row
