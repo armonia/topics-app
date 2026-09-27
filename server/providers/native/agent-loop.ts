@@ -26,7 +26,7 @@ import {
   DEFAULT_RETRY_POLICY, type RetryPolicy,
 } from "./retry";
 import { saturationHold, releaseHoldIfFreed } from "./usage-window";
-import { providerHold } from "../../lib/provider-hold";
+import { liftApiDownHold, providerHold } from "../../lib/provider-hold";
 import { CODING_TOOLS, executeTool, type ToolContext, type ToolSpec } from "./tools";
 import { detectUserInputRequest } from "../ask-user-detector";
 import type { ProviderUsage } from "../types";
@@ -743,6 +743,9 @@ export async function runAgentTurn(
         onRetry: (info) => handler.onRetry?.(info),
         onSaturated: () => saturationHold(auth.token),
       });
+      // The API answered: an outage hold is over, as when a claude-code child
+      // streams (`claude/api-outage.ts`); it walls this runtime's chats too.
+      liftApiDownHold();
       // The API took a round while a hold was in force: re-read the windows
       // and lift the hold if none is spent any more (not on the bare success:
       // at the edge of a window small requests pass and large ones do not).
