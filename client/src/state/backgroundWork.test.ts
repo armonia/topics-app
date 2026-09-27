@@ -71,6 +71,20 @@ describe("projectBackgroundCount", () => {
     expect(projectBackgroundCount("/q", topics, work)).toBe(1);
     expect(projectBackgroundCount("/none", topics, work)).toBe(0);
   });
+
+  test("an archived chat does not light the folder: no row, no tab and no agent row would name it", () => {
+    // Closing a chat's tab archives it and leaves its background work running,
+    // and the status route still reports it. The folder follows the same gate
+    // as the agent list (`visibleTopicSignalIds`).
+    const topics = {
+      a: { id: "a", projectPath: "/p", archived: true },
+      b: { id: "b", projectPath: "/p" },
+    } as unknown as Record<string, Topic>;
+    const work = new Map(["a", "b"].map((id) => [id, { sessionKey: `topic:${id}`, tasks: [], lastSignalAt: 0 }]));
+    expect(projectBackgroundCount("/p", topics, work)).toBe(1);
+    work.delete("b");
+    expect(projectBackgroundCount("/p", topics, work)).toBe(0);
+  });
 });
 
 describe("the signals store", () => {

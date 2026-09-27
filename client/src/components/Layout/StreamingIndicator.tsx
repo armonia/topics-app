@@ -38,7 +38,7 @@ import { LoaderCircle } from 'lucide-react';
 import { useTopicLoading, useTopicAwaitingInput, useTopicBackgroundWork, useProjectLoading, useProjectAwaitingInput, useProjectBackgroundWork, useTerminalLoading, useBrowserLoading } from '../../state/signals';
 import type { TopicBackgroundWork } from '../../state/backgroundWork';
 import { useT } from '../../hooks/useT';
-import { loaderStateFor, type LoaderState } from './loaderState';
+import { loaderArcClass, loaderStateFor, type LoaderState } from './loaderState';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
 
@@ -93,24 +93,8 @@ const TRACK_WASH = 'color-mix(in srgb, currentColor 22%, transparent)';
  */
 const ARC_STROKE = (STROKE / GLYPH) * 24;
 
-/**
- * The arc of each state. THE WAIT: the same arc, frozen and amber. A turn
- * parked on a question is open and NOT grinding, and a turning arc would credit
- * it with work it is not doing. The amber is the tint of the 'input' tier
- * (TIER_INPUT_BG in selectionStyles): where the fill says "your move", the glyph
- * says the same. Frozen is not off, so it breathes slowly.
- *
- * THE BACKGROUND: grey and slow. No turn is open, so it cannot be the blue of a
- * reply (that one says a message would queue), and nothing waits for you, so it
- * cannot be the amber. It still turns, because the work it stands for does.
- */
-const ARC: Record<LoaderState, string> = {
-  working: 'animate-orbit-spin text-[var(--primary)]',
-  waiting: 'animate-orbit-breath text-amber-500',
-  background: 'animate-orbit-slow text-app-text-tertiary',
-};
-
-export function OrbitLoader({ className = '', state = 'working' }: { className?: string; state?: LoaderState }) {
+/** `onFill`: the glyph sits on an attention fill, and its arc takes the fill's ink (`loaderArcClass`). */
+export function OrbitLoader({ className = '', state = 'working', onFill = false }: { className?: string; state?: LoaderState; onFill?: boolean }) {
   const box = { width: GLYPH, height: GLYPH } as const;
   return (
     <span
@@ -131,7 +115,7 @@ export function OrbitLoader({ className = '', state = 'working' }: { className?:
       <LoaderCircle
         size={GLYPH}
         strokeWidth={ARC_STROKE}
-        className={`absolute inset-0 ${ARC[state]}`}
+        className={`absolute inset-0 ${loaderArcClass(state, onFill)}`}
       />
     </span>
   );
@@ -146,6 +130,8 @@ interface LoaderSlotProps {
   /** `waiting`: the turn is open but parked on an answer. `background`: no
    *  turn open, work left running. See `loaderState.ts`. */
   state?: LoaderState;
+  /** The slot sits on an attention fill (see `loaderArcClass`). */
+  onFill?: boolean;
 }
 
 /**
@@ -162,7 +148,7 @@ interface LoaderSlotProps {
  * command can carry a label, a tooltip and a keyboard focus. What is left here
  * only ever answers "is it working".
  */
-function LoaderSlot({ title, className = '', size = 16, state = 'working' }: LoaderSlotProps) {
+function LoaderSlot({ title, className = '', size = 16, state = 'working', onFill = false }: LoaderSlotProps) {
   const tip = title ?? (state === 'waiting' ? 'Ferma: in attesa di una tua risposta' : 'In esecuzione');
   return (
     <span
@@ -172,7 +158,7 @@ function LoaderSlot({ title, className = '', size = 16, state = 'working' }: Loa
       aria-label={tip}
       data-loader-state={state}
     >
-      <OrbitLoader state={state} />
+      <OrbitLoader state={state} onFill={onFill} />
     </span>
   );
 }
@@ -213,6 +199,8 @@ interface TopicSpinnerProps {
    * che una subline non ce l'hanno, non passano `quiet` e restano com'erano.
    */
   quiet?: boolean;
+  /** The row or tab carries an attention fill: the grey glyph takes its ink. */
+  onFill?: boolean;
 }
 
 export function TopicStreamingSpinner({
@@ -223,6 +211,7 @@ export function TopicStreamingSpinner({
   variant = 'compact',
   lastActivity,
   quiet,
+  onFill,
 }: TopicSpinnerProps) {
   const streaming = useTopicLoading(topicId);
   // Il turno sospeso è ANCORA aperto (loading resta true, lo stop ha senso), ma
@@ -237,7 +226,7 @@ export function TopicStreamingSpinner({
   // it), never the labeled clock, which times a turn.
   if (!streaming) {
     const tip = state === 'background' && background ? backgroundTip(tr, background) : undefined;
-    return <LoaderSlot title={title ?? tip} className={className} size={size} state={state} />;
+    return <LoaderSlot title={title ?? tip} className={className} size={size} state={state} onFill={onFill} />;
   }
   // `labeled` (sidebar) shows the elapsed-since-last-update + stale treatment via
   // LabeledLoader, which mounts only here (while streaming) so the shared clock
@@ -261,7 +250,7 @@ export function TopicStreamingSpinner({
 /** How much runs, and that the chat is free: the one thing the grey glyph cannot say on its own. */
 function backgroundTip(tr: ReturnType<typeof useT>, work: TopicBackgroundWork): string {
   const n = work.tasks.length;
-  if (n === 0) return tr('chat.background.resuming');
+  if (n === 0) return tr('topic.backgroundResuming');
   return n === 1 ? tr('topic.backgroundOne') : tr('topic.backgroundMany', { n });
 }
 
@@ -336,12 +325,15 @@ interface ProjectSpinnerProps {
   projectPath: string | undefined;
   className?: string;
   title?: string;
+  /** The folder row or tab carries an attention fill: the grey glyph takes its ink. */
+  onFill?: boolean;
 }
 
 export function ProjectStreamingSpinner({
   projectPath,
   title,
   className = '',
+  onFill,
 }: ProjectSpinnerProps) {
   const tr = useT();
   // Central rollup: true if ANY child (chat / terminal / agent) of this
@@ -362,7 +354,7 @@ export function ProjectStreamingSpinner({
   const tip = state === 'waiting' ? tr('project.chatWaits')
     : state === 'working' ? tr('project.chatAnswers')
       : tr('project.chatBackground', { n: background });
-  return <LoaderSlot title={title ?? tip} className={className} state={state} />;
+  return <LoaderSlot title={title ?? tip} className={className} state={state} onFill={onFill} />;
 }
 
 interface TerminalSpinnerProps {

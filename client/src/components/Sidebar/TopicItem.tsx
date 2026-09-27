@@ -519,6 +519,7 @@ export const TopicItem = memo(function TopicItem({
             // La durata del turno la dice già `SessionActivity` sotto al nome. Qui
             // resta il solo campanello dello STALLO — vedi `quiet`.
             quiet
+            onFill={onFill}
             className="flex-shrink-0"
           />
         )}

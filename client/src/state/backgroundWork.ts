@@ -101,13 +101,22 @@ export function mergeBackgroundWork(
   return changed ? out : prev;
 }
 
-/** How many chats of a project wait on background work: the same child-walk as `useProjectLoading`. */
+/**
+ * How many chats of a project wait on background work: the same child-walk as
+ * `useProjectLoading`. An archived chat is left out, the gate the agent list
+ * applies too (`visibleTopicSignalIds`): closing a tab archives the chat and
+ * leaves its work running, and a folder lit by a chat that no row, tab or agent
+ * line names is a glyph nobody can trace.
+ */
 export function projectBackgroundCount(
   projectPath: string,
   topics: Record<string, Topic>,
   work: ReadonlyMap<string, TopicBackgroundWork>,
 ): number {
   let n = 0;
-  for (const id of work.keys()) if (topics[id]?.projectPath === projectPath) n++;
+  for (const id of work.keys()) {
+    const t = topics[id];
+    if (t && !t.archived && t.projectPath === projectPath) n++;
+  }
   return n;
 }

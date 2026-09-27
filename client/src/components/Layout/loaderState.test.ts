@@ -10,7 +10,8 @@
  * @covers BGVIS-01
  */
 import { describe, expect, test } from "bun:test";
-import { loaderStateFor } from "./loaderState";
+import { loaderArcClass, loaderStateFor } from "./loaderState";
+import { ON_FILL_TEXT_SOFT } from "../../lib/selectionStyles";
 
 describe("loaderStateFor", () => {
   test("nothing open and nothing in the background draws nothing", () => {
@@ -32,5 +33,22 @@ describe("loaderStateFor", () => {
 
   test("a wait with nothing open and nothing running draws nothing, as before", () => {
     expect(loaderStateFor({ loading: false, waiting: true, background: false })).toBeNull();
+  });
+});
+
+describe("loaderArcClass", () => {
+  test("the grey arc is the tertiary ink, turning slowly", () => {
+    const arc = loaderArcClass("background", false);
+    expect(arc).toContain("animate-orbit-slow");
+    expect(arc).toContain("text-app-text-tertiary");
+  });
+
+  test("on an attention fill the grey arc takes the fill's own soft ink, as the timestamp it replaces does", () => {
+    // A chat whose turn closed with work left running is typically on the blue
+    // 'done' fill, where the tertiary grey is about 1.3:1 and the glyph vanishes.
+    const arc = loaderArcClass("background", true);
+    expect(arc).toContain("animate-orbit-slow");
+    expect(arc).toContain(ON_FILL_TEXT_SOFT);
+    expect(arc).not.toContain("text-app-text-tertiary");
   });
 });
