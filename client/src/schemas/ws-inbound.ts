@@ -19,6 +19,7 @@ import {
   validateOutbound,
   isRegisteredOutboundType,
   REGISTERED_OUTBOUND_TYPES,
+  STOP_CAUSES,
   type ValidationResult,
 } from '../../../shared/ws-outbound';
 
@@ -37,7 +38,24 @@ export type InboundValidationResult = ValidationResult;
  * graziosa del lato server.
  */
 export function validateInbound(msg: unknown): InboundValidationResult {
-  return validateOutbound(msg);
+  return validateOutbound(withoutUnknownStopCause(msg));
+}
+
+/**
+ * A `stopCause` this build does not know is read as absent, not as a broken
+ * frame. `server/` reloads on every save while `public/` is rebuilt by hand, so
+ * a server one cause ahead of the page is the normal state between the two,
+ * and dropping the whole `stream:end` left the spinner on until the next poll
+ * and the banner out (`api-unavailable`, `broker-died`, 27/09). Downstream the
+ * banner renders only the causes it has a sentence for (`liveInterruptionBlock`).
+ * The server keeps the list strict: it is the one that must know every cause.
+ */
+function withoutUnknownStopCause(msg: unknown): unknown {
+  const cause = (msg as { stopCause?: unknown } | null)?.stopCause;
+  if (typeof cause !== 'string' || (STOP_CAUSES as readonly string[]).includes(cause)) return msg;
+  const rest: Record<string, unknown> = { ...(msg as Record<string, unknown>) };
+  delete rest.stopCause;
+  return rest;
 }
 
 export function isRegisteredInboundType(type: string): boolean {
