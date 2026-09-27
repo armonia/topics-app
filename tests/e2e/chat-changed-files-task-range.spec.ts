@@ -32,10 +32,12 @@ const STAMP = Date.now();
 /** The real path: `/tmp` is a symlink on macOS and git answers resolved. */
 const PROJECT_PATH = `${realpathSync('/tmp')}/e2e-chat-range-${STAMP}`;
 const PROJECT_ID = projectIdForPath(PROJECT_PATH);
-const BRANCH = `topics/chat-range-${STAMP}`;
-/** Where the agent worked: a worktree the land has already pruned. It never
- *  exists on disk here, which is exactly the state after the land. */
-const PRUNED_WORKTREE = `${PROJECT_PATH}-wt`;
+const WORKTREE_NAME = `chat-range-${STAMP}`;
+const BRANCH = `topics/${WORKTREE_NAME}`;
+/** Where the agent worked, laid out as `worktree-manager.ts` lays it out
+ *  (`<worktrees>/<slug>/<name>` on `topics/<name>`), and already pruned by the
+ *  land: it never exists on disk here. The delivery branch names it. */
+const PRUNED_WORKTREE = `${PROJECT_PATH}-worktrees/${WORKTREE_NAME}`;
 const FILE = 'src/a.ts';
 const SHOTS = 'test-results/chat-changed-files-task-range';
 
@@ -68,11 +70,18 @@ test.beforeAll(async ({ request }) => {
   git('add', '-A');
   git('commit', '-q', '-m', 'the delivery');
   git('checkout', '-q', 'main');
+  const delivered = git('rev-parse', BRANCH);
   git('merge', '--no-ff', '-q', '-m', `merge task ${taskId}: consegna atterrata`, BRANCH);
   git('branch', '-q', '-D', BRANCH);
 
   const bound = await request.post(`${E2E_BASE}/api/test/tasks/${taskId}/bind-topic`, { data: { topicId } });
   expect(bound.ok(), `bind-topic: ${bound.status()} ${await bound.text()}`).toBe(true);
+  // The delivery the review records: after the prune its branch is the only
+  // name left of the worktree the Write below points into.
+  const recorded = await request.post(`${E2E_BASE}/api/test/tasks/${taskId}/landing`, {
+    data: { branch: BRANCH, commit: delivered },
+  });
+  expect(recorded.ok(), `landing: ${recorded.status()} ${await recorded.text()}`).toBe(true);
 
   const list = await request.get(`${E2E_BASE}/api/topics`, { ignoreHTTPSErrors: true });
   const { topics } = (await list.json()) as { topics: Record<string, { sessionKey: string }> };

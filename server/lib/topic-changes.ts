@@ -19,15 +19,16 @@
  *
  * A topic a task was dispatched to is the exception: there the task's own diff
  * range decides the file set (`rangeChanges`), and the tool calls say how many
- * turns wrote each file. So is a topic bound to a live worktree no task owns,
- * with that worktree's own range.
+ * turns wrote each file. Only a task says whose a range is: a worktree with no
+ * task can hold a second topic's work (the sidebar opens new topics in it), so
+ * such a topic keeps its tool calls.
  */
 import { basename, dirname, isAbsolute, join, relative, resolve } from "path";
 import { existsSync, realpathSync } from "fs";
 import { parsePorcelainZ } from "./git-porcelain";
 import { parseNumstatZ, type Numstat } from "./git-numstat";
 import { gitDiffStat, runGitRead as git, type DiffStatEntry } from "./git-diff-stat";
-import { resolveTaskDiffRange, worktreeOwnRange } from "../services/task-diff-range";
+import { resolveTaskDiffRange } from "../services/task-diff-range";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
 import type { ToolCall } from "../../shared/types";
 import type { TopicChangeKind, TopicChangedFile, TopicChanges } from "../../shared/topic-changes";
@@ -144,16 +145,21 @@ const MAX_UNTRACKED_COUNTS = 50;
  * prefix, so a file the agent deleted still lands on the right side.
  */
 function canonicalPath(target: string): string {
+  const { real, gone } = splitAtDisk(target);
+  return gone.length ? join(real, ...gone) : real;
+}
+
+/** `target` cut where the disk ends: its longest existing prefix, symlinks resolved, and the segments under it that are gone. */
+function splitAtDisk(target: string): { real: string; gone: string[] } {
   let current = resolve(target);
-  const tail: string[] = [];
+  const gone: string[] = [];
   for (;;) {
     try {
-      const real = realpathSync(current);
-      return tail.length ? join(real, ...tail) : real;
+      return { real: realpathSync(current), gone };
     } catch {
       const parent = dirname(current);
-      if (parent === current) return resolve(target);
-      tail.unshift(basename(current));
+      if (parent === current) return { real: resolve(target), gone: [] };
+      gone.unshift(basename(current));
       current = parent;
     }
   }
@@ -186,50 +192,56 @@ function countsOf(stat: Numstat | undefined): Pick<TopicChangedFile, "added" | "
 }
 
 /**
- * The range path a tool call's path names, or `null`.
- *
- * Under `root`, the range's own tree, the path is read exactly. Under a folder
- * still on disk elsewhere it is that folder's file, not the range's: the shared
- * checkout an agent wrote by mistake, another repository with a
- * `package.json`. Folding those into the range's row of the same name hid the
- * write the strip listed before the range existed.
- *
- * Only a path whose folder is GONE is matched by suffix: a worktree the land
- * already pruned, which no root on disk can make relative. `/any/wt/src/a.ts`
- * is `src/a.ts`, the LONGEST range path it ends with, so a root-level `a.ts`
- * does not take it.
+ * The tree a task's tool calls wrote in: its worktree. A `path` while a
+ * worktree row still names it; after the land's prune the row is gone too, and
+ * only the folder's `name` is left, the one its branch `topics/<name>` was
+ * made from (`worktree-manager.ts`), which the review recorded as the delivery.
  */
-function rangePathOf(path: string, root: string, inRange: Map<string, unknown>): string | null {
-  const abs = canonicalPath(isAbsolute(path) ? path : resolve(root, path));
-  const rel = relative(root, abs);
-  if (rel && !rel.startsWith("..")) return inRange.has(rel) ? rel : null;
-  if (existsSync(dirname(abs))) return null;
-  const segments = abs.split(/[\\/]+/).filter((s) => s && s !== ".");
-  for (let i = 0; i < segments.length; i++) {
-    const candidate = segments.slice(i).join("/");
-    if (inRange.has(candidate)) return candidate;
+export type TaskTree = { path: string } | { name: string };
+
+/**
+ * A tool call's path relative to the task's tree, or `null` when it is not in
+ * that tree.
+ *
+ * With a path the tree is read exactly. With a name only, the path must run
+ * through a GONE folder of that name, and what follows it is the relative
+ * path, in full: `<wt>/docs/README.md` is `docs/README.md` and never the
+ * range's `README.md`. Anything else is not the task's tree, even when its
+ * relative path matches a range row: the shared checkout an agent wrote by
+ * mistake, a scratch folder deleted since, another repository's
+ * `package.json`. Folding those into a range row hid the write the strip
+ * listed before the range existed.
+ */
+function treePathOf(path: string, tree: TaskTree): string | null {
+  if ("path" in tree) {
+    const root = canonicalPath(tree.path);
+    const rel = relative(root, canonicalPath(isAbsolute(path) ? path : resolve(root, path)));
+    return rel && !rel.startsWith("..") ? rel : null;
   }
-  return null;
+  if (!isAbsolute(path)) return null;
+  const { gone } = splitAtDisk(path);
+  const at = gone.indexOf(tree.name);
+  return at >= 0 && at < gone.length - 1 ? gone.slice(at + 1).join("/") : null;
 }
 
 /**
- * The files of a diff range read in `root` (canonical), each with the turns
- * and the last write of the tool calls that name it. A file no tool call names (a shell command, a
- * sub-agent) has `turns: 0`. A tool call the range does not hold comes back in
- * `rest`: the range can be narrower than what the chat wrote (a live branch
- * whose commits another local branch also holds, an untracked file past the
- * cap), and dropping it would hide a file the strip listed before the range
- * existed.
+ * The files of a diff range, each with the turns and the last write of the
+ * tool calls that name it in the task's `tree`. A file no tool call names (a
+ * shell command, a sub-agent) has `turns: 0`. A tool call the range does not
+ * hold comes back in `rest`: the range can be narrower than what the chat
+ * wrote (a live branch whose commits another local branch also holds, an
+ * untracked file past the cap, a write outside the tree), and dropping it
+ * would hide a file the strip listed before the range existed.
  */
 export function rangeFiles(
   stat: DiffStatEntry[],
   touched: TouchedFile[],
-  root: string,
+  tree: TaskTree | null,
 ): { files: TopicChangedFile[]; rest: TouchedFile[] } {
   const writes = new Map(stat.map((s) => [s.path, { turns: 0, lastAt: "" }]));
   const rest: TouchedFile[] = [];
   for (const file of touched) {
-    const rel = rangePathOf(file.path, root, writes);
+    const rel = tree ? treePathOf(file.path, tree) : null;
     const seen = rel ? writes.get(rel) : undefined;
     if (!seen) {
       rest.push(file);
@@ -248,10 +260,9 @@ export function rangeFiles(
   return { files: files.sort(newestFirst), rest };
 }
 
-/** What the `/changes` route knows about a topic's task and worktree. */
+/** What the `/changes` route knows about the task dispatched to a topic. */
 export interface TopicRangeAnchors {
-  /** The task dispatched to the topic; `null` on a worktree topic no task owns. */
-  task: { id: string; deliveryBranch: string | null; deliveryCommit: string | null } | null;
+  task: { id: string; deliveryBranch: string | null; deliveryCommit: string | null };
   /** The topic's worktree row, while it still has one. */
   worktree: { absPath: string; mode: string; branchName: string | null } | null;
   /** The project's own checkout: where main, and so the land merge, lives. */
@@ -261,16 +272,14 @@ export interface TopicRangeAnchors {
 /**
  * A task topic's changes, read from the task's own diff range: the one the
  * drawer draws (`resolveTaskDiffRange`: the live worktree, then the land
- * merge, then the delivery commit). A worktree topic no task owns (a
- * sub-agent's, a fan-out attempt, a released card) has only the first anchor,
- * its live worktree.
+ * merge, then the delivery commit).
  *
  * Git owns the file set here because the tool calls got it wrong twice (review
  * of 23/09): once the worktree is pruned every tool call path points into a
  * folder that is gone (d6158ec6: 42 paths, 0 resolved), and a file a shell
  * command or a sub-agent wrote has no write tool call at all (e8e3b8bf: strip
- * 5, git 9). The tool calls the range does not hold keep the answer they had
- * without it. `null` = no range to read, and the tool calls answer as before.
+ * 5, git 9). The tool calls the range does not hold keep a row of their own.
+ * `null` = no range to read, and the tool calls answer as before.
  */
 async function rangeChanges(anchors: TopicRangeAnchors, touched: TouchedFile[]): Promise<TopicChanges | null> {
   const { task, worktree: wt } = anchors;
@@ -278,32 +287,40 @@ async function rangeChanges(anchors: TopicRangeAnchors, touched: TouchedFile[]):
   const live = wt && wt.mode === "branch" && wt.absPath && existsSync(wt.absPath)
     ? { cwd: wt.absPath, branch: wt.branchName }
     : null;
-  const range = task
-    ? await resolveTaskDiffRange({
-        taskId: task.id,
-        worktree: live,
-        repoPath: anchors.repoPath,
-        delivery: { branch: task.deliveryBranch, commit: task.deliveryCommit },
-      })
-    : live && (await worktreeOwnRange(live.cwd, { branch: live.branch }));
+  const range = await resolveTaskDiffRange({
+    taskId: task.id,
+    worktree: live,
+    repoPath: anchors.repoPath,
+    delivery: { branch: task.deliveryBranch, commit: task.deliveryCommit },
+  });
   if (!range) return null;
   const root = canonicalPath(range.cwd);
   const { stat } = await gitDiffStat(range.cwd, range.range, {
     includeUntracked: range.live,
     untrackedCap: MAX_UNTRACKED_COUNTS,
   });
-  const { files, rest } = rangeFiles(stat, touched, root);
+  const deliveredFrom = task.deliveryBranch?.split("/").pop();
+  const tree: TaskTree | null = wt?.absPath ? { path: wt.absPath } : deliveredFrom ? { name: deliveredFrom } : null;
+  const { files, rest } = rangeFiles(stat, touched, tree);
+  // The rest is asked of git only in the tree the range reads, the live
+  // worktree: a landed range reads the shared checkout, where `src/a.ts` of a
+  // wrong-tree write would come back as a second row named like the range's.
   const [outside, branch] = await Promise.all([
-    rest.length ? toolCallFiles(root, rest) : null,
-    live?.branch ?? wt?.branchName ?? task?.deliveryBranch ?? currentBranch(range.cwd),
+    !rest.length ? [] : range.live ? toolCallFiles(root, rest).then((r) => r.files) : rest.map(uncounted),
+    live?.branch ?? wt?.branchName ?? task.deliveryBranch ?? currentBranch(range.cwd),
   ]);
   // No `dirty`: the range does not ask which of its files are still
   // uncommitted, and nothing reads that number to pay a git call per turn.
   return {
-    files: outside ? [...files, ...outside.files].sort(newestFirst) : files,
+    files: outside.length ? [...files, ...outside].sort(newestFirst) : files,
     git: { root, branch },
-    ...(task ? { taskId: task.id } : {}),
+    taskId: task.id,
   };
+}
+
+/** A tool call's row as the call alone describes it: its own path, no counts. */
+function uncounted({ path, kind, turns, lastAt }: TouchedFile): TopicChangedFile {
+  return { path, kind, turns, lastAt };
 }
 
 /**
@@ -357,9 +374,7 @@ async function toolCallFiles(root: string, touched: TouchedFile[]): Promise<{ fi
       ...countsOf(stat),
     });
   }
-  for (const file of [...inside.slice(MAX_GIT_PATHS).map((f) => f.touched), ...outside]) {
-    files.push({ path: file.path, kind: file.kind, turns: file.turns, lastAt: file.lastAt });
-  }
+  for (const file of [...inside.slice(MAX_GIT_PATHS).map((f) => f.touched), ...outside]) files.push(uncounted(file));
   return { files, dirty: xyByPath.size };
 }
 
@@ -370,7 +385,7 @@ async function toolCallFiles(root: string, touched: TouchedFile[]): Promise<{ fi
  * `cwd` is the topic's worktree if it has one, its project folder otherwise.
  * Outside a repository (or without git at all) the answer is still useful: the
  * paths, the kinds the tool calls imply, and `git: null`. `anchors` is set on a
- * topic with a task or a worktree, and their range goes first.
+ * topic a task was dispatched to, and the task's range goes first.
  */
 export async function computeTopicChanges(
   cwd: string | null | undefined,
@@ -384,10 +399,7 @@ export async function computeTopicChanges(
     const fromRange = await rangeChanges(anchors, touched);
     if (fromRange) return fromRange;
   }
-  const plain = (): TopicChanges => ({
-    files: touched.map(({ path, kind, turns, lastAt }) => ({ path, kind, turns, lastAt })),
-    git: null,
-  });
+  const plain = (): TopicChanges => ({ files: touched.map(uncounted), git: null });
   if (!touched.length || !cwd) return plain();
 
   const root = await repoRoot(cwd);

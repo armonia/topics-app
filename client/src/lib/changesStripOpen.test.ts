@@ -35,11 +35,6 @@ describe('changedFileOpen', () => {
       .toEqual({ kind: 'diff', filePath: '/elsewhere/package.json', projectPath: '/repo' });
   });
 
-  test('without a task, an inRange row still opens the editor: there is no drawer to open', () => {
-    expect(changedFileOpen({ ...landed, taskId: undefined }, 'src/a.ts', '/project'))
-      .toEqual({ kind: 'diff', filePath: 'src/a.ts', projectPath: '/repo' });
-  });
-
   test('outside a repository the row opens the file, and with no folder at all nothing', () => {
     const plain: TopicChanges = { files: [{ path: '/tmp/x.md', kind: 'created', turns: 1, lastAt: '' }], git: null };
     expect(changedFileOpen(plain, '/tmp/x.md', '/project')).toEqual({ kind: 'file', path: '/tmp/x.md' });

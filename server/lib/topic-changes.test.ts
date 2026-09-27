@@ -167,13 +167,18 @@ describe("rangeFiles", () => {
     { path: "gone.ts", additions: 0, deletions: 4, status: "D" },
   ];
 
-  test("a pruned worktree's absolute path lands on the LONGEST range path it ends with", () => {
-    const scratch = { path: "/tmp/scratch/notes.md", kind: "created" as const, turns: 1, lastAt: "2026-01-01T12:00:00.000Z" };
+  test("a pruned worktree known by its name: the path after that gone folder, in full", () => {
+    const at = "2026-01-01T12:00:00.000Z";
+    // A draft never committed: `src/tmp/a.ts` is not the range's `a.ts`.
+    const draft = { path: "/gone/worktrees/p/wt/src/tmp/a.ts", kind: "created" as const, turns: 1, lastAt: at };
+    // Another gone folder whose file is named like a range row.
+    const scratch = { path: "/gone/scratch/a.ts", kind: "created" as const, turns: 1, lastAt: at };
     const { files, rest } = rangeFiles(stat, [
       { path: "/gone/worktrees/p/wt/src/a.ts", kind: "created", turns: 2, lastAt: "2026-01-01T11:00:00.000Z" },
       { path: "/gone/worktrees/p/wt/a.ts", kind: "modified", turns: 1, lastAt: "2026-01-01T10:00:00.000Z" },
+      draft,
       scratch,
-    ], "/gone/checkout");
+    ], { name: "wt" });
     expect(files).toEqual([
       { path: "src/a.ts", kind: "created", turns: 2, lastAt: "2026-01-01T11:00:00.000Z", added: 2, removed: 1, inRange: true },
       { path: "a.ts", kind: "modified", turns: 1, lastAt: "2026-01-01T10:00:00.000Z", added: 1, removed: 0, inRange: true },
@@ -181,7 +186,7 @@ describe("rangeFiles", () => {
       { path: "gone.ts", kind: "deleted", turns: 0, lastAt: "", added: 0, removed: 4, inRange: true },
     ]);
     // Not in the range is not "wrote nothing": the caller still lists it.
-    expect(rest).toEqual([scratch]);
+    expect(rest).toEqual([draft, scratch]);
   });
 
   test("a path under a tree still on disk is read in that tree: another checkout or repo keeps its own row", () => {
@@ -199,7 +204,7 @@ describe("rangeFiles", () => {
     // Inside the range's tree, a path is read exactly: `src/tmp/a.ts` is not `a.ts`.
     const deletedDir = { path: join(root, "src/tmp/a.ts"), kind: "created" as const, turns: 1, lastAt: at };
 
-    const { files, rest } = rangeFiles(stat, [inTree, wrongTree, otherRepo, deletedDir], root);
+    const { files, rest } = rangeFiles(stat, [inTree, wrongTree, otherRepo, deletedDir], { path: root });
     rmSync(base, { recursive: true, force: true });
 
     expect(files.find((f) => f.path === "src/a.ts")).toMatchObject({ turns: 1, inRange: true });

@@ -154,25 +154,67 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
     };
   }
 
-  function bindTask(ctx: Awaited<ReturnType<typeof createTestAppContext>>, taskId: string, topicId: string): void {
+  /** The task row the dispatcher writes, with the delivery the review records when there is one. */
+  function bindTask(
+    ctx: Awaited<ReturnType<typeof createTestAppContext>>,
+    taskId: string,
+    topicId: string,
+    delivery: { branch: string; commit: string } | null = null,
+  ): void {
     const nowIso = new Date().toISOString();
     ctx.db.prepare(
-      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, assigned_topic_id)
-       VALUES (?, 'proj-changes', ?, 'done', ?, ?, ?)`,
-    ).run(taskId, `Task ${taskId}`, nowIso, nowIso, topicId);
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, assigned_topic_id, delivery_branch, delivery_commit)
+       VALUES (?, 'proj-changes', ?, 'done', ?, ?, ?, ?, ?)`,
+    ).run(taskId, `Task ${taskId}`, nowIso, nowIso, topicId, delivery?.branch ?? null, delivery?.commit ?? null);
   }
 
-  test("landed and pruned: the files come from the land merge, repo-relative and counted, shell writes included", async () => {
+  /**
+   * A task worktree laid out as `worktree-manager.ts` lays it out: folder
+   * `<worktrees>/<slug>/<name>` on branch `topics/<name>`. After the prune that
+   * name is all that is left of it, through the delivery branch.
+   */
+  function taskWorktree(repo: string, label: string): { wt: string; branch: string } {
+    const name = `card-${label}`;
+    const wt = join(realpathSync(ROOT), `worktrees-${label}`, name);
+    const branch = `topics/${name}`;
+    git(repo, "worktree", "add", "-q", "-b", branch, wt);
+    return { wt, branch };
+  }
+
+  /** The land: `merge --no-ff` with the card's id in the subject, then worktree and branch pruned. */
+  function landAndPrune(repo: string, wt: string, branch: string, taskId: string): string {
+    const delivered = execFileSync("git", ["rev-parse", branch], { cwd: repo, encoding: "utf8" }).trim();
+    git(repo, "merge", "--no-ff", "-q", "-m", `merge task ${taskId}: landed`, branch);
+    git(repo, "worktree", "remove", "--force", wt);
+    git(repo, "branch", "-D", branch);
+    return delivered;
+  }
+
+  /** A topic in the project's checkout with the task bound to it: what a landed card's topic looks like once its worktree row is gone. */
+  async function landedTopic(repo: string, taskId: string, delivery: { branch: string; commit: string } | null) {
     const { createTopicsRouter } = await import("../../server/routes/topics");
     const ctx = await createTestAppContext();
     const router = createTopicsRouter(ctx);
+    const created = await call(router, "POST", "/api/topics", { name: `task-${taskId}` });
+    const { id } = (await created.json()) as { id: string };
+    await call(router, "PATCH", `/api/topics/${id}`, { projectPath: repo });
+    const topic = ctx.getTopicById(id)!;
+    bindTask(ctx, taskId, id, delivery);
+    const changes = async (): Promise<TopicChanges> => {
+      const res = await call(router, "GET", `/api/topics/${id}/changes`);
+      expect(res.status).toBe(200);
+      return (await res.json()) as TopicChanges;
+    };
+    return { ctx, topic, changes };
+  }
+
+  test("landed and pruned: the files come from the land merge, repo-relative and counted, shell writes included", async () => {
     const label = `landed-${Date.now()}`;
     const repo = makeRepo(label);
     const taskId = crypto.randomUUID();
 
     // The task works in its own worktree...
-    const wt = join(realpathSync(ROOT), `wt-${label}`);
-    git(repo, "worktree", "add", "-q", "-b", "topics/landed", wt);
+    const { wt, branch } = taskWorktree(repo, label);
     mkdirSync(join(wt, "src"), { recursive: true });
     mkdirSync(join(wt, "scripts"), { recursive: true });
     writeFileSync(join(wt, "src/a.ts"), "alpha\nbeta\n");
@@ -185,21 +227,12 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
     git(repo, "add", "-A");
     git(repo, "commit", "-qm", "somebody else");
     // ...then the land merges it and prunes worktree and branch.
-    git(repo, "merge", "--no-ff", "-q", "-m", `merge task ${taskId}: landed`, "topics/landed");
-    git(repo, "worktree", "remove", "--force", wt);
-    git(repo, "branch", "-D", "topics/landed");
+    const commit = landAndPrune(repo, wt, branch, taskId);
 
-    const created = await call(router, "POST", "/api/topics", { name: `task-${label}` });
-    const { id } = (await created.json()) as { id: string };
-    await call(router, "PATCH", `/api/topics/${id}`, { projectPath: repo });
-    const topic = ctx.getTopicById(id)!;
-    bindTask(ctx, taskId, id);
+    const { ctx, topic, changes } = await landedTopic(repo, taskId, { branch, commit });
     ctx.appendImportedMessages(topic.sessionKey, [turn(wt, "printf 'a\\nb\\nc\\n' > scripts/gen.sh")]);
 
-    const res = await call(router, "GET", `/api/topics/${id}/changes`);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as TopicChanges;
-
+    const body = await changes();
     expect(body.git?.root).toBe(repo);
     expect(body.files.map((f) => f.path).sort()).toEqual(["base.ts", "scripts/gen.sh", "src/a.ts"]);
     const byPath = Object.fromEntries(body.files.map((f) => [f.path, f]));
@@ -210,6 +243,73 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
     // these rows in the task's drawer, where that same range is drawn.
     expect(body.taskId).toBe(taskId);
     expect(body.files.every((f) => f.inRange)).toBe(true);
+  });
+
+  test("landed: only a path in the task's own pruned worktree joins a range row; the shared checkout and other gone folders keep theirs", async () => {
+    const label = `landed-anchor-${Date.now()}`;
+    const repo = makeRepo(label);
+    const taskId = crypto.randomUUID();
+    const { wt, branch } = taskWorktree(repo, label);
+    mkdirSync(join(wt, "src"), { recursive: true });
+    writeFileSync(join(wt, "src/a.ts"), "alpha\n");
+    writeFileSync(join(wt, "README.md"), "read me\n");
+    git(wt, "add", "-A");
+    git(wt, "commit", "-qm", "task work");
+    const commit = landAndPrune(repo, wt, branch, taskId);
+
+    const { ctx, topic, changes } = await landedTopic(repo, taskId, { branch, commit });
+    const inWorktree = join(wt, "src/a.ts");
+    // A draft in the worktree that never reached a commit: `docs/README.md` is
+    // not the range's `README.md`, however it ends.
+    const draft = join(wt, "docs/README.md");
+    // A scratch folder deleted since, and the agent writing the shared checkout
+    // instead of its worktree: neither is the task's tree.
+    const scratch = join(realpathSync(ROOT), `gone-scratch-${label}`, "README.md");
+    const wrongTree = join(repo, "src/a.ts");
+    ctx.appendImportedMessages(topic.sessionKey, [writeTurn(inWorktree, draft, scratch, wrongTree)]);
+
+    const body = await changes();
+    const byPath = Object.fromEntries(body.files.map((f) => [f.path, f]));
+    expect(Object.keys(byPath).sort()).toEqual([draft, scratch, wrongTree, "README.md", "src/a.ts"].sort());
+    expect(byPath["src/a.ts"]).toMatchObject({ turns: 1, added: 1, inRange: true });
+    expect(byPath["README.md"]).toMatchObject({ turns: 0, added: 1, inRange: true });
+    for (const own of [draft, scratch, wrongTree]) {
+      expect(byPath[own]).toMatchObject({ turns: 1 });
+      expect(byPath[own]!.inRange).toBeUndefined();
+    }
+  });
+
+  test("landed through an integration branch: the delivery commit finds the merge that brought it to main", async () => {
+    // No `merge task <id>` on main: the card went into `integra/*` with git's
+    // own merge subject, and main fast-forwarded to it. Only the delivery the
+    // review recorded says which merge is this card's.
+    const label = `landed-integra-${Date.now()}`;
+    const repo = makeRepo(label);
+    const taskId = crypto.randomUUID();
+    const { wt, branch } = taskWorktree(repo, label);
+    mkdirSync(join(wt, "src"), { recursive: true });
+    writeFileSync(join(wt, "src/a.ts"), "alpha\nbeta\n");
+    writeFileSync(join(wt, "shell.txt"), "x\ny\nz\n");
+    git(wt, "add", "-A");
+    git(wt, "commit", "-qm", "task work");
+    const commit = execFileSync("git", ["rev-parse", branch], { cwd: repo, encoding: "utf8" }).trim();
+    git(repo, "checkout", "-q", "-b", "integra/tornata");
+    git(repo, "merge", "--no-ff", "-q", "-m", `Merge branch '${branch}' into integra/tornata`, branch);
+    git(repo, "checkout", "-q", "main");
+    git(repo, "merge", "--ff-only", "-q", "integra/tornata");
+    git(repo, "worktree", "remove", "--force", wt);
+    git(repo, "branch", "-D", branch);
+
+    const { ctx, topic, changes } = await landedTopic(repo, taskId, { branch, commit });
+    // `shell.txt` has no write tool call: a shell command wrote it.
+    ctx.appendImportedMessages(topic.sessionKey, [writeTurn(join(wt, "src/a.ts"))]);
+
+    const body = await changes();
+    expect(body.taskId).toBe(taskId);
+    expect(body.files.map((f) => f.path).sort()).toEqual(["shell.txt", "src/a.ts"]);
+    const byPath = Object.fromEntries(body.files.map((f) => [f.path, f]));
+    expect(byPath["src/a.ts"]).toMatchObject({ kind: "created", added: 2, turns: 1, inRange: true });
+    expect(byPath["shell.txt"]).toMatchObject({ kind: "created", added: 3, turns: 0, inRange: true });
   });
 
   test("live worktree: committed, uncommitted and untracked files all come from the task's range", async () => {
@@ -277,7 +377,7 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
       expect(res.status).toBe(200);
       return (await res.json()) as TopicChanges;
     };
-    return { ctx, repo, wt, branch, topic, changes };
+    return { ctx, router, repo, wt, branch, topic, changes };
   }
 
   function writeTurn(...paths: string[]): StoredMessage {
@@ -362,24 +462,40 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
     expect(written).toMatchObject({ kind: "created", added: 3, removed: 0, turns: 1 });
   });
 
-  test("a worktree topic no task owns reads its own worktree's range: shell writes show up", async () => {
-    // A sub-agent's isolated worktree, a fan-out attempt, a card released
-    // back to the queue: the topic has a branch of its own and no task row.
-    const { ctx, wt, topic, changes } = await liveWorktreeTopic(`no-task-${Date.now()}`, false);
+  test("a worktree topic no task owns lists only its own tool calls: the worktree's range may be another topic's", async () => {
+    // The sidebar's «new topic in this worktree» binds a second topic to a
+    // worktree someone else is writing. Without a task nothing says whose the
+    // worktree's commits and untracked files are, so B, which only READ, must
+    // not list what A wrote, and A lists what its tool calls name.
+    const { ctx, router, wt, topic: a, changes: changesOfA } = await liveWorktreeTopic(`no-task-${Date.now()}`, false);
+    const created = await call(router, "POST", "/api/topics", { name: `b-${a.id}` });
+    const { id: b } = (await created.json()) as { id: string };
+    await call(router, "PATCH", `/api/topics/${b}`, { projectPath: a.projectPath, worktreeId: a.worktreeId });
     mkdirSync(join(wt, "src"), { recursive: true });
     writeFileSync(join(wt, "src/a.ts"), "alpha\nbeta\n");
     git(wt, "add", "-A");
-    git(wt, "commit", "-qm", "sub-agent work");
-    writeFileSync(join(wt, "notes.md"), "x\ny\n");
-    ctx.appendImportedMessages(topic.sessionKey, [writeTurn(join(wt, "src/a.ts"))]);
+    git(wt, "commit", "-qm", "A's work");
+    writeFileSync(join(wt, "scratch.md"), "A's notes\n");
+    ctx.appendImportedMessages(a.sessionKey, [writeTurn(join(wt, "src/a.ts"))]);
+    ctx.appendImportedMessages(ctx.getTopicById(b)!.sessionKey, [{
+      id: `m-${Date.now()}`,
+      role: "assistant",
+      content: "looked",
+      timestamp: new Date().toISOString(),
+      toolCalls: [{ id: "r1", name: "Read", args: {}, detail: { type: "read", filePath: join(wt, "base.ts") } }],
+    }]);
 
-    const body = await changes();
-    expect(body.git?.root).toBe(wt);
-    expect(body.files.map((f) => f.path).sort()).toEqual(["notes.md", "src/a.ts"]);
-    const byPath = Object.fromEntries(body.files.map((f) => [f.path, f]));
-    expect(byPath["src/a.ts"]).toMatchObject({ kind: "created", added: 2, removed: 0, turns: 1 });
-    expect(byPath["notes.md"]).toMatchObject({ kind: "created", added: 2, removed: 0, turns: 0 });
-    // No task, no drawer to open them in.
-    expect(body.taskId).toBeUndefined();
+    const res = await call(router, "GET", `/api/topics/${b}/changes`);
+    expect(await res.json()).toEqual({ files: [], git: null });
+
+    // A: its Write, read against the worktree's HEAD like any topic without a
+    // task. `src/a.ts` is committed, so no count: the editor's diff is empty too.
+    const own = await changesOfA();
+    expect(own.git?.root).toBe(wt);
+    expect(own.files).toEqual([expect.objectContaining({ path: "src/a.ts", turns: 1 })]);
+    expect(own.files[0]!.inRange).toBeUndefined();
+    expect(own.files[0]!.added).toBeUndefined();
+    expect(own.taskId).toBeUndefined();
   });
 });
+
