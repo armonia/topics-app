@@ -582,8 +582,9 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await page.goto("/");
 
     const panel = await openMenu(page);
-    // The menu says its subject, and says that nobody is signed in.
-    await expect(panel).toContainText("Account");
+    // The menu says its subject, and says that nobody is signed in. No
+    // standalone "Account" heading anymore (removed as a redundant duplicate
+    // of the name row above it) — the account-line row is the subject itself.
     await expect(panel.getByTestId("account-line")).toContainText("Nessun account");
 
     await panel.getByTestId("account-email").fill("qualcuno@example.test");
