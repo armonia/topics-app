@@ -232,6 +232,31 @@ describe('general automatic catalog and constraints', () => {
     expect(resolveDispatchTopicIdentity({ provider: plan.provider, model: plan.model, topicsRouting: true }, fleet).executor).toBe('topics');
   });
 
+  // The production catalogs name Haiku differently: the CLI by its alias, the
+  // engine by its dated id. Offering Claude Code targets only dropped the
+  // cheap tier the engine serves, and the classifier with it: Sonnet judged
+  // every Automatic dispatch with the switch ON.
+  test('Automatic with the Topics switch ON also offers the engine models no Claude Code target covers, unpinned', async () => {
+    const fleet = { defaultProvider: 'topics', providers: [
+      { name: 'claude-code', status: 'ready', models: ['claude-sonnet-5', 'claude-haiku-4-5'] },
+      { name: 'codex', status: 'ready', models: ['gpt-5.5'] },
+      { name: 'topics', status: 'ready', models: ['claude-sonnet-5', 'claude-haiku-4-5-20251001'] },
+    ] } as ProvidersSnapshot;
+    const calls: Array<{ judge: string; ballot: string[] }> = [];
+    const plan = await pickAutomaticTaskModel({ text: 'Fix a typo in the README' }, undefined, {
+      snapshot: fleet, topicsRouting: true,
+      codexModels: () => [{ ...models[1]!, slug: 'gpt-5.5' }],
+      getProvider: name => ({ connected: true, complete: async (messages: Array<{ content: string }>, options: CompletionOptions) => {
+        const catalog = JSON.parse(messages[0]!.content.split('Account catalog: ')[1]!.split('\nTask data')[0]!) as Array<{ provider: string; model: string }>;
+        calls.push({ judge: `${name}/${options.model}`, ballot: catalog.map(m => `${m.provider}/${m.model}`) });
+        return { content: '{"provider":"topics","model":"claude-haiku-4-5-20251001","effort":"low","weight":"light"}' };
+      } }) as unknown as AIProvider,
+    });
+    // Sonnet stays pinned to its Claude Code target; the engine adds only what no target covers.
+    expect(calls).toEqual([{ judge: 'topics/claude-haiku-4-5-20251001', ballot: ['claude-code/claude-sonnet-5', 'topics/claude-haiku-4-5-20251001'] }]);
+    expect(plan).toEqual({ model: 'claude-haiku-4-5-20251001', effort: 'low', weight: 'light' });
+  });
+
   test('an explicit Codex runtime with the Topics switch ON is refused with the routing reason', async () => {
     let classified = false;
     await expect(pickAutomaticTaskModel({ text: 'Task' }, 'codex:auto', {

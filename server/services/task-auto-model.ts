@@ -23,6 +23,11 @@ const CLAUDE_DESCRIPTIONS: Record<string, string> = {
   fable: 'Highest capability for the hardest reasoning and complex coding work.',
 };
 
+/** The engine lists Haiku by its dated id (`claude-haiku-4-5-20251001`), which
+ *  the family parser does not read: undescribed, the cheap tier was never the
+ *  classifier nor a candidate the classifier could tell apart. */
+const DATED_SUFFIX = /-\d{8}$/;
+
 /** Whether a runtime is one an unconstrained Auto may still pick: the default
  *  `() => false` is "nothing is held", so an absent predicate changes nothing. */
 type HeldCheck = (provider: string) => boolean;
@@ -36,7 +41,7 @@ export function automaticTaskModels(snapshot: ProvidersSnapshot | null, codexMod
     if (entry.name === 'codex') return codexModels.filter(model => entry.models.includes(model.slug)).map(model => ({ ...model, provider: entry.name }));
     if (!CLAUDE_TASK_RUNTIMES.has(entry.name)) return [];
     return entry.models.filter(model => model.startsWith('claude-')).map(slug => ({
-      slug, provider: entry.name, description: CLAUDE_DESCRIPTIONS[familyOf(slug) ?? ''] ?? 'Available Claude coding model.',
+      slug, provider: entry.name, description: CLAUDE_DESCRIPTIONS[familyOf(slug.replace(DATED_SUFFIX, '')) ?? ''] ?? 'Available Claude coding model.',
       defaultEffort: 'medium', efforts: [...EFFORT_TIERS],
     }));
   });
@@ -59,9 +64,10 @@ export function automaticTaskProvider(provider: string, model: string | undefine
  *  parked the card with "Topics routing cannot dispatch". The engine itself is
  *  the router, not a target: pinned on it, the card was stored as the legacy
  *  `topics:<model>` value and kept running native after the switch went OFF.
- *  So the targets it reaches come first, and its own catalog is the fallback
- *  when no Claude Code target is ready, picked with no pin. Only a legacy
- *  `topics:` selection, which already meant "run native", keeps the pin. */
+ *  So a model a Claude Code target reaches is offered on that target, and the
+ *  engine's own entries join, with no pin, for the models no target covers.
+ *  Only a legacy `topics:` selection, which already meant "run native", keeps
+ *  the pin. */
 export async function pickAutomaticTaskModel(
   task: { text: string; description?: string | null },
   selection: string | null | undefined,
@@ -90,7 +96,12 @@ export async function pickAutomaticTaskModel(
       && CLAUDE_TASK_RUNTIMES.has(p.name) && !isHeld(p.name));
     if (discovering) throw new TaskProviderPendingError(discovering.name);
   }
-  const models = viaEngine && targets.length ? targets : routable;
+  // The catalogs disagree on ids (the CLI lists Haiku by its alias, the engine
+  // by its dated id), so offering the targets alone dropped whole tiers the
+  // engine serves, and with Haiku the cheap classifier.
+  const models = viaEngine
+    ? [...targets, ...routable.filter(model => model.provider === 'topics' && !targets.some(target => target.slug === model.slug))]
+    : routable;
   // The switch emptied a catalog that had runtimes, so the engine is not
   // ready: the reason is the switch, not the effort. Without this the card
   // parked with "choose a compatible effort", which no effort fixes.
