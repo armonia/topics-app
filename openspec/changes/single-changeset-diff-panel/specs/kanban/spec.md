@@ -119,11 +119,34 @@ richiede il patch di quel solo file con tutto il file come contesto
 Le ancore delle note (`path`, `line`, `side`) SHALL restare valide fra le due
 viste: i numeri di riga sono quelli del file in entrambe.
 
+Un file rinominato o copiato SHALL chiedere il suo patch anche con il path
+vecchio (`&orig=<origPath>`, tenuto alle regole del path): git accoppia una
+rinomina solo fra i path che gli si mostrano, e con il solo path nuovo il file
+arriva «nuovo», tutto aggiunto e senza lato vecchio.
+
+Il tetto di 600 righe per file SHALL cedere quando oltre il tetto cade una nota
+del file o, in «File intero», il primo blocco cambiato: la vista si apre intera.
+
+«File intero» SHALL rileggersi quando il pacchetto riletto nomina altre
+revisioni o porta per quel file un blocco diverso (l'agente scrive ancora sul
+worktree vivo).
+
 #### Scenario: una nota sopravvive al cambio di vista
 - **GIVEN** una nota in sospeso sulla riga 40 del lato nuovo di `server/x.ts`
 - **WHEN** si accende «File intero»
 - **THEN** la nota compare sotto la riga 40, e le righe fuori dai blocchi
   cambiati compaiono senza colore
+
+#### Scenario: file rinominato e modificato
+- **GIVEN** una consegna che rinomina `docs/vecchio.txt` in `docs/nuovo.txt` e
+  cambia la riga 9
+- **WHEN** si accende «File intero»
+- **THEN** la riga 1 compare senza colore e la vecchia riga 9 c'e' come rimossa
+
+#### Scenario: nota oltre il tetto
+- **GIVEN** una nota sulla riga 1500 di un file di 2000 righe
+- **WHEN** si accende «File intero»
+- **THEN** la nota compare sotto la riga 1500 senza cliccare «mostra tutto»
 
 ### Requirement: DIFFPV-05 — La rotta dei byte serve solo cio' che il pannello nomina
 

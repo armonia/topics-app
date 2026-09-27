@@ -24,10 +24,12 @@
  *
  * Then the same panel shows a changed file as what it is (DIFFPV-02..05): a
  * picture as a Before/After pair read at the two revisions the bundle names,
- * a README rendered with its image read at the README's own revision, the
- * pair still right after the land, and a byte route that reads nothing the
- * bundle does not name.
- */import { test } from "./fixtures/layout.fixture";
+ * a README rendered with its image read at the README's own revision, a
+ * renamed text file read whole with its review note still on its row, the
+ * pair still right after the land even in a panel opened before it, and a
+ * byte route that reads nothing the bundle does not name.
+ */
+import { test } from "./fixtures/layout.fixture";
 import { projectRow } from "./helpers/project-row";
 import { expect, type Page } from "@playwright/test";
 import { createTopic, deleteTopic, deleteTask, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
@@ -91,6 +93,11 @@ function pngChunk(type: string, data: Buffer): Buffer {
   body.copy(out, 4);
   out.writeUInt32BE(cyclicCheck(body), 8 + data.length);
   return out;
+}
+
+/** Twelve numbered lines, the `changed` ones rewritten: the text file the images card renames. */
+function numberedLines(changed: number[] = []): string {
+  return Array.from({ length: 12 }, (_, i) => (changed.includes(i + 1) ? `riga ${i + 1} cambiata` : `riga ${i + 1}`)).join("\n") + "\n";
 }
 
 /** A real, decodable solid-colour PNG: its size in pixels is what the pair reports after loading it. */
@@ -166,6 +173,9 @@ test.describe.serial("Board · il pannello Modifiche", () => {
     mkdirSync(`${REPO}/assets`, { recursive: true });
     writeFileSync(`${REPO}/assets/logo.png`, png(1, 1, [30, 30, 200]));
     writeFileSync(`${REPO}/README.md`, "# Vecchio titolo\n");
+    // The text file the images card renames and changes on one line.
+    mkdirSync(`${REPO}/docs`, { recursive: true });
+    writeFileSync(`${REPO}/docs/vecchio.txt`, numberedLines());
     git(REPO, ["init", "-q", "-b", "main"]);
     git(REPO, ["add", "-A"]);
     git(REPO, ["commit", "-q", "-m", "init"]);
@@ -231,12 +241,15 @@ test.describe.serial("Board · il pannello Modifiche", () => {
     ({ taskId: landedTaskId, topicId: landedTopicId } = await makeTask("Card atterrata", wtL.id));
 
     // 5b. The IMAGES card, born from main: a picture changed and committed
-    //     (1x1 -> 3x2), a README that shows it, and a picture never committed.
+    //     (1x1 -> 3x2), a README that shows it, a text file renamed with its
+    //     line 9 changed, and a picture never committed.
     const wtI = await makeWorktree("main");
     imagesPath = wtI.absPath;
     imagesBranch = wtI.branchName;
     writeFileSync(`${wtI.absPath}/assets/logo.png`, png(3, 2, [200, 30, 30]));
     writeFileSync(`${wtI.absPath}/README.md`, "# Titolo della consegna\n\n![logo](assets/logo.png)\n");
+    git(wtI.absPath, ["mv", "docs/vecchio.txt", "docs/nuovo.txt"]);
+    writeFileSync(`${wtI.absPath}/docs/nuovo.txt`, numberedLines([9]));
     git(wtI.absPath, ["add", "-A"]);
     git(wtI.absPath, ["commit", "-q", "-m", "la consegna con le immagini"]);
     writeFileSync(`${wtI.absPath}/assets/nuovo.png`, png(2, 2, [30, 200, 30]));
@@ -335,9 +348,10 @@ test.describe.serial("Board · il pannello Modifiche", () => {
     await expect(drawer.getByRole("button", { name: /^Modifiche/ })).toHaveCount(0);
   });
 
-  test("CHANGES-04: a changed picture is a Before/After pair, and the README renders its image at the same revision", async ({ page }) => {
+  test("CHANGES-04: a changed picture is a Before/After pair, the README renders its image at the same revision, and a renamed file reads whole", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "DIFFPV-02" });
     test.info().annotations.push({ type: "spec", description: "DIFFPV-03" });
+    test.info().annotations.push({ type: "spec", description: "DIFFPV-04" });
     const bundle = await (await page.request.get(`${API}/boards/${PROJECT_ID}/tasks/${imagesTaskId}/diff`)).json() as {
       source: string; revs: { base: string; head: string | null };
     };
@@ -381,6 +395,45 @@ test.describe.serial("Board · il pannello Modifiche", () => {
     await expect(rendered.getByRole("heading", { level: 1, name: "Titolo della consegna" })).toBeVisible({ timeout: 10000 });
     await expect(rendered.locator("img")).toHaveAttribute("src", /file=assets%2Flogo\.png&blob=worktree/);
     await expect(rendered.locator("img")).toHaveJSProperty("naturalWidth", 3);
+
+    // The renamed text file opens on its hunk: line 1 is not in it.
+    const moved = panel.locator('[data-testid="diff-file"][data-path="docs/nuovo.txt"]');
+    await moved.getByRole("button", { name: /^nuovo\.txt/ }).click();
+    await expect(moved.locator('[data-anchor="new:9"]')).toContainText("+riga 9 cambiata");
+    await expect(moved.locator('[data-anchor="new:1"]')).toHaveCount(0);
+    await moved.getByRole("button", { name: "Commenta docs/nuovo.txt:9", exact: true }).click();
+    await panel.getByPlaceholder("Cosa non va in questa riga…").fill("Nota sulla riga 9");
+    await panel.getByRole("button", { name: "Aggiungi" }).click();
+    const noteUnder9 = moved.locator('[data-anchor="new:9"] + [data-testid="diff-note"]');
+    await expect(noteUnder9).toContainText("Nota sulla riga 9");
+
+    // "Full file" follows the rename: the rows outside the block are there and
+    // uncoloured, the old side of line 9 too, and the note is still under its row.
+    await moved.getByTestId("diff-view-full").click();
+    await expect(moved.locator('[data-anchor="new:1"]')).toContainText("riga 1", { timeout: 10000 });
+    await expect(moved.locator('[data-anchor="new:1"]')).not.toHaveClass(/emerald|red-/);
+    await expect(moved.locator('[data-anchor="old:9"]')).toContainText("-riga 9");
+    await expect(noteUnder9).toContainText("Nota sulla riga 9");
+
+    // And back on the diff, the same note on the same row.
+    await moved.getByTestId("diff-view-diff").click();
+    await expect(moved.locator('[data-anchor="new:1"]')).toHaveCount(0);
+    await expect(noteUnder9).toContainText("Nota sulla riga 9");
+    // Not left to the next test: a pending note opens the panel on its own.
+    await panel.getByRole("button", { name: "Scarta" }).click();
+    await expect(panel.getByTestId("diff-note")).toHaveCount(0);
+
+    // The agent keeps writing: once the drawer re-reads the bundle, "Full file"
+    // shows the new line too, not the file as it was first read.
+    await moved.getByTestId("diff-view-full").click();
+    await expect(moved.locator('[data-anchor="new:2"]')).not.toHaveClass(/emerald/);
+    writeFileSync(`${imagesPath}/docs/nuovo.txt`, numberedLines([2, 9]));
+    let bump = 0;
+    await expect.poll(async () => {
+      // A harmless PATCH moves the card's `updatedAt`, and the drawer re-reads its diff on it.
+      await page.request.patch(`${API}/boards/${PROJECT_ID}/tasks/${imagesTaskId}`, { data: { priority: (bump++ % 2) + 1 } });
+      return moved.locator('[data-anchor="new:2"]').textContent();
+    }, { timeout: 20_000, intervals: [500, 1000, 2000] }).toContain("+riga 2 cambiata");
   });
 
   test("CHANGES-06: the byte route reads only what the bundle names", async ({ request }) => {
@@ -415,10 +468,23 @@ test.describe.serial("Board · il pannello Modifiche", () => {
     expect(Buffer.compare(await png.body(), want)).toBe(0);
   });
 
-  test("CHANGES-05: after the land the pair reads from the merge's two SHAs", async ({ page }) => {
+  test("CHANGES-05: after the land the pair reads from the merge's two SHAs, even in a panel opened before it", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "DIFFPV-01" });
     test.info().annotations.push({ type: "spec", description: "DIFFPV-02" });
-    // The land: everything committed, merged on main under the card's name, worktree reaped.
+    test.info().annotations.push({ type: "spec", description: "DIFFPV-05" });
+    // The panel is opened on the live worktree: the new picture's After is the working tree.
+    await page.goto("/");
+    await openProjectBoard(page);
+    const drawer = await openTask(page, "Card con immagini");
+    const modifiche = drawer.getByRole("button", { name: /^Modifiche/ });
+    await modifiche.click();
+    const panel = page.getByTestId("task-changes-panel");
+    const fresh = panel.locator('[data-testid="diff-file"][data-path="assets/nuovo.png"]');
+    await fresh.getByRole("button", { name: /^nuovo\.png/ }).click();
+    await expect(fresh.getByTestId("diff-image-after")).toHaveAttribute("src", /blob=worktree/);
+
+    // The land, with the drawer still open: everything committed, merged on
+    // main under the card's name, worktree reaped.
     git(imagesPath!, ["add", "-A"]);
     git(imagesPath!, ["commit", "-q", "-m", "il resto della consegna"]);
     git(REPO, ["merge", "--no-ff", "-m", `merge task ${imagesTaskId}: Card con immagini`, imagesBranch!]);
@@ -428,16 +494,16 @@ test.describe.serial("Board · il pannello Modifiche", () => {
     const merge = git(REPO, ["rev-parse", "HEAD"]).trim();
     const parent = git(REPO, ["rev-parse", "HEAD^1"]).trim();
 
-    await page.goto("/");
-    await openProjectBoard(page);
-    const drawer = await openTask(page, "Card con immagini");
-    const modifiche = drawer.getByRole("button", { name: /^Modifiche/ });
-    await expect(modifiche).toContainText("dal merge su main", { timeout: 15000 });
-    await modifiche.click();
-    const logo = page.getByTestId("task-changes-panel").locator('[data-testid="diff-file"][data-path="assets/logo.png"]');
+    // A picture this page never asked for: the panel still holds the live
+    // bundle, so its After asks for `worktree`. The route answers 409 and the
+    // panel re-reads the bundle instead of leaving "preview unavailable".
+    const stale = page.waitForResponse((r) => r.url().includes("file=assets%2Flogo.png&blob=worktree") && r.status() === 409);
+    const logo = panel.locator('[data-testid="diff-file"][data-path="assets/logo.png"]');
     await logo.getByRole("button", { name: /^logo\.png/ }).click();
-    await expect(logo.getByTestId("diff-image-before")).toHaveAttribute("src", new RegExp(`blob=${parent}$`));
+    await stale;
+    await expect(logo.getByTestId("diff-image-before")).toHaveAttribute("src", new RegExp(`blob=${parent}$`), { timeout: 15000 });
     await expect(logo.getByTestId("diff-image-after")).toHaveAttribute("src", new RegExp(`blob=${merge}$`));
     await expect(logo.getByTestId("diff-image-after")).toHaveJSProperty("naturalWidth", 3);
+    await expect(modifiche).toContainText("dal merge su main");
   });
 });

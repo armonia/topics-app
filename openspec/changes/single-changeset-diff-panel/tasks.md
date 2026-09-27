@@ -36,11 +36,20 @@ Barra: il test nuovo di ogni task e' ROSSO sull'albero di oggi e verde dopo;
       coppia con `blob=<sha>` e `blob=worktree`, un solo Dopo per il nuovo,
       «binario» assente, «Anteprima» mostra un titolo reso e l'immagine del
       README alla stessa revisione.
-      `CHANGES-05` dopo il land: la coppia legge dagli SHA del merge.
+      Poi un `.txt` rinominato e cambiato: «File intero» mostra la riga 1 senza
+      colore e la vecchia riga 9, una nota resta sotto la riga 9 andata e
+      ritorno, e dopo un bump con il file cambiato «File intero» mostra la riga
+      nuova.
+      `CHANGES-05` il pannello si apre sul worktree vivo, poi il land a drawer
+      aperto: il primo byte chiesto prende `409`, il pacchetto si rilegge e la
+      coppia legge dagli SHA del merge.
       `CHANGES-06` la rotta dei byte: symlink uscente `404`, `../` `400`,
       revisione estranea `409`, `.env` `415`, PNG identico byte per byte.
 - [x] T10 `UnifiedDiff.test.tsx`: una nota in sospeso resta alla sua riga passando
-      a «File intero» e tornando indietro.
+      a «File intero» e tornando indietro; una nota o la modifica oltre la riga
+      600 si disegnano senza «mostra tutto». `diffPreview.test.ts`: `orig=` nel
+      patch per file, e il `409` rilegge il pacchetto sia per un'immagine sia per
+      un `.md` reso.
 - [ ] T11 Video `.webm` del giro E2E di `CHANGES-04` allegato alla consegna.
       Aperto: questo giro non poteva lanciare Playwright. Il video si ottiene con
       `E2E_EVIDENCE=1 E2E_VIDEO=1 bunx playwright test tests/e2e/board-task-changes-panel.spec.ts -g CHANGES-04`.
