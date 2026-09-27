@@ -1,72 +1,102 @@
 /**
- * THE THREAD RECONCILE OF AN OPEN PANE, between `topic:updated` and the read.
+ * THE THREAD RECONCILE OF AN OPEN PANE, from the frame on the socket to the read.
  *
- * A frame that says rows changed out of band (`threadChanged`) must reach
- * `loadHistory` as a `fresh` read, or the history dedup drops it in a window
- * that read the chat in the last 5 s: at boot, every window (card edf3c4db).
- * The reconcile is debounced per session, so the flag has to survive a plain
- * `topic:updated` arriving after it inside the debounce.
+ * A `topic:updated` that says rows changed out of band (`threadChanged`) must
+ * reach `loadHistory` as a `fresh` read, or the history dedup drops it in a
+ * window that read the chat in the last 5 s: at boot, every window (card
+ * edf3c4db). The reconcile is debounced per session, so the flag has to
+ * survive a plain `topic:updated` arriving after it inside the debounce.
+ *
+ * Driven through the subscription usePanelLifecycle installs (WS Cluster 1),
+ * with frames emitted on a fake `onWSMessage`.
  *
  * @covers INTERRUPT-01, RESUME-02
  */
 import { afterEach, beforeEach, describe, expect, jest, test } from 'bun:test';
-import { createThreadReconcile } from './threadReconcile';
+import { subscribeThreadReconcile } from './threadReconcile';
+import type { WSMessage } from '../types';
 
 const SK = 'topic:reconcile';
+const TOPIC = { id: 'reconcile-1', sessionKey: SK };
 
-function reconcileWith(opts: { ownStream?: boolean; streaming?: boolean } = {}) {
+function socket() {
+  const handlers = new Set<(msg: WSMessage) => void>();
+  return {
+    onWSMessage: (h: (msg: WSMessage) => void) => { handlers.add(h); return () => { handlers.delete(h); }; },
+    emit: (frame: Record<string, unknown>) => { for (const h of handlers) h(frame as unknown as WSMessage); },
+    get listeners() { return handlers.size; },
+  };
+}
+
+function paneWith(opts: { open?: boolean; ownStream?: boolean; streaming?: boolean } = {}) {
+  const ws = socket();
   const reads: Array<[string, { fresh?: boolean } | undefined]> = [];
-  const reconcile = createThreadReconcile({
+  const stop = subscribeThreadReconcile(ws.onWSMessage, {
+    isOpen: (id) => (opts.open ?? true) && id === TOPIC.id,
     isOwnStream: () => opts.ownStream ?? false,
     isSessionStreaming: () => opts.streaming ?? false,
     loadHistory: (sk, o) => { reads.push([sk, o]); },
   });
-  return { reconcile, reads };
+  return { ws, reads, stop };
 }
+
+const changed = { type: 'topic:updated', topic: TOPIC, threadChanged: true };
+const plain = { type: 'topic:updated', topic: TOPIC };
 
 describe('the reconcile of an open pane', () => {
   beforeEach(() => { jest.useFakeTimers(); });
   afterEach(() => { jest.useRealTimers(); });
 
   test('rows changed out of band: one read, past the dedup', () => {
-    const { reconcile, reads } = reconcileWith();
-    reconcile.request(SK, true);
+    const { ws, reads } = paneWith();
+    ws.emit(changed);
     jest.advanceTimersByTime(400);
     expect(reads).toEqual([[SK, { fresh: true }]]);
   });
 
   test('a plain frame inside the debounce does not drop the flag', () => {
-    const { reconcile, reads } = reconcileWith();
-    reconcile.request(SK, true);
+    const { ws, reads } = paneWith();
+    ws.emit(changed);
     jest.advanceTimersByTime(200);
-    reconcile.request(SK, false);
+    ws.emit(plain);
     jest.advanceTimersByTime(400);
     expect(reads).toEqual([[SK, { fresh: true }]]);
   });
 
   test('a plain frame is a plain read, one per burst', () => {
-    const { reconcile, reads } = reconcileWith();
-    reconcile.request(SK, false);
-    reconcile.request(SK, false);
+    const { ws, reads } = paneWith();
+    ws.emit(plain);
+    ws.emit(plain);
     jest.advanceTimersByTime(400);
     expect(reads).toEqual([[SK, undefined]]);
   });
 
+  test('a chat this window does not hold open, or another frame type, is not read', () => {
+    const closed = paneWith({ open: false });
+    closed.ws.emit(changed);
+    const open = paneWith();
+    open.ws.emit({ ...changed, type: 'topic:created' });
+    jest.advanceTimersByTime(400);
+    expect(closed.reads).toEqual([]);
+    expect(open.reads).toEqual([]);
+  });
+
   test("the window's own stream, or a turn streaming into it, is left to its frames", () => {
-    const own = reconcileWith({ ownStream: true });
-    own.reconcile.request(SK, true);
-    const live = reconcileWith({ streaming: true });
-    live.reconcile.request(SK, true);
+    const own = paneWith({ ownStream: true });
+    own.ws.emit(changed);
+    const live = paneWith({ streaming: true });
+    live.ws.emit(changed);
     jest.advanceTimersByTime(400);
     expect(own.reads).toEqual([]);
     expect(live.reads).toEqual([]);
   });
 
-  test('disposed: nothing pending fires', () => {
-    const { reconcile, reads } = reconcileWith();
-    reconcile.request(SK, true);
-    reconcile.dispose();
+  test('unsubscribed: nothing pending fires, and no handler is left on the socket', () => {
+    const { ws, reads, stop } = paneWith();
+    ws.emit(changed);
+    stop();
     jest.advanceTimersByTime(400);
     expect(reads).toEqual([]);
+    expect(ws.listeners).toBe(0);
   });
 });

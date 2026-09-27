@@ -42,7 +42,7 @@ import {
   type SetStateAction,
 } from 'react';
 import { getExtraTopicIds, subscribeExtraTopics, withExtraTopics } from '../state/topicSubscriptions';
-import { createThreadReconcile } from './threadReconcile';
+import { subscribeThreadReconcile } from './threadReconcile';
 import type { CreateTopicRequest, PaneType, PanelTab, TerminalSessionInfo, Topic, WSMessage } from '../types';
 import type { ChatStreamHandlers, TerminalOps } from './appHookTypes';
 import {
@@ -1195,26 +1195,22 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // in `openPanels`, and it was the one chat never reconciled (card 1fc3a9fa). `loadHistory` MERGES (server truth + local-only
   // messages), so it's safe/idempotent; it also early-returns while we're the
   // one streaming, and we skip our own live stream up front. Debounced per
-  // session so a finalize burst collapses to one fetch.
+  // session so a finalize burst collapses to one fetch (`subscribeThreadReconcile`).
   useEffect(() => {
-    const reconcile = createThreadReconcile({
-      isOwnStream: (sk) => chatHandlersRef.current.isOwnStream(sk),
-      isSessionStreaming: (sk) => chatHandlersRef.current.isSessionStreaming(sk),
-      loadHistory: (sk, opts) => chatHandlersRef.current.loadHistory(sk, opts),
-    });
     const unsub = onWSMessage((msg) => {
       if (msg.type === 'topic:archived' || msg.type === 'topic:updated' || msg.type === 'topic:created') {
         if (msg.topic) applyTopicFromWSRef.current(msg.topic);
       }
-      if (msg.type === 'topic:updated' && msg.topic?.sessionKey) {
-        const t = msg.topic;
-        if (!openPanelsRef.current.includes(t.id) && !getExtraTopicIds().includes(t.id)) return;
-        reconcile.request(t.sessionKey, msg.threadChanged === true);
-      }
+    });
+    const unsubReconcile = subscribeThreadReconcile(onWSMessage, {
+      isOpen: (id) => openPanelsRef.current.includes(id) || getExtraTopicIds().includes(id),
+      isOwnStream: (sk) => chatHandlersRef.current.isOwnStream(sk),
+      isSessionStreaming: (sk) => chatHandlersRef.current.isSessionStreaming(sk),
+      loadHistory: (sk, opts) => chatHandlersRef.current.loadHistory(sk, opts),
     });
     return () => {
       unsub();
-      reconcile.dispose();
+      unsubReconcile();
     };
   }, [onWSMessage, openPanelsRef, chatHandlersRef, applyTopicFromWSRef]);
 

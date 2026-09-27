@@ -11,7 +11,8 @@
  * already in flight, started before the write, swallowed it the same way.
  *
  * Driven through the real hook (`useChat` on the hook harness), with the
- * history route stubbed at `fetch`.
+ * history route stubbed at `fetch`; the last block starts from the frame, on
+ * the subscription an open pane installs (`subscribeThreadReconcile`).
  *
  * @covers INTERRUPT-01, RESUME-02
  */
@@ -19,8 +20,9 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:tes
 import * as React from 'react';
 import { mount } from '../test/reactHarness';
 import { useChat } from './useChat';
+import { subscribeThreadReconcile } from './threadReconcile';
 import { __setQueueStorage } from '../state/chatQueue';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, WSMessage } from '../types';
 
 class MemStorage {
   private m = new Map<string, string>();
@@ -158,6 +160,66 @@ describe('a row changed out of band, in a window that just read the thread', () 
 
     expect(d.last()?.partial).toBeFalsy();
     expect(cutOf(d.last())).toMatchObject({ kind: 'error', text: CUT });
+    d.unmount();
+  });
+});
+
+/**
+ * FROM THE FRAME. The pieces above, wired as an open pane wires them: the
+ * server's `topic:updated` lands on the socket, the pane's reconcile debounces
+ * it and asks `useChat` for the thread. Only the frame's `threadChanged` takes
+ * that read past the dedup; the same frame without it is the announcement the
+ * windows dropped.
+ */
+describe('from the frame on the socket, in a window that read the thread a moment ago', () => {
+  const TOPIC_ID = 'thread-changed-pane';
+  function openPane(d: ReturnType<typeof drive>) {
+    const handlers = new Set<(msg: WSMessage) => void>();
+    const stop = subscribeThreadReconcile((h) => { handlers.add(h); return () => { handlers.delete(h); }; }, {
+      isOpen: (id) => id === TOPIC_ID,
+      isOwnStream: (sk) => d.chat.isOwnStream(sk),
+      isSessionStreaming: (sk) => d.chat.isSessionStreaming(sk),
+      loadHistory: (sk, opts) => { void d.chat.loadHistory(sk, opts); },
+    });
+    const emit = (frame: Record<string, unknown>) => {
+      for (const h of handlers) h({ type: 'topic:updated', topic: { id: TOPIC_ID, sessionKey: d.sk }, ...frame } as unknown as WSMessage);
+    };
+    return { emit, stop };
+  }
+
+  /** Past the pane's 400 ms debounce, on real time: bun's fake timers also stop `settle`. */
+  const pastDebounce = () => new Promise<void>((r) => realSetTimeout(r, 450));
+
+  test('the thread-changed announcement closes the row and shows the cut, with no reload', async () => {
+    const d = drive();
+    const pane = openPane(d);
+    await d.chat.loadHistory(d.sk);
+    expect(d.last()?.partial).toBe(true);
+
+    serverRows = CLOSED;
+    pane.emit({ threadChanged: true });
+    await pastDebounce();
+    await settle();
+
+    expect(d.last()?.partial).toBeFalsy();
+    expect(cutOf(d.last())).toMatchObject({ kind: 'error', text: CUT });
+    pane.stop();
+    d.unmount();
+  });
+
+  test('the same frame without the flag falls in the dedup, and the row stays open', async () => {
+    const d = drive();
+    const pane = openPane(d);
+    await d.chat.loadHistory(d.sk);
+
+    serverRows = CLOSED;
+    pane.emit({});
+    await pastDebounce();
+    await settle();
+
+    expect(d.last()?.partial).toBe(true);
+    expect(cutOf(d.last())).toBeUndefined();
+    pane.stop();
     d.unmount();
   });
 });
