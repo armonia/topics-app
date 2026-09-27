@@ -276,6 +276,41 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     expect(h.task("switch").queueReason).toMatchObject({ kind: "resource_floor" });
   });
 
+  /**
+   * AN HOUR OF IT, with a person writing to the card every five minutes. The
+   * comment route calls `resume` with the words, so each comment is one more
+   * pass through the hold, between two retries. Card 0fcb7b87 asked for this
+   * count on the case it came from (89919742, a held resume in In progress).
+   */
+  it("an hour held with a comment every five minutes: one write on a steady floor, one a minute on a moving one", async () => {
+    const hour = async (readings: number[]) => {
+      const h = harness();
+      heldCard(h.db, "talked");
+      const t0 = Date.now();
+      const stamps = new Set<string>();
+      // 600 retries 6 s apart; a comment 3 s after every 50th, so its stamp is its own.
+      for (let retry = 0; retry < 600; retry++) {
+        setSystemTime(new Date(t0 + retry * 6_000));
+        h.floor.memGB = readings[retry % readings.length]!;
+        await h.dispatcher.resume("talked", "");
+        stamps.add(h.task("talked").updatedAt);
+        if (retry > 0 && retry % 50 === 0) {
+          setSystemTime(new Date(t0 + retry * 6_000 + 3_000));
+          const c = h.svc.addComment({ taskId: "talked", author: "user", content: `any news at minute ${retry / 10}?` });
+          await h.dispatcher.resume("talked", c.content, { commentIds: [c.id] });
+          stamps.add(h.task("talked").updatedAt);
+        }
+      }
+      expect(h.task("talked").status).toBe("in_progress");
+      expect(h.task("talked").queueReason).toMatchObject({ kind: "resource_floor" });
+      return { writes: h.writesOf("talked"), frames: h.framesOf("talked"), stamps: stamps.size };
+    };
+    // The first retry writes; after it only the eleven comments move the row.
+    expect(await hour([4.8])).toEqual({ writes: 1, frames: 1, stamps: 12 });
+    // Moving figures: the minute refresh (60 writes), plus the same eleven comments.
+    expect(await hour([4.2, 3.9, 3.5])).toEqual({ writes: 60, frames: 60, stamps: 71 });
+  });
+
   it("another writer rewrites the chip between two retries: the next retry puts the hold back", async () => {
     const h = harness();
     h.floor.memGB = 5.7;
