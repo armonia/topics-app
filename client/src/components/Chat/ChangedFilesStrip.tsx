@@ -31,7 +31,7 @@ import { ChangedFileList } from '../Git/ChangedFileList';
 import { rowFromTopicChange, type ChangedFileRow } from '../Git/changedFiles';
 import { branchLabelFor } from '../../lib/changesStripBranch';
 import { openTaskInApp } from '../../lib/openTaskLink';
-import { diffFocusFor } from '../Board/constants';
+import { changedFileOpen } from '../../lib/changesStripOpen';
 import { CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
 import type { Topic, WSMessage } from '../../types';
 
@@ -47,27 +47,25 @@ export function ChangedFilesStrip({ topic, onWSMessage }: ChangedFilesStripProps
   const [open, setOpen] = useState(false);
 
   const files = changes?.files;
-  const root = changes?.git?.root ?? topic.projectPath ?? '';
+  const projectPath = topic.projectPath ?? '';
   const branch = branchLabelFor(topic, changes?.git ?? null);
   // The strip speaks the wire shape of `/topics/:id/changes`; the list speaks
   // the one shape every surface draws (`Git/changedFiles`).
   const rows = useMemo(() => files?.map(rowFromTopicChange) ?? [], [files]);
-  const inRange = useMemo(() => new Set(files?.filter((f) => f.inRange).map((f) => f.path)), [files]);
-  const taskId = changes?.taskId;
 
   const openDiff = useCallback((file: ChangedFileRow) => {
-    if (taskId && inRange.has(file.path)) {
-      openTaskInApp({ taskId }, diffFocusFor(file.path));
+    const target = changedFileOpen(changes, file.path, projectPath);
+    if (!target) return;
+    if (target.kind === 'task') {
+      openTaskInApp({ taskId: target.taskId }, target.focusPaneId);
       return;
     }
-    if (!root) return;
     // Same bus the project's git panel uses (`components/Project/GitChanges`):
     // the diff opens as a pane in the editor, deduplicated by file path.
-    const event = changes?.git ? 'open-file-diff' : 'open-file';
-    window.dispatchEvent(new CustomEvent(event, changes?.git
-      ? { detail: { filePath: file.path, projectPath: root } }
-      : { detail: { path: file.path } }));
-  }, [changes, root, taskId, inRange]);
+    window.dispatchEvent(target.kind === 'diff'
+      ? new CustomEvent('open-file-diff', { detail: { filePath: target.filePath, projectPath: target.projectPath } })
+      : new CustomEvent('open-file', { detail: { path: target.path } }));
+  }, [changes, projectPath]);
 
   if (!rows.length) return null;
 
