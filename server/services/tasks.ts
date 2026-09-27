@@ -740,10 +740,11 @@ export interface TaskService {
    * The task dispatched to `topicId` (its `assigned_topic_id`) — the whole
    * handle the task-owned browser fork needs: id (→ the canonical
    * `task-<id8>-…` browser contextId), project, and text (→ the tab-inventory
-   * label). Same resolution as boardProjectForTopic (prefer non-archived, most
+   * label), plus the delivery the chat's changed-files strip anchors a pruned
+   * worktree's range on. Same resolution as boardProjectForTopic (prefer non-archived, most
    * recent). Null when the topic owns no task (a normal chat, not a dispatch).
    */
-  taskForTopic(topicId: string): { id: string; projectId: string; text: string } | null;
+  taskForTopic(topicId: string): { id: string; projectId: string; text: string; deliveryBranch: string | null; deliveryCommit: string | null } | null;
   /**
    * Resolve a task from the 8-char id prefix embedded in a `task-<id8>-…`
    * browser contextId → { id, text }, so the tab inventory can label it
@@ -4795,11 +4796,13 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     taskForTopic(topicId) {
       if (!topicId) return null;
       const r = db.prepare(
-        `SELECT id, project_id, text FROM tasks
+        `SELECT id, project_id, text, delivery_branch, delivery_commit FROM tasks
           WHERE assigned_topic_id = ?
           ORDER BY archived ASC, updated_at DESC LIMIT 1`,
       ).get(topicId) as any;
-      return r ? { id: r.id, projectId: r.project_id, text: r.text ?? "" } : null;
+      return r
+        ? { id: r.id, projectId: r.project_id, text: r.text ?? "", deliveryBranch: r.delivery_branch ?? null, deliveryCommit: r.delivery_commit ?? null }
+        : null;
     },
 
     taskByIdPrefix(id8) {

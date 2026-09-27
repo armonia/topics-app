@@ -653,7 +653,9 @@ describe("taskForTopic / taskByIdPrefix (task-owned browser fork)", () => {
     db.run("INSERT INTO topics (id) VALUES ('top-1')");
     const t = s.create({ projectId: PID, text: "build the thing", status: "in_progress" });
     db.prepare("UPDATE tasks SET assigned_topic_id = 'top-1' WHERE id = ?").run(t.id);
-    expect(s.taskForTopic("top-1")).toEqual({ id: t.id, projectId: PID, text: "build the thing" });
+    expect(s.taskForTopic("top-1")).toEqual({
+      id: t.id, projectId: PID, text: "build the thing", deliveryBranch: null, deliveryCommit: null,
+    });
     expect(s.taskForTopic("top-nope")).toBeNull();
     expect(s.taskForTopic("")).toBeNull();
   });

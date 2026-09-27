@@ -5,7 +5,8 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gitDiffBundle, numstatPath } from "./tasks";
+import { gitDiffBundle } from "./tasks";
+import { numstatPath } from "../lib/git-diff-stat";
 
 // gitDiffBundle drives a real `git` — these tests build a throwaway repo per case
 // and assert the untracked-inclusion contract that keeps new-file-only deliveries

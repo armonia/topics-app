@@ -15,7 +15,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { aggregateTouchedFiles, computeTopicChanges, refineKind } from "./topic-changes";
+import { aggregateTouchedFiles, computeTopicChanges, rangeFiles, refineKind } from "./topic-changes";
 import type { ToolCall } from "../../shared/types";
 
 function call(name: string, detail: ToolCall["detail"], extra: Partial<ToolCall> = {}): ToolCall {
@@ -156,6 +156,29 @@ describe("refineKind", () => {
   test("a file git does not mention keeps what the tool calls said", () => {
     expect(refineKind("created", null)).toBe("created");
     expect(refineKind("modified", null)).toBe("modified");
+  });
+});
+
+describe("rangeFiles", () => {
+  const stat = [
+    { path: "a.ts", additions: 1, deletions: 0, status: "M" },
+    { path: "src/a.ts", additions: 2, deletions: 1, status: "A" },
+    { path: "logo.png", additions: -1, deletions: -1, status: "A" },
+    { path: "gone.ts", additions: 0, deletions: 4, status: "D" },
+  ];
+
+  test("a pruned worktree's absolute path lands on the LONGEST range path it ends with", () => {
+    const files = rangeFiles(stat, [
+      { path: "/gone/worktrees/p/wt/src/a.ts", kind: "created", turns: 2, lastAt: "2026-01-01T11:00:00.000Z" },
+      { path: "/gone/worktrees/p/wt/a.ts", kind: "modified", turns: 1, lastAt: "2026-01-01T10:00:00.000Z" },
+      { path: "/tmp/scratch/notes.md", kind: "created", turns: 1, lastAt: "2026-01-01T12:00:00.000Z" },
+    ]);
+    expect(files).toEqual([
+      { path: "src/a.ts", kind: "created", turns: 2, lastAt: "2026-01-01T11:00:00.000Z", added: 2, removed: 1 },
+      { path: "a.ts", kind: "modified", turns: 1, lastAt: "2026-01-01T10:00:00.000Z", added: 1, removed: 0 },
+      { path: "logo.png", kind: "created", turns: 0, lastAt: "", added: 0, removed: 0, binary: true },
+      { path: "gone.ts", kind: "deleted", turns: 0, lastAt: "", added: 0, removed: 4 },
+    ]);
   });
 });
 
