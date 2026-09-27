@@ -35,7 +35,7 @@ import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISS
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
 import { daySpendSentence, heldResumeBlock, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
-import { effectiveTopicsRouting, taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
+import { effectiveTopicsRouting, reusedSessionRouteConflict, taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
 import {
   bookSessionCost,
   createSpendBrake,
@@ -850,6 +850,12 @@ const CHIP_DELIVERED = "delivered";
 //              (no worktree, project path unresolvable) → amber "da sistemare".
 const CHIP_FAILED = "failed";
 const CHIP_BLOCKED = "blocked";
+/** Why a dependent parks when its blocker's session runs on the other side of
+ *  the Topics routing switch (reusedSessionRouteConflict). */
+const REUSED_SESSION_ROUTE_REASON = {
+  engine: "This task has Topics routing off and asks for a direct run, but the previous session runs on the Topics engine. Turn off session reuse before starting the task.",
+  direct: "This task has Topics routing on, but the previous session runs directly on its provider, not through the Topics engine. Turn the switch off or turn off session reuse before starting the task.",
+} as const;
 // The agent DECLARED an external-condition wait (wait_for_condition): the task is
 // back in `todo`, its slot freed, and a deferral window keeps it out of the claim
 // until it elapses — then the tick re-dispatches it. It never produced output, so
@@ -2789,13 +2795,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const requested = taskModelSelection(requestedSelection);
       let chosenModel: string | undefined = requested.model;
       let chosenProvider: string | undefined = requested.provider;
+      const reusedSession = reuseTopicId ? deps.topicModelSelection?.(reuseTopicId) : null;
       if (reuseTopicId && (chosenModel || deps.topicModelSelection)
-        && !taskModelMatchesSession(requestedSelection, deps.topicModelSelection?.(reuseTopicId))) {
+        && !taskModelMatchesSession(requestedSelection, reusedSession, settings.topicsRouting)) {
+        // The reused topic keeps its own switch: when the model matches, the
+        // route is what differs, and the reason names it.
+        const route = reusedSessionRouteConflict(requestedSelection, reusedSession, settings.topicsRouting);
         releaseAndEmit({
           taskId, requeue: false, parkState: CHIP_BLOCKED,
-          reason: chosenModel
-            ? "Il modello scelto per questo task non coincide con la sessione precedente. Disattiva il riuso della sessione o scegli lo stesso modello prima di avviare il task."
-            : "La sessione precedente non è disponibile come agente di coding. Disattiva il riuso della sessione prima di avviare il task.",
+          reason: route && (!chosenModel || chosenModel === reusedSession?.model)
+            ? REUSED_SESSION_ROUTE_REASON[route]
+            : chosenModel
+              ? "Il modello scelto per questo task non coincide con la sessione precedente. Disattiva il riuso della sessione o scegli lo stesso modello prima di avviare il task."
+              : "La sessione precedente non è disponibile come agente di coding. Disattiva il riuso della sessione prima di avviare il task.",
         });
         return;
       }

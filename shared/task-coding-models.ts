@@ -239,23 +239,45 @@ export function taskProviderForModel(
   throw new Error('No coding agent is available. Connect Topics, Claude Code or Codex in Settings before starting the task.');
 }
 
-/** A reused conversation must be a coding runtime and honor an explicit model.
- * A session bound to the engine with the switch ON (`provider: 'topics'`, no
- * runtime pinned) is a Claude Code session the engine routes, so an explicit
- * Claude Code target with its model continues it. With the switch OFF the
- * engine is the runtime itself, not a route to Claude Code: continuing it would
- * run on the engine a card that asks for Claude Code directly. The dependent's
- * own switch does not enter: a reused topic keeps its routing, as one pinned to
- * Claude Code always did. */
+/** Where a reused session runs, against where a dependent naming a provider
+ * asks to run (S1, S3). The turn goes on the reused topic, whose own switch
+ * decides who executes it: the engine for a session with the switch ON or bound
+ * to the engine itself, the pinned provider directly otherwise. An explicit
+ * provider asks for the engine with the switch ON and for a direct run with it
+ * OFF. Automatic and a bare model name no provider, so they take the session as
+ * it runs. Returns the side the session runs on when it is not the one asked
+ * for: continuing it there would make the dependent's switch a silent no-op. */
+export function reusedSessionRouteConflict(
+  value: string | null | undefined,
+  session: { provider?: string | null; topicsRouting?: boolean | null } | null | undefined,
+  topicsRouting: boolean | null | undefined,
+): 'engine' | 'direct' | null {
+  const selected = taskModelSelection(value);
+  if (!session || !selected.provider) return null;
+  const sessionOnEngine = !!session.topicsRouting || session.provider === 'topics';
+  const taskOnEngine = effectiveTopicsRouting(topicsRouting, value) || selected.provider === 'topics';
+  if (sessionOnEngine === taskOnEngine) return null;
+  return sessionOnEngine ? 'engine' : 'direct';
+}
+
+/** A reused conversation must be a coding runtime, honor an explicit model and
+ * run on the route an explicit provider asks for (`topicsRouting` is the
+ * dependent's effective switch; see reusedSessionRouteConflict). A session
+ * bound to the engine with the switch ON (`provider: 'topics'`, no runtime
+ * pinned) is a Claude Code session the engine routes, so an explicit Claude
+ * Code target with its model and the switch ON continues it. With the switch
+ * OFF the engine is the runtime itself, not a route to Claude Code. */
 export function taskModelMatchesSession(
   value: string | null | undefined,
   session?: { provider?: string | null; model?: string | null; topicsRouting?: boolean | null } | null,
+  topicsRouting?: boolean | null,
 ): boolean {
   const selected = taskModelSelection(value);
   if (!session) return false;
   const provider = session.provider === 'claude-code-team' ? 'claude-code' : session.provider;
   if (!provider || (provider !== 'codex' && !CLAUDE_CODING_PROVIDERS.includes(provider))) return false;
   if (!selected.model && !selected.provider) return true;
+  if (reusedSessionRouteConflict(value, session, topicsRouting)) return false;
   if (selected.provider === 'codex') {
     return provider === 'codex' && (!selected.model || selected.model === session.model);
   }

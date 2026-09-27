@@ -288,91 +288,89 @@ describe("A card on the engine with no pinned runtime stays behind Claude's wall
   });
 });
 
-// A dependent that names Claude Code with the same model continues its
-// blocker's session, which keeps its own routing: the engine runs it with the
-// switch ON whether a runtime is pinned (Automatic picked Claude Code) or not
-// (a plain model reads back as the engine). The gate judges the model, so the
-// dependent's own switch changes nothing, pinned or not; parking the unpinned
-// case alone blamed "a different model" for a model that matched.
-describe("A dependent naming Claude Code reuses a session the engine runs", () => {
-  async function reuseEngineSession(blockerModel: string | null, dependentRouting: 0 | null) {
-    const fleet = { defaultProvider: "claude-code", providers: [entry("claude-code", CLAUDE_MODELS), entry("topics", CLAUDE_MODELS)] } as unknown as ProvidersSnapshot;
-    const h = harness(fleet);
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchTopicsRouting: true });
+// A dependent that reuses its blocker's session continues that topic as it
+// runs: the topic's own switch decides who executes the turn. An explicit
+// provider asks for a route of its own (ON: through the engine, S1; OFF:
+// directly on that provider, S3), so the dependent continues the session only
+// when it runs the way the dependent asks. Otherwise the dependent's switch
+// would be a silent no-op, and the card parks naming the route, not the model,
+// which matches. The fleet is production's: the engine is the default runtime
+// (DEFAULT_AGENT_RUNTIME), so with the switch OFF a plain model runs there
+// directly too.
+describe("A dependent naming a provider continues its blocker's session only on the route it asks for", () => {
+  const productionFleet = () => ({
+    defaultProvider: "topics",
+    providers: [entry("claude-code", CLAUDE_MODELS), entry("codex", ["gpt-5.5"]), entry("topics", CLAUDE_MODELS)],
+  }) as unknown as ProvidersSnapshot;
+  const SESSION_ON_ENGINE = "This task has Topics routing off and asks for a direct run, but the previous session runs on the Topics engine. Turn off session reuse before starting the task.";
+  const SESSION_DIRECT = "This task has Topics routing on, but the previous session runs directly on its provider, not through the Topics engine. Turn the switch off or turn off session reuse before starting the task.";
+  const DEPENDENT = "claude-code:claude-sonnet-5";
+
+  type Routing = 0 | 1 | null;
+  async function reuseBlockerSession(board: boolean | null, blocker: [string, Routing], dependent: Routing) {
+    const h = harness(productionFleet());
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, ...(board === null ? {} : { dispatchTopicsRouting: board }) });
     h.svc.setGlobalCap({ auto: false, max: 5 });
     const ts = new Date().toISOString();
     h.db.run(
       `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, topics_routing)
-       VALUES ('t1', ?, 'blocker', 'todo', ?, ?, 0, ?, NULL)`,
-      [PID, ts, ts, blockerModel],
+       VALUES ('t1', ?, 'blocker', 'todo', ?, ?, 0, ?, ?)`,
+      [PID, ts, ts, blocker[0], blocker[1]],
     );
     await h.dispatcher.tick(PID);
     await flush();
     expect(h.topics).toHaveLength(1);
-    expect(h.topics[0]).toMatchObject({ model: "claude-sonnet-5", topicsRouting: true, executor: "topics" });
     h.db.run("UPDATE tasks SET status = 'done' WHERE id = 't1'");
     h.db.run(
       `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, topics_routing, blocked_by_task_id, reuse_blocker_context)
-       VALUES ('t2', ?, 'dependent', 'todo', ?, ?, 0, 'claude-code:claude-sonnet-5', ?, 't1', 1)`,
-      [PID, ts, ts, dependentRouting],
+       VALUES ('t2', ?, 'dependent', 'todo', ?, ?, 0, ?, ?, 't1', 1)`,
+      [PID, ts, ts, DEPENDENT, dependent],
     );
     await h.dispatcher.tick(PID);
     await flush();
-    return h;
+    return { h, session: h.topics[0]!, dependent: h.svc.get("t2")!.task };
   }
 
-  const blockers = {
-    // Automatic with the switch ON pins the Claude Code target it picked.
-    "pinned to Claude Code": { model: null, provider: "claude-code" },
-    "pinned to no runtime": { model: "claude-sonnet-5", provider: undefined },
-  };
-  for (const [blocker, { model, provider }] of Object.entries(blockers)) {
-    for (const [dependent, routing] of [["the switch ON", null], ["switched OFF", 0]] as const) {
-      it(`blocker ${blocker}, dependent ${dependent}: the dependent starts on the blocker's session`, async () => {
-        const h = await reuseEngineSession(model, routing);
-        expect(h.topics[0]!.provider).toBe(provider);
-        const task = h.svc.get("t2")!.task;
-        expect(task.dispatchError ?? null).toBeNull();
-        expect(task).toMatchObject({ status: "in_progress", dispatchState: "working" });
-        expect(h.topics).toHaveLength(1);
+  const onEngine = { executor: "topics", model: "claude-sonnet-5" };
+  const cases: Array<{ name: string; board: boolean | null; blocker: [string, Routing]; session: Partial<DispatchTopicIdentity> & { provider: string | undefined }; dependent: Routing; reason: string | null }> = [
+    // The dependent asks for a direct Claude Code run: every session the engine runs is another route.
+    { name: "a plain model with the board ON, pinned to no runtime; the dependent switched OFF",
+      board: true, blocker: ["claude-sonnet-5", null], session: { ...onEngine, topicsRouting: true, provider: undefined }, dependent: 0, reason: SESSION_ON_ENGINE },
+    { name: "a legacy topics: value, ON by its prefix; the dependent switched OFF",
+      board: null, blocker: ["topics:claude-sonnet-5", null], session: { ...onEngine, topicsRouting: true, provider: "topics" }, dependent: 0, reason: SESSION_ON_ENGINE },
+    { name: "the board OFF and only the blocker ON; the dependent inherits OFF",
+      board: false, blocker: ["claude-sonnet-5", 1], session: { ...onEngine, topicsRouting: true, provider: undefined }, dependent: null, reason: SESSION_ON_ENGINE },
+    { name: "Claude Code pinned with the switch ON; the dependent switched OFF",
+      board: true, blocker: [DEPENDENT, null], session: { ...onEngine, topicsRouting: true, provider: "claude-code" }, dependent: 0, reason: SESSION_ON_ENGINE },
+    { name: "a plain model with the switch OFF, run by the engine directly; the dependent switched OFF",
+      board: false, blocker: ["claude-sonnet-5", 0], session: { ...onEngine, topicsRouting: false, provider: "topics" }, dependent: 0, reason: SESSION_ON_ENGINE },
+    // The dependent asks for the engine: a session Claude Code runs directly is another route.
+    { name: "Claude Code with the switch OFF, run directly; the dependent switched ON",
+      board: false, blocker: [DEPENDENT, 0], session: { executor: "claude-code", model: "claude-sonnet-5", topicsRouting: false, provider: "claude-code" }, dependent: 1, reason: SESSION_DIRECT },
+    // Same route: the dependent continues the session.
+    { name: "a plain model with the board ON, pinned to no runtime; the dependent ON",
+      board: true, blocker: ["claude-sonnet-5", null], session: { ...onEngine, topicsRouting: true, provider: undefined }, dependent: null, reason: null },
+    { name: "Claude Code pinned with the switch ON; the dependent ON",
+      board: true, blocker: [DEPENDENT, null], session: { ...onEngine, topicsRouting: true, provider: "claude-code" }, dependent: null, reason: null },
+    { name: "Claude Code with the switch OFF, run directly; the dependent OFF",
+      board: false, blocker: [DEPENDENT, 0], session: { executor: "claude-code", model: "claude-sonnet-5", topicsRouting: false, provider: "claude-code" }, dependent: null, reason: null },
+  ];
+
+  for (const c of cases) {
+    it(`${c.name}: ${c.reason ? "the dependent parks with the route's reason" : "the dependent starts on the blocker's session"}`, async () => {
+      const { h, session, dependent } = await reuseBlockerSession(c.board, c.blocker, c.dependent);
+      const { provider, ...route } = c.session;
+      expect(session).toMatchObject(route);
+      expect(session.provider).toBe(provider);
+      if (c.reason) {
+        expect(dependent).toMatchObject({ status: "backlog", dispatchState: "blocked", dispatchError: c.reason });
+        expect(h.turnEnds).toHaveLength(1);
+      } else {
+        expect(dependent.dispatchError ?? null).toBeNull();
+        expect(dependent).toMatchObject({ status: "in_progress", dispatchState: "working", assignedTopicId: "topic-1" });
         expect(h.turnEnds).toHaveLength(2);
-      });
-    }
+      }
+      expect(h.topics).toHaveLength(1);
+    });
   }
-});
-
-// The engine is the production default runtime, so with the switch OFF a plain
-// model pins its topic to the engine and runs there directly. That session is
-// not a Claude Code one: a dependent that names Claude Code with the switch OFF
-// asks for a direct Claude Code run (S3), and continuing the engine's session
-// would run it on the engine while the card says Claude Code.
-describe("A dependent naming Claude Code with the switch OFF does not continue the engine's own session", () => {
-  it("the blocker pinned to the engine with the switch OFF: the dependent parks with the reason", async () => {
-    const fleet = { defaultProvider: "topics", providers: [entry("claude-code", CLAUDE_MODELS), entry("codex", ["gpt-5.5"]), entry("topics", CLAUDE_MODELS)] } as unknown as ProvidersSnapshot;
-    const h = harness(fleet);
-    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchTopicsRouting: false });
-    h.svc.setGlobalCap({ auto: false, max: 5 });
-    const ts = new Date().toISOString();
-    h.db.run(
-      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, topics_routing)
-       VALUES ('t1', ?, 'blocker', 'todo', ?, ?, 0, 'claude-sonnet-5', 0)`,
-      [PID, ts, ts],
-    );
-    await h.dispatcher.tick(PID);
-    await flush();
-    expect(h.topics).toEqual([{ provider: "topics", model: "claude-sonnet-5", topicsRouting: false, executor: "topics" }]);
-    h.db.run("UPDATE tasks SET status = 'done' WHERE id = 't1'");
-    h.db.run(
-      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, topics_routing, blocked_by_task_id, reuse_blocker_context)
-       VALUES ('t2', ?, 'dependent', 'todo', ?, ?, 0, 'claude-code:claude-sonnet-5', 0, 't1', 1)`,
-      [PID, ts, ts],
-    );
-    await h.dispatcher.tick(PID);
-    await flush();
-    const dependent = h.svc.get("t2")!.task;
-    expect(dependent).toMatchObject({ status: "backlog", dispatchState: "blocked" });
-    expect(dependent.dispatchError).toContain("non coincide con la sessione precedente");
-    expect(h.topics).toHaveLength(1);
-    expect(h.turnEnds).toHaveLength(1);
-  });
 });
