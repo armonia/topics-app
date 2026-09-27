@@ -237,7 +237,7 @@ describe('general automatic catalog and constraints', () => {
     await expect(pickAutomaticTaskModel({ text: 'Task' }, 'codex:auto', {
       snapshot, topicsRouting: true, codexModels: () => models,
       getProvider: () => { classified = true; return undefined; },
-    })).rejects.toThrow(TopicsRoutingUnavailableError);
+    })).rejects.toThrow(new TopicsRoutingUnavailableError('codex', null).message);
     expect(classified).toBe(false);
   });
 
