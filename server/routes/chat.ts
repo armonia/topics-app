@@ -1170,15 +1170,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             save: (force) => persistTurnBody(true, force),
             broadcast: (frame) => broadcastStreamToTopic(frame, matchedTopic?.id),
             finalText: (message) => extractFinalText(message),
-            onOpen: () => { releaseLateFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush()); },
+            onOpen: () => { releaseLateFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush(), { patchTool: updateBlockTool }); },
             onClose: () => { releaseLateFlush?.(); },
           });
-          // THE ROW, FOR WHOEVER READS IT INSTEAD OF THE STREAM. The outbound
-          // gate looks for the tool that is waiting in the last persisted row,
-          // and the throttle above can still owe that write for up to fifteen
-          // seconds: a confirmation would find no row and refuse a send nobody
-          // had a chance to see. Published here, taken down with the turn.
-          const releaseTurnBodyFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush(), { rowId: () => partialMsg.id, stop: () => turnBody.stop() });
+          // THE ROW, FOR WHOEVER READS IT INSTEAD OF THE STREAM: the outbound
+          // gate reads the waiting tool from a row the throttle can owe for
+          // fifteen seconds. And THE TIMELINE, for a route that writes a tool
+          // (the person's answer): the turn's next write is made from it.
+          // Published here, taken down with the turn: lib/turn-body-flush.ts.
+          const releaseTurnBodyFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush(), { rowId: () => partialMsg.id, stop: () => turnBody.stop(), patchTool: (id, patch) => updateBlockTool(id, patch) });
           // A turn already finalized has no write budget left to save: whatever
           // still arrives (a tool result that came back after the end) is
           // written NOW. Deferring it would leave the row without it until an
