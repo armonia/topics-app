@@ -82,6 +82,9 @@ describe("backgroundStatusRows", () => {
     expect(rows[0].tasks).toEqual([]);
   });
 
+  // Pre-existing behaviour (PR #141), not BGVIS-04: it passes on the tree
+  // before the task list too. Kept as the guard that naming the tasks did not
+  // give a session with a turn open a second, background row.
   test("a session with a turn open is the turn's row, not a background one", () => {
     childWithWork("topic:bg-open", [["d4", { type: "local_agent", description: "Monitor deploy" }]]);
     expect(backgroundStatusRows([{ sessionKey: "topic:bg-open" }], topicOf)).toEqual([]);
