@@ -21,9 +21,7 @@ import { closeDatabase, getDatabase } from "./db";
 import { createAppContext } from "./utils";
 import { createTopicsRouter } from "./routes/topics";
 import { RESTART_INTERRUPTED_MARKER, runBootPartialSweep } from "./lib/boot-partial-sweep";
-import { bonificaTurniMuti } from "./lib/verdetto-turno-interrotto";
-import { finalizeOrphanTool } from "./lib/orphan-tool-sweep";
-import { decodeCol, encodeCol } from "../shared/message-blob";
+import { finalizeOrphanedRunningTools } from "./lib/boot-orphan-tools";
 import { callReadChatMessages, callSendChatMessage, RESTART_NOTICE_OPENING } from "./mcp/topics-mcp-server";
 import type { AppContext, Topic } from "./types";
 
@@ -83,14 +81,8 @@ function serverThatDiesAndBoots(tid: string, rowId: string, downReads: number): 
         booted = true;
         const db = getDatabase();
         runBootPartialSweep(db as never, { listConfirmed: true, liveSessions: new Set() });
-        // Pass 1 of finalizeOrphanedRunningTools (server.ts): a dead child's running tools are closed as interrupted.
-        for (const r of db.query("SELECT id, tool_calls, blocks FROM messages WHERE partial = 0 AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)").all() as Array<{ id: string; tool_calls: unknown; blocks: unknown }>) {
-          let tc = decodeCol(r.tool_calls), bl = decodeCol(r.blocks), changed = false;
-          if (tc) { const a = JSON.parse(tc); for (const t of a) if (finalizeOrphanTool(t, { childAlive: false, now: Date.now() })) changed = true; tc = JSON.stringify(a); }
-          if (bl) { const a = JSON.parse(bl); for (const b of a) if (b?.kind === "tool" && finalizeOrphanTool(b.toolCall, { childAlive: false, now: Date.now() })) changed = true; bl = JSON.stringify(a); }
-          if (changed) db.run("UPDATE messages SET tool_calls = ?, blocks = ? WHERE id = ?", [encodeCol(tc) ?? null, encodeCol(bl) ?? null, r.id]);
-        }
-        bonificaTurniMuti(db as never, "Turno interrotto prima di una risposta finale");
+        // Then the dead child's running tools, the boot's second step in server.ts.
+        finalizeOrphanedRunningTools(db, new Set());
       }
     }
     return (await router(new Request(u.toString(), { method: init?.method ?? "GET" }), u, u.pathname, init?.method ?? "GET"))!;

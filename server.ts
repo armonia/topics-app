@@ -1,9 +1,7 @@
 import { configureApiCredentialRoot, readApiProviderKey } from "./server/services/api-provider-credentials";
 import { createLandingQueue } from "./server/services/landing-queue";
 import { basename, join, resolve, sep } from "path";
-import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
-import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
-import { NOT_ARCHIVED_SQL } from "./server/lib/archived-scope";
+import { finalizeOrphanedRunningTools } from "./server/lib/boot-orphan-tools";
 import { wakeVerdict, runningTaskOwnsTopic } from "./server/lib/wake-adoption";
 import { riprendiTurniInterrotti, type CtxRipresa } from "./server/lib/ripresa-boot";
 import { providerHold, isProviderHeld, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
@@ -245,7 +243,7 @@ import { runBootPartialSweep } from "./server/lib/boot-partial-sweep";
 import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/delivery-backfill";
 import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } from "./server/services/delivery-ref-keep";
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
-import { decodeCol, encodeCol } from "./shared/message-blob";
+import { decodeCol } from "./shared/message-blob";
 import { budgetShare, capMode, governorReading, TURN_ERROR_PREFIX } from "./shared/board";
 import { noticeOwedChanges, postBackgroundNotice } from "./server/lib/background-notice";
 import type { ChatGoalLoop } from "./server/services/goal-continuation";
@@ -4824,154 +4822,8 @@ if (serverTunnel) {
   console.log(`[Tunnel] porta dedicata su 127.0.0.1:${portaTunnel} — chi entra da qui NON e' locale`);
 }
 
-// Boot cleanup: a FINALIZED message (partial=0) must never carry a tool still
-// marked 'running' — the client renders it as a spinner whose timer ticks
-// forever (observed: a Shell tool "running" for 2h+ at session end). These are
-// orphans from turns that died without finalizing their tools (a server restart
-// clears the in-memory activeStreams, so the stale-stream sweeper can no longer
-// reach them). Mark them interrupted and stamp endedAt so the duration freezes.
-// Scoped to partial=0 so a mid-turn message being adopted (partial=1) is never
-// touched. Idempotent — a clean boot finds nothing to fix.
-function finalizeOrphanedRunningTools() {
-  try {
-    // Finestra temporale, non tutta la storia. Senza il `timestamp >=` questa
-    // gira al boot come SCAN di una tabella da ~128 MB con quattro LIKE su
-    // colonne JSON — 215 ms misurati a caldo — e su questo DB restituiva 17
-    // righe che erano TUTTE falsi positivi: le stringhe `"status":"running"`
-    // comparivano dentro l'OUTPUT di un tool (un log, un pezzo di JSON citato),
-    // non in uno stato vero. Verificato incrociando con json_each su
-    // `$.status` e `$.toolCall.status`: zero tool davvero in corso.
-    //
-    // 30 giorni perché è una bonifica di orfani da un riavvio: un tool rimasto
-    // 'running' più vecchio di un mese non è un turno che qualcuno riprenderà,
-    // e il suo timer non lo sta guardando nessuno. L'indice
-    // idx_messages_timestamp (migration 074) rende il filtro una SEARCH.
-    // WHERE usa solo l'indice timestamp (migration 074): LIKE su BLOB compresso
-    // non funzionerebbe comunque. Il filtro sullo stato si fa in JS dopo decodeCol.
-    // SI SCORRE, NON SI CARICA — ed è la differenza fra 148 MB e 2,6 GB.
-    //
-    // Questa `.all()` materializzava OGNI riga di trenta giorni prima di
-    // guardarne una: misurato su questo DB, 8.354 righe per **706 MB** di
-    // `content` + `tool_calls` + `blocks`, che `decodeCol` poi raddoppia
-    // decomprimendo ognuna in una stringa UTF-16. Il footprint del server
-    // saliva a **2,6 GB in diciotto secondi di boot** e ricadeva a 148 MB —
-    // cioè il picco non era l'esercizio, era questa riga. Ed è il picco che
-    // lascia dietro di sé le pagine swappate che il footprint non restituisce
-    // più (vedi `server/lib/idle-gc.ts`): il costo non finisce col boot.
-    //
-    // `iterate()` tiene in RAM una riga per volta, e delle 8.354 ne sopravvive
-    // una manciata — quelle che hanno davvero un tool in corso. Il picco
-    // diventa proporzionale ai TROVATI, non al DB.
-    //
-    // Il filtro resta in JS, e non è una svista: la regex non buca il JSON
-    // compresso con zstd (`shared/message-blob.ts`), quindi un `LIKE` in SQL su
-    // quelle colonne non troverebbe niente. Ciò che cambia è dove si paga la
-    // decompressione: una riga alla volta, e subito buttata.
-    const rowIter = db.prepare(
-      `SELECT id, session_key, content, tool_calls, blocks FROM messages
-       WHERE timestamp >= date('now', '-30 days') AND partial = 0
-         AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)
-         AND ${NOT_ARCHIVED_SQL}`
-    ).iterate() as Iterable<{ id: string; session_key: string | null; content: string | null; tool_calls: unknown; blocks: unknown }>;
-    const RUNNING_RE = /"status":"(running|pending|waiting_for_input|awaiting_permission)"/;
-    const rows: Array<{ id: string; session_key: string | null; content: string | null; tool_calls: unknown; blocks: unknown }> = [];
-    for (const r of rowIter) {
-      const tc = decodeCol(r.tool_calls) ?? "";
-      const bl = decodeCol(r.blocks) ?? "";
-      // Si trattiene SOLO ciò che verrà riscritto: le altre righe escono di
-      // scope qui e il collettore se le riprende.
-      if (RUNNING_RE.test(tc + bl)) rows.push(r);
-    }
-    if (rows.length === 0) return;
-    const upd = db.prepare(`UPDATE messages SET content = ?, tool_calls = ?, blocks = ? WHERE id = ?`);
-    const INTERRUPTED_MARKER = "⚠️ Turno interrotto prima di una risposta finale: la sessione si è chiusa mentre un tool era ancora in corso (probabile comando che non è terminato). Il tool interessato risulta in errore qui sotto — puoi rilanciarlo o riprendere da qui.";
-    const now = Date.now();
-    let msgs = 0, tools = 0;
-    let spared = 0;
-    for (const r of rows) {
-      // Il figlio di questa sessione è ancora VIVO nel broker: quel tool può
-      // ancora consegnare, e una DOMANDA a schermo può ancora essere risposta.
-      // Bollarlo «interrotto» qui era il modo in cui una domanda viva diventava
-      // un ⚠️ con il bottone Retry al primo hot-reload che perdeva il flag
-      // `partial` (topic:ed2070df, 3 agosto). Chi è davvero morto lo dirà il
-      // prossimo boot, quando il broker non lo elencherà più.
-      const alive = !!r.session_key && liveBrokerChatSessions.has(r.session_key);
-      if (alive) spared++;
-      let changed = false;
-      const tcDecoded = decodeCol(r.tool_calls);
-      const blDecoded = decodeCol(r.blocks);
-      let tcStr: string | Uint8Array | null = r.tool_calls as string | null;
-      let blStr: string | Uint8Array | null = r.blocks as string | null;
-      // The client renders tool state from `blocks` (the chronological timeline)
-      // when present — so BOTH columns must be finalized, or the spinner keeps
-      // ticking off the stale block copy even though tool_calls is fixed.
-      try {
-        if (tcDecoded) {
-          const tcs = JSON.parse(tcDecoded) as Array<Record<string, unknown>>;
-          let c = false; for (const tc of tcs) if (finalizeOrphanTool(tc, { childAlive: alive, now })) { c = true; tools++; }
-          if (c) { tcStr = encodeCol(JSON.stringify(tcs)) ?? null; changed = true; }
-        }
-      } catch { /* skip malformed tool_calls */ }
-      try {
-        if (blDecoded) {
-          const bl = JSON.parse(blDecoded) as Array<Record<string, unknown>>;
-          let c = false;
-          for (const b of bl) if (b && b.kind === "tool" && finalizeOrphanTool(b.toolCall as Record<string, unknown>, { childAlive: alive, now })) { c = true; tools++; }
-          if (c) { blStr = encodeCol(JSON.stringify(bl)) ?? null; changed = true; }
-        }
-      } catch { /* skip malformed blocks */ }
-      if (changed) {
-        // If the interrupted turn produced no final prose, add an explanation
-        // so the user sees a reason instead of a bare unexplained error X.
-        const hasProse = typeof r.content === "string" && r.content.trim().length > 0;
-        // Il cartello «turno interrotto» NON va su una sessione viva: lì
-        // abbiamo chiuso solo un pannello di permesso, non il turno.
-        const content = hasProse || alive ? r.content : INTERRUPTED_MARKER;
-        upd.run(content, tcStr, blStr, r.id); msgs++;
-      }
-    }
-    if (msgs > 0) console.log(`[boot] finalized ${tools} orphaned running tool(s) across ${msgs} message(s)`);
-    if (spared > 0) console.log(`[boot] ${spared} message(s) with a live broker child: chiusi solo i permessi, il resto lasciato stare`);
-    // Second pass: an assistant turn already finalized as interrupted (its tool
-    // carries the "Interrotto" marker) but with no final prose renders as a bare
-    // unexplained error X. Give it the explanation. Idempotent — once content is
-    // set the row no longer matches. Uses decoded text — LIKE on compressed blobs
-    // would not match.
-    // Stessa forma, stesso rimedio: questa scorre le sole righe SENZA prosa,
-    // che sono molte meno, ma legge comunque due colonne pesanti per ognuna.
-    // Scorrerla costa quanto la riga più grande, non quanto la loro somma.
-    const explainIter = db.prepare(
-      `SELECT id, tool_calls, blocks FROM messages WHERE role = 'assistant'
-         AND (content IS NULL OR trim(content) = '')
-         AND timestamp >= date('now', '-30 days') AND partial = 0
-         AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)
-         AND ${NOT_ARCHIVED_SQL}`
-    ).iterate() as Iterable<{ id: string; tool_calls: unknown; blocks: unknown }>;
-    const INTERROTTO_RE = /Interrotto/;
-    let explainCount = 0;
-    const explainUpd = db.prepare(`UPDATE messages SET content = ? WHERE id = ?`);
-    // Gli id da riscrivere si raccolgono PRIMA di scrivere: aggiornare la
-    // stessa tabella che si sta scorrendo è un comportamento che SQLite non
-    // definisce, e qui l'`UPDATE` tocca proprio la colonna del `WHERE`.
-    const daSpiegare: string[] = [];
-    for (const row of explainIter) {
-      const tc = decodeCol(row.tool_calls) ?? "";
-      const bl = decodeCol(row.blocks) ?? "";
-      if (INTERROTTO_RE.test(tc + bl)) daSpiegare.push(row.id);
-    }
-    for (const id of daSpiegare) { explainUpd.run(INTERRUPTED_MARKER, id); explainCount++; }
-    if (explainCount > 0) console.log(`[boot] added interruption explanation to ${explainCount} message(s)`);
-
-    // TERZA PASSATA: I MUTI CON LA PROSA, che sono la maggioranza. Le due
-    // sopra spiegano solo chi non aveva scritto NIENTE, e un turno d'agente
-    // quasi sempre qualcosa lo scrive. Il giro e la sua ragione stanno in
-    // `lib/verdetto-turno-interrotto.ts`, provati a parte.
-    bonificaTurniMuti(db, INTERRUPTED_MARKER.replace(/^⚠️\s*/, ""));
-  } catch (e) {
-    console.warn(`[boot] finalizeOrphanedRunningTools failed:`, e);
-  }
-}
-finalizeOrphanedRunningTools();
+// Tools a dead turn left 'running' are closed as interrupted (`lib/boot-orphan-tools.ts`).
+finalizeOrphanedRunningTools(db, liveBrokerChatSessions);
 
 // Stale stream cleanup
 const STALE_STREAM_CHECK_INTERVAL_MS = 30_000;
