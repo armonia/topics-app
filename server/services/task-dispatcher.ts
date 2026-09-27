@@ -1567,6 +1567,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (!hold && !applicableNearLimit) return null;
     const label = providerHoldLabel(holdKey);
     if (hold) {
+      // AN API OUTAGE IS NO WINDOW. Its end is a horizon every retry pushes on
+      // (`holdForApiDown`), and what lifts it is the API answering again.
+      if (hold.window === "api-down") {
+        if (holdAnnounced !== hold.sinceMs) {
+          holdAnnounced = hold.sinceMs;
+          log(`${label} dispatch waiting: ${hold.reason}, resumes when the API answers again`);
+        }
+        return { untilMs: hold.untilMs, reason: `${label}: ${hold.reason}. Riparte appena l'API torna a rispondere.` }; // allow-italian: task queue reason
+      }
       // A WALL OF DAYS IS NOT A WINDOW ROTATING. Held for longer than a day,
       // the queue is not waiting for a reset: the plan is spent, and the only
       // thing that moves the cards is a person changing the board's model or
