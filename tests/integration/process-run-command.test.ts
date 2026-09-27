@@ -255,6 +255,17 @@ describe("the command outlives the server", () => {
     expect(delivered[0]!.content).toContain("exit 4");
   }, 40_000);
 
+  // CMDRUN-04, «the server dies between the exit and the delivery». The owed
+  // wake lives in `scripts.json` only as long as its row is among the recent
+  // ones, and every script and every agent's shell ends up there too.
+  test("a wake still owed survives ten other endings before the reload", () => {
+    const { processId } = life("crowd", PROJECT, "echo owed; exit 5", "10");
+    expect(processId).toBeTruthy();
+    const booted = life("boot", PROJECT, processId, dbPath);
+    expect(booted.row).toMatchObject({ processId, status: "error", exitCode: 5 });
+    expect(booted.sent).toBe(1);
+  }, 60_000);
+
   // `finishCommand` saves the registry. Called from inside the boot's loop, it
   // wrote a `scripts.json` without the rows the loop had not reached yet, and
   // the next reload lost them: live processes out of the panel, a command

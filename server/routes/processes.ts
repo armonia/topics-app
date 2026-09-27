@@ -571,7 +571,13 @@ function flushPendingLine(sp: ScriptProcess) {
 function addToRecent(sp: ScriptProcess) {
   flushPendingLine(sp);
   recentScripts.unshift(sp);
-  if (recentScripts.length > MAX_RECENT) recentScripts.pop();
+  // The oldest row goes, unless it still owes its topic a wake: `scripts.json`
+  // persists only these rows, so a pruned owed row lost its wake at the next
+  // reload. Scripts and every agent's shells end here too, and ten endings go
+  // by fast. The row is pruned normally once its wake has settled.
+  for (let i = recentScripts.length - 1; recentScripts.length > MAX_RECENT && i >= 0; i--) {
+    if (!recentScripts[i]!.cmd?.wake) recentScripts.splice(i, 1);
+  }
 }
 
 /**
