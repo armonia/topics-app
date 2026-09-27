@@ -65,6 +65,7 @@ const EN = {
   'ctx.removeFromContext': 'Remove from the context',
   'ctx.removeFile': 'Remove the file',
   'tool.logTruncated': '[… {n} lines dropped: the log buffer is full]',
+  'tool.runningTail.more': 'More output above',
   'kpi.noSource': 'Data unavailable: no source for this metric',
   'dev.newerBuild': 'A newer build is ready',
   'dev.reload': 'Reload',

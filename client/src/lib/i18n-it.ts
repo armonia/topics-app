@@ -65,6 +65,7 @@ const IT: Dict = {
   'ctx.removeFromContext': 'Rimuovi dal contesto',
   'ctx.removeFile': 'Rimuovi il file',
   'tool.logTruncated': '[… {n} righe scartate: il buffer del log è pieno]',
+  'tool.runningTail.more': "Sopra c'è altro output",
   'kpi.noSource': 'Dato non disponibile: nessuna fonte per questa metrica',
   'dev.newerBuild': 'Build più recente pronta',
   'dev.reload': 'Ricarica',

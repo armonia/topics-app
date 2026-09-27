@@ -26,10 +26,15 @@
  * back with the panel RE-ARMED on a question already answered - the same stuck
  * row inviting a second answer. The state has to arrive from the server, which
  * is what this reads.
- * @covers ASK-09
+ *
+ * The other half of the event, the partial output, has its own guard at the
+ * bottom (CHAT-TOOL-09): in the window you sent from the result arrives on the
+ * SSE and the partial on WS, two channels with no order between them.
+ * @covers ASK-09, CHAT-TOOL-09
  */
 import { describe, expect, test } from 'bun:test';
-import { toolUpdatePatch } from './toolUpdatePatch';
+import { toolUpdatePatch, withPartialResult } from './toolUpdatePatch';
+import type { ToolCall } from '@/types';
 
 describe('what a tool-update event changes on the row', () => {
   test('an announced transition produces a patch', () => {
@@ -66,5 +71,23 @@ describe('what a tool-update event changes on the row', () => {
 
   test('no id, no patch', () => {
     expect(toolUpdatePatch({ status: 'running' })).toBeNull();
+  });
+});
+
+describe('a partial output writes only on a row still running', () => {
+  const row = (status: ToolCall['status'], result: string): ToolCall =>
+    ({ id: 'tu_bash', name: 'Bash', args: { command: 'bun test' }, status, result });
+
+  test('a late partial does not overwrite the result', () => {
+    // The final result came on the SSE, the partial was still on the wire.
+    const closed = row('success', '400 pass, 0 fail');
+    expect(withPartialResult(closed, 'test 3 of 400').result).toBe('400 pass, 0 fail');
+    expect(withPartialResult(row('error', 'exit 1'), 'test 3 of 400').result).toBe('exit 1');
+  });
+
+  test('a running row takes the partial whole, replacing the one before', () => {
+    expect(withPartialResult(row('running', 'test 1'), 'test 1\ntest 2').result).toBe('test 1\ntest 2');
+    // No status yet reads as pending, which is running for the row too.
+    expect(withPartialResult(row(undefined, ''), 'test 1').result).toBe('test 1');
   });
 });

@@ -8,7 +8,10 @@
  *
  * Rendered with `renderToStaticMarkup` (no DOM in this repo).
  *
- * @covers CHAT-TOOL-04
+ * While the command runs, its partial output shows as the running tail
+ * (CHAT-TOOL-08) in place of the output block, which is the final one's.
+ *
+ * @covers CHAT-TOOL-04, CHAT-TOOL-08
  */
 import { describe, expect, test } from 'bun:test';
 import { createElement } from 'react';
@@ -37,5 +40,26 @@ describe('ShellCard command block', () => {
   test('the output keeps its own cap', () => {
     const html = renderToStaticMarkup(createElement(ShellCard, { command: 'ls', output: 'a\nb' }));
     expect(classOf(html, 'tool-call-result').split(/\s+/)).toContain('max-h-72');
+  });
+});
+
+describe('ShellCard while the command runs', () => {
+  const partial = Array.from({ length: 20 }, (_, i) => `r${i + 1}`).join('\n');
+
+  test('the running tail stands in for the output, with the notice above it', () => {
+    // The window you sent from: the derived detail carries the partial as its
+    // output too, and it must not show twice.
+    const html = renderToStaticMarkup(createElement(ShellCard, { command: 'bun test', output: partial, liveResult: partial }));
+    expect(html).toContain('data-testid="shell-running-tail"');
+    expect(html).not.toContain('data-testid="tool-call-result"');
+    expect(html).toContain('r13');
+    expect(html).not.toContain('r12<');
+    expect(html).toContain('Sopra c&#x27;è altro output');
+  });
+
+  test('without a partial the card is the one of before', () => {
+    const html = renderToStaticMarkup(createElement(ShellCard, { command: 'bun test', output: 'ok' }));
+    expect(html).not.toContain('shell-running-tail');
+    expect(html).toContain('data-testid="tool-call-result"');
   });
 });
