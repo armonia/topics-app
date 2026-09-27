@@ -261,6 +261,9 @@ const topicCreatedSchema = z.object({
 const topicUpdatedSchema = z.object({
   type: z.literal('topic:updated'),
   topic: topicObjectShape,
+  /** Rows of the chat changed out of band: the open windows read the thread
+   *  again even if they read it a moment ago (`threadChangedFrame`). */
+  threadChanged: z.optional(z.boolean()),
 });
 
 const topicArchivedSchema = z.object({

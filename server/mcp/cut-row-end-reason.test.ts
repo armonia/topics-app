@@ -18,7 +18,7 @@
  * (chat-woken-turn, chat-watchdog-finalize). The reattach legs go through the
  * real route (`mode: "reattach"`, the boot's request) and end through the
  * helpers server.ts calls (`lib/closed-outside.ts`), broker probe included:
- * server.ts only hands them the claude-code provider and the database.
+ * server.ts only hands them its context and the claude-code provider.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
@@ -207,7 +207,7 @@ describe("the reattach and the send wait on the turn's own row", () => {
     const { turn, report } = turnWithReport(sk);
     boot([sk]);
     await reattachLeg(sk, mute);
-    expect(await endReattachLeg(ctx.db, sk, broker("idle"))).toBe("closed");
+    expect(await endReattachLeg(ctx, sk, broker("idle"))).toEqual({ relit: false, closed: 0 });
     expect([ctx.getMessageById(turn.id)?.content, hasTool(turn.id)]).toEqual(["Lancio il sotto-agente, ", true]);
     expect(ctx.getMessageById(report.id)?.content).toBe("Sotto-agente Lane A, esito: fatto.");
     await expect(sendCut(tid, turn.id)).resolves.toBe("Lancio il sotto-agente,");
@@ -220,7 +220,7 @@ describe("the reattach and the send wait on the turn's own row", () => {
     const FINAL = "Risposta finale del turno.";
     boot([sk]);
     await reattachLeg(sk, (h) => { h.onTextDelta(FINAL, FINAL); h.onDone({ result: FINAL } as never); });
-    await endReattachLeg(ctx.db, sk, broker("idle"));
+    await endReattachLeg(ctx, sk, broker("idle"));
     expect([ctx.getMessageById(turn.id)?.content, hasTool(turn.id)]).toEqual([FINAL, true]);
     expect(ctx.getMessageById(report.id)?.content).toBe("Sotto-agente Lane A, esito: fatto.");
     await expect(sendCut(tid, turn.id)).resolves.toBe(FINAL);
@@ -247,7 +247,7 @@ describe("the reattach and the send wait on the turn's own row", () => {
       }
       expect(ctx.getMessageById(turn.id)?.endReason).toBe("closed-outside");
       await reattachLeg(sk, (h) => { h.onTextDelta(FINAL, FINAL); h.onDone({ result: FINAL } as never); });
-      await endReattachLeg(ctx.db, sk, broker("idle"));
+      await endReattachLeg(ctx, sk, broker("idle"));
       expect(ctx.loadLocalMessages(sk).map((m) => m.id)).toHaveLength(3);
       expect(ctx.getMessageById(turn.id)?.content).toBe(FINAL);
       expect(ctx.getMessageById(report.id)?.content).toBe("Sotto-agente Lane A, esito: fatto.");
@@ -268,7 +268,7 @@ describe("the reattach and the send wait on the turn's own row", () => {
       // A later wake, replayed by a reattach that finds no row of its own.
       const NEXT = "Risposta del secondo risveglio.";
       await reattachLeg(sk, (h) => { h.onTextDelta(NEXT, NEXT); h.onDone({ result: NEXT } as never); });
-      await endReattachLeg(ctx.db, sk, broker("idle"));
+      await endReattachLeg(ctx, sk, broker("idle"));
       expect([ending, ...ctx.loadLocalMessages(sk).map((m) => m.content)]).toEqual([ending, "ping", "meta'", "risveglio", NEXT]);
     }
   });
@@ -292,7 +292,7 @@ describe("the reattach and the send wait on the turn's own row", () => {
     // The leg ends on a turn still open (a mute replay): finalized, latency and all, then lit again.
     await reattachLeg(sk, mute);
     expect(ctx.getMessageById(turn.id)?.latencyMs).toBeNumber();
-    expect(await endReattachLeg(ctx.db, sk, broker("open"))).toBe("relit");
+    expect(await endReattachLeg(ctx, sk, broker("open"))).toEqual({ relit: true, closed: 0 });
     // Unclean restart, child gone.
     boot();
     expect(await notes(tid)).toEqual([null, CUT_NOTE, null]);
@@ -305,7 +305,7 @@ describe("the reattach and the send wait on the turn's own row", () => {
     const { turn, report } = turnWithReport(sk);
     boot([sk]);
     await reattachLeg(sk, mute);
-    await endReattachLeg(ctx.db, sk, broker("open"));
+    await endReattachLeg(ctx, sk, broker("open"));
     expect([ctx.getMessageById(turn.id)?.partial, ctx.getMessageById(report.id)?.partial]).toEqual([true, undefined]);
     // Killed, child gone: the turn is the cut one, the report is whole.
     boot();
@@ -321,10 +321,10 @@ describe("the reattach and the send wait on the turn's own row", () => {
       ctx.updateLastMessage(sk, { content: "Meta' del lavoro, poi" }, { rowId: turn.id });
       boot([sk]);
       await reattachLeg(sk, mute);
-      await endReattachLeg(ctx.db, sk, broker("open"));
+      await endReattachLeg(ctx, sk, broker("open"));
       // The next leg fails before finalizing and the broker does not answer, the stale sweeper gives up on the
       // turn, or a pane opens the chat once the child is gone.
-      if (close === "leg") expect(await endReattachLeg(ctx.db, sk, broker(new Error("broker socket closed")))).toBe("closed");
+      if (close === "leg") expect(await endReattachLeg(ctx, sk, broker(new Error("broker socket closed")))).toEqual({ relit: false, closed: 1 });
       else if (close === "stale") finalizeStaleRow(ctx.db, { messageId: turn.id, marker: null, interruption: { text: "silent", cause: "watchdog", at: new Date().toISOString() } });
       else await openHistory(sk);
       expect(ctx.getMessageById(turn.id)?.partial).toBeUndefined();

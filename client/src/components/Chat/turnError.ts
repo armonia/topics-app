@@ -54,7 +54,15 @@ export function turnIsOnlyError(msg: {
 }): boolean {
   if (turnErrorOf(msg) === null) return false;
   if (msg.toolCalls?.length) return false;
-  if (msg.blocks?.some((b) => b.kind !== 'error')) return false;
+  // The resume sweep's trace is not work either: a notice whose resend the
+  // route refused must keep the Retry it asks for (card edf3c4db). A resend
+  // that goes has its own row below, and Retry only sits on the last one. So
+  // the notice the sweep resends at once offers it too, from its frame to the
+  // resend's `stream:start` (sent before the provider spawns; only a turn
+  // checkpoint, off by default, waits on git in between), and for good when
+  // the route refused, where base left no way to resend.
+  const sweepTraces = sweepTraceIndexes(msg.blocks);
+  if (msg.blocks?.some((b, i) => b.kind !== 'error' && !sweepTraces.has(i))) return false;
   // Nel formato vecchio il verdetto È il contenuto: tutto ciò che resta oltre al
   // primo capoverso è lavoro vero.
   const c = (msg.content ?? '').trim();
@@ -223,4 +231,32 @@ export function turnLooksUnanswered(input: {
   if (!input.lastMessageIsUser) return false;
   if (!input.serverAsked) return false;
   return !input.locallyStreaming && !input.serverSaysOpen;
+}
+
+/**
+ * Two writers put a `ripreso` block on a row. The chat route opens a resent
+ * turn with one, ahead of anything else: that row IS the redone answer. The
+ * resume sweep appends one to the row it resends FROM, after the cut that row
+ * carries, to count the chain: that row is the cut answer, or a notice, and the
+ * redone answer is the next row, if the resend was not refused. These are the
+ * sweep's: the `ripreso` blocks after the row's verdict.
+ */
+function sweepTraceIndexes(blocks: ContentBlock[] | null | undefined): Set<number> {
+  const traces = new Set<number>();
+  const verdict = blocks?.findIndex((b) => b.kind === 'error') ?? -1;
+  if (verdict < 0) return traces;
+  blocks!.forEach((b, i) => { if (b.kind === 'ripreso' && i > verdict) traces.add(i); });
+  return traces;
+}
+
+/**
+ * Is this row an answer the server redid by itself (the "redone answer"
+ * banner)? Only the route's trace says so: the sweep's sits on the row it
+ * resent from, and after a refused resend no redone answer exists (card
+ * edf3c4db).
+ */
+export function isRedoneAnswer(blocks: ContentBlock[] | null | undefined): boolean {
+  if (!blocks) return false;
+  const sweepTraces = sweepTraceIndexes(blocks);
+  return blocks.some((b, i) => b.kind === 'ripreso' && !sweepTraces.has(i));
 }

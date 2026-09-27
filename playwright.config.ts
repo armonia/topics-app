@@ -597,6 +597,9 @@ export default defineConfig({
         // The capped resume notice reaches both windows open on the chat,
         // written by the real sweep, with no reload.
         "**/ripresa-capped-live.spec.ts",
+        // A resend the chat route refused: its traced row reaches both windows,
+        // one of them hidden at write time, with no reload.
+        "**/ripresa-resend-refused-live.spec.ts",
         // A turn over the HTTP fallback keeps its answer on its own bubble, in
         // two windows, live and after a reload.
         "**/chat-sse-own-row.spec.ts",

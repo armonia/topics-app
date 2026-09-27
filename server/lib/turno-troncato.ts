@@ -29,7 +29,9 @@
  * «turno interrotto» a ogni riavvio del server.
  */
 import type { ContentBlock } from "../types";
+import type { OutboundMessage } from "../../shared/ws-outbound";
 import { decodeCol, encodeCol } from "../../shared/message-blob";
+import { threadChangedFrame } from "./boot-partial-sweep";
 
 /** Il testo del cartello. Uno solo, così non divergono fra i due cammini. */
 export const TURNO_TRONCATO =
@@ -91,5 +93,66 @@ export function spiegaTurnoTroncato(db: DbLike, sessionKey: string): boolean {
     // Un cartello che non si riesce a scrivere non deve portarsi via il boot.
     console.warn(`[turno-troncato] ${sessionKey}: non riesco a spiegare la chiusura:`, err);
     return false;
+  }
+}
+
+/**
+ * THE END OF A BOOT REATTACH LEG (`reattachSurvivingChatTurns`, server.ts).
+ * Returns how many rows it closed. Never throws: it runs in the `.finally` of a
+ * promise nobody awaits.
+ *
+ * The leg is over, the TURN may not be: a child stopped on
+ * `ask_user_question` stays open for hours, and the muted replay that reattaches
+ * it lasts a moment. So the broker is asked again.
+ *
+ * - `open`: the row belongs to a live turn, and its `partial` is switched back
+ *   ON, not merely left alone. The leg's finalize already wrote it off
+ *   (`updateMessage` sets `partial` with no COALESCE), and the next reattach
+ *   reuses only an assistant row with `partial = 1`: without this each restart
+ *   opened a NEW row, nine where there should be one on topic:9fe7a291
+ *   (2026-08-18), five copies of one message on topic:ed2070df. Nothing is
+ *   sent: the windows are watching that turn.
+ * - anything else (`idle`, no answer): the turn is over. The rows it left open
+ *   are closed, and a turn that died working gets its notice
+ *   (`spiegaTurnoTroncato`): closing it in silence left it cut mid-sentence and
+ *   identical to an answer that finished, the two chats of 20/08. A closed row
+ *   is announced (`threadChangedFrame`): before, the open windows kept the
+ *   bubble open and unexplained until a reload (card edf3c4db). Nothing closed,
+ *   nothing sent.
+ */
+export async function settleReattachLeg(
+  /** The server's context: the frame goes through `broadcastToAll`, which filters guests. */
+  ctx: {
+    db: DbLike;
+    getTopicBySessionKey(sessionKey: string): { id: string } | null | undefined;
+    broadcastToAll(msg: OutboundMessage): void;
+  },
+  sessionKey: string,
+  /** The broker's word on the session's turn (the claude-code provider's `brokerTurnState`). */
+  brokerTurnState: (sessionKey: string) => Promise<"open" | "idle" | "unknown"> | undefined,
+): Promise<number> {
+  try {
+    const state = await brokerTurnState(sessionKey)?.catch(() => "unknown" as const);
+    if (state === "open") {
+      try {
+        ctx.db.prepare(
+          "UPDATE messages SET partial = 1 WHERE id = (SELECT id FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC LIMIT 1)",
+        ).run(sessionKey);
+      } catch { /* at worst the next reattach opens a new row, as before */ }
+      console.log(`[chat-reattach] ${sessionKey}: la gamba è finita ma il turno è ancora aperto (domanda a schermo) — la riga resta viva`);
+      return 0;
+    }
+  } catch { /* no answer from the broker: the rows are closed, as before */ }
+  try {
+    const closed = ctx.db.prepare("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1")
+      .run(sessionKey).changes as number;
+    if (closed > 0) {
+      spiegaTurnoTroncato(ctx.db, sessionKey);
+      const topic = ctx.getTopicBySessionKey(sessionKey);
+      if (topic) ctx.broadcastToAll(threadChangedFrame(topic, sessionKey));
+    }
+    return closed;
+  } catch {
+    return 0; // the next boot's reset catches it
   }
 }
