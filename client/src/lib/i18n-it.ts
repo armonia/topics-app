@@ -2485,7 +2485,6 @@ const IT: Dict = {
   'statusBar.load.caldo': 'Il Mac è occupato {pctAl}: comincia a scaldarsi',
   'statusBar.load.carico': 'Il Mac è occupato {pctAl}: è carico',
   'statusBar.load.unknown': 'Occupazione del Mac non misurabile da qui: la vede solo l’app desktop.',
-  'statusBar.versionTitle': 'Info versione e aggiornamenti',
   'statusBar.devBuildTitle': 'Build di sviluppo (Vite dev server / hot reload). In produzione questo badge sparisce.',
   // The two sentences the badge next to the number cannot hold: what a
   // development install is, and which number an update actually replaces.
@@ -2504,7 +2503,6 @@ const IT: Dict = {
   // organisations, the friends. Every row shows a fact AND leads to the page
   // that governs it, so every row carries two texts: what it says, and where
   // the click takes you.
-  'statusBar.me.openProfile': 'Apri il tuo profilo',
   'statusBar.orgs.presence': '{n} di {tot} online adesso',
   // THE CHIP SIGNALS: on the row they are a glyph and a digit, here is the
   // word that glyph draws. The number stays inside the sentence because the
@@ -2519,13 +2517,9 @@ const IT: Dict = {
   'statusBar.agents.awaitingHeading': 'In attesa di una tua risposta',
   'statusBar.agents.finishedHeading': 'Turno finito, da guardare',
   'statusBar.agents.none': 'Nessun agente al lavoro adesso',
-  // THE PANELS the three chips open. The chip gives the short answer, the
-  // panel shows it in full and carries the actions: these are the only texts
-  // that can afford a whole sentence, because in there the space exists.
-  'statusBar.me.panel': 'Il tuo profilo',
-  'statusBar.me.machine': 'Da questo dispositivo',
   'statusBar.me.devicesRow': 'Dispositivi autorizzati',
   'statusBar.me.devicesCount': '{n} connessi di {tot}',
+  'statusBar.me.devicesManage': 'Gestisci i dispositivi',
   'statusBar.orgs.manageOne': 'Gestisci questa organizzazione',
   'statusBar.orgs.manageAll': 'Gestisci le organizzazioni',
   // THE SUBJECT AT ZERO. The chip stays even with no group at all, and this is
@@ -2563,7 +2557,6 @@ const IT: Dict = {
   'version.platform': 'Piattaforma',
   'version.drift': 'Il codice a schermo e\' indietro.',
   'version.driftDetail': 'A schermo gira la v{bundle}, il repo e\' alla v{repo}. La cartella public si ricostruisce a mano: lancia "bun run build:client" e ricarica la finestra.',
-  'version.driftTitle': 'Il codice a schermo e\' la v{bundle}, il repo e\' alla v{repo}. Ricostruisci il client.',
   'version.nativeApp': 'App nativa',
   'version.whatsNew': 'Novità di questa versione',
   'version.updates': 'Aggiornamenti',

@@ -74,12 +74,13 @@ export function VersionChip({
 
   return (
     <>
+      {/* NO TITLE HERE ANY MORE. It used to repeat, on hover, the same
+          sentence the dropdown already shows one click away (`version-bundle-
+          drift`, `version-built-at`): a tooltip that says what the panel it
+          sits on already says is a second, slower way to read the first. */}
       <span
         data-version-anchor
         className={`text-app-text-muted rounded px-1 py-1 -mx-0.5 transition-colors ${popoverOpen ? `${SIDEBAR_ACTIVE} text-app-text-secondary` : ''}`}
-        title={drift
-          ? tr('version.driftTitle', { bundle: drift.bundle, repo: drift.repo })
-          : tr('statusBar.versionTitle')}
       >
         v{appVersion}
         {/* A stale bundle gets a mark, not a banner: the number is read

@@ -52,39 +52,18 @@ import type { LabelIdentity } from './identityLabel';
  *  the row above, and passing the icon beats deciding it twice. */
 type Glyph = React.ComponentType<{ size?: number; className?: string }>;
 
-/** The one-line facts the sidebar row already holds: they are computed up
- *  there for the chip, and passing them down beats asking for them twice.
- *
- *  ── WHAT NO LONGER LIVES HERE, AND WHY ─────────────────────────────────────
- *  Two more rows used to sit in this block: "Right now", which spelled out the
- *  work in progress, and "Claude Code agents", which counted its finished
- *  turns. Both true, both in the wrong panel: this block answers "who am I and
- *  how do I sign in", and those answered "what is running", which is the
- *  question of the «Agents and performance» row five lines below - the one
- *  that lists them BY NAME and can be opened. So they were the third copy of
- *  two numbers already written in that row's tail and in the card's tooltip,
- *  and the only one of the three that led nowhere. The finished turns are rows
- *  in `AgentLines` now, and the count is their length. */
-export interface LocalFacts {
-  /** The device you are on. Empty until the session says which one. */
-  device: string;
-  /** Authorised devices, `null` while unknown. Not a `Fact`: it travels this
-   *  far because the DOOR to the devices carries it in its tail, instead of
-   *  sitting in a read-only row right above the door that opens the same
-   *  thing. */
-  devices: { connected: number; total: number } | null;
-}
-
 const FIELD = 'w-full min-w-0 rounded border border-app-border bg-app-bg px-2 py-1.5 text-compact text-app-text outline-none focus:border-app-accent';
 const PRIMARY = 'flex w-full items-center justify-center gap-1.5 rounded border border-primary bg-primary/10 px-2 py-1.5 text-compact font-medium text-primary hover:bg-primary/20 disabled:opacity-50';
 const QUIET = 'flex-shrink-0 rounded px-2 py-1 text-mini text-app-text-tertiary hover:bg-app-hover';
 
-export function AccountPanel({ who, DeviceIcon, facts, doors }: {
+export function AccountPanel({ who, DeviceIcon, onOpenProfile }: {
   who: LabelIdentity;
   DeviceIcon: Glyph;
-  facts: LocalFacts;
-  /** Drawn last, under a rule: the ways out of the panel. */
-  doors: React.ReactNode;
+  /** THE NAME ROW IS THE DOOR NOW. It used to sit next to a "Open your
+   *  profile" row a few pixels below, which pointed at exactly what the
+   *  face and the name already are - a person presses the name, not a
+   *  second sentence explaining what pressing it would do. */
+  onOpenProfile: () => void;
 }) {
   const t = useT();
   const askConfirm = useConfirm();
@@ -107,13 +86,19 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
 
   const speaksOfAccounts = accountIsAThingHere(state);
   const linked = !!state?.linked;
-  const anyFact = speaksOfAccounts && !!facts.device;
 
   return (
     <>
       {/* 1. WHO. The face is bigger than the chip's, because this is the place
-             you come to check you are the person you think you are. */}
-      <div data-testid="account-identity" className="flex items-center gap-2.5 px-3 py-2.5">
+             you come to check you are the person you think you are, AND it is
+             the door to the profile: a name you can already read does not
+             also need a sentence below it telling you to click it. */}
+      <button
+        type="button"
+        onClick={onOpenProfile}
+        data-testid="account-identity"
+        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-app-hover transition-colors"
+      >
         {who.avatarUrl
           ? <img src={who.avatarUrl} alt="" className="h-8 w-8 flex-shrink-0 rounded-full object-cover" />
           : <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary text-compact font-semibold leading-none text-white">
@@ -141,7 +126,7 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
               </span>
             )}
         </span>
-      </div>
+      </button>
 
       {/* 2. THE WAY IN. Only with a service to ask and nobody signed in: two
              steps, and the second one keeps the address in sight. */}
@@ -222,27 +207,11 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
         </p>
       )}
 
-      {/* 3. THE FACTS. One is left: which device you are looking from. It is
-             the only one that talks about the ACCOUNT - the other three rows
-             that used to be here talked about the work and about the devices,
-             and they found a place where those things can also be opened (see
-             `LocalFacts`). */}
-      {anyFact && (
-        <div className="border-t border-app-border px-3 py-2 text-mini">
-          <Fact label={t('statusBar.me.machine')}>
-            <DeviceIcon size={11} className="flex-shrink-0 text-app-text-muted" />
-            <span className="truncate">{facts.device}</span>
-          </Fact>
-        </div>
-      )}
-
-      {/* 4. THE DOORS. Signing out sits with them and not next to the address:
-             it is a way out of the panel like the others, and a destructive
-             button inside the identity card gets pressed while aiming at the
-             name. */}
-      <div className="border-t border-app-border py-1">
-        {doors}
-        {linked && (
+      {/* 3. THE DOOR. Signing out is the one door this panel still owns: the
+             other two (the profile, the devices) moved to the name row and to
+             their own submenu. */}
+      {linked && (
+        <div className="border-t border-app-border py-1">
           <button
             onClick={() => void signOut()}
             disabled={busy}
@@ -251,19 +220,8 @@ export function AccountPanel({ who, DeviceIcon, facts, doors }: {
           >
             <span className="truncate">{t('account.unlink')}</span>
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </>
-  );
-}
-
-/** A label and its value on one line. The label is the word the closed chip
- *  had no room to spell out. */
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-2 py-0.5">
-      <span className="flex-shrink-0 text-app-text-muted">{label}</span>
-      <span className="ml-auto flex min-w-0 items-center gap-1 text-app-text-secondary">{children}</span>
-    </div>
   );
 }

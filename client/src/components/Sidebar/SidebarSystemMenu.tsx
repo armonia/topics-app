@@ -396,6 +396,7 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
         label={tr('statusBar.version.title')}
         testId="menu-version"
         minWidth={260}
+        maxWidth={300}
         className="p-3 space-y-3"
         onOpenChange={setMostraVersione}
         tail={

@@ -115,6 +115,11 @@ export interface SubmenuItemProps {
   ariaLabel?: string;
   /** Desktop min panel width in px (forwarded to `Menu`, default 180). */
   minWidth?: number;
+  /** Desktop max panel width in px (forwarded to `Menu`). Opts this level OUT
+   *  of the host-width floor below: without it a level of fixed `label ·
+   *  value` rows gets stretched to match a wide sidebar column and its rows
+   *  spread apart, which is the one shape this ceiling exists to stop. */
+  maxWidth?: number;
   /** Extra class names on the level's panel. */
   className?: string;
   /** Extra class names on the trigger row. */
@@ -148,6 +153,7 @@ export function SubmenuItem({
   testId,
   ariaLabel,
   minWidth = 180,
+  maxWidth,
   className = '',
   rowClassName = '',
   onOpenChange,
@@ -163,7 +169,9 @@ export function SubmenuItem({
   // The call site's number is a FLOOR, not the measure: the wider of it and
   // the host's width wins. See `HostWidthContext`.
   const hostWidth = useContext(HostWidthContext);
-  const levelWidth = Math.max(minWidth, hostWidth);
+  const levelWidth = maxWidth
+    ? Math.min(Math.max(minWidth, hostWidth), maxWidth)
+    : Math.max(minWidth, hostWidth);
   // Who this row is, for the slot it competes in: an identity, created once.
   const token = useMemo(() => ({}), []);
   // The slot THIS level hands to its own rows, so a nested level registers
@@ -289,6 +297,7 @@ export function SubmenuItem({
           side="right"
           exclusive={false}
           minWidth={levelWidth}
+          maxWidth={maxWidth}
           className={className}
           ariaLabel={ariaLabel ?? label}
           testId={testId ? `${testId}-menu` : undefined}

@@ -39,7 +39,7 @@
  * behind the chips, the exact numbers behind the dot.
  */
 import { Suspense, useCallback, useLayoutEffect, useState } from 'react';
-import { Building2, UserRound, Users } from 'lucide-react';
+import { Building2, Monitor, Users } from 'lucide-react';
 import { MenuWidthProvider, SubmenuItem } from '../Shared/SubmenuItem';
 import { PresencePopover } from './PresencePopover';
 import { FaceStack, MenuAction, PresenceList } from './PresenceList';
@@ -47,15 +47,23 @@ import { TopicsMenuItems, type TopicsMenuItemsProps } from './TopicsMenuItems';
 import { AccountPanel } from './accountPanelLazy';
 import { SidebarSystemMenu } from './SidebarSystemMenu';
 import { CHIP_INK_DIM, ORG_MARKS_IN_CHIP } from './identityChip';
-import { SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
+import { PALLINO_OK, SEGNALE_ATTESA, SEGNALE_OK } from './chromeSignals';
 import { mergePeople } from './orgPresence';
 import type { OrgWithPresence } from '@/hooks/useIdentityPresence';
 import type { FriendPresence } from '@/hooks/useFriendPresence';
 import type { LabelIdentity } from './identityLabel';
-import type { LocalFacts } from './AccountPanel';
 import type { WorkSignal } from './workSignals';
 import { apriProfilo } from '@/state/profileTarget';
 import { useT } from '@/hooks/useT';
+
+/** One row of `/api/auth/devices`, trimmed to what the submenu draws: a name,
+ *  whether it holds a live socket right now, and whether it is this one. */
+export interface LiveDevice {
+  id: string;
+  name: string;
+  connected: boolean;
+  current: boolean;
+}
 
 /** A glyph component, taken as a prop: which device you are on was decided by
  *  the card, and deciding it twice is how the two disagree. */
@@ -109,13 +117,16 @@ function useAnchorWidth(anchorEl: HTMLElement | null, floor: number): number {
 }
 
 export function ProfileMenu({
-  anchorEl, onClose, who, DeviceIcon, facts, orgs, friends, signals, commands, onOpenDevices,
+  anchorEl, onClose, who, DeviceIcon, devices, orgs, friends, signals, commands, onOpenDevices,
 }: {
   anchorEl: HTMLElement | null;
   onClose: () => void;
   who: LabelIdentity;
   DeviceIcon: Glyph;
-  facts: LocalFacts;
+  /** The authorised devices, `null` while the first fetch has not answered
+   *  yet - treated the same as an empty list here, since it settles before a
+   *  person has time to open this menu. */
+  devices: LiveDevice[] | null;
   orgs: OrgWithPresence[];
   friends: FriendPresence;
   /** What is running right now, already picked and tiered by `workSignals`. */
@@ -123,7 +134,6 @@ export function ProfileMenu({
   commands: SidebarCommands;
   onOpenDevices?: () => void;
 }) {
-  const tr = useT();
   const width = useAnchorWidth(anchorEl, MIN_WIDTH);
 
   return (
@@ -132,12 +142,6 @@ export function ProfileMenu({
       onClose={onClose}
       testId="profile-menu"
       width={width}
-      titolo={
-        <>
-          <UserRound size={12} className="flex-shrink-0 text-app-text-muted" />
-          <span className="truncate">{tr('statusBar.account.title')}</span>
-        </>
-      }
     >
       {/* THE PANEL SCROLLS, THE WINDOW DOES NOT. Everything the chrome knows is
           in here now, and the account block plus the performance panel opened
@@ -152,39 +156,14 @@ export function ProfileMenu({
           <AccountPanel
             who={who}
             DeviceIcon={DeviceIcon}
-            facts={facts}
-            doors={
-              <>
-                <MenuAction onClick={() => { onClose(); apriProfilo('profile'); }} testId="identity-me-open-profile">
-                  {tr('statusBar.me.openProfile')}
-                </MenuAction>
-                {/* ONE DOOR FOR THE DEVICES, with the number in its tail.
-                    They were two adjacent rows: above, a read-only fact
-                    («Authorised devices · 0 of 2 connected») and right under
-                    it this door, which read «Open the list of authorised
-                    devices» - the same thing, written twice, eight pixels
-                    apart. The number is the door's tail, and the label goes
-                    back to being the name of the room instead of the
-                    instructions for reaching it. */}
-                {onOpenDevices && (
-                  <MenuAction
-                    onClick={() => { onClose(); onOpenDevices(); }}
-                    testId="identity-me-devices"
-                    tail={facts.devices && facts.devices.total > 0
-                      ? tr('statusBar.me.devicesCount', { n: facts.devices.connected, tot: facts.devices.total })
-                      : undefined}
-                  >
-                    {tr('statusBar.me.devicesRow')}
-                  </MenuAction>
-                )}
-              </>
-            }
+            onOpenProfile={() => { onClose(); apriProfilo('profile'); }}
           />
         </Suspense>
 
         <div className="border-t border-app-border" />
         <FriendsSection friends={friends} onClose={onClose} />
         <OrgsSection orgs={orgs} onClose={onClose} />
+        <DevicesSection devices={devices} onOpenDevices={onOpenDevices} onClose={onClose} />
 
         <div className="border-t border-app-border" />
         <TopicsMenuItems
@@ -359,6 +338,61 @@ function OrgsSection({ orgs, onClose }: { orgs: OrgWithPresence[]; onClose: () =
       <div className="border-t border-app-border py-1">
         <MenuAction onClick={() => { onClose(); apriProfilo('organization'); }} testId="org-open-manage">
           {only ? tr('statusBar.orgs.manageOne') : tr('statusBar.orgs.manageAll')}
+        </MenuAction>
+      </div>
+    </SubmenuItem>
+  );
+}
+
+/**
+ * THE AUTHORISED DEVICES, listed here instead of behind a button that only
+ * navigated to Settings.
+ *
+ * It used to be one door with a count in its tail («Authorised devices · 0 of
+ * 2 connected»), which told you the number and then made you leave the panel
+ * to learn what the two devices even were. The row now opens onto the same
+ * list `Settings/DevicesSection` draws, in miniature, and «Gestisci i
+ * dispositivi» stays as the one door left, for the gesture that panel alone
+ * still owns: revoking one.
+ */
+function DevicesSection({ devices, onOpenDevices, onClose }: {
+  devices: LiveDevice[] | null;
+  onOpenDevices?: () => void;
+  onClose: () => void;
+}) {
+  const tr = useT();
+  if (!onOpenDevices) return null;
+  const list = devices ?? [];
+  const online = list.filter((d) => d.connected).length;
+
+  return (
+    <SubmenuItem
+      icon={Monitor}
+      label={tr('statusBar.me.devicesRow')}
+      testId="profile-menu-devices"
+      minWidth={244}
+      tail={list.length > 0 ? (
+        <span data-testid="devices-count" className={`flex-shrink-0 tabular-nums ${online > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}>
+          {tr('statusBar.me.devicesCount', { n: online, tot: list.length })}
+        </span>
+      ) : undefined}
+    >
+      {list.length === 0 ? (
+        <div className="px-3 py-2 text-mini text-app-text-secondary">{tr('devices.none')}</div>
+      ) : (
+        <div className="max-h-[240px] overflow-y-auto py-1">
+          {list.map((d) => (
+            <div key={d.id} data-testid="device-row" className="flex items-center gap-2 px-3 py-1 text-mini">
+              <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${d.connected ? PALLINO_OK : 'bg-app-text-muted/40'}`} />
+              <span className="min-w-0 flex-1 truncate text-app-text">{d.name}</span>
+              {d.current && <span className="flex-shrink-0 text-app-text-muted">{tr('devices.youAreHere')}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="border-t border-app-border py-1">
+        <MenuAction onClick={() => { onClose(); onOpenDevices(); }} testId="devices-open-manage">
+          {tr('statusBar.me.devicesManage')}
         </MenuAction>
       </div>
     </SubmenuItem>

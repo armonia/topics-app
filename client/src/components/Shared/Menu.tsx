@@ -50,6 +50,12 @@ export interface MenuProps {
   role?: 'menu' | 'listbox';
   /** Desktop min panel width in px (default 150). */
   minWidth?: number;
+  /** Desktop max panel width in px. Unset by default: most panels are meant
+   *  to fill whatever `minWidth` floor they were handed (the anti-staircase
+   *  rule in `SubmenuItem`). A panel of fixed-format rows (`label · value`,
+   *  not a list of names) needs the opposite: a ceiling, so a wide sidebar
+   *  column does not stretch its rows into a mostly-empty card. */
+  maxWidth?: number;
   /** Extra class names appended to the desktop panel. */
   className?: string;
   /** Let the panel own its focus + keyboard (e.g. a search field + custom list).
@@ -84,6 +90,7 @@ export function Menu({
   gap,
   role = 'menu',
   minWidth = 150,
+  maxWidth,
   className = '',
   unmanagedFocus = false,
   restoreFocus = true,
@@ -237,6 +244,7 @@ export function Menu({
                 top: pos?.top ?? -9999,
                 left: pos?.left ?? -9999,
                 minWidth,
+                maxWidth,
                 zIndex: Z_POPOVER,
                 // Hidden for the one layout pass before we've measured, so the
                 // menu never flashes at the guess position.

@@ -37,15 +37,18 @@ const LARGHEZZA = 244;
 export function PresencePopover({
   anchorEl,
   onClose,
-  titolo,
+  titolo = null,
   children,
   testId,
   width = LARGHEZZA,
 }: {
   anchorEl: HTMLElement | null;
   onClose: () => void;
-  /** The heading: who or what this panel is talking about. */
-  titolo: React.ReactNode;
+  /** The heading: who or what this panel is talking about. Omit it when the
+   *  panel already opens on its own identity (the account block draws the
+   *  face and the name first), so the header is not a second, unlinked
+   *  "Account" label repeating what the first row already says. */
+  titolo?: React.ReactNode;
   children: React.ReactNode;
   testId?: string;
   /** Wider than the default, for a panel that holds fields and not names. */
@@ -123,9 +126,11 @@ export function PresencePopover({
         visibility: pos ? 'visible' : 'hidden',
       }}
     >
-      <div className="flex items-center gap-2 border-b border-app-border px-3 py-2 text-mini font-medium text-app-text">
-        {titolo}
-      </div>
+      {titolo && (
+        <div className="flex items-center gap-2 border-b border-app-border px-3 py-2 text-mini font-medium text-app-text">
+          {titolo}
+        </div>
+      )}
       {children}
     </div>,
     document.body,
