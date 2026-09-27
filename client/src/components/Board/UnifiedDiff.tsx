@@ -6,7 +6,7 @@ import type { DiffRevs } from '../../../../shared/diff-revs';
 import { previewTypeOf } from '../../../../shared/preview-kind';
 import { parseDiffRows, isCommentable, anchorOf, noteKey, type DiffRow, type DiffNote } from './reviewNotes';
 import { buildFileRows, chunkFromFilePatch, type DiffFileChunk } from './diffFileRows';
-import { fetchDiffText, isStaleBlob, previewSides, renderedSide, resolveMarkdownImagePath, type PreviewSide } from './diffPreview';
+import { fetchDiffText, previewSides, renderedSide, reportStaleBlob, resolveMarkdownImagePath, type PreviewSide } from './diffPreview';
 import { ChangedFileEntry } from '../Git/ChangedFileList';
 import { rowFromDiffStat } from '../Git/changedFiles';
 import { shortcut } from '../../lib/shortcutLabel';
@@ -126,7 +126,21 @@ export function DiffLines({ path, body, review }: { path: string; body: string; 
     }
     return m;
   }, [allNotes, path]);
-  const shown = showAll ? rows : rows.slice(0, MAX_LINES_PER_FILE);
+  // Past the cap sits something the reader came for: a note (one on a row
+  // not drawn is a note the human no longer finds), or, in "Full file", the
+  // change itself below hundreds of rows of context. Then the file is drawn whole.
+  const reachesPastCap = useMemo(() => {
+    if (rows.length <= MAX_LINES_PER_FILE) return false;
+    const firstChange = rows.findIndex((r) => r.kind === 'add' || r.kind === 'del'); // allow-italian: 'del' is a patch row kind
+    if (firstChange >= MAX_LINES_PER_FILE) return true;
+    if (notesByKey.size === 0) return false;
+    for (let i = MAX_LINES_PER_FILE; i < rows.length; i++) {
+      const a = anchorOf(rows[i]!);
+      if (a && notesByKey.has(noteKey(path, a.line, a.side))) return true;
+    }
+    return false;
+  }, [rows, notesByKey, path]);
+  const shown = showAll || reachesPastCap ? rows : rows.slice(0, MAX_LINES_PER_FILE);
   const overflow = rows.length - shown.length;
 
   return (
@@ -206,6 +220,9 @@ export function DiffLines({ path, body, review }: { path: string; body: string; 
 
 type FileView = 'diff' | 'full' | 'preview';
 
+/** One file's patch as the per-file route answers it. */
+type FilePatch = { chunk: DiffFileChunk | null; truncated: boolean };
+
 const VIEW_LABEL: Record<FileView, string> = {
   diff: 'diff.viewDiff',
   full: 'diff.fullFile',
@@ -252,7 +269,7 @@ function ImageSide({ label, testId, side, source, onStale }: {
   const onError = useCallback(() => {
     setFailed(true);
     // An <img> never sees the status: ask once, and a moved-on bundle is re-read.
-    void isStaleBlob(source, side).then((stale) => { if (stale) onStale(); });
+    void reportStaleBlob(source, side, onStale);
   }, [source, side, onStale]);
   return (
     <figure className="min-w-0 space-y-1">
@@ -317,11 +334,9 @@ function MarkdownAtRevision({ path, rev, source, onStale }: {
   const [state, setState] = useState<{ text: string } | 'loading' | 'error'>('loading');
   useEffect(() => {
     let alive = true;
-    fetchDiffText(source, { path, rev })
-      .then((t) => {
-        if (!alive) return;
-        if (t === 'stale') { setState('error'); onStale(); } else setState({ text: t });
-      })
+    // A 409 re-reads the bundle (`onStale`), and this side is remounted at the new revision.
+    fetchDiffText(source, { path, rev }, onStale)
+      .then((t) => { if (alive) setState(t === null ? 'error' : { text: t }); })
       .catch(() => { if (alive) setState('error'); });
     return () => { alive = false; };
   }, [source, path, rev, onStale]);
@@ -359,16 +374,6 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
 }) {
   const tr = useT();
   const rootRef = useRef<HTMLDivElement>(null);
-  // The patch fetched on demand, for a file left past the bundle's cap.
-  const [lazyPatch, setLazyPatch] = useState<{ chunk: DiffFileChunk | null; truncated: boolean } | 'loading' | 'error' | null>(null);
-  const lazyChunk = lazyPatch && typeof lazyPatch === 'object' ? lazyPatch.chunk ?? undefined : undefined;
-  const chunk = bundled ?? lazyChunk;
-  const load = useCallback(() => {
-    setLazyPatch('loading');
-    boardApi.diffFile(source, path)
-      .then((r) => setLazyPatch({ chunk: chunkFromFilePatch(path, r.patch), truncated: r.truncated }))
-      .catch(() => setLazyPatch('error'));
-  }, [source, path]);
   // The same row the chat strip, the card chip and the project panel draw:
   // one letter, one palette, one place where the path is cut. A file that
   // arrived only in the patch has no status to read, and `modified` is what a
@@ -377,6 +382,18 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
     () => (stat ? rowFromDiffStat(stat) : { path, status: 'modified' as const }),
     [stat, path],
   );
+  // Every per-file read of a renamed file names its old path too (`gitDiffFilePatch`).
+  const origPath = row.origPath;
+  // The patch fetched on demand, for a file left past the bundle's cap.
+  const [lazyPatch, setLazyPatch] = useState<FilePatch | 'loading' | 'error' | null>(null);
+  const lazyChunk = lazyPatch && typeof lazyPatch === 'object' ? lazyPatch.chunk ?? undefined : undefined;
+  const chunk = bundled ?? lazyChunk;
+  const load = useCallback(() => {
+    setLazyPatch('loading');
+    boardApi.diffFile(source, path, { origPath })
+      .then((r) => setLazyPatch({ chunk: chunkFromFilePatch(path, r.patch), truncated: r.truncated }))
+      .catch(() => setLazyPatch('error'));
+  }, [source, path, origPath]);
   const binary = !!row.binary;
   const kind = useMemo(() => previewTypeOf(path)?.kind ?? null, [path]);
   const sides = useMemo(() => (revs && kind === 'image' ? previewSides(row, revs) : null), [revs, kind, row]);
@@ -386,16 +403,23 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
   );
   const views: FileView[] = sides || binary ? [] : rendered ? ['diff', 'full', 'preview'] : ['diff', 'full'];
   const [view, setView] = useState<FileView>('diff');
-  // The whole file as context, fetched the first time "Full file" is chosen.
-  const [full, setFull] = useState<{ chunk: DiffFileChunk | null; truncated: boolean } | 'loading' | 'error' | null>(null);
+  // The whole file as context, read while "Full file" is shown. It belongs to
+  // the bundle it was read under: when a re-read names other revisions, or
+  // this file's hunks changed (the agent keeps writing on a live worktree), it
+  // is read again, or the diff would move on while the full view stayed behind.
+  // Until the new one arrives the previous one stays on screen, as the bundle
+  // does in `TaskChangesSection`.
+  const [full, setFull] = useState<{ base?: string; head?: string | null; body?: string; patch: FilePatch | 'error' } | null>(null);
+  const revBase = revs?.base;
+  const revHead = revs?.head;
+  const bundledBody = bundled?.body;
+  const fullCurrent = full && full.base === revBase && full.head === revHead && full.body === bundledBody ? full.patch : null;
   const pickView = useCallback((v: FileView) => {
     setView(v);
-    if (v !== 'full' || (full && full !== 'error')) return;
-    setFull('loading');
-    boardApi.diffFile(source, path, { full: true })
-      .then((r) => setFull({ chunk: chunkFromFilePatch(path, r.patch), truncated: r.truncated }))
-      .catch(() => setFull('error'));
-  }, [full, source, path]);
+    // A failed read is retried by choosing the view again.
+    if (v === 'full' && fullCurrent === 'error') setFull(null);
+  }, [fullCurrent]);
+  const fullShown = fullCurrent ?? (full && full.patch !== 'error' ? full.patch : null);
 
   const noteCount = useMemo(() => (review?.notes ?? []).filter((n) => n.path === path).length, [review?.notes, path]);
   // Opened by default when it holds notes (a note in a closed file is a note
@@ -403,6 +427,16 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
   // default, even when the notes arrive later (a draft from the server).
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = userOpen ?? (defaultOpen || !!focused || noteCount > 0);
+  // Read only while someone looks at it: a closed file left on "Full file" is not re-read on every bundle.
+  useEffect(() => {
+    if (!open || view !== 'full' || fullCurrent !== null) return;
+    let alive = true;
+    const under = { base: revBase, head: revHead, body: bundledBody };
+    boardApi.diffFile(source, path, { full: true, origPath })
+      .then((r) => { if (alive) setFull({ ...under, patch: { chunk: chunkFromFilePatch(path, r.patch), truncated: r.truncated } }); })
+      .catch(() => { if (alive) setFull({ ...under, patch: 'error' }); });
+    return () => { alive = false; };
+  }, [open, view, fullCurrent, revBase, revHead, bundledBody, source, path, origPath]);
   // Opened from a row of the card chip: the file is scrolled into view, not
   // just expanded, or in a 70-file diff it stays below the fold.
   useEffect(() => {
@@ -414,11 +448,11 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
   useEffect(() => {
     if (!focused || bundled || sides) return;
     let alive = true;
-    boardApi.diffFile(source, path)
+    boardApi.diffFile(source, path, { origPath })
       .then((r) => { if (alive) setLazyPatch({ chunk: chunkFromFilePatch(path, r.patch), truncated: r.truncated }); })
       .catch(() => { if (alive) setLazyPatch('error'); });
     return () => { alive = false; };
-  }, [focused, bundled, sides, source, path]);
+  }, [focused, bundled, sides, source, path, origPath]);
 
   const note = (text: string) => <div className="px-2 py-1 font-sans text-mini text-app-text-muted">{text}</div>;
   const cut = <div className="px-2 py-0.5 font-sans text-micro text-amber-400/80">{tr('diff.cutHere')}</div>;
@@ -442,9 +476,9 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
       <MarkdownAtRevision key={`${rendered.rev}:${rendered.path}`} path={rendered.path} rev={rendered.rev} source={source} onStale={onStale} />
     );
   } else if (view === 'full') {
-    body = full === null || full === 'loading' ? note(tr('diff.loadingFile'))
-      : full === 'error' ? note(tr('diff.loadFileFailed'))
-      : full.chunk ? <><DiffLines path={path} body={full.chunk.body} review={review} />{full.truncated && cut}</>
+    body = fullShown === null ? note(tr('diff.loadingFile'))
+      : fullShown === 'error' ? note(tr('diff.loadFileFailed'))
+      : fullShown.chunk ? <><DiffLines path={path} body={fullShown.chunk.body} review={review} />{fullShown.truncated && cut}</>
       : note(tr('diff.noChanges'));
   } else if (!chunk) {
     body = lazyPatch && typeof lazyPatch === 'object' ? note(tr('diff.noChanges')) : (

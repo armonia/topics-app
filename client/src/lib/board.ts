@@ -1177,10 +1177,12 @@ export const boardApi = {
   taskDiff: (projectId: string, taskId: string, attemptId?: string) =>
     req<DiffBundle>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/diff${attemptId ? `?attempt=${enc(attemptId)}` : ''}`),
   /** The patch of ONE file on the bundle's range: how a file left past the
-   *  payload cap gets read, and with `full` the whole file as context. */
-  diffFile: (source: DiffPanelSource, path: string, opts?: { full?: boolean }) => {
+   *  payload cap gets read, and with `full` the whole file as context. A
+   *  rename's `origPath` goes along, or git reads the file as new. */
+  diffFile: (source: DiffPanelSource, path: string, opts?: { full?: boolean; origPath?: string }) => {
     const r = diffRoute(source);
-    return req<{ path: string; patch: string; truncated: boolean }>(`${r.path}?file=${enc(path)}${opts?.full ? '&context=full' : ''}${r.extra}`);
+    const orig = opts?.origPath ? `&orig=${enc(opts.origPath)}` : '';
+    return req<{ path: string; patch: string; truncated: boolean }>(`${r.path}?file=${enc(path)}${orig}${opts?.full ? '&context=full' : ''}${r.extra}`);
   },
   /** I tentativi paralleli di un fan-out. Lista vuota = task dispatchato normalmente. */
   attempts: (projectId: string, taskId: string) =>

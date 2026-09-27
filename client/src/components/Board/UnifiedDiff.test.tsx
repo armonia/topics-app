@@ -226,3 +226,32 @@ describe('"Full file" keeps review notes on their rows (DIFFPV-04)', () => {
     expect(renderToStaticMarkup(<UnifiedDiff bundle={picture} source={TASK} focusPath="a.png" />)).not.toContain('diff-view-full');
   });
 });
+
+describe('the per-file row cap never hides a note or the change itself (DIFFPV-04)', () => {
+  const N = 2000;
+  const header = 'diff --git a/big.ts b/big.ts\n--- a/big.ts\n+++ b/big.ts\n';
+  /** "Full file" of a 2000-line file whose one change is on line `at`. */
+  const wholeFile = (at: number) =>
+    `${header}@@ -1,${N} +1,${N} @@\n${Array.from({ length: N }, (_, i) => (i === at - 1 ? `-line ${at}\n+line ${at} changed` : ` line ${i + 1}`)).join('\n')}\n`;
+  const bodyOf = (patch: string) => chunkFromFilePatch('big.ts', patch)!.body;
+
+  test('a note anchored past the cap is drawn under its row', () => {
+    const note: DiffNote = { id: 'n', path: 'big.ts', line: 1500, side: 'new', code: ' line 1500', body: 'NOTE-ON-1500' };
+    const html = renderToStaticMarkup(
+      <DiffLines path="big.ts" body={bodyOf(wholeFile(5))} review={{ notes: [note], onAddNote: () => {}, onRemoveNote: () => {} }} />,
+    );
+    expect(html).toContain('data-anchor="new:1500"');
+    expect(html).toContain('NOTE-ON-1500');
+  });
+
+  test('a whole file whose change sits past the cap opens on all of it, not on 600 rows of context', () => {
+    const html = renderToStaticMarkup(<DiffLines path="big.ts" body={bodyOf(wholeFile(1500))} />);
+    expect(html).toContain('+line 1500 changed');
+  });
+
+  test('with the change near the top and no note down there, the cap still holds', () => {
+    const html = renderToStaticMarkup(<DiffLines path="big.ts" body={bodyOf(wholeFile(5))} />);
+    expect(html).toContain('+line 5 changed');
+    expect(html).not.toContain('data-anchor="new:1500"');
+  });
+});

@@ -70,24 +70,32 @@ export function resolveMarkdownImagePath(mdPath: string, src: string): string | 
 }
 
 /**
- * Did a byte read fail because the bundle's revisions moved on (`409`)? Asked
- * only after an `<img>` failed, since an image element never sees the status:
- * then the panel re-reads the bundle instead of showing a dead picture.
+ * After an `<img>` failed: when the byte read failed because the bundle's
+ * revisions moved on (`409`, the card landed between the list and the click),
+ * `onStale` re-reads the bundle instead of leaving a dead picture. Asked
+ * separately because an image element never sees the status.
  */
-export async function isStaleBlob(source: DiffPanelSource, side: PreviewSide): Promise<boolean> {
+export async function reportStaleBlob(source: DiffPanelSource, side: PreviewSide, onStale: () => void): Promise<void> {
   try {
     const res = await fetch(diffBlobPath(source, side.path, side.rev));
     await res.body?.cancel();
-    return res.status === 409;
+    if (res.status === 409) onStale();
   } catch {
-    return false;
+    // Offline or refused: nothing says the bundle moved, the picture stays "unavailable".
   }
 }
 
-/** The text of a file at one revision (the `.md` to render); `'stale'` on a `409`. */
-export async function fetchDiffText(source: DiffPanelSource, side: PreviewSide): Promise<string | 'stale'> {
+/**
+ * The text of a file at one revision (the `.md` to render). On a `409` it calls
+ * `onStale`, which re-reads the bundle, and has no text: `null`.
+ */
+export async function fetchDiffText(source: DiffPanelSource, side: PreviewSide, onStale: () => void): Promise<string | null> {
   const res = await fetch(diffBlobPath(source, side.path, side.rev));
-  if (res.status === 409) return 'stale';
+  if (res.status === 409) {
+    await res.body?.cancel();
+    onStale();
+    return null;
+  }
   if (!res.ok) throw new Error(res.statusText);
   return res.text();
 }
