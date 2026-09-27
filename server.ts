@@ -20,7 +20,7 @@ import { listNativeCommands, nativeCommandByPid } from "./server/lib/native-comm
 import { listSessionCliPids } from "./server/providers/session-pids";
 import { getAccessToken } from "./server/providers/native/auth";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
-import { closeReattachedRows } from "./server/lib/turno-troncato";
+import { settleReattachLeg } from "./server/lib/turno-troncato";
 import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, rmSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket, Server } from "bun";
@@ -760,13 +760,6 @@ initUsageStore(ctx.STATE_DIR);
 try { rebuildSummary(); }
 catch (e) { console.error("[usage] rebuildSummary failed at boot (non-fatal):", e); }
 
-/** `topic:updated` is what an open pane reconciles its thread on
- *  (usePanelLifecycle): a row changed out of band reaches the open windows. */
-function announceThreadChanged(sessionKey: string): void {
-  const topic = ctx.getTopicBySessionKey(sessionKey);
-  if (topic) ctx.broadcastToAll({ type: "topic:updated", topic });
-}
-
 // Claude Code session tracker — canonical lifecycle state for every Claude
 // CLI session spawned via Topics (topic chats persist in the DB; topic-less
 // terminal sessions are tracked in-memory). Created before the terminal router
@@ -787,8 +780,12 @@ const claudeSessionTracker = createClaudeSessionTracker({
     resolveToolResult: (sk, toolUseId, result, isError) =>
       ctx.updateToolCallResult(sk, toolUseId, isError ? "" : result, isError ? result : undefined),
     topicIdForSessionKey: (sk) => ctx.getTopicBySessionKey(sk)?.id ?? null,
-    // The imported tool rows and results reach the open panes too.
-    announceThreadChanged,
+    // `topic:updated` is what an open pane reconciles its thread on
+    // (usePanelLifecycle): the imported tool rows and results reach it too.
+    announceThreadChanged: (sk) => {
+      const topic = ctx.getTopicBySessionKey(sk);
+      if (topic) ctx.broadcastToAll({ type: "topic:updated", topic });
+    },
   },
   // Double-import guard: while Topics owns a live claude child for the session,
   // the chat provider streams + persists those turns itself.
@@ -5418,69 +5415,14 @@ async function reattachSurvivingChatTurns(): Promise<void> {
           if (end.end !== "end_turn") console.warn(`[chat-reattach] ${s.id}: ${describeTurnEnd(end)}`);
         })
         .catch((err) => console.warn(`[chat-reattach] ${s.id} failed:`, err?.message ?? err))
-        .finally(async () => {
-          // La gamba di riadozione è finita — ma il TURNO può non esserlo: un
-          // figlio fermo su `ask_user_question` resta aperto per ore, e il
-          // replay muto che ci riattacca dura un attimo. Azzerare `partial`
-          // qui dentro chiudeva la riga di un turno vivo, e al riavvio dopo
-          // `reuseOrCreatePartialForReattach` non aveva più niente da
-          // riutilizzare: ne apriva una NUOVA. Su topic:ed2070df sono uscite
-          // cinque copie dello stesso messaggio, una per ricarica del server,
-          // ognuna con una durata da 100ms che non misurava niente.
-          //
-          // Quindi si richiede al broker: se il turno è ancora aperto la riga
-          // resta com'è, ed è la stessa che il prossimo riattacco riprende.
-          try {
-            const prov = tryGetProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
-            const state = await prov?.brokerTurnState?.(s.id).catch(() => "unknown" as const);
-            if (state === "open") {
-              // «Resta viva» va SCRITTA, non solo non-disfatta.
-              //
-              // Saltare la pulizia qui sotto non bastava: la riga era già stata
-              // chiusa a monte. `finalizeStream` passa `partial: undefined` e la
-              // UPDATE di `updateMessage` (server/utils.ts:330) scrive
-              // `partial = $partial` SENZA COALESCE — quindi ogni gamba di
-              // riadozione, anche quella che finisce su un turno ancora aperto,
-              // lascia `partial` spento. E `reuseOrCreatePartialForReattach`
-              // (utils.ts:1347) riusa la riga SOLO se è assistant con
-              // `partial = 1`: al riavvio successivo non trovava niente da
-              // riprendere e ne apriva una NUOVA. È il conto esatto del
-              // 2026-08-18 su topic:9fe7a291 — dieci riadozioni, 1 riusata
-              // («partial in DB») + 8 nuove («store del broker aperto») = nove
-              // righe dove doveva essercene una. Lo stesso sintomo delle cinque
-              // copie su topic:ed2070df che il commento qui sopra dice curato:
-              // la guardia c'era, ma disarmava un flag che qualcun altro aveva
-              // già spento.
-              //
-              // Il broker ha appena detto `open`: la riga è di un turno vivo, e
-              // il flag si RIACCENDE. Solo l'ultima della sessione, che è quella
-              // che il prossimo riattacco riprenderà.
-              try {
-                ctx.db.run(
-                  "UPDATE messages SET partial = 1 WHERE id = (SELECT id FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC LIMIT 1)",
-                  [s.id],
-                );
-              } catch { /* al peggio il prossimo riattacco apre una riga nuova, com'era prima */ }
-              console.log(`[chat-reattach] ${s.id}: la gamba è finita ma il turno è ancora aperto (domanda a schermo) — la riga resta viva`);
-              return;
-            }
-          } catch { /* nessuna risposta dal broker: si pulisce, come prima */ }
-          // IL TURNO È FINITO — MA SE È FINITO MALE VA DETTO.
-          //
-          // Questa riga spegneva `partial` in SILENZIO. Un turno completato non
-          // ha niente da spiegare, ma qui ci arriva anche chi è MORTO col
-          // riavvio: la riga si chiudeva a metà frase, senza cartello e senza
-          // niente che la distinguesse da una risposta finita bene. Le due chat
-          // segnalate il 20/08 («penso abbiano interrotto involontariamente»)
-          // erano esattamente questo: nel log `reaping idle broker session`,
-          // in chat nulla.
-          //
-          // Il cartello lo scrive `spiegaTurnoTroncato`, che riconosce da sé
-          // chi ha davvero bisogno di una spiegazione — e non ne scrive due.
-          try {
-            closeReattachedRows(ctx.db, s.id, announceThreadChanged);
-          } catch { /* next boot's reset catches it */ }
-        });
+        // The leg is over, the turn may not be: the broker is asked again, and
+        // the rows are kept live, or closed, explained and announced.
+        .finally(() => settleReattachLeg({
+          db: ctx.db,
+          brokerTurnState: (sk) => (tryGetProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined)?.brokerTurnState?.(sk),
+          getTopicBySessionKey: (sk) => ctx.getTopicBySessionKey(sk),
+          broadcast: (msg) => ctx.broadcastToAll(msg),
+        }, s.id));
       continue;
     }
     // Idle / archived / deleted-topic session: reap. Guard against a send
@@ -5821,7 +5763,6 @@ const resumeCtx: CtxRipresa = {
   providerBusy: sessionHasPendingSend,
   bootedAtMs: SERVER_STARTED_AT,
   broadcast: (msg) => ctx.broadcastToAll(msg),
-  announceThreadChanged,
 };
 
 // Chain reconcile AFTER reattach: reattach adopts survivors (keeps their broker

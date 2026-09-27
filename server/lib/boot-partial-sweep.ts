@@ -187,3 +187,15 @@ export function restartNotificationFrame(
 ): OutboundMessage {
   return { type: "message:new", topicId, sessionKey, role: "assistant", messageId: id, content: text, preview: text.slice(0, 100), blocks };
 }
+
+/**
+ * The frame for rows of a chat that changed with no turn's frames to carry
+ * them: a sweep closed them, or traced them. The windows open on the chat read
+ * the thread again, and `threadChanged` takes that read past the client's
+ * history dedup: a plain `topic:updated` is dropped by a window that read the
+ * chat in the last 5 s, and at boot every window has just read it on
+ * reconnect (card edf3c4db).
+ */
+export function threadChangedFrame(topic: { id: string }): OutboundMessage {
+  return { type: "topic:updated", topic, threadChanged: true };
+}

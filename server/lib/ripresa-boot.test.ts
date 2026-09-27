@@ -336,23 +336,24 @@ describe("una route che non risponde non pianta il boot", () => {
    * end was meant to reload the row. A route that refuses (503
    * `provider_unavailable`, a topic pinned to a provider that is not connected)
    * starts nothing, and the windows kept the row without its trace until a
-   * reload.
+   * reload. `threadChanged` takes their read past the history dedup: a window
+   * that read the chat in the last 5 s would drop a plain `topic:updated`.
    */
-  test("a refused resend tells the open windows that the traced row changed", async () => {
+  test("a refused resend makes the windows open on the chat read the traced row again", async () => {
     const db = dbWithCutTurn();
-    const told: string[] = [];
+    const frames: unknown[] = [];
     await withWarn(() => riprendiTurniInterrotti(
-      { ...ctxOf(db), announceThreadChanged: (sk) => told.push(sk) },
+      { db, getTopicBySessionKey: () => ({ id: "t-x", archived: false }), broadcast: (m) => { frames.push(m); } },
       () => Response.json({ error: "Provider unavailable", code: "provider_unavailable" }, { status: 503 }),
     ));
-    expect(told).toEqual(["topic:x"]);
+    expect(frames).toEqual([{ type: "topic:updated", topic: { id: "t-x", archived: false }, threadChanged: true }]);
   });
 
   test("a resend that answers leaves the row to the frames of its own turn", async () => {
     const db = dbWithCutTurn();
-    const told: string[] = [];
+    const frames: unknown[] = [];
     await withWarn(() => riprendiTurniInterrotti(
-      { ...ctxOf(db), announceThreadChanged: (sk) => told.push(sk) },
+      { db, getTopicBySessionKey: () => ({ id: "t-x", archived: false }), broadcast: (m) => { frames.push(m); } },
       () => {
         db.run(
           "INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, branch_index) VALUES ('a1','topic:x','assistant','fatto',0,?,9,0)",
@@ -361,7 +362,7 @@ describe("una route che non risponde non pianta il boot", () => {
         return new Response(new ReadableStream({ start(c) { c.close(); } }), { status: 200 });
       },
     ));
-    expect(told).toEqual([]);
+    expect(frames).toEqual([]);
   });
 
   test("i tetti di produzione sono minuti, non secondi", () => {
@@ -491,8 +492,8 @@ describe("la catena dei riavvii ha un tetto", () => {
     // Before the resend's own frames, or the notice lands under its live bubble.
     expect(order).toEqual(["frame:message:new", "resend"]);
     expect(frames[0]).toMatchObject({ type: "message:new", topicId: "t-x", sessionKey: "topic:x", messageId: notice.id, content: notice.content });
-    // The blocks the row has: the trace too, which makes it a resumed turn and
-    // not a failure to retry.
+    // The blocks the row has, the trace too: a later history read finds the
+    // same row the frame drew.
     expect(frames[0]!.blocks).toEqual(blocksOf(notice.blocks));
     expect(blocksOf(notice.blocks).some((b) => b.kind === "ripreso")).toBe(true);
   });

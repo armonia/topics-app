@@ -9,7 +9,7 @@
  * @covers INTERRUPT-01
  */
 import { describe, expect, test } from "bun:test";
-import { closeReattachedRows, èTroncato, TURNO_TRONCATO, spiegaTurnoTroncato } from "./turno-troncato";
+import { settleReattachLeg, èTroncato, TURNO_TRONCATO, spiegaTurnoTroncato } from "./turno-troncato";
 import type { ContentBlock } from "../types";
 import { Database } from "bun:sqlite";
 import { decodeCol, encodeCol } from "../../shared/message-blob";
@@ -78,14 +78,17 @@ describe("il cartello finisce davvero sulla riga", () => {
 });
 
 /**
- * A REATTACH LEG THAT CLOSES ITS ROWS TELLS THE OPEN WINDOWS (card edf3c4db).
+ * THE END OF A BOOT REATTACH LEG TELLS THE OPEN WINDOWS (card edf3c4db).
  *
- * At the end of a reattach leg, after the boot, the rows the turn left open
- * were closed and the cut explained in the database only: a window open on
- * the chat kept the bubble as it was, still open and with no notice, until a
- * reload.
+ * When the leg is over the broker is asked again. A turn still open (a
+ * question on screen) keeps its row live, and nothing is sent: a stray frame
+ * would reach windows watching that turn. A turn that is over has its rows
+ * closed and the cut explained, and that was written in the database only: a
+ * window open on the chat kept the bubble open and unexplained until a reload.
+ * The frame is the one that takes the window's read past its history dedup,
+ * since at boot every window has just read the chat on reconnect.
  */
-describe("closing the rows a reattach leg left open", () => {
+describe("the end of a boot reattach leg", () => {
   const withRows = () => {
     const db = new Database(":memory:");
     db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, role TEXT, blocks BLOB, sort_order INTEGER, partial INTEGER, streamed_at TEXT)`);
@@ -94,24 +97,57 @@ describe("closing the rows a reattach leg left open", () => {
   const add = (db: Database, id: string, blocks: ContentBlock[], partial: number) =>
     db.prepare(`INSERT INTO messages (id, session_key, role, blocks, sort_order, partial, streamed_at) VALUES (?, 'topic:x', 'assistant', ?, 0, ?, ?)`)
       .run(id, encodeCol(JSON.stringify(blocks)) ?? null, partial, partial ? new Date().toISOString() : null);
+  const rowOf = (db: Database, id: string) => {
+    const r = db.query(`SELECT partial, streamed_at, blocks FROM messages WHERE id = ?`).get(id) as { partial: number; streamed_at: string | null; blocks: unknown };
+    return { partial: r.partial, streamedAt: r.streamed_at, blocks: JSON.parse(decodeCol(r.blocks) ?? "[]") as ContentBlock[] };
+  };
+  const end = (db: Database, broker: () => Promise<"open" | "idle" | "unknown">, frames: unknown[]) => ({
+    db: db as never,
+    brokerTurnState: broker,
+    getTopicBySessionKey: () => ({ id: "t-x" }),
+    broadcast: (m: unknown) => { frames.push(m); },
+  });
+  const THREAD_CHANGED = { type: "topic:updated", topic: { id: "t-x" }, threadChanged: true };
 
-  test("a row cut on a tool is closed, explained, and the open windows are told once", () => {
+  test("the broker says the turn is over: the row is closed, explained, and the open windows told once", async () => {
     const db = withRows();
     add(db, "cut", [testo("sto misurando"), tool()], 1);
-    const told: string[] = [];
-    expect(closeReattachedRows(db as never, "topic:x", (sk) => told.push(sk))).toBe(1);
-    const row = db.query(`SELECT partial, streamed_at, blocks FROM messages WHERE id = 'cut'`).get() as { partial: number; streamed_at: string | null; blocks: unknown };
+    const frames: unknown[] = [];
+    expect(await settleReattachLeg(end(db, async () => "idle", frames), "topic:x")).toBe(1);
+    const row = rowOf(db, "cut");
     expect(row.partial).toBe(0);
-    expect(row.streamed_at).toBeNull();
-    expect((JSON.parse(decodeCol(row.blocks) ?? "[]") as ContentBlock[]).at(-1)).toEqual({ kind: "error", text: TURNO_TRONCATO });
-    expect(told).toEqual(["topic:x"]);
+    expect(row.streamedAt).toBeNull();
+    expect(row.blocks.at(-1)).toEqual({ kind: "error", text: TURNO_TRONCATO });
+    expect(frames).toEqual([THREAD_CHANGED]);
   });
 
-  test("nothing left open: nothing written, nobody told", () => {
+  test("the broker cannot answer: the rows are closed all the same, and announced", async () => {
+    const db = withRows();
+    add(db, "cut", [testo("sto misurando"), tool()], 1);
+    const frames: unknown[] = [];
+    expect(await settleReattachLeg(end(db, () => Promise.reject(new Error("socket gone")), frames), "topic:x")).toBe(1);
+    expect(rowOf(db, "cut").partial).toBe(0);
+    expect(frames).toEqual([THREAD_CHANGED]);
+  });
+
+  test("the broker says the turn is still open: the row stays live, and no window is told anything", async () => {
+    const db = withRows();
+    // The leg's finalize left `partial` off on a turn that goes on.
+    add(db, "asking", [testo("devo chiederti una cosa"), tool()], 0);
+    const frames: unknown[] = [];
+    expect(await settleReattachLeg(end(db, async () => "open", frames), "topic:x")).toBe(0);
+    const row = rowOf(db, "asking");
+    expect(row.partial).toBe(1);
+    expect(row.blocks.some((b) => b.kind === "error")).toBe(false);
+    expect(frames).toEqual([]);
+  });
+
+  test("nothing left open: nothing written, nobody told", async () => {
     const db = withRows();
     add(db, "done", [testo("sto misurando"), tool()], 0);
-    const told: string[] = [];
-    expect(closeReattachedRows(db as never, "topic:x", (sk) => told.push(sk))).toBe(0);
-    expect(told).toEqual([]);
+    const frames: unknown[] = [];
+    expect(await settleReattachLeg(end(db, async () => "idle", frames), "topic:x")).toBe(0);
+    expect(rowOf(db, "done").blocks.some((b) => b.kind === "error")).toBe(false);
+    expect(frames).toEqual([]);
   });
 });

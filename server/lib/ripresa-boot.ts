@@ -308,7 +308,7 @@ export function attemptsOnRow(blocks: ContentBlock[] | null | undefined): number
  */
 import type { Database } from "bun:sqlite";
 import { decodeCol, encodeCol } from "../../shared/message-blob";
-import { insertRestartNotification, restartNotificationFrame, type PartialSweepDb } from "./boot-partial-sweep";
+import { insertRestartNotification, restartNotificationFrame, threadChangedFrame, type PartialSweepDb } from "./boot-partial-sweep";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isBackgroundNoticeRow, rowsBack } from "./background-notice";
 
@@ -344,8 +344,6 @@ export interface CtxRipresa {
    *  Absent: the notices reach the database only, and a window open on the
    *  chat shows them on its next history read. */
   broadcast?(msg: OutboundMessage): void;
-  /** The windows open on the chat read its thread again (`topic:updated` in production). */
-  announceThreadChanged?(sessionKey: string): void;
 }
 
 /** The last interruption verdict of a row: the cut, with its cause and its text. */
@@ -793,8 +791,9 @@ export async function riprendiTurniInterrotti(
     } catch (err) {
       console.warn(`[ripresa] ${c.sessionKey}: la ripresa non è riuscita:`, err);
     } finally {
-      // The resend's end reloads the traced row; one that brought no answer does not (card edf3c4db).
-      if (!resumed && !c.fresh) ctx.announceThreadChanged?.(c.sessionKey);
+      // A resend with no answer has no end to reload the traced row; a fresh notice went out traced (card edf3c4db).
+      const topic = !resumed && !c.fresh ? ctx.getTopicBySessionKey(c.sessionKey) : null;
+      if (topic?.id) ctx.broadcast?.(threadChangedFrame({ ...topic, id: topic.id }));
     }
   }
 }
