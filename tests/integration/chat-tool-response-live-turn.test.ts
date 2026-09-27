@@ -10,9 +10,12 @@
  * point 3. A late answer's question is the same case: the late lane
  * (`lib/late-answer-lane.ts`) writes from that same timeline.
  *
- * A SECOND submission of a question already answered (another window, a
- * stale panel) must not reach the timeline: the tool it names has returned,
- * and putting it back to running or to error is what the turn then wrote.
+ * Two more roads to the same row. A SECOND submission of a question already
+ * answered (another window, a stale panel) must not reach the timeline: the
+ * tool it names has returned, and putting it back to running or to error is
+ * what the turn then wrote. And a turn REATTACHED after a restart rebuilds its
+ * timeline from the replay, which carries no answer: the one on the row before
+ * the restart has to survive it (`routes/reattachMerge.ts`).
  *
  * Driven through the real chat route and the real tool-response route, on one
  * test database.
@@ -26,7 +29,7 @@ import { createChatRouter } from "../../server/routes/chat";
 import { createTopicsRouter } from "../../server/routes/topics";
 import { beginAsk, cancelAsk } from "../../server/lib/ask-user-bridge";
 import { decodeCol } from "../../shared/message-blob";
-import { flushTurnBody } from "../../server/lib/turn-body-flush";
+import { _resetTurnBodyFlushers, flushTurnBody } from "../../server/lib/turn-body-flush";
 import { registerProvider, removeProvider } from "../../server/providers";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, ContentBlock, ToolCall, Topic } from "../../server/types";
@@ -76,6 +79,8 @@ async function harness(sessionKey: string) {
     unregisterStreamHandler: () => {},
     // The turn ends when the test says so, through the handler.
     sendChat: () => new Promise<{ runId?: string }>(() => {}),
+    // A reattach hands the route's handler to the replay the test drives.
+    reattach: (_sk: string, h: StreamHandler) => { captured = h; return new Promise<string>(() => {}); },
     defaultModel: () => "fake-model",
     abort: async () => {},
     start: () => {}, stop: () => {},
@@ -97,12 +102,16 @@ async function harness(sessionKey: string) {
   } as never);
   const topicsRouter = createTopicsRouter(ctx);
 
-  const startTurn = async (): Promise<StreamHandler> => {
+  /** A turn sent by the person, or `reattach`: the server that restarted adopting it. */
+  const startTurn = async (reattach = false): Promise<StreamHandler> => {
+    captured = undefined;
     const url = new URL("http://topics.test/api/chat");
     const resp = await chatRouter(new Request(url.toString(), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: "sistema il sito" }] }),
+      body: JSON.stringify(reattach
+        ? { sessionKey, mode: "reattach", messages: [] }
+        : { sessionKey, messages: [{ role: "user", content: "sistema il sito" }] }),
     }), url, "/api/chat", "POST");
     expect(resp?.status).toBe(200);
     resp?.body?.cancel().catch(() => {});
@@ -253,6 +262,40 @@ describe("an answer reaches a tool that has not returned, whatever its timeline 
       const tool = h.toolOnRow(rowId, "toolu_send");
       expect(tool?.status).toBe("success");
       expect(tool?.userResponse).toMatchObject({ kind: "questions", answers: ANSWERS });
+    } finally {
+      cancelAsk(sk);
+    }
+  });
+});
+
+describe("the answer given before a restart survives the turn's reattach", () => {
+  test("the replay rebuilds the tool without the answer, and the row keeps it", async () => {
+    const sk = "topic:answer-reattach";
+    const h = await harness(sk);
+    try {
+      const handler = await h.startTurn();
+      const rowId = h.lastRowId();
+      handler.onToolStart("toolu_reattach_ask", ASK_TOOL, { questions: SCHEMA.questions } as never);
+      handler.onUserInputRequired!("toolu_reattach_ask", ASK_TOOL, SCHEMA);
+      expect((await h.answer("toolu_reattach_ask")).status).toBe(200);
+      // The graceful shutdown writes what the throttle owes; then the
+      // process, and the registry of its writers, is gone.
+      flushTurnBody(sk);
+      expect(h.toolOnRow(rowId, "toolu_reattach_ask")?.userResponse).toMatchObject({ kind: "questions", answers: ANSWERS });
+      _resetTurnBodyFlushers();
+
+      const replay = await h.startTurn(true);
+      expect(h.lastRowId()).toBe(rowId);
+      // The broker's store holds the CLI's events: the tool and its result.
+      replay.onToolStart("toolu_reattach_ask", ASK_TOOL, { questions: SCHEMA.questions } as never);
+      replay.onToolResult("toolu_reattach_ask", JSON.stringify({ answers: ANSWERS }), false);
+      replay.onDone({ content: [{ type: "text", text: "Lavoro sul sito." }] } as never);
+      await until(() => h.sent.some((m) => m.type === "stream:end"));
+
+      const tool = h.toolOnRow(rowId, "toolu_reattach_ask");
+      expect(tool?.status).toBe("success");
+      expect(tool?.userResponse).toMatchObject({ kind: "questions", answers: ANSWERS });
+      expect(tool?.userInputSchema).toEqual(SCHEMA);
     } finally {
       cancelAsk(sk);
     }
