@@ -85,6 +85,7 @@ export function rowFromDiffStat(stat: DiffFileStat): ChangedFileRow {
     added: binary ? undefined : stat.additions,
     removed: binary ? undefined : stat.deletions,
     binary: binary || undefined,
+    origPath: stat.origPath,
   };
 }
 

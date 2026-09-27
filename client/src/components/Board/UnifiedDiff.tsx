@@ -1,53 +1,67 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useT } from '../../hooks/useT';
-import { ChevronDown, ChevronRight, FileCode, MessageSquarePlus, Trash2 } from 'lucide-react';
-import { boardApi, type DiffBundle, type DiffFileStat } from '../../lib/board';
+import { ChevronDown, ChevronRight, FileCode, ImageOff, MessageSquarePlus, Trash2 } from 'lucide-react';
+import { boardApi, diffBlobUrl, type DiffBundle, type DiffFileStat, type DiffPanelSource } from '../../lib/board';
+import type { DiffRevs } from '../../../../shared/diff-revs';
+import { previewTypeOf } from '../../../../shared/preview-kind';
 import { parseDiffRows, isCommentable, anchorOf, noteKey, type DiffRow, type DiffNote } from './reviewNotes';
 import { buildFileRows, chunkFromFilePatch, type DiffFileChunk } from './diffFileRows';
+import { fetchDiffText, isStaleBlob, previewSides, renderedSide, resolveMarkdownImagePath, type PreviewSide } from './diffPreview';
 import { ChangedFileEntry } from '../Git/ChangedFileList';
 import { rowFromDiffStat } from '../Git/changedFiles';
 import { shortcut } from '../../lib/shortcutLabel';
+import { SpinnerFallback } from '../Shared/Spinner';
 
 /**
- * GitHub-style unified diff for a raw `git diff` patch (publish range or a task's
- * worktree). Reuses the chat DiffBlock visual vocabulary (red/green line
- * backgrounds, mono, muted meta) so a diff looks the same everywhere. Files start
- * collapsed and their hunks render only on expand, so a big multi-file patch stays
- * cheap until you open a file.
+ * GitHub-style unified diff for a raw `git diff` patch (a card's delivery, one
+ * attempt of its fan-out, or a publish range). Reuses the chat DiffBlock visual
+ * vocabulary (red/green line backgrounds, mono, muted meta) so a diff looks the
+ * same everywhere. Files start collapsed and their bodies render only on
+ * expand, so a big multi-file patch stays cheap until you open a file.
  *
- * Con `onAddNote` il diff smette di essere di sola lettura: ogni riga di
- * contenuto prende un aggancio per una nota di revisione, che resta in sospeso
- * finché il chiamante non la spedisce (vedi `reviewNotes.ts`).
+ * A file is shown as what it is: a changed picture is a Before/After pair, a
+ * `.md` or `.svg` can be seen rendered, a text file can be read whole. The
+ * bytes come from the diff's own route at the two revisions it names
+ * (`bundle.revs`), never from the disk of whoever is looking.
+ *
+ * With `review` the diff stops being read-only: every content line takes a
+ * hook for a review note, which stays pending until the caller sends it (see
+ * `reviewNotes.ts`). Notes live on the diff lines, in both the diff and the
+ * "Full file" view.
  */
 
 /** Per-file line budget when expanded — keeps a pathological file from flooding the DOM. */
 const MAX_LINES_PER_FILE = 600;
 
+// The rendered side of a `.md` is its own chunk (parse5, via rehype-raw): it is
+// fetched only when someone asks for the preview, as in `FilePane`.
+const MarkdownPreview = lazy(() => import('../Editor/MarkdownPreview'));
+
 function rowClass(row: DiffRow): string {
   switch (row.kind) {
     case 'hunk': return 'bg-sky-500/10 text-sky-600 dark:text-sky-300';
     case 'add': return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
-    case 'del': return 'bg-red-500/10 text-red-700 dark:text-red-300';
+    case 'del': return 'bg-red-500/10 text-red-700 dark:text-red-300'; // allow-italian: 'del' is a patch row kind
     case 'nonewline': return 'text-app-text-muted italic';
     default: return 'text-app-text-faint dark:text-app-text-secondary';
   }
 }
 
-/** Handlers che accendono la modalità revisione; assenti = diff di sola lettura. */
+/** The handlers that turn review mode on; absent = a read-only diff. */
 export interface DiffReview {
   notes: DiffNote[];
   onAddNote: (note: Omit<DiffNote, 'id'>) => void;
   onRemoveNote: (id: string) => void;
 }
 
-/** Gutter sticky: due numeri + l'aggancio. Resta a sinistra mentre la riga scorre. */
+/** Sticky gutter: two numbers and the hook. It stays on the left while the line scrolls. */
 const GUTTER = 'sticky shrink-0 select-none bg-app-inset px-1 text-right text-micro tabular-nums text-app-text-faint';
 
 /**
- * Composer/note in sospeso: vivono DENTRO il contenitore che scorre in
- * orizzontale, quindi `sticky left-0` + una larghezza esplicita — con `w-full`
- * erediterebbero la larghezza del contenuto (`min-w-max`), che su un file con
- * righe lunghe è una casella larga migliaia di pixel.
+ * Composer and pending notes live INSIDE the horizontally scrolling container,
+ * hence `sticky left-0` plus an explicit width: with `w-full` they would take
+ * the content's width (`min-w-max`), which on a file with long lines is a box
+ * thousands of pixels wide.
  */
 const OVERLAY = 'sticky left-0 w-[min(34rem,100%)] max-w-[calc(100vw-5rem)]';
 
@@ -79,21 +93,258 @@ function NoteComposer({ onSave, onCancel }: { onSave: (body: string) => void; on
         <button onClick={onCancel} className="rounded px-2 py-0.5 font-sans text-mini text-app-text-secondary hover:text-app-text">
           {tr('common.cancel')}
         </button>
-        <span className="ml-auto font-sans text-micro text-app-text-faint">{shortcut('\u21b5')}</span>
+        <span className="ml-auto font-sans text-micro text-app-text-faint">{shortcut('↵')}</span>
       </div>
     </div>
   );
 }
 
 /**
- * Fetches the patch of ONE file the bundle left out. Absent = there is no
- * task to ask (a publish diff), and the file keeps its plain notice.
+ * The rows of one file's patch, with the review hooks.
+ *
+ * The diff and the "Full file" view both draw through here, and both carry the
+ * file's own line numbers (full context is the same patch with more context
+ * lines), so a note anchored on (path, line, side) sits under the same row in
+ * either view. The notes are the caller's state, not this component's: switching
+ * view cannot lose one.
  */
-export type LoadFilePatch = (path: string) => Promise<{ patch: string; truncated: boolean }>;
+export function DiffLines({ path, body, review }: { path: string; body: string; review?: DiffReview }) {
+  const tr = useT();
+  const rows = useMemo(() => parseDiffRows(body), [body]);
+  // The per-file cap defends the DOM, it does not judge what is worth reading:
+  // while the last row only said "...N more lines", those N had no way to be seen.
+  const [showAll, setShowAll] = useState(false);
+  const [composingAt, setComposingAt] = useState<string | null>(null);
+  const allNotes = review?.notes;
+  const notesByKey = useMemo(() => {
+    const m = new Map<string, DiffNote[]>();
+    for (const n of allNotes ?? []) {
+      if (n.path !== path) continue;
+      const k = noteKey(n.path, n.line, n.side);
+      const list = m.get(k);
+      if (list) list.push(n); else m.set(k, [n]);
+    }
+    return m;
+  }, [allNotes, path]);
+  const shown = showAll ? rows : rows.slice(0, MAX_LINES_PER_FILE);
+  const overflow = rows.length - shown.length;
 
-const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, defaultOpen, focused, review, loadPatch }: {
+  return (
+    <>
+      {shown.map((row, i) => {
+        // The file headers carry no signal: the row above already names the path.
+        if (row.kind === 'meta') return null;
+        const anchor = anchorOf(row);
+        const key = anchor ? noteKey(path, anchor.line, anchor.side) : '';
+        const attached = key ? notesByKey.get(key) : undefined;
+        const canComment = !!review && isCommentable(row) && !!anchor;
+        return (
+          <div key={i}>
+            <div
+              data-anchor={anchor && row.kind !== 'hunk' ? `${anchor.side}:${anchor.line}` : undefined}
+              className={`group/row flex min-w-max ${rowClass(row)}`}
+            >
+              <span className={`${GUTTER} left-0 w-8`}>{row.oldLine ?? ''}</span>
+              <span className={`${GUTTER} left-8 w-8 border-r border-app-border-subtle`}>{row.newLine ?? ''}</span>
+              {review && (
+                <span className="sticky left-16 z-[1] flex w-4 shrink-0 items-center justify-center bg-app-inset">
+                  {canComment && (
+                    <button
+                      onClick={() => setComposingAt((c) => (c === key ? null : key))}
+                      title={tr('diff.note.add')}
+                      // The side is part of the name: a MODIFIED line shows up
+                      // twice with the same number (removed from the old
+                      // numbering, added in the new one), and without the
+                      // suffix the two hooks are indistinguishable, for a screen
+                      // reader as for a test.
+                      aria-label={tr('diff.note.aria', { path, line: anchor!.line, side: anchor!.side === 'old' ? tr('diff.note.removedSide') : '' })}
+                      className="flex h-3.5 w-3.5 items-center justify-center rounded text-indigo-400 opacity-0 transition-opacity hover:bg-indigo-500/20 focus:opacity-100 group-hover/row:opacity-100"
+                    >
+                      <MessageSquarePlus className="h-3 w-3" />
+                    </button>
+                  )}
+                </span>
+              )}
+              <span className="whitespace-pre px-2">{row.raw || ' '}</span>
+            </div>
+            {attached?.map((n) => (
+              <div key={n.id} data-testid="diff-note" className={`${OVERLAY} flex items-start gap-1.5 border-y border-indigo-500/20 bg-indigo-500/5 px-2 py-1`}>
+                <span className="min-w-0 flex-1 whitespace-pre-wrap font-sans text-compact text-app-text">{n.body}</span>
+                <button
+                  onClick={() => review!.onRemoveNote(n.id)}
+                  title="Togli la nota"
+                  aria-label="Togli la nota"
+                  className="mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded text-app-text-muted hover:bg-white/10 hover:text-app-text"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            {composingAt === key && anchor && (
+              <NoteComposer
+                onCancel={() => setComposingAt(null)}
+                onSave={(body) => {
+                  review!.onAddNote({ path, line: anchor.line, side: anchor.side, code: row.raw, body });
+                  setComposingAt(null);
+                }}
+              />
+            )}
+          </div>
+        );
+      })}
+      {overflow > 0 && (
+        <button
+          onClick={() => setShowAll(true)}
+          className="w-full px-2 py-1 text-left font-sans text-micro text-indigo-300 hover:bg-indigo-500/10 hover:text-indigo-200"
+        >
+          {tr('diff.showAll', { total: rows.length, more: overflow })}
+        </button>
+      )}
+    </>
+  );
+}
+
+type FileView = 'diff' | 'full' | 'preview';
+
+const VIEW_LABEL: Record<FileView, string> = {
+  diff: 'diff.viewDiff',
+  full: 'diff.fullFile',
+  preview: 'diff.preview',
+};
+
+/** "Diff | Full file | Preview" in the file's header. Opens on the diff: the notes hang on its lines. */
+function ViewSwitch({ views, value, onChange }: { views: FileView[]; value: FileView; onChange: (v: FileView) => void }) {
+  const tr = useT();
+  return (
+    <div role="group" className="mr-1 flex shrink-0 items-center gap-0.5 rounded bg-white/5 p-0.5">
+      {views.map((v) => (
+        <button
+          key={v}
+          type="button"
+          data-testid={`diff-view-${v}`}
+          aria-pressed={value === v}
+          onClick={() => onChange(v)}
+          className={`rounded px-1.5 py-0.5 text-micro ${value === v ? 'bg-indigo-500/20 text-indigo-200' : 'text-app-text-muted hover:text-app-text'}`}
+        >
+          {tr(VIEW_LABEL[v])}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * One side of a picture: its label, its size in pixels once it has loaded, and
+ * "preview unavailable" in its place when it does not load, never an empty box.
+ * Mounted with `key` on the revision and path, so a re-read bundle that names
+ * new revisions starts from a fresh load.
+ */
+function ImageSide({ label, testId, side, source, onStale }: {
+  label: string;
+  testId: string;
+  side: PreviewSide;
+  source: DiffPanelSource;
+  onStale: () => void;
+}) {
+  const tr = useT();
+  const [failed, setFailed] = useState(false);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  const onError = useCallback(() => {
+    setFailed(true);
+    // An <img> never sees the status: ask once, and a moved-on bundle is re-read.
+    void isStaleBlob(source, side).then((stale) => { if (stale) onStale(); });
+  }, [source, side, onStale]);
+  return (
+    <figure className="min-w-0 space-y-1">
+      <figcaption className="flex items-baseline gap-1.5 text-micro text-app-text-muted">
+        <span className="font-medium text-app-text-secondary">{label}</span>
+        {size && <span className="tabular-nums">{size.w} × {size.h} px</span>}
+      </figcaption>
+      {failed ? (
+        <div data-testid="diff-image-unavailable" className="flex items-center gap-1.5 rounded border border-dashed border-app-border px-2 py-3 text-mini text-app-text-muted">
+          <ImageOff aria-hidden className="h-3.5 w-3.5 shrink-0" />
+          {tr('diff.previewUnavailable')}
+        </div>
+      ) : (
+        <img
+          data-testid={testId}
+          src={diffBlobUrl(source, side.path, side.rev)}
+          alt={side.path}
+          loading="lazy"
+          onLoad={(e) => setSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+          onError={onError}
+          className="max-h-80 max-w-full rounded border border-app-border-subtle bg-white/5"
+        />
+      )}
+    </figure>
+  );
+}
+
+/** A changed picture: Before and After side by side, stacked when the panel is narrow. */
+function ImagePair({ before, after, source, onStale }: {
+  before: PreviewSide | null;
+  after: PreviewSide | null;
+  source: DiffPanelSource;
+  onStale: () => void;
+}) {
+  const tr = useT();
+  return (
+    <div data-testid="diff-image-pair" className="@container p-2 font-sans">
+      <div className="grid grid-cols-1 gap-3 @min-[640px]:grid-cols-2">
+        {before && (
+          <ImageSide key={`${before.rev}:${before.path}`} label={tr('diff.before')} testId="diff-image-before" side={before} source={source} onStale={onStale} />
+        )}
+        {after && (
+          <ImageSide key={`${after.rev}:${after.path}`} label={tr('diff.after')} testId="diff-image-after" side={after} source={source} onStale={onStale} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A `.md` rendered at a revision, its relative pictures read at the SAME
+ * revision through the byte route: the disk holds the main checkout's copy,
+ * which for a delivery not yet landed is the wrong one.
+ */
+function MarkdownAtRevision({ path, rev, source, onStale }: {
   path: string;
-  /** Assente = il patch di questo file non è arrivato (payload troncato). */
+  rev: string;
+  source: DiffPanelSource;
+  onStale: () => void;
+}) {
+  const tr = useT();
+  const [state, setState] = useState<{ text: string } | 'loading' | 'error'>('loading');
+  useEffect(() => {
+    let alive = true;
+    fetchDiffText(source, { path, rev })
+      .then((t) => {
+        if (!alive) return;
+        if (t === 'stale') { setState('error'); onStale(); } else setState({ text: t });
+      })
+      .catch(() => { if (alive) setState('error'); });
+    return () => { alive = false; };
+  }, [source, path, rev, onStale]);
+  const resolveImage = useCallback((src: string) => {
+    const target = resolveMarkdownImagePath(path, src);
+    return target ? diffBlobUrl(source, target, rev) : null;
+  }, [source, path, rev]);
+  if (state === 'loading') return <SpinnerFallback fill />;
+  if (state === 'error') {
+    return <div className="px-2 py-1 font-sans text-mini text-app-text-muted">{tr('diff.previewUnavailable')}</div>;
+  }
+  return (
+    <div data-testid="diff-markdown-preview" className="font-sans">
+      <Suspense fallback={<SpinnerFallback fill />}>
+        <MarkdownPreview content={state.text} baseDir="" resolveImage={resolveImage} />
+      </Suspense>
+    </div>
+  );
+}
+
+const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, defaultOpen, focused, review, source, revs, onStale }: {
+  path: string;
+  /** Absent = this file's patch did not arrive (payload cut). */
   chunk?: DiffFileChunk;
   stat?: DiffFileStat;
   partial?: boolean;
@@ -101,54 +352,23 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
   /** The file the panel was opened on: expanded and scrolled into view. */
   focused?: boolean;
   review?: DiffReview;
-  loadPatch?: LoadFilePatch;
+  source: DiffPanelSource;
+  /** The two revisions the bundle compares; `null` = no byte can be asked for. */
+  revs: DiffRevs | null;
+  onStale: () => void;
 }) {
   const tr = useT();
   const rootRef = useRef<HTMLDivElement>(null);
   // The patch fetched on demand, for a file left past the bundle's cap.
-  const [lazy, setLazy] = useState<{ chunk: DiffFileChunk | null; truncated: boolean } | 'loading' | 'error' | null>(null);
-  const lazyChunk = lazy && typeof lazy === 'object' ? lazy.chunk ?? undefined : undefined;
+  const [lazyPatch, setLazyPatch] = useState<{ chunk: DiffFileChunk | null; truncated: boolean } | 'loading' | 'error' | null>(null);
+  const lazyChunk = lazyPatch && typeof lazyPatch === 'object' ? lazyPatch.chunk ?? undefined : undefined;
   const chunk = bundled ?? lazyChunk;
   const load = useCallback(() => {
-    if (!loadPatch) return;
-    setLazy('loading');
-    loadPatch(path)
-      .then((r) => setLazy({ chunk: chunkFromFilePatch(path, r.patch), truncated: r.truncated }))
-      .catch(() => setLazy('error'));
-  }, [loadPatch, path]);
-  const allNotes = review?.notes;
-  const fileNotes = useMemo(
-    () => (allNotes ? allNotes.filter((n) => n.path === path) : []),
-    [allNotes, path],
-  );
-  // Aperto d'ufficio se ci sono note qui dentro — una nota in un file chiuso è
-  // una nota che l'umano non ritrova più — ma la scelta esplicita vince sempre
-  // su quella d'ufficio, anche quando le note arrivano dopo (bozza dal server).
-  const [userOpen, setUserOpen] = useState<boolean | null>(null);
-  const open = userOpen ?? (defaultOpen || !!focused || fileNotes.length > 0);
-  // Opened from a row of the card chip: the file is scrolled into view, not
-  // just expanded, or in a 70-file diff it stays below the fold.
-  useEffect(() => {
-    if (focused) rootRef.current?.scrollIntoView?.({ block: 'start' });
-  }, [focused]);
-  // And when that file is one of those past the cap, its patch is fetched
-  // right away: the click on the row already was the request.
-  useEffect(() => {
-    if (!focused || bundled || !loadPatch) return;
-    let alive = true;
-    loadPatch(path)
-      .then((r) => { if (alive) setLazy({ chunk: chunkFromFilePatch(path, r.patch), truncated: r.truncated }); })
-      .catch(() => { if (alive) setLazy('error'); });
-    return () => { alive = false; };
-  }, [focused, bundled, loadPatch, path]);
-  // Il tetto per file è una difesa del DOM, non un giudizio su cosa vale la pena
-  // leggere: finché la riga in fondo diceva solo «…altre N righe», quelle N
-  // righe non c'era modo di vederle senza uscire dalla app.
-  const [showAll, setShowAll] = useState(false);
-  const [composingAt, setComposingAt] = useState<string | null>(null);
-  const rows = useMemo(() => (chunk ? parseDiffRows(chunk.body) : []), [chunk]);
-  const shown = open ? (showAll ? rows : rows.slice(0, MAX_LINES_PER_FILE)) : [];
-  const overflow = open && !showAll ? rows.length - shown.length : 0;
+    setLazyPatch('loading');
+    boardApi.diffFile(source, path)
+      .then((r) => setLazyPatch({ chunk: chunkFromFilePatch(path, r.patch), truncated: r.truncated }))
+      .catch(() => setLazyPatch('error'));
+  }, [source, path]);
   // The same row the chat strip, the card chip and the project panel draw:
   // one letter, one palette, one place where the path is cut. A file that
   // arrived only in the patch has no status to read, and `modified` is what a
@@ -158,15 +378,101 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
     [stat, path],
   );
   const binary = !!row.binary;
-  const notesByKey = useMemo(() => {
-    const m = new Map<string, DiffNote[]>();
-    for (const n of fileNotes) {
-      const k = noteKey(n.path, n.line, n.side);
-      const list = m.get(k);
-      if (list) list.push(n); else m.set(k, [n]);
-    }
-    return m;
-  }, [fileNotes]);
+  const kind = useMemo(() => previewTypeOf(path)?.kind ?? null, [path]);
+  const sides = useMemo(() => (revs && kind === 'image' ? previewSides(row, revs) : null), [revs, kind, row]);
+  const rendered = useMemo(
+    () => (revs && (kind === 'svg' || kind === 'markdown') ? renderedSide(row, revs) : null),
+    [revs, kind, row],
+  );
+  const views: FileView[] = sides || binary ? [] : rendered ? ['diff', 'full', 'preview'] : ['diff', 'full'];
+  const [view, setView] = useState<FileView>('diff');
+  // The whole file as context, fetched the first time "Full file" is chosen.
+  const [full, setFull] = useState<{ chunk: DiffFileChunk | null; truncated: boolean } | 'loading' | 'error' | null>(null);
+  const pickView = useCallback((v: FileView) => {
+    setView(v);
+    if (v !== 'full' || (full && full !== 'error')) return;
+    setFull('loading');
+    boardApi.diffFile(source, path, { full: true })
+      .then((r) => setFull({ chunk: chunkFromFilePatch(path, r.patch), truncated: r.truncated }))
+      .catch(() => setFull('error'));
+  }, [full, source, path]);
+
+  const noteCount = useMemo(() => (review?.notes ?? []).filter((n) => n.path === path).length, [review?.notes, path]);
+  // Opened by default when it holds notes (a note in a closed file is a note
+  // the human no longer finds), but an explicit choice always wins over the
+  // default, even when the notes arrive later (a draft from the server).
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const open = userOpen ?? (defaultOpen || !!focused || noteCount > 0);
+  // Opened from a row of the card chip: the file is scrolled into view, not
+  // just expanded, or in a 70-file diff it stays below the fold.
+  useEffect(() => {
+    if (focused) rootRef.current?.scrollIntoView?.({ block: 'start' });
+  }, [focused]);
+  // And when that file is one of those past the cap, its patch is fetched
+  // right away: the click on the row already was the request. A picture needs
+  // no patch, its pair reads the bytes.
+  useEffect(() => {
+    if (!focused || bundled || sides) return;
+    let alive = true;
+    boardApi.diffFile(source, path)
+      .then((r) => { if (alive) setLazyPatch({ chunk: chunkFromFilePatch(path, r.patch), truncated: r.truncated }); })
+      .catch(() => { if (alive) setLazyPatch('error'); });
+    return () => { alive = false; };
+  }, [focused, bundled, sides, source, path]);
+
+  const note = (text: string) => <div className="px-2 py-1 font-sans text-mini text-app-text-muted">{text}</div>;
+  const cut = <div className="px-2 py-0.5 font-sans text-micro text-amber-400/80">{tr('diff.cutHere')}</div>;
+
+  let body: ReactNode;
+  if (sides) {
+    body = <ImagePair before={sides.before} after={sides.after} source={source} onStale={onStale} />;
+  } else if (view === 'preview' && rendered) {
+    body = kind === 'svg' ? (
+      <div className="p-2 font-sans">
+        <ImageSide
+          key={`${rendered.rev}:${rendered.path}`}
+          label={tr(row.status === 'deleted' ? 'diff.before' : 'diff.after')}
+          testId="diff-svg-preview"
+          side={rendered}
+          source={source}
+          onStale={onStale}
+        />
+      </div>
+    ) : (
+      <MarkdownAtRevision key={`${rendered.rev}:${rendered.path}`} path={rendered.path} rev={rendered.rev} source={source} onStale={onStale} />
+    );
+  } else if (view === 'full') {
+    body = full === null || full === 'loading' ? note(tr('diff.loadingFile'))
+      : full === 'error' ? note(tr('diff.loadFileFailed'))
+      : full.chunk ? <><DiffLines path={path} body={full.chunk.body} review={review} />{full.truncated && cut}</>
+      : note(tr('diff.noChanges'));
+  } else if (!chunk) {
+    body = lazyPatch && typeof lazyPatch === 'object' ? note(tr('diff.noChanges')) : (
+      // Git answered nothing yet: the notice says what is missing AND how to
+      // get it, the file asked for by name on the same range.
+      <div className="px-2 py-1 font-sans text-mini text-app-text-muted">
+        {tr('diff.patchMissing')}
+        <button
+          type="button"
+          data-testid="diff-load-file"
+          onClick={load}
+          disabled={lazyPatch === 'loading'}
+          className="ml-1.5 rounded px-1.5 py-0.5 text-indigo-300 hover:bg-indigo-500/10 hover:text-indigo-200 disabled:opacity-50"
+        >
+          {lazyPatch === 'loading' ? tr('diff.loadingFile') : lazyPatch === 'error' ? tr('diff.loadFileFailed') : tr('diff.loadFile')}
+        </button>
+      </div>
+    );
+  } else if (binary) {
+    body = <div className="px-2 py-1 text-app-text-muted">{tr('diff.binary')}</div>;
+  } else {
+    body = (
+      <>
+        <DiffLines path={path} body={chunk.body} review={review} />
+        {(partial || (lazyPatch && typeof lazyPatch === 'object' && lazyPatch.truncated)) && cut}
+      </>
+    );
+  }
 
   return (
     <div
@@ -176,147 +482,60 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
       data-focused={focused ? '1' : undefined}
       className={`overflow-hidden rounded-md border ${focused ? 'border-indigo-400/60' : 'border-app-border'}`}
     >
-      <button
-        onClick={() => setUserOpen(!open)}
-        title={row.origPath ? `${row.origPath} -> ${path}` : path}
-        className="flex w-full items-center gap-1.5 bg-elevated px-2 py-1 text-left text-mini hover:bg-app-hover"
-      >
-        {open ? <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /> : <ChevronRight className="h-3 w-3 shrink-0 text-app-text-muted" />}
-        <FileCode className="h-3 w-3 shrink-0 text-app-text-muted" />
-        <ChangedFileEntry
-          row={row}
-          trailing={fileNotes.length > 0 ? (
-            <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-nano text-indigo-300" title={tr('diff.pendingNotes', { n: String(fileNotes.length) })}>
-              {fileNotes.length}
-            </span>
-          ) : undefined}
-        />
-      </button>
-      {open && (
-        <div className="overflow-x-auto font-mono text-compact leading-[1.55]">
-          {!chunk ? (
-            lazy && typeof lazy === 'object' ? (
-              // Git answered, and this file has no text diff to show.
-              <div className="px-2 py-1 font-sans text-mini text-app-text-muted">{tr('diff.noChanges')}</div>
-            ) : (
-              <div className="px-2 py-1 font-sans text-mini text-app-text-muted">
-                {tr('diff.patchMissing')}
-                {loadPatch && (
-                  // The notice alone said what was missing, not how to get
-                  // it: here the file is asked for by name, on the same range.
-                  <button
-                    type="button"
-                    data-testid="diff-load-file"
-                    onClick={load}
-                    disabled={lazy === 'loading'}
-                    className="ml-1.5 rounded px-1.5 py-0.5 text-indigo-300 hover:bg-indigo-500/10 hover:text-indigo-200 disabled:opacity-50"
-                  >
-                    {lazy === 'loading' ? tr('diff.loadingFile') : lazy === 'error' ? tr('diff.loadFileFailed') : tr('diff.loadFile')}
-                  </button>
-                )}
-              </div>
-            )
-          ) : binary ? (
-            <div className="px-2 py-1 text-app-text-muted">{tr('diff.binary')}</div>
-          ) : shown.map((row, i) => {
-            // Le intestazioni del file non portano segnale: la card nomina già il path.
-            if (row.kind === 'meta') return null;
-            const anchor = anchorOf(row);
-            const key = anchor ? noteKey(path, anchor.line, anchor.side) : '';
-            const attached = key ? notesByKey.get(key) : undefined;
-            const canComment = !!review && isCommentable(row) && !!anchor;
-            return (
-              <div key={i}>
-                <div className={`group/row flex min-w-max ${rowClass(row)}`}>
-                  <span className={`${GUTTER} left-0 w-8`}>{row.oldLine ?? ''}</span>
-                  <span className={`${GUTTER} left-8 w-8 border-r border-app-border-subtle`}>{row.newLine ?? ''}</span>
-                  {review && (
-                    <span className="sticky left-16 z-[1] flex w-4 shrink-0 items-center justify-center bg-app-inset">
-                      {canComment && (
-                        <button
-                          onClick={() => setComposingAt((c) => (c === key ? null : key))}
-                          title={tr('diff.note.add')}
-                          // Il lato fa parte del nome: una riga MODIFICATA
-                          // compare due volte con lo stesso numero (rimossa
-                          // dalla numerazione vecchia, aggiunta da quella
-                          // nuova), e senza il suffisso i due agganci sono
-                          // indistinguibili — per uno screen reader come per un
-                          // test.
-                          aria-label={tr('diff.note.aria', { path, line: anchor!.line, side: anchor!.side === 'old' ? tr('diff.note.removedSide') : '' })}
-                          className="flex h-3.5 w-3.5 items-center justify-center rounded text-indigo-400 opacity-0 transition-opacity hover:bg-indigo-500/20 focus:opacity-100 group-hover/row:opacity-100"
-                        >
-                          <MessageSquarePlus className="h-3 w-3" />
-                        </button>
-                      )}
-                    </span>
-                  )}
-                  <span className="whitespace-pre px-2">{row.raw || ' '}</span>
-                </div>
-                {attached?.map((n) => (
-                  <div key={n.id} className={`${OVERLAY} flex items-start gap-1.5 border-y border-indigo-500/20 bg-indigo-500/5 px-2 py-1`}>
-                    <span className="min-w-0 flex-1 whitespace-pre-wrap font-sans text-compact text-app-text">{n.body}</span>
-                    <button
-                      onClick={() => review!.onRemoveNote(n.id)}
-                      title="Togli la nota"
-                      aria-label="Togli la nota"
-                      className="mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded text-app-text-muted hover:bg-white/10 hover:text-app-text"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
-                {composingAt === key && anchor && (
-                  <NoteComposer
-                    onCancel={() => setComposingAt(null)}
-                    onSave={(body) => {
-                      review!.onAddNote({ path, line: anchor.line, side: anchor.side, code: row.raw, body });
-                      setComposingAt(null);
-                    }}
-                  />
-                )}
-              </div>
-            );
-          })}
-          {overflow > 0 && (
-            <button
-              onClick={() => setShowAll(true)}
-              className="w-full px-2 py-1 text-left font-sans text-micro text-indigo-300 hover:bg-indigo-500/10 hover:text-indigo-200"
-            >
-              {tr('diff.showAll', { total: rows.length, more: overflow })}
-            </button>
-          )}
-          {(partial || (lazy && typeof lazy === 'object' && lazy.truncated)) && (
-            <div className="px-2 py-0.5 font-sans text-micro text-amber-400/80">
-              {tr('diff.cutHere')}
-            </div>
-          )}
-        </div>
-      )}
+      <div className="flex items-center bg-elevated">
+        <button
+          onClick={() => setUserOpen(!open)}
+          title={row.origPath ? `${row.origPath} -> ${path}` : path}
+          className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1 text-left text-mini hover:bg-app-hover"
+        >
+          {open ? <ChevronDown className="h-3 w-3 shrink-0 text-app-text-muted" /> : <ChevronRight className="h-3 w-3 shrink-0 text-app-text-muted" />}
+          <FileCode className="h-3 w-3 shrink-0 text-app-text-muted" />
+          <ChangedFileEntry
+            row={row}
+            trailing={noteCount > 0 ? (
+              <span className="shrink-0 rounded bg-indigo-500/20 px-1 text-nano text-indigo-300" title={tr('diff.pendingNotes', { n: String(noteCount) })}>
+                {noteCount}
+              </span>
+            ) : undefined}
+          />
+        </button>
+        {open && views.length > 1 && <ViewSwitch views={views} value={view} onChange={pickView} />}
+      </div>
+      {open && <div className="overflow-x-auto font-mono text-compact leading-[1.55]">{body}</div>}
     </div>
   );
 });
 
-export function UnifiedDiff({ bundle, defaultOpenFirst = false, review, focusPath, projectId, taskId, attemptId }: {
+export function UnifiedDiff({ bundle, defaultOpenFirst = false, review, focusPath, source, onStale }: {
   bundle: DiffBundle;
   /** Expand the first file automatically (handy when there's just one). */
   defaultOpenFirst?: boolean;
-  /** Presente = diff commentabile riga per riga. */
+  /** Present = a diff that can be commented line by line. */
   review?: DiffReview;
   /** The file to expand and scroll to (opened from a row of the card chip). */
   focusPath?: string | null;
-  /** Both present = a file past the payload cap can be fetched on its own. */
-  projectId?: string;
-  taskId?: string;
-  /** The fan-out attempt this diff belongs to: its files are read from ITS range. */
-  attemptId?: string;
+  /** Where the diff is read: a card, one attempt of its fan-out, or a publish. Every file is read from ITS range. */
+  source: DiffPanelSource;
+  /** A byte read found the bundle's revisions gone (`409`): the owner re-reads the bundle. */
+  onStale?: () => void;
 }) {
   const tr = useT();
   const files = useMemo(() => buildFileRows(bundle), [bundle]);
   const missing = files.filter((f) => !f.chunk).length;
-  const loadPatch = useMemo<LoadFilePatch | undefined>(
-    () => (projectId && taskId ? (path) => boardApi.taskDiffFile(projectId, taskId, path, attemptId) : undefined),
+  // Held by value: a mount point that writes `source` inline must not re-fetch
+  // every open file (and break every row's memo) on each of its renders.
+  const projectId = source.projectId;
+  const taskId = source.kind === 'task' ? source.taskId : null;
+  const attemptId = source.kind === 'task' ? source.attemptId : undefined;
+  const stableSource = useMemo<DiffPanelSource>(
+    () => (taskId !== null ? { kind: 'task', projectId, taskId, attemptId } : { kind: 'publish', projectId }),
     [projectId, taskId, attemptId],
   );
+  // Same for the callback: read from a ref, so its identity is not a dependency.
+  const staleRef = useRef(onStale);
+  useEffect(() => { staleRef.current = onStale; }, [onStale]);
+  const reportStale = useCallback(() => staleRef.current?.(), []);
+  const revs = bundle.revs ?? null;
 
   if (files.length === 0) {
     return <div className="px-1 py-1 text-mini text-app-text-muted">{tr('diff.noChanges')}</div>;
@@ -334,14 +553,16 @@ export function UnifiedDiff({ bundle, defaultOpenFirst = false, review, focusPat
           defaultOpen={defaultOpenFirst && files.length === 1}
           focused={!!focusPath && f.path === focusPath}
           review={review}
-          loadPatch={loadPatch}
+          source={stableSource}
+          revs={revs}
+          onStale={reportStale}
         />
       ))}
       {bundle.truncated && (
         <div className="px-1 py-0.5 text-micro text-amber-400/80">
-          {/* With a loader the way to the rest is on each file, not in another
-              app: the note says so instead of sending you away. */}
-          {tr(loadPatch ? 'diff.truncated.loadable' : 'diff.truncated', { rest: missing > 0 ? tr('diff.truncated.countOnly', { n: missing }) : '' })}
+          {/* The way to the rest is on each file, not in another app: the note
+              says so instead of sending you away. */}
+          {tr('diff.truncated.loadable', { rest: missing > 0 ? tr('diff.truncated.countOnly', { n: missing }) : '' })}
         </div>
       )}
     </div>

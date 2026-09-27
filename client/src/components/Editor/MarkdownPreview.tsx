@@ -16,20 +16,31 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { markdownComponents, MarkdownBaseDirContext } from '../MessageContent';
+import { markdownComponents, MarkdownBaseDirContext, MarkdownImageResolverContext } from '../MessageContent';
 
-export default function MarkdownPreview({ content, baseDir }: { content: string; baseDir: string }) {
+/**
+ * `resolveImage`: where a relative image is read, for a `.md` that is not the
+ * copy on disk (the diff panel renders one at a revision). Absent, images
+ * resolve against `baseDir` on disk as they always did.
+ */
+export default function MarkdownPreview({ content, baseDir, resolveImage }: {
+  content: string;
+  baseDir: string;
+  resolveImage?: (src: string) => string | null;
+}) {
   return (
     <MarkdownBaseDirContext.Provider value={baseDir}>
-      <div className="h-full overflow-auto px-6 py-4 prose dark:prose-invert prose-sm max-w-none prose-img:inline-block prose-img:my-1 prose-p:my-2">
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeRaw]}
-          components={markdownComponents}
-        >
-          {content}
-        </ReactMarkdown>
-      </div>
+      <MarkdownImageResolverContext.Provider value={resolveImage ?? null}>
+        <div className="h-full overflow-auto px-6 py-4 prose dark:prose-invert prose-sm max-w-none prose-img:inline-block prose-img:my-1 prose-p:my-2">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw]}
+            components={markdownComponents}
+          >
+            {content}
+          </ReactMarkdown>
+        </div>
+      </MarkdownImageResolverContext.Provider>
     </MarkdownBaseDirContext.Provider>
   );
 }

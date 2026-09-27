@@ -42,7 +42,7 @@ import { emptyThreadKey } from './emptyThread';
 import { LandingNotice } from './LandingNotice';
 import { landingBand } from './landingBand';
 import { useLandingTicket } from './useLandingTicket';
-import { boardApi, commentAuthorLabel, diffTotals, NOT_MEASURED_EXIT, hasCodeQuestion, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type CheckRun, type TaskAttempt } from '../../lib/board';
+import { boardApi, commentAuthorLabel, diffTotals, NOT_MEASURED_EXIT, hasCodeQuestion, showsLandingDebt, showsDeployProposal, STATUS_LABEL, TASK_STATUSES, isAgentWorking, isThreadSpeech, parseQuestionBlock, parseStatusEvent, isProjectlessId, boardDrafts, systemDeliveryNote, blockedByChip, subtaskWorkChip, subtaskQueueChip, subtaskOpenable, reopenedChip, attemptHasWork, priorityAwaitingAgent, CLOSER_LABELS, KIND_LABELS, type TaskLabel, type BoardTask, type TaskStatus, type TaskComment, type BoardProjectRef, type DiffBundle, type DiffNote, type DiffPanelSource, type CheckRun, type TaskAttempt } from '../../lib/board';
 import { ZoomableImage } from '../Shared/ImageLightbox';
 import { UnifiedDiff } from './UnifiedDiff';
 import { collectTaskMediaPaths, hasConversationMedia } from './taskMedia';
@@ -419,6 +419,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent, focusPath 
   // we must probe up-front. Re-runs when the task advances (bump) — the agent
   // may have committed more.
   useEffect(() => { fetchDiff(); }, [fetchDiff, bump]);
+  const diffSource = useMemo<DiffPanelSource>(() => ({ kind: 'task', projectId, taskId }), [projectId, taskId]);
   // Bozza di revisione dal server: una nota scritta e non ancora spedita è
   // lavoro, e sopravvive a reload e hot-reload come la bozza del commento.
   useEffect(() => {
@@ -557,7 +558,7 @@ export function TaskChangesSection({ projectId, taskId, bump, onSent, focusPath 
         ariaLabel={label}
         className="w-[min(46rem,92vw)] max-h-[70vh] overflow-y-auto p-2"
       >
-        <UnifiedDiff bundle={bundle} defaultOpenFirst review={review} focusPath={focusPath} projectId={projectId} taskId={taskId} />
+        <UnifiedDiff bundle={bundle} defaultOpenFirst review={review} focusPath={focusPath} source={diffSource} onStale={fetchDiff} />
         {notes.length > 0 && (
           <div className="mt-1.5 flex items-center gap-2 rounded border border-indigo-500/25 bg-indigo-500/5 px-2 py-1.5">
             <span className="min-w-0 flex-1 text-mini text-app-text-heading">
@@ -732,13 +733,18 @@ export function TaskAttemptsSection({ projectId, taskId, bump, onChanged, onOpen
 function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; taskId: string; attemptId: string }) {
   const tr = useT();
   const [state, setState] = useState<DiffBundle | 'loading' | 'error'>('loading');
+  // Bumped when a byte read finds the bundle's revisions gone: the bundle is
+  // read again, and the panel with it. The old one stays on screen meanwhile.
+  const [reads, setReads] = useState(0);
+  const reread = useCallback(() => setReads((n) => n + 1), []);
   useEffect(() => {
     let alive = true;
     boardApi.taskDiff(projectId, taskId, attemptId)
       .then((b) => { if (alive) setState(b); })
       .catch(() => { if (alive) setState('error'); });
     return () => { alive = false; };
-  }, [projectId, taskId, attemptId]);
+  }, [projectId, taskId, attemptId, reads]);
+  const source = useMemo<DiffPanelSource>(() => ({ kind: 'task', projectId, taskId, attemptId }), [projectId, taskId, attemptId]);
   if (state === 'loading') return <div className="mt-1.5 flex items-center gap-1 text-mini text-app-text-muted"><Spinner size="sm" tone="current" /> {tr('board.task.loadingDiff')}</div>;
   if (state === 'error') return <p className="mt-1.5 text-mini text-rose-300">{tr('board.task.diffUnreadable')}</p>;
   // Un tentativo si legge SOLO dal suo worktree (i riferimenti durevoli parlano
@@ -754,7 +760,7 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
     // Accordion puro (vedi TaskChangesSection): il tetto in vh era il surrogato
     // dello scroll che il drawer non aveva.
     <div className="mt-1.5">
-      <UnifiedDiff bundle={state} defaultOpenFirst projectId={projectId} taskId={taskId} attemptId={attemptId} />
+      <UnifiedDiff bundle={state} defaultOpenFirst source={source} onStale={reread} />
     </div>
   );
 }

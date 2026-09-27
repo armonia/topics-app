@@ -43,6 +43,16 @@ import { extractMediaPaths, splitBlockMedia } from './messageMedia';
 export const MarkdownBaseDirContext = createContext<string | null>(null);
 
 /**
+ * A resolver that decides where EVERY relative image of the markdown is read,
+ * ahead of `MarkdownBaseDirContext`: the diff panel renders a `.md` at a
+ * revision, and there the disk holds the wrong copy of the picture. It returns
+ * a URL, or `null` for a path that must stay its alternative text. Null (the
+ * default) leaves the editor pane and the chat exactly as they were.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- consumed by markdownComponents.img in THIS file, next to MarkdownBaseDirContext and for the same reason
+export const MarkdownImageResolverContext = createContext<((src: string) => string | null) | null>(null);
+
+/**
  * Close any open/incomplete markdown tokens so ReactMarkdown doesn't flicker
  * during streaming. Only called when partial === true.
  */
@@ -573,11 +583,21 @@ export const markdownComponents: Components = {
     // is valid here; the rule misfires only because the key is lowercase `img`.
     // eslint-disable-next-line react-hooks/rules-of-hooks
     const baseDir = useContext(MarkdownBaseDirContext);
+    // Same component, same reason as the line above: the key is lowercase `img`.
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const resolveImage = useContext(MarkdownImageResolverContext);
     if (!src || typeof src !== 'string') return null;
 
     // Pass-through for data/blob/http(s) — no rewriting, no MediaImage.
     if (/^(data|blob|https?):/i.test(src)) {
       return <img src={src} alt={alt || ''} className="max-w-full max-h-80 rounded-lg my-1" loading="lazy" />;
+    }
+
+    if (resolveImage) {
+      const url = resolveImage(src);
+      return url
+        ? <img src={url} alt={alt || ''} className="max-w-full max-h-80 rounded-lg my-1" loading="lazy" />
+        : <span className="text-app-text-muted">{alt || ''}</span>;
     }
 
     // Normalize upload paths (handle both /uploads/x.png and topics-app/uploads/x.png)
