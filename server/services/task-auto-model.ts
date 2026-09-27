@@ -1,6 +1,8 @@
 import { runsWithTopicsRouting, taskModelSelection, taskProviderForModel } from '../../shared/task-coding-models';
 import { EFFORT_TIERS } from '../../shared/effort';
+import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from '../../shared/provider-hold';
 import type { ProvidersSnapshot } from '../../shared/types';
+import { isProviderHeld, planUsage } from '../lib/provider-hold';
 import { familyOf } from '../providers/claude-models';
 import type { AIProvider } from '../providers/types';
 import { readCodexModels } from '../providers/codex/models';
@@ -80,4 +82,48 @@ export async function pickAutomaticTaskModel(
     },
     log: deps.log,
   });
+}
+
+/** The dispatcher's three questions about Automatic, answered from the live
+ *  snapshot and the provider holds: which runtime a selection resolves to,
+ *  whether any runtime is free, and the pick itself. server.ts injects only
+ *  the readers, so the wiring a test drives is the one production runs. */
+export function automaticDispatchHooks(env: {
+  snapshot: () => ProvidersSnapshot;
+  getProvider: (name: string) => AIProvider | undefined;
+  codexModels?: typeof readCodexModels;
+  log?: (message: string) => void;
+}) {
+  const codexModels = env.codexModels ?? readCodexModels;
+  return {
+    resolveTaskProvider: (model?: string | null) => taskProviderForModel(model, env.snapshot()),
+    // AGPT-01 extended: an unconstrained Auto task may start on ANY ready
+    // runtime that is not held right now, whichever one that is.
+    automaticModelAvailable: () => {
+      const snapshot = env.snapshot();
+      return automaticTaskModels(snapshot, codexModels(), provider => isProviderHeld(provider)).length > 0
+        || snapshot.providers.some(provider => provider.status === 'loading' && !isProviderHeld(provider.name));
+    },
+    pickAutoModel: (
+      task: { text: string; description?: string | null },
+      selection?: string,
+      options?: { effort?: string; topicsRouting?: boolean },
+    ) => {
+      const window = planUsage()?.fiveHour;
+      const claudeApproachingLimit = !!window && window.utilization >= PLAN_DISPATCH_HOLD_AT && (window.resetsAtMs ?? 0) > Date.now();
+      return pickAutomaticTaskModel(task, selection, {
+        snapshot: env.snapshot(),
+        getProvider: env.getProvider,
+        // Any provider under its own hold is excluded, not only Claude. Claude
+        // keeps one extra reason: the approaching-limit window has no Codex
+        // equivalent (Codex has no usage endpoint).
+        isHeld: provider => isProviderHeld(provider) || (providerHoldKey(provider) === 'claude' && claudeApproachingLimit),
+        // AICTRL-01: with the switch ON only what Topics routes is a candidate.
+        topicsRouting: options?.topicsRouting,
+        requiredEffort: options?.effort && options.effort !== 'auto' ? options.effort : undefined,
+        codexModels,
+        log: env.log,
+      });
+    },
+  };
 }

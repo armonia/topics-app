@@ -8,12 +8,10 @@
  */
 import { describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { createTaskAttemptStore } from "./task-attempts";
-import { pickAutomaticTaskModel } from "./task-auto-model";
+import { automaticDispatchHooks } from "./task-auto-model";
 import { resolveDispatchTopicIdentity, type DispatchTopicIdentity } from "./dispatch-topic-identity";
 import type { AIProvider } from "../providers/types";
 import type { TurnEndInfo } from "../providers/stop-reason";
@@ -84,12 +82,11 @@ function harness() {
     svc,
     attempts: createTaskAttemptStore(db),
     resolveProject: () => ({ path: "/Users/x/Projects/alpha", projectStoreId: "store-1" }),
-    // Same wiring as server.ts: the real picker, with a classifier that always votes Codex.
-    pickAutoModel: (task, selection, options) => pickAutomaticTaskModel(task, selection, {
-      snapshot: FLEET,
+    // The hooks server.ts spreads, with a classifier that always votes Codex.
+    ...automaticDispatchHooks({
+      snapshot: () => FLEET,
       codexModels: () => CODEX_MODELS,
       getProvider: () => ({ connected: true, complete: async () => ({ content: '{"provider":"codex","model":"gpt-5.5","effort":"medium","weight":"light"}' }) }) as unknown as AIProvider,
-      topicsRouting: options?.topicsRouting,
     }),
     // Same gate as server.ts createTopic: this is what threw and parked the card.
     createTopic: (o) => {
@@ -143,11 +140,4 @@ describe("Automatic with Topics routing ON never picks what the switch cannot ro
       }
     });
   }
-
-  it("server.ts hands the task's switch to the picker", () => {
-    // Secondary: the cases above prove the rule, this that the real host forwards it.
-    const source = readFileSync(join(import.meta.dir, "../../server.ts"), "utf8");
-    const call = source.slice(source.indexOf("pickAutomaticTaskModel(task, selection"));
-    expect(call.slice(0, call.indexOf("});"))).toContain("topicsRouting: options?.topicsRouting");
-  });
 });

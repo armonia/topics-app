@@ -6,7 +6,7 @@ import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { NOT_ARCHIVED_SQL } from "./server/lib/archived-scope";
 import { wakeVerdict, runningTaskOwnsTopic } from "./server/lib/wake-adoption";
 import { riprendiTurniInterrotti, type CtxRipresa } from "./server/lib/ripresa-boot";
-import { providerHold, isProviderHeld, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
+import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
 import { resolveStateDir } from "./server/lib/data-dir";
 import { createSwapFreezer } from "./server/services/swap-freeze";
 import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "./server/services/swap-freeze-ledger";
@@ -168,11 +168,8 @@ import type { AbortReason } from "./server/providers/types";
 import { recordTurnEnd, takeTurnEnd, peekTurnEnd } from "./server/providers/turn-end-registry";
 import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
-import { pickAutomaticTaskModel, automaticTaskModels } from "./server/services/task-auto-model";
+import { automaticDispatchHooks } from "./server/services/task-auto-model";
 import { resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
-import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from "./shared/provider-hold";
-import { readCodexModels } from "./server/providers/codex/models";
-import { taskProviderForModel } from "./shared/task-coding-models";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
@@ -1728,19 +1725,14 @@ const taskDispatcher = createTaskDispatcher({
   // (agent tab deleted after a prior run) would never dispatch. tick() clears
   // the dead link so the task runs again.
   topicExists: (id) => !!ctx.getTopicById(id),
-  resolveTaskProvider: (model) => {
-    const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
-    return taskProviderForModel(model, getSnapshotManager().getSnapshot());
-  },
-  // AGPT-01 extended: an unconstrained Auto task may start on ANY ready
-  // runtime that is not held right now, whichever one that is (the memo does
-  // not name Claude specifically any more, see server/lib/provider-hold.ts).
-  automaticModelAvailable: () => {
-    const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
-    const snapshot = getSnapshotManager().getSnapshot();
-    return automaticTaskModels(snapshot, readCodexModels(), (provider) => isProviderHeld(provider)).length > 0
-      || snapshot.providers.some(provider => provider.status === "loading" && !isProviderHeld(provider.name));
-  },
+  // Which runtime a selection resolves to, whether an unconstrained Auto task
+  // has a runtime that is not held, and the automatic pick itself (AGPT-01).
+  // Built in task-auto-model.ts, where the dispatcher tests drive the same hooks.
+  ...automaticDispatchHooks({
+    snapshot: () => (require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager")).getSnapshotManager().getSnapshot(),
+    getProvider: tryGetProvider,
+    log: (message) => console.log(`[dispatcher] ${message}`),
+  }),
   topicModelSelection: (id) => {
     const topic = ctx.getTopicById(id);
     return topic ? { model: topic.model, provider: topic.provider ?? getDefaultProviderName() } : null;
@@ -1760,27 +1752,6 @@ const taskDispatcher = createTaskDispatcher({
     const dir = join(DISPATCH_WORKSPACE_DIR, "tasks", taskId.slice(0, 8));
     mkdirSync(dir, { recursive: true });
     return dir;
-  },
-  // General Auto compares eligible coding runtimes. Explicit provider aliases
-  // restrict that catalog, and held Claude runtimes cannot classify or execute.
-  pickAutoModel: async (task, selection, options) => {
-    const { getSnapshotManager } = await import("./server/providers/snapshot-manager");
-    const claudeApproachingLimit = (() => {
-      const window = planUsage()?.fiveHour;
-      return !!window && window.utilization >= PLAN_DISPATCH_HOLD_AT && (window.resetsAtMs ?? 0) > Date.now();
-    })();
-    return pickAutomaticTaskModel(task, selection, {
-      snapshot: getSnapshotManager().getSnapshot(),
-      getProvider: tryGetProvider,
-      // AGPT-01 extended: any provider under its own hold is excluded, not
-      // only Claude. Claude keeps one extra reason (the approaching-limit
-      // window has no equivalent for Codex, which has no usage endpoint).
-      isHeld: (provider) => isProviderHeld(provider) || (providerHoldKey(provider) === "claude" && claudeApproachingLimit),
-      // AICTRL-01: with the switch ON only what Topics routes is a candidate.
-      topicsRouting: options?.topicsRouting,
-      requiredEffort: options?.effort && options.effort !== "auto" ? options.effort : undefined,
-      log: (message) => console.log(`[dispatcher] ${message}`),
-    });
   },
   // Auto concurrency cap: live machine capacity for boards on `maxAgentsAuto`.
   //
