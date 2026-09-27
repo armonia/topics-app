@@ -134,6 +134,8 @@ describe("parseTranscriptDelta", () => {
     // ...and the rest stay a linear chain within the delta.
     expect(messages[1]!.parentId).toBe(messages[0]!.id);
     expect(resolutions).toEqual([]);
+    // A transcript turn is whole and has no latency: its reason is what keeps the chat tools from calling it cut.
+    expect(messages.map((m) => m.endReason)).toEqual([undefined, "done"]);
   });
 
   test("no parentId ⇒ first message roots at null (full-import parity)", () => {

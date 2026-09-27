@@ -14,6 +14,7 @@
 import type { Database } from "bun:sqlite";
 import { decodeCol, encodeCol } from "../../shared/message-blob";
 import type { ContentBlock, TurnEndCause } from "../../shared/types";
+import type { AIProvider } from "../providers/types";
 import { timelineWithInterruptedVerdict } from "./interrupted-turn-block";
 import { spiegaTurnoTroncato } from "./turno-troncato";
 
@@ -62,21 +63,26 @@ export function relightReattachedRow(db: Database, sessionKey: string): void {
 }
 
 /**
- * The end of a reattach leg (`reattachSurvivingChatTurns` in server.ts), once
- * the broker has been asked whether the TURN is over too.
+ * The end of a reattach leg (`reattachSurvivingChatTurns` in server.ts): the
+ * leg is over, the TURN may not be, so the broker is asked first. `broker` is
+ * the claude-code provider, absent when it is not up.
  *
  * Open: the row is written open again. The leg's finalize has already turned
  * `partial` off, and a turn parked on `ask_user_question` stays open for
  * hours: left closed, every restart opened a new row for the same turn (nine
  * rows for one on topic:9fe7a291, 2026-08-18; five copies on topic:ed2070df).
  *
- * Anything else: whatever is still open is closed from outside, and a turn the
- * restart killed mid-tool gets its notice (`spiegaTurnoTroncato`). Closed in
- * silence, it looked like a finished answer: the two chats of 20/08.
+ * Anything else, a broker that does not answer included: whatever is still
+ * open is closed from outside, and a turn the restart killed mid-tool gets its
+ * notice (`spiegaTurnoTroncato`). Closed in silence, it looked like a finished
+ * answer: the two chats of 20/08.
  */
-export function endReattachLeg(db: Database, sessionKey: string, brokerSays: "open" | "idle" | "unknown"): "relit" | "closed" {
+export async function endReattachLeg(db: Database, sessionKey: string, broker: Pick<AIProvider, "brokerTurnState"> | undefined): Promise<"relit" | "closed"> {
+  let brokerSays: "open" | "idle" | "unknown" = "unknown";
+  try { brokerSays = (await broker?.brokerTurnState?.(sessionKey)) ?? "unknown"; } catch { /* no answer: closed, as before */ }
   if (brokerSays === "open") {
     try { relightReattachedRow(db, sessionKey); } catch { /* at worst the next reattach opens a new row, as before */ }
+    console.log(`[chat-reattach] ${sessionKey}: the leg is over but the turn is still open (a question on screen), its row stays live`);
     return "relit";
   }
   try {

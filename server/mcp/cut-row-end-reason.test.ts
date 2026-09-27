@@ -17,7 +17,8 @@
  * completes; the route writing it is asserted in tests/integration
  * (chat-woken-turn, chat-watchdog-finalize). The reattach legs go through the
  * real route (`mode: "reattach"`, the boot's request) and end through the
- * helpers server.ts calls (`lib/closed-outside.ts`).
+ * helpers server.ts calls (`lib/closed-outside.ts`), broker probe included:
+ * server.ts only hands them the claude-code provider and the database.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
@@ -25,6 +26,7 @@ import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir 
 import { createTopicsRouter } from "../routes/topics";
 import { createEditRouter } from "../routes/edit";
 import { createChatRouter } from "../routes/chat";
+import { createHistoryRouter } from "../routes/history";
 import { runBootPartialSweep, type PartialSweepDb } from "../lib/boot-partial-sweep";
 import { endReattachLeg, finalizeStaleRow } from "../lib/closed-outside";
 import { registerProvider, removeProvider } from "../providers";
@@ -88,26 +90,43 @@ function sendCut(tid: string, rowId: string): Promise<string> {
   return callSendChatMessage({ baseUrl: "http://x", sessionKey: "topic:caller" }, { topic_id: tid, message: "ping" }, f, { pollMs: 5, maxWaitMs: 2_000, unreachableMs: 1_000 });
 }
 
+const REGENERATED = "RISPOSTA RIGENERATA, COMPLETA.";
+
+/** A finished answer regenerated through the real route, on a provider with complete() only (edit.ts). Returns the new row. */
+async function regenerated(sk: string): Promise<string> {
+  ctx.appendLocalMessage(sk, "user", "domanda");
+  const first = ctx.createPartialMessage(sk, "assistant");
+  finished(sk, first.id, "prima risposta");
+  const edit = createEditRouter(ctx, { resolveProvider: () => ({ name: "fake", connected: true, complete: async () => ({ content: REGENERATED }) }) as never, updateUnreadCount: () => {} } as never);
+  const path = `/api/messages/${first.id}/regenerate`;
+  const req = new Request(`http://t.test${path}`, { method: "POST" });
+  const resp = await edit(req, new URL(req.url), path, "POST");
+  expect(resp!.status).toBe(200);
+  await resp!.text();
+  const last = ctx.loadLocalMessages(sk).at(-1)!;
+  expect(last.content).toBe(REGENERATED);
+  return last.id;
+}
+
 describe("a whole reply written without latency_ms is not a cut", () => {
   test("A: a regenerated reply, then a woken turn a restart cut: the woken row is the one marked", async () => {
     const tid = "endr-regen";
     const sk = topic(tid);
-    ctx.appendLocalMessage(sk, "user", "domanda");
-    const first = ctx.createPartialMessage(sk, "assistant");
-    finished(sk, first.id, "prima risposta");
-    // The real regenerate route, on a provider with complete() only (edit.ts).
-    const edit = createEditRouter(ctx, { resolveProvider: () => ({ name: "fake", connected: true, complete: async () => ({ content: "RISPOSTA RIGENERATA, COMPLETA." }) }) as never, updateUnreadCount: () => {} } as never);
-    const path = `/api/messages/${first.id}/regenerate`;
-    const req = new Request(`http://t.test${path}`, { method: "POST" });
-    const resp = await edit(req, new URL(req.url), path, "POST");
-    expect(resp!.status).toBe(200);
-    await resp!.text();
+    await regenerated(sk);
     // A woken turn opens its own row (chat.ts, `reuseHeadstoneOrCreate`) and the process dies while it writes.
     const wakeRow = ctx.reuseHeadstoneOrCreate(sk);
     ctx.updateLastMessage(sk, { content: "Il Monitor ha chiuso, ora" }, { rowId: wakeRow.id });
     boot();
     // user, regenerated reply, woken row, restart notice
     expect(await notes(tid)).toEqual([null, null, CUT_NOTE, null]);
+  });
+
+  test("A: a regenerated reply left as the session's last row, with no row open, is not taken back by a reattach", async () => {
+    const sk = topic("endr-regen-reattach");
+    const row = await regenerated(sk);
+    // Taken back, the replay of the next leg poured over the finished answer.
+    expect(ctx.reuseOrCreatePartialForReattach(sk).id).not.toBe(row);
+    expect(ctx.getMessageById(row)).toMatchObject({ content: REGENERATED, endReason: "done" });
   });
 
   test("A2: a finished turn, then a woken turn a restart cut: the cut row is recognised without a user row of its own", async () => {
@@ -152,6 +171,23 @@ async function reattachLeg(sk: string, emit: (h: StreamHandler) => void): Promis
 }
 const mute = (h: StreamHandler) => h.onDone({} as never);
 
+/** The claude-code provider as the end of a leg finds it: the broker answers, or its socket fails. */
+const broker = (says: "open" | "idle" | Error) => ({
+  brokerTurnState: async () => { if (says instanceof Error) throw says; return says; },
+});
+
+/** A pane opening the chat (`/api/history`): with no turn streaming, its cleanup closes the rows still open. */
+async function openHistory(sk: string): Promise<void> {
+  const router = createHistoryRouter(ctx, {
+    matchHistoryRoute: (p) => (p.startsWith("/api/history/") ? decodeURIComponent(p.slice("/api/history/".length)) : null),
+    providerForSessionKey: () => broker("idle") as never,
+  });
+  const path = `/api/history/${encodeURIComponent(sk)}`;
+  const url = new URL(`http://h${path}`);
+  const resp = (await router(new Request(url, { method: "POST", body: "{}", headers: { "content-type": "application/json" } }), url, path, "POST"))!;
+  expect(resp.status).toBe(200);
+}
+
 /** A turn that ran a sub-agent, cut mid-way; the sub-agent's report was written after its row (subagent-watch.ts). */
 function turnWithReport(sk: string) {
   ctx.appendLocalMessage(sk, "user", "ping");
@@ -171,7 +207,7 @@ describe("the reattach and the send wait on the turn's own row", () => {
     const { turn, report } = turnWithReport(sk);
     boot([sk]);
     await reattachLeg(sk, mute);
-    expect(endReattachLeg(ctx.db, sk, "idle")).toBe("closed");
+    expect(await endReattachLeg(ctx.db, sk, broker("idle"))).toBe("closed");
     expect([ctx.getMessageById(turn.id)?.content, hasTool(turn.id)]).toEqual(["Lancio il sotto-agente, ", true]);
     expect(ctx.getMessageById(report.id)?.content).toBe("Sotto-agente Lane A, esito: fatto.");
     await expect(sendCut(tid, turn.id)).resolves.toBe("Lancio il sotto-agente,");
@@ -184,7 +220,7 @@ describe("the reattach and the send wait on the turn's own row", () => {
     const FINAL = "Risposta finale del turno.";
     boot([sk]);
     await reattachLeg(sk, (h) => { h.onTextDelta(FINAL, FINAL); h.onDone({ result: FINAL } as never); });
-    endReattachLeg(ctx.db, sk, "idle");
+    await endReattachLeg(ctx.db, sk, broker("idle"));
     expect([ctx.getMessageById(turn.id)?.content, hasTool(turn.id)]).toEqual([FINAL, true]);
     expect(ctx.getMessageById(report.id)?.content).toBe("Sotto-agente Lane A, esito: fatto.");
     await expect(sendCut(tid, turn.id)).resolves.toBe(FINAL);
@@ -200,7 +236,7 @@ describe("the reattach and the send wait on the turn's own row", () => {
     // The leg ends on a turn still open (a mute replay): finalized, latency and all, then lit again.
     await reattachLeg(sk, mute);
     expect(ctx.getMessageById(turn.id)?.latencyMs).toBeNumber();
-    expect(endReattachLeg(ctx.db, sk, "open")).toBe("relit");
+    expect(await endReattachLeg(ctx.db, sk, broker("open"))).toBe("relit");
     // Unclean restart, child gone.
     boot();
     expect(await notes(tid)).toEqual([null, CUT_NOTE, null]);
@@ -213,15 +249,15 @@ describe("the reattach and the send wait on the turn's own row", () => {
     const { turn, report } = turnWithReport(sk);
     boot([sk]);
     await reattachLeg(sk, mute);
-    endReattachLeg(ctx.db, sk, "open");
+    await endReattachLeg(ctx.db, sk, broker("open"));
     expect([ctx.getMessageById(turn.id)?.partial, ctx.getMessageById(report.id)?.partial]).toEqual([true, undefined]);
     // Killed, child gone: the turn is the cut one, the report is whole.
     boot();
     expect(await notes(tid)).toEqual([null, CUT_NOTE, null, null]);
   });
 
-  test("a row lit again after a leg, then closed by the next leg's end or by the stale sweeper, is closed from outside despite its old latency", async () => {
-    for (const close of ["leg", "stale"] as const) {
+  test("a row lit again after a leg, then closed by the next leg's end, the stale sweeper or a pane's history cleanup, is closed from outside despite its old latency", async () => {
+    for (const close of ["leg", "stale", "history"] as const) {
       const tid = `endr-outside-${close}`;
       const sk = topic(tid);
       ctx.appendLocalMessage(sk, "user", "ping");
@@ -229,10 +265,13 @@ describe("the reattach and the send wait on the turn's own row", () => {
       ctx.updateLastMessage(sk, { content: "Meta' del lavoro, poi" }, { rowId: turn.id });
       boot([sk]);
       await reattachLeg(sk, mute);
-      endReattachLeg(ctx.db, sk, "open");
-      // The next leg fails before finalizing and the broker says the turn is over, or the stale sweeper gives up on it.
-      if (close === "leg") endReattachLeg(ctx.db, sk, "idle");
-      else finalizeStaleRow(ctx.db, { messageId: turn.id, marker: null, interruption: { text: "silent", cause: "watchdog", at: new Date().toISOString() } });
+      await endReattachLeg(ctx.db, sk, broker("open"));
+      // The next leg fails before finalizing and the broker does not answer, the stale sweeper gives up on the
+      // turn, or a pane opens the chat once the child is gone.
+      if (close === "leg") expect(await endReattachLeg(ctx.db, sk, broker(new Error("broker socket closed")))).toBe("closed");
+      else if (close === "stale") finalizeStaleRow(ctx.db, { messageId: turn.id, marker: null, interruption: { text: "silent", cause: "watchdog", at: new Date().toISOString() } });
+      else await openHistory(sk);
+      expect(ctx.getMessageById(turn.id)?.partial).toBeUndefined();
       await expect(sendCut(tid, turn.id)).rejects.toThrow(/closed from outside before it finished/);
       expect(ctx.reuseOrCreatePartialForReattach(sk).id).toBe(turn.id);
     }

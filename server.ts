@@ -5393,22 +5393,11 @@ async function reattachSurvivingChatTurns(): Promise<void> {
           if (end.end !== "end_turn") console.warn(`[chat-reattach] ${s.id}: ${describeTurnEnd(end)}`);
         })
         .catch((err) => console.warn(`[chat-reattach] ${s.id} failed:`, err?.message ?? err))
-        .finally(async () => {
-          // The leg is over, the TURN may not be: a child parked on
-          // `ask_user_question` stays open for hours, and the mute replay that
-          // reattaches to it lasts a moment. So the broker is asked, and
-          // `endReattachLeg` either lights the leg's row again for the next
-          // reattach or closes what is still open, explaining a turn the
-          // restart killed (the history, with the counts, is on that helper).
-          let brokerSays: "open" | "idle" | "unknown" = "unknown";
-          try {
-            const prov = tryGetProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
-            brokerSays = (await prov?.brokerTurnState?.(s.id).catch(() => "unknown" as const)) ?? "unknown";
-          } catch { /* nessuna risposta dal broker: si pulisce, come prima */ }
-          if (endReattachLeg(ctx.db, s.id, brokerSays) === "relit") {
-            console.log(`[chat-reattach] ${s.id}: la gamba è finita ma il turno è ancora aperto (domanda a schermo) — la riga resta viva`);
-          }
-        });
+        // The leg is over, the TURN may not be: a child parked on
+        // `ask_user_question` stays open for hours, and the mute replay that
+        // reattaches to it lasts a moment. `endReattachLeg` asks the broker,
+        // then lights the leg's row again or closes what is still open.
+        .finally(() => endReattachLeg(ctx.db, s.id, tryGetProvider("claude-code")));
       continue;
     }
     // Idle / archived / deleted-topic session: reap. Guard against a send

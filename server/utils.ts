@@ -450,9 +450,7 @@ export function createAppContext(baseDir: string): AppContext {
         model = COALESCE($model, model),
         author_person_id = COALESCE($author_person_id, author_person_id),
         author_device_id = COALESCE($author_device_id, author_device_id),
-        -- A row written open again has not ended: whatever closed it before
-        -- does not describe it any more.
-        end_reason = CASE WHEN $partial = 1 THEN NULL ELSE COALESCE($end_reason, end_reason) END
+        end_reason = COALESCE($end_reason, end_reason)
       WHERE id = $id
     `),
     deleteMessagesBySession: db.prepare(`DELETE FROM messages WHERE session_key = ?`),
