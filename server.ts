@@ -4020,7 +4020,11 @@ const opzioniServer = {
         const screencastTimer = setTimeout(() => {
           // Skip the deferred start if a native executor cancelled it OR the pane
           // already paused the stream (iframe-mode) during the grace window.
-          if (screencastCancelled || !streamActive) return;
+          // A socket opened with `?executor=1` said at open that it is a native
+          // executor: it never views frames, so it does not depend on its
+          // register frame beating the 250 ms (it often does not, see the
+          // 'registered' branch below).
+          if (screencastCancelled || !streamActive || ws.data.expectsExecutor) return;
           startScreencastForViewer();
         }, SCREENCAST_START_GRACE_MS);
         ws.data._browserSetStream = (active: boolean) => {
