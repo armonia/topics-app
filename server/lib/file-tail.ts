@@ -65,3 +65,37 @@ export function readTail(tail: FileTail, maxBytes = TAIL_MAX_BYTES): { text: str
     closeSync(fd);
   }
 }
+
+/**
+ * The last `maxBytes` of a file, in one positioned read, and the file's size,
+ * which is where a tail of it resumes. Null when there is no file.
+ *
+ * A reload of the server reloads every log this way, and a command's log has
+ * no rotation (the command writes it, not the registry): a dev server left
+ * running for days would otherwise be read whole, on the event loop, at every
+ * save under `server/`. Past the top of the file the window starts at the
+ * first whole line, since the cut one is a fragment; a single line longer than
+ * the window is kept, cut, rather than dropped.
+ */
+export function readFileEnd(path: string, maxBytes: number): { text: string; size: number } | null {
+  let fd: number;
+  try {
+    fd = openSync(path, "r");
+  } catch {
+    return null;
+  }
+  try {
+    const size = fstatSync(fd).size;
+    const start = Math.max(0, size - maxBytes);
+    const bytes = Buffer.alloc(size - start);
+    const read = readSync(fd, bytes, 0, bytes.length, start);
+    let text = bytes.subarray(0, read).toString("utf-8");
+    if (start > 0) {
+      const newline = text.indexOf("\n");
+      if (newline >= 0) text = text.slice(newline + 1);
+    }
+    return { text, size: start + read };
+  } finally {
+    closeSync(fd);
+  }
+}

@@ -23,7 +23,7 @@ import {
 import { registerFleetScriptSource } from "../lib/fleet-usage";
 import { isBroadCwd } from "../lib/broad-cwd";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
-import { openTail, readTail, type FileTail } from "../lib/file-tail";
+import { openTail, readFileEnd, readTail, type FileTail } from "../lib/file-tail";
 import { commandArgv, confineCommandCwd, readExitCode } from "../lib/command-process";
 import { requestProcessExitWake, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
 import { isWatchedBySession } from "../lib/process-wait";
@@ -208,22 +208,20 @@ const logPathOf = (processId: string) => join(getPersistDir(), "scripts", `${pro
 const exitPathOf = (processId: string) => join(getPersistDir(), "scripts", `${processId}.exit`);
 
 /**
- * The process's log file back into its buffer: the last MAX_OUTPUT_BYTES, a
- * trailing line without its newline kept pending (a live command may be in the
- * middle of it). Returns the file's size, which is where a tail resumes, or
- * null when there is no file.
+ * The process's log file back into its buffer: its last MAX_OUTPUT_BYTES, read
+ * without reading the rest (`readFileEnd`), a trailing line without its newline
+ * kept pending (a live command may be in the middle of it). Returns the file's
+ * size, which is where a tail resumes, or null when there is no file.
  */
 function loadLogFile(sp: ScriptProcess): number | null {
   try {
-    const path = logPathOf(sp.processId);
-    if (!existsSync(path)) return null;
-    const buf = readFileSync(path);
-    const text = buf.subarray(Math.max(0, buf.length - MAX_OUTPUT_BYTES)).toString("utf-8");
-    const lines = text.split("\n");
+    const end = readFileEnd(logPathOf(sp.processId), MAX_OUTPUT_BYTES);
+    if (!end) return null;
+    const lines = end.text.split("\n");
     sp.pendingLine = lines.pop() ?? "";
     sp.output = lines;
-    sp.outputBytes = text.length;
-    return buf.length;
+    sp.outputBytes = end.text.length;
+    return end.size;
   } catch {
     return null;
   }
