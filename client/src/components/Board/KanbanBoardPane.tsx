@@ -18,7 +18,8 @@ import type { Topic, WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { Spinner } from '../Shared/Spinner';
 import { useTaskModelCatalog } from '../../hooks/useTaskModelCatalog';
-import { currentTaskTarget, pendingTaskFocus, reflectTaskOpen, reflectTaskClose, reflectTaskFocus, subscribePopstateTask } from '../../lib/openTaskLink';
+import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, reflectTaskFocus, subscribePopstateTask } from '../../lib/openTaskLink';
+import { useTaskDeepLink } from './useTaskDeepLink';
 import { DEAD_TAB_MESSAGE } from '../../lib/tabLink';
 import { useToast } from '../Shared/Toast';
 import { usePaneStore } from '../../state/pane/store';
@@ -692,15 +693,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // reached, right next to the red error saying so.
   const [dropNotice, setDropNotice] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // Quale tab del task mettere davanti all'apertura, quando ad aprirlo è stato
-  // un gesto mirato (il bottone «apri in una tab» sull'anteprima della card).
-  // Si azzera a ogni altra apertura: vale per QUEL click, non è uno stato.
-  // A deep-link that asked for a focus (a row of the chat's changed-files
-  // strip) hands it over here when the board mounts after the event.
-  const [pendingPaneId, setPendingPaneId] = useState<string | null>(() => {
-    const target = global ? currentTaskTarget() : null;
-    return target ? pendingTaskFocus(target.taskId) : null;
-  });
+  // Deep-link target (from /task/<id> via openTaskLink, or `topics:open-task`):
+  // the GLOBAL board owns it, that is what the link opens. With it, the tab or
+  // diff file a targeted gesture asked to put in front.
+  const { pendingSelect, setPendingSelect, pendingPaneId, setPendingPaneId } = useTaskDeepLink(global);
   // THE COORDINATOR, while it is open: its Topic. It sits next to `selectedId`
   // because it answers the same question — what is in the drawer — and the two
   // are mutually exclusive: both are in-flow siblings of the columns, and
@@ -711,7 +707,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     setSelectedId(id);
     setPendingPaneId(focusPaneId ?? null);
     setOrchestratorTopic(null);
-  }, []);
+  }, [setPendingPaneId]);
   const closeOrchestrator = useCallback(() => { setOrchestratorTopic(null); }, []);
   const openOrchestrator = useCallback(async () => {
     if (!global || !orchestrator || openingOrchestrator) return;
@@ -752,26 +748,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const [toolbarOverflowRight, setToolbarOverflowRight] = useState(false);
   // Provider model list for the board-default picker (settings panel). Same
   // hook the composer and the task drawer read, so the three cannot disagree.
-  // Deep-link target (from /task/<id> via openTaskLink): the GLOBAL board owns it
-  // (that's what the link opens). Seeded from the CURRENT URL (not a one-shot
-  // boot pending) so it survives a remount and an inactive→active board tab —
-  // the URL is the source of truth. Fed live by `topics:open-task` when the
-  // board is already open. Held until the task shows up in the loaded list,
-  // then it becomes the selection.
-  const [pendingSelect, setPendingSelect] = useState<string | null>(
-    () => (global ? currentTaskTarget()?.taskId ?? null : null),
-  );
-  useEffect(() => {
-    if (!global) return;
-    const onOpenTask = (e: Event) => {
-      const detail = (e as CustomEvent<{ taskId?: string; focusPaneId?: string }>).detail;
-      if (!detail?.taskId) return;
-      setPendingSelect(detail.taskId);
-      setPendingPaneId(detail.focusPaneId ?? null);
-    };
-    window.addEventListener('topics:open-task', onOpenTask as EventListener);
-    return () => window.removeEventListener('topics:open-task', onOpenTask as EventListener);
-  }, [global]);
   // Opening the drawer shrinks the columns viewport (flex sibling): the card
   // that was just clicked can end up outside it. Bring it back after layout
   // settles — rAF fires post-commit, when the row already has its new width.
@@ -1666,7 +1642,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       // intent held in usePanelLifecycle so later hydrates behave normally.
       window.dispatchEvent(new CustomEvent('topics:task-opened'));
     }
-  }, [pendingSelect, tasks]);
+  }, [pendingSelect, setPendingSelect, tasks]);
 
   // Un id fuori dal feed passa comunque: la porta unica lo risolve e il drawer
   // si apre. Rigira a ogni cambio di `tasks` — la board rifetcha su ogni evento
@@ -1726,7 +1702,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       });
     return () => { alive = false; };
     // `outsider` fuori dalle dipendenze di proposito: lo SCRIVE questo effetto.
-  }, [wantId, inFeed, tasks, pendingSelect, toast]);
+  }, [wantId, inFeed, tasks, pendingSelect, setPendingSelect, toast]);
 
   // URL ⇄ drawer reflection (GLOBAL board only — `/task/<id>` points at the
   // global board, matching buildTaskLink). Opening a drawer pushes `/task/<id>`;
