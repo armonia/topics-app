@@ -399,7 +399,7 @@ describe("il taglio dello sweeper e la causa sul blocco: entrambi si riprendono"
 describe("outages outside the turn resume by themselves", () => {
   test("the API that stopped answering: a notice of ours, no Retry to press", () => {
     for (const haProdotto of [true, false]) {
-      const text = avvisoPerTurno({ end: "error", cause: "api-unavailable", detail: "Request timed out" }, { haProdotto });
+      const text = avvisoPerTurno({ end: "error", cause: "api-unavailable", detail: "Request timed out" }, { haProdotto, riprendeDaSolo: true });
       expect(text).not.toBeNull();
       expect(text!.startsWith("⚠️")).toBe(true);
       expect(text).not.toMatch(/Riprova/);
@@ -408,10 +408,19 @@ describe("outages outside the turn resume by themselves", () => {
   });
 
   test("the daemon that held the agent died: a notice of ours, no Retry to press", () => {
-    const text = avvisoPerTurno({ end: "error", cause: "broker-died" }, { haProdotto: true });
+    const text = avvisoPerTurno({ end: "error", cause: "broker-died" }, { haProdotto: true, riprendeDaSolo: true });
     expect(text).not.toBeNull();
     expect(text).not.toMatch(/Riprova/);
     expect(eCartelloDiInterruzione(text)).toBe(true);
+  });
+
+  test("where the sweep will not resend (a wake), the same outage promises nothing", () => {
+    for (const cause of ["api-unavailable", "broker-died"] as const) {
+      const text = avvisoPerTurno({ end: "error", cause }, { haProdotto: true, riprendeDaSolo: false });
+      expect(text, cause).not.toMatch(/Riprend/);
+      expect(text, cause).not.toMatch(/Riprova/);
+      expect(text!.startsWith("⚠️"), cause).toBe(true);
+    }
   });
 
   test("both causes are resumable; a child that died on its own is not", () => {

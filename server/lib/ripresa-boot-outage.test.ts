@@ -8,6 +8,9 @@
  */
 import { describe, expect, test } from "bun:test";
 import { resumeCapNotice, resumeVerdict } from "./ripresa-boot";
+import { INTERRUPTED_MARKER } from "./stale-stream-sweep";
+import { avvisoPerTurno } from "./cancelled-notice";
+import { cancelled } from "../providers/stop-reason";
 import type { ContentBlock } from "../types";
 
 type Row = Parameters<typeof resumeVerdict>[0];
@@ -50,15 +53,24 @@ describe("an outage outside the turn is resumed", () => {
 
   /**
    * A wake (a background task or a Monitor delivering) opens a row of its own
-   * under a person's message that was already answered. The resend is that
-   * message: resent, the agent ran it a second time, a paid turn and every
-   * effect again (the blackout of 25/09 met a wake on 4e5e2d76, fb360b27).
+   * under a person's message that was already answered, and the resend is that
+   * message. A wake cut by an outage is left alone: resent, the agent ran the
+   * message a second time (the blackout of 25/09 met a wake on 4e5e2d76,
+   * fb360b27), and on the base those rows were never resumable. A wake cut by a
+   * stall of ours, the watchdog's or the stale sweeper's, keeps the base's
+   * resend: its notice has promised it since before these cards.
    */
-  test("a woken turn cut by an outage, or by a stall, does not resend the person's message", () => {
+  test("a woken turn cut by an outage is not resent; one cut by a stall still is", () => {
     const wake = { kind: "woken", label: "bjppuaycc" } as ContentBlock;
-    for (const cause of ["api-unavailable", "broker-died", "watchdog"]) {
-      const cut = { kind: "error", text: "una frase qualunque", cause } as unknown as ContentBlock;
-      expect(resumeVerdict({ ...base, blocks: [wake, { kind: "text", text: "Request timed out" }, cut] }, NOW), cause).toBe("no");
+    const cuts: Array<[string, string, string]> = [
+      ["api-unavailable", "una frase qualunque", "no"],
+      ["broker-died", "una frase qualunque", "no"],
+      ["watchdog", avvisoPerTurno(cancelled("watchdog"), { haProdotto: true, riprendeDaSolo: true })!.replace(/^⚠️\s*/, ""), "resend"],
+      ["watchdog", INTERRUPTED_MARKER.replace(/^⚠️\s*/, ""), "resend"],
+    ];
+    for (const [cause, text, verdict] of cuts) {
+      const cut = { kind: "error", text, cause } as unknown as ContentBlock;
+      expect(resumeVerdict({ ...base, blocks: [wake, { kind: "text", text: "Request timed out" }, cut] }, NOW), `${cause}: ${text}`).toBe(verdict as never);
     }
   });
 

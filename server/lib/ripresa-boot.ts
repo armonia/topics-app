@@ -54,7 +54,7 @@ import type { ContentBlock } from "../types";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { readTurnEnd, type RecordedTurnEnd } from "../providers/turn-end-registry";
 import {
-  eCartelloDiInterruzione, isRestartNotice, isResumableCause,
+  eCartelloDiInterruzione, isRestartNotice, isResumableCause, wakeCutByOutage,
   STOP_PRESSED_LOG_TITLE, USER_ABORT_LOG_TITLE,
 } from "./cancelled-notice";
 import {
@@ -222,13 +222,6 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   // PR #135). A card still on the board keeps main's rule (fourth review).
   if (r.cardLanded) return "no";
   if (!Array.isArray(r.blocks) || r.blocks.length === 0) return "no";
-  // A WAKE DOES NOT ANSWER THE PERSON. A turn the CLI opened by itself (a
-  // background task or a Monitor delivering, `claude/woken-turn.ts`) has a row
-  // of its own under a message the row before already answered, and the resend
-  // is that message: the agent would run it a second time, a paid turn and
-  // every effect again (a deploy, a commit). Resuming the wake itself is not
-  // this sweep's to do.
-  if (r.blocks.some((b) => b?.kind === "woken")) return "no";
   // Fuori finestra: una risposta che arriva domani a una domanda di ieri è
   // rumore, non un recupero.
   if (oraMs - r.timestampMs > FINESTRA_RIPRESA_MS) return "no";
@@ -253,6 +246,9 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   // recognised by neither until 05/09/2026: no chat it closed was ever resumed.
   const lastCut = lastInterruptionIndex(r.blocks);
   if (lastCut < 0) return "no";
+  // A WAKE CUT BY AN OUTAGE: the resend would be a message the row before
+  // already answered (`wakeCutByOutage`, where the rule and its notice live).
+  if (wakeCutByOutage((r.blocks[lastCut] as { cause?: unknown }).cause, r.blocks)) return "no";
   // ANSWERED AFTER THE CUT. A late answer of a closed turn is saved on its own
   // row, under the verdict: prose or a tool after the LAST verdict means the
   // message was answered, and a resend would run it a second time. Past the

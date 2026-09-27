@@ -140,11 +140,16 @@ export function avvisoPerTurno(
   // the dispatcher for a card) picks it up. One sentence for both cases: what
   // was produced stays, nobody is asked to press anything.
   if (info.end === "error" && info.cause === "rate-limit") return rateLimitNotice(info.detail);
-  // AN OUTAGE OUTSIDE THE TURN, the API or the daemon hosting the agent. Same
-  // reasoning as the limit: nobody's doing, not deterministic, resumed by the
-  // sweep (the API's once it answers again), so nobody is asked to press.
-  if (info.end === "error" && info.cause === "api-unavailable") return API_UNAVAILABLE_NOTICE;
-  if (info.end === "error" && info.cause === "broker-died") return BROKER_DIED_NOTICE;
+  // AN OUTAGE OUTSIDE THE TURN, the API or the daemon hosting the agent.
+  // Nobody's doing and not deterministic: the sweep resends it (the API's once
+  // it answers again), and then nobody is asked to press. A wake cut that way
+  // is not resent (`wakeCutByOutage`), and its notice promises nothing.
+  if (info.end === "error" && info.cause === "api-unavailable") {
+    return opts.riprendeDaSolo ? API_UNAVAILABLE_NOTICE : `${API_UNAVAILABLE_OPENING} ${OUTAGE_NO_RESUME}`;
+  }
+  if (info.end === "error" && info.cause === "broker-died") {
+    return opts.riprendeDaSolo ? BROKER_DIED_NOTICE : `${BROKER_DIED_OPENING} ${OUTAGE_NO_RESUME}`;
+  }
   // A TURN CUT BY THE OUTPUT CAP IS NOT A FINISHED TURN.
   //
   // Measured on 2026-08-28 on topic:4c935add, three times out of three. The model
@@ -276,13 +281,37 @@ export function isResumableCause(cause: unknown): boolean {
  */
 const OUTSIDE_CAUSES = ["rate-limit", "tool-budget", "api-unavailable", "broker-died"] as const;
 
+/**
+ * A WAKE CUT BY AN OUTAGE IS NOT RESUMED (cards e30f35e4, 51fb9359).
+ *
+ * The resend is the person's last message, and a wake (a background task or a
+ * Monitor delivering, `claude/woken-turn.ts`) sits under a message the row
+ * before already answered: resent, the agent ran it a second time, a paid turn
+ * and every effect again. The outages made such a row resumable for the first
+ * time, so the sweep leaves it alone; a wake cut by a stall of ours keeps the
+ * resend it always had. The sweep (`resumeVerdict`) and every writer of the
+ * notice (`resumesByItself`) read this one rule, so "Riprende da solo" is
+ * written exactly where the sweep keeps it.
+ */
+export function wakeCutByOutage(cause: unknown, blocks: readonly unknown[] | null | undefined): boolean {
+  return (cause === "api-unavailable" || cause === "broker-died")
+    && !!blocks?.some((b) => (b as { kind?: unknown } | null)?.kind === "woken");
+}
+
+/** The sweep resends a turn cut with this cause, on a row with these blocks. */
+export function resumesByItself(cause: unknown, blocks: readonly unknown[] | null | undefined): boolean {
+  return isResumableCause(cause) && !wakeCutByOutage(cause, blocks);
+}
+
+const API_UNAVAILABLE_OPENING = "⚠️ Turno interrotto: l'API di Claude non rispondeva più.";
+const BROKER_DIED_OPENING = "⚠️ Turno interrotto: si è fermato il processo che ospitava l'agente (ai-bridge).";
+const OUTAGE_NO_RESUME = "Se ti serve che continui, scriviglielo in un nuovo messaggio.";
+
 /** The notice for a turn the API left unanswered (`api-unavailable`). */
-export const API_UNAVAILABLE_NOTICE =
-  "⚠️ Turno interrotto: l'API di Claude non rispondeva più. Riprende da solo appena torna a rispondere.";
+export const API_UNAVAILABLE_NOTICE = `${API_UNAVAILABLE_OPENING} Riprende da solo appena torna a rispondere.`;
 
 /** The notice for a turn whose ai-bridge daemon died under it (`broker-died`). */
-export const BROKER_DIED_NOTICE =
-  "⚠️ Turno interrotto: si è fermato il processo che ospitava l'agente (ai-bridge). Riprende da solo.";
+export const BROKER_DIED_NOTICE = `${BROKER_DIED_OPENING} Riprende da solo.`;
 
 /**
  * The notice for a turn that died with the API's limit still saturated after

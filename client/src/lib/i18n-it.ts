@@ -1794,8 +1794,8 @@ const IT: Dict = {
   // A refusal is deterministic, so retrying the same message buys the same
   // result. Rephrasing is the useful recovery path.
   'chat.turnInterrupted.refusal': 'il modello ha rifiutato la richiesta',
-  'chat.turnInterrupted.apiUnavailable': "l'API non rispondeva più; riprende da solo appena torna",
-  'chat.turnInterrupted.brokerDied': "si è fermato il processo che ospitava l'agente; riprende da solo",
+  'chat.turnInterrupted.apiUnavailable': "l'API non rispondeva più",
+  'chat.turnInterrupted.brokerDied': "si è fermato il processo che ospitava l'agente",
   'git.noRepoInitialized': 'Nessun repository git inizializzato',
   'git.noRepo': 'Nessun repository git',
   'git.cleanTree': 'Albero di lavoro pulito',

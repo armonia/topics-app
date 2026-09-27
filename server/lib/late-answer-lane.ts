@@ -32,7 +32,7 @@ import type { ContentBlock, StoredMessage } from "../types";
 import type { ProviderDoneMessage, StreamHandler } from "../providers/types";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { classifyTurnError, type TurnEndInfo } from "../providers/stop-reason";
-import { avvisoPerTurno, isResumableCause } from "./cancelled-notice";
+import { avvisoPerTurno, resumesByItself } from "./cancelled-notice";
 import { isWantedStop } from "./abort-cause";
 
 interface Slot { get: () => string; set: (value: string) => void }
@@ -176,7 +176,7 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
       takeTail(message);
       const info: TurnEndInfo | undefined = message?.turnEnd;
       const explained = !info || isWantedStop(info.cause);
-      end("aborted", explained ? null : avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: isResumableCause(info.cause) }));
+      end("aborted", explained ? null : avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: resumesByItself(info.cause, opts.blocks) }));
     },
   };
 

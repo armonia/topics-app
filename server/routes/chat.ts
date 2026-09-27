@@ -106,7 +106,7 @@ import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
 import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
-import { avvisoPerTurno, abortLogTitle, isResumableCause } from "../lib/cancelled-notice";
+import { avvisoPerTurno, abortLogTitle, resumesByItself } from "../lib/cancelled-notice";
 import { toolOutcomeAtTurnEnd } from "../lib/tool-finalize-status";
 import { providerSurvivesRestart } from "../lib/quiescence";
 import { toolsSuspendSoftTimer } from "../lib/soft-timer-suspension";
@@ -2137,8 +2137,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // explain — was never shown. See `native/agent-loop.ts:roundEnd`.
             // And a CLI that gave up on the API (`api-unavailable`): its row kept
             // "Request timed out" and no verdict, and no sweep resent it (25/09).
+            // «Riprendo da solo» only where the sweep will resend: read off the
+            // blocks after the reattach merge, which carry a wake's mark.
+            const riprendeDaSolo = resumesByItself(endInfo.cause, blocks);
             const cutNotice = reason === "done" && (endInfo.end === "max_tokens" || endInfo.end === "refusal" || endInfo.end === "error")
-              ? avvisoPerTurno(endInfo, { haProdotto: fullContent.trim().length > 0 || rowHasWorkAfterMerge() })
+              ? avvisoPerTurno(endInfo, { haProdotto: fullContent.trim().length > 0 || rowHasWorkAfterMerge(), riprendeDaSolo })
               : null;
             if (reason === "done" && !cutNotice && !fullContent.trim() && !rowHasWorkAfterMerge() && !askingPlanApproval && !soloCompattazione) {
               const emptyErrorMsg = "⚠️ Nessuna risposta: il turno si è chiuso senza produrre niente. Il tuo messaggio è ancora qui: «Riprova» lo rimanda.";
@@ -2225,8 +2228,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // Every cause the resume acts on, not only the restart: the
               // sweep (`riprendiTurniInterrotti`, every 5 min) reads the same
               // predicate off the block, so a notice saying "Riprendo da solo"
-              // is a promise the same code keeps.
-              const riprendeDaSolo = isResumableCause(endInfo.cause);
+              // is a promise the same code keeps (`riprendeDaSolo`, above).
               // A stop the machine wanted explains nothing and resumes nothing,
               // as a route stop did before (lib/abort-cause.ts).
               const avviso = wantedByMachine ? null : avvisoPerTurno(endInfo, { haProdotto, riprendeDaSolo });
