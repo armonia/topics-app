@@ -319,3 +319,11 @@ export function sendBrowserWsMessage<T extends { send: (data: string) => void }>
 ): void {
   ws.send(JSON.stringify(msg));
 }
+
+/**
+ * `/ws/browser/:contextId?executor=1`: the socket says, at open, that it is a
+ * native pane's executor and will send `register_native_executor`. Until the
+ * server handles that frame the pane is not attached for `open_browser_pane`:
+ * a navigation sent in between would drive a headless context, not the pane.
+ */
+export const NATIVE_EXECUTOR_PARAM = 'executor';
