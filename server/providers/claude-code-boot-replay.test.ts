@@ -17,7 +17,7 @@
   * @covers CCLI-04
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync, existsSync, readFileSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync, existsSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { recordedBackgroundSession } from "./claude/background-work.fixture";
@@ -402,12 +402,12 @@ describe("boot · the agent's lines after the last result", () => {
     }
   }, 40_000);
 
-  /** A store written by the fake CLI and left there: `lines` then sleep. */
-  function storeCli(name: string, lines: unknown[]): string {
+  /** A store written by the fake CLI and left there: `lines`, `pauseS` seconds after the first message, then sleep. */
+  function storeCli(name: string, lines: unknown[], pauseS = 0): string {
     const body = join(tempDir, `${name}.ndjson`);
     writeFileSync(body, lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
     const cli = join(tempDir, `${name}.sh`);
-    writeFileSync(cli, `#!/bin/sh\nread line\ncat '${body}'\nsleep 30\n`);
+    writeFileSync(cli, `#!/bin/sh\nread line\n${pauseS ? `sleep ${pauseS}\n` : ""}cat '${body}'\nsleep 30\n`);
     chmodSync(cli, 0o755);
     return cli;
   }
@@ -542,16 +542,18 @@ describe("boot · the agent's lines after the last result", () => {
       { type: "assistant", message: { content: [{ type: "text", text: "CRON-FIRED" }] } },
       { type: "result", subtype: "success", is_error: false, num_turns: 1, result: "CRON-FIRED" },
       { type: "command_lifecycle", command_uuid: "fire-A", state: "completed", session_id: "s" },
-    ]));
+    ], 0.3));
     const sessionKey = "topic:boot-cron-row-mark";
     seedTopic(sessionKey, "t-boot-cron-row-mark");
     const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
     const bridge = getAiBridgeClient() as any;
     // The row's message is marked in the store; the server goes away once the child has written it all.
+    // The daemon writes the mark before the message reaches the CLI, so a store
+    // that stopped growing may hold the mark alone: whole = the mark plus every byte the CLI prints.
     const provA = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
     provA.sendChat(sessionKey, "remind me in a minute", makeHandler().handler, { rowId: "row-T1" }).catch(() => {});
-    let last = -1;
-    await waitFor(async () => { const now = (await bridge.list()).find((s: any) => s.id === sessionKey)?.endOffset ?? 0; const stable = now > 0 && now === last; last = now; return stable; }, 10_000, 100);
+    const whole = Buffer.byteLength(JSON.stringify({ type: "topics_delivered", mark: "row-T1" }) + "\n") + statSync(join(tempDir, "cron-row-mark.ndjson")).size;
+    await waitFor(async () => ((await bridge.list()).find((s: any) => s.id === sessionKey)?.endOffset ?? 0) >= whole, 10_000);
     provA.stop();
     const vero = bridge.attach.bind(bridge);
     const from: number[] = [];
