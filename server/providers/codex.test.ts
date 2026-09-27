@@ -535,6 +535,24 @@ describe("routeCodexEvent — file_change", () => {
     expect(aggregateTouchedFiles([{ timestamp: "t", toolCalls: storedCalls(h) }])).toEqual([]);
   });
 
+  // An interrupted turn closes every started item as it stood
+  // (`reconcile_unfinished_started_items` in codex-rs exec 0.153.4), so a patch
+  // cut off mid-flight arrives as item.completed still `in_progress`.
+  test("a patch completed while still in progress closes as an error, and the strip lists nothing", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    pushEvent(provider, "s1", started, h);
+    pushEvent(provider, "s1", { type: "item.completed", item: { ...completed.item, status: "in_progress" } }, h);
+
+    const results = h.tools.filter((t) => t.type === "result");
+    expect(results).toHaveLength(3);
+    for (const r of results) {
+      expect(r.error).toBe(true);
+      expect(r.payload).toBeTruthy();
+    }
+    expect(aggregateTouchedFiles([{ timestamp: "t", toolCalls: storedCalls(h) }])).toEqual([]);
+  });
+
   test("an unexpected changes shape is skipped without throwing", () => {
     const provider = new CodexProvider({ type: "codex" });
     const h = makeHandler();

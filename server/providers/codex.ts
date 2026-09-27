@@ -888,7 +888,11 @@ export class CodexProvider implements AIProvider {
         if (t === "item.updated" || !Array.isArray(item.changes)) return null;
         const itemId = typeof item.id === "string" && item.id ? item.id : crypto.randomUUID();
         const state = this.sessionState.get(sessionKey);
-        const failed = item.status === "failed";
+        // Only `completed` was applied. An interrupted turn closes the patch it
+        // cut off as it stood, still `in_progress`, and codex-rs folds a
+        // declined patch into `failed`.
+        const failed = item.status !== "completed";
+        const errorText = item.status === "failed" ? "Patch not applied" : "Patch did not complete";
         item.changes.forEach((change: unknown, i: number) => {
           const path = change && typeof change === "object" ? (change as Record<string, unknown>).path : null;
           if (typeof path !== "string" || !path) return;
@@ -902,7 +906,7 @@ export class CodexProvider implements AIProvider {
             state?.runningTools.delete(id);
             // chat.ts stores an error result as the call's `error`, and an
             // empty one would read as a patch that was applied.
-            handler.onToolResult(id, failed ? "Patch not applied" : "", failed);
+            handler.onToolResult(id, failed ? errorText : "", failed);
           }
         });
         return null;
