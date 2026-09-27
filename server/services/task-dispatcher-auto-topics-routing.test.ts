@@ -204,8 +204,17 @@ describe("Automatic with Topics routing ON and no routable candidate", () => {
     const h = await dispatchAutomaticWithRoutingOn(undefined, engineDown);
     const task = h.svc.get("t1")!.task;
     expect(task.dispatchState).toBe("blocked");
-    expect(task.dispatchError).toContain("Turn the switch off");
-    expect(task.dispatchError).not.toContain("effort");
+    // Exactly the engine's reason: the Codex-pin message also says "Turn the switch off".
+    expect(task.dispatchError).toBe("The Topics routing engine is unavailable. Turn the switch off or reconnect it before starting the task.");
+    expect(h.topics).toHaveLength(0);
+  });
+
+  it("the Topics engine still in discovery: the card waits in the queue instead of parking", async () => {
+    const engineLoading = { ...FLEET, providers: [entry("topics", [], "loading"), ...FLEET.providers.slice(1)] } as unknown as ProvidersSnapshot;
+    const h = await dispatchAutomaticWithRoutingOn(undefined, engineLoading);
+    const task = h.svc.get("t1")!.task;
+    expect(task).toMatchObject({ status: "todo", dispatchState: "queued", dispatchAttempts: 0 });
+    expect(task.dispatchError).toBe("Waiting for topics provider discovery.");
     expect(h.topics).toHaveLength(0);
   });
 
