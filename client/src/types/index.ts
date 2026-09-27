@@ -297,6 +297,9 @@ export interface WSGatewayStatusMessage {
 export interface WSTopicUpdatedMessage {
   type: 'topic:updated' | 'topic:created' | 'topic:archived';
   topic: Topic;
+  /** Rows of the chat changed out of band: an open pane reads the thread even
+   *  if it read it a moment ago (server `threadChangedFrame`). */
+  threadChanged?: boolean;
 }
 
 export interface WSTopicsReorderedMessage {

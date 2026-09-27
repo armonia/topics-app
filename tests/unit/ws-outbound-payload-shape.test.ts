@@ -120,6 +120,10 @@ const REAL_PAYLOADS: { where: string; payload: Record<string, unknown> }[] = [
     where: "server.ts — lo sgelo: la lista vuota e' un messaggio, non un'assenza",
     payload: { type: "swap-freeze:state", views: [] },
   },
+  {
+    where: "boot-partial-sweep.ts - threadChangedFrame: rows a sweep closed or traced",
+    payload: { type: "topic:updated", topic: { id: "3ddb9fb9", sessionKey: "topic:3ddb9fb9", name: "Chat" }, threadChanged: true },
+  },
 ];
 
 describe("i payload reali passano il loro schema", () => {

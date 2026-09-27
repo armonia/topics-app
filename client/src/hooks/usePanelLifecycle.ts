@@ -42,6 +42,7 @@ import {
   type SetStateAction,
 } from 'react';
 import { getExtraTopicIds, subscribeExtraTopics, withExtraTopics } from '../state/topicSubscriptions';
+import { createThreadReconcile } from './threadReconcile';
 import type { CreateTopicRequest, PaneType, PanelTab, TerminalSessionInfo, Topic, WSMessage } from '../types';
 import type { ChatStreamHandlers, TerminalOps } from './appHookTypes';
 import {
@@ -1177,9 +1178,6 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
 
   // ---- 11-16. Per-cluster WS subscriptions (CRITIQUE C6) ----
 
-  // Per-session debounce for out-of-band thread reconciles (see Cluster 1).
-  const threadReconcileTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-
   // WS Cluster 1: topic sync + open-pane thread reconcile.
   //
   // `topic:updated` rides along with EVERY out-of-band thread change: a Path-B
@@ -1199,10 +1197,11 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
   // one streaming, and we skip our own live stream up front. Debounced per
   // session so a finalize burst collapses to one fetch.
   useEffect(() => {
-    // Capture the (stable, never-reassigned) timers Map once so the cleanup
-    // clears exactly the map this effect wrote to — the react-hooks ref-in-
-    // cleanup gotcha, even though here the ref identity can't actually change.
-    const timers = threadReconcileTimersRef.current;
+    const reconcile = createThreadReconcile({
+      isOwnStream: (sk) => chatHandlersRef.current.isOwnStream(sk),
+      isSessionStreaming: (sk) => chatHandlersRef.current.isSessionStreaming(sk),
+      loadHistory: (sk, opts) => chatHandlersRef.current.loadHistory(sk, opts),
+    });
     const unsub = onWSMessage((msg) => {
       if (msg.type === 'topic:archived' || msg.type === 'topic:updated' || msg.type === 'topic:created') {
         if (msg.topic) applyTopicFromWSRef.current(msg.topic);
@@ -1210,26 +1209,12 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       if (msg.type === 'topic:updated' && msg.topic?.sessionKey) {
         const t = msg.topic;
         if (!openPanelsRef.current.includes(t.id) && !getExtraTopicIds().includes(t.id)) return;
-        if (chatHandlersRef.current.isOwnStream(t.sessionKey)) return;
-        const pending = timers.get(t.sessionKey);
-        if (pending) clearTimeout(pending);
-        timers.set(t.sessionKey, setTimeout(() => {
-          timers.delete(t.sessionKey);
-          // Not while the turn streams into this window: its frames keep the
-          // chat in sync, and a snapshot read in the middle of the turn held
-          // the chunk still buffered for the next frame, drawn then twice.
-          // Checked when the timer fires, not when the frame came: the
-          // `topic:updated` that opens a turn arrives before its
-          // `stream:start`, the one that closes it after its `stream:end`.
-          if (chatHandlersRef.current.isSessionStreaming(t.sessionKey)) return;
-          chatHandlersRef.current.loadHistory(t.sessionKey);
-        }, 400));
+        reconcile.request(t.sessionKey, msg.threadChanged === true);
       }
     });
     return () => {
       unsub();
-      for (const timer of timers.values()) clearTimeout(timer);
-      timers.clear();
+      reconcile.dispose();
     };
   }, [onWSMessage, openPanelsRef, chatHandlersRef, applyTopicFromWSRef]);
 
