@@ -24,10 +24,10 @@ mkdirSync(join(PROJECT, "sub"));
 // A link inside the project that points out of it: the third way out.
 symlinkSync(tmpdir(), join(PROJECT, "out"));
 writeFileSync(join(PROJECT, "package.json"), JSON.stringify({ scripts: { dev: "vite" } }));
-afterAll(() => {
-  rmSync(PROJECT, { recursive: true, force: true });
-  rmSync(STATE, { recursive: true, force: true });
-});
+// STATE stays: when this file loaded the registry first, it is the registry's
+// folder for every file after it in the same process, and a command started
+// there opens its log in it. Removing it made the next file's commands fail.
+afterAll(() => rmSync(PROJECT, { recursive: true, force: true }));
 
 const TOPIC = { id: "topic-cmd", sessionKey: "topic:cmd" };
 

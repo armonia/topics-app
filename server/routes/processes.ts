@@ -252,6 +252,10 @@ function loadState() {
 
     // For "running" scripts from a previous server session:
     // Check if the PID is still alive. If yes, re-adopt; if no, mark as error.
+    // Commands found dead are closed AFTER the loop: `finishCommand` saves the
+    // registry, and a save from inside the loop wrote a `scripts.json` without
+    // the rows not yet reached, which the next reload then lost.
+    const endedCommands: ScriptProcess[] = [];
     if (Array.isArray(data.running)) {
       for (const r of data.running as PersistedScript[]) {
         if (readoptVerdict({ pid: r.pid, pidLstart: r.pidLstart, probe: pidStartTime }) === "adopt") {
@@ -282,7 +286,7 @@ function loadState() {
           const sp: ScriptProcess = { ...r, status: "running", output: [], outputBytes: 0, proc: null };
           loadLogFile(sp);
           runningScripts.set(r.processId, sp);
-          finishCommand(sp);
+          endedCommands.push(sp);
         } else {
           // Process died while server was down
           const sp: ScriptProcess = {
@@ -299,6 +303,7 @@ function loadState() {
         }
       }
     }
+    for (const sp of endedCommands) finishCommand(sp);
 
     // Cleanup old log files for completed processes older than 7 days
     try {

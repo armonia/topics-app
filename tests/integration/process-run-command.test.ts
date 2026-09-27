@@ -12,7 +12,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, realpathSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { join } from "path";
 import { createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
@@ -214,12 +214,13 @@ describe("the command outlives the server", () => {
     db.close();
   });
 
-  /** One life of the registry on the shared state folder; its last line is JSON. */
-  function life(...args: string[]): Record<string, any> {
-    const out = Bun.spawnSync(["bun", LIFE, ...args], { env: { ...process.env, DATA_DIR: state }, stderr: "pipe" });
+  /** One life of the registry on a state folder; its last line, when any, is JSON. */
+  function lifeIn(dir: string, ...args: string[]): Record<string, any> {
+    const out = Bun.spawnSync(["bun", LIFE, ...args], { env: { ...process.env, DATA_DIR: dir }, stderr: "pipe" });
     const lines = out.stdout.toString().trim().split("\n");
-    return JSON.parse(lines[lines.length - 1]!);
+    return lines[lines.length - 1] ? JSON.parse(lines[lines.length - 1]!) : {};
   }
+  const life = (...args: string[]) => lifeIn(state, ...args);
   const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
   test("a reload mid-run: the row comes back running, the log goes on, the code is read from the exit file, one wake", () => {
@@ -253,6 +254,34 @@ describe("the command outlives the server", () => {
     expect(delivered).toHaveLength(1);
     expect(delivered[0]!.content).toContain("exit 4");
   }, 40_000);
+
+  // `finishCommand` saves the registry. Called from inside the boot's loop, it
+  // wrote a `scripts.json` without the rows the loop had not reached yet, and
+  // the next reload lost them: live processes out of the panel, a command
+  // waking nobody.
+  test("a command found dead at boot does not drop the live processes listed after it", () => {
+    const dir = join(ROOT, `load-${Date.now()}`);
+    mkdirSync(join(dir, ".state", "scripts"), { recursive: true });
+    const live = Bun.spawn(["sleep", "120"], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    try {
+      const lstart = Bun.spawnSync(["ps", "-o", "lstart=", "-p", String(live.pid)]).stdout.toString().trim();
+      const base = { projectPath: PROJECT, status: "running", startedAt: new Date().toISOString() };
+      writeFileSync(join(dir, ".state", "scripts.json"), JSON.stringify({
+        running: [
+          { ...base, processId: "dead-cmd", scriptName: "echo", command: "echo", pid: 999999, pidLstart: "gone",
+            source: "command", cmd: { sessionKey: "topic:life", topicId: "topic-life", wake: false } },
+          { ...base, processId: "live-script", scriptName: "sleep", command: "sleep 120", pid: live.pid, pidLstart: lstart },
+        ],
+        recent: [],
+      }));
+      lifeIn(dir, "load");
+      const saved = JSON.parse(readFileSync(join(dir, ".state", "scripts.json"), "utf8")) as { running: Array<{ processId: string }>; recent: Array<{ processId: string }> };
+      expect(saved.running.map((r) => r.processId)).toEqual(["live-script"]);
+      expect(saved.recent.map((r) => r.processId)).toEqual(["dead-cmd"]);
+    } finally {
+      live.kill("SIGKILL");
+    }
+  }, 30_000);
 
   test("no exit file: the row closes as an error with an unknown code, never as done", async () => {
     const started = life("start", PROJECT, "sleep 30");

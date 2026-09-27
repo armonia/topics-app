@@ -9,6 +9,14 @@
  *   start <project> <command>
  *     runs the command through the session route and dies at once, printing
  *     `{processId, pid}`: the server going away under a running command.
+ *   crowd <project> <command> <n>
+ *     runs the command (it owes the topic a wake), waits for it to end, then
+ *     runs `n` more that owe nothing and waits for them too, and dies before
+ *     any wake goes out: a server that reloads while the topic is busy.
+ *     Prints `{processId}` of the first.
+ *   load
+ *     loads the registry the way a boot does and dies: what the boot itself
+ *     wrote to `scripts.json` is what the test reads.
  *   boot <project> <processId> <db>
  *     loads the registry the way a boot does, starts the wakes with a chat
  *     route that writes the row into `<db>` (a sqlite file with `messages`),
@@ -40,6 +48,28 @@ async function call(method: string, path: string, body?: unknown): Promise<Respo
 if (mode === "start") {
   const resp = await call("POST", `/api/sessions/${encodeURIComponent(TOPIC.sessionKey)}/commands/run`, { command: arg });
   process.stdout.write(`${JSON.stringify(await resp.json())}\n`);
+  process.exit(0);
+}
+
+if (mode === "load") process.exit(0);
+
+async function closed(processId: string): Promise<void> {
+  const end = Date.now() + 20_000;
+  for (;;) {
+    const { scripts } = await (await call("GET", "/api/scripts")).json() as { scripts: Array<{ processId: string; status: string }> };
+    const row = scripts.find((s) => s.processId === processId);
+    if ((row && row.status !== "running") || Date.now() > end) return;
+    await Bun.sleep(50);
+  }
+}
+
+if (mode === "crowd") {
+  const run = async (command: string, wake: boolean) =>
+    ((await (await call("POST", `/api/sessions/${encodeURIComponent(TOPIC.sessionKey)}/commands/run`, { command, wake })).json()) as { processId: string }).processId;
+  const owed = await run(arg!, true);
+  await closed(owed);
+  for (let i = 0; i < Number(dbPath); i++) await closed(await run("true", false));
+  process.stdout.write(`${JSON.stringify({ processId: owed })}\n`);
   process.exit(0);
 }
 
