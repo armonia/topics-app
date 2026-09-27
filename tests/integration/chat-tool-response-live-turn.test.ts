@@ -240,6 +240,31 @@ describe("a second submission of a question already answered leaves the returned
       }
     });
   }
+
+  test("a second submission before the tool returns: the tool that then succeeds carries no error", async () => {
+    // The 404 reaches a tool still open, so its error enters the timeline; the
+    // result that follows is the tool's real end, and a success has no error
+    // (the legacy column's `updateToolCallResult` already clears it).
+    const sk = "topic:answer-twice-before-result";
+    const h = await harness(sk);
+    try {
+      const handler = await h.startTurn();
+      const rowId = h.lastRowId();
+      handler.onToolStart("toolu_race_404", "AskUserQuestion", { questions: SCHEMA.questions } as never);
+      handler.onUserInputRequired!("toolu_race_404", "AskUserQuestion", SCHEMA);
+      expect((await h.answer("toolu_race_404")).status).toBe(200);
+      expect((await h.answer("toolu_race_404")).status).toBe(404);
+      handler.onToolResult("toolu_race_404", JSON.stringify({ answers: ANSWERS }), false);
+      handler.onDone({ content: [{ type: "text", text: "Lavoro sul sito." }] } as never);
+      await until(() => h.sent.some((m) => m.type === "stream:end"));
+
+      const tool = h.toolOnRow(rowId, "toolu_race_404");
+      expect({ status: tool?.status, error: tool?.error }).toEqual({ status: "success", error: undefined });
+      expect(tool?.userResponse).toMatchObject({ kind: "questions", answers: ANSWERS });
+    } finally {
+      cancelAsk(sk);
+    }
+  });
 });
 
 describe("an answer reaches a tool that has not returned, whatever its timeline says", () => {
