@@ -288,12 +288,14 @@ describe("A card on the engine with no pinned runtime stays behind Claude's wall
   });
 });
 
-// A plain model with the switch ON runs on the engine with no runtime pinned,
-// so its topic reads back as the engine. A dependent that names Claude Code
-// with the switch ON runs on that same engine: the session is the same one,
-// and parking it as "a different model" stopped a chain that had nothing wrong.
-describe("A dependent reusing a session the engine runs, pinned to no runtime", () => {
-  async function reuseEngineSession(dependentRouting: 0 | null) {
+// A dependent that names Claude Code with the same model continues its
+// blocker's session, which keeps its own routing: the engine runs it with the
+// switch ON whether a runtime is pinned (Automatic picked Claude Code) or not
+// (a plain model reads back as the engine). The gate judges the model, so the
+// dependent's own switch changes nothing, pinned or not; parking the unpinned
+// case alone blamed "a different model" for a model that matched.
+describe("A dependent naming Claude Code reuses a session the engine runs", () => {
+  async function reuseEngineSession(blockerModel: string | null, dependentRouting: 0 | null) {
     const fleet = { defaultProvider: "claude-code", providers: [entry("claude-code", CLAUDE_MODELS), entry("topics", CLAUDE_MODELS)] } as unknown as ProvidersSnapshot;
     const h = harness(fleet);
     h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchTopicsRouting: true });
@@ -301,14 +303,13 @@ describe("A dependent reusing a session the engine runs, pinned to no runtime", 
     const ts = new Date().toISOString();
     h.db.run(
       `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, topics_routing)
-       VALUES ('t1', ?, 'blocker', 'todo', ?, ?, 0, 'claude-sonnet-5', NULL)`,
-      [PID, ts, ts],
+       VALUES ('t1', ?, 'blocker', 'todo', ?, ?, 0, ?, NULL)`,
+      [PID, ts, ts, blockerModel],
     );
     await h.dispatcher.tick(PID);
     await flush();
     expect(h.topics).toHaveLength(1);
     expect(h.topics[0]).toMatchObject({ model: "claude-sonnet-5", topicsRouting: true, executor: "topics" });
-    expect(h.topics[0]!.provider).toBeUndefined();
     h.db.run("UPDATE tasks SET status = 'done' WHERE id = 't1'");
     h.db.run(
       `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, topics_routing, blocked_by_task_id, reuse_blocker_context)
@@ -320,20 +321,22 @@ describe("A dependent reusing a session the engine runs, pinned to no runtime", 
     return h;
   }
 
-  it("the switch ON on both: the dependent starts on the blocker's session", async () => {
-    const h = await reuseEngineSession(null);
-    const dependent = h.svc.get("t2")!.task;
-    expect(dependent.dispatchError ?? null).toBeNull();
-    expect(dependent).toMatchObject({ status: "in_progress", dispatchState: "working" });
-    expect(h.topics).toHaveLength(1);
-    expect(h.turnEnds).toHaveLength(2);
-  });
-
-  it("the dependent switched OFF: a direct Claude Code run does not take over the engine's session", async () => {
-    const h = await reuseEngineSession(0);
-    const dependent = h.svc.get("t2")!.task;
-    expect(dependent).toMatchObject({ status: "backlog", dispatchState: "blocked" });
-    expect(dependent.dispatchError).toContain("non coincide con la sessione precedente");
-    expect(h.turnEnds).toHaveLength(1);
-  });
+  const blockers = {
+    // Automatic with the switch ON pins the Claude Code target it picked.
+    "pinned to Claude Code": { model: null, provider: "claude-code" },
+    "pinned to no runtime": { model: "claude-sonnet-5", provider: undefined },
+  };
+  for (const [blocker, { model, provider }] of Object.entries(blockers)) {
+    for (const [dependent, routing] of [["the switch ON", null], ["switched OFF", 0]] as const) {
+      it(`blocker ${blocker}, dependent ${dependent}: the dependent starts on the blocker's session`, async () => {
+        const h = await reuseEngineSession(model, routing);
+        expect(h.topics[0]!.provider).toBe(provider);
+        const task = h.svc.get("t2")!.task;
+        expect(task.dispatchError ?? null).toBeNull();
+        expect(task).toMatchObject({ status: "in_progress", dispatchState: "working" });
+        expect(h.topics).toHaveLength(1);
+        expect(h.turnEnds).toHaveLength(2);
+      });
+    }
+  }
 });
