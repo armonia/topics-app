@@ -161,7 +161,7 @@ import { createAccountRouter } from "./server/routes/account";
 import { createPeopleRouter } from "./server/routes/people";
 import { getGatewayWS } from "./server/gateway-ws";
 import { initProvider, recomputeDefault, getDefaultProviderName, stopAllProviders, getProvider, tryGetProvider, resolveTurnAlive, resolveSessionOwner, childAliveForSweep, sessionHasPendingSend } from "./server/providers";
-import { sessionsWithBackgroundWork, stallBackgroundHold } from "./server/providers/background-probes";
+import { backgroundOnlySessionCount, sessionsWithBackgroundWork, stallBackgroundHold } from "./server/providers/background-probes";
 import { aiBridgeEnabled, ClaudeCodeProvider } from "./server/providers/claude-code";
 import { cancelled, describeTurnEnd, type TurnEndInfo } from "./server/providers/stop-reason";
 import type { AbortReason } from "./server/providers/types";
@@ -2771,7 +2771,7 @@ startDiscordPresence({
   getSnapshot: () => ({
     ...computePresenceCounts(
       ctx.db,
-      ctx.activeStreams.size + countBusyAgentTerminals(),
+      ctx.activeStreams.size + countBusyAgentTerminals() + backgroundOnlySessionCount(ctx.activeStreams),
       ctx.externalSessionsCount?.() ?? 0,
       ctx.externalSessionsWorking?.() ?? 0,
     ),

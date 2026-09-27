@@ -7,11 +7,13 @@
  */
 import type { AbortReason } from "./types";
 import { registeredProviders } from "./index";
+import type { BackgroundWorkDetail } from "../../shared/background-work";
 
 /** The background probes a provider may answer. */
 type BackgroundProbe = {
   hasBackgroundWork?: (sk: string) => boolean;
   backgroundState?: (sk: string) => string;
+  backgroundWorkDetail?: (sk: string) => BackgroundWorkDetail | null;
   backgroundSessionKeys?: () => string[];
   abort?: (sk: string, runId: string | undefined, reason: AbortReason) => Promise<void>;
 };
@@ -85,8 +87,36 @@ export function sessionsWithBackgroundWork(): string[] {
   return out;
 }
 
+/**
+ * What the chat names: the tasks and the last news, from the provider that HAS
+ * the work. A session whose provider cannot tell says nothing about its tasks.
+ */
+export function sessionBackgroundDetail(sessionKey: string): BackgroundWorkDetail {
+  for (const p of probes()) {
+    try {
+      const detail = p.backgroundWorkDetail?.(sessionKey);
+      if (detail) return detail;
+    } catch { /* a failing probe claims nothing */ }
+  }
+  return { tasks: [], lastSignalAt: 0 };
+}
+
+/**
+ * Sessions whose only work is what a closed turn left running, never counted
+ * next to their own open turn: the presence counts them as working, because
+ * that work holds a CLI in RAM right now.
+ */
+export function backgroundOnlySessionCount(openTurns: { has(sessionKey: string): boolean }): number {
+  return sessionsWithBackgroundWork().filter((sessionKey) => !openTurns.has(sessionKey)).length;
+}
+
+/** A background row of `/api/topics/streaming`: no turn open, work still running, and what it is. */
+export type BackgroundStatusRow = { topicId: string; sessionKey: string; state: "background" } & BackgroundWorkDetail;
+
 /** A row of `/api/topics/streaming`: a reply in progress, one waiting for the person, or background work only. */
-export type StreamingStatusRow = { topicId: string; sessionKey: string; state: "streaming" | "waiting" | "background"; awaitingSince?: number };
+export type StreamingStatusRow =
+  | { topicId: string; sessionKey: string; state: "streaming" | "waiting"; awaitingSince?: number }
+  | BackgroundStatusRow;
 
 /**
  * The `/api/topics/streaming` rows for the sessions with no turn open but work
@@ -95,11 +125,11 @@ export type StreamingStatusRow = { topicId: string; sessionKey: string; state: "
 export function backgroundStatusRows(
   listed: ReadonlyArray<{ sessionKey: string }>,
   topicOf: (sessionKey: string) => { id: string; sessionKey?: string | null } | null | undefined,
-): Array<{ topicId: string; sessionKey: string; state: "background" }> {
-  const rows: Array<{ topicId: string; sessionKey: string; state: "background" }> = [];
+): BackgroundStatusRow[] {
+  const rows: BackgroundStatusRow[] = [];
   for (const sessionKey of sessionsWithBackgroundWork()) {
     const topic = listed.some((s) => s.sessionKey === sessionKey) ? null : topicOf(sessionKey);
-    if (topic?.sessionKey) rows.push({ topicId: topic.id, sessionKey: topic.sessionKey, state: "background" });
+    if (topic?.sessionKey) rows.push({ topicId: topic.id, sessionKey: topic.sessionKey, state: "background", ...sessionBackgroundDetail(sessionKey) });
   }
   return rows;
 }

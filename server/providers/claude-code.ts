@@ -54,7 +54,7 @@ import {
   type CallUsage,
 } from "./claude/events";
 import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
-import { datedByLastWrite, hasLiveTasks, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
+import { datedByLastWrite, describeBackgroundWork, hasLiveTasks, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
 import { observePlanUsage } from "./native/usage-window";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
@@ -2790,6 +2790,11 @@ export class ClaudeCodeProvider implements AIProvider {
     const now = Date.now();
     if (hasLiveTasks(pp.background, now)) return "running";
     return isWakeQueued(pp.background, now) ? "wake-queued" : "none";
+  }
+
+  /** What the chat names while `backgroundState` is not `none`: the live tasks (none once only the wake is left) and the last news. */
+  backgroundWorkDetail(sessionKey: string): BackgroundWorkDetail | null {
+    return this.backgroundState(sessionKey) === "none" ? null : describeBackgroundWork(this.processes.get(sessionKey)?.background, Date.now());
   }
 
   /**
