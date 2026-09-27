@@ -8,6 +8,7 @@ import { wakeVerdict, runningTaskOwnsTopic } from "./server/lib/wake-adoption";
 import { riprendiTurniInterrotti, type CtxRipresa } from "./server/lib/ripresa-boot";
 import { providerHold, isProviderHeld, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
 import { providerHoldFrame, wireHoldToResume } from "./server/lib/provider-hold-broadcast";
+import { createResumeSweepClock } from "./server/lib/resume-sweep-clock";
 import { resolveStateDir } from "./server/lib/data-dir";
 import { createSwapFreezer } from "./server/services/swap-freeze";
 import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "./server/services/swap-freeze-ledger";
@@ -5837,52 +5838,12 @@ reattachSurvivingChatTurns()
   // The sessions the reattach kept for their background work: their goals wait again.
   .then(() => goalLoop?.resumeAfterBoot(sessionsWithBackgroundWork()))
   .catch((err) => console.error("[chat-reattach] boot sweep failed", err))
-  .finally(() => scheduleResumeSweep());
+  .finally(() => resumeSweepClock.start());
 
-// NOT ONLY AT BOOT. A turn cut by the watchdog, a stall or a provider error
-// while the server keeps running was never resumed until the next boot: on
-// 2026-09-04 the person had to write "riprendi" by hand. The same sweep runs
-// every five minutes; a resumed row carries its `ripreso` marker and a new
-// answer after it, so a sweep never resends twice. Chained, not on an
-// interval: one sweep can wait up to fifteen minutes on a stream.
-const RESUME_SWEEP_MS = 5 * 60_000;
-
-/**
- * THE SWEEP RUNS EARLY WHEN A CUT JUST HAPPENED. The periodic tick is what
- * makes "riprende da solo" true at all; this is what makes it true within
- * seconds instead of within five minutes. One pending nudge at a time, and a
- * hold in force still wins: a resend into a spent usage window is a 429 and
- * one of the chain's attempts burnt for nothing.
- */
-const RESUME_NUDGE_MS = 20_000;
-let resumeNudge: ReturnType<typeof setTimeout> | null = null;
+// The periodic sweep and the early one after a cut (lib/resume-sweep-clock.ts).
+const resumeSweepClock = createResumeSweepClock(() => riprendiTurniInterrotti(resumeCtx, topicsRouter));
 function nudgeResumeSweep(): void {
-  if (resumeNudge) return;
-  resumeNudge = setTimeout(() => {
-    resumeNudge = null;
-    if (providerHold()) return;
-    riprendiTurniInterrotti(resumeCtx, topicsRouter)
-      .catch((err) => console.error("[ripresa] nudged sweep failed", err));
-  }, RESUME_NUDGE_MS);
-  resumeNudge.unref?.();
-}
-
-function scheduleResumeSweep(): void {
-  const t = setTimeout(() => {
-    // The plan's usage window is spent: a resend now would end on the same
-    // 429 and spend one of the chain's attempts for nothing. The sweep after
-    // the reset picks the same rows up.
-    const hold = providerHold();
-    if (hold) {
-      console.log(`[ripresa] sweep rinviato: ${hold.reason}, riparte alle ${holdUntilLabel(hold)}`);
-      scheduleResumeSweep();
-      return;
-    }
-    riprendiTurniInterrotti(resumeCtx, topicsRouter)
-      .catch((err) => console.error("[ripresa] periodic sweep failed", err))
-      .finally(() => scheduleResumeSweep());
-  }, RESUME_SWEEP_MS);
-  t.unref?.();
+  resumeSweepClock.nudge();
 }
 
 // The hold is news for every open chat, and a lift nudges the resume sweep
