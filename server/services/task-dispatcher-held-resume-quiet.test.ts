@@ -619,6 +619,118 @@ describe("the tick's wait note on a todo card", () => {
 });
 
 /**
+ * A TODO CARD HELD BY THE MACHINE IS QUIET TOO.
+ *
+ * The tick polls every 10 s (`server.ts`), and its floor branch wrote the bare
+ * `queued` chip on every held Todo card at every poll: `setDispatchState` moves
+ * `updated_at` and the card went out as a `task:updated` frame. 360 writes and
+ * 360 frames an hour per card, for a chip that already said `queued`, the same
+ * burst the held resume had until 15/09. The chip is written when the row does
+ * not carry it; the card is re-sent without a write when the block holding the
+ * queue changes, with the held resume's one-minute refresh for moving figures,
+ * and once more when the block lifts, so no client keeps a reason that stopped
+ * being true.
+ */
+describe("a todo card held by the machine for an hour", () => {
+  it("a steady floor and a comment every five minutes: one write, one frame, updated_at moved only by the comments", async () => {
+    const h = harness();
+    h.floor.memGB = 4.8;
+    todo(h, "hour");
+    const t0 = Date.now();
+    const stamps = new Set<string>();
+    for (let poll = 0; poll < 360; poll++) {
+      setSystemTime(new Date(t0 + poll * 10_000));
+      if (poll > 0 && poll % 30 === 0) h.svc.addComment({ taskId: "hour", author: "user", content: `still waiting at minute ${poll / 6}?` });
+      await h.dispatcher.tick(PID);
+      stamps.add(h.task("hour").updatedAt);
+    }
+    expect(h.writesOf("hour")).toBe(1);
+    expect(h.framesOf("hour")).toBe(1);
+    // The first poll (chip and note in the same instant) and the eleven comments.
+    expect(stamps.size).toBe(12);
+    expect(h.task("hour").dispatchState).toBe("queued");
+    expect(h.task("hour").status).toBe("todo");
+    expect(h.task("hour").queueReason).toMatchObject({ kind: "resource_floor" });
+    expect(h.serviceNotes("hour").filter((c) => c.startsWith("Memoria"))).toHaveLength(1);
+  });
+
+  it("a moving reading under the floor re-sends the card at most once a minute, and never writes it again", async () => {
+    const h = harness();
+    todo(h, "moving");
+    const t0 = Date.now();
+    const readings = [4.8, 4.9, 5.1, 4.7];
+    for (let poll = 0; poll < 360; poll++) {
+      setSystemTime(new Date(t0 + poll * 10_000));
+      h.floor.memGB = readings[poll % readings.length]!;
+      await h.dispatcher.tick(PID);
+    }
+    expect(h.writesOf("moving")).toBe(1);
+    expect(h.framesOf("moving")).toBeGreaterThan(1);
+    expect(h.framesOf("moving")).toBeLessThanOrEqual(60);
+    expect(h.lastFrame("moving")!.queueReason).toMatchObject({ kind: "resource_floor" });
+  });
+
+  it("another block reaches the card at the next poll without a write, and the lift reaches it once, from any board", async () => {
+    const OTHER = "beta-def456";
+    const h = harness();
+    h.svc.updateBoardSettings(OTHER, { autoDispatch: true, dispatchUseWorktree: false });
+    h.floor.memGB = 4.8;
+    todo(h, "kinds");
+    const t0 = Date.now();
+    let at = 0;
+    const poll = async (board = PID) => {
+      setSystemTime(new Date(t0 + (at += 10_000)));
+      await h.dispatcher.tick(board);
+    };
+
+    await poll();
+    await poll();
+    expect(h.framesOf("kinds")).toBe(1);
+
+    // The floor clears and the 24h spend holds the queue: another block, sent at once.
+    h.floor.memGB = null;
+    daySpend(h, true);
+    await poll();
+    expect(h.framesOf("kinds")).toBe(2);
+    expect(h.lastFrame("kinds")!.queueReason).toMatchObject({ kind: "spend_cap" });
+    await poll();
+    expect(h.framesOf("kinds")).toBe(2);
+
+    // The spend clears too. The first tick to see it is another board's, whose
+    // queue is empty: the held card on this board still learns it, once.
+    daySpend(h, false);
+    await poll(OTHER);
+    expect(h.framesOf("kinds")).toBe(3);
+    expect(h.lastFrame("kinds")!.queueReason).toMatchObject({ kind: "slot" });
+    await poll(OTHER);
+    expect(h.framesOf("kinds")).toBe(3);
+    expect(h.writesOf("kinds")).toBe(1);
+  });
+
+  it("the ramp does not rewrite a queued chip at every start", async () => {
+    const h = harness();
+    h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.8 });
+    // The topic the harness's launches bind, so a start stays started.
+    h.db.run("INSERT INTO topics (id) VALUES ('topic-new')");
+    const t0 = Date.now();
+    for (const [i, id] of ["ramp-1", "ramp-2", "ramp-3"].entries()) {
+      setSystemTime(new Date(t0 + i));
+      todo(h, id);
+    }
+    // One start per poll: each start puts the chip on the cards behind it.
+    setSystemTime(new Date(t0 + 10_000));
+    await h.dispatcher.tick(PID);
+    setSystemTime(new Date(t0 + 20_000));
+    await h.dispatcher.tick(PID);
+    expect(h.task("ramp-1").status).toBe("in_progress");
+    expect(h.task("ramp-2").status).toBe("in_progress");
+    expect(h.task("ramp-3").dispatchState).toBe("queued");
+    expect(h.writesOf("ramp-3")).toBe(1);
+    expect(h.framesOf("ramp-3")).toBe(1);
+  });
+});
+
+/**
  * A QUEUED CHIP ON A CARD THAT LEFT IN PROGRESS.
  *
  * Card a551b940 on 23/09/2026: the agent took it to review inside a turn whose

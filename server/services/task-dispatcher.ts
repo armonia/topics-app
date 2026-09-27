@@ -1614,6 +1614,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED, error: reason }));
   }
 
+  /**
+   * The bare `queued` chip, written only when the row does not carry it already
+   * (the guard `markPlanWait` has). `setDispatchState` moves `updated_at` and
+   * every write goes out as a frame, so the tick's holds, which run at every
+   * 10 s poll, rewrote the same chip 360 times an hour on each held card.
+   * Returns whether it wrote (and sent) the card.
+   */
+  function queueChip(task: Task): boolean {
+    if (task.dispatchState === CHIP_QUEUED && !task.dispatchError) return false;
+    try { emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED })); return true; } catch { return false; }
+  }
+
   /** A hold may arrive while the async model picker runs, before any resources exist. */
   function deferHeldLaunch(task: Task, model?: string): boolean {
     const wait = taskPlanWait(task, model, true);
@@ -1893,6 +1905,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // card noted under the 120 s warm-up used to get nothing when the real floor
   // sentence replaced it, so the reason never arrived.
   const floorHeldNoted = new Map<string, string>();
+  // The machine block each held Todo card was last SENT with (its `holdKey`, its
+  // sentence, when), so the tick re-sends the card only when that changes, and
+  // once more when the block lifts. See the floor branch of `tick`.
+  const floorBlockSent = new Map<string, { key: string; reason: string; at: number }>();
   // Tasks already told "the provider's wall is days away, this is a spent plan".
   // Same discipline as `spendHeldNoted`, and for the same reason: this wait does
   // not end by itself inside any horizon a person would wait through, so the
@@ -4825,6 +4841,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const floorNoteKey = resourceFloor
       ? (floorNow.kind === "memory_warmup" ? null : `resources:${floorNow.kind}`)
       : daySpendBlock ? "spend" : pressure ? "pressure" : null;
+    // And which block the held cards are SENT with: the warm-up included, since
+    // the card reads it, and keyed like a held resume's chip (`holdKey`).
+    const floorSent = floorBlock
+      ? {
+        key: holdKey(resourceFloor ? "resources" : daySpendBlock ? "spend" : "pressure", floorNote, resourceFloor ? floorNow.kind : null),
+        reason: floorNote ?? floorBlock,
+      }
+      : null;
     // The spend caps, read ONCE per tick from the same '*' row that carries the
     // concurrency cap. With the caps off (zero = unlimited, the state of a fresh
     // install) this is the only extra read of the loop: no sum over the spend
@@ -4839,7 +4863,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // The block has lifted: forget the episode, so the next full disk says it
     // again instead of staying mute forever. It looks at the block and not at
     // the single card, because the block is one per machine.
-    if (!floorBlock) floorHeldNoted.clear();
+    if (!floorBlock) {
+      floorHeldNoted.clear();
+      // The cards sent with the block learn it lifted, once. No write says it
+      // (their chip stays `queued`), and the poll that sees the lift may be
+      // another board's: without this frame a card that goes on waiting (cap
+      // full, already noted) keeps showing a block that is gone.
+      for (const id of floorBlockSent.keys()) {
+        try { const fresh = deps.svc.get(id)?.task; if (fresh) emit(fresh); } catch { /* the task may have moved */ }
+      }
+      floorBlockSent.clear();
+    }
     // Agenti vivi ADESSO, e SOLO per spiegare: la decisione resta del CAS dentro
     // `claim`, che è l'unico punto atomico. Non si memoizza per tick — dentro il
     // ciclo i claim che riescono cambiano il numero, e una nota che cita un
@@ -4918,7 +4952,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // thread line says the wait in words. One per EPISODE, and one ROW per
         // card across episodes and boots: it is the state of the wait, the same
         // slot as the resume's note (see `RESUME_WAIT_OPENINGS`).
-        try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+        //
+        // THE CHIP ONCE, THE CARD WHEN ITS BLOCK CHANGES. The chip is written
+        // only when the row lacks it: rewritten at every poll it moved
+        // `updated_at` and sent a frame 360 times an hour per card. What does
+        // change is the block the card reads (`currentDispatchBlock`, published
+        // above), so the card is re-sent without a write when that becomes
+        // another block, or the same one with figures a minute old, like a held
+        // resume's chip (`HELD_RESUME_REFRESH_MS`). Re-read, not `t`: `t` was
+        // mapped before this tick published its block.
+        const block = floorSent!;
+        const sent = floorBlockSent.get(t.id);
+        const stale = !sent || sent.key !== block.key
+          || (sent.reason !== block.reason && clock() - sent.at >= HELD_RESUME_REFRESH_MS);
+        const wrote = queueChip(t);
+        if (stale && !wrote) {
+          try { const fresh = deps.svc.get(t.id)?.task; if (fresh) emit(fresh); } catch { /* the task may have moved */ }
+        }
+        if (stale || wrote) floorBlockSent.set(t.id, { ...block, at: clock() });
         if (floorNote && floorNoteKey && floorHeldNoted.get(t.id) !== floorNoteKey) {
           floorHeldNoted.set(t.id, floorNoteKey);
           try {
@@ -4936,7 +4987,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // chip, like a full cap would give it, and its turn comes with a fresher
       // reading.
       if (rampActive && rampHeld()) {
-        try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+        queueChip(t);
         continue;
       }
       // Respect the grace debounce: a task still inside its window is claimed by
@@ -5072,7 +5123,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // again once this pass has started a card: it was read once at the top,
       // and a count-mode tick claims every free slot against that one reading.
       if (rampActive && rampHeld()) {
-        try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+        queueChip(t);
         continue;
       }
       if (!midPassFloor && startedThisTick > floorReadAfterStarts) {
@@ -5080,7 +5131,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         midPassFloor = admissionBlock();
       }
       if (midPassFloor) {
-        try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+        queueChip(t);
         continue;
       }
       const forced = heavyCall.get(t.id) === "forced";
