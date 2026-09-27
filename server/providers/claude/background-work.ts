@@ -19,7 +19,13 @@
  * A session cron (CronCreate) is pending work too: the CLI fires it by itself,
  * and killing the child takes it along. CLI 2.1.282 prints no task line about
  * it, only the tool call, its result and a `command_lifecycle` at the fire
- * (`claude-cli-2.1.282-session-cron.ndjson`).
+ * (`claude-cli-2.1.282-session-cron.ndjson`). The goal loop waits on it as on a
+ * task, check-ins at 30, 60 and 120 minutes included: while a recurring cron
+ * is armed every turn it fires is deferred, and the check-in is the only time
+ * the goal is judged. ScheduleWakeup, the other session cron (a /loop with no
+ * interval), is not offered to a `--print` session: recorded on 27/09 with CLI
+ * 2.1.283, init lists CronCreate, CronDelete and CronList only, and /loop with
+ * no interval runs once and asks for one.
  *
  * This module is the one answer they all read: is this session's background
  * work still alive? The provider keeps one of these per process and folds every

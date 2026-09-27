@@ -17,6 +17,7 @@ import { describe, test, expect } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";
 import { BACKGROUND_WORK_CAP_MS, newBackgroundWork, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
 import { recordedBackgroundSession } from "./claude/background-work.fixture";
+import { backgroundOfTurn } from "../services/goal-continuation";
 
 function fakePP(over: Record<string, unknown> = {}) {
   return {
@@ -230,8 +231,8 @@ describe("ClaudeCodeProvider — inactivity reaper never fires during a turn", (
       const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
       const provider = setup(pp, sessionKey);
       pp.background = armed(Date.now() - 20 * 60_000);
-      // What the goal loop reads at the turn's end (`backgroundOfTurn`): running, so no nudge.
-      expect(provider.backgroundState(sessionKey)).toBe("running");
+      // What the goal loop reads at the turn's end: work pending, so the goal waits instead of nudging.
+      expect(backgroundOfTurn(provider, sessionKey)).toEqual({ backgroundWork: true, backgroundWakeOnly: false });
       (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });
       await new Promise((r) => setTimeout(r, 30));
       expect(killed).toBe(0);
