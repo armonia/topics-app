@@ -664,8 +664,9 @@ describe("the tick's wait note on a todo card", () => {
  * burst the held resume had until 15/09. The chip is written when the row does
  * not carry it; the card is re-sent without a write when the block holding the
  * queue changes, with the held resume's one-minute refresh for moving figures,
- * and once more when the block lifts, so no client keeps a reason that stopped
- * being true.
+ * and once more when a tick sees the block lift. A tick that returns before it
+ * publishes (a paused board) sees nothing: the published block's own limit,
+ * written in `dispatch-block-signal.ts`.
  */
 describe("a todo card held by the machine for an hour", () => {
   it("a steady floor and a comment every five minutes: one write, one frame, updated_at moved only by the comments", async () => {
@@ -811,6 +812,32 @@ describe("a todo card held by the machine for an hour", () => {
     expect(h.task("ramp-3").dispatchState).toBe("queued");
     expect(h.writesOf("ramp-3")).toBe(1);
     expect(h.framesOf("ramp-3")).toBe(1);
+  });
+
+  // The floor re-read after a start (`midPassFloor`) holds the rest of that
+  // pass, and each start under a low floor goes through it again: the path of
+  // the memory derogation, where one card passes and the floor closes behind it.
+  it("the floor read again after a start does not rewrite a queued chip at every start", async () => {
+    const h = harness();
+    h.db.run("INSERT INTO topics (id) VALUES ('topic-new')");
+    const claim = h.svc.claim.bind(h.svc);
+    // The card that starts takes the memory the next read sees.
+    h.svc.claim = (input) => { const won = claim(input); if (won) h.floor.memGB = 4.8; return won; };
+    const t0 = Date.now();
+    for (const [i, id] of ["mid-1", "mid-2", "mid-3"].entries()) {
+      setSystemTime(new Date(t0 + i));
+      todo(h, id);
+    }
+    for (const poll of [1, 2]) {
+      h.floor.memGB = 20;
+      setSystemTime(new Date(t0 + poll * 10_000));
+      await h.dispatcher.tick(PID);
+    }
+    expect(h.task("mid-1").status).toBe("in_progress");
+    expect(h.task("mid-2").status).toBe("in_progress");
+    expect(h.task("mid-3").dispatchState).toBe("queued");
+    expect(h.writesOf("mid-3")).toBe(1);
+    expect(h.framesOf("mid-3")).toBe(1);
   });
 });
 
