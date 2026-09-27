@@ -286,6 +286,22 @@ describe('leanToolCallForHistory / leanMessagesForHistory', () => {
     expect((leanToolCallForHistory(unknown).args as { command: string }).command.length).toBe(WIRE_STRING_PREVIEW_CHARS);
   });
 
+  test('a shell row stored without its description takes it from args before they go empty', () => {
+    // Rows written before the shell detail had a `description` field keep it
+    // only in `args`, which the history empties for a typed detail: without
+    // this the label is lost on every reload of an existing thread.
+    const old: WireCall = {
+      id: 'a',
+      name: 'Bash',
+      args: { command: 'ls', description: 'List files' },
+      detail: { type: 'shell', command: 'ls' },
+    };
+    const lean = leanToolCallForHistory(old);
+    expect(lean.args).toEqual({});
+    expect(lean.detail).toEqual({ type: 'shell', command: 'ls', description: 'List files' });
+    expect(old.detail).toEqual({ type: 'shell', command: 'ls' });
+  });
+
   test('blocks: the nested toolCall is trimmed, the text block next to it is the same reference', () => {
     const text = { kind: 'text', text: 'hello' };
     const msgs = [{ id: 'm', blocks: [text, { kind: 'tool', toolCall: heavy() }] }];
