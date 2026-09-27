@@ -604,38 +604,29 @@ describe("la catena dei riavvii ha un tetto", () => {
   });
 
   /**
-   * The free probes have a ceiling of their own. Each resend is a new row, so
-   * the 24-hour window moves with the chain, and a probe with no answer since
-   * its row began spends nothing: a failure that looks like an outage on one
-   * chat only (no HTTP status, the rest of the fleet quiet), or a reload that
-   * forgets the last answer, resent a copy of the message about once an hour
-   * forever, each one reopening the hold that stops every other chat and the
-   * board. Past MAX_FREE_PROBES the probe is counted like any resend.
+   * The free probes have a ceiling. Each resend is a row of its own, so the
+   * 24-hour window moves with the chain: a probe failing on one chat only, or
+   * after a reload that forgot the last answer, resent the message about once
+   * an hour for good, each probe reopening the hold that stops every chat.
    */
   test("past MAX_FREE_PROBES a probe into an API still down spends its attempt", async () => {
-    clearProviderHold();
-    resetProviderHoldStore();
+    clearProviderHold(); resetProviderHoldStore();
     const db = freshDb();
     const at = new Date(Date.now() - 30_000).toISOString();
     const cut = { kind: "error", text: "Turno interrotto: l'API di Claude non rispondeva più.", cause: "api-unavailable", at };
-    const tool = { kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } };
     const row = db.prepare(
       "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,'topic:x',?,?,?,0,?,?,?,0)",
     );
-    // The first resend was counted (attempt 1); every one after it met the API
-    // still down and kept that number.
-    row.run("a0", "assistant", "", JSON.stringify([tool, cut, { kind: "ripreso", attempt: 1 }]), at, 1, "u0");
-    let parent = "a0";
+    // The first resend counted (attempt 1); the eight after it were free.
+    row.run("a0", "assistant", "", JSON.stringify([cut, { kind: "ripreso", attempt: 1 }]), at, 1, "u0");
     for (let i = 1; i <= MAX_FREE_PROBES + 1; i++) {
-      row.run(`u-${i}`, "user", MESSAGE, null, at, 2 * i, parent);
-      const traced = i <= MAX_FREE_PROBES ? [{ kind: "ripreso", attempt: 1 }] : [];
-      row.run(`a-${i}`, "assistant", "Request timed out", JSON.stringify([{ kind: "ripreso", attempt: 1 }, cut, ...traced]), at, 2 * i + 1, `u-${i}`);
-      parent = `a-${i}`;
+      row.run(`u-${i}`, "user", MESSAGE, null, at, 2 * i, i === 1 ? "a0" : `a-${i - 1}`);
+      const trace = i <= MAX_FREE_PROBES ? [{ kind: "ripreso", attempt: 1 }] : [];
+      row.run(`a-${i}`, "assistant", "", JSON.stringify([{ kind: "ripreso", attempt: 1 }, cut, ...trace]), at, 2 * i + 1, `u-${i}`);
     }
     const calls: Array<Record<string, unknown>> = [];
     await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
     expect(calls.map((c) => c.ripresa)).toEqual([2]);
-    resetProviderHoldStore();
   });
 
   test("a woken turn cut by an outage is left alone: the person's last message already had its answer", async () => {

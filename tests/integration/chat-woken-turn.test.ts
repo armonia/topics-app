@@ -300,9 +300,9 @@ describe("il turno risvegliato dal Monitor finisce in chat", () => {
  * e30f35e4, 51fb9359) made a cut wake resumable for the first time, so the
  * sweep leaves a wake cut that way alone; a wake cut by the watchdog is resent
  * as it always was. The notice must say the same thing the sweep does: a
- * promise over a row the sweep skips is the chat stopped in silence under
- * «non serve che tu faccia niente» (the verifiers of 27/09 measured it on all
- * three causes).
+ * promise over a row the sweep skips is the chat stopped in silence under a
+ * notice saying there is nothing to do (the verifiers of 27/09 measured it on
+ * all three causes).
  *
  * @covers RESUME-01
  */
