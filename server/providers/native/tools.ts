@@ -63,6 +63,20 @@ export interface ToolContext {
    * work (`server/lib/agent-tool-children.ts`).
    */
   sessionKey?: string;
+  /**
+   * THE OUTPUT OF A COMMAND STILL RUNNING, for whoever is watching the row.
+   *
+   * A `bash` at p90 lasts 65-115 s, and without this the chat showed a spinner
+   * and the command for all of it: nothing said whether it was working, stuck
+   * on a prompt or failing at test 3 of 400. Only `bash` passes it on. Every
+   * call carries the WHOLE current tail (the last 16 KB, starting at a line
+   * start), never the new piece: the client replaces the row's `result`, so
+   * applying every call or only the last leaves the same state. At most one
+   * call every 250 ms, none after the answer, and a callback that throws is
+   * ignored: this is a courtesy to the viewer and cannot break the agent's
+   * command. Absent = the behaviour of before, unchanged.
+   */
+  onOutput?: (tail: string) => void;
 }
 
 export interface ToolResult {
@@ -79,6 +93,10 @@ export interface ToolResult {
 const MAX_READ_BYTES = 120_000;
 /** Quanto output di un comando si rimanda al modello. */
 const MAX_OUTPUT_CHARS = 30_000;
+/** How much of a running command's output the live tail keeps: the LAST part, unlike `out`. */
+const LIVE_TAIL_CHARS = 16 * 1024;
+/** The live tail goes out at most this often: 4 frames/s to every window watching the topic. */
+const LIVE_TAIL_EVERY_MS = 250;
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
 /** How long the last output still in the pipe gets, after the leader has exited. */
 const DRAIN_AFTER_EXIT_MS = 250;
@@ -266,6 +284,7 @@ async function runCommand(
   timeoutMs: number,
   signal?: AbortSignal,
   owner?: { sessionKey?: string; command?: string },
+  onOutput?: (tail: string) => void,
 ): Promise<{ out: string; code: number | null; annullato?: boolean }> {
   // Già annullato: far partire il comando vorrebbe dire spendere secondi per
   // un risultato che nessuno leggerà, sul cammino di uno spegnimento che ha
@@ -279,10 +298,41 @@ async function runCommand(
     const child = spawn(argv[0]!, argv.slice(1), { cwd, stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     let annullato = false;
+    let closed = false;
+    // THE LIVE TAIL HAS A BUFFER OF ITS OWN. `out` stops growing at twice the
+    // cap, because the model gets its head and tail cut later on: a tail cut
+    // from `out` would stand still halfway through a verbose command. This one
+    // keeps the LAST 16 KB, dropping the head at a line start after every chunk,
+    // so its memory cost is fixed whatever the command prints.
+    let tail = "";
+    let tailTimer: ReturnType<typeof setTimeout> | undefined;
+    let tailSentAt = Date.now();
+    const sendTail = () => {
+      tailTimer = undefined;
+      tailSentAt = Date.now();
+      try { onOutput!(tail); } catch { /* the viewer's problem, never the command's */ }
+    };
     const cap = (d: Buffer) => {
+      const chunk = d.toString();
       // Si tronca MENTRE arriva, non alla fine: un comando che sputa un giga
       // non deve riempire la memoria del server prima di essere tagliato.
-      if (out.length < MAX_OUTPUT_CHARS * 2) out += d.toString();
+      if (out.length < MAX_OUTPUT_CHARS * 2) out += chunk;
+      // After the answer nothing goes out: a partial would only be old text on
+      // a row that already shows the result. A child holding the pipe open can
+      // still write here after that.
+      if (!onOutput || closed) return;
+      tail += chunk;
+      if (tail.length > LIVE_TAIL_CHARS) {
+        tail = tail.slice(-LIVE_TAIL_CHARS);
+        // One single line longer than the buffer (a `\r` progress bar) has no
+        // start to cut at: it is kept as it is, and the client shows its last redraw.
+        const lineStart = tail.indexOf("\n");
+        if (lineStart >= 0) tail = tail.slice(lineStart + 1);
+      }
+      if (!tailTimer) {
+        tailTimer = setTimeout(sendTail, Math.max(0, tailSentAt + LIVE_TAIL_EVERY_MS - Date.now()));
+        tailTimer.unref?.();
+      }
     };
     child.stdout.on("data", cap);
     child.stderr.on("data", cap);
@@ -293,7 +343,6 @@ async function runCommand(
       // timeout doveva fermare, con la sua porta e la sua CPU.
       killProcessTree(child.pid ?? 0).catch(() => { /* nessuno da uccidere */ });
     };
-    let closed = false;
     let drainTimer: ReturnType<typeof setTimeout> | undefined;
     const chiudi = (r: { out: string; code: number | null }) => {
       if (closed) return;
@@ -301,6 +350,8 @@ async function runCommand(
       forgetCommand?.();
       if (timer) clearTimeout(timer);
       if (drainTimer) clearTimeout(drainTimer);
+      // The result travels on `onToolResult`: a tail still queued would land after it.
+      if (tailTimer) clearTimeout(tailTimer);
       signal?.removeEventListener("abort", suAbort);
       res({ ...r, ...(annullato ? { annullato: true } : {}) });
     };
@@ -567,6 +618,7 @@ export async function executeTool(
           "/bin/bash", ["-lc", String(input.command)],
           cwd, ctx.bashTimeoutMs ?? DEFAULT_BASH_TIMEOUT_MS, ctx.signal,
           { ...(ctx.sessionKey ? { sessionKey: ctx.sessionKey } : {}), command: String(input.command) },
+          ctx.onOutput,
         );
         const body = truncate(out.trim() || "(nessun output)");
         // Annullato non è fallito: `[exit null]` racconterebbe un comando
