@@ -10,23 +10,41 @@
  * point 3. A late answer's question is the same case: the late lane
  * (`lib/late-answer-lane.ts`) writes from that same timeline.
  *
+ * A SECOND submission of a question already answered (another window, a
+ * stale panel) must not reach the timeline: the tool it names has returned,
+ * and putting it back to running or to error is what the turn then wrote.
+ *
  * Driven through the real chat route and the real tool-response route, on one
  * test database.
  *
  * @covers ASK-09
  */
-import { beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import { slackMs } from "../helpers/time-slack";
 import { createChatRouter } from "../../server/routes/chat";
 import { createTopicsRouter } from "../../server/routes/topics";
-import { cancelAsk } from "../../server/lib/ask-user-bridge";
+import { beginAsk, cancelAsk } from "../../server/lib/ask-user-bridge";
 import { decodeCol } from "../../shared/message-blob";
+import { flushTurnBody } from "../../server/lib/turn-body-flush";
+import { registerProvider, removeProvider } from "../../server/providers";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, ContentBlock, ToolCall, Topic } from "../../server/types";
 
 const TEST_DATA = testTmpDir("chat-tool-response-live-turn-data");
 beforeAll(() => setupTestDataDir(TEST_DATA));
+
+// The route's PROVIDER road (a tool paused on the CLI's stdin) resolves the
+// topic's provider from the registry. Like claude-code's, it takes one answer
+// per paused tool and refuses the next one with "no pending input".
+const resumed = new Set<string>();
+const registered = registerProvider({ type: "openai", apiKey: "" } as never) as unknown as Record<string, unknown>;
+Object.defineProperty(registered, "connected", { configurable: true, get: () => true });
+registered.resumeWithToolResponse = async (_sk: string, toolCallId: string) => {
+  if (resumed.has(toolCallId)) throw new Error(`claude-code: no pending input for tool ${toolCallId}`);
+  resumed.add(toolCallId);
+};
+afterAll(() => { try { removeProvider("openai"); } catch { /* already gone */ } });
 
 const ASK_TOOL = "mcp__topics__ask_user_question";
 const QUESTION = "Quale ramo?";
@@ -125,9 +143,9 @@ const until = async (ready: () => boolean, budgetMs = slackMs(5_000)): Promise<v
 };
 
 /** The question is asked, answered through the route, and its tool returns. */
-async function askAnswerAndReturn(h: Awaited<ReturnType<typeof harness>>, handler: StreamHandler, rowId: string, toolCallId: string) {
-  handler.onToolStart(toolCallId, ASK_TOOL, { questions: SCHEMA.questions } as never);
-  handler.onUserInputRequired!(toolCallId, ASK_TOOL, SCHEMA);
+async function askAnswerAndReturn(h: Awaited<ReturnType<typeof harness>>, handler: StreamHandler, rowId: string, toolCallId: string, toolName = ASK_TOOL) {
+  handler.onToolStart(toolCallId, toolName, { questions: SCHEMA.questions } as never);
+  handler.onUserInputRequired!(toolCallId, toolName, SCHEMA);
   expect(h.toolOnRow(rowId, toolCallId)?.status).toBe("waiting_for_input");
 
   expect((await h.answer(toolCallId)).status).toBe(200);
@@ -182,6 +200,60 @@ describe("the answer to a question survives the next write of the turn that aske
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       }
+      cancelAsk(sk);
+    }
+  });
+});
+
+describe("a second submission of a question already answered leaves the returned tool as it returned", () => {
+  // The client expects it (useChat's tool-response: "404 = someone already
+  // answered, the other window or the panel").
+  for (const road of [
+    { name: "the bridge's ask (200, the answer is buffered)", tool: ASK_TOOL, second: 200 },
+    { name: "a tool paused on the provider (404, no pending input)", tool: "AskUserQuestion", second: 404 },
+  ]) {
+    test(road.name, async () => {
+      const sk = `topic:answer-twice-${road.second}`;
+      const h = await harness(sk);
+      try {
+        const handler = await h.startTurn();
+        const rowId = h.lastRowId();
+        await askAnswerAndReturn(h, handler, rowId, `toolu_twice_${road.second}`, road.tool);
+        expect((await h.answer(`toolu_twice_${road.second}`)).status).toBe(road.second);
+        handler.onDone({ content: [{ type: "text", text: "Lavoro sul sito." }] } as never);
+        await until(() => h.sent.some((m) => m.type === "stream:end"));
+
+        const tool = h.toolOnRow(rowId, `toolu_twice_${road.second}`);
+        expect({ status: tool?.status, error: tool?.error }).toEqual({ status: "success", error: undefined });
+        expect(tool?.userResponse).toMatchObject({ kind: "questions", answers: ANSWERS });
+      } finally {
+        cancelAsk(sk);
+      }
+    });
+  }
+});
+
+describe("an answer reaches a tool that has not returned, whatever its timeline says", () => {
+  test("the outbound gate's confirmation: painted on the row alone, the timeline still says running", async () => {
+    const sk = "topic:answer-row-panel";
+    const h = await harness(sk);
+    try {
+      const handler = await h.startTurn();
+      const rowId = h.lastRowId();
+      // What `routes/outbound.ts` does: write what the turn owes, open the
+      // ask, paint the panel on the send's row. The timeline is not told.
+      handler.onToolStart("toolu_send", "mcp__topics__send_mail", { to: "a@example.com" } as never);
+      flushTurnBody(sk);
+      beginAsk(sk);
+      expect((await h.answer("toolu_send")).status).toBe(200);
+      handler.onToolResult("toolu_send", "sent", false);
+      handler.onDone({ content: [{ type: "text", text: "Inviata." }] } as never);
+      await until(() => h.sent.some((m) => m.type === "stream:end"));
+
+      const tool = h.toolOnRow(rowId, "toolu_send");
+      expect(tool?.status).toBe("success");
+      expect(tool?.userResponse).toMatchObject({ kind: "questions", answers: ANSWERS });
+    } finally {
       cancelAsk(sk);
     }
   });
