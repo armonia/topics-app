@@ -1140,6 +1140,42 @@ describe("task-dispatcher", () => {
     expect(notes).not.toContain("probabile"); // niente più indovinelli
   });
 
+  it("the send watchdog's cut costs an attempt and resumes at once; the API left unanswered costs none and waits", async () => {
+    // Card e30f35e4 asked the claude-code send watchdog to end a turn the way
+    // its own kill already did (`cancelled("watchdog")`), or `api-unavailable`
+    // when the child's last word was a retry of an API that was down. Before,
+    // it ended on a bare text read as `provider-error`: forgiven three times
+    // and resumed after the backoff. A wedged card now spends its budget as
+    // `consumesAttempt` says a watchdog cut must; the outage keeps the old,
+    // forgiving road.
+    const h = harness({ retryBackoffMs: 60 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 4 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    // Each turn outlives the backoff, as a thirty-minute watchdog cut does: a
+    // turn shorter than it reads as an outage whatever its cause.
+    const outlive = () => new Promise((r) => setTimeout(r, 80));
+    await outlive();
+    h.finishTurnWith(cancelled("watchdog", "Nessuna attività dal modello per 30 minuti. Turno terminato."));
+    await flush();
+    await flush();
+    expect(h.task("t1")!.dispatchAttempts).toBe(2);
+    expect(h.turns.length).toBe(2);
+
+    await outlive();
+    h.finishTurnWith({ end: "error", cause: "api-unavailable", detail: "Nessuna attività dal modello per 30 minuti. Turno terminato." });
+    await flush();
+    await flush();
+    expect(h.task("t1")!.dispatchAttempts).toBe(2);
+    expect(h.turns.length).toBe(2);
+    await new Promise((r) => setTimeout(r, 90));
+    await flush();
+    expect(h.turns.length).toBe(3);
+    h.finishTurn();
+    await flush();
+  });
+
   it("il CONTESTO PIENO si riprende e lo dice: non è un fallimento", async () => {
     const h = harness();
     h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 3 });
