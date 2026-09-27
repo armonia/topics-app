@@ -90,10 +90,12 @@ export interface BackgroundWork {
   crons: Map<string, { recurring: boolean; armedAt: number; schedule: string }>;
   /** The `command_uuid` of every fire folded so far. */
   fires: Set<string>;
+  /** One-shots a fire disarmed: a replay of their CronCreate result does not arm them again. */
+  fired: Set<string>;
 }
 
 export function newBackgroundWork(): BackgroundWork {
-  return { tasks: new Map(), lastSignalAt: 0, facts: new Map(), wakeQueuedAt: null, monitorCalls: new Set(), cronCalls: new Set(), crons: new Map(), fires: new Set() };
+  return { tasks: new Map(), lastSignalAt: 0, facts: new Map(), wakeQueuedAt: null, monitorCalls: new Set(), cronCalls: new Set(), crons: new Map(), fires: new Set(), fired: new Set() };
 }
 
 /**
@@ -188,6 +190,12 @@ export function noteBackgroundLine(
  * CronCreate's result arms the cron under the id it returned. Dated by the
  * line's own `timestamp`: a reattach replays the store with "now", and a cron
  * armed hours ago must not look freshly armed after every restart.
+ *
+ * Never a one-shot already fired: the reattach of a row whose turn ended while
+ * the server was away replays the store from that row's mark into the
+ * background the scan folded, the result armed the one-shot again, its fire
+ * was skipped as already seen, and the cron held its CLI for two hours (review
+ * of 27/09). A CronDelete needs nothing of the kind: the replay folds it again.
  */
 function noteCronScheduled(work: BackgroundWork, event: unknown, now: number): void {
   const e = event as { timestamp?: unknown; tool_use_result?: { id?: unknown; recurring?: unknown; humanSchedule?: unknown }; message?: { content?: unknown } };
@@ -195,7 +203,7 @@ function noteCronScheduled(work: BackgroundWork, event: unknown, now: number): v
   for (const b of e.message.content as Array<{ type?: unknown; tool_use_id?: unknown }>) {
     if (b?.type !== "tool_result" || typeof b.tool_use_id !== "string" || !work.cronCalls.delete(b.tool_use_id)) continue;
     const id = e.tool_use_result?.id;
-    if (typeof id !== "string") continue; // refused: nothing armed
+    if (typeof id !== "string" || work.fired.has(id)) continue; // refused (nothing armed), or fired since
     const at = typeof e.timestamp === "string" ? Date.parse(e.timestamp) : NaN;
     const schedule = typeof e.tool_use_result?.humanSchedule === "string" ? e.tool_use_result.humanSchedule : id;
     work.crons.set(id, { recurring: e.tool_use_result?.recurring !== false, armedAt: Number.isFinite(at) ? at : now, schedule });
@@ -218,7 +226,9 @@ function noteCronFired(work: BackgroundWork, command: unknown): void {
   }
   const crons = [...work.crons];
   if (crons.some(([, c]) => c.recurring)) return;
-  if (crons.length > 0) work.crons.delete(crons[0][0]);
+  if (crons.length === 0) return;
+  work.crons.delete(crons[0][0]);
+  work.fired.add(crons[0][0]);
 }
 
 /**

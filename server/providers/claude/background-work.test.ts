@@ -248,6 +248,14 @@ describe("a session cron, from the recorded CLI session (CronCreate, CLI 2.1.282
     expect(isBackgroundWorkAlive(work, 20_002)).toBe(true);
   });
 
+  test("a replay from a row's mark folds the arming again after its fire: the one-shot is not armed again", () => {
+    // The reattach of a row whose turn ended while the server was away replays
+    // the store from that row's mark into the background the scan already folded.
+    const work = foldCron(lines.length);
+    for (let i = 0; i < lines.length; i++) noteBackgroundLine(work, lines[i].event, at(i), { unattended: i > scheduled });
+    expect([...work.crons.keys()]).toEqual([]);
+  });
+
   test("a replay dates the arming by the line's own timestamp: a restart does not give it two more hours", () => {
     const later = 3 * 60 * 60_000;
     const work = foldCron(scheduled + 1, (i) => at(i) + later);
