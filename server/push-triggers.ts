@@ -10,6 +10,9 @@ import {
 } from "../shared/notification-log";
 import { questionAsksHuman } from "../shared/board";
 
+/** The ends whose chat resumes by itself, which a push would only announce. */
+const RESUMES_UNASKED: ReadonlySet<string> = new Set(["server-shutdown", "api-unavailable", "broker-died"]);
+
 // Il modulo è puro (nessuna dipendenza dal DB), ma la push di fine chat vuole il
 // NOME del topic, non il suo id: senza, la notifica ti sveglia senza dirti DI
 // COSA parlava. I resolver sono iniettati una volta al bootstrap
@@ -325,9 +328,12 @@ export function maybeSendPush(message: Record<string, any>): void {
     // (user stop, stale sweep) is not a death to announce and falls through to
     // the gates below. Board agents keep their own channel (`task:parked`),
     // and a server shutdown resumes the turn at boot by itself: neither is a
-    // push. Mute rules are the same three as the reply push.
+    // push. Nor an outage outside the turn (the API down, the ai-bridge daemon
+    // gone), which the sweep resends too: each probe into an API still down
+    // cuts the row again, a push an hour per chat in a long blackout. Mute
+    // rules are the same three as the reply push.
     const errorText = typeof message.error === "string" ? message.error.trim() : "";
-    if (message.reason === "error" && errorText && topicId && !dispatched && message.stopCause !== "server-shutdown") {
+    if (message.reason === "error" && errorText && topicId && !dispatched && !RESUMES_UNASKED.has(String(message.stopCause))) {
       if (resolveTopicSilenced?.(topicId)) return;
       const name = resolveTopicName?.(topicId);
       const title = name ? `⚠️ ${name}` : "⚠️ La chat si è fermata";

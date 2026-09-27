@@ -445,6 +445,15 @@ describe("maybeSendPush — turno morto (chat-error)", () => {
     expect(pushCalls).toHaveLength(0);
   });
 
+  test("MUTA su un guasto fuori dal turno che si riprende da solo: l'API giù, il daemon morto", () => {
+    // Each probe that finds the API still down cuts the row again: a push per
+    // probe, about one an hour per chat in a long blackout, for a chat whose
+    // notice says it resumes by itself.
+    maybeSendPush({ ...DEAD, stopCause: "api-unavailable", error: "⚠️ Turno interrotto: l'API di Claude non rispondeva più. Riprende da solo appena torna a rispondere." });
+    maybeSendPush({ ...DEAD, stopCause: "broker-died", error: "⚠️ Turno interrotto: si è fermato il processo che ospitava l'agente (ai-bridge). Riprende da solo." });
+    expect(pushCalls).toHaveLength(0);
+  });
+
   test("MUTA su topic archiviato, mutato o in progetto mutato: le stesse regole della risposta", () => {
     maybeSendPush({ ...DEAD, sessionKey: "topic:arch", topicId: "arch" });
     maybeSendPush({ ...DEAD, sessionKey: "topic:quiet", topicId: "quiet" });
