@@ -3,6 +3,7 @@
  * answer: is it still alive? Driven by the recorded session in
  * `background-work.fixture.ts` (CLI 2.1.282, 25/09), plus single lines copied
  * from the verifiers' recordings of the same CLI where the fixture has none.
+ * A session cron is folded from its own recording, `recordedSessionCron`.
  * @covers MONITOR-02
  */
 import { describe, expect, test } from "bun:test";
@@ -17,7 +18,7 @@ import {
   type BackgroundWork,
 } from "./background-work";
 import { readBackgroundTasks } from "./events";
-import { recordedBackgroundSession } from "./background-work.fixture";
+import { recordedBackgroundSession, recordedSessionCron } from "./background-work.fixture";
 
 const events = recordedBackgroundSession();
 const firstResult = events.findIndex((e) => e.type === "result");
@@ -170,5 +171,68 @@ describe("background work, lines the fixture lacks (verifiers' recordings, CLI 2
     datedByLastWrite(work, 1_000);
     expect(work.lastSignalAt).toBe(1_000);
     expect(isWakeQueued(work, 5_000_001)).toBe(false);
+  });
+});
+
+describe("a session cron, from the recorded CLI session (CronCreate, CLI 2.1.282)", () => {
+  const lines = recordedSessionCron();
+  const scheduled = lines.findIndex((l) => l.event.type === "result");
+  const fire = lines.findIndex((l) => l.event.type === "command_lifecycle");
+  const armLine = lines.find((l) => l.event.type === "user" && (l.event.tool_use_result as { id?: unknown } | undefined)?.id)!;
+  // The recorder's clock, pinned to the wall clock of the line that armed the cron.
+  const sent = Date.parse(armLine.event.timestamp as string) - armLine.at;
+  const at = (i: number) => sent + lines[i].at;
+  function foldCron(end: number, clock: (i: number) => number = at): BackgroundWork {
+    const work = newBackgroundWork();
+    for (let i = 0; i < end; i++) noteBackgroundLine(work, lines[i].event, clock(i), { unattended: i > scheduled });
+    return work;
+  }
+
+  const cronCreate = (id: string, recurring: boolean) =>
+    ({ type: "assistant", message: { content: [{ type: "tool_use", name: "CronCreate", id, input: { cron: "*/10 * * * *", prompt: "check", recurring } }] } });
+  const cronScheduled = (toolUseId: string, cronId: string, recurring: boolean, armedAt: number) => ({
+    type: "user",
+    timestamp: new Date(armedAt).toISOString(),
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseId, content: `Scheduled task ${cronId}.` }] },
+    tool_use_result: { id: cronId, humanSchedule: "*/10 * * * *", recurring, durable: false },
+  });
+  const cronDelete = (id: string, cronId: string) => ({ type: "assistant", message: { content: [{ type: "tool_use", name: "CronDelete", id, input: { id: cronId } }] } });
+  const cronFired = { type: "command_lifecycle", command_uuid: "c-1", state: "started" };
+
+  test("after 'scheduled' the armed cron is pending work, though the CLI prints no task line about it", () => {
+    const work = foldCron(scheduled + 1);
+    expect(work.tasks.size).toBe(0);
+    // Past the idle reaper's fifteen minutes, before the fire.
+    expect(isBackgroundWorkAlive(work, at(scheduled) + 20 * 60_000)).toBe(true);
+  });
+
+  test("its fire disarms the one-shot: the CRON-FIRED turn is the CLI's own, and nothing is left to wait for", () => {
+    expect(isBackgroundWorkAlive(foldCron(fire + 1), at(fire))).toBe(false);
+    expect(isBackgroundWorkAlive(foldCron(lines.length), at(lines.length - 1))).toBe(false);
+  });
+
+  test("a recurring cron counts for two hours from its arming, and its fires do not extend them", () => {
+    const work = newBackgroundWork();
+    const t0 = 50_000_000;
+    noteBackgroundLine(work, cronCreate("toolu_c1", true), t0, { unattended: false });
+    noteBackgroundLine(work, cronScheduled("toolu_c1", "c1", true, t0), t0, { unattended: false });
+    for (let t = t0 + 600_000; t < t0 + BACKGROUND_WORK_CAP_MS; t += 600_000) noteBackgroundLine(work, cronFired, t, { unattended: true });
+    expect(isBackgroundWorkAlive(work, t0 + BACKGROUND_WORK_CAP_MS - 1)).toBe(true);
+    expect(isBackgroundWorkAlive(work, t0 + BACKGROUND_WORK_CAP_MS)).toBe(false);
+  });
+
+  test("CronDelete disarms it", () => {
+    const work = newBackgroundWork();
+    noteBackgroundLine(work, cronCreate("toolu_c1", true), 10_000, { unattended: false });
+    noteBackgroundLine(work, cronScheduled("toolu_c1", "c1", true, 10_000), 10_000, { unattended: false });
+    expect(isBackgroundWorkAlive(work, 20_000)).toBe(true);
+    noteBackgroundLine(work, cronDelete("toolu_d1", "c1"), 20_000, { unattended: false });
+    expect(isBackgroundWorkAlive(work, 20_001)).toBe(false);
+  });
+
+  test("a replay dates the arming by the line's own timestamp: a restart does not give it two more hours", () => {
+    const later = 3 * 60 * 60_000;
+    const work = foldCron(scheduled + 1, (i) => at(i) + later);
+    expect(isBackgroundWorkAlive(work, at(scheduled) + later)).toBe(false);
   });
 });

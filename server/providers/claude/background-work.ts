@@ -16,6 +16,11 @@
  *     waited for five of its own verifiers;
  *   - the idle reaper kills a child fifteen minutes after its last turn.
  *
+ * A session cron (CronCreate) is pending work too: the CLI fires it by itself,
+ * and killing the child takes it along. CLI 2.1.282 prints no task line about
+ * it, only the tool call, its result and a `command_lifecycle` at the fire
+ * (`claude-cli-2.1.282-session-cron.ndjson`).
+ *
  * This module is the one answer they all read: is this session's background
  * work still alive? The provider keeps one of these per process and folds every
  * stdout line into it; nothing here touches the process, the DB or a clock.
@@ -34,6 +39,10 @@ import { readBackgroundTasks, readParentToolUseId } from "./events";
  * the delay of a goal check-in, see `goal-continuation.ts`). This bound exists
  * only so that a task the CLI stopped reporting on cannot hold a CLI in RAM
  * forever on this Mac; when it fires, the reaper says so in the chat.
+ *
+ * A session cron is held by the same bound, counted from its arming: its fires
+ * do not extend it, or a cron firing every ten minutes would hold its CLI for
+ * the seven days Claude Code gives a recurring one.
  */
 export const BACKGROUND_WORK_CAP_MS = 2 * 60 * 60_000;
 
@@ -67,10 +76,14 @@ export interface BackgroundWork {
   wakeQueuedAt: number | null;
   /** Tool calls of the Monitor tool not yet matched to their task. */
   monitorCalls: Set<string>;
+  /** Tool calls of CronCreate not yet answered with the cron's id. */
+  cronCalls: Set<string>;
+  /** Session crons by the id CronCreate returned, until fired (a one-shot) or deleted. */
+  crons: Map<string, { recurring: boolean; armedAt: number }>;
 }
 
 export function newBackgroundWork(): BackgroundWork {
-  return { tasks: new Map(), lastSignalAt: 0, facts: new Map(), wakeQueuedAt: null, monitorCalls: new Set() };
+  return { tasks: new Map(), lastSignalAt: 0, facts: new Map(), wakeQueuedAt: null, monitorCalls: new Set(), cronCalls: new Set(), crons: new Map() };
 }
 
 /**
@@ -111,12 +124,18 @@ export function noteBackgroundLine(
     if (work.tasks.size !== before.size || [...work.tasks.keys()].some((id) => !before.has(id))) work.lastSignalAt = now;
     return;
   }
-  const e = event as { type?: unknown; subtype?: unknown; task_id?: unknown; tool_use_id?: unknown; owned_by_subagent?: unknown; message?: { content?: unknown } } | null;
+  const e = event as { type?: unknown; subtype?: unknown; task_id?: unknown; tool_use_id?: unknown; owned_by_subagent?: unknown; state?: unknown; message?: { content?: unknown } } | null;
   if (e?.type === "assistant" && Array.isArray(e.message?.content)) {
-    for (const b of e.message.content as Array<{ type?: unknown; name?: unknown; id?: unknown }>) {
-      if (b?.type === "tool_use" && b.name === "Monitor" && typeof b.id === "string") work.monitorCalls.add(b.id);
+    for (const b of e.message.content as Array<{ type?: unknown; name?: unknown; id?: unknown; input?: { id?: unknown } }>) {
+      if (b?.type !== "tool_use" || typeof b.id !== "string") continue;
+      if (b.name === "Monitor") work.monitorCalls.add(b.id);
+      if (b.name === "CronCreate") work.cronCalls.add(b.id);
+      if (b.name === "CronDelete" && typeof b.input?.id === "string") work.crons.delete(b.input.id);
     }
   }
+  if (e?.type === "user" && work.cronCalls.size > 0) noteCronScheduled(work, event, now);
+  // A cron's fire: the CLI queues its prompt and opens the turn by itself.
+  if (e?.type === "command_lifecycle" && e.state === "started" && opts.unattended) noteCronFired(work);
   if (e?.type === "system" && typeof e.subtype === "string") {
     const id = typeof e.task_id === "string" ? e.task_id : null;
     if (e.subtype === "init") {
@@ -154,6 +173,34 @@ export function noteBackgroundLine(
 }
 
 /**
+ * CronCreate's result arms the cron under the id it returned. Dated by the
+ * line's own `timestamp`: a reattach replays the store with "now", and a cron
+ * armed hours ago must not look freshly armed after every restart.
+ */
+function noteCronScheduled(work: BackgroundWork, event: unknown, now: number): void {
+  const e = event as { timestamp?: unknown; tool_use_result?: { id?: unknown; recurring?: unknown }; message?: { content?: unknown } };
+  if (!Array.isArray(e.message?.content)) return;
+  for (const b of e.message.content as Array<{ type?: unknown; tool_use_id?: unknown }>) {
+    if (b?.type !== "tool_result" || typeof b.tool_use_id !== "string" || !work.cronCalls.delete(b.tool_use_id)) continue;
+    const id = e.tool_use_result?.id;
+    if (typeof id !== "string") continue; // refused: nothing armed
+    const at = typeof e.timestamp === "string" ? Date.parse(e.timestamp) : NaN;
+    work.crons.set(id, { recurring: e.tool_use_result?.recurring !== false, armedAt: Number.isFinite(at) ? at : now });
+  }
+}
+
+/**
+ * The CLI does not say which cron fired. A one-shot is gone once it fires, so
+ * the oldest one leaves; while a recurring cron is armed too the fire may be
+ * that one's, and the one-shot stays, held by the bound like the rest.
+ */
+function noteCronFired(work: BackgroundWork): void {
+  const crons = [...work.crons];
+  if (crons.some(([, c]) => c.recurring)) return;
+  if (crons.length > 0) work.crons.delete(crons[0][0]);
+}
+
+/**
  * A replay folds every line with "now". The child's last write is the true age
  * of that news: a job silent for hours must not look fresh after every restart,
  * or no clock ever collects a lost one.
@@ -173,7 +220,12 @@ export function hasLiveTasks(work: BackgroundWork | undefined, now: number): boo
   return !!work && work.tasks.size > 0 && now - work.lastSignalAt < BACKGROUND_WORK_CAP_MS;
 }
 
+/** A session cron armed less than `BACKGROUND_WORK_CAP_MS` ago: the CLI will fire it by itself. */
+export function hasArmedCron(work: BackgroundWork | undefined, now: number): boolean {
+  return !!work && [...work.crons.values()].some((c) => now - c.armedAt < BACKGROUND_WORK_CAP_MS);
+}
+
 /** Is there background work alive, or a wake about to answer it, as of `now`? */
 export function isBackgroundWorkAlive(work: BackgroundWork | undefined, now: number): boolean {
-  return hasLiveTasks(work, now) || isWakeQueued(work, now);
+  return hasLiveTasks(work, now) || hasArmedCron(work, now) || isWakeQueued(work, now);
 }

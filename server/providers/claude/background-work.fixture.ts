@@ -37,3 +37,29 @@ export function recordedBackgroundSession(): Array<Record<string, unknown>> {
 export function recordedBackgroundSessionText(): string {
   return readFileSync(FIXTURE, "utf8");
 }
+
+const CRON_FIXTURE = join(import.meta.dir, "..", "..", "..", "tests", "fixtures", "claude-cli-2.1.282-session-cron.ndjson");
+
+/**
+ * A REAL CLI SESSION THAT ARMS A SESSION CRON AND ENDS ITS TURN.
+ *
+ * Recorded on 25/09/2026 with Claude Code 2.1.282 and the same argv. The turn
+ * scheduled a one-shot CronCreate for the next minute, answered "scheduled"
+ * and ended. Hook lines, the rate-limit line and the bulk of `system/init`
+ * were dropped. Each line keeps the recorder's `{"__t":ms}` prefix, the
+ * milliseconds since the send:
+ *
+ *     [ 8.5] assistant tool_use CronCreate {recurring: false}
+ *     [ 8.6] user tool_result, tool_use_result {id: "afc60409"}
+ *     [12.4] result "scheduled"            <- the turn ends HERE
+ *     [14.8] command_lifecycle started     <- the cron fires
+ *     [14.9] system/init  [19.4] result "CRON-FIRED"  command_lifecycle completed
+ *
+ * Not one `system/task_*` or `background_tasks_changed` line in between.
+ */
+export function recordedSessionCron(): Array<{ at: number; event: Record<string, unknown> }> {
+  return readFileSync(CRON_FIXTURE, "utf8").split("\n").filter((l) => l.trim()).map((l) => {
+    const [t, json] = l.split("\t");
+    return { at: JSON.parse(t).__t, event: JSON.parse(json) };
+  });
+}

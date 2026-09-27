@@ -212,6 +212,37 @@ describe("ClaudeCodeProvider — inactivity reaper never fires during a turn", (
       expect(killed).toBe(1);
     });
 
+    test("a session cron armed by the closed turn keeps the reaper and the goal loop waiting, for two hours from its arming", async () => {
+      // CronCreate's call and result as CLI 2.1.282 prints them (`claude-cli-2.1.282-session-cron.ndjson`).
+      const armed = (at: number) => {
+        const work = newBackgroundWork();
+        noteBackgroundLine(work, { type: "assistant", message: { content: [{ type: "tool_use", name: "CronCreate", id: "toolu_cron", input: { cron: "*/20 * * * *", prompt: "check", recurring: true } }] } }, at, { unattended: false });
+        noteBackgroundLine(work, {
+          type: "user",
+          timestamp: new Date(at).toISOString(),
+          message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_cron", content: "Scheduled recurring job c1." }] },
+          tool_use_result: { id: "c1", humanSchedule: "*/20 * * * *", recurring: true, durable: false },
+        }, at, { unattended: false });
+        return work;
+      };
+      const sessionKey = "sess-inact-f7";
+      let killed = 0;
+      const pp = fakePP({ io: { writeStdin: () => {}, kill: () => { killed++; }, signal: () => {} } }) as ReturnType<typeof fakePP> & { background?: BackgroundWork };
+      const provider = setup(pp, sessionKey);
+      pp.background = armed(Date.now() - 20 * 60_000);
+      // What the goal loop reads at the turn's end (`backgroundOfTurn`): running, so no nudge.
+      expect(provider.backgroundState(sessionKey)).toBe("running");
+      (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(killed).toBe(0);
+
+      pp.background = armed(Date.now() - BACKGROUND_WORK_CAP_MS);
+      expect(provider.backgroundState(sessionKey)).toBe("none");
+      (provider as any).resetInactivityTimer(sessionKey, pp, { ms: 5 });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(killed).toBe(1);
+    });
+
     test("a config change waits for the work instead of killing it", () => {
       const sessionKey = "sess-inact-f2";
       let killed = 0;

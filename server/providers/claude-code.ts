@@ -54,7 +54,7 @@ import {
   type CallUsage,
 } from "./claude/events";
 import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
-import { datedByLastWrite, hasLiveTasks, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
+import { datedByLastWrite, hasArmedCron, hasLiveTasks, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
 import { observePlanUsage } from "./native/usage-window";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
@@ -2770,8 +2770,8 @@ export class ClaudeCodeProvider implements AIProvider {
 
   /**
    * The session's last turn left an Agent, a Bash or a Monitor running and the
-   * CLI still reports on it (`BACKGROUND_WORK_CAP_MS`), or one of them just
-   * reported and the wake answering it is on its way. Every clock that kills
+   * CLI still reports on it, or armed a session cron (`BACKGROUND_WORK_CAP_MS`),
+   * or a task just reported and its wake is on its way. Every clock that kills
    * the child asks this, the stall judge included, and so does the goal loop.
    */
   hasBackgroundWork(sessionKey: string): boolean {
@@ -2782,13 +2782,13 @@ export class ClaudeCodeProvider implements AIProvider {
     return [...this.processes.keys()].filter((sk) => this.hasBackgroundWork(sk));
   }
 
-  /** `running`: listed tasks with news. `wake-queued`: only a reported task, the CLI is about to answer it. */
+  /** `running`: listed tasks with news, or an armed session cron. `wake-queued`: only a reported task, the CLI is about to answer it. */
   backgroundState(sessionKey: string): "running" | "wake-queued" | "none" {
     const pp = this.processes.get(sessionKey);
     // A child told to stop takes its work with it: nothing to wait for.
     if (!pp?.alive || pp.stoppedExit) return "none";
     const now = Date.now();
-    if (hasLiveTasks(pp.background, now)) return "running";
+    if (hasLiveTasks(pp.background, now) || hasArmedCron(pp.background, now)) return "running";
     return isWakeQueued(pp.background, now) ? "wake-queued" : "none";
   }
 
