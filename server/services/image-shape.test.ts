@@ -32,7 +32,7 @@ function pngHeader(width: number, height: number): Buffer {
 describe("imageShape", () => {
   test("PNG: larghezza e altezza dall'IHDR", () => {
     const s = imageShape(put("a.png", pngHeader(1440, 900)));
-    expect(s).toEqual({ width: 1440, height: 900, ratio: 900 / 1440, vector: false });
+    expect(s).toEqual({ width: 1440, height: 900, ratio: 900 / 1440, vector: false, format: "png" });
   });
 
   test("GIF: little-endian, non big-endian (è l'errore classico)", () => {

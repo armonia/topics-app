@@ -317,7 +317,7 @@ export async function executeMcpTool(name: string, input: Record<string, unknown
     // a dispatched agent has one turn, and the difference between deterministic
     // and eventually is the difference between works and does not.
     if (!out.isError && conn.listChanged) await relistMcpServer(mounted.server);
-    return { content: out.content, isError: out.isError };
+    return { content: out.content, images: out.images, isError: out.isError };
   } catch (err) {
     return { content: err instanceof Error ? err.message : String(err), isError: true };
   }

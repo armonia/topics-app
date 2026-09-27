@@ -184,11 +184,12 @@ export const BROWSER_TOOL_SPECS: BrowserToolSpec[] = [
   {
     name: "browser_screenshot",
     description:
-      "Capture a screenshot of the pane and SAVE IT TO A FILE — returns { format, path, bytes, viewport }, never the raw image. `path` is an absolute file you can feed to the `moondream <path>` CLI or the Read tool. The image is NOT put in your context (a base64 blob would be tens of thousands of unusable tokens). To just SEE/describe what's rendered, prefer browser_read_screen (one call, returns text — no file, no pixels to handle).",
+      "Capture a screenshot of the pane and SAVE IT TO A FILE — returns { format, path, bytes, viewport }, never the raw image by default. `path` is an absolute file you can feed to the `moondream <path>` CLI or the Read tool. To just SEE/describe what's rendered, prefer browser_read_screen (one call, returns text — no file, no pixels to handle). Pass `inline: true` only when you genuinely need to look at the pixels yourself (fine layout judgment a caption cannot give you): it costs about 1600 tokens of context, on top of still writing and returning the file.",
     schema: {
       type: "object",
       properties: {
         full_page: { type: "boolean", description: "Capture the full scrollable page (default false)." },
+        inline: { type: "boolean", description: "Also attach the image to your context instead of only the file path (default false, native provider only)." },
       },
       required: [],
     },
