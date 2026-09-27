@@ -6,7 +6,7 @@
  *
  * @covers AICTRL-01
  */
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
@@ -17,6 +17,7 @@ import type { AIProvider } from "../providers/types";
 import type { TurnEndInfo } from "../providers/stop-reason";
 import type { ProvidersSnapshot } from "../../shared/types";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
+import { clearPlanUsage, clearProviderHold, recordPlanUsage, resetProviderHoldStore, setProviderHold } from "../lib/provider-hold";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
@@ -62,7 +63,7 @@ function freshDb(): Database {
 }
 
 const PID = "alpha-abc123";
-const entry = (name: string, models: string[]) => ({ name, label: name, status: "ready", models, requirements: [] });
+const entry = (name: string, models: string[], status = "ready") => ({ name, label: name, status, models, requirements: [] });
 // Codex is the default and ready: exactly the fleet where Automatic used to land on it.
 const FLEET = {
   defaultProvider: "codex",
@@ -74,7 +75,7 @@ const FLEET = {
 } as unknown as ProvidersSnapshot;
 const CODEX_MODELS = [{ slug: "gpt-5.5", description: "Reliable workhorse", defaultEffort: "medium", efforts: ["low", "medium", "high"] }];
 
-function harness() {
+function harness(fleet = FLEET) {
   const db = freshDb();
   const svc: TaskService = createTaskService(db);
   const topics: DispatchTopicIdentity[] = [];
@@ -84,13 +85,13 @@ function harness() {
     resolveProject: () => ({ path: "/Users/x/Projects/alpha", projectStoreId: "store-1" }),
     // The hooks server.ts spreads, with a classifier that always votes Codex.
     ...automaticDispatchHooks({
-      snapshot: () => FLEET,
+      snapshot: () => fleet,
       codexModels: () => CODEX_MODELS,
       getProvider: () => ({ connected: true, complete: async () => ({ content: '{"provider":"codex","model":"gpt-5.5","effort":"medium","weight":"light"}' }) }) as unknown as AIProvider,
     }),
     // Same gate as server.ts createTopic: this is what threw and parked the card.
     createTopic: (o) => {
-      topics.push(resolveDispatchTopicIdentity(o, FLEET));
+      topics.push(resolveDispatchTopicIdentity(o, fleet));
       const id = `topic-${topics.length}`;
       db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", [id]);
       return { topicId: id, sessionKey: `topic:${id}` };
@@ -111,8 +112,8 @@ const flush = async (n = 40) => {
   await new Promise((r) => setTimeout(r, 5));
 };
 
-async function dispatchAutomaticWithRoutingOn(fanOut?: number) {
-  const h = harness();
+async function dispatchAutomaticWithRoutingOn(fanOut?: number, fleet = FLEET) {
+  const h = harness(fleet);
   h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchTopicsRouting: true, ...(fanOut ? { dispatchFanOut: fanOut } : {}) });
   h.svc.setGlobalCap({ auto: false, max: 5 });
   const ts = new Date().toISOString();
@@ -138,6 +139,42 @@ describe("Automatic with Topics routing ON never picks what the switch cannot ro
         expect(topic.executor).toBe("topics");
         expect(topic.model?.startsWith("claude-")).toBe(true);
       }
+    });
+  }
+});
+
+// The provider holds are module state: every test starts and ends without one.
+beforeEach(() => { resetProviderHoldStore(); clearProviderHold(); clearProviderHold("codex"); clearPlanUsage(); });
+afterEach(() => { clearProviderHold(); clearProviderHold("codex"); clearPlanUsage(); });
+
+describe("Automatic with Topics routing ON and no routable candidate", () => {
+  it("the Topics engine down: the card parks with the switch's reason, not the effort one", async () => {
+    const engineDown = { ...FLEET, providers: [entry("topics", [], "error"), ...FLEET.providers.slice(1)] } as unknown as ProvidersSnapshot;
+    const h = await dispatchAutomaticWithRoutingOn(undefined, engineDown);
+    const task = h.svc.get("t1")!.task;
+    expect(task.dispatchState).toBe("blocked");
+    expect(task.dispatchError).toContain("Turn the switch off");
+    expect(task.dispatchError).not.toContain("effort");
+    expect(h.topics).toHaveLength(0);
+  });
+
+  // Codex is free, so "some runtime is available" was true, but with ON
+  // every candidate runs on Claude: the card waits for the plan like an
+  // explicit Claude task, it is not parked for good.
+  for (const kind of ["hold", "threshold"] as const) {
+    it(`Claude ${kind === "hold" ? "on hold" : "past the five-hour threshold"} with Codex ready: the card waits in the queue`, async () => {
+      const untilMs = Date.now() + 3_600_000;
+      if (kind === "hold") setProviderHold({ untilMs, window: "five_hour", reason: "Claude quota exhausted" });
+      else recordPlanUsage({ fiveHour: { utilization: 95, resetsAtMs: untilMs }, sevenDay: null });
+      const h = await dispatchAutomaticWithRoutingOn();
+      const task = h.svc.get("t1")!.task;
+      expect(task).toMatchObject({ status: "todo", dispatchState: "queued", dispatchAttempts: 0 });
+      expect(task.dispatchError).toContain("Claude");
+      expect(h.topics).toHaveLength(0);
+      clearProviderHold(); clearPlanUsage();
+      await h.dispatcher.tick(PID);
+      await flush();
+      expect(h.topics.map((t) => t.executor)).toEqual(["topics"]);
     });
   }
 });

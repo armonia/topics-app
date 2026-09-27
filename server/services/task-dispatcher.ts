@@ -402,8 +402,9 @@ export interface DispatcherDeps {
   topicExists?: (topicId: string) => boolean;
   /** The actual binding inherited when a dependent reuses its blocker's session. */
   topicModelSelection?: (topicId: string) => { model?: string | null; provider?: string | null } | null;
-  /** Same coding-provider resolution as createTopic, including the live default. */
-  resolveTaskProvider?: (model?: string | null) => string;
+  /** Same coding-provider resolution as createTopic, including the live default
+   *  and the Topics switch (with ON every selection runs on the native engine). */
+  resolveTaskProvider?: (model?: string | null, topicsRouting?: boolean) => string;
   /**
    * Il lavoro che questa card ha consegnato è già DENTRO il ramo d'integrazione
    * del suo repo?
@@ -1556,8 +1557,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (!provider) {
       const selected = model ?? task.model;
       const selection = taskModelSelection(selected);
-      if (!topicId && !selection.model && !selection.provider && deps.automaticModelAvailable?.()) return null;
-      try { provider = deps.resolveTaskProvider?.(selected) ?? taskModelSelection(selected).provider ?? "topics"; }
+      // Same switch the launch reads: the task's, then the board's, then the legacy prefix.
+      let boardRouting: boolean | null = null;
+      try { boardRouting = deps.svc.getBoardSettings(task.projectId).dispatchTopicsRouting; } catch { /* no board row: the task decides */ }
+      const topicsRouting = effectiveTopicsRouting(task.topicsRouting ?? boardRouting, selected);
+      // A free runtime elsewhere is no way out with ON: every Automatic
+      // candidate runs on the Claude engine, so the resolved runtime answers
+      // for all of them. Asking the fleet let Codex vouch for a card that
+      // then had no candidate and parked for good during a Claude hold.
+      if (!topicId && !selection.model && !selection.provider && !topicsRouting && deps.automaticModelAvailable?.()) return null;
+      try { provider = deps.resolveTaskProvider?.(selected, topicsRouting) ?? taskModelSelection(selected).provider ?? "topics"; }
       catch { return null; } // Unavailable routing is reported by createTopic, not disguised as quota.
     }
     const holdKey = providerHoldKey(provider);

@@ -1,4 +1,11 @@
-import { runsWithTopicsRouting, taskModelSelection, taskProviderForModel } from '../../shared/task-coding-models';
+import {
+  runsWithTopicsRouting,
+  taskModelSelection,
+  taskProviderForModel,
+  topicsCatalogPending,
+  TaskProviderPendingError,
+  TopicsRoutingUnavailableError,
+} from '../../shared/task-coding-models';
 import { EFFORT_TIERS } from '../../shared/effort';
 import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from '../../shared/provider-hold';
 import type { ProvidersSnapshot } from '../../shared/types';
@@ -66,9 +73,16 @@ export async function pickAutomaticTaskModel(
   const restrictedProvider = taskModelSelection(selection).provider;
   if (restrictedProvider) taskProviderForModel(selection, deps.snapshot, deps.topicsRouting);
   const isHeld = deps.isHeld ?? (() => false);
-  const models = automaticTaskModels(deps.snapshot, (deps.codexModels ?? readCodexModels)(), isHeld)
-    .filter(model => !restrictedProvider || model.provider === restrictedProvider)
-    .filter(model => !deps.topicsRouting || runsWithTopicsRouting(model.provider, model.slug, deps.snapshot));
+  const eligible = automaticTaskModels(deps.snapshot, (deps.codexModels ?? readCodexModels)(), isHeld)
+    .filter(model => !restrictedProvider || model.provider === restrictedProvider);
+  const models = eligible.filter(model => !deps.topicsRouting || runsWithTopicsRouting(model.provider, model.slug, deps.snapshot));
+  // The switch emptied a catalog that had runtimes: the reason is the switch,
+  // not the effort. Without this the card parked with "choose a compatible
+  // effort", which no effort fixes.
+  if (!models.length && eligible.length) {
+    if (topicsCatalogPending(deps.snapshot)) throw new TaskProviderPendingError('topics');
+    throw new TopicsRoutingUnavailableError(null, null);
+  }
   if (!models.length && deps.snapshot?.providers.some(p => p.status === 'loading'
     && (restrictedProvider ? p.name === restrictedProvider : !isHeld(p.name) && (p.name === 'codex' || CLAUDE_TASK_RUNTIMES.has(p.name))))) {
     throw Object.assign(new Error('Waiting for coding provider discovery.'), { code: 'task_provider_pending' });
@@ -96,7 +110,7 @@ export function automaticDispatchHooks(env: {
 }) {
   const codexModels = env.codexModels ?? readCodexModels;
   return {
-    resolveTaskProvider: (model?: string | null) => taskProviderForModel(model, env.snapshot()),
+    resolveTaskProvider: (model?: string | null, topicsRouting?: boolean) => taskProviderForModel(model, env.snapshot(), topicsRouting),
     // AGPT-01 extended: an unconstrained Auto task may start on ANY ready
     // runtime that is not held right now, whichever one that is.
     automaticModelAvailable: () => {
