@@ -878,6 +878,36 @@ export class CodexProvider implements AIProvider {
         return null;
       }
 
+      // One patch is one `file_change` item listing every file it touched
+      // (0.153.4: `changes: [{path, kind: "add"|"update"|"delete"}]`, started
+      // `in_progress`, completed `completed` or `failed`). The changed-files
+      // strip reads write/edit tool calls only, so each file becomes its own
+      // call: an added file is a `write` (created), anything else an
+      // `apply_patch` edit, and git's `D` later tells a deletion apart.
+      if (itemType === "file_change") {
+        if (t === "item.updated" || !Array.isArray(item.changes)) return null;
+        const itemId = typeof item.id === "string" && item.id ? item.id : crypto.randomUUID();
+        const state = this.sessionState.get(sessionKey);
+        const failed = item.status === "failed";
+        item.changes.forEach((change: unknown, i: number) => {
+          const path = change && typeof change === "object" ? (change as Record<string, unknown>).path : null;
+          if (typeof path !== "string" || !path) return;
+          const id = `${itemId}:${i}`;
+          if (!state?.runningTools.has(id)) {
+            const name = (change as Record<string, unknown>).kind === "add" ? "write" : "apply_patch";
+            state?.runningTools.set(id, { toolCallId: id, partial: "" });
+            handler.onToolStart(id, name, { file_path: path });
+          }
+          if (t === "item.completed") {
+            state?.runningTools.delete(id);
+            // chat.ts stores an error result as the call's `error`, and an
+            // empty one would read as a patch that was applied.
+            handler.onToolResult(id, failed ? "Patch not applied" : "", failed);
+          }
+        });
+        return null;
+      }
+
       if (itemType === "command_execution" || itemType === "tool_call") {
         const id = typeof item.id === "string" && item.id ? item.id : crypto.randomUUID();
         const name = typeof item.name === "string" ? item.name
