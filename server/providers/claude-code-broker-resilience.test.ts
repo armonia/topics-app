@@ -221,8 +221,11 @@ describe("claude-code provider · broker turns always reach the end", () => {
     };
     try {
       client.socket.destroy();
+      // Connected is not enough: the daemon's pid arrives with its pong, a
+      // round trip after `ready`. Reading it at `ready` read null on a slow
+      // runner (CI of PR #155), so wait for the pid itself.
       const until = Date.now() + 10_000;
-      while (!(failed && client.ready) && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+      while (!(failed && client.ready && client.daemonPid !== null) && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
       expect(failed && client.ready).toBe(true);
     } finally {
       delete client.tryConnect;
@@ -234,6 +237,51 @@ describe("claude-code provider · broker turns always reach the end", () => {
     expect(await provider.resyncStream(sessionKey)).toBe(false);
     await turn;
     expect(ended).toBe("process-died");
+
+    provider.stop();
+  }, 30000);
+
+  test("a child gone while one side has not heard its daemon's pid yet is process-died: a daemon change needs two known pids", async () => {
+    // The pid arrives with the pong, a round trip after the connect: until
+    // then the client reads null, and a child recorded in that window holds
+    // null too. Neither says the daemon changed. Read as one, a child that
+    // died under the same daemon became `broker-died`, which the resume sends
+    // again by itself: a paid turn for a failure that was the child's own.
+    setEnv("TOPICS_CLAUDE_CLI_PATH", writeFakeCli("fake-claude-null-window.sh", "30"));
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+
+    const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    provider.start();
+    const client = getAiBridgeClient() as any;
+    const processes = (provider as any).processes as Map<string, { daemonPid?: number | null }>;
+    for (const unknownOn of ["client", "child"] as const) {
+      const sessionKey = `topic:resilience-null-window-${unknownOn}`;
+      await seedTopic(sessionKey, `t-null-${unknownOn}`);
+      let ended = null as string | null;
+      const turn = provider.sendChat(sessionKey, "sette", {
+        onTextDelta: () => {}, onToolStart: () => {}, onToolResult: () => {},
+        onSubAgentUpdate: () => {}, onUserInputRequired: () => {},
+        onAborted: (info: any) => { ended = info?.turnEnd?.cause ?? info?.turnEnd?.end ?? "aborted"; },
+        onDone: () => { ended = "done"; },
+        onError: () => { ended = "error"; },
+      } as any).catch((e: Error) => { ended = ended ?? `rejected:${e.message}`; return {}; });
+      const until = Date.now() + 10_000;
+      while (typeof processes.get(sessionKey)?.daemonPid !== "number" && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
+      const daemon = client.daemonPid as number;
+      expect(processes.get(sessionKey)?.daemonPid).toBe(daemon);
+      // The same daemon throughout: only what each side has heard of it differs.
+      if (unknownOn === "client") client.connectedDaemonPid = null;
+      else processes.get(sessionKey)!.daemonPid = null;
+      try {
+        getAiBridgeClient().kill(sessionKey);
+        expect(await provider.resyncStream(sessionKey)).toBe(false);
+        await turn;
+      } finally {
+        client.connectedDaemonPid = daemon;
+      }
+      expect([unknownOn, ended]).toEqual([unknownOn, "process-died"]);
+    }
 
     provider.stop();
   }, 30000);

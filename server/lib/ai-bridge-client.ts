@@ -227,12 +227,13 @@ export class AiBridgeClient {
 
   /**
    * The pid of the daemon on the other end, as its pong says; null until it
-   * answers, or when it predates the field. Another pid means the daemon that
-   * held a child is gone, and the child with it: a session the new daemon does
-   * not know was lost with its daemon, not by its own child (25/09 12:57, four
-   * live CLIs killed by an orphaned daemon shutting itself down). Not a count
-   * of spawns: a spawn that finds the old daemon still answering exits, and
-   * this client reconnects to the same one.
+   * answers, or when it predates the field. Another KNOWN pid means the daemon
+   * that held a child is gone, and the child with it: a session the new daemon
+   * does not know was lost with its daemon, not by its own child (25/09 12:57,
+   * four live CLIs killed by an orphaned daemon shutting itself down). A null
+   * says nothing either way (`resyncStream` in providers/claude-code.ts). Not a
+   * count of spawns: a spawn that finds the old daemon still answering exits,
+   * and this client reconnects to the same one.
    */
   get daemonPid(): number | null {
     return this.connectedDaemonPid;

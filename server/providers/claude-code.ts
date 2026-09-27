@@ -3063,7 +3063,14 @@ export class ClaudeCodeProvider implements AIProvider {
       // catch below without finalizing anything.
       if (res.missing || !res.alive) {
         // Missing under another daemon: the one holding the child died with it.
-        const cause: StopCause = res.missing && pp.daemonPid !== undefined && pp.daemonPid !== getAiBridgeClient().daemonPid
+        // Only two KNOWN pids that differ say so. The pid arrives with the
+        // pong, a round trip after a connect, and a daemon older than the
+        // field never sends it: a null on either side is not a change. Read
+        // as one, a child that died under the same daemon became broker-died,
+        // which the resume sends again by itself (a paid turn).
+        const heldBy = pp.daemonPid;
+        const nowOn = getAiBridgeClient().daemonPid;
+        const cause: StopCause = res.missing && heldBy != null && nowOn != null && heldBy !== nowOn
           ? "broker-died" : "process-died";
         console.warn(`[claude-code] Stream resync for ${sessionKey}: the broker no longer has a live child — finalizing the turn as died (${cause})`);
         this.finalizeDeadReattach(pp, cause);
