@@ -25,13 +25,19 @@ const savedEnv: Record<string, string | undefined> = {};
 function setEnv(k: string, v: string) { savedEnv[k] = process.env[k]; process.env[k] = v; }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** The watchdog's window, widened with the load: a CLI that spawns late, or a
+ *  gap between two retries longer than the window, is the machine, not a cut. */
+const WINDOW_MS = slackMs(1_000);
+/** Retries every 250 ms for two and a half windows. */
+const RETRIES = Math.ceil((WINDOW_MS * 2.5) / 250);
+
 const SID = '"session_id":"00000000-0000-4000-8000-00000000a0a0"';
 const RETRY = `{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":500,"error_status":null,"error":"unknown",${SID}}`;
 
 /**
  * One stdin line per message. "outage": a tool round, one retry, then nothing
  * (the request hangs). "retrying": the same round, then a retry every 250 ms
- * for 2.5 s, then nothing. Anything else: an answer streamed from the API
+ * for 2.5 watchdog windows, then nothing. Anything else: an answer streamed from the API
  * (`message_start` first, as `--include-partial-messages` delivers it).
  */
 function writeFakeCli(): string {
@@ -51,7 +57,7 @@ ${round}
     *retrying*)
 ${round}
       i=0
-      while [ $i -lt 10 ]; do sleep 0.25; echo '${RETRY}'; i=$((i+1)); done
+      while [ $i -lt ${RETRIES} ]; do sleep 0.25; echo '${RETRY}'; i=$((i+1)); done
       ;;
     *)
       echo '{"type":"system","subtype":"init",${SID},"model":"claude-finto","tools":[]}'
@@ -136,7 +142,7 @@ describe("a turn cut while the CLI was retrying the API", () => {
     const { ClaudeCodeProvider } = await import("./claude-code");
     const { providerHold } = await import("../lib/provider-hold");
     const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
-    (provider as any).turnWatchdogMs = 1_000;
+    (provider as any).turnWatchdogMs = WINDOW_MS;
     const { log, handler } = ends();
     try {
       void provider.sendChat("topic:api-outage", "outage", handler as never);
@@ -155,7 +161,7 @@ describe("a turn cut while the CLI was retrying the API", () => {
     const { ClaudeCodeProvider } = await import("./claude-code");
     const { clearProviderHold, providerHold } = await import("../lib/provider-hold");
     const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
-    (provider as any).turnWatchdogMs = 1_000;
+    (provider as any).turnWatchdogMs = WINDOW_MS;
     const { log, handler } = ends();
     try {
       void provider.sendChat("topic:api-expired", "outage", handler as never);
@@ -172,13 +178,13 @@ describe("a turn cut while the CLI was retrying the API", () => {
   test("a CLI still retrying is not killed: the retries are the child working", async () => {
     const { ClaudeCodeProvider } = await import("./claude-code");
     const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
-    (provider as any).turnWatchdogMs = 1_000;
+    (provider as any).turnWatchdogMs = WINDOW_MS;
     const { log, handler } = ends();
     try {
       const sentAt = Date.now();
       void provider.sendChat("topic:api-retrying", "retrying", handler as never);
-      // Retries every 250 ms for 2.5 s against a 1 s window.
-      await sleep(Math.max(0, sentAt + 2_000 - Date.now()));
+      // Retries every 250 ms for two and a half windows: two have passed.
+      await sleep(Math.max(0, sentAt + 2 * WINDOW_MS - Date.now()));
       expect(log).toEqual([]);
       // Then the CLI falls silent, and the window bites from its last retry.
       expect(await waitFor(() => log.length > 0, slackMs(8_000))).toBe(true);
