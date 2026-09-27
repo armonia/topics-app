@@ -44,9 +44,35 @@ describe('Column in modalità lista', () => {
     expect(CARD).toContain("if (layout === 'list' && tasks.length === 0 && !draft) return null;");
   });
 
-  test('piena larghezza, non più la corsia fissa del carosello', () => {
+  test('piena larghezza fino a un tetto di lettura, non più la corsia fissa del carosello', () => {
     const widthBlock = CARD.slice(CARD.indexOf('const widthCls ='), CARD.indexOf('if (layout ==='));
     expect(widthBlock).toContain("layout === 'list'");
-    expect(widthBlock).toContain("'w-full'");
+    expect(widthBlock).toContain('w-full max-w-3xl');
+  });
+});
+
+describe('la colonna Review si allarga quando ha lavoro dentro', () => {
+  test('un tasto dedicato distingue Review piena da Review vuota', () => {
+    expect(CARD).toContain('const reviewHasWork = isReview && (tasks.length > 0 || !!draft);');
+  });
+
+  test('Review piena reclama più riga di Review vuota', () => {
+    const widthBlock = CARD.slice(CARD.indexOf('const widthCls ='), CARD.indexOf('if (layout ==='));
+    expect(widthBlock).toContain('reviewHasWork');
+    expect(widthBlock).toContain("lg:basis-[35rem] lg:max-w-[44rem]");
+    expect(widthBlock).toContain("lg:basis-[32rem] lg:max-w-[44rem]");
+  });
+
+  test('Review piena non ha mai un tetto più basso di Review vuota', () => {
+    const widthBlock = CARD.slice(CARD.indexOf('const widthCls ='), CARD.indexOf('if (layout ==='));
+    const caps = [...widthBlock.matchAll(/lg:max-w-\[(\d+)rem\]/g)].map((m) => Number(m[1]));
+    // The first lg cap is the Review with work, the second the empty one.
+    expect(caps.length).toBeGreaterThanOrEqual(2);
+    expect(caps[0]).toBeGreaterThanOrEqual(caps[1]);
+  });
+
+  test('la larghezza cambia con una transizione, non a scatto', () => {
+    const widthBlock = CARD.slice(CARD.indexOf('const widthCls ='), CARD.indexOf('if (layout ==='));
+    expect(widthBlock).toContain('transition-[flex-basis,max-width]');
   });
 });

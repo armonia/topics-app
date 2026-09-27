@@ -36,6 +36,9 @@
  * Sta qui (non solo in server.ts) cosi' i test possono asserire sul contenuto
  * esatto senza accoppiare la stringa letterale in piu' posti.
  */
+import type { OutboundMessage } from "../../shared/ws-outbound";
+import type { ContentBlock } from "../types";
+
 export const RESTART_INTERRUPTED_MARKER =
   "\u26a0\ufe0f Turno interrotto da un riavvio del server. Il messaggio che hai inviato e' ancora qui: premi Riprova per inviarlo di nuovo.";
 
@@ -125,7 +128,7 @@ export function insertRestartNotification(
   db: PartialSweepDb,
   sessionKey: string,
   opts: { generateId?: () => string; now?: () => string; text?: string } = {},
-): void {
+): string {
   const generateId = opts.generateId ?? (() => crypto.randomUUID());
   const now = opts.now ?? (() => new Date().toISOString());
   const text = opts.text ?? RESTART_INTERRUPTED_MARKER;
@@ -161,10 +164,26 @@ export function insertRestartNotification(
   // nobody asked whether the notice actually written was one the rule accepts.
   // Read in the chat on 2026-08-28: "now it gives me turn interrupted by a
   // restart", and no resume. The mechanism was on, and could not fire.
-  const verdict = JSON.stringify([{ kind: "error", text }]);
+  const id = generateId();
   db.run(
     `INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index)
      VALUES (?, ?, 'assistant', ?, ?, 0, ?, ?, ?, 0)`,
-    [generateId(), sessionKey, text, verdict, now(), nextOrder, ultimo?.id ?? null]
+    [id, sessionKey, text, JSON.stringify(noticeBlocks(text)), now(), nextOrder, ultimo?.id ?? null]
   );
+  return id;
+}
+
+const noticeBlocks = (text: string): ContentBlock[] => [{ kind: "error", text }];
+
+/**
+ * The frame that shows a notice written by `insertRestartNotification` to the
+ * windows open on its chat: the row the database holds, same id and blocks, so
+ * a later history read finds it already there. Without it a window learnt of a
+ * notice written while it was open only on its next history read (card
+ * 09d3b815). `blocks`: the row's, when something was added after the insert.
+ */
+export function restartNotificationFrame(
+  topicId: string, sessionKey: string, id: string, text: string, blocks: ContentBlock[] = noticeBlocks(text),
+): OutboundMessage {
+  return { type: "message:new", topicId, sessionKey, role: "assistant", messageId: id, content: text, preview: text.slice(0, 100), blocks };
 }

@@ -199,9 +199,17 @@ const realFs = {
   },
 };
 
-/** Cache of parsed facts, keyed by transcript identity (path + mtime + size). */
-const factsCache = new Map<string, TranscriptFacts>();
-const FACTS_CACHE_MAX = 500;
+/**
+ * Parsed facts per transcript, valid while its mtime and size stay the same.
+ *
+ * Keyed by PATH, and what a census no longer sees leaves at its end. It was
+ * keyed by path + mtime + size and emptied at 500 entries: every rewrite of a
+ * live transcript left its old key behind, and with more transcripts than that
+ * in the window (711 on 25/09) each pass emptied it and parsed them all again,
+ * 1.88 s on the server's loop. A size cap below the window would do the same
+ * with any eviction order, so the census itself is the bound.
+ */
+const factsCache = new Map<string, { mtimeMs: number; size: number; facts: TranscriptFacts }>();
 
 /**
  * Scan the transcript store and return every session Topics does NOT own,
@@ -218,6 +226,7 @@ export function scanExternalClaudeSessions(opts: ScanOptions): ExternalClaudeSes
   const cutoff = now - windowMs;
 
   const out: ExternalClaudeSession[] = [];
+  const seen = new Set<string>();
   for (const entry of fs.readdir(projectsDir)) {
     const dir = join(projectsDir, entry);
     for (const file of fs.readdir(dir)) {
@@ -230,12 +239,12 @@ export function scanExternalClaudeSessions(opts: ScanOptions): ExternalClaudeSes
       const sessionId = file.slice(0, -".jsonl".length);
       if (!sessionId) continue;
 
-      const cacheKey = `${transcriptPath}:${st.mtimeMs}:${st.size}`;
-      let facts = factsCache.get(cacheKey);
+      seen.add(transcriptPath);
+      const known = factsCache.get(transcriptPath);
+      let facts = known && known.mtimeMs === st.mtimeMs && known.size === st.size ? known.facts : null;
       if (!facts) {
         facts = parseTranscriptFacts(fs.readTail(transcriptPath, TAIL_BYTES));
-        if (factsCache.size >= FACTS_CACHE_MAX) factsCache.clear();
-        factsCache.set(cacheKey, facts);
+        factsCache.set(transcriptPath, { mtimeMs: st.mtimeMs, size: st.size, facts });
       }
       if (!facts.cwd) continue;
       // Sub-agent sidechains aren't sessions of their own — they belong to the
@@ -257,6 +266,7 @@ export function scanExternalClaudeSessions(opts: ScanOptions): ExternalClaudeSes
       });
     }
   }
+  for (const path of factsCache.keys()) if (!seen.has(path)) factsCache.delete(path);
   out.sort((a, b) => b.lastActivityMs - a.lastActivityMs);
   return out;
 }

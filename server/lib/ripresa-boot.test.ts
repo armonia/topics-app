@@ -441,6 +441,28 @@ describe("la catena dei riavvii ha un tetto", () => {
     expect(calls).toHaveLength(1);
   });
 
+  test("the notice of an unanswered message reaches the open windows before its resend starts, with its trace", async () => {
+    const db = freshDb();
+    db.run("UPDATE messages SET timestamp = ? WHERE id = 'u0'", [new Date(Date.now() - 5 * 60_000).toISOString()]);
+    const order: string[] = [];
+    const frames: Array<Record<string, unknown>> = [];
+    const route = chatRoute(db, []);
+    await quietly(() => riprendiTurniInterrotti({
+      db, getTopicBySessionKey: () => ({ id: "t-x", archived: false }), bootedAtMs: Date.now(),
+      broadcast: (m) => { frames.push(m as Record<string, unknown>); order.push(`frame:${m.type}`); },
+    }, (...args) => { order.push("resend"); return route(...args); }));
+    const notice = db.query(
+      "SELECT id, content, blocks FROM messages WHERE session_key = 'topic:x' AND role = 'assistant' ORDER BY sort_order ASC LIMIT 1",
+    ).get() as { id: string; content: string; blocks: unknown };
+    // Before the resend's own frames, or the notice lands under its live bubble.
+    expect(order).toEqual(["frame:message:new", "resend"]);
+    expect(frames[0]).toMatchObject({ type: "message:new", topicId: "t-x", sessionKey: "topic:x", messageId: notice.id, content: notice.content });
+    // The blocks the row has: the trace too, which makes it a resumed turn and
+    // not a failure to retry.
+    expect(frames[0]!.blocks).toEqual(blocksOf(notice.blocks));
+    expect(blocksOf(notice.blocks).some((b) => b.kind === "ripreso")).toBe(true);
+  });
+
   /**
    * A ROW THE BOOT CLOSED IS NOT A CUT OF OURS TO RESUME. A person deletes the
    * amber restart bubble; `deleteMessageSubtree` takes the notice and whatever

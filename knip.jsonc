@@ -324,6 +324,7 @@
         // (es. l'agente ACP di `acp-provider.test.ts`): nessuno lo IMPORTA, il
         // riferimento è una stringa di path.
         "server/**/*.fixture.ts!",
+        "scripts/**/*.fixture.ts!",
         "server/**/*.test.ts",
         "shared/**/*.test.ts", // girati da `test:unit`, non importati da nessuno
         "relay/*.test.ts",     // idem, via `./relay` in `test:unit`

@@ -308,7 +308,8 @@ export function attemptsOnRow(blocks: ContentBlock[] | null | undefined): number
  */
 import type { Database } from "bun:sqlite";
 import { decodeCol, encodeCol } from "../../shared/message-blob";
-import { insertRestartNotification, type PartialSweepDb } from "./boot-partial-sweep";
+import { insertRestartNotification, restartNotificationFrame, type PartialSweepDb } from "./boot-partial-sweep";
+import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isBackgroundNoticeRow, rowsBack } from "./background-notice";
 
 /** A chat's last row, as the sweep reads it. */
@@ -339,6 +340,10 @@ export interface CtxRipresa {
   /** When this server process started: a person's message older than this
    *  lived through a restart. Defaults to the process start. */
   bootedAtMs?: number;
+  /** A frame to every window (`ctx.broadcastToAll`, which filters guests).
+   *  Absent: the notices reach the database only, and a window open on the
+   *  chat shows them on its next history read. */
+  broadcast?(msg: OutboundMessage): void;
 }
 
 /** The last interruption verdict of a row: the cut, with its cause and its text. */
@@ -526,7 +531,9 @@ export async function riprendiTurniInterrotti(
 ): Promise<void> {
   const responseCeilingMs = ceilings.responseMs ?? RESPONSE_CEILING_MS;
   const streamCeilingMs = ceilings.streamMs ?? STREAM_CEILING_MS;
-  const candidati: Array<{ sessionKey: string; messaggio: string; idTurno: string; blocks: ContentBlock[]; attempt: number }> = [];
+  // `fresh`: the resend is traced on a notice this sweep just wrote, which the
+  // open windows have not seen yet.
+  const candidati: Array<{ sessionKey: string; messaggio: string; idTurno: string; blocks: ContentBlock[]; attempt: number; fresh?: { topicId: string; text: string } }> = [];
   try {
     // L'ULTIMO messaggio di ogni chat, che è l'unico che possa essere
     // «interrotto»: più indietro è storia, e l'utente ci ha già parlato sopra.
@@ -598,13 +605,15 @@ export async function riprendiTurniInterrotti(
       const ownEnd = row.lastTurnEnd && row.lastTurnEnd.atMs >= row.timestampMs ? row.lastTurnEnd.info : null;
       let resendRowId = r.id;
       let rowBlocks: ContentBlock[] = blocks ?? [];
+      let fresh: { topicId: string; text: string } | undefined;
       if (verdict === "unanswered") {
         // RESUME-02: the explanation goes in the thread FIRST. The notice has
         // the boot's own shape, parented to the person's row, and it becomes
         // the row the resend is traced on: the next sweep counts this chain
         // like any other, and a second boot does not resend it again.
+        const text = unansweredNotice({ restarted: restartLeftItUnanswered, lastEnd: ownEnd });
         try {
-          insertRestartNotification(ctx.db as unknown as PartialSweepDb, r.sk, { text: unansweredNotice({ restarted: restartLeftItUnanswered, lastEnd: ownEnd }) });
+          insertRestartNotification(ctx.db as unknown as PartialSweepDb, r.sk, { text });
         } catch (err) {
           console.warn(`[ripresa] ${r.sk}: messaggio senza risposta, ma non riesco a scrivere il cartello, lo salto:`, err);
           continue;
@@ -615,6 +624,7 @@ export async function riprendiTurniInterrotti(
         if (!notice || notice.id === r.id) continue;
         try { rowBlocks = JSON.parse(decodeCol(notice.blocks) ?? "[]") as ContentBlock[]; } catch { rowBlocks = []; }
         resendRowId = notice.id;
+        if (topic.id) fresh = { topicId: topic.id, text };
         console.log(`[ripresa] ${r.sk}: messaggio dell'utente senza risposta da ${Math.round((ora - Date.parse(r.ts)) / 60_000)} min, cartello scritto, lo rimando`);
         verdict = "resend";
       }
@@ -634,7 +644,10 @@ export async function riprendiTurniInterrotti(
             // An answer row carries its cut: the block's cause, or a restart
             // notice's text (the boot sweep writes a hard kill's with no cause).
             : resumeCapNotice({ restarted: isRestartNotice(cut?.text), cause: cut?.cause });
-          insertRestartNotification(ctx.db as unknown as PartialSweepDb, r.sk, { text });
+          const id = insertRestartNotification(ctx.db as unknown as PartialSweepDb, r.sk, { text });
+          // The chat's last word, and nothing starts after it: an open window
+          // has no other way to learn of it.
+          if (topic.id) ctx.broadcast?.(restartNotificationFrame(topic.id, r.sk, id, text));
           console.warn(`[ripresa] ${r.sk}: ripreso gia' ${attempts} volte su questo messaggio, mi fermo e lo scrivo in chat`);
         } catch (err) {
           console.warn(`[ripresa] ${r.sk}: tetto raggiunto ma non riesco a scriverlo in chat:`, err);
@@ -650,7 +663,7 @@ export async function riprendiTurniInterrotti(
       ).get(r.sk) as { content: unknown } | undefined;
       const messaggio = (decodeCol(dom?.content) ?? "").trim();
       if (!messaggio) continue;
-      candidati.push({ sessionKey: r.sk, messaggio, idTurno: resendRowId, blocks: rowBlocks, attempt: attempts + 1 });
+      candidati.push({ sessionKey: r.sk, messaggio, idTurno: resendRowId, blocks: rowBlocks, attempt: attempts + 1, fresh });
     }
   } catch (err) {
     console.warn("[ripresa] non riesco a cercare i turni interrotti:", err);
@@ -685,6 +698,9 @@ export async function riprendiTurniInterrotti(
       const conTraccia: ContentBlock[] = [...c.blocks, { kind: "ripreso", attempt: c.attempt }];
       ctx.db.prepare(`UPDATE messages SET blocks = ? WHERE id = ?`)
         .run(encodeCol(JSON.stringify(conTraccia)) ?? null, c.idTurno);
+      // With its trace, as the row now is, and before the resend's own frames:
+      // after them it would land under the answer's live bubble.
+      if (c.fresh) ctx.broadcast?.(restartNotificationFrame(c.fresh.topicId, c.sessionKey, c.idTurno, c.fresh.text, conTraccia));
     } catch (err) {
       console.warn(`[ripresa] ${c.sessionKey}: non riesco a segnare il turno, lo salto:`, err);
       return;

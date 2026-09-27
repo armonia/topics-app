@@ -47,7 +47,7 @@ import {
   turnCanContinueGoal,
   type FinishedTurn,
 } from "./goal-loop";
-import { insertRestartNotification, type PartialSweepDb } from "../lib/boot-partial-sweep";
+import { insertRestartNotification, restartNotificationFrame, type PartialSweepDb } from "../lib/boot-partial-sweep";
 import { MAX_ITERATIONS } from "../providers/native/agent-loop";
 import { sessionBackgroundState, sessionHasBackgroundWork } from "../providers/background-probes";
 import { rowsBack, type BackRow } from "../lib/background-notice";
@@ -398,7 +398,9 @@ export function createGoalContinuation(deps: GoalContinuationDeps) {
       if (step === "stop") {
         resumedAfterBudget.delete(info.sessionKey);
         try {
-          insertRestartNotification(deps.db as unknown as PartialSweepDb, info.sessionKey, { text: toolBudgetStopNotice(MAX_ITERATIONS) });
+          const text = toolBudgetStopNotice(MAX_ITERATIONS);
+          const id = insertRestartNotification(deps.db as unknown as PartialSweepDb, info.sessionKey, { text });
+          deps.broadcast(restartNotificationFrame(info.topicId, info.sessionKey, id, text));
         } catch (err) {
           log(`goal-loop: ${info.sessionKey}: cannot write the tool-budget stop notice (${err instanceof Error ? err.message : String(err)})`);
         }

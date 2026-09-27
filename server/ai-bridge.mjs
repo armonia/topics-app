@@ -32,7 +32,10 @@ function realHome() {
 // What this daemon's frames carry. A live daemon outlives server deploys (it
 // holds the CLIs), so a server may talk to an older one and must know it.
 // 2: `attached` carries `lastDataAt`, the child's last write. Absent means 1.
-const PROTOCOL = 2;
+// 3: a `write` with a `mark` (the row it answers) leaves `{"type":"topics_delivered",
+//    "mark":…}` in the store, at a line boundary, before the data reaches stdin
+//    (server/providers/claude/row-turn.ts). An older daemon ignores the field.
+const PROTOCOL = 3;
 
 // --- Configuration ---
 function argOf(flag) {
@@ -80,6 +83,7 @@ const sessions = new Map();  // id -> Session
 const dying = new Set();
 const clients = new Set();   // connected server sockets
 const connectedAt = new Map(); // socket -> Date.now(), per distinguere un server da una sonda
+const serverPids = new Map();  // socket -> the pid its pings carry: who the orphan monitor may adopt
 
 function broadcast(msg) {
   const line = JSON.stringify(msg) + '\n';
@@ -118,11 +122,39 @@ function appendToStore(session, buf) {
     // When the child last printed anything. The store has no time per line, so
     // this is the only clock a reattach scan can date its replay by.
     session.lastDataAt = Date.now();
+    session.midLine = buf[buf.byteLength - 1] !== 10;
   } catch (e) {
     console.error(`[AI Bridge] store write failed for ${session.id}: ${e.message}`);
     return null;
   }
   return startOffset;
+}
+
+// Into the store and out to every socket attached at its end: the child's output and the delivery marks alike.
+function emit(session, buf) {
+  const startOffset = appendToStore(session, buf);
+  if (startOffset === null) return;
+  if (session.endOffset > MAX_STORE_BYTES) {
+    broadcast({ type: 'error', id: session.id, error: 'store size cap exceeded' });
+  }
+  const frame = { type: 'data', id: session.id, offset: startOffset, chunk: buf.toString('base64') };
+  for (const [sock, delivered] of session.attached) {
+    if (delivered <= startOffset) {
+      sendTo(sock, frame);
+      session.attached.set(sock, session.endOffset);
+    }
+  }
+}
+
+// The child's output, with the marks that waited for the end of the line it was
+// printing: a mark written in the middle of a JSON line would break that line
+// for every reader of the store, live or replayed.
+function emitOutput(session, buf) {
+  const nl = session.pendingMarks?.length ? buf.indexOf(10) : -1;
+  if (nl < 0) { emit(session, buf); return; }
+  emit(session, buf.subarray(0, nl + 1));
+  for (const mark of session.pendingMarks.splice(0)) emit(session, mark);
+  if (nl + 1 < buf.byteLength) emit(session, buf.subarray(nl + 1));
 }
 
 // Stream the store bytes [fromOffset, endOffset) to a freshly-attaching socket.
@@ -231,20 +263,7 @@ function handleMessage(msg, client) {
       };
       sessions.set(id, session);
 
-      child.stdout.on('data', (buf) => {
-        const startOffset = appendToStore(session, buf);
-        if (startOffset === null) return;
-        if (session.endOffset > MAX_STORE_BYTES) {
-          broadcast({ type: 'error', id, error: 'store size cap exceeded' });
-        }
-        const frame = { type: 'data', id, offset: startOffset, chunk: buf.toString('base64') };
-        for (const [sock, delivered] of session.attached) {
-          if (delivered <= startOffset) {
-            sendTo(sock, frame);
-            session.attached.set(sock, session.endOffset);
-          }
-        }
-      });
+      child.stdout.on('data', (buf) => emitOutput(session, buf));
       child.stderr.on('data', (buf) => {
         const frame = { type: 'stderr', id, chunk: buf.toString('base64') };
         for (const sock of session.attached.keys()) sendTo(sock, frame);
@@ -285,6 +304,11 @@ function handleMessage(msg, client) {
     case 'write': {
       const s = sessions.get(msg.id);
       if (!s || !s.alive) { sendTo(client, { type: 'error', id: msg.id, error: 'no live session' }); break; }
+      // Protocol 3: where this message reached the child, for the row it answers.
+      if (typeof msg.mark === 'string') {
+        const mark = Buffer.from(JSON.stringify({ type: 'topics_delivered', mark: msg.mark }) + '\n');
+        if (s.midLine) (s.pendingMarks ??= []).push(mark); else emit(s, mark);
+      }
       try { s.child.stdin.write(msg.data); } catch (e) { sendTo(client, { type: 'error', id: msg.id, error: e.message }); }
       break;
     }
@@ -343,6 +367,7 @@ function handleMessage(msg, client) {
       break;
     }
     case 'ping': {
+      if (Number.isInteger(msg.pid) && msg.pid > 0) serverPids.set(client, msg.pid);
       sendTo(client, { type: 'pong' });
       break;
     }
@@ -533,9 +558,17 @@ async function start() {
         catch (e) { sendTo(socket, { type: 'error', error: e.message, id: parsed?.id }); }
       }
     });
-    const drop = () => { clients.delete(socket); connectedAt.delete(socket); for (const s of sessions.values()) s.attached.delete(socket); };
+    const drop = () => { clients.delete(socket); connectedAt.delete(socket); serverPids.delete(socket); for (const s of sessions.values()) s.attached.delete(socket); };
     socket.on('close', drop);
     socket.on('error', drop);
+    // 'end' is the client hanging up, and it is the one event Bun is sure to
+    // give. With frames still queued for a client that has gone, Bun (1.3.8)
+    // emits 'end' and then neither 'finish' nor 'close': the socket reads
+    // closed, `drop` never runs, and the orphan monitor counts the corpse as a
+    // server that came back. Nine test daemons were still alive twelve hours
+    // on (25/09). The protocol has no use for a half-open client, so hanging up
+    // is leaving.
+    socket.on('end', () => { drop(); socket.destroy(); });
   });
 
   // IL PID PRIMA DI `listen()`, non dentro il suo callback.
@@ -614,13 +647,31 @@ async function start() {
   const AI_MONITOR_TICK_MS = Number(process.env.TOPICS_AI_BRIDGE_MONITOR_TICK_MS) || 5_000;
   let orphanDeadline = null;
   let orphanExtended = false;
+  // THE SERVER WE OUTLIVE: the one that spawned us, then the one that came back.
+  //
+  // Tolerating a reconnected server is not enough. Until 25/09 an orphan stayed
+  // up only while that server was ATTACHED, so each of its disconnects restarted
+  // the 90 s: a server whose loop stood still for minutes, with its socket
+  // recycled and its reconnect stuck behind the block, lost every CLI it had
+  // while it was alive all along (card 51fb9359). A server that says its pid in
+  // its pings is adopted, and from then on it is ITS death that counts.
+  let guardianPid = parentPid;
   setInterval(() => {
     // No --parent-pid (hand-started daemon): nothing to outlive, the idle
     // timeout below is the only thing that will ever retire us.
-    const orphaned = parentPid !== null && !pidAlive(parentPid);
+    const orphaned = guardianPid !== null && !pidAlive(guardianPid);
     if (!orphaned) { orphanDeadline = null; orphanExtended = false; return; }
     const now = Date.now();
-    const settled = [...clients].some((c) => now - (connectedAt.get(c) ?? now) >= REAL_CLIENT_MS);
+    const settledClients = [...clients].filter((c) => now - (connectedAt.get(c) ?? now) >= REAL_CLIENT_MS);
+    const heir = settledClients.map((c) => serverPids.get(c)).find((pid) => pid && pidAlive(pid));
+    if (heir) {
+      console.error(`[AI Bridge] Server ${guardianPid} is gone, ${heir} came back: adopting it, sessions preserved.`);
+      guardianPid = heir;
+      orphanDeadline = null;
+      orphanExtended = false;
+      return;
+    }
+    const settled = settledClients.length > 0;
     if (settled) {
       if (orphanDeadline !== null) {
         console.error('[AI Bridge] Server reconnected after parent death — staying alive, sessions preserved.');
@@ -631,7 +682,7 @@ async function start() {
     }
     if (orphanDeadline === null) {
       orphanDeadline = now + ORPHAN_GRACE_MS;
-      console.error(`[AI Bridge] Parent died (was ${parentPid}), no server connected — exit in ${ORPHAN_GRACE_MS / 1000}s unless one reconnects.`);
+      console.error(`[AI Bridge] Parent died (was ${guardianPid}), no server connected — exit in ${ORPHAN_GRACE_MS / 1000}s unless one reconnects.`);
       return;
     }
     if (now < orphanDeadline) return;

@@ -3478,7 +3478,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
             // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.
             topicProvider.registerStreamHandler?.(sessionKey, undefined, handler);
-            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; fastMode?: boolean } = {};
+            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; fastMode?: boolean; rowId?: string } = { rowId: partialMsg.id };
             if (overrideModel) sendOptions.model = overrideModel;
             // La richiesta di fast mode viaggia COME richiesta: decide il
             // provider, che la gira alla CLI solo se la CLI ha detto di poterla
@@ -3531,16 +3531,16 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // prima della riga parziale e di qualunque stream: vedi la guardia
             // `reattach_unsupported` alla risoluzione del provider. `!` qui è
             // sostenuto da quella guardia, non da un'assunzione.
-            const reattachFn = (topicProvider as unknown as { reattach?: (sk: string, h: StreamHandler) => Promise<string> }).reattach;
+            const reattachFn = (topicProvider as unknown as { reattach?: (sk: string, h: StreamHandler, o?: { rowId?: string }) => Promise<string> }).reattach;
             // Il risveglio si adotta in modo SINCRONO (gli eventi sono già nel
             // provider). `false` = l'ha preso qualcun altro, o il figlio è morto.
-            const adoptWoken = (topicProvider as unknown as { adoptWokenTurn?: (sk: string, h: StreamHandler) => boolean }).adoptWokenTurn;
+            const adoptWoken = (topicProvider as unknown as { adoptWokenTurn?: (sk: string, h: StreamHandler, rowId?: string) => boolean }).adoptWokenTurn;
             const drive = isWoken
-              ? (adoptWoken!.call(topicProvider, sessionKey, handler)
+              ? (adoptWoken!.call(topicProvider, sessionKey, handler, partialMsg.id)
                   ? Promise.resolve({ runId: "woken" })
                   : Promise.reject(new Error("WOKEN_TURN_GONE")))
               : isReattach
-              ? reattachFn!.call(topicProvider, sessionKey, handler).then((outcome) => ({ runId: outcome }))
+              ? reattachFn!.call(topicProvider, sessionKey, handler, { rowId: partialMsg.id }).then((outcome) => ({ runId: outcome }))
               : topicProvider.sendChat(
                   sessionKey,
                   userContent,
@@ -3708,7 +3708,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               ? "⚠️ Rate limit reached. The AI service is temporarily overloaded. Please wait a moment and try again."
               : `⚠️ AI service error (${resp.status}). Please try again.`;
             const errorPartial = createPartialMessage(sessionKey, "assistant");
-            updateLastMessage(sessionKey, { content: errorMsg, partial: undefined, streamedAt: undefined });
+            updateLastMessage(sessionKey, { content: errorMsg, partial: undefined, streamedAt: undefined }, { rowId: errorPartial.id });
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: errorPartial.id, content: errorMsg, preview: errorMsg.slice(0, 100) });
@@ -3777,14 +3777,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               onThinkingDelta() {},
               onToolStart(toolCallId: string, name: string, args?: Record<string, unknown>) {
                 const toolCall = { id: toolCallId, name, args: args ?? {}, status: 'running' as const, contentOffset: contentRef.value.length };
-                addToolCallToLastMessage(sessionKey, toolCall);
+                addToolCallToLastMessage(sessionKey, toolCall, { rowId: partialMsg.id });
                 broadcastStreamToTopic({ type: "stream:tool_call", sessionKey, topicId: matchedTopic?.id, toolCall }, matchedTopic?.id);
               },
               onToolUpdate(toolCallId: string, partialResult: string) {
                 broadcastStreamToTopic({ type: "stream:tool_update", sessionKey, topicId: matchedTopic?.id, toolCallId, partialResult }, matchedTopic?.id);
               },
               onToolResult(toolCallId: string, result: string) {
-                updateToolCallResult(sessionKey, toolCallId, result);
+                updateToolCallResult(sessionKey, toolCallId, result, undefined, undefined, { rowId: partialMsg.id });
                 broadcastStreamToTopic({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result }, matchedTopic?.id);
               },
               onDone() {},      // Handled by HTTP SSE [DONE]
@@ -3822,7 +3822,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             endStream,
             isStreaming,
             addToolCallToLastMessage,
-            updateToolCallResult: (sk, id, result) => updateToolCallResult(sk, id, result),
+            updateToolCallResult: (sk, id, result, own) => updateToolCallResult(sk, id, result, undefined, undefined, own),
             saveInterval: SAVE_INTERVAL,
             onDone: () => {
               // chat.ts-specific: unregister handler, broadcast message:new,
