@@ -139,8 +139,9 @@ export function installProbe(): void {
     }
     const row = document.querySelector(`[data-testid="tool-call-row-${o.toolCallId}"]`);
     if (!row) return -1;
-    // The head marker, kept by `clampBody` (which slices from the front) even
-    // when the tool's output is past the 20 KB inline budget.
+    // The marker on the partial's LAST line: the row of a running shell paints
+    // only its last eight lines (CHAT-TOOL-08), so the last one is the line it
+    // always keeps.
     const m = /\[k=(\d{6})\]/.exec(row.textContent ?? "");
     return m ? Number(m[1]) : -1;
   };
