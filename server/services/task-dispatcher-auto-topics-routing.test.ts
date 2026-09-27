@@ -287,3 +287,53 @@ describe("A card on the engine with no pinned runtime stays behind Claude's wall
     expect(h.turnEnds).toHaveLength(1);
   });
 });
+
+// A plain model with the switch ON runs on the engine with no runtime pinned,
+// so its topic reads back as the engine. A dependent that names Claude Code
+// with the switch ON runs on that same engine: the session is the same one,
+// and parking it as "a different model" stopped a chain that had nothing wrong.
+describe("A dependent reusing a session the engine runs, pinned to no runtime", () => {
+  async function reuseEngineSession(dependentRouting: 0 | null) {
+    const fleet = { defaultProvider: "claude-code", providers: [entry("claude-code", CLAUDE_MODELS), entry("topics", CLAUDE_MODELS)] } as unknown as ProvidersSnapshot;
+    const h = harness(fleet);
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchTopicsRouting: true });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    const ts = new Date().toISOString();
+    h.db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, topics_routing)
+       VALUES ('t1', ?, 'blocker', 'todo', ?, ?, 0, 'claude-sonnet-5', NULL)`,
+      [PID, ts, ts],
+    );
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topics).toHaveLength(1);
+    expect(h.topics[0]).toMatchObject({ model: "claude-sonnet-5", topicsRouting: true, executor: "topics" });
+    expect(h.topics[0]!.provider).toBeUndefined();
+    h.db.run("UPDATE tasks SET status = 'done' WHERE id = 't1'");
+    h.db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, topics_routing, blocked_by_task_id, reuse_blocker_context)
+       VALUES ('t2', ?, 'dependent', 'todo', ?, ?, 0, 'claude-code:claude-sonnet-5', ?, 't1', 1)`,
+      [PID, ts, ts, dependentRouting],
+    );
+    await h.dispatcher.tick(PID);
+    await flush();
+    return h;
+  }
+
+  it("the switch ON on both: the dependent starts on the blocker's session", async () => {
+    const h = await reuseEngineSession(null);
+    const dependent = h.svc.get("t2")!.task;
+    expect(dependent.dispatchError ?? null).toBeNull();
+    expect(dependent).toMatchObject({ status: "in_progress", dispatchState: "working" });
+    expect(h.topics).toHaveLength(1);
+    expect(h.turnEnds).toHaveLength(2);
+  });
+
+  it("the dependent switched OFF: a direct Claude Code run does not take over the engine's session", async () => {
+    const h = await reuseEngineSession(0);
+    const dependent = h.svc.get("t2")!.task;
+    expect(dependent).toMatchObject({ status: "backlog", dispatchState: "blocked" });
+    expect(dependent.dispatchError).toContain("non coincide con la sessione precedente");
+    expect(h.turnEnds).toHaveLength(1);
+  });
+});

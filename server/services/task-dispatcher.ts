@@ -2790,7 +2790,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       let chosenModel: string | undefined = requested.model;
       let chosenProvider: string | undefined = requested.provider;
       if (reuseTopicId && (chosenModel || deps.topicModelSelection)
-        && !taskModelMatchesSession(requestedSelection, deps.topicModelSelection?.(reuseTopicId))) {
+        && !taskModelMatchesSession(requestedSelection, deps.topicModelSelection?.(reuseTopicId), settings.topicsRouting)) {
         releaseAndEmit({
           taskId, requeue: false, parkState: CHIP_BLOCKED,
           reason: chosenModel
