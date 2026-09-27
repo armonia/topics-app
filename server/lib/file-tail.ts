@@ -91,8 +91,8 @@ export function readFileEnd(path: string, maxBytes: number): { text: string; siz
     const read = readSync(fd, bytes, 0, bytes.length, start);
     let text = bytes.subarray(0, read).toString("utf-8");
     if (start > 0) {
-      const newline = text.indexOf("\n");
-      if (newline >= 0) text = text.slice(newline + 1);
+      const lineEnd = text.indexOf("\n");
+      if (lineEnd >= 0) text = text.slice(lineEnd + 1);
     }
     return { text, size: start + read };
   } finally {

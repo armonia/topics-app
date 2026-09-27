@@ -185,11 +185,11 @@ describe("the end of a command reaches the topic that launched it", () => {
   test("a wait whose caller went away does not swallow the wake", async () => {
     const topic = newTopic();
     const { processId } = await runCommand(topic, "sleep 1; echo gone-waiting");
-    const aborter = new AbortController();
+    const controller = new AbortController();
     const url = new URL(`http://topics.test/api/sessions/${encodeURIComponent(topic.sessionKey)}/scripts/${processId}/wait?timeout_ms=10000`);
-    const waiting = Promise.resolve(bench.processes(new Request(url, { signal: aborter.signal }), url, url.pathname, "GET"));
+    const waiting = Promise.resolve(bench.processes(new Request(url, { signal: controller.signal }), url, url.pathname, "GET"));
     await Bun.sleep(200);
-    aborter.abort();
+    controller.abort();
 
     await until(() => exitRows(topic.sessionKey).length > 0);
     expect(exitRows(topic.sessionKey)).toHaveLength(1);
