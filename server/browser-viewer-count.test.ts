@@ -3,6 +3,8 @@
  */
 import { test, expect } from "bun:test";
 import type { Server } from "bun";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { countSharedViewers, createViewerCountPublisher, hasAttachedPane, isSharedViewer, type ViewerFlags } from "./browser-viewer-count";
 import { upgradeWebSocket } from "./lib/ws-upgrade";
 import type { WSData } from "./types";
@@ -167,4 +169,25 @@ test("a socket that is no longer open attaches nothing, and no socket attaches n
   pane.readyState = 3;
   expect(hasAttachedPane([pane])).toBe(false);
   expect(hasAttachedPane(undefined)).toBe(false);
+});
+
+/**
+ * server.ts reads the executor flag in two places, and no unit test can import
+ * it. Each line was reverted on 27/09 with every behavioural test still green:
+ * the predicate the open-pane route polls, and the deferred screencast start a
+ * flagged socket skips (its register frame often lands after the 250 ms grace,
+ * and the start would then launch a headless Chromium for a pane that never
+ * views frames).
+ */
+test("server.ts polls this predicate for open-pane, and never starts the screencast for an executor socket", () => {
+  const code = readFileSync(join(import.meta.dir, "..", "server.ts"), "utf8")
+    .split("\n")
+    .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join("\n");
+  const wired = [
+    "const paneAttachedTo = (contextId: string): boolean => hasAttachedPane(browserWsClients.get(contextId));",
+    "createTopicsRouter(ctx, browserService, paneAttachedTo,",
+    "if (screencastCancelled || !streamActive || ws.data.expectsExecutor) return;",
+  ];
+  for (const line of wired) expect(code.includes(line), `not wired any more: \`${line}\``).toBe(true);
 });
