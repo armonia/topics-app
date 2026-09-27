@@ -331,7 +331,18 @@ describe('shell in background: risveglio reale ma condizionato', () => {
     expect(p).toContain('it dies with the CLI');
     expect(p).toContain('[killed]');
     // E la via d'uscita quando il risveglio serve davvero.
-    expect(p).toContain('Prefer `Monitor` when the point IS being woken');
+    expect(p).toContain('when the point IS being woken');
+  });
+
+  // 24/09, darkroom: a two-hour retry loop in a background Bash died with the
+  // CLI session and nobody was woken. `run_command` is the wait that survives
+  // it and wakes the chat; a server that is not meant to end asks for no wake.
+  test('long ad hoc waits go to run_command, and servers ask for no wake', () => {
+    const p = topicsAgentSystemPrompt();
+    expect(p).toContain('`mcp__topics__run_command`');
+    expect(p).toMatch(/run_command`[\s\S]*survives a restart of your CLI/);
+    expect(p).toContain('`wake: false`');
+    expect(p.endsWith('or the command is a short one-off.')).toBe(true);
   });
 
   test('i tre strumenti restano distinti: chiude-e-sveglia, tiene-e-torna, dipende', () => {
