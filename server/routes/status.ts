@@ -234,9 +234,12 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
      * riepilogo. Qui ci sono tre COUNT indicizzati e una lettura di due mappe
      * in memoria: si può chiedere ogni pochi secondi senza pagare niente.
      *
-     * Sono gli STESSI numeri che finiscono sul profilo Discord (li calcola
-     * `computePresenceCounts`, uno solo per entrambe le superfici): la barra
-     * non stima per conto suo ciò che la presence sa.
+     * These are the SAME numbers the Discord profile gets
+     * (`computePresenceCounts`, one call for both surfaces). The user card
+     * takes the open chats, the tasks and the project from here; its number
+     * at work is its badge's, counted from the agent rows its menu lists
+     * (BGVIS-03), because this `workingSessions` leaves a chat waiting on
+     * background work out by construction.
      */
     if (method === "GET" && pathname === "/api/system/presence") {
       return json(computePresenceCounts(

@@ -40,7 +40,8 @@
  * running included, because that is the one figure you want without opening
  * anything, and it is the same list the menu names row by row
  * (`useActiveAgentRows`, `activeAgentCount`), so the pill and the list cannot
- * disagree.
+ * disagree. The card says that number wherever it says one: the pill, the
+ * working digit in the menu's tail and the tooltip's phrase.
  */
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { Monitor, Smartphone } from 'lucide-react';
@@ -48,6 +49,7 @@ import { getSession, subscribeSession, type SessionState } from '@/lib/auth/sess
 import { etichettaIdentita } from './identityLabel';
 import { useIdentityPresence } from '@/hooks/useIdentityPresence';
 import { usePresenceSummary } from '@/hooks/usePresenceSummary';
+import { presenceSummary } from '../../../../shared/presence-phrase';
 import { openPersonProfile } from '@/state/profileTarget';
 import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET } from '@/lib/selectionStyles';
 import { chipClass } from './identityChip';
@@ -62,7 +64,7 @@ import { activeAgentCount, useActiveAgentRows, useAgentActivityCounts } from '@/
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 import { useLoad } from '@/state/systemLoad';
-import { useT } from '@/hooks/useT';
+import { useLocale, useT } from '@/hooks/useT';
 import { formatMemoryMB } from '@/lib/formatMemory';
 
 export function IdentityBlock({ onOpenDevices, commands, alarm = false }: {
@@ -176,6 +178,7 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
   alarm: boolean;
 }) {
   const tr = useT();
+  const locale = useLocale();
   // `getSession`, not «loading»: the store may already know (last answer kept
   // on this device), and a first frame without the card is the shift the cache
   // exists to remove.
@@ -183,7 +186,7 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
   const [devices, setDevices] = useState<{ connected: number; total: number } | null>(null);
   const [open, setOpen] = useState(false);
   const [card, setCard] = useState<HTMLButtonElement | null>(null);
-  const { counts, summary } = usePresenceSummary();
+  const { counts } = usePresenceSummary();
   const roster = useTerminalSessions();
   const topics = useTopics();
   const agentCounts = useAgentActivityCounts(roster, topics);
@@ -245,7 +248,14 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
   const signals = workSignals({
     openSessions: counts?.openSessions ?? 0,
     workingSessions: activeAgents,
-  });
+  }).map((s) => (s.kind === 'working' ? { ...s, title: agentsTitle } : s));
+  // THE TOOLTIP'S PHRASE SAYS THE SAME NUMBER. The route's `workingSessions`
+  // counts open streams and busy terminals, so it leaves a chat waiting on
+  // background work out by construction: composed from it, the tooltip read
+  // "no agent at work" beside a badge reading 1. The open chats, the board
+  // tasks, the project and the sessions outside Topics stay the route's. The
+  // Discord presence keeps the route's number whole: it names no list.
+  const summary = counts ? presenceSummary({ ...counts, workingSessions: activeAgents }, locale) : null;
   const waiting = [
     agentCounts && agentCounts.awaitingInput > 0
       ? tr('statusBar.agents.awaitingInput', { n: agentCounts.awaitingInput }) : '',

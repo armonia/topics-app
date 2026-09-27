@@ -102,16 +102,16 @@ export function WorkSignals({ signals }: { signals: WorkSignal[] }) {
   if (signals.length === 0) return null;
   return (
     <span data-testid="presence-summary" className="flex flex-shrink-0 items-center gap-1.5 tabular-nums">
-      {signals.map((s) => <Signal key={s.kind} kind={s.kind} n={s.n} />)}
+      {signals.map((s) => <Signal key={s.kind} kind={s.kind} n={s.n} title={s.title} />)}
     </span>
   );
 }
 
-function Signal({ kind, n }: { kind: SignalKind; n: number }) {
+function Signal({ kind, n, title }: { kind: SignalKind; n: number; title?: string }) {
   const tr = useT();
   const { Icon, tint, label, alive } = SIGNALS[kind];
   return (
-    <span className={`flex items-center gap-0.5 ${tint}`} title={tr(label, { n })}>
+    <span data-signal={kind} className={`flex items-center gap-0.5 ${tint}`} title={title ?? tr(label, { n })}>
       <Icon size={11} className={alive ? 'animate-pulse' : undefined} />
       <span>{n}</span>
     </span>

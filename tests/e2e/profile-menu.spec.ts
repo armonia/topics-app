@@ -30,6 +30,7 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { presenceSummary, type PresenceCounts } from "../../shared/presence-phrase";
 
 hermetic(test);
 
@@ -252,7 +253,13 @@ test.describe("il menu utente apre i livelli di lato", () => {
     // No turn open, but the last one left an agent running: the route says
     // `background`, and that work holds a CLI in RAM right now.
     const chat = await createTopic(request, "E2E Background Agent");
+    // The installation as the presence route counts it at that instant: open
+    // chats, and NONE at work, because by the route's own rule a session with
+    // background work only is no open stream.
+    const presence: PresenceCounts = { openSessions: 12, workingSessions: 0, activeTasks: 0, focusProject: null };
     try {
+      await page.route("**/api/system/presence", (r) =>
+        r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(presence) }));
       await page.route("**/api/topics/streaming", (r) =>
         r.fulfill({
           status: 200,
@@ -268,12 +275,24 @@ test.describe("il menu utente apre i livelli di lato", () => {
       await goToApp(page);
       const badge = page.getByTestId("identity-agents-badge").locator("[data-notification-count]");
       await expect(badge).toHaveAttribute("data-notification-count", "1", { timeout: 20_000 });
+      // THE CARD'S TOOLTIP says the badge's number too. Composed from the
+      // route's working count it read "no agent at work" beside a badge
+      // reading 1: the same number and its text disagreeing, one hover apart.
+      // Built with the phrase's own function, so no wording is frozen here.
+      const card = page.getByTestId("identity-me-profile");
+      await expect.poll(() => card.getAttribute("title"), { timeout: 20_000 })
+        .toContain(presenceSummary({ ...presence, workingSessions: 1 }, "it"));
+      expect(await card.getAttribute("title")).not.toContain(presenceSummary(presence, "it"));
 
       const menu = await openProfileMenu(page);
       // The working digit in the tail of the system row is the badge's number,
-      // from the same rows (BGVIS-03): the glyph whose title says "at work".
-      const tailWorking = menu.getByTestId("presence-summary").getByTitle(/al lavoro adesso/);
+      // from the same rows (BGVIS-03), and it says it with the badge's own
+      // sentence: the one agent is background work, the chat is not answering.
+      const tailWorking = menu.getByTestId("presence-summary").locator('[data-signal="working"]');
       await expect(tailWorking).toHaveText("1", { timeout: 10_000 });
+      const badgeTitle = await badge.getAttribute("title");
+      expect(badgeTitle, "the badge carries its sentence").toBeTruthy();
+      await expect(tailWorking).toHaveAttribute("title", badgeTitle!);
       await menu.getByTestId("menu-system-status").click();
       const status = page.getByTestId("menu-system-status-menu");
       await expect(status).toBeVisible({ timeout: 10_000 });

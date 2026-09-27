@@ -1,12 +1,18 @@
 /**
- * Il riepilogo di cosa sta succedendo, per la barra di stato.
+ * The installation's counts, for the user card.
  *
- * ── PERCHE' I NUMERI ARRIVANO DAL SERVER E NON DAI SEGNALI DEL CLIENT ───────
- * La stessa fotografia la pubblica la presence Discord. Se la barra la
- * calcolasse per conto suo dai propri Set, le due letture divergerebbero al
- * primo caso di bordo — e quella sbagliata sarebbe quella sotto gli occhi tutto
- * il giorno. Il server conta una volta (`computePresenceCounts`) e serve gli
- * stessi quattro numeri a entrambe.
+ * ── WHY THE NUMBERS COME FROM THE SERVER AND NOT FROM THE CLIENT'S SIGNALS ──
+ * The Discord presence publishes the same snapshot. Counted here from the
+ * client's own Sets, the two readings would part at the first edge case, and
+ * the wrong one would be the one on screen all day. The server counts once
+ * (`computePresenceCounts`) and serves both the same numbers.
+ *
+ * ONE EXCEPTION, AND IT IS THE CARD'S: the number at work. The card shows it as
+ * a badge counted from the agent rows its menu lists, background work included
+ * (BGVIS-03), and the route's `workingSessions` leaves that work out by
+ * construction. So this hook hands back the counts and the card composes the
+ * phrase (`presenceSummary`) with its own working number: one number on one
+ * card, whatever the Discord profile says from the route's.
  *
  * ── PERCHE' UNA ROTTA A PARTE E NON `useSystemStatus` ───────────────────────
  * `/api/system/status` fa una scansione `ps` della flotta: la barra la chiede
@@ -19,8 +25,7 @@
  * rilegge subito invece di mostrare il valore di prima.
  */
 import { useEffect, useState } from 'react';
-import { presenceSummary, type PresenceCounts } from '../../../shared/presence-phrase';
-import { useLocale } from './useT';
+import type { PresenceCounts } from '../../../shared/presence-phrase';
 
 const INTERVALLO_MS = 8000;
 
@@ -47,14 +52,10 @@ function rememberCounts(counts: PresenceCounts): void {
 
 interface PresenceSummaryState {
   counts: PresenceCounts | null;
-  /** La riga gia' composta, nella lingua dell'interfaccia. `null` = non c'e'
-   *  niente da dire (ed e' lo stesso caso in cui la presence si pulisce). */
-  summary: string | null;
 }
 
 export function usePresenceSummary(enabled = true, intervalMs = INTERVALLO_MS): PresenceSummaryState {
   const [counts, setCounts] = useState<PresenceCounts | null>(readCachedCounts);
-  const locale = useLocale();
 
   useEffect(() => {
     if (!enabled) return;
@@ -86,5 +87,5 @@ export function usePresenceSummary(enabled = true, intervalMs = INTERVALLO_MS): 
     };
   }, [enabled, intervalMs]);
 
-  return { counts, summary: counts ? presenceSummary(counts, locale) : null };
+  return { counts };
 }
