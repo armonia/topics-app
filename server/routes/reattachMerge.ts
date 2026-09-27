@@ -76,11 +76,12 @@ function countToolBlocks(blocks: unknown[]): number {
 /**
  * The marks a row OPENS with: a wake's `woken` header and the route's
  * `ripreso` banner on a resent turn (`cartelloRisveglio` and the resume
- * attempt, routes/chat.ts). A reattach route is neither a wake nor a resend,
- * so its replay never writes them and the row's are the only copy. The resume
- * reads both: `woken` keeps an outage cut of a wake from resending a message
- * already answered (`wakeCutByOutage`), and a leading `ripreso` is what makes
- * a probe into an API still down free (`probedApiStillDown`). The sweep's own
+ * attempt, routes/chat.ts), written on the row the moment the route opens it.
+ * A reattach route is neither a wake nor a resend, so its replay never writes
+ * them and the row's are the only copy. The resume reads both: `woken` keeps
+ * an outage cut of a wake from resending a message already answered
+ * (`wakeCutByOutage`), and a leading `ripreso` is what makes a probe into an
+ * API still down free (`probedApiStillDown`). The sweep's own
  * `ripreso` sits after the row's verdict, never in front, so it is not one.
  */
 const OPENING_MARKS = new Set(["woken", "ripreso"]);
@@ -88,6 +89,19 @@ const OPENING_MARKS = new Set(["woken", "ripreso"]);
 function openingMarks(blocks: unknown[]): unknown[] {
   const end = blocks.findIndex((b) => !OPENING_MARKS.has((b as { kind?: string } | null)?.kind ?? ""));
   return end < 0 ? [...blocks] : blocks.slice(0, end);
+}
+
+/**
+ * A `blocks` column that holds these marks and nothing else. The route writes
+ * them the moment it opens the row (routes/chat.ts), so this is the row of a
+ * wake or a resend that has produced nothing yet: no work, for whoever asks.
+ */
+export function holdsOnlyOpeningMarks(blocksJson: string | null): boolean {
+  if (!blocksJson) return false;
+  try {
+    const parsed = JSON.parse(blocksJson);
+    return Array.isArray(parsed) && parsed.length > 0 && openingMarks(parsed).length === parsed.length;
+  } catch { return false; }
 }
 
 /** Quando si sta scrivendo.

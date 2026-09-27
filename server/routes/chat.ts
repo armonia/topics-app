@@ -100,7 +100,7 @@ import { computeCleanBroadcastDelta, stripSlowAnnotation } from "./stream-marker
 import { createHumanWaitLedger } from "../lib/human-wait";
 import { crashedTurnNotice, rowCarriesWork, sendFailureNotice, shortErrorDetail, type CrashedTurnRow } from "./crashedTurnNotice";
 import { attribuisciMedia, type TurnToolTrace } from "../lib/media-ownership";
-import { mergeReattachedRow, type RowSnapshot } from "./reattachMerge";
+import { holdsOnlyOpeningMarks, mergeReattachedRow, type RowSnapshot } from "./reattachMerge";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
@@ -951,13 +951,20 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
        * sopra. Le tre colonne servono tutte: `content` da solo direbbe «vuota»
        * su una riga che a schermo è un turno intero, perché la prosa è
        * persistita anche in `blocks` ed è da lì che il client la rende.
+       *
+       * The marks a turn opens with (`woken`, the route's `ripreso`) are on the
+       * row from its first instant, and they are not work: a row of marks alone
+       * reads as a row with no timeline. So a notice still goes on it, and its
+       * verdict takes their place with Retry, as when they lived in memory only.
        */
       const readRowForNotice = (rowId: string | null): CrashedTurnRow | null => {
         if (!rowId) return null;
         try {
           const r = db.prepare("SELECT content, tool_calls, blocks FROM messages WHERE id = ?")
             .get(rowId) as { content?: string; tool_calls?: string | null; blocks?: string | null } | undefined;
-          return r ? { content: r.content ?? "", toolCallsJson: decodeCol(r.tool_calls), blocksJson: decodeCol(r.blocks) } : null;
+          if (!r) return null;
+          const blocksJson = decodeCol(r.blocks);
+          return { content: r.content ?? "", toolCallsJson: decodeCol(r.tool_calls), blocksJson: holdsOnlyOpeningMarks(blocksJson) ? null : blocksJson };
         } catch { return null; }
       };
       /**
@@ -1314,6 +1321,18 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 } catch { return null; }
               })()
             : null;
+          // THE MARKS THIS TURN OPENS WITH ARE ON ITS ROW BEFORE ANY EVENT: a
+          // wake's `woken`, a resend's `ripreso`. They used to reach it with the
+          // first tool or the tenth chunk of text, and a wake or a probe that
+          // meets an API still down sees neither (only `api_retry`, which
+          // writes nothing): a restart in that window left the row without
+          // them. The reattach that takes the row back keeps what the row holds
+          // (`reattachMerge.ts`), and the resume reads both marks: without
+          // `woken` an outage cut of the wake resent a message already
+          // answered, without `ripreso` a free probe spent a resume attempt.
+          // They are not work: `readRowForNotice` reads a row of marks alone as
+          // an empty one.
+          if (blocks.length > 0) persistBlocks(true);
           // L'AbortController registrato insieme allo stream è l'unica maniglia
           // che chi finalizza da FUORI questa route ha sul client SSE. Lo
           // sweeper `[StaleStream]` (server.ts) chiudeva il turno in DB e
@@ -3673,7 +3692,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               const notice = crashedTurnNotice(readRowForNotice(crashedPartialId), err);
               // Il flag `partial` cade comunque: aperta, quella riga farebbe
               // credere a un turno in volo che non esiste più.
-              if (notice) db.prepare("UPDATE messages SET content = ?, partial = 0, end_reason = 'error' WHERE id = ?").run(notice, crashedPartialId);
+              // With a notice the row carried no work, so its blocks are at most
+              // the opening marks: they go, or they would hide its Retry.
+              if (notice) db.prepare("UPDATE messages SET content = ?, blocks = NULL, partial = 0, end_reason = 'error' WHERE id = ?").run(notice, crashedPartialId);
               else db.prepare("UPDATE messages SET partial = 0, end_reason = 'error' WHERE id = ?").run(crashedPartialId);
               if (matchedTopic) {
                 const crashText = notice ?? `Errore interno di Topics: ${shortErrorDetail(err)}`;
