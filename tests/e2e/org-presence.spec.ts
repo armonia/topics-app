@@ -624,7 +624,7 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     // menu opens it can still be empty, and a "no sign-in form" check on an
     // empty block passes without looking. Once the profile door is there the
     // block has rendered, and the absence below is a real absence.
-    await expect(panel.getByTestId("identity-me-open-profile")).toBeVisible();
+    await expect(panel.getByTestId("account-identity")).toBeVisible();
     await expect(panel.getByTestId("account-signin")).toHaveCount(0);
   });
 });

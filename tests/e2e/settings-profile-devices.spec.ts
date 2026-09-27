@@ -115,9 +115,10 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
     // every single time. The door is the same one though, and it stays separate
     // from the profile.
     await page.getByTestId("identity-me-profile").click();
-    const ferri = page.getByTestId("identity-me-devices");
+    const ferri = page.getByTestId("profile-menu-devices");
     await expect(ferri).toBeVisible({ timeout: 20000 });
     await ferri.click();
+    await page.getByTestId("devices-open-manage").click();
 
     const pannello = page.locator('[data-testid="settings-panel"]');
     await expect(pannello).toBeVisible({ timeout: 20000 });
@@ -154,7 +155,7 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
     await expect(io).toBeVisible({ timeout: 20000 });
     await io.click();
 
-    const porta = page.getByTestId("identity-me-open-profile");
+    const porta = page.getByTestId("account-identity");
     await expect(porta).toBeVisible({ timeout: 20000 });
     await porta.click();
 
