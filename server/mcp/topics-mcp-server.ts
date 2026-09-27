@@ -850,7 +850,7 @@ const GLOBAL_ORCHESTRATOR_TOOL_NAMES = new Set([
  * esattamente il modo in cui la versione a due flag si rompeva:
  * «MCP tool mcp__topics__approval_prompt … not found» su ogni richiesta.
  */
-export function toolsForProfile(profile: string | undefined): typeof TOOLS {
+export function toolsForProfile(profile: string | undefined, platform: NodeJS.Platform = process.platform): typeof TOOLS {
   if (profile === "global-orchestrator") {
     return TOOLS.filter((t) => GLOBAL_ORCHESTRATOR_TOOL_NAMES.has(t.name));
   }
@@ -860,7 +860,9 @@ export function toolsForProfile(profile: string | undefined): typeof TOOLS {
   return TOOLS.filter((t) =>
     !GLOBAL_ORCHESTRATOR_TOOL_NAMES.has(t.name)
     && (profile !== "dispatch" || !DISPATCH_EXCLUDED_TOOLS.has(t.name))
-    && (profile !== "codex-dispatch" || !CODEX_DISPATCH_EXCLUDED_TOOLS.has(t.name)),
+    && (profile !== "codex-dispatch" || !CODEX_DISPATCH_EXCLUDED_TOOLS.has(t.name))
+    // No POSIX shell to run it in (`commandArgv`): offered, it could only fail.
+    && (platform !== "win32" || t.name !== "run_command"),
   );
 }
 

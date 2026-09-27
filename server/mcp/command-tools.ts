@@ -20,11 +20,11 @@ export const COMMAND_TOOLS = [
   {
     name: "run_command",
     description:
-      "Run ANY shell command (zsh) in the current topic's project as a tracked Topics process: it shows in the Processes panel with live logs, status and Stop, it keeps running if your CLI session restarts, and when it ends this topic receives one message with the exit code and the last 20 lines of output, which wakes you. Use it for long ad hoc waits and loops (a retry every 15 minutes, a one-off script) instead of Bash with run_in_background. Pass wake=false for things that are not meant to end, such as a dev server. Returns a processId for read_process_output / wait_for_process / stop_process. For a script declared in the project's manifest, run_script is the same thing by name.",
+      "Run ANY shell command (zsh on macOS, sh elsewhere) in the current topic's project as a tracked Topics process: it shows in the Processes panel with live logs, status and Stop, it keeps running if your CLI session restarts, and when it ends this topic receives one message with the exit code and the last 20 lines of output, which wakes you. Use it for long ad hoc waits and loops (a retry every 15 minutes, a one-off script) instead of Bash with run_in_background. Pass wake=false for things that are not meant to end, such as a dev server. Returns a processId for read_process_output / wait_for_process / stop_process. For a script declared in the project's manifest, run_script is the same thing by name.",
     inputSchema: {
       type: "object",
       properties: {
-        command: { type: "string", description: "The command line, run with `zsh -c`." },
+        command: { type: "string", description: "The command line, run with `zsh -c` on macOS and `sh -c` elsewhere." },
         cwd: { type: "string", description: "Optional directory to run in, relative to the project root (or absolute inside it). Defaults to the root." },
         wake: { type: "boolean", description: "Wake this topic with the outcome when the command ends by itself (default true). A Stop never wakes." },
       },

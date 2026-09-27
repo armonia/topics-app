@@ -8,7 +8,10 @@ Il tool MCP `run_command` accetta `command` (stringa non vuota), `cwd`
 facoltativa (relativa alla radice del progetto) e `wake` facoltativo (default
 `true`). Chiama `POST /api/sessions/:sessionKey/commands/run`, che risolve la
 cartella con `resolveSessionCwd` (`server/routes/processes.ts:1536`) come fa già
-`run_script`, e lancia `zsh -c <command>` lì.
+`run_script`, e lancia il comando lì: `zsh -c` su macOS (la shell con cui
+gira il Bash dell'agente), `/bin/sh -c` sugli altri sistemi POSIX, dove zsh
+non è installato di serie. Windows non ha una shell POSIX: lì il tool non
+viene offerto e la route risponde 501.
 
 La riga nel registro ha `source: "command"`, `scriptName` = `shellLabel(command)`
 (`processes.ts:775`), `command` intero, `projectPath` = radice del progetto
@@ -37,6 +40,11 @@ sola lettura» lo copre senza modifiche.
 #### Scenario: run_script resta chiuso
 - **WHEN** l'agente chiama `run_script` con un nome non dichiarato
 - **THEN** la risposta è ancora 400 con l'elenco degli script disponibili
+
+#### Scenario: su Windows il tool non c'è
+- **GIVEN** il server che gira su Windows
+- **THEN** `run_command` non compare fra i tool del bridge
+- **AND** la route risponde 501 senza lanciare niente
 
 #### Scenario: il coordinatore globale non ha cartella
 - **GIVEN** la sessione del coordinatore globale della board

@@ -13,14 +13,22 @@ import { resolve } from "path";
 import { isInsideDir } from "./path-containment";
 
 /**
- * The spawn, as argv. The command runs in an INNER zsh so that an early
+ * The spawn, as argv. The command runs in an INNER shell so that an early
  * `exit` in it still leaves the outer one alive to write the code, and the
  * code goes to a file beside the log: after a server reload the process is
  * re-adopted by pid, without the handle `proc.exited` needed, and that file
  * is the only witness of how it ended.
+ *
+ * zsh on macOS, where it is the shell the agent's own Bash tool runs, so a
+ * command behaves as it would there. `/bin/sh` on the other POSIX systems the
+ * sidecar ships for: zsh is not installed by default on Linux. Null on
+ * Windows, which has no POSIX shell to wrap the command in: `run_command` is
+ * not offered there (`toolsForProfile`).
  */
-export function commandArgv(command: string, exitPath: string): string[] {
-  return ["/bin/zsh", "-c", 'zsh -c "$1"; rc=$?; print -r -- $rc > "$2"; exit $rc', "_", command, exitPath];
+export function commandArgv(command: string, exitPath: string, platform: NodeJS.Platform = process.platform): string[] | null {
+  if (platform === "win32") return null;
+  const shell = platform === "darwin" ? "/bin/zsh" : "/bin/sh";
+  return [shell, "-c", `${shell} -c "$1"; rc=$?; printf '%s\\n' "$rc" > "$2"; exit $rc`, "_", command, exitPath];
 }
 
 /**

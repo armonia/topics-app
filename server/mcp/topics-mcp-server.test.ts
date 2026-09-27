@@ -1119,6 +1119,15 @@ describe("run_command", () => {
     await expect(callRunCommand({ baseUrl: "http://x", sessionKey: "s" }, { command: " " }, fetchImpl)).rejects.toThrow(/command.*required/);
   });
 
+  // The sidecar server ships for Windows too, where there is no POSIX shell to
+  // run the command in: the route answers 501 there, so the tool is not offered.
+  test("is offered where a POSIX shell exists, and not on Windows", () => {
+    expect(toolsForProfile(undefined, "darwin").map((t) => t.name)).toContain("run_command");
+    expect(toolsForProfile(undefined, "linux").map((t) => t.name)).toContain("run_command");
+    expect(toolsForProfile(undefined, "win32").map((t) => t.name)).not.toContain("run_command");
+    expect(toolsForProfile(undefined, "win32").map((t) => t.name)).toContain("run_script");
+  });
+
   test("tools/call routes run_command, and it is declared destructive and open-world", async () => {
     const orig = globalThis.fetch;
     let seenUrl = "";

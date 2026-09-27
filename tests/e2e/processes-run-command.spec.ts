@@ -28,9 +28,11 @@ test.use({ video: "on" });
 test.describe.configure({ timeout: 120_000 });
 
 const TOKEN = process.env.GATEWAY_TOKEN ?? "test-token";
-// The card's command, with 4 s between ticks instead of 20: the same shape
-// (three live ticks, a restart between two of them), a third of the wait.
-const COMMAND = "zsh -c 'for i in 1 2 3; do echo tick $i; sleep 4; done'";
+// The card's loop, with 4 s between ticks instead of 20: the same shape (three
+// live ticks, a restart between two of them), a third of the wait. Without the
+// card's `zsh -c` around it: run_command already runs it in a shell, and the
+// CI's Ubuntu runner has no zsh (`/bin/sh` runs it there).
+const COMMAND = "for i in 1 2 3; do echo tick $i; sleep 4; done";
 
 async function sessionKeyOf(request: APIRequestContext, topicId: string): Promise<string> {
   const body = (await (await request.get(`${E2E_BASE}/api/topics`)).json()) as { topics: Record<string, { id: string; sessionKey: string }> };

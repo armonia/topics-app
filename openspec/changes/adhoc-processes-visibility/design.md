@@ -8,8 +8,9 @@
   `Bun.spawn` riceve come stdout e stderr lo stesso file di log
   (`<persistDir>/scripts/<processId>.log`), e l'argv è un involucro che scrive
   l'uscita accanto:
-  `["/bin/zsh", "-c", 'zsh -c "$1"; rc=$?; print -r -- $rc > "$2"; exit $rc', "_", command, exitPath]`.
-  Il comando gira in una zsh interna, così un suo `exit` anticipato non salta la
+  `["/bin/zsh", "-c", '/bin/zsh -c "$1"; rc=$?; printf "%s\n" "$rc" > "$2"; exit $rc', "_", command, exitPath]`
+  (`/bin/sh` al posto di `/bin/zsh` fuori da macOS; niente su Windows).
+  Il comando gira in una shell interna, così un suo `exit` anticipato non salta la
   scrittura del codice.
 - **Chi scrive il log.** Per le righe `command` il file lo scrive il figlio;
   `appendOutput` (`processes.ts:542`) alimenta solo il ring buffer e **non**

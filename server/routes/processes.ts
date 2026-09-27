@@ -711,13 +711,15 @@ function requestWakeFor(sp: ScriptProcess): void {
 function startCommandProcess(o: {
   projectPath: string; cwd: string; command: string;
   sessionKey: string; topicId: string | null; wake: boolean;
-}): { processId: string; scriptName: string; pid: number | null; startedAt: string; wake: boolean } {
+}): { processId: string; scriptName: string; pid: number | null; startedAt: string; wake: boolean } | null {
   const processId = crypto.randomUUID();
+  const argv = commandArgv(o.command, exitPathOf(processId));
+  if (!argv) return null; // no POSIX shell here (Windows)
   const logPath = logPathOf(processId);
   const fd = openSync(logPath, "a");
   let proc: ReturnType<typeof Bun.spawn>;
   try {
-    proc = Bun.spawn(commandArgv(o.command, exitPathOf(processId)), {
+    proc = Bun.spawn(argv, {
       cwd: o.cwd, stdin: "ignore", stdout: fd, stderr: fd, detached: true,
       env: augmentEnv(process.env, { FORCE_COLOR: "0", NO_COLOR: "1" }),
     });
@@ -1944,11 +1946,13 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         const cwd = confineCommandCwd(r.path, body?.cwd);
         if (!cwd) return json({ error: `cwd must be an existing directory inside ${r.path}` }, 400);
         try {
-          return json(startCommandProcess({
+          const started = startCommandProcess({
             projectPath: r.path, cwd, command, sessionKey,
             topicId: ctx.getTopicBySessionKey(sessionKey)?.id ?? null,
             wake: body?.wake !== false,
-          }));
+          });
+          if (!started) return json({ error: "run_command needs a POSIX shell, and this system has none" }, 501);
+          return json(started);
         } catch (err) {
           return json({ error: `Failed to spawn: ${err instanceof Error ? err.message : String(err)}` }, 500);
         }
