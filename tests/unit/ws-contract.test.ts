@@ -387,7 +387,7 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
     ]);
   });
 
-  test('shell: command required, cwd/output/exitCode optional', () => {
+  test('shell: command required, cwd/output/exitCode/description optional', () => {
     const shell = variantsOf(toolCallDetailSchema).find((o) =>
       objectSignature(o).literalKeys.type === 'shell',
     );
@@ -396,7 +396,8 @@ describe('WS-04 contract: toolCallDetailSchema (NORM-01)', () => {
     expect(sig.requiredKeys).toEqual(['command', 'type']);
     // `background` joined the shell variant (a Bash run with run_in_background)
     // — additive + optional, so backward-compatible with older clients.
-    expect([...sig.optionalKeys].sort()).toEqual(['background', 'cwd', 'exitCode', 'output']);
+    // Same for `description` (the Bash label): an older shell's zod strips it.
+    expect([...sig.optionalKeys].sort()).toEqual(['background', 'cwd', 'description', 'exitCode', 'output']);
   });
 
   test('search.toolName enum is locked', () => {

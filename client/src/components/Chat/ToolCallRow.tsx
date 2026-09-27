@@ -373,7 +373,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             {label ?? display.name}
           </span>
           {display.summary && (
-            <span className="min-w-0 flex items-baseline text-mini text-app-text-secondary font-mono">
+            <span className="min-w-0 flex items-baseline text-mini text-app-text-secondary font-mono" title={display.tooltip}>
               <span className="flex-shrink-0">(</span>
               <span className="truncate">{display.summary}</span>
               <span className="flex-shrink-0">)</span>
