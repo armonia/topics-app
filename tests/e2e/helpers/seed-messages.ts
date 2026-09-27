@@ -8,6 +8,8 @@ export interface SeedToolCall {
   name: string;
   args: Record<string, any>;
   status?: "pending" | "running" | "success" | "error" | "waiting_for_input" | "awaiting_permission";
+  /** Typed detail, persisted verbatim: a row as the provider stored it. */
+  detail?: Record<string, unknown>;
   result?: string;
   error?: string;
   /** Persisted verbatim by the seed endpoint. With status "waiting_for_input"
