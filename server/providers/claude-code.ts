@@ -1148,9 +1148,9 @@ interface PersistentProcess {
   /** The CLI's last `system/api_retry` (`claude/api-outage.ts`): the child
    *  working, not silence, for `quietSince`; its last word, for the watchdog. */
   lastApiRetry?: ApiRetryMark;
-  /** Which ai-bridge daemon holds this child (`AiBridgeClient.daemonEpoch`):
+  /** Which ai-bridge daemon holds this child (`AiBridgeClient.daemonPid`):
    *  missing under another one at a resync is a daemon death, not a child's. */
-  daemonEpoch?: number;
+  daemonPid?: number | null;
   /**
    * A `system/task_notification` arrived and its turn has not ended yet: the
    * next empty `result` with no model turn in it is the notification's answer,
@@ -2652,7 +2652,7 @@ export class ClaudeCodeProvider implements AIProvider {
         // `bun run dev` lasciata da questa sessione è indistinguibile da una
         // uguale avviata altrove. Vedi `providers/session-pids.ts`.
         .then(async ({ pid, resumed }) => {
-          pp.daemonEpoch = client.daemonEpoch;
+          pp.daemonPid = client.daemonPid;
           setSessionCliPid(sessionKey, pid);
           // A card's CLI steps aside for the person (KANBAN-78): demoted by
           // pid because the broker spawned it, and its children inherit.
@@ -2949,7 +2949,7 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.replayAfterLastResultOffset = 0;
     pp.replayRowTurns = undefined;
     const scan = await client.attach(sessionKey, 0);
-    pp.daemonEpoch = client.daemonEpoch;
+    pp.daemonPid = client.daemonPid;
     dateReplay(pp, scan);
     return { missing: scan.missing === true, alive: scan.alive === true };
   }
@@ -3063,7 +3063,7 @@ export class ClaudeCodeProvider implements AIProvider {
       // catch below without finalizing anything.
       if (res.missing || !res.alive) {
         // Missing under another daemon: the one holding the child died with it.
-        const cause: StopCause = res.missing && pp.daemonEpoch !== undefined && pp.daemonEpoch !== getAiBridgeClient().daemonEpoch
+        const cause: StopCause = res.missing && pp.daemonPid !== undefined && pp.daemonPid !== getAiBridgeClient().daemonPid
           ? "broker-died" : "process-died";
         console.warn(`[claude-code] Stream resync for ${sessionKey}: the broker no longer has a live child — finalizing the turn as died (${cause})`);
         this.finalizeDeadReattach(pp, cause);

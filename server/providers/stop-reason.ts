@@ -173,8 +173,8 @@ export type StopCause =
    * Not `process-died`: the CLI did not fail, the process hosting it went
    * away (25/09 12:57, an orphaned daemon shut itself down and took four live
    * CLIs with it). A fresh daemon answers "no such session" to the resync, and
-   * the turn is resumed like a restart. Told apart by the daemon epoch
-   * (`AiBridgeClient.daemonEpoch`): the child was spawned under another daemon.
+   * the turn is resumed like a restart. Told apart by the daemon's pid
+   * (`AiBridgeClient.daemonPid`): the child was spawned under another daemon.
    */
   | "broker-died";
 

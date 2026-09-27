@@ -173,13 +173,66 @@ describe("claude-code provider · broker turns always reach the end", () => {
     } as any).catch((e: Error) => { ended = ended ?? `rejected:${e.message}`; return {}; });
 
     await new Promise((r) => setTimeout(r, 400));
-    const epoch = getAiBridgeClient().daemonEpoch;
+    const daemon = getAiBridgeClient().daemonPid;
     // The daemon drops the session at once; the client drops its handler, so
     // no `exit` frame reaches the provider and only the resync can tell.
     getAiBridgeClient().kill(sessionKey);
     expect(await provider.resyncStream(sessionKey)).toBe(false);
     await turn;
-    expect(getAiBridgeClient().daemonEpoch).toBe(epoch);
+    expect(getAiBridgeClient().daemonPid).toBe(daemon);
+    expect(ended).toBe("process-died");
+
+    provider.stop();
+  }, 30000);
+
+  test("a spawn that finds the old daemon still answering is no new daemon: a child gone under it is process-died", async () => {
+    // One failed connect with the daemon alive (a slow accept under load) is
+    // enough for the client to spawn another. The new one finds the old one
+    // healthy and exits, and the client reconnects to the old one: nothing
+    // died. Counting spawns, a child that later vanished under that same
+    // daemon ended as `broker-died` and was resent up to four times, each one
+    // a paid turn (verifier of 27/09: "epoch 1 -> 2, pid 59814 -> 59814").
+    const sessionKey = "topic:resilience-spurious-spawn";
+    await seedTopic(sessionKey, "t-spur");
+    setEnv("TOPICS_CLAUDE_CLI_PATH", writeFakeCli("fake-claude-spurious-spawn.sh", "30"));
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+
+    const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    provider.start();
+    let ended = null as string | null;
+    const turn = provider.sendChat(sessionKey, "sei", {
+      onTextDelta: () => {}, onToolStart: () => {}, onToolResult: () => {},
+      onSubAgentUpdate: () => {}, onUserInputRequired: () => {},
+      onAborted: (info: any) => { ended = info?.turnEnd?.cause ?? info?.turnEnd?.end ?? "aborted"; },
+      onDone: () => { ended = "done"; },
+      onError: () => { ended = "error"; },
+    } as any).catch((e: Error) => { ended = ended ?? `rejected:${e.message}`; return {}; });
+    await new Promise((r) => setTimeout(r, 400));
+
+    const client = getAiBridgeClient() as any;
+    const pidPath = SOCK.replace(/\.sock$/, ".pid");
+    const daemonPid = readFileSync(pidPath, "utf8").trim();
+    const realTryConnect = client.tryConnect;
+    let failed = false;
+    client.tryConnect = function (this: unknown) {
+      if (!failed) { failed = true; return Promise.resolve(false); }
+      return realTryConnect.call(this);
+    };
+    try {
+      client.socket.destroy();
+      const until = Date.now() + 10_000;
+      while (!(failed && client.ready) && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+      expect(failed && client.ready).toBe(true);
+    } finally {
+      delete client.tryConnect;
+    }
+    expect(readFileSync(pidPath, "utf8").trim()).toBe(daemonPid);
+    expect(String(getAiBridgeClient().daemonPid)).toBe(daemonPid);
+
+    getAiBridgeClient().kill(sessionKey);
+    expect(await provider.resyncStream(sessionKey)).toBe(false);
+    await turn;
     expect(ended).toBe("process-died");
 
     provider.stop();
