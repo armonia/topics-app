@@ -29,10 +29,22 @@ import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 
 export function AgentLines() {
   const tr = useT();
-  const { working, awaitingInput, finished } = useActiveAgentRows(useTerminalSessions(), useTopics());
+  const { working, background, awaitingInput, finished } = useActiveAgentRows(useTerminalSessions(), useTopics());
   return (
     <div className="max-h-[240px] overflow-y-auto py-1">
       {working.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="active-agent-row" alive />)}
+      {/* THE CHATS WAITING ON WORK THEIR LAST TURN LEFT RUNNING. Counted by the
+          badge with the working ones, because that work holds a CLI in RAM
+          right now; a list of their own, because no turn is open and the chat
+          is free, and this row is what says which one to stop. */}
+      {background.length > 0 && (
+        <>
+          <div className={`px-3 pb-0.5 pt-1.5 text-micro uppercase tracking-wide ${CHIP_INK_DIM}`}>
+            {tr('statusBar.agents.backgroundHeading')}
+          </div>
+          {background.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="background-agent-row" tone={CHIP_INK_DIM} />)}
+        </>
+      )}
       {awaitingInput.length > 0 && (
         <>
           <div className={`px-3 pb-0.5 pt-1.5 text-micro uppercase tracking-wide ${SEGNALE_ATTESA}`}>
@@ -55,7 +67,7 @@ export function AgentLines() {
           {finished.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="finished-agent-row" tone={CHIP_INK_DIM} />)}
         </>
       )}
-      {working.length === 0 && awaitingInput.length === 0 && finished.length === 0 && (
+      {working.length === 0 && background.length === 0 && awaitingInput.length === 0 && finished.length === 0 && (
         <div className="px-3 py-2 text-mini text-app-text-secondary">{tr('statusBar.agents.none')}</div>
       )}
     </div>

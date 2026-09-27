@@ -35,8 +35,10 @@
  */
 
 import { LoaderCircle } from 'lucide-react';
-import { useTopicLoading, useTopicAwaitingInput, useProjectLoading, useProjectAwaitingInput, useTerminalLoading, useBrowserLoading } from '../../state/signals';
+import { useTopicLoading, useTopicAwaitingInput, useTopicBackgroundWork, useProjectLoading, useProjectAwaitingInput, useProjectBackgroundWork, useTerminalLoading, useBrowserLoading } from '../../state/signals';
+import type { TopicBackgroundWork } from '../../state/backgroundWork';
 import { useT } from '../../hooks/useT';
+import { loaderStateFor, type LoaderState } from './loaderState';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
 
@@ -91,7 +93,24 @@ const TRACK_WASH = 'color-mix(in srgb, currentColor 22%, transparent)';
  */
 const ARC_STROKE = (STROKE / GLYPH) * 24;
 
-export function OrbitLoader({ className = '', still = false }: { className?: string; still?: boolean }) {
+/**
+ * The arc of each state. THE WAIT: the same arc, frozen and amber. A turn
+ * parked on a question is open and NOT grinding, and a turning arc would credit
+ * it with work it is not doing. The amber is the tint of the 'input' tier
+ * (TIER_INPUT_BG in selectionStyles): where the fill says "your move", the glyph
+ * says the same. Frozen is not off, so it breathes slowly.
+ *
+ * THE BACKGROUND: grey and slow. No turn is open, so it cannot be the blue of a
+ * reply (that one says a message would queue), and nothing waits for you, so it
+ * cannot be the amber. It still turns, because the work it stands for does.
+ */
+const ARC: Record<LoaderState, string> = {
+  working: 'animate-orbit-spin text-[var(--primary)]',
+  waiting: 'animate-orbit-breath text-amber-500',
+  background: 'animate-orbit-slow text-app-text-tertiary',
+};
+
+export function OrbitLoader({ className = '', state = 'working' }: { className?: string; state?: LoaderState }) {
   const box = { width: GLYPH, height: GLYPH } as const;
   return (
     <span
@@ -109,15 +128,10 @@ export function OrbitLoader({ className = '', still = false }: { className?: str
           maskImage: DONUT_MASK,
         }}
       />
-      {/* THE WAIT: the same arc, frozen and amber. A turn parked on a question
-          is open and NOT grinding, and a turning arc would credit it with work
-          it is not doing. The amber is the tint of the 'input' tier
-          (TIER_INPUT_BG in selectionStyles): where the fill says "your move",
-          the glyph says the same. Frozen is not off, so it breathes slowly. */}
       <LoaderCircle
         size={GLYPH}
         strokeWidth={ARC_STROKE}
-        className={`absolute inset-0 ${still ? 'animate-orbit-breath text-amber-500' : 'animate-orbit-spin text-[var(--primary)]'}`}
+        className={`absolute inset-0 ${ARC[state]}`}
       />
     </span>
   );
@@ -129,9 +143,9 @@ interface LoaderSlotProps {
   className?: string;
   /** Box size in px (square). Default 16, the shared slot on every surface. */
   size?: number;
-  /** Il turno è aperto ma FERMO ad aspettare una risposta: glifo immobile
-   *  ambra invece dell'onda, e il tooltip lo dice. */
-  waiting?: boolean;
+  /** `waiting`: the turn is open but parked on an answer. `background`: no
+   *  turn open, work left running. See `loaderState.ts`. */
+  state?: LoaderState;
 }
 
 /**
@@ -148,17 +162,17 @@ interface LoaderSlotProps {
  * command can carry a label, a tooltip and a keyboard focus. What is left here
  * only ever answers "is it working".
  */
-function LoaderSlot({ title, className = '', size = 16, waiting = false }: LoaderSlotProps) {
-  const tip = title ?? (waiting ? 'Ferma: in attesa di una tua risposta' : 'In esecuzione');
+function LoaderSlot({ title, className = '', size = 16, state = 'working' }: LoaderSlotProps) {
+  const tip = title ?? (state === 'waiting' ? 'Ferma: in attesa di una tua risposta' : 'In esecuzione');
   return (
     <span
       className={`flex-shrink-0 inline-flex items-center justify-center ${className}`}
       style={{ width: size, height: size }}
       title={tip}
       aria-label={tip}
-      data-loader-state={waiting ? 'waiting' : 'working'}
+      data-loader-state={state}
     >
-      <OrbitLoader still={waiting} />
+      <OrbitLoader state={state} />
     </span>
   );
 }
@@ -215,7 +229,16 @@ export function TopicStreamingSpinner({
   // non lavora: cambia il glifo, non l'esistenza dell'indicatore. Prima fuori
   // dalla chat una domanda a schermo si leggeva identica a un turno che macina.
   const waiting = useTopicAwaitingInput(topicId);
-  if (!streaming) return null;
+  const background = useTopicBackgroundWork(topicId);
+  const tr = useT();
+  const state = loaderStateFor({ loading: streaming, waiting, background: !!background });
+  if (!state) return null;
+  // No turn open: the grey glyph of the work left running (or the amber over
+  // it), never the labeled clock, which times a turn.
+  if (!streaming) {
+    const tip = state === 'background' && background ? backgroundTip(tr, background) : undefined;
+    return <LoaderSlot title={title ?? tip} className={className} size={size} state={state} />;
+  }
   // `labeled` (sidebar) shows the elapsed-since-last-update + stale treatment via
   // LabeledLoader, which mounts only here (while streaming) so the shared clock
   // ticks only for working rows. `compact` (tab bar) stays the bare glyph.
@@ -232,7 +255,14 @@ export function TopicStreamingSpinner({
     );
   }
   const tip = title ?? (waiting ? 'Ferma: in attesa di una tua risposta' : 'Streaming');
-  return <LoaderSlot title={tip} className={className} size={size} waiting={waiting} />;
+  return <LoaderSlot title={tip} className={className} size={size} state={waiting ? 'waiting' : 'working'} />;
+}
+
+/** How much runs, and that the chat is free: the one thing the grey glyph cannot say on its own. */
+function backgroundTip(tr: ReturnType<typeof useT>, work: TopicBackgroundWork): string {
+  const n = work.tasks.length;
+  if (n === 0) return tr('chat.background.resuming');
+  return n === 1 ? tr('topic.backgroundOne') : tr('topic.backgroundMany', { n });
 }
 
 /**
@@ -285,7 +315,7 @@ function LabeledLoader({
   const showNumber = quiet ? isStale : showElapsed;
   // Under the threshold (or no trustworthy last-update): exactly the compact spinner.
   if (!showNumber) {
-    return <LoaderSlot title={tip} className={`${className} ${isStale ? 'opacity-70' : ''}`} size={size} waiting={waiting} />;
+    return <LoaderSlot title={tip} className={`${className} ${isStale ? 'opacity-70' : ''}`} size={size} state={waiting ? 'waiting' : 'working'} />;
   }
   return (
     <span className={`inline-flex items-center gap-1 ${className}`}>
@@ -297,7 +327,7 @@ function LabeledLoader({
       >
         {formatElapsedCompact(elapsedMs)}
       </span>
-      <LoaderSlot title={tip} size={size} className={isStale ? 'opacity-70' : ''} waiting={waiting} />
+      <LoaderSlot title={tip} size={size} className={isStale ? 'opacity-70' : ''} state={waiting ? 'waiting' : 'working'} />
     </span>
   );
 }
@@ -324,14 +354,15 @@ export function ProjectStreamingSpinner({
   // quello di una chat: sulla stessa riga il fill era già ambra e l'onda blu lo
   // contraddiceva — un segno diceva «tocca a te», l'altro «lascialo lavorare».
   const waiting = useProjectAwaitingInput(projectPath);
-  if (!loading) return null;
-  return (
-    <LoaderSlot
-      title={title ?? (waiting ? tr('project.chatWaits') : tr('project.chatAnswers'))}
-      className={className}
-      waiting={waiting}
-    />
-  );
+  // Chats of this project whose closed turn left work running: the grey glyph,
+  // below any turn that answers or waits (`loaderStateFor`).
+  const background = useProjectBackgroundWork(projectPath);
+  const state = loaderStateFor({ loading, waiting, background: background > 0 });
+  if (!state) return null;
+  const tip = state === 'waiting' ? tr('project.chatWaits')
+    : state === 'working' ? tr('project.chatAnswers')
+      : tr('project.chatBackground', { n: background });
+  return <LoaderSlot title={title ?? tip} className={className} state={state} />;
 }
 
 interface TerminalSpinnerProps {

@@ -36,9 +36,11 @@
  * menu: two families of digits in one 240px row is the pile this redesign was
  * called in to undo, and the sentence that explains them was always in the
  * panel anyway. One number comes back out, as a pill and not as a glyph: how
- * many agents are WORKING right now, because that is the one figure you want
- * without opening anything, and it is the same list the menu names row by row
- * (`useActiveAgentRows`), so the pill and the list cannot disagree.
+ * many agents are WORKING right now, a chat waiting on work its last turn left
+ * running included, because that is the one figure you want without opening
+ * anything, and it is the same list the menu names row by row
+ * (`useActiveAgentRows`, `activeAgentCount`), so the pill and the list cannot
+ * disagree.
  */
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { Monitor, Smartphone } from 'lucide-react';
@@ -56,7 +58,7 @@ import { TopicsLoadDot } from './TopicsLoadDot';
 import { friendChips, firstName } from './friendChips';
 import { useFriendPresence } from '@/hooks/useFriendPresence';
 import { workSignals } from './workSignals';
-import { useActiveAgentRows, useAgentActivityCounts } from '@/state/signals';
+import { activeAgentCount, useActiveAgentRows, useAgentActivityCounts } from '@/state/signals';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 import { useLoad } from '@/state/systemLoad';
@@ -185,8 +187,13 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
   const roster = useTerminalSessions();
   const topics = useTopics();
   const agentCounts = useAgentActivityCounts(roster, topics);
-  // The badge counts the SAME rows the menu lists: badge === active-agent-row.
-  const workingAgents = useActiveAgentRows(roster, topics).working.length;
+  // The badge counts the SAME rows the menu lists: the working ones and the
+  // chats waiting on background work (active-agent-row + background-agent-row).
+  const agentRows = useActiveAgentRows(roster, topics);
+  const activeAgents = activeAgentCount(agentRows);
+  const agentsTitle = agentRows.background.length > 0
+    ? tr('statusBar.signals.withBackground', { n: activeAgents, b: agentRows.background.length })
+    : tr('statusBar.signals.working', { n: activeAgents });
   const load = useLoad();
   useEffect(() => subscribeSession(setSession), []);
 
@@ -278,12 +285,12 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
             dot, so a badge appearing does not shove the name or the digits:
             the row is `ml-auto` up to here and only the dot moves. Rendered
             only above zero, so a closed test can ask for its absence. */}
-        {workingAgents > 0 && (
+        {activeAgents > 0 && (
           <span data-testid="identity-agents-badge" className="flex flex-shrink-0 items-center">
             <NotificationBadge
-              count={workingAgents}
-              title={tr('statusBar.signals.working', { n: workingAgents })}
-              ariaLabel={tr('statusBar.signals.working', { n: workingAgents })}
+              count={activeAgents}
+              title={agentsTitle}
+              ariaLabel={agentsTitle}
             />
           </span>
         )}
