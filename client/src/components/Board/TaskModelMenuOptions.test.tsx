@@ -146,6 +146,52 @@ describe('the task model rows', () => {
   });
 });
 
+// Auto on a task is not a choice of its own: the dispatcher runs the board's
+// default model (`task.model ?? settings.model`). The switch has to judge that
+// value, or it offers ON for a Codex board and the card parks with "Topics
+// routing cannot dispatch to codex".
+describe('the Topics routing switch on an Automatic task', () => {
+  const ready = (name: string, models: string[]) => ({ name, label: name, status: 'ready' as const, isDefault: false, models, capabilities: ['coding-tasks'], requirements: [], fetchedAt: '2026-09-12T00:00:00Z' });
+  const FLEET: ProvidersSnapshot = {
+    defaultProvider: 'codex',
+    generatedAt: '2026-09-12T00:00:00Z',
+    providers: [ready('claude-code', ['claude-sonnet-5']), ready('codex', ['gpt-5.5']), ready('topics', ['claude-sonnet-5'])],
+  };
+  const routingSwitch = (boardValue: string | null, enabled = false) => renderToStaticMarkup(
+    <TaskModelMenuOptions snapshot={FLEET} models={[]} value={null} boardValue={boardValue} onSelect={() => {}} autoLabel="Auto" topicsRouting={{ enabled, onToggle: () => {} }} />,
+  ).match(/<button[^>]*data-testid="ai-selector-topics-routing"[^>]*>.*?<\/button>/s)![0];
+
+  for (const board of ['codex', 'codex:auto', 'gpt-5.5']) {
+    test(`a board default of ${board} disables the switch with the reason`, () => {
+      const drawn = routingSwitch(board);
+      expect(drawn).toMatch(/\sdisabled=""/);
+      expect(drawn).toContain('title="Non instradabile con la selezione attuale."');
+      expect(drawn).toContain('Non disponibile');
+    });
+  }
+
+  test('switched ON over a Codex board default it stays clickable, only to turn it off, and says why', () => {
+    const drawn = routingSwitch('codex', true);
+    expect(drawn).not.toMatch(/\sdisabled=""/);
+    expect(drawn).toContain('title="Non instradabile con la selezione attuale."');
+  });
+
+  for (const board of [null, 'auto', 'claude-code:claude-sonnet-5', 'topics:claude-sonnet-5']) {
+    test(`a board default of ${board} leaves the switch routable`, () => {
+      const drawn = routingSwitch(board);
+      expect(drawn).not.toMatch(/\sdisabled=""/);
+      expect(drawn).not.toContain('Non disponibile');
+    });
+  }
+
+  test('a model chosen on the task is judged on its own, not on the board default', () => {
+    const drawn = renderToStaticMarkup(
+      <TaskModelMenuOptions snapshot={FLEET} models={[]} value="claude-code:claude-sonnet-5" boardValue="codex" onSelect={() => {}} autoLabel="Auto" topicsRouting={{ enabled: false, onToggle: () => {} }} />,
+    ).match(/<button[^>]*data-testid="ai-selector-topics-routing"[^>]*>/)![0];
+    expect(drawn).not.toMatch(/\sdisabled=""/);
+  });
+});
+
 describe('one catalog for the three surfaces', () => {
   const surfaces = {
     composer: readFileSync(join(here, 'FloatingTaskComposer.tsx'), 'utf8'),
@@ -164,6 +210,11 @@ describe('one catalog for the three surfaces', () => {
   test('composer and drawer draw the shared rows instead of their own copy', () => {
     expect(surfaces.composer).toContain('<TaskModelMenuOptions');
     expect(surfaces.drawer).toContain('<TaskModelMenuOptions');
+  });
+
+  test('composer and drawer hand the rows the board default an Automatic task inherits', () => {
+    expect(surfaces.composer).toContain('boardValue={boardDispatchModel}');
+    expect(surfaces.drawer).toContain('boardValue={boardDispatchModel}');
   });
 
   test('each surface gives the catalog its stored value so a removed selection stays visible', () => {

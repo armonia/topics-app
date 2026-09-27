@@ -641,6 +641,7 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
               <TaskModelMenuOptions
                 models={models}
                 value={model}
+                boardValue={boardDispatchModel}
                 onSelect={(m) => { setModel(m); setModelOpen(false); }}
                 autoLabel={tr('board.composer.modelAuto')}
                 autoTitle={tr('board.composer.modelAutoOptionTitle')}
