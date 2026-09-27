@@ -93,6 +93,18 @@ export const FINESTRA_RIPRESA_MS = 24 * 60 * 60 * 1000;
 export const MAX_RESUME_ATTEMPTS = 4;
 
 /**
+ * How many resends into an API still down a message gets without spending an
+ * attempt (`probedApiStillDown`). Each resend is a row of its own, so the
+ * 24-hour window moves with the chain: without a ceiling, a failure that reads
+ * as an outage on one chat only, or a reload that forgets the last answer,
+ * resent the message about once an hour for good, each probe reopening the
+ * hold that stops every other chat and the board. Eight covers about six
+ * hours of holds doubling from ten minutes to an hour; the 25/09 blackout
+ * lasted eighty minutes.
+ */
+export const MAX_FREE_PROBES = 8;
+
+/**
  * THE QUESTION NOBODY ANSWERED. A chat whose LAST row is the person's message,
  * with no answer row after it, used to be read as "they resumed by hand" and
  * skipped. But that is also what a turn looks like when the server died BEFORE
@@ -449,7 +461,14 @@ const CHAIN_WALK_LIMIT = 64;
  * the answer it explains is one hop up.
  */
 export function attemptsInChain(db: Pick<Database, "query">, sessionKey: string, ultimoId: string): number {
+  return walkChain(db, sessionKey, ultimoId).attempts;
+}
+
+/** The walk behind `attemptsInChain`, which also counts the resends made:
+ *  the answer rows a resend opened, each led by the route's banner. */
+function walkChain(db: Pick<Database, "query">, sessionKey: string, ultimoId: string): { attempts: number; resends: number } {
   let max = 0;
+  let resends = 0;
   let id: string | null = ultimoId;
   for (let hop = 0; id && hop < CHAIN_WALK_LIMIT; hop++) {
     const row = db.query(
@@ -462,10 +481,11 @@ export function attemptsInChain(db: Pick<Database, "query">, sessionKey: string,
       const n = attemptsOnRow(blocks);
       if (n === 0 && hop > 0) break;
       max = Math.max(max, n);
+      if (blocks?.find((b) => b?.kind !== "woken")?.kind === "ripreso") resends++;
     }
     id = row.parent_id;
   }
-  return max;
+  return { attempts: max, resends };
 }
 
 /** La route della chat, iniettata: è la STESSA porta di un messaggio umano. */
@@ -588,7 +608,8 @@ export async function riprendiTurniInterrotti(
       if (r !== found) {
         try { blocks = JSON.parse(decodeCol(r.blocks) ?? "null") as ContentBlock[] | null; } catch { continue; }
       }
-      const attempts = attemptsInChain(ctx.db, r.sk, r.id);
+      const chain = walkChain(ctx.db, r.sk, r.id);
+      const attempts = chain.attempts;
       const topic = ctx.getTopicBySessionKey(r.sk);
       if (!topic || topic.archived) continue;
       const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false };
@@ -694,7 +715,8 @@ export async function riprendiTurniInterrotti(
       ).get(r.sk) as { content: unknown } | undefined;
       const messaggio = (decodeCol(dom?.content) ?? "").trim();
       if (!messaggio) continue;
-      const attempt = probedApiStillDown(blocks, row.timestampMs, lastApiAnswerMs()) ? attempts : attempts + 1;
+      const free = chain.resends - attempts < MAX_FREE_PROBES && probedApiStillDown(blocks, row.timestampMs, lastApiAnswerMs());
+      const attempt = free ? attempts : attempts + 1;
       candidati.push({ sessionKey: r.sk, messaggio, idTurno: resendRowId, blocks: rowBlocks, attempt, fresh });
     }
   } catch (err) {

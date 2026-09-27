@@ -9,7 +9,7 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
-  chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
+  chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_FREE_PROBES, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
   RESPONSE_CEILING_MS, STREAM_CEILING_MS, RESUME_CAP_MARKER, attemptsInChain, attemptsOnRow,
   resumeVerdict, resumeAttemptOf, type RigaDaValutare, USER_TAIL_GRACE_MS, UNANSWERED_NOTICE,
 } from "./ripresa-boot";
@@ -600,6 +600,41 @@ describe("la catena dei riavvii ha un tetto", () => {
       await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
       expect(calls.map((c) => c.ripresa), `answered: ${answered}, traced: ${traced}`).toEqual([expected]);
     }
+    resetProviderHoldStore();
+  });
+
+  /**
+   * The free probes have a ceiling of their own. Each resend is a new row, so
+   * the 24-hour window moves with the chain, and a probe with no answer since
+   * its row began spends nothing: a failure that looks like an outage on one
+   * chat only (no HTTP status, the rest of the fleet quiet), or a reload that
+   * forgets the last answer, resent a copy of the message about once an hour
+   * forever, each one reopening the hold that stops every other chat and the
+   * board. Past MAX_FREE_PROBES the probe is counted like any resend.
+   */
+  test("past MAX_FREE_PROBES a probe into an API still down spends its attempt", async () => {
+    clearProviderHold();
+    resetProviderHoldStore();
+    const db = freshDb();
+    const at = new Date(Date.now() - 30_000).toISOString();
+    const cut = { kind: "error", text: "Turno interrotto: l'API di Claude non rispondeva più.", cause: "api-unavailable", at };
+    const tool = { kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } };
+    const row = db.prepare(
+      "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,'topic:x',?,?,?,0,?,?,?,0)",
+    );
+    // The first resend was counted (attempt 1); every one after it met the API
+    // still down and kept that number.
+    row.run("a0", "assistant", "", JSON.stringify([tool, cut, { kind: "ripreso", attempt: 1 }]), at, 1, "u0");
+    let parent = "a0";
+    for (let i = 1; i <= MAX_FREE_PROBES + 1; i++) {
+      row.run(`u-${i}`, "user", MESSAGE, null, at, 2 * i, parent);
+      const traced = i <= MAX_FREE_PROBES ? [{ kind: "ripreso", attempt: 1 }] : [];
+      row.run(`a-${i}`, "assistant", "Request timed out", JSON.stringify([{ kind: "ripreso", attempt: 1 }, cut, ...traced]), at, 2 * i + 1, `u-${i}`);
+      parent = `a-${i}`;
+    }
+    const calls: Array<Record<string, unknown>> = [];
+    await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
+    expect(calls.map((c) => c.ripresa)).toEqual([2]);
     resetProviderHoldStore();
   });
 
