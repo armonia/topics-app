@@ -330,6 +330,40 @@ describe("una route che non risponde non pianta il boot", () => {
     expect(lines.join("\n")).toContain("non è finito entro");
   });
 
+  /**
+   * A REFUSED RESEND TELLS THE OPEN WINDOWS (card edf3c4db). The trace lands on
+   * a row the windows already hold, and no frame carried it: the resend's own
+   * end was meant to reload the row. A route that refuses (503
+   * `provider_unavailable`, a topic pinned to a provider that is not connected)
+   * starts nothing, and the windows kept the row without its trace until a
+   * reload.
+   */
+  test("a refused resend tells the open windows that the traced row changed", async () => {
+    const db = dbWithCutTurn();
+    const told: string[] = [];
+    await withWarn(() => riprendiTurniInterrotti(
+      { ...ctxOf(db), announceThreadChanged: (sk) => told.push(sk) },
+      () => Response.json({ error: "Provider unavailable", code: "provider_unavailable" }, { status: 503 }),
+    ));
+    expect(told).toEqual(["topic:x"]);
+  });
+
+  test("a resend that answers leaves the row to the frames of its own turn", async () => {
+    const db = dbWithCutTurn();
+    const told: string[] = [];
+    await withWarn(() => riprendiTurniInterrotti(
+      { ...ctxOf(db), announceThreadChanged: (sk) => told.push(sk) },
+      () => {
+        db.run(
+          "INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, branch_index) VALUES ('a1','topic:x','assistant','fatto',0,?,9,0)",
+          [new Date(Date.now() + 1_000).toISOString()],
+        );
+        return new Response(new ReadableStream({ start(c) { c.close(); } }), { status: 200 });
+      },
+    ));
+    expect(told).toEqual([]);
+  });
+
   test("i tetti di produzione sono minuti, non secondi", () => {
     // A tight ceiling would kill the real resumes: the response is headers,
     // the stream is the whole turn.

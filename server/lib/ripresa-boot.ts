@@ -344,6 +344,8 @@ export interface CtxRipresa {
    *  Absent: the notices reach the database only, and a window open on the
    *  chat shows them on its next history read. */
   broadcast?(msg: OutboundMessage): void;
+  /** The windows open on the chat read its thread again (`topic:updated` in production). */
+  announceThreadChanged?(sessionKey: string): void;
 }
 
 /** The last interruption verdict of a row: the cut, with its cause and its text. */
@@ -715,6 +717,7 @@ export async function riprendiTurniInterrotti(
     // hunt had to start from the source. With this line the next occurrence
     // says which of the two it is, before anyone opens an editor.
     console.log(`[ripresa] ${c.sessionKey}: rimando il messaggio alla route della chat (attempt ${c.attempt} di ${MAX_RESUME_ATTEMPTS})`);
+    let resumed = false;
     try {
       const url = new URL("http://localhost/api/chat");
       const body = JSON.stringify({
@@ -786,8 +789,12 @@ export async function riprendiTurniInterrotti(
         return;
       }
       console.log(`[ripresa] ${c.sessionKey}: turno ripreso`);
+      resumed = true;
     } catch (err) {
       console.warn(`[ripresa] ${c.sessionKey}: la ripresa non è riuscita:`, err);
+    } finally {
+      // The resend's end reloads the traced row; one that brought no answer does not (card edf3c4db).
+      if (!resumed && !c.fresh) ctx.announceThreadChanged?.(c.sessionKey);
     }
   }
 }
