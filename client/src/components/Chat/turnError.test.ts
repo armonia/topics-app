@@ -71,6 +71,22 @@ describe('turnIsOnlyError — il cancello del bottone Riprova', () => {
   test('nessun errore, nessun bottone', () => {
     expect(turnIsOnlyError({ content: 'tutto bene' })).toBe(false);
   });
+
+  /**
+   * The resume sweep traces the restart notice before it resends, and a
+   * refused resend (503 `provider_unavailable`) leaves that trace behind with
+   * no answer after it. Counted as work, the trace took Retry off the notice
+   * that says "premi Riprova" exactly when nothing was resent (card edf3c4db).
+   * A resend that goes has its own row below, and Retry only ever sits on the
+   * last one.
+   */
+  test("the sweep's trace after the verdict is not work: a notice whose resend was refused keeps Retry", () => {
+    const notice = '⚠️ Turno interrotto da un riavvio del server. Il messaggio che hai inviato e\' ancora qui: premi Riprova per inviarlo di nuovo.';
+    expect(turnIsOnlyError({ content: notice, blocks: [errore(notice), { kind: 'ripreso', attempt: 1 }] })).toBe(true);
+    // The resent turn's own banner comes ahead of its verdict: that row is a
+    // turn the server ran, as before.
+    expect(turnIsOnlyError({ content: '', blocks: [{ kind: 'ripreso', attempt: 1 }, errore('x')] })).toBe(false);
+  });
 });
 
 /**
