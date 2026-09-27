@@ -200,11 +200,12 @@ export function testServerEnv(port: number = E2E_PORT): Record<string, string> {
     TOPICS_PTY_SOCKET: bridgeSocket("pty-bridge", port),
     // Stessa storia per il broker stream-json.
     TOPICS_AI_BRIDGE_SOCKET: bridgeSocket("ai-bridge", port),
-    // A bank daemon whose server died gives up after 15s, not the 90s meant for
+    // A bank daemon whose server died gives up after 60s, not the 90s meant for
     // a production restart. The teardown stops it anyway; this covers a run
-    // killed before its teardown. The two specs that restart the server test
-    // the browser and the terminal, not a claude turn surviving it.
-    TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "15000",
+    // killed before its teardown. It must outlast a restart: chat-join-mid-turn
+    // keeps a claude turn alive across restartTestServer, which allows the
+    // server 45s to come back, plus the monitor's 5s tick.
+    TOPICS_AI_BRIDGE_ORPHAN_GRACE_MS: "60000",
     // Every ai-bridge daemon this server starts inherits it, and the teardown
     // finds the run's leftovers by it (scripts/stray-ai-bridges.ts). The first
     // call writes it; the workers inherit it, so a restarted server shares it.

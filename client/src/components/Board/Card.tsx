@@ -162,8 +162,11 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
   // contract a review card must show its preview WHOLE, never scrolled
   // (tests/e2e/board-preview-cap.spec.ts, PREVIEW-CAP-02) caps how wide a
   // review column can get before the card taller than the column itself.
-  // Measured against that ceiling: 35rem/42rem is the widest step up from
-  // the old 32rem/44rem that still leaves headroom on a short viewport.
+  // Measured against that ceiling: a 35rem basis is the widest step up from
+  // the old 32rem that still leaves headroom on a short viewport. The lg cap
+  // stays at 44rem, the empty Review's: at 1280 the column sits on its basis
+  // and the cap never binds, while a lower cap would make a Review with work
+  // NARROWER than an empty one on a wide row.
   // An empty Review is unaffected (nothing there to overflow). `transition-
   // [flex-basis,max-width]` animates the claim/release instead of snapping.
   const reviewHasWork = isReview && (tasks.length > 0 || !!draft);
@@ -171,7 +174,7 @@ export function Column({ status, tasks, onOpen, onCreate, canCreate, showProject
     ? 'mx-auto w-full max-w-3xl'
     : `min-w-0 grow transition-[flex-basis,max-width] duration-200 ease-out ${
         reviewHasWork
-          ? 'basis-full sm:basis-[24rem] max-w-[36rem] lg:basis-[35rem] lg:max-w-[42rem]'
+          ? 'basis-full sm:basis-[24rem] max-w-[36rem] lg:basis-[35rem] lg:max-w-[44rem]'
           : isReview
             ? 'basis-full sm:basis-[22rem] max-w-[34rem] lg:basis-[32rem] lg:max-w-[44rem]'
             : 'basis-72 max-w-[26rem]'

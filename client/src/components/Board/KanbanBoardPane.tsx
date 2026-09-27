@@ -856,7 +856,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // non parla.
   const [showArchived, setShowArchived] = useState(false);
   // The alternative to the kanban: columns stacked vertically instead of side
-  // by side, each full width, empty ones skipped (see `Column`, `layout`
+  // by side, each as wide as the row up to a 48rem reading cap, centred, empty
+  // ones skipped (see `Column`, `layout`
   // prop). A preference the person flips on and off between sessions, not a
   // property of the task — localStorage, not the server: no board needs to
   // know which view you're looking at it in.
@@ -2016,7 +2017,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                 pointer that has not moved. Measured on 2026-09-08: a card
                 dropped on In Progress landed in Review, three times out of
                 three (BOARD-18), from the moment `scroll-smooth` left. */}
-            {/* List: one full-width column scrolling vertically, no
+            {/* List: one column scrolling vertically (sections capped at a
+                48rem reading width, centred), no
                 snap-carousel (there's nothing to peek at off to the side). */}
             <div ref={columnsScrollRef} className={boardLayout === 'list'
               ? 'flex h-full min-w-0 flex-col gap-2 overflow-y-auto px-2 pt-3 pb-36 scrollbar-standard sm:px-3'
