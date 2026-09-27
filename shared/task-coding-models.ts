@@ -240,13 +240,16 @@ export function taskProviderForModel(
 }
 
 /** A reused conversation must be a coding runtime and honor an explicit model.
- * A session the engine runs (`provider: 'topics'`: the switch ON with no
- * runtime pinned) is a Claude session, so a Claude target with its model
- * continues it. The dependent's own switch does not enter: a reused topic keeps
- * its routing, as one pinned to Claude Code always did. */
+ * A session bound to the engine with the switch ON (`provider: 'topics'`, no
+ * runtime pinned) is a Claude Code session the engine routes, so an explicit
+ * Claude Code target with its model continues it. With the switch OFF the
+ * engine is the runtime itself, not a route to Claude Code: continuing it would
+ * run on the engine a card that asks for Claude Code directly. The dependent's
+ * own switch does not enter: a reused topic keeps its routing, as one pinned to
+ * Claude Code always did. */
 export function taskModelMatchesSession(
   value: string | null | undefined,
-  session?: { provider?: string | null; model?: string | null } | null,
+  session?: { provider?: string | null; model?: string | null; topicsRouting?: boolean | null } | null,
 ): boolean {
   const selected = taskModelSelection(value);
   if (!session) return false;
@@ -257,7 +260,8 @@ export function taskModelMatchesSession(
     return provider === 'codex' && (!selected.model || selected.model === session.model);
   }
   if (selected.provider) {
-    const sameRuntime = provider === selected.provider || provider === 'topics';
+    const sameRuntime = provider === selected.provider
+      || (provider === 'topics' && !!session.topicsRouting && selected.provider === 'claude-code');
     return sameRuntime && (!selected.model || selected.model === session.model);
   }
   return CLAUDE_CODING_PROVIDERS.includes(provider) && selected.model === session.model;

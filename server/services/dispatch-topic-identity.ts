@@ -61,6 +61,11 @@ export function resolveDispatchTopicIdentity(
 export function dispatchTopicBinding(
   topic: { provider?: string | null; model?: string | null; topicsRouting?: boolean | null },
   defaultProvider: string | null | undefined,
-): { model?: string | null; provider?: string | null } {
-  return { model: topic.model, provider: topic.provider ?? (topic.topicsRouting ? 'topics' : defaultProvider) };
+): { model?: string | null; provider?: string | null; topicsRouting?: boolean | null } {
+  return {
+    model: topic.model,
+    provider: topic.provider ?? (topic.topicsRouting ? 'topics' : defaultProvider),
+    // The reuse gate tells an engine session routed for Claude Code from one the engine runs directly.
+    topicsRouting: topic.topicsRouting,
+  };
 }

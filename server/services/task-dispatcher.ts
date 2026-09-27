@@ -401,7 +401,7 @@ export interface DispatcherDeps {
    */
   topicExists?: (topicId: string) => boolean;
   /** The actual binding inherited when a dependent reuses its blocker's session. */
-  topicModelSelection?: (topicId: string) => { model?: string | null; provider?: string | null } | null;
+  topicModelSelection?: (topicId: string) => { model?: string | null; provider?: string | null; topicsRouting?: boolean | null } | null;
   /** Same coding-provider resolution as createTopic, including the live default
    *  and the Topics switch (with ON every selection runs on the native engine). */
   resolveTaskProvider?: (model?: string | null, topicsRouting?: boolean) => string;

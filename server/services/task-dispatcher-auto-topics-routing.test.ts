@@ -340,3 +340,39 @@ describe("A dependent naming Claude Code reuses a session the engine runs", () =
     }
   }
 });
+
+// The engine is the production default runtime, so with the switch OFF a plain
+// model pins its topic to the engine and runs there directly. That session is
+// not a Claude Code one: a dependent that names Claude Code with the switch OFF
+// asks for a direct Claude Code run (S3), and continuing the engine's session
+// would run it on the engine while the card says Claude Code.
+describe("A dependent naming Claude Code with the switch OFF does not continue the engine's own session", () => {
+  it("the blocker pinned to the engine with the switch OFF: the dependent parks with the reason", async () => {
+    const fleet = { defaultProvider: "topics", providers: [entry("claude-code", CLAUDE_MODELS), entry("codex", ["gpt-5.5"]), entry("topics", CLAUDE_MODELS)] } as unknown as ProvidersSnapshot;
+    const h = harness(fleet);
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchUseWorktree: true, dispatchTopicsRouting: false });
+    h.svc.setGlobalCap({ auto: false, max: 5 });
+    const ts = new Date().toISOString();
+    h.db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, topics_routing)
+       VALUES ('t1', ?, 'blocker', 'todo', ?, ?, 0, 'claude-sonnet-5', 0)`,
+      [PID, ts, ts],
+    );
+    await h.dispatcher.tick(PID);
+    await flush();
+    expect(h.topics).toEqual([{ provider: "topics", model: "claude-sonnet-5", topicsRouting: false, executor: "topics" }]);
+    h.db.run("UPDATE tasks SET status = 'done' WHERE id = 't1'");
+    h.db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, topics_routing, blocked_by_task_id, reuse_blocker_context)
+       VALUES ('t2', ?, 'dependent', 'todo', ?, ?, 0, 'claude-code:claude-sonnet-5', 0, 't1', 1)`,
+      [PID, ts, ts],
+    );
+    await h.dispatcher.tick(PID);
+    await flush();
+    const dependent = h.svc.get("t2")!.task;
+    expect(dependent).toMatchObject({ status: "backlog", dispatchState: "blocked" });
+    expect(dependent.dispatchError).toContain("non coincide con la sessione precedente");
+    expect(h.topics).toHaveLength(1);
+    expect(h.turnEnds).toHaveLength(1);
+  });
+});

@@ -141,6 +141,10 @@ describe('task coding models', () => {
     expect(taskModelMatchesSession('gpt-5.4', { provider: 'codex', model: 'gpt-5.3' })).toBe(false);
     expect(taskModelMatchesSession('claude-opus-5', { provider: 'topics', model: 'claude-opus-5' })).toBe(true);
     expect(taskModelMatchesSession('claude-opus-5', { provider: 'claude', model: 'claude-opus-5' })).toBe(false);
+    // A topic bound to the engine is a Claude Code session only with the switch ON.
+    expect(taskModelMatchesSession('claude-code:claude-opus-5', { provider: 'topics', model: 'claude-opus-5', topicsRouting: true })).toBe(true);
+    expect(taskModelMatchesSession('claude-code:claude-opus-5', { provider: 'topics', model: 'claude-opus-5', topicsRouting: false })).toBe(false);
+    expect(taskModelMatchesSession('jcode:claude-opus-5', { provider: 'topics', model: 'claude-opus-5', topicsRouting: true })).toBe(false);
     expect(taskModelMatchesSession('gpt-5.4', null)).toBe(false);
     expect(taskModelMatchesSession(undefined, { provider: 'codex', model: 'gpt-5.4' })).toBe(true);
   });
