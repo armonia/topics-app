@@ -21,7 +21,7 @@ const RUNNING_RE = /"status":"(running|pending|waiting_for_input|awaiting_permis
 const INTERRUPTED_RE = /Interrotto/;
 const INTERRUPTED_MARKER = "⚠️ Turno interrotto prima di una risposta finale: la sessione si è chiusa mentre un tool era ancora in corso (probabile comando che non è terminato). Il tool interessato risulta in errore qui sotto — puoi rilanciarlo o riprendere da qui.";
 
-type OrphanRow = { id: string; session_key: string | null; content: string | null; tool_calls: unknown; blocks: unknown };
+type OrphanRow = { id: string; session_key: string | null; content: string | null; tool_calls: unknown; blocks: unknown; end_reason: string | null };
 
 /** `liveSessions`: the chat sessions whose child the broker still lists alive at boot. */
 export function finalizeOrphanedRunningTools(db: Database, liveSessions: ReadonlySet<string>): void {
@@ -46,7 +46,7 @@ export function finalizeOrphanedRunningTools(db: Database, liveSessions: Readonl
     // zstd-compressed JSON (`shared/message-blob.ts`), so a `LIKE` on those
     // columns would find nothing.
     const rowIter = db.prepare(
-      `SELECT id, session_key, content, tool_calls, blocks FROM messages
+      `SELECT id, session_key, content, tool_calls, blocks, end_reason FROM messages
        WHERE timestamp >= date('now', '-30 days') AND partial = 0
          AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)
          AND ${NOT_ARCHIVED_SQL}`
@@ -97,9 +97,11 @@ export function finalizeOrphanedRunningTools(db: Database, liveSessions: Readonl
         // If the interrupted turn produced no final prose, add an explanation
         // so the user sees a reason instead of a bare unexplained error X. Not
         // on a live session: there only a permission panel was closed, not the
-        // turn.
+        // turn. Nor on a row the boot sweep cut: the restart notice right after
+        // it is the explanation, and a second one was handed back by
+        // send_chat_message as what the turn had written (card a57e6d4d).
         const hasProse = typeof r.content === "string" && r.content.trim().length > 0;
-        const content = hasProse || alive ? r.content : INTERRUPTED_MARKER;
+        const content = hasProse || alive || r.end_reason === "cut-by-restart" ? r.content : INTERRUPTED_MARKER;
         upd.run(content, tcStr, blStr, r.id); msgs++;
       }
     }
@@ -110,9 +112,11 @@ export function finalizeOrphanedRunningTools(db: Database, liveSessions: Readonl
     // unexplained error X. Give it the explanation. Idempotent: once content is
     // set the row no longer matches. Uses decoded text, since LIKE on
     // compressed blobs would not match; iterated for the same reason as above.
+    // A row the boot sweep cut is left out, as in the first pass.
     const explainIter = db.prepare(
       `SELECT id, tool_calls, blocks FROM messages WHERE role = 'assistant'
          AND (content IS NULL OR trim(content) = '')
+         AND COALESCE(end_reason, '') <> 'cut-by-restart'
          AND timestamp >= date('now', '-30 days') AND partial = 0
          AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)
          AND ${NOT_ARCHIVED_SQL}`

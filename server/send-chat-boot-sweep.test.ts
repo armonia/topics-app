@@ -48,18 +48,18 @@ afterAll(() => {
 
 const HALF = "Ecco la prima meta' della risposta, ";
 
-function turnCutMidway(tid: string, withRunningTool: boolean) {
+function turnCutMidway(tid: string, withRunningTool: boolean, prose = HALF) {
   const sessionKey = `topic:${tid}`;
   const now = new Date().toISOString();
   ctx.saveSingleTopic({ id: tid, name: tid, slug: tid, parentId: null, links: [], sessionKey, color: "#aabbcc", icon: "chat", createdAt: now, updatedAt: now, archived: false } as Topic);
   ctx.appendLocalMessage(sessionKey, "user", "ping");
   const partial = ctx.createPartialMessage(sessionKey, "assistant");
   // What the route had saved when the process died.
-  ctx.updateLastMessage(sessionKey, { content: HALF }, { rowId: partial.id } as never);
+  ctx.updateLastMessage(sessionKey, { content: prose }, { rowId: partial.id } as never);
   if (withRunningTool) {
     const tc = { id: "tc1", name: "Bash", args: { command: "sleep 600" }, status: "running", startedAt: Date.now() };
     ctx.addToolCallToLastMessage(sessionKey, tc as never, { rowId: partial.id });
-    ctx.updateLastMessage(sessionKey, { blocks: [{ kind: "text", text: HALF }, { kind: "tool", toolCall: tc }] as never }, { rowId: partial.id } as never);
+    ctx.updateLastMessage(sessionKey, { blocks: [...(prose ? [{ kind: "text", text: prose }] : []), { kind: "tool", toolCall: tc }] as never }, { rowId: partial.id } as never);
   }
   return partial.id;
 }
@@ -115,6 +115,18 @@ describe("send_chat_message across a server that died and booted", () => {
     expect(messages[at].blocks?.find((b) => b.kind === "tool")?.toolCall?.status).toBe("error");
     expect(messages[at + 1].content).toBe(RESTART_INTERRUPTED_MARKER);
     expect(messages.filter((m) => m.blocks?.some((b) => b.kind === "error")).map((m) => m.id)).toEqual([messages[at + 1].id]);
+  });
+
+  test("died during a tool before any prose: the row keeps its tool and no notice of its own, the restart notice is the only one", async () => {
+    const tid = "boot-tool-only";
+    const rowId = turnCutMidway(tid, true, "");
+    await expect(send(tid, serverThatDiesAndBoots(tid, rowId, 3)))
+      .rejects.toThrow(/closed from outside before it finished \(a restart or a watchdog\)\. It had written nothing\./);
+    const url = new URL(`http://t.test/api/topics/${tid}/messages?limit=50`);
+    const { messages } = await (await createTopicsRouter(ctx)(new Request(url), url, url.pathname, "GET"))!.json() as { messages: Array<{ id: string; content: string; blocks?: Array<{ kind: string; toolCall?: { status?: string } }> }> };
+    const at = messages.findIndex((m) => m.id === rowId);
+    expect([messages[at].content, messages[at].blocks?.find((b) => b.kind === "tool")?.toolCall?.status]).toEqual(["", "error"]);
+    expect(messages.slice(at + 1).map((m) => m.content)).toEqual([RESTART_INTERRUPTED_MARKER]);
   });
 
   test("died before anything was saved: nothing written, a warning against resending, the row left hidden", async () => {
