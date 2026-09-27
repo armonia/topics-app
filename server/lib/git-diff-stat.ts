@@ -7,6 +7,8 @@
  * listed as `A`. Two surfaces answering "what did this card change" with two
  * parsers would sooner or later answer it two ways.
  */
+import { lstat } from "node:fs/promises";
+import { join } from "node:path";
 import { gitRead } from "./git-porcelain";
 
 export interface DiffStatEntry {
@@ -21,10 +23,54 @@ export interface DiffStatEntry {
 
 /**
  * Cap on how many untracked files get folded in. A runaway worktree
- * (node_modules never gitignored, a build dir...) must not spawn thousands of
- * git processes: each one costs a `--no-index` spawn.
+ * (node_modules never gitignored, a build dir...) must not read thousands of
+ * files to draw a list nobody scrolls.
  */
 export const UNTRACKED_FILE_CAP = 500;
+
+/** git's own `core.bigFileThreshold` default: past it a file is diffed as binary. */
+const BIG_FILE_BYTES = 512 * 1024 * 1024;
+/** git looks for a NUL in this many leading bytes to call a file binary. */
+const BINARY_SNIFF_BYTES = 8000;
+const LINE_FEED = 0x0a;
+const UNTRACKED_READS_AT_ONCE = 16;
+
+/**
+ * What `git diff --no-index --numstat /dev/null <file>` prints for an
+ * untracked file, counted here instead. That was one git process per file, in
+ * sequence, and the chat's strip asks at the end of every turn: 50 untracked
+ * artifacts cost 685 ms and 50 spawns. A symlink is its target's path, one line
+ * with no newline; a NUL in the first 8000 bytes is binary (`-1`), as git has it.
+ */
+async function untrackedCounts(path: string): Promise<{ additions: number; deletions: number }> {
+  const binary = { additions: -1, deletions: -1 };
+  try {
+    const info = await lstat(path);
+    if (info.isSymbolicLink()) return { additions: 1, deletions: 0 };
+    if (!info.isFile()) return { additions: 0, deletions: 0 };
+    if (info.size > BIG_FILE_BYTES) return binary;
+    let lines = 0;
+    let seen = 0;
+    let last = LINE_FEED;
+    // Streamed: an untracked dump or video is counted without holding it in memory.
+    const reader = Bun.file(path).stream().getReader();
+    try {
+      for (let read = await reader.read(); !read.done; read = await reader.read()) {
+        const chunk = read.value;
+        if (seen < BINARY_SNIFF_BYTES && chunk.subarray(0, BINARY_SNIFF_BYTES - seen).includes(0)) return binary;
+        for (let i = chunk.indexOf(LINE_FEED); i !== -1; i = chunk.indexOf(LINE_FEED, i + 1)) lines++;
+        if (chunk.length) last = chunk[chunk.length - 1]!;
+        seen += chunk.length;
+      }
+    } finally {
+      // Closes the file when a binary stopped the read early.
+      reader.cancel().catch(() => {});
+    }
+    return { additions: seen && last !== LINE_FEED ? lines + 1 : lines, deletions: 0 };
+  } catch {
+    return { additions: 0, deletions: 0 };
+  }
+}
 
 /** Run a read-only git in `cwd`. Never throws: a missing git or a vanished directory is code 1. */
 export async function runGitRead(cwd: string, args: string[]): Promise<{ code: number; text: string }> {
@@ -68,9 +114,10 @@ function lineCount(raw: string | undefined): number {
  *
  * `includeUntracked` folds in the files git does not track yet: plain `git
  * diff` ignores them, so a task whose only output is a brand-new file would
- * read as an empty diff. They come back as `A`, counted against /dev/null (no
- * index mutation), and are also returned in `untracked` for a caller that
- * wants their patch. Only meaningful when the range ends on the working tree.
+ * read as an empty diff. They come back as `A`, counted as git counts them
+ * against /dev/null (`untrackedCounts`), and are also returned in `untracked`
+ * for a caller that wants their patch. Only meaningful when the range ends on
+ * the working tree.
  */
 export async function gitDiffStat(
   cwd: string,
@@ -97,12 +144,13 @@ export async function gitDiffStat(
   if (opts.includeUntracked) {
     // -z: NUL-separated, so paths with spaces/newlines survive intact.
     const others = (await runGitRead(cwd, ["ls-files", "--others", "--exclude-standard", "-z"])).text;
-    for (const f of others.split("\0").filter(Boolean).slice(0, opts.untrackedCap ?? UNTRACKED_FILE_CAP)) {
-      // A pure file compare, no index touched; exit code 1 just means "differs".
-      const ns = (await runGitRead(cwd, ["diff", "--no-index", "--numstat", "--", "/dev/null", f])).text;
-      const parts = (ns.split("\n").find(Boolean) ?? "").split("\t");
-      stat.push({ path: f, additions: lineCount(parts[0]), deletions: lineCount(parts[1]), status: "A" });
-      untracked.push(f);
+    const files = others.split("\0").filter(Boolean).slice(0, opts.untrackedCap ?? UNTRACKED_FILE_CAP);
+    // A few at a time: 500 open files at once would compete with the server's own descriptors.
+    for (let i = 0; i < files.length; i += UNTRACKED_READS_AT_ONCE) {
+      const batch = files.slice(i, i + UNTRACKED_READS_AT_ONCE);
+      const counts = await Promise.all(batch.map((f) => untrackedCounts(join(cwd, f))));
+      batch.forEach((f, j) => stat.push({ path: f, ...counts[j]!, status: "A" }));
+      untracked.push(...batch);
     }
   }
   return { stat, untracked };

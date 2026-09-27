@@ -337,6 +337,18 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
     expect(byPath[join(elsewhere, "package.json")]!.inRange).toBeUndefined();
   });
 
+  test("a conversation that ran no tool asks git nothing, even with a dirty worktree", async () => {
+    // The route runs at the end of every turn. Without a tool call no shell
+    // command, sub-agent or write ran, so nothing on disk is this topic's.
+    const { ctx, wt, topic, changes } = await liveWorktreeTopic(`chat-only-${Date.now()}`, true);
+    writeFileSync(join(wt, "left-by-someone.md"), "x\n");
+    ctx.appendImportedMessages(topic.sessionKey, [
+      { id: `m-${Date.now()}`, role: "assistant", content: "just talking", timestamp: new Date().toISOString() },
+    ]);
+
+    expect(await changes()).toEqual({ files: [], git: null });
+  });
+
   test("a file the chat wrote stays listed past the untracked cap", async () => {
     const { ctx, wt, topic, changes } = await liveWorktreeTopic(`untracked-${Date.now()}`, true);
     mkdirSync(join(wt, "artifacts"), { recursive: true });

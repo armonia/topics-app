@@ -127,10 +127,10 @@ export function refineKind(toolKind: "created" | "modified", xy: string | null):
 /** Beyond this many paths a single git invocation stops being one command. */
 export const MAX_GIT_PATHS = 400;
 /**
- * Untracked files cost one `--no-index` spawn each: count the first few only.
- * On a range the ones past it are not listed at all, which is what the drawer
- * does past its own, larger cap; a file a tool call wrote is listed anyway,
- * through the tool-call half.
+ * Untracked files cost a count each (a `--no-index` spawn here, a file read on
+ * a range): count the first few only. On a range the ones past it are not
+ * listed at all, which is what the drawer does past its own, larger cap; a file
+ * a tool call wrote is listed anyway, through the tool-call half.
  */
 const MAX_UNTRACKED_COUNTS = 50;
 
@@ -378,7 +378,9 @@ export async function computeTopicChanges(
   anchors?: TopicRangeAnchors | null,
 ): Promise<TopicChanges> {
   const touched = aggregateTouchedFiles(messages);
-  if (anchors) {
+  // The range runs at the end of every turn; a conversation that ran no tool
+  // (no write, no shell, no sub-agent) changed nothing, and asks git nothing.
+  if (anchors && messages.some((m) => m.toolCalls?.length)) {
     const fromRange = await rangeChanges(anchors, touched);
     if (fromRange) return fromRange;
   }

@@ -2,11 +2,11 @@
  * @covers KANBAN-49
  */
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gitDiffBundle } from "./tasks";
-import { numstatPath } from "../lib/git-diff-stat";
+import { gitDiffStat, numstatPath } from "../lib/git-diff-stat";
 
 // gitDiffBundle drives a real `git` — these tests build a throwaway repo per case
 // and assert the untracked-inclusion contract that keeps new-file-only deliveries
@@ -90,6 +90,27 @@ describe("gitDiffBundle untracked inclusion", () => {
     const bundle = await gitDiffBundle(dir, base2, { includeUntracked: true });
     expect(bundle.stat.some((s) => s.path === "ignored.txt")).toBe(false);
     expect(bundle.stat.some((s) => s.path === "wanted.txt")).toBe(true);
+  });
+
+  test("an untracked file is counted the way `git diff --no-index --numstat` counts it", async () => {
+    // The count is taken without a git spawn per file: it must still be git's.
+    writeFileSync(join(dir, "text.txt"), "a\nb\n");
+    writeFileSync(join(dir, "no-newline.txt"), "a\nb");
+    writeFileSync(join(dir, "crlf.txt"), "a\r\nb\r\n");
+    writeFileSync(join(dir, "empty.txt"), "");
+    writeFileSync(join(dir, "blob.bin"), Buffer.from([0x61, 0x00, 0x62, 0x0a]));
+    symlinkSync("text.txt", join(dir, "link"));
+    const names = ["blob.bin", "crlf.txt", "empty.txt", "link", "no-newline.txt", "text.txt"];
+    const byGit = async (f: string): Promise<[number, number]> => {
+      const p = Bun.spawn(["git", "diff", "--no-index", "--numstat", "--", "/dev/null", f], { cwd: dir, stdout: "pipe" });
+      const [a, d] = (await new Response(p.stdout).text()).split("\t");
+      return [a === "-" ? -1 : Number(a), d === "-" ? -1 : Number(d)];
+    };
+
+    const { stat } = await gitDiffStat(dir, base, { includeUntracked: true });
+    const counted = Object.fromEntries(stat.map((s) => [s.path, [s.additions, s.deletions]]));
+    expect(Object.keys(counted).sort()).toEqual(names);
+    for (const f of names) expect([f, ...counted[f]!]).toEqual([f, ...(await byGit(f))]);
   });
 
   test("paths with spaces survive (-z NUL split)", async () => {
