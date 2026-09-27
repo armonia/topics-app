@@ -4,7 +4,7 @@
  * @covers AICTRL-05
  */
 import { describe, it, expect } from "bun:test";
-import { topicsRoutingBlocked, boardTopicsRoutingEnabled, cardBoardSettings, fetchCardBoardSettings } from "./topicsRoutingGate";
+import { topicsRoutingBlocked, boardTopicsRoutingEnabled, cardBoardSettings } from "./topicsRoutingGate";
 import type { ProvidersSnapshot } from "../types";
 
 function snapshot(providers: ProvidersSnapshot["providers"]): ProvidersSnapshot {
@@ -76,34 +76,5 @@ describe("cardBoardSettings", () => {
   it("until they arrive, or with a third board's in hand, the default is unknown, never the pane's", () => {
     expect(cardBoardSettings("beta", "alpha", pane, null)).toBeNull();
     expect(cardBoardSettings("beta", "alpha", pane, { projectId: "gamma", settings: other })).toBeNull();
-  });
-});
-
-// The drawer's settings for a card of another board are the ones fetched for
-// THAT board: a fetch tagged with the pane's board never matches the card, and
-// the drawer would judge every foreign card with no default.
-describe("fetchCardBoardSettings", () => {
-  const byBoard: Record<string, { dispatchModel: string }> = {
-    alpha: { dispatchModel: "codex" },
-    beta: { dispatchModel: "claude-sonnet-5" },
-  };
-  const api = () => {
-    const asked: string[] = [];
-    return { asked, getSettings: async (id: string) => { asked.push(id); return byBoard[id]!; } };
-  };
-
-  it("a card of another board: its board's settings are fetched and reach the drawer", async () => {
-    const { asked, getSettings } = api();
-    const fetched = await fetchCardBoardSettings("beta", "alpha", getSettings);
-    expect(asked).toEqual(["beta"]);
-    expect(cardBoardSettings("beta", "alpha", byBoard.alpha!, fetched)).toEqual({ dispatchModel: "claude-sonnet-5" });
-  });
-
-  it("a card of the pane's board, or no card: nothing is fetched and the pane's settings apply", async () => {
-    const { asked, getSettings } = api();
-    expect(await fetchCardBoardSettings("alpha", "alpha", getSettings)).toBeNull();
-    expect(await fetchCardBoardSettings(undefined, "alpha", getSettings)).toBeNull();
-    expect(asked).toEqual([]);
-    expect(cardBoardSettings("alpha", "alpha", byBoard.alpha!, null)).toBe(byBoard.alpha!);
   });
 });

@@ -40,7 +40,7 @@ import { COLUMN_FLASH_MS, landedInColumn, statusSnapshot } from '../../lib/colum
 import { useBoardMotion } from './useBoardMotion';
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
-import { cardBoardSettings, fetchCardBoardSettings } from '../../lib/topicsRoutingGate';
+import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
 import { CREATED_FLASH_MS, filterFocusRingClass, PRIORITY_DOT, PRIORITY_LABEL, TOOLBAR_CONTROL_H, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
@@ -1647,16 +1647,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // The drawer judges a card (its routing switch, the model the dispatcher
   // runs on Auto) with its own board's defaults. In the all-boards view that
   // board can be another than this pane's, whose settings are loaded above.
-  const [otherBoard, setOtherBoard] = useState<{ projectId: string; settings: BoardSettings } | null>(null);
-  const selectedBoardId = selected?.projectId;
-  useEffect(() => {
-    let alive = true;
-    fetchCardBoardSettings(selectedBoardId, projectId, boardApi.getSettings)
-      .then((v) => { if (alive && v) setOtherBoard(v); })
-      .catch(() => { /* default unknown: the drawer judges the task alone */ });
-    return () => { alive = false; };
-  }, [selectedBoardId, projectId]);
-  const cardSettings = cardBoardSettings(selected?.projectId, projectId, settings, otherBoard);
+  const cardSettings = useCardBoardSettings(selected?.projectId, projectId, settings);
   // The composer creates on this board only in 'project' mode; in 'all' it
   // picks its own target, so no single board default applies.
   const composerSettings = mode === 'all' ? null : settings;

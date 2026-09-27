@@ -48,17 +48,6 @@ export function cardBoardSettings<T>(
   return fetched?.projectId === cardBoardId ? fetched.settings : null;
 }
 
-/** Fetches what `cardBoardSettings` reads for a card of another board, tagged
- *  with the card's board: null (no fetch) when the pane's settings apply. */
-export async function fetchCardBoardSettings<T>(
-  cardBoardId: string | null | undefined,
-  paneBoardId: string,
-  getSettings: (boardId: string) => Promise<T>,
-): Promise<{ projectId: string; settings: T } | null> {
-  if (!cardBoardId || cardBoardId === paneBoardId) return null;
-  return { projectId: cardBoardId, settings: await getSettings(cardBoardId) };
-}
-
 /** Il bersaglio VERO dello switch, che menu e send leggevano diverso. `null` = Automatico vero (nessun override, nessun pin): sempre instradabile, Topics sceglie da solo. Con override o pin vale l'ordine di `resolveEffectiveProvider`. allow-italian: cosa conta come «Automatico vero» */
 export function resolveTopicsRoutingTarget(
   entries: ProviderSnapshotEntry[],

@@ -255,10 +255,10 @@ describe('one catalog for the three surfaces', () => {
   test('in the all-boards view the drawer reads the card\'s own board and the composer no board', () => {
     const composer = surfaces.board.slice(surfaces.board.indexOf('<FloatingTaskComposer'), surfaces.board.indexOf('<TaskDetail'));
     const drawer = surfaces.board.slice(surfaces.board.indexOf('<TaskDetail'));
-    // What is fetched for the card is tested on its own in topicsRoutingGate.test.ts;
-    // this pane pulls in the API and a dozen stores, so it does not mount here.
-    expect(surfaces.board).toContain('fetchCardBoardSettings(selectedBoardId, projectId, boardApi.getSettings)');
-    expect(surfaces.board).toContain('cardBoardSettings(selected?.projectId, projectId, settings, otherBoard)');
+    // What the drawer gets for a card, fetch included, is tested by mounting the
+    // hook in hooks/useCardBoardSettings.test.ts; this pane pulls in the API and
+    // a dozen stores, so it does not mount here.
+    expect(surfaces.board).toContain('const cardSettings = useCardBoardSettings(selected?.projectId, projectId, settings);');
     expect(drawer).toContain('boardTopicsRoutingDefault={cardSettings?.dispatchTopicsRouting ?? null}');
     expect(drawer).toContain('boardDispatchModel={cardSettings?.dispatchModel ?? null}');
     expect(surfaces.board).toContain("const composerSettings = mode === 'all' ? null : settings;");
