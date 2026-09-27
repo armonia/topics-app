@@ -268,6 +268,15 @@ describe("the reattach and the send wait on the turn's own row", () => {
     expect([adopted.id === cut.id, adopted.id === woken.id]).toEqual([false, false]);
   });
 
+  test("a reattach that finds no row of its turn and gets nothing from the replay leaves no row, not a 'no answer' notice under a finished reply", async () => {
+    const sk = topic("endr-fresh-mute");
+    ctx.appendLocalMessage(sk, "user", "ping");
+    const first = ctx.createPartialMessage(sk, "assistant");
+    finished(sk, first.id, "risposta finita");
+    await reattachLeg(sk, mute);
+    expect(ctx.loadLocalMessages(sk).map((m) => m.content)).toEqual(["ping", "risposta finita"]);
+  });
+
   test("C: a reattach leg closed with its latency, lit again because the broker says open, then killed: the row is cut, not a reply", async () => {
     const tid = "endr-reopen";
     const sk = topic(tid);

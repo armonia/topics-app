@@ -1298,12 +1298,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             : isWoken
             ? reuseHeadstoneOrCreate(sessionKey)
             : createPartialMessage(sessionKey, "assistant");
+          // A reattach took the turn's row back, or found none and opened this one (`reuseOrCreatePartialForReattach`).
+          const reusedRow = isReattach && "reusedBody" in partialMsg && partialMsg.reusedBody;
           // The ADOPTED row as the reattach found it (the reuse leaves its body
           // in place), for the one rule that counts here: a re-adoption may add,
           // never take away (reattachMerge.ts). By id, not the session's last
           // row: a sub-agent's report written after the turn's row was merged
           // INTO it (card a57e6d4d). A row born just now has nothing to keep.
-          const reattachSnapshot: RowSnapshot | null = isReattach && "reusedBody" in partialMsg && partialMsg.reusedBody
+          const reattachSnapshot: RowSnapshot | null = reusedRow
             ? (() => {
                 try {
                   const r = db.prepare("SELECT content, thinking, tool_calls, blocks FROM messages WHERE id = ?")
@@ -1363,7 +1365,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // DB: la vista si può rifare, il record no.
           broadcastToAll({
             type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id,
-            ...(isReattach && "reusedBody" in partialMsg && partialMsg.reusedBody ? { reattached: true as const } : {}),
+            ...(reusedRow ? { reattached: true as const } : {}),
             ...(resumeAttempt > 0 ? { resumedBy: "server" as const } : {}),
           });
 
@@ -2133,7 +2135,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             const cutNotice = reason === "done" && (endInfo.end === "max_tokens" || endInfo.end === "refusal")
               ? avvisoPerTurno(endInfo, { haProdotto: fullContent.trim().length > 0 || rowHasWorkAfterMerge() })
               : null;
-            if (reason === "done" && !cutNotice && !fullContent.trim() && !rowHasWorkAfterMerge() && !askingPlanApproval && !soloCompattazione) {
+            if (reason === "done" && !cutNotice && !fullContent.trim() && !rowHasWorkAfterMerge() && !askingPlanApproval && !soloCompattazione && !(isReattach && !reusedRow)) {
               const emptyErrorMsg = "⚠️ Nessuna risposta: il turno si è chiuso senza produrre niente. Il tuo messaggio è ancora qui: «Riprova» lo rimanda.";
               fullContent = emptyErrorMsg;
               blocks.push({ kind: "error", text: "Nessuna risposta: il turno si è chiuso senza produrre niente." });
@@ -2277,8 +2279,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // E il RISVEGLIO A MANI VUOTE: un Monitor che si chiude sveglia un
             // turno per dirlo, e quello spesso tace (sentinella della CLI, vedi
             // shared/empty-turn.ts). Solo per `woken`: un turno CHIESTO che
-            // finisce vuoto è un guasto, e il suo ⚠️ resta.
-            const discardedMessageId = (reason === "aborted" || (reason === "done" && (compactedThisTurn || isWoken)))
+            // finisce vuoto è un guasto, e il suo ⚠️ resta. The same for a
+            // reattach that opened its own row: nobody asked it, and the «no
+            // answer» with Retry went under a reply already there (a57e6d4d).
+            const discardedMessageId = (reason === "aborted" || (reason === "done" && (compactedThisTurn || isWoken || (isReattach && !reusedRow))))
               ? discardIfEmptyTurn(sessionKey, finalizedMsg)
               : null;
             if (discardedMessageId) console.log(`[StreamWS] ${sessionKey}: turno vuoto scartato (${discardedMessageId})`);
