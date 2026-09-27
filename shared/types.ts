@@ -1040,7 +1040,16 @@ export type ContentBlock =
    * ids means the reader can draw those words once, as the comments they are,
    * instead of twice. Absent on a kickoff, which delivers nothing.
    */
-  | { kind: 'dispatched-envelope'; commentIds?: string[] };
+  | { kind: 'dispatched-envelope'; commentIds?: string[] }
+  /**
+   * THIS ROW REPORTS THE END OF A COMMAND the topic launched with
+   * `run_command`, not something a person typed (server/lib/process-exit-wake.ts).
+   * It is a `user` row because it wakes the agent, and the block is what makes
+   * the chat draw a service line instead of the person's bubble. `exitCode` is
+   * null when the process ended without recording one; `label` is the
+   * command's short label, the one the Processes panel shows.
+   */
+  | { kind: 'process-exit'; processId: string; exitCode: number | null; label: string };
 
 // ─── Entità di dominio (payload REST + broadcast WS) ────────────────────
 //

@@ -174,6 +174,7 @@ import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from "./shared/provider-hold";
 import { readCodexModels } from "./server/providers/codex/models";
 import { taskProviderForModel } from "./shared/task-coding-models";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
+import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
 import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
@@ -5833,6 +5834,12 @@ reattachSurvivingChatTurns()
   .then(() => reconcileOrphanedBusyPhases())
   .then(() => reconcileOrphanedTranscripts())
   .then(() => reconcileArchivedTopicSessions())
+  // The ends of `run_command` processes reach their topics from here on, the
+  // surviving turns adopted: before, a session could look free mid-turn.
+  .then(() => startProcessExitWakes({
+    db: ctx.db, getTopicById: ctx.getTopicById, isBusy: (sk) => activeStreams.has(sk), route: topicsRouter,
+    log: (m) => console.log(`[process-exit] ${m}`),
+  }))
   .then(() => riprendiTurniInterrotti(resumeCtx, topicsRouter))
   // The sessions the reattach kept for their background work: their goals wait again.
   .then(() => goalLoop?.resumeAfterBoot(sessionsWithBackgroundWork()))

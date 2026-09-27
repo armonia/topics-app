@@ -33,6 +33,7 @@ import { GOAL_STEP_STATUSES } from "../../shared/types";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 import { OUTBOUND_TOOLS, callGoogleCall, callSendMail } from "./outbound-tools";
+import { COMMAND_TOOLS, callRunCommand } from "./command-tools";
 import { HttpAnswerError, httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
 import type { ParsedArgs } from "./topics-http";
 
@@ -201,10 +202,11 @@ const TOOLS = [
     },
     annotations: MODIFICA,
   },
+  ...COMMAND_TOOLS,
   {
     name: "list_processes",
     description:
-      "List dev scripts started via run_script (running + recent) with status, processId, pid, and any listening ports.",
+      "List processes started via run_script or run_command (running + recent) with status, processId, pid, exit code and any listening ports.",
     inputSchema: { type: "object", properties: {} },
     annotations: SOLA_LETTURA,
   },
@@ -215,7 +217,7 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        process_id: { type: "string", description: "processId returned by run_script or list_processes." },
+        process_id: { type: "string", description: "processId returned by run_script, run_command or list_processes." },
         offset: { type: "number", description: "Line offset to read from (use the offset returned by the previous call). Defaults to 0." },
       },
       required: ["process_id"],
@@ -240,7 +242,7 @@ const TOOLS = [
   },
   {
     name: "stop_process",
-    description: "Stop a running process started by run_script, by processId.",
+    description: "Stop a running process started by run_script or run_command, by processId. A stopped run_command does not wake anyone.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2694,6 +2696,7 @@ export const TOOL_HANDLERS: Record<
   browser_focus_tab: (a, t) => callFocusBrowserTab(a, t as { contextId?: unknown }),
   import_chrome: (a, t) => callImportChrome(a, t as { domains?: unknown; profile?: unknown; dry_run?: unknown; browser?: unknown }),
   run_script: (a, t) => callRunScript(a, t),
+  run_command: (a, t) => callRunCommand(a, t),
   list_processes: (a, t) => callListProcesses(a, t),
   read_process_output: (a, t) => callReadProcessOutput(a, t),
   wait_for_process: (a, t) => callWaitForProcess(a, t),

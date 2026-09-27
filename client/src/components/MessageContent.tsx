@@ -1093,6 +1093,8 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
       if (b.kind === 'dispatched-envelope') continue;
       // Nor the machine's stop line: `MessageBubble` draws that row whole.
       if (b.kind === 'machine-stop') continue;
+      // Nor the end of a command: `MessageBubble` draws it as a service line.
+      if (b.kind === 'process-exit') continue;
       if (b.kind === 'tool') {
         const last = out[out.length - 1];
         if (last && last.kind === 'tools') last.tools.push(b.toolCall);

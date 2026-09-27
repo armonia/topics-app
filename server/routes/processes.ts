@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, realpathSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, realpathSync, openSync, closeSync } from "fs";
 import { appendFile as appendFileAsync, readFile as readFileAsync, writeFile as writeFileAsync } from "fs/promises";
 import { homedir } from "os";
 import { join, relative, sep } from "path";
@@ -22,6 +22,10 @@ import {
 import { registerFleetScriptSource } from "../lib/fleet-usage";
 import { isBroadCwd } from "../lib/broad-cwd";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
+import { openTail, readTail, type FileTail } from "../lib/file-tail";
+import { commandArgv, confineCommandCwd, readExitCode } from "../lib/command-process";
+import { requestProcessExitWake, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
+import { isWatchedBySession } from "../lib/process-wait";
 
 interface ScriptProcess {
   processId: string;
@@ -66,7 +70,7 @@ interface ScriptProcess {
    *  ha lasciato in background con `Bash(run_in_background)`: il suo output
    *  arriva dai `BashOutput` dello stream, il pid dall'albero del CLI (3.5).
    *  Defaults to 'script'. */
-  source?: "script" | "detected" | "shell";
+  source?: "script" | "detected" | "shell" | "command";
   /**
    * `ps -o lstart=` del pid, catturato allo spawn. E' l'IDENTITA' del processo,
    * non un dettaglio: un pid da solo viene riciclato dal sistema, e riadottarlo
@@ -95,6 +99,20 @@ interface ScriptProcess {
      *  Serve a spazzarli quando la riga sparisce, invece di lasciarli orfani. */
     tree?: Map<number, string>;
   };
+  /** Only for `source: 'command'` (`run_command`). Persisted. */
+  cmd?: CommandMeta;
+  /** Set while the log is a FILE somebody else writes (a command, a shell of
+   *  the CLI): the registry follows it and never writes it. Not persisted. */
+  tail?: FileTail;
+}
+
+interface CommandMeta {
+  sessionKey: string;
+  topicId: string | null;
+  /** The topic is owed a wake when it ends; false once nothing is owed. */
+  wake: boolean;
+  /** Stopped from the panel or with `stop_process`: «stopped», no wake. */
+  stopped?: boolean;
 }
 
 // Serializable subset for persistence
@@ -110,6 +128,8 @@ interface PersistedScript {
   startedAt: string;
   completedAt?: string;
   exitCode?: number;
+  source?: "command";
+  cmd?: CommandMeta;
 }
 
 const MAX_OUTPUT_BYTES = 500 * 1024; // ~500KB per process
@@ -117,6 +137,9 @@ const MAX_RECENT = 10;
 
 const runningScripts = new Map<string, ScriptProcess>();
 const recentScripts: ScriptProcess[] = [];
+/** The one timer that follows every file-backed log (`followLog`). */
+let tailTimer: ReturnType<typeof setInterval> | null = null;
+let scriptsResponseCache: { data: any; timestamp: number } | null = null;
 
 // Third axis of the memory calculator: processes an agent launched.
 // Excluded from the server total (fleet-usage.ts) and shown separately.
@@ -163,18 +186,46 @@ function saveState() {
     // Le shell in background stanno nella stessa categoria, e in più: un pid
     // scritto su disco e riletto dopo un riavvio può essere stato riciclato dal
     // sistema, e ci si appenderebbe un bottone «Stop».
-    running: Array.from(runningScripts.values()).filter(sp => !sp.source || sp.source === "script").map(sp => ({
-      processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
-      projectPath: sp.projectPath, status: sp.status, pid: sp.pid, pidLstart: sp.pidLstart,
-      startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
-    })),
-    recent: recentScripts.map(sp => ({
-      processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
-      projectPath: sp.projectPath, status: sp.status, pid: sp.pid, pidLstart: sp.pidLstart,
-      startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
-    })),
+    // A command is Topics' own child like a script: it is re-adopted after a
+    // restart the same way, and its metadata says whom to wake.
+    running: Array.from(runningScripts.values()).filter(sp => !sp.source || sp.source === "script" || sp.cmd).map(persisted),
+    recent: recentScripts.map(persisted),
   };
   try { writeFileSync(persistPath(), JSON.stringify(data)); } catch {}
+}
+
+function persisted(sp: ScriptProcess): PersistedScript {
+  return {
+    processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
+    projectPath: sp.projectPath, status: sp.status, pid: sp.pid, pidLstart: sp.pidLstart,
+    startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
+    ...(sp.cmd ? { source: "command" as const, cmd: sp.cmd } : {}),
+  };
+}
+
+const logPathOf = (processId: string) => join(getPersistDir(), "scripts", `${processId}.log`);
+const exitPathOf = (processId: string) => join(getPersistDir(), "scripts", `${processId}.exit`);
+
+/**
+ * The process's log file back into its buffer: the last MAX_OUTPUT_BYTES, a
+ * trailing line without its newline kept pending (a live command may be in the
+ * middle of it). Returns the file's size, which is where a tail resumes, or
+ * null when there is no file.
+ */
+function loadLogFile(sp: ScriptProcess): number | null {
+  try {
+    const path = logPathOf(sp.processId);
+    if (!existsSync(path)) return null;
+    const buf = readFileSync(path);
+    const text = buf.subarray(Math.max(0, buf.length - MAX_OUTPUT_BYTES)).toString("utf-8");
+    const lines = text.split("\n");
+    sp.pendingLine = lines.pop() ?? "";
+    sp.output = lines;
+    sp.outputBytes = text.length;
+    return buf.length;
+  } catch {
+    return null;
+  }
 }
 
 function loadState() {
@@ -191,17 +242,10 @@ function loadState() {
           outputBytes: 0,
           proc: null,
         };
-        // Load output from log file
-        const logPath = join(getPersistDir(), "scripts", `${r.processId}.log`);
-        try {
-          if (existsSync(logPath)) {
-            const logContent = readFileSync(logPath, "utf-8");
-            sp.output = logContent.split("\n");
-              if (sp.output.length && sp.output[sp.output.length - 1] === "") sp.output.pop();
-            sp.outputBytes = logContent.length;
-          }
-        } catch {}
+        loadLogFile(sp);
+        flushPendingLine(sp);
         recentScripts.push(sp);
+        if (sp.cmd?.wake) requestWakeFor(sp);
       }
     }
 
@@ -219,26 +263,25 @@ function loadState() {
             outputBytes: 0,
             proc: null, // We don't have the handle, but we have the PID
           };
-          // Load output from log file
-          const logPath = join(getPersistDir(), "scripts", `${r.processId}.log`);
-          try {
-            if (existsSync(logPath)) {
-              const logContent = readFileSync(logPath, "utf-8");
-              sp.output = logContent.split("\n");
-              if (sp.output.length && sp.output[sp.output.length - 1] === "") sp.output.pop();
-              sp.outputBytes = logContent.length;
-            } else {
-              sp.output = ["[server restarted: previous output lost]"];
-              sp.outputBytes = 40;
-            }
-          } catch {
+          const logBytes = loadLogFile(sp);
+          if (logBytes === null) {
             sp.output = ["[server restarted: previous output lost]"];
             sp.outputBytes = 40;
           }
           runningScripts.set(r.processId, sp);
+          // A command's log is written by the command itself, so what it printed
+          // while the server was down is in the file: follow it from there on.
+          if (sp.cmd) followLog(sp, logPathOf(sp.processId), logBytes ?? 0);
 
           // Poll for exit in background
           pollPidExit(sp);
+        } else if (r.cmd) {
+          // A command that ended while the server was down: its log and its
+          // exit file say how, and the topic may still be owed its wake.
+          const sp: ScriptProcess = { ...r, status: "running", output: [], outputBytes: 0, proc: null };
+          loadLogFile(sp);
+          runningScripts.set(r.processId, sp);
+          finishCommand(sp);
         } else {
           // Process died while server was down
           const sp: ScriptProcess = {
@@ -250,16 +293,7 @@ function loadState() {
             outputBytes: 0,
             proc: null,
           };
-          // Load output from log file
-          const deadLogPath = join(getPersistDir(), "scripts", `${r.processId}.log`);
-          try {
-            if (existsSync(deadLogPath)) {
-              const logContent = readFileSync(deadLogPath, "utf-8");
-              sp.output = logContent.split("\n");
-              if (sp.output.length && sp.output[sp.output.length - 1] === "") sp.output.pop();
-              sp.outputBytes = logContent.length;
-            }
-          } catch {}
+          loadLogFile(sp);
           addToRecent(sp);
         }
       }
@@ -272,8 +306,9 @@ function loadState() {
         const now = Date.now();
         const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
         for (const file of readdirSync(scriptsDir)) {
-          if (!file.endsWith('.log')) continue;
-          const processId = file.replace('.log', '');
+          // `.exit` is a command's exit code, beside its log (`command-process.ts`).
+          if (!file.endsWith('.log') && !file.endsWith('.exit')) continue;
+          const processId = file.replace(/\.(log|exit)$/, '');
           // Keep logs for running processes
           if (runningScripts.has(processId)) continue;
           // Check if recent and not old
@@ -352,6 +387,8 @@ let _broadcastCtx: AppContext | null = null;
 
 function pollPidExit(sp: ScriptProcess) {
   const check = () => {
+    if (sp.cmd && sp.status !== "running") return; // a Stop already closed it
+    if (sp.cmd && (!sp.pid || !isPidAlive(sp.pid))) { finishCommand(sp); return; }
     if (!sp.pid || !isPidAlive(sp.pid)) {
       sp.status = "done";
       sp.completedAt = new Date().toISOString();
@@ -555,6 +592,9 @@ function appendOutput(sp: ScriptProcess, text: string, whole = false) {
   sp.outputBytes = buf.outputBytes;
   sp.droppedLines = buf.droppedLines;
   sp.pendingLine = buf.pendingLine;
+  // A file-backed log is somebody else's file: writing it too would print
+  // every line twice after the next reload.
+  if (sp.tail || sp.cmd) return;
   // Persist to log file — async, serialized per process. The old
   // appendFileSync + statSync (and readFileSync+writeFileSync on rotation)
   // blocked Bun's single event loop once per stdout/stderr chunk. The chain
@@ -575,6 +615,118 @@ function appendOutput(sp: ScriptProcess, text: string, whole = false) {
     .catch(() => {});
 }
 
+// ── File-backed logs: commands and the CLI's shells ─────────────────────────
+
+/** Follow `path` from `offset` into the row's buffer, once a second. */
+function followLog(sp: ScriptProcess, path: string, offset: number): void {
+  sp.tail = openTail(path, offset);
+  if (!tailTimer) {
+    tailTimer = setInterval(tickTails, 1000);
+    (tailTimer as { unref?: () => void }).unref?.();
+  }
+}
+
+/** Read what the file gained into the buffer. True when there was something. */
+function pumpTail(sp: ScriptProcess): boolean {
+  if (!sp.tail) return false;
+  const { text, skipped } = readTail(sp.tail);
+  if (skipped) appendOutput(sp, `[${skipped} bytes of output skipped]\n`);
+  if (text) appendOutput(sp, text);
+  return !!(text || skipped);
+}
+
+function tickTails(): void {
+  let live = 0;
+  for (const sp of runningScripts.values()) {
+    if (!sp.tail) continue;
+    live++;
+    if (pumpTail(sp) && _broadcastCtx) notifyScriptOutput(_broadcastCtx, sp.processId);
+  }
+  if (!live && tailTimer) { clearInterval(tailTimer); tailTimer = null; }
+}
+
+/**
+ * THE ONE WAY A COMMAND'S ROW CLOSES: its exit (`proc.exited`), the pid gone
+ * after a re-adoption (`pollPidExit`), found dead at boot, or a Stop on a
+ * process that was already gone. The outcome is read, never assumed: the exit
+ * file the wrapper wrote, «stopped» after a Stop, and neither means unknown,
+ * never «done».
+ */
+function finishCommand(sp: ScriptProcess): void {
+  const cmd = sp.cmd;
+  if (!cmd || sp.status !== "running") return;
+  pumpTail(sp); // the last lines it wrote before exiting
+  sp.tail = undefined;
+  const code = readExitCode(exitPathOf(sp.processId));
+  if (cmd.stopped) { sp.status = "error"; sp.exitCode = -1; }
+  else if (code === null) { sp.status = "error"; sp.exitCode = undefined; }
+  else { sp.status = code === 0 ? "done" : "error"; sp.exitCode = code; }
+  sp.completedAt = new Date().toISOString();
+  sp.proc = null;
+  runningScripts.delete(sp.processId);
+  addToRecent(sp);
+  cmd.wake = wakeOwedAtExit({
+    wake: cmd.wake, topicId: cmd.topicId, stopped: !!cmd.stopped,
+    watchedBySession: isWatchedBySession(sp.processId, cmd.sessionKey),
+  });
+  saveState();
+  if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+  if (cmd.wake) requestWakeFor(sp);
+}
+
+/** Hand a finished command's wake to `process-exit-wake.ts`. */
+function requestWakeFor(sp: ScriptProcess): void {
+  const cmd = sp.cmd;
+  if (!cmd?.topicId) return;
+  const ended = sp.completedAt ? Date.parse(sp.completedAt) : Date.now();
+  requestProcessExitWake({
+    processId: sp.processId,
+    topicId: cmd.topicId,
+    label: sp.scriptName,
+    exitCode: sp.exitCode ?? null,
+    durationMs: ended - Date.parse(sp.startedAt),
+    lines: sp.output.slice(-WAKE_TAIL_LINES),
+    settle: () => { cmd.wake = false; saveState(); },
+  });
+}
+
+/**
+ * `run_command`: an arbitrary command, spawned by the server (so a restart of
+ * the CLI does not touch it) in its own process group (so Stop reaches every
+ * child), with its output going straight into its log file (so a reload of
+ * the server does not lose it).
+ */
+function startCommandProcess(o: {
+  projectPath: string; cwd: string; command: string;
+  sessionKey: string; topicId: string | null; wake: boolean;
+}): { processId: string; scriptName: string; pid: number | null; startedAt: string; wake: boolean } {
+  const processId = crypto.randomUUID();
+  const logPath = logPathOf(processId);
+  const fd = openSync(logPath, "a");
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn(commandArgv(o.command, exitPathOf(processId)), {
+      cwd: o.cwd, stdin: "ignore", stdout: fd, stderr: fd, detached: true,
+      env: augmentEnv(process.env, { FORCE_COLOR: "0", NO_COLOR: "1" }),
+    });
+  } finally {
+    closeSync(fd);
+  }
+  const sp: ScriptProcess = {
+    processId, scriptName: shellLabel(o.command), command: o.command, projectPath: o.projectPath,
+    status: "running", pid: proc.pid, pidLstart: pidStartTime(proc.pid), startedAt: new Date().toISOString(),
+    output: [], outputBytes: 0, proc, source: "command",
+    cmd: { sessionKey: o.sessionKey, topicId: o.topicId, wake: o.wake && !!o.topicId },
+  };
+  runningScripts.set(processId, sp);
+  followLog(sp, logPath, 0);
+  saveState();
+  if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
+  void proc.exited.then(() => finishCommand(sp));
+  // `wake` as it will be honoured: a terminal's session has no topic to wake.
+  return { processId, scriptName: sp.scriptName, pid: proc.pid, startedAt: sp.startedAt, wake: sp.cmd!.wake };
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 loadState();
@@ -590,7 +742,8 @@ try {
 // ── Router ───────────────────────────────────────────────────────────────────
 
 // ── Scripts response cache (2s TTL, invalidated on state change) ─────────
-let scriptsResponseCache: { data: any; timestamp: number } | null = null;
+// (The cache itself is declared at the top: `loadState` runs at import and
+// can close a command's row, which saves, which invalidates it.)
 const SCRIPTS_CACHE_TTL = 2000;
 
 function invalidateScriptsCache() {
@@ -618,40 +771,26 @@ export function listOwnedScripts(): import("../lib/ghost-script").OwnedScript[] 
     }));
 }
 
+/**
+ * A row as it travels, ONE shape for the WebSocket frame and the HTTP answer:
+ * built in two places, the two lists had already drifted once. The shell id
+ * rides on the frame too: the chat's cards find their shell BY id, and the
+ * broadcast is what arrives first when a shell starts or changes (the poll
+ * can be 15 s behind). A command carries its topic and whether it was stopped.
+ */
+function publicRow(sp: ScriptProcess) {
+  return {
+    processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
+    projectPath: sp.projectPath, status: sp.status, pid: sp.pid,
+    startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
+    source: sp.source ?? "script",
+    ...(sp.shell ? { shellId: sp.shell.shellId, topicId: sp.shell.topicId } : {}),
+    ...(sp.cmd ? { topicId: sp.cmd.topicId, ...(sp.cmd.stopped ? { stopped: true as const } : {}) } : {}),
+  };
+}
+
 export function getScriptsSnapshot(): any[] {
-  const running = Array.from(runningScripts.values()).map(sp => ({
-    processId: sp.processId,
-    scriptName: sp.scriptName,
-    command: sp.command,
-    projectPath: sp.projectPath,
-    status: sp.status,
-    pid: sp.pid,
-    startedAt: sp.startedAt,
-    completedAt: sp.completedAt,
-    exitCode: sp.exitCode,
-    source: sp.source ?? "script",
-    // Lo shellId viaggia anche qui, non solo sulla risposta HTTP: le card della
-    // chat trovano la loro shell PER id, e il broadcast è ciò che arriva per
-    // primo quando la shell nasce o cambia stato. Senza, la card restava
-    // ferma fino al prossimo poll — cioè fino a 15s dopo.
-    ...(sp.shell ? { shellId: sp.shell.shellId, topicId: sp.shell.topicId } : {}),
-    ports: [] as number[],
-  }));
-  const recent = recentScripts.map(sp => ({
-    processId: sp.processId,
-    scriptName: sp.scriptName,
-    command: sp.command,
-    projectPath: sp.projectPath,
-    status: sp.status,
-    pid: sp.pid,
-    startedAt: sp.startedAt,
-    completedAt: sp.completedAt,
-    exitCode: sp.exitCode,
-    source: sp.source ?? "script",
-    ...(sp.shell ? { shellId: sp.shell.shellId, topicId: sp.shell.topicId } : {}),
-    ports: [] as number[],
-  }));
-  return [...running, ...recent];
+  return [...runningScripts.values(), ...recentScripts].map(sp => ({ ...publicRow(sp), ports: [] as number[] }));
 }
 
 // Debounced output notification
@@ -784,6 +923,8 @@ export function registerBackgroundShell(entry: {
   command: string;
   cwd: string;
   ownerPid: number | null;
+  /** The file the CLI writes the shell's output to (BGSHELL-05). */
+  outputPath?: string;
 }): void {
   const processId = shellProcessKey(entry.sessionKey, entry.shellId);
   // Ri-registrare la stessa shell non deve azzerarne l'output: l'agente può
@@ -813,6 +954,8 @@ export function registerBackgroundShell(entry: {
       resolveAttempts: 0,
     },
   });
+  // Its log grows from that file, whether or not the agent ever reads it.
+  if (entry.outputPath) followLog(runningScripts.get(processId)!, entry.outputPath, 0);
   if (_broadcastCtx) broadcastScriptsUpdate(_broadcastCtx);
 }
 
@@ -824,7 +967,8 @@ export function noteBackgroundShellOutput(
 ): void {
   const sp = runningScripts.get(shellProcessKey(sessionKey, shellId));
   if (!sp || sp.source !== "shell") return;
-  if (patch.output) appendOutput(sp, patch.output, true);
+  // With a file, the file is the output: a `BashOutput` read would repeat it.
+  if (patch.output && !sp.tail) appendOutput(sp, patch.output, true);
   if (patch.status && patch.status !== "running") {
     finishBackgroundShell(sp, patch.status, patch.exitCode);
     return;
@@ -880,6 +1024,8 @@ function finishBackgroundShell(
   exitCode?: number,
 ): void {
   if (sp.status !== "running") return;
+  pumpTail(sp);
+  sp.tail = undefined;
   sp.status = status === "completed" ? "done" : "error";
   sp.completedAt = new Date().toISOString();
   if (exitCode != null) sp.exitCode = exitCode;
@@ -1584,22 +1730,11 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       return w.length ? { watchers: w } : {};
     };
     const runningList = running.map(sp => ({
-      processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
-      projectPath: sp.projectPath, status: sp.status, pid: sp.pid,
-      startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
-      source: sp.source ?? "script",
-      ...(sp.shell ? { shellId: sp.shell.shellId, topicId: sp.shell.topicId } : {}),
+      ...publicRow(sp),
       ports: sp.pid ? (portsByPid.get(sp.pid) ?? []) : [],
       ...watchers(sp),
     }));
-    const recentList = recentScripts.filter(match).map(sp => ({
-      processId: sp.processId, scriptName: sp.scriptName, command: sp.command,
-      projectPath: sp.projectPath, status: sp.status, pid: sp.pid,
-      startedAt: sp.startedAt, completedAt: sp.completedAt, exitCode: sp.exitCode,
-      source: sp.source ?? "script",
-      ...(sp.shell ? { shellId: sp.shell.shellId, topicId: sp.shell.topicId } : {}),
-      ports: [] as number[],
-    }));
+    const recentList = recentScripts.filter(match).map(sp => ({ ...publicRow(sp), ports: [] as number[] }));
     return { scripts: [...runningList, ...recentList] };
   }
 
@@ -1632,6 +1767,16 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
    * caso sarebbe la bugia peggiore — il processo resterebbe vivo, ma invisibile.
    */
   function killRunningScript(sp: ScriptProcess): boolean {
+    if (sp.cmd) {
+      // Marked first, so whichever road sees the exit closes it as stopped
+      // and wakes nobody. The group too: late forks are in it, not in the
+      // descendants snapshot. `proc.exited` (or `pollPidExit`) closes the row.
+      sp.cmd.stopped = true;
+      saveState();
+      if (!sp.pid || !isPidAlive(sp.pid)) finishCommand(sp);
+      else void killProcessTree(sp.pid, 5000, { group: true });
+      return true;
+    }
     if (sp.source === "detected" || sp.source === "shell") {
       // We didn't spawn it (no `proc`, no exit handler). Kill the pid + its
       // descendant tree directly — NOT a process-group kill, to avoid any chance
@@ -1766,6 +1911,37 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
       }
     }
 
+    // POST /api/sessions/:sessionKey/commands/run — any command (MCP `run_command`)
+    //
+    // The gate above stays as it is: an arbitrary command has its own door
+    // instead of a parameter that makes the manifest optional. What it does
+    // not open is a new power: the agent behind this session already has
+    // `Bash`. It gets a place where the work is seen, stopped, survives the
+    // CLI, and reports back. Same scoping as the scripts: the session resolves
+    // the project, and the cwd cannot leave it.
+    {
+      const m = method === "POST" && pathname.match(/^\/api\/sessions\/([^/]+)\/commands\/run$/);
+      if (m) {
+        const sessionKey = decodeURIComponent(m[1]);
+        const body = await readJSON(req);
+        const command = typeof body?.command === "string" ? body.command.trim() : "";
+        if (!command) return json({ error: "command (non-empty string) is required" }, 400);
+        const r = resolveSessionCwd(sessionKey);
+        if ("error" in r) return r.error;
+        const cwd = confineCommandCwd(r.path, body?.cwd);
+        if (!cwd) return json({ error: `cwd must be an existing directory inside ${r.path}` }, 400);
+        try {
+          return json(startCommandProcess({
+            projectPath: r.path, cwd, command, sessionKey,
+            topicId: ctx.getTopicBySessionKey(sessionKey)?.id ?? null,
+            wake: body?.wake !== false,
+          }));
+        } catch (err) {
+          return json({ error: `Failed to spawn: ${err instanceof Error ? err.message : String(err)}` }, 500);
+        }
+      }
+    }
+
     // GET /api/scripts — list running + recent, with per-process ports
     if (method === "GET" && pathname === "/api/scripts") {
       // Qualcuno sta guardando: la rilevazione torna alla cadenza piena, cosi'
@@ -1869,6 +2045,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
         const { close } = openWatch({
           processId: sp.processId,
           label: topic?.name || sessionKey,
+          sessionKey,
           ...(until ? { until: until.source } : {}),
           timeoutMs,
         });

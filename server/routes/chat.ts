@@ -558,7 +558,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           sessionKey, "user", lastUserMsg.content,
           autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
           userRowMarks({
-            goalNudge: body.goalNudge, dispatched, commentIds: dispatchedFor,
+            goalNudge: body.goalNudge, dispatched, commentIds: dispatchedFor, processExit: body.processExit,
             repeatsEnvelope: !dispatched && repeatsAnEnvelope(ctx.db, sessionKey, lastUserMsg.content),
           }),
         );
@@ -1785,7 +1785,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 registerBackgroundShell({
                   sessionKey,
                   topicId: matchedTopic?.id ?? null,
-                  shellId: action.shellId,
+                  shellId: action.shellId, outputPath: action.outputPath,
                   command: action.command,
                   cwd,
                   ownerPid: getSessionCliPid(sessionKey),
@@ -2382,7 +2382,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // and the plan approval is kept out of it on purpose above.
                 pendingAsk: askingPlanApproval || interrupted.length > 0,
                 ...backgroundOfTurn(topicProvider, sessionKey), // see goal-continuation.ts
-                fromHuman: !isWoken && !isReattach && !dispatched && !body.goalNudge && !resumeAttempt,
+                fromHuman: !isWoken && !isReattach && !dispatched && !body.goalNudge && !body.processExit && !resumeAttempt,
                 woken: isWoken,
                 usedTools: toolsStartedThisTurn > 0,
                 lastAssistantText: fullContent,
