@@ -17,7 +17,7 @@
 import { describe, expect, test } from "bun:test";
 import { ClaudeCodeProvider } from "./claude-code";
 import { SidechainTracker } from "./claude/sidechain-tracker";
-import { recordedBackgroundSession } from "./claude/background-work.fixture";
+import { recordedBackgroundSession, recordedSessionCron } from "./claude/background-work.fixture";
 /** Two hours: the one bound every killing clock shares (`BACKGROUND_WORK_CAP_MS`). */
 const TWO_HOURS = 2 * 60 * 60_000;
 import { armStallDetector } from "../lib/stall-detector";
@@ -136,6 +136,35 @@ describe("the clocks that kill, against background work", () => {
       second.feed(events.slice(0, firstResult + 1));
       (second.provider as any).killProcess(second.pp, "watchdog");
       expect(closed[1]).toEqual({ sk: sk2, tasks: expect.arrayContaining(["tick counter loop"]), why: "stuck-turn" });
+    } finally {
+      ClaudeCodeProvider.observeBackgroundClosed(() => {});
+    }
+  });
+
+  test("a session cron past its two hours: the reaper closes the CLI and the chat hears the cron went, with its own reason", async () => {
+    // The recorded CronCreate call and result; only the result's date is moved.
+    const cron = recordedSessionCron().map((l) => l.event as any);
+    const call = cron.find((e) => e.type === "assistant" && e.message.content.some((b: any) => b.name === "CronCreate"));
+    const armedAt = (at: number) => ({ ...cron.find((e) => e.tool_use_result?.id), timestamp: new Date(at).toISOString() });
+    const closed: Array<{ sk: string; tasks: string[]; why: string }> = [];
+    ClaudeCodeProvider.observeBackgroundClosed((key, tasks, why) => { closed.push({ sk: key, tasks, why }); });
+    try {
+      const sk = "topic:clocks-cron-cap";
+      const { provider, pp, counts, feed } = stub(sk);
+      feed([call, armedAt(Date.now() - TWO_HOURS - 1)]);
+      pp.wokenBuffer = null; pp.declinedTurn = false;
+      (provider as any).resetInactivityTimer(sk, pp, { ms: 5 });
+      await sleep(40);
+      expect(counts.kill).toBe(1);
+      // Not "two hours without news": a recurring cron fired all along, the bound counts from its arming.
+      expect(closed).toEqual([{ sk, tasks: ["57 9 25 9 * (cron)"], why: "cron-cap" }]);
+
+      // Armed a minute ago, it goes with a stuck turn like any listed task.
+      const sk2 = "topic:clocks-cron-watchdog";
+      const second = stub(sk2);
+      second.feed([call, armedAt(Date.now() - 60_000)]);
+      (second.provider as any).killProcess(second.pp, "watchdog");
+      expect(closed[1]).toEqual({ sk: sk2, tasks: ["57 9 25 9 * (cron)"], why: "stuck-turn" });
     } finally {
       ClaudeCodeProvider.observeBackgroundClosed(() => {});
     }

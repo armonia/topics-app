@@ -5504,9 +5504,9 @@ async function reattachSurvivingChatTurns(): Promise<void> {
       ? (topic.archived ? "archived topic" : `no in-flight turn (DB partial=no, broker=${brokerSays})`)
       : "topic gone";
     console.log(`[chat-reattach] reaping idle broker session ${s.id} (${why})`);
-    // Its listed background work, silent past the bound, dies with it: the chat says so.
-    const silent = (tryGetProvider("claude-code") as { takeSilentBackground?: (sk: string) => string[] } | undefined)?.takeSilentBackground?.(s.id) ?? [];
-    if (topic && silent.length) postBackgroundNotice(ctx, { sessionKey: s.id, topicId: topic.id }, { kind: "background-notice", event: "closed", tasks: silent, why: "silent" });
+    // Its background work past the bound (listed tasks, armed crons) dies with it: the chat says so.
+    const silent = (tryGetProvider("claude-code") as { takeSilentBackground?: (sk: string) => Array<{ tasks: string[]; why: "silent" | "cron-cap" }> } | undefined)?.takeSilentBackground?.(s.id) ?? [];
+    if (topic) for (const closed of silent) postBackgroundNotice(ctx, { sessionKey: s.id, topicId: topic.id }, { kind: "background-notice", event: "closed", ...closed });
     try { client.kill(s.id); } catch { /* daemon hiccup — next boot retries */ }
   }
 }

@@ -54,7 +54,7 @@ import {
   type CallUsage,
 } from "./claude/events";
 import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
-import { datedByLastWrite, hasArmedCron, hasLiveTasks, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
+import { closedWork, datedByLastWrite, hasArmedCron, hasLiveTasks, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
 import { observePlanUsage } from "./native/usage-window";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
@@ -864,7 +864,7 @@ function brokerIO(client: AiBridgeClient, sessionKey: string): SessionIO {
 /** Who killed a child on purpose. Travels with the rejection of the send that
  *  was waiting on it, so the chat says what ended the turn. */
 type KillCause = "lifetime" | "idle" | "clear" | "config" | "watchdog" | "stopped-child" | "dead" | "shutdown";
-type ClosedWhy = "silent" | "stuck-turn" | "deadline" | "superseded";
+type ClosedWhy = "silent" | "stuck-turn" | "deadline" | "superseded" | "cron-cap";
 type BackgroundClosedObserver = (sessionKey: string, tasks: string[], why: ClosedWhy) => void;
 type OwedChange = "autonomy" | "model" | "effort";
 
@@ -1351,16 +1351,16 @@ export class ClaudeCodeProvider implements AIProvider {
     catch (err) { console.warn(`[claude-code] config-owed observer failed for ${pp.sessionKey}:`, err); }
   }
 
-  /** Said before the child goes: `silent` (two hours without news), `stuck-turn`, `deadline` or `superseded`. */
+  /** Said before the child goes: `silent` (two hours without news), `stuck-turn`, `deadline` or `superseded`; an armed cron past its two hours is `cron-cap` (`closedWork`). */
   private sayBackgroundClosed(pp: PersistentProcess, why: ClosedWhy, by: string): void {
-    const listed = pp.background?.tasks;
     // Once per child: a second clock in the 0.8 s between SIGINT and exit is the same close.
-    if (!pp.alive || !listed?.size || pp.backgroundClosedSaid) return;
-    pp.backgroundClosedSaid = true;
-    const tasks = [...listed.values()].map((t) => t.description || t.type);
-    console.log(`[claude-code] ${pp.sessionKey}: ${by} closes background work (${why}): ${tasks.join("; ")}`);
-    try { ClaudeCodeProvider.onBackgroundClosed?.(pp.sessionKey, tasks, why); }
-    catch (err) { console.warn(`[claude-code] background-closed observer failed for ${pp.sessionKey}:`, err); }
+    if (!pp.alive || pp.backgroundClosedSaid) return;
+    for (const closed of closedWork(pp.background, why)) {
+      pp.backgroundClosedSaid = true;
+      console.log(`[claude-code] ${pp.sessionKey}: ${by} closes background work (${closed.why}): ${closed.tasks.join("; ")}`);
+      try { ClaudeCodeProvider.onBackgroundClosed?.(pp.sessionKey, closed.tasks, closed.why); }
+      catch (err) { console.warn(`[claude-code] background-closed observer failed for ${pp.sessionKey}:`, err); }
+    }
   }
 
   /**
@@ -2856,13 +2856,13 @@ export class ClaudeCodeProvider implements AIProvider {
     return run;
   }
   private probes = new Map<string, Promise<"open" | "idle" | "unknown">>();
-  private silentAtProbe = new Map<string, string[]>();
+  private silentAtProbe = new Map<string, Array<{ tasks: string[]; why: ClosedWhy }>>();
 
-  /** The listed work the last probe found past the two hours without news, for the boot reap to name. Read once. */
-  takeSilentBackground(sessionKey: string): string[] {
-    const tasks = this.silentAtProbe.get(sessionKey) ?? [];
+  /** The work the last probe found past its two hours (listed tasks, armed crons), for the boot reap to name. Read once. */
+  takeSilentBackground(sessionKey: string): Array<{ tasks: string[]; why: ClosedWhy }> {
+    const closed = this.silentAtProbe.get(sessionKey) ?? [];
     this.silentAtProbe.delete(sessionKey);
-    return tasks;
+    return closed;
   }
 
   private async brokerTurnStateNow(
@@ -2897,10 +2897,9 @@ export class ClaudeCodeProvider implements AIProvider {
         // session's process, still attached, so the wake it will bring is
         // heard and the reaper sees what it would kill.
         keep = backgroundAlive(pp) && !this.processes.has(sessionKey);
-        // Listed but past the bound: the boot reaps it, and the chat has to
-        // hear what went with it (`takeSilentBackground`).
-        if (!keep && pp.background?.tasks.size) this.silentAtProbe.set(sessionKey, [...pp.background.tasks.values()].map((t) => t.description || t.type));
-        else this.silentAtProbe.delete(sessionKey);
+        // Listed or armed but past the bound: the boot reaps it, and the chat
+        // has to hear what went with it (`takeSilentBackground`).
+        this.silentAtProbe.set(sessionKey, keep ? [] : closedWork(pp.background, "silent"));
         return "idle";
       }
       // «open» è l'unica risposta che porta a una riadozione, quindi l'unica in

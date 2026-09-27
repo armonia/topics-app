@@ -189,6 +189,7 @@ const IT: Dict = {
   'background.notice.closedWithTurn': 'Lavoro in background chiuso insieme a un turno bloccato: {tasks}',
   'background.notice.closedDeadline': 'Lavoro in background chiuso alla durata massima della delega: {tasks}',
   'background.notice.closedSuperseded': 'Lavoro in background chiuso con la card sostituita: {tasks}',
+  'background.notice.closedCronCap': 'Cron di sessione chiuso 2 h dopo la sua creazione: {tasks}',
   'background.notice.deferred.autonomy': "Il cambio di autonomia vale dal primo messaggio dopo la fine del lavoro in background. Lo Stop ferma subito quel lavoro",
   'background.notice.deferred.model': 'Il cambio di modello vale dal primo messaggio dopo la fine del lavoro in background. Lo Stop ferma subito quel lavoro',
   'background.notice.deferred.effort': "Il cambio di effort vale dal primo messaggio dopo la fine del lavoro in background. Lo Stop ferma subito quel lavoro",

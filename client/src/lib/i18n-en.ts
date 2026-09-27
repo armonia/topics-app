@@ -189,6 +189,7 @@ const EN = {
   'background.notice.closedWithTurn': 'Background work closed with a stuck turn: {tasks}',
   'background.notice.closedDeadline': 'Background work closed at the delegation\'s maximum duration: {tasks}',
   'background.notice.closedSuperseded': 'Background work closed with the superseded card: {tasks}',
+  'background.notice.closedCronCap': 'Session cron closed 2 h after it was armed: {tasks}',
   'background.notice.deferred.autonomy': 'The autonomy change applies from the first message after the background work ends. Stop ends that work now',
   'background.notice.deferred.model': 'The model change applies from the first message after the background work ends. Stop ends that work now',
   'background.notice.deferred.effort': 'The effort change applies from the first message after the background work ends. Stop ends that work now',

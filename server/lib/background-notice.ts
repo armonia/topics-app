@@ -118,6 +118,7 @@ const CLOSED_WHY: Record<NonNullable<Extract<BackgroundNoticeFacts, { event: "cl
   "stuck-turn": "with a turn that was stuck",
   "deadline": "when the delegation reached its maximum duration",
   "superseded": "with the card's turn, superseded",
+  "cron-cap": "two hours after the session cron was armed",
 };
 
 export function backgroundNoticeText(n: BackgroundNoticeFacts): string {

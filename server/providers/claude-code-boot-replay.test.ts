@@ -484,7 +484,7 @@ describe("boot · the agent's lines after the last result", () => {
       expect(late.hasBackgroundWork(sessionKey)).toBe(false);
       expect((late as any).processes.has(sessionKey)).toBe(false);
       // The boot reaps it: what it lists is handed over once, for the chat row.
-      expect(late.takeSilentBackground(sessionKey)).toEqual(expect.arrayContaining(["tick counter loop"]));
+      expect(late.takeSilentBackground(sessionKey)).toEqual([{ tasks: expect.arrayContaining(["tick counter loop"]), why: "silent" }]);
       expect(late.takeSilentBackground(sessionKey)).toEqual([]);
       expect(fresh.takeSilentBackground(sessionKey)).toEqual([]);
     } finally {
@@ -528,6 +528,26 @@ describe("boot · the agent's lines after the last result", () => {
     } finally {
       bridge.attach = vero;
       try { bridge.kill(sessionKey); } catch { /* best-effort cleanup */ }
+    }
+  }, 40_000);
+
+  test("a /loop armed three hours ago is past the bound: the boot reaps its CLI, and the chat hears the cron went", async () => {
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60_000).toISOString();
+    setEnv("TOPICS_CLAUDE_CLI_PATH", storeCli("cron-past-bound", [
+      { type: "system", subtype: "init", session_id: "s" },
+      ...cronArmed("L", threeHoursAgo, true, "Every 30 minutes"),
+      { type: "result", subtype: "success", is_error: false, num_turns: 1, result: "scheduled" },
+    ]));
+    const sessionKey = "topic:boot-cron-past-bound";
+    await seedSurvivingSession(sessionKey, "t-boot-cron-past-bound");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const prov = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    try {
+      expect(await prov.brokerTurnState(sessionKey)).toBe("idle");
+      expect(prov.hasBackgroundWork(sessionKey)).toBe(false);
+      expect(prov.takeSilentBackground(sessionKey)).toEqual([{ tasks: ["Every 30 minutes (cron)"], why: "cron-cap" }]);
+    } finally {
+      try { getAiBridgeClient().kill(sessionKey); } catch { /* best-effort cleanup */ }
     }
   }, 40_000);
 });

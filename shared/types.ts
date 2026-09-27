@@ -1009,7 +1009,8 @@ export type ContentBlock =
    * respawns the CLI and the respawn kills the work; or the work closed by a
    * clock, `tasks` naming what was closed: after two hours without news of it
    * (`silent`, the default), with a wedged turn a watchdog ended, at a
-   * delegation's deadline, or with a superseded card's turn. The row's
+   * delegation's deadline, with a superseded card's turn, or two hours after
+   * a session cron was armed (`cron-cap`, its fires do not extend them). The row's
    * `content` is empty: it is a service line (server/lib/background-notice.ts).
    *
    * `text` is the English sentence, for clients older than this block: their
@@ -1018,7 +1019,7 @@ export type ContentBlock =
    * draw the translated line from the other fields.
    */
   | { kind: 'background-notice'; event: 'deferred'; change: 'autonomy' | 'model' | 'effort'; text: string }
-  | { kind: 'background-notice'; event: 'closed'; tasks: string[]; why?: 'silent' | 'stuck-turn' | 'deadline' | 'superseded'; text: string }
+  | { kind: 'background-notice'; event: 'closed'; tasks: string[]; why?: 'silent' | 'stuck-turn' | 'deadline' | 'superseded' | 'cron-cap'; text: string }
   /**
    * THIS ROW IS AN ENVELOPE THE DISPATCHER WROTE, not something a person typed.
    *

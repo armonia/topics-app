@@ -47,6 +47,7 @@ const CLOSED_KEY = {
   'stuck-turn': 'background.notice.closedWithTurn',
   deadline: 'background.notice.closedDeadline',
   superseded: 'background.notice.closedSuperseded',
+  'cron-cap': 'background.notice.closedCronCap',
 } as const;
 
 /** The notice's sentence: its own line (`BackgroundNoticeLine`) and the stop line that carries a closed one (`MachineStopLine`). */

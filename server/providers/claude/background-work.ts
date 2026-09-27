@@ -48,7 +48,9 @@ import { readBackgroundTasks, readParentToolUseId } from "./events";
  *
  * A session cron is held by the same bound, counted from its arming: its fires
  * do not extend it, or a cron firing every ten minutes would hold its CLI for
- * the seven days Claude Code gives a recurring one.
+ * the seven days Claude Code gives a recurring one. Past it the lifetime cap or
+ * the idle reaper closes the CLI with the cron still armed, and the chat hears
+ * it under the cron's own reason (`closedWork`).
  */
 export const BACKGROUND_WORK_CAP_MS = 2 * 60 * 60_000;
 
@@ -84,8 +86,8 @@ export interface BackgroundWork {
   monitorCalls: Set<string>;
   /** Tool calls of CronCreate not yet answered with the cron's id. */
   cronCalls: Set<string>;
-  /** Session crons by the id CronCreate returned, until fired (a one-shot) or deleted. */
-  crons: Map<string, { recurring: boolean; armedAt: number }>;
+  /** Session crons by the id CronCreate returned, until fired (a one-shot) or deleted; `schedule` is the CLI's `humanSchedule`. */
+  crons: Map<string, { recurring: boolean; armedAt: number; schedule: string }>;
   /** The `command_uuid` of every fire folded so far. */
   fires: Set<string>;
 }
@@ -188,14 +190,15 @@ export function noteBackgroundLine(
  * armed hours ago must not look freshly armed after every restart.
  */
 function noteCronScheduled(work: BackgroundWork, event: unknown, now: number): void {
-  const e = event as { timestamp?: unknown; tool_use_result?: { id?: unknown; recurring?: unknown }; message?: { content?: unknown } };
+  const e = event as { timestamp?: unknown; tool_use_result?: { id?: unknown; recurring?: unknown; humanSchedule?: unknown }; message?: { content?: unknown } };
   if (!Array.isArray(e.message?.content)) return;
   for (const b of e.message.content as Array<{ type?: unknown; tool_use_id?: unknown }>) {
     if (b?.type !== "tool_result" || typeof b.tool_use_id !== "string" || !work.cronCalls.delete(b.tool_use_id)) continue;
     const id = e.tool_use_result?.id;
     if (typeof id !== "string") continue; // refused: nothing armed
     const at = typeof e.timestamp === "string" ? Date.parse(e.timestamp) : NaN;
-    work.crons.set(id, { recurring: e.tool_use_result?.recurring !== false, armedAt: Number.isFinite(at) ? at : now });
+    const schedule = typeof e.tool_use_result?.humanSchedule === "string" ? e.tool_use_result.humanSchedule : id;
+    work.crons.set(id, { recurring: e.tool_use_result?.recurring !== false, armedAt: Number.isFinite(at) ? at : now, schedule });
   }
 }
 
@@ -241,6 +244,19 @@ export function hasLiveTasks(work: BackgroundWork | undefined, now: number): boo
 /** A session cron armed less than `BACKGROUND_WORK_CAP_MS` ago: the CLI will fire it by itself. */
 export function hasArmedCron(work: BackgroundWork | undefined, now: number): boolean {
   return !!work && [...work.crons.values()].some((c) => now - c.armedAt < BACKGROUND_WORK_CAP_MS);
+}
+
+/**
+ * What closing the CLI takes with it, named for the chat: listed tasks by their
+ * description, armed crons by their schedule, under the reason the clock gives.
+ * Past the bound (`silent`) a cron has its own, `cron-cap`: the bound counts
+ * from its arming, and a /loop that fired all along was never silent.
+ */
+export function closedWork<Why extends string>(work: BackgroundWork | undefined, why: Why): Array<{ tasks: string[]; why: Why | "cron-cap" }> {
+  const tasks = [...(work?.tasks.values() ?? [])].map((t) => t.description || t.type);
+  const crons = [...(work?.crons.values() ?? [])].map((c) => `${c.schedule} (cron)`);
+  const said: Array<{ tasks: string[]; why: Why | "cron-cap" }> = why === "silent" ? [{ tasks, why }, { tasks: crons, why: "cron-cap" }] : [{ tasks: [...tasks, ...crons], why }];
+  return said.filter((s) => s.tasks.length > 0);
 }
 
 /** Is there background work alive, or a wake about to answer it, as of `now`? */

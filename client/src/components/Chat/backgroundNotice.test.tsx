@@ -58,5 +58,10 @@ describe('the background notice as a service line', () => {
     const html = renderToStaticMarkup(<BackgroundNoticeLine notice={backgroundNoticeOf(notice.blocks)!} />);
     expect(html).toContain('data-background-notice="closed:stuck-turn"');
     expect(html).toContain('sleep 600');
+    // A cron past its two hours has its own sentence: it fired all along, it was never silent.
+    const cron = renderToStaticMarkup(<BackgroundNoticeLine notice={{ kind: 'background-notice', event: 'closed', tasks: ['Every 30 minutes (cron)'], why: 'cron-cap', text }} />);
+    expect(cron).toContain('data-background-notice="closed:cron-cap"');
+    expect(cron).toContain('Every 30 minutes (cron)');
+    expect(cron).not.toContain('background.notice');
   });
 });
