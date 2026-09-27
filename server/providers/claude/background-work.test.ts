@@ -211,6 +211,12 @@ describe("a session cron, from the recorded CLI session (CronCreate, CLI 2.1.282
     expect(isBackgroundWorkAlive(foldCron(lines.length), at(lines.length - 1))).toBe(false);
   });
 
+  test("a fire that lands while a turn of ours is open disarms it too", () => {
+    const work = foldCron(fire);
+    noteBackgroundLine(work, lines[fire].event, at(fire), { unattended: false });
+    expect(isBackgroundWorkAlive(work, at(fire) + 60_000)).toBe(false);
+  });
+
   test("a recurring cron counts for two hours from its arming, and its fires do not extend them", () => {
     const work = newBackgroundWork();
     const t0 = 50_000_000;

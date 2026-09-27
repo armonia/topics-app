@@ -134,8 +134,10 @@ export function noteBackgroundLine(
     }
   }
   if (e?.type === "user" && work.cronCalls.size > 0) noteCronScheduled(work, event, now);
-  // A cron's fire: the CLI queues its prompt and opens the turn by itself.
-  if (e?.type === "command_lifecycle" && e.state === "started" && opts.unattended) noteCronFired(work);
+  // A cron's fire, turn of ours open or not. Topics writes no uuid on stdin,
+  // and "commands enqueued without a uuid emit no lifecycle events" (the CLI's
+  // schema): every `started` is a command the CLI queued by itself.
+  if (e?.type === "command_lifecycle" && e.state === "started") noteCronFired(work);
   if (e?.type === "system" && typeof e.subtype === "string") {
     const id = typeof e.task_id === "string" ? e.task_id : null;
     if (e.subtype === "init") {
