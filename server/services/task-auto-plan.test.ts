@@ -94,14 +94,16 @@ describe('automatic host provider routing', () => {
     });
   }
 
-  test('Topics automatic stays inside Topics even when Codex is the default', async () => {
+  // The legacy `topics:` prefix also reads as the switch ON, so the dispatcher
+  // hands this selection over with topicsRouting true.
+  for (const topicsRouting of [undefined, true]) test(`Topics automatic stays inside Topics even when Codex is the default (switch ${topicsRouting ? 'ON' : 'unset'})`, async () => {
     const current = { defaultProvider: 'codex', providers: [
       { name: 'topics', status: 'ready', models: ['claude-opus-5'] },
       { name: 'codex', status: 'ready', models: models.map(model => model.slug) },
     ] } as ProvidersSnapshot;
     const accessed: string[] = [];
     const plan = await pickAutomaticTaskModel({ text: 'Task' }, 'topics:auto', {
-      snapshot: current, codexModels: () => models,
+      snapshot: current, codexModels: () => models, topicsRouting,
       getProvider: name => {
         accessed.push(name);
         return { connected: true, complete: async () => ({ content: '{"provider":"topics","model":"claude-opus-5","effort":"medium","weight":"light"}' }) } as unknown as AIProvider;
@@ -223,7 +225,9 @@ describe('general automatic catalog and constraints', () => {
       } }) as unknown as AIProvider,
     });
     expect(prompts[0]).not.toContain('gpt-5.5');
-    expect(plan.provider).not.toBe('codex');
+    // The native engine is the router, not a target the ballot offers.
+    expect(prompts[0]).not.toContain('"provider":"topics"');
+    expect(plan.provider).toBe('claude-code');
     // The plan passes the same gate the dispatcher applies when it creates the topic.
     expect(resolveDispatchTopicIdentity({ provider: plan.provider, model: plan.model, topicsRouting: true }, fleet).executor).toBe('topics');
   });

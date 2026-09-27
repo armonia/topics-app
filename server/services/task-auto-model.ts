@@ -1,9 +1,9 @@
 import {
-  runsWithTopicsRouting,
   taskModelSelection,
   taskProviderForModel,
   topicsCatalogPending,
   TaskProviderPendingError,
+  topicsRoutingAvailable,
   TopicsRoutingUnavailableError,
 } from '../../shared/task-coding-models';
 import { EFFORT_TIERS } from '../../shared/effort';
@@ -55,8 +55,12 @@ export function automaticTaskProvider(provider: string, model: string | undefine
 
 /** General Auto compares eligible runtimes; a legacy provider alias still restricts its catalog.
  *  With the Topics switch ON (AICTRL-01) Topics picks by its own rules, so the
- *  catalog holds only what the topic gate lets through: picking Codex there
- *  parked the card with "Topics routing cannot dispatch". */
+ *  catalog holds only targets the native engine reaches: picking Codex there
+ *  parked the card with "Topics routing cannot dispatch". The engine itself is
+ *  the router, not a target: pinned on it, the card was stored as the legacy
+ *  `topics:<model>` value and kept running native after the switch went OFF.
+ *  Only a legacy `topics:` selection, which already meant "run native", keeps
+ *  the engine's own catalog. */
 export async function pickAutomaticTaskModel(
   task: { text: string; description?: string | null },
   selection: string | null | undefined,
@@ -75,7 +79,9 @@ export async function pickAutomaticTaskModel(
   const isHeld = deps.isHeld ?? (() => false);
   const eligible = automaticTaskModels(deps.snapshot, (deps.codexModels ?? readCodexModels)(), isHeld)
     .filter(model => !restrictedProvider || model.provider === restrictedProvider);
-  const models = eligible.filter(model => !deps.topicsRouting || runsWithTopicsRouting(model.provider, model.slug, deps.snapshot));
+  const models = eligible.filter(model => !deps.topicsRouting || (model.provider === 'topics'
+    ? restrictedProvider === 'topics'
+    : topicsRoutingAvailable(model.provider, model.slug, deps.snapshot)));
   // The switch emptied a catalog that had runtimes: the reason is the switch,
   // not the effort. Without this the card parked with "choose a compatible
   // effort", which no effort fixes.

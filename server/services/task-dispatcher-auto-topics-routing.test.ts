@@ -16,6 +16,7 @@ import { resolveDispatchTopicIdentity, type DispatchTopicIdentity } from "./disp
 import type { AIProvider } from "../providers/types";
 import type { TurnEndInfo } from "../providers/stop-reason";
 import type { ProvidersSnapshot } from "../../shared/types";
+import { taskModelSelection } from "../../shared/task-coding-models";
 import { TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 import { clearPlanUsage, clearProviderHold, recordPlanUsage, resetProviderHoldStore, setProviderHold } from "../lib/provider-hold";
 
@@ -138,7 +139,15 @@ describe("Automatic with Topics routing ON never picks what the switch cannot ro
       for (const topic of h.topics) {
         expect(topic.executor).toBe("topics");
         expect(topic.model?.startsWith("claude-")).toBe(true);
+        // The native engine is the router, never a target: pinned on it, the
+        // card was stored as the legacy `topics:<model>` value.
+        expect(topic.provider).not.toBe("topics");
       }
+      expect(task.model?.startsWith("topics:")).toBe(false);
+      // What the card was stored with still means something with the switch
+      // OFF: a direct run on its target, not the native engine again.
+      const stored = taskModelSelection(task.model);
+      expect(resolveDispatchTopicIdentity({ ...stored, topicsRouting: false }, FLEET).executor).not.toBe("topics");
     });
   }
 });
