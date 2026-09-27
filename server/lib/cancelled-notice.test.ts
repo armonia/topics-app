@@ -386,3 +386,42 @@ describe("il taglio dello sweeper e la causa sul blocco: entrambi si riprendono"
     expect(isResumableCause(undefined)).toBe(false);
   });
 });
+
+/**
+ * Two cuts that came from outside the turn: the API going dark (e30f35e4,
+ * 25/09: 52 minutes stopped until a person resent by hand) and the ai-bridge
+ * daemon dying under four live CLIs (51fb9359, 25/09). Both end as `error`,
+ * so `cancelledNotice` has nothing for them: each gets its own notice, and the
+ * resume must read that notice as ours.
+ *
+ * @covers RESUME-01, INTERRUPT-03
+ */
+describe("outages outside the turn resume by themselves", () => {
+  test("the API that stopped answering: a notice of ours, no Retry to press", () => {
+    for (const haProdotto of [true, false]) {
+      const text = avvisoPerTurno({ end: "error", cause: "api-unavailable", detail: "Request timed out" }, { haProdotto });
+      expect(text).not.toBeNull();
+      expect(text!.startsWith("⚠️")).toBe(true);
+      expect(text).not.toMatch(/Riprova/);
+      expect(eCartelloDiInterruzione(text)).toBe(true);
+    }
+  });
+
+  test("the daemon that held the agent died: a notice of ours, no Retry to press", () => {
+    const text = avvisoPerTurno({ end: "error", cause: "broker-died" }, { haProdotto: true });
+    expect(text).not.toBeNull();
+    expect(text).not.toMatch(/Riprova/);
+    expect(eCartelloDiInterruzione(text)).toBe(true);
+  });
+
+  test("both causes are resumable; a child that died on its own is not", () => {
+    expect(isResumableCause("api-unavailable")).toBe(true);
+    expect(isResumableCause("broker-died")).toBe(true);
+    expect(isResumableCause("process-died")).toBe(false);
+  });
+
+  test("rows the claude-code watchdog closed before the cause travelled are recognised by their text", () => {
+    // Row 5e92d06e, topic 3019832f, 25/09 01:50Z: the block as it sits in the DB.
+    expect(eCartelloDiInterruzione("Nessuna attività dal modello per 30 minuti. Turno terminato.")).toBe(true);
+  });
+});

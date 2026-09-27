@@ -11,13 +11,14 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import {
   chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
   RESPONSE_CEILING_MS, STREAM_CEILING_MS, RESUME_CAP_MARKER, attemptsInChain, attemptsOnRow,
-  resumeVerdict, resumeAttemptOf, type RigaDaValutare, USER_TAIL_GRACE_MS, UNANSWERED_NOTICE,
+  resumeVerdict, resumeAttemptOf, resumeCapNotice, type RigaDaValutare, USER_TAIL_GRACE_MS, UNANSWERED_NOTICE,
 } from "./ripresa-boot";
 import { Database } from "bun:sqlite";
 import { insertRestartNotification, runBootPartialSweep } from "./boot-partial-sweep";
 import { eCartelloDiInterruzione } from "./cancelled-notice";
 import { decodeCol } from "../../shared/message-blob";
 import { resetTurnEndRegistry } from "../providers/turn-end-registry";
+import { clearProviderHold, setProviderHold } from "./provider-hold";
 import type { ContentBlock } from "../types";
 
 // The sweep reads the last turn end of each session from a process-wide
@@ -541,6 +542,36 @@ describe("la catena dei riavvii ha un tetto", () => {
     expect((db.query("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n).toBe(rowsBefore);
   });
 
+  /**
+   * A cut the API left unanswered waits for the API. Resent at once, the turn
+   * went back into an API still down, sat 30 minutes until the watchdog, and
+   * did it again four times: about 2h20m and four copies of the message for a
+   * blackout that lasted 80 minutes (25/09, 02:00-03:20Z). The sweep defers
+   * while a hold is in force, the boot's sweep included (a reload mid-outage
+   * restores the hold from disk), and the rows it skips carry no trace.
+   *
+   * @covers RESUME-04
+   */
+  test("under a provider hold the sweep resends nothing and marks nothing; once lifted it resends", async () => {
+    const db = freshDb();
+    const cut: ContentBlock = { kind: "error", text: "Turno interrotto: l'API di Claude non rispondeva più.", cause: "api-unavailable" } as ContentBlock;
+    db.run(
+      "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES ('a0','topic:x','assistant','',?,0,?,1,'u0',0)",
+      [JSON.stringify([{ kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } }, cut]), new Date().toISOString()],
+    );
+    const calls: Array<Record<string, unknown>> = [];
+    setProviderHold({ untilMs: Date.now() + 60_000, window: "api-down", reason: "l'API di Claude non risponde" });
+    try {
+      await quietly(() => riprendiTurniInterrotti({ ...ctxOf(db), bootedAtMs: Date.now() }, chatRoute(db, calls)));
+      expect(calls).toHaveLength(0);
+      expect(blocksOf(lastRow(db).blocks).some((b) => b.kind === "ripreso")).toBe(false);
+    } finally {
+      clearProviderHold();
+    }
+    await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
+    expect(calls.map((c) => c.ripresa)).toEqual([1]);
+  });
+
   test("il tetto e' quattro: tre riavvii pianificati in quaranta minuti non devono lasciare «premi Riprova» su una chat che nessuno ha toccato", () => {
     expect(MAX_RESUME_ATTEMPTS).toBe(4);
   });
@@ -688,5 +719,42 @@ describe("la causa sul blocco basta, qualunque frase porti", () => {
   test("lo stop dell'umano non si riprende, nemmeno con un testo che sembra un cartello", () => {
     const stop: ContentBlock = { kind: "error", text: "fermato", cause: "user" } as ContentBlock;
     expect(chatDaRiprendere({ ...base, blocks: [prosa, stop] }, ORA)).toBe(false);
+  });
+});
+
+/**
+ * Cuts that came from outside the turn. Topic 3019832f on 25/09: the API went
+ * dark at 02:00Z, the claude-code watchdog closed the turn at 02:30Z with a
+ * bare text and no cause, and every sweep from 02:35 to 03:20 read it as
+ * "no" until a person resent by hand, 52 minutes later. And the same day at
+ * 12:57 the ai-bridge daemon died under four live CLIs, whose turns ended
+ * "as died" and stayed there.
+ */
+describe("an outage outside the turn is resumed", () => {
+  const tool: ContentBlock = { kind: "tool", toolCall: { id: "toolu_1", name: "Bash", args: {}, status: "success" } } as ContentBlock;
+
+  test("the watchdog's bare text on the real row (5e92d06e) is a cut of ours", () => {
+    const row: RigaDaValutare = {
+      ...base,
+      blocks: [tool, tool, { kind: "error", text: "Nessuna attività dal modello per 30 minuti. Turno terminato." } as ContentBlock],
+    };
+    expect(resumeVerdict(row, ORA)).toBe("resend");
+  });
+
+  test("a turn the API left unanswered, and one whose daemon died, are resent", () => {
+    for (const cause of ["api-unavailable", "broker-died"]) {
+      const cut = { kind: "error", text: "una frase qualunque", cause } as unknown as ContentBlock;
+      expect(resumeVerdict({ ...base, blocks: [prosa, cut] }, ORA), cause).toBe("resend");
+    }
+  });
+
+  test("a child that died on its own, with the daemon alive, stays where it is", () => {
+    const died = { kind: "error", text: "Process died unexpectedly", cause: "process-died" } as ContentBlock;
+    expect(resumeVerdict({ ...base, blocks: [prosa, died] }, ORA)).toBe("no");
+  });
+
+  test("the cap notice names the outage that cut the last link, not an unknown cause", () => {
+    expect(resumeCapNotice({ restarted: false, cause: "api-unavailable" })).toMatch(/l'API non rispondeva/);
+    expect(resumeCapNotice({ restarted: false, cause: "broker-died" })).toMatch(/ospitava l'agente/);
   });
 });

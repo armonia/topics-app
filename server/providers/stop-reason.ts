@@ -153,7 +153,30 @@ export type StopCause =
    * It stays separate from `provider-error` because their retry policies are
    * opposite. Provider errors are transient; refusals are deterministic.
    */
-  | "refusal";
+  | "refusal"
+  /**
+   * THE API STOPPED ANSWERING, and the turn ended on it.
+   *
+   * Two roads lead here: the CLI gives up after its retries (`result` with
+   * `terminal_reason: "api_error"`), or our send watchdog kills a child whose
+   * last word was a retry. Measured 25/09 on topic 3019832f: the API dark from
+   * 02:00 to 03:20Z, the turn closed at 02:30 with a bare text and no cause,
+   * and every sweep read it as "no" until a person resent by hand. The turn is
+   * resumed like a restart, but only once the API answers again (the
+   * `api-down` hold in `lib/provider-hold.ts`): resent at once it would go
+   * back into the same blackout.
+   */
+  | "api-unavailable"
+  /**
+   * THE AI-BRIDGE DAEMON THAT HELD THE CHILD DIED, and the child with it.
+   *
+   * Not `process-died`: the CLI did not fail, the process hosting it went
+   * away (25/09 12:57, an orphaned daemon shut itself down and took four live
+   * CLIs with it). A fresh daemon answers "no such session" to the resync, and
+   * the turn is resumed like a restart. Told apart by the daemon epoch
+   * (`AiBridgeClient.daemonEpoch`): the child was spawned under another daemon.
+   */
+  | "broker-died";
 
 /**
  * THE TWO LISTS MUST MATCH, and the compiler is what checks it.
@@ -221,6 +244,8 @@ export function classifyResultEvent(event: {
   is_error?: unknown;
   errors?: unknown;
   result?: unknown;
+  terminal_reason?: unknown;
+  api_error_status?: unknown;
 }): TurnEndInfo {
   const subtype = typeof event.subtype === "string" ? event.subtype : "";
   const errored = event.is_error === true || subtype.startsWith("error");
@@ -238,7 +263,20 @@ export function classifyResultEvent(event: {
   // contenere la parola "refuse" in una spiegazione, mai il contrario.
   if (MAX_TOKENS_RE.test(text)) return { end: "max_tokens", detail: text };
   if (REFUSAL_RE.test(text)) return { end: "refusal", detail: text };
+  if (event.terminal_reason === "api_error" && isApiDownStatus(event.api_error_status)) {
+    return { end: "error", cause: "api-unavailable", detail: text };
+  }
   return { end: "error", cause: "provider-error", detail: text };
+}
+
+/**
+ * The HTTP status of a failed API call says the API itself is down: no answer
+ * at all (a timeout, a dropped connection: the CLI leaves the status out or
+ * null), or a 5xx/529. A 429 is the plan's limit and a 4xx is our request,
+ * and waiting fixes neither.
+ */
+export function isApiDownStatus(status: unknown): boolean {
+  return status == null || (typeof status === "number" && status >= 500);
 }
 
 /** Un turno fermato da qualcuno: sempre `cancelled`, la causa dice da chi. */
@@ -386,6 +424,8 @@ export function describeTurnEnd(info: TurnEndInfo): string {
         case "process-died": return "Il processo dell'agente è morto";
         case "provider-error": return "Errore del provider";
         case "rate-limit": return "Limite di richieste dell'API saturo per tutti i tentativi";
+        case "api-unavailable": return "L'API non rispondeva più: il turno riprende quando torna";
+        case "broker-died": return "Si è fermato il processo che ospitava l'agente (ai-bridge)";
         default: return "Turno finito in errore";
       }
   }

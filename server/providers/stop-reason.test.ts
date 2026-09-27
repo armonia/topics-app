@@ -232,3 +232,35 @@ describe("classifyTurnError — il limite dell'API", () => {
     expect(describeTurnEnd({ end: "error", cause: "rate-limit" })).toMatch(/API/);
   });
 });
+
+/**
+ * The CLI gave up on the API by itself: ten retries of "Request timed out",
+ * then a `result` with `terminal_reason: "api_error"` (topic 4e5e2d76, 25/09,
+ * 02:05-02:59Z). As a `provider-error` the row kept "Request timed out" as its
+ * last word and no resume ever read it as a cut. The CLI names the HTTP status
+ * in `api_error_status`, and leaves it out when no answer came at all.
+ *
+ * @covers RESUME-01
+ */
+describe("classifyResultEvent - the API stopped answering", () => {
+  const gaveUp = { type: "result", subtype: "success", is_error: true, result: "Request timed out", terminal_reason: "api_error" };
+
+  it("a result the CLI ends on an api_error with no HTTP answer is an `api-unavailable` end", () => {
+    expect(classifyResultEvent(gaveUp)).toEqual({ end: "error", cause: "api-unavailable", detail: "success Request timed out" });
+  });
+
+  it("a 5xx is the API down too; a 4xx is our request, and resending buys the same answer", () => {
+    expect(classifyResultEvent({ ...gaveUp, api_error_status: 500 }).cause).toBe("api-unavailable");
+    expect(classifyResultEvent({ ...gaveUp, api_error_status: 529 }).cause).toBe("api-unavailable");
+    expect(classifyResultEvent({ ...gaveUp, api_error_status: 400 }).cause).toBe("provider-error");
+    expect(classifyResultEvent({ ...gaveUp, api_error_status: 429 }).cause).toBe("provider-error");
+  });
+
+  it("the same text without the terminal reason is still a provider error", () => {
+    expect(classifyResultEvent({ ...gaveUp, terminal_reason: undefined }).cause).toBe("provider-error");
+  });
+
+  it("has a sentence of its own on the card", () => {
+    expect(describeTurnEnd({ end: "error", cause: "api-unavailable" })).toMatch(/API/);
+  });
+});

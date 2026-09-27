@@ -223,6 +223,17 @@ export class AiBridgeClient {
   /** Ultimo byte ricevuto dal daemon, di chiunque fosse. Vedi `setupReader`. */
   private lastByteAt = 0;
   private disposed = false;
+  private epoch = 0;
+
+  /**
+   * How many daemons this client has spawned. A new one means the one before
+   * it is gone, and with it every child it held: a session the new daemon
+   * does not know was lost with its daemon, not by its own child (25/09 12:57,
+   * four live CLIs killed by an orphaned daemon shutting itself down).
+   */
+  get daemonEpoch(): number {
+    return this.epoch;
+  }
 
   readonly socketPath: string;
   readonly storeDir: string;
@@ -271,6 +282,7 @@ export class AiBridgeClient {
       }
       recent.push(now);
       recentSpawns.set(this.socketPath, recent);
+      this.epoch++;
       // No daemon — spawn one (detached, survives our restart). Bun-native:
       // process.execPath is the same bun the server runs under. augmentPath so a
       // launchd-minimal PATH still resolves `claude` for the children later.

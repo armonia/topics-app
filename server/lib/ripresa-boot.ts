@@ -35,6 +35,7 @@
  *   · never while a provider still holds a send for the chat
  *     (`sessionHasPendingSend`): a send queued behind a stuck turn is live
  *     even with no stream and no process (topic 3019832f, 24/09);
+ *   · never under a provider hold (a spent plan window, an API not answering);
  *   · at most MAX_RESUME_ATTEMPTS times per MESSAGE, counted along the chain
  *     of resends (`parent_id`) and not on the single row; the trace lives in
  *     the DB (`kind: 'ripreso'`, with the attempt number), not in memory,
@@ -311,6 +312,7 @@ import { decodeCol, encodeCol } from "../../shared/message-blob";
 import { insertRestartNotification, restartNotificationFrame, type PartialSweepDb } from "./boot-partial-sweep";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isBackgroundNoticeRow, rowsBack } from "./background-notice";
+import { providerHold } from "./provider-hold";
 
 /** A chat's last row, as the sweep reads it. */
 interface LastRow { sk: string; id: string; ruolo: string; blocks: unknown; ts: string }
@@ -531,6 +533,10 @@ export async function riprendiTurniInterrotti(
 ): Promise<void> {
   const responseCeilingMs = ceilings.responseMs ?? RESPONSE_CEILING_MS;
   const streamCeilingMs = ceilings.streamMs ?? STREAM_CEILING_MS;
+  // A hold defers the whole sweep, the boot's too: after a reload mid-blackout
+  // the hold comes back from disk, and the boot resent every cut chat into it.
+  const hold = providerHold();
+  if (hold) { console.log(`[ripresa] sweep rinviato: ${hold.reason}`); return; }
   // `fresh`: the resend is traced on a notice this sweep just wrote, which the
   // open windows have not seen yet.
   const candidati: Array<{ sessionKey: string; messaggio: string; idTurno: string; blocks: ContentBlock[]; attempt: number; fresh?: { topicId: string; text: string } }> = [];

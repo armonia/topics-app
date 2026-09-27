@@ -140,6 +140,11 @@ export function avvisoPerTurno(
   // the dispatcher for a card) picks it up. One sentence for both cases: what
   // was produced stays, nobody is asked to press anything.
   if (info.end === "error" && info.cause === "rate-limit") return rateLimitNotice(info.detail);
+  // AN OUTAGE OUTSIDE THE TURN, the API or the daemon hosting the agent. Same
+  // reasoning as the limit: nobody's doing, not deterministic, resumed by the
+  // sweep (the API's once it answers again), so nobody is asked to press.
+  if (info.end === "error" && info.cause === "api-unavailable") return API_UNAVAILABLE_NOTICE;
+  if (info.end === "error" && info.cause === "broker-died") return BROKER_DIED_NOTICE;
   // A TURN CUT BY THE OUTPUT CAP IS NOT A FINISHED TURN.
   //
   // Measured on 2026-08-28 on topic:4c935add, three times out of three. The model
@@ -249,8 +254,9 @@ export const CAUSE_NOSTRE = ["server-shutdown", "watchdog", "wall-clock"] as con
 
 /**
  * Is this stop cause one the machine owns, i.e. one the resume may act on?
- * Our three cuts, plus the two ends that are not deterministic faults: an API
- * limit that frees itself (`rate-limit`) and OUR budget of tool rounds
+ * Our three cuts, plus the ends that are not deterministic faults: an API
+ * limit that frees itself (`rate-limit`), an API or a daemon that went away
+ * (`api-unavailable`, `broker-died`), and OUR budget of tool rounds
  * (`tool-budget`, whose live resume is in services/goal-continuation.ts; this
  * covers the row when a restart lands between the cut and that resume).
  *
@@ -260,8 +266,23 @@ export const CAUSE_NOSTRE = ["server-shutdown", "watchdog", "wall-clock"] as con
  */
 export function isResumableCause(cause: unknown): boolean {
   return typeof cause === "string"
-    && ((CAUSE_NOSTRE as readonly string[]).includes(cause) || cause === "rate-limit" || cause === "tool-budget");
+    && ((CAUSE_NOSTRE as readonly string[]).includes(cause) || (OUTSIDE_CAUSES as readonly string[]).includes(cause));
 }
+
+/**
+ * The ends that are not ours and not deterministic either: the API's limit, an
+ * API that stopped answering, the daemon hosting the agent going away (card
+ * e30f35e4 and 51fb9359, 25/09), and our own budget of tool rounds.
+ */
+const OUTSIDE_CAUSES = ["rate-limit", "tool-budget", "api-unavailable", "broker-died"] as const;
+
+/** The notice for a turn the API left unanswered (`api-unavailable`). */
+export const API_UNAVAILABLE_NOTICE =
+  "⚠️ Turno interrotto: l'API di Claude non rispondeva più. Riprende da solo appena torna a rispondere.";
+
+/** The notice for a turn whose ai-bridge daemon died under it (`broker-died`). */
+export const BROKER_DIED_NOTICE =
+  "⚠️ Turno interrotto: si è fermato il processo che ospitava l'agente (ai-bridge). Riprende da solo.";
 
 /**
  * The notice for a turn that died with the API's limit still saturated after
@@ -338,4 +359,12 @@ const CARTELLI_RIPRENDIBILI = [
   // lib/resume-notices.ts). It becomes the row the resend is traced on, so the
   // next sweep has to read it as ours.
   "Turno interrotto: la risposta non è mai arrivata",
+  // From 27/09/2026: an API that stopped answering, and the daemon hosting the
+  // agent that died (`API_UNAVAILABLE_NOTICE`, `BROKER_DIED_NOTICE`).
+  "Turno interrotto: l'API di Claude non rispondeva",
+  "Turno interrotto: si è fermato il processo che ospitava l'agente",
+  // The claude-code send watchdog's bare text, up to 27/09/2026: no cause on
+  // the block, so no sweep resent it (row 5e92d06e, topic 3019832f, 25/09: 52
+  // minutes stopped until a person resent by hand).
+  "Nessuna attività dal modello per 30 minuti",
 ] as const;

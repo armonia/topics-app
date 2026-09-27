@@ -76,6 +76,9 @@ export const STOP_CAUSES = [
   // It is not `provider-error`: provider errors are retried, while retrying an
   // identical refusal buys the same result. Retry policy needs this distinction.
   'refusal',
+  // Two outages outside the turn, each resumed by itself (server/providers/stop-reason.ts).
+  'api-unavailable',
+  'broker-died',
 ] as const;
 
 

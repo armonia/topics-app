@@ -158,7 +158,8 @@ describe("claude-code provider · broker turns always reach the end", () => {
 
     const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
     provider.start();
-    let ended: string | null = null;
+    // Widened on purpose: assigned in callbacks, so the compiler would narrow it to `null`.
+    let ended = null as string | null;
     const turn = provider.sendChat(sessionKey, "quattro", {
       onTextDelta: () => {}, onToolStart: () => {}, onToolResult: () => {},
       onSubAgentUpdate: () => {}, onUserInputRequired: () => {},
@@ -175,8 +176,11 @@ describe("claude-code provider · broker turns always reach the end", () => {
 
     // The client reconnects (respawning an empty daemon), the provider re-attaches
     // its live sessions, and the "no such session" answer finalizes the turn.
+    // As `broker-died`, not `process-died`: the child did not fail, the daemon
+    // holding it went away, and the resume acts on that cause. On 25/09 at
+    // 12:57 four chats ended "as died" this way and stayed stopped (51fb9359).
     await turn;
-    expect(ended).not.toBeNull();
+    expect(ended).toBe("broker-died");
 
     provider.stop();
   }, 30000);

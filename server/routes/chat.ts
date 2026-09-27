@@ -2135,7 +2135,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // answers 200 with no content at all, so without this it fell into
             // the empty-turn notice below and the verdict — which the API does
             // explain — was never shown. See `native/agent-loop.ts:roundEnd`.
-            const cutNotice = reason === "done" && (endInfo.end === "max_tokens" || endInfo.end === "refusal")
+            // And a CLI that gave up on the API (`api-unavailable`): its row kept
+            // "Request timed out" and no verdict, and no sweep resent it (25/09).
+            const cutNotice = reason === "done" && (endInfo.end === "max_tokens" || endInfo.end === "refusal" || endInfo.end === "error")
               ? avvisoPerTurno(endInfo, { haProdotto: fullContent.trim().length > 0 || rowHasWorkAfterMerge() })
               : null;
             if (reason === "done" && !cutNotice && !fullContent.trim() && !rowHasWorkAfterMerge() && !askingPlanApproval && !soloCompattazione) {
@@ -2160,7 +2162,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               //
               // `max_tokens` has no cause because it is a length limit, not an
               // attributed termination. Its notice already explains recovery.
-              const cutCause = endInfo.end === "refusal" ? ("refusal" as const) : undefined;
+              // An `error` end carries its own: it is what the resume reads.
+              const cutCause = endInfo.end === "refusal" ? ("refusal" as const) : endInfo.end === "error" ? endInfo.cause : undefined;
               blocks.push({
                 kind: "error",
                 text: cutNotice.replace(/^⚠️\s*/, ""),
@@ -2171,7 +2174,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // `reason: "error"` and the push gate mutes the cut turn.
               turnError = cutNotice;
               console.warn(
-                `[StreamWS] ${sessionKey}: ${endInfo.end === "refusal" ? "turn refused by the API" : "turn cut by the output cap"}`,
+                `[StreamWS] ${sessionKey}: ${endInfo.end === "refusal" ? "turn refused by the API" : endInfo.end === "error" ? `turn ended by ${endInfo.cause}` : "turn cut by the output cap"}`,
               );
               if (matchedTopic) {
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: cutNotice });
@@ -2228,7 +2231,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // as a route stop did before (lib/abort-cause.ts).
               const avviso = wantedByMachine ? null : avvisoPerTurno(endInfo, { haProdotto, riprendeDaSolo });
               if (avviso) {
-                blocks.push({ kind: "error", text: avviso.replace(/^⚠️\s*/, "") });
+                // An `error` end here is an outage outside the turn: its cause
+                // goes on the block, for the resume and the banner.
+                const cause = endInfo.end === "error" ? endInfo.cause : undefined;
+                blocks.push({ kind: "error", text: avviso.replace(/^⚠️\s*/, ""), ...(cause ? { cause, at: new Date().toISOString() } : {}) });
                 turnError = avviso;
                 if (!fullContent.trim()) fullContent = avviso;
                 if (matchedTopic) {

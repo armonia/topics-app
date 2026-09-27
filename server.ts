@@ -6,7 +6,7 @@ import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
 import { NOT_ARCHIVED_SQL } from "./server/lib/archived-scope";
 import { wakeVerdict, runningTaskOwnsTopic } from "./server/lib/wake-adoption";
 import { riprendiTurniInterrotti, type CtxRipresa } from "./server/lib/ripresa-boot";
-import { providerHold, isProviderHeld, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
+import { providerHold, isProviderHeld, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage, type ProviderHold } from "./server/lib/provider-hold";
 import { resolveStateDir } from "./server/lib/data-dir";
 import { createSwapFreezer } from "./server/services/swap-freeze";
 import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "./server/services/swap-freeze-ledger";
@@ -4095,9 +4095,7 @@ const opzioniServer = {
       // A hold in force is the first thing a reconnecting client must know:
       // without it the banner would appear only at the NEXT change.
       const holdInForce = providerHold();
-      if (holdInForce) {
-        inviaIniziale({ type: "provider:hold", untilMs: holdInForce.untilMs, window: holdInForce.window, reason: holdInForce.reason, sinceMs: holdInForce.sinceMs });
-      }
+      if (holdInForce && holdInForce.window !== "api-down") inviaIniziale(providerHoldFrame(holdInForce));
       // The frozen trees, for the same reason: the frost has to be on the card
       // the moment a reloaded client paints it, and the next change may be ten
       // minutes away.
@@ -5885,12 +5883,22 @@ function scheduleResumeSweep(): void {
   t.unref?.();
 }
 
+/** The hold as the status bar's banner reads it. An API outage goes out as no
+ *  hold: the banner speaks of a plan limit, and the cut chat's own notice
+ *  already says the API stopped answering. */
+function providerHoldFrame(hold: ProviderHold | null) {
+  return hold && hold.window !== "api-down"
+    ? { type: "provider:hold" as const, untilMs: hold.untilMs, window: hold.window, reason: hold.reason, sinceMs: hold.sinceMs }
+    : { type: "provider:hold" as const, untilMs: null, window: null, reason: null, sinceMs: null };
+}
+
 // The hold is news for every open chat: the banner says why nothing moves and
-// until when, instead of a spinner and 27 silent retries.
+// until when, instead of a spinner and 27 silent retries. And a hold lifted
+// early (the API answered again, a window freed) is when the chats it deferred
+// can go: the sweep runs within the nudge, not at its next five-minute tick.
 onProviderHold((hold) => {
-  broadcastToAll(hold
-    ? { type: "provider:hold", untilMs: hold.untilMs, window: hold.window, reason: hold.reason, sinceMs: hold.sinceMs }
-    : { type: "provider:hold", untilMs: null, window: null, reason: null, sinceMs: null });
+  broadcastToAll(providerHoldFrame(hold));
+  if (!hold) nudgeResumeSweep();
 });
 
 // And the reading on the way there: how full the window is, said whenever

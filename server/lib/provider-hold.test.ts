@@ -8,7 +8,7 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { providerHold, isProviderHeld, setProviderHold, clearProviderHold, onProviderHold, holdUntilLabel, holdAsksAPerson, HOLD_ASKS_A_PERSON_MS, configureProviderHoldStore, resetProviderHoldStore, planUsage, recordPlanUsage, onPlanUsage, clearPlanUsage } from "./provider-hold";
+import { providerHold, isProviderHeld, setProviderHold, clearProviderHold, onProviderHold, holdUntilLabel, holdAsksAPerson, HOLD_ASKS_A_PERSON_MS, configureProviderHoldStore, resetProviderHoldStore, planUsage, recordPlanUsage, onPlanUsage, clearPlanUsage, holdForApiDown, liftApiDownHold, API_DOWN_HOLD_MS } from "./provider-hold";
 import { PLAN_DISPATCH_HOLD_AT, PLAN_USAGE_WARN_AT } from "../../shared/provider-hold";
 
 const NOW = 1_800_000_000_000;
@@ -133,6 +133,53 @@ describe("a hold is per provider", () => {
   test("an unrecognised provider carries no hold key, so it is never reported held", () => {
     setProviderHold({ untilMs: NOW + 60_000, window: "five_hour", reason: "held" }, NOW);
     expect(isProviderHeld("openai", NOW)).toBe(false);
+  });
+});
+
+/**
+ * AN API THAT DOES NOT ANSWER HOLDS THE RESUME TOO (card e30f35e4). The CLI
+ * says so on stdout (`system/api_retry`), and the first answer any child gets
+ * lifts it. Measured 25/09: a blackout from 02:00 to 03:20Z, and a resend at
+ * once would have gone back into it four times.
+ *
+ * @covers RESUME-04
+ */
+describe("the API outage hold", () => {
+  let dir = "";
+  beforeEach(() => { clearProviderHold(); resetProviderHoldStore(); dir = mkdtempSync(join(tmpdir(), "provider-hold-")); });
+  afterEach(() => { clearProviderHold(); resetProviderHoldStore(); rmSync(dir, { recursive: true, force: true }); });
+
+  test("a retry opens it for a short horizon, and every retry after pushes the horizon on", () => {
+    expect(holdForApiDown(NOW).window).toBe("api-down");
+    expect(providerHold(NOW)?.untilMs).toBe(NOW + API_DOWN_HOLD_MS);
+    holdForApiDown(NOW + 60_000);
+    expect(providerHold(NOW)?.untilMs).toBe(NOW + 60_000 + API_DOWN_HOLD_MS);
+    // Nobody retrying any more: it ends by itself, and the sweep probes.
+    expect(providerHold(NOW + 60_000 + API_DOWN_HOLD_MS)).toBeNull();
+  });
+
+  test("an answer lifts it, and the listeners hear the lift", () => {
+    const seen: Array<string | null> = [];
+    const off = onProviderHold((h) => seen.push(h?.window ?? null));
+    holdForApiDown(NOW);
+    liftApiDownHold(NOW);
+    off();
+    expect(providerHold(NOW)).toBeNull();
+    expect(seen).toEqual(["api-down", null]);
+  });
+
+  test("a spent plan window is neither replaced nor lifted by it", () => {
+    setProviderHold({ untilMs: NOW + 60_000, window: "five_hour", reason: "finestra di 5 ore esaurita" }, NOW);
+    expect(holdForApiDown(NOW).window).toBe("five_hour");
+    liftApiDownHold(NOW);
+    expect(providerHold(NOW)?.window).toBe("five_hour");
+  });
+
+  test("a reload in the middle of the outage keeps it", () => {
+    // What the process before this one mirrored on disk.
+    const path = join(dir, "provider-hold.json");
+    writeFileSync(path, JSON.stringify({ claude: { untilMs: NOW + API_DOWN_HOLD_MS, window: "api-down", reason: "l'API di Claude non risponde", sinceMs: NOW } }));
+    expect(configureProviderHoldStore(path, NOW)?.window).toBe("api-down");
   });
 });
 

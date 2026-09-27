@@ -396,9 +396,11 @@ describe("a killed child and the session queue (real broker, real child)", () =>
     }
   }, 30_000);
 
-  test("control: a turn silent past the send watchdog's window, with nobody waiting, is ended", async () => {
+  test("control: a turn silent past the send watchdog's window, with nobody waiting, is ended as a watchdog stop", async () => {
     // Proves the shrunk window really bites, so the test below cannot pass
-    // just because the watchdog never ran.
+    // just because the watchdog never ran. And it ends with the cause the
+    // resume acts on: a bare `onError` text left row 5e92d06e (topic
+    // 3019832f, 25/09) with no cause, and no sweep ever resent it.
     const sk = "topic:watchdog-control";
     const { ClaudeCodeProvider } = await import("./claude-code");
     const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
@@ -406,7 +408,8 @@ describe("a killed child and the session queue (real broker, real child)", () =>
     const log: { at: number; ev: string }[] = [];
     try {
       void provider.sendChat(sk, "do some work", recorder("A", log) as never);
-      expect(await waitFor(() => log.some((l) => l.ev.startsWith("A:error:Nessuna attività")), slackMs(5_000))).toBe(true);
+      expect(await waitFor(() => log.some((l) => /^A:(error|aborted|done)/.test(l.ev)), slackMs(5_000))).toBe(true);
+      expect(log.filter((l) => /^A:(error|aborted|done)/.test(l.ev)).map((l) => l.ev)).toEqual(["A:aborted:watchdog"]);
     } finally {
       provider.stop();
     }
