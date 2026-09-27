@@ -11,7 +11,6 @@ import { checkGatewayHealth as pingGateway } from "../providers/health";
 import { detectAgents } from "../lib/detect-agents";
 import { computePresenceCounts } from "../services/profile-stats";
 import { countBusyAgentTerminals } from "./terminal";
-import { backgroundOnlySessionCount } from "../providers/background-probes";
 
 const SERVER_START_TIME = Date.now();
 
@@ -242,9 +241,7 @@ export function createStatusRouter(ctx: AppContext): RouteHandler {
     if (method === "GET" && pathname === "/api/system/presence") {
       return json(computePresenceCounts(
         db,
-        // A chat whose closed turn left an agent or a Bash running is working
-        // too: that work holds a CLI in RAM, and the card's badge counts it.
-        activeStreams.size + countBusyAgentTerminals() + backgroundOnlySessionCount(activeStreams),
+        activeStreams.size + countBusyAgentTerminals(),
         ctx.externalSessionsCount?.() ?? 0,
         ctx.externalSessionsWorking?.() ?? 0,
       ));

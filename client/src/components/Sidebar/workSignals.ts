@@ -36,7 +36,7 @@ export interface WorkSignal {
 export interface WorkCounts {
   /** Sessions that exist and are not archived. */
   openSessions: number;
-  /** Sessions with an agent answering right now. */
+  /** Agents at work right now, background work included: the badge's number (`activeAgentCount`). */
   workingSessions: number;
 }
 

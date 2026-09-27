@@ -8,13 +8,12 @@
  * one place and the names that make it up in another. They are one level now
  * (`SidebarSystemMenu`), and this file is the half of it that names the work.
  *
- * TWO SCOPES, AND THEY ARE NOT THE SAME QUESTION. These rows and the badge on
- * the card are what THIS window's signals can see, from one derivation
- * (`useActiveAgentRows`), so a row cannot exist without being counted. The
- * glyphs in the row's tail are the INSTALLATION's own counts, served by
- * `/api/system/presence`: a machine with sessions running behind another
- * window shows a tail digit larger than the badge, and that is the honest
- * reading of both.
+ * ONE COUNT FOR THE ROWS. These rows, the badge on the card and the working
+ * digit in the row's tail come from one derivation (`useActiveAgentRows`,
+ * `activeAgentCount`), so a row cannot exist without being counted and no
+ * digit can name work the list does not (BGVIS-03). The open digit is the
+ * INSTALLATION's own count, served by `/api/system/presence`: nothing here
+ * lists the open sessions one by one, so it has no rows to agree with.
  *
  * Read-only rows: there is no shared helper to jump from a row to its session
  * yet, and a row that looks like a button and does nothing is worse than text.

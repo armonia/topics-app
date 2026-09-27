@@ -187,13 +187,17 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
   const roster = useTerminalSessions();
   const topics = useTopics();
   const agentCounts = useAgentActivityCounts(roster, topics);
-  // The badge counts the SAME rows the menu lists: the working ones and the
-  // chats waiting on background work (active-agent-row + background-agent-row).
+  // The badge and the working digit in the tail of the menu's system row count
+  // the SAME rows the menu lists, through one function: the working ones and
+  // the chats waiting on background work (active-agent-row + background-agent-row).
   const agentRows = useActiveAgentRows(roster, topics);
   const activeAgents = activeAgentCount(agentRows);
-  const agentsTitle = agentRows.background.length > 0
-    ? tr('statusBar.signals.withBackground', { n: activeAgents, b: agentRows.background.length })
-    : tr('statusBar.signals.working', { n: activeAgents });
+  // With any background row, n >= b >= 1, so one agent is that one row.
+  const agentsTitle = agentRows.background.length === 0
+    ? tr('statusBar.signals.working', { n: activeAgents })
+    : activeAgents === 1
+      ? tr('statusBar.signals.withBackgroundOne')
+      : tr('statusBar.signals.withBackgroundMany', { n: activeAgents, b: agentRows.background.length });
   const load = useLoad();
   useEffect(() => subscribeSession(setSession), []);
 
@@ -231,9 +235,16 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
   // Two counts and no more: what is answering now, and how much is open. The
   // sessions parked on a question and the turns nobody read are the `waiting`
   // lines just below, spelled out in words.
+  //
+  // THE WORKING DIGIT IS THE BADGE'S NUMBER (BGVIS-03): the tail sums up the
+  // level it opens, and a chat waiting on background work is a row of that
+  // level. Read from the server's presence it would count by a rule of its own
+  // (archived chats, sessions with no chat), and could say 1 beside a list
+  // that reads "no agent is working". The open digit stays the installation's
+  // count, which no list here names row by row.
   const signals = workSignals({
     openSessions: counts?.openSessions ?? 0,
-    workingSessions: counts?.workingSessions ?? 0,
+    workingSessions: activeAgents,
   });
   const waiting = [
     agentCounts && agentCounts.awaitingInput > 0

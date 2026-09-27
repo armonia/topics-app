@@ -270,6 +270,10 @@ test.describe("il menu utente apre i livelli di lato", () => {
       await expect(badge).toHaveAttribute("data-notification-count", "1", { timeout: 20_000 });
 
       const menu = await openProfileMenu(page);
+      // The working digit in the tail of the system row is the badge's number,
+      // from the same rows (BGVIS-03): the glyph whose title says "at work".
+      const tailWorking = menu.getByTestId("presence-summary").getByTitle(/al lavoro adesso/);
+      await expect(tailWorking).toHaveText("1", { timeout: 10_000 });
       await menu.getByTestId("menu-system-status").click();
       const status = page.getByTestId("menu-system-status-menu");
       await expect(status).toBeVisible({ timeout: 10_000 });
@@ -282,8 +286,10 @@ test.describe("il menu utente apre i livelli di lato", () => {
       await expect(rows).toHaveCount(1);
       await expect(rows.first()).toContainText("E2E Background Agent");
       await expect(level.getByTestId("active-agent-row")).toHaveCount(0);
-      // The number on the card is the rows it summarises.
-      await expect(badge).toHaveAttribute("data-notification-count", String(await rows.count()));
+      // The number on the card and the digit in the tail are the rows they summarise.
+      const listed = String(await rows.count());
+      await expect(badge).toHaveAttribute("data-notification-count", listed);
+      await expect(tailWorking).toHaveText(listed);
     } finally {
       await deleteTopic(request, chat.id).catch(() => {});
     }

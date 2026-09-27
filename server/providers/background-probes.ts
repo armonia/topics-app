@@ -101,15 +101,6 @@ export function sessionBackgroundDetail(sessionKey: string): BackgroundWorkDetai
   return { tasks: [], lastSignalAt: 0 };
 }
 
-/**
- * Sessions whose only work is what a closed turn left running, never counted
- * next to their own open turn: the presence counts them as working, because
- * that work holds a CLI in RAM right now.
- */
-export function backgroundOnlySessionCount(openTurns: { has(sessionKey: string): boolean }): number {
-  return sessionsWithBackgroundWork().filter((sessionKey) => !openTurns.has(sessionKey)).length;
-}
-
 /** A background row of `/api/topics/streaming`: no turn open, work still running, and what it is. */
 export type BackgroundStatusRow = { topicId: string; sessionKey: string; state: "background" } & BackgroundWorkDetail;
 

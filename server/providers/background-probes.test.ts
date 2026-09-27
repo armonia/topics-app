@@ -8,15 +8,11 @@
  * left two tasks behind, one of them without a description, and the row has to
  * name both and date the last news about them.
  *
- * The same sessions are working ones for the presence count behind the tail of
- * the system row: the work holds a CLI in RAM right now.
- *
- * @covers BGVIS-03, BGVIS-04
+ * @covers BGVIS-04
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
-import { createStatusRouter } from "../routes/status";
-import { backgroundOnlySessionCount, backgroundStatusRows } from "./background-probes";
+import { cleanupTestDataDir, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
+import { backgroundStatusRows } from "./background-probes";
 import { registerProvider, removeProvider } from "./index";
 import type { ClaudeCodeProvider } from "./claude-code";
 import { BACKGROUND_WORK_CAP_MS, WAKE_QUEUED_MS, newBackgroundWork } from "./claude/background-work";
@@ -89,21 +85,5 @@ describe("backgroundStatusRows", () => {
   test("a session with a turn open is the turn's row, not a background one", () => {
     childWithWork("topic:bg-open", [["d4", { type: "local_agent", description: "Monitor deploy" }]]);
     expect(backgroundStatusRows([{ sessionKey: "topic:bg-open" }], topicOf)).toEqual([]);
-  });
-});
-
-describe("backgroundOnlySessionCount", () => {
-  test("a session whose only work is in the background is counted once, and never next to its own open turn", () => {
-    childWithWork("topic:bg-count", [["e5", { type: "local_bash", description: "watch" }]]);
-    expect(backgroundOnlySessionCount(new Map())).toBe(1);
-    expect(backgroundOnlySessionCount(new Map([["topic:bg-count", {}]]))).toBe(0);
-  });
-
-  test("the presence route, behind the tail of the system row, counts it among the working sessions", async () => {
-    childWithWork("topic:bg-presence", [["f6", { type: "local_agent", description: "Verifica build" }]]);
-    const router = createStatusRouter(await createTestAppContext());
-    const url = new URL("http://topics.test/api/system/presence");
-    const res = (await router(new Request(url.toString()), url, url.pathname, "GET")) as Response;
-    expect(((await res.json()) as { workingSessions: number }).workingSessions).toBe(1);
   });
 });

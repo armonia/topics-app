@@ -66,6 +66,7 @@ const IT: Dict = {
   'project.chatBackground': 'Chat di questo progetto con lavoro in background: {n}. Sono libere, puoi scrivere',
   'topic.backgroundOne': 'Un lavoro in background. La chat è libera, puoi scrivere',
   'topic.backgroundMany': '{n} lavori in background. La chat è libera, puoi scrivere',
+  'topic.backgroundResuming': 'Il lavoro in background ha risposto e la chat sta per riprendere. Intanto è libera, puoi scrivere',
   'ctx.removeFromContext': 'Rimuovi dal contesto',
   'ctx.removeFile': 'Rimuovi il file',
   'tool.logTruncated': '[… {n} righe scartate: il buffer del log è pieno]',
@@ -2524,7 +2525,8 @@ const IT: Dict = {
   'statusBar.agents.finishedHeading': 'Turno finito, da guardare',
   'statusBar.agents.none': 'Nessun agente al lavoro adesso',
   'statusBar.agents.backgroundHeading': 'In background',
-  'statusBar.signals.withBackground': '{n} agenti attivi adesso, di cui {b} in background',
+  'statusBar.signals.withBackgroundOne': '1 agente attivo adesso, in background',
+  'statusBar.signals.withBackgroundMany': '{n} agenti attivi adesso, di cui {b} in background',
   // THE PANELS the three chips open. The chip gives the short answer, the
   // panel shows it in full and carries the actions: these are the only texts
   // that can afford a whole sentence, because in there the space exists.
