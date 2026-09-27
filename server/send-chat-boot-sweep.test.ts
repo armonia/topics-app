@@ -111,12 +111,18 @@ describe("send_chat_message across a server that died and booted", () => {
       .rejects.toThrow(`stream interrupted, and the turn was closed from outside before it finished (a restart or a watchdog). What it had written: ${JSON.stringify(HALF.trim())}. Before sending it again`);
   });
 
-  test("died during a silent tool: the interrupted tool's verdict, written once", async () => {
+  // Test D of card a57e6d4d: the repair of mute turns put its own verdict on the
+  // row the sweep had cut, above the restart notice, so the person read two.
+  test("died during a silent tool: closed before it finished, and the person reads one notice, the restart's", async () => {
     const rowId = turnCutMidway("boot-tool", true);
     await expect(send("boot-tool", serverThatDiesAndBoots("boot-tool", rowId, 3)))
-      .rejects.toThrow(/stream interrupted, and the turn then ended badly: Turno interrotto prima di una risposta finale\. What it had written/);
-    const row = ctx.getMessageById(rowId)!;
-    expect(row.blocks!.filter((b) => b.kind === "error")).toHaveLength(1);
+      .rejects.toThrow(`stream interrupted, and the turn was closed from outside before it finished (a restart or a watchdog). What it had written: ${JSON.stringify(HALF.trim())}.`);
+    const url = new URL("http://t.test/api/topics/boot-tool/messages?limit=50");
+    const { messages } = await (await createTopicsRouter(ctx)(new Request(url), url, url.pathname, "GET"))!.json() as { messages: Array<{ id: string; content: string; blocks?: Array<{ kind: string; toolCall?: { status?: string } }> }> };
+    const at = messages.findIndex((m) => m.id === rowId);
+    expect(messages[at].blocks?.find((b) => b.kind === "tool")?.toolCall?.status).toBe("error");
+    expect(messages[at + 1].content).toBe(RESTART_INTERRUPTED_MARKER);
+    expect(messages.filter((m) => m.blocks?.some((b) => b.kind === "error")).map((m) => m.id)).toEqual([messages[at + 1].id]);
   });
 
   test("died before anything was saved: nothing written, a warning against resending, the row left hidden", async () => {
