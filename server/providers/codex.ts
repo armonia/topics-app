@@ -355,6 +355,14 @@ interface CodexTurnState {
   startedAt: number;
   /** Active command_execution tool calls, keyed by Codex's command id. */
   runningTools: Map<string, { toolCallId: string; partial: string }>;
+  /**
+   * Prepended to every Codex item id this process reports. `codex exec`
+   * numbers its items from item_0 in each process, and the fresh retry of a
+   * failed resume feeds the same handler, so its calls land in the same chat
+   * message as the resume's: with a repeated id, chat.ts closes the resume's
+   * row and leaves the retry's running until the stream end marks it failed.
+   */
+  idPrefix?: string;
 }
 
 export class CodexProvider implements AIProvider {
@@ -644,8 +652,9 @@ export class CodexProvider implements AIProvider {
     history: ChatMessage[];
     argsOptsForFallback: Parameters<typeof buildCodexArgs>[0];
     allowResumeFallback: boolean;
+    idPrefix?: string;
   }): void {
-    const { sessionKey, bin, args, workspace, env, handler, explicitModel, invocationMode, prompt, message, history, argsOptsForFallback, allowResumeFallback } = params;
+    const { sessionKey, bin, args, workspace, env, handler, explicitModel, invocationMode, prompt, message, history, argsOptsForFallback, allowResumeFallback, idPrefix } = params;
 
     const child = spawn(bin, args, {
       cwd: workspace,
@@ -666,6 +675,7 @@ export class CodexProvider implements AIProvider {
       startedAt: Date.now(),
       runningTools: new Map(),
       ...(explicitModel ? { model: explicitModel } : {}),
+      ...(idPrefix ? { idPrefix } : {}),
     };
     this.activeChildren.set(sessionKey, child);
     this.sessionState.set(sessionKey, turnState);
@@ -731,7 +741,7 @@ export class CodexProvider implements AIProvider {
         this.runCodexTurn({
           sessionKey, bin, args: freshArgs, workspace, env, handler, explicitModel,
           invocationMode: "fresh", prompt: freshPrompt, message, history, argsOptsForFallback,
-          allowResumeFallback: false,
+          allowResumeFallback: false, idPrefix: "retry:",
         });
         return;
       }
@@ -813,6 +823,8 @@ export class CodexProvider implements AIProvider {
     if (t === "item.completed" || t === "item.started" || t === "item.updated") {
       const item = (event.item && typeof event.item === "object" ? event.item as Record<string, unknown> : {});
       const itemType = item.type;
+      const itemId = (this.sessionState.get(sessionKey)?.idPrefix ?? "")
+        + (typeof item.id === "string" && item.id ? item.id : crypto.randomUUID());
 
       if (itemType === "agent_message" || itemType === "assistant_message") {
         const text = typeof item.text === "string" ? item.text
@@ -840,7 +852,7 @@ export class CodexProvider implements AIProvider {
       // `error`, and `status` on this shape. Keep the canonical MCP spelling so
       // Topics' normal tool renderer and task-comment anchoring see the call.
       if (itemType === "mcp_tool_call") {
-        const id = typeof item.id === "string" && item.id ? item.id : crypto.randomUUID();
+        const id = itemId;
         const server = typeof item.server === "string" ? item.server : "mcp";
         const tool = typeof item.tool === "string" ? item.tool : "tool";
         const name = `mcp__${server}__${tool}`;
@@ -886,7 +898,6 @@ export class CodexProvider implements AIProvider {
       // `apply_patch` edit, and git's `D` later tells a deletion apart.
       if (itemType === "file_change") {
         if (t === "item.updated" || !Array.isArray(item.changes)) return null;
-        const itemId = typeof item.id === "string" && item.id ? item.id : crypto.randomUUID();
         const state = this.sessionState.get(sessionKey);
         // Only `completed` was applied. An interrupted turn closes the patch it
         // cut off as it stood, still `in_progress`, and codex-rs folds a
@@ -913,7 +924,7 @@ export class CodexProvider implements AIProvider {
       }
 
       if (itemType === "command_execution" || itemType === "tool_call") {
-        const id = typeof item.id === "string" && item.id ? item.id : crypto.randomUUID();
+        const id = itemId;
         const name = typeof item.name === "string" ? item.name
           : typeof item.command === "string" ? item.command : "tool";
         const state = this.sessionState.get(sessionKey);
