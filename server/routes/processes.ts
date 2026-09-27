@@ -2062,6 +2062,14 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
           ...(until ? { until: until.source } : {}),
           timeoutMs,
         });
+        // A caller that went away (its CLI restarted, its turn stopped, the
+        // bridge died) is waiting no more: an open watch would make the end of
+        // a command look already delivered, and its wake would go to nobody.
+        req.signal?.addEventListener("abort", () => {
+          close();
+          invalidateScriptsCache();
+          broadcastScriptsUpdate(ctx);
+        }, { once: true });
         // La spia deve comparire SUBITO, non al prossimo giro di cache.
         invalidateScriptsCache();
         broadcastScriptsUpdate(ctx);

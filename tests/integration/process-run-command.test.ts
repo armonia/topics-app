@@ -178,6 +178,27 @@ describe("the end of a command reaches the topic that launched it", () => {
     expect(exitRows(topic.sessionKey)).toHaveLength(0);
   });
 
+  // The caller of a wait can go away without the wait ending: the CLI restarts,
+  // the turn is stopped, the MCP bridge dies. Its watch stayed open until the
+  // timeout, and a command ending in that window counted as «already waited
+  // for»: nobody got the outcome.
+  test("a wait whose caller went away does not swallow the wake", async () => {
+    const topic = newTopic();
+    const { processId } = await runCommand(topic, "sleep 1; echo gone-waiting");
+    const aborter = new AbortController();
+    const url = new URL(`http://topics.test/api/sessions/${encodeURIComponent(topic.sessionKey)}/scripts/${processId}/wait?timeout_ms=10000`);
+    const waiting = Promise.resolve(bench.processes(new Request(url, { signal: aborter.signal }), url, url.pathname, "GET"));
+    await Bun.sleep(200);
+    aborter.abort();
+
+    await until(() => exitRows(topic.sessionKey).length > 0);
+    expect(exitRows(topic.sessionKey)).toHaveLength(1);
+    expect(exitRows(topic.sessionKey)[0]!.content).toContain("gone-waiting");
+    await waiting;
+    await finishTurn();
+    await processExitWakesIdle();
+  });
+
   test("an archived topic gets nothing, and the outcome stays in the panel", async () => {
     const topic = newTopic();
     const { processId } = await runCommand(topic, "sleep 0.5; exit 1");
