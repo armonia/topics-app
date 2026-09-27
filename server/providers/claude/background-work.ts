@@ -50,7 +50,7 @@ import { readBackgroundTasks, readParentToolUseId } from "./events";
  * do not extend it, or a cron firing every ten minutes would hold its CLI for
  * the seven days Claude Code gives a recurring one. Past it the lifetime cap or
  * the idle reaper closes the CLI with the cron still armed, and the chat hears
- * it under the cron's own reason (`closedWork`).
+ * it named as a cron (`closedWork`).
  */
 export const BACKGROUND_WORK_CAP_MS = 2 * 60 * 60_000;
 
@@ -256,16 +256,22 @@ export function hasArmedCron(work: BackgroundWork | undefined, now: number): boo
   return !!work && [...work.crons.values()].some((c) => now - c.armedAt < BACKGROUND_WORK_CAP_MS);
 }
 
+/** One chat line about work a clock closed; `cron` = session crons past the bound, which counts from their arming. */
+export type ClosedWork<Why extends string> = { tasks: string[]; why: Why; cron?: true };
+
 /**
  * What closing the CLI takes with it, named for the chat: listed tasks by their
  * description, armed crons by their schedule, under the reason the clock gives.
- * Past the bound (`silent`) a cron has its own, `cron-cap`: the bound counts
- * from its arming, and a /loop that fired all along was never silent.
+ * Past the bound (`silent`) the crons get a line of their own, flagged `cron`:
+ * a /loop that fired all along was never "without news". A flag and not a new
+ * reason: a client older than the flag reads `why` as a key, and a reason it
+ * has no sentence for threw in the render and took the whole pane down (review
+ * of 27/09); with `silent` it says the tasks' sentence instead.
  */
-export function closedWork<Why extends string>(work: BackgroundWork | undefined, why: Why): Array<{ tasks: string[]; why: Why | "cron-cap" }> {
+export function closedWork<Why extends string>(work: BackgroundWork | undefined, why: Why): Array<ClosedWork<Why>> {
   const tasks = [...(work?.tasks.values() ?? [])].map((t) => t.description || t.type);
   const crons = [...(work?.crons.values() ?? [])].map((c) => `${c.schedule} (cron)`);
-  const said: Array<{ tasks: string[]; why: Why | "cron-cap" }> = why === "silent" ? [{ tasks, why }, { tasks: crons, why: "cron-cap" }] : [{ tasks: [...tasks, ...crons], why }];
+  const said: Array<ClosedWork<Why>> = why === "silent" ? [{ tasks, why }, { tasks: crons, why, cron: true }] : [{ tasks: [...tasks, ...crons], why }];
   return said.filter((s) => s.tasks.length > 0);
 }
 

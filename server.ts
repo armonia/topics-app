@@ -804,9 +804,9 @@ const claudeSessionTracker = createClaudeSessionTracker({
 ClaudeCodeProvider.observeTurnReleased((sk) => { claudeSessionTracker.syncImportOffsetToEnd(sk); });
 // A clock closed a CLI with background work still listed: the chat says what
 // died and why (server/lib/background-notice.ts), not only the log.
-ClaudeCodeProvider.observeBackgroundClosed((sessionKey, tasks, why) => {
+ClaudeCodeProvider.observeBackgroundClosed((sessionKey, tasks, why, cron) => {
   const topic = ctx.getTopicBySessionKey(sessionKey);
-  if (topic) postBackgroundNotice(ctx, { sessionKey, topicId: topic.id }, { kind: "background-notice", event: "closed", tasks, why });
+  if (topic) postBackgroundNotice(ctx, { sessionKey, topicId: topic.id }, { kind: "background-notice", event: "closed", tasks, why, cron });
 });
 ClaudeCodeProvider.observeConfigOwed((sessionKey, changes) => {
   const topic = ctx.getTopicBySessionKey(sessionKey);
@@ -5505,7 +5505,7 @@ async function reattachSurvivingChatTurns(): Promise<void> {
       : "topic gone";
     console.log(`[chat-reattach] reaping idle broker session ${s.id} (${why})`);
     // Its background work past the bound (listed tasks, armed crons) dies with it: the chat says so.
-    const silent = (tryGetProvider("claude-code") as { takeSilentBackground?: (sk: string) => Array<{ tasks: string[]; why: "silent" | "cron-cap" }> } | undefined)?.takeSilentBackground?.(s.id) ?? [];
+    const silent = (tryGetProvider("claude-code") as { takeSilentBackground?: (sk: string) => Array<{ tasks: string[]; why: "silent"; cron?: true }> } | undefined)?.takeSilentBackground?.(s.id) ?? [];
     if (topic) for (const closed of silent) postBackgroundNotice(ctx, { sessionKey: s.id, topicId: topic.id }, { kind: "background-notice", event: "closed", ...closed });
     try { client.kill(s.id); } catch { /* daemon hiccup — next boot retries */ }
   }

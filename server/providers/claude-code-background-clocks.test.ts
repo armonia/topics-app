@@ -141,13 +141,13 @@ describe("the clocks that kill, against background work", () => {
     }
   });
 
-  test("a session cron past its two hours: the reaper closes the CLI and the chat hears the cron went, with its own reason", async () => {
+  test("a session cron past its two hours: the reaper closes the CLI and the chat hears the cron went, flagged as a cron", async () => {
     // The recorded CronCreate call and result; only the result's date is moved.
     const cron = recordedSessionCron().map((l) => l.event as any);
     const call = cron.find((e) => e.type === "assistant" && e.message.content.some((b: any) => b.name === "CronCreate"));
     const armedAt = (at: number) => ({ ...cron.find((e) => e.tool_use_result?.id), timestamp: new Date(at).toISOString() });
-    const closed: Array<{ sk: string; tasks: string[]; why: string }> = [];
-    ClaudeCodeProvider.observeBackgroundClosed((key, tasks, why) => { closed.push({ sk: key, tasks, why }); });
+    const closed: Array<{ sk: string; tasks: string[]; why: string; cron?: true }> = [];
+    ClaudeCodeProvider.observeBackgroundClosed((key, tasks, why, cron) => { closed.push({ sk: key, tasks, why, cron }); });
     try {
       const sk = "topic:clocks-cron-cap";
       const { provider, pp, counts, feed } = stub(sk);
@@ -156,8 +156,9 @@ describe("the clocks that kill, against background work", () => {
       (provider as any).resetInactivityTimer(sk, pp, { ms: 5 });
       await sleep(40);
       expect(counts.kill).toBe(1);
-      // Not "two hours without news": a recurring cron fired all along, the bound counts from its arming.
-      expect(closed).toEqual([{ sk, tasks: ["57 9 25 9 * (cron)"], why: "cron-cap" }]);
+      // Under `silent`, the reason every client already shipped has a sentence for; `cron`
+      // lets a newer one say the bound counts from the arming (a /loop fired all along).
+      expect(closed).toEqual([{ sk, tasks: ["57 9 25 9 * (cron)"], why: "silent", cron: true }]);
 
       // Armed a minute ago, it goes with a stuck turn like any listed task.
       const sk2 = "topic:clocks-cron-watchdog";

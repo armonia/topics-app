@@ -584,7 +584,7 @@ describe("boot · the agent's lines after the last result", () => {
     try {
       expect(await prov.brokerTurnState(sessionKey)).toBe("idle");
       expect(prov.hasBackgroundWork(sessionKey)).toBe(false);
-      expect(prov.takeSilentBackground(sessionKey)).toEqual([{ tasks: ["Every 30 minutes (cron)"], why: "cron-cap" }]);
+      expect(prov.takeSilentBackground(sessionKey)).toEqual([{ tasks: ["Every 30 minutes (cron)"], why: "silent", cron: true }]);
     } finally {
       try { getAiBridgeClient().kill(sessionKey); } catch { /* best-effort cleanup */ }
     }
