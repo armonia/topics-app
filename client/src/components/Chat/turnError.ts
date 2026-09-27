@@ -56,7 +56,11 @@ export function turnIsOnlyError(msg: {
   if (msg.toolCalls?.length) return false;
   // The resume sweep's trace is not work either: a notice whose resend the
   // route refused must keep the Retry it asks for (card edf3c4db). A resend
-  // that goes has its own row below, and Retry only sits on the last one.
+  // that goes has its own row below, and Retry only sits on the last one. So
+  // the notice the sweep resends at once offers it too, from its frame to the
+  // resend's `stream:start` (sent before the provider spawns; only a turn
+  // checkpoint, off by default, waits on git in between), and for good when
+  // the route refused, where base left no way to resend.
   const sweepTraces = sweepTraceIndexes(msg.blocks);
   if (msg.blocks?.some((b, i) => b.kind !== 'error' && !sweepTraces.has(i))) return false;
   // Nel formato vecchio il verdetto È il contenuto: tutto ciò che resta oltre al

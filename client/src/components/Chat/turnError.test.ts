@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { turnErrorOf, turnIsOnlyError, turnLooksUnanswered, interruptedTurnOf, liveInterruptionBlock, isRedoneAnswer, TURN_CAUSE_KEY } from './turnError';
+import { lastConversationMessage } from './machineRow';
 import { STOP_CAUSES } from '../../../../shared/ws-outbound';
 import type { ContentBlock, TurnEndCause } from '../../types';
 import it from '../../lib/i18n-it';
@@ -86,6 +87,33 @@ describe('turnIsOnlyError — il cancello del bottone Riprova', () => {
     // The resent turn's own banner comes ahead of its verdict: that row is a
     // turn the server ran, as before.
     expect(turnIsOnlyError({ content: '', blocks: [{ kind: 'ripreso', attempt: 1 }, errore('x')] })).toBe(false);
+  });
+
+  /**
+   * The notice the sweep writes and resends at once ("... Lo rimando.") goes
+   * out with its trace, and base counted that trace as work so the notice
+   * never offered Retry: not while the resend was on its way, and not after a
+   * route that refused it either, a dead end under a notice that promised a
+   * resend. Now it offers Retry while it is the chat's last word: from its
+   * frame to the resend's `stream:start`, which the route sends before the
+   * provider spawns (in process, no network; only a turn checkpoint, off by
+   * default, waits on git in between), and for good when the route refused.
+   * Declared on review of card edf3c4db.
+   */
+  test('the notice the sweep resends at once offers Retry until the resend has a bubble below it', () => {
+    const text = '⚠️ Turno interrotto: il server si è riavviato prima che la risposta partisse e il messaggio è rimasto senza risposta. Lo rimando.';
+    const person = { id: 'u1', role: 'user', content: 'misura la ripresa' };
+    // As `restartNotificationFrame` sends it: the row's blocks, trace included.
+    const notice = { id: 'n1', role: 'assistant', content: text, blocks: [errore(text), { kind: 'ripreso' as const, attempt: 1 }] };
+    // The gate MessageList applies: the chat's last word, and only an error.
+    const retryOn = (rows: Array<{ id: string; role: string; content: string; blocks?: ContentBlock[] }>) => {
+      const last = lastConversationMessage(rows);
+      return last?.role === 'assistant' && turnIsOnlyError(last) ? last.id : null;
+    };
+    // Its frame, and nothing after it: the resend on its way, or refused.
+    expect(retryOn([person, notice])).toBe('n1');
+    // The resend's `stream:start` puts its bubble below (useChat's placeholder).
+    expect(retryOn([person, notice, { id: 'a1', role: 'assistant', content: '' }])).toBeNull();
   });
 });
 
