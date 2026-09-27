@@ -4,7 +4,7 @@ Coda viva dei tool lunghi: 2 scelte prima del codice.
 1. Si riusa `stream:tool_update`, testo cumulativo, emesso dal runtime nativo `topics` (il default); codex, acp e openclaw lo mandano già. Perché: il client lo coalesce già e sostituire non raddoppia (o: nuovo `stream:tool_output_delta` ad append: coalescing nuovo, doppio nella finestra da cui scrivi).
 2. Mentre gira, il corpo aperto mostra le ultime 8 righe con l'avviso che sopra ce n'è altro; a fine comando l'output completo, come oggi. Perché: altezza fissa, la chat non salta a ogni aggiornamento (o: tutto l'output in un riquadro scorrevole tenuto in fondo).
 Compreso, senza scelta: solo `bash` fra i tool nativi; la coda arriva anche alla finestra da cui hai scritto (oggi la scarta); il runtime `cli` resta senza, il suo stream porta solo battiti; max 4 aggiornamenti/s, mai salvati.
-Col sì: si vede anche l'output vivo di codex, acp e openclaw, che oggi arriva e si butta. Costo: ogni bash di ogni chat passa dal nuovo callback; un suo errore o un comando verboso non devono toccare il tool (try/catch, throttle 250 ms).
+Col sì: si vede anche l'output vivo di codex, acp e openclaw, che oggi arriva e si butta. *Corretto dopo la review (27/09): vale solo per le righe `shell`. Codex chiama la riga col comando (`bun test`) e ACP col titolo, quindi le loro righe restano `unknown` e la coda non le raggiunge; tipizzarle come `shell` è una change a parte.* Costo: ogni bash di ogni chat passa dal nuovo callback; un suo errore o un comando verboso non devono toccare il tool (try/catch, throttle 250 ms).
 «ok» = tutte le consigliate · «ok ma 2 no» = cambio la 2.
 
 | # | Dove cambiarla |
@@ -36,7 +36,8 @@ se sta fallendo al test 3 di 400. Tre buchi, uno dietro l'altro:
    tipizzato `shell` senza `output`, e `resolveToolDetail`
    (`client/src/components/Chat/toolDetail.ts:431-459`) restituisce quello per
    primo: `ShellCard` (`ToolCards.tsx:108`) riceve `output = undefined` finché
-   gira. Per questo oggi non si vede nemmeno l'output di codex.
+   gira. (Codex non passa di qui: la sua riga non è `shell`, vedi la nota
+   sotto «Col sì».)
 3. **La finestra da cui hai scritto lo scarta.** `onToolUpdate`
    (`chat.ts:2765`) va solo su WS (`broadcastTurnFrame`, nessun `writeSSE`), e
    `stream:tool_update` non è in `SENDER_ALSO_SEES`

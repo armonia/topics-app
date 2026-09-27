@@ -27,3 +27,12 @@ Prima del codice: `grep -qx 'status: approved' openspec/changes/live-tool-output
 
 - [x] 4.1 I test del §1 verdi; typecheck; rails statiche.
 - [ ] 4.2 Prova video dell'E2E (`.webm`) con la coda che scorre e poi lascia il posto all'esito. Aperto: in questa sessione Playwright non gira (il server di test sulla 13334 è condiviso con altri agenti), e la CI registra il video solo con `E2E_VIDEO=1`. Il `.webm` viene da `E2E_VIDEO=1 npx playwright test tests/e2e/tool-live-tail.spec.ts`.
+
+## 5. Review del 27/09
+
+- [x] 5.1 Il banco notturno `bench-streaming.spec.ts` legge l'avanzamento da un marcatore `[k=NNNNNN]` che stava sulla PRIMA riga del parziale: con la coda di 8 righe usciva dalla pagina. Ora è l'ultima riga; il commento di `readApplied` lo dice.
+- [x] 5.2 Il passaggio del parziale da `ToolCallRow` a `ShellCard` ha un bun:test che rende la riga (`runningShellTail.test.ts`): rosso se si toglie `liveResult`.
+- [x] 5.3 La guardia di `flushToolUpdates` ha il suo E2E in `tool-live-tail.spec.ts`: parziale dopo l'esito, su una riga senza `detail` tipizzato. Scritto, non eseguito qui: lo esegue la CI.
+- [x] 5.4 Una riga più lunga del buffer chiusa dal suo `\n`, poi silenzio: la coda restava vuota. Ora resta la riga (test in `tool-output-stream.test.ts`).
+- [x] 5.5 I 16 KB della coda sono byte, non caratteri (test con output non ASCII).
+- [x] 5.6 Codex e ACP non ricevono la coda (le loro righe non sono `shell`): corretti proposta e CHAT-TOOL-08. Tipizzarle è una change a parte.
