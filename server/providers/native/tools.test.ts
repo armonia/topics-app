@@ -1,11 +1,11 @@
 /**
- * `read_file` su un'immagine.
+ * `read_file` on an image.
  *
- * Prima di questo file `read_file` leggeva OGNI file come UTF-8: su un PNG
- * quel percorso produce garbage (bytes non validi come testo), o un errore, e
- * il modello non vede mai l'immagine. Qui si verifica che png/jpg/jpeg/gif/webp
- * imboccano un ramo diverso — l'immagine torna in `ToolResult.images`, non nel
- * testo — mentre un file di testo qualunque continua esattamente come prima.
+ * Before this file, `read_file` read EVERY file as UTF-8: on a PNG that path
+ * produces garbage (bytes that are not valid text), or an error, and the
+ * model never sees the image. This checks that png/jpg/jpeg/gif/webp take a
+ * different branch, the image comes back in `ToolResult.images` and not in
+ * the text, while any plain text file keeps working exactly as before.
   * @covers RT-11
  */
 import { describe, test, expect } from "bun:test";
@@ -21,7 +21,7 @@ function put(name: string, bytes: Buffer | string): string {
   return p;
 }
 
-/** Header PNG valido (firma + IHDR): basta a `imageShape`, e a `read_file` basta ancora meno. */
+/** A valid PNG header (signature + IHDR): enough for `imageShape`, and `read_file` needs even less. */
 function pngHeader(width: number, height: number): Buffer {
   const b = Buffer.alloc(33);
   b.writeUInt32BE(0x89504e47, 0); b.writeUInt32BE(0x0d0a1a0a, 4);
@@ -41,7 +41,7 @@ describe("read_file su un'immagine", () => {
     expect(r.isError).toBeFalsy();
     expect(r.images).toBeDefined();
     expect(r.images![0]!.mediaType).toBe("image/png");
-    // Non ridimensionata (sotto il limite): i byte tornano identici.
+    // Not resized (under the limit): the bytes come back identical.
     expect(r.images![0]!.data).toBe(bytes.toString("base64"));
     expect(r.content).toContain("a.png");
     expect(r.content).toContain("10x10");
@@ -60,11 +60,11 @@ describe("read_file su un'immagine", () => {
   }
 
   test("un'immagine più grande del limite tenta comunque il ramo immagine, non quello di testo", async () => {
-    // L'header dichiara 3000x3000: sopra MAX_IMAGE_EDGE (1568), quindi si tenta
-    // il resize con `sips`. Il file non ha dati veri dopo l'header, quindi
-    // `sips` fallisce a decodificarlo e il codice ricade sui byte originali —
-    // esattamente il comportamento "best effort" atteso quando il resize non
-    // riesce: niente eccezione, l'immagine arriva comunque.
+    // The header declares 3000x3000: above MAX_IMAGE_EDGE (1568), so a resize
+    // via `sips` is attempted. The file has no real data past the header, so
+    // `sips` fails to decode it and the code falls back to the original
+    // bytes, exactly the "best effort" behavior expected when the resize
+    // does not work: no exception, the image still arrives.
     const bytes = pngHeader(3000, 3000);
     put("big.png", bytes);
     const r = await executeTool("read_file", { path: "big.png" }, ctx);
@@ -78,7 +78,7 @@ describe("read_file su un'immagine", () => {
     const r = await executeTool("read_file", { path: "c.ts" }, ctx);
     expect(r.images).toBeUndefined();
     expect(r.content).toContain("const x = 1;");
-    // Formato di sempre: numero di riga, tab, contenuto.
+    // The usual format: line number, tab, content.
     expect(r.content).toMatch(/^\s*1\t/);
   });
 

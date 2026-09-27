@@ -1,12 +1,12 @@
 /**
- * `flattenContent`: il testo E le immagini di una risposta MCP.
+ * `flattenContent`: the text AND the images of an MCP response.
  *
- * Prima un blocco `image` finiva flattenato in `[image content]` e i byte
- * sparivano: un server MCP che rispondeva a uno screenshot era indistinguibile
- * da uno che rispondeva vuoto. Qui si verifica che l'immagine sopravvive
- * separata dal testo, che testo e immagini possono convivere nella stessa
- * risposta, e che i casi già coperti (stringa nuda, tipi sconosciuti) restano
- * come prima.
+ * Before this, an `image` block was flattened into `[image content]` and the
+ * bytes vanished: an MCP server answering with a screenshot was
+ * indistinguishable from one answering empty. This checks that the image
+ * survives separate from the text, that text and images can coexist in the
+ * same response, and that the cases already covered (a bare string, unknown
+ * types) stay as before.
   * @covers RT-11
  */
 import { describe, test, expect } from "bun:test";

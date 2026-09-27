@@ -1,13 +1,12 @@
 /**
- * `toolResultContent`: come diventa `tool_result.content` un `ToolResult`.
+ * `toolResultContent`: how a `ToolResult` becomes `tool_result.content`.
  *
- * Prima ogni risultato era testo puro, quindi un'immagine (`ToolResult.images`)
- * non aveva dove andare: `read_file` su un PNG o uno screenshot inline
- * finivano nel campo testo come base64, che l'API non decodifica come
- * immagine. Qui si verifica che un risultato SENZA immagini resta una
- * stringa esattamente come prima, e uno CON immagini diventa l'array
- * `[testo, ...immagini]` che l'API si aspetta — con la clip applicata solo
- * alla parte di testo.
+ * Before this, every result was plain text, so an image (`ToolResult.images`)
+ * had nowhere to go: `read_file` on a PNG or an inline screenshot ended up in
+ * the text field as base64, which the API does not decode as an image. This
+ * checks that a result WITHOUT images stays a plain string exactly as before,
+ * and one WITH images becomes the `[text, ...images]` array the API expects,
+ * with clipping applied only to the text part.
   * @covers RT-11
  */
 import { describe, test, expect } from "bun:test";
@@ -62,8 +61,8 @@ describe("toolResultContent", () => {
     };
     const blocks = toolResultContent(out) as any[];
     expect(blocks[0].text.length).toBeLessThan(50_000);
-    // L'immagine non passa MAI da `clipToolResult`: tagliare il base64 a metà
-    // produrrebbe byte che non decodificano più a niente.
+    // The image NEVER goes through `clipToolResult`: slicing base64 in half
+    // would produce bytes that no longer decode to anything.
     expect(blocks[1].source.data).toBe("y".repeat(50_000));
   });
 });
