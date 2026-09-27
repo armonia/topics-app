@@ -169,7 +169,7 @@ import { recordTurnEnd, takeTurnEnd, peekTurnEnd } from "./server/providers/turn
 import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { automaticDispatchHooks } from "./server/services/task-auto-model";
-import { resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
+import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
@@ -1735,7 +1735,7 @@ const taskDispatcher = createTaskDispatcher({
   }),
   topicModelSelection: (id) => {
     const topic = ctx.getTopicById(id);
-    return topic ? { model: topic.model, provider: topic.provider ?? getDefaultProviderName() } : null;
+    return topic ? dispatchTopicBinding(topic, getDefaultProviderName()) : null;
   },
   // Il cancello contro il lavoro rifatto: se il commit della consegna è già
   // dentro main, la card si chiude invece di far ripartire un agente sopra

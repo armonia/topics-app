@@ -51,3 +51,16 @@ export function resolveDispatchTopicIdentity(
     executor: topicsRouting ? 'topics' : target,
   };
 }
+
+/** What the dispatcher reads back from a dispatched topic: the binding its
+ *  provider hold and its session reuse are judged against. A topic pinned to
+ *  no runtime runs where resolveTopicProvider sends it: the native engine with
+ *  the switch ON, the registry default only with OFF. Reading the default for
+ *  an ON topic let a Codex default take a card the Claude engine was running
+ *  out from behind Claude's wall. */
+export function dispatchTopicBinding(
+  topic: { provider?: string | null; model?: string | null; topicsRouting?: boolean | null },
+  defaultProvider: string | null | undefined,
+): { model?: string | null; provider?: string | null } {
+  return { model: topic.model, provider: topic.provider ?? (topic.topicsRouting ? 'topics' : defaultProvider) };
+}

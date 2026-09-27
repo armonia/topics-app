@@ -12,7 +12,7 @@ import { createTaskService, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { createTaskAttemptStore } from "./task-attempts";
 import { automaticDispatchHooks } from "./task-auto-model";
-import { resolveDispatchTopicIdentity, type DispatchTopicIdentity } from "./dispatch-topic-identity";
+import { dispatchTopicBinding, resolveDispatchTopicIdentity, type DispatchTopicIdentity } from "./dispatch-topic-identity";
 import type { AIProvider } from "../providers/types";
 import type { TurnEndInfo } from "../providers/stop-reason";
 import type { ProvidersSnapshot } from "../../shared/types";
@@ -80,6 +80,8 @@ function harness(fleet = FLEET) {
   const db = freshDb();
   const svc: TaskService = createTaskService(db);
   const topics: DispatchTopicIdentity[] = [];
+  const turnEnds: Array<(end: TurnEndInfo) => void> = [];
+  const frames: Array<Record<string, unknown>> = [];
   const deps: DispatcherDeps = {
     svc,
     attempts: createTaskAttemptStore(db),
@@ -97,15 +99,20 @@ function harness(fleet = FLEET) {
       db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", [id]);
       return { topicId: id, sessionKey: `topic:${id}` };
     },
+    // Same read-back as server.ts: what a hold or a reused session is judged against.
+    topicModelSelection: (id) => {
+      const topic = topics[Number(id.slice("topic-".length)) - 1];
+      return topic ? dispatchTopicBinding(topic, fleet.defaultProvider) : null;
+    },
     createWorktree: async () => "wt-1",
     deleteWorktree: async () => {},
-    runTurn: () => new Promise<TurnEndInfo | void>(() => {}),
-    broadcast: () => {},
+    runTurn: () => new Promise<TurnEndInfo | void>((resolve) => { turnEnds.push(resolve); }),
+    broadcast: (frame) => { frames.push(frame as Record<string, unknown>); },
     graceMs: 10,
     retryBackoffMs: 0,
     log: () => {},
   };
-  return { db, svc, dispatcher: createTaskDispatcher(deps), topics };
+  return { db, svc, dispatcher: createTaskDispatcher(deps), topics, turnEnds, frames };
 }
 
 const flush = async (n = 40) => {
@@ -237,4 +244,46 @@ describe("Automatic with Topics routing ON and no routable candidate", () => {
       expect(h.topics.map((t) => t.executor)).toEqual(["topics"]);
     });
   }
+});
+
+
+// The engine runs a card that no runtime is pinned to (no Claude Code target was
+// ready). Its topic then carries no provider, and reading the registry default
+// in its place named Codex here: Claude's wall stopped applying to a card the
+// Claude engine was running.
+describe("A card on the engine with no pinned runtime stays behind Claude's wall", () => {
+  const engineOnly = () => fleetOf(entry("topics", CLAUDE_MODELS), entry("claude-code", [], "unavailable"), entry("codex", ["gpt-5.5"]));
+
+  it("a provider error during a Claude hold retries at the hold's end, not at once", async () => {
+    const h = await dispatchAutomaticWithRoutingOn(undefined, engineOnly());
+    expect(h.topics).toHaveLength(1);
+    expect(h.topics[0]!.provider).toBeUndefined();
+    expect(h.turnEnds).toHaveLength(1);
+    const untilMs = Date.now() + 3_600_000;
+    setProviderHold({ untilMs, window: "five_hour", reason: "Claude quota exhausted" });
+    h.turnEnds[0]!({ end: "error", cause: "provider-error" });
+    await flush();
+    const retry = h.frames.map((f) => f.retry as { at: number } | undefined).find(Boolean);
+    expect(retry!.at).toBeGreaterThanOrEqual(untilMs - 1_000);
+    expect(h.turnEnds).toHaveLength(1);
+  });
+
+  it("a dependent reusing that session waits for the hold instead of starting on it", async () => {
+    const h = await dispatchAutomaticWithRoutingOn(undefined, engineOnly());
+    expect(h.topics[0]!.provider).toBeUndefined();
+    h.db.run("UPDATE tasks SET status = 'done' WHERE id = 't1'");
+    const ts = new Date().toISOString();
+    h.db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, model, topics_routing, blocked_by_task_id, reuse_blocker_context)
+       VALUES ('t2', ?, 'dependent', 'todo', ?, ?, 0, NULL, NULL, 't1', 1)`,
+      [PID, ts, ts],
+    );
+    setProviderHold({ untilMs: Date.now() + 3_600_000, window: "five_hour", reason: "Claude quota exhausted" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    const dependent = h.svc.get("t2")!.task;
+    expect(dependent).toMatchObject({ status: "todo", dispatchState: "queued", dispatchAttempts: 0 });
+    expect(dependent.dispatchError).toContain("Claude");
+    expect(h.turnEnds).toHaveLength(1);
+  });
 });
