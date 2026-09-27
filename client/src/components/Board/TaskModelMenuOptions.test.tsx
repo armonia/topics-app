@@ -209,11 +209,18 @@ describe('the Topics routing switch on an Automatic task', () => {
     });
   }
 
-  test('the engine down: a board default only the engine serves disables the switch with the reason', () => {
-    const engineDown: ProvidersSnapshot = { ...ENGINE_ONLY, providers: [{ ...ready('topics', ['claude-sonnet-5']), status: 'error' }, ENGINE_ONLY.providers[1]!] };
-    const drawn = routingSwitch('claude-sonnet-5', false, engineDown);
-    expect(drawn).toMatch(/\sdisabled=""/);
-    expect(drawn).toContain('Non disponibile');
+  // The engine is ready, so Automatic on its own is routable: only the board
+  // default the card inherits can disable the switch here.
+  test('a board default the ready engine does not serve disables the switch, while Automatic alone stays routable', () => {
+    const OPUS_4_1: ProvidersSnapshot = { ...FLEET, providers: [
+      ready('claude-code', ['claude-sonnet-5', 'claude-opus-4-1']), ready('codex', ['gpt-5.5']), ready('topics', ['claude-sonnet-5']),
+    ] };
+    expect(routingSwitch(null, false, OPUS_4_1)).not.toMatch(/\sdisabled=""/);
+    for (const board of ['claude-opus-4-1', 'claude-code:claude-opus-4-1']) {
+      const drawn = routingSwitch(board, false, OPUS_4_1);
+      expect(drawn).toMatch(/\sdisabled=""/);
+      expect(drawn).toContain('Non disponibile');
+    }
   });
 
   test('a model chosen on the task is judged on its own, not on the board default', () => {
