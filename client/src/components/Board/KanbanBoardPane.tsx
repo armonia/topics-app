@@ -40,7 +40,7 @@ import { COLUMN_FLASH_MS, landedInColumn, statusSnapshot } from '../../lib/colum
 import { useBoardMotion } from './useBoardMotion';
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
-import { cardBoardSettings } from '../../lib/topicsRoutingGate';
+import { cardBoardSettings, fetchCardBoardSettings } from '../../lib/topicsRoutingGate';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
 import { CREATED_FLASH_MS, filterFocusRingClass, PRIORITY_DOT, PRIORITY_LABEL, TOOLBAR_CONTROL_H, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
@@ -1650,10 +1650,9 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const [otherBoard, setOtherBoard] = useState<{ projectId: string; settings: BoardSettings } | null>(null);
   const selectedBoardId = selected?.projectId;
   useEffect(() => {
-    if (!selectedBoardId || selectedBoardId === projectId) return;
     let alive = true;
-    boardApi.getSettings(selectedBoardId)
-      .then((v) => { if (alive) setOtherBoard({ projectId: selectedBoardId, settings: v }); })
+    fetchCardBoardSettings(selectedBoardId, projectId, boardApi.getSettings)
+      .then((v) => { if (alive && v) setOtherBoard(v); })
       .catch(() => { /* default unknown: the drawer judges the task alone */ });
     return () => { alive = false; };
   }, [selectedBoardId, projectId]);
