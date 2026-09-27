@@ -95,6 +95,16 @@ fusa e' la copia sbagliata del file.
 Le note di revisione restano sulla vista diff: tornando da «Anteprima» a «Diff»
 una nota in sospeso SHALL essere ancora al suo posto.
 
+Il `.md` reso e' un file consegnato che nessuno ha ancora rivisto:
+- l'HTML grezzo SHALL perdere gli elementi che eseguono codice o caricano un
+  altro documento (`script`, `iframe`, `frame`, `frameset`, `object`, `embed`)
+  e quelli che agiscono sull'intera pagina (`base`, `meta`, `link`, `style`,
+  `form`). L'app non ha CSP: un `<iframe srcdoc>` eseguirebbe il suo script con
+  l'origine dell'app. `FilePane` resta com'e';
+- un link con uno schema (`https:`, `mailto:`) SHALL aprirsi come ogni link
+  dell'app, e un link relativo SHALL restare testo: nomina un file a quella
+  revisione, e seguito porterebbe via la pagina dell'app.
+
 Sul worktree vivo «Anteprima» SHALL rileggersi quando il pacchetto riletto porta
 per quel file un blocco diverso, come «File intero».
 
@@ -111,6 +121,12 @@ per quel file un blocco diverso, come «File intero».
 - **WHEN** si apre «Anteprima»
 - **THEN** l'`<img>` reso punta alla rotta dei byte con `file=docs/shot.png` e la
   stessa `blob` del README
+
+#### Scenario: niente iframe, niente navigazione
+- **GIVEN** un `README.md` consegnato con un `<iframe srcdoc>` e un link
+  `[regole](CONTRIBUTING.md)`
+- **WHEN** si apre «Anteprima»
+- **THEN** nell'anteprima non c'e' nessun `iframe`, e «regole» e' testo e non un link
 
 ### Requirement: DIFFPV-04 — «File intero» sui file di testo
 

@@ -452,6 +452,41 @@ describe('a live worktree re-read moves every view along (DIFFPV-03, DIFFPV-04)'
   });
 });
 
+describe('a delivered .md, rendered, runs nothing and navigates nowhere (DIFFPV-03)', () => {
+  const readme = [
+    '# Title',
+    '',
+    '<iframe srcdoc="<script>parent.document.title=1</script>"></iframe>',
+    '',
+    '<script>parent.document.title=2</script>',
+    '',
+    '<object data="x.html"></object><embed src="x.html">',
+    '',
+    '<form action="https://example.test/"><button>go</button></form>',
+    '',
+    '<base href="https://example.test/">',
+    '',
+    '<details><summary>More</summary>kept</details>',
+    '',
+    '[contributing](CONTRIBUTING.md) and [the site](https://example.test/docs)',
+    '',
+  ].join('\n');
+
+  test('no element that runs code, loads a document or rewires the page reaches the DOM', () => {
+    const html = renderToStaticMarkup(<MarkdownPreview content={readme} baseDir="" resolveImage={() => null} untrusted />);
+    for (const tag of ['<iframe', '<script', '<object', '<embed', '<form', '<base']) expect(html).not.toContain(tag);
+    expect(html).toMatch(/<h1[^>]*>Title<\/h1>/);
+    expect(html).toContain('<details><summary>More</summary>kept</details>');
+  });
+
+  test('a relative link stays text, a web link is a link', () => {
+    const html = renderToStaticMarkup(<MarkdownPreview content={readme} baseDir="" resolveImage={() => null} untrusted />);
+    expect(html).not.toMatch(/<a [^>]*href="CONTRIBUTING\.md"/);
+    expect(html).toContain('contributing');
+    expect(html).toMatch(/<a [^>]*href="https:\/\/example\.test\/docs"/);
+  });
+});
+
 describe('the per-file row cap never hides a note or the change itself (DIFFPV-04)', () => {
   const N = 2000;
   const header = 'diff --git a/big.ts b/big.ts\n--- a/big.ts\n+++ b/big.ts\n';

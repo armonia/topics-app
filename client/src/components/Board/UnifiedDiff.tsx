@@ -323,6 +323,9 @@ function ImagePair({ before, after, source, onStale }: {
  * A `.md` rendered at a revision, its relative pictures read at the SAME
  * revision through the byte route: the disk holds the main checkout's copy,
  * which for a delivery not yet landed is the wrong one.
+ *
+ * It is a file someone else wrote and nobody has reviewed yet, so it is
+ * rendered `untrusted`: nothing in it runs, and no link of it leaves the app.
  */
 function MarkdownAtRevision({ path, rev, version, source, onStale }: {
   path: string;
@@ -358,7 +361,7 @@ function MarkdownAtRevision({ path, rev, version, source, onStale }: {
   return (
     <div data-testid="diff-markdown-preview" className="font-sans">
       <Suspense fallback={<SpinnerFallback fill />}>
-        <MarkdownPreview content={state.text} baseDir="" resolveImage={resolveImage} />
+        <MarkdownPreview content={state.text} baseDir="" resolveImage={resolveImage} untrusted />
       </Suspense>
     </div>
   );

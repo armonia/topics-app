@@ -247,7 +247,12 @@ test.describe.serial("Board · il pannello Modifiche", () => {
     imagesPath = wtI.absPath;
     imagesBranch = wtI.branchName;
     writeFileSync(`${wtI.absPath}/assets/logo.png`, png(3, 2, [200, 30, 30]));
-    writeFileSync(`${wtI.absPath}/README.md`, "# Titolo della consegna\n\n![logo](assets/logo.png)\n");
+    // Plus what a delivered file must not do in the preview: run an
+    // iframe, or navigate the app through a relative link.
+    writeFileSync(
+      `${wtI.absPath}/README.md`,
+      "# Titolo della consegna\n\n![logo](assets/logo.png)\n\n[le regole](CONTRIBUTING.md) e [il sito](https://example.test/)\n\n<iframe srcdoc=\"<p>dentro</p>\"></iframe>\n",
+    );
     git(wtI.absPath, ["mv", "docs/vecchio.txt", "docs/nuovo.txt"]);
     writeFileSync(`${wtI.absPath}/docs/nuovo.txt`, numberedLines([9]));
     git(wtI.absPath, ["add", "-A"]);
@@ -395,6 +400,12 @@ test.describe.serial("Board · il pannello Modifiche", () => {
     await expect(rendered.getByRole("heading", { level: 1, name: "Titolo della consegna" })).toBeVisible({ timeout: 10000 });
     await expect(rendered.locator("img")).toHaveAttribute("src", /file=assets%2Flogo\.png&blob=worktree/);
     await expect(rendered.locator("img")).toHaveJSProperty("naturalWidth", 3);
+    // A delivered file runs nothing and navigates nowhere: no iframe, a relative
+    // link is text, a web link is still a link.
+    await expect(rendered.locator("iframe")).toHaveCount(0);
+    await expect(rendered.getByText("le regole", { exact: true })).toBeVisible();
+    await expect(rendered.getByRole("link", { name: "le regole" })).toHaveCount(0);
+    await expect(rendered.getByRole("link", { name: "il sito" })).toHaveAttribute("href", "https://example.test/");
 
     // The renamed text file opens on its hunk: line 1 is not in it.
     const moved = panel.locator('[data-testid="diff-file"][data-path="docs/nuovo.txt"]');
