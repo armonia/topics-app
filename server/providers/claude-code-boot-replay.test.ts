@@ -492,4 +492,42 @@ describe("boot · the agent's lines after the last result", () => {
       try { bridge.kill(sessionKey); } catch { /* best-effort cleanup */ }
     }
   }, 40_000);
+
+  /** CronCreate's call and result as CLI 2.1.282 prints them (`claude-cli-2.1.282-session-cron.ndjson`), armed at `at`. */
+  const cronArmed = (id: string, at: string, recurring: boolean, humanSchedule = "57 9 25 9 *") => [
+    { type: "assistant", message: { content: [{ type: "tool_use", id: `toolu_${id}`, name: "CronCreate", input: { cron: humanSchedule, prompt: id, recurring } }] } },
+    { type: "user", timestamp: at, message: { role: "user", content: [{ type: "tool_result", tool_use_id: `toolu_${id}`, content: `Scheduled task ${id}` }] }, tool_use_result: { id, humanSchedule, recurring, durable: false } },
+  ];
+
+  test("a restart inside the turn a cron fire opened: the reattach folds that fire twice, and the other one-shot stays armed", async () => {
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60_000).toISOString();
+    setEnv("TOPICS_CLAUDE_CLI_PATH", storeCli("cron-two-one-shots", [
+      { type: "system", subtype: "init", session_id: "s" },
+      ...cronArmed("A", tenMinutesAgo, false), ...cronArmed("B", tenMinutesAgo, false),
+      { type: "result", subtype: "success", is_error: false, num_turns: 1, result: "scheduled" },
+      // A fires, and the CLI's own turn is still open when the server restarts.
+      { type: "command_lifecycle", command_uuid: "fire-A", state: "started", session_id: "s" },
+      { type: "system", subtype: "init", session_id: "s" },
+      { type: "assistant", message: { content: [{ type: "text", text: "CRON-" }] } },
+    ]));
+    const sessionKey = "topic:boot-cron-two";
+    await seedSurvivingSession(sessionKey, "t-boot-cron-two");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const bridge = getAiBridgeClient() as any;
+    const vero = bridge.attach.bind(bridge);
+    const from: number[] = [];
+    bridge.attach = async (id: string, offset: number) => { const res = await vero(id, offset); from.push(offset); return res; };
+    const prov = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    try {
+      void prov.reattach(sessionKey, makeHandler().handler).catch(() => {});
+      await waitFor(() => from.length === 2, 10_000);
+      // The scan from 0, then the open turn again from the last result: the fire went through twice.
+      expect(from[0]).toBe(0);
+      expect(from[1]).toBeGreaterThan(0);
+      expect(prov.backgroundState(sessionKey)).toBe("running");
+    } finally {
+      bridge.attach = vero;
+      try { bridge.kill(sessionKey); } catch { /* best-effort cleanup */ }
+    }
+  }, 40_000);
 });

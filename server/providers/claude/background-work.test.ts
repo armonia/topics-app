@@ -236,6 +236,18 @@ describe("a session cron, from the recorded CLI session (CronCreate, CLI 2.1.282
     expect(isBackgroundWorkAlive(work, 20_001)).toBe(false);
   });
 
+  test("one fire folded twice, as a reattach folds the open turn again after its scan, disarms one one-shot, not two", () => {
+    const work = newBackgroundWork();
+    for (const id of ["a", "b"]) {
+      noteBackgroundLine(work, cronCreate(`toolu_${id}`, false), 10_000, { unattended: false });
+      noteBackgroundLine(work, cronScheduled(`toolu_${id}`, id, false, 10_000), 10_000, { unattended: false });
+    }
+    noteBackgroundLine(work, cronFired, 20_000, { unattended: true });
+    noteBackgroundLine(work, cronFired, 20_001, { unattended: true });
+    expect([...work.crons.keys()]).toEqual(["b"]);
+    expect(isBackgroundWorkAlive(work, 20_002)).toBe(true);
+  });
+
   test("a replay dates the arming by the line's own timestamp: a restart does not give it two more hours", () => {
     const later = 3 * 60 * 60_000;
     const work = foldCron(scheduled + 1, (i) => at(i) + later);
