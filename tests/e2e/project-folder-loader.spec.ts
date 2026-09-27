@@ -189,6 +189,12 @@ async function seedInnerChat(page: Page): Promise<void> {
  * running, served as a `background` row of the status snapshot; `alsoStreaming`
  * adds the first child answering. The sibling needs no inner tab: the folder's
  * roll-up walks every chat of the project.
+ *
+ * CALL IT BEFORE `resetPaneStore`. `createTopic` opens the new chat as a
+ * top-level pane (`seedTopicIntoSidebar`), and a project-linked chat open at
+ * load becomes the project WINDOW, whose open pane auto-expands the folder: the
+ * shut folder this is meant to test would never be on screen. The reset that
+ * follows is the last write to the pane store before the page loads.
  */
 async function armBackgroundSibling(page: Page, request: APIRequestContext) {
   const sibling = await createTopic(request, `e2e-folder-bg-${TS}`, { projectPath: SEED_PATH });
@@ -357,9 +363,9 @@ test.describe("Project folder loader", () => {
     request,
   }) => {
     test.info().annotations.push({ type: "spec", description: "BGVIS-01" });
-    await resetPaneStore(request, []);
     const { siblingId, snapshot } = await armBackgroundSibling(page, request);
     try {
+      await resetPaneStore(request, []);
       await goToApp(page);
       const header = projectHeader(page);
       await expect(header).toBeVisible({ timeout: 15_000 });
@@ -385,9 +391,9 @@ test.describe("Project folder loader", () => {
 
   test("the project TAB says the same while it is not the selected pane", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "BGVIS-01" });
-    await resetPaneStore(request, [projectPaneId, outsiderId]);
     const { siblingId } = await armBackgroundSibling(page, request);
     try {
+      await resetPaneStore(request, [projectPaneId, outsiderId]);
       await goToApp(page);
       const projectTab = page.locator(`[data-pane-id="${projectPaneId}"]`);
       const otherTab = page.locator(`[data-pane-id="${outsiderId}"]`);

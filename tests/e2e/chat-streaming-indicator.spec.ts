@@ -329,16 +329,25 @@ test.describe("Chat waiting on background work", () => {
     await resetPaneStore(request, [bgTopicId]);
   });
 
-  /** The status snapshot, switchable by the test: the chat in background, or nothing at all. Before `goToApp`. */
-  async function armBackgroundStatus(page: Page): Promise<{ background: boolean }> {
-    const status = { background: true };
+  type BackgroundStatus = { background: boolean; tasks: typeof TASKS; newsAgeMs: number };
+
+  /**
+   * The status snapshot, switchable by the test between two polls: the chat in
+   * background with `tasks` and the last news `newsAgeMs` ago, or nothing at
+   * all. Before `goToApp`.
+   */
+  async function armBackgroundStatus(page: Page): Promise<BackgroundStatus> {
+    const status: BackgroundStatus = { background: true, tasks: TASKS, newsAgeMs: 0 };
     await page.route("**/api/topics/streaming", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
           sessions: status.background
-            ? [{ topicId: bgTopicId, sessionKey: bgSessionKey, state: "background", tasks: TASKS, lastSignalAt: Date.now() }]
+            ? [{
+                topicId: bgTopicId, sessionKey: bgSessionKey, state: "background",
+                tasks: status.tasks, lastSignalAt: Date.now() - status.newsAgeMs,
+              }]
             : [],
         }),
       }),
@@ -361,8 +370,14 @@ test.describe("Chat waiting on background work", () => {
     // THE GREY RING, on the sidebar row and on the tab: neither the blue of a
     // reply nor the amber of a wait for you.
     const row = page.getByRole("treeitem", { name: new RegExp(bgTopicName) }).first();
-    await expect(row.locator('[data-loader-state="background"]')).toBeVisible({ timeout: 15_000 });
+    const glyph = row.locator('[data-loader-state="background"]');
+    await expect(glyph).toBeVisible({ timeout: 15_000 });
     await expect(row.locator('[data-loader-state="working"], [data-loader-state="waiting"]')).toHaveCount(0);
+    // The tooltip says how many jobs run and that the chat is free.
+    await expect(glyph).toHaveAttribute("title", /2 lavori in background\. La chat è libera/);
+    // The suite runs with reduced motion: the grey arc stands still, as the
+    // blue one does (`index.css`, the `prefers-reduced-motion` branch).
+    expect(await glyph.locator("svg").evaluate((el) => getComputedStyle(el).animationName)).toBe("none");
     const tab = page.locator(`[data-pane-id="${bgTopicId}"]`).first();
     await expect(tab.locator('[data-loader-state="background"]')).toBeVisible({ timeout: 10_000 });
     // No turn is open, so the row offers no Stop: that one is the composer's.
@@ -410,16 +425,45 @@ test.describe("Chat waiting on background work", () => {
 
     const row = page.getByRole("treeitem", { name: new RegExp(bgTopicName) }).first();
     const line = page.getByTestId("background-work-line");
+    // The card's badge counts this chat among the active agents (BGVIS-03).
+    const badge = page.getByTestId("identity-agents-badge");
     await expect(line).toBeVisible({ timeout: 15_000 });
     await expect(row.locator('[data-loader-state="background"]')).toBeVisible({ timeout: 10_000 });
+    await expect(badge.locator("[data-notification-count]")).toHaveAttribute("data-notification-count", "1", { timeout: 10_000 });
 
     const stop = page.locator('[data-composer-action="stop"]');
     await expect(stop).toBeVisible();
     await stop.click();
-    // Well under the 15 s poll interval.
+    // Well under the 15 s poll interval: the glyph, the line and the agent row
+    // (the badge is drawn only above zero) all go with the Stop.
     await expect(line).toBeHidden({ timeout: 3_000 });
     await expect(row.locator("[data-loader-state]")).toHaveCount(0);
+    await expect(badge).toHaveCount(0, { timeout: 3_000 });
     await expect(page.locator('[data-composer-action="stop"]')).toHaveCount(0);
+  });
+
+  test("a job that reported says the chat is about to resume, and work silent past ten minutes says for how long", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "BGVIS-04" });
+    // No task listed: one reported and the CLI is about to wake to answer it.
+    const status = await armBackgroundStatus(page);
+    status.tasks = [];
+    await openBackgroundChat(page, chatPage);
+
+    const row = page.getByRole("treeitem", { name: new RegExp(bgTopicName) }).first();
+    const line = page.getByTestId("background-work-line");
+    await expect(line).toBeVisible({ timeout: 15_000 });
+    await expect(line).toContainText("sta per riprendere");
+    await expect(line).not.toHaveAttribute("data-stale", "true");
+    // The glyph's tooltip says it too, and that the chat is free meanwhile.
+    await expect(row.locator('[data-loader-state="background"]')).toHaveAttribute("title", /sta per riprendere.*libera/);
+
+    // Two jobs whose last news is eleven minutes old, past WORK_STALE_AFTER_MS.
+    status.tasks = TASKS;
+    status.newsAgeMs = 11 * 60_000;
+    // The next poll (every 15 s) brings it.
+    await expect(line).toHaveAttribute("data-stale", "true", { timeout: 20_000 });
+    await expect(line).toContainText("Verifica build");
+    await expect(line).toContainText(/nessuna notizia da 1\dm/);
   });
 
   test("when the poll stops reporting the work, the line and the glyph go", async ({ page, chatPage }) => {
