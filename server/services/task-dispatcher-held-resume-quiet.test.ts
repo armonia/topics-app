@@ -26,7 +26,7 @@
  */
 import { describe, it, expect, setSystemTime, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { createTaskService, type TaskService } from "./tasks";
+import { createTaskService, type Task, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import type { TurnEndInfo } from "../providers/stop-reason";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -101,6 +101,11 @@ function harness() {
   const db = freshDb();
   const svc: TaskService = createTaskService(db);
   const frames: string[] = [];
+  const lastFrames = new Map<string, Task>();
+  /** Every chip write that reached the row, whoever made it. */
+  const writes: string[] = [];
+  const setDispatchState = svc.setDispatchState.bind(svc);
+  svc.setDispatchState = (input) => { writes.push(input.taskId); return setDispatchState(input); };
   /** The injected probes; `null` memory = no reading, the composer holds nothing.
    *  `warming` is the state of the first 120 s of a process: readings arriving,
    *  no full window yet. */
@@ -115,7 +120,10 @@ function harness() {
     runTurn: () => new Promise<TurnEndInfo | void>(() => { /* stays in flight */ }),
     broadcast: (m: OutboundMessage) => {
       const msg = m as { type: string; task?: { id: string } };
-      if (msg.type === "task:updated" && msg.task) frames.push(msg.task.id);
+      if (msg.type === "task:updated" && msg.task) {
+        frames.push(msg.task.id);
+        lastFrames.set(msg.task.id, msg.task as Task);
+      }
     },
     graceMs: 0,
     retryBackoffMs: 0,
@@ -147,6 +155,8 @@ function harness() {
     },
     task: (id: string) => svc.get(id)!.task,
     framesOf: (id: string) => frames.filter((f) => f === id).length,
+    lastFrame: (id: string) => lastFrames.get(id),
+    writesOf: (id: string) => writes.filter((w) => w === id).length,
     serviceNotes: (id: string) => svc.get(id)!.comments.filter((c) => c.kind === "service").map((c) => c.content),
   };
 }
@@ -159,6 +169,18 @@ function heldCard(db: Database, id: string): void {
      VALUES (?, ?, 'held resume', 'in_progress', ?, ?, ?, 1, 2)`,
     [id, PID, `topic-${id}`, ts, ts],
   );
+}
+
+function todo(h: ReturnType<typeof harness>, id: string): void {
+  const ts = new Date().toISOString();
+  h.db.run("INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, priority) VALUES (?, ?, 'x', 'todo', ?, ?, 0, 2)", [id, PID, ts, ts]);
+}
+
+/** The 24h spend cap reached (`on`) or off, on the real service's two reads. */
+function daySpend(h: ReturnType<typeof harness>, on: boolean): void {
+  const spend = h.svc as unknown as { getSpendCaps: () => object; agentSpend: () => object };
+  spend.getSpendCaps = () => ({ perTaskCents: 0, perDayCents: on ? 1_000 : 0 });
+  spend.agentSpend = () => ({ cents24h: 1_200, centsTotal: 1_200, unpricedCostTokens24h: 0, unpricedCostTokensTotal: 0 });
 }
 
 describe("a held resume writes its chip when the hold changes, not at every retry", () => {
@@ -467,6 +489,54 @@ describe("a held card across restarts", () => {
   });
 
   /**
+   * The relearned frame is the only frame that carries no write, and it is owed
+   * once per card per boot. What the rest of the boot does to the row goes
+   * through the write path (another kind of hold, another writer clearing the
+   * chip) or finds the map already knowing the sentence: never a second frame
+   * of its own.
+   */
+  it("inside one boot, a kind that changes and a chip cleared by another writer add writes, not relearned frames", async () => {
+    const h = harness();
+    h.floor.memGB = 4.8;
+    heldCard(h.db, "oneboot");
+    const t0 = Date.now();
+    await h.dispatcher.resume("oneboot", "");
+    const sentence = h.task("oneboot").dispatchError;
+    let at = 35 * 60_000;
+    setSystemTime(new Date(t0 + at));
+    const d = h.restart();
+    const frames0 = h.framesOf("oneboot");
+    const writes0 = h.writesOf("oneboot");
+    const retry = async () => {
+      setSystemTime(new Date(t0 + (at += 6_000)));
+      await d.resume("oneboot", "");
+    };
+
+    await retry();
+    // The kind changes twice: the floor clears and the 24h spend holds, then
+    // the floor comes back with the very sentence the row carried at the boot.
+    h.floor.memGB = null;
+    daySpend(h, true);
+    await retry();
+    expect(h.task("oneboot").queueReason).toMatchObject({ kind: "spend_cap" });
+    daySpend(h, false);
+    h.floor.memGB = 4.8;
+    await retry();
+    expect(h.task("oneboot").dispatchError).toBe(sentence);
+    // Another writer clears the chip; the next retry puts the same sentence back.
+    h.db.run("UPDATE tasks SET dispatch_state = NULL, dispatch_error = NULL WHERE id = 'oneboot'");
+    await retry();
+    expect(h.task("oneboot").dispatchError).toBe(sentence);
+    // And quiet from there, past the minute refresh.
+    for (let i = 0; i < 20; i++) await retry();
+
+    const writes = h.writesOf("oneboot") - writes0;
+    expect(writes).toBe(3);
+    expect(h.framesOf("oneboot") - frames0 - writes).toBe(1);
+    expect(h.task("oneboot").queueReason).toMatchObject({ kind: "resource_floor" });
+  });
+
+  /**
    * A NEW episode with the same words comes back to the bottom. `once` kept the
    * old row wherever it was, so a wait that ended and started again after a
    * person had written stayed ABOVE that person's comment, and the thread read
@@ -501,11 +571,6 @@ describe("a held card across restarts", () => {
  * if it were its own copy. Found by the verifier (repro R1).
  */
 describe("the tick's wait note on a todo card", () => {
-  const todo = (h: ReturnType<typeof harness>, id: string) => {
-    const ts = new Date().toISOString();
-    h.db.run("INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, priority) VALUES (?, ?, 'x', 'todo', ?, ?, 0, 2)", [id, PID, ts, ts]);
-  };
-
   it("episodes of the floor with other figures leave one note on the card, the current one", async () => {
     const h = harness();
     todo(h, "queue1");
@@ -520,6 +585,36 @@ describe("the tick's wait note on a todo card", () => {
     const notes = h.serviceNotes("queue1").filter((c) => c.startsWith("Memoria"));
     expect(notes).toHaveLength(1);
     expect(notes[0]).toContain("4.2 GB");
+  });
+
+  /**
+   * The tick only writes on a Todo card, and a Todo card has no live resume
+   * wait: `resume` drops it as soon as the card is out of In progress. So the
+   * resume note the tick's note replaces is always the one of a wait that has
+   * ended, and the retry still in flight when the card moved does not bring
+   * it back.
+   */
+  it("a held resume dragged back to Todo keeps one wait note, the tick's, and the late retry leaves it there", async () => {
+    const h = harness();
+    h.floor.memGB = 4.8;
+    heldCard(h.db, "back");
+    const t0 = Date.now();
+    await h.dispatcher.resume("back", "");
+    const memory = () => h.serviceNotes("back").filter((c) => c.startsWith("Memoria"));
+    expect(memory()).toHaveLength(1);
+
+    // A person drags it back to Todo, which unbinds its topic.
+    h.db.run("UPDATE tasks SET status = 'todo', assigned_topic_id = NULL WHERE id = 'back'");
+    setSystemTime(new Date(t0 + 60_000));
+    h.floor.memGB = 5.1;
+    await h.dispatcher.tick(PID);
+    expect(memory()).toHaveLength(1);
+    expect(memory()[0]).toContain("5.1 GB");
+
+    // The resume's retry timer was still armed: it fires, finds a Todo card, and drops its wait.
+    await h.dispatcher.resume("back", "");
+    expect(memory()).toHaveLength(1);
+    expect(memory()[0]).toContain("5.1 GB");
   });
 });
 
