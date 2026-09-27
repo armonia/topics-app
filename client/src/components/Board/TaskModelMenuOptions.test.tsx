@@ -157,8 +157,8 @@ describe('the Topics routing switch on an Automatic task', () => {
     generatedAt: '2026-09-12T00:00:00Z',
     providers: [ready('claude-code', ['claude-sonnet-5']), ready('codex', ['gpt-5.5']), ready('topics', ['claude-sonnet-5'])],
   };
-  const routingSwitch = (boardValue: string | null, enabled = false) => renderToStaticMarkup(
-    <TaskModelMenuOptions snapshot={FLEET} models={[]} value={null} boardValue={boardValue} onSelect={() => {}} autoLabel="Auto" topicsRouting={{ enabled, onToggle: () => {} }} />,
+  const routingSwitch = (boardValue: string | null, enabled = false, snapshot = FLEET) => renderToStaticMarkup(
+    <TaskModelMenuOptions snapshot={snapshot} models={[]} value={null} boardValue={boardValue} onSelect={() => {}} autoLabel="Auto" topicsRouting={{ enabled, onToggle: () => {} }} />,
   ).match(/<button[^>]*data-testid="ai-selector-topics-routing"[^>]*>.*?<\/button>/s)![0];
 
   for (const board of ['codex', 'codex:auto', 'gpt-5.5']) {
@@ -183,6 +183,38 @@ describe('the Topics routing switch on an Automatic task', () => {
       expect(drawn).not.toContain('Non disponibile');
     });
   }
+
+  // A board default only the engine serves resolves to the engine itself: a
+  // plain model with no Claude Code target (not installed, still loading), the
+  // legacy `topics:<model>`, or a bare major the CLI drops for its point
+  // release. The dispatcher runs all of them on the engine with the switch ON.
+  const ENGINE_ONLY: ProvidersSnapshot = { ...FLEET, defaultProvider: 'topics', providers: [
+    ready('topics', ['claude-sonnet-5']), { ...ready('claude-code', []), status: 'unavailable' },
+  ] };
+  const CLI_WITHOUT_BARE_MAJOR: ProvidersSnapshot = { ...FLEET, defaultProvider: 'topics', providers: [
+    ready('claude-code', ['claude-opus-5-5', 'claude-sonnet-5']), ready('codex', ['gpt-5.5']), ready('topics', ['claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5']),
+  ] };
+  for (const [fleet, snapshot, board] of [
+    ['the engine alone', ENGINE_ONLY, 'claude-sonnet-5'],
+    ['the engine alone', ENGINE_ONLY, 'topics:claude-sonnet-5'],
+    ['a CLI without the bare major', CLI_WITHOUT_BARE_MAJOR, 'claude-opus-5'],
+    ['a CLI without the bare major', CLI_WITHOUT_BARE_MAJOR, 'topics:claude-opus-5'],
+  ] as const) {
+    test(`${fleet}: a board default of ${board} leaves the switch routable, OFF and ON`, () => {
+      for (const enabled of [false, true]) {
+        const drawn = routingSwitch(board, enabled, snapshot);
+        expect(drawn).not.toMatch(/\sdisabled=""/);
+        expect(drawn).not.toContain('Non disponibile');
+      }
+    });
+  }
+
+  test('the engine down: a board default only the engine serves disables the switch with the reason', () => {
+    const engineDown: ProvidersSnapshot = { ...ENGINE_ONLY, providers: [{ ...ready('topics', ['claude-sonnet-5']), status: 'error' }, ENGINE_ONLY.providers[1]!] };
+    const drawn = routingSwitch('claude-sonnet-5', false, engineDown);
+    expect(drawn).toMatch(/\sdisabled=""/);
+    expect(drawn).toContain('Non disponibile');
+  });
 
   test('a model chosen on the task is judged on its own, not on the board default', () => {
     const drawn = renderToStaticMarkup(

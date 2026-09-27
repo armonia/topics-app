@@ -1,8 +1,8 @@
 import {
-  runsWithTopicsRouting,
   taskModelSelection,
   taskProviderForModel,
   topicsCatalogPending,
+  topicsRoutingAvailable,
   TaskProviderPendingError,
   TopicsRoutingUnavailableError,
 } from '../../shared/task-coding-models';
@@ -80,7 +80,7 @@ export async function pickAutomaticTaskModel(
   const isHeld = deps.isHeld ?? (() => false);
   const eligible = automaticTaskModels(deps.snapshot, (deps.codexModels ?? readCodexModels)(), isHeld)
     .filter(model => !restrictedProvider || model.provider === restrictedProvider);
-  const routable = eligible.filter(model => !deps.topicsRouting || runsWithTopicsRouting(model.provider, model.slug, deps.snapshot));
+  const routable = eligible.filter(model => !deps.topicsRouting || topicsRoutingAvailable(model.provider, model.slug, deps.snapshot));
   const viaEngine = !!deps.topicsRouting && restrictedProvider !== 'topics';
   const targets = routable.filter(model => model.provider !== 'topics');
   // The engine is up but no target is ready yet: a target still in discovery

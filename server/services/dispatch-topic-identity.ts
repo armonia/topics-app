@@ -6,9 +6,9 @@
 import type { ProvidersSnapshot } from '../../shared/types';
 import {
   effectiveTopicsRouting,
-  runsWithTopicsRouting,
   taskModelSelection,
   taskProviderForModel,
+  topicsRoutingAvailable,
   topicsRoutingWaitsForCatalog,
   TaskProviderPendingError,
   TopicsRoutingUnavailableError,
@@ -36,7 +36,7 @@ export function resolveDispatchTopicIdentity(
     ? automaticTaskProvider(o.provider, model, snapshot)
     : taskProviderForModel(o.model, snapshot, topicsRouting);
   // ON verso un bersaglio che il motore nativo non raggiunge e' un cancello duro, non un dispatch diretto silenzioso: stesso contratto del lato chat. allow-italian: perche' qui si lancia invece di proseguire
-  if (topicsRouting && o.provider && !runsWithTopicsRouting(target, model, snapshot)) {
+  if (topicsRouting && o.provider && !topicsRoutingAvailable(target, model, snapshot)) {
     // Scoperta in corso non e' un no: si aspetta, come col warm-up di Codex. allow-italian: nota che prosegue l'intestazione italiana di questo file
     if (topicsRoutingWaitsForCatalog(target, snapshot)) throw new TaskProviderPendingError('topics');
     throw new TopicsRoutingUnavailableError(target, model ?? null);

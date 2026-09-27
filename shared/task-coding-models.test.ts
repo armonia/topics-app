@@ -1,7 +1,7 @@
 /** @covers MP-TASK-01, MP-TASK-02 */
 import { describe, expect, test } from 'bun:test';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from './types';
-import { availableTaskModels, isTopicsModelServed, taskExecutionOptions, taskModelMatchesSession, taskModelSelection, taskModelValue, taskProviderForModel, TopicsRoutingUnavailableError } from './task-coding-models';
+import { availableTaskModels, isTopicsModelServed, taskExecutionOptions, taskModelMatchesSession, taskModelSelection, taskModelValue, taskProviderForModel, topicsRoutingAvailable, TopicsRoutingUnavailableError } from './task-coding-models';
 
 function entry(name: string, models: string[], status: ProviderSnapshotEntry['status'] = 'ready'): ProviderSnapshotEntry {
   return { name, models, status, isDefault: false, requirements: [], fetchedAt: '2026-09-08T00:00:00Z' };
@@ -83,6 +83,17 @@ describe('task coding models', () => {
     expect(isTopicsModelServed('claude-opus-5', ['claude-opus-5'])).toBe(true);
     expect(isTopicsModelServed('claude-sonnet-5', ['claude-opus-5'])).toBe(false);
     expect(isTopicsModelServed(null, ['claude-opus-5'])).toBe(true);
+  });
+
+  // A plain model only the engine serves, and the legacy `topics:<model>`,
+  // resolve to the engine itself. The dispatcher runs them with the switch ON;
+  // the menu called them unroutable, because `topics` is no target the engine reaches.
+  test('the engine named as the target routes what it serves, while it is ready', () => {
+    const engine = entry('topics', ['claude-opus-5']);
+    expect(topicsRoutingAvailable('topics', 'claude-opus-5', snapshot([engine]))).toBe(true);
+    expect(topicsRoutingAvailable('topics', null, snapshot([engine]))).toBe(true);
+    expect(topicsRoutingAvailable('topics', 'claude-sonnet-5', snapshot([engine]))).toBe(false);
+    expect(topicsRoutingAvailable('topics', 'claude-opus-5', snapshot([entry('topics', ['claude-opus-5'], 'error')]))).toBe(false);
   });
 
   test('only task-capable ACP runtimes enter the catalog and legacy jcode routes stay valid', () => {

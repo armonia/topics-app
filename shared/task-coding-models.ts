@@ -124,13 +124,16 @@ export function isTopicsModelServed(model: string | null | undefined, nativeMode
 
 /** A provider is reachable through the Topics native engine only if that
  * engine is itself ready and actually serves the requested model. Codex is
- * never routable: the native engine has no OpenAI-compatible execution path. */
+ * never routable: the native engine has no OpenAI-compatible execution path.
+ * The engine itself (`topics`: a model only it serves, or the legacy
+ * `topics:<model>`) is the router rather than a destination, and the same two
+ * conditions decide whether it runs the turn. */
 function isRoutableThroughTopics(
   provider: string,
   model: string | undefined,
   ready: ProvidersSnapshot['providers'],
 ): boolean {
-  if (provider === 'topics' || !CLAUDE_CODING_PROVIDERS.includes(provider)) return false;
+  if (!CLAUDE_CODING_PROVIDERS.includes(provider)) return false;
   const native = ready.find((entry) => entry.name === 'topics');
   if (!native) return false;
   return isTopicsModelServed(model, native.models);
@@ -153,8 +156,10 @@ export function topicsRoutingWaitsForCatalog(provider: string | null, snapshot?:
   return topicsCatalogPending(snapshot);
 }
 
-/** Same routability check, for the menu's switch row: null provider means
- * Automatic, which is always routable (topics picks per its own rules). */
+/** Whether the switch ON can run this runtime and model: one answer for the
+ * menu's switch row, the topic gate and the automatic task picker. A null
+ * provider means Automatic, routable while the engine is ready (topics picks
+ * per its own rules). */
 export function topicsRoutingAvailable(
   provider: string | null,
   model: string | null | undefined,
@@ -163,19 +168,6 @@ export function topicsRoutingAvailable(
   if (provider === null) return (snapshot?.providers ?? []).some((entry) => entry.name === 'topics' && entry.status === 'ready');
   const ready = snapshot?.providers.filter((entry) => entry.status === 'ready' && isTaskCodingProvider(entry)) ?? [];
   return isRoutableThroughTopics(provider, model ?? undefined, ready);
-}
-
-/** With the switch ON, whether a task bound to this runtime can run: the
- * native engine is the router itself, any other runtime must be a target it
- * reaches. The topic gate and the automatic task picker both ask this; the
- * picker prefers the targets and offers the engine's own catalog, unpinned,
- * only when no target is ready. */
-export function runsWithTopicsRouting(
-  provider: string,
-  model: string | null | undefined,
-  snapshot?: ProvidersSnapshot | null,
-): boolean {
-  return provider === 'topics' || topicsRoutingAvailable(provider, model, snapshot);
 }
 
 /** AICTRL-04: a task created before this switch existed stored its "run via
@@ -213,11 +205,6 @@ export function taskProviderForModel(
       throw new Error(`The selected coding runtime ${selected.label ?? selected.name} cannot run model "${selection.model}".`);
     }
     if (topicsRouting) {
-      // Legacy AICTRL-04 encoding: `topics:<model>` already meant "run
-      // native", never a pin to a target provider — isRoutableThroughTopics
-      // rightly refuses 'topics' as a target (it's the router, not one of
-      // its destinations), so that check does not apply to this value.
-      if (explicitlySelectedProvider === 'topics') return 'topics';
       // ON never falls through to a direct dispatch as a silent no-op: an
       // explicit provider Topics can't reach (Codex, categorically) is a
       // hard gate with a reason, the same contract the chat side enforces.
