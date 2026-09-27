@@ -199,6 +199,25 @@ describe("task-diff-range", () => {
       expect(await filesOf(dir, r!.range)).toEqual(["consegna.ts"]);
     });
 
+    test("a delivery main got inside ANOTHER card's merge is measured on its own, without that card's files", async () => {
+      // Card B is born from this card's head and lands first, carrying this
+      // delivery inside its own merge; then both branches are pruned.
+      await git(dir, ["checkout", "-q", "-b", "topics/b", "topics/card"]);
+      await commit(dir, "b-only.ts", "b\n", "card B's work");
+      await git(dir, ["checkout", "-q", "main"]);
+      await git(dir, ["merge", "--no-ff", "-m", "merge task T-7: card B", "topics/b"]);
+      await git(dir, ["branch", "-qD", "topics/card"]);
+      await git(dir, ["branch", "-qD", "topics/b"]);
+
+      const r = await resolveTaskDiffRange({
+        taskId: "T-42", worktree: null, repoPath: dir,
+        delivery: { branch: "topics/card", commit: cardCommit },
+      });
+      expect(r).not.toBeNull();
+      expect(r!.source).toBe("delivery-commit");
+      expect(await filesOf(dir, r!.range)).toEqual(["consegna.ts"]);
+    });
+
     test("un commit di consegna che non esiste più non produce il diff di qualcos'altro", async () => {
       expect(await deliveryCommitRange(dir, { branch: "topics/card", commit: "0".repeat(40) })).toBeNull();
       expect(await deliveryCommitRange(dir, { branch: "topics/card", commit: null })).toBeNull();

@@ -231,7 +231,18 @@ export async function deliveryCommitRange(
   // che ha introdotto il commit, i successivi se lo sono solo portati dietro.
   const introducing = lines(anc.stdout).at(-1);
   if (!introducing || !SHA_RE.test(introducing)) return null;
-  return { source: "landed-merge", cwd: repoPath, range: `${introducing}^1..${introducing}`, live: false };
+  // The merge speaks for this card only when what it merged IS the delivery.
+  // One whose branch went on past it carried other work too: a card born from
+  // this one's head that landed first (`merge task <other>`), or an
+  // integration branch. Its whole range would put that work under this
+  // card's name, so the range stops at the delivery, from where it met main.
+  if ((await revParse(run, repoPath, `${introducing}^2`)) === sha) {
+    return { source: "landed-merge", cwd: repoPath, range: `${introducing}^1..${introducing}`, live: false };
+  }
+  const met = await run(repoPath, ["merge-base", `${introducing}^1`, sha]);
+  const base = met.stdout.trim();
+  if (met.code !== 0 || !SHA_RE.test(base)) return null;
+  return { source: "delivery-commit", cwd: repoPath, range: `${base}..${sha}`, live: false };
 }
 
 export interface TaskDiffAnchors extends TaskDiffRangeOptions {
