@@ -258,19 +258,19 @@ describe('one catalog for the three surfaces', () => {
 
   // The all-boards view lists every board's cards while the pane holds its own
   // board's settings: the drawer judges a card with its OWN board's defaults,
-  // and the composer, which picks its target there, with none.
-  test('in the all-boards view the drawer reads the card\'s own board and the composer no board', () => {
+  // and the composer, which picks its target there, with that target's.
+  test('in the all-boards view the drawer reads the card\'s own board and the composer the board it creates on', () => {
     const composer = surfaces.board.slice(surfaces.board.indexOf('<FloatingTaskComposer'), surfaces.board.indexOf('<TaskDetail'));
     const drawer = surfaces.board.slice(surfaces.board.indexOf('<TaskDetail'));
-    // What the drawer gets for a card, fetch included, is tested by mounting the
-    // hook in hooks/useCardBoardSettings.test.ts; this pane pulls in the API and
-    // a dozen stores, so it does not mount here.
+    // What the drawer and the composer get, fetch included, is tested by
+    // mounting the hooks in hooks/useCardBoardSettings.test.ts; this pane pulls
+    // in the API and a dozen stores, so it does not mount here.
     expect(surfaces.board).toContain('const cardSettings = useCardBoardSettings(selected?.projectId, projectId, settings);');
     expect(drawer).toContain('boardTopicsRoutingDefault={cardSettings?.dispatchTopicsRouting ?? null}');
     expect(drawer).toContain('boardDispatchModel={cardSettings?.dispatchModel ?? null}');
-    expect(surfaces.board).toContain("const composerSettings = mode === 'all' ? null : settings;");
-    expect(composer).toContain('boardTopicsRoutingDefault={composerSettings?.dispatchTopicsRouting ?? null}');
-    expect(composer).toContain('boardDispatchModel={composerSettings?.dispatchModel ?? null}');
+    expect(composer).toContain('global={mode === \'all\'}');
+    expect(composer).toContain('paneSettings={settings}');
+    expect(surfaces.composer).toContain('useComposerBoardSettings(global, targetProject, projectId, paneSettings)');
   });
 
   test('each surface gives the catalog its stored value so a removed selection stays visible', () => {

@@ -5,7 +5,7 @@ import { useToast } from '../Shared/Toast';
 import { insertAtCaret } from '../../lib/insertAtCaret';
 import { ProjectFavicon } from '../Shared/ProjectFavicon';
 import { ZoomableImage } from '../Shared/ImageLightbox';
-import { boardApi, boardDrafts, AUTO_PROJECT_ID, STATUS_LABEL, UNASSIGNED_PROJECT_ID, type BoardProjectRef, type LinkProposal, type TaskStatus } from '../../lib/board';
+import { boardApi, boardDrafts, AUTO_PROJECT_ID, STATUS_LABEL, UNASSIGNED_PROJECT_ID, type BoardProjectRef, type BoardSettings, type LinkProposal, type TaskStatus } from '../../lib/board';
 import { addBoardProject, projectNameFromId, useBoardProjects, useNewProjectDir } from '../../lib/boardProjectsStore';
 import { writeCursor, markActiveComposer, restoreCursor } from '../../lib/composerCursor';
 import { CHIP_LABEL, COMPOSER_CURSOR_KEY, PRIORITY_DOT, PRIORITY_LABEL, PRIORITY_ORDER } from './constants';
@@ -22,6 +22,7 @@ import { draftPreviewOf, type DraftPreview } from './draftPreview';
 import { useTaskModelCatalog } from '../../hooks/useTaskModelCatalog';
 import { TaskModelMenuOptions } from './TaskModelMenuOptions';
 import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';
+import { useComposerBoardSettings } from '../../hooks/useCardBoardSettings';
 
 /** Le due colonne in cui un task può NASCERE, nell'ordine in cui il menu le
  *  offre, ognuna con la CHIAVE della riga che dice cosa succede scegliendola.
@@ -67,7 +68,7 @@ type BirthStatus = Extract<TaskStatus, 'todo' | 'backlog'>;
  * sparire. Quando serve toglierlo di mezzo (un campo che gli si sovrappone, il
  * drawer a tutto schermo del telefono) lo si NASCONDE con `hidden`/`hiddenBelowLg`.
  */
-export function FloatingTaskComposer({ projectId, global, onCreated, onError, hidden, hiddenBelowLg, onDraft, boardTopicsRoutingDefault = null, boardDispatchModel = null }: {
+export function FloatingTaskComposer({ projectId, global, onCreated, onError, hidden, hiddenBelowLg, onDraft, paneSettings = null }: {
   projectId: string;
   /** Cross-project mode: no implicit board — the project picker chip appears. */
   global: boolean;
@@ -92,10 +93,10 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
    *  nothing to preview. Called on every change of text, attachments or birth
    *  column, so the ghost follows the typing. */
   onDraft?: (draft: DraftPreview | null) => void;
-  /** AICTRL-05: default di QUESTA board per lo switch. `null` nella board globale, dove non esiste UN default. allow-italian: dice cosa significa `null` qui */
-  boardTopicsRoutingDefault?: boolean | null;
-  /** Serve a leggere il prefisso legacy quando la board non ha scelto un modello proprio. allow-italian: perche' il modello della board entra nello switch */
-  boardDispatchModel?: string | null;
+  /** AICTRL-05: the settings of the pane's board, `null` on the global board.
+   *  The switch and the model menu judge a new card with the defaults of the
+   *  board it is born on (useComposerBoardSettings). */
+  paneSettings?: BoardSettings | null;
 }) {
   const [text, setText] = useState('');
   const [focused, setFocused] = useState(false);
@@ -343,6 +344,11 @@ export function FloatingTaskComposer({ projectId, global, onCreated, onError, hi
 
   const noneTarget = targetProject === UNASSIGNED_PROJECT_ID;
   const autoTarget = targetProject === AUTO_PROJECT_ID;
+  // A card created with the switch untouched inherits its board's default, so
+  // the switch shows that board's: in the all-boards view the picked one.
+  const boardSettings = useComposerBoardSettings(global, targetProject, projectId, paneSettings);
+  const boardTopicsRoutingDefault = boardSettings?.dispatchTopicsRouting ?? null;
+  const boardDispatchModel = boardSettings?.dispatchModel ?? null;
   const targetRef = projects?.find((p) => p.projectId === targetProject) ?? null;
   // Readable before the index loads: the stored id minus its hash suffix.
   const targetLabel = autoTarget

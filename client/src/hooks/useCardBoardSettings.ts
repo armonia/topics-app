@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { boardApi, type BoardSettings } from '../lib/board';
+import { AUTO_PROJECT_ID, boardApi, type BoardSettings } from '../lib/board';
 import { cardBoardSettings } from '../lib/topicsRoutingGate';
 
 /** The board settings the task drawer judges a card with: its own board's.
@@ -23,4 +23,20 @@ export function useCardBoardSettings(
     return () => { alive = false; };
   }, [cardBoardId, paneBoardId]);
   return cardBoardSettings(cardBoardId, paneBoardId, paneSettings, fetched);
+}
+
+/** The board settings the composer judges the card it is about to create
+ *  with: those of the board it is born on. In the project view that is the
+ *  pane's; in the all-boards view the picker's target, fetched when it is
+ *  another board. On Auto the server picks the board at creation, so no
+ *  single default applies (null). */
+export function useComposerBoardSettings(
+  global: boolean,
+  targetBoardId: string,
+  paneBoardId: string,
+  paneSettings: BoardSettings | null,
+): BoardSettings | null {
+  const boardId = !global ? paneBoardId : targetBoardId === AUTO_PROJECT_ID ? null : targetBoardId;
+  const settings = useCardBoardSettings(boardId, paneBoardId, paneSettings);
+  return boardId ? settings : null;
 }

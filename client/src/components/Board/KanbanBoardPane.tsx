@@ -1648,9 +1648,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // runs on Auto) with its own board's defaults. In the all-boards view that
   // board can be another than this pane's, whose settings are loaded above.
   const cardSettings = useCardBoardSettings(selected?.projectId, projectId, settings);
-  // The composer creates on this board only in 'project' mode; in 'all' it
-  // picks its own target, so no single board default applies.
-  const composerSettings = mode === 'all' ? null : settings;
 
   // L'id che il drawer deve mostrare: la selezione, o il deep-link ancora in
   // volo. Uno solo dei due è valorizzato nel caso normale.
@@ -2130,8 +2127,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             hidden={typingElsewhere}
             hiddenBelowLg={!!selected}
             onDraft={setDraft}
-            boardTopicsRoutingDefault={composerSettings?.dispatchTopicsRouting ?? null}
-            boardDispatchModel={composerSettings?.dispatchModel ?? null}
+            paneSettings={settings}
           />
         </div>
         {orchestratorTopic && orchestrator && (

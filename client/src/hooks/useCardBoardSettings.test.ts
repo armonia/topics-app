@@ -5,14 +5,16 @@
  * runs here for real on test/reactHarness, fetch included: settings fetched
  * for a foreign card but filed under the pane's board leave that card with no
  * default, and only a test that drives the fetch into the drawer's value sees it.
+ * The composer judges the card it is about to create the same way, with the
+ * board it is born on: in the all-boards view, the one its picker targets.
  *
  * @covers AICTRL-05
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { createElement, useEffect } from 'react';
 import { mount } from '../test/reactHarness';
-import { boardApi, type BoardSettings } from '../lib/board';
-import { useCardBoardSettings } from './useCardBoardSettings';
+import { AUTO_PROJECT_ID, boardApi, type BoardSettings } from '../lib/board';
+import { useCardBoardSettings, useComposerBoardSettings } from './useCardBoardSettings';
 
 const realGetSettings = boardApi.getSettings;
 let asked: Array<{ boardId: string; answer: (settings: BoardSettings) => void }> = [];
@@ -79,5 +81,54 @@ describe('useCardBoardSettings', () => {
     await settle();
     expect(drawer.seen()).toEqual(settingsWith('claude-sonnet-5'));
     drawer.unmount();
+  });
+});
+
+/** The composer's read on the pane of board `alpha`: `global` is the
+ *  all-boards view, where the picker sets the board the card is born on. */
+function mountComposer(global: boolean, target: string) {
+  const box: { target: string; seen: BoardSettings | null } = { target, seen: null };
+  const Probe = (): null => {
+    const settings = useComposerBoardSettings(global, box.target, 'alpha', PANE);
+    useEffect(() => { box.seen = settings; });
+    return null;
+  };
+  const h = mount(createElement(Probe));
+  return {
+    seen: () => box.seen,
+    pick(board: string) { box.target = board; h.rerender(); },
+    unmount: () => h.unmount(),
+  };
+}
+
+// The card the composer creates inherits its board's switch and model: judged
+// with no board, the switch reads OFF over a board that starts the card ON.
+describe('useComposerBoardSettings', () => {
+  test("all boards, another board picked: that board's settings are fetched and judge the card", async () => {
+    const composer = mountComposer(true, 'beta');
+    expect(asked.map((a) => a.boardId)).toEqual(['beta']);
+    asked[0]!.answer(settingsWith('claude-sonnet-5'));
+    await settle();
+    expect(composer.seen()).toEqual(settingsWith('claude-sonnet-5'));
+    composer.unmount();
+  });
+
+  test("all boards, the pane's own board picked, or the project view: the pane's settings, nothing fetched", () => {
+    for (const [global, target] of [[true, 'alpha'], [false, AUTO_PROJECT_ID], [false, 'beta']] as const) {
+      const composer = mountComposer(global, target);
+      expect(composer.seen()).toBe(PANE);
+      composer.unmount();
+    }
+    expect(asked).toEqual([]);
+  });
+
+  test('all boards on Auto: the server picks the board, so no default judges the card', async () => {
+    const composer = mountComposer(true, 'beta');
+    composer.pick(AUTO_PROJECT_ID);
+    asked[0]!.answer(settingsWith('claude-sonnet-5'));
+    await settle();
+    expect(asked.map((a) => a.boardId)).toEqual(['beta']);
+    expect(composer.seen()).toBeNull();
+    composer.unmount();
   });
 });
