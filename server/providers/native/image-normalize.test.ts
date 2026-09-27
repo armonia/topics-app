@@ -15,7 +15,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { deflateSync, crc32 } from "node:zlib";
-import { normalizeImage, MAX_IMAGE_EDGE, HARD_IMAGE_EDGE } from "./image-normalize";
+import { normalizeImage, MAX_IMAGE_EDGE } from "./image-normalize";
 import { imageShapeFromBuffer } from "../../services/image-shape";
 
 function chunk(type: string, data: Buffer): Buffer {
@@ -54,9 +54,9 @@ describe("normalizeImage", () => {
     expect(outcome.kind).toBe("image");
     if (outcome.kind !== "image") return;
 
-    // La prova vera: si decodificano i byte DAVVERO tornati, non ci si fida
-    // dell'esito dichiarato. Un fallback ai byte originali (non ridimensionati)
-    // farebbe fallire proprio qui.
+    // The real proof: decode the bytes ACTUALLY returned, do not trust the
+    // reported outcome. A fallback to the original (unresized) bytes would
+    // fail right here.
     const outBytes = Buffer.from(outcome.image.data, "base64");
     const afterShape = imageShapeFromBuffer(outBytes);
     expect(afterShape).not.toBeNull();
@@ -83,13 +83,13 @@ describe("normalizeImage", () => {
   });
 
   test("un file .png che in realtà è un JPEG viene misurato e nominato per quello che è", () => {
-    // SOI + un JFIF minimo + SOF0 100x80: byte JPEG veri, nessuna estensione coinvolta.
+    // SOI + a minimal JFIF + SOF0 100x80: real JPEG bytes, no extension involved.
     const app0 = Buffer.concat([Buffer.from([0xff, 0xe0, 0x00, 0x10]), Buffer.alloc(14)]);
     const sof0 = Buffer.alloc(11);
     sof0[0] = 0xff; sof0[1] = 0xc0; sof0.writeUInt16BE(9, 2); sof0[4] = 8;
     sof0.writeUInt16BE(80, 5); sof0.writeUInt16BE(100, 7); sof0[9] = 3;
     const fakePngNamedJpegBytes = Buffer.concat([Buffer.from([0xff, 0xd8]), app0, sof0]);
     const shape = imageShapeFromBuffer(fakePngNamedJpegBytes);
-    expect(shape?.format).toBe("jpeg"); // il nome del file (v47.png) non è mai entrato in gioco
+    expect(shape?.format).toBe("jpeg"); // the file name (v47.png) never came into it
   });
 });

@@ -102,8 +102,8 @@ export function normalizeImage(bytes: Buffer, label: string): NormalizeOutcome {
     return { kind: "text", text: `${label}: formato immagine non riconosciuto (i byte non corrispondono a nessun formato noto)` }; // allow-italian: testo che legge il modello
   }
 
-  // Un SVG è testo, non un raster: niente sips capace di ridimensionarlo in
-  // modo affidabile, e i pesi in gioco sono kilobyte, non megabyte.
+  // An SVG is text, not a raster: no `sips` can resize it reliably, and the
+  // sizes involved are kilobytes, not megabytes.
   if (shape.vector) {
     return { kind: "image", image: { mediaType: "image/svg+xml", data: bytes.toString("base64") }, shape };
   }
