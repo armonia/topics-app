@@ -18,7 +18,7 @@
  * tasks on the project it named/owns (no cross-project IDOR).
  */
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { basename, isAbsolute, join } from "node:path";
+import { basename, join } from "node:path";
 import { cpus, homedir } from "node:os";
 import type { AppContext, RouteHandler } from "../types";
 import { readableTaskIds, levelFor, meetsLevel } from "../lib/grants-query";
@@ -86,7 +86,8 @@ import { attemptHasWork, formatAttemptStat } from "../../shared/task-attempt";
 import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
 import { createDeliveryCapture } from "../services/task-delivery-capture";
 import { makeSheetWriter } from "../services/delivery-sheet";
-import { resolveTaskDiffRange } from "../services/task-diff-range";
+import { resolveTaskDiffRange, revsOfRange } from "../services/task-diff-range";
+import { gitDiffFilePatch, serveDiffBlob } from "../services/task-diff-file";
 import { isTaskLabel, normalizeLabels, type TaskFile } from "../../shared/task-labels";
 import { stopCauseOf, STOP_CAUSE_HEADER, type StopCause } from "../lib/abort-cause";
 import { probeUrl, invalidateProbeCache } from "../services/url-probe-cache";
@@ -608,7 +609,7 @@ export function numstatPath(raw: string): string {
  * publish diffs, which compare two commits and have no working-tree notion.
  */
 async function gitDiffBundle(cwd: string, range: string, gopts?: { includeUntracked?: boolean }): Promise<{
-  stat: { path: string; additions: number; deletions: number; status: string }[];
+  stat: { path: string; additions: number; deletions: number; status: string; origPath?: string }[];
   patch: string;
   truncated: boolean;
 }> {
@@ -617,21 +618,27 @@ async function gitDiffBundle(cwd: string, range: string, gopts?: { includeUntrac
     runGitCap(cwd, ["diff", "--name-status", range]).then((r) => r.out),
   ]);
   const statusByPath = new Map<string, string>();
+  // Rename and copy (`R100\told\tnew`): the Before of a picture is read from the old path.
+  const origByPath = new Map<string, string>();
   for (const line of nameStatus.split("\n").filter(Boolean)) {
     const parts = line.split("\t");
     const p = parts[parts.length - 1] ?? ""; // rename: status\told\tnew → take new
-    if (p) statusByPath.set(p, (parts[0] ?? "M")[0] ?? "M");
+    const letter = (parts[0] ?? "M")[0] ?? "M";
+    if (p) statusByPath.set(p, letter);
+    if (p && (letter === "R" || letter === "C") && parts.length >= 3) origByPath.set(p, parts[1]!);
   }
   const stat = numstat.split("\n").filter(Boolean).map((line) => {
     const parts = line.split("\t");
     const add = parts[0] ?? "0";
     const del = parts[1] ?? "0";
     const path = numstatPath(parts[parts.length - 1] ?? "");
+    const origPath = origByPath.get(path);
     return {
       path,
       additions: add === "-" ? -1 : Number.parseInt(add, 10) || 0,
       deletions: del === "-" ? -1 : Number.parseInt(del, 10) || 0,
       status: statusByPath.get(path) ?? "M",
+      ...(origPath ? { origPath } : {}),
     };
   });
   let full = (await runGitCap(cwd, ["diff", range])).out;
@@ -667,44 +674,6 @@ async function gitDiffBundle(cwd: string, range: string, gopts?: { includeUntrac
 }
 
 export { gitDiffBundle };
-
-/**
- * Per-file cap for `?file=`. Far above the bundle's: this is ONE file someone
- * asked for by name, and the client already folds a long file at 600 lines.
- * It stays a cap because a generated lockfile can still be tens of MB.
- */
-const DIFF_FILE_PATCH_CAP = 2_000_000;
-
-/**
- * The patch of ONE file in `range`, for the files the bundle left out.
- *
- * The bundle stops at `DIFF_PATCH_CAP` and the files past it arrived as a name
- * and a count with no way to read them (task 7657f201: 30 of 74). This is the
- * way: same range, one path.
- *
- * `path` comes from a query string, so it is held to what the bundle could
- * have listed: relative, no `..`, and matched LITERALLY (`--literal-pathspecs`,
- * or `:(glob)*` would be a whole-repo diff). An untracked file is diffed
- * against /dev/null only if git itself lists it as untracked: `--no-index`
- * reads any path it is given, including outside the repository.
- */
-async function gitDiffFilePatch(
-  cwd: string,
-  range: string,
-  path: string,
-  gopts?: { includeUntracked?: boolean },
-): Promise<{ path: string; patch: string; truncated: boolean } | null> {
-  if (!path || isAbsolute(path) || path.split(/[\\/]/).includes("..") || path.includes("\0")) return null;
-  let patch = (await runGitCap(cwd, ["--literal-pathspecs", "diff", range, "--", path])).out;
-  if (!patch && gopts?.includeUntracked) {
-    const others = (await runGitCap(cwd, ["--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "-z", "--", path])).out;
-    if (others.split("\0").includes(path)) {
-      patch = (await runGitCap(cwd, ["diff", "--no-index", "--", "/dev/null", path])).out;
-    }
-  }
-  const truncated = patch.length > DIFF_FILE_PATCH_CAP;
-  return { path, patch: truncated ? patch.slice(0, DIFF_FILE_PATCH_CAP) : patch, truncated };
-}
 
 /** Is this repository the one this server runs from (and serves `public/` of)? */
 function isServerRepo(repoPath: string): boolean {
@@ -3217,8 +3186,17 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       if (!branch) return json({ error: "detached HEAD", code: "invalid_input" }, 400);
       const upstream = (await runGitCap(path, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])).out.trim();
       const range = upstream && !upstream.includes("fatal") ? `${upstream}..HEAD` : `origin/${branch}..HEAD`;
-      const bundle = await gitDiffBundle(path, range);
-      return json({ branch, range, ...bundle });
+      // `?file=` (with `context=full`, or `blob=` for the bytes): one file, on the same range.
+      const q = new URL(req.url).searchParams;
+      const onlyFile = q.get("file");
+      const blob = q.get("blob");
+      if (onlyFile !== null && blob !== null) return serveDiffBlob({ cwd: path, range, live: false }, onlyFile, blob);
+      if (onlyFile !== null) {
+        const one = await gitDiffFilePatch(path, range, onlyFile, { fullContext: q.get("context") === "full" });
+        return one ? json({ branch, range, ...one }) : json({ error: "invalid file path", code: "invalid_input" }, 400);
+      }
+      const [bundle, revs] = await Promise.all([gitDiffBundle(path, range), revsOfRange(gitRunner, path, range, false)]);
+      return json({ branch, range, revs, ...bundle });
     }
 
     // GET /api/boards/:projectId/tasks/:taskId/diff — il diff di ciò che questa
@@ -3237,7 +3215,7 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
     // silenzio solo, e chi rivedeva non poteva distinguerle.
     const bTaskDiff = matchRoute(pathname, "/api/boards/:projectId/tasks/:taskId/diff");
     if (bTaskDiff && method === "GET") {
-      const empty = { stat: [], patch: "", truncated: false, base: null, source: null };
+      const empty = { stat: [], patch: "", truncated: false, base: null, source: null, revs: null };
       const miss = (code: string, branch: string | null = null) => json({ code, branch, ...empty });
       let found: ReturnType<typeof svc.get> | null = null;
       try { found = svc.get(bTaskDiff.taskId, { projectId: bTaskDiff.projectId }) ?? null; }
@@ -3276,6 +3254,10 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       const range = await resolveTaskDiffRange({
         taskId: bTaskDiff.taskId, worktree: live, repoPath, delivery, runGit: gitRunner,
       });
+      const q = new URL(req.url).searchParams;
+      const onlyFile = q.get("file");
+      const blob = q.get("blob");
+      if (onlyFile !== null && blob !== null) return serveDiffBlob(range, onlyFile, blob);
       const branch = live?.branch ?? wt?.branchName ?? found.task.deliveryBranch ?? null;
       if (!range) {
         const everWorked = attemptId
@@ -3287,16 +3269,21 @@ export function createTasksRouter(ctx: AppContext, dispatcher?: TaskDispatcher, 
       // file mai committato deve comunque mostrare un diff. Su due commit (un land
       // è già storia) l'albero di lavoro non c'entra niente.
       // `?file=<path>`: the patch of ONE file, on the same range the bundle
-      // used. It is how a file past the bundle's cap gets read (see
+      // used. It is how a file past the bundle's cap gets read, and with
+      // `context=full` how the panel shows the whole file (see
       // `gitDiffFilePatch`); the bundle itself is untouched.
-      const onlyFile = new URL(req.url).searchParams.get("file");
       if (onlyFile !== null) {
-        const one = await gitDiffFilePatch(range.cwd, range.range, onlyFile, { includeUntracked: range.live });
+        const one = await gitDiffFilePatch(range.cwd, range.range, onlyFile, {
+          includeUntracked: range.live, fullContext: q.get("context") === "full",
+        });
         if (!one) return json({ error: "invalid file path", code: "invalid_input" }, 400);
         return json({ branch, base: range.range, source: range.source, ...one });
       }
-      const bundle = await gitDiffBundle(range.cwd, range.range, { includeUntracked: range.live });
-      const body = { branch, base: range.range, source: range.source, ...bundle };
+      const [bundle, revs] = await Promise.all([
+        gitDiffBundle(range.cwd, range.range, { includeUntracked: range.live }),
+        revsOfRange(gitRunner, range.cwd, range.range, range.live),
+      ]);
+      const body = { branch, base: range.range, source: range.source, revs, ...bundle };
       return json(bundle.stat.length === 0 ? { code: "no_changes", ...body } : body);
     }
 

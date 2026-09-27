@@ -1,5 +1,5 @@
 /**
- * @covers KANBAN-49
+ * @covers KANBAN-49, DIFFPV-01
  */
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
@@ -118,6 +118,15 @@ describe("gitDiffBundle untracked inclusion", () => {
     const bundle = await gitDiffBundle(dir, from);
     expect(bundle.stat.map((s) => s.path)).toEqual(["nuova/modulo.ts"]);
     expect(bundle.patch).toContain("b/nuova/modulo.ts");
+    // The Before of a renamed file lives at the OLD path: the panel reads it from there.
+    expect(bundle.stat[0]!.status).toBe("R");
+    expect(bundle.stat[0]!.origPath).toBe("vecchia/modulo.ts");
+  });
+
+  test("only a rename or a copy carries origPath", async () => {
+    writeFileSync(join(dir, "tracked.txt"), "base\nmore\n");
+    const bundle = await gitDiffBundle(dir, base);
+    expect(bundle.stat).toEqual([{ path: "tracked.txt", additions: 1, deletions: 0, status: "M" }]);
   });
 });
 
