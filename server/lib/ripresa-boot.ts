@@ -221,6 +221,13 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   // PR #135). A card still on the board keeps main's rule (fourth review).
   if (r.cardLanded) return "no";
   if (!Array.isArray(r.blocks) || r.blocks.length === 0) return "no";
+  // A WAKE DOES NOT ANSWER THE PERSON. A turn the CLI opened by itself (a
+  // background task or a Monitor delivering, `claude/woken-turn.ts`) has a row
+  // of its own under a message the row before already answered, and the resend
+  // is that message: the agent would run it a second time, a paid turn and
+  // every effect again (a deploy, a commit). Resuming the wake itself is not
+  // this sweep's to do.
+  if (r.blocks.some((b) => b?.kind === "woken")) return "no";
   // Fuori finestra: una risposta che arriva domani a una domanda di ieri è
   // rumore, non un recupero.
   if (oraMs - r.timestampMs > FINESTRA_RIPRESA_MS) return "no";

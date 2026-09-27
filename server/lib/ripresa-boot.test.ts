@@ -572,6 +572,26 @@ describe("la catena dei riavvii ha un tetto", () => {
     expect(calls.map((c) => c.ripresa)).toEqual([1]);
   });
 
+  test("a woken turn cut by an outage is left alone: the person's last message already had its answer", async () => {
+    for (const cause of ["api-unavailable", "broker-died"]) {
+      const db = freshDb();
+      const now = new Date().toISOString();
+      db.run(
+        "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES ('a0','topic:x','assistant','Fatto.',?,0,?,1,'u0',0)",
+        [JSON.stringify([{ kind: "text", text: "Fatto." }]), now],
+      );
+      const cut = { kind: "error", text: "Turno interrotto: una frase qualunque.", cause };
+      db.run(
+        "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES ('w0','topic:x','assistant','Request timed out',?,0,?,2,'a0',0)",
+        [JSON.stringify([{ kind: "woken" }, { kind: "text", text: "Request timed out" }, cut]), now],
+      );
+      const calls: Array<Record<string, unknown>> = [];
+      await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
+      expect(calls, cause).toEqual([]);
+      expect(blocksOf(lastRow(db).blocks).some((b) => b.kind === "ripreso"), cause).toBe(false);
+    }
+  });
+
   test("il tetto e' quattro: tre riavvii pianificati in quaranta minuti non devono lasciare «premi Riprova» su una chat che nessuno ha toccato", () => {
     expect(MAX_RESUME_ATTEMPTS).toBe(4);
   });
@@ -745,6 +765,20 @@ describe("an outage outside the turn is resumed", () => {
     for (const cause of ["api-unavailable", "broker-died"]) {
       const cut = { kind: "error", text: "una frase qualunque", cause } as unknown as ContentBlock;
       expect(resumeVerdict({ ...base, blocks: [prosa, cut] }, ORA), cause).toBe("resend");
+    }
+  });
+
+  /**
+   * A wake (a background task or a Monitor delivering) opens a row of its own
+   * under a person's message that was already answered. The resend is that
+   * message: resent, the agent ran it a second time, a paid turn and every
+   * effect again (the blackout of 25/09 met a wake on 4e5e2d76, fb360b27).
+   */
+  test("a woken turn cut by an outage, or by a stall, does not resend the person's message", () => {
+    const woken = { kind: "woken", label: "bjppuaycc" } as ContentBlock;
+    for (const cause of ["api-unavailable", "broker-died", "watchdog"]) {
+      const cut = { kind: "error", text: "una frase qualunque", cause } as unknown as ContentBlock;
+      expect(resumeVerdict({ ...base, blocks: [woken, { kind: "text", text: "Request timed out" }, cut] }, ORA), cause).toBe("no");
     }
   });
 
