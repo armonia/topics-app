@@ -35,6 +35,7 @@ import { createTaskAttemptStore } from "./task-attempts";
 import { dispatchResourceBlock, dispatchResourceVerdict } from "./dispatch-capacity";
 import type { HeldMemory } from "./mem-signal";
 import { clearProviderHold, resetProviderHoldStore, setProviderHold } from "../lib/provider-hold";
+import { taskDetailBump } from "../../client/src/lib/board";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
@@ -740,6 +741,54 @@ describe("a todo card held by the machine for an hour", () => {
     await poll(OTHER);
     expect(h.framesOf("kinds")).toBe(3);
     expect(h.writesOf("kinds")).toBe(1);
+  });
+
+  /**
+   * THE OPEN DRAWER FOLLOWS THE BLOCK. Those frames carry no write, so the
+   * card's `updated_at` stays where the first poll left it, and the drawer
+   * re-read its card only when that moved: opened under the floor, it kept the
+   * floor after the spend cap took over, and the figures of the minute it was
+   * opened, while the card beside it had moved on. Found by the verifier.
+   */
+  it("a drawer opened on the held card re-reads it when the figures change, the block changes and the block lifts", async () => {
+    const OTHER = "beta-def456";
+    const h = harness();
+    h.svc.updateBoardSettings(OTHER, { autoDispatch: true, dispatchUseWorktree: false });
+    h.floor.memGB = 4.8;
+    todo(h, "drawer");
+    const t0 = Date.now();
+    let at = 0;
+    const poll = async (stepMs = 10_000, board = PID) => {
+      setSystemTime(new Date(t0 + (at += stepMs)));
+      await h.dispatcher.tick(board);
+    };
+    const drawerSignal = () => taskDetailBump(h.lastFrame("drawer")!);
+
+    await poll();
+    await poll();
+    const opened = drawerSignal();
+
+    // Other figures under the same floor, sent with the minute refresh.
+    h.floor.memGB = 4.2;
+    await poll(60_000);
+    expect(JSON.stringify(h.lastFrame("drawer")!.queueReason)).toContain("4.2");
+    const figures = drawerSignal();
+    expect(figures).not.toBe(opened);
+
+    // The spend cap takes over from the floor.
+    h.floor.memGB = null;
+    daySpend(h, true);
+    await poll();
+    expect(h.lastFrame("drawer")!.queueReason).toMatchObject({ kind: "spend_cap" });
+    const spend = drawerSignal();
+    expect(spend).not.toBe(figures);
+
+    // And it lifts, seen by another board's tick.
+    daySpend(h, false);
+    await poll(10_000, OTHER);
+    expect(h.lastFrame("drawer")!.queueReason).toMatchObject({ kind: "slot" });
+    expect(drawerSignal()).not.toBe(spend);
+    expect(h.writesOf("drawer")).toBe(1);
   });
 
   it("the ramp does not rewrite a queued chip at every start", async () => {

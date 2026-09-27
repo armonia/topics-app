@@ -28,7 +28,7 @@ import { useBoardFeed } from '../../hooks/useBoardFeed';
 import { canAbsorbBoardTaskFrame } from '../../lib/boardTasksStore';
 import {
   boardApi, boardIdForPath, isProjectlessId, showsLandingDebt, TASK_STATUSES,
-  STATUS_LABEL,
+  STATUS_LABEL, taskDetailBump,
   type BoardTask, type TaskStatus, type BoardSettings,
   type PublishProject, type DiffBundle,
 } from '../../lib/board';
@@ -2139,7 +2139,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             key={selected.id} /* fresh edit/scroll state per task (drawer navigation) */
             projectId={selected.projectId}
             taskId={selected.id}
-            bump={selected.updatedAt}
+            bump={taskDetailBump(selected)}
             onClose={() => setSelectedId(null)}
             onChanged={refetch}
             onOpenTask={openTask}

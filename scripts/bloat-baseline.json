@@ -142,7 +142,13 @@
     "4.938). Anche qui e' la somma a sfondare — la spazzata delle bozze dopo il land",
     "da una parte, dall'altra il callback che fa arrivare sulla card il link della",
     "pull request e della run mentre la CI gira, invece dei quindici minuti ciechi",
-    "misurati sulla prima consegna."
+    "misurati sulla prima consegna.",
+    "",
+    "27/09, card 0fcb7b87: server/services/task-dispatcher-held-resume-quiet.test.ts 764 -> 848. +35 pin a",
+    "held resume a person writes to every five minutes at one write an hour; +49 prove that an open drawer",
+    "re-reads a held Todo card when its block changes, figures move or it lifts, since those frames carry no",
+    "write. Recorded, not split: every describe drives the same harness (real service, dispatcher and floor",
+    "composer), and a split would first move that harness into a module of its own, a refactor of its own."
   ],
   "updated": "2026-09-17",
   "tolerance_pct": 5,
@@ -258,6 +264,7 @@
     "server/services/review-checks-brakes.test.ts": 867,
     "client/src/hooks/useCompletionNotifier.tsx": 855,
     "server/routes/topics.control.test.ts": 855,
+    "server/services/task-dispatcher-held-resume-quiet.test.ts": 848,
     "tests/e2e/board-drawer-scroll.spec.ts": 847,
     "server/routes/e2e.ts": 815,
     "server/browser-tools-handler.ts": 810,

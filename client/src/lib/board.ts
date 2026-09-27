@@ -930,6 +930,18 @@ export function hasCodeQuestion(
     || t.status === 'review' || t.status === 'done';
 }
 
+/**
+ * When the open drawer re-reads its card: the board's row changed its
+ * `updatedAt` OR the reason it waits for. A Todo card held by the machine is
+ * re-sent without a write when its block changes, its figures are a minute old
+ * or it lifts (the tick's floor branch in `task-dispatcher.ts`), so keyed on
+ * `updatedAt` alone the drawer kept the block of the moment it was opened while
+ * the card beside it had moved on.
+ */
+export function taskDetailBump(t: Pick<BoardTask, 'updatedAt' | 'queueReason'>): string {
+  return t.queueReason ? `${t.updatedAt}|${JSON.stringify(t.queueReason)}` : t.updatedAt;
+}
+
 export type TaskLandingEvidence = Pick<BoardTask, 'assignedTopicId' | 'deliveryBranch'>
   & Partial<Pick<BoardTask, 'deliveryCommit' | 'deliveryFilesChanged' | 'deliveryUncommittedFiles' | 'landingState'>>;
 
