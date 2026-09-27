@@ -7,9 +7,11 @@
  * @covers RESUME-01, RESUME-04
  */
 import { describe, expect, test } from "bun:test";
-import { resumeCapNotice, resumeVerdict } from "./ripresa-boot";
+import { Database } from "bun:sqlite";
+import { resumeCapNotice, resumeVerdict, riprendiTurniInterrotti } from "./ripresa-boot";
 import { INTERRUPTED_MARKER } from "./stale-stream-sweep";
 import { avvisoPerTurno } from "./cancelled-notice";
+import { clearProviderHold, setProviderHold } from "./provider-hold";
 import { cancelled } from "../providers/stop-reason";
 import type { ContentBlock } from "../types";
 
@@ -82,5 +84,51 @@ describe("an outage outside the turn is resumed", () => {
   test("the cap notice names the outage that cut the last link, not an unknown cause", () => {
     expect(resumeCapNotice({ restarted: false, cause: "api-unavailable" })).toMatch(/l'API non rispondeva/);
     expect(resumeCapNotice({ restarted: false, cause: "broker-died" })).toMatch(/ospitava l'agente/);
+  });
+});
+
+/**
+ * A HOLD WALLS ITS OWN PROVIDER'S CHATS, not the sweep. Only claude-code
+ * survives a reload (`providerSurvivesRestart`), so a Codex chat in flight is
+ * cut `server-shutdown` at every save under server/, under a notice promising
+ * it resumes by itself; with a Claude hold in force the boot's sweep is the
+ * only one that runs (server.ts holds the periodic one and the nudge). A
+ * Claude hold of days (a spent weekly window) deferring the whole boot sweep
+ * left that chat stopped past the 24-hour window, for good.
+ */
+describe("the boot sweep under a Claude hold", () => {
+  const RESTART = "Turno interrotto: il server si è riavviato mentre la risposta era in corso. Riprendo da solo: non serve che tu faccia niente.";
+
+  function cutByReload(db: Database, sk: string): void {
+    const now = new Date().toISOString();
+    db.run("INSERT INTO messages VALUES (?, ?, 'user', 'fai la cosa', NULL, 0, ?, 0, NULL, 0)", [`u-${sk}`, sk, now]);
+    const blocks = [prose, { kind: "error", text: RESTART, cause: "server-shutdown" }];
+    db.run("INSERT INTO messages VALUES (?, ?, 'assistant', '', ?, 0, ?, 1, ?, 0)", [`a-${sk}`, sk, JSON.stringify(blocks), now, `u-${sk}`]);
+  }
+
+  test("resends a Codex chat cut by the reload and keeps a Claude one, a pinned one or one on the default, waiting", async () => {
+    const db = new Database(":memory:");
+    db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
+      partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER)`);
+    const providers: Record<string, string | null> = { "topic:codex": "codex", "topic:claude": "claude-code", "topic:default": null };
+    for (const sk of Object.keys(providers)) cutByReload(db, sk);
+    const resent: string[] = [];
+    const route = async (req: Request) => {
+      resent.push(String((await req.json() as { sessionKey?: unknown }).sessionKey));
+      return new Response(new ReadableStream({ start(c) { c.close(); } }), { status: 200 });
+    };
+    setProviderHold({ untilMs: Date.now() + 3 * 86_400_000, window: "seven_day", reason: "finestra settimanale del piano esaurita" });
+    const log = console.log;
+    console.log = () => {};
+    try {
+      await riprendiTurniInterrotti({
+        db, bootedAtMs: Date.now(), defaultProvider: () => "claude-code",
+        getTopicBySessionKey: (sk) => ({ id: sk.slice(6), archived: false, provider: providers[sk] }),
+      }, route as never, { responseMs: 500, streamMs: 500 });
+    } finally {
+      console.log = log;
+      clearProviderHold();
+    }
+    expect(resent).toEqual(["topic:codex"]);
   });
 });

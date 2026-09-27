@@ -5814,6 +5814,7 @@ adottaTurniRisvegliati();
 const resumeCtx: CtxRipresa = {
   db: ctx.db,
   getTopicBySessionKey: (sk) => ctx.getTopicBySessionKey(sk),
+  defaultProvider: getDefaultProviderName,
   isStreaming: (sk) => ctx.isStreaming(sk),
   providerBusy: sessionHasPendingSend,
   bootedAtMs: SERVER_STARTED_AT,

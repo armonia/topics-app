@@ -35,7 +35,8 @@
  *   · never while a provider still holds a send for the chat
  *     (`sessionHasPendingSend`): a send queued behind a stuck turn is live
  *     even with no stream and no process (topic 3019832f, 24/09);
- *   · never under a provider hold (a spent plan window, an API not answering);
+ *   · never under a hold on the chat's own provider (a spent plan window, an
+ *     API not answering);
  *   · at most MAX_RESUME_ATTEMPTS times per MESSAGE (a resend that met the
  *     API still down spends none), counted along the chain
  *     of resends (`parent_id`) and not on the single row; the trace lives in
@@ -350,6 +351,7 @@ import { insertRestartNotification, restartNotificationFrame, type PartialSweepD
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isBackgroundNoticeRow, rowsBack } from "./background-notice";
 import { lastApiAnswerMs, providerHold } from "./provider-hold";
+import { providerHoldKey } from "../../shared/provider-hold";
 
 /** A chat's last row, as the sweep reads it. */
 interface LastRow { sk: string; id: string; ruolo: string; blocks: unknown; ts: string }
@@ -366,7 +368,10 @@ function previousConversationRow(db: Database, row: LastRow): LastRow | null {
 /** Quel poco del contesto del server che serve al giro. */
 export interface CtxRipresa {
   db: Database;
-  getTopicBySessionKey(sessionKey: string): { id?: string; archived?: boolean | number } | undefined | null;
+  getTopicBySessionKey(sessionKey: string): { id?: string; archived?: boolean | number; provider?: string | null } | undefined | null;
+  /** The provider a chat with none pinned runs on (the registry's default);
+   *  claude-code when absent. Read to pick the hold that walls the chat. */
+  defaultProvider?(): string | undefined;
   /** Truthy when a turn is live on that chat (`ctx.isStreaming` in production). */
   isStreaming?(sessionKey: string): unknown;
   /** Whether a provider still holds a send for that chat, in flight or queued
@@ -578,10 +583,6 @@ export async function riprendiTurniInterrotti(
 ): Promise<void> {
   const responseCeilingMs = ceilings.responseMs ?? RESPONSE_CEILING_MS;
   const streamCeilingMs = ceilings.streamMs ?? STREAM_CEILING_MS;
-  // A hold defers the whole sweep, the boot's too: after a reload mid-blackout
-  // the hold comes back from disk, and the boot resent every cut chat into it.
-  const hold = providerHold();
-  if (hold) { console.log(`[ripresa] sweep rinviato: ${hold.reason}`); return; }
   // `fresh`: the resend is traced on a notice this sweep just wrote, which the
   // open windows have not seen yet.
   const candidati: Array<{ sessionKey: string; messaggio: string; idTurno: string; blocks: ContentBlock[]; attempt: number; fresh?: { topicId: string; text: string } }> = [];
@@ -646,6 +647,14 @@ export async function riprendiTurniInterrotti(
         }
         continue;
       }
+      // A HOLD DEFERS THE CHATS IT WALLS, the boot's sweep included: after a
+      // reload mid-blackout the hold comes back from disk, and the boot resent
+      // every cut Claude chat into it. Only its own provider's: a Codex chat
+      // cut by the same reload has no other sweep to resume it while a Claude
+      // hold stands (server.ts holds the periodic one and the nudge).
+      const holdKey = providerHoldKey(topic.provider || ctx.defaultProvider?.() || "claude-code");
+      const hold = holdKey ? providerHold(ora, holdKey) : null;
+      if (hold) { console.log(`[ripresa] ${r.sk}: rinviato, ${hold.reason}`); continue; }
       // A person's message that predates this process lived through a restart:
       // the fallback evidence for their notices when no cause is known. Unless
       // a turn ended for it after the boot: then its answer started after the
