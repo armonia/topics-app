@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { turnErrorOf, turnIsOnlyError, turnLooksUnanswered, interruptedTurnOf, liveInterruptionBlock, TURN_CAUSE_KEY } from './turnError';
+import { turnErrorOf, turnIsOnlyError, turnLooksUnanswered, interruptedTurnOf, liveInterruptionBlock, isRedoneAnswer, TURN_CAUSE_KEY } from './turnError';
 import { STOP_CAUSES } from '../../../../shared/ws-outbound';
 import type { ContentBlock, TurnEndCause } from '../../types';
 import it from '../../lib/i18n-it';
@@ -230,5 +230,34 @@ describe('liveInterruptionBlock - the verdict built from stream:end', () => {
     const block = liveInterruptionBlock({ stopCause: 'process-died', error: 'morto' });
     expect(interruptedTurnOf({ blocks: [testo('a metà'), block as ContentBlock] }))
       .toMatchObject({ cause: 'process-died' });
+  });
+});
+
+/**
+ * "This is the redone answer" belongs to the row the resend produced, not to
+ * the row it was resent from (card edf3c4db). The chat route opens a resent
+ * turn with a `ripreso` block; the resume sweep also appends one, after the
+ * cut, to the row it resends from, to count the chain. Both drew the same
+ * banner, so the cut row and a notice claimed to be the redone answer, and
+ * after a refused resend no redone answer exists at all.
+ */
+describe('isRedoneAnswer: the resent turn, not the row it was resent from', () => {
+  const trace = (attempt: number) => ({ kind: 'ripreso' as const, attempt });
+  const cut = { kind: 'error' as const, text: 'Turno interrotto', cause: 'watchdog' as TurnEndCause };
+
+  test('the turn the route opened as a resend', () => {
+    expect(isRedoneAnswer([trace(1), testo('rifatto')])).toBe(true);
+    // Cut in turn, and traced for the next resend: still a redone answer.
+    expect(isRedoneAnswer([trace(1), testo('rifatto'), cut, trace(2)])).toBe(true);
+  });
+
+  test('the cut row, or the notice, the sweep resent from', () => {
+    expect(isRedoneAnswer([testo('stavo misurando'), cut, trace(1)])).toBe(false);
+    expect(isRedoneAnswer([errore('⚠️ Turno interrotto da un riavvio del server.'), trace(1)])).toBe(false);
+  });
+
+  test('no trace at all', () => {
+    expect(isRedoneAnswer([testo('risposta')])).toBe(false);
+    expect(isRedoneAnswer(null)).toBe(false);
   });
 });

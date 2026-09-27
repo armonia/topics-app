@@ -222,3 +222,21 @@ export function turnLooksUnanswered(input: {
   if (!input.serverAsked) return false;
   return !input.locallyStreaming && !input.serverSaysOpen;
 }
+
+/**
+ * Is this row an answer the server redid by itself (the "redone answer" banner)?
+ *
+ * Two writers put a `ripreso` block on a row. The chat route opens a resent
+ * turn with one, and that row IS the redone answer. The resume sweep appends
+ * one to the row it resends FROM, after the cut that row carries, to count the
+ * chain: that row is the cut answer, or a notice, and the redone answer is the
+ * next one, if the resend was not refused. Only the first kind is drawn, so a
+ * trace ahead of the row's verdict is the one that counts (card edf3c4db).
+ */
+export function isRedoneAnswer(blocks: ContentBlock[] | null | undefined): boolean {
+  if (!blocks) return false;
+  const trace = blocks.findIndex((b) => b.kind === 'ripreso');
+  if (trace < 0) return false;
+  const verdict = blocks.findIndex((b) => b.kind === 'error');
+  return verdict < 0 || trace < verdict;
+}
