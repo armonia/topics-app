@@ -20,7 +20,6 @@ import { listNativeCommands, nativeCommandByPid } from "./server/lib/native-comm
 import { listSessionCliPids } from "./server/providers/session-pids";
 import { getAccessToken } from "./server/providers/native/auth";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
-import { spiegaTurnoTroncato } from "./server/lib/turno-troncato";
 import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, rmSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket, Server } from "bun";
@@ -58,8 +57,7 @@ import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
-import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
-import type { ContentBlock } from "./shared/types";
+import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
 import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
@@ -5050,27 +5048,7 @@ const staleStreamTimer = setInterval(() => {
     },
     endStream: (sk) => ctx.endStream(sk),
     broadcast: (msg) => broadcastToAll(msg as Parameters<typeof broadcastToAll>[0]),
-    finalizeMessage: ({ messageId, marker, interruption }) => {
-      if (marker === null) db.run("UPDATE messages SET partial = 0, streamed_at = NULL, end_reason = 'closed-outside' WHERE id = ?", [messageId]);
-      else db.run("UPDATE messages SET partial = 0, streamed_at = NULL, end_reason = 'closed-outside', content = ? WHERE id = ?", [marker, messageId]);
-      // WHY the turn ended, on the row, in the shape the composer's banner
-      // reads. Without it the reaper closed a turn cut mid-answer leaving the
-      // reason in the server log only: the 2026-09-03 report, "stuck with no
-      // feedback at all". `timelineWithInterruptedVerdict` refuses the rows
-      // that must not be touched (empty timeline, already explained).
-      try {
-        const row = db.query("SELECT blocks FROM messages WHERE id = ?").get(messageId) as { blocks?: unknown } | undefined;
-        const raw = decodeCol(row?.blocks);
-        const parsed = raw ? (JSON.parse(raw) as ContentBlock[]) : null;
-        const timeline = timelineWithInterruptedVerdict(parsed, interruption);
-        if (timeline) db.run("UPDATE messages SET blocks = ? WHERE id = ?", [encodeCol(JSON.stringify(timeline)) ?? null, messageId]);
-      } catch (err) {
-        // A row we cannot read is a row we leave alone: the marker above
-        // already said something, and rewriting a timeline we failed to parse
-        // would throw away the turn for not understanding it.
-        console.warn(`[StaleStream] verdetto non scritto su ${messageId}:`, err);
-      }
-    },
+    finalizeMessage: (args) => finalizeStaleRow(db, args),
     recordTurnEnd: (sk) => recordTurnEnd(sk, cancelled("watchdog", "stale stream sweep")),
     warn: (msg) => console.warn(msg),
     info: (msg) => console.log(msg),
@@ -5416,65 +5394,20 @@ async function reattachSurvivingChatTurns(): Promise<void> {
         })
         .catch((err) => console.warn(`[chat-reattach] ${s.id} failed:`, err?.message ?? err))
         .finally(async () => {
-          // La gamba di riadozione è finita — ma il TURNO può non esserlo: un
-          // figlio fermo su `ask_user_question` resta aperto per ore, e il
-          // replay muto che ci riattacca dura un attimo. Azzerare `partial`
-          // qui dentro chiudeva la riga di un turno vivo, e al riavvio dopo
-          // `reuseOrCreatePartialForReattach` non aveva più niente da
-          // riutilizzare: ne apriva una NUOVA. Su topic:ed2070df sono uscite
-          // cinque copie dello stesso messaggio, una per ricarica del server,
-          // ognuna con una durata da 100ms che non misurava niente.
-          //
-          // Quindi si richiede al broker: se il turno è ancora aperto la riga
-          // resta com'è, ed è la stessa che il prossimo riattacco riprende.
+          // The leg is over, the TURN may not be: a child parked on
+          // `ask_user_question` stays open for hours, and the mute replay that
+          // reattaches to it lasts a moment. So the broker is asked, and
+          // `endReattachLeg` either lights the leg's row again for the next
+          // reattach or closes what is still open, explaining a turn the
+          // restart killed (the history, with the counts, is on that helper).
+          let brokerSays: "open" | "idle" | "unknown" = "unknown";
           try {
             const prov = tryGetProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
-            const state = await prov?.brokerTurnState?.(s.id).catch(() => "unknown" as const);
-            if (state === "open") {
-              // «Resta viva» va SCRITTA, non solo non-disfatta.
-              //
-              // Saltare la pulizia qui sotto non bastava: la riga era già stata
-              // chiusa a monte. `finalizeStream` passa `partial: undefined` e la
-              // UPDATE di `updateMessage` (server/utils.ts:330) scrive
-              // `partial = $partial` SENZA COALESCE — quindi ogni gamba di
-              // riadozione, anche quella che finisce su un turno ancora aperto,
-              // lascia `partial` spento. E `reuseOrCreatePartialForReattach`
-              // (utils.ts:1347) riusa la riga SOLO se è assistant con
-              // `partial = 1`: al riavvio successivo non trovava niente da
-              // riprendere e ne apriva una NUOVA. È il conto esatto del
-              // 2026-08-18 su topic:9fe7a291 — dieci riadozioni, 1 riusata
-              // («partial in DB») + 8 nuove («store del broker aperto») = nove
-              // righe dove doveva essercene una. Lo stesso sintomo delle cinque
-              // copie su topic:ed2070df che il commento qui sopra dice curato:
-              // la guardia c'era, ma disarmava un flag che qualcun altro aveva
-              // già spento.
-              //
-              // Il broker ha appena detto `open`: la riga è di un turno vivo, e
-              // il flag si RIACCENDE. On the leg's row, the one the next
-              // reattach takes back (`relightReattachedRow`).
-              try {
-                ctx.relightReattachedRow(s.id);
-              } catch { /* al peggio il prossimo riattacco apre una riga nuova, com'era prima */ }
-              console.log(`[chat-reattach] ${s.id}: la gamba è finita ma il turno è ancora aperto (domanda a schermo) — la riga resta viva`);
-              return;
-            }
+            brokerSays = (await prov?.brokerTurnState?.(s.id).catch(() => "unknown" as const)) ?? "unknown";
           } catch { /* nessuna risposta dal broker: si pulisce, come prima */ }
-          // IL TURNO È FINITO — MA SE È FINITO MALE VA DETTO.
-          //
-          // Questa riga spegneva `partial` in SILENZIO. Un turno completato non
-          // ha niente da spiegare, ma qui ci arriva anche chi è MORTO col
-          // riavvio: la riga si chiudeva a metà frase, senza cartello e senza
-          // niente che la distinguesse da una risposta finita bene. Le due chat
-          // segnalate il 20/08 («penso abbiano interrotto involontariamente»)
-          // erano esattamente questo: nel log `reaping idle broker session`,
-          // in chat nulla.
-          //
-          // Il cartello lo scrive `spiegaTurnoTroncato`, che riconosce da sé
-          // chi ha davvero bisogno di una spiegazione — e non ne scrive due.
-          try {
-            const chiuse = ctx.db.run("UPDATE messages SET partial = 0, streamed_at = NULL, end_reason = 'closed-outside' WHERE session_key = ? AND partial = 1", [s.id]).changes;
-            if (chiuse > 0) spiegaTurnoTroncato(ctx.db, s.id);
-          } catch { /* next boot's reset catches it */ }
+          if (endReattachLeg(ctx.db, s.id, brokerSays) === "relit") {
+            console.log(`[chat-reattach] ${s.id}: la gamba è finita ma il turno è ancora aperto (domanda a schermo) — la riga resta viva`);
+          }
         });
       continue;
     }

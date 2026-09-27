@@ -1285,25 +1285,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // was watching (reuse + in-place JSONL replay) instead of spawning a
           // duplicate turn / leaving a ghost spinner. Normal sends always get a
           // fresh row.
-          // La riga com'è ADESSO, prima che il riattacco la svuoti per riusarla.
-          // Serve a garantire l'unica regola che conta qui: una riadozione può
-          // aggiungere, mai togliere. Vedi reattachMerge.ts.
-          // L'istantanea serve solo a chi RIUSA una riga: vedi `isWoken`.
-          const reattachSnapshot: RowSnapshot | null = isReattach
-            ? (() => {
-                try {
-                  const r = db.prepare(
-                    "SELECT content, thinking, tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1",
-                  ).get(sessionKey) as { content?: string; thinking?: string | null; tool_calls?: string | null; blocks?: string | null } | undefined;
-                  return r ? {
-                    content: r.content ?? "",
-                    thinking: r.thinking ?? null,
-                    toolCallsJson: decodeCol(r.tool_calls),
-                    blocksJson: decodeCol(r.blocks),
-                  } : null;
-                } catch { return null; }
-              })()
-            : null;
           // A SPONTANEOUS turn picks up the headstone before it, when there is
           // one. A task notification delivered by the CLI opens a turn of its
           // own, and its empty `result` stamps the «no answer» notice on the
@@ -1317,6 +1298,20 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             : isWoken
             ? reuseHeadstoneOrCreate(sessionKey)
             : createPartialMessage(sessionKey, "assistant");
+          // The ADOPTED row as the reattach found it (the reuse leaves its body
+          // in place), for the one rule that counts here: a re-adoption may add,
+          // never take away (reattachMerge.ts). By id, not the session's last
+          // row: a sub-agent's report written after the turn's row was merged
+          // INTO it (card a57e6d4d). A row born just now has nothing to keep.
+          const reattachSnapshot: RowSnapshot | null = isReattach && "reusedBody" in partialMsg && partialMsg.reusedBody
+            ? (() => {
+                try {
+                  const r = db.prepare("SELECT content, thinking, tool_calls, blocks FROM messages WHERE id = ?")
+                    .get(partialMsg.id) as { content?: string; thinking?: string | null; tool_calls?: string | null; blocks?: string | null } | undefined;
+                  return r ? { content: r.content ?? "", thinking: r.thinking ?? null, toolCallsJson: decodeCol(r.tool_calls), blocksJson: decodeCol(r.blocks) } : null;
+                } catch { return null; }
+              })()
+            : null;
           // L'AbortController registrato insieme allo stream è l'unica maniglia
           // che chi finalizza da FUORI questa route ha sul client SSE. Lo
           // sweeper `[StaleStream]` (server.ts) chiudeva il turno in DB e

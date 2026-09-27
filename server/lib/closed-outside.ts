@@ -1,0 +1,87 @@
+/**
+ * A TURN'S ROW CLOSED BY SOMETHING OTHER THAN THE TURN (card a57e6d4d).
+ *
+ * Two closers work outside the chat route: the stale-stream sweeper, which
+ * gives up on a turn gone silent, and the end of a reattach leg after a
+ * restart. Both write `end_reason = 'closed-outside'`. That is what
+ * `send_chat_message` reports as "closed from outside" and what the next
+ * reattach adopts, even on a row that kept the latency of an earlier leg: the
+ * latency alone called such a row a finished reply.
+ *
+ * The reopen after a leg that ends on a turn still open is here too, since it
+ * decides which row the next reattach takes back.
+ */
+import type { Database } from "bun:sqlite";
+import { decodeCol, encodeCol } from "../../shared/message-blob";
+import type { ContentBlock, TurnEndCause } from "../../shared/types";
+import { timelineWithInterruptedVerdict } from "./interrupted-turn-block";
+import { spiegaTurnoTroncato } from "./turno-troncato";
+
+/** The stale-stream sweeper's `finalizeMessage` (`lib/stale-stream-sweep.ts`). */
+export function finalizeStaleRow(
+  db: Database,
+  { messageId, marker, interruption }: { messageId: string; marker: string | null; interruption: { text: string; cause: TurnEndCause; at: string } },
+): void {
+  if (marker === null) db.run("UPDATE messages SET partial = 0, streamed_at = NULL, end_reason = 'closed-outside' WHERE id = ?", [messageId]);
+  else db.run("UPDATE messages SET partial = 0, streamed_at = NULL, end_reason = 'closed-outside', content = ? WHERE id = ?", [marker, messageId]);
+  // WHY the turn ended, on the row, in the shape the composer's banner reads.
+  // Without it the reaper closed a turn cut mid-answer leaving the reason in
+  // the server log only: the 2026-09-03 report, "stuck with no feedback at
+  // all". `timelineWithInterruptedVerdict` refuses the rows that must not be
+  // touched (empty timeline, already explained).
+  try {
+    const row = db.query("SELECT blocks FROM messages WHERE id = ?").get(messageId) as { blocks?: unknown } | undefined;
+    const raw = decodeCol(row?.blocks);
+    const parsed = raw ? (JSON.parse(raw) as ContentBlock[]) : null;
+    const timeline = timelineWithInterruptedVerdict(parsed, interruption);
+    if (timeline) db.run("UPDATE messages SET blocks = ? WHERE id = ?", [encodeCol(JSON.stringify(timeline)) ?? null, messageId]);
+  } catch (err) {
+    // A row we cannot read is a row we leave alone: the marker above already
+    // said something, and rewriting a timeline we failed to parse would throw
+    // away the turn for not understanding it.
+    console.warn(`[StaleStream] verdict not written on ${messageId}:`, err);
+  }
+}
+
+/**
+ * A reattach leg ended on a turn the broker still calls open (a question on
+ * screen): the leg's row is lit again, for the next reattach to take back, and
+ * its `done` goes with it, since an open row has not ended. The leg's row is
+ * the last one a turn finalized, not a report written whole after it (`done`
+ * with no latency): lighting that one handed it to the next reattach, or to
+ * the boot sweep's "cut".
+ */
+export function relightReattachedRow(db: Database, sessionKey: string): void {
+  db.run(
+    `UPDATE messages SET partial = 1, end_reason = NULL WHERE id = (
+       SELECT id FROM messages WHERE session_key = ? AND role = 'assistant'
+         AND (COALESCE(end_reason, '') <> 'done' OR latency_ms IS NOT NULL)
+       ORDER BY sort_order DESC LIMIT 1)`,
+    [sessionKey],
+  );
+}
+
+/**
+ * The end of a reattach leg (`reattachSurvivingChatTurns` in server.ts), once
+ * the broker has been asked whether the TURN is over too.
+ *
+ * Open: the row is written open again. The leg's finalize has already turned
+ * `partial` off, and a turn parked on `ask_user_question` stays open for
+ * hours: left closed, every restart opened a new row for the same turn (nine
+ * rows for one on topic:9fe7a291, 2026-08-18; five copies on topic:ed2070df).
+ *
+ * Anything else: whatever is still open is closed from outside, and a turn the
+ * restart killed mid-tool gets its notice (`spiegaTurnoTroncato`). Closed in
+ * silence, it looked like a finished answer: the two chats of 20/08.
+ */
+export function endReattachLeg(db: Database, sessionKey: string, brokerSays: "open" | "idle" | "unknown"): "relit" | "closed" {
+  if (brokerSays === "open") {
+    try { relightReattachedRow(db, sessionKey); } catch { /* at worst the next reattach opens a new row, as before */ }
+    return "relit";
+  }
+  try {
+    const closed = db.run("UPDATE messages SET partial = 0, streamed_at = NULL, end_reason = 'closed-outside' WHERE session_key = ? AND partial = 1", [sessionKey]).changes;
+    if (closed > 0) spiegaTurnoTroncato(db, sessionKey);
+  } catch { /* the next boot's reset catches it */ }
+  return "closed";
+}

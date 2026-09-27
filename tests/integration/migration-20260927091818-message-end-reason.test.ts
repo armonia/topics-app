@@ -18,9 +18,9 @@ const MIGRATION_SQL = read("20260927091818-message-end-reason.sql");
 
 function dbBefore(): Database {
   const db = new Database(":memory:");
-  for (const stmt of read("001-initial.sql").split(/;\s*\n/)) {
-    if (!/create\s+table\s+(if\s+not\s+exists\s+)?messages\b/i.test(stmt)) continue;
-    db.run(stmt);
+  for (const statement of read("001-initial.sql").split(/;\s*\n/)) {
+    if (!/create\s+table\s+(if\s+not\s+exists\s+)?messages\b/i.test(statement)) continue;
+    db.run(statement);
   }
   db.run("ALTER TABLE messages ADD COLUMN latency_ms INTEGER");
   const row = db.prepare("INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, latency_ms) VALUES (?, 's1', ?, ?, ?, '2026-09-25', ?, ?)");

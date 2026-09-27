@@ -544,8 +544,6 @@ export interface AppContext {
   appendImportedMessages: (sessionKey: string, msgs: StoredMessage[]) => void;
   createPartialMessage: (sessionKey: string, role: "user" | "assistant") => StoredMessage;
   reuseOrCreatePartialForReattach: (sessionKey: string) => ReattachedPartial;
-  /** A reattach leg ended on a turn still open: its row is lit again for the next reattach. */
-  relightReattachedRow: (sessionKey: string) => void;
   /** A spontaneous turn picks up the «no answer» headstone before it, when
    *  there is one: see `lib/empty-turn-headstone.ts`. */
   reuseHeadstoneOrCreate: (sessionKey: string) => StoredMessage;

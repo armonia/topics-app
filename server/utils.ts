@@ -1681,24 +1681,6 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   /**
-   * A reattach leg ended on a turn the broker still calls open (a question on
-   * screen): the leg's row is lit again, for the next reattach to take back,
-   * and its `done` goes with it, since an open row has not ended. The leg's row
-   * is the last one a turn finalized, not a report written whole after it
-   * (`done` with no latency): lighting that one handed it to the next reattach,
-   * or to the boot sweep's "cut" (card a57e6d4d).
-   */
-  function relightReattachedRow(sessionKey: string): void {
-    db.run(
-      `UPDATE messages SET partial = 1, end_reason = NULL WHERE id = (
-         SELECT id FROM messages WHERE session_key = ? AND role = 'assistant'
-           AND (COALESCE(end_reason, '') <> 'done' OR latency_ms IS NOT NULL)
-         ORDER BY sort_order DESC LIMIT 1)`,
-      [sessionKey],
-    );
-  }
-
-  /**
    * A SPONTANEOUS TURN PICKS UP THE HEADSTONE BEFORE IT, when there is one.
    *
    * A task notification delivered by the CLI opens a turn of its own, and its
@@ -2796,7 +2778,7 @@ export function createAppContext(baseDir: string): AppContext {
     getTopicById, getTopicBySessionKey, setTopicBrowserState, touchTopicActivity,
     loadUnread, saveUnread,
     loadLocalMessages, hydrateMessageBodies, countMessagesBySession, saveLocalMessages, appendLocalMessage, appendImportedMessages,
-    createPartialMessage, reuseOrCreatePartialForReattach, relightReattachedRow, reuseHeadstoneOrCreate, updateLastMessage, appendToLastMessage,
+    createPartialMessage, reuseOrCreatePartialForReattach, reuseHeadstoneOrCreate, updateLastMessage, appendToLastMessage,
     finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
