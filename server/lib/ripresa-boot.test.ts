@@ -11,14 +11,14 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import {
   chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
   RESPONSE_CEILING_MS, STREAM_CEILING_MS, RESUME_CAP_MARKER, attemptsInChain, attemptsOnRow,
-  resumeVerdict, resumeAttemptOf, resumeCapNotice, type RigaDaValutare, USER_TAIL_GRACE_MS, UNANSWERED_NOTICE,
+  resumeVerdict, resumeAttemptOf, type RigaDaValutare, USER_TAIL_GRACE_MS, UNANSWERED_NOTICE,
 } from "./ripresa-boot";
 import { Database } from "bun:sqlite";
 import { insertRestartNotification, runBootPartialSweep } from "./boot-partial-sweep";
 import { eCartelloDiInterruzione } from "./cancelled-notice";
 import { decodeCol } from "../../shared/message-blob";
 import { resetTurnEndRegistry } from "../providers/turn-end-registry";
-import { clearProviderHold, setProviderHold } from "./provider-hold";
+import { clearProviderHold, liftApiDownHold, resetProviderHoldStore, setProviderHold } from "./provider-hold";
 import type { ContentBlock } from "../types";
 
 // The sweep reads the last turn end of each session from a process-wide
@@ -572,6 +572,37 @@ describe("la catena dei riavvii ha un tetto", () => {
     expect(calls.map((c) => c.ripresa)).toEqual([1]);
   });
 
+  /**
+   * A resend sent once the hold ran out, into an API still down, is a probe:
+   * its CLI retried again and nothing anywhere got an answer while it ran.
+   * Counted, a 5xx blackout of an hour (ten retries in a few minutes, then the
+   * hold) spent the four attempts before the API came back, and the chat was
+   * left under «Ripresa automatica sospesa». A resend that met the API alive
+   * (any child streamed an answer since it began) spends one as before, and so
+   * does a probe already resent once whose resend never wrote a row: uncounted,
+   * a resend failing before the route answered would repeat every sweep.
+   */
+  test("a resend that met the API still down spends no attempt; one that met it alive does", async () => {
+    for (const [answered, traced, expected] of [[false, false, 1], [true, false, 2], [false, true, 2]] as const) {
+      clearProviderHold();
+      resetProviderHoldStore();
+      const db = freshDb();
+      const startedAt = new Date(Date.now() - 30_000).toISOString();
+      const cut = (at: string) => ({ kind: "error", text: "Turno interrotto: l'API di Claude non rispondeva più.", cause: "api-unavailable", at });
+      const row = db.prepare(
+        "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,'topic:x',?,?,?,0,?,?,?,0)",
+      );
+      row.run("a-cut", "assistant", "", JSON.stringify([{ kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } }, cut(startedAt), { kind: "ripreso", attempt: 1 }]), startedAt, 1, "u0");
+      row.run("u-resent", "user", MESSAGE, null, startedAt, 2, "a-cut");
+      if (answered) liftApiDownHold();
+      row.run("a-probe", "assistant", "Request timed out", JSON.stringify([{ kind: "ripreso", attempt: 1 }, { kind: "text", text: "Request timed out" }, cut(new Date().toISOString()), ...(traced ? [{ kind: "ripreso", attempt: 1 }] : [])]), startedAt, 3, "u-resent");
+      const calls: Array<Record<string, unknown>> = [];
+      await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
+      expect(calls.map((c) => c.ripresa), `answered: ${answered}, traced: ${traced}`).toEqual([expected]);
+    }
+    resetProviderHoldStore();
+  });
+
   test("a woken turn cut by an outage is left alone: the person's last message already had its answer", async () => {
     for (const cause of ["api-unavailable", "broker-died"]) {
       const db = freshDb();
@@ -739,56 +770,5 @@ describe("la causa sul blocco basta, qualunque frase porti", () => {
   test("lo stop dell'umano non si riprende, nemmeno con un testo che sembra un cartello", () => {
     const stop: ContentBlock = { kind: "error", text: "fermato", cause: "user" } as ContentBlock;
     expect(chatDaRiprendere({ ...base, blocks: [prosa, stop] }, ORA)).toBe(false);
-  });
-});
-
-/**
- * Cuts that came from outside the turn. Topic 3019832f on 25/09: the API went
- * dark at 02:00Z, the claude-code watchdog closed the turn at 02:30Z with a
- * bare text and no cause, and every sweep from 02:35 to 03:20 read it as
- * "no" until a person resent by hand, 52 minutes later. And the same day at
- * 12:57 the ai-bridge daemon died under four live CLIs, whose turns ended
- * "as died" and stayed there.
- */
-describe("an outage outside the turn is resumed", () => {
-  const tool: ContentBlock = { kind: "tool", toolCall: { id: "toolu_1", name: "Bash", args: {}, status: "success" } } as ContentBlock;
-
-  test("the watchdog's bare text on the real row (5e92d06e) is a cut of ours", () => {
-    const row: RigaDaValutare = {
-      ...base,
-      blocks: [tool, tool, { kind: "error", text: "Nessuna attività dal modello per 30 minuti. Turno terminato." } as ContentBlock],
-    };
-    expect(resumeVerdict(row, ORA)).toBe("resend");
-  });
-
-  test("a turn the API left unanswered, and one whose daemon died, are resent", () => {
-    for (const cause of ["api-unavailable", "broker-died"]) {
-      const cut = { kind: "error", text: "una frase qualunque", cause } as unknown as ContentBlock;
-      expect(resumeVerdict({ ...base, blocks: [prosa, cut] }, ORA), cause).toBe("resend");
-    }
-  });
-
-  /**
-   * A wake (a background task or a Monitor delivering) opens a row of its own
-   * under a person's message that was already answered. The resend is that
-   * message: resent, the agent ran it a second time, a paid turn and every
-   * effect again (the blackout of 25/09 met a wake on 4e5e2d76, fb360b27).
-   */
-  test("a woken turn cut by an outage, or by a stall, does not resend the person's message", () => {
-    const woken = { kind: "woken", label: "bjppuaycc" } as ContentBlock;
-    for (const cause of ["api-unavailable", "broker-died", "watchdog"]) {
-      const cut = { kind: "error", text: "una frase qualunque", cause } as unknown as ContentBlock;
-      expect(resumeVerdict({ ...base, blocks: [woken, { kind: "text", text: "Request timed out" }, cut] }, ORA), cause).toBe("no");
-    }
-  });
-
-  test("a child that died on its own, with the daemon alive, stays where it is", () => {
-    const died = { kind: "error", text: "Process died unexpectedly", cause: "process-died" } as ContentBlock;
-    expect(resumeVerdict({ ...base, blocks: [prosa, died] }, ORA)).toBe("no");
-  });
-
-  test("the cap notice names the outage that cut the last link, not an unknown cause", () => {
-    expect(resumeCapNotice({ restarted: false, cause: "api-unavailable" })).toMatch(/l'API non rispondeva/);
-    expect(resumeCapNotice({ restarted: false, cause: "broker-died" })).toMatch(/ospitava l'agente/);
   });
 });

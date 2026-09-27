@@ -10,7 +10,8 @@
  * Two decisions live here, next to each other because they read the same
  * line: what a live line says about the API (a retry opens the `api-down`
  * hold, a streamed answer lifts it), and how a turn the watchdog closed ends.
- * The provider keeps the state on the child; this module only decides.
+ * The provider keeps the state on the child; this module decides, and keeps
+ * the hold.
  */
 import { holdForApiDown, liftApiDownHold } from "../../lib/provider-hold";
 import { cancelled, type TurnEndInfo } from "../stop-reason";
@@ -42,9 +43,13 @@ export function noteApiHealth(kind: StreamLineKind, event: unknown, nowMs: numbe
  * resume reads. The child's last word decides which. A retry of an API that
  * is down, with nothing after it, means the API left the turn unanswered, and
  * that resume waits for the API; anything else is a stall.
+ *
+ * The cut is itself a reading of the API, and it opens the hold again. It
+ * comes thirty minutes after that retry, whose own hold ran out after ten:
+ * without it the next sweep would resend into the API the cut calls down.
  */
-export function silentTurnEnd(retry: ApiRetryMark | undefined, lastEventAt: number, detail: string): TurnEndInfo {
-  return retry?.outage && retry.at >= lastEventAt
-    ? { end: "error", cause: "api-unavailable", detail }
-    : cancelled("watchdog", detail);
+export function silentTurnEnd(retry: ApiRetryMark | undefined, lastEventAt: number, detail: string, nowMs: number = Date.now()): TurnEndInfo {
+  if (!retry?.outage || retry.at < lastEventAt) return cancelled("watchdog", detail);
+  holdForApiDown(nowMs);
+  return { end: "error", cause: "api-unavailable", detail };
 }

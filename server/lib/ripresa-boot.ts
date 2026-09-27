@@ -36,7 +36,8 @@
  *     (`sessionHasPendingSend`): a send queued behind a stuck turn is live
  *     even with no stream and no process (topic 3019832f, 24/09);
  *   · never under a provider hold (a spent plan window, an API not answering);
- *   · at most MAX_RESUME_ATTEMPTS times per MESSAGE, counted along the chain
+ *   · at most MAX_RESUME_ATTEMPTS times per MESSAGE (a resend that met the
+ *     API still down spends none), counted along the chain
  *     of resends (`parent_id`) and not on the single row; the trace lives in
  *     the DB (`kind: 'ripreso'`, with the attempt number), not in memory,
  *     or two restarts in a row would resume the same turn twice. Once the
@@ -300,6 +301,27 @@ function attemptOf(b: ContentBlock): number {
   return typeof a === "number" && a > 0 ? a : 1;
 }
 
+/**
+ * A RESEND THAT MET THE API STILL DOWN SPENDS NO ATTEMPT (card e30f35e4).
+ *
+ * The api-down hold ends by time, so the resend it lets through is also the
+ * probe that says whether the API is back. When it is not, the resend's CLI
+ * retries until it gives up, its answer row (the one opening with the route's
+ * `ripreso` banner) is cut `api-unavailable` again, and no child anywhere got
+ * an answer since that row began. Counted, a 5xx blackout of an hour (ten
+ * retries in a few minutes, then the hold) spent all four attempts before the
+ * API came back. The probes stay few: every hold the outage outlives doubles
+ * the next one (`holdForApiDown`). A row this sweep already traced (`ripreso`
+ * after the cut) counts as before: its resend never wrote a row, and
+ * uncounted it would be resent every five minutes.
+ */
+function probedApiStillDown(blocks: ContentBlock[] | null, rowStartMs: number, lastAnswerMs: number): boolean {
+  const cut = lastInterruptionIndex(blocks);
+  if (cut < 0 || !blocks || (blocks[cut] as { cause?: unknown }).cause !== "api-unavailable") return false;
+  const marked = (from: number, to?: number) => blocks.slice(from, to).some((b) => b?.kind === "ripreso");
+  return marked(0, cut) && !marked(cut + 1) && lastAnswerMs < rowStartMs;
+}
+
 /** The highest resend number among a row's blocks; 0 when it has none. */
 export function attemptsOnRow(blocks: ContentBlock[] | null | undefined): number {
   if (!Array.isArray(blocks)) return 0;
@@ -319,7 +341,7 @@ import { decodeCol, encodeCol } from "../../shared/message-blob";
 import { insertRestartNotification, restartNotificationFrame, type PartialSweepDb } from "./boot-partial-sweep";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isBackgroundNoticeRow, rowsBack } from "./background-notice";
-import { providerHold } from "./provider-hold";
+import { lastApiAnswerMs, providerHold } from "./provider-hold";
 
 /** A chat's last row, as the sweep reads it. */
 interface LastRow { sk: string; id: string; ruolo: string; blocks: unknown; ts: string }
@@ -676,7 +698,8 @@ export async function riprendiTurniInterrotti(
       ).get(r.sk) as { content: unknown } | undefined;
       const messaggio = (decodeCol(dom?.content) ?? "").trim();
       if (!messaggio) continue;
-      candidati.push({ sessionKey: r.sk, messaggio, idTurno: resendRowId, blocks: rowBlocks, attempt: attempts + 1, fresh });
+      const attempt = probedApiStillDown(blocks, row.timestampMs, lastApiAnswerMs()) ? attempts : attempts + 1;
+      candidati.push({ sessionKey: r.sk, messaggio, idTurno: resendRowId, blocks: rowBlocks, attempt, fresh });
     }
   } catch (err) {
     console.warn("[ripresa] non riesco a cercare i turni interrotti:", err);

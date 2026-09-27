@@ -5,7 +5,7 @@
  * then the API stopped answering: the CLI printed `system/api_retry` on stdout
  * at 02:06, 02:12, 02:18, 02:24 and 02:30 ("Request timed out", attempts 1-5
  * of 10). Topics read every `system/*` line as noise, so the send watchdog saw
- * 30 minutes of silence («ultimo evento: user»), killed a child that was
+ * 30 minutes of silence («ultimo evento: user»), killed a child that was  allow-italian: quoted log line
  * retrying, and closed the turn with a bare text and no cause. No sweep ever
  * read that row as a cut: 52 minutes stopped, until a person resent by hand.
  *
@@ -84,7 +84,7 @@ beforeAll(async () => {
   const insert = getDatabase().prepare(
     `INSERT INTO topics (id, name, slug, session_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
   );
-  for (const k of ["outage", "retrying", "answer"]) insert.run(`t-api-${k}`, `api-${k}`, `api-${k}`, `topic:api-${k}`, now, now);
+  for (const k of ["outage", "expired", "retrying", "answer"]) insert.run(`t-api-${k}`, `api-${k}`, `api-${k}`, `topic:api-${k}`, now, now);
 });
 
 afterEach(async () => {
@@ -140,6 +140,27 @@ describe("a turn cut while the CLI was retrying the API", () => {
     const { log, handler } = ends();
     try {
       void provider.sendChat("topic:api-outage", "outage", handler as never);
+      expect(await waitFor(() => log.length > 0, slackMs(8_000))).toBe(true);
+      expect(log).toEqual(["aborted:api-unavailable"]);
+      expect(providerHold()?.window).toBe("api-down");
+    } finally {
+      provider.stop();
+    }
+  }, 30_000);
+
+  test("the watchdog's cut opens the hold again: the retry's own ran out twenty minutes before", async () => {
+    // In production the watchdog bites thirty minutes after the last retry, and
+    // that retry held for ten: the cut's `api-unavailable` held nothing, and
+    // the next sweep resent into the API it had just called down.
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const { clearProviderHold, providerHold } = await import("../lib/provider-hold");
+    const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    (provider as any).turnWatchdogMs = 1_000;
+    const { log, handler } = ends();
+    try {
+      void provider.sendChat("topic:api-expired", "outage", handler as never);
+      expect(await waitFor(() => providerHold()?.window === "api-down", slackMs(8_000))).toBe(true);
+      clearProviderHold(); // the retry's hold, run out
       expect(await waitFor(() => log.length > 0, slackMs(8_000))).toBe(true);
       expect(log).toEqual(["aborted:api-unavailable"]);
       expect(providerHold()?.window).toBe("api-down");

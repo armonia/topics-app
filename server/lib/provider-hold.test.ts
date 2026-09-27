@@ -158,6 +158,24 @@ describe("the API outage hold", () => {
     expect(providerHold(NOW + 60_000 + API_DOWN_HOLD_MS)).toBeNull();
   });
 
+  test("an outage that outlives its hold waits twice as long before the next probe, up to an hour; an answer starts over", () => {
+    // Each hold that ran out with the API still down cost a resend that met it,
+    // a copy of the message in the chat: a 5xx blackout of three hours made
+    // one every quarter of an hour at a fixed ten minutes.
+    let t = NOW;
+    const horizons: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      holdForApiDown(t);
+      const until = providerHold(t)!.untilMs;
+      horizons.push(until - t);
+      t = until + 60_000; // ran out; the resend meets a retry a minute later
+    }
+    expect(horizons).toEqual([1, 2, 4, 6, 6].map((k) => k * API_DOWN_HOLD_MS));
+    liftApiDownHold(t);
+    holdForApiDown(t + 1);
+    expect(providerHold(t + 1)!.untilMs).toBe(t + 1 + API_DOWN_HOLD_MS);
+  });
+
   test("an answer lifts it, and the listeners hear the lift", () => {
     const seen: Array<string | null> = [];
     const off = onProviderHold((h) => seen.push(h?.window ?? null));
