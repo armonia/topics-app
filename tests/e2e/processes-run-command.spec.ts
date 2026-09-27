@@ -14,6 +14,7 @@
  * A behaviour in time, so the video is the proof: `video: "on"`.
  */
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -51,11 +52,32 @@ async function chatTurn(sessionKey: string, content: string): Promise<void> {
   while (!(await reader.read()).done) { /* the turn is still running */ }
 }
 
+/** The pid of the topic's CLI: the fake CLI says it when asked (`CLIPID`). */
+async function cliPid(request: APIRequestContext, sessionKey: string): Promise<number> {
+  await chatTurn(sessionKey, "CLIPID");
+  const body = (await (await request.get(`${E2E_BASE}/api/history/${encodeURIComponent(sessionKey)}`)).json()) as { messages?: Array<{ role: string; content?: string }> };
+  const said = [...(body.messages ?? [])].reverse().find((m) => m.role === "assistant" && /cli-pid:\d+/.test(m.content ?? ""));
+  return Number(/cli-pid:(\d+)/.exec(said?.content ?? "")?.[1] ?? 0);
+}
+
+/** A live process, a zombie counting as gone. The test server runs on this machine. */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    const stat = execFileSync("ps", ["-o", "stat=", "-p", String(pid)]).toString().trim();
+    return stat !== "" && !stat.startsWith("Z");
+  } catch {
+    return false;
+  }
+}
+
 test.describe("run_command: a command of the topic, seen, surviving and reporting back", () => {
   let uninstall: () => void = () => {};
   let project = "";
   let topicId = "";
   let sessionKey = "";
+  /** The CLI that is up when the command starts: the one restarted under it. */
+  let firstCli = 0;
 
   test.beforeAll(async ({ request }) => {
     uninstall = installSlowTurnCli();
@@ -66,7 +88,8 @@ test.describe("run_command: a command of the topic, seen, surviving and reportin
     topicId = (await createTopic(request, "Run command", { projectPath: project, provider: "claude-code" })).id;
     sessionKey = await sessionKeyOf(request, topicId);
     // The topic's CLI is up before the command starts: it is the one restarted below.
-    await chatTurn(sessionKey, "warm up");
+    firstCli = await cliPid(request, sessionKey);
+    expect(firstCli, "the fake CLI said its pid").toBeGreaterThan(0);
   });
 
   test.afterAll(async ({ request }) => {
@@ -108,6 +131,9 @@ test.describe("run_command: a command of the topic, seen, surviving and reportin
 
     // The topic's CLI restarts mid-run: a model change drops the idle child.
     await patchTopic(request, topicId, { model: "claude-sonnet-4-5" });
+    // Observed, not assumed: the CLI that was up is gone, and the command is not.
+    await expect.poll(() => isAlive(firstCli), { timeout: 10_000, message: "the topic's CLI was dropped" }).toBe(false);
+    await expect(row).toHaveAttribute("data-outcome", "running");
 
     // The command did not notice: the next ticks keep arriving in the same log.
     await expect(log).toContainText("tick 2", { timeout: 15_000 });
@@ -132,5 +158,11 @@ test.describe("run_command: a command of the topic, seen, surviving and reportin
       const body = (await r.json()) as { messages?: Array<{ blocks?: Array<{ kind: string; processId?: string }> }> };
       return (body.messages ?? []).filter((m) => m.blocks?.some((b) => b.kind === "process-exit" && b.processId === processId)).length;
     }, { timeout: 10_000 }).toBe(1);
+
+    // The topic answers from a NEW CLI: the restart was real. Polled, because
+    // the wake's own turn may still hold the session for a moment.
+    let secondCli = 0;
+    await expect.poll(async () => (secondCli = await cliPid(request, sessionKey).catch(() => 0)), { timeout: 15_000 }).toBeGreaterThan(0);
+    expect(secondCli).not.toBe(firstCli);
   });
 });
