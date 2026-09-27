@@ -11,7 +11,8 @@
  *
  * What is pinned here is the contract of the new hook: the WHOLE current tail on
  * every call (the client replaces `result`, it does not append), taken from a
- * buffer of its own so a verbose command does not freeze it, at most one call
+ * buffer of its own so a verbose command does not freeze it, 16 KB counted in
+ * bytes, never emptied by a line longer than the buffer, at most one call
  * every 250 ms, nothing after the answer, and a callback that throws cannot
  * change the tool's outcome. The last block drives the agent loop itself, to
  * prove the hook reaches `onToolUpdate` under the id of the call.
@@ -60,6 +61,40 @@ describe("the native bash streams its tail while it runs", () => {
     // before the second. A cut inside `19234` would read `234`, and 234 + 1 is
     // not 19235.
     expect(Number(lines[1])).toBe(Number(lines[0]) + 1);
+  });
+
+  test("the 16 KB are bytes, also when the output is not ASCII", async () => {
+    // A test runner's check marks and a progress bar's blocks are three bytes
+    // each: a cap counted in characters let every frame reach almost three
+    // times its size, on the wire to every window watching.
+    const seen = recorder();
+    await executeTool("bash", {
+      command: 'for i in $(seq 1 3000); do echo "✓ passes test number $i ██████"; done; sleep 1',
+    }, { workspace, onOutput: seen.onOutput });
+    const tail = seen.calls.at(-1)!;
+    expect(Buffer.byteLength(tail)).toBeLessThanOrEqual(16 * 1024);
+    const lines = tail.trimEnd().split("\n");
+    expect(lines.at(-1)).toBe("✓ passes test number 3000 ██████");
+    // The cut falls between lines, never inside a line or inside a character.
+    expect(lines[0]).toMatch(/^✓ passes test number \d+ ██████$/);
+    expect(tail).not.toContain("�");
+  });
+
+  test("a line longer than the buffer, then silence, keeps its last redraw", async () => {
+    // One `\r` progress bar of about 40 KB closed by its newline, then a pause.
+    // Cutting after the first newline of the buffer left NOTHING, because the
+    // only newline was the last byte: the row went back to spinner and command
+    // for the whole pause, the very symptom this tail exists to end.
+    const seen = recorder();
+    await executeTool("bash", {
+      command: `perl -e '$|=1; print "\\rprogress $_" for 1..3000; print "\\n"'; sleep 1`,
+    }, { workspace, onOutput: seen.onOutput });
+    expect(seen.calls.length).toBeGreaterThan(0);
+    // An empty tail never follows a non-empty one: the row would lose it.
+    expect(seen.calls.every((tail) => tail.length > 0)).toBe(true);
+    const tail = seen.calls.at(-1)!;
+    expect(tail.endsWith("\rprogress 3000\n")).toBe(true);
+    expect(Buffer.byteLength(tail)).toBeLessThanOrEqual(16 * 1024);
   });
 
   test("nothing arrives after the answer", async () => {
