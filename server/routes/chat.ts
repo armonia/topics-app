@@ -2248,7 +2248,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               thinking: fullThinking || undefined,
               blocks: blocks.length > 0 ? blocks : undefined,
               partial: undefined, streamedAt: undefined,
-              endReason: reason === "aborted" ? "stopped" : reason,
+              // From the END, not from the leg that carried it: an outage
+              // (the CLI giving up on the API, the watchdog on an API retry,
+              // a dead ai-bridge daemon) closes through `done` or `aborted`,
+              // and the column read 'done' or 'stopped' for a turn that failed.
+              endReason: endInfo.end === "error" ? "error" : reason === "aborted" ? "stopped" : reason,
               latencyMs,
               usagePromptTokens,
               usageCompletionTokens,

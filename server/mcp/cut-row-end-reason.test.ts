@@ -349,3 +349,26 @@ describe("the reattach and the send wait on the turn's own row", () => {
     expect(said).not.toMatch(/restart|watchdog/);
   });
 });
+
+describe("a turn an outage ended is written as failed, whichever leg of the route closed it", () => {
+  test("the CLI giving up on the API (done leg), the watchdog on an API retry and a dead daemon (aborted leg) write 'error'; a completion and a Stop keep theirs", async () => {
+    const FINAL = "Risposta finale del turno.";
+    const ends: Array<[string, (h: StreamHandler) => void, string]> = [
+      ["api-unavailable, done", (h) => h.onDone({ result: "", turnEnd: { end: "error", cause: "api-unavailable" } } as never), "error"],
+      ["api-unavailable, aborted", (h) => h.onAborted!({ turnEnd: { end: "error", cause: "api-unavailable" } } as never), "error"],
+      ["broker-died, aborted", (h) => h.onAborted!({ turnEnd: { end: "error", cause: "broker-died" } } as never), "error"],
+      ["completed", (h) => { h.onTextDelta(FINAL, FINAL); h.onDone({ result: FINAL } as never); }, "done"],
+      ["stopped", (h) => h.onAborted!({ turnEnd: { end: "cancelled", cause: "user" } } as never), "stopped"],
+    ];
+    for (const [name, end, expected] of ends) {
+      const sk = topic(`endr-outage-${name.replace(/\W+/g, "-")}`);
+      ctx.appendLocalMessage(sk, "user", "ping");
+      const turn = ctx.createPartialMessage(sk, "assistant");
+      ctx.updateLastMessage(sk, { content: "Meta' del lavoro, poi" }, { rowId: turn.id });
+      boot([sk]);
+      await reattachLeg(sk, end);
+      await endReattachLeg(ctx, sk, broker("idle"));
+      expect([name, ctx.getMessageById(turn.id)?.endReason]).toEqual([name, expected]);
+    }
+  });
+});
