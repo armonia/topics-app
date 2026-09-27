@@ -13,11 +13,30 @@
  *   as work, on the one notice that asks for it and with nothing resent;
  * - and it drew "this is the redone answer" on a row nothing redid.
  *
- * Here both windows read the traced row again, window B while hidden, and both
- * keep Retry with no redone-answer banner; a reload shows the same.
+ * Here both windows read the traced row again within 1 s of the write, window B
+ * while hidden, and both keep Retry with no redone-answer banner; a reload
+ * shows the same.
+ *
+ * WHAT TELLS BASE FROM THIS BRANCH IN A LIVE WINDOW is the read, not the DOM.
+ * The trace is not drawn (it is the sweep's, not a redone answer) and does not
+ * take Retry, so a window that read it and one that did not look the same: the
+ * DOM checks on the live windows only guard that the trace stays invisible.
+ * The read is counted on the network, with the time it landed; the DOM tells
+ * the two apart after the reload.
+ *
+ * Window B is hidden the way the repo hides one (`idle-frame-budget.spec.ts`):
+ * under Playwright a page in front stays `visible`, and the client reads
+ * `document.hidden`, so that is what is overridden. WKWebView's own throttling
+ * of a window behind another is not reproduced.
  *
  * The sweep is woken as in `ripresa-capped-live.spec.ts`: a stale stream on
  * another chat, closed by the stale tick with its silence threshold cut to 1 s.
+ *
+ * The other half of the card, the end of a boot reattach leg, has no spec: that
+ * `.finally` runs only when a broker child survived a restart, which the test
+ * server never has. It is covered by `server/lib/turno-troncato.test.ts` (the
+ * helper, and the server.ts wiring read from the source) and by
+ * `client/src/hooks/useChatThreadChanged.test.ts` (the frame to the read).
  *
  * @covers RESUME-02
  */
@@ -62,17 +81,21 @@ async function setHidden(page: Page, hidden: boolean): Promise<void> {
   }, hidden);
 }
 
-/** Counts this window's history reads of the chat whose answer carries the trace. */
-function watchTracedReads(page: Page, sessionKey: string): { count: number } {
-  const seen = { count: 0 };
+/** When this window first read the chat back with the trace on its last row (0: never). */
+function watchTracedReads(page: Page, sessionKey: string): { at: number } {
+  const seen = { at: 0 };
   const path = `/api/history/${encodeURIComponent(sessionKey)}`;
   page.on("response", async (res) => {
+    const landed = Date.now();
     if (new URL(res.url()).pathname !== path || !res.ok()) return;
     const body = (await res.json().catch(() => null)) as { messages?: Row[] } | null;
-    if (traced(body?.messages?.at(-1))) seen.count++;
+    if (traced(body?.messages?.at(-1)) && !seen.at) seen.at = landed;
   });
   return seen;
 }
+
+/** How often the database is read for the trace: the write is at most this much before it is seen. */
+const POLL_MS = 100;
 
 const panelOf = (page: Page, topicId: string) =>
   page.locator(`[data-testid="chat-panel"][data-chat-topic-id="${topicId}"]`);
@@ -113,28 +136,36 @@ test.describe("a resend the chat route refused, with the chat open in two window
       expect((await request.post(`${E2E_BASE}/api/test/streams/partial`, { data: { sessionKey: await sessionKeyOf(request, b) } })).ok()).toBe(true);
 
       // The sweep traced the notice and the route refused the resend: the
-      // notice is still the chat's last row.
+      // notice is still the chat's last row. `seenAt` is when the trace was
+      // first seen, at most POLL_MS after it was written.
+      let seenAt = 0;
       await expect
         .poll(async () => {
           const last = (await rowsOf(request, a)).at(-1);
-          return { lastIsNotice: last?.id === noticeId, traced: traced(last) };
-        }, { timeout: 90_000, intervals: [500], message: "the sweep traces the notice and its resend is refused" })
+          const state = { lastIsNotice: last?.id === noticeId, traced: traced(last) };
+          if (state.lastIsNotice && state.traced && !seenAt) seenAt = Date.now();
+          return state;
+        }, { timeout: 90_000, intervals: [POLL_MS], message: "the sweep traces the notice and its resend is refused" })
         .toEqual({ lastIsNotice: true, traced: true });
 
-      // Each window read the row again with its trace, B while hidden.
+      // Each window read the row again with its trace, B while hidden, within
+      // 1 s of the write. Waited for longer, so a red says "never" or "late".
       for (const [name] of pages) {
-        await expect.poll(() => reads[name].count, { timeout: 1_500, message: `window ${name} reads the traced row` }).toBeGreaterThan(0);
+        await expect.poll(() => reads[name].at, { timeout: 5_000, message: `window ${name} reads the traced row` }).toBeGreaterThan(0);
+        expect(reads[name].at - seenAt, `window ${name} reads it within 1 s of the write`).toBeLessThanOrEqual(1_000 - POLL_MS);
       }
       await setHidden(pageB, false);
       for (const [name, p] of pages) {
-        // Nothing was resent: the notice keeps the Retry it asks for, and it
-        // is not "the redone answer".
+        // Guards, not the proof (see the header): nothing was resent, so the
+        // notice keeps the Retry it asks for, and it is not "the redone answer".
         await expect(noticeOf(p, a, noticeId).locator('[data-testid="message-retry"]'), `window ${name} keeps Retry`).toBeVisible({ timeout: 1_000 });
         await expect(panelOf(p, a).locator('[data-testid="ripreso-banner"]'), `window ${name} claims no redone answer`).toHaveCount(0);
         expect(await p.evaluate(() => (window as unknown as { __noReload?: boolean }).__noReload), `window ${name} was not reloaded`).toBe(true);
       }
 
       // A reload reads the same row: the same Retry, the same missing banner.
+      // On base this is where the DOM differs: the trace took Retry away and
+      // drew the banner.
       await pageA.reload();
       await expect(noticeOf(pageA, a, noticeId).locator('[data-testid="message-retry"]'), "after a reload, Retry is there").toBeVisible({ timeout: 20_000 });
       await expect(panelOf(pageA, a).locator('[data-testid="ripreso-banner"]'), "after a reload, no redone answer").toHaveCount(0);
