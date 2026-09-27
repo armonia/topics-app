@@ -261,4 +261,15 @@ describe("a session cron, from the recorded CLI session (CronCreate, CLI 2.1.282
     const work = foldCron(scheduled + 1, (i) => at(i) + later);
     expect(isBackgroundWorkAlive(work, at(scheduled) + later)).toBe(false);
   });
+
+  test("a command queued before it starts (a peer's message) is no cron's fire: the one-shot stays armed", () => {
+    // The CLI's schema: a cron trigger emits `started` with no `queued`; a peer
+    // message released into the queue emits its `queued` first.
+    const work = newBackgroundWork();
+    noteBackgroundLine(work, cronCreate("toolu_a", false), 10_000, { unattended: false });
+    noteBackgroundLine(work, cronScheduled("toolu_a", "a", false, 10_000), 10_000, { unattended: false });
+    noteBackgroundLine(work, { type: "command_lifecycle", command_uuid: "peer-1", state: "queued" }, 20_000, { unattended: true });
+    noteBackgroundLine(work, { type: "command_lifecycle", command_uuid: "peer-1", state: "started" }, 20_001, { unattended: true });
+    expect(isBackgroundWorkAlive(work, 20_002)).toBe(true);
+  });
 });

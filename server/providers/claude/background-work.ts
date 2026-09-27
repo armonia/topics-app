@@ -88,14 +88,14 @@ export interface BackgroundWork {
   cronCalls: Set<string>;
   /** Session crons by the id CronCreate returned, until fired (a one-shot) or deleted; `schedule` is the CLI's `humanSchedule`. */
   crons: Map<string, { recurring: boolean; armedAt: number; schedule: string }>;
-  /** The `command_uuid` of every fire folded so far. */
-  fires: Set<string>;
+  /** The `command_uuid` of every command already accounted for: a fire, or one `queued` first, which a cron trigger never is. */
+  commands: Set<string>;
   /** One-shots a fire disarmed: a replay of their CronCreate result does not arm them again. */
   fired: Set<string>;
 }
 
 export function newBackgroundWork(): BackgroundWork {
-  return { tasks: new Map(), lastSignalAt: 0, facts: new Map(), wakeQueuedAt: null, monitorCalls: new Set(), cronCalls: new Set(), crons: new Map(), fires: new Set(), fired: new Set() };
+  return { tasks: new Map(), lastSignalAt: 0, facts: new Map(), wakeQueuedAt: null, monitorCalls: new Set(), cronCalls: new Set(), crons: new Map(), commands: new Set(), fired: new Set() };
 }
 
 /**
@@ -148,8 +148,11 @@ export function noteBackgroundLine(
   if (e?.type === "user" && work.cronCalls.size > 0) noteCronScheduled(work, event, now);
   // A cron's fire, turn of ours open or not. Topics writes no uuid on stdin,
   // and "commands enqueued without a uuid emit no lifecycle events" (the CLI's
-  // schema): every `started` is a command the CLI queued by itself.
-  if (e?.type === "command_lifecycle" && e.state === "started") noteCronFired(work, e.command_uuid);
+  // schema), so a `started` is a command the CLI queued by itself: a cron
+  // trigger, and also a peer's message, a teammate's shutdown prompt, a
+  // deferred turn's resume. A peer's message is `queued` first, a cron trigger
+  // never is; the other two look like a fire and are read as one.
+  if (e?.type === "command_lifecycle" && (e.state === "queued" || e.state === "started")) noteCronFired(work, e.command_uuid, e.state);
   if (e?.type === "system" && typeof e.subtype === "string") {
     const id = typeof e.task_id === "string" ? e.task_id : null;
     if (e.subtype === "init") {
@@ -218,12 +221,14 @@ function noteCronScheduled(work: BackgroundWork, event: unknown, now: number): v
  * Once per command: a reattach scans the store, then folds the open turn again
  * from the last `result`, and a fire inside it folded twice disarmed a second
  * one-shot still armed in the CLI, which the reaper then closed (review of 27/09).
+ * A command seen `queued` is none: its `started` comes after.
  */
-function noteCronFired(work: BackgroundWork, command: unknown): void {
+function noteCronFired(work: BackgroundWork, command: unknown, state: "queued" | "started"): void {
   if (typeof command === "string") {
-    if (work.fires.has(command)) return;
-    work.fires.add(command);
+    if (work.commands.has(command)) return;
+    work.commands.add(command);
   }
+  if (state === "queued") return;
   const crons = [...work.crons];
   if (crons.some(([, c]) => c.recurring)) return;
   if (crons.length === 0) return;
