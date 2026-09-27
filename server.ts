@@ -20,7 +20,7 @@ import { listNativeCommands, nativeCommandByPid } from "./server/lib/native-comm
 import { listSessionCliPids } from "./server/providers/session-pids";
 import { getAccessToken } from "./server/providers/native/auth";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
-import { spiegaTurnoTroncato } from "./server/lib/turno-troncato";
+import { closeReattachedRows } from "./server/lib/turno-troncato";
 import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, rmSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket, Server } from "bun";
@@ -760,6 +760,13 @@ initUsageStore(ctx.STATE_DIR);
 try { rebuildSummary(); }
 catch (e) { console.error("[usage] rebuildSummary failed at boot (non-fatal):", e); }
 
+/** `topic:updated` is what an open pane reconciles its thread on
+ *  (usePanelLifecycle): a row changed out of band reaches the open windows. */
+function announceThreadChanged(sessionKey: string): void {
+  const topic = ctx.getTopicBySessionKey(sessionKey);
+  if (topic) ctx.broadcastToAll({ type: "topic:updated", topic });
+}
+
 // Claude Code session tracker — canonical lifecycle state for every Claude
 // CLI session spawned via Topics (topic chats persist in the DB; topic-less
 // terminal sessions are tracked in-memory). Created before the terminal router
@@ -780,12 +787,8 @@ const claudeSessionTracker = createClaudeSessionTracker({
     resolveToolResult: (sk, toolUseId, result, isError) =>
       ctx.updateToolCallResult(sk, toolUseId, isError ? "" : result, isError ? result : undefined),
     topicIdForSessionKey: (sk) => ctx.getTopicBySessionKey(sk)?.id ?? null,
-    // `topic:updated` is what an open pane reconciles its thread on
-    // (usePanelLifecycle): the imported tool rows and results reach it too.
-    announceThreadChanged: (sk) => {
-      const topic = ctx.getTopicBySessionKey(sk);
-      if (topic) ctx.broadcastToAll({ type: "topic:updated", topic });
-    },
+    // The imported tool rows and results reach the open panes too.
+    announceThreadChanged,
   },
   // Double-import guard: while Topics owns a live claude child for the session,
   // the chat provider streams + persists those turns itself.
@@ -5475,8 +5478,7 @@ async function reattachSurvivingChatTurns(): Promise<void> {
           // Il cartello lo scrive `spiegaTurnoTroncato`, che riconosce da sé
           // chi ha davvero bisogno di una spiegazione — e non ne scrive due.
           try {
-            const chiuse = ctx.db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", [s.id]).changes;
-            if (chiuse > 0) spiegaTurnoTroncato(ctx.db, s.id);
+            closeReattachedRows(ctx.db, s.id, announceThreadChanged);
           } catch { /* next boot's reset catches it */ }
         });
       continue;

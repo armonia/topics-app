@@ -9,7 +9,7 @@
  * @covers INTERRUPT-01
  */
 import { describe, expect, test } from "bun:test";
-import { èTroncato, TURNO_TRONCATO, spiegaTurnoTroncato } from "./turno-troncato";
+import { closeReattachedRows, èTroncato, TURNO_TRONCATO, spiegaTurnoTroncato } from "./turno-troncato";
 import type { ContentBlock } from "../types";
 import { Database } from "bun:sqlite";
 import { decodeCol, encodeCol } from "../../shared/message-blob";
@@ -74,5 +74,44 @@ describe("il cartello finisce davvero sulla riga", () => {
   test("una sessione che non esiste non fa esplodere il boot", () => {
     const db = dbDiProva();
     expect(spiegaTurnoTroncato(db as never, "topic:mai-vista")).toBe(false);
+  });
+});
+
+/**
+ * A REATTACH LEG THAT CLOSES ITS ROWS TELLS THE OPEN WINDOWS (card edf3c4db).
+ *
+ * At the end of a reattach leg, after the boot, the rows the turn left open
+ * were closed and the cut explained in the database only: a window open on
+ * the chat kept the bubble as it was, still open and with no notice, until a
+ * reload.
+ */
+describe("closing the rows a reattach leg left open", () => {
+  const withRows = () => {
+    const db = new Database(":memory:");
+    db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, role TEXT, blocks BLOB, sort_order INTEGER, partial INTEGER, streamed_at TEXT)`);
+    return db;
+  };
+  const add = (db: Database, id: string, blocks: ContentBlock[], partial: number) =>
+    db.prepare(`INSERT INTO messages (id, session_key, role, blocks, sort_order, partial, streamed_at) VALUES (?, 'topic:x', 'assistant', ?, 0, ?, ?)`)
+      .run(id, encodeCol(JSON.stringify(blocks)) ?? null, partial, partial ? new Date().toISOString() : null);
+
+  test("a row cut on a tool is closed, explained, and the open windows are told once", () => {
+    const db = withRows();
+    add(db, "cut", [testo("sto misurando"), tool()], 1);
+    const told: string[] = [];
+    expect(closeReattachedRows(db as never, "topic:x", (sk) => told.push(sk))).toBe(1);
+    const row = db.query(`SELECT partial, streamed_at, blocks FROM messages WHERE id = 'cut'`).get() as { partial: number; streamed_at: string | null; blocks: unknown };
+    expect(row.partial).toBe(0);
+    expect(row.streamed_at).toBeNull();
+    expect((JSON.parse(decodeCol(row.blocks) ?? "[]") as ContentBlock[]).at(-1)).toEqual({ kind: "error", text: TURNO_TRONCATO });
+    expect(told).toEqual(["topic:x"]);
+  });
+
+  test("nothing left open: nothing written, nobody told", () => {
+    const db = withRows();
+    add(db, "done", [testo("sto misurando"), tool()], 0);
+    const told: string[] = [];
+    expect(closeReattachedRows(db as never, "topic:x", (sk) => told.push(sk))).toBe(0);
+    expect(told).toEqual([]);
   });
 });

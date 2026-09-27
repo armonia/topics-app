@@ -93,3 +93,23 @@ export function spiegaTurnoTroncato(db: DbLike, sessionKey: string): boolean {
     return false;
   }
 }
+
+/**
+ * Closes the rows a reattach leg left open on a chat whose turn is over, and
+ * explains the cut when the last row needs it. Returns how many rows it closed.
+ *
+ * A closed row is announced: the open windows hold it as the leg left it,
+ * still open and with no notice, and before this they kept it that way until
+ * a reload (card edf3c4db). Nothing closed, nothing announced.
+ */
+export function closeReattachedRows(
+  db: DbLike, sessionKey: string, announceThreadChanged: (sessionKey: string) => void,
+): number {
+  const closed = db.prepare("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1")
+    .run(sessionKey).changes as number;
+  if (closed > 0) {
+    spiegaTurnoTroncato(db, sessionKey);
+    announceThreadChanged(sessionKey);
+  }
+  return closed;
+}
