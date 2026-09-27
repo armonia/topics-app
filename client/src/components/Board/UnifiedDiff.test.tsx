@@ -12,18 +12,22 @@
  * the bundle names, a `.md`/`.svg` opens on the diff with a "Preview" switch,
  * and a text file can be read whole with its review notes still on their rows.
  *
- * (No DOM in this repo's unit runner, so the mount is `renderToStaticMarkup`:
- * each view is rendered as the state a click leads to. The clicks are E2E's.)
+ * (No DOM in this repo's unit runner. What one render shows is read with
+ * `renderToStaticMarkup`; what a click or a re-read bundle changes goes
+ * through `test/reactHarness`, which renders the real component again and
+ * hands back the `onClick` it drew, with `boardApi.diffFile` answering in
+ * place of the server.)
  *
  * @covers KANBAN-43, DIFFPV-02, DIFFPV-03, DIFFPV-04
  */
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { DiffLines, UnifiedDiff } from './UnifiedDiff';
+import { DiffLines, UnifiedDiff, type DiffReview } from './UnifiedDiff';
 import { chunkFromFilePatch } from './diffFileRows';
 import MarkdownPreview from '../Editor/MarkdownPreview';
-import type { DiffBundle, DiffFileStat, DiffPanelSource } from '../../lib/board';
+import { boardApi, type DiffBundle, type DiffFileStat, type DiffPanelSource } from '../../lib/board';
 import type { DiffNote } from './reviewNotes';
+import { mount, type Harness } from '../../test/reactHarness';
 
 const TASK: DiffPanelSource = { kind: 'task', projectId: 'p', taskId: 't' };
 const PUBLISH: DiffPanelSource = { kind: 'publish', projectId: 'p' };
@@ -52,6 +56,59 @@ function binaryBundle(stat: DiffFileStat, revs: DiffBundle['revs'] = { base: BAS
 }
 
 const srcOf = (html: string, testId: string) => new RegExp(`<img data-testid="${testId}" src="([^"]+)"`).exec(html)?.[1] ?? null;
+
+/** One modified text file, its patch in the bundle. */
+function textBundle(path: string, patch: string): DiffBundle {
+  return { branch: 'x', stat: [{ path, additions: 1, deletions: 1, status: 'M' }], patch, truncated: false, revs: { base: BASE, head: HEAD } };
+}
+
+/** The panel mounted from scratch, and a way to hand it a re-read bundle as the drawer does. */
+function mountDiff(first: DiffBundle, props: { review?: DiffReview; focusPath?: string; defaultOpenFirst?: boolean }) {
+  let bundle = first;
+  const h = mount(<UnifiedDiffOf bundle={() => bundle} {...props} />);
+  return { h, setBundle: (next: DiffBundle) => { bundle = next; h.rerender(); } };
+}
+
+function UnifiedDiffOf({ bundle, ...props }: { bundle: () => DiffBundle; review?: DiffReview; focusPath?: string; defaultOpenFirst?: boolean }) {
+  return <UnifiedDiff bundle={bundle()} source={TASK} {...props} />;
+}
+
+type FileCall = { path: string; opts?: { full?: boolean; origPath?: string } };
+
+/** The per-file route, answered by `patchOf`; every call is recorded. */
+function answerFiles(patchOf: (path: string) => string) {
+  const calls: FileCall[] = [];
+  const spy = spyOn(boardApi, 'diffFile').mockImplementation(async (_source, path, opts) => {
+    calls.push({ path, opts });
+    return { path, patch: patchOf(path), truncated: false };
+  });
+  return { calls, restore: () => spy.mockRestore() };
+}
+
+/** The promises an effect started settle, and the renders they cause run. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+function click(h: Harness, testId: string) {
+  const node = h.last().hosts.find((n) => n.props['data-testid'] === testId);
+  if (!node) throw new Error(`${testId} is not drawn`);
+  (node.props.onClick as () => void)();
+}
+
+const pressedView = (h: Harness) =>
+  h.last().hosts.find((n) => n.props['aria-pressed'] === true)?.props['data-testid'] ?? null;
+
+const anchorDrawn = (h: Harness, anchor: string) => h.last().hosts.some((n) => n.props['data-anchor'] === anchor);
+
+/** The note `body` is drawn after the row `anchor` and before the row `next`. */
+function noteUnder(h: Harness, anchor: string, body: string, next: string) {
+  const hosts = h.last().hosts;
+  const row = hosts.findIndex((n) => n.props['data-anchor'] === anchor);
+  const at = hosts.findIndex((n) => n.props.children === body);
+  const after = hosts.findIndex((n) => n.props['data-anchor'] === next);
+  expect(row).toBeGreaterThan(-1);
+  expect(at).toBeGreaterThan(row);
+  expect(after).toBeGreaterThan(at);
+}
 
 describe('a file the bundle left out', () => {
   test('on a task diff, the missing file offers to load its own patch', () => {
@@ -203,7 +260,7 @@ describe('"Full file" keeps review notes on their rows (DIFFPV-04)', () => {
     expect(next).toBeGreaterThan(at);
   }
 
-  test('diff, then full file, then back to the diff: the pending note stays under line 40', () => {
+  test('DiffLines draws the note under its row both with the block context and with the whole file', () => {
     const asDiff = renderToStaticMarkup(<DiffLines path="server/x.ts" body={chunkFromFilePatch('server/x.ts', hunk)!.body} review={review} />);
     noteUnderRow40(asDiff);
     expect(asDiff).not.toContain('data-anchor="new:1"');
@@ -215,8 +272,30 @@ describe('"Full file" keeps review notes on their rows (DIFFPV-04)', () => {
     expect(row1).not.toBe('');
     expect(row1).not.toMatch(/emerald|red-/);
     expect(asFull).toContain('data-anchor="new:80"');
+  });
 
-    noteUnderRow40(renderToStaticMarkup(<DiffLines path="server/x.ts" body={chunkFromFilePatch('server/x.ts', hunk)!.body} review={review} />));
+  test('diff, then full file, then back to the diff: the pending note stays under line 40', async () => {
+    const files = answerFiles(() => full);
+    const { h } = mountDiff(textBundle('server/x.ts', hunk), { review, focusPath: 'server/x.ts' });
+    try {
+      expect(pressedView(h)).toBe('diff-view-diff');
+      noteUnder(h, 'new:40', 'NOTE-ON-40', 'new:41');
+      expect(anchorDrawn(h, 'new:1')).toBe(false);
+
+      click(h, 'diff-view-full');
+      await settle();
+      expect(files.calls).toEqual([{ path: 'server/x.ts', opts: { full: true, origPath: undefined } }]);
+      expect(pressedView(h)).toBe('diff-view-full');
+      expect(anchorDrawn(h, 'new:1')).toBe(true);
+      noteUnder(h, 'new:40', 'NOTE-ON-40', 'new:41');
+
+      click(h, 'diff-view-diff');
+      expect(anchorDrawn(h, 'new:1')).toBe(false);
+      noteUnder(h, 'new:40', 'NOTE-ON-40', 'new:41');
+    } finally {
+      h.unmount();
+      files.restore();
+    }
   });
 
   test('a text file offers "Full file", a picture does not', () => {
@@ -224,6 +303,152 @@ describe('"Full file" keeps review notes on their rows (DIFFPV-04)', () => {
     expect(renderToStaticMarkup(<UnifiedDiff bundle={text} source={TASK} focusPath="server/x.ts" />)).toContain('data-testid="diff-view-full"');
     const picture = binaryBundle({ path: 'a.png', additions: -1, deletions: -1, status: 'M' });
     expect(renderToStaticMarkup(<UnifiedDiff bundle={picture} source={TASK} focusPath="a.png" />)).not.toContain('diff-view-full');
+  });
+});
+
+describe('a note written in "Full file" off the changed blocks (DIFFPV-04)', () => {
+  // A 12-line file whose one block covers lines 6-12: line 1 exists only in "Full file".
+  const header = 'diff --git a/server/y.ts b/server/y.ts\n--- a/server/y.ts\n+++ b/server/y.ts\n';
+  const hunk = `${header}@@ -6,7 +6,7 @@\n line 6\n line 7\n line 8\n-line 9\n+line 9 changed\n line 10\n line 11\n line 12\n`;
+  const whole = `${header}@@ -1,12 +1,12 @@\n${Array.from({ length: 12 }, (_, i) => (i === 8 ? '-line 9\n+line 9 changed' : ` line ${i + 1}`)).join('\n')}\n`;
+  const note: DiffNote = { id: 'n1', path: 'server/y.ts', line: 1, side: 'new', code: ' line 1', body: 'NOTE-ON-1' };
+  const review = { notes: [note], onAddNote: () => {}, onRemoveNote: () => {} };
+
+  test('the panel mounted from scratch opens that file on the whole file, with the note under its row', async () => {
+    const files = answerFiles(() => whole);
+    const { h } = mountDiff(textBundle('server/y.ts', hunk), { review });
+    try {
+      expect(pressedView(h)).toBe('diff-view-full');
+      await settle();
+      expect(files.calls).toEqual([{ path: 'server/y.ts', opts: { full: true, origPath: undefined } }]);
+      noteUnder(h, 'new:1', 'NOTE-ON-1', 'new:2');
+    } finally {
+      h.unmount();
+      files.restore();
+    }
+  });
+
+  test('a file whose patch did not arrive and holds a note opens on the whole file too', () => {
+    const bundle: DiffBundle = { ...textBundle('server/y.ts', ''), truncated: true };
+    const html = renderToStaticMarkup(<UnifiedDiff bundle={bundle} source={TASK} review={review} />);
+    expect(html).toMatch(/data-testid="diff-view-full" aria-pressed="true"/);
+  });
+
+  test('a note on a row of the diff leaves it on the diff, and a choice made by hand wins', () => {
+    const onBlock: DiffNote = { ...note, line: 9, code: '+line 9 changed' };
+    const html = renderToStaticMarkup(
+      <UnifiedDiff bundle={textBundle('server/y.ts', hunk)} source={TASK} review={{ ...review, notes: [onBlock] }} />,
+    );
+    expect(html).toMatch(/data-testid="diff-view-diff" aria-pressed="true"/);
+
+    const files = answerFiles(() => whole);
+    const { h } = mountDiff(textBundle('server/y.ts', hunk), { review });
+    try {
+      click(h, 'diff-view-diff');
+      expect(pressedView(h)).toBe('diff-view-diff');
+    } finally {
+      h.unmount();
+      files.restore();
+    }
+  });
+});
+
+describe('every per-file read of a renamed file names its old path (DIFFPV-04)', () => {
+  const renamed: DiffFileStat = { path: 'docs/nuovo.txt', additions: 1, deletions: 1, status: 'R090', origPath: 'docs/vecchio.txt' };
+  const renamePatch = 'diff --git a/docs/vecchio.txt b/docs/nuovo.txt\nsimilarity index 90%\nrename from docs/vecchio.txt\nrename to docs/nuovo.txt\n--- a/docs/vecchio.txt\n+++ b/docs/nuovo.txt\n@@ -9 +9 @@\n-riga 9\n+riga 9 cambiata\n';
+  const bundleOf = (patch: string, truncated = false): DiffBundle => ({ branch: 'x', stat: [renamed], patch, truncated, revs: { base: BASE, head: HEAD } });
+
+  test('"Full file"', async () => {
+    const files = answerFiles(() => renamePatch);
+    const { h } = mountDiff(bundleOf(renamePatch), { focusPath: 'docs/nuovo.txt' });
+    try {
+      click(h, 'diff-view-full');
+      await settle();
+      expect(files.calls).toEqual([{ path: 'docs/nuovo.txt', opts: { full: true, origPath: 'docs/vecchio.txt' } }]);
+    } finally {
+      h.unmount();
+      files.restore();
+    }
+  });
+
+  test('the patch of a file left past the bundle cap, loaded by hand or on focus', async () => {
+    const files = answerFiles(() => renamePatch);
+    const byHand = mountDiff(bundleOf('', true), { defaultOpenFirst: true });
+    try {
+      click(byHand.h, 'diff-load-file');
+      await settle();
+      expect(files.calls).toEqual([{ path: 'docs/nuovo.txt', opts: { origPath: 'docs/vecchio.txt' } }]);
+    } finally {
+      byHand.h.unmount();
+    }
+    const onFocus = mountDiff(bundleOf('', true), { focusPath: 'docs/nuovo.txt' });
+    try {
+      await settle();
+      expect(files.calls[1]).toEqual({ path: 'docs/nuovo.txt', opts: { origPath: 'docs/vecchio.txt' } });
+    } finally {
+      onFocus.h.unmount();
+      files.restore();
+    }
+  });
+});
+
+describe('a live worktree re-read moves every view along (DIFFPV-03, DIFFPV-04)', () => {
+  const LIVE = { base: BASE, head: null };
+  const block = (path: string, text: string) =>
+    `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+${text}\n`;
+  const liveBundle = (path: string, text: string): DiffBundle => ({ ...textBundle(path, block(path, text)), revs: LIVE });
+
+  test('"Full file" is read again when the block changes or the revisions move, not on an identical re-read', async () => {
+    let n = 0;
+    const files = answerFiles(() => block('x.ts', `full ${++n}`));
+    const { h, setBundle } = mountDiff(liveBundle('x.ts', 'one'), { focusPath: 'x.ts' });
+    try {
+      click(h, 'diff-view-full');
+      await settle();
+      expect(files.calls).toHaveLength(1);
+      expect(h.last().text).toContain('+full 1');
+
+      setBundle(liveBundle('x.ts', 'one'));
+      await settle();
+      expect(files.calls).toHaveLength(1);
+
+      setBundle(liveBundle('x.ts', 'two'));
+      await settle();
+      expect(files.calls).toHaveLength(2);
+      expect(h.last().text).toContain('+full 2');
+
+      setBundle({ ...liveBundle('x.ts', 'two'), revs: { base: BASE, head: HEAD } });
+      await settle();
+      expect(files.calls).toHaveLength(3);
+    } finally {
+      h.unmount();
+      files.restore();
+    }
+  });
+
+  test('the rendered .md is read again when its block changes, not on an identical re-read', async () => {
+    const asked: string[] = [];
+    const spy = spyOn(globalThis, 'fetch').mockImplementation((async (url: string | URL | Request) => {
+      if (String(url).includes('blob=')) asked.push(String(url));
+      return new Response('# Title');
+    }) as unknown as typeof fetch);
+    const { h, setBundle } = mountDiff(liveBundle('README.md', 'one'), { focusPath: 'README.md' });
+    try {
+      click(h, 'diff-view-preview');
+      await settle();
+      expect(asked).toEqual(['/api/boards/p/tasks/t/diff?file=README.md&blob=worktree']);
+
+      setBundle(liveBundle('README.md', 'one'));
+      await settle();
+      expect(asked).toHaveLength(1);
+
+      setBundle(liveBundle('README.md', 'two'));
+      await settle();
+      expect(asked).toHaveLength(2);
+    } finally {
+      h.unmount();
+      spy.mockRestore();
+    }
   });
 });
 

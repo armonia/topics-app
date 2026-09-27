@@ -95,6 +95,9 @@ fusa e' la copia sbagliata del file.
 Le note di revisione restano sulla vista diff: tornando da «Anteprima» a «Diff»
 una nota in sospeso SHALL essere ancora al suo posto.
 
+Sul worktree vivo «Anteprima» SHALL rileggersi quando il pacchetto riletto porta
+per quel file un blocco diverso, come «File intero».
+
 #### Scenario: si apre sul diff
 - **GIVEN** una consegna che modifica `README.md`
 - **WHEN** lo si apre
@@ -131,6 +134,12 @@ del file o, in «File intero», il primo blocco cambiato: la vista si apre inter
 revisioni o porta per quel file un blocco diverso (l'agente scrive ancora sul
 worktree vivo).
 
+Un file SHALL aprirsi su «File intero» invece che su «Diff» quando una sua nota
+in sospeso non ha una riga nel diff: una nota scritta in «File intero» su una
+riga fuori dai blocchi cambiati, o qualsiasi nota di un file il cui patch non e'
+arrivato. Senza, il pannello riaperto mostra il contatore delle note e nessuna
+nota. Una vista scelta a mano vince.
+
 #### Scenario: una nota sopravvive al cambio di vista
 - **GIVEN** una nota in sospeso sulla riga 40 del lato nuovo di `server/x.ts`
 - **WHEN** si accende «File intero»
@@ -142,6 +151,12 @@ worktree vivo).
   cambia la riga 9
 - **WHEN** si accende «File intero»
 - **THEN** la riga 1 compare senza colore e la vecchia riga 9 c'e' come rimossa
+
+#### Scenario: nota fuori dai blocchi cambiati
+- **GIVEN** una nota in sospeso sulla riga 1 di `server/y.ts`, il cui unico
+  blocco cambiato copre le righe 6-12
+- **WHEN** il pannello si riapre
+- **THEN** il file si apre su «File intero» e la nota compare sotto la riga 1
 
 #### Scenario: nota oltre il tetto
 - **GIVEN** una nota sulla riga 1500 di un file di 2000 righe

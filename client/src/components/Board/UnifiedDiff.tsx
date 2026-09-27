@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, FileCode, ImageOff, MessageSquarePlus, Trash
 import { boardApi, diffBlobUrl, type DiffBundle, type DiffFileStat, type DiffPanelSource } from '../../lib/board';
 import type { DiffRevs } from '../../../../shared/diff-revs';
 import { previewTypeOf } from '../../../../shared/preview-kind';
-import { parseDiffRows, isCommentable, anchorOf, noteKey, type DiffRow, type DiffNote } from './reviewNotes';
+import { parseDiffRows, isCommentable, anchorOf, noteKey, hasNoteWithoutRow, type DiffRow, type DiffNote } from './reviewNotes';
 import { buildFileRows, chunkFromFilePatch, type DiffFileChunk } from './diffFileRows';
 import { fetchDiffText, previewSides, renderedSide, reportStaleBlob, resolveMarkdownImagePath, type PreviewSide } from './diffPreview';
 import { ChangedFileEntry } from '../Git/ChangedFileList';
@@ -229,7 +229,7 @@ const VIEW_LABEL: Record<FileView, string> = {
   preview: 'diff.preview',
 };
 
-/** "Diff | Full file | Preview" in the file's header. Opens on the diff: the notes hang on its lines. */
+/** "Diff | Full file | Preview" in the file's header. Opens on the diff, where the notes hang (see `FileDiff`). */
 function ViewSwitch({ views, value, onChange }: { views: FileView[]; value: FileView; onChange: (v: FileView) => void }) {
   const tr = useT();
   return (
@@ -324,9 +324,16 @@ function ImagePair({ before, after, source, onStale }: {
  * revision through the byte route: the disk holds the main checkout's copy,
  * which for a delivery not yet landed is the wrong one.
  */
-function MarkdownAtRevision({ path, rev, source, onStale }: {
+function MarkdownAtRevision({ path, rev, version, source, onStale }: {
   path: string;
   rev: string;
+  /**
+   * This file's block in the bundle. Under `worktree` the revision keeps its
+   * name while the agent keeps writing: a re-read bundle with another block is
+   * another text, read again as "Full file" is. The text on screen stays until
+   * the new one arrives.
+   */
+  version: string | undefined;
   source: DiffPanelSource;
   onStale: () => void;
 }) {
@@ -339,7 +346,7 @@ function MarkdownAtRevision({ path, rev, source, onStale }: {
       .then((t) => { if (alive) setState(t === null ? 'error' : { text: t }); })
       .catch(() => { if (alive) setState('error'); });
     return () => { alive = false; };
-  }, [source, path, rev, onStale]);
+  }, [source, path, rev, version, onStale]);
   const resolveImage = useCallback((src: string) => {
     const target = resolveMarkdownImagePath(path, src);
     return target ? diffBlobUrl(source, target, rev) : null;
@@ -402,7 +409,18 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
     [revs, kind, row],
   );
   const views: FileView[] = sides || binary ? [] : rendered ? ['diff', 'full', 'preview'] : ['diff', 'full'];
-  const [view, setView] = useState<FileView>('diff');
+  const noteCount = useMemo(() => (review?.notes ?? []).filter((n) => n.path === path).length, [review?.notes, path]);
+  // The diff is where the notes hang, so a file opens there, unless one of its
+  // notes has no row in it: written in "Full file" on a line outside the
+  // changed blocks, it would leave a reopened panel showing the badge and no
+  // note. Then the file opens whole. A view picked by hand wins, as `userOpen` does.
+  const bundledBody = bundled?.body;
+  const noteOffDiff = useMemo(
+    () => noteCount > 0 && hasNoteWithoutRow(review?.notes ?? [], path, bundledBody),
+    [noteCount, review?.notes, path, bundledBody],
+  );
+  const [userView, setUserView] = useState<FileView | null>(null);
+  const view: FileView = userView ?? (noteOffDiff && views.includes('full') ? 'full' : 'diff');
   // The whole file as context, read while "Full file" is shown. It belongs to
   // the bundle it was read under: when a re-read names other revisions, or
   // this file's hunks changed (the agent keeps writing on a live worktree), it
@@ -412,16 +430,14 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
   const [full, setFull] = useState<{ base?: string; head?: string | null; body?: string; patch: FilePatch | 'error' } | null>(null);
   const revBase = revs?.base;
   const revHead = revs?.head;
-  const bundledBody = bundled?.body;
   const fullCurrent = full && full.base === revBase && full.head === revHead && full.body === bundledBody ? full.patch : null;
   const pickView = useCallback((v: FileView) => {
-    setView(v);
+    setUserView(v);
     // A failed read is retried by choosing the view again.
     if (v === 'full' && fullCurrent === 'error') setFull(null);
   }, [fullCurrent]);
   const fullShown = fullCurrent ?? (full && full.patch !== 'error' ? full.patch : null);
 
-  const noteCount = useMemo(() => (review?.notes ?? []).filter((n) => n.path === path).length, [review?.notes, path]);
   // Opened by default when it holds notes (a note in a closed file is a note
   // the human no longer finds), but an explicit choice always wins over the
   // default, even when the notes arrive later (a draft from the server).
@@ -473,7 +489,7 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
         />
       </div>
     ) : (
-      <MarkdownAtRevision key={`${rendered.rev}:${rendered.path}`} path={rendered.path} rev={rendered.rev} source={source} onStale={onStale} />
+      <MarkdownAtRevision key={`${rendered.rev}:${rendered.path}`} path={rendered.path} rev={rendered.rev} version={bundledBody} source={source} onStale={onStale} />
     );
   } else if (view === 'full') {
     body = fullShown === null ? note(tr('diff.loadingFile'))
