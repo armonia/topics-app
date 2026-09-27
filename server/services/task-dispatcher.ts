@@ -850,11 +850,14 @@ const CHIP_DELIVERED = "delivered";
 //              (no worktree, project path unresolvable) → amber "da sistemare".
 const CHIP_FAILED = "failed";
 const CHIP_BLOCKED = "blocked";
-/** Why a dependent parks when its blocker's session runs on the other side of
- *  the Topics routing switch (reusedSessionRouteConflict). */
+/** Why a dependent parks when its blocker's session runs with the other Topics
+ *  routing switch, or with the same one OFF on another runtime than the one the
+ *  dependent names (reusedSessionRouteConflict). */
 const REUSED_SESSION_ROUTE_REASON = {
+  "switch-on": "This task has Topics routing off, but the previous session runs with the switch on, through the Topics engine. Turn the switch on or turn off session reuse before starting the task.",
+  "switch-off": "This task has Topics routing on, but the previous session runs with the switch off. Turn the switch off or turn off session reuse before starting the task.",
   engine: "This task has Topics routing off and asks for a direct run, but the previous session runs on the Topics engine. Turn off session reuse before starting the task.",
-  direct: "This task has Topics routing on, but the previous session runs directly on its provider, not through the Topics engine. Turn the switch off or turn off session reuse before starting the task.",
+  direct: "This task names the Topics engine as its runtime, but the previous session runs directly on its provider. Turn off session reuse before starting the task.",
 } as const;
 // The agent DECLARED an external-condition wait (wait_for_condition): the task is
 // back in `todo`, its slot freed, and a deferral window keeps it out of the claim
@@ -2799,7 +2802,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       if (reuseTopicId && (chosenModel || deps.topicModelSelection)
         && !taskModelMatchesSession(requestedSelection, reusedSession, settings.topicsRouting)) {
         // The reused topic keeps its own switch: when the model matches, the
-        // route is what differs, and the reason names it.
+        // switch or the route is what differs, and the reason names it.
         const route = reusedSessionRouteConflict(requestedSelection, reusedSession, settings.topicsRouting);
         releaseAndEmit({
           taskId, requeue: false, parkState: CHIP_BLOCKED,

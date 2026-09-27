@@ -239,34 +239,38 @@ export function taskProviderForModel(
   throw new Error('No coding agent is available. Connect Topics, Claude Code or Codex in Settings before starting the task.');
 }
 
-/** Where a reused session runs, against where a dependent naming a provider
- * asks to run (S1, S3). The turn goes on the reused topic, whose own switch
- * decides who executes it: the engine for a session with the switch ON or bound
- * to the engine itself, the pinned provider directly otherwise. An explicit
- * provider asks for the engine with the switch ON and for a direct run with it
- * OFF. Automatic and a bare model name no provider, so they take the session as
- * it runs. Returns the side the session runs on when it is not the one asked
- * for: continuing it there would make the dependent's switch a silent no-op. */
+/** How a reused session runs, against how the dependent asks to run (S1, S3).
+ * The turn goes on the reused topic, whose own switch decides who executes it
+ * (resolveTopicProvider): the engine with it ON, the pinned runtime directly
+ * with it OFF. So a dependent whose effective switch differs, whatever it names
+ * (Automatic, a bare model, a provider), would make its switch a silent no-op:
+ * returns the session's switch then. With the switch OFF on both sides an
+ * explicit provider also names who runs the turn, the engine itself (the
+ * legacy `topics:`) or a provider directly: returns where the session runs when
+ * it is not that. */
 export function reusedSessionRouteConflict(
   value: string | null | undefined,
   session: { provider?: string | null; topicsRouting?: boolean | null } | null | undefined,
   topicsRouting: boolean | null | undefined,
-): 'engine' | 'direct' | null {
+): 'switch-on' | 'switch-off' | 'engine' | 'direct' | null {
+  if (!session) return null;
+  const sessionRouting = !!session.topicsRouting;
+  if (effectiveTopicsRouting(topicsRouting, value) !== sessionRouting) return sessionRouting ? 'switch-on' : 'switch-off';
   const selected = taskModelSelection(value);
-  if (!session || !selected.provider) return null;
-  const sessionOnEngine = !!session.topicsRouting || session.provider === 'topics';
-  const taskOnEngine = effectiveTopicsRouting(topicsRouting, value) || selected.provider === 'topics';
-  if (sessionOnEngine === taskOnEngine) return null;
+  if (sessionRouting || !selected.provider) return null;
+  const sessionOnEngine = session.provider === 'topics';
+  if (sessionOnEngine === (selected.provider === 'topics')) return null;
   return sessionOnEngine ? 'engine' : 'direct';
 }
 
-/** A reused conversation must be a coding runtime, honor an explicit model and
- * run on the route an explicit provider asks for (`topicsRouting` is the
- * dependent's effective switch; see reusedSessionRouteConflict). A session
- * bound to the engine with the switch ON (`provider: 'topics'`, no runtime
- * pinned) is a Claude Code session the engine routes, so an explicit Claude
- * Code target with its model and the switch ON continues it. With the switch
- * OFF the engine is the runtime itself, not a route to Claude Code. */
+/** A reused conversation must be a coding runtime, run with the dependent's
+ * switch and on the route an explicit provider asks for (`topicsRouting` is the
+ * dependent's effective switch; see reusedSessionRouteConflict), and honor an
+ * explicit model. A session bound to the engine with the switch ON (`provider:
+ * 'topics'`, no runtime pinned) is a Claude Code session the engine routes, so
+ * an explicit Claude Code target with its model and the switch ON continues it.
+ * With the switch OFF the engine is the runtime itself, not a route to Claude
+ * Code, and reusedSessionRouteConflict already refused that pairing. */
 export function taskModelMatchesSession(
   value: string | null | undefined,
   session?: { provider?: string | null; model?: string | null; topicsRouting?: boolean | null } | null,
@@ -276,14 +280,13 @@ export function taskModelMatchesSession(
   if (!session) return false;
   const provider = session.provider === 'claude-code-team' ? 'claude-code' : session.provider;
   if (!provider || (provider !== 'codex' && !CLAUDE_CODING_PROVIDERS.includes(provider))) return false;
-  if (!selected.model && !selected.provider) return true;
   if (reusedSessionRouteConflict(value, session, topicsRouting)) return false;
+  if (!selected.model && !selected.provider) return true;
   if (selected.provider === 'codex') {
     return provider === 'codex' && (!selected.model || selected.model === session.model);
   }
   if (selected.provider) {
-    const sameRuntime = provider === selected.provider
-      || (provider === 'topics' && !!session.topicsRouting && selected.provider === 'claude-code');
+    const sameRuntime = provider === selected.provider || (provider === 'topics' && selected.provider === 'claude-code');
     return sameRuntime && (!selected.model || selected.model === session.model);
   }
   return CLAUDE_CODING_PROVIDERS.includes(provider) && selected.model === session.model;
