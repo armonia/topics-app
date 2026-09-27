@@ -55,7 +55,7 @@ import type { ContentBlock } from "../types";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { readTurnEnd, type RecordedTurnEnd } from "../providers/turn-end-registry";
 import {
-  eCartelloDiInterruzione, isRestartNotice, isResumableCause, wakeCutByOutage,
+  eCartelloDiInterruzione, isOutsideCause, isRestartNotice, isResumableCause, wakeCutByOutage,
   STOP_PRESSED_LOG_TITLE, USER_ABORT_LOG_TITLE,
 } from "./cancelled-notice";
 import {
@@ -172,6 +172,8 @@ export interface RigaDaValutare {
   /** ...and that card is done or archived, with none left on the board: its
    *  work landed, and a cut turn there has nothing left to resume. */
   cardLanded?: boolean;
+  /** ...or that card is in progress: the dispatcher resumes its turns. */
+  cardInProgress?: boolean;
 }
 
 /** The person pressed Stop on this message's turn, or on a later one. A Stop
@@ -261,7 +263,14 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   if (lastCut < 0) return "no";
   // A WAKE CUT BY AN OUTAGE: the resend would be a message the row before
   // already answered (`wakeCutByOutage`, where the rule and its notice live).
-  if (wakeCutByOutage((r.blocks[lastCut] as { cause?: unknown }).cause, r.blocks)) return "no";
+  const cause = (r.blocks[lastCut] as { cause?: unknown }).cause;
+  if (wakeCutByOutage(cause, r.blocks)) return "no";
+  // A CARD IN PROGRESS OWNS ITS TURNS THAT ENDED IN ERROR: the dispatcher's
+  // `onTurnEnd` resumes each one as a lean continuation once its backoff, or
+  // the plan's wall, is over. Resent from here too, the card ran its envelope
+  // again at full context and the dispatcher's own resume met a 409 behind it
+  // (fifth review of card e30f35e4). Its cuts that are ours keep main's rule.
+  if (r.cardInProgress && isOutsideCause(cause)) return "no";
   // ANSWERED AFTER THE CUT. A late answer of a closed turn is saved on its own
   // row, under the verdict: prose or a tool after the LAST verdict means the
   // message was answered, and a resend would run it a second time. Past the
@@ -437,17 +446,18 @@ const stopsLogged = new Map<string, number>();
 const busyLogged = new Map<string, string>();
 
 /** Whether a board card owns this topic (those chats are the dispatcher's to
- *  resume: it re-sends its own kickoff), and whether its work has landed: a
- *  card done or archived, none left on the board. */
-function cardHold(db: Pick<Database, "query">, topicId: string): { bound: boolean; landed: boolean } {
+ *  resume: it re-sends its own kickoff), whether its work has landed (a card
+ *  done or archived, none left on the board), and whether it is in progress. */
+function cardHold(db: Pick<Database, "query">, topicId: string): { bound: boolean; landed: boolean; inProgress: boolean } {
   try {
     const cards = db.query(
       `SELECT status, archived FROM tasks WHERE assigned_topic_id = ?
           AND (status IN ('todo','in_progress','review','done') OR archived = 1)`,
     ).all(topicId) as Array<{ status: string; archived: number }>;
     const onBoard = cards.some((c) => !c.archived && c.status !== "done");
-    return { bound: cards.length > 0, landed: cards.length > 0 && !onBoard };
-  } catch { return { bound: false, landed: false }; }
+    const inProgress = cards.some((c) => !c.archived && c.status === "in_progress");
+    return { bound: cards.length > 0, landed: cards.length > 0 && !onBoard, inProgress };
+  } catch { return { bound: false, landed: false, inProgress: false }; }
 }
 
 /** A chain longer than this is not a chain: `parent_id` is cyclic or corrupt. */
@@ -613,7 +623,7 @@ export async function riprendiTurniInterrotti(
       const attempts = chain.attempts;
       const topic = ctx.getTopicBySessionKey(r.sk);
       if (!topic || topic.archived) continue;
-      const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false };
+      const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false, inProgress: false };
       const row: RigaDaValutare = {
         sessionKey: r.sk, ruolo: r.ruolo, blocks, timestampMs: Date.parse(r.ts), attempts,
         streaming: Boolean(ctx.isStreaming?.(r.sk)),
@@ -629,6 +639,7 @@ export async function riprendiTurniInterrotti(
         ) ?? null,
         boundToCard: card.bound,
         cardLanded: card.landed,
+        cardInProgress: card.inProgress,
       };
       if (!row.providerBusy) busyLogged.delete(r.sk);
       let verdict: ResumeVerdict = resumeVerdict(row, ora);

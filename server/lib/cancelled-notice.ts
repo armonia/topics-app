@@ -271,15 +271,22 @@ export const CAUSE_NOSTRE = ["server-shutdown", "watchdog", "wall-clock"] as con
  */
 export function isResumableCause(cause: unknown): boolean {
   return typeof cause === "string"
-    && ((CAUSE_NOSTRE as readonly string[]).includes(cause) || (OUTSIDE_CAUSES as readonly string[]).includes(cause));
+    && ((CAUSE_NOSTRE as readonly string[]).includes(cause) || isOutsideCause(cause));
 }
 
 /**
  * The ends that are not ours and not deterministic either: the API's limit, an
  * API that stopped answering, the daemon hosting the agent going away (card
- * e30f35e4 and 51fb9359, 25/09), and our own budget of tool rounds.
+ * e30f35e4 and 51fb9359, 25/09), and our own budget of tool rounds. Each one
+ * ends the turn in `error`, which is what the dispatcher resumes on a card
+ * after its backoff (`resumeVerdict` leaves those to it).
  */
 const OUTSIDE_CAUSES = ["rate-limit", "tool-budget", "api-unavailable", "broker-died"] as const;
+
+/** A resumable cut that ended the turn in error (`OUTSIDE_CAUSES`). */
+export function isOutsideCause(cause: unknown): boolean {
+  return typeof cause === "string" && (OUTSIDE_CAUSES as readonly string[]).includes(cause);
+}
 
 /**
  * A WAKE CUT BY AN OUTAGE IS NOT RESUMED (cards e30f35e4, 51fb9359).
