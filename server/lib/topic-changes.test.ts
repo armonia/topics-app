@@ -173,7 +173,7 @@ describe("rangeFiles", () => {
       { path: "/gone/worktrees/p/wt/src/a.ts", kind: "created", turns: 2, lastAt: "2026-01-01T11:00:00.000Z" },
       { path: "/gone/worktrees/p/wt/a.ts", kind: "modified", turns: 1, lastAt: "2026-01-01T10:00:00.000Z" },
       scratch,
-    ]);
+    ], "/gone/checkout");
     expect(files).toEqual([
       { path: "src/a.ts", kind: "created", turns: 2, lastAt: "2026-01-01T11:00:00.000Z", added: 2, removed: 1, inRange: true },
       { path: "a.ts", kind: "modified", turns: 1, lastAt: "2026-01-01T10:00:00.000Z", added: 1, removed: 0, inRange: true },
@@ -182,6 +182,29 @@ describe("rangeFiles", () => {
     ]);
     // Not in the range is not "wrote nothing": the caller still lists it.
     expect(rest).toEqual([scratch]);
+  });
+
+  test("a path under a tree still on disk is read in that tree: another checkout or repo keeps its own row", () => {
+    const base = mkdtempSync(join(realpathSync(tmpdir()), "range-files-"));
+    const root = join(base, "wt");
+    const shared = join(base, "checkout");
+    const agents = join(base, "agents");
+    for (const dir of [join(root, "src"), join(shared, "src"), agents]) mkdirSync(dir, { recursive: true });
+    const at = "2026-01-01T10:00:00.000Z";
+    const inTree = { path: join(root, "src/a.ts"), kind: "created" as const, turns: 1, lastAt: at };
+    // The known failure: the agent wrote the shared checkout, not its worktree.
+    const wrongTree = { path: join(shared, "src/a.ts"), kind: "modified" as const, turns: 2, lastAt: at };
+    // Another repository whose file has the same name as one of the range.
+    const otherRepo = { path: join(agents, "a.ts"), kind: "modified" as const, turns: 1, lastAt: at };
+    // Inside the range's tree, a path is read exactly: `src/tmp/a.ts` is not `a.ts`.
+    const deletedDir = { path: join(root, "src/tmp/a.ts"), kind: "created" as const, turns: 1, lastAt: at };
+
+    const { files, rest } = rangeFiles(stat, [inTree, wrongTree, otherRepo, deletedDir], root);
+    rmSync(base, { recursive: true, force: true });
+
+    expect(files.find((f) => f.path === "src/a.ts")).toMatchObject({ turns: 1, inRange: true });
+    expect(files.find((f) => f.path === "a.ts")).toMatchObject({ turns: 0, inRange: true });
+    expect(rest).toEqual([wrongTree, otherRepo, deletedDir]);
   });
 });
 

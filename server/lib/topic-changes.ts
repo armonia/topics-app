@@ -188,14 +188,23 @@ function countsOf(stat: Numstat | undefined): Pick<TopicChangedFile, "added" | "
 /**
  * The range path a tool call's path names, or `null`.
  *
- * A tool call carries the path the agent wrote, absolute and often inside a
- * worktree that is already pruned, so it cannot be made relative to any root
- * still on disk. It is matched by suffix instead: `/any/wt/src/a.ts` is
- * `src/a.ts`, the LONGEST range path it ends with, so a root-level `a.ts`
+ * Under `root`, the range's own tree, the path is read exactly. Under a folder
+ * still on disk elsewhere it is that folder's file, not the range's: the shared
+ * checkout an agent wrote by mistake, another repository with a
+ * `package.json`. Folding those into the range's row of the same name hid the
+ * write the strip listed before the range existed.
+ *
+ * Only a path whose folder is GONE is matched by suffix: a worktree the land
+ * already pruned, which no root on disk can make relative. `/any/wt/src/a.ts`
+ * is `src/a.ts`, the LONGEST range path it ends with, so a root-level `a.ts`
  * does not take it.
  */
-function rangePathOf(path: string, inRange: Map<string, unknown>): string | null {
-  const segments = path.split(/[\\/]+/).filter((s) => s && s !== ".");
+function rangePathOf(path: string, root: string, inRange: Map<string, unknown>): string | null {
+  const abs = canonicalPath(isAbsolute(path) ? path : resolve(root, path));
+  const rel = relative(root, abs);
+  if (rel && !rel.startsWith("..")) return inRange.has(rel) ? rel : null;
+  if (existsSync(dirname(abs))) return null;
+  const segments = abs.split(/[\\/]+/).filter((s) => s && s !== ".");
   for (let i = 0; i < segments.length; i++) {
     const candidate = segments.slice(i).join("/");
     if (inRange.has(candidate)) return candidate;
@@ -204,19 +213,23 @@ function rangePathOf(path: string, inRange: Map<string, unknown>): string | null
 }
 
 /**
- * The files of a diff range, each with the turns and the last write of the
- * tool calls that name it. A file no tool call names (a shell command, a
+ * The files of a diff range read in `root` (canonical), each with the turns
+ * and the last write of the tool calls that name it. A file no tool call names (a shell command, a
  * sub-agent) has `turns: 0`. A tool call the range does not hold comes back in
  * `rest`: the range can be narrower than what the chat wrote (a live branch
  * whose commits another local branch also holds, an untracked file past the
  * cap), and dropping it would hide a file the strip listed before the range
  * existed.
  */
-export function rangeFiles(stat: DiffStatEntry[], touched: TouchedFile[]): { files: TopicChangedFile[]; rest: TouchedFile[] } {
+export function rangeFiles(
+  stat: DiffStatEntry[],
+  touched: TouchedFile[],
+  root: string,
+): { files: TopicChangedFile[]; rest: TouchedFile[] } {
   const writes = new Map(stat.map((s) => [s.path, { turns: 0, lastAt: "" }]));
   const rest: TouchedFile[] = [];
   for (const file of touched) {
-    const rel = rangePathOf(file.path, writes);
+    const rel = rangePathOf(file.path, root, writes);
     const seen = rel ? writes.get(rel) : undefined;
     if (!seen) {
       rest.push(file);
@@ -279,7 +292,7 @@ async function rangeChanges(anchors: TopicRangeAnchors, touched: TouchedFile[]):
     includeUntracked: range.live,
     untrackedCap: MAX_UNTRACKED_COUNTS,
   });
-  const { files, rest } = rangeFiles(stat, touched);
+  const { files, rest } = rangeFiles(stat, touched, root);
   const [outside, branch] = await Promise.all([
     rest.length ? toolCallFiles(root, rest) : null,
     live?.branch ?? wt?.branchName ?? task?.deliveryBranch ?? currentBranch(range.cwd),

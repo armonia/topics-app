@@ -309,6 +309,34 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
     expect(body.files[0]!.inRange).toBeUndefined();
   });
 
+  test("a write in the shared checkout, or in another folder, is not folded into the worktree's row of the same name", async () => {
+    // The agent that wrote the project's checkout instead of its worktree is a
+    // known failure: its row is the signal, and it must not vanish into the
+    // range's `src/a.ts`. Nor may a `package.json` of some other folder.
+    const label = `wrongtree-${Date.now()}`;
+    const { ctx, repo, wt, topic, changes } = await liveWorktreeTopic(label, true);
+    mkdirSync(join(wt, "src"), { recursive: true });
+    writeFileSync(join(wt, "src/a.ts"), "alpha\n");
+    writeFileSync(join(wt, "package.json"), "{}\n");
+    git(wt, "add", "-A");
+    git(wt, "commit", "-qm", "task work");
+    mkdirSync(join(repo, "src"), { recursive: true });
+    writeFileSync(join(repo, "src/a.ts"), "wrong tree\n");
+    const elsewhere = join(realpathSync(ROOT), `elsewhere-${label}`);
+    mkdirSync(elsewhere, { recursive: true });
+    writeFileSync(join(elsewhere, "package.json"), "{}\n");
+    ctx.appendImportedMessages(topic.sessionKey, [writeTurn(join(repo, "src/a.ts"), join(elsewhere, "package.json"))]);
+
+    const body = await changes();
+    const byPath = Object.fromEntries(body.files.map((f) => [f.path, f]));
+    expect(Object.keys(byPath).sort()).toEqual([join(elsewhere, "package.json"), join(repo, "src/a.ts"), "package.json", "src/a.ts"].sort());
+    expect(byPath["src/a.ts"]).toMatchObject({ added: 1, turns: 0, inRange: true });
+    expect(byPath["package.json"]).toMatchObject({ added: 1, turns: 0, inRange: true });
+    expect(byPath[join(repo, "src/a.ts")]).toMatchObject({ turns: 1 });
+    expect(byPath[join(repo, "src/a.ts")]!.inRange).toBeUndefined();
+    expect(byPath[join(elsewhere, "package.json")]!.inRange).toBeUndefined();
+  });
+
   test("a file the chat wrote stays listed past the untracked cap", async () => {
     const { ctx, wt, topic, changes } = await liveWorktreeTopic(`untracked-${Date.now()}`, true);
     mkdirSync(join(wt, "artifacts"), { recursive: true });
