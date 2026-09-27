@@ -320,13 +320,16 @@ export function createAppContext(baseDir: string): AppContext {
     getLastMessage: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
     /**
      * The last row after the person's last message that a turn wrote: still
-     * open, closed from outside, or finished by its turn (`done` with a
-     * latency). A report or a notice written whole is not one. See
-     * `reuseOrCreatePartialForReattach`.
+     * open, or closed any way but written whole (`done` with no latency: a
+     * report, a notice, a regenerated reply). A turn that stopped, failed or
+     * was cut is one: skipping it handed the reattach an older row closed
+     * from outside, and a later wake's replay was poured over that row, in the
+     * middle of the thread. Rows written before `end_reason` are left to the
+     * caller's fallback. See `reuseOrCreatePartialForReattach`.
      */
     getTurnRow: db.prepare(
       `SELECT * FROM messages WHERE session_key = $sk AND role = 'assistant'
-         AND (partial = 1 OR end_reason = 'closed-outside' OR (end_reason = 'done' AND latency_ms IS NOT NULL))
+         AND (partial = 1 OR (end_reason IS NOT NULL AND (end_reason <> 'done' OR latency_ms IS NOT NULL)))
          AND sort_order > COALESCE((SELECT MAX(sort_order) FROM messages WHERE session_key = $sk AND role = 'user'), -1)
        ORDER BY sort_order DESC LIMIT 1`,
     ),
@@ -1663,8 +1666,9 @@ export function createAppContext(baseDir: string): AppContext {
    *  watchdog" for an answer that had completed (card a57e6d4d, test B). The
    *  same when the row was closed from outside before the reattach reached it:
    *  a window reloading after the restart runs the history cleanup first, and
-   *  the stale sweeper may have given up on the turn. A turn that finished
-   *  after such a row is the last turn row, and it is not taken. */
+   *  the stale sweeper may have given up on the turn. A turn that ended
+   *  after such a row, finished, stopped or failed, is the last turn row, and
+   *  with its latency it is not taken. */
   function reuseOrCreatePartialForReattach(sessionKey: string): ReattachedPartial {
     const row = (stmts.getTurnRow.get({ $sk: sessionKey }) ?? stmts.getLastMessage.get(sessionKey)) as any;
     const isAssistant = row && row.role === "assistant";

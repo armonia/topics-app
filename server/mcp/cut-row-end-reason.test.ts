@@ -55,9 +55,9 @@ function topic(tid: string): string {
   return `topic:${tid}`;
 }
 
-/** What `finalizeStream` (routes/chat.ts) writes when the turn completes. */
-const finished = (sk: string, rowId: string, content: string) =>
-  ctx.updateLastMessage(sk, { content, partial: undefined, streamedAt: undefined, latencyMs: 500, endReason: "done" }, { rowId });
+/** What `finalizeStream` (routes/chat.ts) writes when the turn ends: completed, stopped (the provider's `onAborted`) or failed. */
+const finished = (sk: string, rowId: string, content: string, endReason: "done" | "stopped" | "error" = "done") =>
+  ctx.updateLastMessage(sk, { content, partial: undefined, streamedAt: undefined, latencyMs: 500, endReason }, { rowId });
 
 /** A boot after a SIGKILL, with the chat's child gone (or alive, for the reattach). */
 const boot = (live: string[] = []) =>
@@ -255,17 +255,22 @@ describe("the reattach and the send wait on the turn's own row", () => {
     }
   });
 
-  test("a row closed from outside above a turn that finished after it is not taken back: the next turn gets a row of its own", async () => {
-    const sk = topic("endr-closed-then-done");
-    ctx.appendLocalMessage(sk, "user", "ping");
-    const cut = ctx.createPartialMessage(sk, "assistant");
-    ctx.updateLastMessage(sk, { content: "meta'" }, { rowId: cut.id });
-    finalizeStaleRow(ctx.db, { messageId: cut.id, marker: null, interruption: { text: "silent", cause: "watchdog", at: new Date().toISOString() } });
-    // A woken turn after it, finished by its own route.
-    const wakeRow = ctx.reuseHeadstoneOrCreate(sk);
-    finished(sk, wakeRow.id, "risveglio finito");
-    const adopted = ctx.reuseOrCreatePartialForReattach(sk);
-    expect([adopted.id === cut.id, adopted.id === wakeRow.id]).toEqual([false, false]);
+  test("a row closed from outside above a turn that ended after it, completed, stopped or failed, is not taken back: the next turn gets a row of its own", async () => {
+    for (const ending of ["done", "stopped", "error"] as const) {
+      const sk = topic(`endr-closed-then-${ending}`);
+      ctx.appendLocalMessage(sk, "user", "ping");
+      const cut = ctx.createPartialMessage(sk, "assistant");
+      ctx.updateLastMessage(sk, { content: "meta'" }, { rowId: cut.id });
+      finalizeStaleRow(ctx.db, { messageId: cut.id, marker: null, interruption: { text: "silent", cause: "watchdog", at: new Date().toISOString() } });
+      // A woken turn after it, ended by its own route.
+      const wakeRow = ctx.reuseHeadstoneOrCreate(sk);
+      finished(sk, wakeRow.id, "risveglio", ending);
+      // A later wake, replayed by a reattach that finds no row of its own.
+      const NEXT = "Risposta del secondo risveglio.";
+      await reattachLeg(sk, (h) => { h.onTextDelta(NEXT, NEXT); h.onDone({ result: NEXT } as never); });
+      await endReattachLeg(ctx.db, sk, broker("idle"));
+      expect([ending, ...ctx.loadLocalMessages(sk).map((m) => m.content)]).toEqual([ending, "ping", "meta'", "risveglio", NEXT]);
+    }
   });
 
   test("a reattach that finds no row of its turn and gets nothing from the replay leaves no row, not a 'no answer' notice under a finished reply", async () => {
