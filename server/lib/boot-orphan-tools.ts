@@ -19,7 +19,7 @@ import { bonificaTurniMuti } from "./verdetto-turno-interrotto";
 
 const RUNNING_RE = /"status":"(running|pending|waiting_for_input|awaiting_permission)"/;
 const INTERRUPTED_RE = /Interrotto/;
-const INTERRUPTED_MARKER = "⚠️ Turno interrotto prima di una risposta finale: la sessione si è chiusa mentre un tool era ancora in corso (probabile comando che non è terminato). Il tool interessato risulta in errore qui sotto — puoi rilanciarlo o riprendere da qui.";
+const INTERRUPTED_MARKER = "⚠️ Turno interrotto prima di una risposta finale: la sessione si è chiusa mentre un tool era ancora in corso (probabile comando che non è terminato). Il tool interessato risulta in errore qui sotto. Puoi rilanciarlo o riprendere da qui.";
 
 type OrphanRow = { id: string; session_key: string | null; content: string | null; tool_calls: unknown; blocks: unknown; end_reason: string | null };
 
@@ -57,7 +57,7 @@ export function finalizeOrphanedRunningTools(db: Database, liveSessions: Readonl
       if (RUNNING_RE.test((decodeCol(r.tool_calls) ?? "") + (decodeCol(r.blocks) ?? ""))) rows.push(r);
     }
     if (rows.length === 0) return;
-    const upd = db.prepare(`UPDATE messages SET content = ?, tool_calls = ?, blocks = ? WHERE id = ?`);
+    const updateRow = db.prepare(`UPDATE messages SET content = ?, tool_calls = ?, blocks = ? WHERE id = ?`);
     const now = Date.now();
     let msgs = 0, tools = 0;
     let spared = 0;
@@ -80,9 +80,9 @@ export function finalizeOrphanedRunningTools(db: Database, liveSessions: Readonl
       // ticking off the stale block copy even though tool_calls is fixed.
       try {
         if (tcDecoded) {
-          const tcs = JSON.parse(tcDecoded) as Array<Record<string, unknown>>;
-          let c = false; for (const tc of tcs) if (finalizeOrphanTool(tc, { childAlive: alive, now })) { c = true; tools++; }
-          if (c) { tcStr = encodeCol(JSON.stringify(tcs)) ?? null; changed = true; }
+          const toolCalls = JSON.parse(tcDecoded) as Array<Record<string, unknown>>;
+          let c = false; for (const tc of toolCalls) if (finalizeOrphanTool(tc, { childAlive: alive, now })) { c = true; tools++; }
+          if (c) { tcStr = encodeCol(JSON.stringify(toolCalls)) ?? null; changed = true; }
         }
       } catch { /* skip malformed tool_calls */ }
       try {
@@ -102,17 +102,18 @@ export function finalizeOrphanedRunningTools(db: Database, liveSessions: Readonl
         // send_chat_message as what the turn had written (card a57e6d4d).
         const hasProse = typeof r.content === "string" && r.content.trim().length > 0;
         const content = hasProse || alive || r.end_reason === "cut-by-restart" ? r.content : INTERRUPTED_MARKER;
-        upd.run(content, tcStr, blStr, r.id); msgs++;
+        updateRow.run(content, tcStr, blStr, r.id); msgs++;
       }
     }
     if (msgs > 0) console.log(`[boot] finalized ${tools} orphaned running tool(s) across ${msgs} message(s)`);
     if (spared > 0) console.log(`[boot] ${spared} message(s) with a live broker child: only permissions closed, the rest left alone`);
-    // Second pass: an assistant turn already finalized as interrupted (its tool
-    // carries the "Interrotto" marker) but with no final prose renders as a bare
-    // unexplained error X. Give it the explanation. Idempotent: once content is
-    // set the row no longer matches. Uses decoded text, since LIKE on
-    // compressed blobs would not match; iterated for the same reason as above.
-    // A row the boot sweep cut is left out, as in the first pass.
+    // Second pass: an assistant turn already finalized as interrupted (its
+    // tool carries the orphan rule's error, `INTERRUPTED_RE`) but with no final
+    // prose renders as a bare unexplained error X. Give it the explanation.
+    // Idempotent: once content is set the row no longer matches. Uses decoded
+    // text, since LIKE on compressed blobs would not match; iterated for the
+    // same reason as above. A row the boot sweep cut is left out, as in the
+    // first pass.
     const explainIter = db.prepare(
       `SELECT id, tool_calls, blocks FROM messages WHERE role = 'assistant'
          AND (content IS NULL OR trim(content) = '')
@@ -122,20 +123,20 @@ export function finalizeOrphanedRunningTools(db: Database, liveSessions: Readonl
          AND ${NOT_ARCHIVED_SQL}`
     ).iterate() as Iterable<{ id: string; tool_calls: unknown; blocks: unknown }>;
     let explainCount = 0;
-    const explainUpd = db.prepare(`UPDATE messages SET content = ? WHERE id = ?`);
+    const writeExplanation = db.prepare(`UPDATE messages SET content = ? WHERE id = ?`);
     // The ids are collected BEFORE writing: updating the table being iterated
     // is undefined in SQLite, and this UPDATE touches the WHERE's own column.
     const toExplain: string[] = [];
     for (const row of explainIter) {
       if (INTERRUPTED_RE.test((decodeCol(row.tool_calls) ?? "") + (decodeCol(row.blocks) ?? ""))) toExplain.push(row.id);
     }
-    for (const id of toExplain) { explainUpd.run(INTERRUPTED_MARKER, id); explainCount++; }
+    for (const id of toExplain) { writeExplanation.run(INTERRUPTED_MARKER, id); explainCount++; }
     if (explainCount > 0) console.log(`[boot] added interruption explanation to ${explainCount} message(s)`);
 
     // THIRD PASS: the mute turns WITH prose, which are most of them. The two
     // above explain only rows that wrote NOTHING, and an agent's turn nearly
-    // always writes something. The walk and its reason are in
-    // `verdetto-turno-interrotto.ts`, tested on their own.
+    // always writes something. The walk and its reason live with the function
+    // called here, tested on their own.
     bonificaTurniMuti(db, INTERRUPTED_MARKER.replace(/^⚠️\s*/, ""));
   } catch (e) {
     console.warn(`[boot] finalizeOrphanedRunningTools failed:`, e);

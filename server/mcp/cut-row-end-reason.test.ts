@@ -262,10 +262,10 @@ describe("the reattach and the send wait on the turn's own row", () => {
     ctx.updateLastMessage(sk, { content: "meta'" }, { rowId: cut.id });
     finalizeStaleRow(ctx.db, { messageId: cut.id, marker: null, interruption: { text: "silent", cause: "watchdog", at: new Date().toISOString() } });
     // A woken turn after it, finished by its own route.
-    const woken = ctx.reuseHeadstoneOrCreate(sk);
-    finished(sk, woken.id, "risveglio finito");
+    const wakeRow = ctx.reuseHeadstoneOrCreate(sk);
+    finished(sk, wakeRow.id, "risveglio finito");
     const adopted = ctx.reuseOrCreatePartialForReattach(sk);
-    expect([adopted.id === cut.id, adopted.id === woken.id]).toEqual([false, false]);
+    expect([adopted.id === cut.id, adopted.id === wakeRow.id]).toEqual([false, false]);
   });
 
   test("a reattach that finds no row of its turn and gets nothing from the replay leaves no row, not a 'no answer' notice under a finished reply", async () => {
