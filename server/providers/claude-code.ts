@@ -1342,9 +1342,9 @@ export class ClaudeCodeProvider implements AIProvider {
   }
   private static onConfigOwed: ((sessionKey: string, changes: OwedChange[]) => void) | null = null;
 
-  /** The owed changes, said once, when the work that makes them wait appears. */
+  /** The owed changes, said once, when the work that makes them wait appears: a listed task or an armed session cron. */
   private sayConfigOwed(pp: PersistentProcess): void {
-    if (!pp.owedChanges?.size || !pp.background?.tasks.size || !pp.configStale) return;
+    if (!pp.owedChanges?.size || !pp.configStale || !(pp.background?.tasks.size || hasArmedCron(pp.background, Date.now()))) return;
     const changes = [...pp.owedChanges];
     pp.owedChanges.clear();
     try { ClaudeCodeProvider.onConfigOwed?.(pp.sessionKey, changes); }

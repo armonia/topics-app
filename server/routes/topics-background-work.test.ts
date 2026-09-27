@@ -27,7 +27,7 @@ import { takeTurnEnd } from "../providers/turn-end-registry";
 import { internalAbortRequest } from "../lib/abort-cause";
 import { noticeOwedChanges, postBackgroundNotice } from "../lib/background-notice";
 import { SidechainTracker } from "../providers/claude/sidechain-tracker";
-import { recordedBackgroundSession } from "../providers/claude/background-work.fixture";
+import { recordedBackgroundSession, recordedSessionCron } from "../providers/claude/background-work.fixture";
 import type { AppContext, Topic } from "../types";
 import type { ChatGoalLoop } from "../services/goal-continuation";
 import { decodeCol } from "../../shared/message-blob";
@@ -280,8 +280,37 @@ describe("the Stop of a chat whose turn is closed and whose work still runs", ()
 /** The launch of a background agent, as the recorded CLI printed it: its snapshot and its start. */
 const agentSnap = events.find((e: any) => e.subtype === "background_tasks_changed" && e.tasks?.length === 1) as any;
 const agentStarted = events.find((e: any) => e.subtype === "task_started" && e.task_id === agentSnap.tasks[0].task_id) as any;
+/** A CronCreate's call and result, as the recorded CLI printed them; the result dated now, so the cron is armed. */
+const cronEvents = recordedSessionCron().map((l) => l.event as any);
+const cronCall = cronEvents.find((e) => e.type === "assistant" && e.message.content.some((b: any) => b.name === "CronCreate"));
+const cronArmed = () => ({ ...cronEvents.find((e) => e.type === "user" && e.tool_use_result?.id), timestamp: new Date().toISOString() });
 
 describe("second review of 25/09: every deferred change and every close is said, with its own reason", () => {
+  for (const [label, body, change] of [
+    ["R1: lowering the autonomy while a turn runs", { autonomyLevel: "ask" }, "autonomy"],
+    ["R6: a model change while a turn runs", { model: "claude-sonnet-5" }, "model"],
+  ] as const) test(`${label}, when that turn then arms a session cron, is said in the chat and kills nothing`, async () => {
+    const h = await harness(`bg-owed-cron-${change}`, "yolo");
+    ClaudeCodeProvider.observeConfigOwed((sk, changes) => {
+      noticeOwedChanges(h.ctx, { id: h.topicId, sessionKey: sk }, "deferred-background", Object.fromEntries(changes.map((c) => [c, true])));
+    });
+    try {
+      h.workOver();
+      h.pp.background.tasks.clear();
+      h.pp.streamHandler = { onDelta() {}, onDone() {}, onError() {}, onAborted() {}, onToolStart() {}, onToolResult() {} };
+      expect((await h.patch(body)).status).toBe(200);
+      expect(h.notices()).toEqual([]);
+      // The same turn schedules a CronCreate: no task line, only the call and its result.
+      (h.provider as any).handleStreamEvent(h.pp, cronCall);
+      (h.provider as any).handleStreamEvent(h.pp, cronArmed());
+      expect(h.notices()).toEqual([expect.objectContaining({ event: "deferred", change, text: expect.stringContaining("Stop ends that work now") })]);
+      // The turn ends: the next send keeps the child, and the cron in it.
+      h.pp.streamHandler = null; h.pp.wokenBuffer = null; h.pp.declinedTurn = false;
+      expect((h.provider as any).getOrCreateProcess(h.sessionKey)).toBe(h.pp);
+      expect(h.killed.n).toBe(0);
+    } finally { ClaudeCodeProvider.observeConfigOwed(() => {}); removeProvider("claude-code"); }
+  });
+
   for (const [label, body, change] of [
     ["R1: lowering the autonomy while a turn runs", { autonomyLevel: "ask" }, "autonomy"],
     ["R6: a model change while a turn runs", { model: "claude-sonnet-5" }, "model"],
