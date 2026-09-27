@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-26",
+  "generated": "2026-09-27",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -4468,13 +4468,10 @@
       "vecchio"
     ],
     "server/services/image-shape.test.ts": [
-      "dht",
-      "sof0",
-      "sof2"
+      "dht"
     ],
     "server/services/image-shape.ts": [
-      "buf",
-      "isSOF"
+      "buf"
     ],
     "server/services/known-project-dirs.test.ts": [
       "vero"
@@ -5830,10 +5827,6 @@
       "rec"
     ],
     "tests/e2e/board-drawer-scroll.spec.ts": [
-      "CRC_TABLE",
-      "crc",
-      "crc32",
-      "ihdr",
       "scrollableAncestors"
     ],
     "tests/e2e/board-drawer-truth.spec.ts": [

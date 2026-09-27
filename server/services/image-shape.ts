@@ -28,6 +28,13 @@ export interface ImageShape {
    * one of the two. Absent on shapes built by hand in tests that never cared.
    */
   vector?: boolean;
+  /**
+   * The real container format, read from the same bytes as width/height —
+   * never from the file's extension. This is what a `media_type` sent to the
+   * Anthropic API must be built from: an extension lies for free, a magic
+   * byte does not. Absent for a vector (SVG has no single canonical name here).
+   */
+  format?: "png" | "jpeg" | "gif" | "webp";
 }
 
 /** Quanto basta per l'header di tutti i formati qui sotto (SVG incluso). */
@@ -128,6 +135,27 @@ function svg(b: Buffer): [number, number] | null {
   return null;
 }
 
+/** I rilevatori in ordine, ciascuno abbinato al nome che deve produrre. */
+const RASTER_DETECTORS: Array<[NonNullable<ImageShape["format"]>, (b: Buffer) => [number, number] | null]> = [
+  ["png", png], ["gif", gif], ["webp", webp], ["jpeg", jpeg],
+];
+
+/** Il nucleo che legge dai byte già in mano: usato sia da file che da buffer. */
+function shapeFromBuffer(b: Buffer): ImageShape | null {
+  for (const [format, detect] of RASTER_DETECTORS) {
+    const dims = detect(b);
+    if (!dims) continue;
+    const [width, height] = dims;
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) continue;
+    return { width, height, ratio: height / width, vector: false, format };
+  }
+  const dims = svg(b);
+  if (!dims) return null;
+  const [width, height] = dims;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+  return { width, height, ratio: height / width, vector: true };
+}
+
 /**
  * Le dimensioni di un'immagine PNG/JPEG/GIF/WebP/SVG, oppure `null` per
  * qualunque altra cosa (video compresi) e per ogni file che non si lascia
@@ -137,12 +165,16 @@ function svg(b: Buffer): [number, number] | null {
 export function imageShape(path: string): ImageShape | null {
   const b = readHead(path);
   if (!b) return null;
-  const raster = png(b) ?? gif(b) ?? webp(b) ?? jpeg(b);
-  const dims = raster ?? svg(b);
-  if (!dims) return null;
-  const [width, height] = dims;
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
-  return { width, height, ratio: height / width, vector: !raster };
+  return shapeFromBuffer(b);
+}
+
+/**
+ * Come `imageShape`, ma su byte già in memoria: la stessa domanda quando il
+ * file non esiste su disco, ad esempio un'immagine base64 arrivata da un tool
+ * MCP o già letta per essere rimpicciolita.
+ */
+export function imageShapeFromBuffer(b: Buffer): ImageShape | null {
+  return shapeFromBuffer(b.length > HEAD_BYTES ? b.subarray(0, HEAD_BYTES) : b);
 }
 
 /**

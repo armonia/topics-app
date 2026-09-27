@@ -20,10 +20,10 @@
  * between a mistake and an incident.
  */
 
-import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, unlinkSync } from "fs";
-import { resolve, relative, isAbsolute, dirname, extname } from "path";
-import { spawn, spawnSync } from "child_process";
-import { tmpdir } from "os";
+import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from "fs";
+import { resolve, relative, isAbsolute, dirname } from "path";
+import { spawn } from "child_process";
+import { homedir } from "os";
 import { killProcessTree } from "../../lib/process-tree";
 import { registerNativeCommand } from "../../lib/native-command-registry";
 import { lowPriorityArgv } from "../../lib/low-priority";
@@ -86,49 +86,6 @@ export interface ToolResult {
  * order of the CLI's 2000 lines: past that, the tool says to page.
  */
 const MAX_READ_BYTES = 120_000;
-/**
- * Extensions `read_file` treats as pictures rather than text. Anything else
- * still goes through the UTF-8 path unchanged, garbage bytes and all — that
- * failure mode is exactly what this list exists to remove for the formats an
- * agent actually gets handed.
- */
-const IMAGE_EXTENSIONS: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-};
-/**
- * Anthropic's own recommendation for the long side of an image: past this it
- * downscales the picture before looking at it anyway, so resizing here loses
- * no information the model would have used, only bytes and tokens on the wire.
- */
-const MAX_IMAGE_EDGE = 1568;
-
-/**
- * Shrinks an image to `MAX_IMAGE_EDGE` on its long side, macOS only.
- *
- * Best-effort by design, matching `image-shape.ts`: adding a real decoder
- * (sharp, image-size) for a path this optional is a native dependency this
- * repo does not carry, and `sips` already ships with every Mac. On any other
- * platform, or if `sips` fails for any reason, the caller falls back to the
- * original bytes untouched — the API accepts an oversized image fine, this is
- * an optimization, not a correctness requirement.
- */
-function resizeImageBestEffort(path: string, longEdge: number): Buffer | null {
-  if (process.platform !== "darwin") return null;
-  const out = resolve(tmpdir(), `topics-read-image-${Date.now()}-${Math.random().toString(36).slice(2)}${extname(path)}`);
-  try {
-    const res = spawnSync("/usr/bin/sips", ["-Z", String(longEdge), path, "--out", out], { stdio: "ignore" });
-    if (res.status !== 0 || !existsSync(out)) return null;
-    return readFileSync(out);
-  } catch {
-    return null;
-  } finally {
-    try { if (existsSync(out)) unlinkSync(out); } catch { /* best-effort cleanup */ }
-  }
-}
 /** Quanto output di un comando si rimanda al modello. */
 const MAX_OUTPUT_CHARS = 30_000;
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
@@ -158,6 +115,39 @@ function safePath(ctx: ToolContext, p: string): string {
   return abs;
 }
 
+/** A leading `~` or `~/...` expanded to the home directory. Everything else is unchanged. */
+function expandHome(p: string): string {
+  if (p === "~") return homedir();
+  if (p.startsWith("~/")) return resolve(homedir(), p.slice(2));
+  return p;
+}
+
+/**
+ * Like `safePath`, but for reading ONLY: an image can live outside the
+ * workspace, no other file can.
+ *
+ * WHY. `read_file` is the only way for an agent to LOOK AT a picture it did
+ * not itself write — a screenshot in `~/Desktop`, an export in a sibling
+ * folder of the project — and the workspace perimeter cannot tell "look at"
+ * from "touch" apart. Blocking everything here means an image outside the
+ * workspace never gets read, no matter what is asked. Measured: the native
+ * Darkroom topic could not read its own working photos, the only reason this
+ * tool existed.
+ *
+ * The check is on the file's ACTUAL BYTES, not its extension: a path outside
+ * the perimeter that does not decode as an image stays blocked as before.
+ */
+function resolveReadPath(ctx: ToolContext, raw: string): string {
+  const expanded = expandHome(raw);
+  try {
+    return safePath(ctx, expanded);
+  } catch (err) {
+    const abs = isAbsolute(expanded) ? resolve(expanded) : resolve(ctx.workspace, expanded);
+    if (existsSync(abs) && statSync(abs).isFile() && imageShape(abs)) return abs;
+    throw err;
+  }
+}
+
 function truncate(s: string, max = MAX_OUTPUT_CHARS): string {
   if (s.length <= max) return s;
   const cut = s.length - max;
@@ -168,7 +158,7 @@ export const CODING_TOOLS: ToolSpec[] = [
   {
     name: "read_file",
     description:
-      "Read a file from the workspace. Returns the content with 1-based line numbers, which is what you need to then edit it precisely. Use `offset`/`limit` for large files. Prefer this over `bash cat`: the line numbers make edits reliable.",
+      "Read a file from the workspace. Returns the content with 1-based line numbers, which is what you need to then edit it precisely. Use `offset`/`limit` for large files. Prefer this over `bash cat`: the line numbers make edits reliable. Also reads IMAGES (PNG, JPEG, etc.): use it on any image path (including a path outside the workspace, and `~/`) and you will see the actual picture, not garbled text.",
     input_schema: {
       type: "object",
       properties: {
@@ -574,21 +564,21 @@ export async function executeTool(
   try {
     switch (name) {
       case "read_file": {
-        const p = safePath(ctx, String(input.path));
+        const p = resolveReadPath(ctx, String(input.path));
         if (!existsSync(p)) return { content: `file non trovato: ${input.path}`, isError: true };
         const st = statSync(p);
         if (st.isDirectory()) return { content: `${input.path} è una directory, non un file`, isError: true };
-        const mediaType = IMAGE_EXTENSIONS[extname(p).toLowerCase()];
-        if (mediaType) {
-          const shape = imageShape(p);
-          const resized = shape && (shape.width > MAX_IMAGE_EDGE || shape.height > MAX_IMAGE_EDGE)
-            ? resizeImageBestEffort(p, MAX_IMAGE_EDGE)
-            : null;
-          const bytes = resized ?? readFileSync(p);
-          const dims = shape ? `${shape.width}x${shape.height}` : `${st.size} byte`;
+        // The format comes from the bytes, never the extension: a `.png`
+        // that is really a JPEG (measured: 13 of 568 files in one Darkroom
+        // tree) is identified here. Resize/recompression is no longer this
+        // tool's job: every image, from any source, goes through
+        // `toolResultContent` (`image-normalize.ts`) from here on.
+        const shape = imageShape(p);
+        if (shape && shape.format) {
+          const bytes = readFileSync(p);
           return {
-            content: `${input.path} (${dims}, image attached)`,
-            images: [{ mediaType, data: bytes.toString("base64") }],
+            content: `${input.path} (${shape.width}x${shape.height}, image attached)`,
+            images: [{ mediaType: `image/${shape.format}`, data: bytes.toString("base64") }],
           };
         }
         const raw = readFileSync(p, "utf-8");

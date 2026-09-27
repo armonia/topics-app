@@ -3,14 +3,22 @@
  *
  * Before this file, `read_file` read EVERY file as UTF-8: on a PNG that path
  * produces garbage (bytes that are not valid text), or an error, and the
- * model never sees the image. This checks that png/jpg/jpeg/gif/webp take a
+ * model never sees the image. This checks that a real raster file takes a
  * different branch, the image comes back in `ToolResult.images` and not in
  * the text, while any plain text file keeps working exactly as before.
-  * @covers RT-11
+ *
+ * WHY NO EXTENSION HERE. The format is read from the bytes (`image-shape.ts`),
+ * never from the file name — a `.png` that is really a JPEG (measured: 13 of
+ * 568 files under a real Darkroom export) must be labelled JPEG regardless of
+ * what it is called, or the API rejects it on a media-type mismatch on every
+ * later turn.
+ *
+ * @covers RT-11
  */
 import { describe, test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { executeTool } from "./tools";
 
@@ -31,6 +39,15 @@ function pngHeader(width: number, height: number): Buffer {
   return b;
 }
 
+/** SOI + a minimal JFIF + SOF0: real JPEG bytes, no extension involved. */
+function jpegHeader(width: number, height: number): Buffer {
+  const app0 = Buffer.concat([Buffer.from([0xff, 0xe0, 0x00, 0x10]), Buffer.alloc(14)]);
+  const sof0 = Buffer.alloc(11);
+  sof0[0] = 0xff; sof0[1] = 0xc0; sof0.writeUInt16BE(9, 2); sof0[4] = 8;
+  sof0.writeUInt16BE(height, 5); sof0.writeUInt16BE(width, 7); sof0[9] = 3;
+  return Buffer.concat([Buffer.from([0xff, 0xd8]), app0, sof0]);
+}
+
 const ctx = { workspace: dir };
 
 describe("read_file su un'immagine", () => {
@@ -41,36 +58,17 @@ describe("read_file su un'immagine", () => {
     expect(r.isError).toBeFalsy();
     expect(r.images).toBeDefined();
     expect(r.images![0]!.mediaType).toBe("image/png");
-    // Not resized (under the limit): the bytes come back identical.
     expect(r.images![0]!.data).toBe(bytes.toString("base64"));
     expect(r.content).toContain("a.png");
     expect(r.content).toContain("10x10");
   });
 
-  for (const [ext, mediaType] of [
-    [".jpg", "image/jpeg"], [".jpeg", "image/jpeg"], [".gif", "image/gif"], [".webp", "image/webp"],
-  ] as const) {
-    test(`l'estensione ${ext} si riconosce come ${mediaType}`, async () => {
-      const bytes = Buffer.from("dati finti, l'estensione basta a decidere il ramo");
-      put(`b${ext}`, bytes);
-      const r = await executeTool("read_file", { path: `b${ext}` }, ctx);
-      expect(r.images).toBeDefined();
-      expect(r.images![0]!.mediaType).toBe(mediaType);
-    });
-  }
-
-  test("un'immagine più grande del limite tenta comunque il ramo immagine, non quello di testo", async () => {
-    // The header declares 3000x3000: above MAX_IMAGE_EDGE (1568), so a resize
-    // via `sips` is attempted. The file has no real data past the header, so
-    // `sips` fails to decode it and the code falls back to the original
-    // bytes, exactly the "best effort" behavior expected when the resize
-    // does not work: no exception, the image still arrives.
-    const bytes = pngHeader(3000, 3000);
-    put("big.png", bytes);
-    const r = await executeTool("read_file", { path: "big.png" }, ctx);
-    expect(r.isError).toBeFalsy();
+  test("un file .png che è in realtà un JPEG si etichetta per quello che è, non per il nome", async () => {
+    const bytes = jpegHeader(100, 80);
+    put("v47.png", bytes);
+    const r = await executeTool("read_file", { path: "v47.png" }, ctx);
     expect(r.images).toBeDefined();
-    expect(r.content).toContain("3000x3000");
+    expect(r.images![0]!.mediaType).toBe("image/jpeg");
   });
 
   test("un file di testo non passa dal ramo immagine: comportamento invariato", async () => {
@@ -86,5 +84,35 @@ describe("read_file su un'immagine", () => {
     const r = await executeTool("read_file", { path: "non-esiste.png" }, ctx);
     expect(r.isError).toBe(true);
     expect(r.images).toBeUndefined();
+  });
+});
+
+describe("read_file, percorsi fuori dalla workspace (RT-11 finding #4)", () => {
+  const outsideDir = mkdtempSync(join(tmpdir(), "tools-outside-"));
+
+  test("un file di testo fuori dalla workspace resta bloccato", async () => {
+    writeFileSync(join(outsideDir, "segreto.txt"), "no");
+    const r = await executeTool("read_file", { path: join(outsideDir, "segreto.txt") }, ctx);
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain("fuori dalla workspace");
+  });
+
+  test("un'immagine fuori dalla workspace SI legge: il perimetro vale per toccare, non per guardare", async () => {
+    const bytes = pngHeader(20, 20);
+    writeFileSync(join(outsideDir, "foto.png"), bytes);
+    const r = await executeTool("read_file", { path: join(outsideDir, "foto.png") }, ctx);
+    expect(r.isError).toBeFalsy();
+    expect(r.images).toBeDefined();
+    expect(r.images![0]!.mediaType).toBe("image/png");
+  });
+
+  test("un percorso con `~/` in testa si espande verso la home prima di essere risolto", async () => {
+    // No real file under ~ is needed: it is enough for the error to name the
+    // EXPANDED path ("home/.../inesistente.png") and not the literal tilde,
+    // proving the expansion happened before the existence check.
+    const r = await executeTool("read_file", { path: "~/topics-rt11-inesistente.png" }, ctx);
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain(homedir());
+    expect(r.content).not.toContain("~/");
   });
 });

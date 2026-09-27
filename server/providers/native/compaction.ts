@@ -50,6 +50,7 @@
  */
 
 import type { Block, AgentMessage } from "./agent-loop";
+import { imageShapeFromBuffer } from "../../services/image-shape";
 
 /**
  * Quanto della finestra si può usare prima di intervenire.
@@ -76,9 +77,25 @@ function hasImageBlock(blocks: unknown[]): boolean {
  * pattern their own caption uses (`"<path> (..."`), or a generic notice when
  * no path can be recovered.
  */
+function pathFromCaption(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  const plain = text.match(/^(\S+) \(/)?.[1];
+  if (plain) return plain;
+  // `browser_screenshot inline:true` does not write a prose caption: its
+  // caption is the raw JSON the handler already produced (`{"path":...}`),
+  // which the regex above never matches. Without this branch the path was
+  // lost every time the block being pruned was exactly a screenshot.
+  try {
+    const parsed = JSON.parse(text) as { path?: unknown };
+    return typeof parsed.path === "string" ? parsed.path : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function imagePlaceholder(blocks: unknown[]): string {
   const caption = blocks.find((b) => (b as { type?: string })?.type === "text") as { text?: string } | undefined;
-  const path = caption?.text?.match(/^(\S+) \(/)?.[1];
+  const path = pathFromCaption(caption?.text);
   return path ? `[immagine rimossa per fare spazio: ${path}]` : "[immagine rimossa per fare spazio]"; // allow-italian: testo che legge il modello, non UI
 }
 
@@ -166,29 +183,50 @@ function charsOfNestedBlocks(blocks: unknown[]): number {
 }
 
 /**
- * How many `image` content blocks a history carries, nested inside
- * `tool_result` arrays only (the one shape that produces them today).
+ * How many base64 characters cover the 64 KB `imageShapeFromBuffer` reads:
+ * decoding the WHOLE image just to read its header would mean base64-decoding
+ * every megabyte of history on every round, for a number the header alone
+ * already gives.
  */
-function countImageBlocks(messages: AgentMessage[]): number {
-  let n = 0;
+const SHAPE_HEAD_B64_CHARS = Math.ceil((64 * 1024 / 3) * 4);
+
+/**
+ * Anthropic's own formula, from pixel dimensions: `ceil(w/28) * ceil(h/28)`.
+ * The flat 1600-token guess this replaced was wrong in both directions (a
+ * blank screenshot and a dense diagram at the same resolution cost the same
+ * ballpark) and, worse, DOUBLE-COUNTED: `calibrateFrom` (`context-window.ts`)
+ * already backs the real image cost out of the API's own token report before
+ * calibrating the text ratio, so adding a second flat guess here inflated
+ * every later estimate on top of that. Falls back to the flat guess only when
+ * the bytes cannot be measured at all (RT-11 finding #6).
+ */
+const IMAGE_TOKEN_FALLBACK = 1600;
+
+function estimateImageTokens(dataBase64: string): number {
+  const head = dataBase64.length > SHAPE_HEAD_B64_CHARS ? dataBase64.slice(0, SHAPE_HEAD_B64_CHARS) : dataBase64;
+  const shape = imageShapeFromBuffer(Buffer.from(head, "base64"));
+  if (!shape) return IMAGE_TOKEN_FALLBACK;
+  return Math.ceil(shape.width / 28) * Math.ceil(shape.height / 28);
+}
+
+/**
+ * The real token cost of every `image` content block in the history, nested
+ * inside `tool_result` arrays only (the one shape that produces them today).
+ */
+export function estimateImageTokensTotal(messages: AgentMessage[]): number {
+  let tokens = 0;
   for (const m of messages) {
     if (typeof m.content === "string") continue;
     for (const b of m.content) {
       if (!Array.isArray(b.content)) continue;
       for (const sub of b.content as unknown[]) {
-        if ((sub as { type?: string })?.type === "image") n++;
+        const img = sub as { type?: string; source?: { data?: string } };
+        if (img?.type === "image" && typeof img.source?.data === "string") tokens += estimateImageTokens(img.source.data);
       }
     }
   }
-  return n;
+  return tokens;
 }
-
-/**
- * Anthropic's own ballpark for an image resized to its recommended long edge
- * (1568px, the same ceiling `tools.ts` resizes to): about 1600 tokens,
- * regardless of the exact pixel count or how long the base64 string is.
- */
-const IMAGE_TOKEN_ESTIMATE = 1600;
 
 /**
  * Una stima dei token, non un conteggio.
@@ -208,7 +246,7 @@ export function estimateTokens(
 ): number {
   const ratio = charsPerToken > 0 ? charsPerToken : DEFAULT_CHARS_PER_TOKEN;
   const textTokens = Math.ceil(estimateChars(messages, overheadChars) / ratio);
-  return textTokens + countImageBlocks(messages) * IMAGE_TOKEN_ESTIMATE;
+  return textTokens + estimateImageTokensTotal(messages);
 }
 
 /**
@@ -529,4 +567,102 @@ export function windowFor(model: string): number {
   if (/opus-4|sonnet-4-6|sonnet-4-5/.test(model)) return 200_000;
   if (/haiku-4/.test(model)) return 200_000;
   return 200_000;
+}
+
+/**
+ * A budget over the WHOLE history, not just what `lightenMiddle` reaches.
+ *
+ * WHY A SEPARATE BUDGET. `lightenMiddle` only fires once token estimation says
+ * the window is nearly full, and it never touches the recent tail. Images do
+ * not need a full context window to become a problem: 14 Darkroom screenshots
+ * at 1.87 MB each (already resized, already under the pixel cap) reached
+ * 34.5 MB of base64 in one request and got a flat `413 request_too_large`
+ * — a request-body ceiling, unrelated to the token window this file otherwise
+ * reasons about. This budget runs on every round, independent of and before
+ * `compactIfNeeded`, so the body never gets there.
+ *
+ * WHY BYTES, MEASURED ON THE BASE64 ITSELF. The API bills the request body,
+ * not the decoded pixels; the base64 string length is what actually crosses
+ * the wire.
+ */
+export const IMAGE_HISTORY_BYTE_BUDGET = 20 * 1024 * 1024;
+export const IMAGE_HISTORY_COUNT_BUDGET = 20;
+
+interface ImageBlockRef { messageIndex: number; blockIndex: number; count: number; bytes: number }
+
+/** One entry per tool_result that carries at least one image block. */
+function collectImageBlockRefs(messages: AgentMessage[]): ImageBlockRef[] {
+  const refs: ImageBlockRef[] = [];
+  messages.forEach((m, mi) => {
+    if (typeof m.content === "string") return;
+    m.content.forEach((b, bi) => {
+      if (b.type !== "tool_result" || !Array.isArray(b.content)) return;
+      const images = (b.content as Array<{ type?: string; source?: { data?: string } }>).filter((c) => c?.type === "image");
+      if (images.length === 0) return;
+      const bytes = images.reduce((sum, c) => sum + (c.source?.data?.length ?? 0), 0);
+      refs.push({ messageIndex: mi, blockIndex: bi, count: images.length, bytes });
+    });
+  });
+  return refs;
+}
+
+function replaceImageBlocks(messages: AgentMessage[], targets: Set<string>): AgentMessage[] {
+  return messages.map((m, mi) => {
+    if (typeof m.content === "string") return m;
+    let touched = false;
+    const blocks = m.content.map((b, bi): Block => {
+      if (targets.has(`${mi}:${bi}`) && b.type === "tool_result" && Array.isArray(b.content) && hasImageBlock(b.content)) {
+        touched = true;
+        return { ...b, content: imagePlaceholder(b.content) };
+      }
+      return b;
+    });
+    return touched ? { ...m, content: blocks } : m;
+  });
+}
+
+/**
+ * Prunes the OLDEST images to placeholders until the history fits under both
+ * budgets, always keeping the single most recent image-bearing result intact
+ * — the model can still see what it just looked at, even mid-prune.
+ */
+export function enforceImageHistoryBudget(messages: AgentMessage[]): AgentMessage[] {
+  const refs = collectImageBlockRefs(messages);
+  if (refs.length === 0) return messages;
+
+  let remainingCount = refs.reduce((s, r) => s + r.count, 0);
+  let remainingBytes = refs.reduce((s, r) => s + r.bytes, 0);
+  if (remainingCount <= IMAGE_HISTORY_COUNT_BUDGET && remainingBytes <= IMAGE_HISTORY_BYTE_BUDGET) return messages;
+
+  const keepNewest = refs[refs.length - 1]!;
+  const targets = new Set<string>();
+  for (const ref of refs) {
+    if (ref === keepNewest) continue;
+    if (remainingCount <= IMAGE_HISTORY_COUNT_BUDGET && remainingBytes <= IMAGE_HISTORY_BYTE_BUDGET) break;
+    targets.add(`${ref.messageIndex}:${ref.blockIndex}`);
+    remainingCount -= ref.count;
+    remainingBytes -= ref.bytes;
+  }
+  if (targets.size === 0) return messages;
+  return replaceImageBlocks(messages, targets);
+}
+
+/**
+ * Strips EVERY image from the history, keeping the text captions. The last
+ * resort for a `413` or a `400` naming an image (see `recoverFromImageFailure`
+ * in `context-window.ts`): at that point the request has already been
+ * rejected once, so there is no room left to be selective about which image
+ * is the culprit — the retry has to be image-free, or it repeats the same
+ * failure forever.
+ */
+export function stripAllImages(messages: AgentMessage[]): AgentMessage[] {
+  const targets = new Set<string>();
+  messages.forEach((m, mi) => {
+    if (typeof m.content === "string") return;
+    m.content.forEach((b, bi) => {
+      if (b.type === "tool_result" && Array.isArray(b.content) && hasImageBlock(b.content)) targets.add(`${mi}:${bi}`);
+    });
+  });
+  if (targets.size === 0) return messages;
+  return replaceImageBlocks(messages, targets);
 }

@@ -349,7 +349,8 @@ describe("historyFromPersistedThread — an image never comes back as base64", (
     ]);
     const resultBlock = (out[2]!.content as Block[])[0]!;
     expect(resultBlock).toEqual({
-      type: "tool_result", tool_use_id: "t1", content: "shot.png (1024x768, image attached)",
+      type: "tool_result", tool_use_id: "t1",
+      content: "[immagine non più nel contesto: shot.png; rileggila con read_file]",
     });
     // No `image` block: the function has no branch that produces one.
     expect((resultBlock as any).content).not.toContain("data:image");
