@@ -188,7 +188,7 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
       // Clear partial flag on messages with content
       for (const m of completeMsgs) {
         if (m.partial) {
-          ctx.db.prepare(`UPDATE messages SET partial = 0 WHERE id = ?`).run(m.id);
+          ctx.db.prepare(`UPDATE messages SET partial = 0, end_reason = 'closed-outside' WHERE id = ?`).run(m.id);
           m.partial = false;
         }
       }

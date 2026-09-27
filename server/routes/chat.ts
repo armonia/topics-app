@@ -1021,17 +1021,17 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // spiegazione» e un errore che si legge.
           const withVerdict = appendErrorBlock(row, verdetto);
           if (notice) {
-            updateLastMessage(sessionKey, { content: notice, blocks: withVerdict, partial: undefined, streamedAt: undefined });
+            updateLastMessage(sessionKey, { content: notice, blocks: withVerdict, partial: undefined, streamedAt: undefined, endReason: "error" });
           } else {
             // La riga si tiene il suo contenuto; cade solo il flag che la
             // dichiara ancora in volo, o il setaccio di boot la crederebbe viva.
-            updateLastMessage(sessionKey, { blocks: withVerdict, partial: undefined, streamedAt: undefined });
+            updateLastMessage(sessionKey, { blocks: withVerdict, partial: undefined, streamedAt: undefined, endReason: "error" });
             console.warn(`[StreamWS] ${sessionKey}: turno fallito su una riga che porta già lavoro — contenuto preservato, errore aggiunto come blocco`);
           }
         } else {
           // Non è più l'ultima: si chiude solo la NOSTRA, per id, e non si tocca
           // il turno che è subentrato.
-          try { db.run("UPDATE messages SET partial = 0 WHERE id = ?", [rowId]); } catch { /* best effort */ }
+          try { db.run("UPDATE messages SET partial = 0, end_reason = 'error' WHERE id = ?", [rowId]); } catch { /* best effort */ }
           console.warn(`[StreamWS] ${sessionKey}: la riga ${rowId} non è più l'ultima (${ultima ?? "nessuna"}) — chiusa per id, esito non riscritto`);
         }
         const wire = notice ?? `⚠️ ${verdetto}`;
@@ -1591,7 +1591,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // footnote. The EVENT is the block: the cause in code, which is
             // what the client draws the banner off (`interrupted-turn-block`).
             const graceBlocks = appendInterruptedVerdict(blocks, { text: timeoutMsg, cause: "watchdog" });
-            updateLastMessage(sessionKey, { content: fullContent, blocks: graceBlocks, partial: undefined, streamedAt: undefined }, ownRow);
+            updateLastMessage(sessionKey, { content: fullContent, blocks: graceBlocks, partial: undefined, streamedAt: undefined, endReason: "closed-outside" }, ownRow);
             endStreamAndAnnounce();
             topicProvider.unregisterStreamHandler?.(sessionKey);
             // Abort the underlying provider turn too. `unregisterStreamHandler` is
@@ -1647,7 +1647,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // the one this path broadcasts on `stream:end` below, and two
             // witnesses of the same turn must not disagree.
             const hardBlocks = appendInterruptedVerdict(blocks, { text: msg, cause: "watchdog" });
-            updateLastMessage(sessionKey, { content: fullContent, blocks: hardBlocks, partial: undefined, streamedAt: undefined }, ownRow);
+            updateLastMessage(sessionKey, { content: fullContent, blocks: hardBlocks, partial: undefined, streamedAt: undefined, endReason: "closed-outside" }, ownRow);
             endStreamAndAnnounce();
             topicProvider.unregisterStreamHandler?.(sessionKey);
             // See handleGraceExpiry: abort the orphaned provider turn (no-op
@@ -2242,8 +2242,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               content: fullContent,
               thinking: fullThinking || undefined,
               blocks: blocks.length > 0 ? blocks : undefined,
-              partial: undefined,
-              streamedAt: undefined,
+              partial: undefined, streamedAt: undefined,
+              endReason: reason === "aborted" ? "stopped" : reason,
               latencyMs,
               usagePromptTokens,
               usageCompletionTokens,
@@ -3662,8 +3662,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               const notice = crashedTurnNotice(readRowForNotice(crashedPartialId), err);
               // Il flag `partial` cade comunque: aperta, quella riga farebbe
               // credere a un turno in volo che non esiste più.
-              if (notice) db.prepare("UPDATE messages SET content = ?, partial = 0 WHERE id = ?").run(notice, crashedPartialId);
-              else db.prepare("UPDATE messages SET partial = 0 WHERE id = ?").run(crashedPartialId);
+              if (notice) db.prepare("UPDATE messages SET content = ?, partial = 0, end_reason = 'error' WHERE id = ?").run(notice, crashedPartialId);
+              else db.prepare("UPDATE messages SET partial = 0, end_reason = 'error' WHERE id = ?").run(crashedPartialId);
               if (matchedTopic) {
                 const crashText = notice ?? `Errore interno di Topics: ${shortErrorDetail(err)}`;
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: crashText });
@@ -3708,7 +3708,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               ? "⚠️ Rate limit reached. The AI service is temporarily overloaded. Please wait a moment and try again."
               : `⚠️ AI service error (${resp.status}). Please try again.`;
             const errorPartial = createPartialMessage(sessionKey, "assistant");
-            updateLastMessage(sessionKey, { content: errorMsg, partial: undefined, streamedAt: undefined }, { rowId: errorPartial.id });
+            updateLastMessage(sessionKey, { content: errorMsg, partial: undefined, streamedAt: undefined, endReason: "error" }, { rowId: errorPartial.id });
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: errorPartial.id, content: errorMsg, preview: errorMsg.slice(0, 100) });

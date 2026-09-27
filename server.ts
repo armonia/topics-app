@@ -5051,8 +5051,8 @@ const staleStreamTimer = setInterval(() => {
     endStream: (sk) => ctx.endStream(sk),
     broadcast: (msg) => broadcastToAll(msg as Parameters<typeof broadcastToAll>[0]),
     finalizeMessage: ({ messageId, marker, interruption }) => {
-      if (marker === null) db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE id = ?", [messageId]);
-      else db.run("UPDATE messages SET partial = 0, streamed_at = NULL, content = ? WHERE id = ?", [marker, messageId]);
+      if (marker === null) db.run("UPDATE messages SET partial = 0, streamed_at = NULL, end_reason = 'closed-outside' WHERE id = ?", [messageId]);
+      else db.run("UPDATE messages SET partial = 0, streamed_at = NULL, end_reason = 'closed-outside', content = ? WHERE id = ?", [marker, messageId]);
       // WHY the turn ended, on the row, in the shape the composer's banner
       // reads. Without it the reaper closed a turn cut mid-answer leaving the
       // reason in the server log only: the 2026-09-03 report, "stuck with no
@@ -5450,13 +5450,10 @@ async function reattachSurvivingChatTurns(): Promise<void> {
               // già spento.
               //
               // Il broker ha appena detto `open`: la riga è di un turno vivo, e
-              // il flag si RIACCENDE. Solo l'ultima della sessione, che è quella
-              // che il prossimo riattacco riprenderà.
+              // il flag si RIACCENDE. On the leg's row, the one the next
+              // reattach takes back (`relightReattachedRow`).
               try {
-                ctx.db.run(
-                  "UPDATE messages SET partial = 1 WHERE id = (SELECT id FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC LIMIT 1)",
-                  [s.id],
-                );
+                ctx.relightReattachedRow(s.id);
               } catch { /* al peggio il prossimo riattacco apre una riga nuova, com'era prima */ }
               console.log(`[chat-reattach] ${s.id}: la gamba è finita ma il turno è ancora aperto (domanda a schermo) — la riga resta viva`);
               return;
@@ -5475,7 +5472,7 @@ async function reattachSurvivingChatTurns(): Promise<void> {
           // Il cartello lo scrive `spiegaTurnoTroncato`, che riconosce da sé
           // chi ha davvero bisogno di una spiegazione — e non ne scrive due.
           try {
-            const chiuse = ctx.db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", [s.id]).changes;
+            const chiuse = ctx.db.run("UPDATE messages SET partial = 0, streamed_at = NULL, end_reason = 'closed-outside' WHERE session_key = ? AND partial = 1", [s.id]).changes;
             if (chiuse > 0) spiegaTurnoTroncato(ctx.db, s.id);
           } catch { /* next boot's reset catches it */ }
         });

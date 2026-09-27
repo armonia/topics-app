@@ -318,6 +318,12 @@ export function createAppContext(baseDir: string): AppContext {
        FROM messages WHERE session_key = ? ORDER BY sort_order ASC`,
     ),
     getLastMessage: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
+    /** The last assistant row still open after the person's last message. See `reuseOrCreatePartialForReattach`. */
+    getOpenTurnRow: db.prepare(
+      `SELECT * FROM messages WHERE session_key = $sk AND role = 'assistant' AND partial = 1
+         AND sort_order > COALESCE((SELECT MAX(sort_order) FROM messages WHERE session_key = $sk AND role = 'user'), -1)
+       ORDER BY sort_order DESC LIMIT 1`,
+    ),
     /**
      * Come `getLastMessage`, ma SENZA la colonna `blocks`.
      *
@@ -423,8 +429,8 @@ export function createAppContext(baseDir: string): AppContext {
     appendMessageContent: db.prepare(`UPDATE messages SET content = ? WHERE id = ?`),
     getMaxSortOrder: db.prepare(`SELECT COALESCE(MAX(sort_order), -1) as max_order FROM messages WHERE session_key = ?`),
     insertMessage: db.prepare(`
-      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens, cache_creation_tokens, cache_creation_1h_tokens, model, author_person_id, author_device_id)
-      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $blocks, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents, $cache_read_tokens, $cache_creation_tokens, $cache_creation_1h_tokens, $model, $author_person_id, $author_device_id)
+      INSERT INTO messages (id, session_key, role, content, thinking, tool_calls, blocks, media, partial, streamed_at, plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms, usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens, cache_creation_tokens, cache_creation_1h_tokens, model, author_person_id, author_device_id, end_reason)
+      VALUES ($id, $session_key, $role, $content, $thinking, $tool_calls, $blocks, $media, $partial, $streamed_at, $plan_status, $timestamp, $sort_order, $parent_id, $branch_index, $latency_ms, $usage_prompt_tokens, $usage_completion_tokens, $cost_cents, $cache_read_tokens, $cache_creation_tokens, $cache_creation_1h_tokens, $model, $author_person_id, $author_device_id, $end_reason)
     `),
     updateMessage: db.prepare(`
       UPDATE messages SET
@@ -443,7 +449,10 @@ export function createAppContext(baseDir: string): AppContext {
         cost_cents = COALESCE($cost_cents, cost_cents),
         model = COALESCE($model, model),
         author_person_id = COALESCE($author_person_id, author_person_id),
-        author_device_id = COALESCE($author_device_id, author_device_id)
+        author_device_id = COALESCE($author_device_id, author_device_id),
+        -- A row written open again has not ended: whatever closed it before
+        -- does not describe it any more.
+        end_reason = CASE WHEN $partial = 1 THEN NULL ELSE COALESCE($end_reason, end_reason) END
       WHERE id = $id
     `),
     deleteMessagesBySession: db.prepare(`DELETE FROM messages WHERE session_key = ?`),
@@ -769,6 +778,7 @@ export function createAppContext(baseDir: string): AppContext {
     if (row.parent_id !== undefined && row.parent_id !== null) msg.parentId = row.parent_id;
     if (row.branch_index !== undefined) msg.branchIndex = row.branch_index;
     if (row.latency_ms !== undefined && row.latency_ms !== null) msg.latencyMs = row.latency_ms;
+    if (row.end_reason) msg.endReason = row.end_reason;
     if (row.usage_prompt_tokens !== undefined && row.usage_prompt_tokens !== null) msg.usagePromptTokens = row.usage_prompt_tokens;
     if (row.usage_completion_tokens !== undefined && row.usage_completion_tokens !== null) msg.usageCompletionTokens = row.usage_completion_tokens;
     if (row.cost_cents !== undefined && row.cost_cents !== null) msg.costCents = row.cost_cents;
@@ -808,6 +818,7 @@ export function createAppContext(baseDir: string): AppContext {
       // gia' scritti, in silenzio. Su `updateMessage` il COALESCE lo tiene fermo.
       $author_person_id: msg.authorPersonId ?? null,
       $author_device_id: msg.authorDeviceId ?? null,
+      $end_reason: msg.endReason ?? null,
       // `blocksForDisk` e non `JSON.stringify`: dentro un tool block, `result`
       // e `detail` portano spesso la STESSA stringa byte per byte, e quella
       // copia e' il 30% del payload misurato (shared/lean-tool-call.ts). Qui si
@@ -1500,6 +1511,8 @@ export function createAppContext(baseDir: string): AppContext {
       authorPersonId: autore?.authorPersonId ?? null,
       authorDeviceId: autore?.authorDeviceId ?? null,
       ...(blocks && blocks.length ? { blocks } : {}),
+      // Written whole, in one go: a sub-agent's report, a notice, an answer.
+      ...(role === "assistant" ? { endReason: "done" as const } : {}),
     };
     stmts.insertMessage.run({
       $id: stored.id,
@@ -1631,25 +1644,33 @@ export function createAppContext(baseDir: string): AppContext {
    *  exactly like the first. Measured on the live DB on 2026-09-10: 65 pairs
    *  across 54 conversations.
    *
-   *  The discriminant is `latency_ms`: only the turn's legitimate completion
-   *  writes it (`routes/chat.ts`, `Date.now() - turnStartMs`, never null). None
-   *  of the external closes pass it — `updateMessage` does
-   *  `COALESCE($latency_ms, latency_ms)`, so it stays null. A row closed with
-   *  `latency_ms` set is a REAL answer and is left alone; one closed without
-   *  it is, given the caller's guarantee, still this turn's own row. */
+   *  The row says how it was closed (`end_reason`): `closed-outside` is this
+   *  turn's own row, `done` is a whole answer and is left alone. For the rest,
+   *  and for rows written before that column, the discriminant stays
+   *  `latency_ms`: only the turn's legitimate completion writes it
+   *  (`routes/chat.ts`, `Date.now() - turnStartMs`, never null), and none of
+   *  the external closes pass it.
+   *
+   *  THE TURN'S OPEN ROW COMES FIRST, not the session's last one. With the
+   *  child alive the boot sweep leaves the turn's row open, and a sub-agent's
+   *  report written while the turn ran sits after it: adopting the LAST row
+   *  poured the replay over the report, and the turn's own row was closed
+   *  from outside once the leg ended, so a send waiting on it heard "a restart
+   *  or a watchdog" for an answer that had completed (card a57e6d4d, test B). */
   function reuseOrCreatePartialForReattach(sessionKey: string): ReattachedPartial {
-    const row = stmts.getLastMessage.get(sessionKey) as any;
+    const row = (stmts.getOpenTurnRow.get({ $sk: sessionKey }) ?? stmts.getLastMessage.get(sessionKey)) as any;
     const isAssistant = row && row.role === "assistant";
     const stillPartial = isAssistant && (row.partial === 1 || row.partial === true);
     // A row the MACHINE wrote (a goal's stop line, the line under a turn the
     // machine stopped) is closed without `latency_ms` too, but it was never a
     // turn's own row: adopting it poured the replay over the line, and a replay
     // that then failed turned it into an error row offering Retry again.
-    const closedFromOutsideWhileAlive = isAssistant && !stillPartial && row.latency_ms == null
+    const closedFromOutsideWhileAlive = isAssistant && !stillPartial
+      && (row.end_reason === "closed-outside" || (row.end_reason !== "done" && row.latency_ms == null))
       && !hasMachineMark(parseBlocksCol(row.blocks, String(row.id)));
     if (isAssistant && (stillPartial || closedFromOutsideWhileAlive)) {
       const now = new Date().toISOString();
-      db.run("UPDATE messages SET streamed_at = ?, partial = 1 WHERE id = ?", [now, String(row.id)]);
+      db.run("UPDATE messages SET streamed_at = ?, partial = 1, end_reason = NULL WHERE id = ?", [now, String(row.id)]);
       return {
         id: String(row.id), role: "assistant", content: String(row.content ?? ""), timestamp: String(row.timestamp),
         partial: true, streamedAt: now, parentId: row.parent_id ?? null, branchIndex: row.branch_index ?? 0,
@@ -1657,6 +1678,24 @@ export function createAppContext(baseDir: string): AppContext {
       };
     }
     return { ...createPartialMessage(sessionKey, "assistant"), reusedBody: false };
+  }
+
+  /**
+   * A reattach leg ended on a turn the broker still calls open (a question on
+   * screen): the leg's row is lit again, for the next reattach to take back,
+   * and its `done` goes with it, since an open row has not ended. The leg's row
+   * is the last one a turn finalized, not a report written whole after it
+   * (`done` with no latency): lighting that one handed it to the next reattach,
+   * or to the boot sweep's "cut" (card a57e6d4d).
+   */
+  function relightReattachedRow(sessionKey: string): void {
+    db.run(
+      `UPDATE messages SET partial = 1, end_reason = NULL WHERE id = (
+         SELECT id FROM messages WHERE session_key = ? AND role = 'assistant'
+           AND (COALESCE(end_reason, '') <> 'done' OR latency_ms IS NOT NULL)
+         ORDER BY sort_order DESC LIMIT 1)`,
+      [sessionKey],
+    );
   }
 
   /**
@@ -1695,7 +1734,7 @@ export function createAppContext(baseDir: string): AppContext {
     if (!riusabile) return createPartialMessage(sessionKey, "assistant");
     const now = new Date().toISOString();
     db.run(
-      "UPDATE messages SET content = '', blocks = NULL, tool_calls = NULL, streamed_at = ?, partial = 1, latency_ms = NULL WHERE id = ?",
+      "UPDATE messages SET content = '', blocks = NULL, tool_calls = NULL, streamed_at = ?, partial = 1, latency_ms = NULL, end_reason = NULL WHERE id = ?",
       [now, String(row.id)],
     );
     return {
@@ -2757,7 +2796,7 @@ export function createAppContext(baseDir: string): AppContext {
     getTopicById, getTopicBySessionKey, setTopicBrowserState, touchTopicActivity,
     loadUnread, saveUnread,
     loadLocalMessages, hydrateMessageBodies, countMessagesBySession, saveLocalMessages, appendLocalMessage, appendImportedMessages,
-    createPartialMessage, reuseOrCreatePartialForReattach, reuseHeadstoneOrCreate, updateLastMessage, appendToLastMessage,
+    createPartialMessage, reuseOrCreatePartialForReattach, relightReattachedRow, reuseHeadstoneOrCreate, updateLastMessage, appendToLastMessage,
     finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
     startStream, updateStreamActivity, updateStreamContent, getStreamContent, endStream, isStreaming,
     readJSON, json, matchRoute, errorResponse, slugify,
