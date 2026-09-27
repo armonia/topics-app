@@ -1540,7 +1540,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * 31be77d3). The approaching-limit early warning stays Claude-only: it
    * comes from the five-hour usage window, which only Claude's plan reports.
    */
-  function taskPlanWait(task: Task, model?: string | null, starting = false): { untilMs: number; reason: string; asksAPerson?: true; slot?: string } | null {
+  function taskPlanWait(task: Task, model?: string | null, starting = false): { untilMs?: number; reason: string; asksAPerson?: true; slot?: string } | null {
     const claudeHold = providerHold();
     const codexHold = providerHold(Date.now(), "codex");
     const window = starting ? planUsage()?.fiveHour : null;
@@ -1567,6 +1567,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (!hold && !applicableNearLimit) return null;
     const label = providerHoldLabel(holdKey);
     if (hold) {
+      // AN API OUTAGE IS NO WINDOW. Its end is a horizon every retry pushes on
+      // (`holdForApiDown`), and what lifts it is the API answering again. So
+      // it names no end: a card's retry waited for that horizon, up to an
+      // hour, with the API already back. It waits in the queue for the lift.
+      if (hold.window === "api-down") {
+        if (holdAnnounced !== hold.sinceMs) {
+          holdAnnounced = hold.sinceMs;
+          log(`${label} dispatch waiting: ${hold.reason}, resumes when the API answers again`);
+        }
+        return { reason: `${label}: ${hold.reason}. Riparte appena l'API torna a rispondere.` }; // allow-italian: task queue reason
+      }
       // A WALL OF DAYS IS NOT A WINDOW ROTATING. Held for longer than a day,
       // the queue is not waiting for a reset: the plan is spent, and the only
       // thing that moves the cards is a person changing the board's model or
@@ -3844,7 +3855,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           // una sessione che sta ancora rispondendo. Vedi `retryWaits`.
           clearRetryWait(taskId);
           // A spent usage window has a published end: the card waits for it
-          // (plus its backoff), instead of resuming into the same 429.
+          // (plus its backoff), instead of resuming into the same 429. An API
+          // outage names none: past the backoff, `resume` queues the card
+          // behind it and starts it once the API answers.
           const holdMs = Math.max(0, (taskPlanWait(bumped)?.untilMs ?? 0) - Date.now());
           const waitMs = outage ? Math.max(backoff, holdMs) : 0;
           const retryTimer = setTimeout(() => {

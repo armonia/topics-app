@@ -104,7 +104,11 @@ export async function saturationHold(token: string, nowMs: number = Date.now(), 
  * and the hold is lifted only when none is spent any more.
  */
 export async function releaseHoldIfFreed(token: string, nowMs: number = Date.now(), fetchImpl: typeof fetch = fetch): Promise<boolean> {
-  if (!providerHold(nowMs)) return false;
+  const hold = providerHold(nowMs);
+  // An API outage is no spent window, and the usage endpoint answering says
+  // nothing about the path the CLI's requests take: an answer lifts it (a
+  // child's stream in `claude/api-outage.ts`, a native round), or its horizon.
+  if (!hold || hold.window === "api-down") return false;
   const usage = await fetchUsage(token, fetchImpl);
   if (!usage) return false;
   recordPlanUsage(usage, nowMs);

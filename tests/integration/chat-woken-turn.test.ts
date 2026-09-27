@@ -19,6 +19,8 @@
 import { describe, expect, test, beforeAll } from "bun:test";
 import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import { createChatRouter } from "../../server/routes/chat";
+import { resumeVerdict } from "../../server/lib/ripresa-boot";
+import { cancelled } from "../../server/providers/stop-reason";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, Topic } from "../../server/types";
 
@@ -288,4 +290,48 @@ describe("il turno risvegliato dal Monitor finisce in chat", () => {
     // E la chat resta intatta: nessuna riga aperta per un turno mai adottato.
     expect(ctx.loadLocalMessages(sessionKey)).toEqual([]);
   });
+});
+
+/**
+ * A WAKE'S NOTICE PROMISES A RESUME EXACTLY WHERE THE SWEEP RESENDS.
+ *
+ * The sweep resends the person's last message, and a wake sits under a
+ * message the row before already answered. An outage outside the turn (card
+ * e30f35e4, 51fb9359) made a cut wake resumable for the first time, so the
+ * sweep leaves a wake cut that way alone; a wake cut by the watchdog is resent
+ * as it always was. The notice must say the same thing the sweep does: a
+ * promise over a row the sweep skips is the chat stopped in silence under a
+ * notice saying there is nothing to do (the verifiers of 27/09 measured it on
+ * all three causes).
+ *
+ * @covers RESUME-01
+ */
+describe("a wake cut mid-turn: its notice promises only what the sweep does", () => {
+  const ends: Record<string, { end: (h: StreamHandler) => void; verdict: string }> = {
+    watchdog: { end: (h) => h.onAborted?.({ turnEnd: cancelled("watchdog") }), verdict: "resend" },
+    "api-unavailable": {
+      end: (h) => h.onDone({ result: "Request timed out", turnEnd: { end: "error", cause: "api-unavailable", detail: "Request timed out" } } as never),
+      verdict: "no",
+    },
+    "broker-died": { end: (h) => h.onAborted?.({ turnEnd: { end: "error", cause: "broker-died" } }), verdict: "no" },
+  };
+  for (const [cause, { end, verdict }] of Object.entries(ends)) {
+    test(cause, async () => {
+      const sk = `topic:woken-cut-${cause}`;
+      const h = await harness(sk);
+      h.rigaPrecedente("Fatto.", [{ kind: "text", text: "Fatto." }]);
+      const { handler } = await h.adotta();
+      handler!.onTextDelta("Leggo l'output del task", "Leggo l'output del task");
+      end(handler!);
+      await Bun.sleep(60);
+
+      const row = h.ctx.loadLocalMessages(sk).filter((m) => m.role === "assistant").pop()!;
+      const notice = (row.blocks ?? []).find((b) => b.kind === "error");
+      const text = notice && notice.kind === "error" ? notice.text : "";
+      expect(text, cause).not.toBe("");
+      const got = resumeVerdict({ sessionKey: sk, ruolo: "assistant", blocks: row.blocks ?? null, timestampMs: Date.now(), attempts: 0 }, Date.now());
+      expect(got, cause).toBe(verdict as never);
+      expect(text.includes("Riprend"), `${cause}: ${text}`).toBe(got === "resend");
+    });
+  }
 });

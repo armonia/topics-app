@@ -9,7 +9,7 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
-  chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
+  chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_FREE_PROBES, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
   RESPONSE_CEILING_MS, STREAM_CEILING_MS, RESUME_CAP_MARKER, attemptsInChain, attemptsOnRow,
   resumeVerdict, resumeAttemptOf, type RigaDaValutare, USER_TAIL_GRACE_MS, UNANSWERED_NOTICE,
 } from "./ripresa-boot";
@@ -18,6 +18,7 @@ import { insertRestartNotification, runBootPartialSweep } from "./boot-partial-s
 import { eCartelloDiInterruzione } from "./cancelled-notice";
 import { decodeCol } from "../../shared/message-blob";
 import { resetTurnEndRegistry } from "../providers/turn-end-registry";
+import { clearProviderHold, liftApiDownHold, resetProviderHoldStore, setProviderHold } from "./provider-hold";
 import type { ContentBlock } from "../types";
 
 // The sweep reads the last turn end of each session from a process-wide
@@ -539,6 +540,113 @@ describe("la catena dei riavvii ha un tetto", () => {
     await quietly(() => riprendiTurniInterrotti(ctxOf(db), route, { responseMs: 500, streamMs: 500 }));
     expect(calls.length).toBe(MAX_RESUME_ATTEMPTS);
     expect((db.query("SELECT COUNT(*) AS n FROM messages").get() as { n: number }).n).toBe(rowsBefore);
+  });
+
+  /**
+   * A cut the API left unanswered waits for the API. Resent at once, the turn
+   * went back into an API still down, sat 30 minutes until the watchdog, and
+   * did it again four times: about 2h20m and four copies of the message for a
+   * blackout that lasted 80 minutes (25/09, 02:00-03:20Z). The sweep defers
+   * while a hold is in force, the boot's sweep included (a reload mid-outage
+   * restores the hold from disk), and the rows it skips carry no trace.
+   *
+   * @covers RESUME-04
+   */
+  test("under a provider hold the sweep resends nothing and marks nothing; once lifted it resends", async () => {
+    const db = freshDb();
+    const cut: ContentBlock = { kind: "error", text: "Turno interrotto: l'API di Claude non rispondeva più.", cause: "api-unavailable" } as ContentBlock;
+    db.run(
+      "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES ('a0','topic:x','assistant','',?,0,?,1,'u0',0)",
+      [JSON.stringify([{ kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } }, cut]), new Date().toISOString()],
+    );
+    const calls: Array<Record<string, unknown>> = [];
+    setProviderHold({ untilMs: Date.now() + 60_000, window: "api-down", reason: "l'API di Claude non risponde" });
+    try {
+      await quietly(() => riprendiTurniInterrotti({ ...ctxOf(db), bootedAtMs: Date.now() }, chatRoute(db, calls)));
+      expect(calls).toHaveLength(0);
+      expect(blocksOf(lastRow(db).blocks).some((b) => b.kind === "ripreso")).toBe(false);
+    } finally {
+      clearProviderHold();
+    }
+    await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
+    expect(calls.map((c) => c.ripresa)).toEqual([1]);
+  });
+
+  /**
+   * A resend sent once the hold ran out, into an API still down, is a probe:
+   * its CLI retried again and nothing anywhere got an answer while it ran.
+   * Counted, a 5xx blackout of an hour (ten retries in a few minutes, then the
+   * hold) spent the four attempts before the API came back, and the chat was
+   * left under «Ripresa automatica sospesa». A resend that met the API alive
+   * (any child streamed an answer since it began) spends one as before, and so
+   * does a probe already resent once whose resend never wrote a row: uncounted,
+   * a resend failing before the route answered would repeat every sweep.
+   */
+  test("a resend that met the API still down spends no attempt; one that met it alive does", async () => {
+    for (const [answered, traced, expected] of [[false, false, 1], [true, false, 2], [false, true, 2]] as const) {
+      clearProviderHold();
+      resetProviderHoldStore();
+      const db = freshDb();
+      const startedAt = new Date(Date.now() - 30_000).toISOString();
+      const cut = (at: string) => ({ kind: "error", text: "Turno interrotto: l'API di Claude non rispondeva più.", cause: "api-unavailable", at });
+      const row = db.prepare(
+        "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,'topic:x',?,?,?,0,?,?,?,0)",
+      );
+      row.run("a-cut", "assistant", "", JSON.stringify([{ kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } }, cut(startedAt), { kind: "ripreso", attempt: 1 }]), startedAt, 1, "u0");
+      row.run("u-resent", "user", MESSAGE, null, startedAt, 2, "a-cut");
+      if (answered) liftApiDownHold();
+      row.run("a-probe", "assistant", "Request timed out", JSON.stringify([{ kind: "ripreso", attempt: 1 }, { kind: "text", text: "Request timed out" }, cut(new Date().toISOString()), ...(traced ? [{ kind: "ripreso", attempt: 1 }] : [])]), startedAt, 3, "u-resent");
+      const calls: Array<Record<string, unknown>> = [];
+      await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
+      expect(calls.map((c) => c.ripresa), `answered: ${answered}, traced: ${traced}`).toEqual([expected]);
+    }
+    resetProviderHoldStore();
+  });
+
+  /**
+   * The free probes have a ceiling. Each resend is a row of its own, so the
+   * 24-hour window moves with the chain: a probe failing on one chat only, or
+   * after a reload that forgot the last answer, resent the message about once
+   * an hour for good, each probe reopening the hold that stops every chat.
+   */
+  test("past MAX_FREE_PROBES a probe into an API still down spends its attempt", async () => {
+    clearProviderHold(); resetProviderHoldStore();
+    const db = freshDb();
+    const at = new Date(Date.now() - 30_000).toISOString();
+    const cut = { kind: "error", text: "Turno interrotto: l'API di Claude non rispondeva più.", cause: "api-unavailable", at };
+    const row = db.prepare(
+      "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,'topic:x',?,?,?,0,?,?,?,0)",
+    );
+    // The first resend counted (attempt 1); the eight after it were free.
+    row.run("a0", "assistant", "", JSON.stringify([cut, { kind: "ripreso", attempt: 1 }]), at, 1, "u0");
+    for (let i = 1; i <= MAX_FREE_PROBES + 1; i++) {
+      row.run(`u-${i}`, "user", MESSAGE, null, at, 2 * i, i === 1 ? "a0" : `a-${i - 1}`);
+      const trace = i <= MAX_FREE_PROBES ? [{ kind: "ripreso", attempt: 1 }] : [];
+      row.run(`a-${i}`, "assistant", "", JSON.stringify([{ kind: "ripreso", attempt: 1 }, cut, ...trace]), at, 2 * i + 1, `u-${i}`);
+    }
+    const calls: Array<Record<string, unknown>> = [];
+    await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
+    expect(calls.map((c) => c.ripresa)).toEqual([2]);
+  });
+
+  test("a woken turn cut by an outage is left alone: the person's last message already had its answer", async () => {
+    for (const cause of ["api-unavailable", "broker-died"]) {
+      const db = freshDb();
+      const now = new Date().toISOString();
+      db.run(
+        "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES ('a0','topic:x','assistant','Fatto.',?,0,?,1,'u0',0)",
+        [JSON.stringify([{ kind: "text", text: "Fatto." }]), now],
+      );
+      const cut = { kind: "error", text: "Turno interrotto: una frase qualunque.", cause };
+      db.run(
+        "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES ('w0','topic:x','assistant','Request timed out',?,0,?,2,'a0',0)",
+        [JSON.stringify([{ kind: "woken" }, { kind: "text", text: "Request timed out" }, cut]), now],
+      );
+      const calls: Array<Record<string, unknown>> = [];
+      await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
+      expect(calls, cause).toEqual([]);
+      expect(blocksOf(lastRow(db).blocks).some((b) => b.kind === "ripreso"), cause).toBe(false);
+    }
   });
 
   test("il tetto e' quattro: tre riavvii pianificati in quaranta minuti non devono lasciare «premi Riprova» su una chat che nessuno ha toccato", () => {

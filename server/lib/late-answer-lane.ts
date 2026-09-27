@@ -32,7 +32,7 @@ import type { ContentBlock, StoredMessage } from "../types";
 import type { ProviderDoneMessage, StreamHandler } from "../providers/types";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { classifyTurnError, type TurnEndInfo } from "../providers/stop-reason";
-import { avvisoPerTurno, isResumableCause } from "./cancelled-notice";
+import { avvisoPerTurno, resumesByItself } from "./cancelled-notice";
 import { isWantedStop } from "./abort-cause";
 
 interface Slot { get: () => string; set: (value: string) => void }
@@ -132,8 +132,11 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
     console.warn(`[StreamWS] ${sessionKey}: ${how} after the close of ${opts.rowId()} with nothing late before it, the turn's own end: left alone`);
     return true;
   };
-  const end = (how: string, notice: string | null) => {
-    if (notice) opts.blocks.push({ kind: "error", text: notice.replace(/^⚠️\s*/, "") });
+  // An `error` end's cause goes on the block, as the route writes it: it is
+  // what the resume and the banner read.
+  const end = (how: string, notice: string | null, info?: TurnEndInfo) => {
+    const cause = info?.end === "error" ? info.cause : undefined;
+    if (notice) opts.blocks.push({ kind: "error", text: notice.replace(/^⚠️\s*/, ""), ...(cause ? { cause, at: new Date().toISOString() } : {}) });
     ended = true;
     try { opts.save(true); }
     catch (err) { console.warn(`[StreamWS] ${sessionKey}: late answer not saved on ${opts.rowId()}:`, err); }
@@ -154,10 +157,18 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
       opts.appendThinkingBlock(text);
       broadcastChunk("stream:thinking_chunk", text);
     },
+    // A CLI that gave up on the API ends here too (ten retries, then a
+    // synthetic "Request timed out" and an error `result`, 4e5e2d76 on 25/09),
+    // and gets the notice a live turn gets: without it that text sat after
+    // the cut as an answer, and the sweep read the message as answered.
     onDone: (message?: ProviderDoneMessage) => {
       if (trailing("onDone")) return;
       takeTail(message);
-      end("ended", null);
+      const info = message?.turnEnd;
+      const notice = info?.end === "error"
+        ? avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: resumesByItself(info.cause, opts.blocks) })
+        : null;
+      end(notice ? `failed (${info?.cause})` : "ended", notice, info);
     },
     // The same notice a live turn failing this way gets. Not the live
     // `onError`: that one also rolls back the inline preamble mark, and after
@@ -176,7 +187,7 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
       takeTail(message);
       const info: TurnEndInfo | undefined = message?.turnEnd;
       const explained = !info || isWantedStop(info.cause);
-      end("aborted", explained ? null : avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: isResumableCause(info.cause) }));
+      end("aborted", explained ? null : avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: resumesByItself(info.cause, opts.blocks) }), info);
     },
   };
 

@@ -223,6 +223,20 @@ export class AiBridgeClient {
   /** Ultimo byte ricevuto dal daemon, di chiunque fosse. Vedi `setupReader`. */
   private lastByteAt = 0;
   private disposed = false;
+  private connectedDaemonPid: number | null = null;
+
+  /**
+   * The pid of the daemon on the other end, as its pong says; null until it
+   * answers, or when it predates the field. Another pid means the daemon that
+   * held a child is gone, and the child with it: a session the new daemon does
+   * not know was lost with its daemon, not by its own child (25/09 12:57, four
+   * live CLIs killed by an orphaned daemon shutting itself down). Not a count
+   * of spawns: a spawn that finds the old daemon still answering exits, and
+   * this client reconnects to the same one.
+   */
+  get daemonPid(): number | null {
+    return this.connectedDaemonPid;
+  }
 
   readonly socketPath: string;
   readonly storeDir: string;
@@ -324,6 +338,7 @@ export class AiBridgeClient {
         this.socket = socket;
         this.ready = true;
         this.lastPongAt = Date.now();
+        this.connectedDaemonPid = null;
         this.setupReader(socket);
         this.startWatchdog();
         // Right away, not at the first watchdog beat: the pid is what lets an
@@ -396,7 +411,11 @@ export class AiBridgeClient {
         w.resolve(msg);
       }
     }
-    if (msg.type === "pong") { this.lastPongAt = Date.now(); return; }
+    if (msg.type === "pong") {
+      this.lastPongAt = Date.now();
+      if (Number.isInteger(msg.pid)) this.connectedDaemonPid = msg.pid;
+      return;
+    }
     const id = msg.id as string | undefined;
     if (!id) return;
     // The ack closes the window at once, not when the spawn's promise settles:

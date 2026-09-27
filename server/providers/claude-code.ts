@@ -56,6 +56,7 @@ import {
 import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
 import { datedByLastWrite, hasLiveTasks, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
 import { observePlanUsage } from "./native/usage-window";
+import { noteApiHealth, silentTurnEnd, type ApiRetryMark } from "./claude/api-outage";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
@@ -70,7 +71,7 @@ import { endAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
 import { isHumanHold, releaseHumanHold } from "../lib/human-hold";
 import { humanHoldReleasedAt } from "../lib/human-hold-events";
 import { armTurnDeadline, type TurnDeadline } from "../lib/turn-deadline";
-import { cancelled, classifyResultEvent, type TurnEndInfo } from "./stop-reason";
+import { cancelled, classifyResultEvent, type StopCause, type TurnEndInfo } from "./stop-reason";
 import { warnThrottled } from "../lib/warn-throttled";
 import { clearSessionCliPid, setSessionCliPid } from "./session-pids";
 import { defaultChatModel, discoverClaudeModels } from "./claude-models";
@@ -943,14 +944,15 @@ function backgroundAlive(pp: PersistentProcess): boolean {
 }
 
 /**
- * Since when the child counts as quiet: its last event, or the moment a person
- * last answered it, whichever is later. The CLI prints nothing while a
- * permission prompt or a question is open, nor while the command just approved
- * runs, and a clock counting from the tool_use that asked killed that command.
+ * Since when the child counts as quiet: its last event, its last retry of the
+ * API, or the moment a person last answered it, whichever is later. The CLI
+ * prints nothing while a permission prompt or a question is open, nor while the
+ * command just approved runs, and a clock counting from the tool_use that asked
+ * killed that command. Nor while it retries the API, and it gives up by itself.
  * Read by the lifetime cap and by the send watchdog.
  */
 function quietSince(pp: PersistentProcess, sessionKey: string): number {
-  return Math.max(pp.lastEventAt, humanHoldReleasedAt(sessionKey) ?? 0);
+  return Math.max(pp.lastEventAt, pp.lastApiRetry?.at ?? 0, humanHoldReleasedAt(sessionKey) ?? 0);
 }
 
 interface PersistentProcess {
@@ -1143,6 +1145,12 @@ interface PersistentProcess {
    * questo messaggio, uno subito dopo un `/compact`.
    */
   lastEventKind?: string;
+  /** The CLI's last `system/api_retry` (`claude/api-outage.ts`): the child
+   *  working, not silence, for `quietSince`; its last word, for the watchdog. */
+  lastApiRetry?: ApiRetryMark;
+  /** Which ai-bridge daemon holds this child (`AiBridgeClient.daemonPid`):
+   *  missing under another one at a resync is a daemon death, not a child's. */
+  daemonPid?: number | null;
   /**
    * A `system/task_notification` arrived and its turn has not ended yet: the
    * next empty `result` with no model turn in it is the notification's answer,
@@ -1869,7 +1877,11 @@ export class ClaudeCodeProvider implements AIProvider {
         const ours = this.processes.get(sessionKey) === pp;
         if (ours && pp.alive) this.killProcess(pp, "watchdog");
         if (ours) this.processes.delete(sessionKey);
-        handler.onError("Nessuna attività dal modello per 30 minuti. Turno terminato.");
+        // With a cause, which the resume reads: a bare text left row 5e92d06e
+        // (topic 3019832f, 25/09) stopped 52 minutes, until a person resent it.
+        const detail = "Nessuna attività dal modello per 30 minuti. Turno terminato.";
+        if (handler.onAborted) handler.onAborted({ turnEnd: silentTurnEnd(pp.lastApiRetry, pp.lastEventAt, detail) });
+        else handler.onError(detail);
         return { runId };
       }
 
@@ -2640,6 +2652,7 @@ export class ClaudeCodeProvider implements AIProvider {
         // `bun run dev` lasciata da questa sessione è indistinguibile da una
         // uguale avviata altrove. Vedi `providers/session-pids.ts`.
         .then(async ({ pid, resumed }) => {
+          pp.daemonPid = client.daemonPid;
           setSessionCliPid(sessionKey, pid);
           // A card's CLI steps aside for the person (KANBAN-78): demoted by
           // pid because the broker spawned it, and its children inherit.
@@ -2936,6 +2949,7 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.replayAfterLastResultOffset = 0;
     pp.replayRowTurns = undefined;
     const scan = await client.attach(sessionKey, 0);
+    pp.daemonPid = client.daemonPid;
     dateReplay(pp, scan);
     return { missing: scan.missing === true, alive: scan.alive === true };
   }
@@ -3048,8 +3062,11 @@ export class ClaudeCodeProvider implements AIProvider {
       // bubble. A daemon we simply can't REACH throws instead, and lands in the
       // catch below without finalizing anything.
       if (res.missing || !res.alive) {
-        console.warn(`[claude-code] Stream resync for ${sessionKey}: the broker no longer has a live child — finalizing the turn as died`);
-        this.finalizeDeadReattach(pp);
+        // Missing under another daemon: the one holding the child died with it.
+        const cause: StopCause = res.missing && pp.daemonPid !== undefined && pp.daemonPid !== getAiBridgeClient().daemonPid
+          ? "broker-died" : "process-died";
+        console.warn(`[claude-code] Stream resync for ${sessionKey}: the broker no longer has a live child — finalizing the turn as died (${cause})`);
+        this.finalizeDeadReattach(pp, cause);
         return false;
       }
       console.log(`[claude-code] Stream resync for ${sessionKey}: re-attached from offset ${from}, recovered ${Math.max(0, res.endOffset - from)} byte(s)`);
@@ -3287,13 +3304,13 @@ export class ClaudeCodeProvider implements AIProvider {
     }
   }
 
-  private finalizeDeadReattach(pp: PersistentProcess): void {
+  private finalizeDeadReattach(pp: PersistentProcess, cause: StopCause = "process-died"): void {
     pp.alive = false;
     if (pp.pendingResolve) { const r = pp.pendingResolve; pp.pendingResolve = null; pp.pendingReject = null; r({ runId: "" }); }
     // Riattacco a un processo che nel frattempo è morto: il turno non l'ha
     // fermato nessuno, è finito il processo sotto.
     if (pp.streamHandler) {
-      pp.streamHandler.onAborted?.({ turnEnd: { end: "error", cause: "process-died" } });
+      pp.streamHandler.onAborted?.({ turnEnd: { end: "error", cause } });
       this.releaseStreamHandler(pp);
     }
     this.cleanupTimers(pp);
@@ -3480,6 +3497,9 @@ export class ClaudeCodeProvider implements AIProvider {
       // its lines return just below, before the event clock further down: the
       // lifetime cap read a turn that was writing as silent, and killed it.
       if (line.kind === "content" || line.kind === "partial" || line.kind === "result") pp.lastEventAt = Date.now();
+      // The API's health, read off every child's stream, attended or not.
+      const retry = noteApiHealth(line.kind, event);
+      if (retry) pp.lastApiRetry = retry;
       const fate = unattendedLineFate(pp, event, line.kind);
       if (fate !== "pass") return;
     }
