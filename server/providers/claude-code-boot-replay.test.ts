@@ -589,4 +589,32 @@ describe("boot · the agent's lines after the last result", () => {
       try { getAiBridgeClient().kill(sessionKey); } catch { /* best-effort cleanup */ }
     }
   }, 40_000);
+
+  test("a restart after a /loop's fire answered: the fire's `completed`, after its result, is no turn in flight, and the CLI is kept for the next fire", async () => {
+    // A command that starts a fresh turn emits `completed` AFTER that turn's
+    // result (the CLI's schema; the recording's last line). Read as a turn in
+    // flight, the boot adopted a phantom that held the chat until the next fire.
+    const fiftyMinutesAgo = new Date(Date.now() - 50 * 60_000).toISOString();
+    setEnv("TOPICS_CLAUDE_CLI_PATH", storeCli("cron-fire-completed", [
+      { type: "system", subtype: "init", session_id: "s" },
+      ...cronArmed("L", fiftyMinutesAgo, true, "Every 45 minutes"),
+      { type: "result", subtype: "success", is_error: false, num_turns: 1, result: "scheduled" },
+      { type: "command_lifecycle", command_uuid: "fire-1", state: "started", session_id: "s" },
+      { type: "system", subtype: "init", session_id: "s" },
+      { type: "assistant", message: { content: [{ type: "text", text: "CRON-FIRED" }] } },
+      { type: "result", subtype: "success", is_error: false, num_turns: 1, result: "CRON-FIRED" },
+      { type: "command_lifecycle", command_uuid: "fire-1", state: "completed", session_id: "s" },
+    ]));
+    const sessionKey = "topic:boot-cron-fire-completed";
+    await seedSurvivingSession(sessionKey, "t-boot-cron-fire-completed");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const prov = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    try {
+      expect(await prov.brokerTurnState(sessionKey)).toBe("idle");
+      expect((prov as any).processes.has(sessionKey)).toBe(true);
+      expect(prov.backgroundState(sessionKey)).toBe("running");
+    } finally {
+      try { getAiBridgeClient().kill(sessionKey); } catch { /* best-effort cleanup */ }
+    }
+  }, 40_000);
 });

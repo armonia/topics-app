@@ -3574,11 +3574,12 @@ export class ClaudeCodeProvider implements AIProvider {
           pp.replayTailOpen = false;
         }
         pp.replayTailInitOnly = false;
-      } else if (readParentToolUseId(event) === null) {
+      } else if (readParentToolUseId(event) === null && event.type !== "command_lifecycle") {
         pp.replayTailInitOnly = false;
         // A background agent's line after the last `result` is not a turn in
         // flight: read as one, the boot adopted chat 3019832f's closed turn and
         // waited for a `result` that only the agent's end would bring (25/09).
+        // Nor is a `command_lifecycle`: a cron fire's `completed` follows its turn's `result`.
         pp.replayTailOpen = true;
       }
       return;
