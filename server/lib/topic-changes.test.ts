@@ -168,17 +168,20 @@ describe("rangeFiles", () => {
   ];
 
   test("a pruned worktree's absolute path lands on the LONGEST range path it ends with", () => {
-    const files = rangeFiles(stat, [
+    const scratch = { path: "/tmp/scratch/notes.md", kind: "created" as const, turns: 1, lastAt: "2026-01-01T12:00:00.000Z" };
+    const { files, rest } = rangeFiles(stat, [
       { path: "/gone/worktrees/p/wt/src/a.ts", kind: "created", turns: 2, lastAt: "2026-01-01T11:00:00.000Z" },
       { path: "/gone/worktrees/p/wt/a.ts", kind: "modified", turns: 1, lastAt: "2026-01-01T10:00:00.000Z" },
-      { path: "/tmp/scratch/notes.md", kind: "created", turns: 1, lastAt: "2026-01-01T12:00:00.000Z" },
+      scratch,
     ]);
     expect(files).toEqual([
-      { path: "src/a.ts", kind: "created", turns: 2, lastAt: "2026-01-01T11:00:00.000Z", added: 2, removed: 1 },
-      { path: "a.ts", kind: "modified", turns: 1, lastAt: "2026-01-01T10:00:00.000Z", added: 1, removed: 0 },
-      { path: "logo.png", kind: "created", turns: 0, lastAt: "", added: 0, removed: 0, binary: true },
-      { path: "gone.ts", kind: "deleted", turns: 0, lastAt: "", added: 0, removed: 4 },
+      { path: "src/a.ts", kind: "created", turns: 2, lastAt: "2026-01-01T11:00:00.000Z", added: 2, removed: 1, inRange: true },
+      { path: "a.ts", kind: "modified", turns: 1, lastAt: "2026-01-01T10:00:00.000Z", added: 1, removed: 0, inRange: true },
+      { path: "logo.png", kind: "created", turns: 0, lastAt: "", added: 0, removed: 0, binary: true, inRange: true },
+      { path: "gone.ts", kind: "deleted", turns: 0, lastAt: "", added: 0, removed: 4, inRange: true },
     ]);
+    // Not in the range is not "wrote nothing": the caller still lists it.
+    expect(rest).toEqual([scratch]);
   });
 });
 

@@ -2283,9 +2283,11 @@ export function createTopicsRouter(
         const cwd = worktree?.absPath || topic.projectPath || null;
         const messages = loadLocalMessages(topic.sessionKey);
         // A task topic reads its task's diff range first, the drawer's: it outlives the pruned
-        // worktree and sees what no write tool call named (a shell command, a sub-agent).
+        // worktree and sees what no write tool call named (a shell command, a sub-agent). A
+        // worktree topic no task owns reads its live worktree's own range.
         const task = taskSvc.taskForTopic(topic.id);
-        return json(await computeTopicChanges(cwd, messages, task && { task, worktree, repoPath: topic.projectPath ?? null }));
+        const anchors = task || worktree ? { task, worktree, repoPath: topic.projectPath ?? null } : null;
+        return json(await computeTopicChanges(cwd, messages, anchors));
       }
     }
 

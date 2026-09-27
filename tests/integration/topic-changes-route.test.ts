@@ -206,6 +206,10 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
     expect(byPath["src/a.ts"]).toMatchObject({ kind: "created", added: 2, removed: 0, turns: 1 });
     expect(byPath["base.ts"]).toMatchObject({ kind: "modified", added: 1, removed: 0, turns: 1 });
     expect(byPath["scripts/gen.sh"]).toMatchObject({ kind: "created", added: 3, removed: 0, turns: 0 });
+    // The counts are the land merge's, not the checkout's: the strip opens
+    // these rows in the task's drawer, where that same range is drawn.
+    expect(body.taskId).toBe(taskId);
+    expect(body.files.every((f) => f.inRange)).toBe(true);
   });
 
   test("live worktree: committed, uncommitted and untracked files all come from the task's range", async () => {
@@ -248,5 +252,94 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
     expect(byPath["src/a.ts"]).toMatchObject({ kind: "created", added: 2, removed: 0, turns: 1 });
     expect(byPath["base.ts"]).toMatchObject({ kind: "modified", added: 1, removed: 0, turns: 1 });
     expect(byPath["notes.md"]).toMatchObject({ kind: "created", added: 2, removed: 0, turns: 0 });
+  });
+
+  /** A topic bound to a live branch worktree `topics/<label>` of a fresh repo, and the task bound to it when `withTask`. */
+  async function liveWorktreeTopic(label: string, withTask: boolean) {
+    const { createTopicsRouter } = await import("../../server/routes/topics");
+    const ctx = await createTestAppContext();
+    const router = createTopicsRouter(ctx);
+    const repo = makeRepo(label);
+    const wt = join(realpathSync(ROOT), `wt-${label}`);
+    const branch = `topics/${label}`;
+    git(repo, "worktree", "add", "-q", "-b", branch, wt);
+    const project = ctx.projectStore.create({ name: label, slug: label, path: repo });
+    const worktree = ctx.worktreeStore.create({
+      projectId: project.id, name: label, branchName: branch, baseRef: "main", mode: "branch", absPath: wt,
+    });
+    const created = await call(router, "POST", "/api/topics", { name: `topic-${label}` });
+    const { id } = (await created.json()) as { id: string };
+    await call(router, "PATCH", `/api/topics/${id}`, { projectPath: repo, worktreeId: worktree.id });
+    const topic = ctx.getTopicById(id)!;
+    if (withTask) bindTask(ctx, crypto.randomUUID(), id);
+    const changes = async (): Promise<TopicChanges> => {
+      const res = await call(router, "GET", `/api/topics/${id}/changes`);
+      expect(res.status).toBe(200);
+      return (await res.json()) as TopicChanges;
+    };
+    return { ctx, repo, wt, branch, topic, changes };
+  }
+
+  function writeTurn(...paths: string[]): StoredMessage {
+    return {
+      id: `m-${Date.now()}-${Math.random()}`,
+      role: "assistant",
+      content: "done",
+      timestamp: new Date().toISOString(),
+      toolCalls: paths.map((filePath, i) => ({ id: `w${i}`, name: "Write", args: {}, detail: { type: "write" as const, filePath } })),
+    };
+  }
+
+  test("a live worktree whose commits another local branch also holds still lists the files the chat wrote", async () => {
+    // The card's branch was already merged into an integration branch (or
+    // copied to a backup one): the own-commit subtraction then finds none, the
+    // range shrinks to the uncommitted work, and git's file set is empty.
+    const { ctx, repo, wt, branch, topic, changes } = await liveWorktreeTopic(`merged-${Date.now()}`, true);
+    mkdirSync(join(wt, "src"), { recursive: true });
+    writeFileSync(join(wt, "src/a.ts"), "alpha\nbeta\n");
+    git(wt, "add", "-A");
+    git(wt, "commit", "-qm", "task work");
+    git(repo, "branch", "integra/tornata", branch);
+    ctx.appendImportedMessages(topic.sessionKey, [writeTurn(join(wt, "src/a.ts"))]);
+
+    const body = await changes();
+    expect(body.files.map((f) => f.path)).toEqual(["src/a.ts"]);
+    expect(body.files[0]).toMatchObject({ kind: "created", turns: 1 });
+    // Outside the range: its diff is the checkout's, not the drawer's.
+    expect(body.files[0]!.inRange).toBeUndefined();
+  });
+
+  test("a file the chat wrote stays listed past the untracked cap", async () => {
+    const { ctx, wt, topic, changes } = await liveWorktreeTopic(`untracked-${Date.now()}`, true);
+    mkdirSync(join(wt, "artifacts"), { recursive: true });
+    for (let i = 0; i < 60; i++) writeFileSync(join(wt, `artifacts/shot-${String(i).padStart(2, "0")}.txt`), "x\n");
+    mkdirSync(join(wt, "src"), { recursive: true });
+    writeFileSync(join(wt, "src/new.ts"), "one\ntwo\nthree\n");
+    ctx.appendImportedMessages(topic.sessionKey, [writeTurn(join(wt, "src/new.ts"))]);
+
+    const body = await changes();
+    const written = body.files.find((f) => f.path === "src/new.ts");
+    expect(written).toMatchObject({ kind: "created", added: 3, removed: 0, turns: 1 });
+  });
+
+  test("a worktree topic no task owns reads its own worktree's range: shell writes show up", async () => {
+    // A sub-agent's isolated worktree, a fan-out attempt, a card released
+    // back to the queue: the topic has a branch of its own and no task row.
+    const { ctx, wt, topic, changes } = await liveWorktreeTopic(`no-task-${Date.now()}`, false);
+    mkdirSync(join(wt, "src"), { recursive: true });
+    writeFileSync(join(wt, "src/a.ts"), "alpha\nbeta\n");
+    git(wt, "add", "-A");
+    git(wt, "commit", "-qm", "sub-agent work");
+    writeFileSync(join(wt, "notes.md"), "x\ny\n");
+    ctx.appendImportedMessages(topic.sessionKey, [writeTurn(join(wt, "src/a.ts"))]);
+
+    const body = await changes();
+    expect(body.git?.root).toBe(wt);
+    expect(body.files.map((f) => f.path).sort()).toEqual(["notes.md", "src/a.ts"]);
+    const byPath = Object.fromEntries(body.files.map((f) => [f.path, f]));
+    expect(byPath["src/a.ts"]).toMatchObject({ kind: "created", added: 2, removed: 0, turns: 1 });
+    expect(byPath["notes.md"]).toMatchObject({ kind: "created", added: 2, removed: 0, turns: 0 });
+    // No task, no drawer to open them in.
+    expect(body.taskId).toBeUndefined();
   });
 });

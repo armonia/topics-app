@@ -6,7 +6,8 @@
  * in a git repo, crosses them with `git status` and `git diff --numstat`
  * LIMITED to those paths: the answer is what THIS conversation did, not the
  * state of the whole repository. On a topic a task was dispatched to, the
- * task's own diff range (the drawer's) gives the files instead, so shell and
+ * task's own diff range (the drawer's) gives the files instead, and on a topic
+ * bound to a live worktree no task owns, that worktree's own range: shell and
  * sub-agent writes show up too.
  */
 
@@ -27,6 +28,14 @@ export interface TopicChangedFile {
   removed?: number;
   /** git counts no line of a binary file: it prints `-`, not `0`. */
   binary?: boolean;
+  /**
+   * Counted on the topic's diff range (its task's, or its worktree's own)
+   * rather than against the checkout's HEAD. The editor's diff compares HEAD
+   * with the disk, so on these rows it would show a different change: they
+   * open in the task's drawer, which draws the same range. Absent on a row
+   * only the tool calls gave.
+   */
+  inRange?: boolean;
 }
 
 export interface TopicChangesGit {
@@ -42,4 +51,6 @@ export interface TopicChanges {
   files: TopicChangedFile[];
   /** `null` when the topic has no folder, or its folder is not a repo. */
   git: TopicChangesGit | null;
+  /** The task whose diff range gave the rows marked `inRange`. */
+  taskId?: string;
 }
