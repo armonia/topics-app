@@ -464,6 +464,15 @@ test.describe("Chat waiting on background work", () => {
     await expect(line).toHaveAttribute("data-stale", "true", { timeout: 20_000 });
     await expect(line).toContainText("Verifica build");
     await expect(line).toContainText(/nessuna notizia da 1\dm/);
+
+    // AT A PHONE'S WIDTH THE NAMES KEEP THEIR ROOM: they are what the line is
+    // for. The strip is sized as on a 375px phone, less its `mx-2`; the label
+    // and the stale readout both hold their text, and on one row they left the
+    // names no room at all and ran past the edge. The readout goes below instead.
+    await line.evaluate((el) => { (el as HTMLElement).style.width = "359px"; });
+    const names = line.getByTestId("background-work-names");
+    expect(await names.evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThanOrEqual(96);
+    expect(await line.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
   });
 
   test("when the poll stops reporting the work, the line and the glyph go", async ({ page, chatPage }) => {
