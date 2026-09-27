@@ -42,13 +42,16 @@ export function backgroundNoticeOf(blocks: readonly ContentBlock[] | undefined |
   return b && b.kind === 'background-notice' ? b : null;
 }
 
-/** Indexed by what came off the wire: a server newer than this client can send a reason it does not know. */
+/**
+ * Every reason this client knows has its sentence, or it does not compile.
+ * Read through a wider view: a server newer than this client can send one it does not know.
+ */
 const CLOSED_KEY: Readonly<Record<string, string | undefined>> = {
   silent: 'background.notice.closed',
   'stuck-turn': 'background.notice.closedWithTurn',
   deadline: 'background.notice.closedDeadline',
   superseded: 'background.notice.closedSuperseded',
-};
+} satisfies Record<NonNullable<Extract<BackgroundNoticeBlock, { event: 'closed' }>['why']>, string>;
 
 /** The notice's sentence: its own line (`BackgroundNoticeLine`) and the stop line that carries a closed one (`MachineStopLine`). */
 export function backgroundNoticeSentence(tr: ReturnType<typeof useT>, notice: BackgroundNoticeBlock): string {
