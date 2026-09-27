@@ -29,6 +29,7 @@ import { branchStatusFromRepo } from "./branch-status";
 import { abandonNoticeFromRepo } from "./worktree-abandon-notice";
 import { formatMb, parseSlimSkip, slimWorktree } from "./worktree-slim";
 import { commitWorktreeResidue } from "./worktree-residue";
+import { isTopicsSpawned } from "../lib/ghost-script";
 
 /**
  * Tutto cio' che la potatura chiede al resto del server, dichiarato.
@@ -415,7 +416,7 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       if (deps.listOwnedScripts) {
         const base = wt.absPath.endsWith("/") ? wt.absPath : wt.absPath + "/";
         return deps.listOwnedScripts().some((s) => {
-          if ((s.source !== "script" && s.source != null) || s.status !== "running" || !s.pid) return false;
+          if (!isTopicsSpawned(s.source) || s.status !== "running" || !s.pid) return false;
           return s.projectPath === wt.absPath || s.projectPath.startsWith(base);
         });
       }

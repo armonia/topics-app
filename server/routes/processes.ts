@@ -3,6 +3,7 @@ import { appendFile as appendFileAsync, readFile as readFileAsync, writeFile as 
 import { homedir } from "os";
 import { join, relative, sep } from "path";
 import { isInsideDir } from "../lib/path-containment";
+import { isTopicsSpawned, type OwnedScript } from "../lib/ghost-script";
 import type { AppContext, RouteHandler } from "../types";
 import { appendToLogBuffer, flushLogBuffer, sliceFromCursor } from "../lib/log-cursor";
 import { detectScripts, resolveScript, MANIFESTS } from "../lib/project-scripts";
@@ -754,19 +755,20 @@ function invalidateScriptsCache() {
 // Esportata per i test: è la lista che viaggia sulla WS, e deve dire le stesse
 // cose della risposta HTTP — se le due divergono la divergenza si vede solo dal vivo.
 /**
- * Restituisce gli script avviati da Topics (source:"script") ancora in esecuzione,
- * con pid, pidLstart e projectPath. Usato da worktree-manager per trovare i
- * processi da spegnere prima di rimuovere una worktree (Punto 1 task e3240a22).
+ * The processes Topics itself spawned that are still running (manifest scripts
+ * and `run_command`s), with pid, pidLstart and projectPath. The worktree guards
+ * read it: the eviction before a removal (worktree-manager, point 1 of task
+ * e3240a22), the GC's «something alive inside» (point 3) and the ghost reaper.
  */
-export function listOwnedScripts(): import("../lib/ghost-script").OwnedScript[] {
+export function listOwnedScripts(): OwnedScript[] {
   return Array.from(runningScripts.values())
-    .filter(sp => (sp.source === "script" || !sp.source) && sp.status === "running" && sp.pid)
+    .filter(sp => isTopicsSpawned(sp.source) && sp.status === "running" && sp.pid)
     .map(sp => ({
       processId: sp.processId,
       pid: sp.pid,
       pidLstart: sp.pidLstart,
       projectPath: sp.projectPath,
-      source: (sp.source ?? "script") as "script",
+      source: sp.cmd ? "command" as const : "script" as const,
       status: sp.status,
     }));
 }
@@ -1512,7 +1514,7 @@ async function reapGhostScripts(ctx: AppContext): Promise<boolean> {
 
   // Candidati: script registrati con projectPath sotto la base dei worktree
   const candidates = [...runningScripts.values()].filter(sp => {
-    if ((sp.source !== "script" && sp.source != null) || sp.status !== "running" || !sp.pid) return false;
+    if (!isTopicsSpawned(sp.source) || sp.status !== "running" || !sp.pid) return false;
     return isInsideDir(sp.projectPath, wtBase);
   });
   if (candidates.length === 0) return false;

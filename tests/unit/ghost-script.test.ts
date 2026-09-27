@@ -13,7 +13,7 @@
   * @covers PROCESS-11
  */
 import { describe, it, expect } from "bun:test";
-import { isGhostScript, hasRunningScriptsInWorktree } from "../../server/lib/ghost-script";
+import { isGhostScript, hasRunningScriptsInWorktree, isTopicsSpawned } from "../../server/lib/ghost-script";
 
 const BASE = "/home/user/.topics/worktrees";
 
@@ -62,6 +62,11 @@ describe("isGhostScript", () => {
 
   it("source 'shell' → NO", () => {
     expect(isGhostScript(makeOpts({ source: "shell" }))).toBe(false);
+  });
+
+  // A `run_command` process is Topics' own child exactly like a manifest script.
+  it("source 'command' → YES, a run_command is Topics' own", () => {
+    expect(isGhostScript(makeOpts({ source: "command" }))).toBe(true);
   });
 
   it("status 'done' → NO (non sta girando)", () => {
@@ -124,6 +129,15 @@ describe("hasRunningScriptsInWorktree", () => {
     })).toBe(false);
   });
 
+  // The GC slimmed, committed or removed a worktree with a run_command still
+  // running inside: the guard only knew manifest scripts.
+  it("a run_command running in the worktree → true", () => {
+    expect(hasRunningScriptsInWorktree({
+      scripts: [{ processId: "1", pid: 100, projectPath: WPATH, source: "command", status: "running" }],
+      worktreePath: WPATH,
+    })).toBe(true);
+  });
+
   it("script done → false", () => {
     expect(hasRunningScriptsInWorktree({
       scripts: [{ processId: "1", pid: 100, projectPath: WPATH, source: "script", status: "done" }],
@@ -136,5 +150,18 @@ describe("hasRunningScriptsInWorktree", () => {
       scripts: [{ processId: "1", pid: 100, projectPath: BASE + "/dancerooms/nascent-tamarind", source: "script", status: "running" }],
       worktreePath: WPATH,
     })).toBe(false);
+  });
+});
+
+describe("isTopicsSpawned", () => {
+  it("a manifest script, a run_command, and a row older than the field are Topics' own", () => {
+    expect(isTopicsSpawned("script")).toBe(true);
+    expect(isTopicsSpawned("command")).toBe(true);
+    expect(isTopicsSpawned(undefined)).toBe(true);
+  });
+
+  it("a detected process and a shell of the CLI are somebody else's", () => {
+    expect(isTopicsSpawned("detected")).toBe(false);
+    expect(isTopicsSpawned("shell")).toBe(false);
   });
 });

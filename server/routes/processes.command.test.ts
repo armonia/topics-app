@@ -15,7 +15,7 @@ import { join } from "path";
 const STATE = mkdtempSync(join(tmpdir(), "topics-cmd-state-"));
 const previousDataDir = process.env.DATA_DIR;
 process.env.DATA_DIR = STATE;
-const { createProcessesRouter } = await import("./processes");
+const { createProcessesRouter, listOwnedScripts } = await import("./processes");
 if (previousDataDir === undefined) delete process.env.DATA_DIR;
 else process.env.DATA_DIR = previousDataDir;
 
@@ -144,6 +144,23 @@ describe("POST /api/sessions/:sessionKey/commands/run", () => {
     const resp = await call(makeRouter(), "POST", `/api/sessions/${encodeURIComponent(TOPIC.sessionKey)}/scripts/run`, { scriptName: "echo hi" });
     expect(resp.status).toBe(400);
     expect((await resp.json() as { available: string[] }).available).toEqual(["package.json#dev"]);
+  });
+
+  // The worktree guards (the GC's «something alive inside», the eviction before
+  // a removal, the ghost reaper) all read this list: a command missing from it
+  // let a worktree be slimmed, committed or removed while it ran in there.
+  test("a running command is one of Topics' own processes for the worktree guards", async () => {
+    const router = makeRouter();
+    const { processId, pid } = await (await run(router, { command: "sleep 5" })).json() as { processId: string; pid: number };
+    try {
+      expect(listOwnedScripts().find((s) => s.processId === processId)).toMatchObject({
+        pid, projectPath: PROJECT, source: "command", status: "running",
+      });
+    } finally {
+      await call(router, "POST", `/api/scripts/${processId}/stop`);
+      await until(() => rowOf(router, processId), (r) => r?.status !== "running");
+    }
+    expect(listOwnedScripts().find((s) => s.processId === processId)).toBeUndefined();
   });
 
   test("Stop ends the command and its children, and the row says stopped", async () => {

@@ -46,7 +46,7 @@ import { topicsHome } from "./daemon-state";
 import { installArgv, missingPackageManager } from "../lib/project-scripts";
 import type { LifecycleHookRunner } from "./lifecycle-hooks";
 import { join, resolve } from "node:path";
-import type { OwnedScript } from "../lib/ghost-script";
+import { isTopicsSpawned, type OwnedScript } from "../lib/ghost-script";
 import type { NotificationRecordInput } from "../../shared/notification-log";
 
 export class WorktreeRefusalError extends Error {
@@ -207,7 +207,7 @@ export function createWorktreeManager(
     const armed = process.env.TOPICS_GHOST_REAP === "1";
     const base = wtPath.endsWith("/") ? wtPath : wtPath + "/";
     const owned = gcDeps.listOwnedScripts().filter(s => {
-      if (s.source !== "script" || s.status !== "running" || !s.pid) return false;
+      if (!isTopicsSpawned(s.source) || s.status !== "running" || !s.pid) return false;
       const p = s.projectPath;
       return p === wtPath || p.startsWith(base);
     });
