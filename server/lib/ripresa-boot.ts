@@ -266,10 +266,9 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   const cause = (r.blocks[lastCut] as { cause?: unknown }).cause;
   if (wakeCutByOutage(cause, r.blocks)) return "no";
   // A CARD IN PROGRESS OWNS ITS TURNS THAT ENDED IN ERROR: the dispatcher's
-  // `onTurnEnd` resumes each one as a lean continuation once its backoff, or
-  // the plan's wall, is over. Resent from here too, the card ran its envelope
-  // again at full context and the dispatcher's own resume met a 409 behind it
-  // (fifth review of card e30f35e4). Its cuts that are ours keep main's rule.
+  // `onTurnEnd` resumes each one, lean, past its backoff. Resent from here too,
+  // the card ran its envelope again at full context, and the dispatcher's own
+  // resume met a 409 behind it. Its cuts that are ours keep main's rule.
   if (r.cardInProgress && isOutsideCause(cause)) return "no";
   // ANSWERED AFTER THE CUT. A late answer of a closed turn is saved on its own
   // row, under the verdict: prose or a tool after the LAST verdict means the
@@ -438,6 +437,10 @@ function latestEnd(a: RecordedTurnEnd | undefined, b: RecordedTurnEnd | undefine
  *  without it a stopped chat would repeat the same line every sweep for a day. */
 const stopsLogged = new Map<string, number>();
 
+/** The row and hold kind a deferral was said for, per session: a weekly hold
+ *  said it for every cut chat at every sweep, for days. */
+const heldLogged = new Map<string, string>();
+
 /** The row whose queued-send line was already said, per session. An episode
  *  ends at the first sweep that finds the provider idle, or when the cut row
  *  changes: a chat that never goes idle can get stuck again on a new row, and
@@ -455,8 +458,7 @@ function cardHold(db: Pick<Database, "query">, topicId: string): { bound: boolea
           AND (status IN ('todo','in_progress','review','done') OR archived = 1)`,
     ).all(topicId) as Array<{ status: string; archived: number }>;
     const onBoard = cards.some((c) => !c.archived && c.status !== "done");
-    const inProgress = cards.some((c) => !c.archived && c.status === "in_progress");
-    return { bound: cards.length > 0, landed: cards.length > 0 && !onBoard, inProgress };
+    return { bound: cards.length > 0, landed: cards.length > 0 && !onBoard, inProgress: cards.some((c) => !c.archived && c.status === "in_progress") };
   } catch { return { bound: false, landed: false, inProgress: false }; }
 }
 
@@ -658,14 +660,14 @@ export async function riprendiTurniInterrotti(
         }
         continue;
       }
-      // A HOLD DEFERS THE CHATS IT WALLS, the boot's sweep included: after a
-      // reload mid-blackout the hold comes back from disk, and the boot resent
-      // every cut Claude chat into it. Only its own provider's: a Codex chat
-      // cut by the same reload has no other sweep to resume it while a Claude
-      // hold stands (server.ts holds the periodic one and the nudge).
+      // A HOLD DEFERS THE CHATS IT WALLS, in every sweep: after a reload
+      // mid-blackout the hold comes back from disk, and the boot resent every
+      // cut Claude chat into it. Only its own provider's: a Codex chat is not
+      // held by the Claude API being down. Said once per row and hold kind.
       const holdKey = providerHoldKey(topic.provider || ctx.defaultProvider?.() || "claude-code");
       const hold = holdKey ? providerHold(ora, holdKey) : null;
-      if (hold) { console.log(`[ripresa] ${r.sk}: rinviato, ${hold.reason}`); continue; }
+      if (hold && heldLogged.get(r.sk) !== `${r.id}:${hold.window}`) console.log(`[ripresa] ${r.sk}: rinviato, ${hold.reason}`);
+      if (hold) { heldLogged.set(r.sk, `${r.id}:${hold.window}`); continue; }
       // A person's message that predates this process lived through a restart:
       // the fallback evidence for their notices when no cause is known. Unless
       // a turn ended for it after the boot: then its answer started after the

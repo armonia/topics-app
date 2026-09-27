@@ -158,10 +158,10 @@ describe("a card in progress whose turn ended in error", () => {
  * A HOLD WALLS ITS OWN PROVIDER'S CHATS, not the sweep. Only claude-code
  * survives a reload (`providerSurvivesRestart`), so a Codex chat in flight is
  * cut `server-shutdown` at every save under server/, under a notice promising
- * it resumes by itself; with a Claude hold in force the boot's sweep is the
- * only one that runs (server.ts holds the periodic one and the nudge). A
- * Claude hold of days (a spent weekly window) deferring the whole boot sweep
- * left that chat stopped past the 24-hour window, for good.
+ * it resumes by itself. A Claude hold of days (a spent weekly window)
+ * deferring the whole boot sweep left that chat stopped past the 24-hour
+ * window, for good. The periodic sweep and the nudge reach the same per-chat
+ * rule (`resume-sweep-clock.test.ts`).
  */
 describe("the boot sweep under a Claude hold", () => {
   const RESTART = "Turno interrotto: il server si è riavviato mentre la risposta era in corso. Riprendo da solo: non serve che tu faccia niente.";

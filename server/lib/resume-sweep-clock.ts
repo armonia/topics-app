@@ -10,11 +10,15 @@
  *
  * THE SWEEP RUNS EARLY WHEN A CUT JUST HAPPENED. The periodic tick is what
  * makes "riprende da solo" true at all; the nudge is what makes it true within
- * seconds instead of within five minutes. One pending nudge at a time, and a
- * hold in force still wins: a resend into a spent usage window is a 429 and
- * one of the chain's attempts burnt for nothing.
+ * seconds instead of within five minutes. One pending nudge at a time.
+ *
+ * A HOLD DOES NOT STOP EITHER CLOCK. It walls its own provider's chats, and
+ * the sweep defers those one by one: a resend into a spent usage window is a
+ * 429 and one of the chain's attempts burnt for nothing. Stopping the whole
+ * sweep on the Claude hold also stopped a Codex chat cut by the stale sweeper,
+ * under a notice promising it resumes within minutes, for as long as the
+ * Claude API was down (fifth review of card e30f35e4).
  */
-import { holdUntilLabel, providerHold } from "./provider-hold";
 
 const RESUME_SWEEP_MS = 5 * 60_000;
 const RESUME_NUDGE_MS = 20_000;
@@ -37,7 +41,6 @@ export function createResumeSweepClock(
     if (pendingNudge || stopped) return;
     pendingNudge = setTimeout(() => {
       pendingNudge = null;
-      if (providerHold()) return;
       sweep().catch((err) => console.error("[ripresa] nudged sweep failed", err));
     }, nudgeMs);
     pendingNudge.unref?.();
@@ -46,15 +49,6 @@ export function createResumeSweepClock(
   function start(): void {
     if (stopped) return;
     tick = setTimeout(() => {
-      // The plan's usage window is spent: a resend now would end on the same
-      // 429 and spend one of the chain's attempts for nothing. The sweep after
-      // the reset picks the same rows up.
-      const hold = providerHold();
-      if (hold) {
-        console.log(`[ripresa] sweep rinviato: ${hold.reason}, riparte alle ${holdUntilLabel(hold)}`);
-        start();
-        return;
-      }
       sweep()
         .catch((err) => console.error("[ripresa] periodic sweep failed", err))
         .finally(() => start());
