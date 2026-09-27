@@ -36,6 +36,7 @@ afterAll(() => { mock.module("./push-service", () => realPushService); });
 
 const { maybeSendPush, configurePushTriggers, isTopicSilenced } = await import("./push-triggers");
 import type { NotificationRecordInput } from "../shared/notification-log";
+import { avvisoPerTurno } from "./lib/cancelled-notice";
 
 /**
  * Finto "DB": la tabella dei topic e le AppSettings del server. I resolver
@@ -452,6 +453,16 @@ describe("maybeSendPush — turno morto (chat-error)", () => {
     maybeSendPush({ ...DEAD, stopCause: "api-unavailable", error: "⚠️ Turno interrotto: l'API di Claude non rispondeva più. Riprende da solo appena torna a rispondere." });
     maybeSendPush({ ...DEAD, stopCause: "broker-died", error: "⚠️ Turno interrotto: si è fermato il processo che ospitava l'agente (ai-bridge). Riprende da solo." });
     expect(pushCalls).toHaveLength(0);
+  });
+
+  test("the same outage on a wake is NOT muted: the sweep leaves it, and the chat stays stopped until someone writes", () => {
+    // `wakeCutByOutage`: the sweep leaves a woken row cut this way alone, and
+    // its notice asks the person to write again. Silent, nobody would know.
+    for (const cause of ["api-unavailable", "broker-died"] as const) {
+      const error = avvisoPerTurno({ end: "error", cause }, { haProdotto: true, riprendeDaSolo: false })!;
+      maybeSendPush({ ...DEAD, stopCause: cause, error });
+    }
+    expect(pushCalls).toHaveLength(2);
   });
 
   test("MUTA su topic archiviato, mutato o in progetto mutato: le stesse regole della risposta", () => {

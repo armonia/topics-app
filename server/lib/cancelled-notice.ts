@@ -313,6 +313,12 @@ export const API_UNAVAILABLE_NOTICE = `${API_UNAVAILABLE_OPENING} Riprende da so
 /** The notice for a turn whose ai-bridge daemon died under it (`broker-died`). */
 export const BROKER_DIED_NOTICE = `${BROKER_DIED_OPENING} Riprende da solo.`;
 
+/** Whether a turn's notice is an outage's that promises the resume: the same
+ *  outage on a wake asks the person instead (`wakeCutByOutage`). */
+export function outageNoticeResumes(text: string): boolean {
+  return text === API_UNAVAILABLE_NOTICE || text === BROKER_DIED_NOTICE;
+}
+
 /**
  * The notice for a turn that died with the API's limit still saturated after
  * every retry. Written by `avvisoPerTurno` in place of the raw "API 429 ..."
