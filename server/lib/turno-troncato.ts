@@ -121,21 +121,21 @@ export function spiegaTurnoTroncato(db: DbLike, sessionKey: string): boolean {
  *   nothing sent.
  */
 export async function settleReattachLeg(
-  end: {
+  /** The server's context: the frame goes through `broadcastToAll`, which filters guests. */
+  ctx: {
     db: DbLike;
-    /** The broker's word on the session's turn (the claude-code provider's `brokerTurnState`). */
-    brokerTurnState?(sessionKey: string): Promise<"open" | "idle" | "unknown"> | undefined;
     getTopicBySessionKey(sessionKey: string): { id: string } | null | undefined;
-    /** To every window (`ctx.broadcastToAll`, which filters guests). */
-    broadcast(msg: OutboundMessage): void;
+    broadcastToAll(msg: OutboundMessage): void;
   },
   sessionKey: string,
+  /** The broker's word on the session's turn (the claude-code provider's `brokerTurnState`). */
+  brokerTurnState: (sessionKey: string) => Promise<"open" | "idle" | "unknown"> | undefined,
 ): Promise<number> {
   try {
-    const state = await end.brokerTurnState?.(sessionKey)?.catch(() => "unknown" as const);
+    const state = await brokerTurnState(sessionKey)?.catch(() => "unknown" as const);
     if (state === "open") {
       try {
-        end.db.prepare(
+        ctx.db.prepare(
           "UPDATE messages SET partial = 1 WHERE id = (SELECT id FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC LIMIT 1)",
         ).run(sessionKey);
       } catch { /* at worst the next reattach opens a new row, as before */ }
@@ -144,12 +144,12 @@ export async function settleReattachLeg(
     }
   } catch { /* no answer from the broker: the rows are closed, as before */ }
   try {
-    const closed = end.db.prepare("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1")
+    const closed = ctx.db.prepare("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1")
       .run(sessionKey).changes as number;
     if (closed > 0) {
-      spiegaTurnoTroncato(end.db, sessionKey);
-      const topic = end.getTopicBySessionKey(sessionKey);
-      if (topic) end.broadcast(threadChangedFrame(topic));
+      spiegaTurnoTroncato(ctx.db, sessionKey);
+      const topic = ctx.getTopicBySessionKey(sessionKey);
+      if (topic) ctx.broadcastToAll(threadChangedFrame(topic));
     }
     return closed;
   } catch {

@@ -9,6 +9,8 @@
  * @covers INTERRUPT-01
  */
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { settleReattachLeg, èTroncato, TURNO_TRONCATO, spiegaTurnoTroncato } from "./turno-troncato";
 import type { ContentBlock } from "../types";
 import { Database } from "bun:sqlite";
@@ -101,11 +103,10 @@ describe("the end of a boot reattach leg", () => {
     const r = db.query(`SELECT partial, streamed_at, blocks FROM messages WHERE id = ?`).get(id) as { partial: number; streamed_at: string | null; blocks: unknown };
     return { partial: r.partial, streamedAt: r.streamed_at, blocks: JSON.parse(decodeCol(r.blocks) ?? "[]") as ContentBlock[] };
   };
-  const end = (db: Database, broker: () => Promise<"open" | "idle" | "unknown">, frames: unknown[]) => ({
+  const ctxOf = (db: Database, frames: unknown[]) => ({
     db: db as never,
-    brokerTurnState: broker,
     getTopicBySessionKey: () => ({ id: "t-x" }),
-    broadcast: (m: unknown) => { frames.push(m); },
+    broadcastToAll: (m: unknown) => { frames.push(m); },
   });
   const THREAD_CHANGED = { type: "topic:updated", topic: { id: "t-x" }, threadChanged: true };
 
@@ -113,7 +114,7 @@ describe("the end of a boot reattach leg", () => {
     const db = withRows();
     add(db, "cut", [testo("sto misurando"), tool()], 1);
     const frames: unknown[] = [];
-    expect(await settleReattachLeg(end(db, async () => "idle", frames), "topic:x")).toBe(1);
+    expect(await settleReattachLeg(ctxOf(db, frames), "topic:x", async () => "idle" as const)).toBe(1);
     const row = rowOf(db, "cut");
     expect(row.partial).toBe(0);
     expect(row.streamedAt).toBeNull();
@@ -125,7 +126,7 @@ describe("the end of a boot reattach leg", () => {
     const db = withRows();
     add(db, "cut", [testo("sto misurando"), tool()], 1);
     const frames: unknown[] = [];
-    expect(await settleReattachLeg(end(db, () => Promise.reject(new Error("socket gone")), frames), "topic:x")).toBe(1);
+    expect(await settleReattachLeg(ctxOf(db, frames), "topic:x", () => Promise.reject(new Error("socket gone")))).toBe(1);
     expect(rowOf(db, "cut").partial).toBe(0);
     expect(frames).toEqual([THREAD_CHANGED]);
   });
@@ -135,7 +136,7 @@ describe("the end of a boot reattach leg", () => {
     // The leg's finalize left `partial` off on a turn that goes on.
     add(db, "asking", [testo("devo chiederti una cosa"), tool()], 0);
     const frames: unknown[] = [];
-    expect(await settleReattachLeg(end(db, async () => "open", frames), "topic:x")).toBe(0);
+    expect(await settleReattachLeg(ctxOf(db, frames), "topic:x", async () => "open" as const)).toBe(0);
     const row = rowOf(db, "asking");
     expect(row.partial).toBe(1);
     expect(row.blocks.some((b) => b.kind === "error")).toBe(false);
@@ -146,8 +147,34 @@ describe("the end of a boot reattach leg", () => {
     const db = withRows();
     add(db, "done", [testo("sto misurando"), tool()], 0);
     const frames: unknown[] = [];
-    expect(await settleReattachLeg(end(db, async () => "idle", frames), "topic:x")).toBe(0);
+    expect(await settleReattachLeg(ctxOf(db, frames), "topic:x", async () => "idle" as const)).toBe(0);
     expect(rowOf(db, "done").blocks.some((b) => b.kind === "error")).toBe(false);
     expect(frames).toEqual([]);
+  });
+});
+
+/**
+ * AND server.ts ENDS EVERY LEG THERE. The tests above drive the helper; its one
+ * caller is the `.finally` of the boot reattach leg (`reattachSurvivingChatTurns`),
+ * which runs only when a broker child survived a restart, and no test server
+ * has one. So the wiring is pinned by reading the source, as
+ * `swap-freeze.wiring.test.ts` does: without the call the rows stay open and
+ * unexplained, and with a context other than the server's the windows are not
+ * told. The two-window e2e the card asks for stays out for the same reason
+ * (triage of card edf3c4db).
+ */
+describe("the boot reattach leg is settled by settleReattachLeg", () => {
+  test("its `.finally` passes the server's context and the broker's word", () => {
+    const server = readFileSync(join(import.meta.dir, "../../server.ts"), "utf8");
+    const start = server.indexOf("async function reattachSurvivingChatTurns(");
+    expect(start, "reattachSurvivingChatTurns is gone from server.ts").toBeGreaterThan(-1);
+    const body = server.slice(start, server.indexOf("\n}\n", start));
+    const leg = body.indexOf("runHeadlessReattach(s.id");
+    expect(leg, "the reattach leg is gone").toBeGreaterThan(-1);
+    const legEnd = body.indexOf("continue;", leg);
+    const settle = body.indexOf(".finally(() => settleReattachLeg(ctx, s.id,", leg);
+    expect(settle, "the leg's end does not call settleReattachLeg(ctx, s.id, ...)").toBeGreaterThan(-1);
+    expect(settle, "settleReattachLeg is not on the leg's own chain").toBeLessThan(legEnd);
+    expect(body.slice(settle, legEnd)).toContain("brokerTurnState?.(sk)");
   });
 });

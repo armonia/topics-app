@@ -5417,12 +5417,8 @@ async function reattachSurvivingChatTurns(): Promise<void> {
         .catch((err) => console.warn(`[chat-reattach] ${s.id} failed:`, err?.message ?? err))
         // The leg is over, the turn may not be: the broker is asked again, and
         // the rows are kept live, or closed, explained and announced.
-        .finally(() => settleReattachLeg({
-          db: ctx.db,
-          brokerTurnState: (sk) => (tryGetProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined)?.brokerTurnState?.(sk),
-          getTopicBySessionKey: (sk) => ctx.getTopicBySessionKey(sk),
-          broadcast: (msg) => ctx.broadcastToAll(msg),
-        }, s.id));
+        .finally(() => settleReattachLeg(ctx, s.id, (sk) =>
+          (tryGetProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined)?.brokerTurnState?.(sk)));
       continue;
     }
     // Idle / archived / deleted-topic session: reap. Guard against a send
