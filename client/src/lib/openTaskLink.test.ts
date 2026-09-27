@@ -12,6 +12,7 @@ import {
   reflectTaskFocus,
   subscribePopstateTask,
   openTaskInApp,
+  pendingTaskFocus,
   parseTopicLocation,
   selfTopicLinkTarget,
 } from './openTaskLink';
@@ -427,6 +428,19 @@ describe('openTaskInApp / openTaskFromUrl', () => {
     expect(events.map((e) => e.type)).toEqual(['topics:open-utility', 'topics:open-task']);
     expect(events[0].detail).toEqual({ type: 'board' });
     expect(events[1].detail).toEqual({ taskId: 't1' });
+  });
+
+  test('openTaskInApp with a focus carries it, and holds it for a board not mounted yet', () => {
+    const { events } = stubWindow(`${origin}/`);
+    openTaskInApp({ taskId: 't1' }, 'diff:src/a.ts');
+    expect(events[1].detail).toEqual({ taskId: 't1', focusPaneId: 'diff:src/a.ts' });
+    // The event reaches nobody when the board mounts after it: the URL gives
+    // the board the task, and this gives it the file.
+    expect(pendingTaskFocus('t1')).toBe('diff:src/a.ts');
+    expect(pendingTaskFocus('t2')).toBeNull();
+    // The next opening without a focus is a new gesture: nothing carries over.
+    openTaskInApp({ taskId: 't1' });
+    expect(pendingTaskFocus('t1')).toBeNull();
   });
 
   test('openTaskFromUrl opens on a /task path, and does NOT strip it', () => {

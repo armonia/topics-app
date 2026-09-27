@@ -6,7 +6,10 @@
  * or you opened a terminal and ran `git status`, which answers a wider
  * question (everything dirty in the repo, whoever did it). The chip counts the
  * files THIS topic wrote and opens the list; a row opens the file's diff in the
- * editor pane, the same one the project's git panel opens.
+ * editor pane, the same one the project's git panel opens. A row counted on the
+ * task's diff range opens in the task's drawer instead: the editor compares
+ * HEAD with the disk, which after a land is empty and in the shared checkout
+ * is somebody else's work, while the drawer draws the range the counts came from.
  *
  * Silent by construction: a topic that wrote nothing renders nothing, so the
  * chip is a signal and not decoration.
@@ -27,6 +30,8 @@ import { useTopicChanges } from '../../hooks/useTopicChanges';
 import { ChangedFileList } from '../Git/ChangedFileList';
 import { rowFromTopicChange, type ChangedFileRow } from '../Git/changedFiles';
 import { branchLabelFor } from '../../lib/changesStripBranch';
+import { openTaskInApp } from '../../lib/openTaskLink';
+import { diffFocusFor } from '../Board/constants';
 import { CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
 import type { Topic, WSMessage } from '../../types';
 
@@ -47,8 +52,14 @@ export function ChangedFilesStrip({ topic, onWSMessage }: ChangedFilesStripProps
   // The strip speaks the wire shape of `/topics/:id/changes`; the list speaks
   // the one shape every surface draws (`Git/changedFiles`).
   const rows = useMemo(() => files?.map(rowFromTopicChange) ?? [], [files]);
+  const inRange = useMemo(() => new Set(files?.filter((f) => f.inRange).map((f) => f.path)), [files]);
+  const taskId = changes?.taskId;
 
   const openDiff = useCallback((file: ChangedFileRow) => {
+    if (taskId && inRange.has(file.path)) {
+      openTaskInApp({ taskId }, diffFocusFor(file.path));
+      return;
+    }
     if (!root) return;
     // Same bus the project's git panel uses (`components/Project/GitChanges`):
     // the diff opens as a pane in the editor, deduplicated by file path.
@@ -56,7 +67,7 @@ export function ChangedFilesStrip({ topic, onWSMessage }: ChangedFilesStripProps
     window.dispatchEvent(new CustomEvent(event, changes?.git
       ? { detail: { filePath: file.path, projectPath: root } }
       : { detail: { path: file.path } }));
-  }, [changes, root]);
+  }, [changes, root, taskId, inRange]);
 
   if (!rows.length) return null;
 

@@ -18,7 +18,7 @@ import type { Topic, WSMessage } from '../../types';
 import { Menu } from '../Shared/Menu';
 import { Spinner } from '../Shared/Spinner';
 import { useTaskModelCatalog } from '../../hooks/useTaskModelCatalog';
-import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, reflectTaskFocus, subscribePopstateTask } from '../../lib/openTaskLink';
+import { currentTaskTarget, pendingTaskFocus, reflectTaskOpen, reflectTaskClose, reflectTaskFocus, subscribePopstateTask } from '../../lib/openTaskLink';
 import { DEAD_TAB_MESSAGE } from '../../lib/tabLink';
 import { useToast } from '../Shared/Toast';
 import { usePaneStore } from '../../state/pane/store';
@@ -695,7 +695,12 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // Quale tab del task mettere davanti all'apertura, quando ad aprirlo è stato
   // un gesto mirato (il bottone «apri in una tab» sull'anteprima della card).
   // Si azzera a ogni altra apertura: vale per QUEL click, non è uno stato.
-  const [pendingPaneId, setPendingPaneId] = useState<string | null>(null);
+  // A deep-link that asked for a focus (a row of the chat's changed-files
+  // strip) hands it over here when the board mounts after the event.
+  const [pendingPaneId, setPendingPaneId] = useState<string | null>(() => {
+    const target = global ? currentTaskTarget() : null;
+    return target ? pendingTaskFocus(target.taskId) : null;
+  });
   // THE COORDINATOR, while it is open: its Topic. It sits next to `selectedId`
   // because it answers the same question — what is in the drawer — and the two
   // are mutually exclusive: both are in-flow siblings of the columns, and
@@ -759,8 +764,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   useEffect(() => {
     if (!global) return;
     const onOpenTask = (e: Event) => {
-      const id = (e as CustomEvent<{ taskId?: string }>).detail?.taskId;
-      if (id) setPendingSelect(id);
+      const detail = (e as CustomEvent<{ taskId?: string; focusPaneId?: string }>).detail;
+      if (!detail?.taskId) return;
+      setPendingSelect(detail.taskId);
+      setPendingPaneId(detail.focusPaneId ?? null);
     };
     window.addEventListener('topics:open-task', onOpenTask as EventListener);
     return () => window.removeEventListener('topics:open-task', onOpenTask as EventListener);
