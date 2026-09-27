@@ -793,7 +793,7 @@ export async function riprendiTurniInterrotti(
     } finally {
       // A resend with no answer has no end to reload the traced row; a fresh notice went out traced (card edf3c4db).
       const topic = !resumed && !c.fresh ? ctx.getTopicBySessionKey(c.sessionKey) : null;
-      if (topic?.id) ctx.broadcast?.(threadChangedFrame({ ...topic, id: topic.id }));
+      if (topic?.id) ctx.broadcast?.(threadChangedFrame({ ...topic, id: topic.id }, c.sessionKey));
     }
   }
 }

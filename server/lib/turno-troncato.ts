@@ -149,7 +149,7 @@ export async function settleReattachLeg(
     if (closed > 0) {
       spiegaTurnoTroncato(ctx.db, sessionKey);
       const topic = ctx.getTopicBySessionKey(sessionKey);
-      if (topic) ctx.broadcastToAll(threadChangedFrame(topic));
+      if (topic) ctx.broadcastToAll(threadChangedFrame(topic, sessionKey));
     }
     return closed;
   } catch {

@@ -108,7 +108,8 @@ describe("the end of a boot reattach leg", () => {
     getTopicBySessionKey: () => ({ id: "t-x" }),
     broadcastToAll: (m: unknown) => { frames.push(m); },
   });
-  const THREAD_CHANGED = { type: "topic:updated", topic: { id: "t-x" }, threadChanged: true };
+  // With the session key: the open pane reconciles by it, and drops a frame without one.
+  const THREAD_CHANGED = { type: "topic:updated", topic: { id: "t-x", sessionKey: "topic:x" }, threadChanged: true };
 
   test("the broker says the turn is over: the row is closed, explained, and the open windows told once", async () => {
     const db = withRows();

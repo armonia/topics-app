@@ -196,6 +196,7 @@ export function restartNotificationFrame(
  * chat in the last 5 s, and at boot every window has just read it on
  * reconnect (card edf3c4db).
  */
-export function threadChangedFrame(topic: { id: string }): OutboundMessage {
-  return { type: "topic:updated", topic, threadChanged: true };
+export function threadChangedFrame(topic: { id: string }, sessionKey: string): OutboundMessage {
+  // The open pane reconciles by the topic's session key and drops a frame without one.
+  return { type: "topic:updated", topic: { ...topic, sessionKey }, threadChanged: true };
 }

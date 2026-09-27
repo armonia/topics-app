@@ -346,7 +346,8 @@ describe("una route che non risponde non pianta il boot", () => {
       { db, getTopicBySessionKey: () => ({ id: "t-x", archived: false }), broadcast: (m) => { frames.push(m); } },
       () => Response.json({ error: "Provider unavailable", code: "provider_unavailable" }, { status: 503 }),
     ));
-    expect(frames).toEqual([{ type: "topic:updated", topic: { id: "t-x", archived: false }, threadChanged: true }]);
+    // With the session key: the open pane reconciles by it, and drops a frame without one.
+    expect(frames).toEqual([{ type: "topic:updated", topic: { id: "t-x", archived: false, sessionKey: "topic:x" }, threadChanged: true }]);
   });
 
   test("a resend that answers leaves the row to the frames of its own turn", async () => {
@@ -496,6 +497,17 @@ describe("la catena dei riavvii ha un tetto", () => {
     // same row the frame drew.
     expect(frames[0]!.blocks).toEqual(blocksOf(notice.blocks));
     expect(blocksOf(notice.blocks).some((b) => b.kind === "ripreso")).toBe(true);
+  });
+
+  test("a notice written this sweep, whose resend the route refused, goes out once: its own frame already carries the trace", async () => {
+    const db = freshDb();
+    db.run("UPDATE messages SET timestamp = ? WHERE id = 'u0'", [new Date(Date.now() - 5 * 60_000).toISOString()]);
+    const frames: Array<Record<string, unknown>> = [];
+    await quietly(() => riprendiTurniInterrotti(
+      { db, getTopicBySessionKey: () => ({ id: "t-x", archived: false }), bootedAtMs: Date.now(), broadcast: (m) => { frames.push(m as Record<string, unknown>); } },
+      () => Response.json({ error: "Provider unavailable", code: "provider_unavailable" }, { status: 503 }),
+    ));
+    expect(frames.map((f) => f.type)).toEqual(["message:new"]);
   });
 
   /**
