@@ -216,6 +216,28 @@ describe("the end of a command reaches the topic that launched it", () => {
     await processExitWakesIdle();
   });
 
+  // The turn can end while its request stays open: the native runtime did not
+  // close it on a Stop, and a CLI's bridge ignores the cancellation of a tool
+  // call. The watch outlived its turn, and a command ending in that window
+  // counted as waited for: the outcome went to a turn that was over.
+  test("a wait left open by a turn that is over does not swallow the wake", async () => {
+    const topic = newTopic();
+    const send = await call(bench.chat, "POST", "/api/chat", { sessionKey: topic.sessionKey, messages: [{ role: "user", content: "wait on it" }] });
+    expect(send.status).toBe(200);
+    void send.body?.cancel().catch(() => {});
+    const { processId } = await runCommand(topic, "sleep 1; echo turn-over");
+    const waiting = call(bench.processes, "GET", `/api/sessions/${encodeURIComponent(topic.sessionKey)}/scripts/${processId}/wait?timeout_ms=10000`);
+    await Bun.sleep(200);
+    await finishTurn("stopped while waiting");
+
+    await until(() => exitRows(topic.sessionKey).length > 0);
+    expect(exitRows(topic.sessionKey)).toHaveLength(1);
+    expect(exitRows(topic.sessionKey)[0]!.content).toContain("turn-over");
+    await waiting;
+    await finishTurn();
+    await processExitWakesIdle();
+  });
+
   test("an archived topic gets nothing, and the outcome stays in the panel", async () => {
     const topic = newTopic();
     const { processId } = await runCommand(topic, "sleep 0.5; exit 1");

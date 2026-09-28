@@ -207,6 +207,16 @@ export function isWatchedBySession(processId: string, sessionKey: string): boole
   return false;
 }
 
+/**
+ * The turn of `sessionKey` is over (`endStream`): nobody there takes an outcome
+ * any more. Its request can stay open after it, since a CLI's bridge ignores
+ * the cancellation of a tool call, and a watch that outlived its turn made the
+ * end of a command look already delivered: its wake went to nobody.
+ */
+export function closeWatchesOfSession(sessionKey: string): void {
+  for (const [id, w] of watches) if (w.sessionKey === sessionKey) watches.delete(id);
+}
+
 /** Quante attese sono aperte in tutto. Usato dai test e dalle diagnostiche. */
 export function countWatches(): number {
   return watches.size;
