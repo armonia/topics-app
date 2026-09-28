@@ -106,7 +106,10 @@ Il `.md` reso e' un file consegnato che nessuno ha ancora rivisto:
   l'origine dell'app. `FilePane` resta com'e';
 - un link con uno schema (`https:`, `mailto:`) SHALL aprirsi come ogni link
   dell'app, e un link relativo SHALL restare testo: nomina un file a quella
-  revisione, e seguito porterebbe via la pagina dell'app.
+  revisione, e seguito porterebbe via la pagina dell'app;
+- quello che il file disegna SHALL restare dentro il riquadro dell'anteprima:
+  un `style="position:fixed"`, o le classi dell'app (`fixed inset-0`), non
+  coprono la finestra e i suoi pulsanti (`contain: paint` sul riquadro).
 
 Sul worktree vivo «Anteprima» SHALL rileggersi quando il pacchetto riletto porta
 per quel file un blocco diverso, come «File intero».
@@ -130,6 +133,8 @@ per quel file un blocco diverso, come «File intero».
   `[regole](CONTRIBUTING.md)`
 - **WHEN** si apre «Anteprima»
 - **THEN** nell'anteprima non c'e' nessun `iframe`, e «regole» e' testo e non un link
+- **AND** un `<div style="position:fixed;inset:0">` del README sta dentro il
+  riquadro dell'anteprima
 
 ### Requirement: DIFFPV-04 — «File intero» sui file di testo
 

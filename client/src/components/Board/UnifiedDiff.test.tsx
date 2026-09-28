@@ -574,6 +574,22 @@ describe('a delivered .md, rendered, runs nothing and navigates nowhere (DIFFPV-
     expect(html).toContain('<details><summary>More</summary>kept</details>');
   });
 
+  test('what it draws stays inside the preview: the box contains every fixed or absolute box of the file', () => {
+    // A `style` or one of the app's own classes (`fixed inset-0`) would
+    // otherwise lay a box over the whole window, above the drawer and its buttons.
+    const html = renderToStaticMarkup(
+      <MarkdownPreview
+        content={'<div style="position:fixed;inset:0;z-index:2147483647">OVERLAY</div>\n\n<div class="fixed inset-0">CLASSED</div>\n'}
+        baseDir=""
+        resolveImage={() => null}
+        untrusted
+      />,
+    );
+    // Paint containment makes the preview the containing block of those boxes,
+    // their stacking context, and their clip.
+    expect(html).toMatch(/^<div class="[^"]*\bcontain-paint\b[^"]*">.*OVERLAY.*CLASSED/s);
+  });
+
   test('a relative link stays text, a web link is a link', () => {
     const html = renderToStaticMarkup(<MarkdownPreview content={readme} baseDir="" resolveImage={() => null} untrusted />);
     expect(html).not.toMatch(/<a [^>]*href="CONTRIBUTING\.md"/);

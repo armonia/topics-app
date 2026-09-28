@@ -49,8 +49,12 @@ const UNTRUSTED_COMPONENTS: Components = { ...markdownComponents, a: UntrustedLi
  * resolve against `baseDir` on disk as they always did.
  *
  * `untrusted`: a file someone else wrote and nobody has reviewed yet (a
- * delivery in the diff panel). Nothing in it runs and no link of it leaves the
- * app. `FilePane` shows the owner's own disk and renders as it always did.
+ * delivery in the diff panel). Nothing in it runs, no link of it leaves the
+ * app, and nothing it draws leaves its box: a `style="position:fixed"`, or
+ * the app's own `fixed inset-0` classes, would lay a box over the whole window
+ * and its buttons. Paint containment makes the preview the containing block,
+ * the stacking context and the clip of every box in it. `FilePane` shows the
+ * owner's own disk and renders as it always did.
  */
 export default function MarkdownPreview({ content, baseDir, resolveImage, untrusted = false }: {
   content: string;
@@ -61,7 +65,7 @@ export default function MarkdownPreview({ content, baseDir, resolveImage, untrus
   return (
     <MarkdownBaseDirContext.Provider value={baseDir}>
       <MarkdownImageResolverContext.Provider value={resolveImage ?? null}>
-        <div className="h-full overflow-auto px-6 py-4 prose dark:prose-invert prose-sm max-w-none prose-img:inline-block prose-img:my-1 prose-p:my-2">
+        <div className={`h-full overflow-auto px-6 py-4 prose dark:prose-invert prose-sm max-w-none prose-img:inline-block prose-img:my-1 prose-p:my-2${untrusted ? ' contain-paint' : ''}`}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeRaw]}

@@ -248,10 +248,11 @@ test.describe.serial("Board · il pannello Modifiche", () => {
     imagesBranch = wtI.branchName;
     writeFileSync(`${wtI.absPath}/assets/logo.png`, png(3, 2, [200, 30, 30]));
     // Plus what a delivered file must not do in the preview: run an
-    // iframe, or navigate the app through a relative link.
+    // iframe, navigate the app through a relative link, or lay a box over
+    // the whole window.
     writeFileSync(
       `${wtI.absPath}/README.md`,
-      "# Titolo della consegna\n\n![logo](assets/logo.png)\n\n[le regole](CONTRIBUTING.md) e [il sito](https://example.test/)\n\n<iframe srcdoc=\"<p>dentro</p>\"></iframe>\n",
+      "# Titolo della consegna\n\n![logo](assets/logo.png)\n\n[le regole](CONTRIBUTING.md) e [il sito](https://example.test/)\n\n<iframe srcdoc=\"<p>dentro</p>\"></iframe>\n\n<div style=\"position:fixed;inset:0;z-index:2147483647\">sopra tutto</div>\n",
     );
     git(wtI.absPath, ["mv", "docs/vecchio.txt", "docs/nuovo.txt"]);
     writeFileSync(`${wtI.absPath}/docs/nuovo.txt`, numberedLines([9]));
@@ -406,6 +407,15 @@ test.describe.serial("Board · il pannello Modifiche", () => {
     await expect(rendered.getByText("le regole", { exact: true })).toBeVisible();
     await expect(rendered.getByRole("link", { name: "le regole" })).toHaveCount(0);
     await expect(rendered.getByRole("link", { name: "il sito" })).toHaveAttribute("href", "https://example.test/");
+    // A fixed box of the file stays inside the preview, instead of covering the
+    // drawer and its buttons (the clicks below would land on it).
+    const cover = await rendered.getByText("sopra tutto", { exact: true }).boundingBox();
+    const frame = await rendered.boundingBox();
+    if (!cover || !frame) throw new Error("the preview or its fixed box has no box");
+    expect(cover.x).toBeGreaterThanOrEqual(frame.x - 1);
+    expect(cover.y).toBeGreaterThanOrEqual(frame.y - 1);
+    expect(cover.x + cover.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
+    expect(cover.y + cover.height).toBeLessThanOrEqual(frame.y + frame.height + 1);
 
     // The renamed text file opens on its hunk: line 1 is not in it.
     const moved = panel.locator('[data-testid="diff-file"][data-path="docs/nuovo.txt"]');
