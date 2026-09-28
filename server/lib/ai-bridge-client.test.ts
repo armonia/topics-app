@@ -14,7 +14,12 @@ import { join } from "node:path";
 const SOCK = join(tmpdir(), `ai-bridge-client-${process.pid}.sock`);
 let dataDir = "";
 
-// Set isolation env BEFORE importing the client (it reads them in its ctor).
+// Set isolation env BEFORE importing the client (it reads them in its ctor),
+// and give it back in afterAll: a later file in the same `bun test` process
+// otherwise inherits this file's folder, and a child it spawns resolves its
+// state there (TOPICS_DATA_DIR wins over DATA_DIR).
+const envKeys = ["TOPICS_AI_BRIDGE_SOCKET", "TOPICS_DATA_DIR"] as const;
+const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
 process.env.TOPICS_AI_BRIDGE_SOCKET = SOCK;
 dataDir = mkdtempSync(join(tmpdir(), "ai-bridge-cli-data-"));
 process.env.TOPICS_DATA_DIR = dataDir;
@@ -53,6 +58,10 @@ afterAll(async () => {
   client?.dispose();
   await stopOwnAiBridges();
   try { rmSync(dataDir, { recursive: true, force: true }); } catch {}
+  for (const key of envKeys) {
+    if (previousEnv[key] === undefined) delete process.env[key];
+    else process.env[key] = previousEnv[key];
+  }
 });
 
 describe("AiBridgeClient", () => {

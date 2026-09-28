@@ -654,9 +654,14 @@ describe("the command outlives the server", () => {
     db.close();
   });
 
-  /** One life of the registry on a state folder; its last line, when any, is JSON. */
+  /**
+   * One life of the registry on a state folder; its last line, when any, is JSON.
+   * Both names of the state folder are pinned: TOPICS_DATA_DIR wins over
+   * DATA_DIR (`resolveStateDir`), and one left set by an earlier file of the
+   * same `bun test` process sent the child's `scripts.json` there (CI, 28/09).
+   */
   function lifeIn(dir: string, ...args: string[]): Record<string, any> {
-    const out = Bun.spawnSync(["bun", LIFE, ...args], { env: { ...process.env, DATA_DIR: dir }, stderr: "pipe" });
+    const out = Bun.spawnSync(["bun", LIFE, ...args], { env: { ...process.env, DATA_DIR: dir, TOPICS_DATA_DIR: dir }, stderr: "pipe" });
     const lines = out.stdout.toString().trim().split("\n");
     return lines[lines.length - 1] ? JSON.parse(lines[lines.length - 1]!) : {};
   }

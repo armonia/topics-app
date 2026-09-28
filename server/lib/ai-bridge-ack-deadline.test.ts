@@ -24,6 +24,11 @@ import { join } from "node:path";
 
 const SOCK = join(tmpdir(), `ai-bridge-stall-${process.pid}.sock`);
 const dataDir = mkdtempSync(join(tmpdir(), "ai-bridge-stall-data-"));
+// Set at module top and given back in afterAll: a later file in the same
+// `bun test` process otherwise inherits this file's folder, and a child it
+// spawns resolves its state there (TOPICS_DATA_DIR wins over DATA_DIR).
+const envKeys = ["TOPICS_AI_BRIDGE_SOCKET", "TOPICS_DATA_DIR", "TOPICS_AI_BRIDGE_ACK_MS", "TOPICS_AI_BRIDGE_STALL_TICK_MS"] as const;
+const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
 process.env.TOPICS_AI_BRIDGE_SOCKET = SOCK;
 process.env.TOPICS_DATA_DIR = dataDir;
 // Shrink timers so the test does not sit through the real production waits
@@ -71,6 +76,10 @@ afterAll(async () => {
   if (server) await new Promise<void>((res) => server!.close(() => res()));
   try { rmSync(SOCK, { force: true }); } catch { /* già sparito */ }
   try { rmSync(dataDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  for (const key of envKeys) {
+    if (previousEnv[key] === undefined) delete process.env[key];
+    else process.env[key] = previousEnv[key];
+  }
 });
 
 describe("deadline sul silenzio, non sul totale", () => {
