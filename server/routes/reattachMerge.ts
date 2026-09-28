@@ -92,19 +92,16 @@ function openingMarks(blocks: unknown[]): unknown[] {
 }
 
 /**
- * A timeline that holds these marks and nothing else, as the raw `blocks`
- * column or already parsed. The route writes them the moment it opens the row
- * (routes/chat.ts), so this is the row of a wake or a resend that has produced
- * nothing yet: no work, for whoever asks. The notice of a failed start asks
- * (`readRowForNotice` in routes/chat.ts), and so does the history's cleanup of
- * empty partials (routes/history.ts).
+ * A `blocks` column that holds these marks and nothing else. The route writes
+ * them the moment it opens the row (routes/chat.ts), so this is the row of a
+ * wake or a resend that has produced nothing yet: no work, for whoever asks.
  */
-export function holdsOnlyOpeningMarks(blocks: string | readonly unknown[] | null | undefined): boolean {
-  let parsed: unknown = blocks;
-  if (typeof blocks === "string") {
-    try { parsed = JSON.parse(blocks); } catch { return false; }
-  }
-  return Array.isArray(parsed) && parsed.length > 0 && openingMarks(parsed).length === parsed.length;
+export function holdsOnlyOpeningMarks(blocksJson: string | null): boolean {
+  if (!blocksJson) return false;
+  try {
+    const parsed = JSON.parse(blocksJson);
+    return Array.isArray(parsed) && parsed.length > 0 && openingMarks(parsed).length === parsed.length;
+  } catch { return false; }
 }
 
 /** Quando si sta scrivendo.

@@ -11,13 +11,6 @@ import { HISTORY_PAGE_MAX_BYTES } from "../../shared/history-paging";
 import { MACHINE_ROW_SQL, promptNumbers } from "../../shared/prompt-number";
 import { decodeCol } from "../../shared/message-blob";
 import { flushTurnBody } from "../lib/turn-body-flush";
-import { holdsOnlyOpeningMarks } from "./reattachMerge";
-
-/** `holdsOnlyOpeningMarks` on a raw `blocks` column. A column that will not
- *  decode is read as a body: a row we cannot read is never deleted. */
-function columnHoldsOnlyOpeningMarks(raw: unknown): boolean {
-  try { return holdsOnlyOpeningMarks(decodeCol(raw)); } catch { return false; }
-}
 
 /**
  * Keep the TAIL of `msgs` that fits in `budget` serialized bytes, never fewer
@@ -134,16 +127,13 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
     // of the message: its two columns were left in the table. It is asked of
     // SQLite instead, and only about the partial rows - normally none, at most
     // the turn in flight - so the fat columns are touched for those alone.
-    // A timeline of opening marks alone is no body (`isRealMessage` below).
     const partialsWithBody: Set<string> = cappedRead
       ? new Set((ctx.db.prepare(
-          `SELECT id, blocks, (tool_calls IS NOT NULL AND length(tool_calls) > 2) AS has_tools FROM messages
+          `SELECT id FROM messages
             WHERE session_key = ? AND partial = 1
               AND ((blocks IS NOT NULL AND length(blocks) > 2)
                 OR (tool_calls IS NOT NULL AND length(tool_calls) > 2))`,
-        ).all(sessionKey) as Array<{ id: string; blocks: unknown; has_tools: number }>)
-          .filter((r) => r.has_tools || !columnHoldsOnlyOpeningMarks(r.blocks))
-          .map((r) => r.id))
+        ).all(sessionKey) as Array<{ id: string }>).map((r) => r.id))
       : new Set<string>();
     // The registered coordinator persists its normal Topic history locally but
     // must never fall back into provider/gateway or legacy JSONL history. Use
@@ -174,16 +164,10 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
     // stream crashed mid-flight or produced only tool calls (no prose), the
     // message got DELETE'd on the next /api/history request and the user lost
     // their tools on refresh.
-    // A timeline of the marks a turn OPENS with and nothing else (a wake's
-    // `woken`, a resend's `ripreso`, which the route writes the moment it opens
-    // the row) is not one: that turn produced nothing. Counted as real, a row
-    // a reload left open with no reattach to take it back was closed
-    // `closed-outside` with its banner alone, and the person's message was
-    // never resent: the chat's last row was now an answer with no cut in it.
     const isRealMessage = (m: StoredMessage) =>
       (m.content && m.content.trim().length > 0) ||
       (m.toolCalls && m.toolCalls.length > 0) ||
-      (m.blocks && m.blocks.length > 0 && !holdsOnlyOpeningMarks(m.blocks)) ||
+      (m.blocks && m.blocks.length > 0) ||
       partialsWithBody.has(m.id);
     // When streaming, keep ALL messages (including empty partials) — filtering them deletes from disk
     const completeMsgs = activeStream

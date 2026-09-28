@@ -22,20 +22,11 @@
  * detaches), then taken through the boot's partial sweep, the reattach route
  * (`mode: "reattach"`), the end of the leg and the real resume sweep. Nothing
  * writes the marks by hand.
- *
- * And the marks are still not work. A row of marks alone that NO reattach takes
- * back (the broker's list unconfirmed at boot, the daemon gone) is an empty
- * placeholder to the history's cleanup, as it was when the marks lived in
- * memory only: deleted, so the sweep finds the person's message unanswered and
- * resends it. Kept as work, it was closed with its banner alone, and the
- * message was never resent.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createChatRouter } from "./chat";
-import { createHistoryRouter } from "./history";
-import { _resetTurnBodyFlushers } from "../lib/turn-body-flush";
 import { runBootPartialSweep, type PartialSweepDb } from "../lib/boot-partial-sweep";
 import { endReattachLeg } from "../lib/closed-outside";
 import { resumeVerdict, riprendiTurniInterrotti } from "../lib/ripresa-boot";
@@ -221,73 +212,4 @@ describe("a free probe reattached after a restart stays free", () => {
     expect(await sweep(sk)).toEqual([1]);
     await probe.teardown();
   });
-});
-
-describe("a row of opening marks that no reattach takes back is an empty placeholder to the history", () => {
-  /** The reload of `openThenReload`, with the broker's list unconfirmed: the
-   *  new process holds no stream and no flusher, and keeps every open row. */
-  async function openThenReloadUnadopted(sk: string, body: Record<string, unknown>) {
-    opened = undefined;
-    const resp = await post({ sessionKey: sk, ...body });
-    const rowId = ctx.loadLocalMessages(sk).filter((m) => m.role === "assistant").at(-1)!.id;
-    const oldRoute = opened!;
-    oldRoute.onRetry!(retry(1));
-    _resetTurnBodyFlushers();
-    ctx.activeStreams.delete(sk);
-    runBootPartialSweep(ctx.db as unknown as PartialSweepDb, { listConfirmed: false, liveSessions: new Set() });
-    return {
-      rowId,
-      teardown: async () => {
-        oldRoute.onAborted?.({ turnEnd: { end: "cancelled", cause: "server-shutdown" } } as never);
-        await resp.body?.cancel().catch(() => {});
-      },
-    };
-  }
-  /** A window opening the chat with the broker unreachable. `limit` 0 is the
-   *  pane's whole-thread read, 50 the capped one: two readers of the partials. */
-  async function openHistory(sk: string, limit: number): Promise<void> {
-    const router = createHistoryRouter(ctx, {
-      matchHistoryRoute: (p) => (p.startsWith("/api/history/") ? decodeURIComponent(p.slice("/api/history/".length)) : null),
-      providerForSessionKey: () => ({ brokerTurnState: async () => "unknown" }) as never,
-    });
-    const path = `/api/history/${encodeURIComponent(sk)}`;
-    const url = new URL(`http://topics.test${path}`);
-    const resp = (await router(new Request(url, { method: "POST", body: JSON.stringify({ limit }), headers: { "content-type": "application/json" } }), url, path, "POST"))!;
-    expect(resp.status).toBe(200);
-  }
-  /** Minutes later, past the grace a person's unanswered message gets. */
-  const minutesLater = (sk: string) =>
-    ctx.db.run("UPDATE messages SET timestamp = ? WHERE session_key = ?", [new Date(Date.now() - 3 * 60_000).toISOString(), sk]);
-  const rowExists = (id: string) => ctx.db.prepare("SELECT 1 FROM messages WHERE id = ?").get(id) != null;
-
-  for (const limit of [0, 50]) {
-    test(`a resend lost with its CLI retrying is deleted by the history (limit ${limit}) and resent by the sweep`, async () => {
-      const sk = topic(`unadopted-probe-${limit}`);
-      ctx.appendLocalMessage(sk, "user", "Misura la catena");
-      const cutRow = ctx.createPartialMessage(sk, "assistant");
-      const cut = { kind: "error", text: "Turno interrotto: l'API di Claude non rispondeva più.", cause: "api-unavailable", at: new Date(Date.now() - 60_000).toISOString() } as ContentBlock;
-      ctx.updateLastMessage(sk, { content: "", blocks: [cut, { kind: "ripreso", attempt: 1 }], partial: undefined, streamedAt: undefined, latencyMs: 10, endReason: "done" }, { rowId: cutRow.id });
-      const probe = await openThenReloadUnadopted(sk, { messages: [{ role: "user", content: "Misura la catena" }], ripresa: 1 });
-      expect(blocksOnDisk(probe.rowId)).toEqual([{ kind: "ripreso", attempt: 1 }]);
-      await openHistory(sk, limit);
-      expect(rowExists(probe.rowId)).toBe(false);
-      minutesLater(sk);
-      expect(await sweep(sk)).toEqual([2]);
-      await probe.teardown();
-    });
-
-    test(`a wake lost before it produced anything is deleted by the history (limit ${limit}), and the answered message is not resent`, async () => {
-      const sk = topic(`unadopted-wake-${limit}`);
-      ctx.appendLocalMessage(sk, "user", "Lancia il build e avvisami");
-      const first = ctx.createPartialMessage(sk, "assistant");
-      ctx.updateLastMessage(sk, { content: "Build lanciato, ti avviso.", partial: undefined, streamedAt: undefined, latencyMs: 500, endReason: "done" }, { rowId: first.id });
-      const wake = await openThenReloadUnadopted(sk, { messages: [], mode: "woken", wokenLabel: "build finito" });
-      expect(blocksOnDisk(wake.rowId)).toEqual([{ kind: "woken", label: "build finito" }]);
-      await openHistory(sk, limit);
-      expect(rowExists(wake.rowId)).toBe(false);
-      minutesLater(sk);
-      expect(await sweep(sk)).toEqual([]);
-      await wake.teardown();
-    });
-  }
 });
