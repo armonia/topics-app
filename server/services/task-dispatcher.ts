@@ -3240,6 +3240,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           : "- E2E is not measured by this board, here or on any CI: if you wrote or changed an e2e spec, name it in your closing report.",
         ...(ciUnit ? ["- The full unit suite runs on GitHub CI for the attempt that is chosen, never here: run only targeted `bun test <file>`."] : []),
         "- Lean context: Grep to find, Read in slices (offset/limit) on files over ~400 lines. Long commands (build/test/install) in the background with run_script + read_process_output, never sitting blocked on the command.",
+        // The system prompt tells every agent a `run_command` wakes it, so it
+        // can end its turn: here the wake would reach an attempt already judged.
+        "- Your attempt is this ONE turn and it is judged the moment the turn ends: never end it while a command you started in the background is still running, not even one that promises to wake you. Get its outcome with wait_for_process first.",
         "- Close the turn with 2-3 sentences: which route you chose, what you changed and where to look. It is the only thing the human reads of you in the comparison — write it well.",
         ...languageLine(langFor(task.projectId)),
         "Start now.",

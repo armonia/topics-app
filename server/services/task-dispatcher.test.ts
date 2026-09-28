@@ -4260,6 +4260,17 @@ describe("l'envelope non parla italiano", () => {
     h.dispatcher.shutdown();
   });
 
+  // An attempt is judged when its one turn ends, and `run_command` tells every
+  // agent it may end its turn and be woken: the wake then reaches an attempt
+  // already judged without the command's outcome (review of 28/09 at 5cb048ec4).
+  it("the fan-out kickoff keeps the attempt's one turn open until its background commands end", async () => {
+    const { h, kickoff } = await envelopeDiKickoff(2);
+    const rule = kickoff.split("\n").find((r) => r.includes("ONE turn")) ?? "";
+    expect(rule).toContain("still running");
+    expect(rule).toContain("wait_for_process");
+    h.dispatcher.shutdown();
+  });
+
   it("with the CI e2e row: listed among no commands, and the CI rule said once (KANBAN-84)", async () => {
     const { h, kickoff } = await envelopeDiKickoff(undefined, [E2E_CI_CHECK]);
     const checksLine = kickoff.split("\n").find((r) => r.includes("PRE-REVIEW CHECKS")) ?? "";
