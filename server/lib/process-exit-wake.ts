@@ -27,8 +27,8 @@
  * ONCE. Delivered means the session holds a row with the `process-exit` block
  * of that process: checked before every send, and at boot for every finished
  * command still owed a wake (`requestProcessExitWake` from `loadState`). Or
- * that a `wait_for_process` of the turn it waited for handed it the outcome
- * before the row went out (`owed`).
+ * that a `wait_for_process` or a `read_process_output` of the turn it waited
+ * for handed it the outcome before the row went out (`owed`).
  */
 
 import { wakeVerdict } from "./wake-adoption";
@@ -59,8 +59,8 @@ export interface ProcessExitRequest extends ProcessExitFacts {
    */
   settle?: () => void;
   /**
-   * Still owed right before the row goes out? False once a `wait_for_process`
-   * of the session took the outcome while the wake waited (`routes/processes.ts`).
+   * Still owed right before the row goes out? False once a live turn of the
+   * session read the outcome while the wake waited (`settleWakeReadInTurn`).
    */
   owed?: () => boolean;
   /**

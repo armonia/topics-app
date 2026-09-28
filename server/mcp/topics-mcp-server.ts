@@ -1898,10 +1898,13 @@ export async function callWaitForProcess(
   const reason = body?.reason ?? "timeout";
   const secs = Math.round((body?.waitedMs ?? 0) / 1000);
   const exit = body?.exitCode !== undefined && body?.exitCode !== null ? ` exit=${body.exitCode}` : "";
+  // A match on the last lines of a process that has ended: the route settles
+  // its wake on this answer, so the outcome has to be in it.
+  const ended = body?.status !== undefined && body.status !== "running";
   const verdict = reason === "exit"
     ? `finished after ${secs}s · status=${body?.status ?? "?"}${exit}`
     : reason === "match"
-      ? `matched after ${secs}s · still ${body?.status ?? "running"}`
+      ? `matched after ${secs}s · ${ended ? `finished · status=${body.status}${exit}` : "still running"}`
       : `STILL RUNNING after ${secs}s (not an error) · call wait_for_process again with offset=${body?.offset ?? 0}`;
   const lost = body?.truncatedLines ? ` dropped=${body.truncatedLines}` : "";
   return `${head}${output}\n[reason=${reason} offset=${body?.offset ?? 0}${lost}] ${verdict}`;

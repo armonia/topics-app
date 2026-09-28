@@ -142,6 +142,31 @@ async function finishTurn(text = "ok") {
   h.onDone();
   await Bun.sleep(100);
 }
+/**
+ * Ends the turn in flight, then counts the wake rows that followed it. A wake
+ * that came opens a turn, closed here too: left open, it held the wake chain
+ * of every later test, and one red became nine.
+ */
+async function wakesAfterTurn(topic: Topic): Promise<number> {
+  if (bench.ctx.activeStreams.has(topic.sessionKey)) await finishTurn("closing");
+  let idle = false;
+  void processExitWakesIdle().then(() => { idle = true; });
+  await until(() => idle || exitRows(topic.sessionKey).length > 0);
+  const n = exitRows(topic.sessionKey).length;
+  if (n) {
+    await finishTurn("closing the wake's turn");
+    await processExitWakesIdle();
+  }
+  return n;
+}
+/** A turn of the agent on the topic, open until the test ends it. */
+async function openTurn(topic: Topic, content: string): Promise<void> {
+  const send = await call(bench.chat, "POST", "/api/chat", { sessionKey: topic.sessionKey, messages: [{ role: "user", content }] });
+  expect(send.status).toBe(200);
+  void send.body?.cancel().catch(() => {});
+}
+const sessionPath = (topic: Topic, processId: string, rest: string) =>
+  `/api/sessions/${encodeURIComponent(topic.sessionKey)}/scripts/${processId}/${rest}`;
 
 describe("the end of a command reaches the topic that launched it", () => {
   test("one row marked process-exit with the code and the last lines, and a turn on it", async () => {
@@ -208,21 +233,80 @@ describe("the end of a command reaches the topic that launched it", () => {
   // had, and a card waited for it.
   test("a command that ended between two waits of the turn: the next wait gets the outcome, and no row after the turn", async () => {
     const topic = newTopic();
-    const send = await call(bench.chat, "POST", "/api/chat", { sessionKey: topic.sessionKey, messages: [{ role: "user", content: "run it and wait" }] });
-    expect(send.status).toBe(200);
-    void send.body?.cancel().catch(() => {});
-    const { processId } = await runCommand(topic, "echo between-waits; exit 0");
-    await until(async () => (await scriptRow(processId))?.status !== "running");
+    let wakes = -1;
+    try {
+      await openTurn(topic, "run it and wait");
+      const { processId } = await runCommand(topic, "echo between-waits; exit 0");
+      await until(async () => (await scriptRow(processId))?.status !== "running");
 
-    const wait = await call(bench.processes, "GET", `/api/sessions/${encodeURIComponent(topic.sessionKey)}/scripts/${processId}/wait?timeout_ms=10000`);
-    expect(await wait.json()).toMatchObject({ reason: "exit", exitCode: 0 });
+      const wait = await call(bench.processes, "GET", sessionPath(topic, processId, "wait?timeout_ms=10000"));
+      expect(await wait.json()).toMatchObject({ reason: "exit", exitCode: 0 });
+      expect(commandWakeState(topic.sessionKey)).toBe("none");
+    } finally {
+      wakes = await wakesAfterTurn(topic);
+    }
+    expect(wakes).toBe(0);
+  });
+
+  // The same, with an `until` that the command's last lines match: the wait
+  // answers 'match' before it reads the exit, but with the status and the
+  // code of a command that is over. The wake stayed owed on that answer.
+  test("a command that ended between two waits: a wait whose until matches its last lines gets the outcome, and no row after the turn", async () => {
+    const topic = newTopic();
+    let wakes = -1;
+    try {
+      await openTurn(topic, "run the suite and wait");
+      const { processId } = await runCommand(topic, "echo running; echo '5 passed'; exit 0");
+      await until(async () => (await scriptRow(processId))?.status !== "running");
+
+      const wait = await call(bench.processes, "GET", sessionPath(topic, processId, `wait?until=${encodeURIComponent("passed|failed")}&timeout_ms=10000`));
+      expect(await wait.json()).toMatchObject({ reason: "match", status: "done", exitCode: 0 });
+      expect(commandWakeState(topic.sessionKey)).toBe("none");
+    } finally {
+      wakes = await wakesAfterTurn(topic);
+    }
+    expect(wakes).toBe(0);
+  });
+
+  // read_process_output of the same turn hands over the outcome too (done,
+  // status, code): the wake after the turn was a second delivery of it.
+  test("a command that ended during the turn: read_process_output of the turn gets the outcome, and no row after the turn", async () => {
+    const topic = newTopic();
+    let wakes = -1;
+    try {
+      await openTurn(topic, "run it and check");
+      const { processId } = await runCommand(topic, "echo read-in-turn; exit 0");
+      await until(async () => (await scriptRow(processId))?.status !== "running");
+
+      const read = await call(bench.processes, "GET", sessionPath(topic, processId, "output?offset=0"));
+      expect(await read.json()).toMatchObject({ done: true, status: "done", exitCode: 0 });
+      expect(commandWakeState(topic.sessionKey)).toBe("none");
+    } finally {
+      wakes = await wakesAfterTurn(topic);
+    }
+    expect(wakes).toBe(0);
+  });
+
+  // The wake's own turn reads the outcome again: the wake settles at that
+  // turn's end, not inside it, or a card would read «nothing owed» while the
+  // turn it waits for still runs.
+  test("the wake's own turn reading the outcome leaves the wake queued until that turn is over", async () => {
+    const topic = newTopic();
+    const { processId } = await runCommand(topic, "echo own-turn; exit 0");
+    await until(() => exitRows(topic.sessionKey).length > 0);
+    try {
+      expect(commandWakeState(topic.sessionKey)).toBe("wake-queued");
+      const wait = await call(bench.processes, "GET", sessionPath(topic, processId, "wait?timeout_ms=10000"));
+      expect(await wait.json()).toMatchObject({ reason: "exit", exitCode: 0 });
+      const read = await call(bench.processes, "GET", sessionPath(topic, processId, "output?offset=0"));
+      expect(await read.json()).toMatchObject({ done: true, exitCode: 0 });
+      expect(commandWakeState(topic.sessionKey)).toBe("wake-queued");
+    } finally {
+      await finishTurn("read it again");
+      await processExitWakesIdle();
+    }
     expect(commandWakeState(topic.sessionKey)).toBe("none");
-
-    await finishTurn("read it in the wait");
-    let idle = false;
-    void processExitWakesIdle().then(() => { idle = true; });
-    await until(() => idle || exitRows(topic.sessionKey).length > 0);
-    expect(exitRows(topic.sessionKey)).toHaveLength(0);
+    expect(exitRows(topic.sessionKey)).toHaveLength(1);
   });
 
   // The caller of a wait can go away without the wait ending: the CLI restarts,

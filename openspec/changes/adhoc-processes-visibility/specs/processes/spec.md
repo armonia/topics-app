@@ -168,8 +168,12 @@ corso, la stessa regola delle sveglie del CLI in `server/lib/wake-adoption.ts`);
 processo quando è uscito (`watchesForProcess`, `server/lib/process-wait.ts:191`),
 perché quel turno l'esito l'ha già. Lo stesso quando il comando esce senza
 un'attesa aperta (fra una risposta `timeout` e la chiamata dopo, o mentre
-l'agente fa altro) e un `wait_for_process` successivo dello stesso turno gli
-consegna l'esito: la sveglia si chiude lì, se la sua riga non è ancora partita.
+l'agente fa altro) e lo stesso turno ne legge la fine: un `wait_for_process`
+che risponde `exit`, o `match` su righe finali con stato e codice di un
+processo finito (la risposta allora dice `finished · status=… exit=N`, non
+«still»), oppure un `read_process_output` che risponde `done`. La sveglia si
+chiude lì, se la sua riga non è ancora partita: dentro il turno della sveglia
+stessa si chiude alla fine di quel turno, come sempre.
 L'attesa conta solo finché il turno che l'ha
 aperta è in corso: finito il turno (`endStream`), non conta più anche se la sua
 richiesta resta aperta, perché il bridge di un CLI ignora l'annullamento di una
@@ -249,6 +253,16 @@ dispatcher qui sopra è la rete per l'agente che chiude il turno lo stesso.
 - **GIVEN** un turno in corso sulla topic e il suo comando che esce mentre nessun `wait_for_process` è aperto
 - **WHEN** il `wait_for_process` successivo dello stesso turno restituisce l'esito
 - **THEN** finito il turno non arriva nessuna riga `process-exit`, e nessuna card aspetta una sveglia
+
+#### Scenario: la fine letta con `until` o con `read_process_output`
+- **GIVEN** un turno in corso sulla topic e il suo comando uscito mentre nessun `wait_for_process` è aperto
+- **WHEN** lo stesso turno chiama `wait_for_process` con un `until` che combacia con le righe finali (risposta `match` con stato e codice), oppure `read_process_output` (risposta `done`)
+- **THEN** finito il turno non arriva nessuna riga `process-exit`, e nessuna card aspetta una sveglia
+
+#### Scenario: il turno della sveglia rilegge l'esito
+- **GIVEN** la riga `process-exit` del comando consegnata, e il turno che ha aperto in corso
+- **WHEN** in quel turno l'agente chiama `wait_for_process` o `read_process_output` sullo stesso comando
+- **THEN** la sveglia resta in coda fino alla fine di quel turno, e una card continua ad aspettarlo
 
 #### Scenario: il turno che aspettava è finito
 - **GIVEN** un `wait_for_process` aperto sul comando da un turno della stessa sessione

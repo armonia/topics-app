@@ -744,17 +744,18 @@ function requestWakeFor(sp: ScriptProcess): void {
 }
 
 /**
- * A `wait_for_process` handed the end of a command to the session that owes
- * nothing else for it: the turn it waited in is live (its watch still open,
- * `closeWatchesOfSession`) and has the outcome. It ended while no wait was
- * open, so `finishCommand` left the wake owed, and after the turn a second
- * turn opened on an outcome the agent already had. Settled only while its row
- * has not gone out: once the wake's own turn runs, it settles at that turn's
- * end (`ProcessExitRequest.settle`).
+ * A live turn of the session that owns the command read its end: a
+ * `wait_for_process` answer ('exit', or a 'match' on the last lines) or a
+ * `read_process_output` that says done, with the status and the code. It
+ * ended while no wait was open, so `finishCommand` left the wake owed, and
+ * after the turn a second turn opened on an outcome the agent already had.
+ * The caller has checked both: the turn is live, and its answer carried the
+ * end. Settled only while the wake's row has not gone out: once the wake's own
+ * turn runs, it settles at that turn's end (`ProcessExitRequest.settle`).
  */
-function settleWakeTakenByWait(sp: ScriptProcess, sessionKey: string, db: AppContext["db"]): void {
+function settleWakeReadInTurn(sp: ScriptProcess, sessionKey: string, db: AppContext["db"]): void {
   const cmd = sp.cmd;
-  if (!cmd?.wake || cmd.sessionKey !== sessionKey || !isWatchedBySession(sp.processId, sessionKey)) return;
+  if (!cmd?.wake || cmd.sessionKey !== sessionKey) return;
   if (wakeDelivered(db, sessionKey, sp.processId)) return;
   cmd.wake = false;
   saveState();
@@ -2079,14 +2080,18 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     {
       const m = method === "GET" && pathname.match(/^\/api\/sessions\/([^/]+)\/scripts\/([^/]+)\/output$/);
       if (m) {
-        const r = resolveSessionCwd(decodeURIComponent(m[1]));
+        const sessionKey = decodeURIComponent(m[1]);
+        const r = resolveSessionCwd(sessionKey);
         if ("error" in r) return r.error;
         const sp = getScript(m[2]);
         if (!sp || sp.projectPath !== r.path) {
           return json({ error: "Process not found in this project" }, 404);
         }
         const offset = parseInt(url.searchParams.get("offset") || "0", 10);
-        return json(outputPayload(sp, offset));
+        const payload = outputPayload(sp, offset);
+        // Only the agent's bridge calls this, from inside its turn.
+        if (payload.done && ctx.activeStreams.has(sessionKey)) settleWakeReadInTurn(sp, sessionKey, ctx.db);
+        return json(payload);
       }
     }
 
@@ -2147,7 +2152,8 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
             ...(until ? { until } : {}),
             timeoutMs,
           });
-          if (outcome.reason === "exit") settleWakeTakenByWait(sp, sessionKey, ctx.db);
+          // The turn is live while its watch is open (`closeWatchesOfSession`).
+          if (outcome.status !== "running" && isWatchedBySession(sp.processId, sessionKey)) settleWakeReadInTurn(sp, sessionKey, ctx.db);
           return json({ ...outcome, processId: sp.processId, scriptName: sp.scriptName });
         } finally {
           close();

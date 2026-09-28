@@ -1276,6 +1276,18 @@ describe("callWaitForProcess", () => {
     expect(text).toContain("exit=1");
   });
 
+  // The route settles the command's wake on this answer: the agent gets no
+  // other word of the outcome, so the code has to be in it.
+  test("a match on a process that has ended carries its status and code", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ output: "5 passed", offset: 3, status: "done", exitCode: 0, reason: "match", waitedMs: 0 }), { status: 200 }),
+    );
+    const text = await callWaitForProcess({ baseUrl: "http://x", sessionKey: "s" }, { process_id: "p1", until: "passed" }, fetchImpl);
+    expect(text).toContain("matched after 0s");
+    expect(text).toContain("finished · status=done exit=0");
+    expect(text).not.toContain("still");
+  });
+
   test("throws when process_id missing", async () => {
     const fetchImpl = stubFetch(async () => new Response("{}", { status: 200 }));
     await expect(
