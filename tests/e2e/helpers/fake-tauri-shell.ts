@@ -21,7 +21,11 @@
  *
  * SO THIS IS THE ONLY WAY TO FAKE THE SHELL, and `tests/unit/
  * e2e-fake-tauri-shell-single-door.test.ts` fails on any other file under
- * `tests/e2e` that names the global.
+ * `tests/e2e` that names the global. A driver that is not Playwright (the raw
+ * CDP scripts in `tests/manual`, run against the Windows PC where the same
+ * address is the installed Topics.app) cannot call this helper, so it injects
+ * the rewrite itself through `sendProxyHomeScript()`, and the same test fails
+ * on a file there that names the global without it.
  *
  * TWO LAYERS, AND WHICH ONE CARRIES THE LOAD.
  *
@@ -101,10 +105,20 @@ export async function fakeTauriShell<A = undefined>(
   });
   await page.addInitScript({
     content: [
-      `(${sendProxyHome.toString()})(${JSON.stringify(SHELL_PROXY_HOST)});`,
+      sendProxyHomeScript(),
       `(${installShell.toString()})((${setup.toString()})(${arg === undefined ? "undefined" : JSON.stringify(arg)}));`,
     ].join("\n"),
   });
+}
+
+/**
+ * The rewrite as page source, for a driver that injects init scripts without
+ * Playwright (`Page.addScriptToEvaluateOnNewDocument` over raw CDP). Like any
+ * init script it must run before the app's first module. This file only
+ * imports Playwright's TYPES, so importing it costs such a driver nothing.
+ */
+export function sendProxyHomeScript(): string {
+  return `(${sendProxyHome.toString()})(${JSON.stringify(SHELL_PROXY_HOST)});`;
 }
 
 /** Page side: rewrite the shell's proxy origin onto the page's own origin. */
