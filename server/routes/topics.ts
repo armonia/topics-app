@@ -19,6 +19,7 @@ import { owedChangesOf, refreshAndSay } from "../lib/background-notice";
 import { goalContinuationForChatRoute, type ChatGoalLoop } from "../services/goal-continuation";
 import { createEditRouter } from "./edit";
 import { createChatRouter } from "./chat";
+import { commandWakeState } from "./processes";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
 import { e2eRoutesEnabled } from "./e2e";
 import { createPermissionRouter } from "./permission";
@@ -882,7 +883,7 @@ export function createTopicsRouter(
   // The two doors that leave the machine (mail and Google): same treatment as
   // the human channel, because the confirmation they impose IS that channel.
   const outboundRouter = createOutboundRouter(ctx);
-  const goalLoop = goalContinuationForChatRoute({ ctx, resolveProvider, log: (m) => console.log(`[goal] ${m}`) });
+  const goalLoop = goalContinuationForChatRoute({ ctx, resolveProvider, commandWakeState, log: (m) => console.log(`[goal] ${m}`) });
   extra.exposeGoalLoop?.(goalLoop);
   const chatRouter = createChatRouter(ctx, {
     resolveProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,

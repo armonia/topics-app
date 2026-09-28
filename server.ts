@@ -173,7 +173,7 @@ import { resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-i
 import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from "./shared/provider-hold";
 import { readCodexModels } from "./server/providers/codex/models";
 import { taskProviderForModel } from "./shared/task-coding-models";
-import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
+import { createProcessesRouter, sessionsAwaitingCommandWake, startProcessDetection } from "./server/routes/processes";
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
@@ -5846,8 +5846,9 @@ survivingTurnsAdopted
   .then(() => reconcileOrphanedTranscripts())
   .then(() => reconcileArchivedTopicSessions())
   .then(() => riprendiTurniInterrotti(resumeCtx, topicsRouter))
-  // The sessions the reattach kept for their background work: their goals wait again.
-  .then(() => goalLoop?.resumeAfterBoot(sessionsWithBackgroundWork()))
+  // The sessions the reattach kept for their background work, and those a
+  // `run_command` still owes a wake: their goals wait again.
+  .then(() => goalLoop?.resumeAfterBoot([...new Set([...sessionsWithBackgroundWork(), ...sessionsAwaitingCommandWake()])]))
   .catch((err) => console.error("[chat-reattach] boot sweep failed", err))
   .finally(() => scheduleResumeSweep());
 

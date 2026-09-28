@@ -17,6 +17,7 @@ import { dirname, join } from "path";
 import { createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, ContentBlock, Topic } from "../../server/types";
+import type { TurnEndInfo } from "../../server/services/goal-continuation";
 
 const ROOT = testTmpDir("process-run-command");
 // Before the registry is imported: it fixes its state folder at import.
@@ -45,6 +46,12 @@ async function makeBench() {
   (ctx as { broadcastToTopicSubscribers: unknown }).broadcastToTopicSubscribers = () => {};
   (ctx as { resolveTopicCwd: unknown }).resolveTopicCwd = () => PROJECT;
   const handlers: StreamHandler[] = [];
+  // What the goal loop hears at every turn end, in place of the loop itself.
+  const goalTurns: TurnEndInfo[] = [];
+  const goalLoop = {
+    useRoute() {}, stopWaiting() {}, resumeAfterBoot: async () => {},
+    onTurnEnd: async (i: TurnEndInfo) => { goalTurns.push(i); return "seen"; },
+  };
   const provider = {
     name: "fake-stream",
     capabilities: new Set(["streaming"]),
@@ -75,12 +82,13 @@ async function makeBench() {
     updateUnreadCount: () => {},
     browserNavigatedTopics: new Set<string>(),
     WORKSPACE_DIR: join(ROOT, "ws"),
+    goalLoop,
   } as never);
   const processes = createProcessesRouter(ctx);
   startProcessExitWakes({
     db: ctx.db, getTopicById: ctx.getTopicById, isBusy: (sk) => ctx.activeStreams.has(sk), route: chat, pollMs: 50,
   });
-  return { ctx: ctx as AppContext, chat, processes, handlers };
+  return { ctx: ctx as AppContext, chat, processes, handlers, goalTurns };
 }
 beforeAll(async () => { bench = await makeBench(); });
 
@@ -242,6 +250,45 @@ describe("the end of a command reaches the topic that launched it", () => {
     await until(async () => (await scriptRow(processId))?.status !== "running");
     await processExitWakesIdle();
     expect(exitRows(topic.sessionKey)).toHaveLength(0);
+  });
+});
+
+// A goal waits for the background work a turn leaves behind instead of nudging
+// over it (`services/goal-loop.ts`). A `run_command` owed a wake is that work:
+// counted as nothing, a goal topic whose agent ended its turn on a long command
+// was judged, nudged turn after turn, and paused as stalled before the wake came.
+describe("a command owed a wake is background work for the goal loop", () => {
+  const lastGoalTurn = (topic: Topic) => bench.goalTurns.filter((t) => t.sessionKey === topic.sessionKey).at(-1);
+
+  test("a turn that ends with the command running waits for it, and the wake's turn is a woken one", async () => {
+    const topic = newTopic();
+    await runCommand(topic, "sleep 1.5; echo goal-wake");
+    const send = await call(bench.chat, "POST", "/api/chat", { sessionKey: topic.sessionKey, messages: [{ role: "user", content: "started it, waiting" }] });
+    expect(send.status).toBe(200);
+    void send.body?.cancel().catch(() => {});
+    await finishTurn("it runs, I will be woken");
+    expect(lastGoalTurn(topic)).toMatchObject({ fromHuman: true, backgroundWork: true, backgroundWakeOnly: false });
+
+    await until(() => exitRows(topic.sessionKey).length > 0);
+    await finishTurn("read the outcome");
+    // Nothing is owed any more: the wake's own turn is judged, and counts as news.
+    expect(lastGoalTurn(topic)).toMatchObject({ fromHuman: false, woken: true, backgroundWork: false });
+    await processExitWakesIdle();
+  });
+
+  test("a command that ended during the turn, its wake still to send, is a wake queued", async () => {
+    const topic = newTopic();
+    const send = await call(bench.chat, "POST", "/api/chat", { sessionKey: topic.sessionKey, messages: [{ role: "user", content: "keep working" }] });
+    void send.body?.cancel().catch(() => {});
+    const { processId } = await runCommand(topic, "echo quick-goal; exit 0");
+    await until(async () => (await scriptRow(processId))?.status !== "running");
+    await finishTurn("done with that");
+    expect(lastGoalTurn(topic)).toMatchObject({ backgroundWork: true, backgroundWakeOnly: true });
+
+    await until(() => exitRows(topic.sessionKey).length > 0);
+    await finishTurn();
+    expect(lastGoalTurn(topic)).toMatchObject({ woken: true, backgroundWork: false });
+    await processExitWakesIdle();
   });
 });
 

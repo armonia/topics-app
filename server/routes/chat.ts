@@ -29,7 +29,7 @@ import { getSessionCliPid } from "../providers/session-pids";
 import { captureTurnCheckpoint } from "../services/turn-checkpoints";
 import { resolveTurnCheckpointsEnabled } from "../services/app-settings";
 import {
-  closeBackgroundShell,
+  closeBackgroundShell, commandWakeState,
   noteBackgroundShellOutput,
   registerBackgroundShell,
 } from "./processes";
@@ -239,7 +239,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
    * hands itself over on the first request it serves (see `selfRoute` below).
    */
   const goalLoop = deps.goalLoop ?? goalContinuationForChatRoute({
-    ctx, resolveProvider, log: (m) => console.log(`[goal] ${m}`),
+    ctx, resolveProvider, commandWakeState, log: (m) => console.log(`[goal] ${m}`),
   });
 
   const broadcastStreamToTopic = (message: OutboundMessage, topicId: string | undefined): void => {
@@ -2381,9 +2381,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // stop: `interrupted` carries the tools still awaiting a human,
                 // and the plan approval is kept out of it on purpose above.
                 pendingAsk: askingPlanApproval || interrupted.length > 0,
-                ...backgroundOfTurn(topicProvider, sessionKey), // see goal-continuation.ts
+                ...backgroundOfTurn(topicProvider, sessionKey, commandWakeState(sessionKey)), // see goal-continuation.ts
                 fromHuman: !isWoken && !isReattach && !dispatched && !body.goalNudge && !body.processExit && !resumeAttempt,
-                woken: isWoken,
+                woken: isWoken || !!body.processExit, // a command's wake is news, like the CLI's own
                 usedTools: toolsStartedThisTurn > 0,
                 lastAssistantText: fullContent,
               };

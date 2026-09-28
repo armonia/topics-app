@@ -156,6 +156,13 @@ resta nel pannello); il comando è stato fermato da Stop nel pannello o da
 processo quando è uscito (`watchesForProcess`, `server/lib/process-wait.ts:191`),
 perché quel turno l'esito l'ha già.
 
+Per il ciclo dei goal (`server/services/goal-loop.ts`) un comando che deve
+ancora una sveglia alla sessione è lavoro in background come quello del CLI
+(`backgroundOfTurn`): `running` finché gira, `wake-queued` quando è uscito e la
+riga non è ancora in chat. Il turno che finisce su di lui aspetta invece di
+essere giudicato e spinto avanti, e il turno della sveglia conta come notizia
+(`woken`), cioè come progresso.
+
 #### Scenario: l'esito arriva nella topic
 - **GIVEN** un comando `zsh -c 'echo tick 1; echo tick 2; exit 3'` lanciato da una topic
 - **WHEN** esce
@@ -180,6 +187,12 @@ perché quel turno l'esito l'ha già.
 #### Scenario: Stop dal pannello non sveglia
 - **WHEN** l'utente ferma il comando dal pannello
 - **THEN** la riga del pannello dice «fermato» e la topic non riceve messaggi
+
+#### Scenario: un obiettivo attivo aspetta la sveglia
+- **GIVEN** una topic con un goal attivo e un comando lanciato con `run_command` ancora in corso
+- **WHEN** l'agente chiude il turno
+- **THEN** il goal non giudica né manda continuazioni finché il comando gira
+- **AND** a fine comando il turno della sveglia arriva come turno `woken` e viene giudicato
 
 #### Scenario: topic archiviata
 - **GIVEN** la topic archiviata mentre il comando girava

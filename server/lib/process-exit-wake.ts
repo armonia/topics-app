@@ -38,7 +38,12 @@ export interface ProcessExitFacts {
 }
 
 export interface ProcessExitRequest extends ProcessExitFacts {
-  /** Called once the topic owes nothing more for this process. */
+  /**
+   * Called once the topic owes nothing more for this process: for a wake sent,
+   * as soon as the route has taken its row, before the turn it opens ends.
+   * That turn's end reads what is still owed (`commandWakeState`, for the goal
+   * loop), and its own wake is not.
+   */
   settle?: () => void;
 }
 
@@ -121,8 +126,13 @@ export function wakeDelivered(db: ProcessExitWakeDeps["db"], sessionKey: string,
 
 const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); (t as { unref?: () => void }).unref?.(); });
 
-/** One wake, from the wait to the end of the turn it opened. */
-export async function deliverProcessExit(deps: ProcessExitWakeDeps, f: ProcessExitFacts): Promise<"sent" | "delivered" | "no-topic" | "failed"> {
+/**
+ * One wake, from the wait to the end of the turn it opened. `onAccepted` runs
+ * when the route has taken the row, before that turn runs.
+ */
+export async function deliverProcessExit(
+  deps: ProcessExitWakeDeps, f: ProcessExitFacts, onAccepted?: () => void,
+): Promise<"sent" | "delivered" | "no-topic" | "failed"> {
   const pollMs = deps.pollMs ?? 500;
   for (;;) {
     // Resolved on every round: the topic can be archived while the wake waits.
@@ -155,6 +165,7 @@ export async function deliverProcessExit(deps: ProcessExitWakeDeps, f: ProcessEx
       deps.log?.(`${f.processId}: the chat route answered ${resp?.status ?? "nothing"}`);
       return "failed";
     }
+    onAccepted?.();
     // Drained to the end: the next wake of the same topic waits for this turn.
     if (resp.body) {
       const reader = resp.body.getReader();
@@ -172,10 +183,11 @@ const chains = new Map<string, Promise<void>>();
 
 function schedule(d: ProcessExitWakeDeps, r: ProcessExitRequest): void {
   const next = (chains.get(r.topicId) ?? Promise.resolve())
-    .then(() => deliverProcessExit(d, r))
+    .then(() => deliverProcessExit(d, r, () => r.settle?.()))
     .then((outcome) => {
-      // A failure stays owed: the next boot tries again.
-      if (outcome !== "failed") r.settle?.();
+      // A failure stays owed: the next boot tries again. A wake sent settled
+      // when the route took it.
+      if (outcome === "delivered" || outcome === "no-topic") r.settle?.();
       d.log?.(`${r.processId} -> ${r.topicId}: ${outcome}`);
     })
     .catch((err) => d.log?.(`${r.processId}: ${err instanceof Error ? err.message : String(err)}`));
