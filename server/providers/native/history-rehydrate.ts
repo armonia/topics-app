@@ -254,6 +254,24 @@ function expandToolCalls(content: string, calls: readonly ToolCall[], partial: b
   return out;
 }
 
+/**
+ * `read_file`'s own caption for an image result: `"<path> (WxH, image
+ * attached)"`. The rehydrated row never carries the bytes (`toolCallResultText`
+ * pulls back TEXT only, no image is persisted per call), so replaying this
+ * caption verbatim tells the model an image sits right there in the tool
+ * result when there is none — a lie about the model's own eyes, not a stale
+ * fact. It matters because a resumed agent reasoning from "I can see this
+ * screenshot" over a placeholder gets everything past that sentence wrong.
+ */
+const IMAGE_CAPTION = /^(\S+) \([^)]*image attached\)$/;
+
+function rewriteStaleImageCaption(text: string): string {
+  const path = text.match(IMAGE_CAPTION)?.[1];
+  return path
+    ? `[immagine non più nel contesto: ${path}; rileggila con read_file]` // allow-italian: testo che legge il modello
+    : text;
+}
+
 function resultBlock(tc: ToolCall): Block {
   const text = toolCallResultText(tc);
   const error = typeof tc.error === "string" && tc.error.length > 0 ? tc.error : undefined;
@@ -261,12 +279,13 @@ function resultBlock(tc: ToolCall): Block {
     return { type: "tool_result", tool_use_id: tc.id, content: NO_RESULT_RECORDED, is_error: true };
   }
   const isError = tc.status === "error" || text === undefined;
+  const body = text !== undefined ? rewriteStaleImageCaption(text) : error!;
   return {
     type: "tool_result",
     tool_use_id: tc.id,
     // Capped like a live result: a 400k read stored on disk would rebuild the
     // very oversized tail the compaction has to defend against.
-    content: clipToolResult(text ?? error!, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS),
+    content: clipToolResult(body, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS),
     ...(isError ? { is_error: true } : {}),
   };
 }

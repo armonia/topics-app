@@ -77,3 +77,18 @@ export function toolUpdatePatch(event: ToolUpdateEvent): ToolUpdatePatch | null 
 export function withPartialResult(tc: ToolCall, partialResult: string): ToolCall {
   return isActiveTool(tc) ? { ...tc, result: partialResult } : tc;
 }
+
+/**
+ * The row with a status announcement applied, or the row untouched when the
+ * announcement would reopen a tool that has already returned.
+ *
+ * The answer route broadcasts `running` for every submission, including a
+ * second one from a stale panel (another window, a phone that reconnected with
+ * its form still open) after the tool's result is in. The server's own writer
+ * refuses that patch (`patchOpenTool`); the window you sent from must refuse it
+ * too, or it shows a spinner on a finished tool until a reload.
+ */
+export function withToolUpdate(tc: ToolCall, patch: ToolUpdatePatch): ToolCall {
+  if (patch.status === 'running' && (tc.status === 'success' || tc.status === 'error')) return tc;
+  return { ...tc, ...patch };
+}

@@ -146,6 +146,12 @@ export const PROJECT_WORDS = new Set([
   // says which events it knows, `viewportFromRecorderEvent` would not
   // (2026-09-14, `client/src/lib/browserFit.ts`).
   "rrweb",
+  // Another dictionary hole, same shape as `screencast` above: `browser_screenshot`
+  // is the MCP tool's own name, and `SCREENSHOT_MEDIA_TYPE`/`inlineScreenshot`
+  // name the thing it produces. The baseline already grandfathered
+  // `screenshotImg` (`browser-screenshot-file.test.ts`) rather than face this
+  // (2026-09-27, `server/providers/native/topics-tools.ts`).
+  "screenshot",
   // The opposite of zooming a cell, and this app's own name for it: the menu
   // entry is `tab.menu.unzoom` and the control is `tab-menu-unzoom`, so the
   // word is already in the product before it is in a variable (2026-09-11,
@@ -561,6 +567,13 @@ export const PROJECT_WORDS = new Set([
   // provider/model pair, and no other word says it (2026-09-22,
   // `shared/task-coding-models.ts`).
   "routable",
+  // `ihdr`, `idat`, `crc`: PNG's own chunk names and checksum, spelled exactly
+  // as the PNG spec (ISO/IEC 15948) does, lowercased. The test fixture that
+  // builds a real, `sips`-decodable PNG byte-for-byte has no other honest name
+  // for the buffers it writes (2026-09-27, `server/providers/native/
+  // agent-loop.test.ts`). `sof0`: JPEG's baseline Start-Of-Frame marker, same
+  // reasoning, same fixture pattern (`server/providers/native/tools.test.ts`).
+  "ihdr", "idat", "crc", "sof0", "sof",
 ]);
 
 function trackedFiles(): string[] {

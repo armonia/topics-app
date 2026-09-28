@@ -27,18 +27,19 @@ import {
 } from "./retry";
 import { saturationHold, releaseHoldIfFreed } from "./usage-window";
 import { providerHold } from "../../lib/provider-hold";
-import { CODING_TOOLS, executeTool, type ToolContext, type ToolSpec } from "./tools";
+import { CODING_TOOLS, executeTool, type ToolContext, type ToolResult, type ToolSpec } from "./tools";
 import { detectUserInputRequest } from "../ask-user-detector";
 import type { ProviderUsage } from "../types";
 import { decide, DEFAULT_AUTONOMY } from "./permissions";
 import { applyPromptCache } from "../prompt-cache";
 import {
   windowFor, clipToolResult, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS,
-  estimateChars, DEFAULT_CHARS_PER_TOKEN,
+  estimateChars, DEFAULT_CHARS_PER_TOKEN, enforceImageHistoryBudget,
 } from "./compaction";
 import {
-  compactIfNeeded, recoverFromFullContext, calibrateFrom, overheadCharsFor, type Calibration,
+  compactIfNeeded, recoverFromFullContext, recoverFromImageFailure, calibrateFrom, overheadCharsFor, type Calibration,
 } from "./context-window";
+import { normalizeImage } from "./image-normalize";
 import { isTopicsTool, executeTopicsTool, type TopicsToolContext } from "./topics-tools";
 import { isMcpTool, executeMcpTool } from "./mcp-fleet";
 import type { AutonomyLevel } from "../../../shared/types";
@@ -667,6 +668,55 @@ function refusalDetail(details: StopDetails | null): string {
 }
 
 /**
+ * The `tool_result.content` an API-bound message carries for one tool call.
+ *
+ * EVERY RESULT IS CLIPPED HERE, whichever family produced it (machine, Topics,
+ * MCP): one place, one budget. The UI above gets the whole output; what enters
+ * the history is head and tail with a notice on how to read the rest. Without
+ * this, two big reads in one round could push a 200k window past its limit on
+ * their own, and the resulting 400 sat in the session for good. The same clip,
+ * tighter, is what the compaction applies to the tail when everything else has
+ * failed.
+ *
+ * AN IMAGE NEVER GOES THROUGH `clipToolResult`: that function slices a string
+ * by character count, and slicing base64 produces bytes that no longer decode
+ * to anything. Only the text half of an image result is clipped; the image
+ * blocks ride along untouched.
+ *
+ * EVERY IMAGE GOES THROUGH `normalizeImage` HERE, and only here: this is the
+ * one seam shared by `read_file`, an inline screenshot and an MCP server's
+ * answer, whatever `mediaType` each of them thought it was sending. The real
+ * format and size come from the bytes themselves, resized/recompressed under
+ * a byte cap so a multi-megabyte screenshot cannot blow the request body into
+ * a 413 — see `image-normalize.ts`. An image that cannot be made safe (no
+ * `sips` on this OS, an undecodable format) becomes TEXT naming the problem
+ * instead of a block the API is going to reject, which would otherwise repeat
+ * on every following turn since the history never changes on its own.
+ */
+export function toolResultContent(out: ToolResult): string | Block[] {
+  const clippedText = clipToolResult(out.content, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS);
+  const images = out.images;
+  if (!images || images.length === 0) return clippedText;
+
+  const blocks: Block[] = [];
+  const notes: string[] = [];
+  for (const img of images) {
+    const outcome = normalizeImage(Buffer.from(img.data, "base64"), "immagine"); // allow-italian: etichetta di fallback, il chiamante ne passa una migliore quando ce l'ha
+    if (outcome.kind === "image") {
+      blocks.push({
+        type: "image",
+        source: { type: "base64", media_type: outcome.image.mediaType, data: outcome.image.data },
+      } as Block);
+    } else {
+      notes.push(outcome.text);
+    }
+  }
+  const text = notes.length > 0 ? `${clippedText}\n\n${notes.join("\n")}` : clippedText;
+  if (blocks.length === 0) return text;
+  return [{ type: "text", text }, ...blocks] as Block[];
+}
+
+/**
  * Il turno completo: gira finché il modello non ha più tool da chiedere.
  *
  * IL CICLO È IL PUNTO. `stop_reason: "tool_use"` significa «ho chiesto degli
@@ -698,7 +748,7 @@ export async function runAgentTurn(
   // The caller's calibration when it keeps one (it survives across turns),
   // turn-local otherwise; the recovery count is per TURN, not per round.
   const calibration = opts.calibration ?? { charsPerToken: DEFAULT_CHARS_PER_TOKEN };
-  const recovery = { attempts: 0 };
+  const recovery: { attempts: number; imagesStripped?: boolean } = { attempts: 0 };
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     if (opts.signal?.aborted) {
@@ -725,6 +775,11 @@ export async function runAgentTurn(
     // Compacted BEFORE asking, never after a 400: by then the turn is dead.
     const windowTokens = windowFor(opts.model);
     const overheadChars = overheadCharsFor(opts, CLAUDE_CODE_IDENTITY);
+    // Runs on EVERY round, independently of the token-window compaction below:
+    // a request body can blow past the API's byte ceiling (413) long before
+    // the token window is anywhere near full. See `enforceImageHistoryBudget`.
+    const budgeted = enforceImageHistoryBudget(opts.history);
+    if (budgeted !== opts.history) { opts.history.length = 0; opts.history.push(...budgeted); }
     compactIfNeeded({ history: opts.history, windowTokens, overheadChars, calibration, handler });
 
     // Taken BEFORE the request: with the count the API reports, they give the
@@ -748,12 +803,21 @@ export async function runAgentTurn(
       // at the edge of a window small requests pass and large ones do not).
       if (providerHold()) void releaseHoldIfFreed(auth.token);
     } catch (err) {
-      // A full context is a measurement, not a failure: it recompacts and
-      // returns, or rethrows what it cannot resolve. See `context-window.ts`.
-      recoverFromFullContext(err, {
-        history: opts.history, windowTokens, overheadChars, sentChars, calibration,
-        state: recovery, aborted: opts.signal?.aborted === true, handler,
-      });
+      try {
+        // A full context is a measurement, not a failure: it recompacts and
+        // returns, or rethrows what it cannot resolve. See `context-window.ts`.
+        recoverFromFullContext(err, {
+          history: opts.history, windowTokens, overheadChars, sentChars, calibration,
+          state: recovery, aborted: opts.signal?.aborted === true, handler,
+        });
+      } catch (err2) {
+        // Not a full context: maybe an oversized or mislabelled image (413, or
+        // a 400 naming one) that `recoverFromFullContext` rightly did not
+        // touch. One more chance before the error reaches the caller.
+        recoverFromImageFailure(err2, {
+          history: opts.history, state: recovery, aborted: opts.signal?.aborted === true, handler,
+        });
+      }
       i--; // the same round, with a lightened history
       continue;
     }
@@ -766,7 +830,7 @@ export async function runAgentTurn(
     // cache che costa 2x veniva tariffata 1.25x.
     total.cacheWrite1h += round.usage.cacheWrite1h;
 
-    calibrateFrom(calibration, sentChars, round.usage);
+    calibrateFrom(calibration, sentChars, round.usage, opts.history);
     // Il giro è finito: il suo costo va depositato ADESSO, non a fine turno.
     // Il `try` c'è perché è telemetria: un registro che esplode non deve
     // portarsi via il turno.
@@ -896,10 +960,15 @@ export async function runAgentTurn(
       // a 200k window past its limit on their own, and the resulting 400 sat
       // in the session for good. The same clip, tighter, is what the
       // compaction applies to the tail when everything else has failed.
+      //
+      // AN IMAGE NEVER GOES THROUGH `clipToolResult`: that function slices a
+      // string by character count, and slicing base64 produces bytes that no
+      // longer decode to anything. Only the text half of an image result is
+      // clipped; the image blocks ride along untouched.
       results.push({
         type: "tool_result",
         tool_use_id: t.id,
-        content: clipToolResult(out.content, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS),
+        content: toolResultContent(out),
         ...(out.isError ? { is_error: true } : {}),
       });
       // IL TURNO PUÒ ESSERE MORTO MENTRE QUESTO TOOL GIRAVA.

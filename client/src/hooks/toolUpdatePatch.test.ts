@@ -33,7 +33,9 @@
  * @covers ASK-09, CHAT-TOOL-09
  */
 import { describe, expect, test } from 'bun:test';
-import { toolUpdatePatch, withPartialResult } from './toolUpdatePatch';
+import { toolUpdatePatch, withPartialResult, withToolUpdate } from './toolUpdatePatch';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import type { ToolCall } from '@/types';
 
 describe('what a tool-update event changes on the row', () => {
@@ -89,5 +91,28 @@ describe('a partial output writes only on a row still running', () => {
     expect(withPartialResult(row('running', 'test 1'), 'test 1\ntest 2').result).toBe('test 1\ntest 2');
     // No status yet reads as pending, which is running for the row too.
     expect(withPartialResult(row(undefined, ''), 'test 1').result).toBe('test 1');
+  });
+});
+
+describe('a stale answer does not reopen a tool that returned', () => {
+  const ask = (status: ToolCall['status']): ToolCall =>
+    ({ id: 'tu_ask', name: 'AskUserQuestion', args: {}, status });
+
+  test('a second submission after the result leaves the row settled', () => {
+    // The phone reconnects with its form still open and answers again; the
+    // route broadcasts `running` although the tool has already returned.
+    const patch = toolUpdatePatch({ toolCallId: 'tu_ask', status: 'running', userResponse: { answers: {} } as never })!;
+    expect(withToolUpdate(ask('success'), patch)).toEqual(ask('success'));
+    expect(withToolUpdate(ask('error'), patch)).toEqual(ask('error'));
+  });
+
+  test('the first answer still moves a waiting row back to running', () => {
+    const patch = toolUpdatePatch({ toolCallId: 'tu_ask', status: 'running' })!;
+    expect(withToolUpdate(ask('waiting_for_input'), patch).status).toBe('running');
+  });
+
+  test('the stream handler goes through the guard', () => {
+    const src = readFileSync(join(import.meta.dir, 'useChat.ts'), 'utf8');
+    expect(src).toContain('(tc) => withToolUpdate(tc, patch)');
   });
 });
