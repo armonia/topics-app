@@ -1,8 +1,9 @@
 /**
  * @covers PERFPANEL-01
  */
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { hermetic } from './fixtures/hermetic';
+import { fakeTauriShell } from "./helpers/fake-tauri-shell";
 import { openPerfPanel, openProfileMenu } from "./helpers/open-perf-panel";
 
 /**
@@ -33,14 +34,20 @@ import { openPerfPanel, openProfileMenu } from "./helpers/open-perf-panel";
  */
 hermetic(test);
 
+/** The shell answers `perf_metrics` with `metrics`; any other command is a red. */
+const shellWithMetrics = (page: Page, metrics: Record<string, unknown>) =>
+  fakeTauriShell(page, (m) => async (cmd: string) => {
+    if (cmd !== 'perf_metrics') throw new Error(`unmocked command: ${cmd}`);
+    return m;
+  }, metrics);
+
 test.describe('pannello prestazioni', () => {
   // THE DOOR ONLY EXISTS WHEN PAIRED. The panel opens from the user card
   // (SIDEBAR-STATUS-01), and the card is drawn only for a paired session.
-  // Under the shell mock these tests install, the client rewrites every
-  // `/api` call to the desktop server's loopback port, where the E2E server
-  // is not: the session would come back unpaired and the door would not be
-  // there. So the session is answered here, with the same stub every
-  // identity spec uses. Nothing else in the file cares who is signed in.
+  // So the session is answered here, with the same stub every identity spec
+  // uses, whatever the E2E server thinks of who is signed in. Nothing else in
+  // the file cares. (Under the shell mock `/api` calls used to go to the
+  // desktop app's loopback proxy; `fakeTauriShell` now sends them home.)
   test.beforeEach(async ({ page }) => {
     await page.route('**/api/auth/session', (r) =>
       r.fulfill({ status: 200, contentType: 'application/json',
@@ -85,21 +92,12 @@ test.describe('pannello prestazioni', () => {
     // footprint contro 517 residenti. Prima di questo lavoro il pannello
     // mostrava «1,8 GB» e nient'altro — la sola riga che parlava di swap si
     // accendeva sopra i 2 GB, quindi 1.271 MB compressi non la raggiungevano.
-    await page.addInitScript(() => {
-      const MB = { total_mb: 1788, resident_mb: 517 };
-      (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
-        metadata: { currentWindow: { label: 'main' } },
-        invoke: async (cmd: string) => {
-          if (cmd !== 'perf_metrics') throw new Error(`comando non simulato: ${cmd}`);
-          return {
-            version: 'e2e', ...MB,
-            renderer_mb: 1200, gpu_mb: 88, other_mb: 500,
-            cpu_percent: 12, cpu_renderer: 6, cpu_gpu: 2,
-            cpu_sampled: 3, cpu_pids: 3, process_count: 3,
-            partial: false, // misura completa: senza questo la riga tace, ed è giusto
-          };
-        },
-      };
+    await shellWithMetrics(page, {
+      version: 'e2e', total_mb: 1788, resident_mb: 517,
+      renderer_mb: 1200, gpu_mb: 88, other_mb: 500,
+      cpu_percent: 12, cpu_renderer: 6, cpu_gpu: 2,
+      cpu_sampled: 3, cpu_pids: 3, process_count: 3,
+      partial: false, // a complete measurement: without it the line stays silent, rightly
     });
 
     await page.goto('/');
@@ -130,19 +128,11 @@ test.describe('pannello prestazioni', () => {
     //
     // Senza questo caso, una regressione che facesse vincere sempre la riga
     // informativa passerebbe: l'altro test continuerebbe a essere verde.
-    await page.addInitScript(() => {
-      (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
-        metadata: { currentWindow: { label: 'main' } },
-        invoke: async (cmd: string) => {
-          if (cmd !== 'perf_metrics') throw new Error(`comando non simulato: ${cmd}`);
-          return {
-            version: 'e2e', total_mb: 6000, resident_mb: 3000,
-            renderer_mb: 4000, gpu_mb: 200, other_mb: 1800,
-            cpu_percent: 10, cpu_renderer: 5, cpu_gpu: 1,
-            cpu_sampled: 3, cpu_pids: 3, process_count: 3, partial: false,
-          };
-        },
-      };
+    await shellWithMetrics(page, {
+      version: 'e2e', total_mb: 6000, resident_mb: 3000,
+      renderer_mb: 4000, gpu_mb: 200, other_mb: 1800,
+      cpu_percent: 10, cpu_renderer: 5, cpu_gpu: 1,
+      cpu_sampled: 3, cpu_pids: 3, process_count: 3, partial: false,
     });
 
     await page.goto('/');
@@ -168,19 +158,11 @@ test.describe('pannello prestazioni', () => {
     // it was that the number not sit under a SECOND gesture, because a cost
     // paid to read a datum is a datum nobody reads. That half is still here:
     // the menu opens and the number is already there, panel still closed.
-    await page.addInitScript(() => {
-      (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
-        metadata: { currentWindow: { label: 'main' } },
-        invoke: async (cmd: string) => {
-          if (cmd !== 'perf_metrics') throw new Error(`comando non simulato: ${cmd}`);
-          return {
-            version: 'e2e', total_mb: 1989, resident_mb: 594,
-            renderer_mb: 1400, gpu_mb: 130, other_mb: 459,
-            cpu_percent: 8, cpu_renderer: 4, cpu_gpu: 1,
-            cpu_sampled: 3, cpu_pids: 3, process_count: 8, partial: false,
-          };
-        },
-      };
+    await shellWithMetrics(page, {
+      version: 'e2e', total_mb: 1989, resident_mb: 594,
+      renderer_mb: 1400, gpu_mb: 130, other_mb: 459,
+      cpu_percent: 8, cpu_renderer: 4, cpu_gpu: 1,
+      cpu_sampled: 3, cpu_pids: 3, process_count: 8, partial: false,
     });
 
     await page.goto('/');
@@ -206,20 +188,12 @@ test.describe('pannello prestazioni', () => {
     // caso non-macOS, che il payload dichiara invece di fingere). Una
     // percentuale calcolata su una misura parziale sarebbe una piccola bugia
     // detta con precisione, e il pannello preferisce tacere.
-    await page.addInitScript(() => {
-      (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
-        metadata: { currentWindow: { label: 'main' } },
-        invoke: async (cmd: string) => {
-          if (cmd !== 'perf_metrics') throw new Error(`comando non simulato: ${cmd}`);
-          return {
-            version: 'e2e', total_mb: 1788, resident_mb: 517,
-            renderer_mb: 1200, gpu_mb: 88, other_mb: 500,
-            cpu_percent: 10, cpu_renderer: 5, cpu_gpu: 1,
-            cpu_sampled: 1, cpu_pids: 3, process_count: 3,
-            partial: true, // <- l'unica differenza dal primo caso
-          };
-        },
-      };
+    await shellWithMetrics(page, {
+      version: 'e2e', total_mb: 1788, resident_mb: 517,
+      renderer_mb: 1200, gpu_mb: 88, other_mb: 500,
+      cpu_percent: 10, cpu_renderer: 5, cpu_gpu: 1,
+      cpu_sampled: 1, cpu_pids: 3, process_count: 3,
+      partial: true, // <- the only difference from the first case
     });
 
     await page.goto('/');
