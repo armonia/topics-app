@@ -13,6 +13,16 @@ Una meta è una riga della sidebar il cui soggetto sta in:
   alimentato dalla poll a `:123` e dal frame `stream:tool_user_input_required` a `:157`);
 - `claudePhaseAwaitingInputTermIds` per un terminale Claude Code.
 
+Il piano entra solo dalla prima strada: `ExitPlanMode` visto dagli hook diventa
+`awaiting-approval` (`server/lib/claude-session-state.ts:151`). Col runtime
+nativo in plan mode la CLI non ha `ExitPlanMode` (`server/lib/plan-approval.ts:5-8`)
+e l'app chiede l'approvazione a fine turno (`server/routes/chat.ts:1983-2001`):
+il turno si chiude subito dopo (`:2315-2317`), lo stream esce da
+`activeStreams` (`server/utils.ts:2151`), che è l'unica fonte dello scatto
+(`server/routes/topics.ts:1128`), e `stream:end` toglie il topic da
+`askWaitingTopics` (`useSignalsSync.ts:146-150`). Quella chat non è ambra e non
+è una meta; è un Non-goal della proposta.
+
 È lo stesso predicato che sceglie l'ambra (`useTopicAttentionTier`,
 `signals.ts:1094-1100`, e `useTerminalAttentionTier`, `:1105`), quindi meta e colore non
 possono divergere. Non si usa `awaitingFeedbackTopics`: aggiungerebbe i turni
@@ -33,17 +43,29 @@ pura come il resto di `buildSidebarItems.ts`:
    `TopicTree.tsx:692-723`), cioè quelle che la vista disegna in cima;
 2. poi `groupSidebarItemsByState(unpinned, stateSig).awaiting`
    (`buildSidebarItems.ts:900-921`) filtrato sulle mete: quell'elenco conserva
-   l'ordine del builder e promuove i figli dei progetti al loro posto.
+   l'ordine del builder e promuove i figli dei progetti al loro posto;
+3. infine un soggetto compare una volta sola, alla prima occorrenza. `unpinned`
+   filtra solo il livello alto (`TopicTree.tsx:724-726`), mentre i Fissati
+   prendono anche i figli fissati (`:697-698`) e `groupSidebarItemsByState`
+   promuove i figli senza guardare `pinned` (`buildSidebarItems.ts:905-913`):
+   senza questo passo una chat fissata dentro un progetto sarebbe in coda due
+   volte, il numero della porta conterebbe una chat in più e con coda `[X, X]`
+   il passo da X darebbe X invece di `null`.
 
 Restituisce `WaitingTarget[]` (`{ subject, kind: 'chat' | 'terminal' }`).
 
-Due dettagli voluti:
+Due note:
 
-- Parte da `allItems`, non da `filteredItems` (`TopicTree.tsx:600-603`): una chat
-  nascosta dal filtro di ricerca della sidebar ti aspetta lo stesso.
-- È la sequenza della sezione «Attende te» in ogni vista. Nella vista per gruppi
-  le righe sono smistate per gruppo (`groupSidebarItemsBySpace`) e l'ordine a
-  schermo può differire: ⌘J segue comunque la sezione, che è una sola.
+- Parte da `allItems`. Un filtro di ricerca della sidebar oggi non esiste:
+  l'unico mount di `TopicTree` passa `searchQuery=""` (`App.tsx:1832`), quindi
+  `filteredItems` coincide con `allItems` e la coda non riceve un filtro.
+- È la sequenza della sezione «Attende te» in ogni vista. Nella timeline coincide
+  con l'ordine a schermo (Fissati, poi la lista, coi figli al posto del loro
+  progetto). Con i gruppi accesi (`spaceScoped`, vero appena un gruppo vivo ha
+  tab: `App.tsx:818`, `spaceHelpers.ts:76-86`) le righe sono smistate per card
+  (`groupSidebarItemsBySpace`) e la sezione non si disegna
+  (`TopicTree.tsx:2016`): ⌘J segue comunque il suo ordine e a schermo può
+  saltare fra le card. Lo dice la scelta 2 della proposta.
 
 ## 3. Il passo, e cosa succede dopo una risposta
 
@@ -71,7 +93,9 @@ quella a fuoco. Testo dall'i18n.
 ## 4. Il tasto
 
 - **Registro.** Nel gruppo «Chat» di `shared/shortcuts.ts`:
-  `{ keys: [MOD, 'J'], description: 'Prossima chat che ti aspetta', native: { chars: ['j'] } }`.
+  `{ keys: [MOD, 'J'], description: 'Next chat waiting for you', native: { chars: ['j'] } }`,
+  in inglese come il resto del registro: `KeyboardShortcuts.tsx:56` stampa la
+  descrizione senza i18n.
   Senza `native` il monitor NSEvent non inoltra l'accordo e con una pane browser
   a fuoco ⌘J morirebbe lì, come spiega il commento di ⌘E (`shortcuts.ts`,
   gruppo «Panels & tabs»). `bun run gen:shortcuts` rigenera
@@ -96,8 +120,11 @@ L'evento lo ascolta `TopicTree`, perché lì stanno le tre cose che servono:
 l'ordine (`allItems`, `pinnedBlock`), la riga a fuoco (lo stesso `isFocused` di
 `TopicTree.tsx:920-921` e `:991`) e il gesto della riga (`handleChatRowClick`,
 `:893-906`, che sa anche riportare davanti una chat staccata in un'altra
-finestra; `onTerminalClick` per i terminali). ⌘J fa esattamente ciò che fa il
-clic, senza una seconda strada per «apri questa chat».
+finestra). Per i terminali il clic della riga fa due cose,
+`clearTerminalFinished` e poi `onTerminalClick` (`TopicTree.tsx:2376`): le due
+chiamate diventano `handleTerminalRowClick` in `TopicTree`, passato alla riga al
+posto di `onTerminalClick` e chiamato dal tasto. Così ⌘J fa esattamente ciò che
+fa il clic, senza una seconda strada per «apri questa chat».
 
 È la forma di ⌘E e ⌘T: il tasto annuncia l'intenzione, chi possiede la cosa
 risponde. La sidebar è sempre montata: chiusa, scorre fuori con `translateX`
@@ -117,11 +144,27 @@ in più, prima del Profilo: `BottoneFila` (`MobileChromeBar.tsx:376`) con
 etichetta «In attesa» e il numero come `NotificationBadge`. A zero è `disabled`
 col titolo «Nessuna chat ti aspetta».
 
+`BottoneFila` oggi non ha `disabled`: lo riceve, e a zero spegne glifo e testo
+ma tiene la campitura `RAISED_CONTROL`. MOBILE-CHROME-06 misura il fondo di ogni
+porta a riposo, e nella sua suite nessuna chat aspetta: la porta misurata è
+proprio quella spenta.
+
 Il Profilo resta l'ultima porta e tiene la curva: il verso lo decide
 `formaFila` guardando da che bordo dista la casella, quindi l'arco non si tocca.
-Le misure di `tests/e2e/mobile-chrome-bar.spec.ts` che contano quattro caselle
-(`:221-230`, `:263`, `:303`) passano a cinque; il minimo di 44 px regge (circa
-70 px su 375).
+In `tests/e2e/mobile-chrome-bar.spec.ts` passano da quattro a cinque:
+
+- i conteggi `expect(...length).toBe(4)` di MOBILE-CHROME-02 (`:230`), 03
+  (`:263`), 03b (`:308`) e 06 (`:466`); `porte()` (`:105-109`) conta ogni
+  `<button>` della barra;
+- la destrutturazione in quattro di MOBILE-CHROME-03 (`:264`): con cinque, `dx`
+  sarebbe la quarta porta, che non tocca il bordo, e
+  `dx.daFondo > centroDx.daFondo` cadrebbe. Diventa primo, ultimo e
+  `slice(1, -1)` per i centrali, come MOBILE-CHROME-07 (`:563-565`);
+- i titoli di MOBILE-CHROME-02 (`:221`) e 03b (`:303`) e i commenti che dicono
+  quattro: `:5`, `:13`, `:258`, `:281-282`, `:310`, `:464`, `:472`, `:493`,
+  `:559`.
+
+Il minimo di 44 px regge (circa 70 px su 375).
 
 ## 7. La sezione «Attende te» legge l'unione
 

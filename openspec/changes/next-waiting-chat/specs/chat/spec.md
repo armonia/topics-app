@@ -5,21 +5,27 @@
 ### Requirement: CHAT-WAIT-03 — ⌘J porta alla prossima chat che ti aspetta
 
 Un comando SHALL portare il fuoco sulla prossima riga della sidebar in attesa di
-una tua risposta, nel senso di CHAT-WAIT-01: ferma su una domanda, un permesso o
-un piano da approvare. Da tastiera è `Mod+J` (⌘J sul Mac, Ctrl+J altrove).
+una tua risposta, nel senso di CHAT-WAIT-01: ferma su una domanda o un
+permesso, oppure su un piano da approvare quando a chiederlo è Claude Code con
+gli hook (`cli` e terminali Claude Code). Da tastiera è `Mod+J` (⌘J sul Mac,
+Ctrl+J altrove).
 
 **Le mete.** Una meta SHALL essere una riga chat il cui topic sta in
 `awaitingInputTopics`, oppure una riga terminale Claude Code il cui id sta in
 `claudePhaseAwaitingInputTermIds`: le righe che la sidebar colora d'ambra. Una
 chat al lavoro, una chat col turno finito (`awaiting-user`, `paused`) e un
-sotto-agente annidato NON SHALL essere mete. Il «visto» non conta: una meta
-guardata resta una meta finché la domanda è aperta.
+sotto-agente annidato NON SHALL essere mete. Nemmeno la chat del runtime
+nativo col piano che l'app chiede a fine turno (`server/lib/plan-approval.ts`):
+il turno è chiuso, la riga non è ambra, e questa change non la colora. Il
+«visto» non conta: una meta guardata resta una meta finché la domanda è aperta.
 
 **L'ordine.** Le mete SHALL essere ordinate da una funzione pura
 `waitingQueue(allItems, pinnedIds, sig)` in `client/src/lib/waitingQueue.ts`:
 prima le righe fissate, nell'ordine dei Fissati; poi quelle che
-`groupSidebarItemsByState` mette in «Attende te», nel loro ordine. La coda SHALL
-partire da tutte le righe, ignorando il filtro di ricerca della sidebar.
+`groupSidebarItemsByState` mette in «Attende te», nel loro ordine. Ogni soggetto
+SHALL comparire una volta sola, alla prima occorrenza: una chat fissata dentro un
+progetto sta sia fra i Fissati sia fra i figli che la vista promuove, e conta
+fra i Fissati.
 
 **Il passo.** La meta SHALL essere scelta da una funzione pura
 `nextWaiting(queue, focused, last)`:
@@ -37,7 +43,10 @@ fuoco) e nessun cambio di fuoco.
 
 **Il gesto.** Il tasto SHALL annunciare l'evento `topics:next-waiting` e basta;
 la sidebar (`TopicTree`) SHALL rispondere chiamando lo stesso gestore del clic
-sulla riga (`handleChatRowClick` per le chat, `onTerminalClick` per i terminali).
+sulla riga: `handleChatRowClick` per le chat, e per i terminali un
+`handleTerminalRowClick` che spegne il «finito» (`clearTerminalFinished`) e poi
+chiama `onTerminalClick`, estratto dalla riga (`TopicTree.tsx:2376`) e usato da
+lei e dal tasto.
 
 **Il tasto.**
 
@@ -78,13 +87,22 @@ sulla riga (`handleChatRowClick` per le chat, `onTerminalClick` per i terminali)
 #### Scenario: nessun'altra meta
 - **GIVEN** `queue = [A]` e il fuoco su A, oppure `queue = []`
 - **THEN** la risposta è `null`
-- **AND** in app compare l'avviso e il fuoco non cambia
+
+#### Scenario: in app, nessun'altra chat ti aspetta
+- **GIVEN** su `:13334` una sola chat A ferma su un permesso (`session:state` con fase `awaiting-approval`), a fuoco
+- **WHEN** si preme ⌘J
+- **THEN** compare il `toast` «Nessun'altra chat ti aspetta»
+- **AND** la tab a fuoco è ancora A
 
 #### Scenario: l'ordine è quello della sidebar
 - **GIVEN** una chat fissata F in attesa, una chat P in attesa dentro un progetto, e una chat L in attesa fuori dai progetti che nella lista sta sopra al progetto
-- **AND** un filtro di ricerca della sidebar che nasconde L
 - **WHEN** si calcola `waitingQueue`
 - **THEN** la coda è `[F, L, P]`
+
+#### Scenario: una chat fissata dentro un progetto conta una volta
+- **GIVEN** una chat X fissata e in attesa dentro un progetto, e una chat A in attesa fuori dai progetti
+- **WHEN** si calcola `waitingQueue`
+- **THEN** la coda è `[X, A]`, e la sua lunghezza, che è il numero della porta di CHAT-WAIT-04, è 2
 
 #### Scenario: un turno finito non è una meta
 - **GIVEN** una chat in `awaitingFeedbackTopics` per la fase `awaiting-user` e non in `awaitingInputTopics`
@@ -104,7 +122,8 @@ La fila in fondo al telefono (`MobileChromeBar`) SHALL avere una porta «In
 attesa», prima del Profilo, con il glifo `Hourglass` della sezione «Attende te».
 
 - Il numero sulla porta SHALL essere la lunghezza della coda di CHAT-WAIT-03,
-  letta dallo stesso store: numero e mete non possono divergere.
+  letta dallo stesso store: numero e mete non possono divergere, e una chat
+  fissata dentro un progetto conta una volta.
 - Premerla SHALL fare lo stesso passo di ⌘J (evento `topics:next-waiting`).
 - A coda vuota la porta SHALL restare al suo posto, `disabled`, con un titolo
   che dice che nessuna chat ti aspetta: le altre porte NON SHALL spostarsi quando

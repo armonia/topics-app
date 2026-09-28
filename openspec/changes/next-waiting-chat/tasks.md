@@ -6,9 +6,9 @@ Prima del codice: `grep -qx 'status: approved' openspec/changes/next-waiting-cha
 
 - [ ] 1.1 `client/src/lib/waitingQueue.test.ts` (bun:test, header `@covers CHAT-WAIT-03`):
       gli scenari puri di CHAT-WAIT-03 su `waitingQueue` (ordine con Fissati,
-      figlio di progetto promosso, filtro di ricerca ignorato, turno finito
-      escluso, terminale incluso) e su `nextWaiting` (successiva, giro, fuoco
-      fuori coda, dopo una risposta, `null`). Item costruiti come in
+      figlio di progetto promosso, chat fissata dentro un progetto contata una
+      volta, turno finito escluso, terminale incluso) e su `nextWaiting`
+      (successiva, giro, fuoco fuori coda, dopo una risposta, `null`). Item costruiti come in
       `client/src/lib/sidebarStateGroups.test.ts`. Rosso oggi: il modulo non esiste.
 - [ ] 1.2 `client/src/lib/sidebarStateGroups.test.ts`: una chat solo in
       `awaitingInputTopics` e anche in uno stream aperto finisce in `awaiting`
@@ -22,10 +22,12 @@ Prima del codice: `grep -qx 'status: approved' openspec/changes/next-waiting-cha
       (`tools/pc-offload.md`), non sul Mac.
 - [ ] 1.5 `tests/e2e/chat-next-waiting.spec.ts` (nuovo) su `:13334`, uno
       scenario per test con `test.info().annotations.push({ type: "spec", description: "CHAT-WAIT-0N" })`:
-      «due chat in attesa e una al lavoro» (CHAT-WAIT-03) e i due scenari di
-      CHAT-WAIT-04 con viewport da telefono. Semina senza finti interni:
-      A con `session:state` `awaiting-approval` via `interceptWebSocket`, come
-      `tests/e2e/tab-state-view.spec.ts:131-132`; B e C con
+      «due chat in attesa e una al lavoro» e «in app, nessun'altra chat ti
+      aspetta» (CHAT-WAIT-03, il secondo con
+      `page.getByTestId("toast").filter({ hasText: … })` e la tab a fuoco
+      invariata) e i due scenari di CHAT-WAIT-04 con viewport da telefono.
+      Semina senza finti interni: A con `session:state` `awaiting-approval` via
+      `interceptWebSocket`, come `tests/e2e/tab-state-view.spec.ts:130`; B e C con
       `POST /api/test/streams/partial` (`server/routes/e2e.ts:457`), e per B in
       più `seedMessage` (`tests/e2e/helpers/seed-messages.ts:66`) con l'ultima
       riga assistente che porta `mcp__topics__ask_user_question` in
@@ -49,14 +51,18 @@ Prima del codice: `grep -qx 'status: approved' openspec/changes/next-waiting-cha
 - [ ] 3.1 `TopicTree.tsx:788-799`: la vista per stato passa da
       `sidebarStateSignals`; l'unione nel `useMemo`, non nel selettore.
 - [ ] 3.2 `TopicTree.tsx`: `waitingQueue` da `allItems` e dai Fissati, scritta
-      nello store solo quando cambia; ascolto di `NEXT_WAITING_EVENT` che chiama
-      `handleChatRowClick` o `onTerminalClick` e aggiorna `last`; avviso con
+      nello store solo quando cambia; `handleTerminalRowClick`
+      (`clearTerminalFinished` + `onTerminalClick`, estratto da `:2376` e
+      passato alla riga); ascolto di `NEXT_WAITING_EVENT` che chiama
+      `handleChatRowClick` o `handleTerminalRowClick` e aggiorna `last`; avviso con
       `useToast` quando `nextWaiting` dà `null`. Chiavi i18n in `i18n-it.ts` e
       `i18n-en.ts`.
 
 ## 4. Tasto (CHAT-WAIT-03)
 
-- [ ] 4.1 `shared/shortcuts.ts`: la voce `Mod+J`, poi `bun run gen:shortcuts`.
+- [ ] 4.1 `shared/shortcuts.ts`: la voce `Mod+J` con la descrizione
+      `'Next chat waiting for you'` (il registro è in inglese), poi
+      `bun run gen:shortcuts`.
 - [ ] 4.2 `client/src/hooks/useKeyboardShortcuts.ts`, accanto a ⌘E: il ramo di
       design §4, con il commento del perché niente guardia sul campo di testo e
       del perché si cede sul ramo ctrl.
@@ -64,12 +70,16 @@ Prima del codice: `grep -qx 'status: approved' openspec/changes/next-waiting-cha
 ## 5. Telefono (CHAT-WAIT-04)
 
 - [ ] 5.1 `MobileChromeBar.tsx`: casella «In attesa» prima del Profilo, testid
-      `mobile-chrome-waiting`, `disabled` a zero; aggiorna il commento di testa
-      («quattro porte») con la ragione della quinta.
+      `mobile-chrome-waiting`, `disabled` a zero; `BottoneFila` riceve
+      `disabled` e a zero spegne glifo e testo ma tiene la campitura (design §6,
+      MOBILE-CHROME-06); aggiorna il commento di testa («quattro porte») con la
+      ragione della quinta.
 - [ ] 5.2 `App.tsx:1964`: `waitingCount` dallo store e `onNextWaiting` che
       annuncia l'evento.
-- [ ] 5.3 `tests/e2e/mobile-chrome-bar.spec.ts`: le misure a quattro caselle
-      (`:221-230`, `:263`, `:303`) passano a cinque, commento di testa compreso.
+- [ ] 5.3 `tests/e2e/mobile-chrome-bar.spec.ts`, l'elenco completo in design §6:
+      i quattro `toBe(4)` (`:230`, `:263`, `:308`, `:466`) passano a cinque; la
+      destrutturazione di `:264` diventa primo, ultimo e centrali come
+      `:563-565`; titoli e commenti che dicono quattro.
 
 ## 6. Verifica
 

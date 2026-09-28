@@ -1,11 +1,12 @@
 ## Da decidere
 
 ⌘J alla prossima chat che ti aspetta: 4 scelte prima del codice.
-1. Mete: solo le chat ferme su domanda, permesso o piano, cioè le righe ambra (CHAT-WAIT-01). Perché: stesso insieme con ogni runtime (o: anche i turni finiti blu, che esistono solo per `cli` e terminali Claude Code).
-2. Ordine: quello della sidebar, prima i Fissati e poi la sezione «Attende te», in qualunque vista. Perché: ⌘J scende lungo le righe che vedi (o: chi aspetta da più tempo per primo, una coda che non si vede).
+1. Mete: solo le righe ambra (CHAT-WAIT-01), cioè le chat ferme su una domanda o un permesso, più il piano da approvare dove lo chiede Claude Code (`cli` e terminali). Perché: domanda e permesso sono ambra con ogni runtime (o: anche i turni finiti blu, che esistono solo per `cli` e terminali Claude Code).
+2. Ordine: quello della sidebar, prima i Fissati e poi la sezione «Attende te». Perché: nella timeline e nella vista per stato ⌘J scende lungo le righe che vedi; con i gruppi accesi (basta un gruppo con tab) la sezione non è a schermo e ⌘J segue il suo ordine, non quello delle card (o: chi aspetta da più tempo per primo, una coda che non si vede).
 3. Dopo una risposta ⌘J va alla successiva di quella appena lasciata, come Gmail dopo un'archiviazione. Perché: ripartire dalla prima ti rimanda a quella che avevi saltato (o: riparte sempre dalla prima).
 4. Telefono: quinta porta «In attesa» in fondo, col numero, sempre al suo posto e spenta a zero. Perché: il pollice ci arriva da lista e chat, e le porte non si spostano (o: tasto nella testata della chat, solo quando serve).
 Compreso, senza scelta: dopo l'ultima si riparte dalla prima; le chat al lavoro non sono mete; ⌘J vale anche col fuoco nel composer o in una pane browser; su Windows Ctrl+J resta al terminale e all'editor; anche i terminali Claude Code fermi su un permesso sono mete; un avviso quando non c'è un'altra chat; niente ⌘⇧J.
+Fuori, senza scelta: il piano che col runtime nativo l'app chiede a fine turno. Il turno è chiuso e la riga non è ambra, quindi ⌘J non lo trova; portarlo dentro vuol dire colorare un turno chiuso, ed è una change sua.
 Col sì: la sezione «Attende te» della vista per stato mostra anche le chat ferme su una domanda o un permesso dentro l'app, che oggi finiscono sotto «Al lavoro». Costo: la fila del telefono passa da quattro a cinque porte (forma del 12/08 e del 14/08), ciascuna da circa 89 a 70 px su un iPhone largo 375.
 «ok / ok ma 2 no»: «ok» = tutte le consigliate, «ok ma 2 no» = cambio la 2.
 
@@ -76,8 +77,19 @@ ha tre buchi.
   legge solo non letti e fasi degli hook).
 - Un piano scritto solo in prosa a turno chiuso non è una meta:
   `findPendingPlan` (`client/src/components/Chat/planDetection.ts:81-110`) lo
-  trova solo dentro la chat aperta, e la sidebar non lo colora. Il piano che
-  passa da `ExitPlanMode` e aspetta sì.
+  trova solo dentro la chat aperta, e la sidebar non lo colora.
+- Nemmeno il piano che l'app chiede col runtime nativo. In plan mode la CLI non
+  espone `ExitPlanMode` (`server/lib/plan-approval.ts:5-8`), quindi a fine turno
+  il piano diventa una domanda `waiting_for_input`
+  (`server/routes/chat.ts:1983-2001`) e subito dopo il turno si chiude
+  (`endStreamAndAnnounce`, `:2315-2317`). Lo stream esce da `activeStreams`
+  (`server/utils.ts:2151`), lo scatto `GET /api/topics/streaming` legge solo
+  quella mappa (`server/routes/topics.ts:1128`) e `stream:end` toglie il topic
+  dalle domande aperte (`client/src/state/useSignalsSync.ts:146-150`): la riga
+  non è ambra. Farne una meta vuol dire dare l'ambra a un turno chiuso, cioè
+  toccare lo scatto e i segnali: una change sua, con i suoi test. Il piano che
+  passa da `ExitPlanMode` con gli hook (`cli` e terminali Claude Code) diventa
+  `awaiting-approval` (`server/lib/claude-session-state.ts:151`) ed è una meta.
 - I sotto-agenti annidati sotto una chat o un terminale non sono mete.
 - Nessuno scroll speciale sulla domanda: la chat si apre come col clic sulla riga.
 
