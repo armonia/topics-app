@@ -235,6 +235,9 @@ export function createAppContext(baseDir: string): AppContext {
     getAllTopicContextFiles: db.prepare(`SELECT topic_id, file_path FROM topic_context_files`),
     getAllTopicPinnedMessages: db.prepare(`SELECT topic_id, message_id FROM topic_pinned_messages`),
     getAllTopicDisabledSources: db.prepare(`SELECT topic_id, source_id FROM topic_disabled_sources`),
+    // CHAT-FORK-05: where a branch came from. `parent_id` NULL = the original is gone.
+    getAllChatForks: db.prepare(`SELECT f.session_key, f.parent_name, f.fork_point_message_id, p.id AS parent_id FROM chat_forks f LEFT JOIN topics p ON p.id = f.parent_topic_id`),
+    getChatFork: db.prepare(`SELECT f.session_key, f.parent_name, f.fork_point_message_id, p.id AS parent_id FROM chat_forks f LEFT JOIN topics p ON p.id = f.parent_topic_id WHERE f.session_key = ?`),
 
     // True UPSERT, NOT `INSERT OR REPLACE`: in SQLite, REPLACE resolves the
     // conflict by DELETING the old row and inserting a new one, and with
@@ -482,6 +485,7 @@ export function createAppContext(baseDir: string): AppContext {
     getTopicBySessionKey: db.prepare(`SELECT * FROM topics WHERE session_key = ? LIMIT 1`),
   };
 
+  type ChatForkSql = { session_key: string; parent_name: string; fork_point_message_id: string; parent_id: string | null };
   // Pre-grouped topic relations, built once per loadTopics() call by
   // buildTopicRelations() and threaded into rowToTopic to avoid the N+1.
   type TopicRelations = {
@@ -489,6 +493,7 @@ export function createAppContext(baseDir: string): AppContext {
     contextFiles: Map<string, string[]>;
     pinnedMessages: Map<string, string[]>;
     disabledSources: Map<string, string[]>;
+    forks: Map<string, ChatForkSql>;
     /** One batched role lookup for the client-facing full Topic snapshot. */
     globalOrchestratorTopicIds: ReadonlySet<string>;
   };
@@ -509,6 +514,7 @@ export function createAppContext(baseDir: string): AppContext {
       contextFiles,
       pinnedMessages,
       disabledSources,
+      forks: new Map((stmts.getAllChatForks.all() as ChatForkSql[]).map((r) => [r.session_key, r])),
       globalOrchestratorTopicIds: listGlobalOrchestratorTopicIds(db),
     };
   }
@@ -586,6 +592,9 @@ export function createAppContext(baseDir: string): AppContext {
 
     const disabledSources = rels ? (rels.disabledSources.get(row.id) ?? []) : (stmts.getTopicDisabledSources.all(row.id) as any[]).map(r => r.source_id);
     if (disabledSources.length > 0) topic.disabledContextSources = disabledSources;
+
+    const fork = rels ? rels.forks.get(row.session_key) : stmts.getChatFork.get(row.session_key) as ChatForkSql | null;
+    if (fork) topic.forkedFrom = { topicId: fork.parent_id ?? null, name: fork.parent_name, atMessageId: fork.fork_point_message_id };
 
     return topic;
   }

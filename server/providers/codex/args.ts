@@ -99,6 +99,22 @@ export function buildCodexResumeArgs(opts: CodexExecArgsOptions & { threadId: st
 }
 
 /**
+ * The argv of a forked chat's first turn (CODEX-02): `codex exec fork <parent
+ * thread>`, which starts a new thread carrying the parent's history and leaves
+ * the parent's rollout untouched. Only the new message goes on stdin.
+ *
+ * The trailing `-` is not decoration. Measured on codex-cli 0.153.4: without
+ * it `codex exec fork` does not read stdin, creates an empty thread and exits
+ * 0, a silent turn that looks successful (`codex exec resume` reads stdin
+ * without it). Sandbox through `-c`, like the resume: `codex exec fork --help`
+ * has no `--sandbox`.
+ */
+export function buildCodexForkArgs(opts: CodexExecArgsOptions & { parentThreadId: string }): string[] {
+  const args = ["exec", "fork", opts.parentThreadId, "--json", "--skip-git-repo-check"];
+  return args.concat(codexSharedFlags(opts, true), "-");
+}
+
+/**
  * L'argv di un completamento usa-e-getta (auto-titolo, digest, fallback SSE).
  * Niente `--json`: qui si legge il testo, non gli eventi.
  */

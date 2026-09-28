@@ -1,10 +1,16 @@
 /**
- * @covers CCLI-08
+ * @covers CCLI-08, CHAT-FORK-02
  */
 import { describe, expect, test } from "bun:test";
 import { checkClaudeCliCompat, MIN_SUPPORTED_CLI, CRITICAL_CLAUDE_FLAGS, BARE_DEFAULT_IN } from "./cli-compat";
 
 describe("checkClaudeCliCompat", () => {
+  test("the forked chat's two flags are in the table (CHAT-FORK-02)", () => {
+    const flags = CRITICAL_CLAUDE_FLAGS.map((f) => f.flag);
+    expect(flags).toContain("--fork-session");
+    expect(flags).toContain("--resume-session-at");
+  });
+
   test("una versione corrente non ha niente da dire", () => {
     const v = checkClaudeCliCompat("2.1.224 (Claude Code)");
     expect(v.version).toBe("2.1.224");
@@ -24,7 +30,8 @@ describe("checkClaudeCliCompat", () => {
 
   test("una CLI di generazione precedente perde le flag critiche, con dentro cosa si rompe", () => {
     const v = checkClaudeCliCompat("1.9.3");
-    expect(v.missingFlags).toEqual(CRITICAL_CLAUDE_FLAGS.map((f) => f.flag));
+    // Only the flags whose first release is known: the fork's two have none yet.
+    expect(v.missingFlags).toEqual(CRITICAL_CLAUDE_FLAGS.filter((f) => f.introducedIn).map((f) => f.flag));
     expect(v.reason).toContain("--permission-prompt-tool");
     // Il motivo dice la CONSEGUENZA, non solo il nome della flag: è l'unica
     // parte che serve a chi legge.

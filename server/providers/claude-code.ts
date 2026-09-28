@@ -77,6 +77,9 @@ import { warnThrottled } from "../lib/warn-throttled";
 import { clearSessionCliPid, setSessionCliPid } from "./session-pids";
 import { defaultChatModel, discoverClaudeModels } from "./claude-models";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
+import { forkStartFor, lastMainAssistant } from "../lib/chat-fork";
+import { readForkOrigin } from "../lib/chat-fork-store";
+import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 
 // ============ Config ============
 
@@ -492,6 +495,23 @@ export function getOrCreateClaudeSessionId(sessionKey: string): { id: string; is
   return { id: row.claude_session_id, isNew: row.claude_session_id === id };
 }
 
+/**
+ * The session a spawn starts: its uuid, minted or resumed, the fork of a
+ * forked chat's first start (CHAT-FORK-02, `forkStartFor`), and whether the
+ * first message carries the database recap (CCLI-06). A fork is never a fresh
+ * session (the route wrote the row), so it never carries the recap: the memory
+ * comes from the CLI, and the recap would say it twice.
+ */
+export function planClaudeSessionStart(sessionKey: string, workspace: string) {
+  const { id, isNew } = getOrCreateClaudeSessionId(sessionKey);
+  let forkFrom: { sessionId: string; atUuid: string } | null = null;
+  try {
+    const origin = isNew ? null : readForkOrigin(getDatabase(), sessionKey);
+    if (origin) forkFrom = forkStartFor(origin, id, existsSync(claudeTranscriptPath(workspace, id)));
+  } catch { /* no database: an ordinary resume */ }
+  return { claudeSessionId: id, isNewSession: isNew, forkFrom, needsHistoryReplay: isNew && hasPriorMessagesInDB(sessionKey) };
+}
+
 /** Read-only lookup of a session's claude_session_id (never INSERTs). Used by
  *  reattach, which must not conjure a row for a session it's only adopting. */
 function peekClaudeSessionId(sessionKey: string): string | null {
@@ -625,6 +645,23 @@ const SESSION_NOT_FOUND_PATTERNS = [
 
 function looksLikeMissingSessionError(stderrChunk: string): boolean {
   return SESSION_NOT_FOUND_PATTERNS.some((p) => p.test(stderrChunk));
+}
+
+/**
+ * The two ways a forked chat's first start is refused besides a missing
+ * parent: the point is not in the parent's transcript (CLI 2.1.284: «No message
+ * found with message.uuid of: <uuid>», exit 1, on stderr and in the `result`
+ * errors, the same two channels as «No conversation found»), and a release
+ * that no longer knows one of the two flags. Missed, the branch's transcript
+ * is never born and every turn redoes the same fork and dies.
+ */
+const FORK_REFUSED_PATTERNS = [
+  /no message found with message\.uuid/i,
+  /unknown option.*--(fork-session|resume-session-at)/i,
+];
+
+function looksLikeFailedStart(meta: PersistentProcess["spawnMeta"], text: string): boolean {
+  return looksLikeMissingSessionError(text) || (!!meta.forkFrom && FORK_REFUSED_PATTERNS.some((p) => p.test(text)));
 }
 
 // ============ DB-driven History Replay (resilience layer) ============
@@ -975,7 +1012,7 @@ interface PersistentProcess {
   /** Accumulated stderr tail for the rate-limit / missing-session scan. */
   stderrBuf: string;
   /** Spawn-time facts the stderr scan + reattach need. */
-  spawnMeta: { claudeSessionId: string; isNewSession: boolean };
+  spawnMeta: { claudeSessionId: string; isNewSession: boolean; forkFrom?: { sessionId: string; atUuid: string } | null };
   createdAt: number;
   lastActivity: number;
   alive: boolean;
@@ -2106,6 +2143,26 @@ export class ClaudeCodeProvider implements AIProvider {
     console.log(`[claude-code] resetSession: ${sessionKey} riparte con una sessione nuova al prossimo turno`);
   }
 
+  /** The cwd the CLI of this session runs in: its worktree or project, else the configured workspace. */
+  private workspaceFor(sessionKey: string): string {
+    return getTopicWorkspaceForSession(sessionKey) || this.config.defaultWorkspace || process.env.HOME || "/tmp";
+  }
+
+  /**
+   * Where a fork of this chat starts (CHAT-FORK-02): its CLI session and the
+   * last answer of the main conversation in its transcript. Null when there is
+   * no session, no transcript or no answer: the branch then starts fresh with
+   * the recap of the copied history.
+   */
+  forkPoint(sessionKey: string): { ref: string; at: string; text: string } | null {
+    const sessionId = peekClaudeSessionId(sessionKey);
+    if (!sessionId) return null;
+    let jsonl: string;
+    try { jsonl = readFileSync(claudeTranscriptPath(this.workspaceFor(sessionKey), sessionId), "utf-8"); } catch { return null; }
+    const last = lastMainAssistant(jsonl);
+    return last ? { ref: sessionId, at: last.uuid, text: last.text } : null;
+  }
+
   // --- Abort ---
 
   /**
@@ -2416,15 +2473,15 @@ export class ClaudeCodeProvider implements AIProvider {
     // Spawn IN the topic's resolved working dir (worktree/project) so the CLI's
     // relative-path tools match the "You are working in <path>" awareness block.
     // Falls back to the global workspace/HOME for topics with no bound project.
-    const workspace = getTopicWorkspaceForSession(sessionKey)
-      || this.config.defaultWorkspace || process.env.HOME || "/tmp";
+    const workspace = this.workspaceFor(sessionKey);
 
     // Look up (or create) the persistent Claude CLI session UUID for this
     // sessionKey. On first spawn we use `--session-id` to pin the UUID; on
     // every subsequent spawn (after hot reload, inactivity timeout, lifetime
     // cap, crash) we use `--resume` to reload the session from disk and
-    // restore the AI's memory of prior turns.
-    const { id: claudeSessionId, isNew: isNewSession } = getOrCreateClaudeSessionId(sessionKey);
+    // restore the AI's memory of prior turns. A forked chat's first start
+    // forks the parent's session instead (`planClaudeSessionStart`).
+    const { claudeSessionId, isNewSession, forkFrom, needsHistoryReplay } = planClaudeSessionStart(sessionKey, workspace);
 
     // Generate the per-session MCP config so the CLI can spawn our bridge
     // and surface `mcp__topics__open_browser_pane` as a callable tool. The
@@ -2508,10 +2565,11 @@ export class ClaudeCodeProvider implements AIProvider {
       mcpOutputTokens: resolveMcpOutputTokens(),
       claudeSessionId,
       isNewSession,
+      forkFrom,
     });
 
     console.log(
-      `[claude-code] Spawning ${isNewSession ? 'new' : 'resumed'} session for ${sessionKey} (claude_session_id=${claudeSessionId})`
+      `[claude-code] Spawning ${isNewSession ? 'new' : forkFrom ? `forked (from ${forkFrom.sessionId} at ${forkFrom.atUuid})` : 'resumed'} session for ${sessionKey} (claude_session_id=${claudeSessionId})`
     );
 
     const env = buildSafeEnv();
@@ -2567,7 +2625,6 @@ export class ClaudeCodeProvider implements AIProvider {
     // wipes a doomed `--resume`. If the DB already holds prior turns, we
     // need to recap them in the next stdin write or the model resumes a
     // fresh-feeling conversation that contradicts the visible chat history.
-    const needsHistoryReplay = isNewSession && hasPriorMessagesInDB(sessionKey);
     if (needsHistoryReplay) {
       console.log(
         `[claude-code] Session for ${sessionKey} respawned fresh but DB has prior turns — next message will include a recap prologue`,
@@ -2582,7 +2639,7 @@ export class ClaudeCodeProvider implements AIProvider {
       sessionKey,
       consumedOffset: 0,
       stderrBuf: "",
-      spawnMeta: { claudeSessionId, isNewSession },
+      spawnMeta: { claudeSessionId, isNewSession, forkFrom },
       spawnedWith: { autonomy: overrides.autonomy, model: overrides.model, effort: overrides.effort },
       createdAt: Date.now(),
       lastActivity: Date.now(),
@@ -3315,6 +3372,10 @@ export class ClaudeCodeProvider implements AIProvider {
   // `result`-error path — the CLI can report the miss on either channel.
   // Idempotent, and a no-op for a fresh --session-id spawn (can't lose a session
   // that was just created). Don't kill here: the close handler fires shortly.
+  // A forked chat's refused first start lands here too (`looksLikeFailedStart`):
+  // forgetting the branch's session is all it takes, since the respawn mints a
+  // uuid other than `branch_ref` and so starts fresh with the recap, once,
+  // without retrying the fork (CHAT-FORK-02).
   private markMissingSessionRecovery(pp: PersistentProcess): void {
     if (pp.recovering || pp.spawnMeta.isNewSession) return;
     console.warn(
@@ -3332,7 +3393,7 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.stderrBuf += d.toString();
     if (pp.stderrBuf.length > 2048) pp.stderrBuf = pp.stderrBuf.slice(-2048);
 
-    if (looksLikeMissingSessionError(pp.stderrBuf)) this.markMissingSessionRecovery(pp);
+    if (looksLikeFailedStart(pp.spawnMeta, pp.stderrBuf)) this.markMissingSessionRecovery(pp);
 
     if (
       (pp.stderrBuf.includes("rate_limit") || pp.stderrBuf.includes("429") || /overloaded/i.test(pp.stderrBuf)) &&
@@ -3628,7 +3689,7 @@ export class ClaudeCodeProvider implements AIProvider {
       // sessions only; the missing-session regex avoids false positives on any
       // other error result.
       const errText = readResultErrorText(event);
-      if (errText !== null && looksLikeMissingSessionError(errText)) this.markMissingSessionRecovery(pp);
+      if (errText !== null && looksLikeFailedStart(pp.spawnMeta, errText)) this.markMissingSessionRecovery(pp);
 
       // UN `result` VUOTO CHIUDE IL TURNO LO STESSO — e non chiuderlo è quello
       // che ha rotto `/compact`.

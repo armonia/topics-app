@@ -35,7 +35,9 @@ import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveAppDataDir } from "../lib/data-dir";
 import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
 import { getTopicWorkspaceForSession, topicsMcpBridgeSpec } from "./claude-code";
-import { buildCodexArgs, buildCodexOneshotArgs, buildCodexResumeArgs } from "./codex/args";
+import { buildCodexArgs, buildCodexForkArgs, buildCodexOneshotArgs, buildCodexResumeArgs } from "./codex/args";
+import { codexForkOf, codexForkPoint } from "./codex/fork";
+import { consumeFork } from "../lib/chat-fork-store";
 import { readCodexModels, codexFallbackModel, readCodexConfiguredModel } from "./codex/models";
 import { codexRolloutExists, readSubagentFileChanges } from "../lib/codex-session";
 import { getDatabase } from "../db";
@@ -238,10 +240,13 @@ function hasActiveSession(): boolean {
 export function resolveCodexInvocation(args: {
   storedThreadId: string | null;
   rolloutExists: boolean;
-}): { mode: "resume"; threadId: string } | { mode: "fresh" } {
+  /** A branch's pending fork (`codex/fork.ts`): taken only while the parent has not moved since the click. */
+  fork?: { parentThreadId: string; parentRolloutExists: boolean; parentUnchanged: boolean } | null;
+}): { mode: "resume"; threadId: string } | { mode: "fork"; parentThreadId: string } | { mode: "fresh" } {
   if (args.storedThreadId && args.rolloutExists) {
     return { mode: "resume", threadId: args.storedThreadId };
   }
+  if (args.fork?.parentRolloutExists && args.fork.parentUnchanged) return { mode: "fork", parentThreadId: args.fork.parentThreadId };
   return { mode: "fresh" };
 }
 
@@ -365,6 +370,8 @@ interface CodexTurnState {
   idPrefix?: string;
   /** The thread `thread.started` named: the root of every sub-agent this turn spawns. */
   threadId?: string;
+  /** A forked chat's first turn (`codex exec fork`): its `thread.started` consumes the fork. */
+  forking?: boolean;
 }
 
 export class CodexProvider implements AIProvider {
@@ -549,10 +556,14 @@ export class CodexProvider implements AIProvider {
     let db: ReturnType<typeof getDatabase> | null = null;
     try { db = getDatabase(); } catch { /* unit tests / early bootstrap: fresh every time */ }
     const storedThreadId = db ? getCodexThreadId(db, sessionKey) : null;
+    const fork = db ? codexForkOf(db, sessionKey) : null;
     const invocation = resolveCodexInvocation({
       storedThreadId,
       rolloutExists: storedThreadId ? codexRolloutExists(storedThreadId) : false,
+      fork,
     });
+    // A fork that cannot run (the parent moved on, or is gone) is consumed: the copied history is the memory.
+    if (db && fork && invocation.mode === "fresh") consumeFork(db, sessionKey);
     if (db && storedThreadId && invocation.mode === "fresh") {
       // Rollout gone (pruned, deleted CODEX_HOME, ...): the stale pointer
       // would otherwise be retried forever.
@@ -579,7 +590,9 @@ export class CodexProvider implements AIProvider {
     };
     const args = invocation.mode === "resume"
       ? buildCodexResumeArgs({ ...argsOpts, threadId: invocation.threadId })
-      : buildCodexArgs(argsOpts);
+      : invocation.mode === "fork"
+        ? buildCodexForkArgs({ ...argsOpts, parentThreadId: invocation.parentThreadId })
+        : buildCodexArgs(argsOpts);
 
     // La stessa quota di core di claude-code, per la stessa ragione: il
     // provider si sceglie per INSTALLAZIONE (`AI_PROVIDER`), non per topic, e su
@@ -628,7 +641,7 @@ export class CodexProvider implements AIProvider {
       // future turn repeats the same dead resume — the only fix left is a
       // manual DELETE. One fresh retry with the full history turns a
       // permanent break into a slow turn.
-      allowResumeFallback: invocation.mode === "resume",
+      allowResumeFallback: invocation.mode !== "fresh",
     });
 
     return { runId };
@@ -648,7 +661,7 @@ export class CodexProvider implements AIProvider {
     env: NodeJS.ProcessEnv;
     handler: StreamHandler;
     explicitModel?: string;
-    invocationMode: "resume" | "fresh";
+    invocationMode: "resume" | "fork" | "fresh";
     prompt: string;
     message: string;
     history: ChatMessage[];
@@ -678,6 +691,7 @@ export class CodexProvider implements AIProvider {
       runningTools: new Map(),
       ...(explicitModel ? { model: explicitModel } : {}),
       ...(idPrefix ? { idPrefix } : {}),
+      ...(invocationMode === "fork" ? { forking: true } : {}),
     };
     this.activeChildren.set(sessionKey, child);
     this.sessionState.set(sessionKey, turnState);
@@ -735,8 +749,8 @@ export class CodexProvider implements AIProvider {
       // ROLLOUT FILE is missing, not one whose resume just failed. Forget it
       // and retry once, fresh, with the full history: the turn is slower but
       // no longer permanently broken.
-      if (code !== 0 && !state?.aborted && invocationMode === "resume" && allowResumeFallback) {
-        try { forgetCodexThreadId(getDatabase(), sessionKey); } catch { /* next turn just tries resume again */ }
+      if (code !== 0 && !state?.aborted && invocationMode !== "fresh" && allowResumeFallback) {
+        try { forgetCodexThreadId(getDatabase(), sessionKey); consumeFork(getDatabase(), sessionKey); } catch { /* next turn just tries resume again */ }
         const freshArgs = buildCodexArgs(argsOptsForFallback);
         const freshPrompt = history.length > 0
           ? renderHistoryAsPrompt(history) + "\n\n## Current message\n\n" + message
@@ -834,7 +848,8 @@ export class CodexProvider implements AIProvider {
       if (threadId) {
         const state = this.sessionState.get(sessionKey);
         if (state) state.threadId = threadId;
-        try { saveCodexThreadId(getDatabase(), sessionKey, threadId); } catch { /* next turn just starts fresh */ }
+        // A fork turn's own thread is known: the fork is consumed (CODEX-02), so a thread lost later never forks the parent again.
+        try { saveCodexThreadId(getDatabase(), sessionKey, threadId); if (state?.forking) consumeFork(getDatabase(), sessionKey); } catch { /* next turn just starts fresh */ }
       }
       return null;
     }
@@ -1197,6 +1212,11 @@ export class CodexProvider implements AIProvider {
    * final stdout drain and lose any post-SIGINT lines (the trailing
    * `turn.failed` Codex emits after Ctrl-C).
    */
+  /** Where a fork of this chat starts (CODEX-02): its thread and rollout size, see `codex/fork.ts`. */
+  forkPoint(sessionKey: string): { ref: string; at: string } | null {
+    return codexForkPoint(getDatabase(), sessionKey);
+  }
+
   async abort(sessionKey: string): Promise<void> {
     const child = this.activeChildren.get(sessionKey);
     if (!child) return;

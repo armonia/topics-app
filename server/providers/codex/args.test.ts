@@ -1,6 +1,6 @@
 /** @covers CODEX-02 */
 import { expect, test } from 'bun:test';
-import { buildCodexArgs, buildCodexResumeArgs } from './args';
+import { buildCodexArgs, buildCodexForkArgs, buildCodexResumeArgs } from './args';
 
 test('buildCodexResumeArgs targets `exec resume <thread_id>` instead of a fresh exec', () => {
   const args = buildCodexResumeArgs({
@@ -60,4 +60,24 @@ test('buildCodexResumeArgs forwards isolated exactly like buildCodexArgs', () =>
   const resumeArgs = buildCodexResumeArgs({ threadId: 'thread-iso', isolated: true });
   expect(resumeArgs).toContain('--ignore-user-config');
   expect(resumeArgs).toContain('--ignore-rules');
+});
+
+test('buildCodexForkArgs: `exec fork <parent>`, sandbox via -c, and `-` last so the prompt is read from stdin', () => {
+  // Measured on codex-cli 0.153.4: without the trailing `-` the fork creates an
+  // empty thread, runs no turn and exits 0, a silent turn that looks fine.
+  const args = buildCodexForkArgs({ parentThreadId: 'thread-parent', model: 'gpt-5-codex', reasoningEffort: 'high' });
+  expect(args.slice(0, 5)).toEqual(['exec', 'fork', 'thread-parent', '--json', '--skip-git-repo-check']);
+  expect(args).not.toContain('--sandbox');
+  expect(args).toContain('sandbox_mode="workspace-write"');
+  expect(args).toContain('gpt-5-codex');
+  expect(args).toContain('model_reasoning_effort="high"');
+  expect(args[args.length - 1]).toBe('-');
+  expect(args.filter((a) => a === '-')).toHaveLength(1);
+});
+
+test('buildCodexForkArgs forwards full-access and the bridge exactly like the resume', () => {
+  const bridge = { command: '/usr/bin/topics-bridge', args: ['--stdio'] };
+  const fork = buildCodexForkArgs({ parentThreadId: 'p', approvalMode: 'full-access', bridge });
+  const resume = buildCodexResumeArgs({ threadId: 'p', approvalMode: 'full-access', bridge });
+  expect(fork.slice(5, -1)).toEqual(resume.slice(5));
 });

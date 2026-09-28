@@ -19,6 +19,8 @@ import { MACHINE_ROW_SQL } from "../../shared/prompt-number";
 import { owedChangesOf, refreshAndSay } from "../lib/background-notice";
 import { goalContinuationForChatRoute, type ChatGoalLoop } from "../services/goal-continuation";
 import { createEditRouter } from "./edit";
+import { createForkRouter } from "./fork";
+import { consumeFork } from "../lib/chat-fork-store";
 import { createChatRouter } from "./chat";
 import { commandWakeState } from "./processes";
 import type { LifecycleHookRunner } from "../services/lifecycle-hooks";
@@ -879,6 +881,8 @@ export function createTopicsRouter(
   // testo svuotato e se lo riprende da qui, la prima volta che qualcuno la apre.
   const toolDetailRouter = createToolDetailRouter(ctx);
   const editRouter = createEditRouter(ctx, { resolveProvider, updateUnreadCount });
+  // «Fork into a new chat»: a branch in a chat of its own, next to the in-chat branches of edit.ts.
+  const forkRouter = createForkRouter(ctx, { resolveProvider });
   // Il canale umano non chiede niente a questa closure: solo ctx.
   const permissionRouter = createPermissionRouter(ctx);
   // The two doors that leave the machine (mail and Google): same treatment as
@@ -2837,6 +2841,8 @@ export function createTopicsRouter(
     {
       const editResp = await editRouter(req, url, pathname, method);
       if (editResp) return editResp;
+      const forkResp = await forkRouter(req, url, pathname, method);
+      if (forkResp) return forkResp;
     }
 
     // Switch-branch (POST /api/messages/:id/switch-branch) lives in server/routes/branches.ts now.
@@ -2896,6 +2902,10 @@ export function createTopicsRouter(
               try { mkdirSync(backupDir, { recursive: true }); const timestamp = new Date().toISOString().replace(/[:.]/g, "-"); const backupFile = join(backupDir, `${sessionKey.replace(/[^a-zA-Z0-9]/g, "_")}_${timestamp}.json`); writeFileSync(backupFile, JSON.stringify(existingMsgs, null, 2)); console.log(`[clear] Backed up ${existingMsgs.length} messages to ${backupFile}`); } catch (err) { console.warn("[clear] Backup failed:", err); }
             }
             saveLocalMessages(sessionKey, []);
+            // A branch emptied by the person takes nobody's history back: its
+            // pending fork is consumed on every runtime (CHAT-FORK-01). Codex
+            // needs it most, since `clearActionFor` answers `none` for it.
+            consumeFork(db, sessionKey);
             // Svuotare la tabella pulisce solo quello che si VEDE: al provider
             // va detto a parte, o il modello ricorda tutto (vedi clearPolicy.ts
             // — la regola sta lì, pura e testata).
