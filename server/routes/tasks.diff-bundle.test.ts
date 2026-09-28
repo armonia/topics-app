@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync, symlinkSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gitDiffBundle } from "./tasks";
-import { gitDiffStat, numstatPath } from "../lib/git-diff-stat";
+import { gitDiffStat } from "../lib/git-diff-stat";
 
 // gitDiffBundle drives a real `git` — these tests build a throwaway repo per case
 // and assert the untracked-inclusion contract that keeps new-file-only deliveries
@@ -143,6 +143,18 @@ describe("gitDiffBundle untracked inclusion", () => {
     expect(bundle.stat.some((s) => s.path === "docs/domande di chiarimento.md")).toBe(true);
   });
 
+  test("a path with non-ASCII letters is the file's own name, not git's quoted octal", async () => {
+    // Without -z git prints `"docs/citt\303\240.md"`: the chat's strip then
+    // listed the same file twice, once from the tool call and once from here.
+    mkdirSync(join(dir, "docs"));
+    writeFileSync(join(dir, "docs", "città.md"), "a\nb\n");
+    await git(dir, ["add", "-A"]);
+    await git(dir, ["commit", "-qm", "accented"]);
+
+    const { stat } = await gitDiffStat(dir, `${base}..HEAD`);
+    expect(stat).toEqual([{ path: "docs/città.md", additions: 2, deletions: 0, status: "A" }]);
+  });
+
   // Su un rinominato `--numstat` non stampa un path ma la TRASFORMAZIONE: presa
   // alla lettera non combacia con il `b/…` del patch, e da quando l'elenco dei
   // file si costruisce dallo stat quel disallineamento elencherebbe lo stesso
@@ -162,29 +174,7 @@ describe("gitDiffBundle untracked inclusion", () => {
 
     const bundle = await gitDiffBundle(dir, from);
     expect(bundle.stat.map((s) => s.path)).toEqual(["nuova/modulo.ts"]);
+    expect(bundle.stat[0]!.status).toBe("R");
     expect(bundle.patch).toContain("b/nuova/modulo.ts");
-  });
-});
-
-describe("numstatPath", () => {
-  test("un path normale passa intatto", () => {
-    expect(numstatPath("server/routes/tasks.ts")).toBe("server/routes/tasks.ts");
-    expect(numstatPath("  spazi/attorno.ts  ")).toBe("spazi/attorno.ts");
-  });
-
-  test("la forma con la freccia dà il path di DESTINAZIONE", () => {
-    expect(numstatPath("vecchio.ts => nuovo.ts")).toBe("nuovo.ts");
-    expect(numstatPath("a/b/vecchio.ts => c/d/nuovo.ts")).toBe("c/d/nuovo.ts");
-  });
-
-  test("la forma con le graffe si risolve DENTRO il path", () => {
-    expect(numstatPath("server/{vecchia => nuova}/modulo.ts")).toBe("server/nuova/modulo.ts");
-    expect(numstatPath("{ => sotto}/f.ts")).toBe("sotto/f.ts");
-    // Il segmento sparisce del tutto: niente doppia barra nel risultato.
-    expect(numstatPath("server/{vecchia => }/modulo.ts")).toBe("server/modulo.ts");
-  });
-
-  test("una freccia che fa parte del NOME non viene scambiata per un rename", () => {
-    expect(numstatPath("docs/a=>b.md")).toBe("docs/a=>b.md");
   });
 });

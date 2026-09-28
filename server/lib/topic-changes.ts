@@ -23,7 +23,8 @@
  * task can hold a second topic's work (the sidebar opens new topics in it), so
  * such a topic keeps its tool calls.
  */
-import { basename, dirname, isAbsolute, join, relative, resolve } from "path";
+import * as nodePath from "path";
+import { basename, dirname, isAbsolute, join, resolve } from "path";
 import { existsSync, realpathSync } from "fs";
 import { parsePorcelainZ } from "./git-porcelain";
 import { parseNumstatZ, type Numstat } from "./git-numstat";
@@ -192,6 +193,24 @@ function countsOf(stat: Numstat | undefined): Pick<TopicChangedFile, "added" | "
 }
 
 /**
+ * `target` relative to `root` in git's spelling, or `null` when it is not under
+ * `root`. Git answers `src/a.ts` on every platform, `relative()` answers
+ * `src\\a.ts` on Windows (where topics-server ships inside the app), and the
+ * two spellings of one file were two rows. `path` is the platform's; a test
+ * hands in `win32`.
+ */
+export function pathInTree(
+  root: string,
+  target: string,
+  path: Pick<typeof nodePath, "relative" | "isAbsolute" | "sep"> = nodePath,
+): string | null {
+  const rel = path.relative(root, target);
+  // Another drive on Windows: `relative` gives back the absolute target.
+  if (!rel || rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return null;
+  return path.sep === "/" ? rel : rel.split(path.sep).join("/");
+}
+
+/**
  * The tree a task's tool calls wrote in: its worktree. A `path` while a
  * worktree row still names it; after the land's prune the row is gone too, and
  * only the folder's `name` is left, the one its branch `topics/<name>` was
@@ -203,7 +222,8 @@ export type TaskTree = { path: string } | { name: string };
  * A tool call's path relative to the task's tree, or `null` when it is not in
  * that tree.
  *
- * With a path the tree is read exactly. With a name only, the path must run
+ * With a path the tree is read exactly. A relative path is the tree's own
+ * whichever the tree. With a name only, an absolute path must run
  * through a GONE folder of that name, and what follows it is the relative
  * path, in full: `<wt>/docs/README.md` is `docs/README.md` and never the
  * range's `README.md`. Anything else is not the task's tree, even when its
@@ -215,10 +235,14 @@ export type TaskTree = { path: string } | { name: string };
 function treePathOf(path: string, tree: TaskTree): string | null {
   if ("path" in tree) {
     const root = canonicalPath(tree.path);
-    const rel = relative(root, canonicalPath(isAbsolute(path) ? path : resolve(root, path)));
-    return rel && !rel.startsWith("..") ? rel : null;
+    return pathInTree(root, canonicalPath(isAbsolute(path) ? path : resolve(root, path)));
   }
-  if (!isAbsolute(path)) return null;
+  if (!isAbsolute(path)) {
+    // Relative to the task's workspace, which is this worktree: that is how
+    // the native provider's write_file resolves it.
+    const segments = path.split(/[\\/]+/).filter((s) => s && s !== ".");
+    return segments.length && !segments.includes("..") ? segments.join("/") : null;
+  }
   const { gone } = splitAtDisk(path);
   const at = gone.indexOf(tree.name);
   return at >= 0 && at < gone.length - 1 ? gone.slice(at + 1).join("/") : null;
@@ -334,9 +358,8 @@ async function toolCallFiles(root: string, touched: TouchedFile[]): Promise<{ fi
   const inside: Array<{ touched: TouchedFile; rel: string }> = [];
   const outside: TouchedFile[] = [];
   for (const file of touched) {
-    const abs = canonicalPath(isAbsolute(file.path) ? file.path : resolve(root, file.path));
-    const rel = relative(root, abs);
-    if (!rel || rel.startsWith("..")) outside.push(file);
+    const rel = pathInTree(root, canonicalPath(isAbsolute(file.path) ? file.path : resolve(root, file.path)));
+    if (rel === null) outside.push(file);
     else inside.push({ touched: file, rel });
   }
   const scoped = inside.slice(0, MAX_GIT_PATHS);

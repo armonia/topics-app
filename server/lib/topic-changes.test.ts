@@ -14,8 +14,8 @@ import { describe, test, expect } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { aggregateTouchedFiles, computeTopicChanges, rangeFiles, refineKind } from "./topic-changes";
+import { join, win32 } from "node:path";
+import { aggregateTouchedFiles, computeTopicChanges, pathInTree, rangeFiles, refineKind } from "./topic-changes";
 import type { ToolCall } from "../../shared/types";
 
 function call(name: string, detail: ToolCall["detail"], extra: Partial<ToolCall> = {}): ToolCall {
@@ -210,6 +210,39 @@ describe("rangeFiles", () => {
     expect(files.find((f) => f.path === "src/a.ts")).toMatchObject({ turns: 1, inRange: true });
     expect(files.find((f) => f.path === "a.ts")).toMatchObject({ turns: 0, inRange: true });
     expect(rest).toEqual([wrongTree, otherRepo, deletedDir]);
+  });
+});
+
+describe("rangeFiles on relative paths and other spellings", () => {
+  const stat = [{ path: "src/a.ts", additions: 2, deletions: 0, status: "A" }];
+  const at = "2026-01-01T12:00:00.000Z";
+
+  test("a relative path is the task's tree's own, even once only its name is left", () => {
+    // The native provider's write_file takes a path relative to the
+    // workspace, which on a task is its worktree.
+    const relativeWrite = { path: "src/a.ts", kind: "created" as const, turns: 1, lastAt: at };
+    const outsideTree = { path: "../other/a.ts", kind: "created" as const, turns: 1, lastAt: at };
+    for (const tree of [{ name: "wt" }, { path: "/gone/worktrees/p/wt" }]) {
+      const { files, rest } = rangeFiles(stat, [relativeWrite, outsideTree], tree);
+      expect(files).toEqual([{ path: "src/a.ts", kind: "created", turns: 1, lastAt: at, added: 2, removed: 0, inRange: true }]);
+      expect(rest).toEqual([outsideTree]);
+    }
+  });
+});
+
+describe("pathInTree", () => {
+  test("answers in git's spelling on Windows too: forward slashes, or the range's row gets a twin", () => {
+    expect(pathInTree("C:\\wt", "C:\\wt\\src\\a.ts", win32)).toBe("src/a.ts");
+    expect(pathInTree("C:\\wt", "C:\\other\\a.ts", win32)).toBeNull();
+    // Another drive: `relative` gives back the absolute path, which is not "under" the tree.
+    expect(pathInTree("C:\\wt", "D:\\wt\\a.ts", win32)).toBeNull();
+    expect(pathInTree("C:\\wt", "C:\\wt", win32)).toBeNull();
+  });
+
+  test("a name that only starts with two dots is inside", () => {
+    expect(pathInTree("/wt", "/wt/..env")).toBe("..env");
+    expect(pathInTree("/wt", "/wt/src/a.ts")).toBe("src/a.ts");
+    expect(pathInTree("/wt", "/other/a.ts")).toBeNull();
   });
 });
 

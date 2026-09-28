@@ -10,6 +10,7 @@
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { gitRead } from "./git-porcelain";
+import { parseNumstatZ } from "./git-numstat";
 
 export interface DiffStatEntry {
   path: string;
@@ -103,27 +104,21 @@ export async function runGitRead(cwd: string, args: string[]): Promise<{ code: n
 }
 
 /**
- * The DESTINATION path of a `--numstat` line.
- *
- * On a rename git does not print a path: it prints the transformation, in two
- * shapes, `old => new` when the whole path changes and `dir/{a => b}/f.ts`
- * when only one segment does. Taken literally neither matches the `b/...` of
- * the patch, so the stat row was orphaned: no `+N -M` next to the name, and
- * the same file listed TWICE, once for the stat and once for the patch hunk.
+ * `git diff --name-status -z`: path -> status letter. Each record is the
+ * status, then one path, or two on a rename or copy (`R100`, `C75`), OLD then
+ * NEW; the key is the new one, the path `--numstat` reports too.
  */
-export function numstatPath(raw: string): string {
-  const path = raw.trim();
-  if (!path.includes("=>")) return path;
-  // The braced shape first, since it sits inside the path: the group becomes
-  // its right-hand side (empty means the segment disappears).
-  const braced = path.replace(/\{([^{}]*?) => ([^{}]*?)\}/g, "$2");
-  if (braced !== path) return braced.replace(/\/{2,}/g, "/");
-  const arrow = path.split(" => ");
-  return (arrow[arrow.length - 1] ?? path).trim();
-}
-
-function lineCount(raw: string | undefined): number {
-  return raw === "-" ? -1 : Number.parseInt(raw ?? "0", 10) || 0;
+function parseNameStatusZ(text: string): Map<string, string> {
+  const byPath = new Map<string, string>();
+  const fields = text.split("\0");
+  for (let i = 0; i < fields.length; i++) {
+    const letter = fields[i]?.[0];
+    if (!letter) continue;
+    if (letter === "R" || letter === "C") i++;
+    const path = fields[++i];
+    if (path) byPath.set(path, letter);
+  }
+  return byPath;
 }
 
 /**
@@ -142,21 +137,19 @@ export async function gitDiffStat(
   range: string,
   opts: { includeUntracked?: boolean; untrackedCap?: number } = {},
 ): Promise<{ stat: DiffStatEntry[]; untracked: string[] }> {
+  // -z: without it git quotes a path with a non-ASCII letter in octal
+  // (`"docs/citt\303\240.md"`) and prints a rename as `a/{x => y}/f`, and
+  // neither matches the path a tool call names.
   const [numstat, nameStatus] = await Promise.all([
-    runGitRead(cwd, ["diff", "--numstat", range]).then((r) => r.text),
-    runGitRead(cwd, ["diff", "--name-status", range]).then((r) => r.text),
+    runGitRead(cwd, ["diff", "--numstat", "-z", range]).then((r) => parseNumstatZ(r.text)),
+    runGitRead(cwd, ["diff", "--name-status", "-z", range]).then((r) => parseNameStatusZ(r.text)),
   ]);
-  const statusByPath = new Map<string, string>();
-  for (const line of nameStatus.split("\n").filter(Boolean)) {
-    const parts = line.split("\t");
-    const p = parts[parts.length - 1] ?? ""; // rename: status\told\tnew, take new
-    if (p) statusByPath.set(p, (parts[0] ?? "M")[0] ?? "M");
-  }
-  const stat: DiffStatEntry[] = numstat.split("\n").filter(Boolean).map((line) => {
-    const parts = line.split("\t");
-    const path = numstatPath(parts[parts.length - 1] ?? "");
-    return { path, additions: lineCount(parts[0]), deletions: lineCount(parts[1]), status: statusByPath.get(path) ?? "M" };
-  });
+  const stat: DiffStatEntry[] = [...numstat].map(([path, n]) => ({
+    path,
+    additions: n.binary ? -1 : n.added,
+    deletions: n.binary ? -1 : n.removed,
+    status: nameStatus.get(path) ?? "M",
+  }));
 
   const untracked: string[] = [];
   if (opts.includeUntracked) {
