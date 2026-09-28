@@ -370,6 +370,22 @@ describe('shell in background: risveglio reale ma condizionato', () => {
     expect(topicsAgentSystemPrompt('auto', 'darwin')).toContain('so you can end your turn');
   });
 
+  // The board's net (the dispatcher's wait) covers only a run_command wake: a
+  // card that ends its turn on a `Monitor` or a background shell spends an
+  // attempt and is nudged over the CLI's wake (verifiers of 28/09, second
+  // round). So no sentence of the board prompt offers a wake that ends the
+  // turn, and Windows, with no run_command, gets the same-turn rule too.
+  test('a board agent is told on no platform to end its turn on a wait', () => {
+    for (const platform of ['darwin', 'win32'] as const) {
+      const board = topicsAgentSystemPrompt('auto', platform, true);
+      expect(board).not.toMatch(/ends your turn|end your turn and report|can end your turn|IS being woken|wakes you|wake-up/);
+      expect(board).toMatch(/`mcp__topics__wait_for_process` in the same turn/);
+      expect(board).toContain('never end your turn while it runs');
+      expect(board).toMatch(/Do not end your turn on a `Monitor` or a background shell/);
+    }
+    expect(topicsAgentSystemPrompt('auto', 'win32', true)).not.toContain('run_command');
+  });
+
   test('i tre strumenti restano distinti: chiude-e-sveglia, tiene-e-torna, dipende', () => {
     const p = topicsAgentSystemPrompt();
     expect(p).toMatch(/`Monitor`[\s\S]*ends your turn and wakes you/);

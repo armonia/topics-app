@@ -39,44 +39,8 @@ export function languageDirective(lang: OutputLanguage = resolveOutputLanguage()
   }
 }
 
-/**
- * System-prompt fragment appended to every Topics-launched Claude session
- * (interactive PTY terminals AND the headless chat provider).
- *
- * It steers the agent to drive long-running processes THROUGH Topics — where
- * they're tracked, shown in the Processes panel with live logs/ports/stop, and
- * survive reloads — instead of backgrounding them in the bare shell. The Topics
- * MCP (`mcp__topics__*`) is already wired into every session. Kept short and
- * additive: it nudges; the user's project CLAUDE.md still governs everything else.
- *
- * Note: even when the agent ignores this and starts a server with a bare shell
- * command, Topics auto-detects the listening process under the session's PTY and
- * registers it (see the process detector in routes/processes.ts) — so this prompt
- * is the preferred path, not the only safety net.
- *
- * `cmd`: this system has the POSIX shell `run_command` needs (`hasCommandShell`).
- * Where the bridge does not offer the tool, the prompt does not name it either,
- * or the agent spends a tool round looking for it and trusts a wake that never
- * comes.
- *
- * `board`: the session is a board card's agent, whose turn the board judges
- * when it ends. It waits for its command inside the turn: told it could end
- * the turn and be woken, a card spent an attempt and met its wake over a
- * nudge (verifiers of 28/09). The wake flow is for ordinary chats.
- */
-const topicsAgentProcessPrompt = (cmd: boolean, board: boolean): string => [
-  'You are running inside Topics, a workspace that tracks long-running processes.',
-  'To start a long-running dev server, watcher, or build process, ALWAYS prefer the',
-  'Topics MCP tool `mcp__topics__run_script` (it runs a script declared in the',
-  "project's package.json) instead of backgrounding the command in the shell.",
-  ...(cmd ? ['Any other long-running or long-waiting command goes through `mcp__topics__run_command`.'] : []),
-  'Processes started this way appear in the Topics Processes panel with live logs,',
-  'status, port links, and a stop button, and are managed across restarts.',
-  'Use `mcp__topics__list_processes` to see what is running, `mcp__topics__read_process_output`',
-  'to read a process’s logs, and `mcp__topics__stop_process` to stop one.',
-  'When you need the OUTCOME of something long, do not poll: `mcp__topics__wait_for_process`',
-  'blocks until it exits (or until a line matches `until`) and returns only the new output,',
-  'so one turn replaces a dozen reads. It also accepts the id of a background shell.',
+/** How an ordinary chat waits: a long wait may end the turn and wake it. */
+const chatWaits = (cmd: boolean): string[] => [
   // ── ASPETTARE SENZA RESTARE FERMI ──
   // Le due attese sono diverse e la differenza è per chi legge: `wait_for_process`
   // TIENE il turno (l'utente vede la clessidra e non può parlarti finché non
@@ -125,24 +89,83 @@ const topicsAgentProcessPrompt = (cmd: boolean, board: boolean): string => [
     ? [
       'For a long ad hoc wait (a retry loop, a one-off script, anything that is not',
       'a declared script) use `mcp__topics__run_command` instead: it runs as a Topics process,',
-      ...(board
-        ? [
-          'shown in the Processes panel, and it survives a restart of your CLI. On a board card',
-          'your turn is your work: wait for the command with `mcp__topics__wait_for_process` in the same turn,',
-          'and never end your turn while it runs.',
-        ]
-        : [
-          'shown in the Processes panel, it survives a restart of your CLI, and when it ends this',
-          'chat receives its exit code and last lines, which wakes you, so you can end your turn.',
-        ]),
+      'shown in the Processes panel, it survives a restart of your CLI, and when it ends this',
+      'chat receives its exit code and last lines, which wakes you, so you can end your turn.',
       'Pass `wake: false` for a dev server or anything not meant to end.',
-      ...(board ? [] : ['Prefer it (or `Monitor`) when the point IS being woken.']),
+      'Prefer it (or `Monitor`) when the point IS being woken.',
     ]
     : ['Prefer `Monitor`, when you have it, if the point IS being woken.']),
   'If you promise the user a',
   'wake-up, make sure the command can actually end, and say what you will do if it does',
   'not arrive. You can always come back and read it yourself with',
   '`mcp__topics__read_process_output`.',
+];
+
+/**
+ * How a board card's agent waits: inside its turn, on every platform. The
+ * board judges the turn when it ends, and its net (the dispatcher's wait)
+ * covers only a `run_command` wake: a card that ended its turn on a `Monitor`
+ * or a background shell spent an attempt and met the CLI's wake over a nudge
+ * (verifiers of 28/09, second round). Where there is no `run_command`
+ * (Windows) the rule names `run_script`, as `longCommandsRule` does.
+ */
+const boardWaits = (cmd: boolean): string[] => [
+  'On a board card your turn is your work, and the board judges it the moment the turn ends:',
+  'wait for anything long INSIDE the turn.',
+  ...(cmd
+    ? [
+      'Start a long command that is not a declared script (a build, a test suite, a retry loop)',
+      'with `mcp__topics__run_command`: it runs as a Topics process, shown in the Processes panel,',
+      'and it survives a restart of your CLI. Wait for it, or for a `mcp__topics__run_script`,',
+    ]
+    : ['Start a long command with `mcp__topics__run_script` when the manifest declares it, and wait for it']),
+  'with `mcp__topics__wait_for_process` in the same turn, calling it again while it answers `timeout`,',
+  'and never end your turn while it runs.',
+  'Do not end your turn on a `Monitor` or a background shell either: wait for a background shell',
+  'with `mcp__topics__wait_for_process` too.',
+  'Never sleep-and-poll in a shell loop: it burns a turn per check and tells the user nothing.',
+  ...(cmd ? ['Pass `wake: false` for a dev server or anything not meant to end.'] : []),
+];
+
+/**
+ * System-prompt fragment appended to every Topics-launched Claude session
+ * (interactive PTY terminals AND the headless chat provider).
+ *
+ * It steers the agent to drive long-running processes THROUGH Topics — where
+ * they're tracked, shown in the Processes panel with live logs/ports/stop, and
+ * survive reloads — instead of backgrounding them in the bare shell. The Topics
+ * MCP (`mcp__topics__*`) is already wired into every session. Kept short and
+ * additive: it nudges; the user's project CLAUDE.md still governs everything else.
+ *
+ * Note: even when the agent ignores this and starts a server with a bare shell
+ * command, Topics auto-detects the listening process under the session's PTY and
+ * registers it (see the process detector in routes/processes.ts) — so this prompt
+ * is the preferred path, not the only safety net.
+ *
+ * `cmd`: this system has the POSIX shell `run_command` needs (`hasCommandShell`).
+ * Where the bridge does not offer the tool, the prompt does not name it either,
+ * or the agent spends a tool round looking for it and trusts a wake that never
+ * comes.
+ *
+ * `board`: the session is a board card's agent, whose turn the board judges
+ * when it ends. It gets `boardWaits` instead of `chatWaits`: told it could end
+ * the turn and be woken, a card spent an attempt and met its wake over a
+ * nudge (verifiers of 28/09). The wake flow is for ordinary chats.
+ */
+const topicsAgentProcessPrompt = (cmd: boolean, board: boolean): string => [
+  'You are running inside Topics, a workspace that tracks long-running processes.',
+  'To start a long-running dev server, watcher, or build process, ALWAYS prefer the',
+  'Topics MCP tool `mcp__topics__run_script` (it runs a script declared in the',
+  "project's package.json) instead of backgrounding the command in the shell.",
+  ...(cmd ? ['Any other long-running or long-waiting command goes through `mcp__topics__run_command`.'] : []),
+  'Processes started this way appear in the Topics Processes panel with live logs,',
+  'status, port links, and a stop button, and are managed across restarts.',
+  'Use `mcp__topics__list_processes` to see what is running, `mcp__topics__read_process_output`',
+  'to read a process’s logs, and `mcp__topics__stop_process` to stop one.',
+  'When you need the OUTCOME of something long, do not poll: `mcp__topics__wait_for_process`',
+  'blocks until it exits (or until a line matches `until`) and returns only the new output,',
+  'so one turn replaces a dozen reads. It also accepts the id of a background shell.',
+  ...(board ? boardWaits(cmd) : chatWaits(cmd)),
   cmd
     ? 'Only fall back to a bare shell command when neither a package.json script nor `mcp__topics__run_command` fits, or the command is a short one-off.'
     : 'Only fall back to a bare shell command when no package.json script fits, or the command is a short one-off.',
