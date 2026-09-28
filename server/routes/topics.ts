@@ -70,7 +70,7 @@ import { deliverAnswer, hasPendingAsk, cancelAsk, openAskToolCallId, ASK_NOT_CUR
 import { waitingAskStartedAt } from "../lib/waiting-ask";
 import { isPlanApprovalAnswer } from "../lib/plan-approval";
 import { releaseHumanHold, humanHoldAgeMs } from "../lib/human-hold";
-import { readSlashCommandSource, isValidSlashCommandName } from "../lib/slash-command-source";
+import { readSlashCommandSource, isValidSlashCommandName, listSlashCommandFiles } from "../lib/slash-command-source";
 import { recordTurnEnd } from "../providers/turn-end-registry";
 import { cancelled } from "../providers/stop-reason";
 import { decodeCol } from "../../shared/message-blob";
@@ -1208,8 +1208,6 @@ export function createTopicsRouter(
     }
 
     if (method === "GET" && pathname === "/api/slash-commands") {
-      const out: Array<{ name: string; description: string; kind: "command" | "skill" }> = [];
-      const seen = new Set<string>();
       const descOf = (file: string): string => {
         try {
           const txt = readFileSync(file, "utf-8");
@@ -1223,29 +1221,14 @@ export function createTopicsRouter(
         } catch { /* unreadable — no description */ }
         return "";
       };
-      const add = (name: string, description: string, kind: "command" | "skill") => {
-        if (!name || seen.has(name)) return;
-        seen.add(name);
-        out.push({ name, description, kind });
-      };
-      for (const dir of [join(homedir(), ".claude", "commands"), join(process.cwd(), ".claude", "commands")]) {
-        try {
-          for (const f of readdirSync(dir)) {
-            if (!f.endsWith(".md")) continue;
-            add(f.slice(0, -3), descOf(join(dir, f)), "command");
-          }
-        } catch { /* dir absent */ }
-      }
-      for (const dir of [join(homedir(), ".claude", "skills"), join(homedir(), "jarvis", "skills-marketplace", "skills")]) {
-        try {
-          for (const d of readdirSync(dir, { withFileTypes: true })) {
-            if (!d.isDirectory()) continue;
-            const md = join(dir, d.name, "SKILL.md");
-            if (!existsSync(md)) continue;
-            add(d.name, descOf(md), "skill");
-          }
-        } catch { /* dir absent */ }
-      }
+      // Which files are commands and skills, and which one wins a shared name,
+      // is decided in ONE place: `listSlashCommandFiles`, the same folders and
+      // precedence `readSlashCommandSource` opens. This route used to walk the
+      // folders itself with `isDirectory()`, which is false for a link to a
+      // folder, so every symlinked skill vanished from the / menu while its
+      // body still opened. Known and left as is: the project's commands come
+      // from `process.cwd()`, the server's folder, not the topic's project.
+      const out = listSlashCommandFiles().map(({ name, file, kind }) => ({ name, description: descOf(file), kind }));
       out.sort((a, b) => a.name.localeCompare(b.name));
       return json(out);
     }
