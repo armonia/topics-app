@@ -630,8 +630,9 @@ describe("a command's log file is bounded like a script's", () => {
     const log = logPathOf(processId);
     const output = async () => ((await (await call(bench.processes, "GET", `/api/scripts/${processId}/output`)).json()) as { output: string }).output;
 
-    // The tick that brought the burst into the panel has cut the file too.
-    await until(async () => (await output()).includes(line));
+    // A tick that reads past 1 MB cuts the file. Under load the first tick can
+    // read part of the burst, below the limit, so the wait is for the cut.
+    await until(async () => (await output()).includes(line) && statSync(log).size <= 500 * 1024);
     expect(statSync(log).size).toBeLessThanOrEqual(500 * 1024);
     expect((await scriptRow(processId))?.status).toBe("running");
 
