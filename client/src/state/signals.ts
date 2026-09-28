@@ -31,6 +31,7 @@ import { TERMINAL_TARGET_KIND } from '../../../shared/notification-log';
 import type { Topic, TerminalSessionInfo, ClaudeSessionPhase, ClaudeSessionState, AttentionTier } from '../types';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 import { liveTopicsOfProject } from './projectAttentionIndex';
+import { mergeBackgroundWork, projectBackgroundCount, type TopicBackgroundWork } from './backgroundWork';
 
 /** Claude phases that mean "Claude needs you" — worth a notification badge.
  *  Loading-ish phases (running / tool-running) surface as spinners instead.
@@ -251,6 +252,8 @@ interface SignalsState {
   hydratedStreamAsked: boolean;
   /** Sessions (by sessionKey) with no turn open but work a closed turn left running: the composer offers its Stop. */
   backgroundWorkSessions: Set<string>;
+  /** The same work by topic, with what it is: the glyphs, the chat line and the agent list read it. Never a streaming set. */
+  backgroundWorkTopics: ReadonlyMap<string, TopicBackgroundWork>;
   terminalBusyIds: Set<string>;      // server-tracked pty busy, by session id (fallback heuristic)
   browserBusyPaneIds: Set<string>;   // browser panel loading/agent, by pane id
   // claude-code terminals whose known phase is active (running/tool-running).
@@ -314,6 +317,8 @@ interface SignalsState {
 
   setTopicSet: (key: TopicSetKey, ids: Set<string>) => void;
   markHydratedStreamAsked: () => void;
+  /** Writes both halves of the background work in one pass: per session and per topic. */
+  setBackgroundWork: (sessions: Set<string>, byTopic: ReadonlyMap<string, TopicBackgroundWork>) => void;
   /** Segna un soggetto come VISTO (la soglia è scattata). Idempotente. */
   markSubjectSeen: (id: string) => void;
   /** Clears the "seen" flag of the chat subjects that ENTER the attention set
@@ -472,6 +477,7 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   hydratedStreamTopics: new Set(),
   hydratedStreamAsked: false,
   backgroundWorkSessions: new Set(),
+  backgroundWorkTopics: new Map(),
   terminalBusyIds: new Set(),
   browserBusyPaneIds: new Set(),
   claudePhaseActiveTermIds: new Set(),
@@ -491,6 +497,16 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   markHydratedStreamAsked: () => set((s) => (s.hydratedStreamAsked ? s : { hydratedStreamAsked: true })),
   setTopicSet: (key, ids) =>
     set((s) => (setsEqual(ids, s[key]) ? s : ({ [key]: ids } as Pick<SignalsState, TopicSetKey>))),
+  setBackgroundWork: (sessions, byTopic) =>
+    set((s) => {
+      const topics = mergeBackgroundWork(s.backgroundWorkTopics, byTopic);
+      const sessionsChanged = !setsEqual(sessions, s.backgroundWorkSessions);
+      if (!sessionsChanged && topics === s.backgroundWorkTopics) return s;
+      return {
+        ...(sessionsChanged ? { backgroundWorkSessions: sessions } : {}),
+        ...(topics === s.backgroundWorkTopics ? {} : { backgroundWorkTopics: topics }),
+      };
+    }),
 
   // "Visto" — due sole mosse, entrambe con bail-out sull'identità perché questo
   // set è letto da OGNI riga e OGNI tab.
@@ -622,14 +638,15 @@ export const signalsActions = {
     st.setTopicSet('hydratedStreamTopics', ids);
     st.markHydratedStreamAsked();
   },
-  setBackgroundWorkSessions: (keys: Set<string>) => useSignalsStore.getState().setTopicSet('backgroundWorkSessions', keys),
-  /** The Stop just ended this session's background work: no need to wait for the next poll to say so. */
+  setBackgroundWork: (sessions: Set<string>, byTopic: ReadonlyMap<string, TopicBackgroundWork>) =>
+    useSignalsStore.getState().setBackgroundWork(sessions, byTopic),
+  /** The Stop just ended this session's background work: the glyph, the chat line and the agent row go now, not at the next poll. */
   dropBackgroundWork: (sessionKey: string) => {
     const st = useSignalsStore.getState();
-    if (!st.backgroundWorkSessions.has(sessionKey)) return;
-    const next = new Set(st.backgroundWorkSessions);
-    next.delete(sessionKey);
-    st.setTopicSet('backgroundWorkSessions', next);
+    const sessions = new Set(st.backgroundWorkSessions);
+    sessions.delete(sessionKey);
+    const byTopic = new Map([...st.backgroundWorkTopics].filter(([, work]) => work.sessionKey !== sessionKey));
+    st.setBackgroundWork(sessions, byTopic);
   },
   setClaudeAttentionTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('claudeAttentionTopics', ids),
   setAwaitingFeedbackTopics: (ids: Set<string>) => useSignalsStore.getState().setTopicSet('awaitingFeedbackTopics', ids),
@@ -1037,6 +1054,18 @@ export function useSessionBackgroundWork(sessionKey: string | undefined): boolea
   return useSignalsStore((s) => !!sessionKey && s.backgroundWorkSessions.has(sessionKey));
 }
 
+/** The work a chat's closed turn left running, or undefined. A stable reference while the poll brings no news. */
+export function useTopicBackgroundWork(topicId: string | undefined): TopicBackgroundWork | undefined {
+  return useSignalsStore((s) => (topicId ? s.backgroundWorkTopics.get(topicId) : undefined));
+}
+
+/** How many chats of this project wait on background work: the closed folder's grey glyph. */
+export function useProjectBackgroundWork(projectPath: string | undefined): number {
+  const topics = useTopics();
+  const work = useSignalsStore((s) => s.backgroundWorkTopics);
+  return useMemo(() => (projectPath ? projectBackgroundCount(projectPath, topics, work) : 0), [projectPath, topics, work]);
+}
+
 /** A topic is loading if it has a live stream or a hydrated mid-reply. */
 export function useTopicLoading(topicId: string | undefined): boolean {
   return useSignalsStore((s) =>
@@ -1224,7 +1253,7 @@ export function useBrowserLoading(paneId: string | undefined): boolean {
  *  it — applies the gate here instead. An id whose topic no longer exists is
  *  dropped too: a deleted topic must not keep nagging from the status bar. */
 export function visibleTopicSignalIds(
-  ids: ReadonlySet<string>,
+  ids: Iterable<string>,
   topics: Record<string, Topic>,
 ): string[] {
   const out: string[] = [];
@@ -1254,6 +1283,14 @@ export interface ActiveAgentRow {
   label: string;
 }
 
+/** The agent lists of the menu, as `activeAgentRowsFrom` builds them. */
+export interface ActiveAgentRows {
+  working: ActiveAgentRow[];
+  background: ActiveAgentRow[];
+  awaitingInput: ActiveAgentRow[];
+  finished: ActiveAgentRow[];
+}
+
 /** The minimum a roster entry has to carry to be turned into a row. It is a
  *  subset of `TerminalSessionInfo`, so App's list fits without a cast. */
 export type AgentRosterEntry = { id: string; type: string; name: string };
@@ -1271,6 +1308,7 @@ type AgentActivitySlice = {
   awaitingTopics: Set<string>;
   awaitingInputTopics: Set<string>;
   finishedTerms: Set<string>;
+  backgroundTopics: ReadonlyMap<string, unknown>;
 };
 
 function useAgentActivitySlice(): AgentActivitySlice {
@@ -1288,6 +1326,7 @@ function useAgentActivitySlice(): AgentActivitySlice {
       // The FINISHED claude-code turns: they used to count nowhere while the
       // tooltip called something else "turn finished" (see the counts hook).
       finishedTerms: s.terminalFinishedIds,
+      backgroundTopics: s.backgroundWorkTopics,
     })),
   );
 }
@@ -1303,6 +1342,9 @@ function useAgentActivitySlice(): AgentActivitySlice {
  *   - working: a non-shell terminal that `terminalLoadingFrom` calls loading
  *     (phase-active OR pty-busy-and-not-resting), plus every chat topic mid
  *     stream (live or hydrated) that is on screen (not archived, not deleted).
+ *   - background: a chat with no turn open whose last turn left work running
+ *     (BGVIS-03), one row per chat and never also in `working`: that work
+ *     holds a CLI in RAM now, and this row is what says which one to stop.
  *   - awaitingInput: the LOUD tier (`awaiting-approval`) on both surfaces.
  *     Terminals are read through the roster so each row has a name: an id
  *     whose session is gone has no row and no tab, and its "1" would be
@@ -1313,9 +1355,10 @@ function useAgentActivitySlice(): AgentActivitySlice {
 export function activeAgentRowsFrom(
   roster: ReadonlyArray<AgentRosterEntry>,
   topics: Record<string, Topic>,
-  sig: Pick<AgentActivitySlice, 'active' | 'resting' | 'busy' | 'awaitingTerm' | 'awaitingInputTerm' | 'finishedTerms' | 'liveStream' | 'hydratedStream' | 'awaitingTopics' | 'awaitingInputTopics'>,
-): { working: ActiveAgentRow[]; awaitingInput: ActiveAgentRow[]; finished: ActiveAgentRow[] } {
+  sig: Pick<AgentActivitySlice, 'active' | 'resting' | 'busy' | 'awaitingTerm' | 'awaitingInputTerm' | 'finishedTerms' | 'liveStream' | 'hydratedStream' | 'awaitingTopics' | 'awaitingInputTopics' | 'backgroundTopics'>,
+): ActiveAgentRows {
   const working: ActiveAgentRow[] = [];
+  const background: ActiveAgentRow[] = [];
   const awaitingInput: ActiveAgentRow[] = [];
   const finished: ActiveAgentRow[] = [];
   for (const t of roster) {
@@ -1341,13 +1384,21 @@ export function activeAgentRowsFrom(
   for (const id of visibleTopicSignalIds(streamingTopics, topics)) {
     working.push({ id, kind: 'topic', label: topics[id].name });
   }
+  for (const id of visibleTopicSignalIds(sig.backgroundTopics.keys(), topics)) {
+    if (!streamingTopics.has(id)) background.push({ id, kind: 'topic', label: topics[id].name });
+  }
   for (const id of visibleTopicSignalIds(sig.awaitingInputTopics, topics)) {
     awaitingInput.push({ id, kind: 'topic', label: topics[id].name });
   }
   for (const id of visibleTopicSignalIds(sig.awaitingTopics, topics)) {
     if (!sig.awaitingInputTopics.has(id)) finished.push({ id, kind: 'topic', label: topics[id].name });
   }
-  return { working, awaitingInput, finished };
+  return { working, background, awaitingInput, finished };
+}
+
+/** The agents at work: the number on the card's badge, counted from the same rows the menu lists. */
+export function activeAgentCount(rows: Pick<ActiveAgentRows, 'working' | 'background'>): number {
+  return rows.working.length + rows.background.length;
 }
 
 /** The rows behind the "Active agents" submenu and the card badge. See
@@ -1355,7 +1406,7 @@ export function activeAgentRowsFrom(
 export function useActiveAgentRows(
   roster: ReadonlyArray<AgentRosterEntry>,
   topics: Record<string, Topic>,
-): { working: ActiveAgentRow[]; awaitingInput: ActiveAgentRow[]; finished: ActiveAgentRow[] } {
+): ActiveAgentRows {
   const sig = useAgentActivitySlice();
   return useMemo(() => activeAgentRowsFrom(roster, topics, sig), [roster, topics, sig]);
 }

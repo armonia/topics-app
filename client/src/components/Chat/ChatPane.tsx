@@ -34,6 +34,7 @@ import { GoalBar } from './GoalBar';
 import { PlanApprovalBar } from './PlanApprovalBar';
 import { useGoal } from '@/hooks/useGoal';
 import { SubAgentsStrip } from './SubAgentsStrip';
+import { BackgroundWorkLine } from './BackgroundWorkLine';
 import { TaskCardStrip } from './TaskCardStrip';
 import { TaskWorkFoldContext } from './taskWorkFoldContext';
 import { useTopicTask } from '../../state/taskSessions';
@@ -1846,6 +1847,7 @@ function ChatPaneComponent({
           latestTodo && <TodoStrip snapshot={latestTodo} />
         )}
         {!isGlobalOrchestrator && <SubAgentsStrip topicSessionKey={topic.sessionKey} />}
+        <BackgroundWorkLine topicId={topic.id} />
         {aboveInputSlot}
         {!isGlobalOrchestrator && <CheckpointTimeline topicId={topic.id} onRollback={() => loadHistory(topic.sessionKey)} />}
         {/* What the agent wrote in this conversation, counted from its own

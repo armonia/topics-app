@@ -22,6 +22,9 @@
  */
 
 import { readBackgroundTasks, readParentToolUseId } from "./events";
+import type { BackgroundWorkDetail } from "../../../shared/background-work";
+
+export type { BackgroundWorkDetail };
 
 /**
  * How long background work is believed without news, by EVERY clock that can
@@ -171,6 +174,19 @@ export function isWakeQueued(work: BackgroundWork | undefined, now: number): boo
 /** Listed tasks with news within the bound. */
 export function hasLiveTasks(work: BackgroundWork | undefined, now: number): boolean {
   return !!work && work.tasks.size > 0 && now - work.lastSignalAt < BACKGROUND_WORK_CAP_MS;
+}
+
+/**
+ * The work as a chat names it: the listed tasks, only while they are alive
+ * (`hasLiveTasks`), and the last news. A list past the bound is already given
+ * up on by every clock, and a reported task waiting for its wake is no longer
+ * running, so both name no task.
+ */
+export function describeBackgroundWork(work: BackgroundWork | undefined, now: number): BackgroundWorkDetail {
+  const tasks = work && hasLiveTasks(work, now)
+    ? [...work.tasks.values()].map((t) => ({ type: t.type, description: t.description || t.type }))
+    : [];
+  return { tasks, lastSignalAt: work?.lastSignalAt ?? 0 };
 }
 
 /** Is there background work alive, or a wake about to answer it, as of `now`? */
