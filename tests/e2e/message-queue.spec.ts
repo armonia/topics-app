@@ -321,6 +321,81 @@ test.describe.serial("Coda dei messaggi", () => {
     await expect.poll(() => sent, { timeout: 20_000 }).toEqual(["primo", "altro"]);
   });
 
+  /**
+   * The X of a long queued line sits beside the bubble, inside its row.
+   *
+   * It was written `absolute -left-6`, but `.tap-expand` sets `position:
+   * relative` OUTSIDE any cascade layer (index.css), and an unlayered rule beats
+   * every Tailwind utility. So the X was never absolute: it fell into the
+   * bubble's flow as one more line under `chat.queue.waiting`, and `-left-6`
+   * only nudged it 24px left, onto the dashed border. Measured on WebKit at
+   * 1280px, before the fix: computed `position: relative`, and the X 20x20 box
+   * overlapping the bubble by 9x20px. It is now a flex sibling of the bubble,
+   * which shrinks to make room for it.
+   *
+   * The four rects are read in ONE frame: the turn is still streaming, the list
+   * follows the bottom, and separate `boundingBox()` calls could straddle a
+   * scroll and compare boxes from two different layouts.
+   */
+  test("la X di una riga lunga resta nella sua riga, accanto alla bolla", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-03" });
+    const { state } = await interceptSends(page);
+    await openChat(page, chatPage);
+    await clearQueue(page);
+
+    await chatPage.messageInput.fill("primo");
+    await chatPage.messageInput.press("Enter");
+    await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
+
+    // Several lines of wrapped text: the bubble stops at its max width.
+    await chatPage.messageInput.fill("una riga lunga che va a capo più volte ".repeat(12).trim());
+    await chatPage.messageInput.press("Enter");
+    const bubble = queuedBubbles(page).first();
+    await expect(bubble).toBeVisible({ timeout: 10_000 });
+
+    const rects = await bubble.evaluate((el) => {
+      const box = (node: Element | null) => {
+        if (!node) return null;
+        const r = node.getBoundingClientRect();
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width };
+      };
+      const row = el.parentElement;
+      return {
+        bubble: box(el),
+        row: box(row),
+        remove: box(row?.querySelector('[data-testid="queued-bubble-remove"]') ?? null),
+        column: box(el.closest("[data-virtuoso-scroller]")),
+      };
+    });
+    const { bubble: b, row, remove: x, column } = rects;
+    if (!b || !row || !x || !column) throw new Error(`missing box: ${JSON.stringify(rects)}`);
+    const TOLERANCE_PX = 0.5;
+
+    // The precondition: the text is long enough to push the bubble to its cap.
+    expect(b.width, "the bubble must reach its max width (85% of the row)").toBeGreaterThanOrEqual(row.width * 0.85 - 1);
+
+    // Inside the row, on all four sides...
+    expect(x.left, "X left of its row").toBeGreaterThanOrEqual(row.left - TOLERANCE_PX);
+    expect(x.right, "X right of its row").toBeLessThanOrEqual(row.right + TOLERANCE_PX);
+    expect(x.top, "X above its row").toBeGreaterThanOrEqual(row.top - TOLERANCE_PX);
+    expect(x.bottom, "X below its row").toBeLessThanOrEqual(row.bottom + TOLERANCE_PX);
+    // ...inside the chat column...
+    expect(x.left, "X left of the chat column").toBeGreaterThanOrEqual(column.left - TOLERANCE_PX);
+    expect(x.right, "X right of the chat column").toBeLessThanOrEqual(column.right + TOLERANCE_PX);
+    // ...and beside the bubble, not over it.
+    const overlapW = Math.min(x.right, b.right) - Math.max(x.left, b.left);
+    const overlapH = Math.min(x.bottom, b.bottom) - Math.max(x.top, b.top);
+    expect(overlapW > TOLERANCE_PX && overlapH > TOLERANCE_PX, `X overlaps the bubble by ${overlapW}x${overlapH}px`).toBe(false);
+
+    // And it still does its job. Leaving the line queued would hand it to the
+    // next test, which counts the bubbles without clearing first.
+    await page.getByTestId("queued-bubble-remove").first().click();
+    await expect(queuedBubbles(page)).toHaveCount(0);
+    state.hang = false;
+    await page.getByRole("button", { name: /Ferma la risposta/ }).first().click();
+    await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
+  });
+
   test("stop TIENE il messaggio in coda invece di farlo partire", async ({ page, chatPage }) => {
     // Il frame che faceva il danno arriva dal WS: dopo un abort il server
     // annuncia comunque `stream:end`, e «lo stream è finito» era l'unica
