@@ -290,8 +290,12 @@ test.describe("open_browser_pane attaches the project pane", () => {
     const app = await proxyAppSocket(page);
     const watch = watchPage(page, ctx);
     try {
-      // The chat of no project in a cell of its own, beside the project's cell.
-      await page.goto("/favicon.ico", { waitUntil: "commit" }).catch(() => {});
+      // The chat of no project in a cell of its own, beside the project's cell,
+      // written from a same-origin document that is not the app. Not
+      // `/favicon.ico`: once the context has an HTTP route (the shell fake's
+      // belt), Playwright aborts every request for that path, the page stays on
+      // about:blank and its storage is denied.
+      await page.goto("/manifest.json", { waitUntil: "commit" });
       await page.evaluate((cells) => {
         const grid = JSON.stringify({ gridRows: [], gridRowHeights: [], soloCells: cells });
         localStorage.setItem("topics-panel-grid-layout", grid);

@@ -56,6 +56,13 @@
  * wrap the rewrite and close the app's socket before the rewrite could run.
  * A spec that adds its own `routeWebSocket` later is fine: the mock is
  * injected once per document.
+ *
+ * THE HTTP BELT TURNS ON REQUEST INTERCEPTION FOR THE CONTEXT, and with it
+ * Playwright aborts every request whose URL ends in `/favicon.ico`
+ * (playwright-core, `server/frames.js`, `requestStarted`). A spec that goes
+ * there for a same-origin page to write its storage lands on nothing: the
+ * navigation is aborted, the page stays on about:blank, and storage there is
+ * denied. Any other same-origin file of the bundle works (`/manifest.json`).
  */
 import type { Page } from "@playwright/test";
 
