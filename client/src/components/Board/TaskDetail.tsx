@@ -83,8 +83,9 @@ import { useTaskBrowserGroupLayout, type TaskBrowserGroupLayout, type RenderSurf
 import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
 import { machineStopOf } from '../Chat/machineRow';
 import { MachineStopLine } from '../Chat/MachineStopLine';
-import { backgroundNoticeOf } from '../Chat/machineRow';
+import { backgroundNoticeOf, processExitOf } from '../Chat/machineRow';
 import { BackgroundNoticeLine } from '../Chat/BackgroundNoticeLine';
+import { ProcessExitRow } from '../Chat/ProcessExitRow';
 
 /** Feature flag (per-client kill-switch): the task's browser lives as a
  *  task-owned tiling group driven by the app's real GroupLayout engine (split /
@@ -1880,6 +1881,9 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
       }
       if (item.envelope) return <DispatchEnvelopeRow key={item.id} messageId={item.msg.id} content={item.msg.content} />;
       if (item.msg.role === 'user') {
+        // The end of a command the agent started: the machine's line, as in the chat.
+        const exit = processExitOf(item.msg.blocks);
+        if (exit) return <ProcessExitRow key={item.id} messageId={item.msg.id} block={exit} content={item.msg.content} />;
         // Something typed into the topic itself rather than into the card. The
         // same grey bubble a comment of yours gets: it is the same voice, and
         // two greys for one person would be a difference that means nothing.

@@ -27,6 +27,7 @@
  * happens on the wire during a live turn is E2E's job (DRAWER-05a).
  * @covers KANBAN-52
  * @covers KANBAN-73
+ * @covers CMDRUN-04
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -112,6 +113,23 @@ describe('la conversazione e\' UNA lista', () => {
     // asked answerable in the chat and dead in the card.
     expect(src).toContain('<MessageContent');
     expect(src).toContain('data-testid="task-session-item"');
+  });
+});
+
+/**
+ * THE END OF A COMMAND IS THE MACHINE'S LINE, ON THE CARD TOO.
+ *
+ * The wake of a `run_command` process is a `user` row, because a provider only
+ * answers those (server/lib/process-exit-wake.ts). The chat draws it as a
+ * service line (`MessageBubble`); the drawer drew every user row of the session
+ * as the person's grey bubble, and board agents are the ones the prompt sends
+ * to `run_command` for their long waits.
+ */
+describe("a command's end in the card's session", () => {
+  test('a user row carrying the process-exit block is drawn before, and instead of, the bubble', () => {
+    const branch = src.slice(src.indexOf("if (item.msg.role === 'user') {"), src.indexOf('className="user-bubble'));
+    expect(branch).toContain('processExitOf(item.msg.blocks)');
+    expect(branch).toContain('<ProcessExitRow');
   });
 });
 
