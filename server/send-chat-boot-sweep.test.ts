@@ -21,9 +21,7 @@ import { closeDatabase, getDatabase } from "./db";
 import { createAppContext } from "./utils";
 import { createTopicsRouter } from "./routes/topics";
 import { RESTART_INTERRUPTED_MARKER, runBootPartialSweep } from "./lib/boot-partial-sweep";
-import { bonificaTurniMuti } from "./lib/verdetto-turno-interrotto";
-import { finalizeOrphanTool } from "./lib/orphan-tool-sweep";
-import { decodeCol, encodeCol } from "../shared/message-blob";
+import { finalizeOrphanedRunningTools } from "./lib/boot-orphan-tools";
 import { callReadChatMessages, callSendChatMessage, RESTART_NOTICE_OPENING } from "./mcp/topics-mcp-server";
 import type { AppContext, Topic } from "./types";
 
@@ -50,18 +48,18 @@ afterAll(() => {
 
 const HALF = "Ecco la prima meta' della risposta, ";
 
-function turnCutMidway(tid: string, withRunningTool: boolean) {
+function turnCutMidway(tid: string, withRunningTool: boolean, prose = HALF) {
   const sessionKey = `topic:${tid}`;
   const now = new Date().toISOString();
   ctx.saveSingleTopic({ id: tid, name: tid, slug: tid, parentId: null, links: [], sessionKey, color: "#aabbcc", icon: "chat", createdAt: now, updatedAt: now, archived: false } as Topic);
   ctx.appendLocalMessage(sessionKey, "user", "ping");
   const partial = ctx.createPartialMessage(sessionKey, "assistant");
   // What the route had saved when the process died.
-  ctx.updateLastMessage(sessionKey, { content: HALF }, { rowId: partial.id } as never);
+  ctx.updateLastMessage(sessionKey, { content: prose }, { rowId: partial.id } as never);
   if (withRunningTool) {
     const tc = { id: "tc1", name: "Bash", args: { command: "sleep 600" }, status: "running", startedAt: Date.now() };
     ctx.addToolCallToLastMessage(sessionKey, tc as never, { rowId: partial.id });
-    ctx.updateLastMessage(sessionKey, { blocks: [{ kind: "text", text: HALF }, { kind: "tool", toolCall: tc }] as never }, { rowId: partial.id } as never);
+    ctx.updateLastMessage(sessionKey, { blocks: [...(prose ? [{ kind: "text", text: prose }] : []), { kind: "tool", toolCall: tc }] as never }, { rowId: partial.id } as never);
   }
   return partial.id;
 }
@@ -83,14 +81,8 @@ function serverThatDiesAndBoots(tid: string, rowId: string, downReads: number): 
         booted = true;
         const db = getDatabase();
         runBootPartialSweep(db as never, { listConfirmed: true, liveSessions: new Set() });
-        // Pass 1 of finalizeOrphanedRunningTools (server.ts): a dead child's running tools are closed as interrupted.
-        for (const r of db.query("SELECT id, tool_calls, blocks FROM messages WHERE partial = 0 AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)").all() as Array<{ id: string; tool_calls: unknown; blocks: unknown }>) {
-          let tc = decodeCol(r.tool_calls), bl = decodeCol(r.blocks), changed = false;
-          if (tc) { const a = JSON.parse(tc); for (const t of a) if (finalizeOrphanTool(t, { childAlive: false, now: Date.now() })) changed = true; tc = JSON.stringify(a); }
-          if (bl) { const a = JSON.parse(bl); for (const b of a) if (b?.kind === "tool" && finalizeOrphanTool(b.toolCall, { childAlive: false, now: Date.now() })) changed = true; bl = JSON.stringify(a); }
-          if (changed) db.run("UPDATE messages SET tool_calls = ?, blocks = ? WHERE id = ?", [encodeCol(tc) ?? null, encodeCol(bl) ?? null, r.id]);
-        }
-        bonificaTurniMuti(db as never, "Turno interrotto prima di una risposta finale");
+        // Then the dead child's running tools, the boot's second step in server.ts.
+        finalizeOrphanedRunningTools(db, new Set());
       }
     }
     return (await router(new Request(u.toString(), { method: init?.method ?? "GET" }), u, u.pathname, init?.method ?? "GET"))!;
@@ -111,12 +103,30 @@ describe("send_chat_message across a server that died and booted", () => {
       .rejects.toThrow(`stream interrupted, and the turn was closed from outside before it finished (a restart or a watchdog). What it had written: ${JSON.stringify(HALF.trim())}. Before sending it again`);
   });
 
-  test("died during a silent tool: the interrupted tool's verdict, written once", async () => {
+  // Test D of card a57e6d4d: the repair of mute turns put its own verdict on the
+  // row the sweep had cut, above the restart notice, so the person read two.
+  test("died during a silent tool: closed before it finished, and the person reads one notice, the restart's", async () => {
     const rowId = turnCutMidway("boot-tool", true);
     await expect(send("boot-tool", serverThatDiesAndBoots("boot-tool", rowId, 3)))
-      .rejects.toThrow(/stream interrupted, and the turn then ended badly: Turno interrotto prima di una risposta finale\. What it had written/);
-    const row = ctx.getMessageById(rowId)!;
-    expect(row.blocks!.filter((b) => b.kind === "error")).toHaveLength(1);
+      .rejects.toThrow(`stream interrupted, and the turn was closed from outside before it finished (a restart or a watchdog). What it had written: ${JSON.stringify(HALF.trim())}.`);
+    const url = new URL("http://t.test/api/topics/boot-tool/messages?limit=50");
+    const { messages } = await (await createTopicsRouter(ctx)(new Request(url), url, url.pathname, "GET"))!.json() as { messages: Array<{ id: string; content: string; blocks?: Array<{ kind: string; toolCall?: { status?: string } }> }> };
+    const at = messages.findIndex((m) => m.id === rowId);
+    expect(messages[at].blocks?.find((b) => b.kind === "tool")?.toolCall?.status).toBe("error");
+    expect(messages[at + 1].content).toBe(RESTART_INTERRUPTED_MARKER);
+    expect(messages.filter((m) => m.blocks?.some((b) => b.kind === "error")).map((m) => m.id)).toEqual([messages[at + 1].id]);
+  });
+
+  test("died during a tool before any prose: the row keeps its tool and no notice of its own, the restart notice is the only one", async () => {
+    const tid = "boot-tool-only";
+    const rowId = turnCutMidway(tid, true, "");
+    await expect(send(tid, serverThatDiesAndBoots(tid, rowId, 3)))
+      .rejects.toThrow(/closed from outside before it finished \(a restart or a watchdog\)\. It had written nothing\./);
+    const url = new URL(`http://t.test/api/topics/${tid}/messages?limit=50`);
+    const { messages } = await (await createTopicsRouter(ctx)(new Request(url), url, url.pathname, "GET"))!.json() as { messages: Array<{ id: string; content: string; blocks?: Array<{ kind: string; toolCall?: { status?: string } }> }> };
+    const at = messages.findIndex((m) => m.id === rowId);
+    expect([messages[at].content, messages[at].blocks?.find((b) => b.kind === "tool")?.toolCall?.status]).toEqual(["", "error"]);
+    expect(messages.slice(at + 1).map((m) => m.content)).toEqual([RESTART_INTERRUPTED_MARKER]);
   });
 
   test("died before anything was saved: nothing written, a warning against resending, the row left hidden", async () => {

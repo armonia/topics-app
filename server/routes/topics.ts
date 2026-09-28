@@ -2530,7 +2530,7 @@ export function createTopicsRouter(
         if (!stream.messageId) return;
         const finalized = updateLastMessage(
           sessionKey,
-          { content: stream.content, thinking: stream.thinking || undefined, partial: undefined, streamedAt: undefined },
+          { content: stream.content, thinking: stream.thinking || undefined, partial: undefined, streamedAt: undefined, endReason: "stopped" },
           { rowId: stream.messageId },
         );
         // An empty placeholder with rows under it is kept by the discard itself
