@@ -259,21 +259,35 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
     taskIdleDays(deps.db, taskId, (topicId) => transcriptMtime(deps, topicId));
 
   /**
+   * A process Topics started (a script, a `run_command`) still runs in this
+   * folder or below it. Asked by the GC pass and by the slim of a card that
+   * reached review, which can get there with its command still running.
+   */
+  const topicsProcessRunsIn = (absPath: string): boolean => {
+    if (!deps.listOwnedScripts) return false;
+    const base = absPath.endsWith("/") ? absPath : absPath + "/";
+    return deps.listOwnedScripts().some((s) =>
+      isTopicsSpawned(s.source) && s.status === "running" && !!s.pid
+      && (s.projectPath === absPath || s.projectPath.startsWith(base)));
+  };
+
+  /**
    * Un preview server non può sopravvivere alla cartella da cui serve: sia il
    * `reap` sia il `free-checkout` la portano via, quindi entrambi lo spengono
    * prima. Best-effort — un preview ostinato non deve impedire di liberare spazio.
    */
   /**
-   * Butta gli artefatti rigenerabili dal worktree di un task, tenendo la cartella.
+   * Drops the regenerable artifacts from a task's worktree, keeping the folder.
    *
-   * Tre condizioni prima di toccare qualsiasi cosa, e sono tutte «c'è ancora
-   * qualcuno lì dentro?»: la cartella esiste, nessun turno sta girando su quel
-   * task, nessuna anteprima viva ci sta servendo un `bun run dev`. La sicurezza
-   * di COSA si cancella sta invece tutta in `worktree-slim` (lista chiusa di nomi
-   * + doppio cancello letto da git), non qui.
+   * Four conditions before touching anything, all of them «is somebody still in
+   * there?»: the folder exists, no turn is running on the task, no live preview
+   * is serving a `bun run dev` from it, and no process Topics started (a
+   * script, a `run_command`) runs inside it. The safety of WHAT is deleted
+   * lives entirely in `worktree-slim` (a closed list of names plus a double
+   * gate read from git), not here.
    *
-   * Un'anteprima viva è un rinvio, non un no: la passata del GC ripassa ogni 30
-   * minuti e la troverà spenta appena l'umano avrà approvato o chiuso.
+   * A live preview or process is a postponement, not a no: the GC pass comes
+   * back every 30 minutes and finds it gone once it has ended.
    */
   // Chi risparmiare, se l'umano non è d'accordo su un nome (di solito `target`:
   // vedi `parseSlimSkip`). Letto una volta sola: cambiarlo vuole un riavvio, come
@@ -286,6 +300,7 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       if (!wt || !existsSync(wt.absPath)) return;
       if (deps.isInFlight(taskId)) return;
       if (deps.previewList().some((p) => p.taskId === taskId)) return;
+      if (topicsProcessRunsIn(wt.absPath)) return;
       const res = await slimWorktree(wt.absPath, WORKTREE_SLIM_SKIP);
       if (res.removed.length > 0) {
         console.log(
@@ -413,14 +428,7 @@ export function createWorktreeGcRunner(deps: WorktreeGcDeps): WorktreeGcRunner {
       // PUNTO 3 (task e3240a22): l'unica guardia era previewList(), che non
       // consulta runningScripts. È il solo modo di fabbricare un fantasma che
       // il Punto 2 non vedrà mai: la root esiste, il contenuto è sparito sotto.
-      if (deps.listOwnedScripts) {
-        const base = wt.absPath.endsWith("/") ? wt.absPath : wt.absPath + "/";
-        return deps.listOwnedScripts().some((s) => {
-          if (!isTopicsSpawned(s.source) || s.status !== "running" || !s.pid) return false;
-          return s.projectPath === wt.absPath || s.projectPath.startsWith(base);
-        });
-      }
-      return false;
+      return topicsProcessRunsIn(wt.absPath);
     };
 
     /**
