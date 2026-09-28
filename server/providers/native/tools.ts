@@ -145,28 +145,36 @@ function expandHome(p: string): string {
   return p;
 }
 
+/** Only for a MISSING path outside the workspace, where there are no bytes to read. */
+const RASTER_IMAGE_NAME = /\.(png|jpe?g|gif|webp)$/i;
+
 /**
- * Like `safePath`, but for reading ONLY: an image can live outside the
+ * Like `safePath`, but for reading ONLY: a raster image can live outside the
  * workspace, no other file can.
  *
  * WHY. `read_file` is the only way for an agent to LOOK AT a picture it did
- * not itself write — a screenshot in `~/Desktop`, an export in a sibling
- * folder of the project — and the workspace perimeter cannot tell "look at"
- * from "touch" apart. Blocking everything here means an image outside the
- * workspace never gets read, no matter what is asked. Measured: the native
- * Darkroom topic could not read its own working photos, the only reason this
- * tool existed.
+ * not itself write (a screenshot in `~/Desktop`, an export in a sibling
+ * folder), and the perimeter cannot tell "look at" from "touch" apart.
+ * Measured: the native Darkroom topic could not read its own working photos.
  *
- * The check is on the file's ACTUAL BYTES, not its extension: a path outside
- * the perimeter that does not decode as an image stays blocked as before.
+ * ONLY A RASTER (png, jpeg, gif, webp: `format` in `image-shape.ts`), decided
+ * on the BYTES. An SVG is text, like anything that merely contains an `<svg>`
+ * tag: letting the vector shape through handed back a source file of another
+ * repository as numbered text. `read_file` answers an outside path only as an
+ * image. A missing outside path named like an image passes, so `read_file`
+ * answers "not found" instead of sending the agent around a wall that is not there.
  */
-function resolveReadPath(ctx: ToolContext, raw: string): string {
+function resolveReadPath(ctx: ToolContext, raw: string): { path: string; outside: boolean } {
   const expanded = expandHome(raw);
   try {
-    return safePath(ctx, expanded);
+    return { path: safePath(ctx, expanded), outside: false };
   } catch (err) {
     const abs = isAbsolute(expanded) ? resolve(expanded) : resolve(ctx.workspace, expanded);
-    if (existsSync(abs) && statSync(abs).isFile() && imageShape(abs)) return abs;
+    if (!existsSync(abs)) {
+      if (RASTER_IMAGE_NAME.test(abs)) return { path: abs, outside: true };
+      throw err;
+    }
+    if (statSync(abs).isFile() && imageShape(abs)?.format) return { path: abs, outside: true };
     throw err;
   }
 }
@@ -181,7 +189,7 @@ export const CODING_TOOLS: ToolSpec[] = [
   {
     name: "read_file",
     description:
-      "Read a file from the workspace. Returns the content with 1-based line numbers, which is what you need to then edit it precisely. Use `offset`/`limit` for large files. Prefer this over `bash cat`: the line numbers make edits reliable. Also reads IMAGES (PNG, JPEG, etc.): use it on any image path (including a path outside the workspace, and `~/`) and you will see the actual picture, not garbled text.",
+      "Read a file from the workspace. Returns the content with 1-based line numbers, which is what you need to then edit it precisely. Use `offset`/`limit` for large files. Prefer this over `bash cat`: the line numbers make edits reliable. Also reads IMAGES (PNG, JPEG, GIF, WebP): use it on any image path (including a path outside the workspace, and `~/`) and you will see the actual picture, not garbled text. Outside the workspace only those images can be read.",
     input_schema: {
       type: "object",
       properties: {
@@ -626,8 +634,8 @@ export async function executeTool(
   try {
     switch (name) {
       case "read_file": {
-        const p = resolveReadPath(ctx, String(input.path));
-        if (!existsSync(p)) return { content: `file non trovato: ${input.path}`, isError: true };
+        const { path: p, outside } = resolveReadPath(ctx, String(input.path));
+        if (!existsSync(p)) return { content: `file non trovato: ${outside ? p : input.path}`, isError: true };
         const st = statSync(p);
         if (st.isDirectory()) return { content: `${input.path} è una directory, non un file`, isError: true };
         // The format comes from the bytes, never the extension: a `.png`
@@ -643,6 +651,9 @@ export async function executeTool(
             images: [{ mediaType: `image/${shape.format}`, data: bytes.toString("base64") }],
           };
         }
+        // Outside the workspace only a raster image is readable, and only as
+        // an image: whatever else got this far never reaches the text read.
+        if (outside) return { content: `percorso fuori dalla workspace: ${input.path}`, isError: true };
         const raw = readFileSync(p, "utf-8");
         const lines = raw.split("\n");
         const start = Math.max(0, (Number(input.offset) || 1) - 1);
