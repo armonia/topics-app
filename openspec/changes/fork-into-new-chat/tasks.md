@@ -114,10 +114,18 @@ Prima del codice: `grep -qx 'status: approved' openspec/changes/fork-into-new-ch
       `onFork`; `MessageList.tsx` la passa solo dove `isLastAssistant` è vero
       e la riga non è `partial` né della macchina (design §9).
 - [x] 6.3 `ChatPane.tsx`: `forkHere(prompt?)` (design §9), `onFork`, ramo `/fork`
-      in `handleSlashCommand`; voce in `slashCommands.ts`.
+      in `handleSlashCommand`; voce in `slashCommands.ts`. Giro 1 delle
+      verifiche: con un testo la storia copiata si legge PRIMA dell'invio (l'invio
+      prende la sessione e la lettura della pane al montaggio si faceva da parte
+      fino alla fine del turno); e l'apertura `permanent` ora fissa la tab anche
+      nel gruppo standalone (`markTabPermanent`, `lib/previewTabs.ts`), che prima
+      la prendeva per anteprima: il clic singolo dopo la sostituiva e la chiudeva,
+      cioè archiviava il ramo.
 - [x] 6.4 `ForkOriginDivider.tsx` e il suo posto in `MessageList`. Il nome
       ferma la propagazione del clic: il clic della `ChatPanel` rimetteva il
-      fuoco sul ramo dopo l'apertura della madre (visto nell'e2e).
+      fuoco sul ramo dopo l'apertura della madre (visto nell'e2e). Il divisore
+      cerca `atMessageId` anche fra le righe assorbite da una corsa di strumenti
+      (`itemHolds`): in una chat adottata il punto può essere l'ultima di esse.
 - [x] 6.5 i18n in `client/src/lib/i18n-it.ts` e `i18n-en.ts`:
       `chat.message.fork`, `chat.message.forkAria`,
       `chat.slash.fork.description`, `chat.fork.name`, `chat.fork.divider`,
@@ -129,6 +137,8 @@ Prima del codice: `grep -qx 'status: approved' openspec/changes/fork-into-new-ch
 - [x] 7.1 `bun test` dei file toccati, `bun run typecheck`,
       `bun run check:emdash`, `bun run check:ui-language`,
       `bun run check:spec-coverage`. La suite unit intera e l'E2E li fa la CI.
+      Al primo giro `check:ui-language` e `check:identifier-language` uscivano 1
+      (il nome di ripiego della rotta, la variabile `regen`): corretti nel giro 1.
 - [x] 7.2 Prova sul filo con la CLI vera (lo stub non valida le bandiere),
       scenario «sul filo l'originale non cambia» di CHAT-FORK-02: una chat
       Claude Code su `haiku`, `shasum` del transcript della madre prima e dopo
@@ -137,4 +147,6 @@ Prima del codice: `grep -qx 'status: approved' openspec/changes/fork-into-new-ch
 - [x] 7.3 Prova video: `E2E_VIDEO=1 npx playwright test tests/e2e/chat-fork-new-chat.spec.ts`,
       il `.webm` di «diramare dalla voce» e di «`/fork` con un testo».
       Girato su WebKit (`--project=webkit`, 8 verdi su 8), i due `.webm`
-      restano nello scratchpad della sessione, non nel repo.
+      restano nello scratchpad della sessione, non nel repo. Giro 1: 10 verdi su
+      10, con i due casi nuovi (la tab del ramo resta al clic singolo dopo; storia
+      e divisore a schermo durante il primo turno di `/fork <testo>`).

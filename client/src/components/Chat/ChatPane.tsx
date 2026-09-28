@@ -970,13 +970,20 @@ function ChatPaneComponent({
   const forkHere = useCallback(async (prompt?: string) => {
     try {
       const branch = await topicsApi.fork(topic.id, { name: tr('chat.fork.name', { name: topic.name }) });
+      const text = prompt?.trim();
+      // With a first message the copied history is read BEFORE the send and
+      // before the pane exists: the send claims the session for its stream,
+      // and the pane's own read on mount then steps aside until the turn ends
+      // (useChat `loadHistory`), which left the branch showing only the new
+      // prompt for the whole turn.
+      if (text) await loadHistory(branch.sessionKey);
       window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: branch.id, topic: branch, mode: 'permanent', reveal: true } }));
-      if (prompt?.trim()) await sendMessage(branch.sessionKey, prompt.trim());
+      if (text) await sendMessage(branch.sessionKey, text);
     } catch (e) {
       const key = ({ turn_in_progress: 'chat.fork.busy', fork_unsupported: 'chat.fork.unsupported', nothing_to_fork: 'chat.fork.nothing' } as Record<string, string>)[apiErrorCode(e) ?? ''];
       setCommandResult({ type: 'error', message: key ? tr(key) : errMessage(e) });
     }
-  }, [topic.id, topic.name, sendMessage, tr]);
+  }, [topic.id, topic.name, sendMessage, loadHistory, tr]);
   const handleFork = useCallback(() => { void forkHere(); }, [forkHere]);
   // Openclaw and the ACP agents keep their conversation outside Topics; no pinned provider = the server decides.
   const canFork = !isGlobalOrchestrator && (!topic.provider || forkModeFor(topic.provider) !== null);

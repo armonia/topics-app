@@ -218,6 +218,33 @@ test.describe("Fork into a new chat", () => {
     }
   });
 
+  test("`/fork <text>`: while the branch's first turn runs, the copied history and the divider are on screen", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-FORK-04" });
+    test.setTimeout(90_000);
+    const uninstall = installSlowTurnCli();
+    const topic = await createTopic(request, `Fork primo turno ${Date.now()}`, { provider: "claude-code" });
+    const sk = skOf(topic.id);
+    try {
+      const ids = await seedTurns(request, sk, 2);
+      await openChat(page, request, topic);
+      await expect(row(page, ids[3])).toBeVisible({ timeout: 15_000 });
+      await sendCommand(page, "/fork SLOW:15:forkfirst");
+
+      const branch = await oneBranch(request, topic.id);
+      await expect(page.getByText(/forkfirst-02/)).toBeVisible({ timeout: 30_000 });
+      const copied = (await history(request, branch.sessionKey)).slice(0, 4);
+      expect(copied.map((m) => m.content)).toEqual(["domanda 1", "risposta 1", "domanda 2", "risposta 2"]);
+      for (const m of copied) await expect(row(page, m.id)).toBeVisible();
+      await expect(page.getByTestId("fork-origin-divider")).toBeVisible();
+      // Still the first turn: what is proven above held DURING it, not after the reload at its end.
+      await expect(page.getByText(/forkfirst-15/)).toHaveCount(0);
+      await expect(page.getByText(/forkfirst-15/)).toBeVisible({ timeout: 30_000 });
+    } finally {
+      uninstall();
+      await cleanup(request, topic.id);
+    }
+  });
+
   test("`/fork` during a turn says to wait, and creates and opens nothing", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-FORK-04" });
     test.setTimeout(90_000);
