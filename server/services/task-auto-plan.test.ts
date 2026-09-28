@@ -259,21 +259,24 @@ describe('general automatic catalog and constraints', () => {
   // The production catalogs name Haiku differently: the CLI by its alias, the
   // engine by its dated id. The alias is routable, so Haiku is a Claude Code
   // target like Sonnet, and the engine's dated id must not join it as a twin.
-  test('Automatic with the Topics switch ON offers a model once when the target names it by its alias', async () => {
+  // The classifier stays on the engine, as the dated id kept it: judging on the
+  // Claude Code target spawned a `claude -p` for every Automatic dispatch.
+  test('Automatic with the Topics switch ON offers a model once when the target names it by its alias, and the engine classifies', async () => {
     const fleet = { defaultProvider: 'topics', providers: [
       { name: 'claude-code', status: 'ready', models: ['claude-sonnet-5', 'claude-haiku-4-5'] },
       { name: 'topics', status: 'ready', models: ['claude-sonnet-5', 'claude-haiku-4-5-20251001'] },
     ] } as ProvidersSnapshot;
-    const ballots: string[][] = [];
+    const calls: Array<{ judge: string; ballot: string[] }> = [];
     const plan = await pickAutomaticTaskModel({ text: 'Fix a typo in the README' }, undefined, {
       snapshot: fleet, topicsRouting: true, codexModels: () => [],
-      getProvider: () => ({ connected: true, complete: async (messages: Array<{ content: string }>) => {
+      getProvider: name => ({ connected: true, complete: async (messages: Array<{ content: string }>, options: CompletionOptions) => {
         const catalog = JSON.parse(messages[0]!.content.split('Account catalog: ')[1]!.split('\nTask data')[0]!) as Array<{ provider: string; model: string }>;
-        ballots.push(catalog.map(m => `${m.provider}/${m.model}`));
+        calls.push({ judge: `${name}/${options.model}`, ballot: catalog.map(m => `${m.provider}/${m.model}`) });
         return { content: '{"provider":"claude-code","model":"claude-haiku-4-5","effort":"low","weight":"light"}' };
       } }) as unknown as AIProvider,
     });
-    expect(ballots).toEqual([['claude-code/claude-sonnet-5', 'claude-code/claude-haiku-4-5']]);
+    // The engine runs the alias under its catalog id (NativeProvider.complete).
+    expect(calls).toEqual([{ judge: 'topics/claude-haiku-4-5', ballot: ['claude-code/claude-sonnet-5', 'claude-code/claude-haiku-4-5'] }]);
     expect(plan).toMatchObject({ provider: 'claude-code', model: 'claude-haiku-4-5' });
     expect(resolveDispatchTopicIdentity({ provider: plan.provider, model: plan.model, topicsRouting: true }, fleet).executor).toBe('topics');
   });

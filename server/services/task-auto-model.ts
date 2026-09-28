@@ -118,8 +118,13 @@ export async function pickAutomaticTaskModel(
   const plan = await pickCodingTaskPlan(task, {
     models, requiredEffort: deps.requiredEffort,
     complete: async (prompt, options, providerName) => {
-      const provider = deps.getProvider(providerName);
-      if (!provider?.connected) throw new Error(`${providerName} is disconnected`);
+      // With the switch ON the engine runs every Claude Code target, the
+      // classifier too: judged on the target, each Automatic dispatch spawned a
+      // `claude -p`. Every classifier model here passed the routing switch, so
+      // the engine serves it (an alias under its catalog id).
+      const runtime = viaEngine && providerName === 'claude-code' ? 'topics' : providerName;
+      const provider = deps.getProvider(runtime);
+      if (!provider?.connected) throw new Error(`${runtime} is disconnected`);
       return (await provider.complete([{ role: 'user', content: prompt }], options)).content ?? '';
     },
     log: deps.log,
