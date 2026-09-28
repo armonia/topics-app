@@ -12,6 +12,9 @@ cartella con `resolveSessionCwd` (`server/routes/processes.ts:1536`) come fa gi�
 gira il Bash dell'agente), `/bin/sh -c` sugli altri sistemi POSIX, dove zsh
 non è installato di serie. Windows non ha una shell POSIX: lì il tool non
 viene offerto e la route risponde 501.
+L'ambiente del comando è quello del CLI dell'agente (allowlist più blocklist
+di `server/lib/agent-env.ts`), non quello del server: il tool non dà
+all'agente niente che il suo `Bash` non abbia già.
 
 La riga nel registro ha `source: "command"`, `scriptName` = `shellLabel(command)`
 (`processes.ts:775`), `command` intero, `projectPath` = radice del progetto
@@ -45,6 +48,11 @@ sola lettura» lo copre senza modifiche.
 - **GIVEN** il server che gira su Windows
 - **THEN** `run_command` non compare fra i tool del bridge
 - **AND** la route risponde 501 senza lanciare niente
+
+#### Scenario: il comando non vede i segreti del server
+- **GIVEN** il server con un segreto nel suo ambiente (`TOPICS_GOOGLE_CLIENT_SECRET`, `GEMINI_API_KEY`)
+- **WHEN** l'agente lancia `run_command` con `echo $TOPICS_GOOGLE_CLIENT_SECRET`
+- **THEN** il log stampa una riga vuota: il comando parte con l'ambiente ripulito del CLI dell'agente (`server/lib/agent-env.ts`), non con quello del server
 
 #### Scenario: il coordinatore globale non ha cartella
 - **GIVEN** la sessione del coordinatore globale della board

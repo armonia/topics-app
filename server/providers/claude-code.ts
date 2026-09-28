@@ -12,6 +12,7 @@ import { join } from "path";
 import { createInterface, Interface } from "readline";
 import { getAiBridgeClient, type AiBridgeClient } from "../lib/ai-bridge-client";
 import { createLineFolder } from "../lib/ndjson-lines";
+import { agentBaseEnv } from "../lib/agent-env";
 import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import type {
@@ -246,34 +247,10 @@ function resolveCliPath(): string {
 
 // ============ Env Sanitization ============
 
-const ENV_ALLOWLIST = new Set([
-  "PATH", "HOME", "TERM", "LANG", "LC_ALL", "LC_CTYPE",
-  "NODE_ENV", "TZ", "USER", "SHELL", "TMPDIR",
-  "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
-  "ANTHROPIC_API_KEY",
-]);
-
-const ENV_BLOCKLIST_PATTERNS = [
-  /API_KEY/i, /TOKEN/i, /SECRET/i, /PASSWORD/i,
-  /PRIVATE_KEY/i, /CREDENTIAL/i, /AUTH/i,
-];
-
-const ENV_BLOCKLIST_EXCEPTIONS = new Set(["ANTHROPIC_API_KEY"]);
-
 export function buildSafeEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-
-  for (const key of ENV_ALLOWLIST) {
-    if (process.env[key]) env[key] = process.env[key]!;
-  }
-
-  // Double-check blocklist
-  for (const key of Object.keys(env)) {
-    if (ENV_BLOCKLIST_EXCEPTIONS.has(key)) continue;
-    if (ENV_BLOCKLIST_PATTERNS.some((p) => p.test(key))) {
-      delete env[key];
-    }
-  }
+  // The allowlist and the blocklist live in `lib/agent-env.ts`: a `run_command`
+  // process gets the same environment, so it runs as it would in this CLI's Bash.
+  const env = agentBaseEnv();
 
   env.JARVIS_SPAWN = "1";
 

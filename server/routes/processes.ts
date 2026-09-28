@@ -27,6 +27,7 @@ import { openTail, readFileEnd, readTail, shrinkLog, type FileTail } from "../li
 import { commandArgv, confineCommandCwd, readExitCode } from "../lib/command-process";
 import { requestProcessExitWake, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
 import { isWatchedBySession } from "../lib/process-wait";
+import { agentBaseEnv } from "../lib/agent-env";
 
 interface ScriptProcess {
   processId: string;
@@ -727,7 +728,9 @@ function startCommandProcess(o: {
   try {
     proc = Bun.spawn(argv, {
       cwd: o.cwd, stdin: "ignore", stdout: fd, stderr: fd, detached: true,
-      env: augmentEnv(process.env, { FORCE_COLOR: "0", NO_COLOR: "1" }),
+      // The environment of the agent's own Bash, not the server's: its secrets
+      // would reach the log, the panel and the wake row (`lib/agent-env.ts`).
+      env: augmentEnv(agentBaseEnv(), { FORCE_COLOR: "0", NO_COLOR: "1" }),
     });
   } finally {
     closeSync(fd);
@@ -1937,9 +1940,10 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
     // The gate above stays as it is: an arbitrary command has its own door
     // instead of a parameter that makes the manifest optional. What it does
     // not open is a new power: the agent behind this session already has
-    // `Bash`. It gets a place where the work is seen, stopped, survives the
-    // CLI, and reports back. Same scoping as the scripts: the session resolves
-    // the project, and the cwd cannot leave it.
+    // `Bash`, and the command runs in that Bash's environment, not the
+    // server's (`lib/agent-env.ts`). It gets a place where the work is seen,
+    // stopped, survives the CLI, and reports back. Same scoping as the
+    // scripts: the session resolves the project, and the cwd cannot leave it.
     {
       const m = method === "POST" && pathname.match(/^\/api\/sessions\/([^/]+)\/commands\/run$/);
       if (m) {

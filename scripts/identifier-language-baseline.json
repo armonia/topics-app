@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-25",
+  "generated": "2026-09-28",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -3728,8 +3728,6 @@
     "server/providers/claude-code.ts": [
       "ClaudeCliCompat",
       "DEFAULT_ONESHOT_MODEL",
-      "ENV_BLOCKLIST_EXCEPTIONS",
-      "ENV_BLOCKLIST_PATTERNS",
       "certsDir",
       "oneshotKey",
       "useTls"

@@ -40,7 +40,11 @@
   raggiungono (`grants.ts:101`); la cwd si confina alla radice risolta con
   `realpath` + controllo di prefisso, come `isWithin` (`processes.ts:1245`).
   L'agente ha già `Bash`: il tool non gli dà un potere nuovo, gli dà un posto
-  dove il lavoro si vede.
+  dove il lavoro si vede. Perché resti vero, il comando parte con l'ambiente
+  ripulito del CLI dell'agente (`server/lib/agent-env.ts`, lo stesso di
+  `buildSafeEnv`), non con quello del server: con `process.env` intero,
+  `run_command env` scriveva i segreti del server nel log, nel pannello e nella
+  riga della sveglia.
 
 ## Rischi
 

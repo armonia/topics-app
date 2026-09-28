@@ -128,6 +128,28 @@ describe("POST /api/sessions/:sessionKey/commands/run", () => {
     expect(after).toBe(before);
   });
 
+  // The agent's own Bash runs under the CLI's cleaned environment
+  // (`providers/claude-code.ts` → `lib/safe-env.ts`). With the server's whole
+  // one, `run_command env` printed the server's secrets into the log, the
+  // panel and the wake row saved in the chat.
+  test("the command sees the environment the agent's Bash sees, without the server's secrets", async () => {
+    const saved = { secret: process.env.TOPICS_GOOGLE_CLIENT_SECRET, gemini: process.env.GEMINI_API_KEY };
+    process.env.TOPICS_GOOGLE_CLIENT_SECRET = "probe-secret-123";
+    process.env.GEMINI_API_KEY = "probe-gemini-456";
+    try {
+      const router = makeRouter();
+      const { processId } = await (await run(router, { command: 'echo "secret=$TOPICS_GOOGLE_CLIENT_SECRET gemini=$GEMINI_API_KEY home=$HOME"' })).json() as { processId: string };
+      await until(() => rowOf(router, processId), (r) => r?.status !== "running");
+      const log = (await logOf(router, processId)).trim();
+      expect(log).toBe(`secret= gemini= home=${process.env.HOME}`);
+    } finally {
+      if (saved.secret === undefined) delete process.env.TOPICS_GOOGLE_CLIENT_SECRET;
+      else process.env.TOPICS_GOOGLE_CLIENT_SECRET = saved.secret;
+      if (saved.gemini === undefined) delete process.env.GEMINI_API_KEY;
+      else process.env.GEMINI_API_KEY = saved.gemini;
+    }
+  });
+
   test("an empty command is refused", async () => {
     expect((await run(makeRouter(), {})).status).toBe(400);
     expect((await run(makeRouter(), { command: "   " })).status).toBe(400);
