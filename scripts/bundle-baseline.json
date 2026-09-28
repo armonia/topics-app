@@ -553,20 +553,52 @@
     "failed badge, goal steps as todo), changed files shown whole (show all, lazy",
     "per-file patch, clickable rows, MultiEdit hunks), heavy-tab pause in shares of",
     "the Mac with keep once/always. All chat or board code that renders on open; no",
-    "new dependency and no lazy import turned static."
+    "new dependency and no lazy import turned static.",
+    "",
+    "2026-09-24 -> 2026-09-28: entry eager +29.564 raw / +9.428 gz (+2,1% / +2,1%).",
+    "Two steps. Main alone reached 1.466.329 / 462.199 on the CI runner (2b231003e,",
+    "the base of PR #157), under the ceiling with 781 gz to spare. Tornata 2c adds",
+    "+3.447 raw / +971 gz on the same runner (+877 gz on a Mac) and crosses it: CI",
+    "run 36461528241 measured 1.469.776 / 463.170 against 1.469.023 / 462.980.",
+    "The batch, in bytes GENERATED per module inside the entry chunk, read from the",
+    "sourcemaps of two isolated builds (2b231003e and b30cb38f2, the same sha",
+    "stamped in both). The modules add up to +3.447, the raw delta exactly:",
+    "  · run_command, a command's end drawn as the chat's service line:",
+    "    ProcessExitRow +1.020 (new), i18n-chat-it +366 (chat.processExit.*),",
+    "    MessageBubble +100, toolDetail +14, ~100 of machineRow +185",
+    "    (processExitOf), ~350 of i18n-it +686 (processes.*, the command's tooltip);",
+    "  · the single-changeset diff panel: lib/board.ts +436 (pictures and .md/.svg",
+    "    at a revision, renames followed), MessageContent +256 (the image resolver",
+    "    its markdown renders through, and the process-exit block it skips),",
+    "    changedFiles +20, ~75 net of i18n-it (diff.*);",
+    "  · resumable causes: ws-inbound +130 (a stopCause the page does not know",
+    "    still ends the turn), turnError +104, ws-outbound +32, ~150 of i18n-it",
+    "    (chat.turnInterrupted.*);",
+    "  · the session cron's two-hour bound: ~85 of machineRow, ~95 of i18n-it;",
+    "  · queued-x QueuedTurns +16, the background shell's id useBackgroundShell",
+    "    +22, main.tsx +52 (the preload map of the renamed chunks).",
+    "ProcessExitRow is the only module new to the entry: no lazy import turned",
+    "static, and node_modules inside the entry did not move. commandOutcome, the",
+    "row's outcome formatter in the Processes panel, is not in the entry at all",
+    "(ScriptRunner and the board are lazy). Tried before raising: ProcessExitRow",
+    "behind lazy(). It saves 819 raw / 138 gz, stays red on gz (~50 over on CI),",
+    "and makes the row appear after its message on first paint. Not kept.",
+    "Written below, the worse of CI and Mac for each number: entry raw 1.469.783",
+    "(Mac) / gz 463.330 (Mac), critical path raw 2.079.182 (Mac) / gz 622.636",
+    "(CI), 5 files, total assets 8.377.807 (Mac)."
   ],
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "tolerance_pct": 2,
   "entry_eager": {
-    "raw": 1440219,
-    "gz": 453902
+    "raw": 1469783,
+    "gz": 463330
   },
   "critical_path": {
-    "raw": 2048181,
-    "gz": 612235,
+    "raw": 2079182,
+    "gz": 622636,
     "files": 5
   },
   "total_assets": {
-    "raw": 8331536
+    "raw": 8377807
   }
 }
