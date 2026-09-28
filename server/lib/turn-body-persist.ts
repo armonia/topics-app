@@ -61,9 +61,8 @@ export interface TurnBodyPersist {
   /**
    * The turn closes on a failure: write the work it still owes, then stop.
    * Only WORK is written. A body of banners alone (a woken turn, a resumed
-   * one) is not work, and the route already wrote it when it opened the row:
-   * the notice of a failed start reads such a row as empty (`readRowForNotice`
-   * in routes/chat.ts) and takes the banners' place, Retry included.
+   * one) is not work: written, it read as a turn that produced something, and
+   * the notice of a failed start gave way to it, Retry included.
    */
   stop(): void;
   /** Drop a write still owed. Every caller rewrites the row whole right after. */
