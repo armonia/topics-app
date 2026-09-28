@@ -178,6 +178,12 @@ export async function landedMergeRange(
   taskId: string,
   opts: TaskDiffRangeOptions = {},
 ): Promise<TaskDiffRange | null> {
+  const sha = await landedMerge(repoPath, taskId, opts);
+  return sha ? mergeRange(repoPath, sha) : null;
+}
+
+/** The newest land merge on main that names the card, or `null`. */
+async function landedMerge(repoPath: string, taskId: string, opts: TaskDiffRangeOptions): Promise<string | null> {
   const run = opts.runGit ?? defaultRunGit;
   const mainRef = opts.mainRef ?? "main";
   const id = taskId.trim();
@@ -187,8 +193,26 @@ export async function landedMergeRange(
   ]);
   if (r.code !== 0) return null;
   const sha = lines(r.stdout)[0] ?? "";
-  if (!SHA_RE.test(sha)) return null;
+  return SHA_RE.test(sha) ? sha : null;
+}
+
+function mergeRange(repoPath: string, sha: string): TaskDiffRange {
   return { source: "landed-merge", cwd: repoPath, range: `${sha}^1..${sha}`, live: false };
+}
+
+/**
+ * Whether a live worktree IS what the land merged, and nothing more: its HEAD
+ * is within the merged side and its tree holds no work of its own, untracked
+ * files included. A card reopened after its land (a new worktree from main)
+ * or a chat still writing in the landed one has live work the old land does
+ * not know about. `--no-optional-locks`: this runs on every turn's end, while
+ * the chat may be running git in that same worktree.
+ */
+async function isLandedTree(run: GitRunner, cwd: string, merge: string): Promise<boolean> {
+  const within = await run(cwd, ["merge-base", "--is-ancestor", "HEAD", `${merge}^2`]);
+  if (within.code !== 0) return false;
+  const st = await run(cwd, ["--no-optional-locks", "status", "--porcelain", "--untracked-files=normal"]);
+  return st.code === 0 && st.stdout.trim() === "";
 }
 
 /**
@@ -316,19 +340,22 @@ export interface TaskDiffAnchors extends TaskDiffRangeOptions {
  */
 export async function resolveTaskDiffRange(a: TaskDiffAnchors): Promise<TaskDiffRange | null> {
   const opts: TaskDiffRangeOptions = { mainRef: a.mainRef, runGit: a.runGit };
-  let landed: TaskDiffRange | null | undefined;
+  let merge: string | null | undefined;
   if (a.worktree?.cwd) {
     const live = await worktreeRange(a.worktree.cwd, { ...opts, branch: a.worktree.branch });
-    // A branch with nothing of its own left may be one the land already
-    // merged, while the GC has not pruned its worktree yet (half an hour):
-    // its own range is then the empty tree against HEAD, and the land is
-    // what the card changed.
-    if (live && !live.hasOwn && a.repoPath) landed = await landedMergeRange(a.repoPath, a.taskId, opts);
-    if (live && !landed) return live.range;
+    if (live) {
+      // A branch with nothing of its own left may be one the land already
+      // merged, while the GC has not pruned its worktree yet (half an hour):
+      // its own range is then the empty tree against HEAD, and the land is
+      // what the card changed. Only while the worktree is exactly that land.
+      if (live.hasOwn || !a.repoPath) return live.range;
+      merge = await landedMerge(a.repoPath, a.taskId, opts);
+      if (!merge || !(await isLandedTree(a.runGit ?? defaultRunGit, a.worktree.cwd, merge))) return live.range;
+    }
   }
   if (a.repoPath) {
-    landed ??= await landedMergeRange(a.repoPath, a.taskId, opts);
-    if (landed) return landed;
+    merge ??= await landedMerge(a.repoPath, a.taskId, opts);
+    if (merge) return mergeRange(a.repoPath, merge);
     if (a.delivery) {
       const delivered = await deliveryCommitRange(a.repoPath, a.delivery, opts);
       if (delivered) return delivered;

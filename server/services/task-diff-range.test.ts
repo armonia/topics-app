@@ -366,6 +366,43 @@ describe("task-diff-range", () => {
       }
     });
 
+    test("a card reopened after its land, in a new worktree from main, reads its new work, not the old land", async () => {
+      // The second round of b673a253: landed, pruned, dispatched again from
+      // main. Until its first commit it has none of its own, and the land that
+      // names it is the previous round's.
+      await git(dir, ["merge", "--no-ff", "-m", "merge task T-42: il titolo della card", "topics/card"]);
+      await git(dir, ["branch", "-qD", "topics/card"]);
+      const wt = mkdtempSync(join(tmpdir(), "taskdiffrange-wt-"));
+      rmSync(wt, { recursive: true, force: true });
+      try {
+        await git(dir, ["worktree", "add", "-q", "-b", "topics/round2", wt, "main"]);
+        writeFileSync(join(wt, "base.txt"), "base\nsecondo giro\n");
+
+        const r = await resolveTaskDiffRange({ taskId: "T-42", worktree: { cwd: wt, branch: "topics/round2" }, repoPath: dir });
+        expect(r).toMatchObject({ source: "worktree", cwd: wt, live: true });
+        expect(await filesOf(wt, r!.range)).toEqual(["base.txt"]);
+      } finally {
+        rmSync(wt, { recursive: true, force: true });
+      }
+    });
+
+    test("a landed worktree the chat goes on writing in reads that new work, an untracked file included", async () => {
+      const wt = mkdtempSync(join(tmpdir(), "taskdiffrange-wt-"));
+      rmSync(wt, { recursive: true, force: true });
+      try {
+        await git(dir, ["worktree", "add", "-q", wt, "topics/card"]);
+        await git(dir, ["merge", "--no-ff", "-m", "merge task T-42: il titolo della card", "topics/card"]);
+        writeFileSync(join(wt, "followup.ts"), "dopo il land\n");
+
+        const r = await resolveTaskDiffRange({ taskId: "T-42", worktree: { cwd: wt, branch: "topics/card" }, repoPath: dir });
+        expect(r).toMatchObject({ source: "worktree", cwd: wt, live: true });
+        // Live against HEAD: what git tracks is unchanged, the untracked file is the answer.
+        expect(await filesOf(wt, r!.range)).toEqual([]);
+      } finally {
+        rmSync(wt, { recursive: true, force: true });
+      }
+    });
+
     test("a worktree with no commit of its own and no land is still read live: its uncommitted work", async () => {
       const wt = mkdtempSync(join(tmpdir(), "taskdiffrange-wt-"));
       rmSync(wt, { recursive: true, force: true });
