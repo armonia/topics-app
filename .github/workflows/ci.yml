@@ -55,9 +55,14 @@ jobs:
   #    What changes is only that a file no longer follows the roots of the
   #    other slice.
   #
-  # Two slices, because `./server` alone is 403 s of the 770 s (measured on the
-  # serial run of 36485674755) and a root is the smallest unit that keeps the
-  # canonical order: the other roots together are 367 s.
+  # Two slices, measured on the serial run of 36485674755 (770 s): `./server`
+  # plus `./tests/integration` (403 + 190 s), and every other root (177 s). A
+  # root is the smallest unit that keeps the canonical order, and integration
+  # stays in the process of `./server`, after it, because it depends on what
+  # the server tests leave behind: in a slice without them
+  # `terminal-roster-boot-bridge-late.test.ts` went red, green in the full
+  # serial run (run 36491680424). At ~11 min this slice is still under the e2e
+  # shards, which are the critical path of the run.
   #
   # ON A PUSH TO MAIN IT IS ONE SLICE WITH EVERY ROOT, i.e. the full serial run:
   # that is the safety net scripts/test-unit-shards.ts names in its header
@@ -72,7 +77,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        roots: ${{ fromJSON(github.event_name == 'push' && '["./client/src ./server ./shared ./relay ./tests/unit ./tests/integration ./scripts ./cli"]' || '["./server", "./client/src ./shared ./relay ./tests/unit ./tests/integration ./scripts ./cli"]') }}
+        roots: ${{ fromJSON(github.event_name == 'push' && '["./client/src ./server ./shared ./relay ./tests/unit ./tests/integration ./scripts ./cli"]' || '["./server ./tests/integration", "./client/src ./shared ./relay ./tests/unit ./scripts ./cli"]') }}
     steps:
       - uses: actions/checkout@v5
 
@@ -104,6 +109,13 @@ jobs:
       # same step in `check`).
       - name: Install Playwright browsers (Chromium)
         run: npx playwright install --with-deps chromium
+
+      # `main` as a ref, like `check` has it before its own unit step (it
+      # fetches it for the migrations gate). tests/unit/migration-number-
+      # collision.test.ts resolves `main`/`origin/main` and is red without it
+      # (run 36491680424). The `+` for the same reason written on that step.
+      - name: Fetch main (tests read it as a ref)
+        run: git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/main
 
       # `bun test:unit` is this same command with no roots: the slot wrapper
       # (disabled under CI, but it still caps the run at 60 min) around the
