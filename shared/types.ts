@@ -689,7 +689,7 @@ export interface WSProvidersSnapshotMessage {
  * back to the generic args/result row.
  */
 export type ToolCallDetail =
-  | { type: 'shell'; command: string; cwd?: string; output?: string; exitCode?: number | null; background?: boolean }
+  | { type: 'shell'; command: string; description?: string; cwd?: string; output?: string; exitCode?: number | null; background?: boolean }
   | { type: 'read'; filePath: string; content?: string; offset?: number; limit?: number }
   | { type: 'edit'; filePath: string; oldString?: string; newString?: string; unifiedDiff?: string }
   | { type: 'write'; filePath: string; content?: string }

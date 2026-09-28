@@ -468,12 +468,21 @@ export function stripArgsText<T extends StrippableToolCall>(tc: T): T {
  *
  * An UNTYPED call (no `detail`, or `type: 'unknown'`) keeps its previewed
  * `args`: there they are the only source the closed row has.
+ *
+ * One thing in those `args` IS read by the closed row: a Bash `description`,
+ * its label. Rows stored before the shell detail carried that field have it
+ * only in `args`, so it moves into `detail` before `args` go empty.
  */
 export function leanToolCallForHistory<T extends StrippableToolCall>(tc: T): T {
   const lean = stripArgsText(stripDetailText(tc));
   const d = lean.detail;
   if (d && typeof d === 'object' && typeof (d as { type?: unknown }).type === 'string'
     && (d as { type: string }).type !== 'unknown' && lean.args !== undefined) {
+    const det = d as Record<string, unknown>;
+    const description = (lean.args as { description?: unknown } | null)?.description;
+    if (det.type === 'shell' && det.description === undefined && typeof description === 'string' && description) {
+      return { ...lean, detail: { ...det, description }, args: {} } as T;
+    }
     return { ...lean, args: {} } as T;
   }
   return lean;

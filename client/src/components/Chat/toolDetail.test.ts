@@ -313,3 +313,36 @@ describe('shell label: a leading `cd <dir> &&` is not the command', () => {
     if (d.type === 'shell') expect(d.command).toBe('cd /repo && bun test');
   });
 });
+
+// Claude Code writes a `description` on every Bash call ("Run unit tests"),
+// and it reads better than the command in the closed row. The command stays
+// reachable: as the tooltip of the header and in full in the open card.
+describe('shell label: the model-written description beats the command', () => {
+  const bash = (detail: Record<string, unknown>): ToolCall => ({
+    id: 'b1',
+    name: 'Bash',
+    // What the history ships for a typed detail: args emptied.
+    args: {},
+    detail: detail as ToolCall['detail'],
+  });
+
+  test('a server detail with a description shows it, the command goes to the tooltip', () => {
+    const label = buildToolDisplayLabel(resolveToolDetail(
+      bash({ type: 'shell', command: 'cd /x && bun test a.ts', description: 'Run unit tests' }),
+    ));
+    expect(label.summary).toBe('Run unit tests');
+    expect(label.tooltip).toBe('cd /x && bun test a.ts');
+  });
+
+  test('without a description the header is the command, as before, with no tooltip', () => {
+    const label = buildToolDisplayLabel(resolveToolDetail(bash({ type: 'shell', command: 'cd /x && bun test a.ts' })));
+    expect(label.summary).toBe('bun test a.ts');
+    expect(label.tooltip).toBeUndefined();
+  });
+
+  test('the client fallback derivation keeps the description too', () => {
+    const d = deriveToolDetail('Bash', { command: 'ls', description: 'List files' });
+    expect(d.type, 'without this line the assertions below are skipped in silence').toBe('shell');
+    if (d.type === 'shell') expect(d.description).toBe('List files');
+  });
+});

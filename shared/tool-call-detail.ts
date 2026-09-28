@@ -23,6 +23,7 @@ import type { ToolCallDetail } from './types';
 const shellSchema = z.object({
   type: z.literal('shell'),
   command: z.string(),
+  description: z.optional(z.string()),
   cwd: z.optional(z.string()),
   output: z.optional(z.string()),
   exitCode: z.optional(z.nullable(z.number())),
