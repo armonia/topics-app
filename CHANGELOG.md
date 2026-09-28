@@ -2,6 +2,45 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.404 — 2026-09-28
+
+### Novità
+- **models** · Sonnet 5.5 diventa il default di Topics
+
+### Sotto il cofano
+- The full history panel gets type and day filters, waiting for a yes before any code
+- A long queued line keeps its remove X beside the bubble, inside its row
+- Two tests that could not see their own defect: a TZ restore that froze the zone, and a two-field search on one field
+- History filters proposal: restore the test zone by reassignment, not delete, and scenarios that can fail
+- A board agent's system prompt offers no wait that ends its turn, on macOS or Windows
+- Every attempt of a fan-out spawns as a board agent, not only attempt 1
+- A wait_for_process left open by a turn that is over no longer swallows its command's wake
+- A native turn stopped inside wait_for_process closes the request and ends at once
+- A command wake's turn counts as over once its session has been free for 20 s, even if its stream never closes
+- A board agent leaves a dev server for the tab running and declares an external wait with wait_for_condition
+- The x on a pasted image sits on the image's top-right corner
+- A queued line stays inside the chat column on a pane wider than the column
+- A command whose outcome a later wait_for_process of the same turn read no longer wakes the session after it
+- A /compact that finished is not resent after a reload
+- A board card's run_command gets the core quota its Bash gets
+- A testTmpDir root is removed once the test file that made it is over
+- A command whose end the turn read through a matching until or read_process_output no longer wakes the session after it
+- The long queued line test measures a bubble that is still in the page
+- The / menu lists skills that are links to a folder
+- The board-doctor zone restore explains itself in English, as the comment rail asks
+- Every e2e spec that fakes the Tauri shell keeps its network on the test server
+- The identifier-language rail knows desktop, so the fake-shell guard test can name DESKTOP_SERVER_HOST
+- The ai-bridge tests give their state folder back, and a registry life pins its own
+- The run_command card test takes its card off the board, so no later dispatcher resumes it on a turn nobody closes
+- The bundle baseline records tornata 2c, with what each piece of the batch put in the entry
+- The pane-attach spec writes its seeded layout from /manifest.json, a page Playwright does not abort under a route
+- The run_command e2e brings the chat's tab back before opening the wake's service line
+- The run_command registry keeps its state in the folder DATA_DIR names when it writes, not the one it named at first import
+- A run_command wake waits while the topic's provider is held and goes out when the hold lifts
+- A user row the machine wrote is not the person's message for the outage rule, and a resend of one keeps its marks
+- A run_command wake that an outage cut goes again once the outage is over, after the person's promised resend
+- The run_command registry finds its folder through the state-dir door on every call
+
 ## 2.2.403 — 2026-09-28
 
 ### Sotto il cofano
@@ -11,6 +50,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - A resend the chat route refused tells the windows open on the chat
 - An assistant row records how it was closed, and the chat tools read that instead of a missing latency
 - **e2e** · aggiorna durate shard dal nightly del 2026-09-27 [skip ci]
+- A turn cut by an API blackout or by the ai-bridge daemon dying resumes by itself
+- The usage recheck no longer lifts an API outage hold because the usage endpoint answered
 - Automatic with Topics routing ON runs on the engine when no Claude Code target is ready, and waits while one is in discovery
 - The engine-down test names the engine's own reason, and an engine still in discovery is covered
 - Fix the 8 defects RT-11 review found in native image handling
@@ -21,7 +62,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - A thread-changed announcement is read even by a window that read the chat a moment ago
 - The end of a boot reattach leg, and a refused resend, send the frame that passes the dedup
 - The refused-resend e2e starts from a notice already on screen and checks its Retry
+- A child that vanishes under the same ai-bridge daemon is pinned to process-died, not broker-died
+- A woken turn cut by an outage is not resent as the person's last message
 - A turn a restart cut during a tool carries one notice, the restart's, not a second verdict on its row
+- A resend that meets the API still down spends no attempt, and each outage hold it outlives doubles
+- A stream:end whose stopCause the page does not know still ends the turn
 - The broker probe that ends a reattach leg runs inside the tested helper, and every writer of a whole row's reason is held by a test
 - A delivery that reached main inside another card's merge is measured on its own commits, not on that merge
 - The changed-files strip never drops a file the chat wrote when the range is narrower, and a worktree topic with no task reads its worktree's own range
@@ -32,19 +77,36 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - The refused-resend e2e times each window's read from the write, and says what the DOM cannot tell
 - A delivery that reached main through a realigned branch is measured from the merge on main's own line
 - A chat's write in the shared checkout or in another folder keeps its own row next to the worktree's range
+- A file a Codex patch touches reaches the changed-files strip as its own tool call
 - Untracked files in a diff range are counted without a git process each, and a chat that ran no tool asks git nothing
 - The identifier-language baseline no longer lists a name task-diff-range.ts dropped
+- A wake cut by an outage says it will not resume, and a wake cut by the watchdog is resent again
+- A late answer the CLI ends by giving up on the API leaves the notice the sweep resumes
+- An API outage or a daemon death sends no failure push: the chat resumes by itself
+- A message gets at most eight free probes into an API still down, then they count
+- A lifted hold nudging the resume sweep, and an outage hold kept off the banner, are tested
 - Where a row of the changed-files strip opens is one pure rule, pinned without a browser
+- A child gone under the same ai-bridge daemon is process-died even after a spawn that found it alive
+- The API outage integration test widens its watchdog window with the load
+- A card whose turn the send watchdog cut spends an attempt and resumes at once, as the card asked
+- A session cron armed by a closed turn keeps its CLI for up to two hours, not fifteen minutes
+- The probe-ceiling and wake tests fit the file-size and comment-language rails
 - Tests pin one relearned frame per held card per boot, and a tick note that replaces only an ended resume wait
 - A todo card held by the machine is written once, and re-sent only when its block changes or lifts
 - A person's answer to a question stays on the row after the turn that asked writes again
+- A change owed by a turn that arms a session cron is said in the chat, as for a background task
+- A session cron's fire disarms its one-shot even while a turn of ours is open
+- A goal waiting on an armed session cron checks in as it does on a task, and ScheduleWakeup is named as out of reach
 - A held resume a person writes to every five minutes stays at one write an hour on a steady floor
+- Fix the queued-message remove button drifting outside the row
 - An open drawer re-reads a held card when its queue reason changes, not only its updated_at
 - A second answer to a question already answered leaves its returned tool as it returned
 - An answer given before a restart stays on the row after the reattached turn replays its tool
 - A native browser pane counts as attached for open_browser_pane once it has registered, not when its socket opens
 - A native pane's executor socket never starts the headless screencast, whatever its register frame's timing
 - A closed turn's late answer reaches the screen once per frame, like the live one
+- A reattach that folds a cron fire twice disarms one one-shot, not two
+- A session cron closed at its two-hour bound is said in the chat, under its own reason
 - A Claude Code Bash row is labelled by its description, and the command stays on hover and in the open card
 - An e2e case pins the Bash description label on a row stored before the field existed
 - Reverting the attach predicate or its server.ts wiring turns a unit test red
@@ -52,15 +114,30 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - four backlog features wait for a yes before any code
 - A card the engine runs with no pinned runtime stays behind Claude's wall on retry and on reuse
 - The Codex-with-switch-ON picker test asserts the routing reason, not only the error class
+- A one-shot session cron that already fired stays disarmed when a reattach replays its arming
+- A session cron closed at its bound reaches the chat under a reason every shipped client can draw
 - A reattach takes back the turn's row even when it was closed from outside before the reattach reached it
 - A reattach that opened a row of its own and got nothing from the replay leaves no row behind
 - The boot's orphan-tool cleanup runs from a module the tests call, not from inside server.ts
 - A turn a restart cut during a tool, before any prose, carries one notice too: the restart's
 - Putting server.ts back on inline row SQL turns a test red
+- A Claude hold defers only Claude chats, and the boot resends a Codex chat cut by the reload
+- A wake cut by an API outage or a daemon death sends its failure push again
+- A card held by an API outage says it restarts when the API answers, not after a window reset
+- Tests pin the 429 gate, the watchdog's stall branches, an adopted turn's daemon and the late lane's cause
 - On an Automatic task the Topics routing switch judges the board default the card will run with
 - A dependent with Topics routing ON reuses a blocker session the engine runs, when it names a Claude target with the same model
 - The boot's orphan-tool module and the new tests pass the dash, name and comment-language rails
+- A restart after a session cron's fire finds the chat idle, not inside a phantom turn
+- A peer's message queued into a session does not disarm its one-shot cron
+- A durable cron keeps no CLI in RAM and is never announced as closed
+- A closed-work reason without its sentence no longer compiles in the chat row
 - A reattach does not take back a row closed from outside when a turn that stopped or failed came after it
+- The resume sweep leaves a card in progress whose turn ended in error to the dispatcher
+- A card cut during an API outage resumes once the API answers, not at the outage's horizon
+- A native round the API answers lifts the API outage hold
+- The resume sweep's periodic and nudge clocks live in their own module
+- A Claude hold defers only the Claude chats in the periodic and nudged resume sweeps too
 - The Topics routing switch reads a target the engine itself runs as routable while the engine is ready and serves the model
 - A dependent naming Claude Code with its blocker's model continues a session the engine runs, whatever its own switch
 - In the all-boards view the task drawer judges a card with its own board's defaults, and the composer with none
@@ -70,6 +147,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - The redone-answer banner is tested where MessageContent draws it
 - The refused-resend e2e films both windows and names every difference on base
 - the four backlog proposals are approved with every recommended choice
+- A Codex patch cut off by an interrupted turn no longer lists its files as changed
+- The fresh retry of a failed Codex resume names its tool calls apart from the resume's
 - The changed-files strip reads a diff range only on a task's topic, and folds into it only what the chat wrote in that task's own worktree
 - An untracked file that .gitattributes marks -diff or binary is counted as binary, as git counts it
 - Clicking a task-range row of the changed-files strip is proven to open the task's drawer on that file, without a browser
@@ -83,6 +162,8 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - The active-agents-feedback tasks are ticked
 - A dependent naming Claude Code with the switch OFF parks instead of continuing a session the engine runs directly
 - In the all-boards view the settings fetched for a card of another board are tagged with that board, and a test proves it
+- The row-mark boot test waits for the whole store before the server goes away
+- A CLI starting a cron's fire reads as a wake on its way until its turn's init
 - The live tail of a native bash stays within 16 KB of bytes and never empties on a line longer than the buffer
 - The streaming bench reads its progress marker from the last line of the tool partial
 - The running row's hand-off of its partial and the late-partial guard each have a test
@@ -94,30 +175,95 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - The background e2e starts from a shut folder and proves the resume line, the stale line and the badge going with the Stop
 - The switch test for a board default the engine cannot run fails when the menu stops judging the board default
 - In the all-boards view the composer judges the new card with the board it creates on, and with no board only on Auto
+- turno-troncato.ts matches main again: its settleReattachLeg moved into endReattachLeg
+- A board diff names the two SHAs it compares and serves a changed picture's bytes at either of them
+- The diff panel shows a changed picture as Before and After, renders a .md or .svg, and reads a text file whole
+- The changes panel E2E covers the picture pair, the rendered README, the byte route and the pair after the land
 - The card's tooltip and the tail's working glyph say the badge's number, in the badge's words
 - The background line wraps before it squeezes the task names, so a phone still shows them next to the stale readout
 - The turn-open test in background-probes.test.ts says it predates the task list
+- A background shell of the current CLI is read by the id the agent sees, with the file its output goes to
+- An agent can run any command as a Topics process that outlives its CLI and wakes its topic when it ends
+- The Processes panel shows run_command rows with their live log and outcome, and the chat shows a command's end as a service line
+- Agents are told to run long ad hoc waits with run_command instead of a background Bash
+- A row taken back by a reattach keeps the woken mark and resend banner it opens with
+- A turn an outage ended is saved with end_reason 'error', whichever leg closed it
+- A daemon change is concluded only from two known ai-bridge pids
+- The per-file diff routes read a renamed file together with its old path
+- Full file follows a rename, is re-read with the bundle, and shows a note or change past the row cap
+- The changes panel E2E clicks Full file on a renamed file and re-reads a bundle the land made stale
+- The chat card of a background Bash finds its shell by the id the current CLI announces
+- The branch passes the identifier-language and comment-language rails
+- A worktree with a run_command running inside is not slimmed, committed or removed under it
+- A wake or a resend has its opening mark on the row from the moment the route opens it
+- A command found dead at boot no longer drops the live processes listed after it
+- A wake still owed to a topic survives any number of other endings before a reload
+- A wait_for_process whose caller went away no longer swallows the command's wake
+- run_command runs on Linux with /bin/sh and is not offered on Windows
+- A reload reads only the last 500 KB of a command's log, not the whole file
+- Command wakes start at boot even when a later boot sweep throws
+- The run_command e2e observes the CLI restart instead of assuming it
+- The round's new identifiers pass the identifier-language rail
 - A dependent continues its blocker's session only with the switch that session runs with, and parks naming the switch otherwise
+- A note written off the changed blocks reopens its file on Full file, and a live .md preview is re-read with the bundle
+- A delivered .md renders in the diff panel without active elements, and its relative links stay text
+- A partial row of opening marks alone is an empty placeholder to the history's cleanup
 - The swap-freeze signals test leaves no spinning tree behind when its runner dies
+- A picture or .svg read from a live worktree shows the new bytes once the re-read bundle carries a new block
+- The diff panel's own tests fail if a 409 on a picture or a rendered README stops re-reading the bundle
+- A delivered .md rendered in the diff panel draws nothing outside its own box
+- The half of card af8ba9b4 this change defers is an open task of the change
+- A command's wake waits only on a busy session and fails on any other refusal
+- A card's drawer draws a command's wake as the machine's service line
+- A command's log file is cut to its last 500 KB past 1 MB, like a script's
+- The history cleanup keeps a partial row of opening marks as a body again
+- A turn's opening marks reach its row with its first tool or tenth chunk again
+- A cut turn after the answer to the person's last message is never resent
 - A delivery recorded as a realign merge is measured on the card's own commits, not on what main brought into the branch
 - A task whose land merged its worktree reads the land merge until the GC prunes that worktree
 - A file the chat wrote by a relative path, with a non-ASCII name or on Windows is one row of the task's range, not two
 - The board's hand-off of a strip row's file to the task drawer is pinned, so a board keeping a focus of its own fails a unit test
+- A run_command process runs in the agent's cleaned environment, not the server's
+- The agent's system prompt names run_command only where the bridge offers it
+- A command's wake fences its output with more backticks than any line it printed
+- A goal waits for a run_command's wake instead of nudging over the running command
+- A file a Codex sub-agent patches reaches the changed-files strip, read back from its rollout
+- The run_command e2e opens a bound card and finds the wake as a service line
+- A wake after any ended answer is not resent, and no notice promises its resume
 - A live worktree reads its task's land merge only while it is exactly what that land merged
 - A path with non-ASCII letters heads its own chunk of a task's patch, so the drawer finds its lines
 - Promoting a deep link to the drawer's selection keeps the file its gesture named, and a unit test drives it
 - **e2e** · aggiorna durate shard dal nightly del 2026-09-28 [skip ci]
+- The person's answer that auto-compacted on its way is resent again when an outage or a restart cuts it
 - A landed task with no delivery recorded lists each file once: its topic's attempt names the pruned worktree
 - A task range holding more files than the review measured in its delivery is not the strip's: the chat's tool calls answer
 - CHAT-CHANGES-01 says where a task topic's strip reads its files and where its rows open
+- The peer-message test fails when a queued command disarms the one-shot
+- A recurring cron's fires do not keep a silent Monitor's CLI alive
+- A stuck turn in a session with an armed cron is judged and recycled as on main
 - Record server/routes/topics.ts at 3103 lines, the sum of three backlog branches landing together
+- A report or a system message under the person's live answer no longer keeps a restart's cut from its resend
+- A board card whose agent ends its turn on a running run_command waits for the wake instead of spending an attempt
+- A wake the chat route refused for good no longer holds a goal or a card until the next boot
+- BGVIS-04 says a session cron armed within the cap is one of the background tasks
 - A stale second answer does not reopen a tool that has already returned
+- A report under the person's answer no longer keeps an outage's cut from the resend its notice promises
+- A run_command wake reaches a board card's topic, which is born archived, while its card is in progress
+- The tokens of a command wake's turn go on the card's cost
+- Revert the five rounds that read the resend decision off the thread's shape
 - read_file outside the workspace reads only raster images, and only as images
 - Images are never enlarged or sent as SVG, and resizing them no longer stops the server
 - A pruned or rehydrated image keeps its path when the path has spaces
 - A 413 that ends a run of retries still triggers the image recovery
 - The global coordinator guard test opens its own database whatever DATA_DIR a previous file left
+- A fan-out attempt is told to keep its one turn open until its background commands end
+- A card waiting for a command's wake keeps its cap, its reattach and its hold across a server restart
 - The event-loop test of the image resize measures the longest stall, not whether a tick got through
+- An outage's cut is resent only as the direct answer to the person's message
+- A command's wake stays owed until the turn it opened is over
+- A card's worktree is not slimmed while a Topics process runs inside it
+- A board agent waits for its long commands inside its turn instead of ending it on a wake
+- The drawer's user row is a component of its own, and a test renders a command's wake in it
 
 ## 2.2.402 — 2026-09-27
 

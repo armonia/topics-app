@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.2.404",
+    "date": "2026-09-28",
+    "sections": {
+      "new": [
+        {
+          "text": "Sonnet 5.5 diventa il default di Topics",
+          "scope": "models"
+        }
+      ],
+      "fixes": [],
+      "perf": []
+    }
+  },
+  {
     "version": "2.2.387",
     "date": "2026-09-24",
     "sections": {
