@@ -362,6 +362,84 @@ describe("a board card whose agent ended its turn on a command", () => {
       dispatcher.shutdown();
     }
   });
+
+  // The launch path reads the worktree's git stat between the end of the
+  // card's turn and `onTurnEnd` (up to 15 s). A command that ended during the
+  // turn had its wake accepted in that window, and the wake counted as settled
+  // as soon as the route took its row: the card read «nothing owed» while the
+  // wake's turn ran, spent an attempt and sent a nudge over it (both verifiers
+  // of 28/09 at 4619574c1). Here the stat returns only once the wake's row is
+  // in the chat, which is that window without a clock.
+  test("a command that ended during the launch turn: its wake's turn holds the card through the git stat", async () => {
+    const { createTaskService } = await import("../../server/services/tasks");
+    const { createTaskDispatcher } = await import("../../server/services/task-dispatcher");
+    const { createTaskAttemptStore } = await import("../../server/services/task-attempts");
+    const topic = newTopic({ id: "launchwake-topic", sessionKey: "topic:launchwa", archived: true });
+    const db = bench.ctx.db;
+    const svc = createTaskService(db);
+    const now = new Date().toISOString();
+    db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts)
+       VALUES ('card-launch', 'board-launch', 'command during the launch turn', 'todo', ?, ?, 0)`,
+      [now, now],
+    );
+    svc.updateBoardSettings("board-launch", { autoDispatch: true });
+    const sent: string[] = [];
+    // The real front door, as `runHeadlessTurn` drives it: the card's turn holds `activeStreams`.
+    const runTurn = async (sk: string, content: string): Promise<TurnEnd> => {
+      sent.push(content);
+      const r = await call(bench.chat, "POST", "/api/chat", { sessionKey: sk, messages: [{ role: "user", content }], dispatched: true, contextMode: "full" });
+      if (r.status === 409) { await r.body?.cancel().catch(() => {}); return { end: "cancelled", cause: "turn-in-flight" }; }
+      const reader = r.body!.getReader();
+      while (!(await reader.read()).done) { /* the turn is still running */ }
+      return { end: "end_turn" };
+    };
+    const dispatcher = createTaskDispatcher({
+      svc,
+      attempts: createTaskAttemptStore(db),
+      resolveProject: () => ({ path: PROJECT, projectStoreId: "store-launch" }),
+      createTopic: () => ({ topicId: topic.id, sessionKey: topic.sessionKey }),
+      createWorktree: async () => "wt-launch",
+      attemptStats: async () => { await until(() => exitRows(topic.sessionKey).length > 0); return null; },
+      topicExists: () => true,
+      runTurn,
+      awaitsCommandWake: (sk) => commandWakeState(sk) !== "none",
+      isSessionBusy: (sk) => bench.ctx.activeStreams.has(sk),
+      broadcast: () => {}, graceMs: 0, retryBackoffMs: 0, log: () => {},
+    } as never);
+    const card = () => svc.get("card-launch")!.task;
+    const waitNoted = () => svc.get("card-launch")!.comments.some((c) => c.author === "system" && c.content.includes("run_command"));
+    try {
+      await dispatcher.tick("board-launch");
+      await until(() => bench.ctx.activeStreams.has(topic.sessionKey));
+      expect(sent).toHaveLength(1);
+      // During the card's turn the agent starts a short command, which ends before the turn does.
+      const { processId } = await runCommand(topic, "echo launch-wake; exit 0");
+      await until(async () => (await scriptRow(processId))?.status !== "running");
+      await finishTurn("ended my turn");
+      // `onTurnEnd` has run once it either waits (its note) or spent an attempt.
+      await until(() => waitNoted() || card().dispatchAttempts !== 1);
+      // The wake's turn runs: the card waits for it, no nudge and no attempt.
+      expect(bench.ctx.activeStreams.has(topic.sessionKey)).toBe(true);
+      expect(commandWakeState(topic.sessionKey)).toBe("wake-queued");
+      expect(card().dispatchAttempts).toBe(1);
+      expect(sent).toHaveLength(1);
+      expect(waitNoted()).toBe(true);
+
+      // Once the wake's turn is over nothing is owed, and the card goes on as after any turn.
+      await finishTurn("read it");
+      await processExitWakesIdle();
+      expect(commandWakeState(topic.sessionKey)).toBe("none");
+      await dispatcher.reconcile({ reason: "poll" });
+      await until(() => sent.length > 1);
+      expect(sent).toHaveLength(2);
+      expect(card().dispatchAttempts).toBe(2);
+    } finally {
+      dispatcher.shutdown();
+      if (bench.ctx.activeStreams.has(topic.sessionKey)) await finishTurn("closing");
+      await processExitWakesIdle();
+    }
+  });
 });
 
 // The command writes its log itself, so the registry's rotation of a script's

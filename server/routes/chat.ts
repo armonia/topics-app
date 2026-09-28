@@ -2381,7 +2381,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // stop: `interrupted` carries the tools still awaiting a human,
                 // and the plan approval is kept out of it on purpose above.
                 pendingAsk: askingPlanApproval || interrupted.length > 0,
-                ...backgroundOfTurn(topicProvider, sessionKey, commandWakeState(sessionKey)), // see goal-continuation.ts
+                ...backgroundOfTurn(topicProvider, sessionKey, commandWakeState(sessionKey, body.processExit?.processId)), // a wake's turn skips its own: see commandWakeState
                 fromHuman: !isWoken && !isReattach && !dispatched && !body.goalNudge && !body.processExit && !resumeAttempt,
                 woken: isWoken || !!body.processExit, // a command's wake is news, like the CLI's own
                 usedTools: toolsStartedThisTurn > 0,

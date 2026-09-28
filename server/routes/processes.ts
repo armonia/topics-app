@@ -697,10 +697,12 @@ function finishCommand(sp: ScriptProcess): void {
 
 /**
  * Where a session stands with the wakes its commands owe it: `running` while a
- * command that will wake it still runs, `wake-queued` once one has ended and
- * its row is on its way to the chat, `none` otherwise. A wake the route
+ * command that will wake it still runs, `wake-queued` once one has ended, from
+ * then until the turn its row opens is over, `none` otherwise. A wake the route
  * refused for good waits for the next boot and counts as nothing: counted as
  * queued, it held a goal on a wake that could not come before a restart.
+ * `ownWake`: the process whose wake opened the turn now ending, which that
+ * turn's end must not wait for (`routes/chat.ts`).
  *
  * The goal loop and the board dispatcher read it beside the CLI's own
  * background work (`backgroundOfTurn`): an agent sent to `run_command` for a
@@ -709,9 +711,10 @@ function finishCommand(sp: ScriptProcess): void {
  * the wake came; a card spent an attempt and was parked.
  */
 export type CommandWakeState = "running" | "wake-queued" | "none";
-export function commandWakeState(sessionKey: string): CommandWakeState {
+export function commandWakeState(sessionKey: string, ownWake?: string): CommandWakeState {
   for (const sp of runningScripts.values()) if (sp.cmd?.wake && sp.cmd.sessionKey === sessionKey) return "running";
-  return recentScripts.some((sp) => sp.cmd?.wake && !sp.wakeFailed && sp.cmd.sessionKey === sessionKey) ? "wake-queued" : "none";
+  return recentScripts.some((sp) => sp.cmd?.wake && !sp.wakeFailed && sp.cmd.sessionKey === sessionKey && sp.processId !== ownWake)
+    ? "wake-queued" : "none";
 }
 
 /** Every session a command still owes a wake: the goals that wait again after a restart. */

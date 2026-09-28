@@ -47,9 +47,13 @@ export interface ProcessExitFacts {
 export interface ProcessExitRequest extends ProcessExitFacts {
   /**
    * Called once the topic owes nothing more for this process: for a wake sent,
-   * as soon as the route has taken its row, before the turn it opens ends.
-   * That turn's end reads what is still owed (`commandWakeState`, for the goal
-   * loop and the board), and its own wake is not.
+   * once the turn it opened has ended. Until then the wake still counts as
+   * owed (`commandWakeState`), whether or not that turn holds `activeStreams`:
+   * a board card whose own turn ended just before reads it after the git stat
+   * of its launch, and settled when the route took the row, it read nothing
+   * owed while the wake's turn ran, spent an attempt and nudged over it (both
+   * verifiers of 28/09). The wake's own turn end leaves it out by its
+   * processId (`routes/chat.ts`).
    */
   settle?: () => void;
   /**
@@ -144,12 +148,9 @@ export function wakeDelivered(db: ProcessExitWakeDeps["db"], sessionKey: string,
 
 const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); (t as { unref?: () => void }).unref?.(); });
 
-/**
- * One wake, from the wait to the end of the turn it opened. `onAccepted` runs
- * when the route has taken the row, before that turn runs.
- */
+/** One wake, from the wait to the end of the turn it opened: "sent" comes back once that turn is over. */
 export async function deliverProcessExit(
-  deps: ProcessExitWakeDeps, f: ProcessExitFacts, onAccepted?: () => void,
+  deps: ProcessExitWakeDeps, f: ProcessExitFacts,
 ): Promise<"sent" | "delivered" | "no-topic" | "failed"> {
   const pollMs = deps.pollMs ?? 500;
   for (;;) {
@@ -184,8 +185,8 @@ export async function deliverProcessExit(
       deps.log?.(`${f.processId}: the chat route answered ${resp?.status ?? "nothing"}`);
       return "failed";
     }
-    onAccepted?.();
-    // Drained to the end: the next wake of the same topic waits for this turn.
+    // Drained to the end: the next wake of the same topic waits for this turn,
+    // and the wake is settled only after it.
     if (resp.body) {
       const reader = resp.body.getReader();
       while (!(await reader.read()).done) { /* the turn is still running */ }
@@ -202,12 +203,11 @@ const chains = new Map<string, Promise<void>>();
 
 function schedule(d: ProcessExitWakeDeps, r: ProcessExitRequest): void {
   const next = (chains.get(r.topicId) ?? Promise.resolve())
-    .then(() => deliverProcessExit(d, r, () => r.settle?.()))
+    .then(() => deliverProcessExit(d, r))
     .then((outcome) => {
-      // A failure stays owed: the next boot tries again. A wake sent settled
-      // when the route took it.
-      if (outcome === "delivered" || outcome === "no-topic") r.settle?.();
+      // A failure stays owed: the next boot tries again.
       if (outcome === "failed") r.fail?.();
+      else r.settle?.();
       d.log?.(`${r.processId} -> ${r.topicId}: ${outcome}`);
     })
     .catch((err) => d.log?.(`${r.processId}: ${err instanceof Error ? err.message : String(err)}`));

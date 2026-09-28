@@ -518,7 +518,7 @@ export interface DispatcherDeps {
   abortTurn?: (sessionKey: string, cause: StopCause) => Promise<void>;
   /**
    * A `run_command` of this session will wake it: it still runs, or it ended
-   * and its wake row is not in the chat yet (`routes/processes.ts`
+   * and the turn its wake row opens is not over yet (`routes/processes.ts`
    * `commandWakeState`). A card whose turn ends on one waits for that wake
    * instead of being nudged. Absent: never.
    */

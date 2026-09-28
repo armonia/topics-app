@@ -160,10 +160,11 @@ perché quel turno l'esito l'ha già.
 
 Per il ciclo dei goal (`server/services/goal-loop.ts`) un comando che deve
 ancora una sveglia alla sessione è lavoro in background come quello del CLI
-(`backgroundOfTurn`): `running` finché gira, `wake-queued` quando è uscito e la
-riga non è ancora in chat. Il turno che finisce su di lui aspetta invece di
-essere giudicato e spinto avanti, e il turno della sveglia conta come notizia
-(`woken`), cioè come progresso.
+(`backgroundOfTurn`): `running` finché gira, `wake-queued` da quando è uscito
+finché il turno aperto dalla sua riga non è finito, che quel turno occupi o no
+`activeStreams`. Il turno che finisce su di lui aspetta invece di essere
+giudicato e spinto avanti; il turno della sveglia non aspetta sé stesso e conta
+come notizia (`woken`), cioè come progresso.
 
 Lo stesso vale per il dispatcher della board (`server/services/task-dispatcher.ts`):
 una card il cui agente chiude il turno su un comando che deve ancora una sveglia
@@ -222,6 +223,11 @@ di prenderne l'esito con `wait_for_process`.
 - **WHEN** l'agente chiude il turno mentre il comando gira
 - **THEN** la card resta in corso, senza sollecito e senza consumare un tentativo
 - **AND** a fine comando arriva la riga `process-exit`, e finito quel turno la card prosegue come dopo ogni turno
+
+#### Scenario: la sveglia parte mentre la card chiude il suo turno
+- **GIVEN** una card il cui agente lancia un comando che finisce prima che il turno di lancio si chiuda
+- **WHEN** la riga della sveglia entra in chat mentre il dispatcher legge ancora la statistica git di quel turno
+- **THEN** la card aspetta il turno della sveglia, senza sollecito e senza consumare un tentativo
 
 #### Scenario: l'attesa di una card regge ai riavvii
 - **GIVEN** una card che aspetta la sveglia di un comando che non finisce mai
