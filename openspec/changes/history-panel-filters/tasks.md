@@ -13,7 +13,10 @@ Prima del codice: `grep -qx 'status: approved' openspec/changes/history-panel-fi
       e `historyRangeOf` non esistono.
 - [x] 1.2 `tests/e2e/history-filters.spec.ts` (nuovo) su `:13334`, uno scenario
       per test con `test.info().annotations.push({ type: "spec", description: "HISTORY-0N" })`:
-      HISTORY-03 (5), HISTORY-04 (5), HISTORY-05 (2). Semina: pagine con
+      HISTORY-03 (5), HISTORY-04 (5, «parole in campi diversi» controlla anche
+      che `mark` segni la sola parola del titolo), HISTORY-05 (3: i due
+      scenari più le sorgenti vuote sotto un filtro, che restano
+      `palette.noHistory` senza «Mostra tutto»). Semina: pagine con
       `page.addInitScript` su `localStorage['topics:browser-pages:v1']`
       (formato `PageVisit[]`, `client/src/state/browserSiteHistory.ts:55-64`);
       tab chiuse con `seedPaneStore` (`tests/e2e/helpers/api-fixtures.ts:334`)

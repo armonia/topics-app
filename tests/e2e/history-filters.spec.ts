@@ -3,8 +3,8 @@
  * empty state that explains itself, and the ⇧⌘T hint on the tab the chord
  * really reopens (change history-panel-filters, card 2e015c9b).
  *
- * The panel is reached the way a person reaches it: the user menu, the
- * «Cronologia» level, «Vedi tutta la cronologia». Both sources are seeded
+ * The panel is reached the way a person reaches it: the user menu, its
+ * history level, then the row that opens the whole history. Both sources are seeded
  * before the app boots: visited pages in the browser's localStorage (the
  * store reads them once, at module load), closed tabs in the pane-store
  * `closedStack` the client hydrates from the server.
@@ -278,13 +278,16 @@ test.describe("full history: one search over the whole list", () => {
 
     await expect(palette.getByRole("option")).toHaveCount(1);
     await expect(palette.getByRole("option")).toContainText("Pull request");
+    // The highlight marks each word where it sits: the whole phrase is in no
+    // field, so a phrase-only mark would leave the title bare.
+    await expect(palette.getByRole("option").locator("mark")).toHaveText(["Pull"]);
   });
 
   test("the age of a row is not searched", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "HISTORY-04" });
     const now = Date.now();
     // Two to ten minutes ago: under a minute the age reads «ora», and «fa»
-    // would not be on screen at all. No title holds «fa» or «chiusa».
+    // would not be on screen at all. No title holds «fa» or «chiusa». allow-italian: the Italian age text is what the search must skip
     await seedClosedTabs(request, [
       closedTab("hist-tab-a", "Alpha", now - 2 * MINUTE, 1),
       closedTab("hist-tab-b", "Bravo", now - 5 * MINUTE, 2),
@@ -362,6 +365,19 @@ test.describe("full history: the empty state and the ⇧⌘T hint", () => {
     await pressed(palette.getByTestId("history-filter-kind-all"), "true");
     await expect(field).toHaveValue("github");
     await expect(field).toBeFocused();
+  });
+
+  test("with nothing in the history the panel says so even under a filter, with nothing to reset", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "HISTORY-05" });
+    await page.goto("/");
+    const palette = await openFullHistory(page);
+
+    await palette.getByTestId("history-filter-kind-tab").click();
+
+    await pressed(palette.getByTestId("history-filter-kind-tab"), "true");
+    await expect(palette.getByRole("option")).toHaveCount(0);
+    await expect(palette.getByText("Ancora niente in cronologia")).toBeVisible();
+    await expect(palette.getByTestId("history-filter-reset")).toHaveCount(0);
   });
 
   test("the ⇧⌘T hint sits on the tab the chord reopens, not on the first row", async ({ page, request }) => {

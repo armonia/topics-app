@@ -17,7 +17,7 @@ import { useT } from '../../hooks/useT';
  * buttons in 343 px are 114 px each, four are 85 px, and the longest labels fit.
  */
 export interface HistoryFiltersValue {
-  /** `undefined` is «Tutto», both sources. */
+  /** `undefined` is the first button of the group: both sources. */
   kind: HistoryRowKind | undefined;
   range: HistoryRange;
 }
