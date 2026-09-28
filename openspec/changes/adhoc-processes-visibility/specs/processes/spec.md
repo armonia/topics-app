@@ -196,8 +196,12 @@ di sistema di una sessione dispatchata e `run_command` nei profili `dispatch` e
 `codex-dispatch` (descrizione e risultato) gli dicono di lanciare i comandi
 lunghi con `run_command` (`run_script` per uno script dichiarato, e solo quello
 dove `run_command` non c'è) e di prenderne l'esito con `wait_for_process` nello
-stesso turno, mai di chiuderlo con un comando in corso. Il prompt di sistema
-della board non gli consiglia nemmeno di chiudere il turno su un `Monitor` o su
+stesso turno, mai di chiuderlo con un comando in corso. Non sono comandi da
+aspettare un dev server lasciato acceso per la tab del revisore, che resta acceso
+dopo il turno (con `run_command` parte con `wake: false`), e l'attesa di una
+condizione esterna (un servizio che torna, una finestra oraria, un retry ogni
+tanto), che si dichiara con `wait_for_condition` come dice il kickoff. Il prompt
+di sistema della board non gli consiglia nemmeno di chiudere il turno su un `Monitor` o su
 una shell in background, perché la rete copre solo la sveglia di `run_command`;
 su Windows dice la stessa regola con `run_script`. È dispatchata ogni sessione
 legata a una card, compresi i tentativi di fan-out dal 2 in poi. Con
@@ -270,6 +274,12 @@ dispatcher qui sopra è la rete per l'agente che chiude il turno lo stesso.
 - **WHEN** l'agente cerca come aspettare una build lunga
 - **THEN** il prompt gli dice di aspettarla con `wait_for_process` nello stesso turno
 - **AND** nessuna frase gli consiglia di chiudere il turno su un `Monitor`, su una shell in background o su una sveglia
+
+#### Scenario: un server per la tab e un'attesa esterna non si aspettano nel turno
+- **GIVEN** il kickoff e il prompt di sistema di una sessione dispatchata
+- **WHEN** l'agente lascia acceso un dev server per la tab del revisore, o deve aspettare un servizio per ore
+- **THEN** il server non è fra i comandi da aspettare e resta acceso dopo il turno
+- **AND** l'attesa esterna si dichiara con `wait_for_condition`, e nessuna frase gli dice di aspettare un ciclo di retry dentro il turno
 
 #### Scenario: l'attesa di una card regge ai riavvii
 - **GIVEN** una card che aspetta la sveglia di un comando che non finisce mai

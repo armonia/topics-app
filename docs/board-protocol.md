@@ -64,8 +64,10 @@ test e install lunghi partono con `run_command` (o `run_script` per uno script
 dichiarato; dove `run_command` non c'e', su Windows, solo `run_script`), mai con
 `&` o con una Bash in background, e l'esito si prende con `wait_for_process`
 nello STESSO turno, richiamandolo finche' risponde `timeout`. Mai chiudere il
-turno con un comando in corso. Prima la riga diceva «in background (`run_script`
-o `&`) e ogni tanto `read_process_output`».
+turno con uno di questi comandi in corso. Un dev server lasciato acceso per la
+tab del revisore non e' uno di questi: resta acceso dopo il turno (con
+`run_command` parte con `wake=false`). Prima la riga diceva «in background
+(`run_script` o `&`) e ogni tanto `read_process_output`».
 Il perche': `run_command` sveglia la topic a fine comando, e a una chat normale
 il prompt dice che puo' chiudere il turno e aspettare la sveglia. Una card che
 lo faceva spendeva un tentativo e riceveva un sollecito sopra la sveglia, e un
@@ -76,7 +78,10 @@ profili `dispatch` e `codex-dispatch` (descrizione e risultato,
 `command-tools.ts`) dicono di aspettare dentro il turno. Il prompt della board
 non consiglia nemmeno di chiudere il turno su un `Monitor` o su una shell in
 background: la rete qui sotto copre solo la sveglia di `run_command`, e su
-Windows, senza `run_command`, dice la stessa regola con `run_script`.
+Windows, senza `run_command`, dice la stessa regola con `run_script`. Un'attesa
+di una condizione esterna (un servizio che torna, una finestra oraria, un retry
+ogni tanto) non e' un comando da aspettare: il kickoff e il prompt la mandano a
+`wait_for_condition`, che libera lo slot invece di tenerlo per ore.
 «Sessione dispatchata» e' quella di `readDispatchBinding`, quindi anche i
 tentativi di fan-out dal 2 in poi, che stanno solo in `task_attempts`.
 Un limite dichiarato: con `dispatch_mcp='inherit'` il bridge non ha il profilo

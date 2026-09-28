@@ -108,23 +108,31 @@ const chatWaits = (cmd: boolean): string[] => [
  * or a background shell spent an attempt and met the CLI's wake over a nudge
  * (verifiers of 28/09, second round). Where there is no `run_command`
  * (Windows) the rule names `run_script`, as `longCommandsRule` does.
+ *
+ * Two things are not commands to wait for, as the kickoff says too: a dev
+ * server left up for a tab of the card outlives the turn, and a wait for an
+ * external condition (the card's two-hour retry) is declared with
+ * `wait_for_condition`, which frees the slot instead of holding it for hours.
  */
 const boardWaits = (cmd: boolean): string[] => [
   'On a board card your turn is your work, and the board judges it the moment the turn ends:',
   'wait for anything long INSIDE the turn.',
   ...(cmd
     ? [
-      'Start a long command that is not a declared script (a build, a test suite, a retry loop)',
+      'Start a long command that is not a declared script (a build, a test suite, an install)',
       'with `mcp__topics__run_command`: it runs as a Topics process, shown in the Processes panel,',
       'and it survives a restart of your CLI. Wait for it, or for a `mcp__topics__run_script`,',
     ]
     : ['Start a long command with `mcp__topics__run_script` when the manifest declares it, and wait for it']),
   'with `mcp__topics__wait_for_process` in the same turn, calling it again while it answers `timeout`,',
   'and never end your turn while it runs.',
+  `A dev server you leave up for a tab of the card is not such a command: it keeps running after your turn${cmd ? ' (started with `mcp__topics__run_command`, pass `wake: false`)' : ''}.`,
   'Do not end your turn on a `Monitor` or a background shell either: wait for a background shell',
   'with `mcp__topics__wait_for_process` too.',
+  'A wait for an external condition (a service coming back, a time window, a retry every few minutes)',
+  'is not a command to wait for: declare it with `mcp__topics__wait_for_condition` on your card,',
+  'which frees your slot and brings the card back when the time is up.',
   'Never sleep-and-poll in a shell loop: it burns a turn per check and tells the user nothing.',
-  ...(cmd ? ['Pass `wake: false` for a dev server or anything not meant to end.'] : []),
 ];
 
 /**

@@ -386,6 +386,23 @@ describe('shell in background: risveglio reale ma condizionato', () => {
     expect(topicsAgentSystemPrompt('auto', 'win32', true)).not.toContain('run_command');
   });
 
+  // Two things a card runs that are not commands to wait for. A retry every 15
+  // minutes for two hours is a wait for an external condition, which the
+  // kickoff sends to wait_for_condition: named here as a command to wait for,
+  // it held the dispatch slot for hours and paid a model call every few
+  // minutes. A dev server left up for the reviewer's tab must outlive the turn:
+  // read against «never end your turn while it runs», it had to be stopped
+  // before delivery (verifiers of 28/09, third round).
+  test('a board agent declares an external wait, and leaves a server for the tab running', () => {
+    for (const platform of ['darwin', 'win32'] as const) {
+      const board = topicsAgentSystemPrompt('auto', platform, true);
+      expect(board).not.toContain('retry loop');
+      expect(board).toMatch(/external condition[\s\S]*`mcp__topics__wait_for_condition`/);
+      expect(board).toMatch(/dev server you leave up for a tab of the card is not such a command[\s\S]*keeps running after your turn/);
+    }
+    expect(topicsAgentSystemPrompt('auto', 'darwin', true)).toContain('keeps running after your turn (started with `mcp__topics__run_command`, pass `wake: false`)');
+  });
+
   test('i tre strumenti restano distinti: chiude-e-sveglia, tiene-e-torna, dipende', () => {
     const p = topicsAgentSystemPrompt();
     expect(p).toMatch(/`Monitor`[\s\S]*ends your turn and wakes you/);

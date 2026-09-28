@@ -4273,7 +4273,11 @@ describe("l'envelope non parla italiano", () => {
       const rule = longCommandsRow(kickoff);
       expect(rule).toContain("run_command");
       expect(rule).toContain("wait_for_process in this SAME turn");
-      expect(rule).toContain("Never end your turn while a command you started still runs");
+      expect(rule).toContain("Never end your turn while one of them still runs");
+      // A dev server left up for the reviewer's tab is not one of them: read
+      // against the rule, the agent had to stop the server the tab needs
+      // (verifiers of 28/09, third round).
+      expect(rule).toContain("A dev server you leave up for the reviewer's tab is not one of them: it keeps serving after your turn (started with run_command, pass wake=false)");
       expect(kickoff).not.toContain("run_script or `&`");
       expect(kickoff).not.toContain("run_script + read_process_output");
       h.dispatcher.shutdown();
@@ -4285,6 +4289,7 @@ describe("l'envelope non parla italiano", () => {
     expect(win).not.toContain("run_command");
     expect(win).toContain("run_script");
     expect(win).toContain("wait_for_process in this SAME turn");
+    expect(win).toContain("A dev server you leave up for the reviewer's tab is not one of them: it keeps serving after your turn.");
     expect(longCommandsRule("darwin")).toContain("run_command");
   });
 

@@ -916,11 +916,18 @@ export function describeIntruders(intruders: Array<{ cwd: string; branch: string
  * `run_script` or `&` and a poll now and then, left the command outside the
  * turn too. Where the bridge offers no `run_command` (Windows,
  * `hasCommandShell`) it names `run_script`, as the system prompt does.
+ *
+ * A dev server left up for the reviewer's tab is not one of these commands:
+ * read against «never end your turn while a command you started still runs»,
+ * the agent had to stop the server the tab it delivers needs (verifiers of
+ * 28/09, third round).
  */
 export function longCommandsRule(platform: NodeJS.Platform = process.platform): string {
-  const start = hasCommandShell(platform) ? "run_command (run_script for a script the manifest declares)" : "run_script";
+  const cmd = hasCommandShell(platform);
+  const start = cmd ? "run_command (run_script for a script the manifest declares)" : "run_script";
   return `LONG COMMANDS (build, test, install >~2 min): start them with ${start}, never with \`&\` or a background Bash, and get their outcome with wait_for_process in this SAME turn, calling it again while it answers 'timeout'. `
-    + "Never end your turn while a command you started still runs, even when the tool says it will wake you: the board reads the end of your turn as the end of your work.";
+    + "Never end your turn while one of them still runs, even when the tool says it will wake you: the board reads the end of your turn as the end of your work. "
+    + `A dev server you leave up for the reviewer's tab is not one of them: it keeps serving after your turn${cmd ? " (started with run_command, pass wake=false)" : ""}.`;
 }
 
 /**
