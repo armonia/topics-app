@@ -360,3 +360,26 @@ describe("historyFromPersistedThread — an image never comes back as base64", (
     }
   });
 });
+
+describe("historyFromPersistedThread: an image caption whose path has spaces", () => {
+  // Real Darkroom names: every macOS screenshot and every ChatGPT export has
+  // spaces, and a caption matched on `\S+` left
+  // "image attached" in the rebuilt history for exactly those files.
+  test.each([
+    "Schermata 2026-09-26 alle 10.11.12.png",
+    "RAW/ChatGPT Image Aug 15, 2026, 11_25_32 AM.png",
+  ])("the caption of %s becomes the placeholder with the whole path", (path) => {
+    const out = historyFromPersistedThread([
+      u("guarda"),
+      { role: "assistant", content: "Leggo.", toolCalls: [
+        { id: "t1", name: "read_file", args: { path }, status: "success",
+          result: `${path} (2880x1800, image attached)`, contentOffset: 6 },
+      ] },
+      u("e allora?"),
+    ]);
+    expect((out[2]!.content as Block[])[0]).toEqual({
+      type: "tool_result", tool_use_id: "t1",
+      content: `[immagine non più nel contesto: ${path}; rileggila con read_file]`,
+    });
+  });
+});

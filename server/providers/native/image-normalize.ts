@@ -66,6 +66,28 @@ export const HARD_IMAGE_EDGE = 2000;
  */
 export const MAX_IMAGE_BASE64_CHARS = 5 * 1024 * 1024;
 
+/**
+ * The caption `read_file` writes beside an image: `"<path> (WxH, image
+ * attached)"`. It is what the compaction and the rehydrated history read the
+ * path back from once the pixels are gone, so writing and reading it live
+ * here, together.
+ */
+export function imageCaption(path: string, width: number, height: number): string {
+  return `${path} (${width}x${height}, image attached)`;
+}
+
+/**
+ * The path in an `imageCaption`, anchored on the `(WxH, image attached)` tail
+ * rather than on the path: real names have spaces (every macOS screenshot,
+ * every "ChatGPT Image Aug 15, 2026, 11_25_32 AM.png") and some have their
+ * own parentheses. The caption is the first line; a note may follow.
+ */
+const IMAGE_CAPTION = /^(.+) \(\d+x\d+, image attached\)(?:\n|$)/;
+
+export function pathFromImageCaption(text: string): string | undefined {
+  return IMAGE_CAPTION.exec(text)?.[1];
+}
+
 /** Quality for the JPEG every raster image is re-encoded to. */
 const JPEG_QUALITY = 80;
 

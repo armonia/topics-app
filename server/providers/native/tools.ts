@@ -30,7 +30,7 @@ import { lowPriorityArgv } from "../../lib/low-priority";
 import { readSlashCommandSource } from "../../lib/slash-command-source";
 import { htmlToMarkdown } from "../../lib/html-to-markdown";
 import { imageShape } from "../../services/image-shape";
-import type { ToolImage } from "./image-normalize";
+import { imageCaption, type ToolImage } from "./image-normalize";
 
 export interface ToolSpec {
   name: string;
@@ -648,7 +648,7 @@ export async function executeTool(
         if (shape && shape.format) {
           const bytes = readFileSync(p);
           return {
-            content: `${input.path} (${shape.width}x${shape.height}, image attached)`,
+            content: imageCaption(String(input.path), shape.width, shape.height),
             images: [{ mediaType: `image/${shape.format}`, data: bytes.toString("base64"), label: String(input.path) }],
           };
         }
