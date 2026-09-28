@@ -1806,7 +1806,11 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       try { t = deps.svc.get(taskId)?.task; } catch { continue; }
       if (t?.status === "in_progress" && commandWakeOwed(w.sessionKey) && clock() - w.since < BACKGROUND_WORK_CAP_MS) continue;
       commandWaits.delete(taskId);
-      if (t?.status === "in_progress" || t?.status === "review") onTurnEnd(taskId, undefined, { end: "end_turn" }, true);
+      if (t?.status !== "in_progress" && t?.status !== "review") continue;
+      // The wake's turn was not ours, so no turn end of ours booked its
+      // tokens; when the card delivered from it, none ever would.
+      bookUsageFloor(taskId, w.sessionKey);
+      onTurnEnd(taskId, undefined, { end: "end_turn" }, true);
     }
   }
 

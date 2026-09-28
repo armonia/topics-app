@@ -22,6 +22,7 @@ import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import { createTaskAttemptStore } from "./task-attempts";
 import { BACKGROUND_WORK_CAP_MS } from "../providers/claude/background-work";
 import type { TurnEndInfo } from "../providers/stop-reason";
+import type { SessionUsage } from "./transcript-usage";
 import { APP_SETTINGS_DDL, TASKS_DDL, TASKS_FK_STUBS_DDL, TASK_LABELS_DDL } from "../db/test-schema";
 
 const PID = "alpha-abc123";
@@ -67,8 +68,12 @@ function freshDb(): Database {
   return db;
 }
 
-/** The session's side, as the host's probes read it. */
-interface Session { owed: boolean; busy: boolean }
+/** The session's side, as the host's probes read it; `tokens`, its transcript's billable count. */
+interface Session { owed: boolean; busy: boolean; tokens?: number }
+
+function reading(billableTokens: number): SessionUsage {
+  return { inputTokens: billableTokens, outputTokens: 0, cacheWriteTokens: 0, cacheWrite1hTokens: 0, cacheReadTokens: 0, billableTokens };
+}
 
 function bench(session: Session) {
   const db = freshDb();
@@ -89,6 +94,7 @@ function bench(session: Session) {
       new Promise<TurnEndInfo | void>((res) => { turns.push(content); endTurn = res; }),
     awaitsCommandWake: () => session.owed,
     isSessionBusy: () => session.busy,
+    getSessionUsage: () => reading(session.tokens ?? 0),
     broadcast: () => {},
     graceMs: 0,
     retryBackoffMs: 0,
@@ -190,6 +196,34 @@ describe("a card whose agent ended its turn on a running run_command", () => {
     expect(b.turns.length).toBe(1);
     expect(b.task().status).toBe("review");
     expect(b.task().dispatchState).toBe("delivered");
+    b.dispatcher.shutdown();
+  });
+
+  // The dispatcher books a turn's tokens when a turn of ITS ends. The wake's
+  // turn is not one of its own, and when the card delivered from it nothing
+  // booked that turn afterwards: the card's cost, and the spend brake that
+  // reads it, stayed short of it for good.
+  it("books the tokens of the wake's turn on the card", async () => {
+    const session = { owed: true, busy: false, tokens: 1_000 };
+    const b = bench(session);
+    seedTodo(b.db);
+    await b.dispatcher.tick(PID);
+    await flush();
+    session.tokens = 3_000;
+    b.endTurn();
+    await flush();
+    expect(b.task().agentTokens).toBe(2_000);
+    // The wake's turn burns 5,000 more and delivers.
+    session.owed = false;
+    session.busy = true;
+    await polls(b, 1);
+    session.tokens = 8_000;
+    b.svc.addComment({ taskId: "t1", author: "claude", content: "fatto, il comando e' uscito con 0" });
+    b.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto" } });
+    session.busy = false;
+    await polls(b, 1);
+    expect(b.task().status).toBe("review");
+    expect(b.task().agentTokens).toBe(7_000);
     b.dispatcher.shutdown();
   });
 
