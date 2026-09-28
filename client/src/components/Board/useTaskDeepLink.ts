@@ -9,10 +9,13 @@
  * `openTaskInApp` wrote, and the focus from `pendingTaskFocus`: the URL
  * carries the task and not the file.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { currentTaskTarget, pendingTaskFocus } from '../../lib/openTaskLink';
 
 export function useTaskDeepLink(global: boolean) {
+  // The task the drawer shows. Here and not in the board because a deep link
+  // ends by becoming it (`promote`), with the focus its gesture asked for.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   // Seeded from the CURRENT URL, not a one-shot boot value, so it survives a
   // remount and an inactive board tab coming back: the URL is the source of
   // truth. Held until the task shows up in the loaded list, then it becomes
@@ -38,5 +41,14 @@ export function useTaskDeepLink(global: boolean) {
     window.addEventListener('topics:open-task', onOpenTask as EventListener);
     return () => window.removeEventListener('topics:open-task', onOpenTask as EventListener);
   }, [global]);
-  return { pendingSelect, setPendingSelect, pendingPaneId, setPendingPaneId };
+  // The deep link fulfilled, once the board has the task (in its feed or
+  // resolved): it becomes the selection, and the focus stays for the drawer
+  // to open on. `topics:task-opened` releases the board-focus intent held in
+  // usePanelLifecycle, so later hydrates behave normally.
+  const promote = useCallback((id: string) => {
+    setSelectedId(id);
+    setPendingSelect(null);
+    window.dispatchEvent(new CustomEvent('topics:task-opened'));
+  }, []);
+  return { selectedId, setSelectedId, pendingSelect, setPendingSelect, pendingPaneId, setPendingPaneId, promote };
 }
