@@ -498,8 +498,7 @@ describe("contracts", () => {
     const matrix = e2e.match(/^ {6}matrix:\n((?: {8}\S.*\n| {10}.*\n|\n)+)/m);
     expect(matrix).not.toBeNull();
     const axes = matrix![1]!.split("\n").filter((l) => /^ {8}\S/.test(l)).map((l) => l.trim().split(":")[0]);
-    expect(axes).toEqual(["shard"]);
-    // And every list the axis can take (a literal, or the literals `fromJSON` picks by event) is integers only, the names `E2E_JOB` accepts.
+    expect(axes).toEqual(["shard"]); // and every list it can take (literal, or picked by `fromJSON`) is integers: `E2E_JOB` names
     const lists = [...(e2e.match(/^ {8}shard: (.+)$/m)?.[1] ?? "").matchAll(/\[[^\]]*\]/g)].map((m) => m[0]);
     expect(lists.length).toBeGreaterThan(0);
     for (const list of lists) expect(list).toMatch(/^\[(\d+(, )?)+\]$/);
@@ -509,9 +508,10 @@ describe("contracts", () => {
     const ci = readFileSync(join(import.meta.dir, "../../.github/workflows/ci.yml"), "utf8");
     const check = ci.slice(ci.search(/^ {2}check:$/m), ci.search(/^ {2}prepare-e2e:$/m));
     expect(ci.search(/^ {2}check:$/m)).toBeGreaterThan(0);
-    // Pull requests (what the row reads) take the sharded runner, a push to main the serial one: both stay.
+    // The step is the verdict of the `unit` jobs, red unless all passed (what they run: tests/unit/ci-unit-slices-cover-the-suite.test.ts).
     const step = check.slice(check.indexOf(`      - name: ${UNIT_STEP}\n`)).split(/\n {6}- name: /)[0]!;
-    for (const cmd of ["bun run test:unit:shards", "bun test:unit"]) expect(step.split("\n").map((l) => l.trim())).toContain(cmd);
+    expect(check).toMatch(/^ {4}needs: unit$/m);
+    expect(step).toMatch(/UNIT_RESULT: \$\{\{ needs\.unit\.result \}\}[\s\S]*if \[ "\$UNIT_RESULT" != "success" \]; then[\s\S]*exit 1/);
   });
 
   test("the client waits past the CI deadline plus the slowest local round, and below the CLI tool timeout", () => {

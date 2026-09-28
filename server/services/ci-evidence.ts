@@ -16,8 +16,8 @@
  *  3. polls GitHub every minute for the latest `pull_request` run of ci.yml whose
  *     head is that commit, and reads only `prepare-e2e` and `e2e (N)` for the
  *     e2e row, and only the step "Unit + integration tests" of the `check` job
- *     for the unit row (on a pull request that step runs the sharded unit
- *     runner, the same files as the serial one).
+ *     for the unit row (that step is the verdict of the `unit` jobs, the
+ *     serial runner split by suite root into parallel jobs).
  * Green only when every e2e job (or that step) concluded `success`; red on a
  * `failure`; anything else is NOT MEASURED (exit 97), never a pass.
  *

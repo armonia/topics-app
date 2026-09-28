@@ -36,7 +36,88 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # THE UNIT SUITE, SPLIT BY SUITE ROOT INTO PARALLEL JOBS, EACH ONE SERIAL.
+  #
+  # Serially the suite was 12.4 of the 16.6 minutes of `check` (run
+  # 36461528241), and the only thing that shortens a serial run is running
+  # parts of it elsewhere. Two ways were measured on this runner (4 vCPU):
+  #
+  #  - IN-PROCESS SHARDS (scripts/test-unit-shards.ts, 4 then 3 workers on one
+  #    runner): 4.7 and 6.8 minutes, and red both times on tests that are green
+  #    serially, never the same ones (runs 36487615331, 36489705731). Timers
+  #    starved by the neighbouring workers, and a leak that only shows at this
+  #    speed: `reattach-final-reply.integration.test.ts` leaves two 60 s stream
+  #    timers behind, and `leak-stream-timers.test.ts` counted them.
+  #  - SEPARATE RUNNERS, what this job does: each slice is the SERIAL runner
+  #    (`test-unit-serial.ts`, same stray ai-bridge check, same time slack) on
+  #    a whole machine, over whole suite roots, so every file runs in the same
+  #    order and next to the same files as in the full serial run of its root.
+  #    What changes is only that a file no longer follows the roots of the
+  #    other slice.
+  #
+  # Two slices, because `./server` alone is 403 s of the 770 s (measured on the
+  # serial run of 36485674755) and a root is the smallest unit that keeps the
+  # canonical order: the other roots together are 367 s.
+  #
+  # ON A PUSH TO MAIN IT IS ONE SLICE WITH EVERY ROOT, i.e. the full serial run:
+  # that is the safety net scripts/test-unit-shards.ts names in its header
+  # (point 3), and a leak that only bites across two roots is still caught one
+  # commit after it lands, before `auto-bump` ships anything.
+  #
+  # The union of the slices must be SUITE_ROOTS (scripts/test-unit-shards.ts),
+  # which tests/unit/ci-unit-slices-cover-the-suite.test.ts asserts: a root
+  # added there and not here would be a folder no pull request ever tests.
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        roots: ${{ fromJSON(github.event_name == 'push' && '["./client/src ./server ./shared ./relay ./tests/unit ./tests/integration ./scripts ./cli"]' || '["./server", "./client/src ./shared ./relay ./tests/unit ./tests/integration ./scripts ./cli"]') }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node (node-pty native bridge used by server tests)
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      # Same three install steps as `check`, for the same reasons written there.
+      - name: Install server deps (root)
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild node-pty (Linux)
+        run: npm rebuild node-pty
+
+      - name: Rimetti il bit +x sugli spawn-helper (il postinstall e' stato saltato)
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
+      - name: Install client deps
+        run: bun install --frozen-lockfile
+        working-directory: client
+
+      # server/browser-dom-cobrowse.test.ts launches a real Chromium (see the
+      # same step in `check`).
+      - name: Install Playwright browsers (Chromium)
+        run: npx playwright install --with-deps chromium
+
+      # `bun test:unit` is this same command with no roots: the slot wrapper
+      # (disabled under CI, but it still caps the run at 60 min) around the
+      # serial runner, which takes explicit roots in place of its default list.
+      - name: Unit + integration tests (serial, over these roots)
+        env:
+          UNIT_ROOTS: ${{ matrix.roots }}
+        run: bun run scripts/slot.ts test:unit -- "bun run scripts/test-unit-serial.ts $UNIT_ROOTS"
+
   check:
+    # After the unit jobs, because the step the board reads is their verdict;
+    # and even when they are red, because this job measures everything.
+    needs: unit
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -392,40 +473,22 @@ jobs:
           git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/main
           MIGRATION_BASE_REF=refs/remotes/origin/main bun run check:migrations
 
-      # ONE STEP, TWO RUNNERS, AND THE STEP NAME IS A CONTRACT: the board reads
-      # the unit verdict of a pull request from the step "Unit + integration
-      # tests" of job `check` (UNIT_JOB / UNIT_STEP in
-      # server/services/ci-evidence.ts), so neither the name nor the job moves.
-      #
-      # On a PULL REQUEST it is the sharded runner (scripts/test-unit-shards.ts):
-      # the same files as the serial run, in 3 concurrent `bun test` workers
-      # balanced by duration, then the OS racers (`SERIAL_GLOBS`) serially
-      # after them, the same stray ai-bridge check at the end, and a
-      # "riproduci:" line for every red shard. Serially this step was 12.4 of
-      # the 16.6 minutes of the job (run 36461528241).
-      #
-      # THREE, NOT FOUR, on a 4 vCPU runner. Four took 4.7 min and went red on
-      # two timing-window tests that are green serially (run 36487615331):
-      # four workers leave no core for the timers the tests wait on. This job
-      # is not the critical path of the run (the e2e shards are, ~12 min), so
-      # the worker given back costs no wall clock. `TOPICS_UNIT_SHARDS` is
-      # explicit on purpose: it is also what keeps the load plan from quietly
-      # dropping to fewer workers.
-      #
-      # On a PUSH TO MAIN it stays the SERIAL run, because that is the safety
-      # net the sharded runner was built on (its header, point 3): the grouping
-      # is proven order-independent on 24 shuffles, and a leak that only bites
-      # in the canonical order is still caught one commit after it lands,
-      # before `auto-bump` ships anything.
+      # THE STEP NAME IS A CONTRACT, AND THE TESTS NO LONGER RUN HERE. The board
+      # reads the unit verdict of a pull request from the step "Unit +
+      # integration tests" of job `check` (UNIT_JOB / UNIT_STEP in
+      # server/services/ci-evidence.ts), so the step stays, under that name, in
+      # this job. What it runs moved to the `unit` jobs above, and this step is
+      # their verdict: red unless every one of them concluded `success`. The
+      # names of the red tests are in the log of the red `unit (...)` job.
       - name: Unit + integration tests
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         env:
-          TOPICS_UNIT_SHARDS: 3
+          UNIT_RESULT: ${{ needs.unit.result }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            bun test:unit
-          else
-            bun run test:unit:shards
+          echo "unit jobs of this run: $UNIT_RESULT"
+          if [ "$UNIT_RESULT" != "success" ]; then
+            echo "::error title=Unit + integration tests::the unit jobs of this run concluded '$UNIT_RESULT': the red tests are in the log of the red unit (...) job"
+            exit 1
           fi
 
       # Guards a real production contract: the dev-only pane mutation log must
