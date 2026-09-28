@@ -10,6 +10,7 @@ import { Database } from "bun:sqlite";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { postBackgroundNotice } from "./background-notice";
 import { riprendiTurniInterrotti } from "./ripresa-boot";
+import { RESEND_COUNTS_DDL } from "../db/test-schema";
 import { INTERRUPTED_MARKER } from "./stale-stream-sweep";
 import { resetTurnEndRegistry } from "../providers/turn-end-registry";
 import { loadActiveBranchForReplay } from "../providers/claude-code";
@@ -51,6 +52,7 @@ describe("the background notice", () => {
     const db = new Database(":memory:");
     db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
       partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER)`);
+    db.run(RESEND_COUNTS_DDL);
     const t0 = new Date(Date.now() - 4 * 60_000).toISOString();
     db.run("INSERT INTO messages VALUES ('u0','topic:x','user','misura la ripresa',NULL,0,?,0,NULL,0)", [t0]);
     const cut = JSON.stringify([{ kind: "error", text: INTERRUPTED_MARKER, cause: "watchdog", at: t0 }]);

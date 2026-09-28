@@ -255,6 +255,13 @@ export const TASK_LABELS_DDL = `CREATE TABLE IF NOT EXISTS task_labels (
   PRIMARY KEY (task_id, label)
 )`;
 
+/**
+ * `resend_counts`: the resume sweep reads and writes it for every chat it
+ * judges (`lib/resend-count.ts`), so every harness that runs the sweep on a
+ * `messages` table of its own needs it as well. Read from the migration file
+ * itself: there is no copy to drift.
+ */
+export const RESEND_COUNTS_DDL = readFileSync(join(import.meta.dir, "migrations", "20260928170113-resend-counts.sql"), "utf8");
 
 /**
  * LE MIGRATION ARRIVATE DOPO, senza doverle rincorrere a mano.
