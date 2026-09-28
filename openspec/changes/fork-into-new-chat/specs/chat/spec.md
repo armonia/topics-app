@@ -26,7 +26,12 @@ UNA transazione:
   il modo del runtime (CHAT-FORK-03).
 
 Il punto del ramo SHALL essere l'ultima risposta `assistant` finita del ramo
-attivo.
+attivo che non porti il marchio della macchina (`hasMachineMark`,
+`shared/prompt-number.ts:18`): un avviso di background o una riga di stop sono
+righe `assistant` scritte da Topics, non risposte, e non SHALL essere il punto.
+
+Un `/clear` sul ramo SHALL azzerare `parent_ref` e `parent_at` della sua riga in
+`chat_forks`: una chat svuotata non riprende la storia di nessuno.
 
 Le righe dell'originale NON SHALL cambiare: né i messaggi, né
 `active_branches`, né la riga della sua sessione presso il fornitore.
@@ -64,6 +69,11 @@ madre), scelta 4 (il 409 `turn_in_progress`).
 - **WHEN** lo si dirama
 - **THEN** la copia finisce alla risposta finita, e la riga `partial` non c'è
 
+#### Scenario: un avviso di background in coda non è il punto
+- **GIVEN** un ramo attivo che finisce con una risposta finita seguita da un avviso di background (riga `assistant` con un blocco `background-notice`)
+- **WHEN** lo si dirama
+- **THEN** la copia finisce alla risposta, l'avviso non c'è, e `forkedFrom.atMessageId` è la copia della risposta
+
 #### Scenario: durante un turno non si dirama
 - **GIVEN** un topic con un turno in corso
 - **WHEN** si chiama la rotta
@@ -81,14 +91,31 @@ Per un ramo con runtime `claude-cli`, alla creazione la rotta SHALL leggere
 l'id di sessione della madre (`claude_code_sessions`) e il suo transcript
 (`claudeTranscriptPath`, `server/lib/claude-transcript-path.ts:83`), prendere
 come `parent_at` l'`uuid` dell'ultima riga `type: "assistant"` non
-`isSidechain`, coniare l'uuid del ramo e scrivere
+`isSidechain`, coniare l'uuid del ramo e scriverlo in
 `claude_code_sessions(sessionKey del ramo, uuid del ramo)` con `import_offset`
-nullo. Se la madre non ha sessione, o il transcript non c'è, o non contiene una
-risposta, `parent_ref` SHALL restare nullo: il ramo parte fresco e il suo primo
-messaggio porta il riepilogo del database (CCLI-06), cioè la storia copiata.
+nullo e in `chat_forks.branch_ref`.
+
+`parent_ref` SHALL restare nullo, e la rotta NON SHALL scrivere né la riga in
+`claude_code_sessions` né `branch_ref`, quando:
+
+- la madre non ha sessione, o il transcript non c'è, o non contiene una
+  risposta;
+- una riga del ramo attivo, dalla radice al punto, ha `branch_index > 0`
+  (Modifica o Rigenera: risposte stateless, `server/routes/edit.ts:131-135`,
+  che la sessione della CLI non ha mai visto);
+- dopo il punto il ramo attivo ha altre righe oltre agli avvisi di background
+  (una riga `partial`, un prompt senza risposta, una riga di stop);
+- il testo del punto, spazi ai bordi esclusi, non finisce col testo dell'ultima
+  riga `assistant` del transcript, o quella riga non ha testo.
+
+In quei casi il ramo parte fresco: lo spawn conia la sessione con `isNew` vero e
+il suo primo messaggio porta il riepilogo del database (CCLI-06), cioè la storia
+copiata. Il modello del ramo non SHALL conoscere turni che la chat del ramo non
+mostra.
 
 Allo spawn (`server/providers/claude-code.ts:2427-2512`), con `parent_ref`
-presente e il transcript DEL RAMO assente, l'argv SHALL finire con
+presente, la sessione del ramo UGUALE a `branch_ref` e il transcript DEL RAMO
+assente, l'argv SHALL finire con
 `--resume <madre> --resume-session-at <parent_at> --fork-session --session-id <ramo>`
 (`buildClaudeArgs`, `server/providers/claude/args.ts:374`), SENZA il prologo
 di riepilogo (`needsHistoryReplay` falso, `claude-code.ts:2570`): la memoria
@@ -97,19 +124,28 @@ presente l'argv SHALL finire con `--resume <ramo>` e SENZA `--fork-session`:
 rifare il fork su un id che esiste è un errore della CLI (misurato il 28/09,
 «Session ID … is already in use.», exit 1).
 
+Il fork SHALL avvenire al più una volta. Una sessione del ramo dimenticata
+(`/clear`, il reap della worktree, il recupero da sessione persa) SHALL farlo
+ripartire con un uuid diverso da `branch_ref`, quindi con `--session-id` e il
+riepilogo di ciò che il database ha in quel momento, MAI con `--fork-session`:
+rifatto, il fork riporterebbe la storia della madre in una chat svuotata, o
+toglierebbe al modello i turni del ramo (misurato su CLI 2.1.284: il fork
+rifatto con lo stesso id da un'altra cwd esce 0).
+
 Se l'avvio del ramo è rifiutato perché la sessione madre non c'è più (i motivi
-di `SESSION_NOT_FOUND_PATTERNS`, `claude-code.ts:616`) o perché la CLI non
-conosce `--fork-session` o `--resume-session-at`, il recupero
-(`markMissingSessionRecovery`, `claude-code.ts:3318`) SHALL azzerare
-`parent_ref` e `parent_at` del ramo oltre a dimenticarne la sessione. Il turno
-SHALL ripartire fresco col riepilogo, UNA volta, senza riprovare il fork.
+di `SESSION_NOT_FOUND_PATTERNS`, `claude-code.ts:616`), perché il punto non c'è
+nel suo transcript («No message found with message.uuid of: <uuid>», exit 1,
+misurato su CLI 2.1.284) o perché la CLI non conosce `--fork-session` o
+`--resume-session-at`, il recupero (`markMissingSessionRecovery`,
+`claude-code.ts:3318`) SHALL dimenticare la sessione del ramo. Il turno SHALL
+ripartire fresco col riepilogo, UNA volta, senza riprovare il fork.
 
 Le due bandiere SHALL stare in `CRITICAL_CLAUDE_FLAGS`
 (`server/providers/claude/cli-compat.ts:80`) e nello snapshot dell'argv
 (CCLI-07).
 
 #### Scenario: il primo avvio del ramo dirama
-- **GIVEN** un ramo con `parent_ref` = P, `parent_at` = U, uuid del ramo C, e nessun transcript per C
+- **GIVEN** un ramo con `parent_ref` = P, `parent_at` = U, `branch_ref` = C, la sua sessione uguale a C, e nessun transcript per C
 - **WHEN** si monta l'argv del suo spawn
 - **THEN** l'argv contiene, in quest'ordine, `--resume P --resume-session-at U --fork-session --session-id C`
 - **AND** il primo messaggio NON porta il prologo di riepilogo
@@ -123,14 +159,44 @@ Le due bandiere SHALL stare in `CRITICAL_CLAUDE_FLAGS`
 #### Scenario: la madre non aveva una sessione
 - **GIVEN** un topic Claude Code con messaggi e nessuna riga in `claude_code_sessions` (per esempio una storia seminata)
 - **WHEN** lo si dirama e si manda il primo messaggio nel ramo
-- **THEN** lo spawn del ramo usa `--session-id` senza `--fork-session`
+- **THEN** prima del primo spawn il ramo non ha una riga in `claude_code_sessions`
+- **AND** lo spawn del ramo usa `--session-id` senza `--fork-session`, al primo tentativo
 - **AND** il primo messaggio porta il riepilogo della storia copiata
 
+#### Scenario: con Rigenera attivo sulla madre il ramo parte dal riepilogo
+- **GIVEN** una chat Claude Code con sessione e transcript, la cui ultima risposta visibile è stata rigenerata (riga con `branch_index` 1 nel ramo attivo)
+- **WHEN** la si dirama
+- **THEN** `parent_ref` del ramo è nullo e il ramo non ha una riga in `claude_code_sessions`
+- **AND** lo spawn del ramo usa `--session-id` col riepilogo, senza `--fork-session`
+
+#### Scenario: con un turno tagliato in coda il ramo parte dal riepilogo
+- **GIVEN** una chat Claude Code il cui ramo attivo finisce con una risposta finita, un prompt e una riga `partial` rimasta da uno stream perso
+- **WHEN** la si dirama
+- **THEN** la copia finisce alla risposta finita e `parent_ref` del ramo è nullo
+
 #### Scenario: la madre è sparita fra il clic e il primo messaggio
-- **GIVEN** un ramo con `parent_ref` valorizzato, e il transcript della madre cancellato
+- **GIVEN** un ramo con `parent_ref` valorizzato e `branch_ref` = C, e il transcript della madre cancellato
 - **WHEN** il primo spawn del ramo viene rifiutato con «No conversation found with session id»
-- **THEN** `parent_ref` del ramo diventa nullo
+- **THEN** la sessione del ramo viene dimenticata
+- **AND** lo spawn successivo usa `--session-id` con un uuid diverso da C, col riepilogo, e non contiene `--fork-session`
+
+#### Scenario: il punto non c'è più nel transcript della madre
+- **GIVEN** un ramo con `parent_at` = U, e un transcript della madre che non contiene U
+- **WHEN** il primo spawn del ramo viene rifiutato con «No message found with message.uuid of: U»
+- **THEN** il rifiuto è letto come recupero, non come crash
 - **AND** lo spawn successivo usa `--session-id` col riepilogo, e non contiene `--fork-session`
+
+#### Scenario: `/clear` sul ramo non riporta la storia della madre
+- **GIVEN** un ramo con `parent_ref` = P e `branch_ref` = C, con o senza turni suoi
+- **WHEN** si fa `/clear` nel ramo e poi si manda un messaggio
+- **THEN** lo spawn usa `--session-id` con un uuid diverso da C e non contiene `--fork-session` né `--resume P`
+- **AND** il messaggio non porta né la storia della madre né un riepilogo
+
+#### Scenario: la sessione del ramo persa dopo i suoi turni
+- **GIVEN** un ramo che ha fatto 2 turni suoi, e la sua riga in `claude_code_sessions` cancellata (reap della worktree, `forgetBoundSessions`)
+- **WHEN** si manda un messaggio nel ramo
+- **THEN** lo spawn usa `--session-id` senza `--fork-session`
+- **AND** il messaggio porta il riepilogo della storia copiata e dei 2 turni del ramo
 
 #### Scenario: sul filo l'originale non cambia
 - **GIVEN** una chat Claude Code vera con due turni, e lo `shasum` del suo transcript
@@ -150,7 +216,11 @@ essere l'unica tabella, letta dal server e dal client:
   turno (il nativo con `nativeHistorySource`,
   `server/providers/native/history-source.ts:22`, blocchi e strumenti
   compresi), quindi la storia copiata è la loro memoria e non serve altro;
-- ogni altro nome, cioè `openclaw` e gli agenti ACP → `null`: tengono una
+- gli endpoint diretti, cioè ogni nome col prefisso `direct-`
+  (`isDirectProviderName`, `shared/direct-endpoints.ts:83`) → `db-history`:
+  `OpenAICompatibleProvider` ha la capacità `history` ed è `history-aware`
+  come `openai` (`server/providers/openai-compatible.ts:79-81`);
+- ogni altro nome, oggi `openclaw` e gli agenti ACP → `null`: tengono una
   sessione loro fuori da Topics, e un `sessionKey` nuovo partirebbe vuoto sotto
   una chat che mostra la storia.
 
@@ -159,8 +229,8 @@ Il server SHALL decidere sul fornitore RISOLTO del topic
 con `provider` nullo SHALL mostrare la voce e lasciar decidere il server.
 
 #### Scenario: la tabella
-- **WHEN** si chiama `forkModeFor` con `claude-code`, `claude-code-team`, `codex`, `topics`, `topics:opus`, `claude`, `openai`, `openclaw`, `jcode`
-- **THEN** le risposte sono `claude-cli`, `claude-cli`, `codex-cli`, `db-history`, `db-history`, `db-history`, `db-history`, `null`, `null`
+- **WHEN** si chiama `forkModeFor` con `claude-code`, `claude-code-team`, `codex`, `topics`, `topics:opus`, `claude`, `openai`, `direct-x`, `openclaw`, `jcode`
+- **THEN** le risposte sono `claude-cli`, `claude-cli`, `codex-cli`, `db-history`, `db-history`, `db-history`, `db-history`, `db-history`, `null`, `null`
 
 #### Scenario: il ramo nativo ricorda
 - **GIVEN** un topic sul runtime nativo diramato dopo 2 turni
@@ -178,10 +248,13 @@ con `provider` nullo SHALL mostrare la voce e lasciar decidere il server.
 Nella barra delle azioni del messaggio (`MessageBubble.tsx`, accanto a
 Rigenera, `:420-429`) SHALL esserci un bottone `data-testid="msg-action-fork"`,
 icona `GitBranch` di lucide, con `title` e `aria-label` tradotti («Dirama in una
-nuova chat»). SHALL comparire solo sull'ULTIMA riga del ramo attivo quando è
-una risposta `assistant` non `partial`: durante un turno l'ultima riga è la
-risposta in corso, e la voce non c'è. NON SHALL comparire sul coordinatore né
-quando `forkModeFor` dice `null`.
+nuova chat»). SHALL comparire solo sull'ultima parola della chat, `lastWord`
+(`client/src/components/Chat/MessageList.tsx:470`, cioè l'ultima riga del ramo
+attivo saltando gli avvisi di background in coda, come fa `isLastAssistant` per
+Riprova, `:2052`), quando è una risposta `assistant` non `partial` e non una
+riga della macchina. Durante un turno l'ultima parola è la risposta in corso, e
+la voce non c'è; dopo un turno tagliato è la riga di stop, e la voce non c'è.
+NON SHALL comparire sul coordinatore né quando `forkModeFor` dice `null`.
 
 Il composer SHALL offrire `/fork` (voce in `SLASH_COMMANDS`,
 `client/src/components/Chat/slashCommands.ts:33`, gestita in
@@ -210,6 +283,12 @@ il ramo), scelta 4 (voce assente e risposta di `/fork` durante un turno).
 - **WHEN** si passa sulla prima e sull'ultima risposta
 - **THEN** `msg-action-fork` c'è solo sull'ultima
 - **AND** non c'è su nessun messaggio dell'utente
+
+#### Scenario: chat che finisce con un avviso di background: la voce sta sull'ultima risposta
+- **GIVEN** una chat con 2 turni finiti seguiti da un avviso di background (riga `assistant` con un blocco `background-notice`)
+- **WHEN** si passa sull'ultima risposta
+- **THEN** `msg-action-fork` c'è, sulla risposta e non sull'avviso
+- **AND** premendolo il ramo mostra i 4 messaggi dei 2 turni, senza l'avviso
 
 #### Scenario: diramare dalla voce
 - **GIVEN** una chat con 2 turni seminati (4 messaggi)
@@ -282,7 +361,13 @@ essere inviato SOLO il nuovo messaggio; il thread nuovo arriva da
 rollout della madre esiste e ha ancora la dimensione registrata al momento del
 ramo (`parent_at`): una madre che ha fatto turni dopo li porterebbe nel ramo.
 Altrimenti, o se il fork fallisce, `parent_ref` SHALL essere azzerato e il
-turno SHALL partire fresco.
+turno SHALL partire fresco. Il fork SHALL avvenire al più una volta: all'arrivo
+del `thread.started` di un turno `fork`, insieme al salvataggio del thread,
+`parent_ref` e `parent_at` SHALL diventare nulli. Un thread del ramo dimenticato
+dopo (rollout sparito, resume morto) SHALL ripartire fresco con la cronologia
+del database, MAI con un altro fork dalla madre. `parent_ref` SHALL essere nullo
+anche quando CHAT-FORK-01 lo lascia tale (Modifica o Rigenera sul ramo attivo,
+righe dopo il punto oltre agli avvisi di background).
 
 Un thread id persistito il cui rollout NON esiste più (o assente) SHALL essere
 scartato, e il turno SHALL ripartire fresco con `codex exec`, tornando alla
@@ -315,3 +400,9 @@ ramo, quella cronologia è la storia copiata).
 - **WHEN** parte il primo turno
 - **THEN** il turno parte fresco con `codex exec` e la cronologia in markdown della storia copiata
 - **AND** `parent_ref` del ramo diventa nullo
+
+#### Scenario: il fork di un ramo Codex si consuma
+- **GIVEN** un ramo Codex il cui primo turno `fork` ha ricevuto `thread.started` con il thread R, poi 2 turni suoi, poi il rollout di R cancellato, e la madre ferma
+- **WHEN** parte il turno dopo
+- **THEN** `parent_ref` del ramo è nullo dal primo `thread.started`
+- **AND** il turno parte fresco con `codex exec` e la cronologia in markdown della storia copiata e dei 2 turni del ramo, non con `exec fork`

@@ -5,7 +5,7 @@
 2. Il ramo si apre in una tab nuova e prende il fuoco, per la stessa strada di ogni chat aperta da un'altra superficie. Perché: è uguale su desktop e telefono, e l'originale resta a un clic (o: affiancato all'originale in una divisione a destra, solo da desktop).
 3. Il ramo lavora nella stessa cartella dell'originale (progetto e worktree), come `--fork-session` in Claude Code. Perché: non costa niente e vede i file com'erano (o: una worktree nuova a ogni ramo, così due chat che scrivono non si pestano; costa una worktree e un ramo git da chiudere ogni volta).
 4. Durante un turno non si dirama: la voce non c'è e `/fork` risponde «Aspetta la fine del turno», come Rigenera. Perché: il ramo nasce sempre da una risposta finita (o: si dirama anche durante il turno, dall'ultima risposta finita, e il turno in corso resta fuori dal ramo).
-Compreso, senza scelta: il ramo eredita fornitore, modello, effort, autonomia, progetto, prompt e file di contesto, non i messaggi fissati né l'obiettivo; copia il ramo attivo con strumenti e allegati; si chiama «<nome> (ramo)» e sotto la storia copiata dice «Diramata da <nome>»; `/fork <testo>` manda il testo come primo messaggio del ramo; Codex dirama con `codex exec fork`, il nativo legge la storia copiata; openclaw e gli agenti ACP non offrono la voce; Modifica e Rigenera non cambiano.
+Compreso, senza scelta: il ramo eredita fornitore, modello, effort, autonomia, progetto, prompt e file di contesto, non i messaggi fissati né l'obiettivo; copia il ramo attivo con strumenti e allegati; si chiama «<nome> (ramo)» e sotto la storia copiata dice «Diramata da <nome>»; `/fork <testo>` manda il testo come primo messaggio del ramo; Codex dirama con `codex exec fork`, il nativo e gli endpoint diretti leggono la storia copiata; openclaw e gli agenti ACP non offrono la voce; Modifica e Rigenera non cambiano. Se la chat ha una risposta rigenerata o modificata nel ramo visibile, o un turno tagliato in coda, il ramo Claude Code o Codex parte dal riassunto del database, perché la CLI ricorderebbe altro da ciò che la chat mostra.
 Col sì: una tabella nuova (`chat_forks`, una migration) e, al primo avvio di un ramo Claude Code, la bandiera `--resume-session-at`, che `claude --help` non elenca (come già `--permission-prompt-tool`): entra nella tabella delle bandiere critiche. Costo: se una release la toglie, i rami ripartono dal riassunto del database, senza gli esiti degli strumenti, finché non si aggiorna il codice.
 «ok» = tutte le consigliate · «ok ma 2 no» = cambio la 2.
 
@@ -63,6 +63,12 @@ repo).
   in use.`, exit 1.
 - Fork lanciato da un'altra cartella: funziona, e il transcript del ramo va
   sotto la cartella nuova (serve all'alternativa della scelta 3).
+- CLI 2.1.284: lo stesso fork rifatto sullo stesso id da un'altra cartella esce
+  0 e scrive un secondo transcript. Per questo il fork è legato all'uuid che la
+  rotta conia, e una sessione del ramo dimenticata non lo rifà (design §4).
+- CLI 2.1.284: `--resume-session-at` con un uuid che il transcript della madre
+  non ha risponde «No message found with message.uuid of: <uuid>», exit 1, su
+  stderr e nella riga `result`: un rifiuto che il recupero deve riconoscere.
 - `codex exec fork <thread>`: thread nuovo annunciato da `thread.started`,
   storia portata, rollout della madre identico. Senza `-` come prompt non legge
   stdin: crea il thread, non fa nessun turno ed esce 0. `codex exec resume`
@@ -77,7 +83,9 @@ repo).
 - **Claude Code.** Il primo avvio del ramo passa
   `--resume <madre> --resume-session-at <punto> --fork-session --session-id <ramo>`;
   dal secondo `--resume <ramo>`, come ogni chat. Se la madre non c'è più il ramo
-  riparte fresco col riepilogo del database (CCLI-06), una volta sola.
+  riparte fresco col riepilogo del database (CCLI-06), una volta sola. Il fork
+  avviene al più una volta: `/clear`, il reap della worktree o una sessione
+  persa non lo rifanno.
 - **Codex.** Il primo turno del ramo è `codex exec fork <thread madre> -`, poi
   `codex exec resume` come oggi: CODEX-02 modificato.
 - **Nativo e fornitori con la storia dal database.** Nessuna bandiera: la
@@ -116,6 +124,12 @@ Questa change resta autonoma: si può fare prima, dopo o senza quella.
   lo legge per spedirlo, mentre il modale promette «queued and delivered as
   soon as the agent connects» (`NewTopicModal.tsx:448-449`). `/fork <testo>` non
   ci si appoggia (design §10); il difetto merita una card sua.
+- **Trovato strada facendo, fuori scope:** `/clear` su una chat Codex svuota solo
+  la tabella. `clearActionFor` (`server/routes/clearPolicy.ts`) risponde `none`
+  perché il provider Codex non ha né `resetSession` né `sendToSession`, il
+  thread resta in `codex_sessions` e il turno dopo fa `codex exec resume`: il
+  modello ricorda la chat svuotata. Qui si copre solo il ramo prima del suo
+  primo turno (design §4); il resto merita una card sua.
 
 ## Impact
 
@@ -124,7 +138,8 @@ Server: `server/routes/fork.ts` (nuovo, montato accanto a `createEditRouter`,
 `server/providers/claude-code.ts` (spawn del ramo e recupero),
 `server/providers/claude/args.ts`, `server/providers/claude/cli-compat.ts`,
 `server/providers/codex.ts`, `server/providers/codex/args.ts`,
-`server/utils.ts` (proiezione `forkedFrom`), migration
+`server/utils.ts` (proiezione `forkedFrom`), `server/routes/topics.ts` (il
+`/clear` stacca il ramo dalla madre), migration
 `server/db/migrations/<timestamp>-chat-forks.sql` e il manifest
 `server/db/migrations-embedded.ts`.
 Shared: `shared/chat-fork.ts` (nuovo, la tabella dei runtime), `shared/types.ts`
