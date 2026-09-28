@@ -281,7 +281,9 @@ async function runBurst(
   // A chatty tool ships its whole output again on every update: the handler
   // REPLACES `result` rather than appending, which is what makes the rAF buffer
   // lossless. Kept to a tail window so the payload stays the size a live
-  // `tail -f` produces rather than growing without bound.
+  // `tail -f` produces rather than growing without bound. The progress marker
+  // is the LAST line: a running shell row paints only its last eight
+  // (CHAT-TOOL-08), and a marker on the first would leave the page after them.
   const toolTailLines: string[] = [];
   const handoffStart = performance.now();
   for (let k = 0; k < CHUNKS; k++) {
@@ -304,7 +306,7 @@ async function runBurst(
           sessionKey: opts.sessionKey,
           topicId: opts.topicId,
           toolCallId: opts.toolCallId,
-          partialResult: `[k=${String(index).padStart(6, "0")}]\n${toolTailLines.join("\n")}`,
+          partialResult: `${toolTailLines.join("\n")}\n[k=${String(index).padStart(6, "0")}]`,
         }),
       );
     }
@@ -569,7 +571,7 @@ async function measureTranscript(
     sessionKey: o.sessionKey,
     topicId: o.topicId,
     toolCallId,
-    partialResult: "[k=000000]\n  0 · starting",
+    partialResult: "  0 · starting\n[k=000000]",
   });
   await expect(toolRow).toContainText("[k=000000]", { timeout: 30_000 });
 

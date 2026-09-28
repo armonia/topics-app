@@ -63,7 +63,7 @@ import {
   type MessageResidencyInput,
 } from '../state/messageResidency';
 import { senderAlsoSeesFrame } from './senderAlsoSees';
-import { toolUpdatePatch, type ToolUpdateEvent } from './toolUpdatePatch';
+import { toolUpdatePatch, withPartialResult, type ToolUpdateEvent } from './toolUpdatePatch';
 import {
   beginStreamTokenRate,
   finishStreamTokenRate,
@@ -477,6 +477,7 @@ function patchToolCallInMessages(
       (m.blocks ?? []).flatMap((b) => (b.kind === 'tool' && b.toolCall.id === toolCallId ? [b.toolCall] : []))[0];
     if (!source) continue;
     const next = patch(source);
+    if (next === source) return msgs; // a patch that changed nothing (a late partial) redraws nothing
     const nextCalls = m.toolCalls?.map((t) => (t.id === toolCallId ? next : t));
     const nextBlocks = m.blocks?.map((b) =>
       b.kind === 'tool' && b.toolCall.id === toolCallId ? { kind: 'tool' as const, toolCall: next } : b,
@@ -1218,7 +1219,7 @@ export function useChat() {
         if (!cur || cur.length === 0) continue;
         let msgs = cur;
         for (const [toolCallId, partialResult] of perTool) {
-          msgs = patchToolCallInMessages(msgs, toolCallId, tc => ({ ...tc, result: partialResult }));
+          msgs = patchToolCallInMessages(msgs, toolCallId, tc => withPartialResult(tc, partialResult));
         }
         if (msgs !== cur) next = { ...next, [sk]: msgs };
       }
@@ -1478,9 +1479,9 @@ export function useChat() {
 
       case 'stream:tool_update':
         // Live partial result from a long-running tool (e.g. a Bash that
-        // streams output). Server's openclaw provider emits these via
-        // gateway-ws; claude-code currently doesn't (it only sees cumulative
-        // assistant snapshots). Patch the running tool's `result` field with
+        // streams output). The native runtime, codex, acp and openclaw emit
+        // these; the `cli` runtime cannot (its stream carries only heartbeats,
+        // no output). Patch the running tool's `result` field with
         // the partial so the user sees output flowing in instead of staring
         // at a spinner. Status stays 'running' — the terminal status comes
         // later via stream:tool_result.

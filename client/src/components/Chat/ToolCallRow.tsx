@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, HelpCircle, Loader2, ShieldOff, X } from 'lu
 import type { ToolCall, ToolUserResponse } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
+import { runningShellOutput } from './runningShellTail';
 import { ToolCardBody } from './ToolCards';
 import { toolCardHasBody } from './toolCardBody';
 import { iconForDetail } from './toolIcons';
@@ -504,7 +505,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               {tr('chat.tool.noSessionContext')}
             </div>
           ) : (
-            <ToolCardBody detail={detail} isError={isError} isRunning={isRunning} sessionKey={sessionKey} />
+            <ToolCardBody detail={detail} isError={isError} isRunning={isRunning} sessionKey={sessionKey} liveResult={runningShellOutput(toolCall)} />
           )}
           <ToolDetailFetchStatus state={fetchState.state} error={fetchState.error} />
           {toolCall.userResponse && status !== 'waiting_for_input' && (

@@ -1,4 +1,5 @@
 import type { ToolCall, ToolUserResponse } from '@/types';
+import { isActiveTool } from '../components/Chat/toolGrouping';
 
 /**
  * WHAT A `stream:tool_update` ACTUALLY CHANGES ON THE ROW.
@@ -60,4 +61,19 @@ export function toolUpdatePatch(event: ToolUpdateEvent): ToolUpdatePatch | null 
   if (isKnownStatus(event.status)) patch.status = event.status;
   if (event.userResponse !== undefined) patch.userResponse = event.userResponse as ToolUserResponse;
   return Object.keys(patch).length > 0 ? patch : null;
+}
+
+/**
+ * The row with a partial output written on it, or the row untouched once it
+ * has closed (CHAT-TOOL-09).
+ *
+ * The partial REPLACES `result` with the whole current tail, which is what lets
+ * the window you sent from receive it too: twice is the same state. What it
+ * must never do is land on a row that has its result. In that window the result
+ * arrives on the SSE and the partial on WS, two channels with no order between
+ * them, so a partial still on the wire could overwrite the final output with
+ * old text.
+ */
+export function withPartialResult(tc: ToolCall, partialResult: string): ToolCall {
+  return isActiveTool(tc) ? { ...tc, result: partialResult } : tc;
 }

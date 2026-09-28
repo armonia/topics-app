@@ -881,7 +881,13 @@ export async function runAgentTurn(
           ? await executeMcpTool(t.name!, (t.input ?? {}) as Record<string, unknown>)
           : opts.topics && isTopicsTool(t.name!)
             ? await executeTopicsTool(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.topics)
-            : await executeTool(t.name!, (t.input ?? {}) as Record<string, any>, opts.toolContext);
+            // The context is per CALL: the running output goes out under this
+            // call's id, as `stream:tool_update`, the channel the other
+            // providers already use (CHAT-NTOOL-04).
+            : await executeTool(t.name!, (t.input ?? {}) as Record<string, any>, {
+              ...opts.toolContext,
+              onOutput: (tail) => handler.onToolUpdate?.(t.id!, tail),
+            });
       handler.onToolResult(t.id!, out.content, out.isError);
       // EVERY RESULT IS CAPPED HERE, whichever family produced it (machine,
       // Topics, MCP): one place, one budget. The UI above gets the whole
