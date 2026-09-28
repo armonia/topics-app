@@ -25,13 +25,10 @@
 -- in `messages.blocks`, compressed past 512 bytes, where SQL cannot read them.
 -- A chain in flight at deploy has no row here, and no chat it lives in has
 -- one: every resend of the sweep since the table exists writes its count, so
--- a chat with none has had no such resend since. There the sweep takes the
--- count the walk read, and no more: the resend number on the row it judges (the banner on a
--- resent answer, the trace on a row it resent from) or, on a row that carries
--- none, on the row above it (the cut answer a hard kill's fresh notice
--- explains, the cut a copy left unanswered was resent from). The chain goes
--- on from where it was, neither capped nor from zero, and its free probes,
--- which nothing counted, are taken as spent.
+-- a chat with none has had no such resend since. There the sweep reads the
+-- count as it did before this table, walking the thread up `parent_id`, and
+-- no more: the chain goes on from where it was, neither capped nor from zero,
+-- and its free probes, which nothing counted, are taken as spent.
 CREATE TABLE IF NOT EXISTS resend_counts (
   message_id   TEXT PRIMARY KEY,
   session_key  TEXT NOT NULL,

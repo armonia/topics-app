@@ -337,14 +337,6 @@ export function chatDaRiprendere(r: RigaDaValutare, oraMs: number): boolean {
   return resumeVerdict(r, oraMs) === "resend";
 }
 
-/** The resend number a `ripreso` block stands for. Rows written before the
- *  field existed carry one resend each, which is what they meant. */
-function attemptOf(b: ContentBlock): number {
-  if (b?.kind !== "ripreso") return 0;
-  const a = (b as { attempt?: unknown }).attempt;
-  return typeof a === "number" && a > 0 ? a : 1;
-}
-
 /**
  * A RESEND THAT MET THE API STILL DOWN SPENDS NO ATTEMPT (card e30f35e4).
  *
@@ -366,12 +358,6 @@ function probedApiStillDown(blocks: ContentBlock[] | null, rowStartMs: number, l
   return marked(0, cut) && !marked(cut + 1) && lastAnswerMs < rowStartMs;
 }
 
-/** The highest resend number among a row's blocks; 0 when it has none. */
-export function attemptsOnRow(blocks: ContentBlock[] | null | undefined): number {
-  if (!Array.isArray(blocks)) return 0;
-  return blocks.reduce((n, b) => Math.max(n, attemptOf(b)), 0);
-}
-
 /**
  * Il GIRO della ripresa. La REGOLA — chi merita di essere ripreso — sta sopra,
  * in `chatDaRiprendere`, e si prova senza toccare un database.
@@ -386,7 +372,7 @@ import { insertRestartNotification, restartNotificationFrame, threadChangedFrame
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isBackgroundNoticeRow, rowsBack } from "./background-notice";
 import { lastApiAnswerMs, providerHold } from "./provider-hold";
-import { chatHasCounts, recordResend, resendChainOf, type ResendChain } from "./resend-count";
+import { attemptsInChain, attemptsOnRow, chatHasCounts, recordResend, resendChainOf, type ResendChain } from "./resend-count";
 import { providerHoldKey } from "../../shared/provider-hold";
 
 /** A chat's last row, as the sweep reads it. */
@@ -544,22 +530,14 @@ function cardHold(db: Pick<Database, "query">, topicId: string): { bound: boolea
  * trace, so in a chat the table has never seen, the sweep's numbers on the
  * rows were written before the table, by a chain in flight at deploy, and
  * none of them may buy that chain more resends than main gave it. There the
- * count is the one the walk read: on a row that carries no number, the one on
- * the row above it (the cut answer a hard kill's fresh notice explains, the
- * cut a copy of the message left unanswered was resent from). Its free probes
- * were never counted, so none are left. In a chat the table has seen, the row
- * above belongs to a counted chain, and a message with no count under it is a
- * new one.
+ * count is main's own, the walk up the thread (`attemptsInChain`), and its
+ * free probes, which nothing counted, are spent. In a chat the table has
+ * seen, the rows above belong to a counted chain, and a message with no count
+ * under them is a new one.
  */
 function uncountedChain(db: Pick<Database, "query">, row: LastRow, blocks: ContentBlock[] | null, messageId: string): ResendChain {
-  let attempts = attemptsOnRow(blocks);
-  if (chatHasCounts(db, row.sk)) return { messageId, attempts, freeProbes: 0 };
-  if (attempts === 0) {
-    const above = db.query(
-      `SELECT p.blocks AS blocks FROM messages m JOIN messages p ON p.id = m.parent_id WHERE m.id = ? AND m.session_key = ?`,
-    ).get(row.id, row.sk) as { blocks: unknown } | undefined | null;
-    try { attempts = attemptsOnRow(JSON.parse(decodeCol(above?.blocks) ?? "null") as ContentBlock[] | null); } catch { attempts = 0; }
-  }
+  if (chatHasCounts(db, row.sk)) return { messageId, attempts: attemptsOnRow(blocks), freeProbes: 0 };
+  const attempts = attemptsInChain(db, row.sk, row.id);
   return { messageId, attempts, freeProbes: attempts > 0 ? MAX_FREE_PROBES : 0 };
 }
 

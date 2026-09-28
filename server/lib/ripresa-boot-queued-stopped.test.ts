@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
-  MAX_RESUME_ATTEMPTS, RESUME_CAP_MARKER, UNANSWERED_NOTICE, attemptsOnRow, riprendiTurniInterrotti,
+  MAX_RESUME_ATTEMPTS, RESUME_CAP_MARKER, UNANSWERED_NOTICE, riprendiTurniInterrotti,
   resumeVerdict,
 } from "./ripresa-boot";
 // The notice builders are new: reached through the namespace so this file still
@@ -26,7 +26,7 @@ import { logStreamAborted } from "../db/activity-log";
 import * as activityLog from "../db/activity-log";
 import { decodeCol } from "../../shared/message-blob";
 import { RESEND_COUNTS_DDL } from "../db/test-schema";
-import { noteResendCopy, recordResend } from "./resend-count";
+import { attemptsOnRow, noteResendCopy, recordResend } from "./resend-count";
 import { recordTurnEnd, resetTurnEndRegistry } from "../providers/turn-end-registry";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import type { ContentBlock } from "../types";

@@ -26,6 +26,8 @@
  * keyed by that copy.
  */
 import type { Database } from "bun:sqlite";
+import { decodeCol } from "../../shared/message-blob";
+import type { ContentBlock } from "../types";
 
 /** The resends a chain has spent, and the message its next resend sends. */
 export interface ResendChain {
@@ -61,6 +63,56 @@ export function resendChainOf(db: Pick<Database, "query">, sessionKey: string, l
  *  sweep's numbers its rows carry were written before the table. */
 export function chatHasCounts(db: Pick<Database, "query">, sessionKey: string): boolean {
   return !!db.query(`SELECT 1 FROM resend_counts WHERE session_key = ? LIMIT 1`).get(sessionKey);
+}
+
+/** The resend number a `ripreso` block stands for. Rows written before the
+ *  field existed carry one resend each, which is what they meant. */
+function attemptOf(b: ContentBlock): number {
+  if (b?.kind !== "ripreso") return 0;
+  const a = (b as { attempt?: unknown }).attempt;
+  return typeof a === "number" && a > 0 ? a : 1;
+}
+
+/** The highest resend number among a row's blocks; 0 when it has none. */
+export function attemptsOnRow(blocks: ContentBlock[] | null | undefined): number {
+  if (!Array.isArray(blocks)) return 0;
+  return blocks.reduce((n, b) => Math.max(n, attemptOf(b)), 0);
+}
+
+/** A chain longer than this is not a chain: `parent_id` is cyclic or corrupt. */
+const CHAIN_WALK_LIMIT = 64;
+
+/**
+ * How many resends the chain ending at `ultimoId` spent, as the sweep read it
+ * before this table: the highest `attempt` any `ripreso` block carries up
+ * `parent_id`, through the copies of the message, to the first assistant row
+ * with none. The row judged is read past even with none: a hard kill's fresh
+ * notice has no trace yet (the answer it explains is one hop up), and a
+ * resend's answer a reattach rebuilt from the replay has lost its banner (the
+ * cut its resend was traced on is two hops up, above the copy). Read on the
+ * judged row and the one above alone, that answer counted from zero: four
+ * more resends of a message main had resent twice (verifier probe of 28/09).
+ * Only for a chat with no count (`chatHasCounts`): a service row under a
+ * resent answer stops this walk, which is what the table is for.
+ */
+export function attemptsInChain(db: Pick<Database, "query">, sessionKey: string, ultimoId: string): number {
+  let max = 0;
+  let id: string | null = ultimoId;
+  for (let hop = 0; id && hop < CHAIN_WALK_LIMIT; hop++) {
+    const row = db.query(
+      `SELECT role, blocks, parent_id FROM messages WHERE id = ? AND session_key = ?`,
+    ).get(id, sessionKey) as { role: string; blocks: unknown; parent_id: string | null } | undefined | null;
+    if (!row) break;
+    if (row.role === "assistant") {
+      let blocks: ContentBlock[] | null = null;
+      try { blocks = JSON.parse(decodeCol(row.blocks) ?? "null") as ContentBlock[] | null; } catch { blocks = null; }
+      const n = attemptsOnRow(blocks);
+      if (n === 0 && hop > 0) break;
+      max = Math.max(max, n);
+    }
+    id = row.parent_id;
+  }
+  return max;
 }
 
 /**

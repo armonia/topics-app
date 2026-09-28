@@ -718,3 +718,44 @@ describe("a service row under the chain's last copy does not answer it", () => {
     expect(await resumeSweep(sk)).toEqual([1]);
   });
 });
+
+describe("a chain in flight at the deploy goes on from the number main read", () => {
+  /**
+   * Verifier probe of 28/09: the second resend is live when the deploy
+   * restarts the server, before its banner reached the row. Its reattach leg
+   * rebuilds the row from the replay, with no banner, under the copy of the
+   * message, and the watchdog cuts it. Read off that row and the copy above
+   * it, the chain counted from zero: four more resends, six in all. Main
+   * walked past the copy to the cut the resend was traced on.
+   */
+  test("its resend reattached without the banner and cut: resent from 3, then the cap is said", async () => {
+    const sk = topic("deploy-reattach");
+    await answered(sk, "Ciao", "Ciao, dimmi.");
+    const first = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => h.onTextDelta("Lavoro", "Lavoro"));
+    outageEnd("broker-died")(first.route);
+    await drain(first.resp);
+    send = resentTurn();
+    const before = await resumeSweep(sk, { through: true });
+    await cutResent("broker-died");
+    before.push(...await resumeSweep(sk, { through: true }));
+    expect(before).toEqual([1, 2]);
+    // The deploy: the rows were written before the table, which is born empty.
+    ctx.db.run("DELETE FROM resend_counts WHERE session_key = ?", [sk]);
+    // The old process's route, mute after the restart: not the next resend's to read.
+    const oldRoute = live.shift()!;
+    reload(sk, "alive");
+    await reattachLeg(sk, (h) => { h.onTextDelta("Riprendo il build", "Riprendo il build"); h.onAborted!({ turnEnd: cancelled("watchdog") } as never); });
+    expect(ctx.loadLocalMessages(sk).at(-1)!.blocks?.some((b) => b.kind === "ripreso")).toBe(false);
+    const after: unknown[] = [];
+    try {
+      for (let link = 1; link <= MAX_RESUME_ATTEMPTS + 2; link++) {
+        const resent = await resumeSweep(sk, { through: true });
+        if (resent.length === 0) break;
+        after.push(...resent);
+        await cutResent("broker-died");
+      }
+    } finally { await oldRoute.body?.cancel().catch(() => {}); }
+    expect(after).toEqual([3, 4]);
+    expect(capNotice(sk)).toStartWith("⚠️ Ripresa automatica sospesa");
+  });
+});

@@ -10,12 +10,12 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
   chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_FREE_PROBES, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
-  RESPONSE_CEILING_MS, STREAM_CEILING_MS, RESUME_CAP_MARKER, attemptsOnRow,
+  RESPONSE_CEILING_MS, STREAM_CEILING_MS, RESUME_CAP_MARKER,
   resumeVerdict, resumeAttemptOf, type RigaDaValutare, USER_TAIL_GRACE_MS, UNANSWERED_NOTICE,
 } from "./ripresa-boot";
 import { Database } from "bun:sqlite";
 import { RESEND_COUNTS_DDL } from "../db/test-schema";
-import { noteResendCopy, recordResend } from "./resend-count";
+import { attemptsOnRow, noteResendCopy, recordResend } from "./resend-count";
 import { insertRestartNotification, runBootPartialSweep } from "./boot-partial-sweep";
 import { eCartelloDiInterruzione } from "./cancelled-notice";
 import { decodeCol } from "../../shared/message-blob";
@@ -716,11 +716,12 @@ describe("la catena dei riavvii ha un tetto", () => {
    * A CHAIN IN FLIGHT BEFORE THE COUNT EXISTED (migration 20260928170113). Its
    * rows carry resend numbers the table never saw, and none of them may buy
    * the chain more resends than main gave it. The sweep reads the number as
-   * the walk did: on the row it judges, or, on a row that carries none, on the
-   * row above it. A graceful shutdown leaves the number on the cut answer; a
-   * hard kill leaves a fresh notice under the answer that carries it; a copy
-   * of the message left unanswered hangs from the cut its resend was traced
-   * on. Each goes on from where it was, never from zero, and its free probes,
+   * main's walk did, up the thread. A graceful shutdown leaves the number on
+   * the cut answer; a hard kill leaves a fresh notice under the answer that
+   * carries it; a copy of the message left unanswered hangs from the cut its
+   * resend was traced on; a resend's answer a reattach rebuilt without its
+   * banner hangs from the copy, two rows under that cut. Each goes on from
+   * where it was, never from zero, and its free probes,
    * which nothing counted, are spent: a probe into an API still down spends
    * its attempt. In a chat the table has seen, the numbers on the rows are
    * the table's: a message nothing resent starts from zero under any of them.
@@ -728,7 +729,7 @@ describe("la catena dei riavvii ha un tetto", () => {
   test("a chain in flight before the count existed goes on from the number its rows carry", async () => {
     const tool = (): ContentBlock => ({ kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } }) as ContentBlock;
     const apiCut = { kind: "error", text: "Turno interrotto: l'API di Claude non rispondeva più.", cause: "api-unavailable", at: new Date(Date.now() - 30_000).toISOString() } as ContentBlock;
-    const shapes = ["graceful", "hard kill", "copy left unanswered", "api still down", "new message, chat the count has seen"] as const;
+    const shapes = ["graceful", "hard kill", "copy left unanswered", "reattached without the banner", "api still down", "new message, chat the count has seen"] as const;
     const resent: Record<string, unknown[]> = {};
     for (const shape of shapes) {
       clearProviderHold(); resetProviderHoldStore();
@@ -748,6 +749,8 @@ describe("la catena dei riavvii ha un tetto", () => {
       } else if (shape === "copy left unanswered") {
         insertRow("a5", "assistant", [{ kind: "ripreso", attempt: 2 }, tool(), cut, { kind: "ripreso", attempt: 3 }], "u4");
         insertRow("u6", "user", null, "a5", 5 * 60_000);
+      } else if (shape === "reattached without the banner") {
+        insertRow("a5", "assistant", [tool(), cut], "u4");
       } else if (shape === "new message, chat the count has seen") {
         recordResend(db, "topic:x", { messageId: "u0", attempts: 2, freeProbes: 0 });
         noteResendCopy(db, "topic:x", "u0", "u4");
@@ -762,7 +765,8 @@ describe("la catena dei riavvii ha un tetto", () => {
     }
     resetProviderHoldStore();
     expect(resent).toEqual({
-      "graceful": [3], "hard kill": [3], "copy left unanswered": [4], "api still down": [3], "new message, chat the count has seen": [1],
+      "graceful": [3], "hard kill": [3], "copy left unanswered": [4], "reattached without the banner": [3], "api still down": [3],
+      "new message, chat the count has seen": [1],
     });
   });
 });
