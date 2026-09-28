@@ -18,7 +18,7 @@
  * hands back the `onClick` it drew, with `boardApi.diffFile` answering in
  * place of the server.)
  *
- * @covers KANBAN-43, DIFFPV-02, DIFFPV-03, DIFFPV-04
+ * @covers KANBAN-43, DIFFPV-02, DIFFPV-03, DIFFPV-04, DIFFPV-05
  */
 import { describe, expect, spyOn, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -62,14 +62,16 @@ function textBundle(path: string, patch: string): DiffBundle {
   return { branch: 'x', stat: [{ path, additions: 1, deletions: 1, status: 'M' }], patch, truncated: false, revs: { base: BASE, head: HEAD } };
 }
 
+type PanelProps = { review?: DiffReview; focusPath?: string; defaultOpenFirst?: boolean; onStale?: () => void };
+
 /** The panel mounted from scratch, and a way to hand it a re-read bundle as the drawer does. */
-function mountDiff(first: DiffBundle, props: { review?: DiffReview; focusPath?: string; defaultOpenFirst?: boolean }) {
+function mountDiff(first: DiffBundle, props: PanelProps) {
   let bundle = first;
   const h = mount(<UnifiedDiffOf bundle={() => bundle} {...props} />);
   return { h, setBundle: (next: DiffBundle) => { bundle = next; h.rerender(); } };
 }
 
-function UnifiedDiffOf({ bundle, ...props }: { bundle: () => DiffBundle; review?: DiffReview; focusPath?: string; defaultOpenFirst?: boolean }) {
+function UnifiedDiffOf({ bundle, ...props }: { bundle: () => DiffBundle } & PanelProps) {
   return <UnifiedDiff bundle={bundle()} source={TASK} {...props} />;
 }
 
@@ -490,6 +492,57 @@ describe('a live worktree re-read moves every view along (DIFFPV-03, DIFFPV-04)'
     } finally {
       h.unmount();
       spy.mockRestore();
+    }
+  });
+});
+
+describe('a byte read the bundle moved past re-reads the bundle, from the panel (DIFFPV-05)', () => {
+  /** Every byte read answers 409, as after a land between the list and the click. */
+  function answerStale() {
+    const asked: string[] = [];
+    const spy = spyOn(globalThis, 'fetch').mockImplementation((async (url: string | URL | Request) => {
+      asked.push(String(url));
+      return new Response(null, { status: 409 });
+    }) as unknown as typeof fetch);
+    return { asked, restore: () => spy.mockRestore() };
+  }
+
+  test('a picture that does not load asks why, and on a 409 its owner re-reads the bundle once', async () => {
+    const server = answerStale();
+    let rereads = 0;
+    const { h } = mountDiff(binaryBundle({ path: 'assets/logo.png', additions: -1, deletions: -1, status: 'M' }), {
+      focusPath: 'assets/logo.png',
+      onStale: () => { rereads++; },
+    });
+    try {
+      const img = drawn(h, 'diff-image-after');
+      if (!img) throw new Error('diff-image-after is not drawn');
+      (img.props.onError as () => void)();
+      await settle();
+      expect(server.asked).toEqual([`/api/boards/p/tasks/t/diff?file=assets%2Flogo.png&blob=${HEAD}`]);
+      expect(rereads).toBe(1);
+      expect(drawn(h, 'diff-image-unavailable')).toBeDefined();
+    } finally {
+      h.unmount();
+      server.restore();
+    }
+  });
+
+  test('a README whose rendered side answers 409 has its owner re-read the bundle', async () => {
+    const server = answerStale();
+    let rereads = 0;
+    const { h } = mountDiff(textBundle('README.md', patchFor('README.md')), {
+      focusPath: 'README.md',
+      onStale: () => { rereads++; },
+    });
+    try {
+      click(h, 'diff-view-preview');
+      await settle();
+      expect(server.asked).toEqual([`/api/boards/p/tasks/t/diff?file=README.md&blob=${HEAD}`]);
+      expect(rereads).toBe(1);
+    } finally {
+      h.unmount();
+      server.restore();
     }
   });
 });
