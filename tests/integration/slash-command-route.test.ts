@@ -30,9 +30,9 @@
  * @covers SKILL-01, SKILL-02
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
+import { PROJECT_ROOT, cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
 import { isValidSlashCommandName, readSlashCommandSource } from "../../server/lib/slash-command-source";
 
 const ROOT = testTmpDir("slash-command-route");
@@ -115,6 +115,67 @@ describe("il cancello del sorgente di un comando slash", () => {
       expect(["command", "skill"]).toContain(v.kind);
     }
   });
+});
+
+describe("the listing sees every skill the resolver can open", () => {
+  test("a skill folder and a skill that is a link to a folder both reach the / menu", async () => {
+    // Measured on 2026-09-28: every one of the 42 skills under ~/.claude/skills
+    // on Attilio's Mac is a SYMLINK to a folder, and the live listing answered
+    // 19 entries with none of them. `readdirSync(..., { withFileTypes: true })`
+    // reports a link as a link, so `isDirectory()` was false for all of them.
+    //
+    // The route reads the home through `os.homedir()`, and Bun resolves that
+    // once per process: assigning `process.env.HOME` here does not move it
+    // (measured). So the listing is taken from a CHILD process started with a
+    // throwaway HOME, calling the same router the server mounts. Its cwd is an
+    // empty folder too, so the project's own `.claude/commands` cannot leak in.
+    const home = join(ROOT, "listing-home");
+    const work = join(ROOT, "listing-cwd");
+    const hub = join(ROOT, "listing-hub");
+    const skills = join(home, ".claude", "skills");
+    mkdirSync(join(skills, "real-folder-skill"), { recursive: true });
+    mkdirSync(join(hub, "linked-skill"), { recursive: true });
+    mkdirSync(work, { recursive: true });
+    writeFileSync(join(skills, "real-folder-skill", "SKILL.md"), "---\nname: real-folder-skill\ndescription: A skill that is a folder\n---\n\nBody.\n");
+    writeFileSync(join(hub, "linked-skill", "SKILL.md"), "---\nname: linked-skill\ndescription: A skill reached through a link\n---\n\nBody.\n");
+    symlinkSync(join(hub, "linked-skill"), join(skills, "linked-skill"));
+
+    const script = `
+      const { setupTestDataDir, testTmpDir, createTestAppContext } = await import(${JSON.stringify(join(PROJECT_ROOT, "tests/integration/helpers/index.ts"))});
+      setupTestDataDir(testTmpDir("slash-listing-child") + "/data");
+      const { createTopicsRouter } = await import(${JSON.stringify(join(PROJECT_ROOT, "server/routes/topics.ts"))});
+      const router = createTopicsRouter(await createTestAppContext());
+      const url = new URL("http://h/api/slash-commands");
+      const res = await router(new Request(url), url, url.pathname, "GET");
+      process.stdout.write("RESULT " + JSON.stringify({ status: res.status, body: await res.json() }) + "\\n");
+      process.exit(0);
+    `;
+    const child = Bun.spawn(["bun", "-e", script], {
+      cwd: work,
+      env: { PATH: process.env.PATH ?? "", HOME: home, TMPDIR: process.env.TMPDIR ?? "/tmp" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [out, err, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    const line = out.split("\n").find((l) => l.startsWith("RESULT "));
+    expect(line, `the child did not answer (exit ${code})\n${err.slice(-2000)}`).toBeTruthy();
+    const { status, body } = JSON.parse(line!.slice("RESULT ".length)) as {
+      status: number;
+      body: Array<{ name: string; description: string; kind: string }>;
+    };
+    expect(status).toBe(200);
+    const byName = new Map(body.map((e) => [e.name, e]));
+    expect(byName.get("real-folder-skill")).toEqual({ name: "real-folder-skill", description: "A skill that is a folder", kind: "skill" });
+    expect(byName.get("linked-skill"), "a skill that is a link to a folder is missing from the / menu").toEqual({
+      name: "linked-skill",
+      description: "A skill reached through a link",
+      kind: "skill",
+    });
+  }, 60_000);
 });
 
 describe("il resolver, con le sue cartelle sotto controllo", () => {
