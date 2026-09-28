@@ -115,10 +115,11 @@ export interface SubmenuItemProps {
   ariaLabel?: string;
   /** Desktop min panel width in px (forwarded to `Menu`, default 180). */
   minWidth?: number;
-  /** Desktop max panel width in px (forwarded to `Menu`). Opts this level OUT
-   *  of the host-width floor below: without it a level of fixed `label ·
-   *  value` rows gets stretched to match a wide sidebar column and its rows
-   *  spread apart, which is the one shape this ceiling exists to stop. */
+  /** Desktop max panel width in px (forwarded to `Menu`), and a ceiling on the
+   *  host-width floor below. Two shapes need it: a level of fixed `label ·
+   *  value` rows, which a wide sidebar column would stretch apart, and a level
+   *  whose content can be one long line, which would otherwise grow to that
+   *  line instead of wrapping it. */
   maxWidth?: number;
   /** Extra class names on the level's panel. */
   className?: string;

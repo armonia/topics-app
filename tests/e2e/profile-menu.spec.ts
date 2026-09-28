@@ -41,6 +41,10 @@ async function openProfileMenu(page: Page): Promise<Locator> {
   await card.click();
   const menu = page.getByTestId("profile-menu");
   await expect(menu).toBeVisible({ timeout: 10_000 });
+  // The account block is a lazy chunk and can land after the panel is
+  // visible, growing it by its own height (313 -> 369, measured): a height
+  // read before it would blame the next level for the growth.
+  await expect(menu.getByTestId("account-identity")).toBeVisible({ timeout: 10_000 });
   return menu;
 }
 
@@ -50,6 +54,22 @@ async function box(locator: Locator): Promise<{ left: number; right: number; top
   const b = await locator.boundingBox();
   if (!b) throw new Error("the element has no box: it is not laid out");
   return { left: Math.round(b.x), right: Math.round(b.x + b.width), top: Math.round(b.y), height: Math.round(b.height) };
+}
+
+/** `/api/auth/devices` in the route's own shape: the computer apart in
+ *  `thisComputer` (the loopback caller IS it, so it is `current`), the paired
+ *  devices in `devices` with `current: false`, since a loopback request carries
+ *  no session cookie to match. */
+function devicesRoute(phone: string, ipadConnected: boolean) {
+  const paired = (id: string, name: string, connected: boolean) => ({
+    id, name, role: "owner", createdAt: 1, person: null,
+    lastSeenAt: 2, firstIp: null, revokedAt: null, connected, current: false,
+  });
+  return JSON.stringify({
+    thisComputer: { name: "Questo computer", current: true },
+    people: [],
+    devices: [paired("dev-1", phone, true), paired("dev-2", "iPad", ipadConnected)],
+  });
 }
 
 test.describe("il menu utente apre i livelli di lato", () => {
@@ -77,6 +97,11 @@ test.describe("il menu utente apre i livelli di lato", () => {
       child.left,
       `the level starts at ${child.left}, the panel that owns it ends at ${parent.right}`,
     ).toBeGreaterThanOrEqual(parent.right - 4);
+    // AND NO WIDER THAN THE MENU. On a fresh install this level holds only the
+    // hint on how friends arrive, and that one unwrapped sentence pulled it to
+    // 441px beside a 288px menu: the level wraps it at the host's width.
+    expect(child.right - child.left, `the level is ${child.right - child.left}px, the menu ${parent.right - parent.left}px`)
+      .toBeLessThanOrEqual(parent.right - parent.left + 1);
 
     // AND NOT IN LINE: an accordion would have made the panel taller. The
     // level lives in its own portal, so the host keeps the exact height it had.
@@ -157,6 +182,119 @@ test.describe("il menu utente apre i livelli di lato", () => {
     await page.keyboard.press("Escape");
     await expect(menu).toBeHidden({ timeout: 10_000 });
     await expect(page.getByTestId("identity-me-profile")).toBeFocused();
+  });
+
+  test("i dispositivi sono un livello che parte dal computer, e senza telefoni non si allarga", async ({ page }) => {
+    // The real test server, no stub: a fresh install on a Mac with no phone,
+    // which is the state most people meet this level in.
+    await goToApp(page);
+    const menu = await openProfileMenu(page);
+    const host = await box(menu);
+
+    const row = menu.getByTestId("profile-menu-devices");
+    await expect(row).toBeVisible({ timeout: 10_000 });
+    // Nothing paired, nothing to count.
+    await expect(row.getByTestId("devices-count")).toHaveCount(0);
+    await row.click();
+    const level = page.getByTestId("profile-menu-devices-menu");
+    await expect(level).toBeVisible({ timeout: 10_000 });
+
+    // THE DEVICE YOU ARE LOOKING FROM IS IN THE LIST. The route sends it apart
+    // (`thisComputer`), and a level that read only `devices` dropped it: the
+    // «From this device» row had left the account block as a duplicate of this
+    // level, so the current device was then written nowhere in the menu.
+    const rows = level.getByTestId("device-row");
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText("Questo computer");
+    await expect(rows.first()).toContainText("stai qui");
+
+    // A SHORT EMPTY LINE, NOT THE SETTINGS SENTENCE, IN A LEVEL AS WIDE AS THE
+    // MENU. That sentence, 130 characters on one line, pulled the level out to
+    // 662px; and it promises a pairing request "here", which never shows up in
+    // this level.
+    await expect(level.getByTestId("devices-none")).toBeVisible();
+    const own = await box(level);
+    expect(own.right - own.left, `the level is ${own.right - own.left}px, the menu ${host.right - host.left}px`)
+      .toBeLessThanOrEqual(host.right - host.left + 1);
+    await expect(level).not.toContainText("richiesta");
+  });
+
+  test("il livello dei dispositivi elenca computer e telefoni, e si rilegge a ogni apertura", async ({ page }) => {
+    let phone = "iPhone";
+    let ipadConnected = false;
+    await page.route("**/api/auth/devices", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: devicesRoute(phone, ipadConnected) }));
+    await goToApp(page);
+    const menu = await openProfileMenu(page);
+
+    // THE ROW KEEPS ONE LINE with a count in its tail. «Dispositivi
+    // autorizzati» plus «1 connessi di 2» did not fit the 288px menu and
+    // wrapped: a row 48px tall among 30px siblings.
+    const row = menu.getByTestId("profile-menu-devices");
+    const count = row.getByTestId("devices-count");
+    await expect(count).toBeVisible({ timeout: 10_000 });
+    const sibling = await box(menu.getByTestId("profile-menu-friends"));
+    const own = await box(row);
+    expect(own.height, `devices row ${own.height}px, friends row ${sibling.height}px`).toBe(sibling.height);
+    await expect(count).toHaveText("1 di 2 connessi");
+
+    await row.click();
+    const level = page.getByTestId("profile-menu-devices-menu");
+    await expect(level).toBeVisible({ timeout: 10_000 });
+    // The computer first, as in Settings, and the only «you are here»: a
+    // loopback request matches no paired device.
+    await expect(level.getByTestId("device-row")).toHaveText([/Questo computer/, /iPhone/, /iPad/]);
+    await expect(level.getByTestId("device-row").first()).toContainText("stai qui");
+    await expect(level.getByText("stai qui")).toHaveCount(1);
+
+    // A RENAME IN SETTINGS SENDS NO EVENT, and the level shows names: it reads
+    // the route again when it opens, not only when the page mounted.
+    await page.keyboard.press("Escape");
+    await expect(level).toBeHidden({ timeout: 10_000 });
+    phone = "iPhone di Anna";
+    await row.click();
+    await expect(level.getByTestId("device-row").nth(1)).toContainText("iPhone di Anna", { timeout: 10_000 });
+
+    // A PHONE CONNECTING SENDS NO EVENT EITHER, and the count sits on the row,
+    // in sight before any level opens: the menu reads the route as it opens.
+    await page.keyboard.press("Escape");
+    await expect(level).toBeHidden({ timeout: 10_000 });
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden({ timeout: 10_000 });
+    ipadConnected = true;
+    const again = await openProfileMenu(page);
+    await expect(again.getByTestId("devices-count")).toHaveText("2 di 2 connessi", { timeout: 10_000 });
+  });
+
+  test("il livello della versione non segue una colonna larga, e il numero non ha un tooltip", async ({ page }) => {
+    // The column at its widest drag: the host panel follows it, and every
+    // level of names follows the host. The version level holds fixed
+    // `label · value` rows, so it stops at 300 instead of stretching them apart.
+    await page.addInitScript(() => {
+      const raw = localStorage.getItem("app-settings");
+      const settings: Record<string, unknown> = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      settings.sidebarWidth = 400;
+      settings.sidebarCollapsed = false;
+      localStorage.setItem("app-settings", JSON.stringify(settings));
+    });
+    await goToApp(page);
+    const menu = await openProfileMenu(page);
+    const host = await box(menu);
+    expect(host.right - host.left, "the column did not widen, so this proves nothing").toBeGreaterThan(300);
+
+    // The number carried a tooltip repeating what the level says one click away.
+    const anchor = menu.locator("[data-version-anchor]");
+    await expect(anchor).toBeVisible({ timeout: 10_000 });
+    // Soft, so a regression of both halves reports both.
+    await expect.soft(anchor).not.toHaveAttribute("title", /./);
+
+    await menu.getByTestId("menu-version").click();
+    const level = page.getByTestId("menu-version-menu");
+    await expect(level).toBeVisible({ timeout: 10_000 });
+    const own = await box(level);
+    const width = own.right - own.left;
+    expect(width, `the version level is ${width}px`).toBeLessThanOrEqual(300);
+    expect(width, `the version level is ${width}px`).toBeGreaterThanOrEqual(260);
   });
 
   test("la riga delle impostazioni apre il pannello, e non ne ricopia l'elenco", async ({ page }) => {

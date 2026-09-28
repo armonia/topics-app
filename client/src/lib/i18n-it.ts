@@ -2529,8 +2529,13 @@ const IT: Dict = {
   // THE PANELS the three chips open. The chip gives the short answer, the
   // panel shows it in full and carries the actions: these are the only texts
   // that can afford a whole sentence, because in there the space exists.
-  'statusBar.me.devicesRow': 'Dispositivi autorizzati',
-  'statusBar.me.devicesCount': '{n} connessi di {tot}',
+  // One word: with the count in its tail the row holds one line at the
+  // menu's 288px floor, where «Dispositivi autorizzati» wrapped to two.
+  'statusBar.me.devicesRow': 'Dispositivi',
+  'statusBar.me.devicesCount': '{n} di {tot} connessi',
+  // The devices level with no paired device: the computer is the row above it.
+  'statusBar.me.devicesNone': 'Nessun altro dispositivo autorizzato',
+  'statusBar.me.thisComputer': 'Questo computer',
   'statusBar.me.devicesManage': 'Gestisci i dispositivi',
   'statusBar.orgs.manageOne': 'Gestisci questa organizzazione',
   'statusBar.orgs.manageAll': 'Gestisci le organizzazioni',
@@ -2552,7 +2557,6 @@ const IT: Dict = {
   'statusBar.friends.pendingCount': '{n} da accettare',
   'statusBar.friends.pending': '{n} in attesa di una tua risposta',
   // ── The panel behind the left chip: the account, not "your profile".
-  'statusBar.account.title': 'Account',
   'statusBar.account.why': 'Serve a essere raggiunti da fuori dalla tua rete e a ritrovare le stesse persone su un’altra installazione.',
   'statusBar.account.signIn': 'Accedi o registrati',
   // The group of absent people in the open list: their being there is not a

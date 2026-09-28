@@ -12,19 +12,19 @@
  * deep in Settings, on a page you had to already know about.
  *
  * ── SO IT IS AN ACCOUNT PANEL NOW, IN THIS ORDER ────────────────────────────
- *   1. WHO: the face, the name, and underneath the address you are signed in
- *      with, or, in as many words, that no account is linked.
+ *   1. WHO: the face and the name, one row that opens your profile, and
+ *      underneath the address you are signed in with, or, in as many words,
+ *      that no account is linked.
  *   2. THE WAY IN, when there is no account and this installation has a service
  *      to ask: the address, then the code that arrives by email. Both steps
  *      happen HERE, without the panel closing and without a trip to Settings.
- *   3. THE FACT, with its label: the device you are on. It was a list of four,
- *      and three of them were about something else — see `LocalFacts` for what
- *      left and where it went. A row with nothing to say is not drawn, and
- *      neither is the block when it is empty: a label next to a blank is the
- *      filler this redesign was asked to remove.
- *   4. THE DOORS: your profile, the devices (which carry their own count in
- *      the tail, so the door and the number are one row), and signing out when
- *      signed in.
+ *   3. SIGNING OUT, when signed in: the one door this panel still owns.
+ *
+ * ── WHAT IT NO LONGER SAYS ──────────────────────────────────────────────────
+ * No «Account» heading over the name, which only labelled what the face and
+ * the name already are. No «Open your profile» row: the name row is that door.
+ * No «From this device» row and no devices door: the devices are a level of
+ * their own in `ProfileMenu`, which lists this computer first.
  *
  * ── ONE VERB, NOT TWO ───────────────────────────────────────────────────────
  * There is no "register" button next to a "log in" button. The service sends a

@@ -39,7 +39,7 @@
  * behind the chips, the exact numbers behind the dot.
  */
 import { Suspense, useCallback, useLayoutEffect, useState } from 'react';
-import { Building2, Monitor, Users } from 'lucide-react';
+import { Building2, Monitor, Smartphone, Users } from 'lucide-react';
 import { MenuWidthProvider, SubmenuItem } from '../Shared/SubmenuItem';
 import { PresencePopover } from './PresencePopover';
 import { FaceStack, MenuAction, PresenceList } from './PresenceList';
@@ -56,13 +56,22 @@ import type { WorkSignal } from './workSignals';
 import { apriProfilo } from '@/state/profileTarget';
 import { useT } from '@/hooks/useT';
 
-/** One row of `/api/auth/devices`, trimmed to what the submenu draws: a name,
- *  whether it holds a live socket right now, and whether it is this one. */
+/** One paired row of `/api/auth/devices`, trimmed to what the submenu draws:
+ *  a name, whether it holds a live socket right now, and whether it is this one. */
 export interface LiveDevice {
   id: string;
   name: string;
   connected: boolean;
   current: boolean;
+}
+
+/** What the route answers, in its two halves. The computer the server runs on
+ *  comes APART from the paired devices (`thisComputer`): it has no row in the
+ *  database and cannot be revoked, and over loopback it is the only device
+ *  marked as the one you are looking from. */
+export interface DeviceList {
+  computer: { current: boolean } | null;
+  paired: LiveDevice[];
 }
 
 /** A glyph component, taken as a prop: which device you are on was decided by
@@ -117,16 +126,16 @@ function useAnchorWidth(anchorEl: HTMLElement | null, floor: number): number {
 }
 
 export function ProfileMenu({
-  anchorEl, onClose, who, DeviceIcon, devices, orgs, friends, signals, commands, onOpenDevices,
+  anchorEl, onClose, who, DeviceIcon, devices, onReadDevices, orgs, friends, signals, commands, onOpenDevices,
 }: {
   anchorEl: HTMLElement | null;
   onClose: () => void;
   who: LabelIdentity;
   DeviceIcon: Glyph;
-  /** The authorised devices, `null` while the first fetch has not answered
-   *  yet - treated the same as an empty list here, since it settles before a
-   *  person has time to open this menu. */
-  devices: LiveDevice[] | null;
+  /** The devices, `null` until the route has answered once. */
+  devices: DeviceList | null;
+  /** Asks the route again. Stable: the devices level calls it on open. */
+  onReadDevices: () => void;
   orgs: OrgWithPresence[];
   friends: FriendPresence;
   /** What is running right now, already picked and tiered by `workSignals`. */
@@ -161,9 +170,21 @@ export function ProfileMenu({
         </Suspense>
 
         <div className="border-t border-app-border" />
-        <FriendsSection friends={friends} onClose={onClose} />
-        <OrgsSection orgs={orgs} onClose={onClose} />
-        <DevicesSection devices={devices} onOpenDevices={onOpenDevices} onClose={onClose} />
+        {/* THE LEVELS OF NAMES ARE AS WIDE AS THE MENU, NOT AS THEIR LONGEST
+            LINE. A level is a fixed box that grows to its content, so one
+            unwrapped sentence pulled it out: measured on a fresh install, the
+            friends level with its hint was 441px and the devices level with
+            the Settings sentence 662px, against a 288px menu. With the host's
+            width as the ceiling too, a long name truncates and a hint wraps. */}
+        <FriendsSection friends={friends} width={width} onClose={onClose} />
+        <OrgsSection orgs={orgs} width={width} onClose={onClose} />
+        <DevicesSection
+          devices={devices}
+          width={width}
+          onReadDevices={onReadDevices}
+          onOpenDevices={onOpenDevices}
+          onClose={onClose}
+        />
 
         <div className="border-t border-app-border" />
         <TopicsMenuItems
@@ -193,7 +214,12 @@ export function ProfileMenu({
  * section: sending a person to a page to press "accept" is the round trip the
  * panel exists to remove.
  */
-function FriendsSection({ friends, onClose }: { friends: FriendPresence; onClose: () => void }) {
+function FriendsSection({ friends, width, onClose }: {
+  friends: FriendPresence;
+  /** The host panel's width: the level's floor and its ceiling. */
+  width: number;
+  onClose: () => void;
+}) {
   const tr = useT();
   const [busy, setBusy] = useState<string | null>(null);
   const { incoming, accept, decline, rows, faces: online } = friends;
@@ -216,6 +242,7 @@ function FriendsSection({ friends, onClose }: { friends: FriendPresence; onClose
       label={tr('statusBar.friends.title')}
       testId="profile-menu-friends"
       minWidth={244}
+      maxWidth={width}
       // A COUNT ONLY WHEN THERE IS SOMETHING TO COUNT. It used to read «0 of
       // 7 online», which spends the tail of the row on the one state that has
       // nothing to say: how many friends you have is not news, and «0 of» is a
@@ -296,7 +323,12 @@ function FriendsSection({ friends, onClose }: { friends: FriendPresence; onClose
  * AND IT IS THERE AT ZERO, because "what is an organisation, and how do I end
  * up in one" is a question only somebody in none can have.
  */
-function OrgsSection({ orgs, onClose }: { orgs: OrgWithPresence[]; onClose: () => void }) {
+function OrgsSection({ orgs, width, onClose }: {
+  orgs: OrgWithPresence[];
+  /** The host panel's width: the level's floor and its ceiling. */
+  width: number;
+  onClose: () => void;
+}) {
   const tr = useT();
   const people = mergePeople(orgs.map((o) => o.people));
   const online = people.filter((p) => p.presente).length;
@@ -308,6 +340,7 @@ function OrgsSection({ orgs, onClose }: { orgs: OrgWithPresence[]; onClose: () =
       label={only ? only.nome : tr('statusBar.orgs.title')}
       testId="profile-menu-orgs"
       minWidth={244}
+      maxWidth={width}
       tail={
         <span data-testid="orgs-count" className={`flex-shrink-0 tabular-nums ${online > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}>
           {orgs.length === 0 ? '0' : tr('statusBar.orgs.presence', { n: online, tot: people.length })}
@@ -344,26 +377,41 @@ function OrgsSection({ orgs, onClose }: { orgs: OrgWithPresence[]; onClose: () =
   );
 }
 
+const DEVICE_ROW = 'flex items-center gap-2 px-3 py-1 text-mini';
+
 /**
- * THE AUTHORISED DEVICES, listed here instead of behind a button that only
- * navigated to Settings.
- *
- * It used to be one door with a count in its tail («Authorised devices · 0 of
- * 2 connected»), which told you the number and then made you leave the panel
- * to learn what the two devices even were. The row now opens onto the same
- * list `Settings/DevicesSection` draws, in miniature, and «Gestisci i
- * dispositivi» stays as the one door left, for the gesture that panel alone
+ * THE DEVICES, listed here instead of behind a button that only navigated to
+ * Settings: the list `Settings/DevicesSection` draws, in miniature. «Gestisci
+ * i dispositivi» stays as the one door left, for the gesture that panel alone
  * still owns: revoking one.
+ *
+ * THE COMPUTER IS THE FIRST ROW. The route sends it apart from the paired
+ * devices (`thisComputer`), and over loopback it is the only one marked as the
+ * device you are looking from: a level that read only the paired ones left the
+ * Mac out, and with an account linked the name row carries the address, so
+ * the current device was then written nowhere in the menu. The count in the
+ * tail stays on the paired devices, the rows that carry a live dot.
+ *
+ * READ AGAIN ON OPEN. A rename in Settings and a phone connecting send no
+ * event, and this level shows names and live dots, not a bare count.
  */
-function DevicesSection({ devices, onOpenDevices, onClose }: {
-  devices: LiveDevice[] | null;
+function DevicesSection({ devices, width, onReadDevices, onOpenDevices, onClose }: {
+  devices: DeviceList | null;
+  /** The host panel's width: the level's floor and its ceiling. */
+  width: number;
+  onReadDevices: () => void;
   onOpenDevices?: () => void;
   onClose: () => void;
 }) {
   const tr = useT();
+  // Stable, because `SubmenuItem` reports from an effect keyed on it: a fresh
+  // function per render would read the route again on every render.
+  const onOpenChange = useCallback((open: boolean) => {
+    if (open) onReadDevices();
+  }, [onReadDevices]);
   if (!onOpenDevices) return null;
-  const list = devices ?? [];
-  const online = list.filter((d) => d.connected).length;
+  const paired = devices?.paired ?? [];
+  const online = paired.filter((d) => d.connected).length;
 
   return (
     <SubmenuItem
@@ -371,23 +419,36 @@ function DevicesSection({ devices, onOpenDevices, onClose }: {
       label={tr('statusBar.me.devicesRow')}
       testId="profile-menu-devices"
       minWidth={244}
-      tail={list.length > 0 ? (
+      maxWidth={width}
+      onOpenChange={onOpenChange}
+      tail={paired.length > 0 ? (
         <span data-testid="devices-count" className={`flex-shrink-0 tabular-nums ${online > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}>
-          {tr('statusBar.me.devicesCount', { n: online, tot: list.length })}
+          {tr('statusBar.me.devicesCount', { n: online, tot: paired.length })}
         </span>
       ) : undefined}
     >
-      {list.length === 0 ? (
-        <div className="px-3 py-2 text-mini text-app-text-secondary">{tr('devices.none')}</div>
-      ) : (
+      {devices && (
         <div className="max-h-[240px] overflow-y-auto py-1">
-          {list.map((d) => (
-            <div key={d.id} data-testid="device-row" className="flex items-center gap-2 px-3 py-1 text-mini">
-              <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${d.connected ? PALLINO_OK : 'bg-app-text-muted/40'}`} />
+          {devices.computer && (
+            <div data-testid="device-row" className={DEVICE_ROW}>
+              <Monitor size={12} className="flex-shrink-0 text-app-text-muted" />
+              <span className="min-w-0 flex-1 truncate text-app-text">{tr('statusBar.me.thisComputer')}</span>
+              {devices.computer.current && <span className="flex-shrink-0 text-app-text-muted">{tr('devices.youAreHere')}</span>}
+            </div>
+          )}
+          {paired.map((d) => (
+            <div key={d.id} data-testid="device-row" className={DEVICE_ROW}>
+              <Smartphone size={12} className="flex-shrink-0 text-app-text-muted" />
               <span className="min-w-0 flex-1 truncate text-app-text">{d.name}</span>
               {d.current && <span className="flex-shrink-0 text-app-text-muted">{tr('devices.youAreHere')}</span>}
+              <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${d.connected ? PALLINO_OK : 'bg-app-text-muted/40'}`} />
             </div>
           ))}
+          {/* Not the Settings sentence: that one promises a pairing request
+              «here», and requests never show up in this level. */}
+          {paired.length === 0 && (
+            <div data-testid="devices-none" className="px-3 py-1 text-mini text-app-text-muted">{tr('statusBar.me.devicesNone')}</div>
+          )}
         </div>
       )}
       <div className="border-t border-app-border py-1">
