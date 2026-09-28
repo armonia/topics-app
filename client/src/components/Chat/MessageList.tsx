@@ -28,7 +28,7 @@ import {
   type ScrollAuthorityState,
   type ScrollEvent,
 } from './scrollAuthority';
-import { coalesceToolRuns, type CoalescedMessage } from './coalesceToolRun';
+import { coalesceToolRuns, itemHolds, type CoalescedMessage } from './coalesceToolRun';
 import { SkeletonChatMessages } from '../Shared/Skeleton';
 import { listPaintedAndWhole } from './listPaintedAndWhole';
 import { decideHistoryCompletion } from './historyCompletionDecision';
@@ -2133,7 +2133,7 @@ export function MessageList({
                 />
               </div>
               </CompactionHoistContext.Provider>
-              {topic.forkedFrom?.atMessageId === msg.id && <ForkOriginDivider origin={topic.forkedFrom} />}
+              {topic.forkedFrom && itemHolds(msg, topic.forkedFrom.atMessageId) && <ForkOriginDivider origin={topic.forkedFrom} />}
               {trailingMarkers && trailingMarkers.map((mk) => (
                 <CompactionDivider key={mk.id} marker={mk} summary={trailingSummary ?? undefined} />
               ))}
