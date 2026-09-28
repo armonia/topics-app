@@ -17,6 +17,7 @@ import {
   type ProcessExitWakeDeps,
 } from "./process-exit-wake";
 import { userRowMarks } from "./user-row-marks";
+import { clearProviderHold, holdForApiDown, resetProviderHoldStore } from "./provider-hold";
 
 const FACTS = {
   processId: "p-1",
@@ -206,6 +207,38 @@ describe("deliverProcessExit", () => {
     expect(outcome).toBe("sent");
     expect(checks).toBeGreaterThan(4);
     expect(closed).toBe(true);
+  });
+
+  // An API outage holds the topic's provider (`holdForApiDown`). A wake sent
+  // into it was cut by the outage, and a wake's cut is not resent
+  // (`answersPersonsMessage`): the agent never learned its command had ended.
+  test("waits while the topic's provider is held, and goes out when the hold lifts", async () => {
+    holdForApiDown();
+    try {
+      const { d, bodies, logs } = deps({});
+      const outcome = deliverProcessExit(d, FACTS);
+      await Bun.sleep(60);
+      expect(bodies).toHaveLength(0);
+      expect(logs.join("\n")).toContain("held");
+      clearProviderHold();
+      expect(await outcome).toBe("sent");
+      expect(bodies).toHaveLength(1);
+    } finally {
+      resetProviderHoldStore();
+      clearProviderHold();
+    }
+  });
+
+  test("a hold on another provider does not hold it", async () => {
+    holdForApiDown();
+    try {
+      const { d, bodies } = deps({ getTopicById: () => ({ sessionKey: "s-a", provider: "codex" }) });
+      expect(await deliverProcessExit(d, FACTS)).toBe("sent");
+      expect(bodies).toHaveLength(1);
+    } finally {
+      resetProviderHoldStore();
+      clearProviderHold();
+    }
   });
 
   test("once: a row already there means nothing is sent", async () => {

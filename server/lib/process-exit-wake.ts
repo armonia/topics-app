@@ -15,10 +15,14 @@
  * session has no turn in flight: a wake never cuts into a turn, and a 409
  * `stream_in_flight` (somebody else took the session first) puts it back to
  * wait instead of losing it. There is no cap on that wait: a wedged turn is
- * closed by the `[StaleStream]` sweep, and then the wake goes. Any other
- * refusal is not a busy session (a 409 `topics_routing_incompatible` lasts
- * until somebody changes the topic's settings): it fails, and stays owed to
- * the next boot, with nobody waiting for it before then.
+ * closed by the `[StaleStream]` sweep, and then the wake goes. It also waits
+ * while the topic's provider is held (`isProviderHeld`, the wall the resume
+ * sweep and the dispatcher wait behind): sent into an API outage, its turn was
+ * cut, and a wake's cut is not resent (`answersPersonsMessage`), so the agent
+ * never learned its command had ended. Any other refusal is not a busy session
+ * (a 409 `topics_routing_incompatible` lasts until somebody changes the
+ * topic's settings): it fails, and stays owed to the next boot, with nobody
+ * waiting for it before then.
  *
  * An archived topic gets nothing, unless a card in progress owns it: a board
  * agent's topic is born archived, the rule the CLI's own wakes follow
@@ -32,6 +36,7 @@
  */
 
 import { wakeVerdict } from "./wake-adoption";
+import { isProviderHeld } from "./provider-hold";
 
 /** What the topic is told about a process that ended. */
 export interface ProcessExitFacts {
@@ -74,7 +79,9 @@ type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => R
 
 export interface ProcessExitWakeDeps {
   db: { query(sql: string): { get(...args: string[]): unknown } };
-  getTopicById(id: string): { sessionKey: string; archived?: boolean } | null;
+  getTopicById(id: string): { sessionKey: string; archived?: boolean; provider?: string | null } | null;
+  /** The provider a topic with none pinned runs on; claude-code when absent. */
+  defaultProvider?(): string | undefined;
   /**
    * A card in progress owns this topic (`runningTaskOwnsTopic`): a board
    * agent's topic is born archived and still gets its wakes, the rule of
@@ -171,6 +178,7 @@ export async function deliverProcessExit(
   deps: ProcessExitWakeDeps, f: ProcessExitFacts & Pick<ProcessExitRequest, "owed">,
 ): Promise<"sent" | "delivered" | "no-topic" | "failed"> {
   const pollMs = deps.pollMs ?? 500;
+  let heldSaid = false;
   for (;;) {
     // Resolved on every round: the topic can be archived, or its card leave
     // the column, while the wake waits.
@@ -181,6 +189,13 @@ export async function deliverProcessExit(
     if (deps.isBusy(topic.sessionKey)) { await sleep(pollMs); continue; }
     // The turn it waited for read the outcome with `wait_for_process`: delivered there.
     if (f.owed?.() === false) return "delivered";
+    // Before the search too: a hold lasts up to an hour.
+    if (isProviderHeld(topic.provider || deps.defaultProvider?.() || "claude-code")) {
+      if (!heldSaid) deps.log?.(`${f.processId}: the topic's provider is held, the wake waits for the hold to lift`);
+      heldSaid = true;
+      await sleep(pollMs);
+      continue;
+    }
     if (wakeDelivered(deps.db, topic.sessionKey, f.processId)) return "delivered";
     const url = new URL("http://localhost/api/chat");
     const resp = await deps.route(
