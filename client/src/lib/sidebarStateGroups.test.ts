@@ -12,13 +12,14 @@
  * cui si guarda un item nei Set (il SOGGETTO, non la chiave di render) e la
  * conservazione dell'ordine dentro il bucket.
  *
- * @covers TOPIC-02
+ * @covers TOPIC-02, CHROME-07
  */
 import { describe, test, expect } from 'bun:test';
 import {
   groupSidebarItemsByState,
   sidebarItemState,
   sidebarItemSubject,
+  sidebarStateSignals,
   type SidebarItem,
   type SidebarStateSignals,
 } from './buildSidebarItems';
@@ -191,5 +192,38 @@ describe('groupSidebarItemsByState', () => {
     expect(total).toBe(items.length);
     const ids = [...g.awaiting, ...g.working, ...g.rest].map(i => i.id).sort();
     expect(ids).toEqual(items.map(i => i.id).sort());
+  });
+});
+
+describe('sidebarStateSignals: the sets the view groups by', () => {
+  const none = new Set<string>();
+  const sources = {
+    awaitingFeedbackTopics: none,
+    awaitingInputTopics: none,
+    claudePhaseAwaitingTermIds: none,
+    claudePhaseAwaitingInputTermIds: none,
+    liveStreamTopics: none,
+    hydratedStreamTopics: none,
+    claudePhaseActiveTermIds: none,
+  };
+
+  test('a chat parked on an in-app question sits in «Attende te», not in «Al lavoro»', () => {
+    // CHROME-07. Its stream is still open, so it is in the working set; the
+    // question reaches only `awaitingInputTopics`, which the view used not to
+    // read, and the row landed in the working section while painted amber.
+    const sig = sidebarStateSignals({ ...sources, awaitingInputTopics: S('ask'), liveStreamTopics: S('ask', 'busy') });
+    const g = groupSidebarItemsByState([chat('ask'), chat('busy')], sig);
+    expect(g.awaiting.map(i => i.name)).toEqual(['ask']);
+    expect(g.working.map(i => i.name)).toEqual(['busy']);
+  });
+
+  test('a finished hook turn still sits in «Attende te»', () => {
+    const sig = sidebarStateSignals({ ...sources, awaitingFeedbackTopics: S('done') });
+    expect(sidebarItemState(chat('done'), sig)).toBe('awaiting');
+  });
+
+  test('working is a live OR a hydrated stream', () => {
+    const sig = sidebarStateSignals({ ...sources, hydratedStreamTopics: S('h') });
+    expect(sidebarItemState(chat('h'), sig)).toBe('working');
   });
 });

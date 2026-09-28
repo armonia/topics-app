@@ -21,6 +21,7 @@ import { test, expect } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { interceptWebSocket } from "./helpers/ws-helpers";
+import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 
@@ -143,5 +144,49 @@ test.describe("Stato delle tab: i tre stati e il raggruppamento", () => {
     const resto = page.locator('[data-testid="sidebar-state-section-rest"]');
     await expect(resto).toBeVisible();
     await expect(resto).toContainText(lavora.name);
+  });
+
+  test("una domanda dentro l'app sta in Attende te, non in Al lavoro", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHROME-07" });
+    // A chat of the default runtime parked on `ask_user_question`: the turn is
+    // still open (so it is also a working stream), and the question reaches
+    // the client only as `waiting` in the streams snapshot. The view used to
+    // read the hook phases alone and filed it with the working ones.
+    const name = `stato-domanda-${Date.now()}`;
+    const t = await createTopic(request, name);
+    try {
+      const sessionKey = await sessionKeyOf(request, t.id);
+      // Seeded before the load: the first snapshot already reads `waiting`.
+      expect((await request.post(`${BASE}/api/test/streams/partial`, { data: { sessionKey } })).ok()).toBe(true);
+      const question = "Procedo?";
+      const options = [{ label: "si", description: "" }, { label: "no", description: "" }];
+      await seedMessage(request, {
+        sessionKey,
+        role: "assistant",
+        content: "Prima di continuare:",
+        toolCalls: [{
+          id: `ask-${Date.now()}`,
+          name: "mcp__topics__ask_user_question",
+          args: { questions: [{ question, header: "Via", options }] },
+          status: "waiting_for_input",
+          startedAt: Date.now() - 2_000,
+          userInputSchema: { kind: "questions", questions: [{ question, header: "Via", options, multiSelect: false }] },
+        }],
+      });
+      await resetPaneStore(request, [t.id]);
+      await page.addInitScript(() => {
+        try {
+          const raw = window.localStorage.getItem('topics-sidebar-state');
+          const prev = raw ? JSON.parse(raw) : {};
+          window.localStorage.setItem('topics-sidebar-state', JSON.stringify({ ...prev, viewMode: 'state' }));
+        } catch { /* no storage: the assertion below says so */ }
+      });
+      await goToApp(page);
+
+      await expect(page.locator('[data-testid="sidebar-state-section-awaiting"]')).toContainText(name, { timeout: 20_000 });
+      await expect(page.locator('[data-testid="sidebar-state-section-working"] [data-row-name="chat"]', { hasText: name })).toHaveCount(0);
+    } finally {
+      await deleteTopic(request, t.id).catch(() => {});
+    }
   });
 });

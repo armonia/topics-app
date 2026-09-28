@@ -2,15 +2,15 @@
  * LA CHROME DEL TELEFONO, MISURATA.
  *
  * Forma decisa da chi usa la app il 12/08 e allargata il 14/08: in alto «Topics» a
- * sinistra e la campanella a DESTRA, in basso quattro porte — cerca · aggiungi ·
- * task · profilo — e la fila che segue la curvatura dello schermo «quando
+ * sinistra e la campanella a DESTRA, in basso cinque porte — cerca · aggiungi ·
+ * task · in attesa · profilo — e la fila che segue la curvatura dello schermo «quando
  * presente nell'iPhone, in modo da ottimizzare al massimo lo spazio».
  *
  * Ognuna di quelle frasi qui è un numero letto dal DOM, non un'impressione:
  *
  *  MOBILE-CHROME-01  in alto non sono risaliti cerca e «+», e la campanella
  *                    sta a destra mentre «Topics» sta a sinistra
- *  MOBILE-CHROME-02  le quattro porte esistono, e il dito ci arriva (≥44px)
+ *  MOBILE-CHROME-02  le cinque porte esistono, e il dito ci arriva (≥44px)
  *  MOBILE-CHROME-03  la fila è DRITTA su uno schermo squadrato e CURVA su uno
  *                    con gli angoli tondi — stesso codice, due misure
  *  MOBILE-CHROME-04  «task» è un interruttore: lista dei task ⇄ tab, andata e
@@ -49,6 +49,7 @@ const CERCA = '[data-testid="mobile-chrome-search"]';
 const AGGIUNGI = '[data-testid="pane-add-menu-trigger"]';
 const BOARD = '[data-testid="mobile-chrome-board"]';
 const PROFILO = '[data-testid="mobile-chrome-profile"]';
+const WAITING = '[data-testid="mobile-chrome-waiting"]';
 
 /** La fascia dell'home indicator di un iPhone in verticale. */
 const FASCIA_IPHONE = 34;
@@ -218,16 +219,16 @@ test.describe.serial("La chrome del telefono", () => {
     }
   });
 
-  test("MOBILE-CHROME-02 — quattro porte, e il dito ci arriva", async ({ page }) => {
+  test("MOBILE-CHROME-02 — cinque porte, e il dito ci arriva", async ({ page }) => {
     await apri(page);
     await fascia(page, 0);
 
-    for (const sel of [CERCA, AGGIUNGI, BOARD, PROFILO]) {
+    for (const sel of [CERCA, AGGIUNGI, BOARD, WAITING, PROFILO]) {
       await expect(page.locator(BARRA).locator(sel)).toBeVisible();
     }
 
     const misure = await porte(page);
-    expect(misure.length).toBe(4);
+    expect(misure.length).toBe(5);
     for (const p of misure) {
       expect(p.altezza).toBeGreaterThanOrEqual(44);
       expect(p.larghezza).toBeGreaterThanOrEqual(44);
@@ -255,31 +256,34 @@ test.describe.serial("La chrome del telefono", () => {
     for (const p of dritta) expect(Math.round(p.daFondo)).toBe(FLOOR);
 
     // ── Angoli tondi: gli estremi SALGONO, quelli in mezzo no.
-    // Con quattro scatole i «centri» sono due, e la legge non cambia: sale chi
+    // Con cinque scatole i «centri» sono tre, e la legge non cambia: sale chi
     // sta entro il raggio dal bordo laterale, e nessun altro. È il motivo per
-    // cui la quarta porta non ha richiesto un ramo nuovo in `alzateFila`.
+    // cui la quinta porta non ha richiesto un ramo nuovo in `alzateFila`.
     await fascia(page, FASCIA_IPHONE);
     const curva = await porte(page);
-    expect(curva.length).toBe(4);
-    const [sx, centroSx, centroDx, dx] = curva;
+    expect(curva.length).toBe(5);
+    // First, last and the ones in between, as in MOBILE-CHROME-07: with five
+    // doors a fixed destructuring would call the fourth door the right end.
+    const sx = curva[0]!;
+    const dx = curva[curva.length - 1]!;
+    const centrali = curva.slice(1, -1);
 
-    // The two in the middle reach the EDGE of the screen: they fill the bottom
+    // The ones in the middle reach the EDGE of the screen: they fill the bottom
     // band instead of floating above it, and the arc does not reach them.
-    expect(Math.round(centroSx.daFondo)).toBe(FLOOR);
-    expect(Math.round(centroDx.daFondo)).toBe(FLOOR);
+    for (const centro of centrali) expect(Math.round(centro.daFondo)).toBe(FLOOR);
     // I due estremi stanno più in alto, e fra loro sono simmetrici.
-    expect(sx.daFondo).toBeGreaterThan(centroSx.daFondo);
-    expect(dx.daFondo).toBeGreaterThan(centroDx.daFondo);
+    expect(sx.daFondo).toBeGreaterThan(centrali[0]!.daFondo);
+    expect(dx.daFondo).toBeGreaterThan(centrali[centrali.length - 1]!.daFondo);
     expect(Math.abs(sx.daFondo - dx.daFondo)).toBeLessThanOrEqual(1);
 
     // And no door goes through the bottom edge: below it there is nothing to
     // occupy, and a button that ended up there would be clipped.
     for (const p of curva) expect(p.daFondo).toBeGreaterThanOrEqual(FLOOR);
 
-    // ALL FOUR START ON THE SAME LINE. It is the other half of "the buttons
+    // ALL FIVE START ON THE SAME LINE. It is the other half of "the buttons
     // must have the full height of the bar": what changes at the bottom is how
-    // far the arc lets them go, at the top nothing does, or the four words
-    // would sit on four different lines.
+    // far the arc lets them go, at the top nothing does, or the five words
+    // would sit on five different lines.
     const tops = curva.map((p) => Math.round(p.daFondo + p.altezza));
     expect(new Set(tops).size).toBe(1);
 
@@ -294,20 +298,23 @@ test.describe.serial("La chrome del telefono", () => {
     // con l'angolo esterno tondo. Senza quell'angolo la stessa posizione
     // costerebbe tutto il raggio dell'arco di alzata, cioè più dell'altezza del
     // tasto: è il conto di `alzataCurva`.
-    expect(Math.round(sx.daBordo)).toBe(0);
-    expect(Math.round(dx.daBordo)).toBe(0);
+    // Within half a pixel, not `Math.round(...) === 0`: five doors on 390 are
+    // 73.2 px each, the last right edge lands a hair past the viewport, and
+    // `Math.round(-0.00001)` is -0, which `toBe(0)` rejects (Object.is).
+    expect(Math.abs(sx.daBordo)).toBeLessThan(0.5);
+    expect(Math.abs(dx.daBordo)).toBeLessThan(0.5);
     expect(sx.raggi.bassoSx).toBeGreaterThan(sx.raggi.altoSx);
     expect(dx.raggi.bassoDx).toBeGreaterThan(dx.raggi.altoDx);
   });
 
-  test("MOBILE-CHROME-03b — i quattro tasti si dividono TUTTA la larghezza", async ({ page }) => {
+  test("MOBILE-CHROME-03b — i cinque tasti si dividono TUTTA la larghezza", async ({ page }) => {
     await apri(page);
     await fascia(page, FASCIA_IPHONE);
 
     const misure = await porte(page);
-    expect(misure.length).toBe(4);
+    expect(misure.length).toBe(5);
 
-    // Larghi uguale: quattro porte che valgono uguale non hanno bersagli
+    // Larghi uguale: cinque porte che valgono uguale non hanno bersagli
     // diversi.
     const larghezze = misure.map((p) => Math.round(p.larghezza));
     expect(new Set(larghezze).size).toBe(1);
@@ -461,15 +468,17 @@ test.describe.serial("La chrome del telefono", () => {
     // La prima stesura le lasciava piatte: colore SOLO sotto il dito. Un
     // comando che si vede solo mentre lo premi è un comando che non si trova
     // («devono avere il design classico dei tasti, come il + che c'era»).
-    // A riposo, quindi: campitura vera su tutte e quattro.
+    // A riposo, quindi: campitura vera su tutte e cinque.
+    // The waiting door is OFF here (no chat waits in this suite), and an off
+    // door keeps its ground too: it is the one this loop measures.
     const misure = await porte(page);
-    expect(misure.length).toBe(4);
+    expect(misure.length).toBe(5);
     for (const p of misure) {
       expect(haCampitura(p.fondo)).toBe(true);
     }
 
     // AND THE BAR UNDER THEM IS GONE. From card 1e015ad6: "I would like the
-    // bottom bar to have no background". The four buttons stay, and they do
+    // bottom bar to have no background". The buttons stay, and they do
     // have a ground; the strip that held them does not, nor its top hairline.
     // The two measures go together: a row of skinless buttons on a skinless
     // bar would be an invisible row, which is the opposite defect.
@@ -490,7 +499,7 @@ test.describe.serial("La chrome del telefono", () => {
 
     // THE PROOF YOU LOOK AT, for the eye that has to approve it: the foot of
     // the screen, no ruler drawn over it (that one is MOBILE-CHROME-07). What
-    // has to be visible here is that there is no strip behind the four slabs
+    // has to be visible here is that there is no strip behind the five slabs
     // and that they run down to the edge.
     await page.screenshot({
       path: "test-results/mobile-bottom-bar.png",
@@ -556,7 +565,7 @@ test.describe.serial("La chrome del telefono", () => {
     const RAGGI = [gioco + STANDARD, gioco + 17, gioco + TETTO + 18];
     for (const R of RAGGI) {
       await declaredRadiusScreen(page, R);
-      // Le porte sono quattro, quindi i «centri» sono due: quello che conta è
+      // Le porte sono cinque, quindi i «centri» sono tre: quello che conta è
       // il PRIMO e l'ULTIMO, cioè chi tocca i bordi. Aggiungere una porta non
       // ha cambiato la legge, ha cambiato quante scatole non la incontrano.
       const misure = await porte(page);

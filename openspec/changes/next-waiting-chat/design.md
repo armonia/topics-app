@@ -40,7 +40,10 @@ il numero dice «ti resta un'azione», non «non l'hai ancora guardata».
 pura come il resto di `buildSidebarItems.ts`:
 
 1. le righe fissate che sono mete, nell'ordine dei Fissati (`pinnedBlock`,
-   `TopicTree.tsx:692-723`), cioè quelle che la vista disegna in cima;
+   `TopicTree.tsx:692-723`), cioè quelle che la vista disegna in cima; un
+   progetto fissato porta al suo posto le mete fra i suoi figli, perché la sua
+   fascia le disegna lì e `unpinned` lo esclude: senza, una chat ambra dentro un
+   progetto fissato non sarebbe mai una meta né un numero sulla porta;
 2. poi `groupSidebarItemsByState(unpinned, stateSig).awaiting`
    (`buildSidebarItems.ts:900-921`) filtrato sulle mete: quell'elenco conserva
    l'ordine del builder e promuove i figli dei progetti al loro posto;

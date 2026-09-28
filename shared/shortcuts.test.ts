@@ -1,7 +1,7 @@
 /**
  * The keyboard-shortcut registry, and the Rust module generated from it.
  *
- * @covers CMD-01, LAYOUT-41
+ * @covers CMD-01, LAYOUT-41, CHAT-WAIT-03
  */
 import { describe, it, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -137,5 +137,19 @@ describe('shortcut registry', () => {
     // papered over by dropping the row.
     expect(rows.map(r => r.keys.join('+')).sort()).toEqual(['Alt+Mod+E', 'Mod+E']);
     for (const r of rows) expect(r.native?.chars).toEqual(['e']);
+  });
+
+  // CHAT-WAIT-03. Same trap as ⌘E above: without `native` the generator never
+  // emits 'j', the committed file still matches, and ⌘J dies with the focus in
+  // a browser pane, exactly where you are after reading what an agent opened.
+  it('the next-waiting chord is in «Chat» and forwarded past a focused browser pane', () => {
+    const chat = SHORTCUT_GROUPS.find(g => g.title === 'Chat');
+    const row = chat?.shortcuts.find(s => s.keys.join('+') === 'Mod+J');
+    expect(row).toBeTruthy();
+    expect(row?.native?.chars).toEqual(['j']);
+    expect(row?.native?.requireShift).toBeUndefined();
+    const { always } = generatedArms();
+    expect(always).toContain('j');
+    expect(renderRustModule()).toContain('"j"');
   });
 });

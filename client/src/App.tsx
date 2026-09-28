@@ -107,6 +107,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { resolvePaneSpace, isLiveSpaceId } from './state/pane/reducers/spaces';
 import { DEFAULT_SPACE_ID } from './state/pane/types';
 import { useSignalsSync } from './state/useSignalsSync';
+import { NEXT_WAITING_EVENT, useWaitingQueueStore } from './state/waitingQueue';
 import { useTaskBrowserTabsSync } from './hooks/useTaskBrowserTabsSync';
 import { PaneAddMenu } from './components/Shared/PaneAddMenu';
 import { GLYPH_KBD_PADDING, MOBILE_SIDEBAR_HEADER_H, RAISED_CONTROL, ROW_INSET, ROW_PX, SIDEBAR_ACTIVE, SIDEBAR_HOVER, SIDEBAR_SCROLL_TOP_PROPERTY } from './lib/selectionStyles';
@@ -1290,6 +1291,8 @@ function App() {
     if (boardInFront) setSidebarCollapsed(false);
     else { handleOpenBoard(); setSidebarCollapsed(true); }
   }, [boardInFront, handleOpenBoard, setSidebarCollapsed]);
+  // The ⌘J door's number: the queue the sidebar publishes (CHAT-WAIT-04).
+  const waitingCount = useWaitingQueueStore((s) => s.queue.length);
 
   // THE FOCUS THAT LEAVES A CHAT MUST REACH THE SERVER, not only the one that
   // enters it.
@@ -1988,6 +1991,8 @@ function App() {
         // `UTILITY_PANEL_TYPES`), e sul telefono `handleOpenAsPage` chiude da sé
         // il cassetto. La sezione in Impostazioni resta dov'era.
         onOpenProfile={() => { window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'profile' } })); setShowTopicsMenu(false); }}
+        waitingCount={waitingCount}
+        onNextWaiting={() => window.dispatchEvent(new CustomEvent(NEXT_WAITING_EVENT))}
       />
 
       {/* Sidebar resize handle. The sidebar is position:fixed (FLIP push), so a

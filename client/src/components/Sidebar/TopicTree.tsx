@@ -15,7 +15,7 @@ import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOve
 import { PaneAddMenu, PaneAddMenuItems } from '../Shared/PaneAddMenu';
 import { TopicItem } from './TopicItem';
 import { topicsApi, projectsApi } from '@/lib/api';
-import { createPaneId, getTerminalSessionFromPaneId, pinKeyFromPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
+import { createPaneId, getProjectPathFromPaneId, getTerminalSessionFromPaneId, pinKeyFromPaneId, resolvePinnedBrowserOrigin, useClosedTabs, type BrowserOrigin } from '@/state/pane/adapters';
 import { PinnedTiles, type PinnedExternalTouch, type PinnedTileMeta } from './PinnedTiles';
 import { CalendarTilePreview } from './CalendarTilePreview';
 import { isCalendarPageUrl } from '../../../../shared/calendar';
@@ -54,7 +54,9 @@ import type { BoardTask, TaskStatus } from '@/lib/board';
 import { BoardRowSummary } from './BoardStatusCounts';
 import { utilityPanelId } from '@/state/pane/adapters/utilityPanelId';
 import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
-import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, type SidebarItem, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
+import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, sidebarStateSignals, type SidebarItem, type SidebarSignalSources, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
+import { nextWaiting, waitingQueue } from '@/lib/waitingQueue';
+import { NEXT_WAITING_EVENT, useWaitingQueueStore, waitingQueueActions } from '@/state/waitingQueue';
 import { SpaceGroupCard } from './SpaceGroups';
 import { useSpaceCards } from './useSpaceCards';
 
@@ -776,27 +778,38 @@ export function TopicTree({
   // un `new Set([...])` darebbe un riferimento nuovo a ogni chiamata e `useShallow`
   // lo leggerebbe come "cambiato" per sempre — re-render a ciclo continuo. L'unione
   // si fa dopo, in un useMemo.
-  const sigForState = useSignalsStore(
+  const signalSources: SidebarSignalSources = useSignalsStore(
     useShallow((s) => ({
-      awaitingTopics: s.awaitingFeedbackTopics,
-      awaitingTermIds: s.claudePhaseAwaitingTermIds,
-      live: s.liveStreamTopics,
-      hydrated: s.hydratedStreamTopics,
-      workingTermIds: s.claudePhaseActiveTermIds,
+      awaitingFeedbackTopics: s.awaitingFeedbackTopics,
+      awaitingInputTopics: s.awaitingInputTopics,
+      claudePhaseAwaitingTermIds: s.claudePhaseAwaitingTermIds,
+      claudePhaseAwaitingInputTermIds: s.claudePhaseAwaitingInputTermIds,
+      liveStreamTopics: s.liveStreamTopics,
+      hydratedStreamTopics: s.hydratedStreamTopics,
+      claudePhaseActiveTermIds: s.claudePhaseActiveTermIds,
     })),
   );
+  // The unions happen here, in `sidebarStateSignals`, never in the selector
+  // (see above). «Attende te» reads the same union that paints amber and blue,
+  // so a chat parked on an in-app question no longer sits with the working ones
+  // (CHROME-07).
   const stateGroups = useMemo(() => {
     if (viewMode !== 'state') return null;
-    // "Al lavoro" per una chat è uno stream vivo O idratato; per un terminale è la
-    // fase attiva. Unione, come in `useAgentActivityCounts`: un canale muto non
-    // deve nascondere lavoro vero.
-    return groupSidebarItemsByState(unpinnedItems, {
-      awaitingTopics: sigForState.awaitingTopics,
-      awaitingTermIds: sigForState.awaitingTermIds,
-      workingTopics: new Set<string>([...sigForState.live, ...sigForState.hydrated]),
-      workingTermIds: sigForState.workingTermIds,
-    });
-  }, [unpinnedItems, viewMode, sigForState]);
+    return groupSidebarItemsByState(unpinnedItems, sidebarStateSignals(signalSources));
+  }, [unpinnedItems, viewMode, signalSources]);
+
+  // ── ⌘J: the next chat waiting for you (CHAT-WAIT-03) ─────────────────────
+  // The queue is built from `allItems` in every view, not from the rows drawn:
+  // it is the sequence of the «Attende te» section, which in the timeline is
+  // also the order on screen. Published to the store for the phone door, which
+  // lives outside this tree and needs the count (CHAT-WAIT-04).
+  const waitingTargets = useMemo(
+    () => waitingQueue(allItems, pinnedItems, signalSources),
+    [allItems, pinnedItems, signalSources],
+  );
+  useEffect(() => {
+    waitingQueueActions.setQueue(waitingTargets.map(t => t.subject));
+  }, [waitingTargets]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
@@ -905,6 +918,38 @@ export function TopicTree({
     [onTopicClick],
   );
 
+  /** A terminal row's click: switch off its «finished» mark, then open it.
+   *  One handler for the row and for ⌘J, so the chord cannot drift from the
+   *  click (CHAT-WAIT-03). */
+  const handleTerminalRowClick = useCallback((sessionId: string, sessionName: string) => {
+    signalsActions.clearTerminalFinished(sessionId);
+    onTerminalClick?.(sessionId, sessionName);
+  }, [onTerminalClick]);
+
+  // ⌘J and the phone door announce `NEXT_WAITING_EVENT`; the step is taken
+  // here, where the order, the focused row and the row's click all live. The
+  // focused row is the App-level panel or, for a project window, its active
+  // inner tab: the same pair every row's `isFocused` reads.
+  useEffect(() => {
+    const onNext = () => {
+      const queue = waitingTargets.map(t => t.subject);
+      const projectPath = focusedTopicId ? getProjectPathFromPaneId(focusedTopicId) : null;
+      const focusedPane = projectPath === null ? focusedTopicId : activePaneByProject[projectPath] ?? null;
+      const focused = focusedPane ? getTerminalSessionFromPaneId(focusedPane) ?? pinKeyFromPaneId(focusedPane) : null;
+      const next = nextWaiting(queue, focused, useWaitingQueueStore.getState().last);
+      const target = waitingTargets.find(t => t.subject === next);
+      if (!target) {
+        toast.info(tr(queue.length === 0 ? 'sidebar.noChatWaiting' : 'sidebar.noOtherChatWaiting'));
+        return;
+      }
+      waitingQueueActions.setLast({ queue, target: target.subject });
+      if (target.kind === 'chat') handleChatRowClick(target.subject, target.item.detachedWindowLabel);
+      else handleTerminalRowClick(target.subject, target.item.name);
+    };
+    window.addEventListener(NEXT_WAITING_EVENT, onNext);
+    return () => window.removeEventListener(NEXT_WAITING_EVENT, onNext);
+  }, [waitingTargets, focusedTopicId, activePaneByProject, handleChatRowClick, handleTerminalRowClick, toast, tr]);
+
   /**
    * `chip: false` for a row drawn INSIDE its own worktree section: the header
    * already names the worktree, and repeating it on every row beneath is the
@@ -1003,7 +1048,7 @@ export function TopicTree({
         depth={depth}
         pinned={!!item.pinned}
         lastActivity={item.lastActivity}
-        onTerminalClick={onTerminalClick}
+        onTerminalClick={handleTerminalRowClick}
         onCloseTerminal={onCloseTerminal}
         onOpenAsProject={onOpenAsProject}
         // La stessa rete del drop e delle tessere: un terminale chiuso vive in
@@ -2373,7 +2418,7 @@ function TerminalSidebarItem({ session: s, isFocused, isOpen, notificationCount 
           on every nested row (card 058ea722). */}
       {depth === 0 && <span aria-hidden="true" data-row-chevron-slot="empty" className={ROW_CHEVRON_SLOT} />}
       <button
-        onClick={() => { signalsActions.clearTerminalFinished(s.id); onTerminalClick?.(s.id, s.name); }}
+        onClick={() => onTerminalClick?.(s.id, s.name)}
         className="flex items-center gap-2 flex-1 min-w-0 h-full text-left"
         title={`${s.name} · ${s.cwd}`}
       >

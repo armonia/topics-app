@@ -1,21 +1,32 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Kanban, LayoutGrid, List, Search, User, type LucideIcon } from 'lucide-react';
+import { Hourglass, Kanban, LayoutGrid, List, Search, User, type LucideIcon } from 'lucide-react';
 import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
 import { useMobile } from '@/hooks/useMobile';
 import { formaFila, raggioSchermo, type FormaScatola } from '@/lib/safeAreaArc';
 import { RAISED_CONTROL, SIDEBAR_ACTIVE } from '@/lib/selectionStyles';
+import { NotificationBadge } from '@/components/Shared/NotificationBadge';
+import { useT } from '@/hooks/useT';
 import { iniziali, useProfileIdentity } from './useProfileIdentity';
 
 /**
- * LE QUATTRO PORTE, IN FONDO ALLO SCHERMO — cerca · aggiungi · board · profilo.
+ * LE CINQUE PORTE, IN FONDO ALLO SCHERMO — cerca · aggiungi · board · in attesa · profilo.
  *
  * ── PERCHÉ IN BASSO, E PERCHÉ COSÌ POCHE ───────────────────────────────────
  * In alto ci sta poco e ci arriva peggio il pollice: la chrome del telefono
  * tiene lassù il menu «Topics» e la campanella, e porta quaggiù i gesti che si
- * ripetono. Quattro, non otto: la fila non è un cassetto di scorciatoie, è
+ * ripetono. Cinque, non otto: la fila non è un cassetto di scorciatoie, è
  * l'elenco delle stanze da cui si riparte.
  *
- * ── LA QUARTA PORTA È IL PROFILO, E PRIMA NON ERA UNA PORTA ────────────────
+ * ── THE FIFTH DOOR IS THE PHONE'S ⌘J (CHAT-WAIT-04) ──────────────────────
+ * With ten agent chats open the most frequent question is «where are they
+ * waiting for me?», and on a phone there was no key to ask it. The door takes
+ * the same step as ⌘J (it announces `NEXT_WAITING_EVENT`, the sidebar answers)
+ * and carries the length of the same queue as its number, so the number and
+ * the targets cannot disagree. At zero it stays in place, disabled: a door
+ * that came and went would move the other four under the thumb. It keeps its
+ * raised ground when off, because a slab without one reads as a gap in the row.
+ *
+ * ── L'ULTIMA PORTA È IL PROFILO, E PRIMA NON ERA UNA PORTA ───────────────
  * Stava dentro il menu «Topics», cioè dietro un gesto che nessuno fa per
  * cercare il proprio account (chi usa la app, 14/08: «il tasto del profilo, togliendolo
  * dal menu di Topics»). Qui è una faccia, che è il modo in cui un account si
@@ -41,14 +52,14 @@ import { iniziali, useProfileIdentity } from './useProfileIdentity';
  * have no background, and for the first and the last to follow the edge of the
  * safe area". Three sentences, one shape.
  *
- * So the strip paints NOTHING: no ground, no top hairline. What you see is four
+ * So the strip paints NOTHING: no ground, no top hairline. What you see is five
  * slabs, each of them the full height of the strip, each reaching the bottom
  * edge of the screen - the safe-area band included, which used to be an empty
  * margin under them. The band is not a place buttons must stay out of: under it
  * there is glass, and the only thing that lives there is the home indicator,
  * which draws itself over whatever is below.
  *
- * The GLYPH and the WORD stay in the top 44 of each slab, all four on the same
+ * The GLYPH and the WORD stay in the top 44 of each slab, all five on the same
  * line: what grew is the painted surface, not the place the eye reads.
  *
  * ── LA FILA ARRIVA AL BORDO DEL TELEFONO, E NE SEGUE LA CURVA ──────────────
@@ -63,7 +74,7 @@ import { iniziali, useProfileIdentity } from './useProfileIdentity';
  * nessun ramo dedicato.
  *
  * ── E RIEMPIONO TUTTA LA LARGHEZZA ─────────────────────────────────────────
- * Quattro tasti `flex-1`, sei pixel fra l'uno e l'altro e nient'altro. Prima
+ * Cinque tasti `flex-1`, sei pixel fra l'uno e l'altro e nient'altro. Prima
  * erano quattro scatole da 64 minimi spinte agli angoli da uno `justify-
  * between`: fra una e l'altra restavano trenta pixel di barra che sembravano
  * premibili e non lo erano, ed è il modo più comune di sbagliare il bersaglio
@@ -78,7 +89,7 @@ import { iniziali, useProfileIdentity } from './useProfileIdentity';
  * ── CON LA TASTIERA APERTA NON C'È ─────────────────────────────────────────
  * Sparisce, e con lei la banda riservata: una fila di comandi sopra la tastiera
  * ruba righe al testo che si sta scrivendo, ed è il momento in cui nessuna
- * delle quattro porte serve.
+ * delle cinque porte serve.
  */
 
 /** L'altezza pubblicata: la leggono la radice dell'app e il cassetto. */
@@ -135,9 +146,14 @@ export interface MobileChromeBarProps {
    * only exists under 768px», and that is finally true.
    */
   mobile: boolean;
+  /** How many chats are waiting for you: the length of the ⌘J queue. */
+  waitingCount: number;
+  /** The ⌘J step, taken by the sidebar. */
+  onNextWaiting: () => void;
 }
 
-export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard, onOpenProfile, mobile }: MobileChromeBarProps) {
+export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard, onOpenProfile, mobile, waitingCount, onNextWaiting }: MobileChromeBarProps) {
+  const tr = useT();
   // `keyboardVisible` and the safe-area insets stay DEVICE questions, not width
   // ones: `useMobile` still answers those. The width does not: it comes in.
   const { keyboardVisible, safeAreaInsets } = useMobile();
@@ -232,7 +248,7 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
       role="toolbar"
       aria-label="Comandi"
       // NO GROUND AND NO HAIRLINE. The strip used to paint `bg-app-chrome` plus
-      // a top border, so the four buttons floated on a bar that was itself a
+      // a top border, so the buttons floated on a bar that was itself a
       // surface; asked from a phone (card 1e015ad6), the bar goes away and the
       // buttons stay. They carry their own skin (`RAISED_CONTROL` + `edge-lit`),
       // which is what made them readable in the first place, and what scrolls
@@ -254,7 +270,7 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
         height: `${Math.round(SOPRA + buttonHeight)}px`,
       }}
     >
-      {/* Le quattro caselle. Il `ref` che le misura sta DENTRO questo componente e
+      {/* Le cinque caselle. Il `ref` che le misura sta DENTRO questo componente e
           non in un figlio: scrivere nel ref di qualcun altro passandoglielo
           come prop è la mutazione di un argomento, e il cancello del lint la
           ferma — giustamente, perché renderebbe la misura di questa fila una
@@ -287,13 +303,31 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
         </BottoneFila>
       </div>
 
-      {/* La quarta porta è l'ULTIMA, quindi è lei a prendere la curva dell'angolo
+      {/* The ⌘J door, before the profile: in the middle, where no edge reaches,
+          so its radius is the standard one. Disabled at zero, never removed. */}
+      <div ref={(n) => { slotRefs.current[3] = n; }} className="flex flex-1 min-w-0" style={{ marginBottom: forma(3).alzata }}>
+        <BottoneFila
+          etichetta={tr('sidebar.waitingDoor')}
+          onClick={onNextWaiting}
+          testId="mobile-chrome-waiting"
+          forma={forma(3)}
+          disabled={waitingCount === 0}
+          titolo={waitingCount === 0 ? tr('sidebar.noChatWaiting') : tr('sidebar.waitingDoorTitle')}
+        >
+          <span className="relative flex">
+            <Hourglass size={22} aria-hidden="true" />
+            <NotificationBadge count={waitingCount} className="absolute -top-1.5 left-full -ml-2" />
+          </span>
+        </BottoneFila>
+      </div>
+
+      {/* Il profilo è l'ULTIMA porta, quindi è lui a prendere la curva dell'angolo
           destro: prima ce l'aveva il tasto della board, che adesso sta in mezzo
           e torna standard. Il verso non è scritto qui — lo decide `formaFila`
           guardando da che bordo dista meno — e per questo aggiungere una porta
           non ha richiesto di toccare l'arco. */}
-      <div ref={(n) => { slotRefs.current[3] = n; }} className="flex flex-1 min-w-0" style={{ marginBottom: forma(3).alzata }}>
-        <PortaProfilo onClick={onOpenProfile} forma={forma(3)} />
+      <div ref={(n) => { slotRefs.current[4] = n; }} className="flex flex-1 min-w-0" style={{ marginBottom: forma(4).alzata }}>
+        <PortaProfilo onClick={onOpenProfile} forma={forma(4)} />
       </div>
     </div>
   );
@@ -309,6 +343,7 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
  * fa solo dove la risposta si vede.
  */
 function PortaProfilo({ onClick, forma }: { onClick: () => void; forma: FormaScatola }) {
+  const tr = useT();
   const { nome, avatarUrl } = useProfileIdentity();
   const sigla = nome ? iniziali(nome) : '';
 
@@ -318,7 +353,7 @@ function PortaProfilo({ onClick, forma }: { onClick: () => void; forma: FormaSca
       onClick={onClick}
       testId="mobile-chrome-profile"
       forma={forma}
-      titolo={nome ? `${nome}. Profilo e statistiche` : 'Profilo e statistiche'}
+      titolo={nome ? tr('sidebar.profileDoorTitleNamed', { nome }) : tr('sidebar.profileDoorTitle')}
     >
       {avatarUrl ? (
         <img src={avatarUrl} alt="" className="h-[22px] w-[22px] flex-shrink-0 rounded-full object-cover" />
@@ -343,11 +378,11 @@ function PortaProfilo({ onClick, forma }: { onClick: () => void; forma: FormaSca
  *
  * L'etichetta non è decorazione. Due icone sole in mezzo a una fascia larga
  * sono un indovinello — è la ragione per cui `PaneAddMenu` ha `triggerLabel` —
- * e qui le stanze sono quattro, di cui una cambia faccia: senza la parola,
+ * e qui le stanze sono cinque, di cui una cambia faccia: senza la parola,
  * «Task»/«Tab» sarebbero due glifi che si alternano senza dire perché.
  *
  * ── DICONO DOVE PORTANO, NON DI ESSERE PREMUTI ─────────────────────────────
- * Nessuno dei quattro dichiara `aria-pressed`, e quello della board l'ha perso.
+ * Nessuno dei cinque dichiara `aria-pressed`, e quello della board l'ha perso.
  * Un `aria-pressed` è la promessa di un interruttore: il nome resta fermo e a
  * cambiare è lo STATO. Qui succedeva il contrario — con la board davanti il
  * tasto si chiamava «Tab» ed era «premuto», cioè ad alta voce diventava «Tab,
@@ -357,7 +392,7 @@ function PortaProfilo({ onClick, forma }: { onClick: () => void; forma: FormaSca
  * che dice dove si è. Per la stessa ragione la fila è una `toolbar` e non un
  * `tablist`: `role="tab"` promette un `tabpanel` che questi tasti non
  * governano — la ricerca apre una palette, il «+» un menu — e una selezione fra
- * quattro che non è mai esistita.
+ * cinque che non è mai esistita.
  *
  * ── HANNO LA FACCIA DI UN TASTO, NON DI UN LINK ────────────────────────────
  * `raised-control` + `edge-lit`, cioè la pelle che porta ogni comando
@@ -373,7 +408,7 @@ function PortaProfilo({ onClick, forma }: { onClick: () => void; forma: FormaSca
  * rotazione, e Tailwind compila le classi che vede nel sorgente. Il filo di
  * `edge-lit` lo segue da sé — quel bordo eredita il raggio (`inherit`).
  */
-function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, forma }: {
+function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, forma, disabled }: {
   etichetta: string;
   onClick: () => void;
   children: ReactNode;
@@ -381,21 +416,26 @@ function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, for
   testId?: string;
   titolo?: string;
   forma: FormaScatola;
+  /** Off, but in place: glyph and word dim, the raised ground stays
+   *  (MOBILE-CHROME-06 measures the ground of every door at rest). */
+  disabled?: boolean;
 }) {
+  const tone = attivo
+    ? `${SIDEBAR_ACTIVE} text-primary`
+    : `${RAISED_CONTROL} ${disabled ? 'text-app-text-tertiary' : 'text-app-text'}`;
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       data-testid={testId}
       title={titolo ?? etichetta}
       aria-label={titolo ?? etichetta}
       // `h-full`, not `h-11`: the slab is as tall as the strip. The reading
       // band stays 44 and stays at the TOP (`justify-start` plus the inner
-      // box), so the four words keep sitting on one line while the surface
+      // box), so the five words keep sitting on one line while the surface
       // under them runs down to the glass.
-      className={`edge-lit flex flex-1 min-w-0 h-full flex-col items-center justify-start px-1 transition-colors ${
-        attivo ? `${SIDEBAR_ACTIVE} text-primary` : `${RAISED_CONTROL} text-app-text`
-      }`}
+      className={`edge-lit flex flex-1 min-w-0 h-full flex-col items-center justify-start px-1 transition-colors ${tone}`}
       style={cornersQueue(forma)}
     >
       <span className="flex h-11 w-full flex-col items-center justify-center gap-0.5">

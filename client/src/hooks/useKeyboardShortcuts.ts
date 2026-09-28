@@ -28,6 +28,7 @@ import { isProjectPaneId, getProjectPathFromPaneId, sessionKeyForPaneId, type Cl
 import { OPEN_ADD_PALETTE_EVENT } from '../components/Shared/PaneAddMenu';
 import type { ZoomScope } from '../components/Layout/zoomScope';
 import { paneZoomActions } from '../state/paneZoom';
+import { NEXT_WAITING_EVENT } from '../state/waitingQueue';
 
 /**
  * "Zoom the conversation that has the focus" — asked from the keyboard.
@@ -364,6 +365,24 @@ export function useKeyboardShortcuts(args: UseKeyboardShortcutsArgs): void {
           panelId: focusedPanelIdRef.current,
         };
         window.dispatchEvent(new CustomEvent(TOGGLE_PANE_ZOOM_EVENT, { cancelable: true, detail }));
+        return;
+      }
+
+      // ⌘J — THE NEXT CHAT WAITING FOR YOU (CHAT-WAIT-03). The chord announces
+      // the intent and the sidebar answers: it owns the order, the focused row
+      // and the row's click, so ⌘J does exactly what clicking that row does.
+      //
+      // Matched on `e.key` for the reason ⌘E is: the monitor's synthetic keydown
+      // from a focused browser pane carries `key` and the modifiers, no `code`.
+      //
+      // NO GUARD ON A TEXT FIELD, like ⌘K: the composer is where you start from.
+      // You just answered, you press ⌘J. The yield is for Ctrl+J only, the same
+      // shape as ⌘E above: on Windows ctrl is the only way in, and Ctrl+J is a
+      // real key in a terminal (a newline) and in an editor, so on the ctrl
+      // path the chord steps aside for those two surfaces.
+      if (isMod && !e.shiftKey && !e.altKey && (e.key === 'j' || e.key === 'J') && (e.metaKey || !isRawKeySurfaceFocused(e.target))) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent(NEXT_WAITING_EVENT));
         return;
       }
 
