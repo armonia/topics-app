@@ -44,6 +44,10 @@ export interface LateAnswerLaneOptions {
   topicId?: string;
   /** The turn's own row. A function because the row is born after the lane. */
   rowId: () => string;
+  /** The person's last message already had a turn that ended before this row
+   *  (`answeredBeforeRow` in lib/ripresa-boot.ts): no resend is due, and the
+   *  notice promises none. */
+  answeredBefore: () => boolean;
   isClosed: () => boolean;
   /** The row as it is in the database now. */
   readRow: () => StoredMessage | null;
@@ -166,7 +170,7 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
       takeTail(message);
       const info = message?.turnEnd;
       const notice = info?.end === "error"
-        ? avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: resumesByItself(info.cause, opts.blocks) })
+        ? avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: resumesByItself(info.cause, opts.blocks, opts.answeredBefore) })
         : null;
       end(notice ? `failed (${info?.cause})` : "ended", notice, info);
     },
@@ -187,7 +191,7 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
       takeTail(message);
       const info: TurnEndInfo | undefined = message?.turnEnd;
       const explained = !info || isWantedStop(info.cause);
-      end("aborted", explained ? null : avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: resumesByItself(info.cause, opts.blocks) }), info);
+      end("aborted", explained ? null : avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: resumesByItself(info.cause, opts.blocks, opts.answeredBefore) }), info);
     },
   };
 

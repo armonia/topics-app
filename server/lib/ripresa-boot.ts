@@ -32,6 +32,11 @@
  *     answer of a closed turn is saved on its own row, under the verdict, and
  *     a row that carries one was answered whatever the verdict above it says.
  *     Resending it runs the message a second time (the 3019832f shape);
+ *   · and never a row that comes after a turn which already ENDED under the
+ *     person's last message: that row is a later turn the CLI opened on its
+ *     own (a wake), and the message it would resend was answered. Read off
+ *     the thread (`answeredBeforeRow`), not off the row's `woken` mark, which
+ *     a reload can take away;
  *   · never while a provider still holds a send for the chat
  *     (`sessionHasPendingSend`): a send queued behind a stuck turn is live
  *     even with no stream and no process (topic 3019832f, 24/09);
@@ -159,6 +164,9 @@ export interface RigaDaValutare {
    * the chain (`attemptsInChain`); the rule stays pure.
    */
   attempts: number;
+  /** A row between the person's last message and this one is a turn that
+   *  ended (`answeredBeforeRow`): this row is a later turn, not the answer. */
+  answeredBefore?: boolean;
   /** A turn is live on this chat right now (`ctx.isStreaming`). */
   streaming?: boolean;
   /** A provider still holds a send for this chat, in flight or queued
@@ -261,10 +269,12 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   // recognised by neither until 05/09/2026: no chat it closed was ever resumed.
   const lastCut = lastInterruptionIndex(r.blocks);
   if (lastCut < 0) return "no";
-  // A WAKE CUT BY AN OUTAGE: the resend would be a message the row before
-  // already answered (`wakeCutByOutage`, where the rule and its notice live).
+  // A LATER TURN UNDER A MESSAGE ALREADY ANSWERED, whatever cut it: the
+  // resend would run that message a second time. The thread says so
+  // (`answeredBeforeRow`); a wake's `woken` mark says it for an outage cut
+  // when the thread cannot (`wakeCutByOutage`, where the notice reads both).
   const cause = (r.blocks[lastCut] as { cause?: unknown }).cause;
-  if (wakeCutByOutage(cause, r.blocks)) return "no";
+  if (r.answeredBefore || wakeCutByOutage(cause, r.blocks)) return "no";
   // A CARD IN PROGRESS OWNS ITS TURNS THAT ENDED IN ERROR: the dispatcher's
   // `onTurnEnd` resumes each one, lean, past its backoff. Resent from here too,
   // the card ran its envelope again at full context, and the dispatcher's own
@@ -505,6 +515,59 @@ function walkChain(db: Pick<Database, "query">, sessionKey: string, ultimoId: st
   return { attempts: max, resends };
 }
 
+/** A row of the thread, as `answeredBeforeRow` reads it. */
+interface ThreadRow {
+  role: string; blocks: unknown; parent_id: string | null;
+  partial: number | null; latency_ms: number | null; end_reason: string | null;
+}
+
+/**
+ * THE PERSON'S LAST MESSAGE HAD ITS TURN BEFORE THIS ROW.
+ *
+ * The resend is the person's last message. A row that comes after a turn
+ * which already ended under that message is a later turn, one the CLI opened
+ * on its own (a wake: a Monitor firing, a background task reporting), and a
+ * resend would run the answered message a second time: a paid turn, with every
+ * effect again. The row's own `woken` mark cannot be the proof: the route
+ * keeps it in memory until the first tool or the tenth chunk of text, and a
+ * reload in that window (every save under server/ on this Mac) hands the row
+ * to a reattach that never writes it, or to a history cleanup that deletes
+ * the row and lets the reattach open a new one.
+ *
+ * Walks `parent_id` up from the row to the person's message. A row met on the
+ * way is a turn that ended when the route closed it (`latency_ms`, which no
+ * outside closer writes), and not by a cut of ours: not closed from outside or
+ * by a restart (`end_reason`), and not ending on an interruption verdict with
+ * nothing produced after it. What a resend chain leaves between the message
+ * and its cut (the cut turns, the boot's and the sweep's notices, service
+ * lines written whole) is none of that, and keeps its resend. A database that
+ * cannot answer is no evidence.
+ */
+export function answeredBeforeRow(db: Pick<Database, "query">, sessionKey: string, rowId: string): boolean {
+  try {
+    const read = db.query(
+      `SELECT role, blocks, parent_id, partial, latency_ms, end_reason FROM messages WHERE id = ? AND session_key = ?`,
+    );
+    let id = (read.get(rowId, sessionKey) as ThreadRow | null)?.parent_id ?? null;
+    for (let hop = 0; id && hop < CHAIN_WALK_LIMIT; hop++) {
+      const row = read.get(id, sessionKey) as ThreadRow | null;
+      if (!row || row.role !== "assistant") return false;
+      if (turnEndedUncut(row)) return true;
+      id = row.parent_id;
+    }
+  } catch { /* no evidence: the resend keeps the rule it had */ }
+  return false;
+}
+
+function turnEndedUncut(row: ThreadRow): boolean {
+  if (row.partial || row.latency_ms == null) return false;
+  if (row.end_reason === "closed-outside" || row.end_reason === "cut-by-restart") return false;
+  let blocks: ContentBlock[] | null = null;
+  try { blocks = JSON.parse(decodeCol(row.blocks) ?? "null") as ContentBlock[] | null; } catch { return false; }
+  const cut = lastInterruptionIndex(blocks);
+  return cut < 0 || (blocks ?? []).slice(cut + 1).some(isProducedContent);
+}
+
 /** La route della chat, iniettata: è la STESSA porta di un messaggio umano. */
 export type RouterChat = (
   req: Request, url: URL, path: string, method: string,
@@ -628,6 +691,7 @@ export async function riprendiTurniInterrotti(
       const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false, inProgress: false };
       const row: RigaDaValutare = {
         sessionKey: r.sk, ruolo: r.ruolo, blocks, timestampMs: Date.parse(r.ts), attempts,
+        answeredBefore: r.ruolo === "assistant" && answeredBeforeRow(ctx.db, r.sk, r.id),
         streaming: Boolean(ctx.isStreaming?.(r.sk)),
         // Settles in microtasks (a queue tail, no I/O), so reading the rows
         // and writing the traces still happen inside one macrotask, and a

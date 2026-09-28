@@ -40,7 +40,7 @@ import { recordSessionContext } from "../db/session-context";
 import { buildContextUpdate } from "../usage/usage-update";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
 import { readTurnEnd, recordTurnEnd } from "../providers/turn-end-registry";
-import { resumeAttemptOf } from "../lib/ripresa-boot";
+import { answeredBeforeRow, resumeAttemptOf } from "../lib/ripresa-boot";
 import { appendUsageRecord } from "../usage/store";
 import { autoreDaIdentita } from "../lib/message-author";
 import { makeGatewaySseProcessor } from "../lib/gateway-sse-consumer";
@@ -1160,8 +1160,13 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // callbacks go there, which stay live and which are dropped:
           // lib/finalized-turn-guard.ts.
           let releaseLateFlush: (() => void) | null = null;
+          // The person's last message already had a turn that ended before
+          // this row, so this is a later turn (a wake) and no resend is due:
+          // asked of the thread, where a reload cannot take it away.
+          const answeredBeforeThisRow = () => answeredBeforeRow(db, sessionKey, partialMsg.id);
           const late = createLateAnswerLane({
             sessionKey, topicId: matchedTopic?.id, rowId: () => partialMsg.id, blocks, saveEvery: SAVE_INTERVAL,
+            answeredBefore: answeredBeforeThisRow,
             isClosed: () => streamState === "finalized",
             readRow: () => ctx.getMessageById(partialMsg.id),
             content: { get: () => fullContent, set: (value) => { fullContent = value; } },
@@ -2135,8 +2140,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // And a CLI that gave up on the API (`api-unavailable`): its row kept
             // "Request timed out" and no verdict, and no sweep resent it (25/09).
             // «Riprendo da solo» only where the sweep will resend: read off the
-            // blocks after the reattach merge, which carry a wake's mark.
-            const riprendeDaSolo = resumesByItself(endInfo.cause, blocks);
+            // thread, where a wake sits after the answer it follows, and off
+            // the blocks after the reattach merge, which carry a wake's mark.
+            const riprendeDaSolo = resumesByItself(endInfo.cause, blocks, answeredBeforeThisRow);
             const cutNotice = reason === "done" && (endInfo.end === "max_tokens" || endInfo.end === "refusal" || endInfo.end === "error")
               ? avvisoPerTurno(endInfo, { haProdotto: fullContent.trim().length > 0 || rowHasWorkAfterMerge(), riprendeDaSolo })
               : null;

@@ -143,7 +143,7 @@ export function avvisoPerTurno(
   // AN OUTAGE OUTSIDE THE TURN, the API or the daemon hosting the agent.
   // Nobody's doing and not deterministic: the sweep resends it (the API's once
   // it answers again), and then nobody is asked to press. A wake cut that way
-  // is not resent (`wakeCutByOutage`), and its notice promises nothing.
+  // is not resent (`resumesByItself`), and its notice promises nothing.
   if (info.end === "error" && info.cause === "api-unavailable") {
     return opts.riprendeDaSolo ? API_UNAVAILABLE_NOTICE : `${API_UNAVAILABLE_OPENING} ${OUTAGE_NO_RESUME}`;
   }
@@ -294,20 +294,29 @@ export function isOutsideCause(cause: unknown): boolean {
  * The resend is the person's last message, and a wake (a background task or a
  * Monitor delivering, `claude/woken-turn.ts`) sits under a message the row
  * before already answered: resent, the agent ran it a second time, a paid turn
- * and every effect again. The outages made such a row resumable for the first
- * time, so the sweep leaves it alone; a wake cut by a stall of ours keeps the
- * resend it always had. The sweep (`resumeVerdict`) and every writer of the
- * notice (`resumesByItself`) read this one rule, so "Riprende da solo" is
- * written exactly where the sweep keeps it.
+ * and every effect again. The row's `woken` mark says so for an outage cut.
+ * It is the second signal, not the first: the mark lives in the route's
+ * memory until the first tool or the tenth chunk of text, and a reload in
+ * that window loses it. The first is the thread, for every cause
+ * (`answeredBeforeRow` in lib/ripresa-boot.ts). The sweep (`resumeVerdict`)
+ * and every writer of the notice (`resumesByItself`) read both, so "Riprende
+ * da solo" is written exactly where the sweep keeps it.
  */
 export function wakeCutByOutage(cause: unknown, blocks: readonly unknown[] | null | undefined): boolean {
   return (cause === "api-unavailable" || cause === "broker-died")
     && !!blocks?.some((b) => (b as { kind?: unknown } | null)?.kind === "woken");
 }
 
-/** The sweep resends a turn cut with this cause, on a row with these blocks. */
-export function resumesByItself(cause: unknown, blocks: readonly unknown[] | null | undefined): boolean {
-  return isResumableCause(cause) && !wakeCutByOutage(cause, blocks);
+/**
+ * The sweep resends a turn cut with this cause, on a row with these blocks.
+ * `answeredBefore` asks the thread whether the person's message already had a
+ * turn that ended before this row (`answeredBeforeRow`); it is only asked for
+ * a cause the sweep acts on.
+ */
+export function resumesByItself(
+  cause: unknown, blocks: readonly unknown[] | null | undefined, answeredBefore: () => boolean,
+): boolean {
+  return isResumableCause(cause) && !wakeCutByOutage(cause, blocks) && !answeredBefore();
 }
 
 const API_UNAVAILABLE_OPENING = "⚠️ Turno interrotto: l'API di Claude non rispondeva più.";
