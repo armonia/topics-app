@@ -187,6 +187,10 @@ export interface RigaDaValutare {
    *  no, and an outage's cut on the row is then not resent
    *  (`outageCutNotResent`). */
   answersMessage?: boolean;
+  /** The person's message is a /compact the CLI carried out: a `manual`
+   *  compaction marker is anchored on it (`compactionCarriedOut`). Read for a
+   *  person's message only. */
+  compacted?: boolean;
 }
 
 /** The person pressed Stop on this message's turn, or on a later one. A Stop
@@ -198,10 +202,12 @@ function stoppedByPerson(r: RigaDaValutare): boolean {
 
 /** The message's turn ran and ended normally, and its answer was empty and
  *  discarded: a manual /compact, a CLI sentinel. It was answered. Only
- *  `end_turn` counts: a cancellation or an error left it unanswered. */
+ *  `end_turn` counts: a cancellation or an error left it unanswered. The
+ *  registry that records it dies with every reload, so a /compact's own
+ *  marker (`compacted`) counts as that end. */
 function endedNormallyAfter(r: RigaDaValutare): boolean {
   const e = r.lastTurnEnd;
-  return !!e && e.info.end === "end_turn" && e.atMs >= r.timestampMs;
+  return r.compacted === true || (!!e && e.info.end === "end_turn" && e.atMs >= r.timestampMs);
 }
 
 /** The rule's answer: resend, stop AND say so, leave the row alone - or, for a
@@ -402,9 +408,15 @@ export function answersPersonsMessage(db: Pick<Database, "query">, sessionKey: s
     `SELECT p.id AS id, p.role AS role FROM messages m JOIN messages p ON p.id = m.parent_id WHERE m.id = ? AND m.session_key = ?`,
   ).get(rowId, sessionKey) as { id: string; role: string } | undefined | null;
   if (parent?.role !== "user") return false;
-  return !db.query(
+  return !compactionCarriedOut(db, sessionKey, parent.id);
+}
+
+/** The person's message is a /compact the CLI carried out: its `manual`
+ *  compaction marker is anchored on it, and it outlives a reload. */
+function compactionCarriedOut(db: Pick<Database, "query">, sessionKey: string, messageId: string): boolean {
+  return !!db.query(
     `SELECT 1 FROM compaction_markers WHERE session_key = ? AND after_message_id = ? AND trigger = 'manual' LIMIT 1`,
-  ).get(sessionKey, parent.id);
+  ).get(sessionKey, messageId);
 }
 
 /**
@@ -697,6 +709,9 @@ export async function riprendiTurniInterrotti(
         // Read off the database only for an outage's cut, the one verdict
         // that asks (`outageCutNotResent`).
         answersMessage: r.ruolo === "assistant" && lastCutIsOutage(blocks) && answersPersonsMessage(ctx.db, r.sk, r.id),
+        // A /compact that ended leaves no answer row, and after a reload no
+        // recorded end either: its marker is what says it was answered.
+        compacted: r.ruolo === "user" && compactionCarriedOut(ctx.db, r.sk, r.id),
       };
       if (!row.providerBusy) busyLogged.delete(r.sk);
       let verdict: ResumeVerdict = resumeVerdict(row, ora);
