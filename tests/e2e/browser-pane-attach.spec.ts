@@ -22,8 +22,8 @@
  * this Mac. Once the pane has attached, the real route is called and answers
  * through the pane, which is what the agent reads.
  *
- * The pane is the native one: `__TAURI_INTERNALS__` is faked (the same disguise
- * as `browser-heavy-pane-pause.spec.ts`), so it registers as the executor of
+ * The pane is the native one: `__TAURI_INTERNALS__` is faked (by
+ * `helpers/fake-tauri-shell.ts`, like every spec), so it registers as the executor of
  * its context over a real socket to the test server, as the WKWebView pane
  * does in production.
  */
@@ -36,6 +36,7 @@ import { createTopic } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { restartTestServer } from "./helpers/restart-test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { fakeTauriShell } from "./helpers/fake-tauri-shell";
 import { slackMs } from "../helpers/time-slack";
 import { projectPanesKey } from "../../shared/project-keys";
 import { TerminalPage } from "./fixtures/terminal.fixture";
@@ -99,35 +100,12 @@ async function seedProjectLayout(request: APIRequestContext, path: string, topic
   expect(put.ok(), "the project layout is seeded").toBeTruthy();
 }
 
-/** The Tauri shell, faked: the loopback proxy sent home, every command answered. */
-async function fakeTauriShell(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    const w = window as unknown as { __TAURI_INTERNALS__: unknown };
-    const proxy = "//127.0.0.1:13333";
-    const wsScheme = location.protocol === "https:" ? "wss:" : "ws:";
-    const home = (u: string): string =>
-      u.startsWith(`http:${proxy}`) ? location.origin + u.slice(`http:${proxy}`.length)
-      : u.startsWith(`ws:${proxy}`) ? `${wsScheme}//${location.host}${u.slice(`ws:${proxy}`.length)}`
-      : u;
-    const realFetch = window.fetch.bind(window);
-    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
-      realFetch(
-        typeof input === "string" ? home(input)
-        : input instanceof URL ? home(input.href)
-        : new Request(home(input.url), input),
-        init,
-      )) as typeof fetch;
-    window.WebSocket = new Proxy(window.WebSocket, {
-      construct: (Target, args: [string | URL, (string | string[])?]) => new Target(home(String(args[0])), args[1]),
-    });
-    w.__TAURI_INTERNALS__ = {
-      metadata: { currentWindow: { label: "main" } },
-      invoke: (cmd: string) => {
-        if (cmd === "browser_devtools_open") return Promise.resolve(false);
-        if (cmd.startsWith("browser_take_") || cmd === "browser_download_progress") return Promise.resolve([]);
-        return Promise.resolve(null);
-      },
-    };
+/** The Tauri shell, faked (the loopback proxy sent home by the helper), every command answered. */
+async function fakeShell(page: Page): Promise<void> {
+  await fakeTauriShell(page, () => (cmd: string) => {
+    if (cmd === "browser_devtools_open") return Promise.resolve(false);
+    if (cmd.startsWith("browser_take_") || cmd === "browser_download_progress") return Promise.resolve([]);
+    return Promise.resolve(null);
   });
 }
 
@@ -308,7 +286,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
     expect(put.ok(), "the tabs are seeded").toBeTruthy();
 
     await page.clock.install();
-    await fakeTauriShell(page);
+    await fakeShell(page);
     const app = await proxyAppSocket(page);
     const watch = watchPage(page, ctx);
     try {
@@ -365,7 +343,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
     await seedProjectLayout(request, other, null);
 
     await page.clock.install();
-    await fakeTauriShell(page);
+    await fakeShell(page);
     const app = await proxyAppSocket(page);
     const watch = watchPage(page, ctx);
     try {
@@ -412,7 +390,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
     for (const p of others) await seedProjectLayout(request, p, null);
 
     await page.clock.install();
-    await fakeTauriShell(page);
+    await fakeShell(page);
     const app = await proxyAppSocket(page);
     const watch = watchPage(page, ctx);
     try {
@@ -464,7 +442,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
     await seedProjectTabs(request, [owner]);
     await seedProjectLayout(request, owner, ctx);
 
-    await fakeTauriShell(page);
+    await fakeShell(page);
     const executor = await proxyExecutorSocket(page, ctx, { holdRegistration: true });
     const url = "https://example.com/opened-while-registering";
     let announced = false;
@@ -507,7 +485,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
     await seedProjectLayout(request, owner, ctx);
     for (const p of others) await seedProjectLayout(request, p, null);
 
-    await fakeTauriShell(page);
+    await fakeShell(page);
     const watch = watchPage(page, ctx);
     try {
       await goToApp(page);
@@ -544,7 +522,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
     await seedProjectLayout(request, owner, ctx);
     await seedProjectLayout(request, other, null);
 
-    await fakeTauriShell(page);
+    await fakeShell(page);
     const watch = watchPage(page, ctx);
     try {
       await goToApp(page);
@@ -589,7 +567,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
     await seedProjectTabs(request, [owner]);
     await seedProjectLayout(request, owner, ctx);
 
-    await fakeTauriShell(page);
+    await fakeShell(page);
     const executor = await proxyExecutorSocket(page, ctx);
     const watch = watchPage(page, ctx);
     try {
