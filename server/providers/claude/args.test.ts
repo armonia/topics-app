@@ -338,11 +338,36 @@ describe("buildClaudeOneshotArgs — la fotografia", () => {
       "--permission-mode", "bypassPermissions",
       "--model", "claude-sonnet-5",
       "--setting-sources", "user,project,local",
+      "--settings", '{"env":{"CLAUDE_CODE_DISABLE_AUTO_MEMORY":"1"}}',
       "--mcp-config", "/tmp/topics-mcp/oneshot-x.json",
       "--strict-mcp-config",
       "--tools", "",
       "--output-format", "json",
     ]);
+  });
+
+  // The CLI's auto memory (the MEMORY.md index plus the instructions to write
+  // it) follows the cwd, and a one-shot runs in $HOME: every title, goal judge
+  // and model pick carried the user's personal index. Measured 29/09 on CLI
+  // 2.1.284 with this builder's argv, cwd $HOME: 22,488 -> 11,821 prefix tokens.
+  test("turns auto memory off, through the `--settings` block and not the process env", () => {
+    const args = buildClaudeOneshotArgs({ permissionMode: "bypassPermissions", model: "m" });
+    const i = args.indexOf("--settings");
+    expect(i).toBeGreaterThan(-1);
+    expect(JSON.parse(args[i + 1]!)).toEqual({ env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" } });
+  });
+
+  test("chat keeps its memory: the switch belongs to the one-shot only", () => {
+    // A chat runs in its project folder and needs that memory. Even with every
+    // lever of the `--settings` block on, the switch must not show up there.
+    const chat = buildClaudeArgs({
+      ...BASE,
+      toolSearch: "1",
+      slimSkillListing: true,
+      mcpOutputTokens: 25_000,
+      blockImageReads: true,
+    });
+    expect(chat.join(" ")).not.toContain("CLAUDE_CODE_DISABLE_AUTO_MEMORY");
   });
 
   test("MAI `--verbose`: con `--output-format json` stdout diventa l'array di eventi", () => {
