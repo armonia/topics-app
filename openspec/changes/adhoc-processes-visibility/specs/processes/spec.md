@@ -173,6 +173,19 @@ al massimo `BACKGROUND_WORK_CAP_MS` di sessione ferma (lo stesso tetto del
 lavoro in background del CLI); poi prosegue come dopo ogni turno. Una sveglia che
 la route rifiuta per sempre resta dovuta al boot successivo ma non si aspetta.
 
+L'attesa vive in memoria e un riavvio del server la ricrea, ma il suo silenzio
+parte dall'ultima riga della sessione nella tabella `messages`, non dal boot:
+su questa macchina il server si ricarica a ogni salvataggio in `server/`, e un
+tetto che ripartisse a ogni boot non scatterebbe mai. Al boot l'attesa viene
+dopo l'interruttore del dispatch (una card trattenuta a dispatch spento resta
+trattenuta) e dopo la sonda del broker (un turno sopravvissuto in ai-bridge si
+riaggancia e, quando finisce, aspetta la sveglia come ogni turno). I token del
+turno della sveglia vanno sul conto della card anche con un riavvio in mezzo.
+
+Un tentativo di fan-out è un turno solo, giudicato quando finisce: il suo
+kickoff gli dice di non chiuderlo su un comando in background ancora in corso e
+di prenderne l'esito con `wait_for_process`.
+
 #### Scenario: l'esito arriva nella topic
 - **GIVEN** un comando `zsh -c 'echo tick 1; echo tick 2; exit 3'` lanciato da una topic
 - **WHEN** esce
@@ -209,6 +222,17 @@ la route rifiuta per sempre resta dovuta al boot successivo ma non si aspetta.
 - **WHEN** l'agente chiude il turno mentre il comando gira
 - **THEN** la card resta in corso, senza sollecito e senza consumare un tentativo
 - **AND** a fine comando arriva la riga `process-exit`, e finito quel turno la card prosegue come dopo ogni turno
+
+#### Scenario: l'attesa di una card regge ai riavvii
+- **GIVEN** una card che aspetta la sveglia di un comando che non finisce mai
+- **WHEN** il server riparte ogni 90 minuti
+- **THEN** dopo `BACKGROUND_WORK_CAP_MS` dall'ultima riga della sessione la card prosegue come dopo ogni turno
+
+#### Scenario: un turno sopravvissuto nel broker si riaggancia
+- **GIVEN** una card con un comando che deve la sveglia, e il suo turno ancora vivo in ai-bridge al boot
+- **WHEN** il server torna su
+- **THEN** il turno si riaggancia invece di restare senza lettore
+- **AND** quando finisce la card aspetta la sveglia, senza sollecito né tentativo
 
 #### Scenario: topic archiviata
 - **GIVEN** la topic archiviata mentre il comando girava, e nessuna card in corso che la possiede

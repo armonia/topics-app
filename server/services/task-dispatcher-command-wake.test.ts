@@ -68,8 +68,11 @@ function freshDb(): Database {
   return db;
 }
 
-/** The session's side, as the host's probes read it; `tokens`, its transcript's billable count. */
-interface Session { owed: boolean; busy: boolean; tokens?: number }
+/**
+ * The session's side, as the host's probes read it; `tokens`, its transcript's
+ * billable count; `lastRowAt`, when its last chat row was written.
+ */
+interface Session { owed: boolean; busy: boolean; tokens?: number; lastRowAt?: number }
 
 function reading(billableTokens: number): SessionUsage {
   return { inputTokens: billableTokens, outputTokens: 0, cacheWriteTokens: 0, cacheWrite1hTokens: 0, cacheReadTokens: 0, billableTokens };
@@ -94,6 +97,7 @@ function bench(session: Session) {
       new Promise<TurnEndInfo | void>((res) => { turns.push(content); endTurn = res; }),
     awaitsCommandWake: () => session.owed,
     isSessionBusy: () => session.busy,
+    lastSessionRowAt: () => session.lastRowAt ?? null,
     getSessionUsage: () => reading(session.tokens ?? 0),
     broadcast: () => {},
     graceMs: 0,
@@ -143,6 +147,15 @@ async function polls(b: ReturnType<typeof bench>, n: number, stepMs = 5 * 60_000
     await b.dispatcher.reconcile({ reason: "poll" });
     await flush();
   }
+}
+
+/** The server restarts: the dispatcher's memory is gone, the DB and the session are not. */
+async function restart(b: ReturnType<typeof bench>, current: { shutdown(): void }, extra: Partial<DispatcherDeps> = {}) {
+  current.shutdown();
+  const next = createTaskDispatcher({ ...b.deps, ...extra });
+  await next.reconcile({ reason: "boot" });
+  await flush();
+  return next;
 }
 
 afterEach(() => setSystemTime());
@@ -274,6 +287,103 @@ describe("a card whose agent ended its turn on a running run_command", () => {
     await next.reconcile({ reason: "poll" });
     await flush();
     expect(b.turns.length).toBe(2);
+    next.shutdown();
+  });
+  // `since` lived in memory, and the boot restarted it from now: with the
+  // server reloading at every save in server/ and every 35 minutes, a command
+  // that never ends held the card «working» forever (verifier of 28/09 at
+  // 5cb048ec4: six hours, one turn, one attempt).
+  it("keeps the cap across restarts: the silence starts at the session's last row, not at the boot", async () => {
+    const session: Session = { owed: true, busy: false };
+    const b = bench(session);
+    seedTodo(b.db);
+    await b.dispatcher.tick(PID);
+    await flush();
+    session.lastRowAt = Date.now();
+    b.endTurn();
+    await flush();
+    await polls(b, 3, 30 * 60_000);
+    expect(b.turns.length).toBe(1);
+    const next = await restart(b, b.dispatcher);
+    for (const [step, turns] of [[25 * 60_000, 1], [10 * 60_000, 2]] as const) {
+      setSystemTime(new Date(Date.now() + step));
+      await next.reconcile({ reason: "poll" });
+      await flush();
+      expect(b.turns.length).toBe(turns);
+    }
+    expect(b.task().dispatchAttempts).toBe(2);
+    next.shutdown();
+  });
+
+  it("books the wake's turn on the card when the server restarted during the wait", async () => {
+    const session: Session = { owed: true, busy: false, tokens: 1_000 };
+    const b = bench(session);
+    seedTodo(b.db);
+    await b.dispatcher.tick(PID);
+    await flush();
+    session.tokens = 3_000;
+    b.endTurn();
+    await flush();
+    const next = await restart(b, b.dispatcher);
+    session.owed = false;
+    session.busy = true;
+    setSystemTime(new Date(Date.now() + 5 * 60_000));
+    await next.reconcile({ reason: "poll" });
+    await flush();
+    session.tokens = 8_000;
+    b.svc.addComment({ taskId: "t1", author: "claude", content: "fatto, il comando e' uscito con 0" });
+    b.svc.update({ taskId: "t1", actor: "agent", by: "claude", patch: { status: "review", summary: "riassunto" } });
+    session.busy = false;
+    setSystemTime(new Date(Date.now() + 5 * 60_000));
+    await next.reconcile({ reason: "poll" });
+    await flush();
+    expect(b.task().status).toBe("review");
+    expect(b.task().agentTokens).toBe(7_000);
+    next.shutdown();
+  });
+
+  // The wait came before the broker probe: a turn that survived the restart
+  // in ai-bridge (production runs with TOPICS_AI_BRIDGE=1) was left with
+  // nobody reading it, and the wake could land inside it.
+  it("reattaches a turn that survived the restart in the broker, command or not", async () => {
+    const session: Session = { owed: true, busy: false };
+    const b = bench(session);
+    seedTodo(b.db);
+    await b.dispatcher.tick(PID);
+    await flush();
+    const reattached: string[] = [];
+    let endReattached: ((info: TurnEndInfo) => void) | null = null;
+    const next = await restart(b, b.dispatcher, {
+      hasLiveSession: async () => true,
+      reattach: (sessionKey) => new Promise<TurnEndInfo | void>((res) => { reattached.push(sessionKey); endReattached = res; }),
+    });
+    expect(reattached).toEqual(["topic:topic-1"]);
+    // The adopted turn ends on the command: the card waits for the wake, as after any turn of its own.
+    endReattached!({ end: "end_turn" });
+    await flush();
+    setSystemTime(new Date(Date.now() + 5 * 60_000));
+    await next.reconcile({ reason: "poll" });
+    await flush();
+    expect(b.turns.length).toBe(1);
+    expect(b.task().dispatchAttempts).toBe(1);
+    expect(b.task().status).toBe("in_progress");
+    next.shutdown();
+  });
+
+  it("is held at boot with the board's dispatch off, like a card owed nothing", async () => {
+    const session: Session = { owed: true, busy: false };
+    const b = await endedOnCommand(session);
+    b.svc.updateBoardSettings(PID, { autoDispatch: false });
+    const next = await restart(b, b.dispatcher);
+    session.owed = false;
+    for (let i = 0; i < 3; i++) {
+      setSystemTime(new Date(Date.now() + 5 * 60_000));
+      await next.reconcile({ reason: "poll" });
+      await flush();
+    }
+    expect(b.turns.length).toBe(1);
+    expect(b.task().dispatchAttempts).toBe(1);
+    expect(b.task().dispatchState).toBe("queued");
     next.shutdown();
   });
 });

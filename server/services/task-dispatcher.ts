@@ -525,6 +525,12 @@ export interface DispatcherDeps {
   awaitsCommandWake?: (sessionKey: string) => boolean;
   /** A turn in flight on the session that the dispatcher did not start: a command's wake, a person's message (`activeStreams`). */
   isSessionBusy?: (sessionKey: string) => boolean;
+  /**
+   * When the session's last chat row was written (ms), or null: where a
+   * restart finds the start of the silence a command wait is bounded by.
+   * Absent: the wait starts at the boot.
+   */
+  lastSessionRowAt?: (sessionKey: string) => number | null;
 }
 
 export interface TaskDispatcher {
@@ -1772,7 +1778,9 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * quiet; the poll ends the wait (`pollCommandWaits`).
    *
    * In memory like `retryWaits`: after a restart `reconcile` finds the card
-   * still owed a wake and waits again (`awaitCommandWake`).
+   * still owed a wake and waits again (`awaitCommandWake`), from the session's
+   * last chat row. From the boot, the cap never fired on this machine, whose
+   * server reloads at every save in server/.
    */
   const commandWaits = new Map<string, { sessionKey: string; since: number }>();
 
@@ -1780,13 +1788,27 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     try { return deps.awaitsCommandWake?.(sessionKey) === true; } catch { return false; }
   }
 
-  /** The card's session is owed a command's wake: the card waits for it. True when it does. */
-  function awaitCommandWake(task: Task): boolean {
+  /**
+   * The card's session is owed a command's wake: the card waits for it. True
+   * when it does. `sinceLastRow`: no turn end of ours started this wait (a
+   * restart, a turn that ended without us), so its silence began at the
+   * session's last row, not now.
+   */
+  function awaitCommandWake(task: Task, sinceLastRow = false): boolean {
     // A delegated run answers to its own deadline and its single attempt.
     if (!task.assignedTopicId || delegatedPolicy(task) !== undefined) return false;
     const sessionKey = "topic:" + task.assignedTopicId.slice(0, 8);
     if (!commandWakeOwed(sessionKey)) return false;
-    if (!commandWaits.has(task.id)) commandWaits.set(task.id, { sessionKey, since: clock() });
+    if (!commandWaits.has(task.id)) {
+      let since = clock();
+      if (sinceLastRow) {
+        try { since = Math.min(since, deps.lastSessionRowAt?.(sessionKey) ?? since); } catch { /* from now */ }
+      }
+      commandWaits.set(task.id, { sessionKey, since });
+      // The wake's turn is booked from here when the wait ends: after a
+      // restart the ledger is empty, and a row born at the end counts it as 0.
+      anchorUsage(task.id, sessionKey, task.model ?? null);
+    }
     return true;
   }
 
@@ -3860,7 +3882,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           try {
             deps.svc.addComment({
               taskId, author: "system", kind: "service",
-              content: `${describeTurnEnd(end)}: un comando lanciato con run_command sta ancora girando e sveglierà la sessione quando finisce. La card aspetta quella sveglia (al massimo ${capHours} ore di silenzio), nessun tentativo consumato.`,
+              content: `${describeTurnEnd(end)}: un comando lanciato con run_command sveglierà la sessione. La card aspetta quella sveglia (al massimo ${capHours} ore di silenzio), nessun tentativo consumato.`,
             });
           } catch { /* best-effort */ }
           return;
@@ -5610,12 +5632,6 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         void recoverOrphanedFanOut(t.id);
         continue;
       }
-      // Owed a command's wake after a restart: the wait lived in memory, the
-      // command did not (`routes/processes.ts` re-adopts it), and its wake
-      // starts the card again as it would have without the restart. A card cut
-      // mid-turn with such a command running waits too: the wake's turn is
-      // where it goes on, instead of a nudge that meets the command running.
-      if (awaitCommandWake(t)) continue;
       // Everything a `working` orphan needs to CONTINUE survived the restart in
       // SQLite: the topic (systemPrompt/worktree/model), the task binding, and
       // the CLI conversation (claude_code_sessions + --resume). Only the
@@ -5697,6 +5713,15 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             void reattachTask(t.id);
             continue;
           }
+          // Owed a command's wake after a restart: the wait lived in memory, the
+          // command did not (`routes/processes.ts` re-adopts it), and its wake
+          // starts the card again as it would have without the restart. A card
+          // cut mid-turn with such a command running waits too: the wake's turn
+          // is where it goes on, instead of a nudge that meets the command
+          // running. After the switch and the broker on purpose: a held card
+          // stays held, and a surviving turn is read to its end, which waits
+          // on its own (`onTurnEnd`).
+          if (awaitCommandWake(t, true)) continue;
           // UNA BOCCIATURA UMANA NON E' UN TURNO INTERROTTO.
           //
           // `buildContinueNudge` says "your previous turn was interrupted, no
