@@ -1,4 +1,5 @@
 import { recentActiveRows, rowCarryingAsk, rowCarryingTool, type AskHaystackRow } from "../lib/ask-answer-routing";
+import { patchLiveTool } from "../lib/turn-body-flush";
 import { canonicalProjectPath } from "../lib/canonical-project-path";
 import { clientProjectPathRefused, CLIENT_PROJECT_PATH_ERROR } from "../lib/client-project-path";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
@@ -2645,8 +2646,12 @@ export function createTopicsRouter(
       // announced in the window, and then nothing is written: never "the last
       // row" instead.
       const toolRowId = rowCarryingTool(recentRows, toolCallId, decodeCol);
+      // And in the timeline of the turn that asked, if it still writes: its
+      // next write rewrites the row from there (lib/turn-body-flush.ts).
       const patchToolRow = (patch: Partial<ToolCall>) => {
-        if (toolRowId) updateToolCallFields(sessionKey, toolCallId, patch, { rowId: toolRowId });
+        if (!toolRowId) return;
+        updateToolCallFields(sessionKey, toolCallId, patch, { rowId: toolRowId });
+        patchLiveTool(sessionKey, toolCallId, patch);
       };
       const answeringBridgeAsk = response.kind === 'questions' && (hasPendingAsk(sessionKey) || askRowId !== null);
       if (answeringBridgeAsk) {

@@ -57,7 +57,7 @@ import { createTurnBodyPersist } from "../lib/turn-body-persist";
 import { guardFinalizedTurn } from "../lib/finalized-turn-guard";
 import { createLateAnswerLane } from "../lib/late-answer-lane";
 import { isMachineStop } from "../lib/abort-cause";
-import { registerTurnBodyFlush, stopTurnBodyOf } from "../lib/turn-body-flush";
+import { patchOpenTool, registerTurnBodyFlush, stopTurnBodyOf } from "../lib/turn-body-flush";
 import { setProviderHold, holdUntilLabel } from "../lib/provider-hold";
 import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
 
@@ -1170,15 +1170,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             save: (force) => persistTurnBody(true, force),
             broadcast: (frame) => broadcastStreamToTopic(frame, matchedTopic?.id),
             finalText: (message) => extractFinalText(message),
-            onOpen: () => { releaseLateFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush()); },
+            onOpen: () => { releaseLateFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush(), { patchTool: patchOpenTool(blocks, updateBlockTool) }); },
             onClose: () => { releaseLateFlush?.(); },
           });
-          // THE ROW, FOR WHOEVER READS IT INSTEAD OF THE STREAM. The outbound
-          // gate looks for the tool that is waiting in the last persisted row,
-          // and the throttle above can still owe that write for up to fifteen
-          // seconds: a confirmation would find no row and refuse a send nobody
-          // had a chance to see. Published here, taken down with the turn.
-          const releaseTurnBodyFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush(), { rowId: () => partialMsg.id, stop: () => turnBody.stop() });
+          // THE ROW, FOR WHOEVER READS IT INSTEAD OF THE STREAM: the outbound
+          // gate reads the waiting tool from a row the throttle can owe for
+          // fifteen seconds. And THE TIMELINE, for a route that writes a tool
+          // (the person's answer): the turn's next write is made from it.
+          // Published here, taken down with the turn: lib/turn-body-flush.ts.
+          const releaseTurnBodyFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush(), { rowId: () => partialMsg.id, stop: () => turnBody.stop(), patchTool: patchOpenTool(blocks, (id, patch) => updateBlockTool(id, patch)) });
           // A turn already finalized has no write budget left to save: whatever
           // still arrives (a tool result that came back after the end) is
           // written NOW. Deferring it would leave the row without it until an
@@ -2931,7 +2931,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result, error: result } } }] }));
               } else {
                 updateToolCallResult(sessionKey, toolCallId, result, undefined, { endedAt }, ownMirrored);
-                updateBlockTool(toolCallId, { status: 'success', result, endedAt, ...(detail ? { detail } : {}) });
+                updateBlockTool(toolCallId, { status: 'success', result, error: undefined, endedAt, ...(detail ? { detail } : {}) }); // a second answer's 404 may have left one
                 broadcastTurnFrame({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result, detail, endedAt }, matchedTopic?.id);
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result } } }] }));
               }

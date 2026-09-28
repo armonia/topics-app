@@ -8,7 +8,7 @@ import { decideClientWipeOnStop } from './stopSessionPolicy';
 import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder, CLIENT_MESSAGE_ID_PREFIX } from './streamCatchupMerge';
 import { clearPartialForReattach, reviveClosedBubble } from './streamReattachReset';
-import { LiveTurnIds, carryLateStart, frameTargetIndex, lateStartContent, liveAssistantIndex, shouldFillFromBroadcast } from './liveTurn';
+import { LiveTurnIds, carryLateStart, frameTargetIndex, lateStartContent, liveAssistantIndex, queueLateDelta, shouldFillFromBroadcast, takeLateDeltas, type LateDelta } from './liveTurn';
 import { liveInterruptionBlock } from '../components/Chat/turnError';
 import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
@@ -1119,9 +1119,15 @@ export function useChat() {
   // flushes synchronously first, so the chronological `blocks` timeline stays
   // correctly ordered: a tool block must never jump ahead of text before it.
   const liveDeltaBufferRef = useRef<Map<string, { content: string; thinking: string }>>(new Map());
+  // A closed turn's late answer waits for the same frame in a queue of its own:
+  // it names its bubble, and it is not the live turn's text (liveTurn.ts).
+  const lateDeltaQueueRef = useRef<LateDelta[]>([]);
   const liveDeltaRafRef = useRef<number | null>(null);
 
   const flushLiveDeltas = useCallback((sessionKey?: string) => {
+    for (const late of takeLateDeltas(lateDeltaQueueRef.current, sessionKey)) {
+      appendToLastMessage(late.sessionKey, late.kind === 'content' ? late.text : undefined, late.kind === 'thinking' ? late.text : undefined, late.frame);
+    }
     const buf = liveDeltaBufferRef.current;
     const keys = sessionKey != null ? (buf.has(sessionKey) ? [sessionKey] : []) : [...buf.keys()];
     for (const k of keys) {
@@ -1131,19 +1137,23 @@ export function useChat() {
         appendToLastMessage(k, pending.content || undefined, pending.thinking || undefined);
       }
     }
-    if (buf.size === 0 && liveDeltaRafRef.current != null) {
+    if (buf.size === 0 && lateDeltaQueueRef.current.length === 0 && liveDeltaRafRef.current != null) {
       cancelAnimationFrame(liveDeltaRafRef.current);
       liveDeltaRafRef.current = null;
     }
   }, [appendToLastMessage]);
 
-  const bufferLiveDelta = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string) => {
-    recordStreamText(sessionKey, `${contentDelta ?? ''}${thinkingDelta ?? ''}`);
-    const buf = liveDeltaBufferRef.current;
-    const entry = buf.get(sessionKey) ?? { content: '', thinking: '' };
-    if (contentDelta) entry.content += contentDelta;
-    if (thinkingDelta) entry.thinking += thinkingDelta;
-    buf.set(sessionKey, entry);
+  const bufferLiveDelta = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string, late?: LateDelta['frame']) => {
+    if (late) {
+      queueLateDelta(lateDeltaQueueRef.current, { sessionKey, frame: late, kind: contentDelta ? 'content' : 'thinking', text: contentDelta || thinkingDelta || '' });
+    } else {
+      recordStreamText(sessionKey, `${contentDelta ?? ''}${thinkingDelta ?? ''}`);
+      const buf = liveDeltaBufferRef.current;
+      const entry = buf.get(sessionKey) ?? { content: '', thinking: '' };
+      if (contentDelta) entry.content += contentDelta;
+      if (thinkingDelta) entry.thinking += thinkingDelta;
+      buf.set(sessionKey, entry);
+    }
     if (liveDeltaRafRef.current == null) {
       liveDeltaRafRef.current = requestAnimationFrame(() => {
         liveDeltaRafRef.current = null;
@@ -1233,6 +1243,7 @@ export function useChat() {
   useEffect(() => () => {
     if (liveDeltaRafRef.current != null) cancelAnimationFrame(liveDeltaRafRef.current);
     liveDeltaBufferRef.current.clear();
+    lateDeltaQueueRef.current.length = 0;
     if (toolUpdateRafRef.current != null) cancelAnimationFrame(toolUpdateRafRef.current);
     toolUpdateBufferRef.current.clear();
   }, []);
@@ -1383,16 +1394,9 @@ export function useChat() {
         break;
 
       case 'stream:thinking_chunk':
-        if (event.content) {
-          // A closed turn's late answer goes straight to the bubble it names,
-          // outside the live buffer, which belongs to the turn in flight.
-          if (event.late) {
-            flushLiveDeltas(sessionKey);
-            appendToLastMessage(sessionKey, undefined, event.content, event);
-          } else {
-            bufferLiveDelta(sessionKey, undefined, event.content);
-          }
-        }
+        // A closed turn's late answer names its bubble, and waits apart from
+        // the live buffer, which belongs to the turn in flight.
+        if (event.content) bufferLiveDelta(sessionKey, undefined, event.content, event.late ? { messageId: event.messageId, late: true } : undefined);
         break;
 
       case 'stream:thinking_end':
@@ -1405,13 +1409,8 @@ export function useChat() {
           if (event.late) {
             // Same as the thinking above; and no watchdog reset, it guards the
             // turn in flight, not this one.
-            flushLiveDeltas(sessionKey);
             const opens = carryLateStart(pendingLateStartRef.current, event, !!cleanedChunk);
-            if (cleanedChunk) {
-              appendToLastMessage(sessionKey, cleanedChunk, undefined, {
-                messageId: event.messageId, late: event.late, ...(opens ? { lateStart: true as const } : {}),
-              });
-            }
+            if (cleanedChunk) bufferLiveDelta(sessionKey, cleanedChunk, undefined, { messageId: event.messageId, late: true, ...(opens ? { lateStart: true as const } : {}) });
             break;
           }
           if (cleanedChunk) bufferLiveDelta(sessionKey, cleanedChunk, undefined);
@@ -1762,7 +1761,7 @@ export function useChat() {
         }
         break;
     }
-  }, [addToolCallToLastMessage, appendToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn]);
+  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {
