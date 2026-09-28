@@ -203,6 +203,19 @@ test.describe("full history: filters on top of the panel", () => {
     await expect(browserTab).toContainText("pagina-uno.example");
   });
 
+  test("the project finder (⌘⇧P) has no filter bar", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "HISTORY-03" });
+    await page.goto("/");
+    await expect(page.locator('[aria-label="Topics sidebar"]').first()).toBeVisible({ timeout: 20_000 });
+
+    await page.keyboard.press("Meta+Shift+p");
+
+    const palette = page.getByTestId("command-palette");
+    await expect(palette).toHaveAttribute("data-scope", "projects");
+    await expect(palette.getByRole("textbox")).toBeVisible();
+    await expect(palette.getByTestId("history-filters")).toHaveCount(0);
+  });
+
   test.afterAll(async ({ request }) => {
     await closeAllBrowserContexts(request);
   });
@@ -354,6 +367,8 @@ test.describe("full history: one search over the whole list", () => {
     const palette = page.getByTestId("command-palette");
     await expect(palette).toHaveAttribute("data-scope", "all");
     await expect(palette.getByTestId("history-filters")).toHaveCount(0);
+    // Without a query ⌘K keeps its cap of 40: the whole list is the panel's.
+    await expect(palette.getByTestId("history-row-page")).toHaveCount(40);
     await palette.getByRole("textbox").fill("quarantacinque");
 
     await expect(palette.getByTestId("history-row-page").filter({ hasText: "quarantacinque.example" })).toHaveCount(1);
@@ -363,11 +378,11 @@ test.describe("full history: one search over the whole list", () => {
 test.describe("full history: the empty state and the ⇧⌘T hint", () => {
   test("filters that empty the list say so, and «Mostra tutto» brings the rows back", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "HISTORY-05" });
-    const now = Date.now();
+    await page.clock.setFixedTime(FIXED_NOW);
     await seedPages(page, [
-      visit("https://github.com/armonia/topics", now - 2 * MINUTE, "Topics repo"),
-      visit("https://github.com/armonia/quadra", now - 4 * MINUTE, "Quadra repo"),
-      visit("https://esempio.dev/", now - 6 * MINUTE, "Esempio"),
+      visit("https://github.com/armonia/topics", FIXED_NOW - 2 * MINUTE, "Topics repo"),
+      visit("https://github.com/armonia/quadra", FIXED_NOW - 4 * MINUTE, "Quadra repo"),
+      visit("https://esempio.dev/", FIXED_NOW - 6 * MINUTE, "Esempio"),
     ]);
     await page.goto("/");
     const palette = await openFullHistory(page);
@@ -375,6 +390,11 @@ test.describe("full history: the empty state and the ⇧⌘T hint", () => {
     await field.fill("github");
     await expect(palette.getByRole("option")).toHaveCount(2);
 
+    // Both groups off their default: a reset that clears the type and keeps
+    // the day would still bring these rows back, so only the pressed state
+    // of the day group can tell it apart.
+    await palette.getByTestId("history-filter-range-today").click();
+    await expect(palette.getByRole("option")).toHaveCount(2);
     await palette.getByTestId("history-filter-kind-tab").click();
 
     await expect(palette.getByRole("option")).toHaveCount(0);
@@ -384,8 +404,31 @@ test.describe("full history: the empty state and the ⇧⌘T hint", () => {
     await expect(palette.getByRole("option")).toHaveCount(2);
     await expect(palette.getByTestId("history-row-page")).toHaveCount(2);
     await pressed(palette.getByTestId("history-filter-kind-all"), "true");
+    await pressed(palette.getByTestId("history-filter-range-all"), "true");
+    await pressed(palette.getByTestId("history-filter-range-today"), "false");
     await expect(field).toHaveValue("github");
     await expect(field).toBeFocused();
+  });
+
+  test("a day filter alone that empties the list offers «Mostra tutto» too", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "HISTORY-05" });
+    await page.clock.setFixedTime(FIXED_NOW);
+    await seedPages(page, [
+      visit("https://uno.example/", FIXED_NOW - 2 * MINUTE, "Uno"),
+      visit("https://due.example/", FIXED_NOW - 4 * MINUTE, "Due"),
+    ]);
+    await page.goto("/");
+    const palette = await openFullHistory(page);
+    await expect(palette.getByRole("option")).toHaveCount(2);
+
+    await palette.getByTestId("history-filter-range-older").click();
+
+    await expect(palette.getByRole("option")).toHaveCount(0);
+    await expect(palette.getByText("Niente con questi filtri")).toBeVisible();
+    await palette.getByTestId("history-filter-reset").click();
+
+    await expect(palette.getByRole("option")).toHaveCount(2);
+    await pressed(palette.getByTestId("history-filter-range-all"), "true");
   });
 
   test("with nothing in the history the panel says so even under a filter, with nothing to reset", async ({ page }) => {
