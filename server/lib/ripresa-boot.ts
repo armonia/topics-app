@@ -182,9 +182,8 @@ export interface RigaDaValutare {
   cardLanded?: boolean;
   /** ...or that card is in progress: the dispatcher resumes its turns. */
   cardInProgress?: boolean;
-  /** The row answers the person's message: its parent is a user row, not a
-   *  /compact already carried out (`answersPersonsMessage`). Absent reads as
-   *  no, and an outage's cut on the row is then not resent
+  /** The row answers the person's message (`answersPersonsMessage`). Absent
+   *  reads as no, and an outage's cut on the row is then not resent
    *  (`outageCutNotResent`). */
   answersMessage?: boolean;
   /** The person's message is a /compact the CLI carried out: a `manual`
@@ -381,6 +380,7 @@ import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isBackgroundNoticeRow, rowsBack } from "./background-notice";
 import { lastApiAnswerMs, providerHold } from "./provider-hold";
 import { providerHoldKey } from "../../shared/provider-hold";
+import { MACHINE_ROW_SQL } from "../../shared/prompt-number";
 
 /** A chat's last row, as the sweep reads it. */
 interface LastRow { sk: string; id: string; ruolo: string; blocks: unknown; ts: string }
@@ -395,19 +395,22 @@ function previousConversationRow(db: Database, row: LastRow): LastRow | null {
 }
 
 /**
- * The row answers the person's message: its parent_id is a user row, and that
- * message is not a /compact the CLI already carried out. A /compact's own row
- * is dropped once the compaction ends (it has nothing to show, routes/chat.ts
- * `discardIfEmptyTurn`), so the next turn the CLI opens by itself, a wake,
- * hangs from the "/compact" message as if it answered it: resent, it would
- * compact a second time. The compaction's receipt is its `manual` marker,
- * anchored on the message of the turn that made it.
+ * The row answers the person's message: its parent_id is a user row, not one
+ * the machine wrote (`MACHINE_ROW_KINDS`: a command's wake, a goal's
+ * continuation, the board's envelope, whose answer is a wake's: resent, the
+ * wake went back in the person's place), and that message is not a /compact
+ * the CLI already carried out. A /compact's own row is dropped once the
+ * compaction ends (it has nothing to show, routes/chat.ts `discardIfEmptyTurn`),
+ * so the next turn the CLI opens by itself, a wake, hangs from the "/compact"
+ * message as if it answered it: resent, it would compact a second time. The
+ * compaction's receipt is its `manual` marker, anchored on the message of the
+ * turn that made it.
  */
 export function answersPersonsMessage(db: Pick<Database, "query">, sessionKey: string, rowId: string): boolean {
   const parent = db.query(
-    `SELECT p.id AS id, p.role AS role FROM messages m JOIN messages p ON p.id = m.parent_id WHERE m.id = ? AND m.session_key = ?`,
-  ).get(rowId, sessionKey) as { id: string; role: string } | undefined | null;
-  if (parent?.role !== "user") return false;
+    `SELECT p.id AS id, p.role AS role, ${MACHINE_ROW_SQL.replaceAll("blocks", "p.blocks")} AS machine FROM messages m JOIN messages p ON p.id = m.parent_id WHERE m.id = ? AND m.session_key = ?`,
+  ).get(rowId, sessionKey) as { id: string; role: string; machine: number } | undefined | null;
+  if (parent?.role !== "user" || parent.machine) return false;
   return !compactionCarriedOut(db, sessionKey, parent.id);
 }
 

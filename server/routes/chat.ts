@@ -18,7 +18,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
-import { repeatsAnEnvelope, userRowMarks } from "../lib/user-row-marks";
+import { repeatedRowMarks, userRowMarks } from "../lib/user-row-marks";
 import { startSsePing } from "../lib/sse-ping";
 import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
 import { TopicsRoutingIncompatibleError } from "../providers/resolve-topic-provider";
@@ -559,7 +559,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
           userRowMarks({
             goalNudge: body.goalNudge, dispatched, commentIds: dispatchedFor, processExit: body.processExit,
-            repeatsEnvelope: !dispatched && repeatsAnEnvelope(ctx.db, sessionKey, lastUserMsg.content),
+            repeats: repeatedRowMarks(ctx.db, sessionKey, lastUserMsg.content),
           }),
         );
         // ADESSO il messaggio esiste, e da adesso una ripetizione è un doppione.

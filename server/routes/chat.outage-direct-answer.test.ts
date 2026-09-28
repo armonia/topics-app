@@ -14,14 +14,17 @@
  * written. Every other shape asks the person, including one the rule cannot
  * tell from a wake: a sub-agent's report under the live answer. A report or a
  * wake that lands under the cut after the notice promised is accepted as not
- * resent: the person retries.
+ * resent: the person retries. A row the machine wrote in the person's role (a
+ * command's wake, a goal's continuation) is not the person's message either,
+ * and a resend of one keeps its mark.
  *
  * Every row is written by the real route (a message through `sendChat`, a
  * wake through `mode: "woken"`, a reattach leg through `mode: "reattach"`, a
  * regeneration through the edit route, a report through the sub-agent
- * watcher's `deliverExit`), and every verdict is the real resume sweep's. A
- * resend of the chain goes back through the real chat route, so each link
- * opens with the banner the route writes. No block is written by hand.
+ * watcher's `deliverExit`, a command's end through `deliverProcessExit`), and
+ * every verdict is the real resume sweep's. A resend of the chain goes back
+ * through the real chat route, so each link opens with the banner the route
+ * writes. No block is written by hand.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
@@ -39,6 +42,8 @@ import { clearProviderHold, resetProviderHoldStore } from "../lib/provider-hold"
 import { noteApiHealth } from "../providers/claude/api-outage";
 import type { AIProvider, StreamHandler } from "../providers/types";
 import type { AppContext, ContentBlock, Topic } from "../types";
+import { deliverProcessExit } from "../lib/process-exit-wake";
+import { isPersonPrompt } from "../../shared/prompt-number";
 
 const ROOT = testTmpDir("chat-outage-direct-answer");
 let ctx: AppContext;
@@ -84,15 +89,19 @@ const provider = {
   complete: async () => ({ content: "Build lanciato di nuovo: ti avviso quando finisce." }),
 } as unknown as AIProvider;
 
-async function post(body: Record<string, unknown>): Promise<Response> {
-  const chat = createChatRouter(ctx, {
+/** The chat route, as every caller gets it: the person's window, the sweep, the wake module. */
+function chatRoute() {
+  return createChatRouter(ctx, {
     resolveProvider: () => provider, resolveProviderByName: () => provider,
     detectLocalhostAutoNav: () => {}, bindTopicToProject: () => {}, resolveProjectRef: () => null, getProjectIdForTopic: () => null,
     getWorkspaceProjects: () => [], autoBindProject: () => {}, watchSessionForSubagents: () => {}, updateUnreadCount: () => {},
     browserNavigatedTopics: new Set<string>(), WORKSPACE_DIR: join(ROOT, "ws"),
   } as never);
+}
+
+async function post(body: Record<string, unknown>): Promise<Response> {
   const url = new URL("http://topics.test/api/chat");
-  const resp = (await chat(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: "claude-code", ...body }) }), url, url.pathname, "POST"))!;
+  const resp = (await chatRoute()(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: "claude-code", ...body }) }), url, url.pathname, "POST"))!;
   expect(resp.status).toBe(200);
   return resp;
 }
@@ -205,6 +214,23 @@ const spawnsSubAgent = (h: StreamHandler) => {
   h.onToolStart(`spawn-${reports}`, "mcp__topics__spawn_agent", { name: "lane-a" });
   h.onToolResult(`spawn-${reports}`, "spawned");
 };
+
+/**
+ * A command started with `run_command` ends: the wake module writes its row
+ * through the real route, and `turn` is what the CLI does with the turn it
+ * opens. Returns the wake's row and the row of its answer.
+ */
+let wakes = 0;
+async function commandWake(sk: string, turn: (h: StreamHandler) => void): Promise<{ wakeRow: string; rowId: string }> {
+  send = turn;
+  const outcome = await deliverProcessExit({
+    db: ctx.db,
+    getTopicById: (id) => { const t = ctx.getTopicById(id); return t ? { sessionKey: t.sessionKey, archived: !!t.archived, provider: t.provider } : null; },
+    ownedByRunningTask: () => false, isBusy: (k) => ctx.activeStreams.has(k), route: chatRoute(), pollMs: 10, endGraceMs: 200,
+  }, { processId: `p-${++wakes}`, topicId: sk.slice("topic:".length), label: "bun run build", exitCode: 1, durationMs: 90_000, lines: ["error: 3 tests failed"] });
+  expect(outcome).toBe("sent");
+  return { wakeRow: ctx.loadLocalMessages(sk).filter((m) => m.role === "user").at(-1)!.id, rowId: lastAnswerRow(sk) };
+}
 
 describe("the message's own answer cut by an outage", () => {
   for (const cause of CAUSES) {
@@ -350,6 +376,85 @@ describe("a wake the CLI opens under the direct answer after its promised cut (a
       for (let sweep = 0; sweep < 2; sweep++) expect(await resumeSweep(sk)).toEqual([]);
     });
   }
+});
+
+describe("a row the machine wrote is not the person's message", () => {
+  /**
+   * A `user` row nobody typed (`MACHINE_ROW_KINDS`): a command's wake, a
+   * goal's continuation, the board's envelope. Its answer cut by an outage is
+   * a wake's cut: the notice promises nothing, so the failure push goes out
+   * (`push-triggers.ts` reads the same promise), and no sweep resends it.
+   * Resent, the wake went back as a row with no mark: the machine's words in
+   * the person's bubble, with an edit button.
+   */
+  for (const cause of CAUSES) {
+    test(`${cause}: a run_command wake's turn: no promise, nothing resent`, async () => {
+      const sk = topic(`pexit-${cause}`);
+      await answered(sk, "Lancia il build con run_command e avvisami", "Lanciato, ti sveglia lui.");
+      const wake = await commandWake(sk, (h) => { h.onRetry!(retry(1)); outageEnd(cause)(h); });
+      expect(ctx.getMessageById(wake.rowId)!.parentId).toBe(wake.wakeRow);
+      expect(lastError(ctx.getMessageById(wake.rowId)!.blocks)!.cause).toBe(cause);
+      expect(promises(wake.rowId)).toBe(false);
+      for (let sweep = 0; sweep < 2; sweep++) expect(await resumeSweep(sk)).toEqual([]);
+    });
+  }
+
+  test("api-unavailable: a goal continuation's turn: no promise, nothing resent", async () => {
+    const sk = topic("goal-nudge-cut");
+    await answered(sk, "Finisci il refactor", "Fatto a metà.");
+    const nudge = await open(sk, { messages: [{ role: "user", content: "Objective still open: finish the refactor." }], goalNudge: 1 }, (h) => h.onRetry!(retry(1)));
+    outageEnd("api-unavailable")(nudge.route);
+    await drain(nudge.resp);
+    expect(promises(nudge.rowId)).toBe(false);
+    expect(await resumeSweep(sk)).toEqual([]);
+  });
+
+  /**
+   * The person's answer launched the command and was cut with the promise;
+   * the command's wake then landed under it and was cut too. The wake is the
+   * chat's last word, and the sweep resent the wake's text in place of the
+   * person's message. Now nothing is resent (accepted, as for a wake the CLI
+   * opens: the person retries).
+   */
+  for (const cause of CAUSES) {
+    test(`${cause}: a run_command wake cut under the person's promised answer is not resent in the message's place`, async () => {
+      const sk = topic(`pexit-under-${cause}`);
+      await answered(sk, "Ciao", "Ciao, dimmi.");
+      const answer = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => {
+        h.onToolStart("rc1", "mcp__topics__run_command", { command: "bun run build" });
+        h.onToolResult("rc1", "started");
+        h.onRetry!(retry(1));
+      });
+      outageEnd(cause)(answer.route);
+      await drain(answer.resp);
+      expect(promises(answer.rowId)).toBe(true);
+      await commandWake(sk, (h) => { h.onRetry!(retry(1)); outageEnd(cause)(h); });
+      expect(await resumeSweep(sk)).toEqual([]);
+    });
+  }
+});
+
+describe("a resend of a row the machine wrote keeps its mark", () => {
+  /**
+   * A cut of ours (a restart) keeps its rule: the sweep resends the chat's
+   * last user row, as the Retry button does. When that row is the machine's
+   * words, the copy the route writes says so, as a copy of the board's
+   * envelope already did (`repeatedRowMarks`, lib/user-row-marks.ts).
+   */
+  test("a run_command wake's turn cut by a restart: the copy carries the wake's process-exit mark", async () => {
+    const sk = topic("pexit-restart");
+    await answered(sk, "Lancia il build con run_command e avvisami", "Lanciato, ti sveglia lui.");
+    const wake = await commandWake(sk, (h) => h.onAborted!({ turnEnd: { end: "cancelled", cause: "server-shutdown" } } as never));
+    send = (h) => { h.onTextDelta("Build rosso: 3 test.", "Build rosso: 3 test."); h.onDone({ result: "Build rosso: 3 test." } as never); };
+    expect(await resumeSweep(sk, { through: true })).toEqual([1]);
+    await drain(live.shift()!);
+    const original = ctx.getMessageById(wake.wakeRow)!;
+    const copy = ctx.loadLocalMessages(sk).filter((m) => m.role === "user").at(-1)!;
+    expect(copy.id).not.toBe(original.id);
+    expect(copy.content).toBe(original.content);
+    expect(copy.blocks).toEqual(original.blocks);
+    expect(isPersonPrompt(copy)).toBe(false);
+  });
 });
 
 describe("a sub-agent's report under the message's own answer", () => {
