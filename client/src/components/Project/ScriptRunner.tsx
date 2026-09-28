@@ -7,6 +7,7 @@ import type { DetectedScript } from '../../types';
 import type { ScriptProcessInfo } from '../../lib/api';
 import { useScripts } from '../../hooks/useScripts';
 import { lastFailureByScript } from '../../lib/processFailure';
+import { commandOutcome, commandRows } from '../../lib/commandOutcome';
 import { useT } from '../../hooks/useT';
 import { Spinner } from '../Shared/Spinner';
 import { openLink, isExternalLinkGesture } from '../../lib/openLink';
@@ -50,6 +51,72 @@ function AwaitedChip({ watchers }: { watchers?: { label: string; since: string; 
       <Hourglass size={9} className="animate-pulse" />
       {tr('processes.awaited.chip')}
     </span>
+  );
+}
+
+/**
+ * A command an agent started with `run_command`. Drawn like a shell while it
+ * runs (the log opens on click, Stop stops it), and unlike a shell it stays
+ * once it ends, with its outcome: that is what it was launched for.
+ */
+function CommandRow({ sp, stopping, onOpen, onStop }: {
+  sp: ScriptProcessInfo;
+  stopping: boolean;
+  onOpen?: (processId: string, scriptName: string) => void;
+  onStop: (processId: string, e: React.MouseEvent) => void;
+}) {
+  const tr = useT();
+  const outcome = commandOutcome(sp);
+  const running = outcome.kind === 'running';
+  const failed = outcome.kind === 'exit' && outcome.code !== 0;
+  const label = outcome.kind === 'exit' ? tr('processes.outcome.exit', { code: outcome.code })
+    : outcome.kind === 'stopped' ? tr('processes.outcome.stopped')
+    : outcome.kind === 'unknown' ? tr('processes.outcome.unknown') : '';
+  return (
+    <div
+      data-testid="command-process-row"
+      data-process-id={sp.processId}
+      data-outcome={outcome.kind === 'exit' ? `exit:${outcome.code}` : outcome.kind}
+      className={`flex items-center gap-1.5 ${TREE_ROW_CARD} px-2 py-1 group cursor-pointer ${stopping ? 'opacity-60' : ''}`}
+      onClick={() => { if (!stopping) onOpen?.(sp.processId, sp.scriptName); }}
+      title={sp.command}
+    >
+      {stopping ? (
+        <Spinner size="xs" tone="current" className="text-red-500 flex-shrink-0" />
+      ) : running ? (
+        <div className="w-[10px] h-[10px] flex-shrink-0 relative">
+          <div className="absolute inset-0 rounded-full bg-green-500 animate-pulse" />
+        </div>
+      ) : (
+        <div className={`w-[10px] h-[10px] flex-shrink-0 rounded-full ${failed || outcome.kind === 'unknown' ? 'bg-red-500' : 'bg-app-text-faint'}`} />
+      )}
+      <span className={`truncate ${running ? 'text-green-500 font-medium' : 'text-app-text-body'}`}>{sp.scriptName}</span>
+      <span
+        className="text-nano uppercase tracking-wide px-1 py-px rounded bg-primary/15 text-primary flex-shrink-0"
+        title={tr('scripts.commandFromAgent')}
+      >
+        cmd
+      </span>
+      <AwaitedChip watchers={sp.watchers} />
+      <span className="flex-1" />
+      {!running && (
+        <span
+          data-testid="command-outcome"
+          className={`text-micro font-medium px-1 py-[1px] rounded-full flex-shrink-0 ${failed || outcome.kind === 'unknown' ? 'text-red-600 dark:text-red-400 bg-red-500/10' : 'text-app-text-muted bg-app-text-faint/15'}`}
+        >
+          {label}
+        </span>
+      )}
+      {running && !stopping && (
+        <button
+          onClick={(e) => onStop(sp.processId, e)}
+          className="p-0.5 rounded hover:bg-red-500/20 text-app-text-faint hover:text-red-500 transition-colors opacity-40 group-hover:opacity-100"
+          title={tr('processes.stop')}
+        >
+          <Square size={10} />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -145,7 +212,8 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   // Map script name → running process
   const runningMap = new Map<string, ScriptProcessInfo>();
   for (const sp of runningScripts) {
-    if (sp.status === 'running') runningMap.set(sp.scriptName, sp);
+    // A command's label is its command line: it has rows of its own below.
+    if (sp.status === 'running' && sp.source !== 'command') runningMap.set(sp.scriptName, sp);
   }
 
   // L'ULTIMO FALLIMENTO per script. Senza, un processo che muore male torna con
@@ -157,6 +225,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   const detectedRows = runningScripts.filter(
     sp => sp.status === 'running' && sp.source === 'detected' && !scripts.some(x => x.name === sp.scriptName));
   const shellRows = runningScripts.filter(sp => sp.status === 'running' && sp.source === 'shell');
+  const cmdRows = commandRows(runningScripts);
 
   if (!ready) {
     return (
@@ -174,7 +243,7 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
   // `return null` e si apriva sul vuoto, senza distinguere «qui non c'e niente»
   // da «non ho guardato» — che e la differenza che conta quando ti chiedi
   // perche il pannello e muto.
-  if (scriptEntries.length === 0 && detectedRows.length === 0 && shellRows.length === 0) {
+  if (scriptEntries.length === 0 && detectedRows.length === 0 && shellRows.length === 0 && cmdRows.length === 0) {
     return (
       <div data-testid="script-runner-empty" className="px-3 py-2 text-mini text-app-text-tertiary leading-relaxed">
         {found.length === 0
@@ -352,6 +421,16 @@ export function ScriptRunner({ projectPath, onRunScript, onOpenProcessLog }: Scr
           Prima esistevano solo come card nel transcript: un ricordo che scorreva
           via. Qui sono uno stato — si contano, si leggono e si fermano come
           qualunque altro processo. */}
+      {cmdRows.map(sp => (
+        <CommandRow
+          key={sp.processId}
+          sp={sp}
+          stopping={stoppingScripts.has(sp.processId)}
+          onOpen={onOpenProcessLog}
+          onStop={handleStopScript}
+        />
+      ))}
+
       {shellRows.map(sp => {
         const isStopping = stoppingScripts.has(sp.processId);
         const ports = sp.ports ?? [];

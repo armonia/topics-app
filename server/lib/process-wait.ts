@@ -151,6 +151,8 @@ export interface ProcessWatch {
   label: string;
   /** Il motivo per cui si aspetta, quando non e' semplicemente «la fine». */
   until?: string;
+  /** The session that waits: its turn gets the outcome, so no wake is owed to it. */
+  sessionKey?: string;
   startedAt: string;
   expiresAt: string;
 }
@@ -170,6 +172,7 @@ export function openWatch(entry: {
   processId: string;
   label: string;
   until?: string;
+  sessionKey?: string;
   timeoutMs: number;
   now?: () => number;
 }): { watch: ProcessWatch; close: () => void } {
@@ -180,6 +183,7 @@ export function openWatch(entry: {
     processId: entry.processId,
     label: entry.label,
     ...(entry.until ? { until: entry.until } : {}),
+    ...(entry.sessionKey ? { sessionKey: entry.sessionKey } : {}),
     startedAt: new Date(t).toISOString(),
     expiresAt: new Date(t + entry.timeoutMs).toISOString(),
   };
@@ -195,6 +199,22 @@ export function watchesForProcess(processId: string): ProcessWatchInfo[] {
     out.push({ label: w.label, since: w.startedAt, ...(w.until ? { until: w.until } : {}) });
   }
   return out;
+}
+
+/** Is `sessionKey` waiting on this process right now (`process-exit-wake.ts`)? */
+export function isWatchedBySession(processId: string, sessionKey: string): boolean {
+  for (const w of watches.values()) if (w.processId === processId && w.sessionKey === sessionKey) return true;
+  return false;
+}
+
+/**
+ * The turn of `sessionKey` is over (`endStream`): nobody there takes an outcome
+ * any more. Its request can stay open after it, since a CLI's bridge ignores
+ * the cancellation of a tool call, and a watch that outlived its turn made the
+ * end of a command look already delivered: its wake went to nobody.
+ */
+export function closeWatchesOfSession(sessionKey: string): void {
+  for (const [id, w] of watches) if (w.sessionKey === sessionKey) watches.delete(id);
 }
 
 /** Quante attese sono aperte in tutto. Usato dai test e dalle diagnostiche. */

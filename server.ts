@@ -168,7 +168,8 @@ import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { automaticDispatchHooks } from "./server/services/task-auto-model";
 import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
-import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
+import { commandWakeState, createProcessesRouter, sessionsAwaitingCommandWake, startProcessDetection } from "./server/routes/processes";
+import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
 import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
@@ -1973,6 +1974,19 @@ const taskDispatcher = createTaskDispatcher({
   // dispacciata è di un altro provider, quindi la confusione passa da
   // impossibile a sistematica. Vedi `resolveTurnAlive`.
   isTurnAlive: (sessionKey) => resolveTurnAlive(sessionKey),
+  // A card whose turn ends on a `run_command` waits for its wake, as a goal does
+  // (`goal-continuation.ts`), and for the turn that wake opens.
+  awaitsCommandWake: (sessionKey) => commandWakeState(sessionKey) !== "none",
+  isSessionBusy: (sessionKey) => activeStreams.has(sessionKey),
+  // After a restart that wait starts again from the session's last row, not
+  // from the boot: this machine reloads the server at every save in server/.
+  lastSessionRowAt: (sessionKey) => {
+    const row = ctx.db.query(
+      "SELECT timestamp, streamed_at FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1",
+    ).get(sessionKey) as { timestamp?: string | null; streamed_at?: string | null } | null;
+    const times = [row?.timestamp, row?.streamed_at].map((v) => Date.parse(v ?? "")).filter(Number.isFinite);
+    return times.length ? Math.max(...times) : null;
+  },
   // THE REMOTE LANE (KANBAN-76, KANBAN-77): where a paired node answers, the
   // device token this machine holds for it, and the branch its bundle becomes
   // in this checkout.
@@ -5574,13 +5588,26 @@ const resumeCtx: CtxRipresa = {
 // then re-homed every survivor, so a missing transcript is proof of a dead cwd.
 // In coda `riprendiTurniInterrotti`: rimanda i turni uccisi dal riavvio che
 // nessuno riadotterà (`lib/ripresa-boot.ts`).
-reattachSurvivingChatTurns()
+const survivingTurnsAdopted = reattachSurvivingChatTurns();
+// The ends of `run_command` processes reach their topics once the surviving
+// turns are adopted (before, a session could look free mid-turn), in a branch
+// of their own: a sweep below that throws skips the rest of its chain, and the
+// wakes would have waited for the next boot without a word in the log.
+void survivingTurnsAdopted
+  .catch(() => { /* logged by the chain below */ })
+  .then(() => startProcessExitWakes({
+    db: ctx.db, getTopicById: ctx.getTopicById, ownedByRunningTask: (id) => runningTaskOwnsTopic(ctx.db, id),
+    isBusy: (sk) => activeStreams.has(sk), route: topicsRouter,
+    log: (m) => console.log(`[process-exit] ${m}`),
+  }));
+survivingTurnsAdopted
   .then(() => reconcileOrphanedBusyPhases())
   .then(() => reconcileOrphanedTranscripts())
   .then(() => reconcileArchivedTopicSessions())
   .then(() => riprendiTurniInterrotti(resumeCtx, topicsRouter))
-  // The sessions the reattach kept for their background work: their goals wait again.
-  .then(() => goalLoop?.resumeAfterBoot(sessionsWithBackgroundWork()))
+  // The sessions the reattach kept for their background work, and those a
+  // `run_command` still owes a wake: their goals wait again.
+  .then(() => goalLoop?.resumeAfterBoot([...new Set([...sessionsWithBackgroundWork(), ...sessionsAwaitingCommandWake()])]))
   .catch((err) => console.error("[chat-reattach] boot sweep failed", err))
   .finally(() => resumeSweepClock.start());
 

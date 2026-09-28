@@ -20,7 +20,7 @@ import { createChatRouter } from "../../server/routes/chat";
 import { registerProvider, removeProvider } from "../../server/providers";
 import { setGoal, getActiveGoal, setGoalLoop } from "../../server/services/goals";
 import { MAX_GOAL_CONTINUATIONS } from "../../server/services/goal-loop";
-import { createGoalContinuation, goalContinuationForChatRoute, GOAL_CHECK_IN_LIMIT, GOAL_CHECK_IN_MS, GOAL_WAKE_RECHECK_MS, goalCheckInDelayMs, type TurnEndInfo } from "../../server/services/goal-continuation";
+import { backgroundOfTurn, createGoalContinuation, goalContinuationForChatRoute, GOAL_CHECK_IN_LIMIT, GOAL_CHECK_IN_MS, GOAL_WAKE_RECHECK_MS, goalCheckInDelayMs, type TurnEndInfo } from "../../server/services/goal-continuation";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, ContentBlock, Topic } from "../../server/types";
 
@@ -718,6 +718,17 @@ describe("the chat route's turn end, as the goal hears it", () => {
     await b.finish("lanciata, aspetto il report");
     expect(l.seen.at(-1)).toMatchObject({ fromHuman: true, woken: false, backgroundWork: true, backgroundWakeOnly: true });
     await close();
+  });
+
+  // A `run_command` owed a wake is background work of the session too: the
+  // server wakes the topic when it ends (`lib/process-exit-wake.ts`).
+  test("a command owed a wake adds to the CLI's work: queued alone is a wake, anything running is work", () => {
+    const cli = (state: string) => ({ backgroundState: () => state });
+    expect(backgroundOfTurn(cli("none"), "k")).toEqual({ backgroundWork: false, backgroundWakeOnly: false });
+    expect(backgroundOfTurn(cli("none"), "k", "running")).toEqual({ backgroundWork: true, backgroundWakeOnly: false });
+    expect(backgroundOfTurn(cli("none"), "k", "wake-queued")).toEqual({ backgroundWork: true, backgroundWakeOnly: true });
+    expect(backgroundOfTurn(cli("running"), "k", "wake-queued")).toEqual({ backgroundWork: true, backgroundWakeOnly: false });
+    expect(backgroundOfTurn(cli("wake-queued"), "k", "running")).toEqual({ backgroundWork: true, backgroundWakeOnly: false });
   });
 
   test("the goal's own continuation is not the person, and running work is not a queued wake", async () => {

@@ -28,7 +28,7 @@
  * Le due prove qui sotto sono rosse contro il codice di prima: la prima perché
  * `cause` era la costante `"user"`, la seconda perché sul ramo dell'abort non
  * veniva chiamato nessun handler.
-  * @covers RT-01
+  * @covers RT-01, CMDRUN-04
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
@@ -57,6 +57,16 @@ const roundWithLongTool = sse([
   { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "tu_9", name: "bash", input: {} } },
   { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"command":"sleep 30"}' } },
   { type: "content_block_stop", index: 1 },
+  { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 4 } },
+]);
+
+/** A round that waits on a Topics process: the route holds that request open
+ *  until the process ends, up to four minutes. */
+const roundWithProcessWait = sse([
+  { type: "message_start", message: { usage: { input_tokens: 10 } } },
+  { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tu_w", name: "wait_for_process", input: {} } },
+  { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"process_id":"p-1","timeout_ms":240000}' } },
+  { type: "content_block_stop", index: 0 },
   { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 4 } },
 ]);
 
@@ -212,6 +222,53 @@ describe("il ciclo dell'agente nativo quando il server si spegne sotto di lui", 
     expect(out.turnEnd.cause).toBe("server-shutdown");
     // 4. La prosa già scritta sopravvive e finisce sotto il cartello.
     expect(out.text).toContain("misuro la densità");
+  });
+
+  /**
+   * The same abort inside `wait_for_process`, a Topics tool: its request did
+   * not carry the turn's signal, so a stopped turn stayed in the wait until
+   * the route answered (up to four minutes). The next turn of the session
+   * waited behind it (`supersedeLiveTurn`), a reload's grace ran out before
+   * `onAborted`, and the route's watch stayed open: a command ending in that
+   * window counted as waited for, and its wake went to nobody.
+   */
+  test("abort inside wait_for_process: the request closes and the turn ends at once", async () => {
+    const ac = new AbortController();
+    let rounds = 0;
+    let waitClosed = false;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).includes("/scripts/p-1/wait")) {
+        // The route answers when the process ends, or when its caller goes away.
+        return await new Promise<Response>((resolve, reject) => {
+          const t = setTimeout(() => resolve(Response.json({ reason: "exit", output: "", offset: 0, status: "done", exitCode: 0, waitedMs: 5000 })), 5000);
+          init?.signal?.addEventListener("abort", () => { clearTimeout(t); waitClosed = true; reject(init.signal!.reason); }, { once: true });
+        });
+      }
+      rounds++;
+      if (rounds === 1) {
+        setTimeout(() => ac.abort("user"), 150);
+        return new Response(roundWithProcessWait, { status: 200 });
+      }
+      throw new Error("no second round expected: the turn was already stopped");
+    }) as unknown as typeof fetch;
+
+    const h = spia();
+    const started = Date.now();
+    const out = await runAgentTurn(
+      {
+        model: "claude-haiku-4-5-20251001",
+        history: [{ role: "user", content: "wait for the build" }],
+        toolContext: { workspace: ws, signal: ac.signal },
+        topics: { baseUrl: "https://127.0.0.1:1", sessionKey: "topic:x" },
+        autonomy: "auto-apply",
+        signal: ac.signal,
+      },
+      h,
+    );
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(waitClosed).toBe(true);
+    expect(h.eventi).toEqual(["aborted"]);
+    expect(out.turnEnd).toEqual({ end: "cancelled", cause: "user" });
   });
 
   /**

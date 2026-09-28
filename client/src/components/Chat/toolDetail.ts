@@ -41,7 +41,7 @@ const WRITE_NAMES = new Set(['write', 'write_file', 'create_file']);
 // server/providers/claude/tool-detail.ts: the native provider's bare names.
 const TOPICS_BRIDGE_NAMES = new Set([
   'open_browser_pane', 'close_browser_pane', 'browser_list_tabs', 'browser_focus_tab', 'import_chrome',
-  'run_script', 'list_processes', 'read_process_output', 'stop_process',
+  'run_script', 'run_command', 'list_processes', 'read_process_output', 'stop_process',
   'list_tasks', 'create_task', 'get_task', 'get_goal', 'close_goal', 'set_goal', 'update_goal_steps',
   'update_task', 'wait_for_condition', 'label_task', 'comment_task',
   'list_global_tasks', 'get_global_task', 'create_global_task', 'update_global_task', 'comment_global_task',

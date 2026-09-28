@@ -11,7 +11,7 @@
  * The HTTP layer is exercised via a tiny stub `fetch` so we don't have to
  * spin up the topics-app server. callOpenBrowserPane accepts the fetchImpl
  * as a parameter precisely to make this test possible.
- * @covers KANBAN-06
+ * @covers KANBAN-06, CMDRUN-01
  */
 import { describe, test, expect } from "bun:test";
 import {
@@ -55,6 +55,7 @@ import {
   ASK_LEG_MS,
   ASK_MAX_LEGS,
 } from "./topics-mcp-server";
+import { callRunCommand } from "./command-tools";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 import { ASK_TTL_MS } from "../lib/ask-user-bridge";
 
@@ -588,6 +589,7 @@ describe("handleMessage", () => {
       "browser_status",
       "browser_upload",
       "run_script",
+      "run_command",
       "list_processes",
       "read_process_output",
       "wait_for_process",
@@ -685,7 +687,7 @@ describe("handleMessage", () => {
       "open_browser_pane", "close_browser_pane", "browser_focus_tab", "import_chrome",
       "browser_act", "browser_eval", "browser_save_state", "browser_load_state",
       "browser_upload",
-      "run_script", "stop_process",
+      "run_script", "run_command", "stop_process",
       "create_task", "update_task", "close_goal", "set_goal", "update_goal_steps",
       "comment_task", "label_task", "wait_for_condition",
       "create_global_task", "update_global_task", "comment_global_task",
@@ -1085,6 +1087,93 @@ describe("callRunScript", () => {
   });
 });
 
+describe("run_command", () => {
+  test("POSTs {command, cwd} to the session-keyed command endpoint and returns the processId", async () => {
+    const seen: { url?: string; init?: RequestInit } = {};
+    const fetchImpl = stubFetch(async (url, init) => {
+      seen.url = String(url);
+      seen.init = init;
+      return new Response(JSON.stringify({ processId: "c0ffee", pid: 77, wake: true }), { status: 200 });
+    });
+    const text = await callRunCommand(
+      { baseUrl: "http://x", sessionKey: "topic:abc" },
+      { command: "zsh -c 'for i in 1 2 3; do echo tick $i; sleep 20; done'", cwd: "tools" },
+      fetchImpl,
+    );
+    expect(seen.url).toBe("http://x/api/sessions/topic%3Aabc/commands/run");
+    expect(seen.init?.method).toBe("POST");
+    expect(JSON.parse(String(seen.init?.body))).toEqual({ command: "zsh -c 'for i in 1 2 3; do echo tick $i; sleep 20; done'", cwd: "tools" });
+    expect(text).toContain("processId=c0ffee");
+    expect(text).toContain("a message with the outcome");
+  });
+
+  test("wake:false travels, and an empty command never leaves the bridge", async () => {
+    let body = "";
+    const fetchImpl = stubFetch(async (_url, init) => {
+      body = String(init?.body);
+      return new Response(JSON.stringify({ processId: "p", pid: 1, wake: false }), { status: 200 });
+    });
+    const text = await callRunCommand({ baseUrl: "http://x", sessionKey: "s" }, { command: "bun run dev", wake: false }, fetchImpl);
+    expect(JSON.parse(body)).toEqual({ command: "bun run dev", wake: false });
+    expect(text).toContain("no wake");
+    await expect(callRunCommand({ baseUrl: "http://x", sessionKey: "s" }, { command: " " }, fetchImpl)).rejects.toThrow(/command.*required/);
+  });
+
+  // A board card's turn is judged when it ends, so its agent is told to wait
+  // for the command in that turn; an ordinary chat keeps the wake flow
+  // (verifiers of 28/09).
+  test("a board agent is told to wait in its turn, a chat that it can end it", async () => {
+    const fetchImpl = stubFetch(async () => new Response(JSON.stringify({ processId: "p", pid: 1, wake: true }), { status: 200 }));
+    for (const profile of ["dispatch", "codex-dispatch"]) {
+      const text = await callRunCommand({ baseUrl: "http://x", sessionKey: "s", profile }, { command: "bun test" }, fetchImpl);
+      expect(text).toContain("wait_for_process in this same turn");
+      expect(text).not.toContain("so you can end your turn");
+      const tool = toolsForProfile(profile, "darwin").find((t) => t.name === "run_command")!;
+      expect(tool.description).toContain("wait_for_process in this SAME turn");
+      expect(tool.description).not.toContain("which wakes you");
+    }
+    const chat = await callRunCommand({ baseUrl: "http://x", sessionKey: "s" }, { command: "bun test" }, fetchImpl);
+    expect(chat).toContain("so you can end your turn");
+    expect(toolsForProfile(undefined, "darwin").find((t) => t.name === "run_command")!.description).toContain("which wakes you");
+  });
+
+  // The sidecar server ships for Windows too, where there is no POSIX shell to
+  // run the command in: the route answers 501 there, so the tool is not offered.
+  test("is offered where a POSIX shell exists, and not on Windows", () => {
+    expect(toolsForProfile(undefined, "darwin").map((t) => t.name)).toContain("run_command");
+    expect(toolsForProfile(undefined, "linux").map((t) => t.name)).toContain("run_command");
+    expect(toolsForProfile(undefined, "win32").map((t) => t.name)).not.toContain("run_command");
+    expect(toolsForProfile(undefined, "win32").map((t) => t.name)).toContain("run_script");
+  });
+
+  test("tools/call routes run_command, and it is declared destructive and open-world", async () => {
+    const orig = globalThis.fetch;
+    let seenUrl = "";
+    (globalThis as any).fetch = stubFetch(async (url) => {
+      seenUrl = String(url);
+      return new Response(JSON.stringify({ processId: "p9", pid: 9, wake: true }), { status: 200 });
+    });
+    try {
+      const resp = await handleMessage(
+        { jsonrpc: "2.0", id: 41, method: "tools/call", params: { name: "run_command", arguments: { command: "sleep 1" } } },
+        ARGS,
+      );
+      expect((resp!.result as any).content[0].text).toContain("processId=p9");
+      expect(seenUrl).toContain("/api/sessions/s/commands/run");
+    } finally {
+      (globalThis as any).fetch = orig;
+    }
+    const listed = await handleMessage({ jsonrpc: "2.0", id: 42, method: "tools/list" }, ARGS);
+    const tool = ((listed!.result as any).tools as Array<{ name: string; annotations: Record<string, boolean>; inputSchema: any }>).find((t) => t.name === "run_command")!;
+    expect(tool.inputSchema.required).toEqual(["command"]);
+    expect(tool.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true, openWorldHint: true });
+    // A board agent keeps it; the global coordinator, which has no folder, never sees it.
+    const dispatch = await handleMessage({ jsonrpc: "2.0", id: 43, method: "tools/list" }, { ...ARGS, profile: "dispatch" });
+    expect(((dispatch!.result as any).tools as Array<{ name: string }>).map((t) => t.name)).toContain("run_command");
+    expect(isToolAllowedForProfile("global-orchestrator", "run_command")).toBe(false);
+  });
+});
+
 describe("callListProcesses", () => {
   test("formats running + recent into compact lines", async () => {
     const fetchImpl = stubFetch(async (url) => {
@@ -1185,6 +1274,18 @@ describe("callWaitForProcess", () => {
     expect(text).toContain("finished after 9s");
     expect(text).toContain("status=error");
     expect(text).toContain("exit=1");
+  });
+
+  // The route settles the command's wake on this answer: the agent gets no
+  // other word of the outcome, so the code has to be in it.
+  test("a match on a process that has ended carries its status and code", async () => {
+    const fetchImpl = stubFetch(async () =>
+      new Response(JSON.stringify({ output: "5 passed", offset: 3, status: "done", exitCode: 0, reason: "match", waitedMs: 0 }), { status: 200 }),
+    );
+    const text = await callWaitForProcess({ baseUrl: "http://x", sessionKey: "s" }, { process_id: "p1", until: "passed" }, fetchImpl);
+    expect(text).toContain("matched after 0s");
+    expect(text).toContain("finished · status=done exit=0");
+    expect(text).not.toContain("still");
   });
 
   test("throws when process_id missing", async () => {

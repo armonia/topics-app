@@ -21,6 +21,11 @@ export interface ParsedArgs {
   gatewayToken?: string;
   /** Tool profile. "dispatch" scopes Claude task agents; "codex-dispatch" omits Claude-only spawning; "global-orchestrator" is the registry-gated global board surface. */
   profile?: string;
+  /**
+   * The native runtime's turn (`executeTopicsTool`): a call that stays open by
+   * construction (`wait_for_process`) closes with it. A CLI's bridge has none.
+   */
+  turnSignal?: AbortSignal;
 }
 
 /**

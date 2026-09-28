@@ -12,6 +12,7 @@ import { join } from "path";
 import { createInterface, Interface } from "readline";
 import { getAiBridgeClient, type AiBridgeClient } from "../lib/ai-bridge-client";
 import { createLineFolder } from "../lib/ndjson-lines";
+import { agentBaseEnv } from "../lib/agent-env";
 import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import type {
@@ -33,7 +34,7 @@ import { parseCompactBoundary } from "./claude/compaction";
 import { foldRowTurns, isDeliveryMark, isNotificationTurnEnd, isWakeMark, rowTurn, wakeMark, type RowTurns } from "./claude/row-turn";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
-import { applyJobQuota } from "../services/agent-job-quota";
+import { applyJobQuota, readDispatchBinding } from "../services/agent-job-quota";
 import { resolveInheritedMcp } from "./mcp-inheritance";
 // La decodifica degli eventi `stream-json` — campi INTERNI della CLI, non
 // un'API pubblicata — vive in un modulo puro, provato su fixture registrate.
@@ -247,34 +248,10 @@ function resolveCliPath(): string {
 
 // ============ Env Sanitization ============
 
-const ENV_ALLOWLIST = new Set([
-  "PATH", "HOME", "TERM", "LANG", "LC_ALL", "LC_CTYPE",
-  "NODE_ENV", "TZ", "USER", "SHELL", "TMPDIR",
-  "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
-  "ANTHROPIC_API_KEY",
-]);
-
-const ENV_BLOCKLIST_PATTERNS = [
-  /API_KEY/i, /TOKEN/i, /SECRET/i, /PASSWORD/i,
-  /PRIVATE_KEY/i, /CREDENTIAL/i, /AUTH/i,
-];
-
-const ENV_BLOCKLIST_EXCEPTIONS = new Set(["ANTHROPIC_API_KEY"]);
-
 export function buildSafeEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-
-  for (const key of ENV_ALLOWLIST) {
-    if (process.env[key]) env[key] = process.env[key]!;
-  }
-
-  // Double-check blocklist
-  for (const key of Object.keys(env)) {
-    if (ENV_BLOCKLIST_EXCEPTIONS.has(key)) continue;
-    if (ENV_BLOCKLIST_PATTERNS.some((p) => p.test(key))) {
-      delete env[key];
-    }
-  }
+  // The allowlist and the blocklist live in `lib/agent-env.ts`: a `run_command`
+  // process gets the same environment, so it runs as it would in this CLI's Bash.
+  const env = agentBaseEnv();
 
   env.JARVIS_SPAWN = "1";
 
@@ -540,7 +517,7 @@ function peekClaudeSessionId(sessionKey: string): string | null {
  * narrow row read (not the full `getTopicBySessionKey`) to avoid a circular
  * import with utils.ts.
  */
-function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string | null; model: string | null; mcpPolicy: string | null; autonomy: string | null; dispatched: boolean } {
+export function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string | null; model: string | null; mcpPolicy: string | null; autonomy: string | null; dispatched: boolean } {
   try {
     const row = getDatabase()
       .prepare("SELECT id, effort, model, provider, mcp_policy, autonomy_level FROM topics WHERE session_key = ? LIMIT 1")
@@ -554,12 +531,10 @@ function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string 
     // 'inherit' (`dispatch_mcp`) restando dispacciato — sono assi diversi.
     // Lettura stretta, come il resto qui, per non ricreare l'import circolare
     // con utils.ts.
-    let dispatched = false;
-    try {
-      dispatched = !!getDatabase()
-        .prepare("SELECT 1 FROM tasks WHERE assigned_topic_id = ? LIMIT 1")
-        .get(row.id ?? "");
-    } catch { /* board assente: resta una chat come le altre */ }
+    // `readDispatchBinding` also reads `task_attempts`: a fan-out binds only
+    // attempt 1 in `tasks.assigned_topic_id`, and attempts 2..N got a chat's
+    // system prompt, which lets an agent end its turn on a wake (28/09).
+    const dispatched = readDispatchBinding(getDatabase(), sessionKey).dispatched;
     const provider = row.provider ?? null;
     const providerIsUs = provider === null || provider === "claude-code" || provider === "claude-code-team";
     // Loose shape guard only (argv array — no shell involved): the CLI is the
@@ -2481,7 +2456,8 @@ export class ClaudeCodeProvider implements AIProvider {
       // appear in the Processes panel instead of leaking into the bare shell.
       // Porta anche la direttiva di lingua: risolta QUI, allo spawn, così un
       // cambio in Impostazioni vale dalla sessione dopo senza riavvii.
-      appendSystemPrompt: topicsAgentSystemPrompt(),
+      // A board card's agent waits for its `run_command` inside the turn.
+      appendSystemPrompt: topicsAgentSystemPrompt(undefined, undefined, overrides.dispatched),
       // Il deferral degli schemi MCP, IMPOSTO alla sessione. Vale per ogni
       // chat, non solo per i topic bridge-only: era già l'intenzione (vedi
       // l'env qui sotto) ma passava da un canale che perde contro

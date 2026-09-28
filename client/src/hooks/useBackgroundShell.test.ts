@@ -1,5 +1,5 @@
 /**
- * @covers BGSHELL-01, BGSHELL-03
+ * @covers BGSHELL-01, BGSHELL-03, BGSHELL-05
  */
 import { describe, expect, test } from 'bun:test';
 import { pickShellEntry, parseShellIdFromStartResult } from './useBackgroundShell';
@@ -68,6 +68,17 @@ describe("l'id della shell letto dal risultato della Bash", () => {
   test('niente risultato, niente id', () => {
     expect(parseShellIdFromStartResult(undefined)).toBeUndefined();
     expect(parseShellIdFromStartResult('')).toBeUndefined();
+  });
+
+  // The current CLI closes the id's sentence with a full stop. The server
+  // registers the id without it (background-shell.ts), so a card that kept the
+  // stop looked for a row that does not exist and stayed static.
+  test("the current CLI's announcement: the sentence's full stop is not part of the id", () => {
+    const announcement = 'Command running in background with ID: b68urh4wy. Output is being written to: /private/tmp/x/tasks/b68urh4wy.output. You will be notified when it finishes.';
+    const shellId = parseShellIdFromStartResult(announcement);
+    expect(shellId).toBe('b68urh4wy');
+    const rows = [shell('shell:sess-a:b68urh4wy', 'running', 'b68urh4wy')];
+    expect(pickShellEntry(rows, shellId, 'sess-a')?.processId).toBe('shell:sess-a:b68urh4wy');
   });
 
   test('un output che non annuncia nessuna shell non inventa un id', () => {

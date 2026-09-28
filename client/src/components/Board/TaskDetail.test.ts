@@ -27,6 +27,7 @@
  * happens on the wire during a live turn is E2E's job (DRAWER-05a).
  * @covers KANBAN-52
  * @covers KANBAN-73
+ * @covers CMDRUN-04
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -112,6 +113,19 @@ describe('la conversazione e\' UNA lista', () => {
     // asked answerable in the chat and dead in the card.
     expect(src).toContain('<MessageContent');
     expect(src).toContain('data-testid="task-session-item"');
+  });
+});
+
+/**
+ * THE END OF A COMMAND IS THE MACHINE'S LINE, ON THE CARD TOO.
+ *
+ * What a user row of the session looks like, a command's wake included, is
+ * rendered in `TaskSessionUserRow.test.tsx`. What only the source can say here
+ * is that the drawer hands every user row of the session to that component.
+ */
+describe("a command's end in the card's session", () => {
+  test('every user row of the session goes to TaskSessionUserRow', () => {
+    expect(src).toContain("if (item.msg.role === 'user') return <TaskSessionUserRow key={item.id} message={item.msg} />;");
   });
 });
 

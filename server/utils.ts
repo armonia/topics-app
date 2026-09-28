@@ -39,6 +39,7 @@ import { sendWsFrame } from "./lib/ws-send";
 import { isEmptyAssistantTurn } from "../shared/empty-turn";
 import { validateOutbound } from "../shared/ws-outbound";
 import { releaseHumanHold } from "./lib/human-hold";
+import { closeWatchesOfSession } from "./lib/process-wait";
 import { isAwaitingHuman } from "../shared/types";
 import type { OutboundMessage } from "../shared/ws-outbound";
 import { imageShape } from "./services/image-shape";
@@ -2148,6 +2149,9 @@ export function createAppContext(baseDir: string): AppContext {
       } catch {}
     }
     activeStreams.delete(sessionKey);
+    // A `wait_for_process` of this turn waits for nobody from here on, even if
+    // its request is still open: the command's wake is owed again.
+    closeWatchesOfSession(sessionKey);
     return interrupted;
   }
 

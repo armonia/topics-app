@@ -39,6 +39,8 @@ export interface UserRowOrigin {
    * stop line miss the turn that answered it (fourth review of card 46617a7f).
    */
   repeatsEnvelope?: boolean;
+  /** The command whose end this row reports (`lib/process-exit-wake.ts`). */
+  processExit?: unknown;
 }
 
 /**
@@ -69,6 +71,15 @@ export function userRowMarks(origin: UserRowOrigin): ContentBlock[] | undefined 
       ? origin.commentIds.filter((id): id is string => typeof id === "string" && id.length > 0)
       : [];
     blocks.push(ids.length ? { kind: "dispatched-envelope", commentIds: ids } : { kind: "dispatched-envelope" });
+  }
+  const exit = origin.processExit as { processId?: unknown; exitCode?: unknown; label?: unknown } | null | undefined;
+  if (exit && typeof exit === "object" && typeof exit.processId === "string" && exit.processId) {
+    blocks.push({
+      kind: "process-exit",
+      processId: exit.processId,
+      exitCode: typeof exit.exitCode === "number" ? exit.exitCode : null,
+      label: typeof exit.label === "string" ? exit.label : "",
+    });
   }
   return blocks.length ? blocks : undefined;
 }

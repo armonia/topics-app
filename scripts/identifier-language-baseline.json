@@ -3710,8 +3710,6 @@
     "server/providers/claude-code.ts": [
       "ClaudeCliCompat",
       "DEFAULT_ONESHOT_MODEL",
-      "ENV_BLOCKLIST_EXCEPTIONS",
-      "ENV_BLOCKLIST_PATTERNS",
       "certsDir",
       "oneshotKey",
       "useTls"

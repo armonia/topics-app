@@ -1,12 +1,45 @@
 /**
- * @covers BGSHELL-01
+ * @covers BGSHELL-01, BGSHELL-05
  */
 import { describe, expect, it } from "bun:test";
 import {
+  classifyShellToolResult,
   parseBackgroundShellId,
+  parseBackgroundShellOutputPath,
   parseShellOutput,
   parseShellStatus,
 } from "./background-shell";
+
+// The announcement of the current CLI, word for word (measured 27/09 on the
+// CLI this repo runs): the id ends a sentence, and the file follows.
+const CURRENT_CLI =
+  "Command running in background with ID: b68urh4wy. Output is being written to: /x/b68urh4wy.output. " +
+  "If it exits while you are still working you will be notified.";
+
+describe("the current CLI announcement (BGSHELL-05)", () => {
+  it("reads the id without the full stop that ends its sentence", () => {
+    expect(parseBackgroundShellId(CURRENT_CLI)).toBe("b68urh4wy");
+    expect(parseBackgroundShellId("Command running in background with ID: b68urh4wy. Output is being written to: /x/b68urh4wy.output")).toBe("b68urh4wy");
+  });
+
+  it("reads the file the CLI writes the output to", () => {
+    expect(parseBackgroundShellOutputPath(CURRENT_CLI)).toBe("/x/b68urh4wy.output");
+    expect(parseBackgroundShellOutputPath("Command running in background with ID: b68urh4wy. Output is being written to: /x/b68urh4wy.output")).toBe("/x/b68urh4wy.output");
+  });
+
+  it("an announcement without a file has no file", () => {
+    expect(parseBackgroundShellOutputPath("Command running in background with ID: bash_1")).toBeNull();
+    expect(parseBackgroundShellOutputPath(undefined)).toBeNull();
+  });
+
+  it("the start action carries the file to the registry", () => {
+    const action = classifyShellToolResult(
+      { type: "shell", command: "sleep 60", background: true } as never,
+      CURRENT_CLI,
+    );
+    expect(action).toEqual({ kind: "start", shellId: "b68urh4wy", command: "sleep 60", outputPath: "/x/b68urh4wy.output" });
+  });
+});
 
 describe("parseBackgroundShellId", () => {
   it("legge la frase che il CLI usa davvero", () => {

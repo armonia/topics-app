@@ -524,6 +524,8 @@ export function goalContinuationForChatRoute(deps: {
     broadcastToAll: (msg: OutboundMessage) => void;
     activeStreams: { has: (sessionKey: string) => boolean };
   };
+  /** The wakes the session's `run_command` processes owe it (`routes/processes.ts`). */
+  commandWakeState?: (sessionKey: string) => CommandWake;
   resolveProvider: (topic?: Topic | null) => {
     name: string;
     complete: (
@@ -584,8 +586,8 @@ export function goalContinuationForChatRoute(deps: {
     broadcast: ctx.broadcastToAll,
     log: deps.log,
     isBusy: (sk) => ctx.activeStreams.has(sk), // the entry, not `isStreaming`: that one drops a turn silent for 3 min
-    backgroundWork: sessionHasBackgroundWork,
-    wakeQueued: (sk) => sessionBackgroundState(sk) === "wake-queued",
+    backgroundWork: (sk) => sessionHasBackgroundWork(sk) || (deps.commandWakeState?.(sk) ?? "none") !== "none",
+    wakeQueued: (sk) => sessionBackgroundState(sk) === "wake-queued" || deps.commandWakeState?.(sk) === "wake-queued",
   });
 
   return {
@@ -629,13 +631,23 @@ export function goalContinuationForChatRoute(deps: {
 /** The chat route's goal loop, as the Stop and the boot hold it. */
 export type ChatGoalLoop = ReturnType<typeof goalContinuationForChatRoute>;
 
+/** A `run_command` owed to the session, as `routes/processes.ts` `commandWakeState` says it. */
+type CommandWake = "running" | "wake-queued" | "none";
+
 /**
  * What the goal reads of the session's background work when a turn ends, asked
  * of the provider that ran it right after its `result` (the CLI prints its
- * snapshot before it). Used by the chat route.
+ * snapshot before it), and of the `run_command` processes that owe the session
+ * a wake: the server wakes the topic when one ends (`lib/process-exit-wake.ts`),
+ * as the CLI does for its own work. Used by the chat route.
  */
-export function backgroundOfTurn(provider: unknown, sessionKey: string): { backgroundWork: boolean; backgroundWakeOnly: boolean } {
+export function backgroundOfTurn(provider: unknown, sessionKey: string, command: CommandWake = "none"): { backgroundWork: boolean; backgroundWakeOnly: boolean } {
   const p = provider as { backgroundState?: (sk: string) => string; hasBackgroundWork?: (sk: string) => boolean };
   const state = p.backgroundState?.(sessionKey) ?? (p.hasBackgroundWork?.(sessionKey) ? "running" : "none");
-  return { backgroundWork: state !== "none", backgroundWakeOnly: state === "wake-queued" };
+  const states = [state, command];
+  return {
+    backgroundWork: states.some((s) => s !== "none"),
+    // Only a wake is pending when something is queued and nothing still runs.
+    backgroundWakeOnly: states.includes("wake-queued") && states.every((s) => s === "wake-queued" || s === "none"),
+  };
 }

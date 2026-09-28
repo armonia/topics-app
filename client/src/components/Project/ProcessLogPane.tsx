@@ -242,6 +242,7 @@ export function ProcessLogPane({ processId, scriptName, onMessage }: ProcessLogP
       {/* Output */}
       <pre
         ref={preRef}
+        data-testid="process-log-output"
         onScroll={handleScroll}
         className="flex-1 overflow-auto p-3 text-compact leading-relaxed text-app-text font-mono whitespace-pre-wrap break-words select-text"
       >

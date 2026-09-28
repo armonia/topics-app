@@ -257,6 +257,19 @@ describe('topicsAgentSystemPrompt', () => {
     }
   });
 
+  // Windows has no POSIX shell for it: the bridge does not offer the tool
+  // (`toolsForProfile`) and the route answers 501. A prompt that sent the
+  // agent there spent a tool round and promised a wake that never comes.
+  test('run_command is named only where the bridge offers it', () => {
+    expect(topicsAgentSystemPrompt('auto', 'darwin')).toContain('mcp__topics__run_command');
+    expect(topicsAgentSystemPrompt('auto', 'linux')).toContain('mcp__topics__run_command');
+    const win = topicsAgentSystemPrompt('auto', 'win32');
+    expect(win).not.toContain('run_command');
+    expect(win).toContain('mcp__topics__run_script');
+    expect(win).toContain('mcp__topics__wait_for_process');
+    expect(win.endsWith('or the command is a short one-off.')).toBe(true);
+  });
+
   test("con 'auto' il prompt è ESATTAMENTE quello di prima: nessuna coda", () => {
     const auto = topicsAgentSystemPrompt('auto');
     expect(auto.endsWith('or the command is a short one-off.')).toBe(true);
@@ -331,7 +344,63 @@ describe('shell in background: risveglio reale ma condizionato', () => {
     expect(p).toContain('it dies with the CLI');
     expect(p).toContain('[killed]');
     // E la via d'uscita quando il risveglio serve davvero.
-    expect(p).toContain('Prefer `Monitor` when the point IS being woken');
+    expect(p).toContain('when the point IS being woken');
+  });
+
+  // 24/09, darkroom: a two-hour retry loop in a background Bash died with the
+  // CLI session and nobody was woken. `run_command` is the wait that survives
+  // it and wakes the chat; a server that is not meant to end asks for no wake.
+  test('long ad hoc waits go to run_command, and servers ask for no wake', () => {
+    const p = topicsAgentSystemPrompt();
+    expect(p).toContain('`mcp__topics__run_command`');
+    expect(p).toMatch(/run_command`[\s\S]*survives a restart of your CLI/);
+    expect(p).toContain('`wake: false`');
+    expect(p.endsWith('or the command is a short one-off.')).toBe(true);
+  });
+
+  // A board card's turn is judged when it ends: told it could end its turn on
+  // a `run_command`, a card spent an attempt and met its wake over a nudge
+  // (verifiers of 28/09). The wake flow stays for ordinary chats.
+  test('a board agent waits for its command in the same turn instead of ending it', () => {
+    const board = topicsAgentSystemPrompt('auto', 'darwin', true);
+    expect(board).toContain('`mcp__topics__run_command`');
+    expect(board).not.toContain('so you can end your turn');
+    expect(board).toMatch(/run_command`[\s\S]*`mcp__topics__wait_for_process` in the same turn/);
+    expect(board).toContain('never end your turn while it runs');
+    expect(topicsAgentSystemPrompt('auto', 'darwin')).toContain('so you can end your turn');
+  });
+
+  // The board's net (the dispatcher's wait) covers only a run_command wake: a
+  // card that ends its turn on a `Monitor` or a background shell spends an
+  // attempt and is nudged over the CLI's wake (verifiers of 28/09, second
+  // round). So no sentence of the board prompt offers a wake that ends the
+  // turn, and Windows, with no run_command, gets the same-turn rule too.
+  test('a board agent is told on no platform to end its turn on a wait', () => {
+    for (const platform of ['darwin', 'win32'] as const) {
+      const board = topicsAgentSystemPrompt('auto', platform, true);
+      expect(board).not.toMatch(/ends your turn|end your turn and report|can end your turn|IS being woken|wakes you|wake-up/);
+      expect(board).toMatch(/`mcp__topics__wait_for_process` in the same turn/);
+      expect(board).toContain('never end your turn while it runs');
+      expect(board).toMatch(/Do not end your turn on a `Monitor` or a background shell/);
+    }
+    expect(topicsAgentSystemPrompt('auto', 'win32', true)).not.toContain('run_command');
+  });
+
+  // Two things a card runs that are not commands to wait for. A retry every 15
+  // minutes for two hours is a wait for an external condition, which the
+  // kickoff sends to wait_for_condition: named here as a command to wait for,
+  // it held the dispatch slot for hours and paid a model call every few
+  // minutes. A dev server left up for the reviewer's tab must outlive the turn:
+  // read against «never end your turn while it runs», it had to be stopped
+  // before delivery (verifiers of 28/09, third round).
+  test('a board agent declares an external wait, and leaves a server for the tab running', () => {
+    for (const platform of ['darwin', 'win32'] as const) {
+      const board = topicsAgentSystemPrompt('auto', platform, true);
+      expect(board).not.toContain('retry loop');
+      expect(board).toMatch(/external condition[\s\S]*`mcp__topics__wait_for_condition`/);
+      expect(board).toMatch(/dev server you leave up for a tab of the card is not such a command[\s\S]*keeps running after your turn/);
+    }
+    expect(topicsAgentSystemPrompt('auto', 'darwin', true)).toContain('keeps running after your turn (started with `mcp__topics__run_command`, pass `wake: false`)');
   });
 
   test('i tre strumenti restano distinti: chiude-e-sveglia, tiene-e-torna, dipende', () => {

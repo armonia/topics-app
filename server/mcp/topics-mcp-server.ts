@@ -33,6 +33,8 @@ import { GOAL_STEP_STATUSES } from "../../shared/types";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 import { OUTBOUND_TOOLS, callGoogleCall, callSendMail } from "./outbound-tools";
+import { COMMAND_TOOLS, RUN_COMMAND_BOARD_DESCRIPTION, callRunCommand, isBoardProfile } from "./command-tools";
+import { hasCommandShell } from "../lib/command-process";
 import { HttpAnswerError, httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
 import type { ParsedArgs } from "./topics-http";
 
@@ -201,10 +203,11 @@ const TOOLS = [
     },
     annotations: MODIFICA,
   },
+  ...COMMAND_TOOLS,
   {
     name: "list_processes",
     description:
-      "List dev scripts started via run_script (running + recent) with status, processId, pid, and any listening ports.",
+      "List processes started via run_script or run_command (running + recent) with status, processId, pid, exit code and any listening ports.",
     inputSchema: { type: "object", properties: {} },
     annotations: SOLA_LETTURA,
   },
@@ -215,7 +218,7 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        process_id: { type: "string", description: "processId returned by run_script or list_processes." },
+        process_id: { type: "string", description: "processId returned by run_script, run_command or list_processes." },
         offset: { type: "number", description: "Line offset to read from (use the offset returned by the previous call). Defaults to 0." },
       },
       required: ["process_id"],
@@ -240,7 +243,7 @@ const TOOLS = [
   },
   {
     name: "stop_process",
-    description: "Stop a running process started by run_script, by processId.",
+    description: "Stop a running process started by run_script or run_command, by processId. A stopped run_command does not wake anyone.",
     inputSchema: {
       type: "object",
       properties: {
@@ -848,18 +851,24 @@ const GLOBAL_ORCHESTRATOR_TOOL_NAMES = new Set([
  * esattamente il modo in cui la versione a due flag si rompeva:
  * «MCP tool mcp__topics__approval_prompt … not found» su ogni richiesta.
  */
-export function toolsForProfile(profile: string | undefined): typeof TOOLS {
+export function toolsForProfile(profile: string | undefined, platform: NodeJS.Platform = process.platform): typeof TOOLS {
   if (profile === "global-orchestrator") {
     return TOOLS.filter((t) => GLOBAL_ORCHESTRATOR_TOOL_NAMES.has(t.name));
   }
   // Global board tools have no safe meaning outside the registry-backed
   // coordinator. Do not merely hide them from `tools/list`: exclude them from
   // every ordinary profile and deny direct calls below as well.
-  return TOOLS.filter((t) =>
+  const tools = TOOLS.filter((t) =>
     !GLOBAL_ORCHESTRATOR_TOOL_NAMES.has(t.name)
     && (profile !== "dispatch" || !DISPATCH_EXCLUDED_TOOLS.has(t.name))
-    && (profile !== "codex-dispatch" || !CODEX_DISPATCH_EXCLUDED_TOOLS.has(t.name)),
+    && (profile !== "codex-dispatch" || !CODEX_DISPATCH_EXCLUDED_TOOLS.has(t.name))
+    // No POSIX shell to run it in (`commandArgv`): offered, it could only fail.
+    && (hasCommandShell(platform) || t.name !== "run_command"),
   );
+  // A board card's agent waits for its command inside the turn (`isBoardProfile`).
+  return isBoardProfile(profile)
+    ? tools.map((t) => (t.name === "run_command" ? { ...t, description: RUN_COMMAND_BOARD_DESCRIPTION } : t))
+    : tools;
 }
 
 export function isToolAllowedForProfile(profile: string | undefined, name: string): boolean {
@@ -1872,9 +1881,12 @@ export async function callWaitForProcess(
   // Il margine sopra il tetto della rotta: se scade questo vuol dire che a non
   // rispondere e' il server, non il processo atteso.
   const budget = (typeof toolArgs.timeout_ms === "number" ? Math.min(toolArgs.timeout_ms, 240_000) : 120_000) + 20_000;
-  const body = await httpJson<ProcessWaitResp>(
-    args, "GET", path, undefined, fetchImpl, AbortSignal.timeout(budget),
-  );
+  // A stopped turn of the native runtime closes the request: left open, the
+  // loop sat in it for minutes and the route's watch still counted the wake
+  // as taken.
+  const deadline = AbortSignal.timeout(budget);
+  const signal = args.turnSignal ? AbortSignal.any([deadline, args.turnSignal]) : deadline; // allow-any: the method that joins two signals, not the type
+  const body = await httpJson<ProcessWaitResp>(args, "GET", path, undefined, fetchImpl, signal);
 
   let output = typeof body?.output === "string" ? body.output : "";
   const MAX = 8000;
@@ -1886,10 +1898,13 @@ export async function callWaitForProcess(
   const reason = body?.reason ?? "timeout";
   const secs = Math.round((body?.waitedMs ?? 0) / 1000);
   const exit = body?.exitCode !== undefined && body?.exitCode !== null ? ` exit=${body.exitCode}` : "";
+  // A match on the last lines of a process that has ended: the route settles
+  // its wake on this answer, so the outcome has to be in it.
+  const ended = body?.status !== undefined && body.status !== "running";
   const verdict = reason === "exit"
     ? `finished after ${secs}s · status=${body?.status ?? "?"}${exit}`
     : reason === "match"
-      ? `matched after ${secs}s · still ${body?.status ?? "running"}`
+      ? `matched after ${secs}s · ${ended ? `finished · status=${body.status}${exit}` : "still running"}`
       : `STILL RUNNING after ${secs}s (not an error) · call wait_for_process again with offset=${body?.offset ?? 0}`;
   const lost = body?.truncatedLines ? ` dropped=${body.truncatedLines}` : "";
   return `${head}${output}\n[reason=${reason} offset=${body?.offset ?? 0}${lost}] ${verdict}`;
@@ -2694,6 +2709,7 @@ export const TOOL_HANDLERS: Record<
   browser_focus_tab: (a, t) => callFocusBrowserTab(a, t as { contextId?: unknown }),
   import_chrome: (a, t) => callImportChrome(a, t as { domains?: unknown; profile?: unknown; dry_run?: unknown; browser?: unknown }),
   run_script: (a, t) => callRunScript(a, t),
+  run_command: (a, t) => callRunCommand(a, t),
   list_processes: (a, t) => callListProcesses(a, t),
   read_process_output: (a, t) => callReadProcessOutput(a, t),
   wait_for_process: (a, t) => callWaitForProcess(a, t),

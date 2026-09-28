@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createWorktreeGcRunner, taskIdleDays, type WorktreeGcDeps } from "./worktree-gc-runner";
@@ -173,6 +173,58 @@ describe("le cartelle vive fermano la potatura", () => {
     expect(esito!.kept).toBe(0);
     expect(esito!.keptReasons["sessione viva nella cartella"]).toBeUndefined();
   });
+});
+
+/**
+ * A PROCESS OF TOPICS RUNNING IN THE CARD'S WORKTREE KEEPS IT WHOLE.
+ *
+ * The dispatcher slims a card's worktree when the card reaches review, and a
+ * card waiting for a `run_command` wake gets there with the command still
+ * running (the agent delivered, or a person moved the card). The GC pass
+ * already refused to slim under a live Topics process; this entry point only
+ * asked about a turn in flight and a preview, and took `node_modules` from
+ * under a `bun test` or a dev server started with `wake: false`.
+ */
+describe("slimming a card's worktree with a Topics process running inside", () => {
+  function worktreeWithNodeModules(): { root: string; absPath: string } {
+    const root = mkdtempSync(join(tmpdir(), "slim-live-"));
+    const repo = join(root, "repo");
+    const git = (cwd: string, ...args: string[]) => Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv() }).exitCode;
+    git(root, "init", "--quiet", "repo");
+    git(repo, "config", "user.email", "t@t.t");
+    git(repo, "config", "user.name", "t");
+    git(repo, "symbolic-ref", "HEAD", "refs/heads/main");
+    writeFileSync(join(repo, ".gitignore"), "node_modules/\n");
+    writeFileSync(join(repo, "README.md"), "base\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base");
+    const absPath = join(root, "wt");
+    git(repo, "worktree", "add", "-q", "-b", "topics/wt", absPath, "main");
+    mkdirSync(join(absPath, "node_modules", "pkg"), { recursive: true });
+    writeFileSync(join(absPath, "node_modules", "pkg", "index.js"), "x".repeat(1000));
+    return { root, absPath };
+  }
+
+  for (const [name, running, kept] of [
+    ["a running command keeps node_modules", true, true],
+    ["with nothing running it goes", false, false],
+  ] as const) {
+    it(name, async () => {
+      const { root, absPath } = worktreeWithNodeModules();
+      const { deps } = fakeDeps({
+        worktreeOfTask: () => ({ id: "w1", absPath, projectId: "p" }),
+        listOwnedScripts: () => running
+          ? [{ processId: "c1", pid: process.pid, projectPath: join(absPath, "server"), source: "command", status: "running" }]
+          : [],
+      });
+      try {
+        await createWorktreeGcRunner(deps).slimWorktreeOfTask("t1");
+        expect(existsSync(join(absPath, "node_modules"))).toBe(kept);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
 });
 
 /**

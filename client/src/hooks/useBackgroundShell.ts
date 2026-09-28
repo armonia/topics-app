@@ -165,5 +165,9 @@ export function parseShellIdFromStartResult(result: string | undefined): string 
   if (!result) return undefined;
   const m = result.match(/\b(?:with\s+)?ID:?\s*([A-Za-z0-9_.-]+)/i)
     ?? result.match(/"(?:bash_id|shell_id)"\s*:\s*"([^"]+)"/);
-  return m?.[1];
+  // The current CLI ends the id's sentence with a full stop ("with ID:
+  // b68urh4wy. Output is being written to: ..."), and the id class accepts
+  // dots. The server drops that stop when it registers the shell, so the card
+  // has to drop it too, or it looks for a row that does not exist.
+  return m?.[1]?.replace(/\.+$/, '') || undefined;
 }

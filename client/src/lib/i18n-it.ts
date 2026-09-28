@@ -1855,6 +1855,10 @@ const IT: Dict = {
   'processes.awaited.one': 'Un agente sta aspettando la fine di questo processo',
   'processes.awaited.many': '{n} agenti stanno aspettando la fine di questo processo',
   'processes.awaited.chip': 'atteso',
+  'processes.stop': 'Ferma',
+  'processes.outcome.exit': 'exit {code}',
+  'processes.outcome.stopped': 'fermato',
+  'processes.outcome.unknown': 'esito sconosciuto',
   // The command that REOPENS the column. It had no key: App.tsx hard-codes its
   // title and SidebarToggleButton falls back to a default one, so the first
   // place that needs it translated is the zoom frame, where the command is
@@ -2334,7 +2338,8 @@ const IT: Dict = {
   'scripts.noManifest': 'Nessun manifest di script in questa cartella.',
   'scripts.noneDeclared': 'Nessuno script dichiarato in {files}.',
   'scripts.lookedIn': 'Guardo: {files}',
-  'scripts.shellFromAgent': "Shell lasciata in background dall'agente. L'output arriva dai suoi BashOutput.",
+  'scripts.shellFromAgent': "Shell lasciata in background dall'agente. Il log si legge dal vivo dal file in cui la scrive il CLI.",
+  'scripts.commandFromAgent': "Comando lanciato dall'agente con run_command: il log è dal vivo, sopravvive al riavvio del CLI, e quando finisce la chat che l'ha lanciato riceve l'esito.",
   'scripts.noPid': 'Processo non ancora individuato. Fermala dalla chat con KillShell.',
   'project.sidebar.resizeFit': 'Trascina per ridimensionare · doppio clic per adattare al contenuto',
   // ── Pannello Performance. È tutto testo di diagnosi, quindi ogni pezzo è una

@@ -8,8 +8,9 @@
   `Bun.spawn` riceve come stdout e stderr lo stesso file di log
   (`<persistDir>/scripts/<processId>.log`), e l'argv è un involucro che scrive
   l'uscita accanto:
-  `["/bin/zsh", "-c", 'zsh -c "$1"; rc=$?; print -r -- $rc > "$2"; exit $rc', "_", command, exitPath]`.
-  Il comando gira in una zsh interna, così un suo `exit` anticipato non salta la
+  `["/bin/zsh", "-c", '/bin/zsh -c "$1"; rc=$?; printf "%s\n" "$rc" > "$2"; exit $rc', "_", command, exitPath]`
+  (`/bin/sh` al posto di `/bin/zsh` fuori da macOS; niente su Windows).
+  Il comando gira in una shell interna, così un suo `exit` anticipato non salta la
   scrittura del codice.
 - **Chi scrive il log.** Per le righe `command` il file lo scrive il figlio;
   `appendOutput` (`processes.ts:542`) alimenta solo il ring buffer e **non**
@@ -39,7 +40,11 @@
   raggiungono (`grants.ts:101`); la cwd si confina alla radice risolta con
   `realpath` + controllo di prefisso, come `isWithin` (`processes.ts:1245`).
   L'agente ha già `Bash`: il tool non gli dà un potere nuovo, gli dà un posto
-  dove il lavoro si vede.
+  dove il lavoro si vede. Perché resti vero, il comando parte con l'ambiente
+  ripulito del CLI dell'agente (`server/lib/agent-env.ts`, lo stesso di
+  `buildSafeEnv`), non con quello del server: con `process.env` intero,
+  `run_command env` scriveva i segreti del server nel log, nel pannello e nella
+  riga della sveglia.
 
 ## Rischi
 

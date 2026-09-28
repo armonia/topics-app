@@ -2,7 +2,8 @@
  * Is this row one the MACHINE wrote, not the person or the model?
  *
  * The goal loop's continuation (`goal-nudge`), its stop notice (`goal-stop`),
- * the line about a chat's background work (`background-notice`)
+ * the line about a chat's background work (`background-notice`), the end
+ * of a command the chat launched (`process-exit`)
  * and the board's envelope (`dispatched-envelope`) are rows of the transcript
  * because a provider only answers a `user` turn, but none of them is
  * something anybody said. The chat draws them as a service line
@@ -15,7 +16,7 @@ import type { MachineStopCause } from '../../../../shared/types';
 import type { useT } from '../../hooks/useT';
 export type { MachineStopCause } from '../../../../shared/types';
 
-const MACHINE_KINDS = new Set(['goal-nudge', 'goal-stop', 'dispatched-envelope', 'machine-stop', 'background-notice']);
+const MACHINE_KINDS = new Set(['goal-nudge', 'goal-stop', 'dispatched-envelope', 'machine-stop', 'background-notice', 'process-exit']);
 
 export function isMachineRow(blocks: readonly ContentBlock[] | undefined | null): boolean {
   if (!blocks || blocks.length === 0) return false;
@@ -35,6 +36,13 @@ export function machineStopOf(blocks: readonly ContentBlock[] | undefined | null
 }
 
 export type BackgroundNoticeBlock = Extract<ContentBlock, { kind: 'background-notice' }>;
+export type ProcessExitBlock = Extract<ContentBlock, { kind: 'process-exit' }>;
+
+/** The end of a `run_command` process this row reports, or null (server/lib/process-exit-wake.ts). */
+export function processExitOf(blocks: readonly ContentBlock[] | undefined | null): ProcessExitBlock | null {
+  const b = blocks?.find((x) => x.kind === 'process-exit');
+  return b && b.kind === 'process-exit' ? b : null;
+}
 
 /** The background notice this row is, or null (server/lib/background-notice.ts). */
 export function backgroundNoticeOf(blocks: readonly ContentBlock[] | undefined | null): BackgroundNoticeBlock | null {

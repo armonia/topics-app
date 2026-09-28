@@ -952,7 +952,7 @@ export async function runAgentTurn(
         : isMcpTool(t.name!)
           ? await executeMcpTool(t.name!, (t.input ?? {}) as Record<string, unknown>)
           : opts.topics && isTopicsTool(t.name!)
-            ? await executeTopicsTool(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.topics)
+            ? await executeTopicsTool(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.topics, opts.signal)
             // The context is per CALL: the running output goes out under this
             // call's id, as `stream:tool_update`, the channel the other
             // providers already use (CHAT-NTOOL-04).

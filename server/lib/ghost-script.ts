@@ -21,8 +21,17 @@ export interface OwnedScript {
   pid: number | null;
   pidLstart?: string;
   projectPath: string;
-  source?: "script" | "detected" | "shell";
+  source?: "script" | "detected" | "shell" | "command";
   status: string;
+}
+
+/**
+ * Spawned by Topics itself, so Topics answers for it: a manifest script
+ * (`run_script`; no `source` on rows older than the field) or a `run_command`.
+ * A detected process and a background shell of the CLI are somebody else's.
+ */
+export function isTopicsSpawned(source: string | undefined): boolean {
+  return source === undefined || source === "script" || source === "command";
 }
 
 /**
@@ -51,7 +60,7 @@ export function isGhostScript(opts: {
 }): boolean {
   const { cwdReal, worktreeRoots, worktreesBase, source, status, pid } = opts;
   // 1. Deve essere un processo avviato da Topics
-  if (source !== "script") return false;
+  if (!isTopicsSpawned(source)) return false;
   // 2. Deve essere ancora segnato come running
   if (status !== "running") return false;
   // 3. Deve avere un pid
@@ -81,7 +90,7 @@ export function hasRunningScriptsInWorktree(opts: {
   const { scripts, worktreePath } = opts;
   const base = worktreePath.endsWith("/") ? worktreePath : worktreePath + "/";
   return scripts.some(s => {
-    if (s.source !== "script" || s.status !== "running" || !s.pid) return false;
+    if (!isTopicsSpawned(s.source) || s.status !== "running" || !s.pid) return false;
     const p = s.projectPath;
     return p === worktreePath || p.startsWith(base);
   });
