@@ -61,6 +61,7 @@ import { OUTPUT_LANGUAGES, type OutputLanguage } from "../../shared/types";
 import type { StopCause } from "../lib/abort-cause";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import { effectiveDelegatedSettings, runWithDelegatedDeadline } from "./task-dispatcher-delegated";
+import { BACKGROUND_WORK_CAP_MS } from "../providers/claude/background-work";
 
 /** Fallback retry cap when a board's setting can't be read (default 2). */
 const DEFAULT_RETRY_CAP = 2;
@@ -515,6 +516,15 @@ export interface DispatcherDeps {
   }) => boolean | number;
   /** Stops a live local turn when its authorizing capability is revoked. */
   abortTurn?: (sessionKey: string, cause: StopCause) => Promise<void>;
+  /**
+   * A `run_command` of this session will wake it: it still runs, or it ended
+   * and its wake row is not in the chat yet (`routes/processes.ts`
+   * `commandWakeState`). A card whose turn ends on one waits for that wake
+   * instead of being nudged. Absent: never.
+   */
+  awaitsCommandWake?: (sessionKey: string) => boolean;
+  /** A turn in flight on the session that the dispatcher did not start: a command's wake, a person's message (`activeStreams`). */
+  isSessionBusy?: (sessionKey: string) => boolean;
 }
 
 export interface TaskDispatcher {
@@ -1748,6 +1758,58 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    */
   const retryWaits = new Map<string, ReturnType<typeof setTimeout>>();
 
+  /**
+   * THE CARDS WAITING FOR A COMMAND'S WAKE.
+   *
+   * `run_command` wakes the topic when the command ends
+   * (`lib/process-exit-wake.ts`), and the prompt tells every agent, board
+   * agents included, to end its turn once one is started. Read as an
+   * interrupted turn, that end got a nudge over the running command and cost
+   * an attempt: with the default cap of 2 the card was parked «failed» before
+   * the command ended (both verifiers of 28/09 at 0252f6ea5). The wait is the
+   * one the goal loop keeps for the same wake (`backgroundOfTurn`), bounded
+   * like the CLI's own background work. `since` is when the session last went
+   * quiet; the poll ends the wait (`pollCommandWaits`).
+   *
+   * In memory like `retryWaits`: after a restart `reconcile` finds the card
+   * still owed a wake and waits again (`awaitCommandWake`).
+   */
+  const commandWaits = new Map<string, { sessionKey: string; since: number }>();
+
+  function commandWakeOwed(sessionKey: string): boolean {
+    try { return deps.awaitsCommandWake?.(sessionKey) === true; } catch { return false; }
+  }
+
+  /** The card's session is owed a command's wake: the card waits for it. True when it does. */
+  function awaitCommandWake(task: Task): boolean {
+    // A delegated run answers to its own deadline and its single attempt.
+    if (!task.assignedTopicId || delegatedPolicy(task) !== undefined) return false;
+    const sessionKey = "topic:" + task.assignedTopicId.slice(0, 8);
+    if (!commandWakeOwed(sessionKey)) return false;
+    if (!commandWaits.has(task.id)) commandWaits.set(task.id, { sessionKey, since: clock() });
+    return true;
+  }
+
+  /**
+   * The waits that are over, because the wake's turn came and went, the
+   * command was stopped, the card left the column, or the session stayed quiet
+   * past the cap: the card goes on as after any turn (`onTurnEnd`). A turn in
+   * flight on the session, the wake's or a person's, holds the wait and its
+   * end restarts the clock.
+   */
+  function pollCommandWaits(): void {
+    for (const [taskId, w] of [...commandWaits]) {
+      let busy = false;
+      try { busy = deps.isSessionBusy?.(w.sessionKey) === true; } catch { busy = false; }
+      if (busy) { w.since = clock(); continue; }
+      let t: Task | undefined;
+      try { t = deps.svc.get(taskId)?.task; } catch { continue; }
+      if (t?.status === "in_progress" && commandWakeOwed(w.sessionKey) && clock() - w.since < BACKGROUND_WORK_CAP_MS) continue;
+      commandWaits.delete(taskId);
+      if (t?.status === "in_progress" || t?.status === "review") onTurnEnd(taskId, undefined, { end: "end_turn" }, true);
+    }
+  }
+
   /** Il ritentativo non serve piu' (o sta partendo): via il timer e la voce. */
   function clearRetryWait(taskId: string): void {
     const t = retryWaits.get(taskId);
@@ -1786,6 +1848,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // vivo. L'invariante e' «una voce nel registro se e solo se c'e' un timer
     // che serve ancora», la stessa di `slotWaits`.
     clearRetryWait(taskId);
+    commandWaits.delete(taskId);
     inFlight.set(taskId, { runId, sessionKey, sessionAt: Date.now(), deadSweeps: 0 });
     return runId;
   }
@@ -3680,7 +3743,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       .join(" / ");
   }
 
-  function onTurnEnd(taskId: string, turnMs?: number, turnEnd?: TurnEndInfo): void {
+  /** `afterCommandWait`: called by `pollCommandWaits`, whose wait is over and must not start again. */
+  function onTurnEnd(taskId: string, turnMs?: number, turnEnd?: TurnEndInfo, afterCommandWait = false): void {
     recentlyEnded.set(taskId, Date.now());
     // Chi non la sa la dichiara `end_turn` — non è un default innocuo, è
     // l'ipotesi più benevola: "l'agent ha finito". Sbagliarla verso `error`
@@ -3783,6 +3847,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // from scratch — a fresh restart re-plans, re-creates the step checklist
       // and burns the whole retry budget on any task bigger than one timeout.
       if (cur.assignedTopicId && shouldResume(end)) {
+        // Ended on a command that will wake it: no nudge, no attempt, see `commandWaits`.
+        if (!afterCommandWait && awaitCommandWake(cur)) {
+          const capHours = Math.round(BACKGROUND_WORK_CAP_MS / 3_600_000);
+          try {
+            deps.svc.addComment({
+              taskId, author: "system", kind: "service",
+              content: `${describeTurnEnd(end)}: un comando lanciato con run_command sta ancora girando e sveglierà la sessione quando finisce. La card aspetta quella sveglia (al massimo ${capHours} ore di silenzio), nessun tentativo consumato.`,
+            });
+          } catch { /* best-effort */ }
+          return;
+        }
         const cap = attemptCap(cur);
         const backoff = backoffMs(cur.projectId);
         let bumped: Task | null = null;
@@ -5426,6 +5501,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     //    what the sweep below judges, and a success is what resets the count.
     await remote.poll();
     const justBuried = sweepDeadTurns();
+    pollCommandWaits();
     // 1) Recover orphaned in-progress tasks (server restarted mid-turn): they are
     //    in_progress + mid-dispatch chip, but we have no live launch for them.
     let running: Task[] = [];
@@ -5461,6 +5537,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // viene svegliata ogni 10 secondi contro una sessione occupata. Vedi
       // `retryWaits` per la misura.
       if (retryWaits.has(t.id)) continue;
+      // Waiting for its command's wake: the wake starts it again, see `commandWaits`.
+      if (commandWaits.has(t.id)) continue;
       // Just buried above: its recovery is already scheduled (onTurnEnd). Without
       // this it would ALSO look like a restart orphan and get a second, wrong
       // recovery ("il server è ripartito", which never happened).
@@ -5525,6 +5603,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         void recoverOrphanedFanOut(t.id);
         continue;
       }
+      // Owed a command's wake after a restart: the wait lived in memory, the
+      // command did not (`routes/processes.ts` re-adopts it), and its wake
+      // starts the card again as it would have without the restart. A card cut
+      // mid-turn with such a command running waits too: the wake's turn is
+      // where it goes on, instead of a nudge that meets the command running.
+      if (awaitCommandWake(t)) continue;
       // Everything a `working` orphan needs to CONTINUE survived the restart in
       // SQLite: the topic (systemPrompt/worktree/model), the task binding, and
       // the CLI conversation (claude_code_sessions + --resume). Only the
@@ -5898,6 +5982,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     slotWaits.clear();
     for (const t of retryWaits.values()) clearTimeout(t);
     retryWaits.clear();
+    commandWaits.clear();
     waitingForSlot.clear();
     heldWritten.clear();
     spendHeldNoted.clear();

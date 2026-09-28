@@ -163,6 +163,14 @@ riga non è ancora in chat. Il turno che finisce su di lui aspetta invece di
 essere giudicato e spinto avanti, e il turno della sveglia conta come notizia
 (`woken`), cioè come progresso.
 
+Lo stesso vale per il dispatcher della board (`server/services/task-dispatcher.ts`):
+una card il cui agente chiude il turno su un comando che deve ancora una sveglia
+alla sua sessione non riceve il sollecito e non consuma un tentativo. Aspetta
+finché la sveglia è consegnata e il suo turno è finito, o il comando è fermato,
+al massimo `BACKGROUND_WORK_CAP_MS` di sessione ferma (lo stesso tetto del
+lavoro in background del CLI); poi prosegue come dopo ogni turno. Una sveglia che
+la route rifiuta per sempre resta dovuta al boot successivo ma non si aspetta.
+
 #### Scenario: l'esito arriva nella topic
 - **GIVEN** un comando `zsh -c 'echo tick 1; echo tick 2; exit 3'` lanciato da una topic
 - **WHEN** esce
@@ -193,6 +201,12 @@ essere giudicato e spinto avanti, e il turno della sveglia conta come notizia
 - **WHEN** l'agente chiude il turno
 - **THEN** il goal non giudica né manda continuazioni finché il comando gira
 - **AND** a fine comando il turno della sveglia arriva come turno `woken` e viene giudicato
+
+#### Scenario: una card della board aspetta la sveglia
+- **GIVEN** una card in corso il cui agente ha lanciato un comando con `run_command`
+- **WHEN** l'agente chiude il turno mentre il comando gira
+- **THEN** la card resta in corso, senza sollecito e senza consumare un tentativo
+- **AND** a fine comando arriva la riga `process-exit`, e finito quel turno la card prosegue come dopo ogni turno
 
 #### Scenario: topic archiviata
 - **GIVEN** la topic archiviata mentre il comando girava

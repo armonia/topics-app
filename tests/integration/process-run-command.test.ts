@@ -18,13 +18,14 @@ import { createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, ContentBlock, Topic } from "../../server/types";
 import type { TurnEndInfo } from "../../server/services/goal-continuation";
+import type { TurnEndInfo as TurnEnd } from "../../server/providers/stop-reason";
 
 const ROOT = testTmpDir("process-run-command");
 // Before the registry is imported: it fixes its state folder at import.
 setupTestDataDir(join(ROOT, "data"));
 const PROJECT = realpathSync((mkdirSync(join(ROOT, "project"), { recursive: true }), join(ROOT, "project")));
 
-const { createProcessesRouter, logPathOf } = await import("../../server/routes/processes");
+const { commandWakeState, createProcessesRouter, logPathOf } = await import("../../server/routes/processes");
 const { startProcessExitWakes, processExitWakesIdle } = await import("../../server/lib/process-exit-wake");
 const { createChatRouter } = await import("../../server/routes/chat");
 const { registerProvider, removeProvider } = await import("../../server/providers");
@@ -289,6 +290,70 @@ describe("a command owed a wake is background work for the goal loop", () => {
     await finishTurn();
     expect(lastGoalTurn(topic)).toMatchObject({ woken: true, backgroundWork: false });
     await processExitWakesIdle();
+  });
+});
+
+// The prompt tells board agents too to end their turn once `run_command` is
+// started. The dispatcher read that end as an interrupted turn: a nudge over
+// the running command and an attempt spent, and with the default cap of 2 the
+// card was parked before the command ended (both verifiers of 28/09).
+describe("a board card whose agent ended its turn on a command", () => {
+  test("is not nudged and spends no attempt; the wake's turn runs, and then the card goes on", async () => {
+    const { createTaskService } = await import("../../server/services/tasks");
+    const { createTaskDispatcher } = await import("../../server/services/task-dispatcher");
+    // The dispatcher's session of a card: `topic:` and the first 8 characters of its topic id.
+    const topic = newTopic({ id: "cardwake-topic", sessionKey: "topic:cardwake" });
+    const db = bench.ctx.db;
+    const svc = createTaskService(db);
+    const now = new Date().toISOString();
+    db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id, dispatch_state)
+       VALUES ('card-wake', 'board-wake', 'wait on a command', 'in_progress', ?, ?, 1, ?, 'working')`,
+      [now, now, topic.id],
+    );
+    svc.updateBoardSettings("board-wake", { autoDispatch: true, dispatchUseWorktree: false });
+    const turns: string[] = [];
+    const turn: { end?: (info: TurnEnd) => void } = {};
+    const dispatcher = createTaskDispatcher({
+      svc,
+      resolveProject: () => ({ path: PROJECT, projectStoreId: null }),
+      createTopic: () => ({ topicId: topic.id, sessionKey: topic.sessionKey }),
+      topicExists: () => true,
+      runTurn: (_sk, content) => new Promise<TurnEnd | void>((res) => { turns.push(content); turn.end = res; }),
+      awaitsCommandWake: (sk) => commandWakeState(sk) !== "none",
+      isSessionBusy: (sk) => bench.ctx.activeStreams.has(sk),
+      broadcast: () => {}, graceMs: 0, retryBackoffMs: 0, log: () => {},
+    });
+    const attempts = () => svc.get("card-wake")!.task.dispatchAttempts;
+    const poll = async () => { await dispatcher.reconcile({ reason: "poll" }); await Bun.sleep(20); };
+    try {
+      // The card's turn, as the boot resumes it; during it the agent starts a command.
+      await dispatcher.reconcile({ reason: "boot" });
+      expect(turns).toHaveLength(1);
+      const { processId } = await runCommand(topic, "sleep 1.5; echo card-wake");
+      turn.end?.({ end: "end_turn" });
+      await Bun.sleep(50);
+      expect(turns).toHaveLength(1);
+      expect(attempts()).toBe(1);
+      await poll();
+      expect(turns).toHaveLength(1);
+
+      // The command ends: its wake opens a turn of the agent on the card's session.
+      await until(() => exitRows(topic.sessionKey).length > 0);
+      expect(exitRows(topic.sessionKey)[0]!.content).toContain("card-wake");
+      expect((await scriptRow(processId))?.status).toBe("done");
+      await poll();
+      expect(turns).toHaveLength(1);
+      // That turn ends without delivering: the card goes on as after any turn.
+      await finishTurn("read it");
+      await processExitWakesIdle();
+      await poll();
+      expect(turns).toHaveLength(2);
+      expect(attempts()).toBe(2);
+      expect(svc.get("card-wake")!.task.status).toBe("in_progress");
+    } finally {
+      dispatcher.shutdown();
+    }
   });
 });
 

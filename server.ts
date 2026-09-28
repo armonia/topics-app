@@ -173,7 +173,7 @@ import { resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-i
 import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from "./shared/provider-hold";
 import { readCodexModels } from "./server/providers/codex/models";
 import { taskProviderForModel } from "./shared/task-coding-models";
-import { createProcessesRouter, sessionsAwaitingCommandWake, startProcessDetection } from "./server/routes/processes";
+import { commandWakeState, createProcessesRouter, sessionsAwaitingCommandWake, startProcessDetection } from "./server/routes/processes";
 import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
@@ -2008,6 +2008,10 @@ const taskDispatcher = createTaskDispatcher({
   // dispacciata è di un altro provider, quindi la confusione passa da
   // impossibile a sistematica. Vedi `resolveTurnAlive`.
   isTurnAlive: (sessionKey) => resolveTurnAlive(sessionKey),
+  // A card whose turn ends on a `run_command` waits for its wake, as a goal does
+  // (`goal-continuation.ts`), and for the turn that wake opens.
+  awaitsCommandWake: (sessionKey) => commandWakeState(sessionKey) !== "none",
+  isSessionBusy: (sessionKey) => activeStreams.has(sessionKey),
   // THE REMOTE LANE (KANBAN-76, KANBAN-77): where a paired node answers, the
   // device token this machine holds for it, and the branch its bundle becomes
   // in this checkout.
