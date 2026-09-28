@@ -8,7 +8,7 @@ import type { AppContext, RouteHandler } from "../types";
 import { appendToLogBuffer, flushLogBuffer, sliceFromCursor } from "../lib/log-cursor";
 import { detectScripts, resolveScript, MANIFESTS } from "../lib/project-scripts";
 import { augmentEnv, wrapPty, stripAnsi } from "../utils/path-env";
-import { resolveStateDir } from "../lib/data-dir";
+import { resolveStateDir, stateDirTarget } from "../lib/data-dir";
 // La primitiva vive in `lib/`: qui la si USA e basta. Il ramo aveva spostato
 // la funzione ma la ghost-reap arrivata da main la chiamava ancora da dentro.
 import { killProcessTree } from "../lib/process-tree";
@@ -178,20 +178,22 @@ registerFleetScriptSource(() => [
  * folder, and once the per-file sweep removed that file's root a later file's
  * commands opened their logs and their `scripts.json` in a folder that was
  * gone (18 reds in process-run-command.test.ts after chat-woken-turn, 28/09).
- * The folder goes through the one door (`resolveStateDir`, which is only an
- * env read and a join); what is remembered is that it has been created, so a
- * script's log, written from here once per output chunk, does not mkdir each
- * time.
+ * The folder goes through the one door, and is remembered keyed on what that
+ * door reads (`stateDirTarget`): `resolveStateDir` creates the folder and
+ * probes it for writing on every call, and a script's log is written from here
+ * once per output chunk. So the folder is resolved and created once per
+ * target, and again only when the variables name another one.
  */
-let createdPersistDir: string | null = null;
+let persistDir: { target: string; dir: string } | null = null;
 
 function getPersistDir(): string {
-  const dir = join(resolveStateDir(process.cwd()), ".state");
-  if (createdPersistDir !== dir) {
+  const target = stateDirTarget(process.cwd());
+  if (persistDir?.target !== target) {
+    const dir = join(resolveStateDir(process.cwd()), ".state");
     mkdirSync(join(dir, "scripts"), { recursive: true });
-    createdPersistDir = dir;
+    persistDir = { target, dir };
   }
-  return dir;
+  return persistDir.dir;
 }
 
 function persistPath(): string {

@@ -47,7 +47,7 @@ import { topicsHome } from "../services/daemon-state";
  *      WITHOUT the launcher env on a read-only bundle still boots.
  */
 export function resolveStateDir(fallback: string, env: NodeJS.ProcessEnv = process.env): string {
-  const target = env.TOPICS_DATA_DIR || env.DATA_DIR || fallback;
+  const target = stateDirTarget(fallback, env);
   try {
     mkdirSync(target, { recursive: true });
     accessSync(target, constants.W_OK);
@@ -61,6 +61,15 @@ export function resolveStateDir(fallback: string, env: NodeJS.ProcessEnv = proce
     }
     return home;
   }
+}
+
+/**
+ * The folder `resolveStateDir` tries first, off the environment alone: no
+ * mkdir, no probe. What a caller that remembers the resolved folder keys it
+ * on, so a change of either variable resolves it again and nothing else does.
+ */
+export function stateDirTarget(fallback: string, env: NodeJS.ProcessEnv = process.env): string {
+  return env.TOPICS_DATA_DIR || env.DATA_DIR || fallback;
 }
 
 /**

@@ -5,7 +5,8 @@
  *
  * @covers CMDRUN-01, CMDRUN-02
  */
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "fs";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -15,7 +16,7 @@ import { join } from "path";
 const STATE = mkdtempSync(join(tmpdir(), "topics-cmd-state-"));
 const previousDataDir = process.env.DATA_DIR;
 process.env.DATA_DIR = STATE;
-const { createProcessesRouter, listOwnedScripts } = await import("./processes");
+const { createProcessesRouter, listOwnedScripts, logPathOf } = await import("./processes");
 
 const PROJECT = realpathSync(mkdtempSync(join(tmpdir(), "topics-cmd-project-")));
 mkdirSync(join(PROJECT, "sub"));
@@ -200,5 +201,30 @@ describe("POST /api/sessions/:sessionKey/commands/run", () => {
       (out) => out === "",
     );
     expect(group).toBe("");
+  });
+});
+
+// A script's log is written through the registry's folder once per output
+// chunk: the door that resolves it creates the folder and probes it each call.
+describe("the registry's folder", () => {
+  test("is created once per folder the variables name, not at every log write", () => {
+    const other = mkdtempSync(join(tmpdir(), "topics-cmd-other-"));
+    logPathOf("p-warm");
+    const mkdir = spyOn(fs, "mkdirSync");
+    try {
+      for (let chunk = 0; chunk < 3; chunk++) expect(logPathOf(`p-${chunk}`).startsWith(STATE)).toBe(true);
+      expect(mkdir).toHaveBeenCalledTimes(0);
+      // Another folder named: resolved and created again, once.
+      process.env.DATA_DIR = other;
+      expect(logPathOf("p-other").startsWith(other)).toBe(true);
+      const created = mkdir.mock.calls.length;
+      expect(created).toBeGreaterThan(0);
+      logPathOf("p-other-2");
+      expect(mkdir.mock.calls.length).toBe(created);
+    } finally {
+      mkdir.mockRestore();
+      process.env.DATA_DIR = STATE;
+      rmSync(other, { recursive: true, force: true });
+    }
   });
 });
