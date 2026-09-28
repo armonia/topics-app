@@ -129,15 +129,25 @@ describe("normalizeImage does not hold the event loop while sips runs", () => {
   // no timer, no other chat moved meanwhile.
   test.if(isDarwin)("a timer keeps firing while a large image is being resized", async () => {
     const big = realPng(3000, 2000);
-    let ticks = 0;
-    const timer = setInterval(() => { ticks++; }, 1);
+    // The widest gap between two ticks, not their count: a sync sips between
+    // async file calls still lets a few ticks through, but holds the loop for
+    // almost the whole resize (measured 83 ms of 89 with spawnSync, 4 of 85 now).
+    const started = performance.now();
+    let last = started;
+    let maxGap = 0;
+    const timer = setInterval(() => {
+      const now = performance.now();
+      maxGap = Math.max(maxGap, now - last);
+      last = now;
+    }, 1);
     try {
       const outcome = await normalizeImage(big, "grande.png");
       expect(outcome.kind).toBe("image");
     } finally {
       clearInterval(timer);
     }
-    expect(ticks).toBeGreaterThan(0);
+    const elapsed = performance.now() - started;
+    expect(maxGap).toBeLessThan(elapsed / 2);
   });
 });
 
