@@ -280,7 +280,9 @@ describe("a session cron, from the recorded CLI session (CronCreate, CLI 2.1.282
     noteBackgroundLine(work, cronScheduled("toolu_a", "a", false, 10_000), 10_000, { unattended: false });
     noteBackgroundLine(work, { type: "command_lifecycle", command_uuid: "peer-1", state: "queued" }, 20_000, { unattended: true });
     noteBackgroundLine(work, { type: "command_lifecycle", command_uuid: "peer-1", state: "started" }, 20_001, { unattended: true });
-    expect(isBackgroundWorkAlive(work, 20_002)).toBe(true);
+    // The cron itself, not `isBackgroundWorkAlive`: the `started` queues a wake
+    // that reads as alive for a minute whether the one-shot stayed or not.
+    expect([...work.crons.keys()]).toEqual(["a"]);
   });
 
   test("a durable cron arms nothing: it lives in .claude/scheduled_tasks.json and the next launch resumes it", () => {
