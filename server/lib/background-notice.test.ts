@@ -39,6 +39,14 @@ describe("the background notice", () => {
     expect(JSON.parse(row.blocks)[0]).toMatchObject({ kind: "background-notice", text: expect.stringContaining("Explore agent") });
   });
 
+  test("a session cron past its bound says so in its sentence, under the reason every client knows", async () => {
+    const ctx = await createTestAppContext();
+    const sk = "topic:bg-notice-cron";
+    postBackgroundNotice(ctx, { sessionKey: sk, topicId: "t" }, { kind: "background-notice", event: "closed", tasks: ["Every 30 minutes (cron)"], why: "silent", cron: true });
+    const row = ctx.db.query(`SELECT blocks FROM messages WHERE session_key = ? AND blocks LIKE '%background-notice%'`).get(sk) as { blocks: string };
+    expect(JSON.parse(row.blocks)[0]).toMatchObject({ why: "silent", cron: true, text: "Background work closed two hours after the session cron was armed: Every 30 minutes (cron)." });
+  });
+
   for (const notices of [1, 6]) test(`a watchdog cut that promised «Riprende da solo» is resent even with ${notices} notice(s) after it`, async () => {
     const db = new Database(":memory:");
     db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,

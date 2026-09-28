@@ -121,7 +121,7 @@ const CLOSED_WHY: Record<NonNullable<Extract<BackgroundNoticeFacts, { event: "cl
 };
 
 export function backgroundNoticeText(n: BackgroundNoticeFacts): string {
-  if (n.event === "closed") return `Background work closed ${CLOSED_WHY[n.why ?? "silent"]}: ${n.tasks.join("; ")}.`;
+  if (n.event === "closed") return `Background work closed ${n.cron ? "two hours after the session cron was armed" : CLOSED_WHY[n.why ?? "silent"]}: ${n.tasks.join("; ")}.`;
   return `The ${n.change} change applies from the first message after the background work ends; until then the running CLI keeps the previous one. Stop ends that work now.`;
 }
 

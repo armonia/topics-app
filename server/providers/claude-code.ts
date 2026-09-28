@@ -54,7 +54,7 @@ import {
   type CallUsage,
 } from "./claude/events";
 import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
-import { datedByLastWrite, describeBackgroundWork, hasLiveTasks, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
+import { closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
 import { observePlanUsage } from "./native/usage-window";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
@@ -865,7 +865,7 @@ function brokerIO(client: AiBridgeClient, sessionKey: string): SessionIO {
  *  was waiting on it, so the chat says what ended the turn. */
 type KillCause = "lifetime" | "idle" | "clear" | "config" | "watchdog" | "stopped-child" | "dead" | "shutdown";
 type ClosedWhy = "silent" | "stuck-turn" | "deadline" | "superseded";
-type BackgroundClosedObserver = (sessionKey: string, tasks: string[], why: ClosedWhy) => void;
+type BackgroundClosedObserver = (sessionKey: string, tasks: string[], why: ClosedWhy, cron?: true) => void;
 type OwedChange = "autonomy" | "model" | "effort";
 
 const KILL_CAUSE_TEXT: Record<KillCause, string> = {
@@ -1342,25 +1342,25 @@ export class ClaudeCodeProvider implements AIProvider {
   }
   private static onConfigOwed: ((sessionKey: string, changes: OwedChange[]) => void) | null = null;
 
-  /** The owed changes, said once, when the work that makes them wait appears. */
+  /** The owed changes, said once, when the work that makes them wait appears: a listed task or an armed session cron. */
   private sayConfigOwed(pp: PersistentProcess): void {
-    if (!pp.owedChanges?.size || !pp.background?.tasks.size || !pp.configStale) return;
+    if (!pp.owedChanges?.size || !pp.configStale || !(pp.background?.tasks.size || hasArmedCron(pp.background, Date.now()))) return;
     const changes = [...pp.owedChanges];
     pp.owedChanges.clear();
     try { ClaudeCodeProvider.onConfigOwed?.(pp.sessionKey, changes); }
     catch (err) { console.warn(`[claude-code] config-owed observer failed for ${pp.sessionKey}:`, err); }
   }
 
-  /** Said before the child goes: `silent` (two hours without news), `stuck-turn`, `deadline` or `superseded`. */
+  /** Said before the child goes: `silent` (two hours without news), `stuck-turn`, `deadline` or `superseded`; armed crons past their two hours are `silent` flagged `cron` (`closedWork`). */
   private sayBackgroundClosed(pp: PersistentProcess, why: ClosedWhy, by: string): void {
-    const listed = pp.background?.tasks;
     // Once per child: a second clock in the 0.8 s between SIGINT and exit is the same close.
-    if (!pp.alive || !listed?.size || pp.backgroundClosedSaid) return;
-    pp.backgroundClosedSaid = true;
-    const tasks = [...listed.values()].map((t) => t.description || t.type);
-    console.log(`[claude-code] ${pp.sessionKey}: ${by} closes background work (${why}): ${tasks.join("; ")}`);
-    try { ClaudeCodeProvider.onBackgroundClosed?.(pp.sessionKey, tasks, why); }
-    catch (err) { console.warn(`[claude-code] background-closed observer failed for ${pp.sessionKey}:`, err); }
+    if (!pp.alive || pp.backgroundClosedSaid) return;
+    for (const closed of closedWork(pp.background, why)) {
+      pp.backgroundClosedSaid = true;
+      console.log(`[claude-code] ${pp.sessionKey}: ${by} closes background work (${closed.why}): ${closed.tasks.join("; ")}`);
+      try { ClaudeCodeProvider.onBackgroundClosed?.(pp.sessionKey, closed.tasks, closed.why, closed.cron); }
+      catch (err) { console.warn(`[claude-code] background-closed observer failed for ${pp.sessionKey}:`, err); }
+    }
   }
 
   /**
@@ -2158,7 +2158,7 @@ export class ClaudeCodeProvider implements AIProvider {
     if (!pp || !pp.alive) return;
 
     // A clock's stop takes the listed work with it: the stall judge past the
-    // two-hour bound (or with a stuck turn if the work reported meanwhile).
+    // two-hour bound, or with a stuck turn while it lives (an armed cron never holds it).
     if (reason === "stall") this.sayBackgroundClosed(pp, backgroundAlive(pp) ? "stuck-turn" : "silent", "the stall judge");
     if (reason === "watchdog") this.sayBackgroundClosed(pp, "stuck-turn", "the watchdog stop");
     if (reason === "wall-clock") this.sayBackgroundClosed(pp, "deadline", "the delegation's deadline");
@@ -2770,25 +2770,30 @@ export class ClaudeCodeProvider implements AIProvider {
 
   /**
    * The session's last turn left an Agent, a Bash or a Monitor running and the
-   * CLI still reports on it (`BACKGROUND_WORK_CAP_MS`), or one of them just
-   * reported and the wake answering it is on its way. Every clock that kills
-   * the child asks this, the stall judge included, and so does the goal loop.
+   * CLI still reports on it, or armed a session cron (`BACKGROUND_WORK_CAP_MS`),
+   * or a task just reported and its wake is on its way. Every clock that kills
+   * a child with no turn open asks this, and so does the goal loop.
    */
   hasBackgroundWork(sessionKey: string): boolean {
     return this.backgroundState(sessionKey) !== "none";
+  }
+
+  /** The part of it that can speak inside a turn, an armed cron left out (`hasTaskWork`): what the stall judge's hold reads. */
+  hasTaskWork(sessionKey: string): boolean {
+    return this.hasBackgroundWork(sessionKey) && hasTaskWork(this.processes.get(sessionKey)?.background, Date.now());
   }
 
   backgroundSessionKeys(): string[] {
     return [...this.processes.keys()].filter((sk) => this.hasBackgroundWork(sk));
   }
 
-  /** `running`: listed tasks with news. `wake-queued`: only a reported task, the CLI is about to answer it. */
+  /** `running`: listed tasks with news, or an armed session cron. `wake-queued`: only a reported task or a command the CLI started, and the CLI is about to answer it. */
   backgroundState(sessionKey: string): "running" | "wake-queued" | "none" {
     const pp = this.processes.get(sessionKey);
     // A child told to stop takes its work with it: nothing to wait for.
     if (!pp?.alive || pp.stoppedExit) return "none";
     const now = Date.now();
-    if (hasLiveTasks(pp.background, now)) return "running";
+    if (hasLiveTasks(pp.background, now) || hasArmedCron(pp.background, now)) return "running";
     return isWakeQueued(pp.background, now) ? "wake-queued" : "none";
   }
 
@@ -2861,13 +2866,13 @@ export class ClaudeCodeProvider implements AIProvider {
     return run;
   }
   private probes = new Map<string, Promise<"open" | "idle" | "unknown">>();
-  private silentAtProbe = new Map<string, string[]>();
+  private silentAtProbe = new Map<string, Array<ClosedWork<ClosedWhy>>>();
 
-  /** The listed work the last probe found past the two hours without news, for the boot reap to name. Read once. */
-  takeSilentBackground(sessionKey: string): string[] {
-    const tasks = this.silentAtProbe.get(sessionKey) ?? [];
+  /** The work the last probe found past its two hours (listed tasks, armed crons), for the boot reap to name. Read once. */
+  takeSilentBackground(sessionKey: string): Array<ClosedWork<ClosedWhy>> {
+    const closed = this.silentAtProbe.get(sessionKey) ?? [];
     this.silentAtProbe.delete(sessionKey);
-    return tasks;
+    return closed;
   }
 
   private async brokerTurnStateNow(
@@ -2902,10 +2907,9 @@ export class ClaudeCodeProvider implements AIProvider {
         // session's process, still attached, so the wake it will bring is
         // heard and the reaper sees what it would kill.
         keep = backgroundAlive(pp) && !this.processes.has(sessionKey);
-        // Listed but past the bound: the boot reaps it, and the chat has to
-        // hear what went with it (`takeSilentBackground`).
-        if (!keep && pp.background?.tasks.size) this.silentAtProbe.set(sessionKey, [...pp.background.tasks.values()].map((t) => t.description || t.type));
-        else this.silentAtProbe.delete(sessionKey);
+        // Listed or armed but past the bound: the boot reaps it, and the chat
+        // has to hear what went with it (`takeSilentBackground`).
+        this.silentAtProbe.set(sessionKey, keep ? [] : closedWork(pp.background, "silent"));
         return "idle";
       }
       // «open» è l'unica risposta che porta a una riadozione, quindi l'unica in
@@ -3580,11 +3584,12 @@ export class ClaudeCodeProvider implements AIProvider {
           pp.replayTailOpen = false;
         }
         pp.replayTailInitOnly = false;
-      } else if (readParentToolUseId(event) === null) {
+      } else if (readParentToolUseId(event) === null && event.type !== "command_lifecycle") {
         pp.replayTailInitOnly = false;
         // A background agent's line after the last `result` is not a turn in
         // flight: read as one, the boot adopted chat 3019832f's closed turn and
         // waited for a `result` that only the agent's end would bring (25/09).
+        // Nor is a `command_lifecycle`: a cron fire's `completed` follows its turn's `result`.
         pp.replayTailOpen = true;
       }
       return;
@@ -4140,9 +4145,9 @@ export class ClaudeCodeProvider implements AIProvider {
         // woken turn has no watchdog, and the cap was the only thing ending it
         // if it wedged. It still is, so waiting never becomes waiting forever.
         // Not a second silence clock: this only ever fires past the 2 h mark.
-        // Background work waits the same way, bounded by two hours without
-        // news of it (`BACKGROUND_WORK_CAP_MS`).
-        if ((turnInFlight(pp) && Date.now() - quietSince(pp, sessionKey) < wedgedMs + rearmMs) || backgroundAlive(pp)) {
+        // Background work waits the same way (`BACKGROUND_WORK_CAP_MS`); under a
+        // wedged turn, only work that can speak inside it (a cron fires after).
+        if (turnInFlight(pp) ? Date.now() - quietSince(pp, sessionKey) < wedgedMs + rearmMs || hasTaskWork(pp.background, Date.now()) : backgroundAlive(pp)) {
           pp.lifetimeTimer = this.armLifetime(pp, sessionKey, { ms: rearmMs, rearmMs, wedgedMs });
           return;
         }

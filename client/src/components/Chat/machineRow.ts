@@ -42,18 +42,25 @@ export function backgroundNoticeOf(blocks: readonly ContentBlock[] | undefined |
   return b && b.kind === 'background-notice' ? b : null;
 }
 
-const CLOSED_KEY = {
+/**
+ * Every reason this client knows has its sentence, or it does not compile.
+ * Read through a wider view: a server newer than this client can send one it does not know.
+ */
+const CLOSED_KEY: Readonly<Record<string, string | undefined>> = {
   silent: 'background.notice.closed',
   'stuck-turn': 'background.notice.closedWithTurn',
   deadline: 'background.notice.closedDeadline',
   superseded: 'background.notice.closedSuperseded',
-} as const;
+} satisfies Record<NonNullable<Extract<BackgroundNoticeBlock, { event: 'closed' }>['why']>, string>;
 
 /** The notice's sentence: its own line (`BackgroundNoticeLine`) and the stop line that carries a closed one (`MachineStopLine`). */
 export function backgroundNoticeSentence(tr: ReturnType<typeof useT>, notice: BackgroundNoticeBlock): string {
-  return notice.event === 'closed'
-    ? tr(CLOSED_KEY[notice.why ?? 'silent'], { tasks: notice.tasks.join(', ') })
-    : tr(`background.notice.deferred.${notice.change}`);
+  if (notice.event !== 'closed') return tr(`background.notice.deferred.${notice.change}`);
+  const key = notice.cron ? 'background.notice.closedCronCap' : CLOSED_KEY[notice.why ?? 'silent'];
+  // A reason newer than this client: the server's English sentence. Looked up
+  // as a key it threw in the render and broke the whole pane (review of 27/09):
+  // the server reloads on a land, public/ only on a deploy.
+  return key ? tr(key, { tasks: notice.tasks.join(', ') }) : notice.text;
 }
 
 /**

@@ -17,7 +17,7 @@
   * @covers CCLI-04
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync, existsSync, readFileSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync, existsSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { recordedBackgroundSession } from "./claude/background-work.fixture";
@@ -402,12 +402,12 @@ describe("boot · the agent's lines after the last result", () => {
     }
   }, 40_000);
 
-  /** A store written by the fake CLI and left there: `lines` then sleep. */
-  function storeCli(name: string, lines: unknown[]): string {
+  /** A store written by the fake CLI and left there: `lines`, `pauseS` seconds after the first message, then sleep. */
+  function storeCli(name: string, lines: unknown[], pauseS = 0): string {
     const body = join(tempDir, `${name}.ndjson`);
     writeFileSync(body, lines.map((e) => JSON.stringify(e)).join("\n") + "\n");
     const cli = join(tempDir, `${name}.sh`);
-    writeFileSync(cli, `#!/bin/sh\nread line\ncat '${body}'\nsleep 30\n`);
+    writeFileSync(cli, `#!/bin/sh\nread line\n${pauseS ? `sleep ${pauseS}\n` : ""}cat '${body}'\nsleep 30\n`);
     chmodSync(cli, 0o755);
     return cli;
   }
@@ -484,12 +484,161 @@ describe("boot · the agent's lines after the last result", () => {
       expect(late.hasBackgroundWork(sessionKey)).toBe(false);
       expect((late as any).processes.has(sessionKey)).toBe(false);
       // The boot reaps it: what it lists is handed over once, for the chat row.
-      expect(late.takeSilentBackground(sessionKey)).toEqual(expect.arrayContaining(["tick counter loop"]));
+      expect(late.takeSilentBackground(sessionKey)).toEqual([{ tasks: expect.arrayContaining(["tick counter loop"]), why: "silent" }]);
       expect(late.takeSilentBackground(sessionKey)).toEqual([]);
       expect(fresh.takeSilentBackground(sessionKey)).toEqual([]);
     } finally {
       bridge.attach = vero;
       try { bridge.kill(sessionKey); } catch { /* best-effort cleanup */ }
+    }
+  }, 40_000);
+
+  /** CronCreate's call and result as CLI 2.1.282 prints them (`claude-cli-2.1.282-session-cron.ndjson`), armed at `at`. */
+  const cronArmed = (id: string, at: string, recurring: boolean, humanSchedule = "57 9 25 9 *") => [
+    { type: "assistant", message: { content: [{ type: "tool_use", id: `toolu_${id}`, name: "CronCreate", input: { cron: humanSchedule, prompt: id, recurring } }] } },
+    { type: "user", timestamp: at, message: { role: "user", content: [{ type: "tool_result", tool_use_id: `toolu_${id}`, content: `Scheduled task ${id}` }] }, tool_use_result: { id, humanSchedule, recurring, durable: false } },
+  ];
+
+  test("a restart inside the turn a cron fire opened: the reattach folds that fire twice, and the other one-shot stays armed", async () => {
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60_000).toISOString();
+    setEnv("TOPICS_CLAUDE_CLI_PATH", storeCli("cron-two-one-shots", [
+      { type: "system", subtype: "init", session_id: "s" },
+      ...cronArmed("A", tenMinutesAgo, false), ...cronArmed("B", tenMinutesAgo, false),
+      { type: "result", subtype: "success", is_error: false, num_turns: 1, result: "scheduled" },
+      // A fires, and the CLI's own turn is still open when the server restarts.
+      { type: "command_lifecycle", command_uuid: "fire-A", state: "started", session_id: "s" },
+      { type: "system", subtype: "init", session_id: "s" },
+      { type: "assistant", message: { content: [{ type: "text", text: "CRON-" }] } },
+    ]));
+    const sessionKey = "topic:boot-cron-two";
+    await seedSurvivingSession(sessionKey, "t-boot-cron-two");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const bridge = getAiBridgeClient() as any;
+    const vero = bridge.attach.bind(bridge);
+    const from: number[] = [];
+    bridge.attach = async (id: string, offset: number) => { const res = await vero(id, offset); from.push(offset); return res; };
+    const prov = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    try {
+      void prov.reattach(sessionKey, makeHandler().handler).catch(() => {});
+      await waitFor(() => from.length === 2, 10_000);
+      // The scan from 0, then the open turn again from the last result: the fire went through twice.
+      expect(from[0]).toBe(0);
+      expect(from[1]).toBeGreaterThan(0);
+      expect(prov.backgroundState(sessionKey)).toBe("running");
+    } finally {
+      bridge.attach = vero;
+      try { bridge.kill(sessionKey); } catch { /* best-effort cleanup */ }
+    }
+  }, 40_000);
+
+  test("a row's turn armed a one-shot, ended and saw it fire while the server was away: the replay from the row's mark arms nothing again", async () => {
+    const oneMinuteAgo = new Date(Date.now() - 60_000).toISOString();
+    setEnv("TOPICS_CLAUDE_CLI_PATH", storeCli("cron-row-mark", [
+      { type: "system", subtype: "init", session_id: "s" },
+      ...cronArmed("A", oneMinuteAgo, false),
+      { type: "result", subtype: "success", is_error: false, num_turns: 2, result: "scheduled" },
+      { type: "command_lifecycle", command_uuid: "fire-A", state: "started", session_id: "s" },
+      { type: "system", subtype: "init", session_id: "s" },
+      { type: "assistant", message: { content: [{ type: "text", text: "CRON-FIRED" }] } },
+      { type: "result", subtype: "success", is_error: false, num_turns: 1, result: "CRON-FIRED" },
+      { type: "command_lifecycle", command_uuid: "fire-A", state: "completed", session_id: "s" },
+    ], 0.3));
+    const sessionKey = "topic:boot-cron-row-mark";
+    seedTopic(sessionKey, "t-boot-cron-row-mark");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const bridge = getAiBridgeClient() as any;
+    // The row's message is marked in the store; the server goes away once the child has written it all.
+    // The daemon writes the mark before the message reaches the CLI, so a store
+    // that stopped growing may hold the mark alone: whole = the mark plus every byte the CLI prints.
+    const provA = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    provA.sendChat(sessionKey, "remind me in a minute", makeHandler().handler, { rowId: "row-T1" }).catch(() => {});
+    const whole = Buffer.byteLength(JSON.stringify({ type: "topics_delivered", mark: "row-T1" }) + "\n") + statSync(join(tempDir, "cron-row-mark.ndjson")).size;
+    await waitFor(async () => ((await bridge.list()).find((s: any) => s.id === sessionKey)?.endOffset ?? 0) >= whole, 10_000);
+    provA.stop();
+    const vero = bridge.attach.bind(bridge);
+    const from: number[] = [];
+    bridge.attach = async (id: string, offset: number) => { const res = await vero(id, offset); if (id === sessionKey) from.push(offset); return res; };
+    const prov = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    try {
+      expect(await prov.reattach(sessionKey, makeHandler().handler, { rowId: "row-T1" })).toBe("completed");
+      // The scan from 0, then the row's turn from its mark, CronCreate's result included.
+      expect(from).toHaveLength(2);
+      expect(from[1]).toBeGreaterThan(0);
+      // A fired: the CLI holds no cron any more.
+      expect(prov.backgroundState(sessionKey)).toBe("none");
+    } finally {
+      bridge.attach = vero;
+      try { bridge.kill(sessionKey); } catch { /* best-effort cleanup */ }
+    }
+  }, 40_000);
+
+  test("a restart between a one-shot's fire and its turn's init: the boot keeps the CLI for the turn it is starting", async () => {
+    const twentyMinutesAgo = new Date(Date.now() - 20 * 60_000).toISOString();
+    setEnv("TOPICS_CLAUDE_CLI_PATH", storeCli("cron-fire-started", [
+      { type: "system", subtype: "init", session_id: "s" },
+      ...cronArmed("A", twentyMinutesAgo, false),
+      { type: "result", subtype: "success", is_error: false, num_turns: 1, result: "scheduled" },
+      { type: "command_lifecycle", command_uuid: "fire-A", state: "started", session_id: "s" },
+    ]));
+    const sessionKey = "topic:boot-cron-fire-started";
+    await seedSurvivingSession(sessionKey, "t-boot-cron-fire-started");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const prov = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    try {
+      expect(await prov.brokerTurnState(sessionKey)).toBe("idle");
+      // Kept attached, so the CRON-FIRED turn is heard when its init comes.
+      expect((prov as any).processes.has(sessionKey)).toBe(true);
+      expect(prov.backgroundState(sessionKey)).toBe("wake-queued");
+    } finally {
+      try { getAiBridgeClient().kill(sessionKey); } catch { /* best-effort cleanup */ }
+    }
+  }, 40_000);
+
+  test("a /loop armed three hours ago is past the bound: the boot reaps its CLI, and the chat hears the cron went", async () => {
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60_000).toISOString();
+    setEnv("TOPICS_CLAUDE_CLI_PATH", storeCli("cron-past-bound", [
+      { type: "system", subtype: "init", session_id: "s" },
+      ...cronArmed("L", threeHoursAgo, true, "Every 30 minutes"),
+      { type: "result", subtype: "success", is_error: false, num_turns: 1, result: "scheduled" },
+    ]));
+    const sessionKey = "topic:boot-cron-past-bound";
+    await seedSurvivingSession(sessionKey, "t-boot-cron-past-bound");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const prov = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    try {
+      expect(await prov.brokerTurnState(sessionKey)).toBe("idle");
+      expect(prov.hasBackgroundWork(sessionKey)).toBe(false);
+      expect(prov.takeSilentBackground(sessionKey)).toEqual([{ tasks: ["Every 30 minutes (cron)"], why: "silent", cron: true }]);
+    } finally {
+      try { getAiBridgeClient().kill(sessionKey); } catch { /* best-effort cleanup */ }
+    }
+  }, 40_000);
+
+  test("a restart after a /loop's fire answered: the fire's `completed`, after its result, is no turn in flight, and the CLI is kept for the next fire", async () => {
+    // A command that starts a fresh turn emits `completed` AFTER that turn's
+    // result (the CLI's schema; the recording's last line). Read as a turn in
+    // flight, the boot adopted a phantom that held the chat until the next fire.
+    const fiftyMinutesAgo = new Date(Date.now() - 50 * 60_000).toISOString();
+    setEnv("TOPICS_CLAUDE_CLI_PATH", storeCli("cron-fire-completed", [
+      { type: "system", subtype: "init", session_id: "s" },
+      ...cronArmed("L", fiftyMinutesAgo, true, "Every 45 minutes"),
+      { type: "result", subtype: "success", is_error: false, num_turns: 1, result: "scheduled" },
+      { type: "command_lifecycle", command_uuid: "fire-1", state: "started", session_id: "s" },
+      { type: "system", subtype: "init", session_id: "s" },
+      { type: "assistant", message: { content: [{ type: "text", text: "CRON-FIRED" }] } },
+      { type: "result", subtype: "success", is_error: false, num_turns: 1, result: "CRON-FIRED" },
+      { type: "command_lifecycle", command_uuid: "fire-1", state: "completed", session_id: "s" },
+    ]));
+    const sessionKey = "topic:boot-cron-fire-completed";
+    await seedSurvivingSession(sessionKey, "t-boot-cron-fire-completed");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const prov = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    try {
+      expect(await prov.brokerTurnState(sessionKey)).toBe("idle");
+      expect((prov as any).processes.has(sessionKey)).toBe(true);
+      expect(prov.backgroundState(sessionKey)).toBe("running");
+    } finally {
+      try { getAiBridgeClient().kill(sessionKey); } catch { /* best-effort cleanup */ }
     }
   }, 40_000);
 });
