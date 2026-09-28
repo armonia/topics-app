@@ -2,13 +2,138 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.403 — 2026-09-28
+
+### Sotto il cofano
+- A reattach leg that closes its rows tells the windows open on the chat
+- Automatic with Topics routing ON pins a real target, so a card switched OFF later runs direct instead of native
+- The redone-answer banner is drawn on the resent turn, not on the row it was resent from
+- A resend the chat route refused tells the windows open on the chat
+- An assistant row records how it was closed, and the chat tools read that instead of a missing latency
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-27 [skip ci]
+- Automatic with Topics routing ON runs on the engine when no Claude Code target is ready, and waits while one is in discovery
+- The engine-down test names the engine's own reason, and an engine still in discovery is covered
+- Fix the 8 defects RT-11 review found in native image handling
+- A reattach merges into the row it adopted, and the outside closes run through one tested helper
+- A task topic's changed-files strip reads the task's own diff range, so a pruned worktree and shell writes show up
+- Translate remaining Italian comments in the new image-normalize files to English
+- A restart notice whose resend the route refused keeps its Retry
+- A thread-changed announcement is read even by a window that read the chat a moment ago
+- The end of a boot reattach leg, and a refused resend, send the frame that passes the dedup
+- The refused-resend e2e starts from a notice already on screen and checks its Retry
+- A turn a restart cut during a tool carries one notice, the restart's, not a second verdict on its row
+- The broker probe that ends a reattach leg runs inside the tested helper, and every writer of a whole row's reason is held by a test
+- A delivery that reached main inside another card's merge is measured on its own commits, not on that merge
+- The changed-files strip never drops a file the chat wrote when the range is narrower, and a worktree topic with no task reads its worktree's own range
+- A row of a task topic's changed-files strip opens the task's drawer on that file, where its counts came from
+- A thread-changed frame on the socket reaches useChat as a fresh read, and a test starts from the frame
+- The boot reattach leg is settled with the server's own context, and server.ts is checked to call it
+- The notice the resume sweep resends at once offers Retry until the resend has a bubble below it
+- The refused-resend e2e times each window's read from the write, and says what the DOM cannot tell
+- A delivery that reached main through a realigned branch is measured from the merge on main's own line
+- A chat's write in the shared checkout or in another folder keeps its own row next to the worktree's range
+- Untracked files in a diff range are counted without a git process each, and a chat that ran no tool asks git nothing
+- The identifier-language baseline no longer lists a name task-diff-range.ts dropped
+- Where a row of the changed-files strip opens is one pure rule, pinned without a browser
+- Tests pin one relearned frame per held card per boot, and a tick note that replaces only an ended resume wait
+- A todo card held by the machine is written once, and re-sent only when its block changes or lifts
+- A person's answer to a question stays on the row after the turn that asked writes again
+- A held resume a person writes to every five minutes stays at one write an hour on a steady floor
+- An open drawer re-reads a held card when its queue reason changes, not only its updated_at
+- A second answer to a question already answered leaves its returned tool as it returned
+- An answer given before a restart stays on the row after the reattached turn replays its tool
+- A native browser pane counts as attached for open_browser_pane once it has registered, not when its socket opens
+- A native pane's executor socket never starts the headless screencast, whatever its register frame's timing
+- A closed turn's late answer reaches the screen once per frame, like the live one
+- A Claude Code Bash row is labelled by its description, and the command stays on hover and in the open card
+- An e2e case pins the Bash description label on a row stored before the field existed
+- Reverting the attach predicate or its server.ts wiring turns a unit test red
+- The nightly restart test checks that the navigation reached the pane, not only that it answered visible
+- four backlog features wait for a yes before any code
+- A card the engine runs with no pinned runtime stays behind Claude's wall on retry and on reuse
+- The Codex-with-switch-ON picker test asserts the routing reason, not only the error class
+- A reattach takes back the turn's row even when it was closed from outside before the reattach reached it
+- A reattach that opened a row of its own and got nothing from the replay leaves no row behind
+- The boot's orphan-tool cleanup runs from a module the tests call, not from inside server.ts
+- A turn a restart cut during a tool, before any prose, carries one notice too: the restart's
+- Putting server.ts back on inline row SQL turns a test red
+- On an Automatic task the Topics routing switch judges the board default the card will run with
+- A dependent with Topics routing ON reuses a blocker session the engine runs, when it names a Claude target with the same model
+- The boot's orphan-tool module and the new tests pass the dash, name and comment-language rails
+- A reattach does not take back a row closed from outside when a turn that stopped or failed came after it
+- The Topics routing switch reads a target the engine itself runs as routable while the engine is ready and serves the model
+- A dependent naming Claude Code with its blocker's model continues a session the engine runs, whatever its own switch
+- In the all-boards view the task drawer judges a card with its own board's defaults, and the composer with none
+- Automatic with Topics routing ON also offers the engine models no Claude Code target covers, and Haiku classifies again
+- A thread-changed frame always carries the session key the open pane reconciles by
+- The app's pane lifecycle is tested from a thread-changed frame to a fresh read
+- The redone-answer banner is tested where MessageContent draws it
+- The refused-resend e2e films both windows and names every difference on base
+- the four backlog proposals are approved with every recommended choice
+- The changed-files strip reads a diff range only on a task's topic, and folds into it only what the chat wrote in that task's own worktree
+- An untracked file that .gitattributes marks -diff or binary is counted as binary, as git counts it
+- Clicking a task-range row of the changed-files strip is proven to open the task's drawer on that file, without a browser
+- A tool that returns successfully carries no error, even after a second answer's 404
+- An open drawer on a deferred card no longer re-reads itself every minute for its countdown
+- A test pins that the floor re-read after a start leaves a queued chip unwritten
+- The native bash sends the tail of its output while it runs
+- A running shell row shows its last eight lines, also in the window that sent the message
+- A background row of /api/topics/streaming names its tasks and dates the last news
+- A chat waiting on its own background work shows a grey ring, a line above the composer and a row among the active agents
+- The active-agents-feedback tasks are ticked
+- A dependent naming Claude Code with the switch OFF parks instead of continuing a session the engine runs directly
+- In the all-boards view the settings fetched for a card of another board are tagged with that board, and a test proves it
+- The live tail of a native bash stays within 16 KB of bytes and never empties on a line longer than the buffer
+- The streaming bench reads its progress marker from the last line of the tool partial
+- The running row's hand-off of its partial and the late-partial guard each have a test
+- The live-tail change no longer promises the tail to codex and ACP rows
+- A dependent naming a provider continues its blocker's session only on the route its own switch asks for, and parks naming the route otherwise
+- In the all-boards view one hook fetches a foreign card's board settings, files them under that board and reads them, and a mounted test drives it
+- The working digit in the system row's tail counts the badge's rows, and the Discord presence counts open turns only again
+- The grey arc takes the fill's ink on an attention fill, and an archived chat no longer lights its folder
+- The background e2e starts from a shut folder and proves the resume line, the stale line and the badge going with the Stop
+- The switch test for a board default the engine cannot run fails when the menu stops judging the board default
+- In the all-boards view the composer judges the new card with the board it creates on, and with no board only on Auto
+- The card's tooltip and the tail's working glyph say the badge's number, in the badge's words
+- The background line wraps before it squeezes the task names, so a phone still shows them next to the stale readout
+- The turn-open test in background-probes.test.ts says it predates the task list
+- A dependent continues its blocker's session only with the switch that session runs with, and parks naming the switch otherwise
+- The swap-freeze signals test leaves no spinning tree behind when its runner dies
+- A delivery recorded as a realign merge is measured on the card's own commits, not on what main brought into the branch
+- A task whose land merged its worktree reads the land merge until the GC prunes that worktree
+- A file the chat wrote by a relative path, with a non-ASCII name or on Windows is one row of the task's range, not two
+- The board's hand-off of a strip row's file to the task drawer is pinned, so a board keeping a focus of its own fails a unit test
+- A live worktree reads its task's land merge only while it is exactly what that land merged
+- A path with non-ASCII letters heads its own chunk of a task's patch, so the drawer finds its lines
+- Promoting a deep link to the drawer's selection keeps the file its gesture named, and a unit test drives it
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-28 [skip ci]
+- A landed task with no delivery recorded lists each file once: its topic's attempt names the pruned worktree
+- A task range holding more files than the review measured in its delivery is not the strip's: the chat's tool calls answer
+- CHAT-CHANGES-01 says where a task topic's strip reads its files and where its rows open
+- Record server/routes/topics.ts at 3103 lines, the sum of three backlog branches landing together
+- A stale second answer does not reopen a tool that has already returned
+- read_file outside the workspace reads only raster images, and only as images
+- Images are never enlarged or sent as SVG, and resizing them no longer stops the server
+- A pruned or rehydrated image keeps its path when the path has spaces
+- A 413 that ends a run of retries still triggers the image recovery
+- The global coordinator guard test opens its own database whatever DATA_DIR a previous file left
+- The event-loop test of the image resize measures the longest stall, not whether a tick got through
+
 ## 2.2.402 — 2026-09-27
 
 ### Sotto il cofano
 - **e2e** · aggiorna durate shard dal nightly del 2026-09-26 [skip ci]
 - A Review with work is never narrower than an empty one, and KANBAN-94 names the list's reading cap
 - The port-guard test no longer kills other shards' daemons, and the e2e grace outlasts a restart
+- Automatic with Topics routing ON picks only what the Topics engine routes, so the card no longer parks on Codex
+- cosa significano ON e OFF, detto una volta sola
+- The non-routable provider scenario says what ON does, not only what OFF does
 - A wake opened while the previous wake's buffer drains is marked where its first line starts
+- Native provider sends real image content to the API
+- Translate new test file headers to English
+- Allow sips in the installed-app runtime-deps allowlist
+- The dispatcher's Automatic hooks come from one module that the tests drive, not closures in server.ts
+- An Automatic card with Topics routing ON waits out a Claude hold, and parks with the switch's reason when the engine is down
 
 ## 2.2.401 — 2026-09-25
 
