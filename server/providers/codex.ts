@@ -37,7 +37,7 @@ import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
 import { getTopicWorkspaceForSession, topicsMcpBridgeSpec } from "./claude-code";
 import { buildCodexArgs, buildCodexOneshotArgs, buildCodexResumeArgs } from "./codex/args";
 import { readCodexModels, codexFallbackModel, readCodexConfiguredModel } from "./codex/models";
-import { codexRolloutExists } from "../lib/codex-session";
+import { codexRolloutExists, readSubagentFileChanges } from "../lib/codex-session";
 import { getDatabase } from "../db";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { demoteAgentCli } from "./agent-cli-priority";
@@ -363,6 +363,8 @@ interface CodexTurnState {
    * row and leaves the retry's running until the stream end marks it failed.
    */
   idPrefix?: string;
+  /** The thread `thread.started` named: the root of every sub-agent this turn spawns. */
+  threadId?: string;
 }
 
 export class CodexProvider implements AIProvider {
@@ -725,6 +727,7 @@ export class CodexProvider implements AIProvider {
 
       const state = turnState;
       if (this.sessionState.get(sessionKey) === turnState) this.sessionState.delete(sessionKey);
+      this.reportSubagentFileChanges(state, handler);
 
       // A resumed thread that dies mid-turn (not a user abort) leaves its
       // stored thread id pointing at a resume that will fail the exact same
@@ -785,6 +788,23 @@ export class CodexProvider implements AIProvider {
     child.stdin!.end();
   }
 
+  /**
+   * Reports the patches this turn's sub-agents applied, read back from their
+   * rollouts. `codex exec --json` prints the primary thread's items only, so
+   * without this a task whose sub-agents did the editing lists a fraction of
+   * its files: 27 of 74 on task 7657f201, 1 of 57 on 05807e8e. Read at close,
+   * when the process has written everything, and before the turn ends, since
+   * the strip refreshes at `stream:end`. Each file is one call, named as a
+   * primary patch is (routeCodexEvent, `file_change`).
+   */
+  private reportSubagentFileChanges(state: CodexTurnState, handler: StreamHandler): void {
+    if (!state.threadId) return;
+    for (const change of readSubagentFileChanges({ sessionId: state.threadId, sinceMs: state.startedAt })) {
+      handler.onToolStart(change.id, change.kind === "add" ? "write" : "apply_patch", { file_path: change.path });
+      handler.onToolResult(change.id, "", false);
+    }
+  }
+
   // --- Routing for JSONL events from `codex exec --json` ---
 
   /**
@@ -812,6 +832,8 @@ export class CodexProvider implements AIProvider {
     if (t === "thread.started") {
       const threadId = typeof event.thread_id === "string" ? event.thread_id : null;
       if (threadId) {
+        const state = this.sessionState.get(sessionKey);
+        if (state) state.threadId = threadId;
         try { saveCodexThreadId(getDatabase(), sessionKey, threadId); } catch { /* next turn just starts fresh */ }
       }
       return null;
@@ -896,6 +918,8 @@ export class CodexProvider implements AIProvider {
       // strip reads write/edit tool calls only, so each file becomes its own
       // call: an added file is a `write` (created), anything else an
       // `apply_patch` edit, and git's `D` later tells a deletion apart.
+      // These are the primary thread's patches only: a sub-agent's never reach
+      // this stream, see reportSubagentFileChanges.
       if (itemType === "file_change") {
         if (t === "item.updated" || !Array.isArray(item.changes)) return null;
         const state = this.sessionState.get(sessionKey);
