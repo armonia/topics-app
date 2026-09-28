@@ -600,9 +600,15 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await page.goto("/");
 
     const panel = await openMenu(page);
-    // The menu says its subject, and says that nobody is signed in.
-    await expect(panel).toContainText("Account");
+    // The menu says that nobody is signed in, on the name row itself.
     await expect(panel.getByTestId("account-line")).toContainText("Nessun account");
+    // AND NOTHING ABOVE OR BELOW IT SAYS IT AGAIN. An «Account» heading sat
+    // over the name, a label for what the face and the name already are; and
+    // a «From this device» row sat under it, the device the devices level
+    // lists (with «you are here») one gesture away. Asserted once the row
+    // above is drawn, so the absence is read on a rendered block.
+    await expect.soft(panel.getByText("Account", { exact: true })).toHaveCount(0);
+    await expect(panel.getByText("Da questo dispositivo")).toHaveCount(0);
 
     await panel.getByTestId("account-email").fill("qualcuno@example.test");
     await panel.getByTestId("account-send-code").click();
@@ -642,7 +648,18 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     // menu opens it can still be empty, and a "no sign-in form" check on an
     // empty block passes without looking. Once the profile door is there the
     // block has rendered, and the absence below is a real absence.
-    await expect(panel.getByTestId("identity-me-open-profile")).toBeVisible();
+    await expect(panel.getByTestId("account-identity")).toBeVisible();
     await expect(panel.getByTestId("account-signin")).toHaveCount(0);
+    // The name row IS that way: no second row under it saying «open your
+    // profile» about what pressing the name already does.
+    await expect(panel.getByText("Apri il tuo profilo")).toHaveCount(0);
+    // AND NO DEVICE UNDER THE NAME. This is the plan the live installation
+    // runs (no account service), and here the second line of the name row was
+    // the device the session is named after: the duplicate of the devices
+    // level, which marks it as the one you are on, one gesture away. The
+    // address book knows the person, so the name row is the person's name
+    // and nothing else.
+    await expect(panel.getByTestId("account-identity")).toContainText("Io");
+    await expect(panel.getByTestId("account-identity")).not.toContainText("Questo computer");
   });
 });

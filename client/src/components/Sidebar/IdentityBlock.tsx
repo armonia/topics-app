@@ -54,7 +54,7 @@ import { openPersonProfile } from '@/state/profileTarget';
 import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET } from '@/lib/selectionStyles';
 import { chipClass } from './identityChip';
 import { PALLINO_OK } from './chromeSignals';
-import type { SidebarCommands } from './ProfileMenu';
+import type { DeviceList, LiveDevice, SidebarCommands } from './ProfileMenu';
 import { ProfileMenu, prefetchProfileMenu } from './profileMenuLazy';
 import { TopicsLoadDot } from './TopicsLoadDot';
 import { friendChips, firstName } from './friendChips';
@@ -183,7 +183,7 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
   // on this device), and a first frame without the card is the shift the cache
   // exists to remove.
   const [session, setSession] = useState<SessionState>(getSession);
-  const [devices, setDevices] = useState<{ connected: number; total: number } | null>(null);
+  const [devices, setDevices] = useState<DeviceList | null>(null);
   const [open, setOpen] = useState(false);
   const [card, setCard] = useState<HTMLButtonElement | null>(null);
   const { counts } = usePresenceSummary();
@@ -210,10 +210,15 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
     try {
       const r = await fetch('/api/auth/devices', { credentials: 'same-origin' });
       if (!r.ok) return;
-      const b = await r.json() as { devices: Array<{ connected: boolean; revokedAt: number | null }> };
-      const live = (b.devices ?? []).filter((d) => d.revokedAt === null);
-      setDevices({ connected: live.filter((d) => d.connected).length, total: live.length });
-    } catch { /* transient: the card keeps no count rather than lie about one */ }
+      const b = await r.json() as {
+        thisComputer?: { current: boolean };
+        devices?: Array<LiveDevice & { revokedAt: number | null }>;
+      };
+      setDevices({
+        computer: b.thisComputer ?? null,
+        paired: (b.devices ?? []).filter((d) => d.revokedAt === null),
+      });
+    } catch { /* transient: the card keeps no list rather than lie about one */ }
   }, []);
 
   useEffect(() => {
@@ -267,7 +272,13 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
       <button
         ref={setCard}
         data-testid="identity-me-profile"
-        onClick={() => setOpen((v) => !v)}
+        // READ AGAIN ON EVERY OPEN. A phone going on or offline sends no
+        // event, and the devices row counts the connected ones in its tail:
+        // a list read once at mount would show a stale count.
+        onClick={() => {
+          if (!open) void readDevices();
+          setOpen((v) => !v);
+        }}
         onPointerEnter={prefetchProfileMenu}
         onFocus={prefetchProfileMenu}
         aria-haspopup="dialog"
@@ -327,8 +338,8 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
             anchorEl={card}
             onClose={() => setOpen(false)}
             who={who}
-            DeviceIcon={DeviceIcon}
-            facts={{ device: who.dettaglio, devices }}
+            devices={devices}
+            onReadDevices={readDevices}
             orgs={presence.orgs}
             friends={friends}
             signals={signals}

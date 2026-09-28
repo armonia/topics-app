@@ -101,13 +101,22 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
     // door of not opening. The comparison defect behind the crash is closed in
     // the component; here we remove the cause, which is a fake server poorer
     // than the real one. Same lesson as the person stub above.
+    //
+    // And the computer travels APART, in `thisComputer`: over loopback the
+    // route has no session cookie, so no paired device is ever `current`. A
+    // stub that listed the computer among `devices` hid a menu level that
+    // never drew the computer at all.
     await page.route("**/api/auth/devices", (r) =>
       r.fulfill({ status: 200, contentType: "application/json",
-        body: JSON.stringify({ devices: [{
-          id: "dev-1", name: "Questo computer", createdAt: 1, lastSeenAt: 2,
-          firstIp: null, revokedAt: null, connected: true, current: true,
-          role: "owner", person: null,
-        }] }) }));
+        body: JSON.stringify({
+          thisComputer: { name: "Questo computer", current: true },
+          people: [],
+          devices: [{
+            id: "dev-1", name: "iPhone di prova", createdAt: 1, lastSeenAt: 2,
+            firstIp: null, revokedAt: null, connected: true, current: false,
+            role: "owner", person: null,
+          }],
+        }) }));
     await page.goto("/");
 
     // The devices have moved INSIDE the identity panel: on the row they were a
@@ -115,9 +124,14 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
     // every single time. The door is the same one though, and it stays separate
     // from the profile.
     await page.getByTestId("identity-me-profile").click();
-    const ferri = page.getByTestId("identity-me-devices");
+    const ferri = page.getByTestId("profile-menu-devices");
     await expect(ferri).toBeVisible({ timeout: 20000 });
     await ferri.click();
+    // The row opens the LIST first, the one Settings draws in full: the
+    // machine you are on, then what is paired to it.
+    const level = page.getByTestId("profile-menu-devices-menu");
+    await expect(level.getByTestId("device-row")).toHaveText([/Questo computer/, /iPhone di prova/]);
+    await level.getByTestId("devices-open-manage").click();
 
     const pannello = page.locator('[data-testid="settings-panel"]');
     await expect(pannello).toBeVisible({ timeout: 20000 });
@@ -154,7 +168,7 @@ test.describe("Impostazioni: profilo e dispositivi sono due domande", () => {
     await expect(io).toBeVisible({ timeout: 20000 });
     await io.click();
 
-    const porta = page.getByTestId("identity-me-open-profile");
+    const porta = page.getByTestId("account-identity");
     await expect(porta).toBeVisible({ timeout: 20000 });
     await porta.click();
 

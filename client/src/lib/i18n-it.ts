@@ -2515,7 +2515,6 @@ const IT: Dict = {
   'statusBar.load.caldo': 'Il Mac è occupato {pctAl}: comincia a scaldarsi',
   'statusBar.load.carico': 'Il Mac è occupato {pctAl}: è carico',
   'statusBar.load.unknown': 'Occupazione del Mac non misurabile da qui: la vede solo l’app desktop.',
-  'statusBar.versionTitle': 'Info versione e aggiornamenti',
   'statusBar.devBuildTitle': 'Build di sviluppo (Vite dev server / hot reload). In produzione questo badge sparisce.',
   // The two sentences the badge next to the number cannot hold: what a
   // development install is, and which number an update actually replaces.
@@ -2534,7 +2533,6 @@ const IT: Dict = {
   // organisations, the friends. Every row shows a fact AND leads to the page
   // that governs it, so every row carries two texts: what it says, and where
   // the click takes you.
-  'statusBar.me.openProfile': 'Apri il tuo profilo',
   'statusBar.orgs.presence': '{n} di {tot} online adesso',
   // THE CHIP SIGNALS: on the row they are a glyph and a digit, here is the
   // word that glyph draws. The number stays inside the sentence because the
@@ -2555,10 +2553,17 @@ const IT: Dict = {
   // THE PANELS the three chips open. The chip gives the short answer, the
   // panel shows it in full and carries the actions: these are the only texts
   // that can afford a whole sentence, because in there the space exists.
-  'statusBar.me.panel': 'Il tuo profilo',
-  'statusBar.me.machine': 'Da questo dispositivo',
-  'statusBar.me.devicesRow': 'Dispositivi autorizzati',
-  'statusBar.me.devicesCount': '{n} connessi di {tot}',
+  // One word: with the count in its tail the row holds one line at the
+  // menu's 288px floor, where «Dispositivi autorizzati» wrapped to two.
+  'statusBar.me.devicesRow': 'Dispositivi',
+  'statusBar.me.devicesCount': '{n} di {tot} connessi',
+  // The devices level with no paired device: the computer is the row above it.
+  'statusBar.me.devicesNone': 'Nessun altro dispositivo autorizzato',
+  'statusBar.me.thisComputer': 'Questo computer',
+  // The same machine seen from a phone: the one the server runs on, which is
+  // not «this» one to whoever is holding the phone.
+  'statusBar.me.hostComputer': 'Il computer',
+  'statusBar.me.devicesManage': 'Gestisci i dispositivi',
   'statusBar.orgs.manageOne': 'Gestisci questa organizzazione',
   'statusBar.orgs.manageAll': 'Gestisci le organizzazioni',
   // THE SUBJECT AT ZERO. The chip stays even with no group at all, and this is
@@ -2579,7 +2584,6 @@ const IT: Dict = {
   'statusBar.friends.pendingCount': '{n} da accettare',
   'statusBar.friends.pending': '{n} in attesa di una tua risposta',
   // ── The panel behind the left chip: the account, not "your profile".
-  'statusBar.account.title': 'Account',
   'statusBar.account.why': 'Serve a essere raggiunti da fuori dalla tua rete e a ritrovare le stesse persone su un’altra installazione.',
   'statusBar.account.signIn': 'Accedi o registrati',
   // The group of absent people in the open list: their being there is not a
@@ -2596,7 +2600,6 @@ const IT: Dict = {
   'version.platform': 'Piattaforma',
   'version.drift': 'Il codice a schermo e\' indietro.',
   'version.driftDetail': 'A schermo gira la v{bundle}, il repo e\' alla v{repo}. La cartella public si ricostruisce a mano: lancia "bun run build:client" e ricarica la finestra.',
-  'version.driftTitle': 'Il codice a schermo e\' la v{bundle}, il repo e\' alla v{repo}. Ricostruisci il client.',
   'version.nativeApp': 'App nativa',
   'version.whatsNew': 'Novità di questa versione',
   'version.updates': 'Aggiornamenti',
