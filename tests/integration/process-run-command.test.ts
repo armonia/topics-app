@@ -497,6 +497,10 @@ describe("a board card whose agent ended its turn on a command", () => {
       expect(svc.get("card-wake")!.task.status).toBe("in_progress");
     } finally {
       dispatcher.shutdown();
+      // Not left in progress: the next test's dispatcher resumed it on a real
+      // chat turn nobody closed, whose watchdog fired two minutes later on
+      // this file's closed database, in whatever file ran then (CI, 28/09).
+      db.run("DELETE FROM tasks WHERE id = 'card-wake'");
     }
   });
 
