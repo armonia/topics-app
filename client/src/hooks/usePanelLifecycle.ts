@@ -101,7 +101,7 @@ import { clearBrowserSpawner } from '../state/browserSpawner';
 import { addBrowserTombstone } from '../state/pane/adapters/closedTabRecord';
 import { tauriInvoke, currentWindowLabel } from '../lib/shell/tauri';
 import { spaceWindowId } from '../lib/windowRole';
-import { markTabRestored, restoreSlot, insertAtRestoreSlot } from '../lib/previewTabs';
+import { markTabPermanent, markTabRestored, restoreSlot, insertAtRestoreSlot } from '../lib/previewTabs';
 import { pushUndo } from '../contexts/UndoContext';
 import { subscribeLifecycle } from '../lib/wsFrameBus';
 import { useRefMirror } from './useRefMirror';
@@ -1538,6 +1538,9 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     } else {
       newPanels = [...openPanels, topicId];
     }
+    // The standalone group decides preview or pinned on its own (usePaneOrdering):
+    // tell it this one was asked for as permanent.
+    if (mode === 'permanent') markTabPermanent(topicId);
     setOpenPanels(newPanels);
     if (autoFocus) setFocusedPanelId(topicId);
     setPreviewPanelId(mode === 'preview' ? topicId : null);

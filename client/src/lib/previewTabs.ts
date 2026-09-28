@@ -35,6 +35,29 @@ export function consumeTabRestored(id: string): boolean {
 }
 
 /**
+ * One-shot "this tab was opened as PERMANENT" markers.
+ *
+ * `openPanel(id, 'permanent')` (a link, a new chat, a fork) clears only the
+ * App's own preview slot. The standalone group keeps its pinned set and its
+ * remembered preview locally (usePaneOrdering), so without a word from the
+ * funnel it took every single tab added as the new preview: drawn in italics,
+ * replaced by the next single open, and closing a chat archives it. Same
+ * shape as the restore markers above: set just before the tab lands, consumed
+ * once by the ordering effect, which then pins the tab and leaves the preview
+ * where it was.
+ */
+const permanentTabIds = new Set<string>();
+
+export function markTabPermanent(id: string): void {
+  permanentTabIds.add(id);
+}
+
+/** Returns true (and clears the marker) iff `id` was just opened as permanent. */
+export function consumeTabPermanent(id: string): boolean {
+  return permanentTabIds.delete(id);
+}
+
+/**
  * Where a restored tab goes back: the slot it was closed from, clamped to the
  * list as it is NOW.
  *

@@ -1,6 +1,6 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
-import { goToApp, openTopic } from "./helpers";
+import { goToApp, openTopic, openTopicByClick } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
@@ -181,6 +181,39 @@ test.describe("Fork into a new chat", () => {
       await expect(page.getByText("prova un'altra strada").first()).toBeVisible();
       expect((await history(request, sk)).map((m) => m.content)).not.toContain("prova un'altra strada");
     } finally {
+      await cleanup(request, topic.id);
+    }
+  });
+
+  test("the branch opens as a permanent tab: the next single click neither replaces it nor closes it, and the original stays", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-FORK-04" });
+    const topic = await createTopic(request, `Fork tab ${Date.now()}`);
+    const other = await createTopic(request, `Fork altra ${Date.now()}`);
+    try {
+      const ids = await seedTurns(request, skOf(topic.id), 1);
+      // No tab open, then ONE click: the original is this window's preview tab,
+      // the one a single open replaces.
+      await resetPaneStore(request, []);
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopicByClick(page, new RegExp(escape(topic.name)));
+      await expect(row(page, ids[1])).toBeVisible({ timeout: 15_000 });
+      await row(page, ids[1]).hover();
+      await row(page, ids[1]).getByTestId("msg-action-fork").click();
+
+      const branch = await oneBranch(request, topic.id);
+      const branchTab = page.getByTestId(`pane-tab-${branch.id}`);
+      await expect(branchTab).toBeVisible({ timeout: 10_000 });
+      await expect(branchTab.getByTestId("pane-tab-label")).not.toHaveClass(/\bitalic\b/);
+      await expect(page.getByTestId(`pane-tab-${topic.id}`)).toBeVisible();
+
+      await openTopicByClick(page, new RegExp(escape(other.name)));
+      await expect(page.getByTestId(`pane-tab-${other.id}`)).toBeVisible({ timeout: 10_000 });
+      await expect(branchTab).toBeVisible();
+      // Closing a chat archives it (two states): the branch is still a live chat.
+      expect((await branchesOf(request, topic.id)).map((b) => b.id)).toEqual([branch.id]);
+    } finally {
+      await deleteTopic(request, other.id);
       await cleanup(request, topic.id);
     }
   });

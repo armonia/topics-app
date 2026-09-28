@@ -24,7 +24,7 @@ import {
   getBrowserContextFromPaneId,
 } from '../../../state/pane/adapters';
 import { isUtilityPanelId } from '../UtilityPanel';
-import { replaceInList, consumeTabRestored } from '../../../lib/previewTabs';
+import { replaceInList, consumeTabRestored, consumeTabPermanent } from '../../../lib/previewTabs';
 import { resolveBrowserNavigateUrl } from '../../../lib/browserNavUrl';
 import type { WSMessage } from '../../../types';
 import type { UsePaneOrderingArgs, UsePaneOrderingReturn } from './standaloneTypes';
@@ -353,6 +353,11 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
       if (consumeTabRestored(id)) restoredAdds++;
     }
     const isRestore = wasAdded && addedDelta.length === 1 && restoredAdds === 1;
+    // A tab asked for as PERMANENT (lib/previewTabs markTabPermanent) is pinned
+    // and additive: it neither replaces the preview nor becomes it. As the
+    // preview, the next single open replaced it and `onClosePanel` archived it:
+    // a chat just forked vanished from the sidebar at the next click.
+    const permanentAdds = addedDelta.filter(id => consumeTabPermanent(id));
 
     setOrderedIds(prev => {
       const existing = prev.filter(id => {
@@ -361,7 +366,7 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
       });
       const added = topicIds.filter(id => !prev.includes(id));
 
-      if (wasAdded && added.length === 1 && !isRestore) {
+      if (wasAdded && added.length === 1 && !isRestore && !permanentAdds.includes(added[0])) {
         // QUALE tab viene sostituita: quella che QUESTA sessione ha aperto come
         // anteprima, non «la prima non fissata».
         //
@@ -422,8 +427,8 @@ export function usePaneOrdering(args: UsePaneOrderingArgs): UsePaneOrderingRetur
       return [...existing, ...added];
     });
     setPinnedIds(prev => {
-      const next = new Set([...prev].filter(id => topicIds.includes(id) || isBrowserPaneId(id)));
-      return next.size === prev.size ? prev : next;
+      const next = new Set([...prev, ...permanentAdds].filter(id => topicIds.includes(id) || isBrowserPaneId(id)));
+      return next.size === prev.size && [...next].every(id => prev.has(id)) ? prev : next;
     });
   }, [topicIds]);
 
