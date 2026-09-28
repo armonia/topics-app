@@ -468,8 +468,11 @@ describe("an outage outside the turn: the row carries its cause, and the sweep r
       expect(cut && cut.kind === "error" ? cut.cause : undefined).toBe(cause as never);
       expect(cut && cut.kind === "error" ? cut.text : "").toContain("Riprende da solo");
       expect(h.ends().map((e) => e.stopCause)).toEqual([cause]);
-      const { resumeVerdict } = await import("../../server/lib/ripresa-boot");
-      expect(resumeVerdict({ sessionKey: sk, ruolo: "assistant", blocks: m.blocks ?? null, timestampMs: Date.now(), attempts: 0 }, Date.now())).toBe("resend");
+      const { answersPersonsMessage, resumeVerdict } = await import("../../server/lib/ripresa-boot");
+      // The direct answer to the person's message: the one row an outage's cut is resent from.
+      const answersMessage = answersPersonsMessage(h.ctx.db, sk, m.id);
+      expect(answersMessage).toBe(true);
+      expect(resumeVerdict({ sessionKey: sk, ruolo: "assistant", blocks: m.blocks ?? null, timestampMs: Date.now(), attempts: 0, answersMessage }, Date.now())).toBe("resend");
     });
   }
 });

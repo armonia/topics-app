@@ -46,11 +46,28 @@ describe("an outage outside the turn is resumed", () => {
     expect(resumeVerdict(row, NOW)).toBe("resend");
   });
 
-  test("a turn the API left unanswered, and one whose daemon died, are resent", () => {
+  test("a turn the API left unanswered, and one whose daemon died, are resent as the direct answer to the message", () => {
     for (const cause of ["api-unavailable", "broker-died"]) {
       const cut = { kind: "error", text: "una frase qualunque", cause } as unknown as ContentBlock;
-      expect(resumeVerdict({ ...base, blocks: [prose, cut] }, NOW), cause).toBe("resend");
+      expect(resumeVerdict({ ...base, blocks: [prose, cut], answersMessage: true }, NOW), cause).toBe("resend");
     }
+  });
+
+  /**
+   * Anywhere else an outage's cut is left alone: a row that does not hang from
+   * the person's message (a wake after the answer, a turn after a regenerated
+   * reply) would resend a message already answered. The sweep says where the
+   * row hangs; unsaid, it is not the direct answer. A cut of ours keeps its
+   * resend wherever the row hangs.
+   */
+  test("an outage's cut on a row that does not hang from the person's message is not resent; a stall's still is", () => {
+    for (const cause of ["api-unavailable", "broker-died"]) {
+      const cut = { kind: "error", text: "una frase qualunque", cause } as unknown as ContentBlock;
+      expect(resumeVerdict({ ...base, blocks: [prose, cut], answersMessage: false }, NOW), cause).toBe("no");
+      expect(resumeVerdict({ ...base, blocks: [prose, cut] }, NOW), `${cause}, unsaid`).toBe("no");
+    }
+    const stall = { kind: "error", text: INTERRUPTED_MARKER.replace(/^⚠️\s*/, ""), cause: "watchdog" } as unknown as ContentBlock;
+    expect(resumeVerdict({ ...base, blocks: [prose, stall], answersMessage: false }, NOW)).toBe("resend");
   });
 
   /**
@@ -72,7 +89,9 @@ describe("an outage outside the turn is resumed", () => {
     ];
     for (const [cause, text, verdict] of cuts) {
       const cut = { kind: "error", text, cause } as unknown as ContentBlock;
-      expect(resumeVerdict({ ...base, blocks: [wake, { kind: "text", text: "Request timed out" }, cut] }, NOW), `${cause}: ${text}`).toBe(verdict as never);
+      // Hanging from the message too: the mark alone says no.
+      const row = { ...base, blocks: [wake, { kind: "text", text: "Request timed out" } as ContentBlock, cut], answersMessage: true };
+      expect(resumeVerdict(row, NOW), `${cause}: ${text}`).toBe(verdict as never);
     }
   });
 
@@ -93,6 +112,7 @@ function sweepDb(): Database {
   db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
     partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER)`);
   db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, status TEXT, archived INTEGER, assigned_topic_id TEXT)");
+  db.run("CREATE TABLE compaction_markers (id TEXT PRIMARY KEY, session_key TEXT, after_message_id TEXT, trigger TEXT)");
   return db;
 }
 

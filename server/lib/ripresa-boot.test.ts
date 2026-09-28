@@ -402,6 +402,7 @@ describe("la catena dei riavvii ha un tetto", () => {
       id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
       partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER
     )`);
+    db.run("CREATE TABLE compaction_markers (id TEXT PRIMARY KEY, session_key TEXT, after_message_id TEXT, trigger TEXT)");
     db.run(
       "INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, branch_index) VALUES ('u0','topic:x','user',?,0,?,0,0)",
       [MESSAGE, new Date().toISOString()],

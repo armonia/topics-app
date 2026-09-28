@@ -40,7 +40,7 @@ import { recordSessionContext } from "../db/session-context";
 import { buildContextUpdate } from "../usage/usage-update";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
 import { readTurnEnd, recordTurnEnd } from "../providers/turn-end-registry";
-import { resumeAttemptOf } from "../lib/ripresa-boot";
+import { directAnswerNow, resumeAttemptOf } from "../lib/ripresa-boot";
 import { appendUsageRecord } from "../usage/store";
 import { autoreDaIdentita } from "../lib/message-author";
 import { makeGatewaySseProcessor } from "../lib/gateway-sse-consumer";
@@ -106,7 +106,7 @@ import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
 import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
-import { avvisoPerTurno, abortLogTitle, resumesByItself } from "../lib/cancelled-notice";
+import { avvisoPerTurno, abortLogTitle, outageCutNotResent, resumesByItself } from "../lib/cancelled-notice";
 import { toolOutcomeAtTurnEnd } from "../lib/tool-finalize-status";
 import { providerSurvivesRestart } from "../lib/quiescence";
 import { toolsSuspendSoftTimer } from "../lib/soft-timer-suspension";
@@ -1160,8 +1160,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // callbacks go there, which stay live and which are dropped:
           // lib/finalized-turn-guard.ts.
           let releaseLateFlush: (() => void) | null = null;
+          // An outage's cut on this row is resent only as the direct answer to
+          // the person's message, read off the database when the cut is written.
+          const directAnswer = () => directAnswerNow(db, sessionKey, partialMsg.id);
           const late = createLateAnswerLane({
-            sessionKey, topicId: matchedTopic?.id, rowId: () => partialMsg.id, blocks, saveEvery: SAVE_INTERVAL,
+            sessionKey, topicId: matchedTopic?.id, rowId: () => partialMsg.id, blocks, saveEvery: SAVE_INTERVAL, directAnswer,
             isClosed: () => streamState === "finalized",
             readRow: () => ctx.getMessageById(partialMsg.id),
             content: { get: () => fullContent, set: (value) => { fullContent = value; } },
@@ -1925,7 +1928,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // recognises instead of the raw "API 429 ..." text: that text
               // is in the server log, and in the chat it was the one error
               // nobody ever resumed (2026-09-04, two chats stuck for hours).
-              const shown = avvisoPerTurno(endInfo, { haProdotto: true, riprendeDaSolo: true }) ?? errorMsg;
+              const shown = avvisoPerTurno(endInfo, { haProdotto: true, riprendeDaSolo: !outageCutNotResent(endInfo.cause, blocks, directAnswer) }) ?? errorMsg;
               blocks.push({ kind: "error", text: shown.replace(/^⚠️\s*/, "") });
               turnError = shown;
               if (matchedTopic) {
@@ -2135,8 +2138,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // And a CLI that gave up on the API (`api-unavailable`): its row kept
             // "Request timed out" and no verdict, and no sweep resent it (25/09).
             // «Riprendo da solo» only where the sweep will resend: read off the
-            // blocks after the reattach merge, which carry a wake's mark.
-            const riprendeDaSolo = resumesByItself(endInfo.cause, blocks);
+            // blocks after the reattach merge, which carry a wake's mark, and
+            // for an outage off the row's place in the thread (`directAnswer`).
+            const riprendeDaSolo = resumesByItself(endInfo.cause, blocks, directAnswer);
             const cutNotice = reason === "done" && (endInfo.end === "max_tokens" || endInfo.end === "refusal" || endInfo.end === "error")
               ? avvisoPerTurno(endInfo, { haProdotto: fullContent.trim().length > 0 || rowHasWorkAfterMerge(), riprendeDaSolo })
               : null;

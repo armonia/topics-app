@@ -32,7 +32,7 @@ import type { ContentBlock, StoredMessage } from "../types";
 import type { ProviderDoneMessage, StreamHandler } from "../providers/types";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { classifyTurnError, type TurnEndInfo } from "../providers/stop-reason";
-import { avvisoPerTurno, resumesByItself } from "./cancelled-notice";
+import { avvisoPerTurno, outageCutNotResent, resumesByItself } from "./cancelled-notice";
 import { isWantedStop } from "./abort-cause";
 
 interface Slot { get: () => string; set: (value: string) => void }
@@ -44,6 +44,9 @@ export interface LateAnswerLaneOptions {
   topicId?: string;
   /** The turn's own row. A function because the row is born after the lane. */
   rowId: () => string;
+  /** The row is the direct answer to the person's message as the sweep reads
+   *  the chat now (`directAnswerNow`): the one place an outage's cut is resent. */
+  directAnswer: () => boolean;
   isClosed: () => boolean;
   /** The row as it is in the database now. */
   readRow: () => StoredMessage | null;
@@ -166,7 +169,7 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
       takeTail(message);
       const info = message?.turnEnd;
       const notice = info?.end === "error"
-        ? avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: resumesByItself(info.cause, opts.blocks) })
+        ? avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: resumesByItself(info.cause, opts.blocks, opts.directAnswer) })
         : null;
       end(notice ? `failed (${info?.cause})` : "ended", notice, info);
     },
@@ -175,7 +178,8 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
     // the close the mark may belong to the next turn.
     onError: (error: string) => {
       if (trailing(`onError (${error})`)) return;
-      const notice = avvisoPerTurno(classifyTurnError(error, "provider-error"), { haProdotto: true, riprendeDaSolo: true });
+      const info = classifyTurnError(error, "provider-error");
+      const notice = avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: !outageCutNotResent(info.cause, opts.blocks, opts.directAnswer) });
       end(`failed (${error})`, notice ?? error);
     },
     // A notice only for a cause the provider named, and not for the echo of a
@@ -187,7 +191,7 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
       takeTail(message);
       const info: TurnEndInfo | undefined = message?.turnEnd;
       const explained = !info || isWantedStop(info.cause);
-      end("aborted", explained ? null : avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: resumesByItself(info.cause, opts.blocks) }), info);
+      end("aborted", explained ? null : avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: resumesByItself(info.cause, opts.blocks, opts.directAnswer) }), info);
     },
   };
 

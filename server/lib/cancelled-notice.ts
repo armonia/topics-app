@@ -142,8 +142,9 @@ export function avvisoPerTurno(
   if (info.end === "error" && info.cause === "rate-limit") return rateLimitNotice(info.detail);
   // AN OUTAGE OUTSIDE THE TURN, the API or the daemon hosting the agent.
   // Nobody's doing and not deterministic: the sweep resends it (the API's once
-  // it answers again), and then nobody is asked to press. A wake cut that way
-  // is not resent (`wakeCutByOutage`), and its notice promises nothing.
+  // it answers again), and then nobody is asked to press. Only the direct
+  // answer to the person's message is resent (`outageCutNotResent`); any other
+  // row cut that way gets a notice that promises nothing.
   if (info.end === "error" && info.cause === "api-unavailable") {
     return opts.riprendeDaSolo ? API_UNAVAILABLE_NOTICE : `${API_UNAVAILABLE_OPENING} ${OUTAGE_NO_RESUME}`;
   }
@@ -288,26 +289,51 @@ export function isOutsideCause(cause: unknown): boolean {
   return typeof cause === "string" && (OUTSIDE_CAUSES as readonly string[]).includes(cause);
 }
 
+/** The two outages outside the turn: the API stopped answering, the ai-bridge daemon died. */
+export function isOutage(cause: unknown): boolean {
+  return cause === "api-unavailable" || cause === "broker-died";
+}
+
 /**
- * A WAKE CUT BY AN OUTAGE IS NOT RESUMED (cards e30f35e4, 51fb9359).
+ * AN OUTAGE'S CUT IS RESENT ONLY WHERE IT IS THE DIRECT ANSWER TO THE PERSON'S
+ * MESSAGE (cards e30f35e4, 51fb9359).
  *
- * The resend is the person's last message, and a wake (a background task or a
- * Monitor delivering, `claude/woken-turn.ts`) sits under a message the row
- * before already answered: resent, the agent ran it a second time, a paid turn
- * and every effect again. The outages made such a row resumable for the first
- * time, so the sweep leaves it alone; a wake cut by a stall of ours keeps the
- * resend it always had. The sweep (`resumeVerdict`) and every writer of the
- * notice (`resumesByItself`) read this one rule, so "Riprende da solo" is
- * written exactly where the sweep keeps it.
+ * The resend is the person's last message. The outages made rows resumable
+ * that never were, and any of them that is not that message's own answer (a
+ * wake a background task or a Monitor opened after the answer, a turn under a
+ * regenerated reply) runs an answered message a second time when resent: a
+ * paid turn and every effect again. Telling them apart by the thread's shape
+ * did not converge: each shape it closed opened another. So the rule is
+ * narrow on purpose: an outage's cut is resent only when `directAnswer` says
+ * the cut row answers the person's message (its parent is a user row, not a
+ * /compact already carried out) and is the chat's last word as the sweep
+ * picks it (lib/ripresa-boot.ts). A `woken` mark on the row still says no on
+ * its own. Every other shape asks the person, who retries. A cut of ours (a
+ * restart, a stall) keeps the rule it always had.
+ *
+ * The sweep (`resumeVerdict`) and every writer of the notice
+ * (`resumesByItself`) read this one rule. `directAnswer` is asked only for an
+ * outage, since it reads the database. The notice reads it when the cut is
+ * written, so a row that lands under the cut afterwards leaves a promise the
+ * sweep does not keep, accepted: a sub-agent's report, or a wake the CLI opens
+ * when background work the turn launched ends (a Bash in the background, a
+ * Monitor) while the CLI, alive after an `api-unavailable`, waits. The sweep
+ * judges that row and never resends the message, and the failure push stayed
+ * muted by the promise; the person retries. `broker-died` has no such wake:
+ * the child and its background work die with the daemon.
  */
-export function wakeCutByOutage(cause: unknown, blocks: readonly unknown[] | null | undefined): boolean {
-  return (cause === "api-unavailable" || cause === "broker-died")
-    && !!blocks?.some((b) => (b as { kind?: unknown } | null)?.kind === "woken");
+export function outageCutNotResent(
+  cause: unknown, blocks: readonly unknown[] | null | undefined, directAnswer: () => boolean,
+): boolean {
+  if (!isOutage(cause)) return false;
+  return !!blocks?.some((b) => (b as { kind?: unknown } | null)?.kind === "woken") || !directAnswer();
 }
 
 /** The sweep resends a turn cut with this cause, on a row with these blocks. */
-export function resumesByItself(cause: unknown, blocks: readonly unknown[] | null | undefined): boolean {
-  return isResumableCause(cause) && !wakeCutByOutage(cause, blocks);
+export function resumesByItself(
+  cause: unknown, blocks: readonly unknown[] | null | undefined, directAnswer: () => boolean,
+): boolean {
+  return isResumableCause(cause) && !outageCutNotResent(cause, blocks, directAnswer);
 }
 
 const API_UNAVAILABLE_OPENING = "⚠️ Turno interrotto: l'API di Claude non rispondeva più.";
@@ -321,7 +347,8 @@ export const API_UNAVAILABLE_NOTICE = `${API_UNAVAILABLE_OPENING} Riprende da so
 export const BROKER_DIED_NOTICE = `${BROKER_DIED_OPENING} Riprende da solo.`;
 
 /** Whether a turn's notice is an outage's that promises the resume: the same
- *  outage on a wake asks the person instead (`wakeCutByOutage`). */
+ *  outage anywhere but the direct answer asks the person instead
+ *  (`outageCutNotResent`). */
 export function outageNoticeResumes(text: string): boolean {
   return text === API_UNAVAILABLE_NOTICE || text === BROKER_DIED_NOTICE;
 }

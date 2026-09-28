@@ -456,7 +456,8 @@ describe("maybeSendPush — turno morto (chat-error)", () => {
   });
 
   test("the same outage on a wake is NOT muted: the sweep leaves it, and the chat stays stopped until someone writes", () => {
-    // `wakeCutByOutage`: the sweep leaves a woken row cut this way alone, and
+    // `outageCutNotResent`: the sweep leaves an outage's cut alone on any row
+    // but the direct answer to the person's message (a wake among them), and
     // its notice asks the person to write again. Silent, nobody would know.
     for (const cause of ["api-unavailable", "broker-died"] as const) {
       const error = avvisoPerTurno({ end: "error", cause }, { haProdotto: true, riprendeDaSolo: false })!;

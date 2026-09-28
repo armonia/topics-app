@@ -37,6 +37,8 @@
  *     even with no stream and no process (topic 3019832f, 24/09);
  *   · never under a hold on the chat's own provider (a spent plan window, an
  *     API not answering);
+ *   · a cut by an outage (the API down, the ai-bridge daemon dead) only on the
+ *     direct answer to the person's message (`outageCutNotResent`);
  *   · at most MAX_RESUME_ATTEMPTS times per MESSAGE (a resend that met the
  *     API still down spends none), counted along the chain
  *     of resends (`parent_id`) and not on the single row; the trace lives in
@@ -55,7 +57,7 @@ import type { ContentBlock } from "../types";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { readTurnEnd, type RecordedTurnEnd } from "../providers/turn-end-registry";
 import {
-  eCartelloDiInterruzione, isOutsideCause, isRestartNotice, isResumableCause, wakeCutByOutage,
+  eCartelloDiInterruzione, isOutage, isOutsideCause, isRestartNotice, isResumableCause, outageCutNotResent,
   STOP_PRESSED_LOG_TITLE, USER_ABORT_LOG_TITLE,
 } from "./cancelled-notice";
 import {
@@ -139,6 +141,12 @@ function lastInterruptionIndex(blocks: ContentBlock[] | null): number {
   return -1;
 }
 
+/** The row's last cut is an outage's: the one verdict that reads `answersMessage`. */
+function lastCutIsOutage(blocks: ContentBlock[] | null): boolean {
+  const cut = lastInterruptionIndex(blocks);
+  return cut >= 0 && isOutage((blocks![cut] as { cause?: unknown }).cause);
+}
+
 /** Something a turn produced: prose with words in it, or a tool call. The
  *  resend trace (`ripreso`) and an empty text block are not an answer. */
 function isProducedContent(b: ContentBlock | null | undefined): boolean {
@@ -174,6 +182,11 @@ export interface RigaDaValutare {
   cardLanded?: boolean;
   /** ...or that card is in progress: the dispatcher resumes its turns. */
   cardInProgress?: boolean;
+  /** The row answers the person's message: its parent is a user row, not a
+   *  /compact already carried out (`answersPersonsMessage`). Absent reads as
+   *  no, and an outage's cut on the row is then not resent
+   *  (`outageCutNotResent`). */
+  answersMessage?: boolean;
 }
 
 /** The person pressed Stop on this message's turn, or on a later one. A Stop
@@ -261,10 +274,12 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   // recognised by neither until 05/09/2026: no chat it closed was ever resumed.
   const lastCut = lastInterruptionIndex(r.blocks);
   if (lastCut < 0) return "no";
-  // A WAKE CUT BY AN OUTAGE: the resend would be a message the row before
-  // already answered (`wakeCutByOutage`, where the rule and its notice live).
+  // AN OUTAGE'S CUT ON ANY ROW BUT THE DIRECT ANSWER to the person's message:
+  // resent, it could run a message already answered (`outageCutNotResent`,
+  // where the rule and its notice live). The row is the chat's last word by
+  // construction: it is the one the sweep picked.
   const cause = (r.blocks[lastCut] as { cause?: unknown }).cause;
-  if (wakeCutByOutage(cause, r.blocks)) return "no";
+  if (outageCutNotResent(cause, r.blocks, () => r.answersMessage === true)) return "no";
   // A CARD IN PROGRESS OWNS ITS TURNS THAT ENDED IN ERROR: the dispatcher's
   // `onTurnEnd` resumes each one, lean, past its backoff. Resent from here too,
   // the card ran its envelope again at full context, and the dispatcher's own
@@ -371,6 +386,43 @@ function previousConversationRow(db: Database, row: LastRow): LastRow | null {
     if (!isBackgroundNoticeRow(r.decoded)) return { sk: row.sk, id: r.id, ruolo: r.role, blocks: r.blocks, ts: r.timestamp };
   }
   return null;
+}
+
+/**
+ * The row answers the person's message: its parent_id is a user row, and that
+ * message is not a /compact the CLI already carried out. A /compact's own row
+ * is dropped once the compaction ends (it has nothing to show, routes/chat.ts
+ * `discardIfEmptyTurn`), so the next turn the CLI opens by itself, a wake,
+ * hangs from the "/compact" message as if it answered it: resent, it would
+ * compact a second time. The compaction's receipt is its `manual` marker,
+ * anchored on the message of the turn that made it.
+ */
+export function answersPersonsMessage(db: Pick<Database, "query">, sessionKey: string, rowId: string): boolean {
+  const parent = db.query(
+    `SELECT p.id AS id, p.role AS role FROM messages m JOIN messages p ON p.id = m.parent_id WHERE m.id = ? AND m.session_key = ?`,
+  ).get(rowId, sessionKey) as { id: string; role: string } | undefined | null;
+  if (parent?.role !== "user") return false;
+  return !db.query(
+    `SELECT 1 FROM compaction_markers WHERE session_key = ? AND after_message_id = ? AND trigger = 'manual' LIMIT 1`,
+  ).get(sessionKey, parent.id);
+}
+
+/**
+ * Whether the sweep, reading the chat as it is now, takes this row for the
+ * direct answer to the person's message, the only row an outage's cut is
+ * resent from (`outageCutNotResent`): it answers that message
+ * (`answersPersonsMessage`), and it is the chat's last word as the sweep picks
+ * it (the newest row, read past background notices, as
+ * `previousConversationRow` does). Read by the writers of the notice when they
+ * write it. A row that lands under the cut afterwards still turns the sweep's
+ * answer to no, under a notice that promised: a sub-agent's report, or a wake
+ * the CLI opens when the turn's background work ends. That chat is left to the
+ * person, and nothing is resent.
+ */
+export function directAnswerNow(db: Database, sessionKey: string, rowId: string): boolean {
+  if (!answersPersonsMessage(db, sessionKey, rowId)) return false;
+  for (const r of rowsBack(db, sessionKey)) if (!isBackgroundNoticeRow(r.decoded)) return r.id === rowId;
+  return false;
 }
 
 /** Quel poco del contesto del server che serve al giro. */
@@ -642,6 +694,9 @@ export async function riprendiTurniInterrotti(
         boundToCard: card.bound,
         cardLanded: card.landed,
         cardInProgress: card.inProgress,
+        // Read off the database only for an outage's cut, the one verdict
+        // that asks (`outageCutNotResent`).
+        answersMessage: r.ruolo === "assistant" && lastCutIsOutage(blocks) && answersPersonsMessage(ctx.db, r.sk, r.id),
       };
       if (!row.providerBusy) busyLogged.delete(r.sk);
       let verdict: ResumeVerdict = resumeVerdict(row, ora);

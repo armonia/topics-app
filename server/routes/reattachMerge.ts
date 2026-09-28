@@ -79,7 +79,7 @@ function countToolBlocks(blocks: unknown[]): number {
  * attempt, routes/chat.ts). A reattach route is neither a wake nor a resend,
  * so its replay never writes them and the row's are the only copy. The resume
  * reads both: `woken` keeps an outage cut of a wake from resending a message
- * already answered (`wakeCutByOutage`), and a leading `ripreso` is what makes
+ * already answered (`outageCutNotResent`), and a leading `ripreso` is what makes
  * a probe into an API still down free (`probedApiStillDown`). The sweep's own
  * `ripreso` sits after the row's verdict, never in front, so it is not one.
  */
