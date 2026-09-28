@@ -189,3 +189,25 @@ describe("a 429 with a spent usage window", () => {
     expect(calls).toBe(2);
   });
 });
+
+describe("an error that ends the attempts keeps its status", () => {
+  const policy: RetryPolicy = { maxAttempts: 5, baseMs: 1, capMs: 2, jitter: () => 1 };
+  const ctxBase = { auth: { token: "t" }, policy, renewToken: async () => null };
+
+  // What the image recovery (`recoverFromImageFailure`) keys on is the 413's
+  // STATUS. Wrapped in a plain Error after a retried 529, the status was gone
+  // and the recovery never fired for exactly the request that needed it.
+  test("a 413 after a retried 529 is still an ApiHttpError 413, with the attempts in its message", async () => {
+    let calls = 0;
+    const run = async (): Promise<string> => {
+      calls++;
+      if (calls === 1) throw new ApiHttpError("API 529: overloaded", 529);
+      throw new ApiHttpError("API 413: request_too_large", 413);
+    };
+    const err = await retryRound(run, ctxBase).catch((e: unknown) => e);
+    expect(calls).toBe(2);
+    expect(err).toBeInstanceOf(ApiHttpError);
+    expect((err as ApiHttpError).status).toBe(413);
+    expect((err as ApiHttpError).message).toContain("retried 1 time");
+  });
+});
