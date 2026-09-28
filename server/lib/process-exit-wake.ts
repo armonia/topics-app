@@ -13,9 +13,11 @@
  * The row goes through the chat route in this process, the way the goal
  * continuation does (`services/goal-continuation.ts`), and only once the
  * session has no turn in flight: a wake never cuts into a turn, and a 409
- * (somebody else took the session first) puts it back to wait instead of
- * losing it. There is no cap on the wait: a wedged turn is closed by the
- * `[StaleStream]` sweep, and then the wake goes.
+ * `stream_in_flight` (somebody else took the session first) puts it back to
+ * wait instead of losing it. There is no cap on that wait: a wedged turn is
+ * closed by the `[StaleStream]` sweep, and then the wake goes. Any other
+ * refusal is not a busy session (a 409 `topics_routing_incompatible` lasts
+ * until somebody changes the topic's settings): it fails, and stays owed.
  *
  * ONCE. Delivered means the session holds a row with the `process-exit` block
  * of that process: checked before every send, and at boot for every finished
@@ -113,8 +115,10 @@ export async function deliverProcessExit(deps: ProcessExitWakeDeps, f: ProcessEx
     // Resolved on every round: the topic can be archived while the wake waits.
     const topic = deps.getTopicById(f.topicId);
     if (!topic || topic.archived) return "no-topic";
-    if (wakeDelivered(deps.db, topic.sessionKey, f.processId)) return "delivered";
+    // Busy first: the row cannot appear while somebody else's turn holds the
+    // session, and the search below scans the session's rows.
     if (deps.isBusy(topic.sessionKey)) { await sleep(pollMs); continue; }
+    if (wakeDelivered(deps.db, topic.sessionKey, f.processId)) return "delivered";
     const url = new URL("http://localhost/api/chat");
     const resp = await deps.route(
       new Request(url, {
@@ -128,7 +132,12 @@ export async function deliverProcessExit(deps: ProcessExitWakeDeps, f: ProcessEx
       }),
       url, "/api/chat", "POST",
     );
-    if (resp?.status === 409) { await sleep(pollMs); continue; }
+    if (resp?.status === 409) {
+      const code = ((await resp.json().catch(() => null)) as { code?: unknown } | null)?.code;
+      if (code === "stream_in_flight") { await sleep(pollMs); continue; }
+      deps.log?.(`${f.processId}: the chat route answered 409 ${String(code ?? "without a code")}`);
+      return "failed";
+    }
     if (!resp?.ok) {
       deps.log?.(`${f.processId}: the chat route answered ${resp?.status ?? "nothing"}`);
       return "failed";

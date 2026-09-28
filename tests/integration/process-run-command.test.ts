@@ -27,6 +27,7 @@ const { createProcessesRouter } = await import("../../server/routes/processes");
 const { startProcessExitWakes, processExitWakesIdle } = await import("../../server/lib/process-exit-wake");
 const { createChatRouter } = await import("../../server/routes/chat");
 const { registerProvider, removeProvider } = await import("../../server/providers");
+const { TopicsRoutingIncompatibleError } = await import("../../server/providers/resolve-topic-provider");
 
 registerProvider({ type: "openai", apiKey: "" } as never);
 afterAll(async () => {
@@ -58,7 +59,12 @@ async function makeBench() {
     complete: async () => ({ content: "" }),
   } as unknown as AIProvider;
   const chat = createChatRouter(ctx, {
-    resolveProvider: () => provider,
+    // A topic with the light routing switch on stands for one whose pinned
+    // provider the native engine cannot run: the real resolver throws this.
+    resolveProvider: (topic: Topic | null) => {
+      if (topic?.topicsRouting) throw new TopicsRoutingIncompatibleError("openai", "not routable");
+      return provider;
+    },
     detectLocalhostAutoNav: () => {},
     bindTopicToProject: () => {},
     resolveProjectRef: () => null,
@@ -79,13 +85,13 @@ async function makeBench() {
 beforeAll(async () => { bench = await makeBench(); });
 
 let seq = 0;
-function newTopic(): Topic {
+function newTopic(over: Partial<Topic> = {}): Topic {
   const name = `cmd-${++seq}`;
   const topic = {
     id: `t-${name}`, name, slug: name, parentId: null, links: [],
     sessionKey: `topic:${name}`, color: "#5865f2", icon: "MessageSquare",
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    archived: false, provider: "openai", projectPath: PROJECT,
+    archived: false, provider: "openai", projectPath: PROJECT, ...over,
   } as Topic;
   bench.ctx.saveSingleTopic(topic);
   return topic;
@@ -207,6 +213,25 @@ describe("the end of a command reaches the topic that launched it", () => {
     await processExitWakesIdle();
     expect(exitRows(topic.sessionKey)).toHaveLength(0);
     expect(await scriptRow(processId)).toMatchObject({ status: "error", exitCode: 1 });
+  });
+
+  // The route refuses with a 409 that no turn clears: the topic's routing
+  // cannot reach its provider until somebody changes a setting. Waited on as
+  // if the session were busy, the wake posted twice a second forever and the
+  // topic's chain never ran another one.
+  test("a refusal that is not a busy session ends the wait: no row, and the wake stays owed", async () => {
+    const topic = newTopic({ topicsRouting: true });
+    const refused = await call(bench.chat, "POST", "/api/chat", { sessionKey: topic.sessionKey, messages: [{ role: "user", content: "hi" }] });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({ code: "topics_routing_incompatible" });
+
+    const { processId } = await runCommand(topic, "echo refused; exit 0");
+    await until(async () => (await scriptRow(processId))?.status !== "running");
+    const outcome = await Promise.race([processExitWakesIdle().then(() => "settled"), Bun.sleep(3000).then(() => "still waiting")]);
+    expect(outcome).toBe("settled");
+    expect(exitRows(topic.sessionKey)).toHaveLength(0);
+    const saved = JSON.parse(readFileSync(join(ROOT, "data", ".state", "scripts.json"), "utf8")) as { recent: Array<{ processId: string; cmd?: { wake: boolean } }> };
+    expect(saved.recent.find((r) => r.processId === processId)?.cmd?.wake).toBe(true);
   });
 
   test("a Stop from the panel wakes nobody", async () => {

@@ -105,28 +105,33 @@ describe("wakeDelivered", () => {
 });
 
 describe("deliverProcessExit", () => {
-  function deps(over: Partial<ProcessExitWakeDeps> & { answers?: number[] }): { d: ProcessExitWakeDeps; bodies: Array<Record<string, unknown>>; db: Database } {
+  /** A refusal of the chat route, as `routes/chat.ts` writes it: a status and a `code`. */
+  type Answer = 200 | { status: number; code?: string };
+  function deps(over: Partial<ProcessExitWakeDeps> & { answers?: Answer[] }): { d: ProcessExitWakeDeps; bodies: Array<Record<string, unknown>>; db: Database; logs: string[] } {
     const db = dbWith([]);
     const bodies: Array<Record<string, unknown>> = [];
+    const logs: string[] = [];
     const answers = over.answers ?? [200];
     const d: ProcessExitWakeDeps = {
       db,
       getTopicById: () => ({ sessionKey: "s-a" }),
       isBusy: () => false,
       pollMs: 5,
+      log: (msg) => logs.push(msg),
       route: async (req) => {
         const body = await req.json() as Record<string, unknown>;
         bodies.push(body);
-        const status = answers.shift() ?? 200;
-        if (status === 200) {
+        const answer = answers.shift() ?? 200;
+        if (answer === 200) {
           const exit = body.processExit as { processId: string };
           db.run("INSERT INTO messages VALUES ('s-a', 'user', 'x', ?)", [JSON.stringify([{ kind: "process-exit", processId: exit.processId, exitCode: 3, label: "x" }])]);
+          return new Response("data: [DONE]\n\n", { status: 200 });
         }
-        return new Response(status === 200 ? "data: [DONE]\n\n" : "{}", { status });
+        return Response.json({ error: "refused", code: answer.code }, { status: answer.status });
       },
       ...over,
     };
-    return { d, bodies, db };
+    return { d, bodies, db, logs };
   }
 
   test("waits for the turn in flight to close before it sends", async () => {
@@ -139,10 +144,32 @@ describe("deliverProcessExit", () => {
     expect(String((bodies[0].messages as Array<{ content: string }>)[0].content)).toContain("tick 2");
   });
 
-  test("a 409 puts it back to wait instead of losing it", async () => {
-    const { d, bodies } = deps({ answers: [409, 409, 200] });
+  test("a 409 stream_in_flight puts it back to wait instead of losing it", async () => {
+    const inFlight = { status: 409, code: "stream_in_flight" };
+    const { d, bodies } = deps({ answers: [inFlight, inFlight, 200] });
     expect(await deliverProcessExit(d, FACTS)).toBe("sent");
     expect(bodies).toHaveLength(3);
+  });
+
+  // A topic with the light routing switch on whose pinned provider or model
+  // the native engine cannot run: the route answers 409 before writing the
+  // row, and nothing a turn does changes that. Retried, it was two POSTs a
+  // second forever, and the topic's chain never ran another wake.
+  test("any other 409 fails once, says why, and stays owed", async () => {
+    const { d, bodies, logs } = deps({ answers: [{ status: 409, code: "topics_routing_incompatible" }, 200] });
+    expect(await deliverProcessExit(d, FACTS)).toBe("failed");
+    expect(bodies).toHaveLength(1);
+    expect(logs.join("\n")).toContain("topics_routing_incompatible");
+  });
+
+  test("a busy session is not searched for the row on every round", async () => {
+    let busy = 3;
+    let searches = 0;
+    const { d } = deps({ isBusy: () => busy-- > 0 });
+    const db = d.db;
+    d.db = { query: (sql) => { const q = db.query(sql); return { get: (...a) => { searches++; return q.get(...a); } }; } };
+    expect(await deliverProcessExit(d, FACTS)).toBe("sent");
+    expect(searches).toBe(1);
   });
 
   test("once: a row already there means nothing is sent", async () => {
