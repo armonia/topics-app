@@ -345,6 +345,15 @@ test.describe.serial("Coda dei messaggi", () => {
    * The rects are read in ONE frame: the turn is still streaming, the list
    * follows the bottom, and separate `boundingBox()` calls could straddle a
    * scroll and compare boxes from two different layouts.
+   *
+   * And the bubble is FOUND in that same page task, not through a locator:
+   * `locator.evaluate` resolves the element in one round trip and runs the
+   * function in the next, and in between the queued rows can be replaced. The
+   * Footer that holds them is a new component whenever `inputAreaHeight` or the
+   * queue changes (MessageList `virtuosoComponents`), and the composer shrinks
+   * back right after the long send. The function then ran on a detached node
+   * and read all zeros with no scroller above it: on WebKit, 1 red in 3
+   * whole-file runs.
    */
   test("una riga lunga in coda resta nella colonna della chat, con la X accanto alla bolla", async ({ page, chatPage }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-03" });
@@ -360,17 +369,17 @@ test.describe.serial("Coda dei messaggi", () => {
     // Several lines of wrapped text: the bubble stops at its max width.
     await chatPage.messageInput.fill("una riga lunga che va a capo più volte ".repeat(12).trim());
     await chatPage.messageInput.press("Enter");
-    const bubble = queuedBubbles(page).first();
-    await expect(bubble).toBeVisible({ timeout: 10_000 });
+    await expect(queuedBubbles(page).first()).toBeVisible({ timeout: 10_000 });
 
-    const rects = await bubble.evaluate((el) => {
+    const rects = await page.evaluate(() => {
       const box = (node: Element | null) => {
         if (!node) return null;
         const r = node.getBoundingClientRect();
         return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width };
       };
-      const row = el.parentElement;
-      const pane = el.closest("[data-virtuoso-scroller]");
+      const el = document.querySelector('[data-testid="queued-bubble"]');
+      const row = el?.parentElement ?? null;
+      const pane = el?.closest("[data-virtuoso-scroller]") ?? null;
       return {
         bubble: box(el),
         row: box(row),
