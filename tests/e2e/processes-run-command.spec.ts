@@ -159,6 +159,9 @@ test.describe("run_command: a command of the topic, seen, surviving and reportin
     await expect(row.locator('[data-testid="command-outcome"]')).toHaveText("exit 0");
 
     // And the topic is told, once, as the machine's line and not as the person's bubble.
+    // The click on the row opened the log as a tab of the chat's cell, in front
+    // of the chat: the chat's tab is brought back first, as a person would.
+    await win.locator(`[role="tab"][data-pane-id="chat:${topicId}"]`).click();
     const chat = page.locator(`[data-chat-topic-id="${topicId}"]`).first();
     const wakeRow = chat.locator('[data-testid="process-exit-row"]');
     await expect(wakeRow).toHaveCount(1, { timeout: 20_000 });
