@@ -321,6 +321,107 @@ test.describe.serial("Coda dei messaggi", () => {
     await expect.poll(() => sent, { timeout: 20_000 }).toEqual(["primo", "altro"]);
   });
 
+  /**
+   * A long queued line stays in the chat column, with its X beside the bubble.
+   *
+   * Two defects, both measured on WebKit.
+   *
+   * The X was written `absolute -left-6`, but `.tap-expand` set `position:
+   * relative` OUTSIDE any cascade layer (index.css), and an unlayered rule beats
+   * every Tailwind utility. So the X was never absolute: it fell into the
+   * bubble's flow as one more line under `chat.queue.waiting`, and `-left-6`
+   * only nudged it 24px left, onto the dashed border (computed `position:
+   * relative`, the 20x20 box overlapping the bubble by 9x20px). It is now a
+   * flex sibling of the bubble, which shrinks to make room for it.
+   *
+   * The queued rows live in Virtuoso's Footer, which is NOT inside the list
+   * that carries `chat-measure`: they spread over the whole pane while the
+   * messages and the composer sit in the centred 820px column. At 1280px the
+   * pane is barely wider than that column, so both look aligned; at 1728px the
+   * X started at x=464 and the column at x=582, and the bubble ran past the
+   * column's right edge to the pane's. Hence the wide viewport, and the
+   * precondition that the pane is really wider than the column there.
+   *
+   * The rects are read in ONE frame: the turn is still streaming, the list
+   * follows the bottom, and separate `boundingBox()` calls could straddle a
+   * scroll and compare boxes from two different layouts.
+   *
+   * And the bubble is FOUND in that same page task, not through a locator:
+   * `locator.evaluate` resolves the element in one round trip and runs the
+   * function in the next, and in between the queued rows can be replaced. The
+   * Footer that holds them is a new component whenever `inputAreaHeight` or the
+   * queue changes (MessageList `virtuosoComponents`), and the composer shrinks
+   * back right after the long send. The function then ran on a detached node
+   * and read all zeros with no scroller above it: on WebKit, 1 red in 3
+   * whole-file runs.
+   */
+  test("una riga lunga in coda resta nella colonna della chat, con la X accanto alla bolla", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-03" });
+    const { state } = await interceptSends(page);
+    await page.setViewportSize({ width: 1728, height: 900 });
+    await openChat(page, chatPage);
+    await clearQueue(page);
+
+    await chatPage.messageInput.fill("primo");
+    await chatPage.messageInput.press("Enter");
+    await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
+
+    // Several lines of wrapped text: the bubble stops at its max width.
+    await chatPage.messageInput.fill("una riga lunga che va a capo più volte ".repeat(12).trim());
+    await chatPage.messageInput.press("Enter");
+    await expect(queuedBubbles(page).first()).toBeVisible({ timeout: 10_000 });
+
+    const rects = await page.evaluate(() => {
+      const box = (node: Element | null) => {
+        if (!node) return null;
+        const r = node.getBoundingClientRect();
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width };
+      };
+      const el = document.querySelector('[data-testid="queued-bubble"]');
+      const row = el?.parentElement ?? null;
+      const pane = el?.closest("[data-virtuoso-scroller]") ?? null;
+      return {
+        bubble: box(el),
+        row: box(row),
+        remove: box(row?.querySelector('[data-testid="queued-bubble-remove"]') ?? null),
+        pane: box(pane),
+        // The column the messages and the composer share: the list, which carries `chat-measure`.
+        column: box(pane?.querySelector('[data-testid="virtuoso-item-list"]') ?? null),
+      };
+    });
+    const { bubble: b, row, remove: x, pane, column } = rects;
+    if (!b || !row || !x || !pane || !column) throw new Error(`missing box: ${JSON.stringify(rects)}`);
+    const TOLERANCE_PX = 0.5;
+
+    // The preconditions: the pane is wider than the column, and the text is
+    // long enough to push the bubble to its cap.
+    expect(pane.width - column.width, "the pane must be wider than the chat column at this viewport").toBeGreaterThan(200);
+    expect(b.width, "the bubble must reach its max width (85% of the row)").toBeGreaterThanOrEqual(row.width * 0.85 - 1);
+
+    // Inside the row, on all four sides...
+    expect(x.left, "X left of its row").toBeGreaterThanOrEqual(row.left - TOLERANCE_PX);
+    expect(x.right, "X right of its row").toBeLessThanOrEqual(row.right + TOLERANCE_PX);
+    expect(x.top, "X above its row").toBeGreaterThanOrEqual(row.top - TOLERANCE_PX);
+    expect(x.bottom, "X below its row").toBeLessThanOrEqual(row.bottom + TOLERANCE_PX);
+    // ...X and bubble inside the chat column...
+    expect(x.left, "X left of the chat column").toBeGreaterThanOrEqual(column.left - TOLERANCE_PX);
+    expect(x.right, "X right of the chat column").toBeLessThanOrEqual(column.right + TOLERANCE_PX);
+    expect(b.left, "bubble left of the chat column").toBeGreaterThanOrEqual(column.left - TOLERANCE_PX);
+    expect(b.right, "bubble right of the chat column").toBeLessThanOrEqual(column.right + TOLERANCE_PX);
+    // ...and the X beside the bubble, not over it.
+    const overlapW = Math.min(x.right, b.right) - Math.max(x.left, b.left);
+    const overlapH = Math.min(x.bottom, b.bottom) - Math.max(x.top, b.top);
+    expect(overlapW > TOLERANCE_PX && overlapH > TOLERANCE_PX, `X overlaps the bubble by ${overlapW}x${overlapH}px`).toBe(false);
+
+    // And it still does its job. Leaving the line queued would hand it to the
+    // next test, which counts the bubbles without clearing first.
+    await page.getByTestId("queued-bubble-remove").first().click();
+    await expect(queuedBubbles(page)).toHaveCount(0);
+    state.hang = false;
+    await page.getByRole("button", { name: /Ferma la risposta/ }).first().click();
+    await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
+  });
+
   test("stop TIENE il messaggio in coda invece di farlo partire", async ({ page, chatPage }) => {
     // Il frame che faceva il danno arriva dal WS: dopo un abort il server
     // annuncia comunque `stream:end`, e «lo stream è finito» era l'unica

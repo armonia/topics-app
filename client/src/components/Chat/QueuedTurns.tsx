@@ -55,7 +55,13 @@ export function QueuedTurns({ turns, isMobile, onUpdate, onRemove, onClear, onSe
   const t = useT();
   if (turns.length === 0) return null;
   return (
-    <div data-testid="queued-bubbles" className={isMobile ? 'px-2' : 'px-4'}>
+    // `chat-measure` because this block renders in Virtuoso's Footer, OUTSIDE
+    // the list that carries the reading column (MessageList `ChatList`).
+    // Without it the queued rows spread over the whole pane: on a pane wider
+    // than the column the bubble ended past the right edge of every sent
+    // message and of the composer. With it, plus the same `px-4`/`px-2` as a
+    // message row, a queued line ends exactly where a sent one does.
+    <div data-testid="queued-bubbles" className={`chat-measure ${isMobile ? 'px-2' : 'px-4'}`}>
       {turns.map((turn) => (
         <QueuedBubble
           key={turn.id}
@@ -165,7 +171,27 @@ function QueuedBubble({
   }, [turn.content]);
 
   return (
-    <div className="group flex justify-end mt-1.5">
+    <div className="group flex items-start justify-end gap-1 mt-1.5">
+      {onRemove && !editing && (
+        // A flex sibling of the bubble, so it can neither cover the bubble nor
+        // leave the row: the bubble shrinks (min-w-0) to make room for it.
+        // It used to be `absolute -left-6` inside the bubble, and that never
+        // applied: `.tap-expand` then set `position: relative` outside any
+        // cascade layer, which beat Tailwind's `absolute`, so the X fell into
+        // the bubble's flow and `-left-6` only pushed it onto the dashed border.
+        // `coarse:opacity-100` / `group-focus-within` keep it reachable with a
+        // finger or the keyboard, which have no hover state to reveal it.
+        <button
+          type="button"
+          data-testid="queued-bubble-remove"
+          onClick={() => onRemove(turn.id)}
+          title={t('chat.queue.removeTitle')}
+          aria-label={t('chat.queue.removeTitle')}
+          className="tap-expand flex-shrink-0 mt-2 p-1 rounded text-app-text-muted opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 coarse:opacity-100 hover:text-red-500 transition-opacity"
+        >
+          <X size={12} />
+        </button>
+      )}
       <div
         data-testid="queued-bubble"
         data-queued-id={turn.id}
@@ -204,31 +230,6 @@ function QueuedBubble({
             stessa cosa non si distinguono. Qui l'unica cosa che conta è il
             VERSO: questi messaggi partono da te. */}
         <p className="mt-0.5 text-right text-mini text-app-text-muted">{t('chat.queue.waiting')}</p>
-        {onRemove && !editing && (
-          // Fuori dalla bolla, sul suo fianco: dentro dovrebbe rubare spazio al
-          // testo o coprirlo. Appare al passaggio del mouse, e SEMPRE dove il
-          // mouse non c'e'.
-          //
-          // `coarse:opacity-100` is the half that was promised and missing: with
-          // a finger there is no hover state to enter, so the only way out of a
-          // queued line was a command gated on `turns.length > 1` (the clear
-          // one). With a single line queued, from a phone, nothing removed it.
-          // `group-focus-within` covers the keyboard, which the comment
-          // announced and the code did not have either.
-          // `tap-expand` grows the sensitive area to the 44px of the guidelines
-          // without touching the 20px box, which has to stay small next to the
-          // bubble (index.css).
-          <button
-            type="button"
-            data-testid="queued-bubble-remove"
-            onClick={() => onRemove(turn.id)}
-            title={t('chat.queue.removeTitle')}
-            aria-label={t('chat.queue.removeTitle')}
-            className="tap-expand absolute -left-6 top-1/2 -translate-y-1/2 p-1 rounded text-app-text-muted opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 coarse:opacity-100 hover:text-red-500 transition-opacity"
-          >
-            <X size={12} />
-          </button>
-        )}
       </div>
     </div>
   );

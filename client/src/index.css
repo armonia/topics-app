@@ -1832,17 +1832,26 @@ input[type="range"]::-webkit-slider-thumb {
  * qui, così chi la usa non se lo deve ricordare.
  *
  * Solo su `pointer: coarse` — su desktop un'area invisibile di 44px attorno a
- * un'icona da 24 ruberebbe i clic ai vicini. */
-.tap-expand { position: relative; }
-@media (pointer: coarse) {
-  .tap-expand::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: max(100%, 44px);
-    height: max(100%, 44px);
-    transform: translate(-50%, -50%);
+ * un'icona da 24 ruberebbe i clic ai vicini.
+ *
+ * In `@layer components`, below `utilities`: `relative` is only the default,
+ * and an explicit position utility on the same element has to win. Unlayered,
+ * this rule beat every Tailwind utility, so `tap-expand absolute -top-1.5
+ * -right-1.5` (the x on a pasted image) was computed `relative` and wrapped
+ * under the thumbnail instead of sitting on its corner. Same for `.tap-expand-y`
+ * below. */
+@layer components {
+  .tap-expand { position: relative; }
+  @media (pointer: coarse) {
+    .tap-expand::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+      transform: translate(-50%, -50%);
+    }
   }
 }
 
@@ -1893,16 +1902,18 @@ input[type="range"]::-webkit-slider-thumb {
  * rientrata di 6px e arrotondata, quindi si legge come una tab. Stessi valori,
  * un contenitore in meno. */
 
-.tap-expand-y { position: relative; }
-@media (pointer: coarse) {
-  .tap-expand-y::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 0;
-    right: 0;
-    height: max(100%, 44px);
-    transform: translateY(-50%);
+@layer components {
+  .tap-expand-y { position: relative; }
+  @media (pointer: coarse) {
+    .tap-expand-y::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 0;
+      right: 0;
+      height: max(100%, 44px);
+      transform: translateY(-50%);
+    }
   }
 }
 
