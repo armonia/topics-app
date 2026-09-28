@@ -123,7 +123,8 @@ describe('la conversazione e\' UNA lista', () => {
  * answers those (server/lib/process-exit-wake.ts). The chat draws it as a
  * service line (`MessageBubble`); the drawer drew every user row of the session
  * as the person's grey bubble, and board agents are the ones the prompt sends
- * to `run_command` for their long waits.
+ * to `run_command` for their long waits. This reads the branch on the source;
+ * the drawer drawing it for a real wake is `tests/e2e/processes-run-command.spec.ts`.
  */
 describe("a command's end in the card's session", () => {
   test('a user row carrying the process-exit block is drawn before, and instead of, the bubble', () => {

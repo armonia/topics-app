@@ -12,6 +12,10 @@
  * person reads it: the panel row, the log pane, the chat's service line.
  *
  * A behaviour in time, so the video is the proof: `video: "on"`.
+ *
+ * The second case opens the wake where a board card reads the same session:
+ * the drawer drew every user row as the person's bubble, and board agents are
+ * the ones the prompt sends to `run_command` for their long waits.
  */
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { execFileSync } from "node:child_process";
@@ -19,10 +23,11 @@ import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic, patchTopic, seedProjectInnerChats, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
+import { createTopic, deleteTask, deleteTopic, patchTopic, seedProjectInnerChats, seedProjectPane, waitForPaneStoreQuiet } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { installSlowTurnCli } from "./helpers/fake-claude-cli";
+import { projectIdForPath } from "../../shared/board";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -60,6 +65,13 @@ async function cliPid(request: APIRequestContext, sessionKey: string): Promise<n
   return Number(/cli-pid:(\d+)/.exec(said?.content ?? "")?.[1] ?? 0);
 }
 
+/** How many rows of the session carry the `process-exit` block of this process. */
+async function wakeRows(request: APIRequestContext, sessionKey: string, processId: string): Promise<number> {
+  const r = await request.get(`${E2E_BASE}/api/history/${encodeURIComponent(sessionKey)}`);
+  const body = (await r.json()) as { messages?: Array<{ blocks?: Array<{ kind: string; processId?: string }> }> };
+  return (body.messages ?? []).filter((m) => m.blocks?.some((b) => b.kind === "process-exit" && b.processId === processId)).length;
+}
+
 /** A live process, a zombie counting as gone. The test server runs on this machine. */
 function isAlive(pid: number): boolean {
   try {
@@ -78,6 +90,8 @@ test.describe("run_command: a command of the topic, seen, surviving and reportin
   let sessionKey = "";
   /** The CLI that is up when the command starts: the one restarted under it. */
   let firstCli = 0;
+  /** The card bound to the topic by the drawer case, removed at the end. */
+  let card: { board: string; id: string } | null = null;
 
   test.beforeAll(async ({ request }) => {
     uninstall = installSlowTurnCli();
@@ -94,6 +108,7 @@ test.describe("run_command: a command of the topic, seen, surviving and reportin
 
   test.afterAll(async ({ request }) => {
     uninstall();
+    if (card) await deleteTask(request, card.board, card.id);
     await deleteTopic(request, topicId).catch(() => {});
     if (project) rmSync(project, { recursive: true, force: true });
   });
@@ -153,16 +168,70 @@ test.describe("run_command: a command of the topic, seen, surviving and reportin
     await expect(wakeRow).toContainText("exit 0");
 
     // The server holds exactly one such row for this process.
-    await expect.poll(async () => {
-      const r = await request.get(`${E2E_BASE}/api/history/${encodeURIComponent(sessionKey)}`);
-      const body = (await r.json()) as { messages?: Array<{ blocks?: Array<{ kind: string; processId?: string }> }> };
-      return (body.messages ?? []).filter((m) => m.blocks?.some((b) => b.kind === "process-exit" && b.processId === processId)).length;
-    }, { timeout: 10_000 }).toBe(1);
+    await expect.poll(() => wakeRows(request, sessionKey, processId), { timeout: 10_000 }).toBe(1);
 
     // The topic answers from a NEW CLI: the restart was real. Polled, because
     // the wake's own turn may still hold the session for a moment.
     let secondCli = 0;
     await expect.poll(async () => (secondCli = await cliPid(request, sessionKey).catch(() => 0)), { timeout: 15_000 }).toBeGreaterThan(0);
     expect(secondCli).not.toBe(firstCli);
+  });
+
+  test("a card bound to the topic draws the wake as the machine's line, not as the person's bubble", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CMDRUN-04" });
+    const marker = `drawer-wake-${Date.now()}`;
+    const started = await request.post(`${E2E_BASE}/api/sessions/${encodeURIComponent(sessionKey)}/commands/run`, {
+      data: { command: `echo ${marker}; exit 0` },
+      ignoreHTTPSErrors: true,
+    });
+    expect(started.ok(), await started.text()).toBeTruthy();
+    const { processId } = (await started.json()) as { processId: string };
+    // The wake is in the session before the card is bound: the card only reads it.
+    await expect.poll(() => wakeRows(request, sessionKey, processId), { timeout: 20_000 }).toBe(1);
+
+    // A card in review on the project's board, bound to the topic the way the
+    // dispatcher binds one. Status first: a PATCH clears the binding.
+    const board = projectIdForPath(project);
+    const text = `Card of the command ${Date.now()}`;
+    const created = await request.post(`${E2E_BASE}/api/boards/${board}/tasks`, { data: { text } });
+    expect(created.ok(), await created.text()).toBeTruthy();
+    card = { board, id: ((await created.json()) as { id: string }).id };
+    expect((await request.patch(`${E2E_BASE}/api/boards/${board}/tasks/${card.id}`, { data: { status: "review" } })).ok()).toBeTruthy();
+    expect((await request.post(`${E2E_BASE}/api/test/tasks/${card.id}/bind-topic`, { data: { topicId } })).ok()).toBeTruthy();
+
+    await seedProjectPane(request, project);
+    await waitForPaneStoreQuiet(request);
+    await goToApp(page);
+    const win = page.locator(`[data-testid="project-window"][data-project-path="${project}"]`);
+    await expect(win).toHaveCount(1, { timeout: 15_000 });
+
+    // The board, from one of the window's + menus.
+    const triggers = win.getByTestId("pane-add-menu-trigger");
+    const kanban = page.getByTestId("pane-add-menu-kanban");
+    let opened = false;
+    for (let i = (await triggers.count()) - 1; i >= 0 && !opened; i--) {
+      const trigger = triggers.nth(i);
+      if (!(await trigger.isVisible().catch(() => false))) continue;
+      if (!(await trigger.click({ timeout: 3000 }).then(() => true, () => false))) continue;
+      opened = await kanban.waitFor({ state: "visible", timeout: 2000 }).then(() => true, () => false);
+      if (!opened) await page.keyboard.press("Escape");
+    }
+    expect(opened, "a + menu with the Board entry").toBe(true);
+    await kanban.click();
+    await expect(page.getByTestId("kanban-board")).toBeVisible({ timeout: 10_000 });
+
+    await page.getByTestId("kanban-column-review").getByText(text).click({ timeout: 15_000 });
+    const drawer = page.getByTestId("task-detail-drawer");
+    await expect(drawer).toBeVisible({ timeout: 10_000 });
+
+    // The session's wake is one service line, with its outcome, and no bubble says it.
+    const session = drawer.getByTestId("task-session-column");
+    const line = session.locator('[data-testid="process-exit-row"]', { hasText: marker });
+    await expect(line).toHaveCount(1, { timeout: 15_000 });
+    await expect(line).toHaveAttribute("data-exit-code", "0");
+    await expect(session.locator(".user-bubble", { hasText: "finished: exit" })).toHaveCount(0);
+    await line.getByTestId("process-exit-toggle").click();
+    await expect(line).toContainText(marker);
+    await expect(line).toContainText("exit 0");
   });
 });
