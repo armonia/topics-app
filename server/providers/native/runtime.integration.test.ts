@@ -12,9 +12,9 @@
   * @covers RT-11
  */
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, copyFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
 import { hasCredentials, getAccessToken } from "./auth";
 import { runAgentTurn, type AgentMessage } from "./agent-loop";
 import { executeTool } from "./tools";
@@ -97,6 +97,35 @@ describeIfAuth("il runtime nativo, senza nessuna CLI", () => {
     expect(readFileSync(file, "utf-8")).toContain("PONG");
     expect(readFileSync(file, "utf-8")).not.toContain("ciao");
   }, 180_000);
+
+  /**
+   * THE IMAGE REACHES THE MODEL FOR REAL, not as base64 disguised as text.
+   *
+   * Before this change `read_file` read every file as UTF-8: on a PNG the
+   * model got garbage, never a real image. Here the agent reads, on its own,
+   * a real PNG (the 2x2 fixture the browser e2e tests use, alternating red
+   * and black rows) and has to answer what it contains: if the color never
+   * reached it, it would have no way to know.
+   */
+  test("the agent reads a real image with read_file and describes its color", async () => {
+    const png = join(ws, "pixel.png");
+    copyFileSync(resolve(__dirname, "../../../tests/e2e/fixtures/pixel.png"), png);
+    const rec = recorder();
+    const history: AgentMessage[] = [{
+      role: "user",
+      content: "Leggi pixel.png con lo strumento read_file. L'immagine contiene del rosso? Rispondi solo SI o NO.",
+    }];
+
+    const out = await runAgentTurn(
+      { model: "claude-haiku-4-5-20251001", history, toolContext: { workspace: ws } },
+      rec.handler,
+    );
+
+    expect(rec.errors).toEqual([]);
+    expect(out.turnEnd.end).toBe("end_turn");
+    expect(rec.tools.some((t) => t.name === "read_file")).toBe(true);
+    expect(rec.full.toUpperCase()).toContain("SI");
+  }, 120_000);
 
   /**
    * I PERMESSI CONTRO UN AGENTE VERO, che è l'unico modo di provarli davvero.

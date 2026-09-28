@@ -1204,7 +1204,6 @@
       "dsf",
       "dsfRef",
       "failWebrtc",
-      "fetchScreenshot",
       "psf",
       "psfChanged",
       "retryWebrtc",
@@ -2642,8 +2641,7 @@
       "CSP_MARKER"
     ],
     "server/browser-dom-walker.ts": [
-      "buf",
-      "captureAnnotatedScreenshotOnPage"
+      "buf"
     ],
     "server/browser-focused-field.test.ts": [
       "email",
@@ -2731,18 +2729,14 @@
       "hostnameOf"
     ],
     "server/browser-tool-dispatcher.ts": [
-      "buf",
-      "nativeScreenshotOp"
+      "buf"
     ],
     "server/browser-tools-adapters.ts": [
       "isPassthroughProvider"
     ],
     "server/browser-tools-handler.ts": [
       "buf",
-      "handleBrowserEval",
-      "handleBrowserScreenshot",
-      "wantScreenshot",
-      "writeAgentScreenshot"
+      "handleBrowserEval"
     ],
     "server/context/adapt-dedup.test.ts": [
       "normale",
@@ -4063,7 +4057,6 @@
     ],
     "server/routes/browser.ts": [
       "agentEvalMatch",
-      "agentScreenshotMatch",
       "buf",
       "evalResult"
     ],
@@ -4475,13 +4468,10 @@
       "vecchio"
     ],
     "server/services/image-shape.test.ts": [
-      "dht",
-      "sof0",
-      "sof2"
+      "dht"
     ],
     "server/services/image-shape.ts": [
-      "buf",
-      "isSOF"
+      "buf"
     ],
     "server/services/known-project-dirs.test.ts": [
       "vero"
@@ -5836,10 +5826,6 @@
       "rec"
     ],
     "tests/e2e/board-drawer-scroll.spec.ts": [
-      "CRC_TABLE",
-      "crc",
-      "crc32",
-      "ihdr",
       "scrollableAncestors"
     ],
     "tests/e2e/board-drawer-truth.spec.ts": [
@@ -6061,8 +6047,7 @@
       "buf"
     ],
     "tests/e2e/browser-ws-streaming.spec.ts": [
-      "bandwidthKbps",
-      "screenshotImg"
+      "bandwidthKbps"
     ],
     "tests/e2e/changelog.spec.ts": [
       "Versione",

@@ -371,3 +371,77 @@ describe("il 400 dell'API porta con sé la misura", () => {
     expect(promptTooLong("API 529: overloaded")).toBeNull();
   });
 });
+
+/** A `read_file` `tool_result` for an image: `[text, image]`. */
+function imageResult(toolUseId: string, caption: string): AgentMessage {
+  return {
+    role: "user",
+    content: [{
+      type: "tool_result",
+      tool_use_id: toolUseId,
+      content: [
+        { type: "text", text: caption },
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "x".repeat(50_000) } },
+      ] as never,
+    }],
+  };
+}
+
+describe("un'immagine vale un peso fisso, non la lunghezza del base64", () => {
+  test("il conteggio dei token non cresce con il base64", () => {
+    const small = [imageResult("t", "a.png (10x10, image attached)")];
+    const big = [imageResult("t", "b.png (4000x4000, image attached)".padEnd(200, "z"))];
+    // `big`'s base64 is no longer here than `small`'s (same fake size), but
+    // even changing the caption length the image's own cost stays the same
+    // order of magnitude: about 1600 tokens, never proportional to the 50,000
+    // base64 characters.
+    const tokens = estimateTokens(small);
+    expect(tokens).toBeGreaterThan(1_000);
+    expect(tokens).toBeLessThan(3_000);
+    expect(estimateTokens(big)).toBeLessThan(tokens + 1_000);
+  });
+
+  test("due immagini pesano il doppio di una", () => {
+    const una = [imageResult("t1", "a.png (10x10, image attached)")];
+    const due = [imageResult("t1", "a.png (10x10, image attached)"), imageResult("t2", "b.png (10x10, image attached)")];
+    const tokensUna = estimateTokens(una);
+    const tokensDue = estimateTokens(due);
+    expect(tokensDue).toBeGreaterThan(tokensUna * 1.5);
+    expect(tokensDue).toBeLessThan(tokensUna * 2.5);
+  });
+});
+
+describe("la compattazione e le immagini", () => {
+  test("un'immagine vecchia diventa un segnaposto di testo, e il caption sopravvive", () => {
+    const h: AgentMessage[] = [
+      { role: "user", content: "guarda queste due immagini" },
+      ...longHistory(10, 3000).slice(1),
+      { role: "assistant", content: [{ type: "tool_use", id: "img1", name: "read_file", input: { path: "old.png" } }] },
+      imageResult("img1", "old.png (10x10, image attached)"),
+      ...longHistory(30, 3000).slice(1),
+    ];
+    const out = compact(h);
+    const middleBlock = out.messages.find((m) => {
+      if (typeof m.content === "string") return false;
+      return m.content.some((b) => b.type === "tool_result" && b.tool_use_id === "img1");
+    });
+    expect(middleBlock).toBeDefined();
+    const block = (middleBlock!.content as any[]).find((b) => b.tool_use_id === "img1");
+    expect(typeof block.content).toBe("string");
+    expect(block.content).toContain("old.png");
+  });
+
+  test("un'immagine nella coda recente resta un'immagine vera", () => {
+    const h: AgentMessage[] = [
+      { role: "user", content: "leggi l'immagine" },
+      ...longHistory(30, 3000).slice(1),
+      { role: "assistant", content: [{ type: "tool_use", id: "recent", name: "read_file", input: { path: "new.png" } }] },
+      imageResult("recent", "new.png (10x10, image attached)"),
+    ];
+    const out = compact(h);
+    const last = out.messages[out.messages.length - 1]!;
+    const block = (last.content as any[]).find((b) => b.tool_use_id === "recent");
+    expect(Array.isArray(block.content)).toBe(true);
+    expect(block.content.some((b: any) => b.type === "image")).toBe(true);
+  });
+});

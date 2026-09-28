@@ -20,7 +20,7 @@
  *                            them explicitly out of scope.
  *   PART OF THE OS           `/bin/sh`, `ps`, `lsof`, `pkill`, `grep`, `open`,
  *                            `vm_stat`, `scutil`, `getconf`, `security`, `cmd`,
- *                            `launchctl`. Present on the system that can run the
+ *                            `launchctl`, `sips`. Present on the system that can run the
  *                            app at all. Some are listed twice, bare and with
  *                            their absolute path: the server runs under launchd
  *                            with a PATH that has neither `/usr/sbin` nor
@@ -63,6 +63,10 @@ const ALLOWED_COMMANDS = new Set([
   // macOS only, and only where the code already checks the platform: the swap
   // freezer asks it which XPC services belong to a process before signalling.
   "/bin/launchctl",
+  // macOS only, and only where the code already checks the platform: resizing
+  // an image read by `read_file` before it goes to the model, best-effort with
+  // a graceful fallback to the original bytes on any other OS.
+  "/usr/bin/sips",
 ]);
 
 /** Never a command: asking for these is asking the user to install a runtime. */

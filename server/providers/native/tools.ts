@@ -23,11 +23,13 @@
 import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from "fs";
 import { resolve, relative, isAbsolute, dirname } from "path";
 import { spawn } from "child_process";
+import { homedir } from "os";
 import { killProcessTree } from "../../lib/process-tree";
 import { registerNativeCommand } from "../../lib/native-command-registry";
 import { lowPriorityArgv } from "../../lib/low-priority";
 import { readSlashCommandSource } from "../../lib/slash-command-source";
 import { htmlToMarkdown } from "../../lib/html-to-markdown";
+import { imageShape } from "../../services/image-shape";
 
 export interface ToolSpec {
   name: string;
@@ -82,6 +84,13 @@ export interface ToolContext {
 
 export interface ToolResult {
   content: string;
+  /**
+   * Images a tool call surfaced, as an `image` content block will want them:
+   * base64 bytes plus the media type the API needs to decode them. Absent for
+   * every ordinary text result, which is the vast majority — this field exists
+   * so `agent-loop.ts` can tell the two apart without inspecting `content`.
+   */
+  images?: { mediaType: string; data: string }[];
   isError?: boolean;
 }
 
@@ -129,6 +138,39 @@ function safePath(ctx: ToolContext, p: string): string {
   return abs;
 }
 
+/** A leading `~` or `~/...` expanded to the home directory. Everything else is unchanged. */
+function expandHome(p: string): string {
+  if (p === "~") return homedir();
+  if (p.startsWith("~/")) return resolve(homedir(), p.slice(2));
+  return p;
+}
+
+/**
+ * Like `safePath`, but for reading ONLY: an image can live outside the
+ * workspace, no other file can.
+ *
+ * WHY. `read_file` is the only way for an agent to LOOK AT a picture it did
+ * not itself write — a screenshot in `~/Desktop`, an export in a sibling
+ * folder of the project — and the workspace perimeter cannot tell "look at"
+ * from "touch" apart. Blocking everything here means an image outside the
+ * workspace never gets read, no matter what is asked. Measured: the native
+ * Darkroom topic could not read its own working photos, the only reason this
+ * tool existed.
+ *
+ * The check is on the file's ACTUAL BYTES, not its extension: a path outside
+ * the perimeter that does not decode as an image stays blocked as before.
+ */
+function resolveReadPath(ctx: ToolContext, raw: string): string {
+  const expanded = expandHome(raw);
+  try {
+    return safePath(ctx, expanded);
+  } catch (err) {
+    const abs = isAbsolute(expanded) ? resolve(expanded) : resolve(ctx.workspace, expanded);
+    if (existsSync(abs) && statSync(abs).isFile() && imageShape(abs)) return abs;
+    throw err;
+  }
+}
+
 function truncate(s: string, max = MAX_OUTPUT_CHARS): string {
   if (s.length <= max) return s;
   const cut = s.length - max;
@@ -139,7 +181,7 @@ export const CODING_TOOLS: ToolSpec[] = [
   {
     name: "read_file",
     description:
-      "Read a file from the workspace. Returns the content with 1-based line numbers, which is what you need to then edit it precisely. Use `offset`/`limit` for large files. Prefer this over `bash cat`: the line numbers make edits reliable.",
+      "Read a file from the workspace. Returns the content with 1-based line numbers, which is what you need to then edit it precisely. Use `offset`/`limit` for large files. Prefer this over `bash cat`: the line numbers make edits reliable. Also reads IMAGES (PNG, JPEG, etc.): use it on any image path (including a path outside the workspace, and `~/`) and you will see the actual picture, not garbled text.",
     input_schema: {
       type: "object",
       properties: {
@@ -584,10 +626,23 @@ export async function executeTool(
   try {
     switch (name) {
       case "read_file": {
-        const p = safePath(ctx, String(input.path));
+        const p = resolveReadPath(ctx, String(input.path));
         if (!existsSync(p)) return { content: `file non trovato: ${input.path}`, isError: true };
         const st = statSync(p);
         if (st.isDirectory()) return { content: `${input.path} è una directory, non un file`, isError: true };
+        // The format comes from the bytes, never the extension: a `.png`
+        // that is really a JPEG (measured: 13 of 568 files in one Darkroom
+        // tree) is identified here. Resize/recompression is no longer this
+        // tool's job: every image, from any source, goes through
+        // `toolResultContent` (`image-normalize.ts`) from here on.
+        const shape = imageShape(p);
+        if (shape && shape.format) {
+          const bytes = readFileSync(p);
+          return {
+            content: `${input.path} (${shape.width}x${shape.height}, image attached)`,
+            images: [{ mediaType: `image/${shape.format}`, data: bytes.toString("base64") }],
+          };
+        }
         const raw = readFileSync(p, "utf-8");
         const lines = raw.split("\n");
         const start = Math.max(0, (Number(input.offset) || 1) - 1);
