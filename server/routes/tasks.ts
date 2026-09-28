@@ -571,6 +571,13 @@ const PUBLISH_STATUS_TTL_MS = 30_000;
 let publishStatusCache: { key: string; until: number; body: { projects: unknown[] } } | null = null;
 
 /**
+ * Patch headers with a path's own letters, not git's quoted octal
+ * (`"a/docs/citt\303\240.md"`): the drawer splits a patch on `diff --git a/… b/…`
+ * and matches it to the stat, which `-z` already gives unquoted.
+ */
+const UNQUOTED_PATHS = ["-c", "core.quotePath=false"];
+
+/**
  * Build a unified-diff bundle for `range` (any `git diff` selector: a `a..b`
  * range for a publish, or a base sha for a worktree). Returns the per-file stat
  * (`gitDiffStat`, shared with the chat's changed-files strip) and the raw
@@ -586,14 +593,14 @@ async function gitDiffBundle(cwd: string, range: string, gopts?: { includeUntrac
   truncated: boolean;
 }> {
   const { stat, untracked } = await gitDiffStat(cwd, range, gopts);
-  let full = (await runGitCap(cwd, ["diff", range])).out;
+  let full = (await runGitCap(cwd, [...UNQUOTED_PATHS, "diff", range])).out;
   for (const f of untracked) {
     // Past the cap no more patch text is fetched: the stat is still complete,
     // the patch just gets flagged truncated below.
     if (full.length > DIFF_PATCH_CAP) break;
     // `git diff --no-index /dev/null <f>` is a pure file compare (no index
     // touched); exit code 1 just means "differs", runGitCap returns .out anyway.
-    const p = (await runGitCap(cwd, ["diff", "--no-index", "--", "/dev/null", f])).out;
+    const p = (await runGitCap(cwd, [...UNQUOTED_PATHS, "diff", "--no-index", "--", "/dev/null", f])).out;
     if (p) full += (full && !full.endsWith("\n") ? "\n" : "") + p;
   }
   const truncated = full.length > DIFF_PATCH_CAP;
@@ -629,11 +636,11 @@ async function gitDiffFilePatch(
   gopts?: { includeUntracked?: boolean },
 ): Promise<{ path: string; patch: string; truncated: boolean } | null> {
   if (!path || isAbsolute(path) || path.split(/[\\/]/).includes("..") || path.includes("\0")) return null;
-  let patch = (await runGitCap(cwd, ["--literal-pathspecs", "diff", range, "--", path])).out;
+  let patch = (await runGitCap(cwd, [...UNQUOTED_PATHS, "--literal-pathspecs", "diff", range, "--", path])).out;
   if (!patch && gopts?.includeUntracked) {
     const others = (await runGitCap(cwd, ["--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "-z", "--", path])).out;
     if (others.split("\0").includes(path)) {
-      patch = (await runGitCap(cwd, ["diff", "--no-index", "--", "/dev/null", path])).out;
+      patch = (await runGitCap(cwd, [...UNQUOTED_PATHS, "diff", "--no-index", "--", "/dev/null", path])).out;
     }
   }
   const truncated = patch.length > DIFF_FILE_PATCH_CAP;

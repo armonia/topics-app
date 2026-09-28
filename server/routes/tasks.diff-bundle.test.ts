@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gitDiffBundle } from "./tasks";
 import { gitDiffStat } from "../lib/git-diff-stat";
+import { splitPatch } from "../../client/src/components/Board/diffFileRows";
 
 // gitDiffBundle drives a real `git` — these tests build a throwaway repo per case
 // and assert the untracked-inclusion contract that keeps new-file-only deliveries
@@ -153,6 +154,20 @@ describe("gitDiffBundle untracked inclusion", () => {
 
     const { stat } = await gitDiffStat(dir, `${base}..HEAD`);
     expect(stat).toEqual([{ path: "docs/città.md", additions: 2, deletions: 0, status: "A" }]);
+  });
+
+  test("a non-ASCII path heads its own patch chunk, committed or untracked, so the drawer finds its lines", async () => {
+    // A quoted `diff --git "a/docs/citt\303\240.md" …` header is no chunk to the
+    // drawer's splitter: the file opened with no patch, and its lines went into
+    // the chunk of the file before it.
+    mkdirSync(join(dir, "docs"));
+    writeFileSync(join(dir, "docs", "città.md"), "a\nb\n");
+    await git(dir, ["add", "-A"]);
+    await git(dir, ["commit", "-qm", "accented"]);
+    writeFileSync(join(dir, "perché.txt"), "nuovo\n");
+
+    const bundle = await gitDiffBundle(dir, base, { includeUntracked: true });
+    expect(splitPatch(bundle.patch).map((c) => c.path).sort()).toEqual(["docs/città.md", "perché.txt"]);
   });
 
   // Su un rinominato `--numstat` non stampa un path ma la TRASFORMAZIONE: presa
