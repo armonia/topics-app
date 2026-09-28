@@ -189,9 +189,11 @@ export async function landedMergeRange(
  * il cui ramo è già stato potato.
  *
  * Due esiti, entrambi utili:
- *   · il commit ha ancora del suo fuori da main — è il caso del cherry-pick, le
- *     cui copie su main hanno altri sha: si misura dal padre del più vecchio,
- *     esattamente come sul worktree vivo;
+ *   · the commit still has work of its own outside main (a cherry-pick land,
+ *     whose copies on main have other shas): measured from the parent of the
+ *     oldest own commit, or from where the card last met main when that is
+ *     further on (as on the live worktree), up to the card's last own commit
+ *     before the realign merges that close it (`beforeRealigns`);
  *   · il commit è già DENTRO main — allora ci è entrato con un merge. Serve quando il
  *     messaggio del merge non si fa trovare (rinominato a mano, o tagliato).
  *     The merge is the oldest one on main's first-parent line that holds the
@@ -217,13 +219,26 @@ export async function deliveryCommitRange(
   const others = await otherLocalBranches(repoPath, delivery.branch ?? mainRef, { mainRef, runGit: run });
   if (others === null) return null;
 
-  const rl = await run(repoPath, ["rev-list", sha, "--not", mainRef, ...others]);
+  const rl = await run(repoPath, ["rev-list", "--parents", sha, "--not", mainRef, ...others]);
   if (rl.code !== 0) return null;
-  const own = lines(rl.stdout);
-  if (own.length > 0) {
-    const base = await baseOf(run, repoPath, own[own.length - 1]!);
+  const parentsOf = new Map(lines(rl.stdout).map((l) => {
+    const [commit, ...parents] = l.split(" ");
+    return [commit!, parents] as const;
+  }));
+  const oldest = [...parentsOf.keys()].at(-1);
+  if (oldest) {
+    const tip = beforeRealigns(sha, parentsOf);
+    // An oldest commit that merges two lines, neither of them the card's (it
+    // began by merging a sibling card that reached main since, c4d48d3e), wrote
+    // nothing of its own: the card starts AT it, not at one of its parents.
+    const joined = parentsOf.get(oldest)!;
+    let base = joined.length > 1 && joined.every((p) => !parentsOf.has(p)) ? oldest : await baseOf(run, repoPath, oldest);
     if (!base) return null;
-    return { source: "delivery-commit", cwd: repoPath, range: `${base}..${sha}`, live: false };
+    // A realign merge the card made BEFORE its last commit is inside the
+    // range anyway: from where it met main on, main's side is not the card's.
+    const met = await run(repoPath, ["merge-base", mainRef, tip]);
+    base = await furthest(run, repoPath, base, met.code === 0 && SHA_RE.test(met.stdout.trim()) ? met.stdout.trim() : null);
+    return { source: "delivery-commit", cwd: repoPath, range: `${base}..${tip}`, live: false };
   }
 
   // The merge that brought the delivery in sits on main's FIRST-PARENT line: a
@@ -254,6 +269,26 @@ export async function deliveryCommitRange(
   // as "verified: no code", which is not what is known.
   if (met.code !== 0 || !SHA_RE.test(base) || base === sha) return null;
   return { source: "delivery-commit", cwd: repoPath, range: `${base}..${sha}`, live: false };
+}
+
+/**
+ * The delivery without the realign merges that close it.
+ *
+ * The routine before a land is «merge main into the branch», and the review
+ * often records THAT merge as the delivery. It is outside main, so it is one of
+ * the card's own commits, but what it brings is main's: measured up to it, the
+ * range held every other card main had gained since the fork (e8e3b8bf: 208
+ * files for its 9). Stepping down its first parent past such merges leaves the
+ * card's last own commit. A realign is an own merge with a parent that is not
+ * the card's; a merge of two of the card's own lines stays.
+ */
+function beforeRealigns(sha: string, parentsOf: Map<string, readonly string[]>): string {
+  let tip = sha;
+  for (;;) {
+    const [first, ...merged] = parentsOf.get(tip) ?? [];
+    if (!first || !parentsOf.has(first) || !merged.some((p) => !parentsOf.has(p))) return tip;
+    tip = first;
+  }
 }
 
 export interface TaskDiffAnchors extends TaskDiffRangeOptions {

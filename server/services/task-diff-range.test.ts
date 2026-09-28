@@ -268,6 +268,86 @@ describe("task-diff-range", () => {
       expect(await deliveryCommitRange(dir, { branch: "topics/card", commit: cardCommit })).toBeNull();
     });
 
+    test("a delivery that is a realign merge is measured on the card's commits, not on what main brought in", async () => {
+      // The delivery recorded at review is the routine «merge main into the
+      // branch», and the land went by cherry-pick: the realign stays outside
+      // main, and measuring from the card's first commit up to it counted
+      // everything main had gained meanwhile (e8e3b8bf: 208 files for 9).
+      await commit(dir, "di-un-altra-card.ts", "atterrato nel frattempo\n", "main avanza");
+      await git(dir, ["checkout", "-q", "topics/card"]);
+      await git(dir, ["merge", "--no-ff", "-m", "Merge branch 'main' into topics/card", "main"]);
+      const realign = await git(dir, ["rev-parse", "HEAD"]);
+      await git(dir, ["checkout", "-q", "main"]);
+      await git(dir, ["cherry-pick", cardCommit]);
+      await git(dir, ["branch", "-qD", "topics/card"]);
+
+      const r = await deliveryCommitRange(dir, { branch: "topics/card", commit: realign });
+      expect(r).not.toBeNull();
+      expect(r!.source).toBe("delivery-commit");
+      expect(await filesOf(dir, r!.range)).toEqual(["consegna.ts"]);
+    });
+
+    test("a realigned delivery whose lines main already got through another branch still shows the card's commit", async () => {
+      // The e8e3b8bf shape: the same work reached main reworked on another
+      // branch, then the card merged main. Against main the delivery adds
+      // nothing, but the card wrote consegna.ts, and that is the question.
+      await git(dir, ["checkout", "-q", "-b", "load-pct", "main"]);
+      writeFileSync(join(dir, "consegna.ts"), "riga uno\nriga due\n");
+      await commit(dir, "other-card.ts", "x\n", "the same work, reworked on another branch");
+      await git(dir, ["checkout", "-q", "main"]);
+      await git(dir, ["merge", "--no-ff", "-m", "Merge branch 'load-pct'", "load-pct"]);
+      await git(dir, ["checkout", "-q", "topics/card"]);
+      await git(dir, ["merge", "--no-ff", "-m", "Merge branch 'main' into topics/card", "main"]);
+      const realign = await git(dir, ["rev-parse", "HEAD"]);
+      await git(dir, ["checkout", "-q", "main"]);
+      await git(dir, ["branch", "-qD", "topics/card"]);
+      await git(dir, ["branch", "-qD", "load-pct"]);
+
+      const r = await deliveryCommitRange(dir, { branch: "topics/card", commit: realign });
+      expect(r).not.toBeNull();
+      expect(await filesOf(dir, r!.range)).toEqual(["consegna.ts"]);
+    });
+
+    test("work the card did after a realign is kept, and main's gains before either realign are not", async () => {
+      await commit(dir, "main-prima.txt", "a\n", "main avanza");
+      await git(dir, ["checkout", "-q", "topics/card"]);
+      await git(dir, ["merge", "--no-ff", "-m", "Merge branch 'main' into topics/card", "main"]);
+      await commit(dir, "dopo-il-riallineamento.ts", "b\n", "more card work");
+      await git(dir, ["checkout", "-q", "main"]);
+      await commit(dir, "main-dopo.txt", "c\n", "main avanza ancora");
+      await git(dir, ["checkout", "-q", "topics/card"]);
+      await git(dir, ["merge", "--no-ff", "-m", "Merge branch 'main' into topics/card", "main"]);
+      const realign = await git(dir, ["rev-parse", "HEAD"]);
+      await git(dir, ["checkout", "-q", "main"]);
+      await git(dir, ["branch", "-qD", "topics/card"]);
+
+      const r = await deliveryCommitRange(dir, { branch: "topics/card", commit: realign });
+      expect(r).not.toBeNull();
+      expect(await filesOf(dir, r!.range)).toEqual(["consegna.ts", "dopo-il-riallineamento.ts"]);
+    });
+
+    test("a delivery that began by merging a sibling card, landed since, leaves that card's files out", async () => {
+      // c4d48d3e: its first commit merged another card's branch, which reached
+      // main on its own; that merge joined two lines that are not this card's.
+      await git(dir, ["checkout", "-q", "-b", "topics/sibling", "main"]);
+      await commit(dir, "sibling.ts", "s\n", "the sibling card's work");
+      // Main moves on after the sibling forked: the card then has two points
+      // where it meets main, and neither comes after the other.
+      await git(dir, ["checkout", "-q", "main"]);
+      await commit(dir, "main-avanza.txt", "altro\n", "lavoro su main");
+      await git(dir, ["checkout", "-q", "-b", "topics/builds-on", "main"]);
+      await git(dir, ["merge", "--no-ff", "-m", "Merge branch 'topics/sibling' into topics/builds-on", "topics/sibling"]);
+      const own = await commit(dir, "own.ts", "o\n", "this card's work");
+      await git(dir, ["checkout", "-q", "main"]);
+      await git(dir, ["merge", "--no-ff", "-m", "merge task T-8: sibling", "topics/sibling"]);
+      await git(dir, ["branch", "-qD", "topics/sibling"]);
+      await git(dir, ["branch", "-qD", "topics/builds-on"]);
+
+      const r = await deliveryCommitRange(dir, { branch: "topics/builds-on", commit: own });
+      expect(r).not.toBeNull();
+      expect(await filesOf(dir, r!.range)).toEqual(["own.ts"]);
+    });
+
     test("un commit di consegna che non esiste più non produce il diff di qualcos'altro", async () => {
       expect(await deliveryCommitRange(dir, { branch: "topics/card", commit: "0".repeat(40) })).toBeNull();
       expect(await deliveryCommitRange(dir, { branch: "topics/card", commit: null })).toBeNull();
