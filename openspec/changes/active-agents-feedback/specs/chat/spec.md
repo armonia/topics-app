@@ -118,8 +118,11 @@ come fa già `claude-code.ts:2902`. La sonda SHALL riportare i task solo quando
 `backgroundState` vale `running` (`hasLiveTasks`,
 `server/providers/claude/background-work.ts:172`), e `[]` in `wake-queued`: una
 lista oltre `BACKGROUND_WORK_CAP_MS` è già data per persa dal server e non va
-mostrata come lavoro in corso. Nessuna scrittura: DB, processo e orologi non
-cambiano.
+mostrata come lavoro in corso. Un cron di sessione armato entro lo stesso tetto
+(card 8b53d9d1) SHALL comparire fra i `tasks` come `{type: "cron", description:
+"<schedule> (cron)"}`, e `lastSignalAt` non SHALL mai precedere l'armo: senza,
+una chat che aspetta solo il suo cron mostrerebbe «sta per riprendere» per due
+ore. Nessuna scrittura: DB, processo e orologi non cambiano.
 
 La chat SHALL mostrare, sopra il composer accanto a `SubAgentsStrip`
 (`client/src/components/Chat/ChatPane.tsx:1848`), una riga
