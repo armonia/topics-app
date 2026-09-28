@@ -75,7 +75,8 @@ una barra `data-testid="history-filters"` fra il campo di ricerca
 (`CommandPalette.tsx:642-656`). La barra vive in un componente suo,
 `client/src/components/Shared/HistoryFilters.tsx`, controllato: valori e
 `onChange` arrivano da `CommandPalette`, dentro non c'è stato. Negli scope `all`
-(⌘K) e `projects` (⌘F) la barra NON SHALL esserci.
+(⌘K) e `projects` (⌘⇧P, `hooks/useKeyboardShortcuts.ts:293`) la barra NON SHALL
+esserci.
 
 Due gruppi, ognuno `role="group"` con un'etichetta i18n:
 
@@ -97,7 +98,10 @@ Due gruppi, ognuno `role="group"` con un'etichetta i18n:
   (`CommandPalette.tsx:518-525`).
 - Dopo la scelta di un filtro il fuoco SHALL tornare al campo di ricerca: ↑↓ e
   ↵ vivono lì (`CommandPalette.tsx:533-549` e `:623`), e un fuoco rimasto sul
-  bottone li spegnerebbe. La selezione SHALL ripartire dalla prima riga, come
+  bottone li spegnerebbe. Sotto i 768 px NON SHALL spostarsi: sul telefono ↑↓
+  non ci sono, e un `focus()` dentro il tocco è ciò che fa aprire a iOS la
+  tastiera sopra la lista appena filtrata. È lo stesso cancello dei
+  suggerimenti da tastiera della palette. La selezione SHALL ripartire dalla prima riga, come
   già fa un cambio di query (`CommandPalette.tsx:510-513`).
 - Il numero accanto al titolo «Cronologia» (`CommandPalette.tsx:649`) SHALL
   contare le righe rimaste dopo filtri e ricerca.
@@ -136,6 +140,16 @@ dispositivo e cade lo scenario «i filtri non sopravvivono alla chiusura»).
 - **GIVEN** un viewport di 375 × 812
 - **WHEN** si apre il pannello
 - **THEN** ogni bottone dei filtri è alto almeno 44 px, i due gruppi stanno su due righe, e `history-filters` non ha scorrimento orizzontale (`scrollWidth <= clientWidth`)
+
+#### Scenario: sul telefono un filtro non riapre la tastiera
+- **GIVEN** un viewport di 375 × 812 col tocco, il pannello aperto e il campo senza fuoco (la tastiera chiusa)
+- **WHEN** si tocca `history-filter-kind-tab` e poi `history-filter-reset`
+- **THEN** dopo ciascun tocco il campo di ricerca non ha il fuoco
+
+#### Scenario: nel cerca-progetti la barra non c'è
+- **GIVEN** la app aperta
+- **WHEN** si apre la palette con ⌘⇧P
+- **THEN** la palette ha `data-scope="projects"` e `history-filters` non c'è
 
 ### Requirement: HISTORY-04 — Una sola ricerca nella cronologia, su tutta la lista
 
@@ -183,8 +197,9 @@ campi diversi, su nome, dettaglio e indirizzo.
 
 #### Scenario: anche ⌘K cerca su tutta la cronologia
 - **GIVEN** le stesse 45 pagine del primo scenario
-- **WHEN** si apre ⌘K e si scrive `quarantacinque`
-- **THEN** la sezione «Cronologia» dei risultati contiene quella pagina
+- **WHEN** si apre ⌘K
+- **THEN** senza query la sezione «Cronologia» ha 40 righe
+- **AND** scrivendo `quarantacinque` la sezione «Cronologia» dei risultati contiene quella pagina
 
 ### Requirement: HISTORY-05 — Sotto i filtri, il vuoto si spiega e ⇧⌘T resta sulla tab giusta
 
@@ -197,8 +212,9 @@ Nello scope `history`:
   «Niente con questi filtri» e, solo se almeno un filtro non è su Tutto o
   Sempre, un bottone «Mostra tutto» (`data-testid="history-filter-reset"`,
   nella prop `action`). Il bottone SHALL riportare i due filtri a Tutto e
-  Sempre, lasciare la query com'è e ridare il fuoco al campo. Con la sola query
-  attiva il titolo SHALL essere `palette.noResults`, senza bottone.
+  Sempre, lasciare la query com'è e ridare il fuoco al campo (sopra i 768 px,
+  come per i filtri). Con la sola query attiva il titolo SHALL essere
+  `palette.noResults`, senza bottone.
 
 In entrambi gli scope, il suggerimento ⇧⌘T (`CommandPalette.tsx:334-337`) SHALL
 stare sulla riga il cui `record.id` è quello di `closedTabs[0]`, la tab che
@@ -206,10 +222,16 @@ stare sulla riga il cui `record.id` è quello di `closedTabs[0]`, la tab che
 su nessun'altra. Se quella riga è filtrata via, il suggerimento non compare.
 
 #### Scenario: filtri che svuotano la lista
-- **GIVEN** la cronologia con sole pagine di oggi, due delle quali su `github.com`, e `github` scritto nel campo
+- **GIVEN** la cronologia con sole pagine di oggi, due delle quali su `github.com`, `github` scritto nel campo e `history-filter-range-today` premuto
 - **WHEN** si preme `history-filter-kind-tab`
 - **THEN** compare «Niente con questi filtri» con `history-filter-reset`
-- **AND** premendolo torna la lista delle pagine che contengono `github`, `history-filter-kind-all` è premuto e il campo contiene ancora `github`
+- **AND** premendolo torna la lista delle pagine che contengono `github`, `history-filter-kind-all` e `history-filter-range-all` sono premuti e il campo contiene ancora `github`
+
+#### Scenario: il solo filtro del giorno svuota la lista
+- **GIVEN** la cronologia con sole pagine di oggi
+- **WHEN** si preme `history-filter-range-older`
+- **THEN** compare «Niente con questi filtri» con `history-filter-reset`
+- **AND** premendolo tornano tutte le righe e `history-filter-range-all` è premuto
 
 #### Scenario: ⇧⌘T sulla tab giusta
 - **GIVEN** una pagina visitata 1 minuto fa, la tab A chiusa 5 minuti fa e la tab B chiusa ieri

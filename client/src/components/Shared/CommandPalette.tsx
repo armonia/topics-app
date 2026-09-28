@@ -27,7 +27,8 @@ import { useT } from '../../hooks/useT';
 import { isDesktop } from '../../lib/shell';
 import { rankPaths } from '../../lib/fuzzyScore';
 import { buildAddMenuItems } from './addMenuItems';
-import { buildHistoryRows } from '../../lib/historyRows';
+import { buildHistoryRows, type HistoryRange, type HistoryRowKind } from '../../lib/historyRows';
+import { HistoryFilters, type HistoryFiltersValue } from './HistoryFilters';
 import { pagesSnapshot, subscribeSites } from '../../state/browserSiteHistory';
 import { BrowserFavicon } from '../Browser/BrowserFavicon';
 import { AddMenuIcon } from './AddMenuIcon';
@@ -135,6 +136,11 @@ export function CommandPalette({
   const t = useT();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  // The filters of the full history (HISTORY-03). They live here, next to the
+  // query, because they reset with it every time the panel opens: a filter
+  // left on from last time reads as history that went missing.
+  const [historyKind, setHistoryKind] = useState<HistoryRowKind | undefined>(undefined);
+  const [historyRange, setHistoryRange] = useState<HistoryRange>('all');
 
   // Le voci di CREAZIONE sono il menu "+" standalone — stesso modello, stesso
   // ordine, stesso insieme — rese come RIGHE della lista, non come pill.
@@ -302,14 +308,32 @@ export function CommandPalette({
   // `buildHistoryRows`, which is pure and merges them by time; the only thing
   // decided here is what the click does, the one thing genuinely different
   // between the two: a tab REOPENS where it was, a URL opens in a browser pane.
+  //
+  // The query goes INTO `buildHistoryRows`, in both scopes that show these
+  // rows (HISTORY-04): its rule is the history's only search rule (every word,
+  // in any field, the URL included), and the cap comes after it. The palette
+  // used to cut 40 rows first and then run its own substring match over them,
+  // age text included: the 41st row could not be found at all, and "fa"
+  // matched every closed tab. The full panel has no cap, the sources are
+  // bounded already (50 closed tabs, 200 pages); ⌘K keeps its 40, applied
+  // after the search.
   const pages = useSyncExternalStore(subscribeSites, pagesSnapshot, pagesSnapshot);
-  const recentItems = useMemo((): CommandAction[] => {
+  const historySourceCount = (onReopenClosedTab ? closedTabs?.length ?? 0 : 0) + (onOpenHistoryUrl ? pages.length : 0);
+  const historyItems = useMemo((): CommandAction[] => {
     const rows = buildHistoryRows({
       closedTabs: onReopenClosedTab ? closedTabs : [],
       pages: onOpenHistoryUrl ? pages : [],
-      limit: 40,
+      query,
+      kind: scope === 'history' ? historyKind : undefined,
+      range: scope === 'history' ? historyRange : 'all',
+      limit: scope === 'history' ? undefined : 40,
     });
-    return rows.map((row, i) => {
+    // The tab ⇧⌘T reopens (CMD-03), held by reference: the chord takes the
+    // head of this same list. Matching by position pinned the hint on
+    // whatever tab came first after a filter, or on no row at all when the
+    // newest row was a page.
+    const undoTarget = closedTabs?.[0];
+    return rows.map((row) => {
       const record = row.record;
       const paneType = row.paneType;
       const icon = row.kind === 'page'
@@ -331,11 +355,9 @@ export function CommandPalette({
         icon,
         category: 'recent-closed' as const,
         _ts: row.at,
-        // The undo shortcut belongs to the most recent TAB, which is the only
-        // thing ⇧⌘T reopens: pinning it on a page row would promise a key that
-        // does something else.
-        shortcut: i === 0 && row.kind === 'tab' ? shortcut('T', { shift: true }) : undefined,
+        shortcut: record !== undefined && record === undoTarget ? shortcut('T', { shift: true }) : undefined,
         titleOverride: row.url || record?.terminal?.cwd || record?.projectPath || undefined,
+        testId: row.kind === 'tab' ? 'history-row-tab' : 'history-row-page',
         action: () => {
           if (row.kind === 'tab' && record && onReopenClosedTab) onReopenClosedTab(record);
           else if (row.url && onOpenHistoryUrl) onOpenHistoryUrl(row.url);
@@ -343,7 +365,7 @@ export function CommandPalette({
         },
       };
     });
-  }, [closedTabs, pages, onReopenClosedTab, onOpenHistoryUrl, onClose]);
+  }, [closedTabs, pages, query, scope, historyKind, historyRange, onReopenClosedTab, onOpenHistoryUrl, onClose]);
 
   // ── Topics for SEARCH (rendered only when there's a query, sorted by recency) ──
   // Includes ARCHIVED (= closed) topics on purpose: in the 2-state model a
@@ -459,8 +481,9 @@ export function CommandPalette({
   }, [projectPath, query, fileList, onOpenFile, onClose]);
 
   // ── Query-based filtering ───────────────────────────────────────────────
-  // Files are pre-filtered by the search effect above; for the other lists
-  // we filter on label/description here. With empty query everything is shown.
+  // Files are pre-filtered by the search effect above and the history by
+  // `buildHistoryRows`; for the other lists we filter on label/description
+  // here. With empty query everything is shown.
   const filterByQuery = useCallback((arr: CommandAction[]) => {
     if (!query.trim()) return arr;
     const q = query.toLowerCase();
@@ -471,7 +494,6 @@ export function CommandPalette({
   }, [query]);
 
   const filteredProjects = useMemo(() => filterByQuery(projectItems), [projectItems, filterByQuery]);
-  const recentFiltered = useMemo(() => filterByQuery(recentItems), [recentItems, filterByQuery]);
   const filteredMain = useMemo(() => filterByQuery(topicItems), [topicItems, filterByQuery]);
   const filteredActions = useMemo(() => filterByQuery(actionItems), [actionItems, filterByQuery]);
   const filteredCreate = useMemo(() => filterByQuery(createItems), [createItems, filterByQuery]);
@@ -489,14 +511,14 @@ export function CommandPalette({
     // History is one single list: no projects, no actions, no topics. You get
     // here from the "Topics" menu to look for WHERE YOU WERE, and every other
     // row in here would be noise on that question.
-    if (scope === 'history') return recentFiltered;
+    if (scope === 'history') return historyItems;
     // «Crea» sta in cima anche a query vuota: in una palette vuota la cosa piu'
     // azionabile e' quella che fa nascere qualcosa, ed e' l'unico modo per cui
     // le frecce ci arrivino sopra (prima era una barra di pill, fuori dalla
     // navigazione da tastiera).
-    if (!query.trim()) return [...filteredCreate, ...filteredProjects, ...recentFiltered];
-    return [...filteredProjects, ...filteredCreate, ...filteredActions, ...filteredMain, ...recentFiltered, ...searchFileItems, ...searchResults];
-  }, [scope, query, filteredProjects, filteredCreate, filteredActions, recentFiltered, filteredMain, searchFileItems, searchResults]);
+    if (!query.trim()) return [...filteredCreate, ...filteredProjects, ...historyItems];
+    return [...filteredProjects, ...filteredCreate, ...filteredActions, ...filteredMain, ...historyItems, ...searchFileItems, ...searchResults];
+  }, [scope, query, filteredProjects, filteredCreate, filteredActions, historyItems, filteredMain, searchFileItems, searchResults]);
 
   // O(1) id→index lookup, built once per `allItems` change. Rendering each
   // section calls `indexOf` per row; a findIndex there made render O(n²) over
@@ -510,7 +532,7 @@ export function CommandPalette({
   // Reset selection on filter change
   useEffect(() => {
     setSelectedIndex(0);
-  }, [query]);
+  }, [query, historyKind, historyRange]);
 
   // Reset on open. Il focus iniziale sull'input lo mette useModalDialog qui
   // sotto — un solo posto che decide dove va il focus, invece di un setTimeout
@@ -518,6 +540,8 @@ export function CommandPalette({
   useEffect(() => {
     if (isOpen) {
       setQuery('');
+      setHistoryKind(undefined);
+      setHistoryRange('all');
       setSelectedIndex(0);
       setSearchResults([]);
       setSearchLoading(false);
@@ -547,6 +571,17 @@ export function CommandPalette({
       onClose();
     }
   }, [allItems, selectedIndex, onClose]);
+
+  // A filter is picked with the pointer, and the keyboard carries on from the
+  // field: ↑↓ and ↵ are handled there, and a focus left on the button would
+  // switch them off. Not on a phone: there is no ↑↓ to carry on with, and a
+  // focus() inside the tap is what makes iOS raise the software keyboard over
+  // the list the tap just filtered. Same gate as the key hints below.
+  const changeHistoryFilters = useCallback((next: HistoryFiltersValue) => {
+    setHistoryKind(next.kind);
+    setHistoryRange(next.range);
+    if (!isMobile) inputRef.current?.focus();
+  }, [isMobile]);
 
   // Scroll selected into view
   useEffect(() => {
@@ -635,6 +670,10 @@ export function CommandPalette({
           {!isMobile && <kbd className="kbd">ESC</kbd>}
         </div>
 
+        {scope === 'history' && (
+          <HistoryFilters kind={historyKind} range={historyRange} isMobile={isMobile} onChange={changeHistoryFilters} />
+        )}
+
         {/* Body. Empty (no query) = two side-by-side columns:
             Ultimi progetti | Chiuse di recente. With a query = one full-width
             results list with plain section labels (no collapsible accordions). */}
@@ -646,12 +685,35 @@ export function CommandPalette({
             <div ref={listRef} className="flex-1 min-w-0 overflow-y-auto py-1" role="listbox" aria-label="Cronologia" data-testid="palette-history">
               <div className="px-3 py-1.5 text-micro font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5">
                 {t('palette.history')}
-                {recentFiltered.length > 0 && <span className="text-app-text-tertiary font-normal">{recentFiltered.length}</span>}
+                {historyItems.length > 0 && <span data-testid="palette-history-count" className="text-app-text-tertiary font-normal">{historyItems.length}</span>}
               </div>
-              {recentFiltered.length > 0 ? (
-                recentFiltered.map(item => renderRow(item, { highlight: !!query.trim() }))
-              ) : (
+              {historyItems.length > 0 ? (
+                historyItems.map(item => renderRow(item, { highlight: !!query.trim() }))
+              ) : historySourceCount === 0 ? (
                 <EmptyState variant="panel" title={t('palette.noHistory')} />
+              ) : historyKind !== undefined || historyRange !== 'all' ? (
+                /* Rows exist and the filters hid them all: say so, and offer
+                   the way back without touching what was typed. With only a
+                   query active there is nothing to reset, so it is the plain
+                   «no results» of every other search. */
+                <EmptyState
+                  variant="panel"
+                  title={t('palette.historyFiltered')}
+                  action={
+                    <button
+                      type="button"
+                      data-testid="history-filter-reset"
+                      onClick={() => changeHistoryFilters({ kind: undefined, range: 'all' })}
+                      className={`inline-flex items-center rounded-md px-3 font-medium text-primary hover:bg-primary/10 ${
+                        isMobile ? 'h-11 text-prose' : 'py-1 text-compact'
+                      }`}
+                    >
+                      {t('palette.historyShowAll')}
+                    </button>
+                  }
+                />
+              ) : (
+                <EmptyState variant="panel" title={t('palette.noResults')} />
               )}
             </div>
           ) : scope === 'projects' ? (
@@ -694,10 +756,10 @@ export function CommandPalette({
                 {filteredCreate.map(item => renderRow(item, { compact: !isMobile }))}
                 <div className="px-3 pt-2 pb-1.5 text-micro font-semibold text-app-text-muted uppercase tracking-wider flex items-center gap-1.5 border-t border-app-border mt-1">
                   {t('palette.history')}
-                  {recentFiltered.length > 0 && <span className="text-app-text-tertiary font-normal">{recentFiltered.length}</span>}
+                  {historyItems.length > 0 && <span className="text-app-text-tertiary font-normal">{historyItems.length}</span>}
                 </div>
-                {recentFiltered.length > 0 ? (
-                  recentFiltered.map(item => renderRow(item, { compact: !isMobile }))
+                {historyItems.length > 0 ? (
+                  historyItems.map(item => renderRow(item, { compact: !isMobile }))
                 ) : (
                   <EmptyState variant="section" title={t('palette.noHistory')} />
                 )}
@@ -753,10 +815,10 @@ export function CommandPalette({
                         {filteredMain.map(item => renderRow(item, { highlight: true }))}
                       </>
                     )}
-                    {recentFiltered.length > 0 && (
+                    {historyItems.length > 0 && (
                       <>
                         <SectionHeader label={t('palette.history')} />
-                        {recentFiltered.map(item => renderRow(item, { highlight: true }))}
+                        {historyItems.map(item => renderRow(item, { highlight: true }))}
                       </>
                     )}
                     {searchFileItems.length > 0 && (
@@ -920,12 +982,24 @@ function formatTimeAgo(timestamp: number): string {
   return `${days}g fa`;
 }
 
+/**
+ * Marks every word of the query, not the whole phrase: the history matches
+ * word by word (HISTORY-04), so a two-word query often has no contiguous
+ * occurrence to mark. The words go into one alternation, longest first,
+ * because an alternation takes the first branch that matches: `(git|github)`
+ * over "github" would mark "git" alone. The captured group is what gets
+ * marked, which after a `split` is every odd index.
+ */
 function highlightQuery(text: string, query: string): React.ReactNode {
-  if (!query.trim()) return text;
-  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const parts = text.split(new RegExp(`(${escaped})`, 'gi'));
+  const words = query.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return text;
+  const pattern = [...new Set(words)]
+    .sort((a, b) => b.length - a.length)
+    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|');
+  const parts = text.split(new RegExp(`(${pattern})`, 'gi'));
   return parts.map((part, i) =>
-    part.toLowerCase() === query.toLowerCase()
+    i % 2 === 1
       ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-800 text-inherit rounded px-0.5">{part}</mark>
       : part
   );
