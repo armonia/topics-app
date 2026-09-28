@@ -58,11 +58,11 @@ describe('buildHistoryRows', () => {
 
   test('la ricerca vuole TUTTE le parole, anche in campi diversi', () => {
     const rows = buildHistoryRows({
-      pages: [page('https://github.com/armonia/pull/3', T0, 'Pull request'), page('https://esempio.dev/', T0 + 1)],
+      pages: [page('https://github.com/armonia/topics/3', T0, 'Pull request'), page('https://esempio.dev/', T0 + 1)],
       query: 'github pull',
     });
     expect(rows).toHaveLength(1);
-    expect(rows[0].url).toBe('https://github.com/armonia/pull/3');
+    expect(rows[0].url).toBe('https://github.com/armonia/topics/3');
   });
 
   test('il tetto taglia dopo aver ordinato, non prima', () => {
