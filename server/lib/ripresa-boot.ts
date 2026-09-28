@@ -387,6 +387,7 @@ import { decodeCol, encodeCol } from "../../shared/message-blob";
 import { insertRestartNotification, restartNotificationFrame, threadChangedFrame, type PartialSweepDb } from "./boot-partial-sweep";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isBackgroundNoticeRow, rowsBack } from "./background-notice";
+import { runningTaskOwnsTopic } from "./wake-adoption";
 import { lastApiAnswerMs, providerHold } from "./provider-hold";
 import { attemptsInChain, attemptsOnRow, chatHasCounts, recordResend, resendChainOf, type ResendChain } from "./resend-count";
 import { providerHoldKey } from "../../shared/provider-hold";
@@ -453,6 +454,19 @@ export function directAnswerNow(db: Database, sessionKey: string, rowId: string)
 export function isChatsLastWord(db: Pick<Database, "query">, sessionKey: string, rowId: string): boolean {
   for (const r of rowsBack(db, sessionKey)) if (!isBackgroundNoticeRow(r.decoded)) return r.id === rowId;
   return false;
+}
+
+/**
+ * Whether an outage's cut on this row is picked up without the person, read
+ * by the writers of the notice: the sweep resends it (`directAnswerNow`), or a
+ * card in progress owns the chat (`runningTaskOwnsTopic`) and the dispatcher
+ * resumes its turns that ended in error, which the sweep leaves to it
+ * (`resumeVerdict`). The board's envelope is a row the machine wrote, so its
+ * answer is never the direct one: read off that alone, the notice of a card at
+ * work asked the person to write while the dispatcher resumed it.
+ */
+export function outageCutPickedUp(db: Database, sessionKey: string, rowId: string, topicId: string | undefined): boolean {
+  return (!!topicId && runningTaskOwnsTopic(db, topicId)) || directAnswerNow(db, sessionKey, rowId);
 }
 
 /**

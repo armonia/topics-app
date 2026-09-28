@@ -565,6 +565,29 @@ function cardOn(sk: string, status: "in_progress" | "review" | "done"): void {
   );
 }
 
+describe("a card's envelope answered and cut by an outage", () => {
+  /**
+   * The board's envelope is a row the machine wrote, so its answer is not the
+   * direct answer the sweep resends. A card in progress resumes it anyway:
+   * the dispatcher resumes each turn of the card that ended in error, and the
+   * sweep leaves those to it. Its notice says so; a card waiting in review
+   * resumes nothing, and its notice asks the person.
+   */
+  for (const cause of CAUSES) {
+    for (const status of ["in_progress", "review"] as const) {
+      test(`${cause}, card ${status}: ${status === "in_progress" ? "the notice says it resumes by itself" : "the notice asks the person"}, and the sweep resends nothing`, async () => {
+        const sk = topic(`card-${status}-${cause}`);
+        cardOn(sk, status);
+        const turn = await open(sk, { messages: [{ role: "user", content: "Card: fix the build." }], dispatched: true }, (h) => h.onRetry!(retry(1)));
+        outageEnd(cause)(turn.route);
+        await drain(turn.resp);
+        expect(promises(turn.rowId)).toBe(status === "in_progress");
+        expect(await resumeSweep(sk)).toEqual([]);
+      });
+    }
+  }
+});
+
 describe("a run_command wake whose turn meets the outage goes again", () => {
   /**
    * The api-down hold ends by time, and what it lets through is the probe

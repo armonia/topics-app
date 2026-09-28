@@ -40,7 +40,7 @@ import { recordSessionContext } from "../db/session-context";
 import { buildContextUpdate } from "../usage/usage-update";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
 import { readTurnEnd, recordTurnEnd } from "../providers/turn-end-registry";
-import { directAnswerNow, resumeAttemptOf } from "../lib/ripresa-boot";
+import { outageCutPickedUp, resumeAttemptOf } from "../lib/ripresa-boot";
 import { noteResendCopy } from "../lib/resend-count";
 import { appendUsageRecord } from "../usage/store";
 import { autoreDaIdentita } from "../lib/message-author";
@@ -1164,9 +1164,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // callbacks go there, which stay live and which are dropped:
           // lib/finalized-turn-guard.ts.
           let releaseLateFlush: (() => void) | null = null;
-          // An outage's cut on this row is resent only as the direct answer to
-          // the person's message, read off the database when the cut is written.
-          const directAnswer = () => directAnswerNow(db, sessionKey, partialMsg.id);
+          // An outage's cut on this row is resumed without the person only as
+          // the direct answer to their message, which the sweep resends, or on
+          // a card in progress, which the dispatcher resumes: read off the
+          // database when the cut is written.
+          const directAnswer = () => outageCutPickedUp(db, sessionKey, partialMsg.id, matchedTopic?.id);
           const late = createLateAnswerLane({
             sessionKey, topicId: matchedTopic?.id, rowId: () => partialMsg.id, blocks, saveEvery: SAVE_INTERVAL, directAnswer,
             isClosed: () => streamState === "finalized",

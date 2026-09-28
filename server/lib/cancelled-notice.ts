@@ -313,8 +313,10 @@ export function isOutage(cause: unknown): boolean {
  * stall) keeps the rule it always had.
  *
  * The sweep (`resumeVerdict`) and every writer of the notice
- * (`resumesByItself`) read this one rule. `directAnswer` is asked only for an
- * outage, since it reads the database. The notice reads it when the cut is
+ * (`resumesByItself`) read this one rule. A writer's `directAnswer` is also
+ * true on the chat of a card in progress (`outageCutPickedUp`): the
+ * dispatcher resumes that turn, and the sweep leaves it to it. `directAnswer`
+ * is asked only for an outage, since it reads the database. The notice reads it when the cut is
  * written, so a row that lands under the cut afterwards leaves a promise the
  * sweep does not keep, accepted: a sub-agent's report, or a wake the CLI opens
  * when background work the turn launched ends (a Bash in the background, a

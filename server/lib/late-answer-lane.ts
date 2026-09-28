@@ -44,8 +44,10 @@ export interface LateAnswerLaneOptions {
   topicId?: string;
   /** The turn's own row. A function because the row is born after the lane. */
   rowId: () => string;
-  /** The row is the direct answer to the person's message as the sweep reads
-   *  the chat now (`directAnswerNow`): the one place an outage's cut is resent. */
+  /** An outage's cut on the row is picked up without the person, read off the
+   *  chat now (`outageCutPickedUp`): the direct answer to their message, the
+   *  one place the sweep resends one, or a card in progress, which the
+   *  dispatcher resumes. */
   directAnswer: () => boolean;
   isClosed: () => boolean;
   /** The row as it is in the database now. */
