@@ -209,7 +209,28 @@ test.describe("full history: filters on top of the panel", () => {
 });
 
 test.describe("full history on a phone", () => {
-  test.use({ viewport: { width: 375, height: 812 } });
+  test.use({ viewport: { width: 375, height: 812 }, hasTouch: true });
+
+  test("a tap on a filter leaves the search field alone, so the keyboard stays down", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "HISTORY-03" });
+    await seedPages(page, [visit("https://uno.example/", Date.now() - 2 * MINUTE, "Uno")]);
+    await page.goto("/");
+    const palette = await openFullHistory(page);
+    const field = palette.getByRole("textbox");
+    // The person has closed the software keyboard. A focus() inside the tap
+    // is what brings it back on iOS, over the list the tap just filtered.
+    await field.evaluate((el) => (el as HTMLInputElement).blur());
+    await expect(field).not.toBeFocused();
+
+    await palette.getByTestId("history-filter-kind-tab").tap();
+
+    await pressed(palette.getByTestId("history-filter-kind-tab"), "true");
+    await expect(field).not.toBeFocused();
+    await palette.getByTestId("history-filter-reset").tap();
+
+    await expect(palette.getByRole("option")).toHaveCount(1);
+    await expect(field).not.toBeFocused();
+  });
 
   test("the filters stack one group per row, with 44 px buttons and no sideways scroll", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "HISTORY-03" });

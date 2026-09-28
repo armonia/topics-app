@@ -97,7 +97,10 @@ Due gruppi, ognuno `role="group"` con un'etichetta i18n:
   (`CommandPalette.tsx:518-525`).
 - Dopo la scelta di un filtro il fuoco SHALL tornare al campo di ricerca: ↑↓ e
   ↵ vivono lì (`CommandPalette.tsx:533-549` e `:623`), e un fuoco rimasto sul
-  bottone li spegnerebbe. La selezione SHALL ripartire dalla prima riga, come
+  bottone li spegnerebbe. Sotto i 768 px NON SHALL spostarsi: sul telefono ↑↓
+  non ci sono, e un `focus()` dentro il tocco è ciò che fa aprire a iOS la
+  tastiera sopra la lista appena filtrata. È lo stesso cancello dei
+  suggerimenti da tastiera della palette. La selezione SHALL ripartire dalla prima riga, come
   già fa un cambio di query (`CommandPalette.tsx:510-513`).
 - Il numero accanto al titolo «Cronologia» (`CommandPalette.tsx:649`) SHALL
   contare le righe rimaste dopo filtri e ricerca.
@@ -136,6 +139,11 @@ dispositivo e cade lo scenario «i filtri non sopravvivono alla chiusura»).
 - **GIVEN** un viewport di 375 × 812
 - **WHEN** si apre il pannello
 - **THEN** ogni bottone dei filtri è alto almeno 44 px, i due gruppi stanno su due righe, e `history-filters` non ha scorrimento orizzontale (`scrollWidth <= clientWidth`)
+
+#### Scenario: sul telefono un filtro non riapre la tastiera
+- **GIVEN** un viewport di 375 × 812 col tocco, il pannello aperto e il campo senza fuoco (la tastiera chiusa)
+- **WHEN** si tocca `history-filter-kind-tab` e poi `history-filter-reset`
+- **THEN** dopo ciascun tocco il campo di ricerca non ha il fuoco
 
 ### Requirement: HISTORY-04 — Una sola ricerca nella cronologia, su tutta la lista
 
@@ -197,8 +205,9 @@ Nello scope `history`:
   «Niente con questi filtri» e, solo se almeno un filtro non è su Tutto o
   Sempre, un bottone «Mostra tutto» (`data-testid="history-filter-reset"`,
   nella prop `action`). Il bottone SHALL riportare i due filtri a Tutto e
-  Sempre, lasciare la query com'è e ridare il fuoco al campo. Con la sola query
-  attiva il titolo SHALL essere `palette.noResults`, senza bottone.
+  Sempre, lasciare la query com'è e ridare il fuoco al campo (sopra i 768 px,
+  come per i filtri). Con la sola query attiva il titolo SHALL essere
+  `palette.noResults`, senza bottone.
 
 In entrambi gli scope, il suggerimento ⇧⌘T (`CommandPalette.tsx:334-337`) SHALL
 stare sulla riga il cui `record.id` è quello di `closedTabs[0]`, la tab che

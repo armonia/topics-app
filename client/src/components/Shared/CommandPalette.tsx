@@ -574,12 +574,14 @@ export function CommandPalette({
 
   // A filter is picked with the pointer, and the keyboard carries on from the
   // field: ↑↓ and ↵ are handled there, and a focus left on the button would
-  // switch them off.
+  // switch them off. Not on a phone: there is no ↑↓ to carry on with, and a
+  // focus() inside the tap is what makes iOS raise the software keyboard over
+  // the list the tap just filtered. Same gate as the key hints below.
   const changeHistoryFilters = useCallback((next: HistoryFiltersValue) => {
     setHistoryKind(next.kind);
     setHistoryRange(next.range);
-    inputRef.current?.focus();
-  }, []);
+    if (!isMobile) inputRef.current?.focus();
+  }, [isMobile]);
 
   // Scroll selected into view
   useEffect(() => {

@@ -98,9 +98,10 @@ scrittura in `localStorage` con `try/catch`, e l'effetto non li tocca.
 
 `HistoryFilters` è controllato e non ha stato: riceve `kind`, `range`,
 `isMobile` e `onChange`. Dopo ogni `onChange` la palette chiama
-`inputRef.current?.focus()` (`inputRef`, `CommandPalette.tsx:167`) e l'effetto
-che azzera la selezione (`CommandPalette.tsx:510-513`) guarda anche i due
-filtri.
+`inputRef.current?.focus()` (`inputRef`, `CommandPalette.tsx:167`), tranne
+sotto i 768 px: sul telefono quel `focus()` dentro il tocco riapre la tastiera
+di iOS sopra la lista. L'effetto che azzera la selezione
+(`CommandPalette.tsx:510-513`) guarda anche i due filtri.
 
 Perché `role="group"` + `aria-pressed` e non `radiogroup`: è la forma del
 selettore di modo di `Project/FileSearch.tsx:260-281`, l'unico precedente con
