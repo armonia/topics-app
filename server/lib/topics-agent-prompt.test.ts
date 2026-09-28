@@ -358,6 +358,18 @@ describe('shell in background: risveglio reale ma condizionato', () => {
     expect(p.endsWith('or the command is a short one-off.')).toBe(true);
   });
 
+  // A board card's turn is judged when it ends: told it could end its turn on
+  // a `run_command`, a card spent an attempt and met its wake over a nudge
+  // (verifiers of 28/09). The wake flow stays for ordinary chats.
+  test('a board agent waits for its command in the same turn instead of ending it', () => {
+    const board = topicsAgentSystemPrompt('auto', 'darwin', true);
+    expect(board).toContain('`mcp__topics__run_command`');
+    expect(board).not.toContain('so you can end your turn');
+    expect(board).toMatch(/run_command`[\s\S]*`mcp__topics__wait_for_process` in the same turn/);
+    expect(board).toContain('never end your turn while it runs');
+    expect(topicsAgentSystemPrompt('auto', 'darwin')).toContain('so you can end your turn');
+  });
+
   test('i tre strumenti restano distinti: chiude-e-sveglia, tiene-e-torna, dipende', () => {
     const p = topicsAgentSystemPrompt();
     expect(p).toMatch(/`Monitor`[\s\S]*ends your turn and wakes you/);

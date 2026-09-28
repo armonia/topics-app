@@ -62,6 +62,7 @@ import type { StopCause } from "../lib/abort-cause";
 import type { DelegatedRunPolicy } from "../lib/delegated-agent-start";
 import { effectiveDelegatedSettings, runWithDelegatedDeadline } from "./task-dispatcher-delegated";
 import { BACKGROUND_WORK_CAP_MS } from "../providers/claude/background-work";
+import { hasCommandShell } from "../lib/command-process";
 
 /** Fallback retry cap when a board's setting can't be read (default 2). */
 const DEFAULT_RETRY_CAP = 2;
@@ -902,6 +903,24 @@ export function describeIntruders(intruders: Array<{ cwd: string; branch: string
   const where = head ? `${head.cwd}${head.branch ? ` (branch ${head.branch})` : ""}` : "";
   if (n === 1) return `c'è una sessione Claude esterna viva su ${where}`;
   return `ci sono ${n} sessioni Claude esterne vive su questo repo (la più recente su ${where})`;
+}
+
+/**
+ * LONG COMMANDS, AS A BOARD AGENT RUNS THEM: started as a Topics process and
+ * waited for inside the turn, in the kickoff and in the fan-out kickoff alike.
+ *
+ * The board judges a turn when it ends. `run_command` tells an ordinary chat
+ * it may end its turn and be woken; a card that did so spent an attempt, or
+ * met its wake between two reads of the dispatcher, and a fan-out attempt was
+ * compared without the outcome (verifiers of 28/09). The advice before this,
+ * `run_script` or `&` and a poll now and then, left the command outside the
+ * turn too. Where the bridge offers no `run_command` (Windows,
+ * `hasCommandShell`) it names `run_script`, as the system prompt does.
+ */
+export function longCommandsRule(platform: NodeJS.Platform = process.platform): string {
+  const start = hasCommandShell(platform) ? "run_command (run_script for a script the manifest declares)" : "run_script";
+  return `LONG COMMANDS (build, test, install >~2 min): start them with ${start}, never with \`&\` or a background Bash, and get their outcome with wait_for_process in this SAME turn, calling it again while it answers 'timeout'. `
+    + "Never end your turn while a command you started still runs, even when the tool says it will wake you: the board reads the end of your turn as the end of your work.";
 }
 
 /**
@@ -1768,11 +1787,12 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
    * THE CARDS WAITING FOR A COMMAND'S WAKE.
    *
    * `run_command` wakes the topic when the command ends
-   * (`lib/process-exit-wake.ts`), and the prompt tells every agent, board
-   * agents included, to end its turn once one is started. Read as an
-   * interrupted turn, that end got a nudge over the running command and cost
-   * an attempt: with the default cap of 2 the card was parked «failed» before
-   * the command ended (both verifiers of 28/09 at 0252f6ea5). The wait is the
+   * (`lib/process-exit-wake.ts`). A board agent is told to wait for it inside
+   * its turn (`longCommandsRule`); this is the net for one that ends the turn
+   * on it anyway. Read as an interrupted turn, that end got a nudge over the
+   * running command and cost an attempt: with the default cap of 2 the card
+   * was parked «failed» before the command ended (both verifiers of 28/09 at
+   * 0252f6ea5). The wait is the
    * one the goal loop keeps for the same wake (`backgroundOfTurn`), bounded
    * like the CLI's own background work. `since` is when the session last went
    * quiet; the poll ends the wait (`pollCommandWaits`).
@@ -2686,7 +2706,8 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
             ]
           : []),
         "- Comments SHORT and useful: 1-2 sentences at the milestones (what is done / what is blocking). Never logs, diffs or code dumps in the thread (the server rejects long comments).",
-        "- Lean context (keep the turns light): Grep to find, then Read in slices (offset/limit) on files over ~400 lines — never read whole files 'to be safe'. Long commands (build, test, install >~2 min): launch them in the background (run_script or `&`) and poll read_process_output now and then instead of sitting blocked on the command.",
+        "- Lean context (keep the turns light): Grep to find, then Read in slices (offset/limit) on files over ~400 lines — never read whole files 'to be safe'.",
+        `- ${longCommandsRule()}`,
         // Il coordinatore. Sta QUI, subito dopo la riga sul contesto snello,
         // perché è la stessa regola portata alle sue conseguenze: il modo più
         // efficace di tenere leggero un thread non è leggere meno, è non farci
@@ -3261,10 +3282,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
           ? "- E2E runs on GitHub CI for the attempt that is chosen, never here."
           : "- E2E is not measured by this board, here or on any CI: if you wrote or changed an e2e spec, name it in your closing report.",
         ...(ciUnit ? ["- The full unit suite runs on GitHub CI for the attempt that is chosen, never here: run only targeted `bun test <file>`."] : []),
-        "- Lean context: Grep to find, Read in slices (offset/limit) on files over ~400 lines. Long commands (build/test/install) in the background with run_script + read_process_output, never sitting blocked on the command.",
-        // The system prompt tells every agent a `run_command` wakes it, so it
-        // can end its turn: here the wake would reach an attempt already judged.
-        "- Your attempt is this ONE turn and it is judged the moment the turn ends: never end it while a command you started in the background is still running, not even one that promises to wake you. Get its outcome with wait_for_process first.",
+        "- Lean context: Grep to find, Read in slices (offset/limit) on files over ~400 lines.",
+        `- ${longCommandsRule()}`,
+        // A wake that came after the turn would reach an attempt already judged.
+        "- Your attempt is this ONE turn and it is judged the moment the turn ends: the rule above keeps every command you start inside it.",
         "- Close the turn with 2-3 sentences: which route you chose, what you changed and where to look. It is the only thing the human reads of you in the comparison — write it well.",
         ...languageLine(langFor(task.projectId)),
         "Start now.",

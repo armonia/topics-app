@@ -58,8 +58,13 @@ export function languageDirective(lang: OutputLanguage = resolveOutputLanguage()
  * Where the bridge does not offer the tool, the prompt does not name it either,
  * or the agent spends a tool round looking for it and trusts a wake that never
  * comes.
+ *
+ * `board`: the session is a board card's agent, whose turn the board judges
+ * when it ends. It waits for its command inside the turn: told it could end
+ * the turn and be woken, a card spent an attempt and met its wake over a
+ * nudge (verifiers of 28/09). The wake flow is for ordinary chats.
  */
-const topicsAgentProcessPrompt = (cmd: boolean): string => [
+const topicsAgentProcessPrompt = (cmd: boolean, board: boolean): string => [
   'You are running inside Topics, a workspace that tracks long-running processes.',
   'To start a long-running dev server, watcher, or build process, ALWAYS prefer the',
   'Topics MCP tool `mcp__topics__run_script` (it runs a script declared in the',
@@ -120,10 +125,18 @@ const topicsAgentProcessPrompt = (cmd: boolean): string => [
     ? [
       'For a long ad hoc wait (a retry loop, a one-off script, anything that is not',
       'a declared script) use `mcp__topics__run_command` instead: it runs as a Topics process,',
-      'shown in the Processes panel, it survives a restart of your CLI, and when it ends this',
-      'chat receives its exit code and last lines, which wakes you, so you can end your turn.',
+      ...(board
+        ? [
+          'shown in the Processes panel, and it survives a restart of your CLI. On a board card',
+          'your turn is your work: wait for the command with `mcp__topics__wait_for_process` in the same turn,',
+          'and never end your turn while it runs.',
+        ]
+        : [
+          'shown in the Processes panel, it survives a restart of your CLI, and when it ends this',
+          'chat receives its exit code and last lines, which wakes you, so you can end your turn.',
+        ]),
       'Pass `wake: false` for a dev server or anything not meant to end.',
-      'Prefer it (or `Monitor`) when the point IS being woken.',
+      ...(board ? [] : ['Prefer it (or `Monitor`) when the point IS being woken.']),
     ]
     : ['Prefer `Monitor`, when you have it, if the point IS being woken.']),
   'If you promise the user a',
@@ -150,9 +163,11 @@ const topicsAgentProcessPrompt = (cmd: boolean): string => [
  * lingua in Impostazioni vale dalla sessione successiva senza riavviare il
  * server (stesso contratto di `resolveClaudeCodeModel`).
  */
-export function topicsAgentSystemPrompt(lang: OutputLanguage = resolveOutputLanguage(), platform: NodeJS.Platform = process.platform): string {
+export function topicsAgentSystemPrompt(
+  lang: OutputLanguage = resolveOutputLanguage(), platform: NodeJS.Platform = process.platform, boardAgent = false,
+): string {
   const directive = languageDirective(lang);
-  const processes = topicsAgentProcessPrompt(hasCommandShell(platform));
+  const processes = topicsAgentProcessPrompt(hasCommandShell(platform), boardAgent);
   return directive ? `${processes} ${directive}` : processes;
 }
 

@@ -299,10 +299,11 @@ describe("a command owed a wake is background work for the goal loop", () => {
   });
 });
 
-// The prompt tells board agents too to end their turn once `run_command` is
-// started. The dispatcher read that end as an interrupted turn: a nudge over
-// the running command and an attempt spent, and with the default cap of 2 the
-// card was parked before the command ended (both verifiers of 28/09).
+// A board agent is told to wait for its `run_command` inside the turn
+// (`longCommandsRule`), but one can still end the turn on it. The dispatcher
+// read that end as an interrupted turn: a nudge over the running command and
+// an attempt spent, and with the default cap of 2 the card was parked before
+// the command ended (both verifiers of 28/09).
 describe("a board card whose agent ended its turn on a command", () => {
   test("is not nudged and spends no attempt; the wake's turn runs, and then the card goes on", async () => {
     const { createTaskService } = await import("../../server/services/tasks");

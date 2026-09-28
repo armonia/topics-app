@@ -16,11 +16,30 @@
  */
 import { httpJson, type ParsedArgs } from "./topics-http";
 
+/**
+ * The bridge of a board card's agent (`topicsMcpBridgeSpec`). The board judges
+ * its turn when it ends, so it waits for a command inside the turn instead of
+ * ending it on the wake: a card that ended it spent an attempt and met the
+ * wake over a nudge (verifiers of 28/09). The wake flow is for ordinary chats.
+ */
+export function isBoardProfile(profile: string | undefined): boolean {
+  return profile === "dispatch" || profile === "codex-dispatch";
+}
+
+const RUN_COMMAND_WHAT =
+  "Run ANY shell command (zsh on macOS, sh elsewhere) in the current topic's project as a tracked Topics process: it shows in the Processes panel with live logs, status and Stop, it keeps running if your CLI session restarts";
+const RUN_COMMAND_REST =
+  "Pass wake=false for things that are not meant to end, such as a dev server. Returns a processId for read_process_output / wait_for_process / stop_process. For a script declared in the project's manifest, run_script is the same thing by name.";
+
+/** `run_command` as a board card's agent reads it (`toolsForProfile`). */
+export const RUN_COMMAND_BOARD_DESCRIPTION =
+  `${RUN_COMMAND_WHAT}. Use it for long commands (build, test, install) instead of \`&\` or Bash with run_in_background, then get the outcome with wait_for_process in this SAME turn, calling it again while it answers 'timeout': the board judges your turn when it ends, so never end it while the command runs. ${RUN_COMMAND_REST}`;
+
 export const COMMAND_TOOLS = [
   {
     name: "run_command",
     description:
-      "Run ANY shell command (zsh on macOS, sh elsewhere) in the current topic's project as a tracked Topics process: it shows in the Processes panel with live logs, status and Stop, it keeps running if your CLI session restarts, and when it ends this topic receives one message with the exit code and the last 20 lines of output, which wakes you. Use it for long ad hoc waits and loops (a retry every 15 minutes, a one-off script) instead of Bash with run_in_background. Pass wake=false for things that are not meant to end, such as a dev server. Returns a processId for read_process_output / wait_for_process / stop_process. For a script declared in the project's manifest, run_script is the same thing by name.",
+      `${RUN_COMMAND_WHAT}, and when it ends this topic receives one message with the exit code and the last 20 lines of output, which wakes you. Use it for long ad hoc waits and loops (a retry every 15 minutes, a one-off script) instead of Bash with run_in_background. ${RUN_COMMAND_REST}`,
     inputSchema: {
       type: "object",
       properties: {
@@ -52,8 +71,10 @@ export async function callRunCommand(
   const path = `/api/sessions/${encodeURIComponent(args.sessionKey)}/commands/run`;
   const res = await httpJson<RunCommandResp>(args, "POST", path, body, fetchImpl);
   if (typeof res?.processId !== "string") throw new Error("run_command: server did not return a processId");
-  const after = res.wake
-    ? "this topic gets a message with the outcome when it ends, so you can end your turn"
-    : "no wake: check it with read_process_output or wait_for_process";
+  const after = !res.wake
+    ? "no wake: check it with read_process_output or wait_for_process"
+    : isBoardProfile(args.profile)
+      ? "now get its outcome with wait_for_process in this same turn, and do not end your turn while it runs"
+      : "this topic gets a message with the outcome when it ends, so you can end your turn";
   return `started · processId=${res.processId} · pid=${res.pid ?? "?"} · ${after}`;
 }

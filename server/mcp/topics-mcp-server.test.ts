@@ -1119,6 +1119,24 @@ describe("run_command", () => {
     await expect(callRunCommand({ baseUrl: "http://x", sessionKey: "s" }, { command: " " }, fetchImpl)).rejects.toThrow(/command.*required/);
   });
 
+  // A board card's turn is judged when it ends, so its agent is told to wait
+  // for the command in that turn; an ordinary chat keeps the wake flow
+  // (verifiers of 28/09).
+  test("a board agent is told to wait in its turn, a chat that it can end it", async () => {
+    const fetchImpl = stubFetch(async () => new Response(JSON.stringify({ processId: "p", pid: 1, wake: true }), { status: 200 }));
+    for (const profile of ["dispatch", "codex-dispatch"]) {
+      const text = await callRunCommand({ baseUrl: "http://x", sessionKey: "s", profile }, { command: "bun test" }, fetchImpl);
+      expect(text).toContain("wait_for_process in this same turn");
+      expect(text).not.toContain("so you can end your turn");
+      const tool = toolsForProfile(profile, "darwin").find((t) => t.name === "run_command")!;
+      expect(tool.description).toContain("wait_for_process in this SAME turn");
+      expect(tool.description).not.toContain("which wakes you");
+    }
+    const chat = await callRunCommand({ baseUrl: "http://x", sessionKey: "s" }, { command: "bun test" }, fetchImpl);
+    expect(chat).toContain("so you can end your turn");
+    expect(toolsForProfile(undefined, "darwin").find((t) => t.name === "run_command")!.description).toContain("which wakes you");
+  });
+
   // The sidecar server ships for Windows too, where there is no POSIX shell to
   // run the command in: the route answers 501 there, so the tool is not offered.
   test("is offered where a POSIX shell exists, and not on Windows", () => {

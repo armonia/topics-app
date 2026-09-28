@@ -56,6 +56,27 @@ alla consegna: con sei agent erano fino a tre suite in parallelo sui tre slot
 del gate, più le copie orfane lasciate da un turno tagliato — misurato load 115
 su 12 core alle 14:40 del 04/09. Il carico sono i cancelli, non gli agent.
 
+**Un comando lungo si aspetta DENTRO il turno (dal 28/09/2026).** La board
+giudica un turno quando finisce, e un tentativo di fan-out e' un turno solo.
+L'envelope lo dice con una riga sola, la stessa nel kickoff e nel kickoff di
+fan-out (`longCommandsRule` in `server/services/task-dispatcher.ts`): build,
+test e install lunghi partono con `run_command` (o `run_script` per uno script
+dichiarato; dove `run_command` non c'e', su Windows, solo `run_script`), mai con
+`&` o con una Bash in background, e l'esito si prende con `wait_for_process`
+nello STESSO turno, richiamandolo finche' risponde `timeout`. Mai chiudere il
+turno con un comando in corso. Prima la riga diceva «in background (`run_script`
+o `&`) e ogni tanto `read_process_output`».
+Il perche': `run_command` sveglia la topic a fine comando, e a una chat normale
+il prompt dice che puo' chiudere il turno e aspettare la sveglia. Una card che
+lo faceva spendeva un tentativo e riceveva un sollecito sopra la sveglia, e un
+tentativo di fan-out veniva confrontato senza l'esito (28/09). Quel flusso resta
+alle chat normali: in una sessione dispatchata il prompt di sistema
+(`topicsAgentSystemPrompt` con `boardAgent`) e `run_command` nei profili
+`dispatch` e `codex-dispatch` (descrizione e risultato, `command-tools.ts`)
+dicono di aspettare dentro il turno. Se l'agente lo chiude lo stesso, la card
+aspetta la sveglia e il turno che apre, senza sollecito ne' tentativo
+(`commandWaits`): e' la rete, non la strada.
+
 **L'e2e di una consegna la misura la CI della PR, non questo Mac (dal 15/09/2026).**
 Perche' l'e2e sta nella consegna: cinque cancelli su sei non contenevano nessun
 test end-to-end, e la notte del 05/09 undici card sono arrivate verdi in review

@@ -183,9 +183,15 @@ trattenuta) e dopo la sonda del broker (un turno sopravvissuto in ai-bridge si
 riaggancia e, quando finisce, aspetta la sveglia come ogni turno). I token del
 turno della sveglia vanno sul conto della card anche con un riavvio in mezzo.
 
-Un tentativo di fan-out è un turno solo, giudicato quando finisce: il suo
-kickoff gli dice di non chiuderlo su un comando in background ancora in corso e
-di prenderne l'esito con `wait_for_process`.
+Il turno di un agente della board è giudicato quando finisce, e un tentativo di
+fan-out è un turno solo. Per questo il kickoff (normale e di fan-out), il prompt
+di sistema di una sessione dispatchata e `run_command` nei profili `dispatch` e
+`codex-dispatch` (descrizione e risultato) gli dicono di lanciare i comandi
+lunghi con `run_command` (`run_script` per uno script dichiarato, e solo quello
+dove `run_command` non c'è) e di prenderne l'esito con `wait_for_process` nello
+stesso turno, mai di chiuderlo con un comando in corso. Il flusso «chiudi il
+turno, la sveglia ti riporta» resta alle chat normali; l'attesa del dispatcher
+qui sopra è la rete per l'agente che chiude il turno lo stesso.
 
 #### Scenario: l'esito arriva nella topic
 - **GIVEN** un comando `zsh -c 'echo tick 1; echo tick 2; exit 3'` lanciato da una topic
@@ -228,6 +234,12 @@ di prenderne l'esito con `wait_for_process`.
 - **GIVEN** una card il cui agente lancia un comando che finisce prima che il turno di lancio si chiuda
 - **WHEN** la riga della sveglia entra in chat mentre il dispatcher legge ancora la statistica git di quel turno
 - **THEN** la card aspetta il turno della sveglia, senza sollecito e senza consumare un tentativo
+
+#### Scenario: l'agente della board aspetta dentro il turno
+- **GIVEN** una card dispatchata su un sistema che offre `run_command`
+- **WHEN** l'agente legge il kickoff, il prompt di sistema e lo strumento `run_command`
+- **THEN** ognuno gli dice di prendere l'esito con `wait_for_process` nello stesso turno e di non chiuderlo mentre il comando gira
+- **AND** nessuno gli dice di lanciarlo con `&` né che può chiudere il turno e aspettare la sveglia
 
 #### Scenario: l'attesa di una card regge ai riavvii
 - **GIVEN** una card che aspetta la sveglia di un comando che non finisce mai

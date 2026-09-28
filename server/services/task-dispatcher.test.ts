@@ -15,7 +15,7 @@ import { classifyLanding } from "./landing-audit";
 import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
-import { createTaskDispatcher, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
+import { createTaskDispatcher, longCommandsRule, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
 import type { ResourceFloorVerdict } from "./dispatch-capacity";
 
 /**
@@ -4260,15 +4260,32 @@ describe("l'envelope non parla italiano", () => {
     h.dispatcher.shutdown();
   });
 
-  // An attempt is judged when its one turn ends, and `run_command` tells every
-  // agent it may end its turn and be woken: the wake then reaches an attempt
-  // already judged without the command's outcome (review of 28/09 at 5cb048ec4).
-  it("the fan-out kickoff keeps the attempt's one turn open until its background commands end", async () => {
-    const { h, kickoff } = await envelopeDiKickoff(2);
-    const rule = kickoff.split("\n").find((r) => r.includes("ONE turn")) ?? "";
-    expect(rule).toContain("still running");
-    expect(rule).toContain("wait_for_process");
-    h.dispatcher.shutdown();
+  // A board agent's turn is judged when it ends, and `run_command` tells an
+  // ordinary chat it may end its turn and be woken: a card that did so spent an
+  // attempt, or met its wake between two reads of the dispatcher, and a
+  // fan-out attempt was compared without the outcome (verifiers of 28/09). The
+  // old advice, `run_script` or `&` and a poll now and then, left the command
+  // outside the turn too.
+  const longCommandsRow = (kickoff: string) => kickoff.split("\n").find((r) => r.includes("LONG COMMANDS")) ?? "";
+  for (const fanOut of [undefined, 2]) {
+    it(`the ${fanOut ? "fan-out" : "ordinary"} kickoff has long commands waited for in the same turn, never ended on`, async () => {
+      const { h, kickoff } = await envelopeDiKickoff(fanOut);
+      const rule = longCommandsRow(kickoff);
+      expect(rule).toContain("run_command");
+      expect(rule).toContain("wait_for_process in this SAME turn");
+      expect(rule).toContain("Never end your turn while a command you started still runs");
+      expect(kickoff).not.toContain("run_script or `&`");
+      expect(kickoff).not.toContain("run_script + read_process_output");
+      h.dispatcher.shutdown();
+    });
+  }
+
+  it("where the bridge offers no run_command, the rule names run_script and keeps the wait", () => {
+    const win = longCommandsRule("win32");
+    expect(win).not.toContain("run_command");
+    expect(win).toContain("run_script");
+    expect(win).toContain("wait_for_process in this SAME turn");
+    expect(longCommandsRule("darwin")).toContain("run_command");
   });
 
   it("with the CI e2e row: listed among no commands, and the CI rule said once (KANBAN-84)", async () => {

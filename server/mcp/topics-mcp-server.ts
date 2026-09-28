@@ -33,7 +33,7 @@ import { GOAL_STEP_STATUSES } from "../../shared/types";
 import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 import { OUTBOUND_TOOLS, callGoogleCall, callSendMail } from "./outbound-tools";
-import { COMMAND_TOOLS, callRunCommand } from "./command-tools";
+import { COMMAND_TOOLS, RUN_COMMAND_BOARD_DESCRIPTION, callRunCommand, isBoardProfile } from "./command-tools";
 import { hasCommandShell } from "../lib/command-process";
 import { HttpAnswerError, httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
 import type { ParsedArgs } from "./topics-http";
@@ -858,13 +858,17 @@ export function toolsForProfile(profile: string | undefined, platform: NodeJS.Pl
   // Global board tools have no safe meaning outside the registry-backed
   // coordinator. Do not merely hide them from `tools/list`: exclude them from
   // every ordinary profile and deny direct calls below as well.
-  return TOOLS.filter((t) =>
+  const tools = TOOLS.filter((t) =>
     !GLOBAL_ORCHESTRATOR_TOOL_NAMES.has(t.name)
     && (profile !== "dispatch" || !DISPATCH_EXCLUDED_TOOLS.has(t.name))
     && (profile !== "codex-dispatch" || !CODEX_DISPATCH_EXCLUDED_TOOLS.has(t.name))
     // No POSIX shell to run it in (`commandArgv`): offered, it could only fail.
     && (hasCommandShell(platform) || t.name !== "run_command"),
   );
+  // A board card's agent waits for its command inside the turn (`isBoardProfile`).
+  return isBoardProfile(profile)
+    ? tools.map((t) => (t.name === "run_command" ? { ...t, description: RUN_COMMAND_BOARD_DESCRIPTION } : t))
+    : tools;
 }
 
 export function isToolAllowedForProfile(profile: string | undefined, name: string): boolean {
