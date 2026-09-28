@@ -156,7 +156,11 @@ agente della board nasce archiviata e riceve la sveglia finché la sua card è i
 corso, la stessa regola delle sveglie del CLI in `server/lib/wake-adoption.ts`); il comando è stato fermato da Stop nel pannello o da
 `stop_process`; un `wait_for_process` della stessa sessione era aperto su quel
 processo quando è uscito (`watchesForProcess`, `server/lib/process-wait.ts:191`),
-perché quel turno l'esito l'ha già. L'attesa conta solo finché il turno che l'ha
+perché quel turno l'esito l'ha già. Lo stesso quando il comando esce senza
+un'attesa aperta (fra una risposta `timeout` e la chiamata dopo, o mentre
+l'agente fa altro) e un `wait_for_process` successivo dello stesso turno gli
+consegna l'esito: la sveglia si chiude lì, se la sua riga non è ancora partita.
+L'attesa conta solo finché il turno che l'ha
 aperta è in corso: finito il turno (`endStream`), non conta più anche se la sua
 richiesta resta aperta, perché il bridge di un CLI ignora l'annullamento di una
 tool call. Sul runtime nativo la richiesta si chiude con il turno, e un turno
@@ -230,6 +234,11 @@ dispatcher qui sopra è la rete per l'agente che chiude il turno lo stesso.
 - **GIVEN** un `wait_for_process` aperto sul comando nella sessione che l'ha lanciato
 - **WHEN** il comando esce e l'attesa restituisce l'esito
 - **THEN** nessuna riga `process-exit` viene scritta
+
+#### Scenario: il comando esce fra due attese dello stesso turno
+- **GIVEN** un turno in corso sulla topic e il suo comando che esce mentre nessun `wait_for_process` è aperto
+- **WHEN** il `wait_for_process` successivo dello stesso turno restituisce l'esito
+- **THEN** finito il turno non arriva nessuna riga `process-exit`, e nessuna card aspetta una sveglia
 
 #### Scenario: il turno che aspettava è finito
 - **GIVEN** un `wait_for_process` aperto sul comando da un turno della stessa sessione

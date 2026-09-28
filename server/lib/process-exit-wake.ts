@@ -26,7 +26,9 @@
  *
  * ONCE. Delivered means the session holds a row with the `process-exit` block
  * of that process: checked before every send, and at boot for every finished
- * command still owed a wake (`requestProcessExitWake` from `loadState`).
+ * command still owed a wake (`requestProcessExitWake` from `loadState`). Or
+ * that a `wait_for_process` of the turn it waited for handed it the outcome
+ * before the row went out (`owed`).
  */
 
 import { wakeVerdict } from "./wake-adoption";
@@ -56,6 +58,11 @@ export interface ProcessExitRequest extends ProcessExitFacts {
    * processId (`routes/chat.ts`).
    */
   settle?: () => void;
+  /**
+   * Still owed right before the row goes out? False once a `wait_for_process`
+   * of the session took the outcome while the wake waited (`routes/processes.ts`).
+   */
+  owed?: () => boolean;
   /**
    * Called when the route refused it for good (`failed`): the wake stays owed
    * to the next boot, and nobody should wait for it before then.
@@ -161,7 +168,7 @@ const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r,
 
 /** One wake, from the wait to the end of the turn it opened: "sent" comes back once that turn is over. */
 export async function deliverProcessExit(
-  deps: ProcessExitWakeDeps, f: ProcessExitFacts,
+  deps: ProcessExitWakeDeps, f: ProcessExitFacts & Pick<ProcessExitRequest, "owed">,
 ): Promise<"sent" | "delivered" | "no-topic" | "failed"> {
   const pollMs = deps.pollMs ?? 500;
   for (;;) {
@@ -172,6 +179,8 @@ export async function deliverProcessExit(
     // Busy first: the row cannot appear while somebody else's turn holds the
     // session, and the search below scans the session's rows.
     if (deps.isBusy(topic.sessionKey)) { await sleep(pollMs); continue; }
+    // The turn it waited for read the outcome with `wait_for_process`: delivered there.
+    if (f.owed?.() === false) return "delivered";
     if (wakeDelivered(deps.db, topic.sessionKey, f.processId)) return "delivered";
     const url = new URL("http://localhost/api/chat");
     const resp = await deps.route(

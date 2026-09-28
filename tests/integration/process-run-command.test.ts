@@ -195,6 +195,30 @@ describe("the end of a command reaches the topic that launched it", () => {
     expect(exitRows(topic.sessionKey)).toHaveLength(0);
   });
 
+  // The command ends while no wait is open (between a 'timeout' answer and the
+  // next call, or while the agent does something else), and the next
+  // wait_for_process of the same turn hands it the outcome. The wake stayed
+  // owed: after the turn a second turn opened on an outcome the agent already
+  // had, and a card waited for it.
+  test("a command that ended between two waits of the turn: the next wait gets the outcome, and no row after the turn", async () => {
+    const topic = newTopic();
+    const send = await call(bench.chat, "POST", "/api/chat", { sessionKey: topic.sessionKey, messages: [{ role: "user", content: "run it and wait" }] });
+    expect(send.status).toBe(200);
+    void send.body?.cancel().catch(() => {});
+    const { processId } = await runCommand(topic, "echo between-waits; exit 0");
+    await until(async () => (await scriptRow(processId))?.status !== "running");
+
+    const wait = await call(bench.processes, "GET", `/api/sessions/${encodeURIComponent(topic.sessionKey)}/scripts/${processId}/wait?timeout_ms=10000`);
+    expect(await wait.json()).toMatchObject({ reason: "exit", exitCode: 0 });
+    expect(commandWakeState(topic.sessionKey)).toBe("none");
+
+    await finishTurn("read it in the wait");
+    let idle = false;
+    void processExitWakesIdle().then(() => { idle = true; });
+    await until(() => idle || exitRows(topic.sessionKey).length > 0);
+    expect(exitRows(topic.sessionKey)).toHaveLength(0);
+  });
+
   // The caller of a wait can go away without the wait ending: the CLI restarts,
   // the turn is stopped, the MCP bridge dies. Its watch stayed open until the
   // timeout, and a command ending in that window counted as «already waited

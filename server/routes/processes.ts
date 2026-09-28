@@ -25,7 +25,7 @@ import { isBroadCwd } from "../lib/broad-cwd";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { openTail, readFileEnd, readTail, shrinkLog, type FileTail } from "../lib/file-tail";
 import { commandArgv, confineCommandCwd, readExitCode } from "../lib/command-process";
-import { requestProcessExitWake, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
+import { requestProcessExitWake, wakeDelivered, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
 import { isWatchedBySession } from "../lib/process-wait";
 import { agentBaseEnv } from "../lib/agent-env";
 
@@ -737,8 +737,26 @@ function requestWakeFor(sp: ScriptProcess): void {
     durationMs: ended - Date.parse(sp.startedAt),
     lines: sp.output.slice(-WAKE_TAIL_LINES),
     settle: () => { cmd.wake = false; saveState(); },
+    owed: () => cmd.wake,
     fail: () => { sp.wakeFailed = true; },
   });
+}
+
+/**
+ * A `wait_for_process` handed the end of a command to the session that owes
+ * nothing else for it: the turn it waited in is live (its watch still open,
+ * `closeWatchesOfSession`) and has the outcome. It ended while no wait was
+ * open, so `finishCommand` left the wake owed, and after the turn a second
+ * turn opened on an outcome the agent already had. Settled only while its row
+ * has not gone out: once the wake's own turn runs, it settles at that turn's
+ * end (`ProcessExitRequest.settle`).
+ */
+function settleWakeTakenByWait(sp: ScriptProcess, sessionKey: string, db: AppContext["db"]): void {
+  const cmd = sp.cmd;
+  if (!cmd?.wake || cmd.sessionKey !== sessionKey || !isWatchedBySession(sp.processId, sessionKey)) return;
+  if (wakeDelivered(db, sessionKey, sp.processId)) return;
+  cmd.wake = false;
+  saveState();
 }
 
 /**
@@ -2126,6 +2144,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
             ...(until ? { until } : {}),
             timeoutMs,
           });
+          if (outcome.reason === "exit") settleWakeTakenByWait(sp, sessionKey, ctx.db);
           return json({ ...outcome, processId: sp.processId, scriptName: sp.scriptName });
         } finally {
           close();
