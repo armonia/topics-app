@@ -57,6 +57,9 @@ apre, una coppia Prima/Dopo al posto di `tr('diff.binary')`
 - Niente si scarica finche' il file resta chiuso nel pannello.
 - Un `<img>` che non carica SHALL dire «Anteprima non disponibile» al suo posto,
   mai un riquadro vuoto.
+- Sul worktree vivo il Dopo SHALL rileggersi quando il pacchetto riletto porta
+  per quel file un altro blob (la riga `index` del blocco): l'URL porta quel
+  blob (`&v=`), perche' una pagina riusa l'immagine gia' caricata a URL uguale.
 - Un binario che non e' un'immagine (PDF, font, archivio) SHALL restare
   «binario» come oggi.
 

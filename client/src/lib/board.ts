@@ -916,10 +916,15 @@ function diffRoute(source: DiffPanelSource): { path: string; extra: string } {
   };
 }
 
-/** The bytes of `path` at `rev` (a SHA of `revs`, or `worktree`), for a `fetch`. */
-export function diffBlobPath(source: DiffPanelSource, path: string, rev: string): string {
+/**
+ * The bytes of `path` at `rev` (a SHA of `revs`, or `worktree`), for a `fetch`.
+ * `version` names which content of a `worktree` file is meant (`v=`, which the
+ * route does not read): the name `worktree` stays while the agent rewrites the
+ * file, and a page shows the picture it already holds for an unchanged URL.
+ */
+export function diffBlobPath(source: DiffPanelSource, path: string, rev: string, version?: string): string {
   const r = diffRoute(source);
-  return `/api${r.path}?file=${enc(path)}&blob=${enc(rev)}${r.extra}`;
+  return `/api${r.path}?file=${enc(path)}&blob=${enc(rev)}${version ? `&v=${enc(version)}` : ''}${r.extra}`;
 }
 
 /**
@@ -927,8 +932,8 @@ export function diffBlobPath(source: DiffPanelSource, path: string, rev: string)
  * the fetch shim, so under Tauri a relative URL would resolve against the
  * asset protocol and break.
  */
-export function diffBlobUrl(source: DiffPanelSource, path: string, rev: string): string {
-  return `${serverHttpBase()}${diffBlobPath(source, path, rev)}`;
+export function diffBlobUrl(source: DiffPanelSource, path: string, rev: string, version?: string): string {
+  return `${serverHttpBase()}${diffBlobPath(source, path, rev, version)}`;
 }
 
 /**

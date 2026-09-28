@@ -94,6 +94,9 @@ function click(h: Harness, testId: string) {
   (node.props.onClick as () => void)();
 }
 
+/** A host node the last render drew, by its test id. */
+const drawn = (h: Harness, testId: string) => h.last().hosts.find((n) => n.props['data-testid'] === testId);
+
 const pressedView = (h: Harness) =>
   h.last().hosts.find((n) => n.props['aria-pressed'] === true)?.props['data-testid'] ?? null;
 
@@ -156,7 +159,8 @@ describe('a changed picture is a Before/After pair (DIFFPV-02)', () => {
       <UnifiedDiff bundle={binaryBundle({ path: 'new.png', additions: -1, deletions: -1, status: 'A' }, { base: BASE, head: null })} source={TASK} focusPath="new.png" />,
     );
     expect(srcOf(html, 'diff-image-before')).toBeNull();
-    expect(srcOf(html, 'diff-image-after')).toBe('/api/boards/p/tasks/t/diff?file=new.png&amp;blob=worktree');
+    // `v=` is the blob id of the block's `index 1..2` line: which content of the file on disk.
+    expect(srcOf(html, 'diff-image-after')).toBe('/api/boards/p/tasks/t/diff?file=new.png&amp;blob=worktree&amp;v=2');
   });
 
   test('a deleted picture has only the Before; a renamed one reads its Before at the old path', () => {
@@ -423,6 +427,44 @@ describe('a live worktree re-read moves every view along (DIFFPV-03, DIFFPV-04)'
     } finally {
       h.unmount();
       files.restore();
+    }
+  });
+
+  // A block as git writes it: `index <before>..<after>`, the After being the
+  // blob id git computed for the file on disk.
+  const svgBlock = (after: string) =>
+    `diff --git a/d.svg b/d.svg\nindex 1111111..${after} 100644\n--- a/d.svg\n+++ b/d.svg\n@@ -1 +1 @@\n-<svg/>\n+<svg id="${after}"/>\n`;
+  const pngBlock = (after: string) =>
+    `diff --git a/x.png b/x.png\nindex 1111111..${after} 100644\nBinary files a/x.png and b/x.png differ\n`;
+
+  test('the rendered .svg reads new bytes when its block changes, and the same bytes on an identical re-read', () => {
+    const svg = (after: string): DiffBundle => ({ ...textBundle('d.svg', svgBlock(after)), revs: LIVE });
+    const { h, setBundle } = mountDiff(svg('2222222'), { focusPath: 'd.svg' });
+    try {
+      click(h, 'diff-view-preview');
+      // Same URL, same picture: a page keeps an image it already loaded under
+      // that URL, whatever the response said about caching.
+      expect(drawn(h, 'diff-svg-preview')?.props.src).toBe('/api/boards/p/tasks/t/diff?file=d.svg&blob=worktree&v=2222222');
+      setBundle(svg('2222222'));
+      expect(drawn(h, 'diff-svg-preview')?.props.src).toBe('/api/boards/p/tasks/t/diff?file=d.svg&blob=worktree&v=2222222');
+      setBundle(svg('3333333'));
+      expect(drawn(h, 'diff-svg-preview')?.props.src).toBe('/api/boards/p/tasks/t/diff?file=d.svg&blob=worktree&v=3333333');
+    } finally {
+      h.unmount();
+    }
+  });
+
+  test("a picture's After on the worktree follows its block too; its Before, at a SHA, never changes", () => {
+    const png = (after: string): DiffBundle =>
+      ({ ...binaryBundle({ path: 'x.png', additions: -1, deletions: -1, status: 'M' }, LIVE), patch: pngBlock(after) });
+    const { h, setBundle } = mountDiff(png('2222222'), { focusPath: 'x.png' });
+    try {
+      expect(drawn(h, 'diff-image-after')?.props.src).toBe('/api/boards/p/tasks/t/diff?file=x.png&blob=worktree&v=2222222');
+      setBundle(png('3333333'));
+      expect(drawn(h, 'diff-image-after')?.props.src).toBe('/api/boards/p/tasks/t/diff?file=x.png&blob=worktree&v=3333333');
+      expect(drawn(h, 'diff-image-before')?.props.src).toBe(`/api/boards/p/tasks/t/diff?file=x.png&blob=${BASE}`);
+    } finally {
+      h.unmount();
     }
   });
 

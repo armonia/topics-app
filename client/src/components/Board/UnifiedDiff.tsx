@@ -253,8 +253,8 @@ function ViewSwitch({ views, value, onChange }: { views: FileView[]; value: File
 /**
  * One side of a picture: its label, its size in pixels once it has loaded, and
  * "preview unavailable" in its place when it does not load, never an empty box.
- * Mounted with `key` on the revision and path, so a re-read bundle that names
- * new revisions starts from a fresh load.
+ * Mounted with `key={sideKey(side)}`, so a re-read bundle that names new
+ * revisions, or another content of a `worktree` file, starts from a fresh load.
  */
 function ImageSide({ label, testId, side, source, onStale }: {
   label: string;
@@ -285,7 +285,7 @@ function ImageSide({ label, testId, side, source, onStale }: {
       ) : (
         <img
           data-testid={testId}
-          src={diffBlobUrl(source, side.path, side.rev)}
+          src={diffBlobUrl(source, side.path, side.rev, side.version)}
           alt={side.path}
           loading="lazy"
           onLoad={(e) => setSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
@@ -296,6 +296,8 @@ function ImageSide({ label, testId, side, source, onStale }: {
     </figure>
   );
 }
+
+const sideKey = (side: PreviewSide) => `${side.rev}:${side.path}:${side.version ?? ''}`;
 
 /** A changed picture: Before and After side by side, stacked when the panel is narrow. */
 function ImagePair({ before, after, source, onStale }: {
@@ -309,10 +311,10 @@ function ImagePair({ before, after, source, onStale }: {
     <div data-testid="diff-image-pair" className="@container p-2 font-sans">
       <div className="grid grid-cols-1 gap-3 @min-[640px]:grid-cols-2">
         {before && (
-          <ImageSide key={`${before.rev}:${before.path}`} label={tr('diff.before')} testId="diff-image-before" side={before} source={source} onStale={onStale} />
+          <ImageSide key={sideKey(before)} label={tr('diff.before')} testId="diff-image-before" side={before} source={source} onStale={onStale} />
         )}
         {after && (
-          <ImageSide key={`${after.rev}:${after.path}`} label={tr('diff.after')} testId="diff-image-after" side={after} source={source} onStale={onStale} />
+          <ImageSide key={sideKey(after)} label={tr('diff.after')} testId="diff-image-after" side={after} source={source} onStale={onStale} />
         )}
       </div>
     </div>
@@ -406,10 +408,13 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
   }, [source, path, origPath]);
   const binary = !!row.binary;
   const kind = useMemo(() => previewTypeOf(path)?.kind ?? null, [path]);
-  const sides = useMemo(() => (revs && kind === 'image' ? previewSides(row, revs) : null), [revs, kind, row]);
+  // This file's block in the bundle: on a live worktree it is what says the
+  // agent rewrote the file, for the pictures as for "Full file".
+  const bundledBody = bundled?.body;
+  const sides = useMemo(() => (revs && kind === 'image' ? previewSides(row, revs, bundledBody) : null), [revs, kind, row, bundledBody]);
   const rendered = useMemo(
-    () => (revs && (kind === 'svg' || kind === 'markdown') ? renderedSide(row, revs) : null),
-    [revs, kind, row],
+    () => (revs && (kind === 'svg' || kind === 'markdown') ? renderedSide(row, revs, bundledBody) : null),
+    [revs, kind, row, bundledBody],
   );
   const views: FileView[] = sides || binary ? [] : rendered ? ['diff', 'full', 'preview'] : ['diff', 'full'];
   const noteCount = useMemo(() => (review?.notes ?? []).filter((n) => n.path === path).length, [review?.notes, path]);
@@ -417,7 +422,6 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
   // notes has no row in it: written in "Full file" on a line outside the
   // changed blocks, it would leave a reopened panel showing the badge and no
   // note. Then the file opens whole. A view picked by hand wins, as `userOpen` does.
-  const bundledBody = bundled?.body;
   const noteOffDiff = useMemo(
     () => noteCount > 0 && hasNoteWithoutRow(review?.notes ?? [], path, bundledBody),
     [noteCount, review?.notes, path, bundledBody],
@@ -483,7 +487,7 @@ const FileDiff = memo(function FileDiff({ path, chunk: bundled, stat, partial, d
     body = kind === 'svg' ? (
       <div className="p-2 font-sans">
         <ImageSide
-          key={`${rendered.rev}:${rendered.path}`}
+          key={sideKey(rendered)}
           label={tr(row.status === 'deleted' ? 'diff.before' : 'diff.after')}
           testId="diff-svg-preview"
           side={rendered}

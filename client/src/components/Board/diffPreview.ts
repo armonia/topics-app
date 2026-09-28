@@ -18,24 +18,38 @@ export interface PreviewSide {
   path: string;
   /** A SHA of `revs`, or `worktree` for the After of a live worktree. */
   rev: string;
+  /** Under `worktree`, which content of the file: see `afterBlobId`. */
+  version?: string;
+}
+
+/**
+ * The id git gave the After of a file's block (`index <before>..<after>`).
+ * On a live worktree the After keeps the name `worktree` while the agent
+ * rewrites the file: this id is what changes, the blob git hashed from the
+ * disk when the bundle was read.
+ */
+export function afterBlobId(block: string | undefined): string | undefined {
+  return block ? /^index [0-9a-f]+\.\.([0-9a-f]+)/m.exec(block)?.[1] : undefined;
 }
 
 /**
  * The Before and After of a file, `null` for the side that does not exist: an
  * added file has no Before, a deleted one no After, and a renamed or copied
- * file had its Before at the old path.
+ * file had its Before at the old path. `block` is the file's patch in the
+ * bundle, which dates a `worktree` After.
  */
-export function previewSides(row: ChangedFileRow, revs: DiffRevs): { before: PreviewSide | null; after: PreviewSide | null } {
+export function previewSides(row: ChangedFileRow, revs: DiffRevs, block?: string): { before: PreviewSide | null; after: PreviewSide | null } {
   const isNew = row.status === 'added' || row.status === 'untracked';
+  const version = revs.head === null ? afterBlobId(block) : undefined;
   return {
     before: isNew ? null : { path: row.origPath ?? row.path, rev: revs.base },
-    after: row.status === 'deleted' ? null : { path: row.path, rev: revs.head ?? 'worktree' },
+    after: row.status === 'deleted' ? null : { path: row.path, rev: revs.head ?? 'worktree', ...(version ? { version } : {}) },
   };
 }
 
 /** The side a rendered preview shows: the After, or the Before of a deleted file. */
-export function renderedSide(row: ChangedFileRow, revs: DiffRevs): PreviewSide | null {
-  const { before, after } = previewSides(row, revs);
+export function renderedSide(row: ChangedFileRow, revs: DiffRevs, block?: string): PreviewSide | null {
+  const { before, after } = previewSides(row, revs, block);
   return after ?? before;
 }
 
