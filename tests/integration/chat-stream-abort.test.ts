@@ -432,3 +432,47 @@ describe("la promessa di ripresa sul cartello", () => {
     expect(testo).not.toContain("Riprendo da solo");
   });
 });
+
+/**
+ * AN OUTAGE OUTSIDE THE TURN LEAVES A ROW THE RESUME ACTS ON.
+ *
+ * Two ends of 25/09, as they reach the route. The CLI that gave up on the API
+ * closes its turn with a `result` (`onDone`, cause `api-unavailable`): the row
+ * kept "Request timed out" as its last word and no error block, so no sweep
+ * ever read it as a cut. A turn whose ai-bridge daemon died is finalized as
+ * died (`onAborted`, cause `broker-died`): `avvisoPerTurno` had no sentence for
+ * an `error` end, so the row got nothing at all. Both stayed stopped until a
+ * person wrote again.
+ *
+ * @covers RESUME-01
+ */
+describe("an outage outside the turn: the row carries its cause, and the sweep resends it", () => {
+  const ends = {
+    "api-unavailable": (hd: StreamHandler) => hd.onDone({
+      result: "Request timed out",
+      turnEnd: { end: "error", cause: "api-unavailable", detail: "success Request timed out" },
+    } as never),
+    "broker-died": (hd: StreamHandler) => hd.onAborted?.({ turnEnd: { end: "error", cause: "broker-died" } }),
+  };
+  for (const [cause, end] of Object.entries(ends)) {
+    test(cause, async () => {
+      const sk = `topic:outage-${cause}`;
+      const h = await harness(sk);
+      const handler = await h.startTurn();
+      handler.onTextDelta("Request timed out", "Request timed out");
+      end(handler);
+      await new Promise((r) => setTimeout(r, 50));
+
+      const m = h.ctx.loadLocalMessages(sk).filter((x) => x.role === "assistant").pop()!;
+      const cut = (m.blocks ?? []).find((b) => b.kind === "error");
+      expect(cut && cut.kind === "error" ? cut.cause : undefined).toBe(cause as never);
+      expect(cut && cut.kind === "error" ? cut.text : "").toContain("Riprende da solo");
+      expect(h.ends().map((e) => e.stopCause)).toEqual([cause]);
+      const { answersPersonsMessage, resumeVerdict } = await import("../../server/lib/ripresa-boot");
+      // The direct answer to the person's message: the one row an outage's cut is resent from.
+      const answersMessage = answersPersonsMessage(h.ctx.db, sk, m.id);
+      expect(answersMessage).toBe(true);
+      expect(resumeVerdict({ sessionKey: sk, ruolo: "assistant", blocks: m.blocks ?? null, timestampMs: Date.now(), attempts: 0, answersMessage }, Date.now())).toBe("resend");
+    });
+  }
+});

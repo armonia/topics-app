@@ -161,15 +161,18 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
   const refresh = useCallback(() => {
     boardApi.publishStatus().then(setProjects).catch(() => setProjects([]));
   }, []);
+  const readDiff = (projectId: string) => {
+    boardApi.publishDiff(projectId)
+      .then((b) => setDiffs((d) => ({ ...d, [projectId]: b })))
+      .catch(() => setDiffs((d) => ({ ...d, [projectId]: 'error' })));
+  };
   const toggleExpand = (projectId: string, isOpen: boolean) => {
     if (isOpen) { setExpanded(null); return; }
     setExpanded(projectId);
     // Lazy-load the diff once per project when it's first opened.
     if (!diffs[projectId]) {
       setDiffs((d) => ({ ...d, [projectId]: 'loading' }));
-      boardApi.publishDiff(projectId)
-        .then((b) => setDiffs((d) => ({ ...d, [projectId]: b })))
-        .catch(() => setDiffs((d) => ({ ...d, [projectId]: 'error' })));
+      readDiff(projectId);
     }
   };
   useEffect(() => { refresh(); }, [refresh]);
@@ -324,7 +327,11 @@ function DeliveryControl({ unlanded, onOpen }: { unlanded: BoardTask[]; onOpen: 
                       {diffs[p.projectId] === 'loading' && <div className="text-mini text-app-text-muted">{tr('board.publish.loadingDiff')}</div>}
                       {diffs[p.projectId] === 'error' && <div className="text-mini text-red-400">{tr('board.publish.diffError')}</div>}
                       {diffs[p.projectId] && typeof diffs[p.projectId] === 'object' && (
-                        <UnifiedDiff bundle={diffs[p.projectId] as DiffBundle} />
+                        <UnifiedDiff
+                          bundle={diffs[p.projectId] as DiffBundle}
+                          source={{ kind: 'publish', projectId: p.projectId }}
+                          onStale={() => readDiff(p.projectId)}
+                        />
                       )}
                     </div>
                   )}

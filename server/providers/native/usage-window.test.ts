@@ -5,7 +5,7 @@
  */
 import { describe, expect, test, beforeEach } from "bun:test";
 import { parseUsage, holdFromUsage, saturationHold, fetchUsage, releaseHoldIfFreed, observePlanUsage, EXHAUSTED_AT } from "./usage-window";
-import { providerHold, clearProviderHold, planUsage, clearPlanUsage } from "../../lib/provider-hold";
+import { providerHold, clearProviderHold, planUsage, clearPlanUsage, holdForApiDown } from "../../lib/provider-hold";
 
 const NOW = Date.parse("2026-09-04T15:00:00Z");
 const RESET_5H = "2026-09-04T20:49:59.852026+00:00";
@@ -86,6 +86,16 @@ describe("the usage windows", () => {
     // Freed: the hold goes.
     expect(await releaseHoldIfFreed("tok", NOW, freed)).toBe(true);
     expect(providerHold(NOW)).toBeNull();
+  });
+
+  // The usage endpoint answering says nothing about the path the CLI's own
+  // requests take (a gateway sat on it on 25/09): the recheck every 90 s would
+  // have lifted an outage hold in the middle of the outage.
+  test("an API outage hold is not the endpoint's to lift", async () => {
+    const freed = (async () => new Response(JSON.stringify(measured))) as unknown as typeof fetch;
+    holdForApiDown(NOW);
+    expect(await releaseHoldIfFreed("tok", NOW, freed)).toBe(false);
+    expect(providerHold(NOW)?.window).toBe("api-down");
   });
 });
 

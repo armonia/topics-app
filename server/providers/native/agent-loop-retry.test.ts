@@ -26,6 +26,7 @@ import { join } from "path";
 import { runAgentTurn, type AgentMessage } from "./agent-loop";
 import type { StreamHandler } from "../types";
 import type { RetryPolicy } from "./retry";
+import { clearProviderHold, holdForApiDown, providerHold, resetProviderHoldStore } from "../../lib/provider-hold";
 
 const HOME_VERA = process.env.HOME;
 // Same as `runtime-default-safety.test.ts`: without clearing it, a
@@ -174,6 +175,23 @@ describe("the native loop tries again when the API's failure is transient", () =
     expect(reg.errors).toEqual([]);
     expect(reg.retries.map((r) => r.reason)).toEqual(["API 529", "API 529"]);
     expect(reg.retries[1]!.delayMs).toBeGreaterThan(reg.retries[0]!.delayMs);
+  });
+
+  test("a round the API answers lifts the hold an API outage opened", async () => {
+    // The hold walls this runtime's chats too (key `claude`), and only a
+    // claude-code child streaming lifted it: a native chat cut by a reload
+    // waited up to an hour past an API already answering it.
+    resetProviderHoldStore();
+    holdForApiDown();
+    try {
+      const reg = fresh();
+      scriptFetch([ok(healthyRound)], reg);
+      await turn(reg);
+      expect(providerHold()).toBeNull();
+    } finally {
+      clearProviderHold();
+      resetProviderHoldStore();
+    }
   });
 
   test("a dropped connection before any byte is retried too", async () => {

@@ -235,4 +235,47 @@ printf '{"type":"result","result":"already-done","usage":{"input_tokens":1,"outp
     // è la bugia che si propaga in `isTurnProcessAlive` e nel setaccio di boot.
     expect((prov as unknown as { processes: Map<string, { alive: boolean }> }).processes.get(sessionKey)?.alive).toBe(true);
   }, 20000);
+
+  /**
+   * A DAEMON DEATH UNDER AN ADOPTED TURN (card 51fb9359). Every save under
+   * server/ reloads production, and each live turn is adopted by a process that
+   * never spawned its child: it learns the child's daemon from its scan of the
+   * store. Without that, the daemon's death read as the child's own
+   * (`process-died`), which is never resumed.
+   */
+  test("a turn adopted after a restart whose daemon then dies ends as broker-died", async () => {
+    setEnv("TOPICS_CLAUDE_CLI_PATH", writeFakeCli("fake-open-turn.sh",
+      `while read line; do
+  printf '{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}\\n'
+  sleep 30
+done`));
+    const sessionKey = "topic:reattach-daemon-death";
+    seedTopic(sessionKey, "t-daemon-death");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+    const bridge = getAiBridgeClient();
+
+    const provA = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    provA.sendChat(sessionKey, "hello", makeHandler().handler).catch(() => { /* A dies at restart */ });
+    await waitFor(async () => ((await bridge.list()).find((s) => s.id === sessionKey)?.endOffset ?? 0) > 0, 8000);
+    provA.stop();
+
+    // Started: its reconnect hook is what resyncs the adopted turn.
+    const provB = new ProviderCtor({ type: "claude-code", defaultWorkspace: tempDir });
+    provB.start();
+    let text = "";
+    let cause: unknown;
+    const adopted = provB.reattach(sessionKey, {
+      ...makeHandler().handler,
+      onTextDelta: (_delta: string, full: string) => { text = full; },
+      onAborted: (info: { turnEnd?: { cause?: unknown } }) => { cause = info?.turnEnd?.cause; },
+    });
+    // Adopted and driving live: the open turn replayed, the replay over.
+    const adoptedProcesses = (provB as unknown as { processes: Map<string, { replaySilent?: boolean }> }).processes;
+    await waitFor(() => text.includes("working") && adoptedProcesses.get(sessionKey)?.replaySilent === false, 8000);
+
+    process.kill(Number(readFileSync(SOCK.replace(/\.sock$/, ".pid"), "utf8").trim()), "SIGTERM");
+    expect(await adopted).toBe("live");
+    expect(cause).toBe("broker-died");
+    provB.stop();
+  }, 30000);
 });

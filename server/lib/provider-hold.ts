@@ -60,7 +60,7 @@ function isValidHold(raw: unknown): raw is ProviderHold {
   if (!raw || typeof raw !== "object") return false;
   const r = raw as Partial<ProviderHold>;
   return typeof r.untilMs === "number" && typeof r.reason === "string"
-    && (r.window === "five_hour" || r.window === "seven_day" || r.window === "usage_limit");
+    && (r.window === "five_hour" || r.window === "seven_day" || r.window === "usage_limit" || r.window === "api-down");
 }
 
 /**
@@ -106,9 +106,13 @@ export function configureProviderHoldStore(path: string, nowMs: number = Date.no
   }
 }
 
-/** Tests only: forget the file, so one test's mirror does not reach the next. */
+/** Tests only: forget the file and the outage seen so far, so one test's
+ *  state does not reach the next. */
 export function resetProviderHoldStore(): void {
   storePath = null;
+  outage.expired = 0;
+  outage.heldUntilMs = 0;
+  outage.lastAnswerMs = 0;
 }
 
 /** The hold in force at `nowMs` for this provider key, or null: an expired
@@ -156,6 +160,68 @@ export function clearProviderHold(provider: string = DEFAULT_KEY): void {
   if (provider === DEFAULT_KEY) {
     for (const cb of listeners) { try { cb(null); } catch { /* idem */ } }
   }
+}
+
+/**
+ * HOW LONG AN API OUTAGE HOLDS, counted from the last retry that saw it.
+ *
+ * Longer than the gap between two retries of a request that hangs (six
+ * minutes on 25/09, 02:06-02:30Z), so one blackout reads as one hold. Short
+ * enough that, once no CLI is retrying any more, the next sweep sends one
+ * resend that probes the API again. Doubled for every hold the outage
+ * outlives, up to `API_DOWN_HOLD_MAX_MS`.
+ */
+export const API_DOWN_HOLD_MS = 10 * 60_000;
+
+/**
+ * The longest an outage holds past its last retry. Each probe that meets the
+ * API still down is a copy of the message in the chat, and at a fixed ten
+ * minutes a 5xx blackout of three hours made one every quarter of an hour. An
+ * hour is also the longest the resume and the board wait past an API that is
+ * back, when no running child hears it first and lifts the hold.
+ */
+export const API_DOWN_HOLD_MAX_MS = 60 * 60_000;
+
+/**
+ * The outage as this process saw it: how many api-down holds ran out with the
+ * API still down, when the last one was due to end, and when a child last got
+ * an answer. Memory only: after a reload the horizon starts over at ten
+ * minutes, and a hold restored from disk keeps its own end.
+ */
+const outage = { expired: 0, heldUntilMs: 0, lastAnswerMs: 0 };
+
+/**
+ * The API is not answering Claude's requests: the CLI said so with a
+ * `system/api_retry` line (card e30f35e4). Holds the resume sweep and the
+ * dispatcher like a spent window, since a resend now would only wait in the
+ * same blackout; each retry pushes the horizon on. A retry after the last
+ * outage hold ran out, with no answer in between, means the resend it let
+ * through met the API still down: the next horizon doubles. A spent plan
+ * window in force is left as it is: it is the longer wall, and lifting it is
+ * not ours to do.
+ */
+export function holdForApiDown(nowMs: number = Date.now()): ProviderHold {
+  const active = providerHold(nowMs);
+  if (active && active.window !== "api-down") return active;
+  if (!active && outage.heldUntilMs > 0) outage.expired++;
+  outage.heldUntilMs = nowMs + Math.min(API_DOWN_HOLD_MS * 2 ** outage.expired, API_DOWN_HOLD_MAX_MS);
+  return setProviderHold({ untilMs: outage.heldUntilMs, window: "api-down", reason: "l'API di Claude non risponde" }, nowMs);
+}
+
+/** A child got an answer from the API: an outage hold is over, and the next
+ *  one starts at the short horizon. Any other hold stays, a streamed answer
+ *  says nothing about the plan's windows. */
+export function liftApiDownHold(nowMs: number = Date.now()): void {
+  outage.expired = 0;
+  outage.heldUntilMs = 0;
+  outage.lastAnswerMs = nowMs;
+  if (providerHold(nowMs)?.window === "api-down") clearProviderHold();
+}
+
+/** When a child last got an answer from the API, in this process; 0 if none
+ *  has since it started. */
+export function lastApiAnswerMs(): number {
+  return outage.lastAnswerMs;
 }
 
 /** Called on every change to the Claude hold, with the new hold or null when

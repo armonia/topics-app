@@ -84,6 +84,8 @@ export function capNotice(attempts: number, lastCut: string): string {
  */
 export function capLastCut(opts: { restarted: boolean; cause?: unknown }): string {
   if (isStall(opts.cause)) return "l'ultima volta l'agente ha smesso di rispondere";
+  if (opts.cause === "api-unavailable") return "l'ultima volta l'API non rispondeva";
+  if (opts.cause === "broker-died") return "l'ultima volta si è fermato il processo che ospitava l'agente";
   if (blamesRestart(opts.cause, opts.restarted)) return "l'ultima volta l'ha interrotto un riavvio del server";
   return "l'ultima volta si è interrotto di nuovo";
 }

@@ -195,6 +195,7 @@ const IT: Dict = {
   'background.notice.closedWithTurn': 'Lavoro in background chiuso insieme a un turno bloccato: {tasks}',
   'background.notice.closedDeadline': 'Lavoro in background chiuso alla durata massima della delega: {tasks}',
   'background.notice.closedSuperseded': 'Lavoro in background chiuso con la card sostituita: {tasks}',
+  'background.notice.closedCronCap': 'Cron di sessione chiuso 2 h dopo la sua creazione: {tasks}',
   'background.notice.deferred.autonomy': "Il cambio di autonomia vale dal primo messaggio dopo la fine del lavoro in background. Lo Stop ferma subito quel lavoro",
   'background.notice.deferred.model': 'Il cambio di modello vale dal primo messaggio dopo la fine del lavoro in background. Lo Stop ferma subito quel lavoro',
   'background.notice.deferred.effort': "Il cambio di effort vale dal primo messaggio dopo la fine del lavoro in background. Lo Stop ferma subito quel lavoro",
@@ -389,7 +390,12 @@ const IT: Dict = {
   'diff.cutHere': "…il patch si interrompe qui: oltre c'è il tetto del payload, non la fine del file.",
   'diff.noChanges': 'Nessuna modifica.',
   'diff.pendingNotes': '{n} note in sospeso',
-  'diff.truncated': 'Diff troncato (molto grande){rest}: apri il progetto per vederlo intero.',
+  'diff.before': 'Prima',
+  'diff.after': 'Dopo',
+  'diff.preview': 'Anteprima',
+  'diff.viewDiff': 'Diff',
+  'diff.fullFile': 'File intero',
+  'diff.previewUnavailable': 'Anteprima non disponibile',
   'diff.truncated.loadable': 'Diff troncato (molto grande){rest}: apri un file per caricarne il diff.',
   'diff.truncated.countOnly': ': di {n} file resta solo il conteggio',
 
@@ -1800,6 +1806,8 @@ const IT: Dict = {
   // A refusal is deterministic, so retrying the same message buys the same
   // result. Rephrasing is the useful recovery path.
   'chat.turnInterrupted.refusal': 'il modello ha rifiutato la richiesta',
+  'chat.turnInterrupted.apiUnavailable': "l'API non rispondeva più",
+  'chat.turnInterrupted.brokerDied': "si è fermato il processo che ospitava l'agente",
   'git.noRepoInitialized': 'Nessun repository git inizializzato',
   'git.noRepo': 'Nessun repository git',
   'git.cleanTree': 'Albero di lavoro pulito',
@@ -1847,6 +1855,10 @@ const IT: Dict = {
   'processes.awaited.one': 'Un agente sta aspettando la fine di questo processo',
   'processes.awaited.many': '{n} agenti stanno aspettando la fine di questo processo',
   'processes.awaited.chip': 'atteso',
+  'processes.stop': 'Ferma',
+  'processes.outcome.exit': 'exit {code}',
+  'processes.outcome.stopped': 'fermato',
+  'processes.outcome.unknown': 'esito sconosciuto',
   // The command that REOPENS the column. It had no key: App.tsx hard-codes its
   // title and SidebarToggleButton falls back to a default one, so the first
   // place that needs it translated is the zoom frame, where the command is
@@ -2326,7 +2338,8 @@ const IT: Dict = {
   'scripts.noManifest': 'Nessun manifest di script in questa cartella.',
   'scripts.noneDeclared': 'Nessuno script dichiarato in {files}.',
   'scripts.lookedIn': 'Guardo: {files}',
-  'scripts.shellFromAgent': "Shell lasciata in background dall'agente. L'output arriva dai suoi BashOutput.",
+  'scripts.shellFromAgent': "Shell lasciata in background dall'agente. Il log si legge dal vivo dal file in cui la scrive il CLI.",
+  'scripts.commandFromAgent': "Comando lanciato dall'agente con run_command: il log è dal vivo, sopravvive al riavvio del CLI, e quando finisce la chat che l'ha lanciato riceve l'esito.",
   'scripts.noPid': 'Processo non ancora individuato. Fermala dalla chat con KillShell.',
   'project.sidebar.resizeFit': 'Trascina per ridimensionare · doppio clic per adattare al contenuto',
   // ── Pannello Performance. È tutto testo di diagnosi, quindi ogni pezzo è una

@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-27",
+  "generated": "2026-09-28",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -2964,22 +2964,10 @@
       "buf",
       "rec"
     ],
-    "server/lib/codex-session.test.ts": [
-      "writeRollout"
-    ],
     "server/lib/codex-session.ts": [
-      "RolloutMeta",
       "buf",
-      "codexRolloutExists",
-      "codexRolloutPath",
       "obj",
-      "readRolloutMeta",
-      "recentRolloutFiles",
-      "rolloutPathCache",
       "safeSubdirs"
-    ],
-    "server/lib/codex-transcript-title.ts": [
-      "extractCodexTitleFromRollout"
     ],
     "server/lib/commit-message.test.ts": [
       "insidioso",
@@ -3722,8 +3710,6 @@
     "server/providers/claude-code.ts": [
       "ClaudeCliCompat",
       "DEFAULT_ONESHOT_MODEL",
-      "ENV_BLOCKLIST_EXCEPTIONS",
-      "ENV_BLOCKLIST_PATTERNS",
       "certsDir",
       "oneshotKey",
       "useTls"
@@ -7298,9 +7284,6 @@
       "servizio",
       "stato",
       "venditore"
-    ],
-    "tests/integration/helpers/index.ts": [
-      "radice"
     ],
     "tests/integration/history-payload-weight.test.ts": [
       "det",

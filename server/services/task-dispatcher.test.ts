@@ -15,7 +15,7 @@ import { classifyLanding } from "./landing-audit";
 import { ARCHIVE_PARKED_LABEL, E2E_CI_CHECK, UNIT_CI_CHECK, PARKED_WAITED_OUT, PLAN_APPROVE_LABEL, PLAN_REVISE_LABEL, PREVIEW_CARD_MAX_RATIO, PREVIEW_RULE, PROMOTE_PARKED_LABEL, PUBLISH_ACTION_LABEL, REQUEUE_PARKED_LABEL, TAKE_OVER_PARKED_LABEL, WAIT_STREAK_CAP, extractPreviewRule, formatStatusEvent } from "../../shared/board";
 import { toolsForProfile } from "../mcp/topics-mcp-server";
 import { createTaskService, LAND_ACTION_LABEL, type TaskService } from "./tasks";
-import { createTaskDispatcher, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
+import { createTaskDispatcher, longCommandsRule, rotateFrom, summarizeToolInput, type DispatcherDeps } from "./task-dispatcher";
 import type { ResourceFloorVerdict } from "./dispatch-capacity";
 
 /**
@@ -1138,6 +1138,42 @@ describe("task-dispatcher", () => {
     // wording became false).
     expect(notes).toContain(describeTurnEnd(cancelled("wall-clock")));
     expect(notes).not.toContain("probabile"); // niente più indovinelli
+  });
+
+  it("the send watchdog's cut costs an attempt and resumes at once; the API left unanswered costs none and waits", async () => {
+    // Card e30f35e4 asked the claude-code send watchdog to end a turn the way
+    // its own kill already did (`cancelled("watchdog")`), or `api-unavailable`
+    // when the child's last word was a retry of an API that was down. Before,
+    // it ended on a bare text read as `provider-error`: forgiven three times
+    // and resumed after the backoff. A wedged card now spends its budget as
+    // `consumesAttempt` says a watchdog cut must; the outage keeps the old,
+    // forgiving road.
+    const h = harness({ retryBackoffMs: 60 });
+    h.svc.updateBoardSettings(PID, { autoDispatch: true, dispatchRetryCap: 4 });
+    seedTask(h.db, { id: "t1", status: "todo" });
+    await h.dispatcher.tick(PID);
+    await flush();
+    // Each turn outlives the backoff, as a thirty-minute watchdog cut does: a
+    // turn shorter than it reads as an outage whatever its cause.
+    const outlive = () => new Promise((r) => setTimeout(r, 80));
+    await outlive();
+    h.finishTurnWith(cancelled("watchdog", "Nessuna attività dal modello per 30 minuti. Turno terminato."));
+    await flush();
+    await flush();
+    expect(h.task("t1")!.dispatchAttempts).toBe(2);
+    expect(h.turns.length).toBe(2);
+
+    await outlive();
+    h.finishTurnWith({ end: "error", cause: "api-unavailable", detail: "Nessuna attività dal modello per 30 minuti. Turno terminato." });
+    await flush();
+    await flush();
+    expect(h.task("t1")!.dispatchAttempts).toBe(2);
+    expect(h.turns.length).toBe(2);
+    await new Promise((r) => setTimeout(r, 90));
+    await flush();
+    expect(h.turns.length).toBe(3);
+    h.finishTurn();
+    await flush();
   });
 
   it("il CONTESTO PIENO si riprende e lo dice: non è un fallimento", async () => {
@@ -4258,6 +4294,39 @@ describe("l'envelope non parla italiano", () => {
     expect(kickoff).toContain("ATTEMPT 1 of 2");
     expect(italianRows(kickoff)).toEqual([]);
     h.dispatcher.shutdown();
+  });
+
+  // A board agent's turn is judged when it ends, and `run_command` tells an
+  // ordinary chat it may end its turn and be woken: a card that did so spent an
+  // attempt, or met its wake between two reads of the dispatcher, and a
+  // fan-out attempt was compared without the outcome (verifiers of 28/09). The
+  // old advice, `run_script` or `&` and a poll now and then, left the command
+  // outside the turn too.
+  const longCommandsRow = (kickoff: string) => kickoff.split("\n").find((r) => r.includes("LONG COMMANDS")) ?? "";
+  for (const fanOut of [undefined, 2]) {
+    it(`the ${fanOut ? "fan-out" : "ordinary"} kickoff has long commands waited for in the same turn, never ended on`, async () => {
+      const { h, kickoff } = await envelopeDiKickoff(fanOut);
+      const rule = longCommandsRow(kickoff);
+      expect(rule).toContain("run_command");
+      expect(rule).toContain("wait_for_process in this SAME turn");
+      expect(rule).toContain("Never end your turn while one of them still runs");
+      // A dev server left up for the reviewer's tab is not one of them: read
+      // against the rule, the agent had to stop the server the tab needs
+      // (verifiers of 28/09, third round).
+      expect(rule).toContain("A dev server you leave up for the reviewer's tab is not one of them: it keeps serving after your turn (started with run_command, pass wake=false)");
+      expect(kickoff).not.toContain("run_script or `&`");
+      expect(kickoff).not.toContain("run_script + read_process_output");
+      h.dispatcher.shutdown();
+    });
+  }
+
+  it("where the bridge offers no run_command, the rule names run_script and keeps the wait", () => {
+    const win = longCommandsRule("win32");
+    expect(win).not.toContain("run_command");
+    expect(win).toContain("run_script");
+    expect(win).toContain("wait_for_process in this SAME turn");
+    expect(win).toContain("A dev server you leave up for the reviewer's tab is not one of them: it keeps serving after your turn.");
+    expect(longCommandsRule("darwin")).toContain("run_command");
   });
 
   it("with the CI e2e row: listed among no commands, and the CI rule said once (KANBAN-84)", async () => {

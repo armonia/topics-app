@@ -1,7 +1,8 @@
 import { memo, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useT } from '../../hooks/useT';
 import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Target, Trash2 } from 'lucide-react';
-import { backgroundNoticeOf } from './machineRow';
+import { backgroundNoticeOf, processExitOf } from './machineRow';
+import { ProcessExitRow } from './ProcessExitRow';
 import { BackgroundNoticeLine } from './BackgroundNoticeLine';
 import type { Topic, ChatMessage, WSMessage } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
@@ -303,6 +304,11 @@ export const MessageBubble = memo(function MessageBubble({
   if (isDispatchedEnvelope(msg.blocks)) {
     return <DispatchEnvelopeRow messageId={msg.id} content={msg.content} />;
   }
+
+  // The end of a command this chat launched: the machine's report that woke
+  // the agent, not the person's words (server/lib/process-exit-wake.ts).
+  const processExit = processExitOf(msg.blocks);
+  if (processExit) return <ProcessExitRow messageId={msg.id} block={processExit} content={msg.content} />;
 
   return (
     <div

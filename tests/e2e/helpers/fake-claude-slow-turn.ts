@@ -20,6 +20,8 @@
  *   "SILENT:<ms>"      nothing for <ms>, then "late": a turn stopped before it
  *                      says anything leaves an empty row, which the server
  *                      deletes at the end.
+ *   "CLIPID"           "cli-pid:<pid>", at once: which process answered, so a
+ *                      spec can tell a restarted CLI from the one it had.
  *   anything else      "ok", at once.
  *
  * `--version` answers and exits 0; a one-shot (`--output-format json`, the
@@ -133,7 +135,10 @@ if (flag("--output-format") === "json") {
         } else if (tool) await toolTurn(Number(tool[1]));
         else if (fast) await fastTurn(Number(fast[1]), Number(fast[2]), fast[3]!);
         else if (slow) await slowTurn(Number(slow[1]), slow[2]!);
-        else {
+        else if (/\bCLIPID\b/.test(asked)) {
+          text(`cli-pid:${process.pid}`);
+          result(`cli-pid:${process.pid}`);
+        } else {
           text("ok");
           result("ok");
         }

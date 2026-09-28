@@ -7,7 +7,7 @@
  * un land per cherry-pick con il ramo potato. La gamma che esce viene poi data a
  * `git diff --name-only`, e l'asserzione è sui FILE che il reviewer vedrebbe.
  *
- * @covers LAND-02
+ * @covers LAND-02, DIFFPV-01
  */
 
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
@@ -19,7 +19,9 @@ import {
   landedMergeRange,
   deliveryCommitRange,
   resolveTaskDiffRange,
+  revsOfRange,
 } from "./task-diff-range";
+import { defaultRunGit } from "./own-commits";
 
 const ENV = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
 
@@ -442,6 +444,56 @@ describe("task-diff-range", () => {
 
       // Senza checkout del progetto non resta niente da cui ricostruire.
       expect(await resolveTaskDiffRange({ taskId: "T-42", worktree: null, repoPath: null })).toBeNull();
+    });
+  });
+
+  // The panel reads a file's bytes at the two revisions the diff compares, and
+  // the byte route accepts only those two: a symbolic name (`main`, `sha^1`)
+  // moves between the list and the click, a SHA does not.
+  describe("revsOfRange", () => {
+    const SHA = /^[0-9a-f]{40,64}$/;
+
+    test("a range a..b resolves both ends to full SHAs, never to names", async () => {
+      await git(dir, ["checkout", "-q", "-b", "topics/card"]);
+      const delivered = await commit(dir, "consegna.ts", "uno\n", "la consegna");
+      await git(dir, ["checkout", "-q", "main"]);
+      await git(dir, ["merge", "--no-ff", "-m", "merge task T-7: la card", "topics/card"]);
+      const merge = await git(dir, ["rev-parse", "HEAD"]);
+      const parent = await git(dir, ["rev-parse", "HEAD^1"]);
+
+      const landed = await landedMergeRange(dir, "T-7");
+      const revs = await revsOfRange(defaultRunGit, dir, landed!.range, landed!.live);
+      expect(revs).toEqual({ base: parent, head: merge });
+      expect(revs!.base).toMatch(SHA);
+      expect(revs!.head).not.toBe(delivered);
+    });
+
+    test("a live single revision has a base and NO head: the After is the working tree", async () => {
+      await git(dir, ["checkout", "-q", "-b", "topics/card"]);
+      await commit(dir, "committato.ts", "a\n", "lavoro committato");
+      writeFileSync(join(dir, "base.txt"), "base\nvivo\n");
+      const r = await worktreeOwnRange(dir, { branch: "topics/card" });
+      const revs = await revsOfRange(defaultRunGit, dir, r!.range, r!.live);
+      expect(revs).not.toBeNull();
+      expect(revs!.base).toMatch(SHA);
+      expect(revs!.base).toBe(r!.range);
+      expect(revs!.head).toBeNull();
+    });
+
+    test("an empty-tree base is accepted as a tree, since the root commit has no parent", async () => {
+      const emptyTree = await git(dir, ["hash-object", "-t", "tree", "/dev/null"]);
+      const head = await git(dir, ["rev-parse", "HEAD"]);
+      const revs = await revsOfRange(defaultRunGit, dir, `${emptyTree}..${head}`, false);
+      expect(revs).toEqual({ base: emptyTree, head });
+    });
+
+    test("a revision git cannot resolve gives null, not a range made up on the spot", async () => {
+      expect(await revsOfRange(defaultRunGit, dir, `${"0".repeat(40)}..HEAD`, false)).toBeNull();
+      expect(await revsOfRange(defaultRunGit, dir, "HEAD..non-esiste", false)).toBeNull();
+      expect(await revsOfRange(defaultRunGit, dir, "non-esiste", true)).toBeNull();
+      // Not a pair: a plain revision on a non-live range, and a symmetric difference.
+      expect(await revsOfRange(defaultRunGit, dir, "HEAD", false)).toBeNull();
+      expect(await revsOfRange(defaultRunGit, dir, "main...HEAD", false)).toBeNull();
     });
   });
 });

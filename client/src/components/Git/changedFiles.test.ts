@@ -13,7 +13,7 @@
  *  · a binary file, which git reports as `-1` and not as zero;
  *  · an absent count, which is NOT a count of zero.
  *
- * @covers GIT-FILELIST-01
+ * @covers GIT-FILELIST-01, DIFFPV-01
  */
 import { describe, expect, test } from 'bun:test';
 import {
@@ -52,6 +52,12 @@ describe('the diff stat shape (delivery, publish range)', () => {
     expect(row.binary).toBe(true);
     expect(row.added).toBeUndefined();
     expect(row.removed).toBeUndefined();
+  });
+
+  test('a rename keeps where it came from: the Before of the file lives at the old path', () => {
+    const row = rowFromDiffStat({ path: 'docs/b.png', additions: -1, deletions: -1, status: 'R100', origPath: 'docs/a.png' });
+    expect(row.origPath).toBe('docs/a.png');
+    expect(rowFromDiffStat({ path: 'x.ts', additions: 1, deletions: 0, status: 'M' }).origPath).toBeUndefined();
   });
 });
 

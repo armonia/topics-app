@@ -6,11 +6,13 @@
  * deterministic upstream, neither of which is achievable here. The helpers
  * are where the real complexity lives anyway (multi-shape usage payloads
  * and double-encoded error messages).
-  * @covers CODEX-01, CHAT-COMPACT-01
+  * @covers CODEX-01, CHAT-COMPACT-01, CHAT-CHANGES-01
  */
 
 import { describe, expect, test } from "bun:test";
 import { CodexProvider, codexTopicsMcpProfile, extractCodexErrorMessage, extractCodexUsage, resolveCodexInvocation } from "./codex";
+import { aggregateTouchedFiles } from "../lib/topic-changes";
+import type { ToolCall } from "../../shared/types";
 import type { ProviderUsage, StreamHandler, ToolArgs } from "./types";
 
 interface RecordedHandler extends StreamHandler {
@@ -437,6 +439,133 @@ describe("routeCodexEvent — text + tool wiring", () => {
     expect(pushEvent(provider, "s1", { type: "thread.started" }, h)).toBeNull();
     expect(pushEvent(provider, "s1", { type: "thread.started", thread_id: 42 }, h)).toBeNull();
     expect(h.errors).toHaveLength(0);
+  });
+});
+
+/**
+ * A Codex patch is one `file_change` item listing every file it touched. Until
+ * it became a tool call per file, it reached no handler at all: Codex tasks
+ * that edited 74, 57 and 9 files showed 0 in the changed-files strip.
+ */
+describe("routeCodexEvent — file_change", () => {
+  // Captured from `codex exec --json` on codex-cli 0.153.4 (a patch that
+  // updates a.txt, adds b.txt and deletes c.txt), paths shortened.
+  const changes = [
+    { path: "/repo/a.txt", kind: "update" },
+    { path: "/repo/b.txt", kind: "add" },
+    { path: "/repo/c.txt", kind: "delete" },
+  ];
+  const started = { type: "item.started", item: { id: "item_1", type: "file_change", changes, status: "in_progress" } };
+  const completed = { type: "item.completed", item: { id: "item_1", type: "file_change", changes, status: "completed" } };
+
+  /** The ToolCalls chat.ts would store from these handler calls (an error result becomes `error`). */
+  function storedCalls(h: RecordedHandler): ToolCall[] {
+    return h.toolNames.map(({ id, name }) => {
+      const start = h.tools.find((t) => t.type === "start" && t.id === id);
+      const result = h.tools.find((t) => t.type === "result" && t.id === id);
+      return {
+        id,
+        name,
+        args: (start?.payload ?? {}) as Record<string, unknown>,
+        ...(result?.error ? { error: result.payload as string } : {}),
+      };
+    });
+  }
+
+  test("started then completed opens one tool per file and closes each once", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    expect(pushEvent(provider, "s1", started, h)).toBeNull();
+    expect(pushEvent(provider, "s1", completed, h)).toBeNull();
+
+    expect(h.toolNames).toEqual([
+      { id: "item_1:0", name: "apply_patch" },
+      { id: "item_1:1", name: "write" },
+      { id: "item_1:2", name: "apply_patch" },
+    ]);
+    expect(h.tools).toEqual([
+      { type: "start", id: "item_1:0", payload: { file_path: "/repo/a.txt" } },
+      { type: "start", id: "item_1:1", payload: { file_path: "/repo/b.txt" } },
+      { type: "start", id: "item_1:2", payload: { file_path: "/repo/c.txt" } },
+      { type: "result", id: "item_1:0", payload: "" },
+      { type: "result", id: "item_1:1", payload: "" },
+      { type: "result", id: "item_1:2", payload: "" },
+    ]);
+  });
+
+  test("the files reach the changed-files strip: the added one as created", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    pushEvent(provider, "s1", started, h);
+    pushEvent(provider, "s1", completed, h);
+
+    const files = aggregateTouchedFiles([{ timestamp: "2026-09-27T10:00:00.000Z", toolCalls: storedCalls(h) }]);
+    expect(files.map(({ path, kind }) => ({ path, kind }))).toEqual([
+      { path: "/repo/a.txt", kind: "modified" },
+      { path: "/repo/b.txt", kind: "created" },
+      // git's `D` turns this one into a deletion (refineKind).
+      { path: "/repo/c.txt", kind: "modified" },
+    ]);
+  });
+
+  test("a completed item with no started one still opens its tools before closing them", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    pushEvent(provider, "s1", completed, h);
+    expect(h.tools.map((t) => `${t.type}:${t.id}`)).toEqual([
+      "start:item_1:0", "result:item_1:0",
+      "start:item_1:1", "result:item_1:1",
+      "start:item_1:2", "result:item_1:2",
+    ]);
+  });
+
+  test("a failed patch closes its tools as errors, and the strip lists nothing", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    pushEvent(provider, "s1", started, h);
+    pushEvent(provider, "s1", { type: "item.completed", item: { ...completed.item, status: "failed" } }, h);
+
+    const results = h.tools.filter((t) => t.type === "result");
+    expect(results).toHaveLength(3);
+    for (const r of results) {
+      expect(r.error).toBe(true);
+      // chat.ts stores the result text as `error`: an empty one would read as no error.
+      expect(r.payload).toBeTruthy();
+    }
+    expect(aggregateTouchedFiles([{ timestamp: "t", toolCalls: storedCalls(h) }])).toEqual([]);
+  });
+
+  // An interrupted turn closes every started item as it stood
+  // (`reconcile_unfinished_started_items` in codex-rs exec 0.153.4), so a patch
+  // cut off mid-flight arrives as item.completed still `in_progress`.
+  test("a patch completed while still in progress closes as an error, and the strip lists nothing", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    pushEvent(provider, "s1", started, h);
+    pushEvent(provider, "s1", { type: "item.completed", item: { ...completed.item, status: "in_progress" } }, h);
+
+    const results = h.tools.filter((t) => t.type === "result");
+    expect(results).toHaveLength(3);
+    for (const r of results) {
+      expect(r.error).toBe(true);
+      expect(r.payload).toBeTruthy();
+    }
+    expect(aggregateTouchedFiles([{ timestamp: "t", toolCalls: storedCalls(h) }])).toEqual([]);
+  });
+
+  test("an unexpected changes shape is skipped without throwing", () => {
+    const provider = new CodexProvider({ type: "codex" });
+    const h = makeHandler();
+    for (const bad of [undefined, null, "a.txt", { path: "/repo/a.txt" }]) {
+      expect(() => pushEvent(provider, "s1", { type: "item.completed", item: { id: "x", type: "file_change", changes: bad } }, h)).not.toThrow();
+    }
+    expect(h.tools).toEqual([]);
+
+    pushEvent(provider, "s1", {
+      type: "item.completed",
+      item: { id: "y", type: "file_change", status: "completed", changes: [null, "b.txt", { path: 5 }, { path: "" }, { path: "/repo/ok.ts", kind: "update" }] },
+    }, h);
+    expect(h.toolNames).toEqual([{ id: "y:4", name: "apply_patch" }]);
   });
 });
 

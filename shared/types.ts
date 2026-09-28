@@ -1009,8 +1009,12 @@ export type ContentBlock =
    * respawns the CLI and the respawn kills the work; or the work closed by a
    * clock, `tasks` naming what was closed: after two hours without news of it
    * (`silent`, the default), with a wedged turn a watchdog ended, at a
-   * delegation's deadline, or with a superseded card's turn. The row's
-   * `content` is empty: it is a service line (server/lib/background-notice.ts).
+   * delegation's deadline, or with a superseded card's turn. `cron` = the tasks
+   * are session crons closed two hours after their arming (their fires do not
+   * extend them); it goes with `silent`, never a reason of its own: a client
+   * reads `why` as a key, and one older than the reason threw in the render
+   * (review of 27/09). The row's `content` is empty: it is a service line
+   * (server/lib/background-notice.ts).
    *
    * `text` is the English sentence, for clients older than this block: their
    * renderer takes a block it does not know for prose, and one without `text`
@@ -1018,7 +1022,7 @@ export type ContentBlock =
    * draw the translated line from the other fields.
    */
   | { kind: 'background-notice'; event: 'deferred'; change: 'autonomy' | 'model' | 'effort'; text: string }
-  | { kind: 'background-notice'; event: 'closed'; tasks: string[]; why?: 'silent' | 'stuck-turn' | 'deadline' | 'superseded'; text: string }
+  | { kind: 'background-notice'; event: 'closed'; tasks: string[]; why?: 'silent' | 'stuck-turn' | 'deadline' | 'superseded'; cron?: true; text: string }
   /**
    * THIS ROW IS AN ENVELOPE THE DISPATCHER WROTE, not something a person typed.
    *
@@ -1040,7 +1044,16 @@ export type ContentBlock =
    * ids means the reader can draw those words once, as the comments they are,
    * instead of twice. Absent on a kickoff, which delivers nothing.
    */
-  | { kind: 'dispatched-envelope'; commentIds?: string[] };
+  | { kind: 'dispatched-envelope'; commentIds?: string[] }
+  /**
+   * THIS ROW REPORTS THE END OF A COMMAND the topic launched with
+   * `run_command`, not something a person typed (server/lib/process-exit-wake.ts).
+   * It is a `user` row because it wakes the agent, and the block is what makes
+   * the chat draw a service line instead of the person's bubble. `exitCode` is
+   * null when the process ended without recording one; `label` is the
+   * command's short label, the one the Processes panel shows.
+   */
+  | { kind: 'process-exit'; processId: string; exitCode: number | null; label: string };
 
 // ─── Entità di dominio (payload REST + broadcast WS) ────────────────────
 //

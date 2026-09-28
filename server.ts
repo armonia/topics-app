@@ -5,6 +5,8 @@ import { finalizeOrphanedRunningTools } from "./server/lib/boot-orphan-tools";
 import { wakeVerdict, runningTaskOwnsTopic } from "./server/lib/wake-adoption";
 import { riprendiTurniInterrotti, type CtxRipresa } from "./server/lib/ripresa-boot";
 import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
+import { providerHoldFrame, wireHoldToResume } from "./server/lib/provider-hold-broadcast";
+import { createResumeSweepClock } from "./server/lib/resume-sweep-clock";
 import { resolveStateDir } from "./server/lib/data-dir";
 import { createSwapFreezer } from "./server/services/swap-freeze";
 import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "./server/services/swap-freeze-ledger";
@@ -166,7 +168,8 @@ import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
 import { automaticDispatchHooks } from "./server/services/task-auto-model";
 import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
-import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
+import { commandWakeState, createProcessesRouter, sessionsAwaitingCommandWake, startProcessDetection } from "./server/routes/processes";
+import { startProcessExitWakes } from "./server/lib/process-exit-wake";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
 import { createDeliveryCapture, type DeliveryCapture } from "./server/services/task-delivery-capture";
@@ -797,9 +800,9 @@ const claudeSessionTracker = createClaudeSessionTracker({
 ClaudeCodeProvider.observeTurnReleased((sk) => { claudeSessionTracker.syncImportOffsetToEnd(sk); });
 // A clock closed a CLI with background work still listed: the chat says what
 // died and why (server/lib/background-notice.ts), not only the log.
-ClaudeCodeProvider.observeBackgroundClosed((sessionKey, tasks, why) => {
+ClaudeCodeProvider.observeBackgroundClosed((sessionKey, tasks, why, cron) => {
   const topic = ctx.getTopicBySessionKey(sessionKey);
-  if (topic) postBackgroundNotice(ctx, { sessionKey, topicId: topic.id }, { kind: "background-notice", event: "closed", tasks, why });
+  if (topic) postBackgroundNotice(ctx, { sessionKey, topicId: topic.id }, { kind: "background-notice", event: "closed", tasks, why, cron });
 });
 ClaudeCodeProvider.observeConfigOwed((sessionKey, changes) => {
   const topic = ctx.getTopicBySessionKey(sessionKey);
@@ -1971,6 +1974,19 @@ const taskDispatcher = createTaskDispatcher({
   // dispacciata è di un altro provider, quindi la confusione passa da
   // impossibile a sistematica. Vedi `resolveTurnAlive`.
   isTurnAlive: (sessionKey) => resolveTurnAlive(sessionKey),
+  // A card whose turn ends on a `run_command` waits for its wake, as a goal does
+  // (`goal-continuation.ts`), and for the turn that wake opens.
+  awaitsCommandWake: (sessionKey) => commandWakeState(sessionKey) !== "none",
+  isSessionBusy: (sessionKey) => activeStreams.has(sessionKey),
+  // After a restart that wait starts again from the session's last row, not
+  // from the boot: this machine reloads the server at every save in server/.
+  lastSessionRowAt: (sessionKey) => {
+    const row = ctx.db.query(
+      "SELECT timestamp, streamed_at FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1",
+    ).get(sessionKey) as { timestamp?: string | null; streamed_at?: string | null } | null;
+    const times = [row?.timestamp, row?.streamed_at].map((v) => Date.parse(v ?? "")).filter(Number.isFinite);
+    return times.length ? Math.max(...times) : null;
+  },
   // THE REMOTE LANE (KANBAN-76, KANBAN-77): where a paired node answers, the
   // device token this machine holds for it, and the branch its bundle becomes
   // in this checkout.
@@ -4062,10 +4078,8 @@ const opzioniServer = {
       inviaIniziale({ type: "connected", clientId: ws.data.id });
       // A hold in force is the first thing a reconnecting client must know:
       // without it the banner would appear only at the NEXT change.
-      const holdInForce = providerHold();
-      if (holdInForce) {
-        inviaIniziale({ type: "provider:hold", untilMs: holdInForce.untilMs, window: holdInForce.window, reason: holdInForce.reason, sinceMs: holdInForce.sinceMs });
-      }
+      const holdInForce = providerHoldFrame(providerHold());
+      if (holdInForce.window) inviaIniziale(holdInForce);
       // The frozen trees, for the same reason: the frost has to be on the card
       // the moment a reloaded client paints it, and the next change may be ten
       // minutes away.
@@ -5248,9 +5262,9 @@ async function reattachSurvivingChatTurns(): Promise<void> {
       ? (topic.archived ? "archived topic" : `no in-flight turn (DB partial=no, broker=${brokerSays})`)
       : "topic gone";
     console.log(`[chat-reattach] reaping idle broker session ${s.id} (${why})`);
-    // Its listed background work, silent past the bound, dies with it: the chat says so.
-    const silent = (tryGetProvider("claude-code") as { takeSilentBackground?: (sk: string) => string[] } | undefined)?.takeSilentBackground?.(s.id) ?? [];
-    if (topic && silent.length) postBackgroundNotice(ctx, { sessionKey: s.id, topicId: topic.id }, { kind: "background-notice", event: "closed", tasks: silent, why: "silent" });
+    // Its background work past the bound (listed tasks, armed crons) dies with it: the chat says so.
+    const silent = (tryGetProvider("claude-code") as { takeSilentBackground?: (sk: string) => Array<{ tasks: string[]; why: "silent"; cron?: true }> } | undefined)?.takeSilentBackground?.(s.id) ?? [];
+    if (topic) for (const closed of silent) postBackgroundNotice(ctx, { sessionKey: s.id, topicId: topic.id }, { kind: "background-notice", event: "closed", ...closed });
     try { client.kill(s.id); } catch { /* daemon hiccup — next boot retries */ }
   }
 }
@@ -5559,6 +5573,7 @@ adottaTurniRisvegliati();
 const resumeCtx: CtxRipresa = {
   db: ctx.db,
   getTopicBySessionKey: (sk) => ctx.getTopicBySessionKey(sk),
+  defaultProvider: getDefaultProviderName,
   isStreaming: (sk) => ctx.isStreaming(sk),
   providerBusy: sessionHasPendingSend,
   bootedAtMs: SERVER_STARTED_AT,
@@ -5573,69 +5588,38 @@ const resumeCtx: CtxRipresa = {
 // then re-homed every survivor, so a missing transcript is proof of a dead cwd.
 // In coda `riprendiTurniInterrotti`: rimanda i turni uccisi dal riavvio che
 // nessuno riadotterà (`lib/ripresa-boot.ts`).
-reattachSurvivingChatTurns()
+const survivingTurnsAdopted = reattachSurvivingChatTurns();
+// The ends of `run_command` processes reach their topics once the surviving
+// turns are adopted (before, a session could look free mid-turn), in a branch
+// of their own: a sweep below that throws skips the rest of its chain, and the
+// wakes would have waited for the next boot without a word in the log.
+void survivingTurnsAdopted
+  .catch(() => { /* logged by the chain below */ })
+  .then(() => startProcessExitWakes({
+    db: ctx.db, getTopicById: ctx.getTopicById, ownedByRunningTask: (id) => runningTaskOwnsTopic(ctx.db, id),
+    isBusy: (sk) => activeStreams.has(sk), route: topicsRouter,
+    log: (m) => console.log(`[process-exit] ${m}`),
+  }));
+survivingTurnsAdopted
   .then(() => reconcileOrphanedBusyPhases())
   .then(() => reconcileOrphanedTranscripts())
   .then(() => reconcileArchivedTopicSessions())
   .then(() => riprendiTurniInterrotti(resumeCtx, topicsRouter))
-  // The sessions the reattach kept for their background work: their goals wait again.
-  .then(() => goalLoop?.resumeAfterBoot(sessionsWithBackgroundWork()))
+  // The sessions the reattach kept for their background work, and those a
+  // `run_command` still owes a wake: their goals wait again.
+  .then(() => goalLoop?.resumeAfterBoot([...new Set([...sessionsWithBackgroundWork(), ...sessionsAwaitingCommandWake()])]))
   .catch((err) => console.error("[chat-reattach] boot sweep failed", err))
-  .finally(() => scheduleResumeSweep());
+  .finally(() => resumeSweepClock.start());
 
-// NOT ONLY AT BOOT. A turn cut by the watchdog, a stall or a provider error
-// while the server keeps running was never resumed until the next boot: on
-// 2026-09-04 the person had to write "riprendi" by hand. The same sweep runs
-// every five minutes; a resumed row carries its `ripreso` marker and a new
-// answer after it, so a sweep never resends twice. Chained, not on an
-// interval: one sweep can wait up to fifteen minutes on a stream.
-const RESUME_SWEEP_MS = 5 * 60_000;
-
-/**
- * THE SWEEP RUNS EARLY WHEN A CUT JUST HAPPENED. The periodic tick is what
- * makes "riprende da solo" true at all; this is what makes it true within
- * seconds instead of within five minutes. One pending nudge at a time, and a
- * hold in force still wins: a resend into a spent usage window is a 429 and
- * one of the chain's attempts burnt for nothing.
- */
-const RESUME_NUDGE_MS = 20_000;
-let resumeNudge: ReturnType<typeof setTimeout> | null = null;
+// The periodic sweep and the early one after a cut (lib/resume-sweep-clock.ts).
+const resumeSweepClock = createResumeSweepClock(() => riprendiTurniInterrotti(resumeCtx, topicsRouter));
 function nudgeResumeSweep(): void {
-  if (resumeNudge) return;
-  resumeNudge = setTimeout(() => {
-    resumeNudge = null;
-    if (providerHold()) return;
-    riprendiTurniInterrotti(resumeCtx, topicsRouter)
-      .catch((err) => console.error("[ripresa] nudged sweep failed", err));
-  }, RESUME_NUDGE_MS);
-  resumeNudge.unref?.();
+  resumeSweepClock.nudge();
 }
 
-function scheduleResumeSweep(): void {
-  const t = setTimeout(() => {
-    // The plan's usage window is spent: a resend now would end on the same
-    // 429 and spend one of the chain's attempts for nothing. The sweep after
-    // the reset picks the same rows up.
-    const hold = providerHold();
-    if (hold) {
-      console.log(`[ripresa] sweep rinviato: ${hold.reason}, riparte alle ${holdUntilLabel(hold)}`);
-      scheduleResumeSweep();
-      return;
-    }
-    riprendiTurniInterrotti(resumeCtx, topicsRouter)
-      .catch((err) => console.error("[ripresa] periodic sweep failed", err))
-      .finally(() => scheduleResumeSweep());
-  }, RESUME_SWEEP_MS);
-  t.unref?.();
-}
-
-// The hold is news for every open chat: the banner says why nothing moves and
-// until when, instead of a spinner and 27 silent retries.
-onProviderHold((hold) => {
-  broadcastToAll(hold
-    ? { type: "provider:hold", untilMs: hold.untilMs, window: hold.window, reason: hold.reason, sinceMs: hold.sinceMs }
-    : { type: "provider:hold", untilMs: null, window: null, reason: null, sinceMs: null });
-});
+// The hold is news for every open chat, and a lift nudges the resume sweep
+// (lib/provider-hold-broadcast.ts).
+wireHoldToResume(onProviderHold, { broadcast: broadcastToAll, nudge: nudgeResumeSweep });
 
 // And the reading on the way there: how full the window is, said whenever
 // either source speaks (the CLI event, or a usage read the retry loop already

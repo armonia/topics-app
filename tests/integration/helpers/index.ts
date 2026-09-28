@@ -19,8 +19,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import path from "node:path";
-import { closeDatabase } from "../../../server/db";
+import { closeDatabase, getDatabase } from "../../../server/db";
 import type { AppContext } from "../../../server/types";
+import { trackTestTmpDir } from "../../setup/test-tmp-dirs";
 
 /**
  * Absolute path to the topics-app repo root, computed once from this
@@ -28,44 +29,54 @@ import type { AppContext } from "../../../server/types";
  */
 export const PROJECT_ROOT = path.resolve(import.meta.dirname, "../../..");
 
-/** Radici di scratch create da `testTmpDir` in questo processo. */
+/** Scratch roots created by `testTmpDir` in this process. */
 const tmpRoots: string[] = [];
-let cleanupArmed = false;
 
 /**
- * Cartella di scratch UNICA per questo processo, sotto `os.tmpdir()`.
+ * A scratch folder UNIQUE to this process, under `/tmp/topics-test`.
  *
- * Serve a tenere la suite ermetica quando gira in PARALLELO. Con un path
- * costante (`/tmp/topics-phase-c-data`) due `bun test` avviati insieme in
- * worktree diversi scrivono e cancellano la STESSA cartella: il 2026-08-13
- * questo ha prodotto 15 file rossi, tutti sotto `tests/integration/`, con zero
- * rossi fuori. Il rosso non era del codice in prova.
+ * It keeps the suite hermetic when it runs in PARALLEL. With a constant path
+ * (`/tmp/topics-phase-c-data`) two `bun test` runs started together in
+ * different worktrees write and delete the SAME folder: on 2026-08-13 that
+ * produced 15 red files, all under `tests/integration/`, and zero reds outside.
+ * The red did not belong to the code under test.
  *
- * `mkdtempSync` crea la cartella subito con un suffisso casuale, quindi due
- * processi non possono collidere. La cartella viene rimossa all'uscita del
- * processo.
+ * `mkdtempSync` creates the folder at once with a random suffix, so two
+ * processes cannot collide. The folder is removed once the test file that
+ * created it is over, after that file's own teardown: the preload sweeps it
+ * (see `tests/setup/test-tmp-dirs.ts` for why it is not an `afterAll` from
+ * here). It used to go in `process.on("exit")`, which `bun test` never calls.
  *
- * Usala per la RADICE dello scratch di un test e derivane i sottopath:
+ * Use it for the ROOT of a test's scratch and derive the subpaths from it:
  *
  *   const ROOT = testTmpDir("live-phase-gate");
  *   const TEST_DATA = path.join(ROOT, "data");
  */
 export function testTmpDir(label: string): string {
-  // Radice CORTA, non `os.tmpdir()`: su macOS quella e' `/var/folders/…/T/`, e
-  // un socket unix creato li' dentro sfonda il limite di 104 caratteri del path
-  // con un ENAMETOOLONG che non parla di niente. Esempio di risultato:
+  // A SHORT root, not `os.tmpdir()`: on macOS that is `/var/folders/…/T/`, and
+  // a unix socket created in there breaks the 104-character path limit with an
+  // ENAMETOOLONG that says nothing useful. Example result:
   // `/tmp/topics-test/live-phase-gate-a3Xk9Z`.
-  const radice = "/tmp/topics-test";
-  fs.mkdirSync(radice, { recursive: true });
-  const dir = fs.mkdtempSync(path.join(radice, `${label}-`));
+  const base = "/tmp/topics-test";
+  fs.mkdirSync(base, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(base, `${label}-`));
   tmpRoots.push(dir);
-  if (!cleanupArmed) {
-    cleanupArmed = true;
-    process.on("exit", () => {
-      for (const root of tmpRoots) fs.rmSync(root, { recursive: true, force: true });
-    });
-  }
+  trackTestTmpDir(dir, () => holdsOpenDatabase(dir));
   return dir;
+}
+
+/**
+ * True while the process database singleton is a file inside `root`: a later
+ * file's `initDatabase` may have been handed that open handle.
+ */
+function holdsOpenDatabase(root: string): boolean {
+  let file: string;
+  try {
+    file = getDatabase().filename;
+  } catch {
+    return false;
+  }
+  return path.resolve(file).startsWith(root + path.sep);
 }
 
 /** True se `p` sta dentro (o è) una radice creata da `testTmpDir`. */

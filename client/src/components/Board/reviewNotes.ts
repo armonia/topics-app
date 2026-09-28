@@ -92,6 +92,23 @@ export function noteKey(path: string, line: number, side: 'new' | 'old'): string
 }
 
 /**
+ * Whether a note of `path` has no row in `body`, the patch a view draws. A
+ * note written in "Full file" on a line outside the changed blocks has none in
+ * the diff; with no patch at all (a file past the bundle's cap) none has one.
+ */
+export function hasNoteWithoutRow(notes: readonly DiffNote[], path: string, body: string | undefined): boolean {
+  const mine = notes.filter((n) => n.path === path);
+  if (mine.length === 0) return false;
+  if (body === undefined) return true;
+  const drawn = new Set<string>();
+  for (const row of parseDiffRows(body)) {
+    const a = anchorOf(row);
+    if (a) drawn.add(noteKey(path, a.line, a.side));
+  }
+  return mine.some((n) => !drawn.has(noteKey(n.path, n.line, n.side)));
+}
+
+/**
  * Recinto lungo abbastanza da contenere il codice citato: una riga che contiene
  * ``` spezzerebbe un fence da tre e il commento arriverebbe sfondato.
  */

@@ -9,6 +9,7 @@ import {
   type NotificationRecordInput,
 } from "../shared/notification-log";
 import { questionAsksHuman } from "../shared/board";
+import { outageNoticeResumes } from "./lib/cancelled-notice";
 
 // Il modulo è puro (nessuna dipendenza dal DB), ma la push di fine chat vuole il
 // NOME del topic, non il suo id: senza, la notifica ti sveglia senza dirti DI
@@ -325,9 +326,14 @@ export function maybeSendPush(message: Record<string, any>): void {
     // (user stop, stale sweep) is not a death to announce and falls through to
     // the gates below. Board agents keep their own channel (`task:parked`),
     // and a server shutdown resumes the turn at boot by itself: neither is a
-    // push. Mute rules are the same three as the reply push.
+    // push. Nor an outage outside the turn (the API down, the ai-bridge daemon
+    // gone) whose notice promises the resume: each probe into an API still
+    // down cuts the row again, a push an hour per chat in a long blackout. The
+    // same outage on a wake is not resent, and its notice asks the person: that
+    // one is a push. Mute rules are the same three as the reply push.
     const errorText = typeof message.error === "string" ? message.error.trim() : "";
-    if (message.reason === "error" && errorText && topicId && !dispatched && message.stopCause !== "server-shutdown") {
+    const resumesUnasked = message.stopCause === "server-shutdown" || outageNoticeResumes(errorText);
+    if (message.reason === "error" && errorText && topicId && !dispatched && !resumesUnasked) {
       if (resolveTopicSilenced?.(topicId)) return;
       const name = resolveTopicName?.(topicId);
       const title = name ? `⚠️ ${name}` : "⚠️ La chat si è fermata";

@@ -68,6 +68,9 @@ mime }`. La leggono la rotta (cosa servire, con che `Content-Type`) e
   `FilePane` e della chat resta identico.
 - «File intero» usa `git diff -U100000` sul solo file: stessi numeri di riga,
   quindi `anchorOf`/`noteKey` (`reviewNotes.ts`) non cambiano. Il tetto
-  `DIFF_FILE_PATCH_CAP` (2 MB) resta.
+  `DIFF_FILE_PATCH_CAP` (2 MB) resta. Per un file rinominato il pathspec porta
+  anche `origPath` (`&orig=`), altrimenti git lo legge come file nuovo. Il patch
+  si rilegge quando il pacchetto riletto nomina altre revisioni o porta per quel
+  file un blocco diverso.
 - Stringhe nuove in `i18n-it.ts` e `i18n-en.ts`: `diff.before`, `diff.after`,
   `diff.preview`, `diff.viewDiff`, `diff.fullFile`, `diff.previewUnavailable`.

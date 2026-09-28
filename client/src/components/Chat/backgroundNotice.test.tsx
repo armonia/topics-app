@@ -6,7 +6,8 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { backgroundNoticeOf, lastConversationMessage } from './machineRow';
+import { backgroundNoticeOf, lastConversationMessage, type BackgroundNoticeBlock } from './machineRow';
+import { t } from '../../lib/i18n';
 import { BackgroundNoticeLine } from './BackgroundNoticeLine';
 import { MachineStopLine } from './MachineStopLine';
 import { machineStopOf } from './machineRow';
@@ -58,5 +59,14 @@ describe('the background notice as a service line', () => {
     const html = renderToStaticMarkup(<BackgroundNoticeLine notice={backgroundNoticeOf(notice.blocks)!} />);
     expect(html).toContain('data-background-notice="closed:stuck-turn"');
     expect(html).toContain('sleep 600');
+    // A cron past its two hours has its own sentence: it fired all along, it was never silent.
+    const cron = renderToStaticMarkup(<BackgroundNoticeLine notice={{ kind: 'background-notice', event: 'closed', tasks: ['Every 30 minutes (cron)'], why: 'silent', cron: true, text }} />);
+    expect(cron).toContain(`${t('background.notice.closedCronCap', 'it', { tasks: 'Every 30 minutes (cron)' })}</span>`);
+  });
+
+  test('a reason newer than this client is said with the server\'s own sentence, not a render that throws', () => {
+    // The server reloads on a land, public/ only on a deploy, and a window lives for days.
+    const later = { kind: 'background-notice', event: 'closed', tasks: ['sleep 600'], why: 'a-later-reason', text } as unknown as BackgroundNoticeBlock;
+    expect(renderToStaticMarkup(<BackgroundNoticeLine notice={later} />)).toContain(`${text}</span>`);
   });
 });

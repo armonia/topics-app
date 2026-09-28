@@ -80,6 +80,8 @@ export { attemptHasWork } from '../../../shared/task-attempt';
 export type { TaskAttempt } from '../../../shared/task-attempt';
 import type { TaskAttempt } from '../../../shared/task-attempt';
 import { coalescedFetch } from './coalesceFetch';
+import { serverHttpBase } from './shell/net';
+import type { DiffRevs } from '../../../shared/diff-revs';
 
 /**
  * Reserved board id for tasks created WITHOUT a project (work spanning several
@@ -866,6 +868,8 @@ export interface DiffFileStat {
   additions: number; // -1 = binary
   deletions: number; // -1 = binary
   status: string;
+  /** Rename or copy (`R`/`C`): the path the content came from, where its Before lives. */
+  origPath?: string;
 }
 
 /**
@@ -894,6 +898,42 @@ export interface DiffBundle {
   truncated: boolean;
   code?: DiffMissCode;
   source?: DiffSource | null;
+  /** The two SHAs the diff compares: the byte route answers only for these. */
+  revs?: DiffRevs | null;
+}
+
+/** Which route a diff panel reads from: a card (or one attempt of its fan-out), or a publish. */
+export type DiffPanelSource =
+  | { kind: 'task'; projectId: string; taskId: string; attemptId?: string }
+  | { kind: 'publish'; projectId: string };
+
+/** The route of a panel source, and the query it always carries (the attempt). */
+function diffRoute(source: DiffPanelSource): { path: string; extra: string } {
+  if (source.kind === 'publish') return { path: `/boards/${enc(source.projectId)}/publish-diff`, extra: '' };
+  return {
+    path: `/boards/${enc(source.projectId)}/tasks/${enc(source.taskId)}/diff`,
+    extra: source.attemptId ? `&attempt=${enc(source.attemptId)}` : '',
+  };
+}
+
+/**
+ * The bytes of `path` at `rev` (a SHA of `revs`, or `worktree`), for a `fetch`.
+ * `version` names which content of a `worktree` file is meant (`v=`, which the
+ * route does not read): the name `worktree` stays while the agent rewrites the
+ * file, and a page shows the picture it already holds for an unchanged URL.
+ */
+export function diffBlobPath(source: DiffPanelSource, path: string, rev: string, version?: string): string {
+  const r = diffRoute(source);
+  return `/api${r.path}?file=${enc(path)}&blob=${enc(rev)}${version ? `&v=${enc(version)}` : ''}${r.extra}`;
+}
+
+/**
+ * The same bytes for an `<img src>`. Absolute: an `<img>` does not go through
+ * the fetch shim, so under Tauri a relative URL would resolve against the
+ * asset protocol and break.
+ */
+export function diffBlobUrl(source: DiffPanelSource, path: string, rev: string, version?: string): string {
+  return `${serverHttpBase()}${diffBlobPath(source, path, rev, version)}`;
 }
 
 /**
@@ -1158,9 +1198,13 @@ export const boardApi = {
   taskDiff: (projectId: string, taskId: string, attemptId?: string) =>
     req<DiffBundle>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/diff${attemptId ? `?attempt=${enc(attemptId)}` : ''}`),
   /** The patch of ONE file on the bundle's range: how a file left past the
-   *  payload cap gets read. */
-  taskDiffFile: (projectId: string, taskId: string, path: string, attemptId?: string) =>
-    req<{ path: string; patch: string; truncated: boolean }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/diff?file=${enc(path)}${attemptId ? `&attempt=${enc(attemptId)}` : ''}`),
+   *  payload cap gets read, and with `full` the whole file as context. A
+   *  rename's `origPath` goes along, or git reads the file as new. */
+  diffFile: (source: DiffPanelSource, path: string, opts?: { full?: boolean; origPath?: string }) => {
+    const r = diffRoute(source);
+    const orig = opts?.origPath ? `&orig=${enc(opts.origPath)}` : '';
+    return req<{ path: string; patch: string; truncated: boolean }>(`${r.path}?file=${enc(path)}${orig}${opts?.full ? '&context=full' : ''}${r.extra}`);
+  },
   /** I tentativi paralleli di un fan-out. Lista vuota = task dispatchato normalmente. */
   attempts: (projectId: string, taskId: string) =>
     req<{ attempts: TaskAttempt[] }>(`/boards/${enc(projectId)}/tasks/${enc(taskId)}/attempts`).then(r => r.attempts),

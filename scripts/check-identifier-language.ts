@@ -95,6 +95,11 @@ export const PROJECT_WORDS = new Set([
   // `reparent` is the tree operation of moving a node's children under its own
   // parent: the dedupe script does exactly that before deleting a copy.
   "reparent",
+  // What the Codex CLI calls the JSONL file each thread writes under
+  // `~/.codex/sessions` (`rollout-<time>-<id>.jsonl`), and what
+  // `server/lib/codex-session.ts` already reads it as: a name for that file has
+  // no other honest word (2026-09-28, sub-agent patches read back from it).
+  "rollout",
   // `colliding`: the present participle, same case as `scanned` above — the
   // dictionary carries the verb and not this form. It names the typography
   // gate's rule about two `--text-*` namespaces landing on one name.

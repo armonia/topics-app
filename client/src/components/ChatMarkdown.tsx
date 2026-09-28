@@ -72,7 +72,7 @@ import { useToast } from './Shared/Toast';
  * Chi passa un proprio `a` nei `components` lo sovrascrive comunque (lo spread
  * più sotto mette i components del chiamante DOPO).
  */
-function DeepLinkAnchor({ href, children }: { href?: string; children?: ReactNode }) {
+export function DeepLinkAnchor({ href, children }: { href?: string; children?: ReactNode }) {
   const toast = useToast();
   return (
     <a

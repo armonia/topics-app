@@ -189,6 +189,8 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
     db.run(`CREATE TABLE activity_log (
       id TEXT PRIMARY KEY, timestamp TEXT NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL, session_key TEXT
     )`);
+    // And those of migration 056: a manual marker is a /compact's answer.
+    db.run("CREATE TABLE compaction_markers (id TEXT PRIMARY KEY, session_key TEXT, after_message_id TEXT, trigger TEXT)");
     rows.forEach((r, i) => db.run(
       "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,?,?,?,?,0,?,?,?,0)",
       [r.id, sk, r.role, r.role === "user" ? "fai il merge" : "", r.blocks ? JSON.stringify(r.blocks) : null,
@@ -440,6 +442,21 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
     await sweep({ ...ctxOf(db), bootedAtMs: Date.now() - HOUR }, calls);
     expect(calls).toHaveLength(0);
     expect(rowCount(db)).toBe(1);
+  });
+
+  test("(d) the same /compact after a reload: the registry forgot its end, and its manual marker still answers it", async () => {
+    // The route wrote the compaction's `manual` marker on the message, and the
+    // reload emptied the turn-end registry. An `auto` marker is a compaction
+    // the CLI made on its own inside a turn, which says nothing of an answer.
+    for (const [trigger, resends] of [["manual", 0], ["auto", 1]] as const) {
+      const db = chatDb([{ id: "u0", role: "user", agoMs: 5 * 60_000 }]);
+      db.run("UPDATE messages SET content = '/compact' WHERE id = 'u0'");
+      db.run("INSERT INTO compaction_markers (id, session_key, after_message_id, trigger) VALUES ('m0', ?, 'u0', ?)", [SK, trigger]);
+      const calls: unknown[] = [];
+      await sweep({ ...ctxOf(db), bootedAtMs: Date.now() - 60_000 }, calls);
+      expect(calls, trigger).toHaveLength(resends);
+      expect(rowCount(db), trigger).toBe(1 + resends);
+    }
   });
 
   test("(c) unanswered after a boot but cut by the watchdog: the cause wins over the boot", async () => {

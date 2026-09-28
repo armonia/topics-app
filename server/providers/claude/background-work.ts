@@ -16,6 +16,17 @@
  *     waited for five of its own verifiers;
  *   - the idle reaper kills a child fifteen minutes after its last turn.
  *
+ * A session cron (CronCreate) is pending work too: the CLI fires it by itself,
+ * and killing the child takes it along. CLI 2.1.282 prints no task line about
+ * it, only the tool call, its result and a `command_lifecycle` at the fire
+ * (`claude-cli-2.1.282-session-cron.ndjson`). The goal loop waits on it as on a
+ * task, check-ins at 30, 60 and 120 minutes included: while a recurring cron
+ * is armed every turn it fires is deferred, and the check-in is the only time
+ * the goal is judged. ScheduleWakeup, the other session cron (a /loop with no
+ * interval), is not offered to a `--print` session: recorded on 27/09 with CLI
+ * 2.1.283, init lists CronCreate, CronDelete and CronList only, and /loop with
+ * no interval runs once and asks for one.
+ *
  * This module is the one answer they all read: is this session's background
  * work still alive? The provider keeps one of these per process and folds every
  * stdout line into it; nothing here touches the process, the DB or a clock.
@@ -37,13 +48,20 @@ export type { BackgroundWorkDetail };
  * the delay of a goal check-in, see `goal-continuation.ts`). This bound exists
  * only so that a task the CLI stopped reporting on cannot hold a CLI in RAM
  * forever on this Mac; when it fires, the reaper says so in the chat.
+ *
+ * A session cron is held by the same bound, counted from its arming: its fires
+ * do not extend it, or a cron firing every ten minutes would hold its CLI for
+ * the seven days Claude Code gives a recurring one. Past it the lifetime cap or
+ * the idle reaper closes the CLI with the cron still armed, and the chat hears
+ * it named as a cron (`closedWork`).
  */
 export const BACKGROUND_WORK_CAP_MS = 2 * 60 * 60_000;
 
 /**
- * How long a reported task keeps the session busy until the CLI wakes to answer
- * it. Recorded, the wake's `system/init` follows the notification by 0.3 to
- * 1.1 s; Claude Code re-checks its own goal after 60 s in the same state.
+ * How long a reported task, or a command the CLI started by itself, keeps the
+ * session busy until the CLI wakes to answer it. Recorded, the wake's
+ * `system/init` follows the notification by 0.3 to 1.1 s, and a cron's fire by
+ * 182 ms; Claude Code re-checks its own goal after 60 s in the same state.
  */
 export const WAKE_QUEUED_MS = 60_000;
 
@@ -66,14 +84,24 @@ export interface BackgroundWork {
   lastSignalAt: number;
   /** Tasks seen starting or listed, until their `task_notification`. */
   facts: Map<string, TaskFacts>;
-  /** A background task of the model reported and the wake answering it has not started yet. */
+  /** A background task of the model reported, or the CLI started a command of its own, and the turn answering it has not started yet. */
   wakeQueuedAt: number | null;
   /** Tool calls of the Monitor tool not yet matched to their task. */
   monitorCalls: Set<string>;
+  /** Tool calls of CronCreate not yet answered with the cron's id. */
+  cronCalls: Set<string>;
+  /** Session crons by the id CronCreate returned, until fired (a one-shot) or deleted; `schedule` is the CLI's `humanSchedule`. */
+  crons: Map<string, { recurring: boolean; armedAt: number; schedule: string }>;
+  /** The `command_uuid` of every command already accounted for: a fire, or one `queued` first, which a cron trigger never is. */
+  commands: Set<string>;
+  /** One-shots a fire disarmed: a replay of their CronCreate result does not arm them again. */
+  fired: Set<string>;
+  /** The CLI started a command (a cron's fire, a peer's message): the next init opens its turn, and is no Monitor's event. */
+  commandStarted: boolean;
 }
 
 export function newBackgroundWork(): BackgroundWork {
-  return { tasks: new Map(), lastSignalAt: 0, facts: new Map(), wakeQueuedAt: null, monitorCalls: new Set() };
+  return { tasks: new Map(), lastSignalAt: 0, facts: new Map(), wakeQueuedAt: null, monitorCalls: new Set(), cronCalls: new Set(), crons: new Map(), commands: new Set(), fired: new Set(), commandStarted: false };
 }
 
 /**
@@ -114,21 +142,43 @@ export function noteBackgroundLine(
     if (work.tasks.size !== before.size || [...work.tasks.keys()].some((id) => !before.has(id))) work.lastSignalAt = now;
     return;
   }
-  const e = event as { type?: unknown; subtype?: unknown; task_id?: unknown; tool_use_id?: unknown; owned_by_subagent?: unknown; message?: { content?: unknown } } | null;
+  const e = event as { type?: unknown; subtype?: unknown; task_id?: unknown; tool_use_id?: unknown; owned_by_subagent?: unknown; state?: unknown; command_uuid?: unknown; message?: { content?: unknown } } | null;
   if (e?.type === "assistant" && Array.isArray(e.message?.content)) {
-    for (const b of e.message.content as Array<{ type?: unknown; name?: unknown; id?: unknown }>) {
-      if (b?.type === "tool_use" && b.name === "Monitor" && typeof b.id === "string") work.monitorCalls.add(b.id);
+    for (const b of e.message.content as Array<{ type?: unknown; name?: unknown; id?: unknown; input?: { id?: unknown } }>) {
+      if (b?.type !== "tool_use" || typeof b.id !== "string") continue;
+      if (b.name === "Monitor") work.monitorCalls.add(b.id);
+      if (b.name === "CronCreate") work.cronCalls.add(b.id);
+      if (b.name === "CronDelete" && typeof b.input?.id === "string") work.crons.delete(b.input.id);
     }
   }
+  if (e?.type === "user" && work.cronCalls.size > 0) noteCronScheduled(work, event, now);
+  // A cron's fire, turn of ours open or not. Topics writes no uuid on stdin,
+  // and "commands enqueued without a uuid emit no lifecycle events" (the CLI's
+  // schema), so a `started` is a command the CLI queued by itself: a cron
+  // trigger, and also a peer's message, a teammate's shutdown prompt, a
+  // deferred turn's resume. A peer's message is `queued` first, a cron trigger
+  // never is; the other two look like a fire and are read as one.
+  if (e?.type === "command_lifecycle" && (e.state === "queued" || e.state === "started")) noteCronFired(work, e.command_uuid, e.state);
+  if (e?.type === "command_lifecycle" && e.state === "started") work.commandStarted = true;
+  // With no turn of ours open, a started command opens the CLI's own turn. Its
+  // init comes 182 ms later in the recording, and until then no turn is
+  // visible: the fire has just disarmed its one-shot, and a clock ticking in
+  // between kills the CLI as it starts the fire (review of 27/09).
+  if (e?.type === "command_lifecycle" && e.state === "started" && opts.unattended) work.wakeQueuedAt = now;
   if (e?.type === "system" && typeof e.subtype === "string") {
     const id = typeof e.task_id === "string" ? e.task_id : null;
     if (e.subtype === "init") {
       // A turn of the model starts: whatever was queued is being answered.
       work.wakeQueuedAt = null;
+      const command = work.commandStarted;
+      work.commandStarted = false;
       // A wake is news of a listed MONITOR, the one task whose events wake the
       // CLI with no task line. Any wake counted for every task, so a lost Bash
       // stayed kept for good by a CronCreate's wakes (second review of 25/09).
-      if (opts.unattended && [...work.tasks.keys()].some((t) => work.facts.get(t)?.monitor)) work.lastSignalAt = now;
+      // Not the turn of a command the CLI started: a Monitor's wake has no
+      // `command_lifecycle` (2.1.282 fixture), and a recurring cron's fires
+      // kept a silent Monitor for the cron's seven days (review of 28/09).
+      if (opts.unattended && !command && [...work.tasks.keys()].some((t) => work.facts.get(t)?.monitor)) work.lastSignalAt = now;
       return;
     }
     if (!id || !e.subtype.startsWith("task_")) return;
@@ -157,6 +207,56 @@ export function noteBackgroundLine(
 }
 
 /**
+ * CronCreate's result arms the cron under the id it returned, unless durable:
+ * that one survives the child ("on next launch they resume automatically",
+ * the CLI's own description), so closing the CLI loses nothing. Dated by the
+ * line's own `timestamp`: a reattach replays the store with "now", and a cron
+ * armed hours ago must not look freshly armed after every restart.
+ *
+ * Never a one-shot already fired: the reattach of a row whose turn ended while
+ * the server was away replays the store from that row's mark into the
+ * background the scan folded, the result armed the one-shot again, its fire
+ * was skipped as already seen, and the cron held its CLI for two hours (review
+ * of 27/09). A CronDelete needs nothing of the kind: the replay folds it again.
+ */
+function noteCronScheduled(work: BackgroundWork, event: unknown, now: number): void {
+  const e = event as { timestamp?: unknown; tool_use_result?: { id?: unknown; recurring?: unknown; humanSchedule?: unknown; durable?: unknown }; message?: { content?: unknown } };
+  if (!Array.isArray(e.message?.content)) return;
+  for (const b of e.message.content as Array<{ type?: unknown; tool_use_id?: unknown }>) {
+    if (b?.type !== "tool_result" || typeof b.tool_use_id !== "string" || !work.cronCalls.delete(b.tool_use_id)) continue;
+    const id = e.tool_use_result?.id;
+    if (typeof id !== "string" || work.fired.has(id)) continue; // refused (nothing armed), or fired since
+    if (e.tool_use_result?.durable === true) continue; // in .claude/scheduled_tasks.json: the next launch resumes it
+    const at = typeof e.timestamp === "string" ? Date.parse(e.timestamp) : NaN;
+    const schedule = typeof e.tool_use_result?.humanSchedule === "string" ? e.tool_use_result.humanSchedule : id;
+    work.crons.set(id, { recurring: e.tool_use_result?.recurring !== false, armedAt: Number.isFinite(at) ? at : now, schedule });
+  }
+}
+
+/**
+ * The CLI does not say which cron fired. A one-shot is gone once it fires, so
+ * the oldest one leaves; while a recurring cron is armed too the fire may be
+ * that one's, and the one-shot stays, held by the bound like the rest.
+ *
+ * Once per command: a reattach scans the store, then folds the open turn again
+ * from the last `result`, and a fire inside it folded twice disarmed a second
+ * one-shot still armed in the CLI, which the reaper then closed (review of 27/09).
+ * A command seen `queued` is none: its `started` comes after.
+ */
+function noteCronFired(work: BackgroundWork, command: unknown, state: "queued" | "started"): void {
+  if (typeof command === "string") {
+    if (work.commands.has(command)) return;
+    work.commands.add(command);
+  }
+  if (state === "queued") return;
+  const crons = [...work.crons];
+  if (crons.some(([, c]) => c.recurring)) return;
+  if (crons.length === 0) return;
+  work.crons.delete(crons[0][0]);
+  work.fired.add(crons[0][0]);
+}
+
+/**
  * A replay folds every line with "now". The child's last write is the true age
  * of that news: a job silent for hours must not look fresh after every restart,
  * or no clock ever collects a lost one.
@@ -166,7 +266,7 @@ export function datedByLastWrite(work: BackgroundWork, lastDataAt: number): void
   if (work.wakeQueuedAt !== null && lastDataAt < work.wakeQueuedAt) work.wakeQueuedAt = lastDataAt;
 }
 
-/** A reported task whose wake has not started yet, within `WAKE_QUEUED_MS`. */
+/** A reported task, or a command the CLI started, whose turn has not started yet, within `WAKE_QUEUED_MS`. */
 export function isWakeQueued(work: BackgroundWork | undefined, now: number): boolean {
   return !!work && work.wakeQueuedAt !== null && now - work.wakeQueuedAt < WAKE_QUEUED_MS;
 }
@@ -177,19 +277,67 @@ export function hasLiveTasks(work: BackgroundWork | undefined, now: number): boo
 }
 
 /**
+ * Work that can speak while a turn of ours is open: listed tasks with news, or
+ * a wake about to start. Not an armed cron: the CLI holds a fire until the
+ * turn's `result` (recorded 28/09, CLI 2.1.283: a one-shot due at 10:42:00Z
+ * fired 11 ms after the result of a turn whose Bash ran until 10:42:03Z), so a
+ * turn silent for minutes is not waiting on it. What the stall judge and the
+ * lifetime cap's wedged-turn rule read.
+ */
+export function hasTaskWork(work: BackgroundWork | undefined, now: number): boolean {
+  return hasLiveTasks(work, now) || isWakeQueued(work, now);
+}
+
+/** The session crons armed less than `BACKGROUND_WORK_CAP_MS` ago: the CLI will fire them by itself. */
+function armedCrons(work: BackgroundWork | undefined, now: number): Array<{ recurring: boolean; armedAt: number; schedule: string }> {
+  return work ? [...work.crons.values()].filter((c) => now - c.armedAt < BACKGROUND_WORK_CAP_MS) : [];
+}
+
+/** A session cron armed within the bound (`armedCrons`). */
+export function hasArmedCron(work: BackgroundWork | undefined, now: number): boolean {
+  return armedCrons(work, now).length > 0;
+}
+
+/** One chat line about work a clock closed; `cron` = session crons past the bound, which counts from their arming. */
+export type ClosedWork<Why extends string> = { tasks: string[]; why: Why; cron?: true };
+
+/**
+ * What closing the CLI takes with it, named for the chat: listed tasks by their
+ * description, armed crons by their schedule, under the reason the clock gives.
+ * Past the bound (`silent`) the crons get a line of their own, flagged `cron`:
+ * a /loop that fired all along was never "without news". A flag and not a new
+ * reason: a client older than the flag reads `why` as a key, and a reason it
+ * has no sentence for threw in the render and took the whole pane down (review
+ * of 27/09); with `silent` it says the tasks' sentence instead.
+ */
+export function closedWork<Why extends string>(work: BackgroundWork | undefined, why: Why): Array<ClosedWork<Why>> {
+  const tasks = [...(work?.tasks.values() ?? [])].map((t) => t.description || t.type);
+  const crons = [...(work?.crons.values() ?? [])].map((c) => `${c.schedule} (cron)`);
+  const said: Array<ClosedWork<Why>> = why === "silent" ? [{ tasks, why }, { tasks: crons, why, cron: true }] : [{ tasks: [...tasks, ...crons], why }];
+  return said.filter((s) => s.tasks.length > 0);
+}
+
+/**
  * The work as a chat names it: the listed tasks, only while they are alive
- * (`hasLiveTasks`), and the last news. A list past the bound is already given
+ * (`hasLiveTasks`), the session crons still armed within the bound
+ * (`hasArmedCron`), and the last news. A list past the bound is already given
  * up on by every clock, and a reported task waiting for its wake is no longer
- * running, so both name no task.
+ * running, so both name no task. A cron is named by its schedule, as
+ * `closedWork` names it when a clock closes it; its arming is news about it,
+ * or a chat holding only a cron would read as silent since its last task.
  */
 export function describeBackgroundWork(work: BackgroundWork | undefined, now: number): BackgroundWorkDetail {
   const tasks = work && hasLiveTasks(work, now)
     ? [...work.tasks.values()].map((t) => ({ type: t.type, description: t.description || t.type }))
     : [];
-  return { tasks, lastSignalAt: work?.lastSignalAt ?? 0 };
+  const crons = armedCrons(work, now);
+  return {
+    tasks: [...tasks, ...crons.map((c) => ({ type: "cron", description: `${c.schedule} (cron)` }))],
+    lastSignalAt: Math.max(work?.lastSignalAt ?? 0, ...crons.map((c) => c.armedAt)),
+  };
 }
 
 /** Is there background work alive, or a wake about to answer it, as of `now`? */
 export function isBackgroundWorkAlive(work: BackgroundWork | undefined, now: number): boolean {
-  return hasLiveTasks(work, now) || isWakeQueued(work, now);
+  return hasTaskWork(work, now) || hasArmedCron(work, now);
 }

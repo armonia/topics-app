@@ -1,6 +1,7 @@
 /**
  * What a chat with no turn open is still waiting on: the work its last turn
- * left running (an Agent, a Bash, a Monitor, a Workflow), as the `background`
+ * left running (an Agent, a Bash, a Monitor, a Workflow) or a session cron it
+ * armed (`type: "cron"`, named by its schedule), as the `background`
  * row of `GET /api/topics/streaming` carries it. One declaration for the server
  * that writes it and the client that draws it.
  */

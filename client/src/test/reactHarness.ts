@@ -75,6 +75,12 @@ function contextKeys(x: unknown): unknown[] {
   return keys;
 }
 
+const MEMO_TYPE = Symbol.for('react.memo');
+
+function isMemo(type: unknown): type is { type: unknown } {
+  return typeof type === 'object' && type !== null && (type as { $$typeof?: unknown }).$$typeof === MEMO_TYPE;
+}
+
 function depsChanged(prev: readonly unknown[] | undefined, next: readonly unknown[] | undefined): boolean {
   if (!prev || !next) return true;
   if (prev.length !== next.length) return true;
@@ -235,7 +241,10 @@ export function mount(element: React.ReactNode): Harness {
     }
     if (!React.isValidElement(node)) return;
     const props = node.props as { children?: React.ReactNode; value?: unknown };
-    const type = node.type;
+    // A `memo` component is its inner component, called on every pass like
+    // every other one here (no bailout, see above). Unwrapped, it used to fall
+    // through to the children walk and draw nothing, without an error.
+    const type = isMemo(node.type) ? node.type.type : node.type;
 
     if (typeof type === 'function') {
       const name = (type as { displayName?: string; name?: string }).displayName ?? (type as { name?: string }).name ?? 'anonymous';

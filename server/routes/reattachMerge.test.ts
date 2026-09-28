@@ -184,3 +184,45 @@ describe("mergeReattachedRow: the person's side of a question survives the repla
     expect(m.blocks).toBe(blocks);
   });
 });
+
+describe("mergeReattachedRow: the marks a row opens with survive the reattach", () => {
+  // A reattach route starts from an empty timeline: it is neither a wake nor a
+  // resend (chat.ts starts it with `cartelloRisveglio(false)` and no
+  // `ripresa`), so no replay writes these marks and the row's are the only
+  // copy. The resume reads them: `woken` keeps an outage cut of a wake from
+  // resending the person's previous message, a leading `ripreso` keeps a probe
+  // into an API still down free (lib/ripresa-boot.ts).
+  const WAKE_MARK = { kind: "woken", label: "build finito" };
+  const RESENT = { kind: "ripreso", attempt: 1 };
+  const tool = (id: string) => ({ kind: "tool", toolCall: { id } });
+  const kinds = (blocks: unknown[] | undefined) => (blocks ?? []).map((b) => (b as { kind: string }).kind);
+  const row = (blocks: unknown[]): RowSnapshot => ({ content: "", thinking: null, toolCallsJson: null, blocksJson: JSON.stringify(blocks) });
+
+  test("a wake replayed in full keeps its woken mark in front, at the end and halfway through", () => {
+    const produced = { content: "Il build è passato.", trackedTools: 1, blocks: [tool("t1"), { kind: "text", text: "Il build è passato." }] };
+    for (const phase of ["final", "progress"] as const) {
+      const m = mergeReattachedRow(row([WAKE_MARK, tool("t1")]), produced, phase);
+      expect(kinds(m.blocks), phase).toEqual(["woken", "tool", "text"]);
+      expect(m.blocks![0], phase).toEqual(WAKE_MARK);
+    }
+  });
+
+  test("a wake of text alone keeps its mark when the replay brings the text again", () => {
+    const m = mergeReattachedRow(row([WAKE_MARK, { kind: "text", text: "Fatto" }]), { content: "Fatto.", trackedTools: 0, blocks: [{ kind: "text", text: "Fatto." }] });
+    expect(kinds(m.blocks)).toEqual(["woken", "text"]);
+  });
+
+  test("a resend's banner stays in front of what the replay brings, or alone when it brings nothing", () => {
+    const withText = mergeReattachedRow(row([RESENT]), { content: "API Error", trackedTools: 0, blocks: [{ kind: "text", text: "API Error" }] });
+    expect(kinds(withText.blocks)).toEqual(["ripreso", "text"]);
+    const mute = mergeReattachedRow(row([RESENT]), { content: "", trackedTools: 0, blocks: [] });
+    expect(mute.blocks).toEqual([RESENT]);
+    expect(mute.nothingNew).toBe(true);
+  });
+
+  test("a replay that brings nothing leaves a row without tools as it was, so a verdict appended after it takes nothing away", () => {
+    const before = [RESENT, { kind: "text", text: "Sto misurando" }];
+    const m = mergeReattachedRow(row(before), { content: "", trackedTools: 0, blocks: [] });
+    expect(m.blocks).toEqual(before);
+  });
+});

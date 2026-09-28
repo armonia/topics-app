@@ -12,6 +12,7 @@ import { join } from "path";
 import { createInterface, Interface } from "readline";
 import { getAiBridgeClient, type AiBridgeClient } from "../lib/ai-bridge-client";
 import { createLineFolder } from "../lib/ndjson-lines";
+import { agentBaseEnv } from "../lib/agent-env";
 import { readdirSync, existsSync, mkdirSync, writeFileSync, unlinkSync, readFileSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import type {
@@ -33,7 +34,7 @@ import { parseCompactBoundary } from "./claude/compaction";
 import { foldRowTurns, isDeliveryMark, isNotificationTurnEnd, isWakeMark, rowTurn, wakeMark, type RowTurns } from "./claude/row-turn";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
-import { applyJobQuota } from "../services/agent-job-quota";
+import { applyJobQuota, readDispatchBinding } from "../services/agent-job-quota";
 import { resolveInheritedMcp } from "./mcp-inheritance";
 // La decodifica degli eventi `stream-json` — campi INTERNI della CLI, non
 // un'API pubblicata — vive in un modulo puro, provato su fixture registrate.
@@ -54,8 +55,9 @@ import {
   type CallUsage,
 } from "./claude/events";
 import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
-import { datedByLastWrite, describeBackgroundWork, hasLiveTasks, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
+import { closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
 import { observePlanUsage } from "./native/usage-window";
+import { noteApiHealth, silentTurnEnd, type ApiRetryMark } from "./claude/api-outage";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
 import { getSnapshotManager } from "./snapshot-manager";
@@ -70,7 +72,7 @@ import { endAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
 import { isHumanHold, releaseHumanHold } from "../lib/human-hold";
 import { humanHoldReleasedAt } from "../lib/human-hold-events";
 import { armTurnDeadline, type TurnDeadline } from "../lib/turn-deadline";
-import { cancelled, classifyResultEvent, type TurnEndInfo } from "./stop-reason";
+import { cancelled, classifyResultEvent, type StopCause, type TurnEndInfo } from "./stop-reason";
 import { warnThrottled } from "../lib/warn-throttled";
 import { clearSessionCliPid, setSessionCliPid } from "./session-pids";
 import { defaultChatModel, discoverClaudeModels } from "./claude-models";
@@ -246,34 +248,10 @@ function resolveCliPath(): string {
 
 // ============ Env Sanitization ============
 
-const ENV_ALLOWLIST = new Set([
-  "PATH", "HOME", "TERM", "LANG", "LC_ALL", "LC_CTYPE",
-  "NODE_ENV", "TZ", "USER", "SHELL", "TMPDIR",
-  "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
-  "ANTHROPIC_API_KEY",
-]);
-
-const ENV_BLOCKLIST_PATTERNS = [
-  /API_KEY/i, /TOKEN/i, /SECRET/i, /PASSWORD/i,
-  /PRIVATE_KEY/i, /CREDENTIAL/i, /AUTH/i,
-];
-
-const ENV_BLOCKLIST_EXCEPTIONS = new Set(["ANTHROPIC_API_KEY"]);
-
 export function buildSafeEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-
-  for (const key of ENV_ALLOWLIST) {
-    if (process.env[key]) env[key] = process.env[key]!;
-  }
-
-  // Double-check blocklist
-  for (const key of Object.keys(env)) {
-    if (ENV_BLOCKLIST_EXCEPTIONS.has(key)) continue;
-    if (ENV_BLOCKLIST_PATTERNS.some((p) => p.test(key))) {
-      delete env[key];
-    }
-  }
+  // The allowlist and the blocklist live in `lib/agent-env.ts`: a `run_command`
+  // process gets the same environment, so it runs as it would in this CLI's Bash.
+  const env = agentBaseEnv();
 
   env.JARVIS_SPAWN = "1";
 
@@ -539,7 +517,7 @@ function peekClaudeSessionId(sessionKey: string): string | null {
  * narrow row read (not the full `getTopicBySessionKey`) to avoid a circular
  * import with utils.ts.
  */
-function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string | null; model: string | null; mcpPolicy: string | null; autonomy: string | null; dispatched: boolean } {
+export function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string | null; model: string | null; mcpPolicy: string | null; autonomy: string | null; dispatched: boolean } {
   try {
     const row = getDatabase()
       .prepare("SELECT id, effort, model, provider, mcp_policy, autonomy_level FROM topics WHERE session_key = ? LIMIT 1")
@@ -553,12 +531,10 @@ function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string 
     // 'inherit' (`dispatch_mcp`) restando dispacciato — sono assi diversi.
     // Lettura stretta, come il resto qui, per non ricreare l'import circolare
     // con utils.ts.
-    let dispatched = false;
-    try {
-      dispatched = !!getDatabase()
-        .prepare("SELECT 1 FROM tasks WHERE assigned_topic_id = ? LIMIT 1")
-        .get(row.id ?? "");
-    } catch { /* board assente: resta una chat come le altre */ }
+    // `readDispatchBinding` also reads `task_attempts`: a fan-out binds only
+    // attempt 1 in `tasks.assigned_topic_id`, and attempts 2..N got a chat's
+    // system prompt, which lets an agent end its turn on a wake (28/09).
+    const dispatched = readDispatchBinding(getDatabase(), sessionKey).dispatched;
     const provider = row.provider ?? null;
     const providerIsUs = provider === null || provider === "claude-code" || provider === "claude-code-team";
     // Loose shape guard only (argv array — no shell involved): the CLI is the
@@ -865,7 +841,7 @@ function brokerIO(client: AiBridgeClient, sessionKey: string): SessionIO {
  *  was waiting on it, so the chat says what ended the turn. */
 type KillCause = "lifetime" | "idle" | "clear" | "config" | "watchdog" | "stopped-child" | "dead" | "shutdown";
 type ClosedWhy = "silent" | "stuck-turn" | "deadline" | "superseded";
-type BackgroundClosedObserver = (sessionKey: string, tasks: string[], why: ClosedWhy) => void;
+type BackgroundClosedObserver = (sessionKey: string, tasks: string[], why: ClosedWhy, cron?: true) => void;
 type OwedChange = "autonomy" | "model" | "effort";
 
 const KILL_CAUSE_TEXT: Record<KillCause, string> = {
@@ -943,14 +919,15 @@ function backgroundAlive(pp: PersistentProcess): boolean {
 }
 
 /**
- * Since when the child counts as quiet: its last event, or the moment a person
- * last answered it, whichever is later. The CLI prints nothing while a
- * permission prompt or a question is open, nor while the command just approved
- * runs, and a clock counting from the tool_use that asked killed that command.
+ * Since when the child counts as quiet: its last event, its last retry of the
+ * API, or the moment a person last answered it, whichever is later. The CLI
+ * prints nothing while a permission prompt or a question is open, nor while the
+ * command just approved runs, and a clock counting from the tool_use that asked
+ * killed that command. Nor while it retries the API, and it gives up by itself.
  * Read by the lifetime cap and by the send watchdog.
  */
 function quietSince(pp: PersistentProcess, sessionKey: string): number {
-  return Math.max(pp.lastEventAt, humanHoldReleasedAt(sessionKey) ?? 0);
+  return Math.max(pp.lastEventAt, pp.lastApiRetry?.at ?? 0, humanHoldReleasedAt(sessionKey) ?? 0);
 }
 
 interface PersistentProcess {
@@ -1143,6 +1120,12 @@ interface PersistentProcess {
    * questo messaggio, uno subito dopo un `/compact`.
    */
   lastEventKind?: string;
+  /** The CLI's last `system/api_retry` (`claude/api-outage.ts`): the child
+   *  working, not silence, for `quietSince`; its last word, for the watchdog. */
+  lastApiRetry?: ApiRetryMark;
+  /** Which ai-bridge daemon holds this child (`AiBridgeClient.daemonPid`):
+   *  missing under another one at a resync is a daemon death, not a child's. */
+  daemonPid?: number | null;
   /**
    * A `system/task_notification` arrived and its turn has not ended yet: the
    * next empty `result` with no model turn in it is the notification's answer,
@@ -1342,25 +1325,25 @@ export class ClaudeCodeProvider implements AIProvider {
   }
   private static onConfigOwed: ((sessionKey: string, changes: OwedChange[]) => void) | null = null;
 
-  /** The owed changes, said once, when the work that makes them wait appears. */
+  /** The owed changes, said once, when the work that makes them wait appears: a listed task or an armed session cron. */
   private sayConfigOwed(pp: PersistentProcess): void {
-    if (!pp.owedChanges?.size || !pp.background?.tasks.size || !pp.configStale) return;
+    if (!pp.owedChanges?.size || !pp.configStale || !(pp.background?.tasks.size || hasArmedCron(pp.background, Date.now()))) return;
     const changes = [...pp.owedChanges];
     pp.owedChanges.clear();
     try { ClaudeCodeProvider.onConfigOwed?.(pp.sessionKey, changes); }
     catch (err) { console.warn(`[claude-code] config-owed observer failed for ${pp.sessionKey}:`, err); }
   }
 
-  /** Said before the child goes: `silent` (two hours without news), `stuck-turn`, `deadline` or `superseded`. */
+  /** Said before the child goes: `silent` (two hours without news), `stuck-turn`, `deadline` or `superseded`; armed crons past their two hours are `silent` flagged `cron` (`closedWork`). */
   private sayBackgroundClosed(pp: PersistentProcess, why: ClosedWhy, by: string): void {
-    const listed = pp.background?.tasks;
     // Once per child: a second clock in the 0.8 s between SIGINT and exit is the same close.
-    if (!pp.alive || !listed?.size || pp.backgroundClosedSaid) return;
-    pp.backgroundClosedSaid = true;
-    const tasks = [...listed.values()].map((t) => t.description || t.type);
-    console.log(`[claude-code] ${pp.sessionKey}: ${by} closes background work (${why}): ${tasks.join("; ")}`);
-    try { ClaudeCodeProvider.onBackgroundClosed?.(pp.sessionKey, tasks, why); }
-    catch (err) { console.warn(`[claude-code] background-closed observer failed for ${pp.sessionKey}:`, err); }
+    if (!pp.alive || pp.backgroundClosedSaid) return;
+    for (const closed of closedWork(pp.background, why)) {
+      pp.backgroundClosedSaid = true;
+      console.log(`[claude-code] ${pp.sessionKey}: ${by} closes background work (${closed.why}): ${closed.tasks.join("; ")}`);
+      try { ClaudeCodeProvider.onBackgroundClosed?.(pp.sessionKey, closed.tasks, closed.why, closed.cron); }
+      catch (err) { console.warn(`[claude-code] background-closed observer failed for ${pp.sessionKey}:`, err); }
+    }
   }
 
   /**
@@ -1869,7 +1852,11 @@ export class ClaudeCodeProvider implements AIProvider {
         const ours = this.processes.get(sessionKey) === pp;
         if (ours && pp.alive) this.killProcess(pp, "watchdog");
         if (ours) this.processes.delete(sessionKey);
-        handler.onError("Nessuna attività dal modello per 30 minuti. Turno terminato.");
+        // With a cause, which the resume reads: a bare text left row 5e92d06e
+        // (topic 3019832f, 25/09) stopped 52 minutes, until a person resent it.
+        const detail = "Nessuna attività dal modello per 30 minuti. Turno terminato.";
+        if (handler.onAborted) handler.onAborted({ turnEnd: silentTurnEnd(pp.lastApiRetry, pp.lastEventAt, detail) });
+        else handler.onError(detail);
         return { runId };
       }
 
@@ -2158,7 +2145,7 @@ export class ClaudeCodeProvider implements AIProvider {
     if (!pp || !pp.alive) return;
 
     // A clock's stop takes the listed work with it: the stall judge past the
-    // two-hour bound (or with a stuck turn if the work reported meanwhile).
+    // two-hour bound, or with a stuck turn while it lives (an armed cron never holds it).
     if (reason === "stall") this.sayBackgroundClosed(pp, backgroundAlive(pp) ? "stuck-turn" : "silent", "the stall judge");
     if (reason === "watchdog") this.sayBackgroundClosed(pp, "stuck-turn", "the watchdog stop");
     if (reason === "wall-clock") this.sayBackgroundClosed(pp, "deadline", "the delegation's deadline");
@@ -2469,7 +2456,8 @@ export class ClaudeCodeProvider implements AIProvider {
       // appear in the Processes panel instead of leaking into the bare shell.
       // Porta anche la direttiva di lingua: risolta QUI, allo spawn, così un
       // cambio in Impostazioni vale dalla sessione dopo senza riavvii.
-      appendSystemPrompt: topicsAgentSystemPrompt(),
+      // A board card's agent waits for its `run_command` inside the turn.
+      appendSystemPrompt: topicsAgentSystemPrompt(undefined, undefined, overrides.dispatched),
       // Il deferral degli schemi MCP, IMPOSTO alla sessione. Vale per ogni
       // chat, non solo per i topic bridge-only: era già l'intenzione (vedi
       // l'env qui sotto) ma passava da un canale che perde contro
@@ -2640,6 +2628,7 @@ export class ClaudeCodeProvider implements AIProvider {
         // `bun run dev` lasciata da questa sessione è indistinguibile da una
         // uguale avviata altrove. Vedi `providers/session-pids.ts`.
         .then(async ({ pid, resumed }) => {
+          pp.daemonPid = client.daemonPid;
           setSessionCliPid(sessionKey, pid);
           // A card's CLI steps aside for the person (KANBAN-78): demoted by
           // pid because the broker spawned it, and its children inherit.
@@ -2770,25 +2759,30 @@ export class ClaudeCodeProvider implements AIProvider {
 
   /**
    * The session's last turn left an Agent, a Bash or a Monitor running and the
-   * CLI still reports on it (`BACKGROUND_WORK_CAP_MS`), or one of them just
-   * reported and the wake answering it is on its way. Every clock that kills
-   * the child asks this, the stall judge included, and so does the goal loop.
+   * CLI still reports on it, or armed a session cron (`BACKGROUND_WORK_CAP_MS`),
+   * or a task just reported and its wake is on its way. Every clock that kills
+   * a child with no turn open asks this, and so does the goal loop.
    */
   hasBackgroundWork(sessionKey: string): boolean {
     return this.backgroundState(sessionKey) !== "none";
+  }
+
+  /** The part of it that can speak inside a turn, an armed cron left out (`hasTaskWork`): what the stall judge's hold reads. */
+  hasTaskWork(sessionKey: string): boolean {
+    return this.hasBackgroundWork(sessionKey) && hasTaskWork(this.processes.get(sessionKey)?.background, Date.now());
   }
 
   backgroundSessionKeys(): string[] {
     return [...this.processes.keys()].filter((sk) => this.hasBackgroundWork(sk));
   }
 
-  /** `running`: listed tasks with news. `wake-queued`: only a reported task, the CLI is about to answer it. */
+  /** `running`: listed tasks with news, or an armed session cron. `wake-queued`: only a reported task or a command the CLI started, and the CLI is about to answer it. */
   backgroundState(sessionKey: string): "running" | "wake-queued" | "none" {
     const pp = this.processes.get(sessionKey);
     // A child told to stop takes its work with it: nothing to wait for.
     if (!pp?.alive || pp.stoppedExit) return "none";
     const now = Date.now();
-    if (hasLiveTasks(pp.background, now)) return "running";
+    if (hasLiveTasks(pp.background, now) || hasArmedCron(pp.background, now)) return "running";
     return isWakeQueued(pp.background, now) ? "wake-queued" : "none";
   }
 
@@ -2861,13 +2855,13 @@ export class ClaudeCodeProvider implements AIProvider {
     return run;
   }
   private probes = new Map<string, Promise<"open" | "idle" | "unknown">>();
-  private silentAtProbe = new Map<string, string[]>();
+  private silentAtProbe = new Map<string, Array<ClosedWork<ClosedWhy>>>();
 
-  /** The listed work the last probe found past the two hours without news, for the boot reap to name. Read once. */
-  takeSilentBackground(sessionKey: string): string[] {
-    const tasks = this.silentAtProbe.get(sessionKey) ?? [];
+  /** The work the last probe found past its two hours (listed tasks, armed crons), for the boot reap to name. Read once. */
+  takeSilentBackground(sessionKey: string): Array<ClosedWork<ClosedWhy>> {
+    const closed = this.silentAtProbe.get(sessionKey) ?? [];
     this.silentAtProbe.delete(sessionKey);
-    return tasks;
+    return closed;
   }
 
   private async brokerTurnStateNow(
@@ -2902,10 +2896,9 @@ export class ClaudeCodeProvider implements AIProvider {
         // session's process, still attached, so the wake it will bring is
         // heard and the reaper sees what it would kill.
         keep = backgroundAlive(pp) && !this.processes.has(sessionKey);
-        // Listed but past the bound: the boot reaps it, and the chat has to
-        // hear what went with it (`takeSilentBackground`).
-        if (!keep && pp.background?.tasks.size) this.silentAtProbe.set(sessionKey, [...pp.background.tasks.values()].map((t) => t.description || t.type));
-        else this.silentAtProbe.delete(sessionKey);
+        // Listed or armed but past the bound: the boot reaps it, and the chat
+        // has to hear what went with it (`takeSilentBackground`).
+        this.silentAtProbe.set(sessionKey, keep ? [] : closedWork(pp.background, "silent"));
         return "idle";
       }
       // «open» è l'unica risposta che porta a una riadozione, quindi l'unica in
@@ -2941,6 +2934,7 @@ export class ClaudeCodeProvider implements AIProvider {
     pp.replayAfterLastResultOffset = 0;
     pp.replayRowTurns = undefined;
     const scan = await client.attach(sessionKey, 0);
+    pp.daemonPid = client.daemonPid;
     dateReplay(pp, scan);
     return { missing: scan.missing === true, alive: scan.alive === true };
   }
@@ -3053,8 +3047,18 @@ export class ClaudeCodeProvider implements AIProvider {
       // bubble. A daemon we simply can't REACH throws instead, and lands in the
       // catch below without finalizing anything.
       if (res.missing || !res.alive) {
-        console.warn(`[claude-code] Stream resync for ${sessionKey}: the broker no longer has a live child — finalizing the turn as died`);
-        this.finalizeDeadReattach(pp);
+        // Missing under another daemon: the one holding the child died with it.
+        // Only two KNOWN pids that differ say so. The pid arrives with the
+        // pong, a round trip after a connect, and a daemon older than the
+        // field never sends it: a null on either side is not a change. Read
+        // as one, a child that died under the same daemon became broker-died,
+        // which the resume sends again by itself (a paid turn).
+        const heldBy = pp.daemonPid;
+        const nowOn = getAiBridgeClient().daemonPid;
+        const cause: StopCause = res.missing && heldBy != null && nowOn != null && heldBy !== nowOn
+          ? "broker-died" : "process-died";
+        console.warn(`[claude-code] Stream resync for ${sessionKey}: the broker no longer has a live child — finalizing the turn as died (${cause})`);
+        this.finalizeDeadReattach(pp, cause);
         return false;
       }
       console.log(`[claude-code] Stream resync for ${sessionKey}: re-attached from offset ${from}, recovered ${Math.max(0, res.endOffset - from)} byte(s)`);
@@ -3292,13 +3296,13 @@ export class ClaudeCodeProvider implements AIProvider {
     }
   }
 
-  private finalizeDeadReattach(pp: PersistentProcess): void {
+  private finalizeDeadReattach(pp: PersistentProcess, cause: StopCause = "process-died"): void {
     pp.alive = false;
     if (pp.pendingResolve) { const r = pp.pendingResolve; pp.pendingResolve = null; pp.pendingReject = null; r({ runId: "" }); }
     // Riattacco a un processo che nel frattempo è morto: il turno non l'ha
     // fermato nessuno, è finito il processo sotto.
     if (pp.streamHandler) {
-      pp.streamHandler.onAborted?.({ turnEnd: { end: "error", cause: "process-died" } });
+      pp.streamHandler.onAborted?.({ turnEnd: { end: "error", cause } });
       this.releaseStreamHandler(pp);
     }
     this.cleanupTimers(pp);
@@ -3485,6 +3489,9 @@ export class ClaudeCodeProvider implements AIProvider {
       // its lines return just below, before the event clock further down: the
       // lifetime cap read a turn that was writing as silent, and killed it.
       if (line.kind === "content" || line.kind === "partial" || line.kind === "result") pp.lastEventAt = Date.now();
+      // The API's health, read off every child's stream, attended or not.
+      const retry = noteApiHealth(line.kind, event);
+      if (retry) pp.lastApiRetry = retry;
       const fate = unattendedLineFate(pp, event, line.kind);
       if (fate !== "pass") return;
     }
@@ -3580,11 +3587,12 @@ export class ClaudeCodeProvider implements AIProvider {
           pp.replayTailOpen = false;
         }
         pp.replayTailInitOnly = false;
-      } else if (readParentToolUseId(event) === null) {
+      } else if (readParentToolUseId(event) === null && event.type !== "command_lifecycle") {
         pp.replayTailInitOnly = false;
         // A background agent's line after the last `result` is not a turn in
         // flight: read as one, the boot adopted chat 3019832f's closed turn and
         // waited for a `result` that only the agent's end would bring (25/09).
+        // Nor is a `command_lifecycle`: a cron fire's `completed` follows its turn's `result`.
         pp.replayTailOpen = true;
       }
       return;
@@ -4140,9 +4148,9 @@ export class ClaudeCodeProvider implements AIProvider {
         // woken turn has no watchdog, and the cap was the only thing ending it
         // if it wedged. It still is, so waiting never becomes waiting forever.
         // Not a second silence clock: this only ever fires past the 2 h mark.
-        // Background work waits the same way, bounded by two hours without
-        // news of it (`BACKGROUND_WORK_CAP_MS`).
-        if ((turnInFlight(pp) && Date.now() - quietSince(pp, sessionKey) < wedgedMs + rearmMs) || backgroundAlive(pp)) {
+        // Background work waits the same way (`BACKGROUND_WORK_CAP_MS`); under a
+        // wedged turn, only work that can speak inside it (a cron fires after).
+        if (turnInFlight(pp) ? Date.now() - quietSince(pp, sessionKey) < wedgedMs + rearmMs || hasTaskWork(pp.background, Date.now()) : backgroundAlive(pp)) {
           pp.lifetimeTimer = this.armLifetime(pp, sessionKey, { ms: rearmMs, rearmMs, wedgedMs });
           return;
         }
