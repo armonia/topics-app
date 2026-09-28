@@ -56,7 +56,7 @@
  * made agents download Chromium onto the owner's Mac, where no Chromium may
  * live. The board now reads the pull request CI instead
  * (server/services/ci-evidence.ts, KANBAN-84), and this script is what the
- * `e2e (1)` job runs. On a Mac outside GitHub Actions only `--list` works:
+ * `e2e (0)` job runs. On a Mac outside GitHub Actions only `--list` works:
  * without it the script prints the selection and exits 97 before building or
  * launching anything (`refusesToRunSpecs`). Linux, Windows and CI still run.
  *
@@ -411,7 +411,7 @@ function main(): number {
   }
   if (listOnly) return 0;
   if (refusesToRunSpecs({ platform: process.platform, githubActions: process.env.GITHUB_ACTIONS === "true", listOnly })) {
-    console.error("check:e2e-touched: specs run in the PR CI (e2e (1)), never on this Mac: use --list. NOT MEASURED.");
+    console.error("check:e2e-touched: specs run in the PR CI (e2e (0)), never on this Mac: use --list. NOT MEASURED.");
     return NOT_MEASURED_EXIT;
   }
 

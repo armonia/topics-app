@@ -55,9 +55,11 @@
  * logical slot, not N. (2) The integration tests that open real ports use free
  * ports plus isolated `APP_DATA_DIR`s (guard `global-setup-no-prod-paths.test.ts`),
  * so two shards opening them together do not collide. (3) The safety net is
- * still CI, which runs the SERIAL `bun test:unit` on main: this script shortens
- * the run, it does not widen the trust. A rare grouping flake that escaped the
- * 12 groupings tried is still caught by CI.
+ * still CI on main: a PUSH to main runs the SERIAL `bun test:unit`, so a leak
+ * that only bites in the canonical order is caught one commit after it lands,
+ * before anything ships. Pull requests run THIS script in CI (step "Unit +
+ * integration tests", `TOPICS_UNIT_SHARDS=4` on a 4 vCPU runner): it shortens
+ * the run, it does not widen the trust.
  *
  * WHEN TO ADD A FILE TO PHASE 2. Only when it becomes flaky under parallelism
  * because of a real OS resource with timing assertions (like `ai-bridge*`): add

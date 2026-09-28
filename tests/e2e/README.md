@@ -86,7 +86,7 @@ npx playwright show-report test-results/html-report
 bun run check:e2e-touched --list   # which specs your branch touches
 ```
 
-Running the selected specs is the PR CI's job (`e2e (1)`, step "E2E dei file
+Running the selected specs is the PR CI's job (`e2e (0)`, step "E2E dei file
 toccati"), and since 15/09/2026 the board reads that verdict for every delivery
 (`github-ci:e2e`, KANBAN-84). On a Mac outside GitHub Actions the script lists
 and exits 97 without running anything. On 27/08 three cards landed green on

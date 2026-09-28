@@ -479,7 +479,7 @@ describe("contracts", () => {
     expect(ci.search(/^ {2}e2e:$/m)).toBeGreaterThan(0);
     expect(e2e).toMatch(/^ {4}needs: prepare-e2e$/m);
     expect(e2e).toContain("E2E_TIER: pr");
-    expect(e2e).toContain("if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' }}");
+    expect(e2e).toContain("if: ${{ matrix.shard == 0 && github.event_name == 'pull_request' }}");
     expect(e2e).toContain("bun run check:e2e-touched --base=\"origin/${{ github.base_ref }}\"");
   });
 
@@ -499,15 +499,19 @@ describe("contracts", () => {
     expect(matrix).not.toBeNull();
     const axes = matrix![1]!.split("\n").filter((l) => /^ {8}\S/.test(l)).map((l) => l.trim().split(":")[0]);
     expect(axes).toEqual(["shard"]);
-    // And the names that axis produces are the ones `E2E_JOB` accepts.
-    expect(e2e).toMatch(/^ {8}shard: \[(\d+(, )?)+\]$/m);
+    // And every list the axis can take (a literal, or the literals `fromJSON` picks by event) is integers only, the names `E2E_JOB` accepts.
+    const lists = [...(e2e.match(/^ {8}shard: (.+)$/m)?.[1] ?? "").matchAll(/\[[^\]]*\]/g)].map((m) => m[0]);
+    expect(lists.length).toBeGreaterThan(0);
+    for (const list of lists) expect(list).toMatch(/^\[(\d+(, )?)+\]$/);
   });
 
   test("ci.yml still runs the unit suite in the step the unit row reads, inside the check job", () => {
     const ci = readFileSync(join(import.meta.dir, "../../.github/workflows/ci.yml"), "utf8");
     const check = ci.slice(ci.search(/^ {2}check:$/m), ci.search(/^ {2}prepare-e2e:$/m));
     expect(ci.search(/^ {2}check:$/m)).toBeGreaterThan(0);
-    expect(check).toMatch(new RegExp(`- name: ${UNIT_STEP.replace(/[+]/g, "\\+")}\\n(?: .*\\n)*? +run: bun test:unit\\n`));
+    // Pull requests (what the row reads) take the sharded runner, a push to main the serial one: both stay.
+    const step = check.slice(check.indexOf(`      - name: ${UNIT_STEP}\n`)).split(/\n {6}- name: /)[0]!;
+    for (const cmd of ["bun run test:unit:shards", "bun test:unit"]) expect(step.split("\n").map((l) => l.trim())).toContain(cmd);
   });
 
   test("the client waits past the CI deadline plus the slowest local round, and below the CLI tool timeout", () => {

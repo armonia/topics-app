@@ -30,7 +30,7 @@
 #
 # I due che restano fuori con un motivo, e non per dimenticanza:
 #   `check:e2e-touched`  picks the e2e specs from the DIFF against a base branch,
-#                        and it runs in the pull request CI (`e2e (1)`), whose
+#                        and it runs in the pull request CI (`e2e (0)`), whose
 #                        verdict the board reads for each delivery
 #                        (`github-ci:e2e`). Here only `--list`: on a Mac it
 #                        refuses to run specs.

@@ -392,9 +392,35 @@ jobs:
           git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/main
           MIGRATION_BASE_REF=refs/remotes/origin/main bun run check:migrations
 
+      # ONE STEP, TWO RUNNERS, AND THE STEP NAME IS A CONTRACT: the board reads
+      # the unit verdict of a pull request from the step "Unit + integration
+      # tests" of job `check` (UNIT_JOB / UNIT_STEP in
+      # server/services/ci-evidence.ts), so neither the name nor the job moves.
+      #
+      # On a PULL REQUEST it is the sharded runner (scripts/test-unit-shards.ts):
+      # the same files as the serial run, in 4 concurrent `bun test` workers
+      # balanced by duration, then the OS racers (`SERIAL_GLOBS`) serially
+      # after them, the same stray ai-bridge check at the end, and a
+      # "riproduci:" line for every red shard. Serially this step was 12.4 of
+      # the 16.6 minutes of the job (run 36461528241); the runner has 4 vCPU,
+      # hence 4 shards. `TOPICS_UNIT_SHARDS` is explicit on purpose: it is also
+      # what keeps the load plan from quietly dropping to fewer workers.
+      #
+      # On a PUSH TO MAIN it stays the SERIAL run, because that is the safety
+      # net the sharded runner was built on (its header, point 3): the grouping
+      # is proven order-independent on 24 shuffles, and a leak that only bites
+      # in the canonical order is still caught one commit after it lands,
+      # before `auto-bump` ships anything.
       - name: Unit + integration tests
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: bun test:unit
+        env:
+          TOPICS_UNIT_SHARDS: 4
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            bun test:unit
+          else
+            bun run test:unit:shards
+          fi
 
       # Guards a real production contract: the dev-only pane mutation log must
       # never reach the shipped bundle. The script has existed since phase 30
@@ -635,8 +661,14 @@ jobs:
 
   # Calcola il piano di sharding per durata UNA volta sola: `playwright test
   # --list` deve caricare e transpilare tutte le spec (~10s), farlo una volta
-  # per shard significherebbe pagarlo quattro volte. Il piano viene caricato
+  # per shard significherebbe pagarlo otto volte. Il piano viene caricato
   # come artifact e scaricato da ogni shard.
+  #
+  # Every second of this job is on the critical path: all nine e2e jobs wait
+  # for it. So it installs no browser. `--list` loads and transpiles the specs
+  # without launching anything (checked with PLAYWRIGHT_BROWSERS_PATH pointing
+  # at an empty folder: same 351 files, same plan), and the Chromium install
+  # it used to do cost 24 s (run 36461528241).
   prepare-e2e:
     runs-on: ubuntu-latest
     outputs:
@@ -667,16 +699,14 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: client
 
-      - name: Install Playwright browsers (Chromium)
-        run: npx playwright install --with-deps chromium
-
       - name: Calcola il piano di sharding per durata
         id: plan
         # E2E_TIER=pr: il piano copre solo i test del gate PR, come fa lo shard.
         # Se il piano fallisce (durate mancanti, --list crash) si fa ok=false e
-        # ogni shard cade nel fallback --shard=i/4, che e' sempre stato l'unico.
+        # ogni shard cade nel fallback --shard=i/8, che e' sempre stato l'unico.
+        # The 8 here, the matrix of `e2e` and that fallback are one number.
         run: |
-          if bun run scripts/e2e-plan-shards.ts 4 --out plan; then
+          if bun run scripts/e2e-plan-shards.ts 8 --out plan; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
             echo "ok=false" >> "$GITHUB_OUTPUT"
@@ -723,10 +753,25 @@ jobs:
     # A red here now means a real regression. If it ever goes noisy again, the
     # answer is a NAMED spec in `NIGHTLY_ONLY_SPECS` with a dated reason, never
     # this flag: a blanket amnesty is how thirty reds accumulated unseen.
+    #
+    # EIGHT SHARDS, PLUS A JOB OF ITS OWN FOR THE TOUCHED SPECS.
+    # With four shards every shard ran 18-20 minutes of Playwright, and shard 1
+    # then ran the touched specs on top (5.9 min): 26 minutes of wall clock for
+    # a pull request (run 36461528241). The suite runs ONE worker per shard
+    # (`workers: 1`, one test server and one DB per shard), so the only lever
+    # on its wall clock is the number of shards, and 8 halves it.
+    #
+    # `e2e (0)` is not a shard of the PR tier: it runs ONLY the step "E2E dei
+    # file toccati", in parallel with the eight shards instead of after one of
+    # them. It exists on pull requests only (that step has no base to diff
+    # against on a push). Its name keeps the `e2e (N)` shape on purpose: the
+    # board's e2e row reads every job matching `^e2e( \(\d+\))?$`
+    # (E2E_JOB in server/services/ci-evidence.ts), so a red in the touched
+    # specs is still a red of that row, not a job nobody reads.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: ${{ fromJSON(github.event_name == 'pull_request' && '[0, 1, 2, 3, 4, 5, 6, 7, 8]' || '[1, 2, 3, 4, 5, 6, 7, 8]') }}
     steps:
       - uses: actions/checkout@v5
 
@@ -769,9 +814,15 @@ jobs:
 
       # The isolated test server serves the client from public/ — without a
       # build it 404s on every route.
-      - name: Build client
-        run: bun run build:client
-
+      #
+      # SIDE BY SIDE WITH THE BROWSER INSTALL, because the two do not touch the
+      # same thing (the bundle lands in public/, the browsers in
+      # ~/.cache/ms-playwright and apt) and each cost ~46 s back to back on the
+      # critical path of every shard (run 36461528241). The build runs in the
+      # background, the install in the foreground, and the step waits for the
+      # build's own exit code: a failed build is still a red step, with its
+      # output printed.
+      #
       # DUE motori, non uno. `playwright.config.ts` dichiara un progetto
       # `webkit` che gira `drag-preview.spec.ts` (l'anteprima del trascinamento
       # va provata sullo STESSO asserto nei due motori, altrimenti una
@@ -782,8 +833,18 @@ jobs:
       # in locale non si vede mai perche' la macchina di sviluppo i browser li
       # ha entrambi. Misurato sul run 32430381446: 4 shard su 4 rossi, e i
       # falliti di webkit erano i 5 test di drag-preview.
-      - name: Install Playwright browsers (Chromium + WebKit)
-        run: npx playwright install --with-deps chromium webkit
+      - name: Build client, and install Playwright browsers (Chromium + WebKit) meanwhile
+        run: |
+          build_log="$RUNNER_TEMP/build-client.log"
+          bun run build:client > "$build_log" 2>&1 &
+          build_pid=$!
+          npx playwright install --with-deps chromium webkit
+          if ! wait "$build_pid"; then
+            cat "$build_log"
+            echo "::error title=Build client failed::bun run build:client exited non-zero (output above)"
+            exit 1
+          fi
+          cat "$build_log"
 
       # global-setup.ts and server/browser-service.ts auto-discover a cached
       # Chromium only under macOS's `~/Library/Caches/ms-playwright` layout,
@@ -802,13 +863,14 @@ jobs:
           echo "path=$bin" >> "$GITHUB_OUTPUT"
 
       - name: Scarica il piano di sharding
-        if: needs.prepare-e2e.outputs.plan-ok == 'true'
+        if: ${{ matrix.shard != 0 && needs.prepare-e2e.outputs.plan-ok == 'true' }}
         uses: actions/download-artifact@v4
         with:
           name: e2e-plan-pr
           path: plan/
 
       - name: Run E2E tests (Playwright)
+        if: ${{ matrix.shard != 0 }}
         # Usa il piano per durata (shard-N.txt) se disponibile; altrimenti fallback
         # a --shard=i/N di Playwright, che riparte per numero di test.
         # Il piano e' scritto con selettori regex (specSelector in e2e-plan-shards.ts)
@@ -820,8 +882,8 @@ jobs:
             readarray -t SELECTORS < "$PLAN_FILE"
             npx playwright test "${SELECTORS[@]}"
           else
-            echo "[ci] piano non disponibile, fallback a --shard=${{ matrix.shard }}/4"
-            npx playwright test --shard=${{ matrix.shard }}/4
+            echo "[ci] piano non disponibile, fallback a --shard=${{ matrix.shard }}/8"
+            npx playwright test --shard=${{ matrix.shard }}/8
           fi
         env:
           CHROMIUM_PATH: ${{ steps.chromium.outputs.path }}
@@ -834,10 +896,11 @@ jobs:
       #
       # Questo step chiude la finestra sui file che il ramo ha TOCCATO: sceglie le spec
       # legate al diff (testid, import, spec stesse) SENZA il filtro di tier, e le esegue.
-      # Solo sullo shard 1: la selezione dipende dal diff, non dallo shard, e quattro
-      # copie sarebbero quattro volte lo stesso lavoro.
+      # Only in `e2e (0)`: the selection depends on the diff, not on the shard, so
+      # one copy is the whole job. It used to run on shard 1 AFTER that shard's
+      # own tier, which made shard 1 the slowest job of every pull request.
       - name: E2E dei file toccati, anche fuori dal tier PR
-        if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' }}
+        if: ${{ matrix.shard == 0 && github.event_name == 'pull_request' }}
         run: |
           # The PR checkout is ONE commit deep: the merge commit, without its parents.
           # A `--depth=100` fetch of the base is not enough, `git merge-base` still
