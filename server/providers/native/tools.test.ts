@@ -116,3 +116,69 @@ describe("read_file, percorsi fuori dalla workspace (RT-11 finding #4)", () => {
     expect(r.content).not.toContain("~/");
   });
 });
+
+/**
+ * JPEG bytes whose SOF sits past the 64 KB `image-shape.ts` reads first: two
+ * APP1 segments of 40 KB each before it, the shape of a camera or Photoshop
+ * export that carries a large EXIF/XMP block.
+ */
+function jpegWithLargeMetadata(width: number, height: number): Buffer {
+  const app1 = () => {
+    const seg = Buffer.alloc(4 + 40_000 - 2);
+    seg[0] = 0xff; seg[1] = 0xe1; seg.writeUInt16BE(40_000, 2);
+    return seg;
+  };
+  const sof0 = Buffer.alloc(11);
+  sof0[0] = 0xff; sof0[1] = 0xc0; sof0.writeUInt16BE(9, 2); sof0[4] = 8;
+  sof0.writeUInt16BE(height, 5); sof0.writeUInt16BE(width, 7); sof0[9] = 3;
+  return Buffer.concat([Buffer.from([0xff, 0xd8]), app1(), app1(), sof0, Buffer.from([0xff, 0xd9])]);
+}
+
+describe("read_file outside the workspace: only a raster image, only as an image", () => {
+  const outsideDir = mkdtempSync(join(tmpdir(), "tools-perimeter-"));
+
+  // The bypass as measured from the Darkroom workspace: a source file whose
+  // first 64 KB hold an `<svg width=.. height=..>` literal was detected as an
+  // image and handed back as numbered TEXT, from anywhere on the disk.
+  test("a text file that contains an <svg> tag stays refused, and none of its text comes back", async () => {
+    const secret = "const token = \"do-not-leak\";\nconst icon = '<svg width=\"16\" height=\"16\"></svg>';\n";
+    writeFileSync(join(outsideDir, "icon.test.ts"), secret);
+    const r = await executeTool("read_file", { path: join(outsideDir, "icon.test.ts") }, ctx);
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain("fuori dalla workspace");
+    expect(r.content).not.toContain("do-not-leak");
+    expect(r.images).toBeUndefined();
+  });
+
+  test("a real SVG file outside the workspace stays refused: a vector image is text, and text outside is off limits", async () => {
+    writeFileSync(join(outsideDir, "logo.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect/></svg>');
+    const r = await executeTool("read_file", { path: join(outsideDir, "logo.svg") }, ctx);
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain("fuori dalla workspace");
+    expect(r.content).not.toContain("<rect");
+  });
+
+  test("an SVG inside the workspace is still read as text, like any other source file", async () => {
+    put("inside.svg", '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect/></svg>');
+    const r = await executeTool("read_file", { path: "inside.svg" }, ctx);
+    expect(r.isError).toBeFalsy();
+    expect(r.images).toBeUndefined();
+    expect(r.content).toContain("<rect/>");
+  });
+
+  test("a mistyped image path outside the workspace answers not found, not outside the workspace", async () => {
+    const r = await executeTool("read_file", { path: join(outsideDir, "RAW", "ChatGPT Image Aug 15, 2026, 11_25_32 AM.png") }, ctx);
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain("non trovato");
+    expect(r.content).not.toContain("fuori dalla workspace");
+  });
+
+  test("a JPEG whose EXIF pushes the size past the first 64 KB is still read as an image", async () => {
+    const bytes = jpegWithLargeMetadata(1200, 800);
+    writeFileSync(join(outsideDir, "camera.jpg"), bytes);
+    const r = await executeTool("read_file", { path: join(outsideDir, "camera.jpg") }, ctx);
+    expect(r.isError).toBeFalsy();
+    expect(r.images?.[0]?.mediaType).toBe("image/jpeg");
+    expect(r.content).toContain("1200x800");
+  });
+});

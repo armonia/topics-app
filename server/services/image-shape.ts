@@ -16,7 +16,7 @@
  * comunque quando la forma è ignota: questo modulo può far perdere un rifiuto,
  * non può far perdere un'anteprima.
  */
-import { closeSync, openSync, readSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 
 export interface ImageShape {
   width: number;
@@ -140,7 +140,12 @@ const RASTER_DETECTORS: Array<[NonNullable<ImageShape["format"]>, (b: Buffer) =>
   ["png", png], ["gif", gif], ["webp", webp], ["jpeg", jpeg],
 ];
 
-/** Il nucleo che legge dai byte già in mano: usato sia da file che da buffer. */
+/**
+ * The core that reads from bytes already in hand, for a file and a buffer
+ * alike. The raster headers are read from the WHOLE of `b`: the JPEG walk
+ * jumps from segment to segment, so a longer buffer costs a few more jumps,
+ * not a scan. Only the SVG test, a regex over decoded text, stays on the head.
+ */
 function shapeFromBuffer(b: Buffer): ImageShape | null {
   for (const [format, detect] of RASTER_DETECTORS) {
     const dims = detect(b);
@@ -149,7 +154,7 @@ function shapeFromBuffer(b: Buffer): ImageShape | null {
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) continue;
     return { width, height, ratio: height / width, vector: false, format };
   }
-  const dims = svg(b);
+  const dims = svg(b.length > HEAD_BYTES ? b.subarray(0, HEAD_BYTES) : b);
   if (!dims) return null;
   const [width, height] = dims;
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
@@ -165,7 +170,22 @@ function shapeFromBuffer(b: Buffer): ImageShape | null {
 export function imageShape(path: string): ImageShape | null {
   const b = readHead(path);
   if (!b) return null;
-  return shapeFromBuffer(b);
+  const shape = shapeFromBuffer(b);
+  if (shape || !jpegCutByWindow(b)) return shape;
+  // A JPEG whose APP segments (EXIF, XMP, ICC) fill the whole window before
+  // its SOF: the size is further in. Reading the file is what the caller does
+  // next anyway (`read_file` sends these bytes), and the magic bytes already
+  // say it is a JPEG, so this never reads a large file of any other kind.
+  try {
+    return shapeFromBuffer(readFileSync(path));
+  } catch {
+    return null;
+  }
+}
+
+/** A JPEG start (SOI then a marker) that the head window cut before its size was found. */
+function jpegCutByWindow(head: Buffer): boolean {
+  return head.length === HEAD_BYTES && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
 }
 
 /**
@@ -174,7 +194,7 @@ export function imageShape(path: string): ImageShape | null {
  * MCP o già letta per essere rimpicciolita.
  */
 export function imageShapeFromBuffer(b: Buffer): ImageShape | null {
-  return shapeFromBuffer(b.length > HEAD_BYTES ? b.subarray(0, HEAD_BYTES) : b);
+  return shapeFromBuffer(b);
 }
 
 /**

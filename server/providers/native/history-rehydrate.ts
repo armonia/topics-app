@@ -28,6 +28,7 @@ import type { ToolCall } from "../../../shared/types";
 import { toolCallResultText } from "../../../shared/lean-tool-call";
 import type { AgentMessage, Block } from "./agent-loop";
 import { clipToolResult, compact, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS } from "./compaction";
+import { pathFromImageCaption } from "./image-normalize";
 
 /** Una riga di conversazione come sta nel DB. */
 export interface PersistedTurn {
@@ -263,10 +264,8 @@ function expandToolCalls(content: string, calls: readonly ToolCall[], partial: b
  * fact. It matters because a resumed agent reasoning from "I can see this
  * screenshot" over a placeholder gets everything past that sentence wrong.
  */
-const IMAGE_CAPTION = /^(\S+) \([^)]*image attached\)$/;
-
 function rewriteStaleImageCaption(text: string): string {
-  const path = text.match(IMAGE_CAPTION)?.[1];
+  const path = pathFromImageCaption(text);
   return path
     ? `[immagine non più nel contesto: ${path}; rileggila con read_file]` // allow-italian: testo che legge il modello
     : text;
