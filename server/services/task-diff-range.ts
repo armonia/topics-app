@@ -128,6 +128,14 @@ export async function worktreeOwnRange(
   cwd: string,
   opts: TaskDiffRangeOptions & { branch?: string | null } = {},
 ): Promise<TaskDiffRange | null> {
+  return (await worktreeRange(cwd, opts))?.range ?? null;
+}
+
+/** `worktreeOwnRange`, plus whether the branch still has a commit of its own. */
+async function worktreeRange(
+  cwd: string,
+  opts: TaskDiffRangeOptions & { branch?: string | null },
+): Promise<{ range: TaskDiffRange; hasOwn: boolean } | null> {
   const run = opts.runGit ?? defaultRunGit;
   const mainRef = opts.mainRef ?? "main";
   const branch =
@@ -149,7 +157,7 @@ export async function worktreeOwnRange(
     const mb = mergeBase.code === 0 ? mergeBase.stdout.trim() : "";
     base = await furthest(run, cwd, base, SHA_RE.test(mb) ? mb : null);
   }
-  return { source: "worktree", cwd, range: base, live: true };
+  return { range: { source: "worktree", cwd, range: base, live: true }, hasOwn: !!oldest };
 }
 
 /** Il merge che il land scrive su main. Deve restare uguale a `task-automerge.ts`. */
@@ -308,12 +316,18 @@ export interface TaskDiffAnchors extends TaskDiffRangeOptions {
  */
 export async function resolveTaskDiffRange(a: TaskDiffAnchors): Promise<TaskDiffRange | null> {
   const opts: TaskDiffRangeOptions = { mainRef: a.mainRef, runGit: a.runGit };
+  let landed: TaskDiffRange | null | undefined;
   if (a.worktree?.cwd) {
-    const live = await worktreeOwnRange(a.worktree.cwd, { ...opts, branch: a.worktree.branch });
-    if (live) return live;
+    const live = await worktreeRange(a.worktree.cwd, { ...opts, branch: a.worktree.branch });
+    // A branch with nothing of its own left may be one the land already
+    // merged, while the GC has not pruned its worktree yet (half an hour):
+    // its own range is then the empty tree against HEAD, and the land is
+    // what the card changed.
+    if (live && !live.hasOwn && a.repoPath) landed = await landedMergeRange(a.repoPath, a.taskId, opts);
+    if (live && !landed) return live.range;
   }
   if (a.repoPath) {
-    const landed = await landedMergeRange(a.repoPath, a.taskId, opts);
+    landed ??= await landedMergeRange(a.repoPath, a.taskId, opts);
     if (landed) return landed;
     if (a.delivery) {
       const delivered = await deliveryCommitRange(a.repoPath, a.delivery, opts);

@@ -348,18 +348,51 @@ describe("task-diff-range", () => {
       expect(await filesOf(dir, r!.range)).toEqual(["own.ts"]);
     });
 
+    test("a worktree its land merged, before the GC prunes it, answers with the land merge", async () => {
+      // Its commits are on main now, so it has none of its own left, and its
+      // own range was the empty tree-against-HEAD: the drawer said «no changes»
+      // for the half hour after every land.
+      const wt = mkdtempSync(join(tmpdir(), "taskdiffrange-wt-"));
+      rmSync(wt, { recursive: true, force: true });
+      try {
+        await git(dir, ["worktree", "add", "-q", wt, "topics/card"]);
+        await git(dir, ["merge", "--no-ff", "-m", "merge task T-42: il titolo della card", "topics/card"]);
+
+        const r = await resolveTaskDiffRange({ taskId: "T-42", worktree: { cwd: wt, branch: "topics/card" }, repoPath: dir });
+        expect(r!.source).toBe("landed-merge");
+        expect(await filesOf(dir, r!.range)).toEqual(["consegna.ts"]);
+      } finally {
+        rmSync(wt, { recursive: true, force: true });
+      }
+    });
+
+    test("a worktree with no commit of its own and no land is still read live: its uncommitted work", async () => {
+      const wt = mkdtempSync(join(tmpdir(), "taskdiffrange-wt-"));
+      rmSync(wt, { recursive: true, force: true });
+      try {
+        await git(dir, ["worktree", "add", "-q", "-b", "topics/appena-nata", wt, "main"]);
+        writeFileSync(join(wt, "base.txt"), "base\nappena scritto\n");
+
+        const r = await resolveTaskDiffRange({ taskId: "T-43", worktree: { cwd: wt, branch: "topics/appena-nata" }, repoPath: dir });
+        expect(r!.source).toBe("worktree");
+        expect(await filesOf(wt, r!.range)).toEqual(["base.txt"]);
+      } finally {
+        rmSync(wt, { recursive: true, force: true });
+      }
+    });
+
     test("un commit di consegna che non esiste più non produce il diff di qualcos'altro", async () => {
       expect(await deliveryCommitRange(dir, { branch: "topics/card", commit: "0".repeat(40) })).toBeNull();
       expect(await deliveryCommitRange(dir, { branch: "topics/card", commit: null })).toBeNull();
     });
 
     test("l'ordine è worktree → merge del land → commit di consegna", async () => {
-      await git(dir, ["merge", "--no-ff", "-m", "merge task T-42: il titolo della card", "topics/card"]);
-
-      // Il ramo c'è ancora: il worktree vivo vince, e porta anche l'albero.
+      // While the branch has commits of its own the live worktree wins, working tree included.
       writeFileSync(join(dir, "non-committato.txt"), "vivo\n");
       const live = await resolveTaskDiffRange({ taskId: "T-42", worktree: { cwd: dir, branch: "topics/card" }, repoPath: dir });
       expect(live!.source).toBe("worktree");
+
+      await git(dir, ["merge", "--no-ff", "-m", "merge task T-42: il titolo della card", "topics/card"]);
 
       // Potato il ramo, risponde il merge.
       await git(dir, ["branch", "-qD", "topics/card"]);
