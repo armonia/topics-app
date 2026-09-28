@@ -57,15 +57,26 @@ function recorder(): { handler: StreamHandler; errors: string[] } {
   };
 }
 
+// DATA_DIR wins over the root passed to initDatabase (resolveDataDir), and a
+// file earlier in the same shard can leave it set: cleanupTestDataDir closes
+// its database but not the variable. Every test then opened the SAME leftover
+// database and the second seed failed on topics.session_key (CI, 28/09). This
+// file declares its own DATA_DIR and gives the previous value back.
+let previousDataDir: string | undefined;
+
 beforeEach(() => {
   try { closeDatabase(); } catch { /* isolated test worker may have none */ }
   tempRoot = mkdtempSync(join(tmpdir(), "topics-provider-global-guard-"));
+  previousDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = join(tempRoot, "data");
   initDatabase(REPO_ROOT, tempRoot);
   seedRawCoordinator();
 });
 
 afterEach(() => {
   try { closeDatabase(); } catch { /* cleanup */ }
+  if (previousDataDir === undefined) delete process.env.DATA_DIR;
+  else process.env.DATA_DIR = previousDataDir;
   try { rmSync(tempRoot, { recursive: true, force: true }); } catch { /* scratch */ }
 });
 
