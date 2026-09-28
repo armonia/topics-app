@@ -12,8 +12,8 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "fs";
-import { join } from "path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
 import { createTestAppContext, setupTestDataDir, testTmpDir } from "./helpers";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
 import type { AppContext, ContentBlock, Topic } from "../../server/types";
@@ -23,7 +23,7 @@ const ROOT = testTmpDir("process-run-command");
 setupTestDataDir(join(ROOT, "data"));
 const PROJECT = realpathSync((mkdirSync(join(ROOT, "project"), { recursive: true }), join(ROOT, "project")));
 
-const { createProcessesRouter } = await import("../../server/routes/processes");
+const { createProcessesRouter, logPathOf } = await import("../../server/routes/processes");
 const { startProcessExitWakes, processExitWakesIdle } = await import("../../server/lib/process-exit-wake");
 const { createChatRouter } = await import("../../server/routes/chat");
 const { registerProvider, removeProvider } = await import("../../server/providers");
@@ -230,7 +230,8 @@ describe("the end of a command reaches the topic that launched it", () => {
     const outcome = await Promise.race([processExitWakesIdle().then(() => "settled"), Bun.sleep(3000).then(() => "still waiting")]);
     expect(outcome).toBe("settled");
     expect(exitRows(topic.sessionKey)).toHaveLength(0);
-    const saved = JSON.parse(readFileSync(join(ROOT, "data", ".state", "scripts.json"), "utf8")) as { recent: Array<{ processId: string; cmd?: { wake: boolean } }> };
+    // Beside the logs: the registry's folder is the one of the first file that loaded it.
+    const saved = JSON.parse(readFileSync(join(dirname(dirname(logPathOf(processId))), "scripts.json"), "utf8")) as { recent: Array<{ processId: string; cmd?: { wake: boolean } }> };
     expect(saved.recent.find((r) => r.processId === processId)?.cmd?.wake).toBe(true);
   });
 
@@ -242,6 +243,33 @@ describe("the end of a command reaches the topic that launched it", () => {
     await processExitWakesIdle();
     expect(exitRows(topic.sessionKey)).toHaveLength(0);
   });
+});
+
+// The command writes its log itself, so the registry's rotation of a script's
+// log never touched it: a dev server left running grew it without bound, and
+// the file then stayed on disk seven more days.
+describe("a command's log file is bounded like a script's", () => {
+  test("cut to its last 500 KB while it runs and when it ends, the last lines kept", async () => {
+    const topic = newTopic();
+    // About 3 MB at once, then quiet for a few ticks of the tail.
+    const line = "x".repeat(99);
+    const started = await call(bench.processes, "POST", `/api/sessions/${encodeURIComponent(topic.sessionKey)}/commands/run`, {
+      command: `yes ${line} | head -n 30000; sleep 3; echo last line`, wake: false,
+    });
+    const { processId } = (await started.json()) as { processId: string };
+    const log = logPathOf(processId);
+    const output = async () => ((await (await call(bench.processes, "GET", `/api/scripts/${processId}/output`)).json()) as { output: string }).output;
+
+    // The tick that brought the burst into the panel has cut the file too.
+    await until(async () => (await output()).includes(line));
+    expect(statSync(log).size).toBeLessThanOrEqual(500 * 1024);
+    expect((await scriptRow(processId))?.status).toBe("running");
+
+    await until(async () => (await scriptRow(processId))?.status !== "running");
+    expect(statSync(log).size).toBeLessThanOrEqual(500 * 1024);
+    expect(readFileSync(log, "utf8").endsWith(`${line}\nlast line\n`)).toBe(true);
+    expect(await output()).toContain("last line");
+  }, 20_000);
 });
 
 // ── Across a reload of the server ────────────────────────────────────────────

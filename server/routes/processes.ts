@@ -23,7 +23,7 @@ import {
 import { registerFleetScriptSource } from "../lib/fleet-usage";
 import { isBroadCwd } from "../lib/broad-cwd";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
-import { openTail, readFileEnd, readTail, type FileTail } from "../lib/file-tail";
+import { openTail, readFileEnd, readTail, shrinkLog, type FileTail } from "../lib/file-tail";
 import { commandArgv, confineCommandCwd, readExitCode } from "../lib/command-process";
 import { requestProcessExitWake, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
 import { isWatchedBySession } from "../lib/process-wait";
@@ -134,6 +134,8 @@ interface PersistedScript {
 }
 
 const MAX_OUTPUT_BYTES = 500 * 1024; // ~500KB per process
+/** A log on disk past this is cut to its last MAX_OUTPUT_BYTES: a script's by `appendOutput`, a command's by `pumpTail`. */
+const MAX_LOG_FILE_BYTES = 1024 * 1024;
 const MAX_RECENT = 10;
 
 const runningScripts = new Map<string, ScriptProcess>();
@@ -204,7 +206,8 @@ function persisted(sp: ScriptProcess): PersistedScript {
   };
 }
 
-const logPathOf = (processId: string) => join(getPersistDir(), "scripts", `${processId}.log`);
+/** Where a process's log lives. Exported for the tests, which cannot know which file loaded the registry first. */
+export const logPathOf = (processId: string) => join(getPersistDir(), "scripts", `${processId}.log`);
 const exitPathOf = (processId: string) => join(getPersistDir(), "scripts", `${processId}.exit`);
 
 /**
@@ -615,11 +618,11 @@ function appendOutput(sp: ScriptProcess, text: string, whole = false) {
     .then(async () => {
       await appendFileAsync(logPath, text);
       sp.logBytes = (sp.logBytes ?? 0) + Buffer.byteLength(text);
-      // Rotation: if > 1MB, keep last 500KB
-      if (sp.logBytes > 1024 * 1024) {
+      // Rotation: past the limit, keep the last MAX_OUTPUT_BYTES
+      if (sp.logBytes > MAX_LOG_FILE_BYTES) {
         const content = await readFileAsync(logPath);
-        await writeFileAsync(logPath, content.subarray(Math.max(0, content.length - 500 * 1024)));
-        sp.logBytes = Math.min(content.length, 500 * 1024);
+        await writeFileAsync(logPath, content.subarray(Math.max(0, content.length - MAX_OUTPUT_BYTES)));
+        sp.logBytes = Math.min(content.length, MAX_OUTPUT_BYTES);
       }
     })
     .catch(() => {});
@@ -636,12 +639,17 @@ function followLog(sp: ScriptProcess, path: string, offset: number): void {
   }
 }
 
-/** Read what the file gained into the buffer. True when there was something. */
+/**
+ * Read what the file gained into the buffer. True when there was something.
+ * A command's own log is then cut to the same size a script's is rotated to;
+ * a shell's file is the CLI's, and stays as the CLI wrote it.
+ */
 function pumpTail(sp: ScriptProcess): boolean {
   if (!sp.tail) return false;
   const { text, skipped } = readTail(sp.tail);
   if (skipped) appendOutput(sp, `[${skipped} bytes of output skipped]\n`);
   if (text) appendOutput(sp, text);
+  if (sp.cmd && sp.tail.offset > MAX_LOG_FILE_BYTES) shrinkLog(sp.tail, MAX_OUTPUT_BYTES);
   return !!(text || skipped);
 }
 

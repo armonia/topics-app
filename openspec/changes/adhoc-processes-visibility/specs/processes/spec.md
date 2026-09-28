@@ -92,6 +92,10 @@ involucro scrive il codice d'uscita in `<processId>.exit`. Il server segue il
 file in coda: prima del riavvio, e di nuovo dopo la riadozione, dal punto in cui
 era arrivato.
 
+Il file ha il limite del log di uno script (`appendOutput`): oltre 1 MB il
+server lo accorcia agli ultimi 500 KB, dalla prima riga intera. Sul posto,
+perché il comando lo tiene aperto in append e continua a scriverci in fondo.
+
 #### Scenario: il CLI riparte a metà
 - **GIVEN** un comando in corso lanciato da una topic
 - **WHEN** il CLI di quella topic viene chiuso e riaperto
@@ -103,6 +107,12 @@ era arrivato.
 - **THEN** la riga torna `running` con il log completo fin lì
 - **AND** i tick stampati dopo il riavvio compaiono nel log
 - **AND** all'uscita la riga porta il codice letto da `<processId>.exit`
+
+#### Scenario: un comando verboso non riempie il disco
+- **GIVEN** un comando che stampa 3 MB e resta acceso
+- **WHEN** il server ha letto quell'output
+- **THEN** il suo file di log non supera 500 KB
+- **AND** all'uscita finisce ancora con le ultime righe stampate
 
 #### Scenario: nessun file d'uscita
 - **GIVEN** un comando riadottato il cui pid è sparito senza `<processId>.exit`
