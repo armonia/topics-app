@@ -16,7 +16,8 @@
  * discarded empty (a /compact, a Stop before any output) with only its
  * divider or the Stop left on disk. And no notice on such a row promises a
  * resume the sweep will not make, whatever the cause and whichever leg wrote
- * it.
+ * it. The message's own answer is still resent: a compaction the CLI made on
+ * its way is that answer's work, not a turn that ended before it.
  *
  * Every row here is written by the real route (a message answered through
  * `sendChat`, a wake through `mode: "woken"`, the leg through `mode:
@@ -30,6 +31,7 @@ import { join } from "node:path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createChatRouter } from "./chat";
 import { createEditRouter } from "./edit";
+import { createHistoryRouter } from "./history";
 import { _resetTurnBodyFlushers } from "../lib/turn-body-flush";
 import { runBootPartialSweep, type PartialSweepDb } from "../lib/boot-partial-sweep";
 import { endReattachLeg, finalizeStaleRow } from "../lib/closed-outside";
@@ -125,11 +127,23 @@ async function open(sk: string, body: Record<string, unknown>, live: (h: StreamH
   };
 }
 
-/** A save under server/ reloads the server: the old process's streams and flushers are gone, the child lives on. */
-function reload(sk: string): void {
+/** A save under server/ reloads the server: the old process's streams and flushers are gone, the child lives on unless `childDead`. */
+function reload(sk: string, childDead = false): void {
   _resetTurnBodyFlushers();
   ctx.activeStreams.delete(sk);
-  runBootPartialSweep(ctx.db as unknown as PartialSweepDb, { listConfirmed: true, liveSessions: new Set([sk]) });
+  runBootPartialSweep(ctx.db as unknown as PartialSweepDb, { listConfirmed: true, liveSessions: new Set(childDead ? [] : [sk]) });
+}
+
+/** A client loads the thread through the real history route, the broker answering `broker`: its cleanup of empty partial rows. */
+async function historyLoad(sk: string, broker: "idle" | "unknown"): Promise<void> {
+  const history = createHistoryRouter(ctx, {
+    matchHistoryRoute: (p: string) => (p.startsWith("/api/history/") ? decodeURIComponent(p.slice("/api/history/".length)) : null),
+    providerForSessionKey: () => ({ brokerTurnState: async () => broker }) as never,
+  });
+  const path = `/api/history/${encodeURIComponent(sk)}`;
+  const url = new URL(`http://topics.test${path}`);
+  const resp = await history(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit: 50 }) }), url, path, "POST");
+  expect(resp?.status).toBe(200);
 }
 
 /** A reattach leg through the real route, read to its end, then ended as server.ts ends it (broker idle). */
@@ -261,6 +275,66 @@ describe("the message's own answer cut by an outage is still resent, once", () =
       await answer.teardown();
     });
   }
+});
+
+describe("the message's own answer that compacted on its way is still resent, once", () => {
+  /**
+   * The route anchors every compaction divider to the message the turn
+   * answers, the CLI's own mid-turn ones (`auto`) too. That divider is the
+   * answer's work, not a turn under the message that ended and left no row.
+   */
+  const compacts = (h: StreamHandler) => h.onCompaction!({ trigger: "auto", preTokens: 160_000 } as never);
+
+  test("killed by a restart with its child dead: the boot's notice, then the resend", async () => {
+    const sk = topic("compacted-restart");
+    await answered(sk, "Ciao", "Ciao, dimmi.");
+    const answer = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => {
+      h.onToolStart("t1", "Bash", { command: "make build" });
+      h.onToolResult("t1", "ok");
+      compacts(h);
+      h.onToolStart("t2", "Bash", { command: "make test" });
+    });
+    await tick(10);
+    reload(sk, true);
+    expect(ctx.getMessageById(answer.rowId)!.endReason).toBe("cut-by-restart");
+    expect((await resumeSweep(sk)).resent).toEqual([1]);
+    await answer.teardown();
+  });
+
+  for (const broker of ["idle", "unknown"] as const) {
+    for (const cause of ["api-unavailable", "broker-died"] as const) {
+      test(`history cleanup with the broker ${broker}, then the leg cut by ${cause}`, async () => {
+        const sk = topic(`compacted-history-${broker}-${cause}`);
+        await answered(sk, "Ciao", "Ciao, dimmi.");
+        const answer = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => { compacts(h); h.onRetry!(retry(1)); });
+        reload(sk);
+        // The cleanup deletes the answer's empty row; the leg opens its own under the message.
+        await historyLoad(sk, broker);
+        expect(ctx.getMessageById(answer.rowId)).toBeFalsy();
+        await reattachLeg(sk, outageEnd(cause));
+        const thread = ctx.loadLocalMessages(sk);
+        expect(thread.at(-1)!.parentId).toBe(thread.filter((m) => m.role === "user").at(-1)!.id);
+        expect((await resumeSweep(sk)).resent).toEqual([1]);
+        await answer.teardown();
+      });
+    }
+  }
+
+  test("cut by the silence cap, then a wake cut the same way", async () => {
+    const sk = topic("compacted-stall");
+    await answered(sk, "Ciao", "Ciao, dimmi.");
+    await personTurn(sk, MESSAGE, (h) => {
+      compacts(h);
+      h.onTextDelta("Controllo il log", "Controllo il log");
+      h.onError("wall-clock: silent for too long");
+    });
+    const wake = await open(sk, { messages: [], mode: "woken", wokenLabel: "build finito" }, (h) => {
+      h.onTextDelta("Il build", "Il build");
+      h.onError("wall-clock: silent for too long");
+    });
+    await drain(wake.resp);
+    expect((await resumeSweep(sk)).resent).toEqual([1]);
+  });
 });
 
 describe("a wake after an answer the route did not close with a latency", () => {

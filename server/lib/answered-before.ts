@@ -119,16 +119,24 @@ function turnEndedUncut(row: ThreadRow): boolean {
  * The route discards an empty answer: a /compact ends at its boundary with
  * nothing to show, a Stop before any output leaves nothing. The next turn
  * then hangs from the message itself, as its own answer would. What stays on
- * disk says it apart: the compaction divider anchored to the message (the
+ * disk says it apart: the /compact's divider anchored to the message (the
  * route writes it against the answer's parent), and the person's Stop in
  * `activity_log`. Both only between the message and the birth of the cut row:
  * a compaction or a Stop during the cut turn itself is that turn's own.
+ *
+ * Only a divider the person asked for (`manual`). The CLI also compacts by
+ * itself in the middle of a long turn, and the route anchors that divider to
+ * the message the turn answers: an `auto` one is the answer's own work, and it
+ * stays anchored there when the answer's row is not the cut row (a restart
+ * cuts it and writes its notice after it; the history's cleanup deletes it
+ * empty and the reattach opens a row of its own).
  */
 function turnLeftNoRow(
   db: Pick<Database, "query">, sessionKey: string, message: { id: string; timestamp: string }, rowBornAt: string,
 ): boolean {
   const compacted = () => !!db.query(
-    `SELECT 1 FROM compaction_markers WHERE session_key = ? AND after_message_id = ? AND created_at < ? LIMIT 1`,
+    `SELECT 1 FROM compaction_markers
+      WHERE session_key = ? AND after_message_id = ? AND trigger = 'manual' AND created_at < ? LIMIT 1`,
   ).get(sessionKey, message.id, rowBornAt);
   const stopped = () => !!db.query(
     `SELECT 1 FROM activity_log
