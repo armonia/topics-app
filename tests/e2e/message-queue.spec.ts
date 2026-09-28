@@ -322,24 +322,34 @@ test.describe.serial("Coda dei messaggi", () => {
   });
 
   /**
-   * The X of a long queued line sits beside the bubble, inside its row.
+   * A long queued line stays in the chat column, with its X beside the bubble.
    *
-   * It was written `absolute -left-6`, but `.tap-expand` sets `position:
+   * Two defects, both measured on WebKit.
+   *
+   * The X was written `absolute -left-6`, but `.tap-expand` set `position:
    * relative` OUTSIDE any cascade layer (index.css), and an unlayered rule beats
    * every Tailwind utility. So the X was never absolute: it fell into the
    * bubble's flow as one more line under `chat.queue.waiting`, and `-left-6`
-   * only nudged it 24px left, onto the dashed border. Measured on WebKit at
-   * 1280px, before the fix: computed `position: relative`, and the X 20x20 box
-   * overlapping the bubble by 9x20px. It is now a flex sibling of the bubble,
-   * which shrinks to make room for it.
+   * only nudged it 24px left, onto the dashed border (computed `position:
+   * relative`, the 20x20 box overlapping the bubble by 9x20px). It is now a
+   * flex sibling of the bubble, which shrinks to make room for it.
    *
-   * The four rects are read in ONE frame: the turn is still streaming, the list
+   * The queued rows live in Virtuoso's Footer, which is NOT inside the list
+   * that carries `chat-measure`: they spread over the whole pane while the
+   * messages and the composer sit in the centred 820px column. At 1280px the
+   * pane is barely wider than that column, so both look aligned; at 1728px the
+   * X started at x=464 and the column at x=582, and the bubble ran past the
+   * column's right edge to the pane's. Hence the wide viewport, and the
+   * precondition that the pane is really wider than the column there.
+   *
+   * The rects are read in ONE frame: the turn is still streaming, the list
    * follows the bottom, and separate `boundingBox()` calls could straddle a
    * scroll and compare boxes from two different layouts.
    */
-  test("la X di una riga lunga resta nella sua riga, accanto alla bolla", async ({ page, chatPage }) => {
+  test("una riga lunga in coda resta nella colonna della chat, con la X accanto alla bolla", async ({ page, chatPage }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-03" });
     const { state } = await interceptSends(page);
+    await page.setViewportSize({ width: 1728, height: 900 });
     await openChat(page, chatPage);
     await clearQueue(page);
 
@@ -360,18 +370,23 @@ test.describe.serial("Coda dei messaggi", () => {
         return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width };
       };
       const row = el.parentElement;
+      const pane = el.closest("[data-virtuoso-scroller]");
       return {
         bubble: box(el),
         row: box(row),
         remove: box(row?.querySelector('[data-testid="queued-bubble-remove"]') ?? null),
-        column: box(el.closest("[data-virtuoso-scroller]")),
+        pane: box(pane),
+        // The column the messages and the composer share: the list, which carries `chat-measure`.
+        column: box(pane?.querySelector('[data-testid="virtuoso-item-list"]') ?? null),
       };
     });
-    const { bubble: b, row, remove: x, column } = rects;
-    if (!b || !row || !x || !column) throw new Error(`missing box: ${JSON.stringify(rects)}`);
+    const { bubble: b, row, remove: x, pane, column } = rects;
+    if (!b || !row || !x || !pane || !column) throw new Error(`missing box: ${JSON.stringify(rects)}`);
     const TOLERANCE_PX = 0.5;
 
-    // The precondition: the text is long enough to push the bubble to its cap.
+    // The preconditions: the pane is wider than the column, and the text is
+    // long enough to push the bubble to its cap.
+    expect(pane.width - column.width, "the pane must be wider than the chat column at this viewport").toBeGreaterThan(200);
     expect(b.width, "the bubble must reach its max width (85% of the row)").toBeGreaterThanOrEqual(row.width * 0.85 - 1);
 
     // Inside the row, on all four sides...
@@ -379,10 +394,12 @@ test.describe.serial("Coda dei messaggi", () => {
     expect(x.right, "X right of its row").toBeLessThanOrEqual(row.right + TOLERANCE_PX);
     expect(x.top, "X above its row").toBeGreaterThanOrEqual(row.top - TOLERANCE_PX);
     expect(x.bottom, "X below its row").toBeLessThanOrEqual(row.bottom + TOLERANCE_PX);
-    // ...inside the chat column...
+    // ...X and bubble inside the chat column...
     expect(x.left, "X left of the chat column").toBeGreaterThanOrEqual(column.left - TOLERANCE_PX);
     expect(x.right, "X right of the chat column").toBeLessThanOrEqual(column.right + TOLERANCE_PX);
-    // ...and beside the bubble, not over it.
+    expect(b.left, "bubble left of the chat column").toBeGreaterThanOrEqual(column.left - TOLERANCE_PX);
+    expect(b.right, "bubble right of the chat column").toBeLessThanOrEqual(column.right + TOLERANCE_PX);
+    // ...and the X beside the bubble, not over it.
     const overlapW = Math.min(x.right, b.right) - Math.max(x.left, b.left);
     const overlapH = Math.min(x.bottom, b.bottom) - Math.max(x.top, b.top);
     expect(overlapW > TOLERANCE_PX && overlapH > TOLERANCE_PX, `X overlaps the bubble by ${overlapW}x${overlapH}px`).toBe(false);

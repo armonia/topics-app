@@ -55,7 +55,13 @@ export function QueuedTurns({ turns, isMobile, onUpdate, onRemove, onClear, onSe
   const t = useT();
   if (turns.length === 0) return null;
   return (
-    <div data-testid="queued-bubbles" className={isMobile ? 'px-2' : 'px-4'}>
+    // `chat-measure` because this block renders in Virtuoso's Footer, OUTSIDE
+    // the list that carries the reading column (MessageList `ChatList`).
+    // Without it the queued rows spread over the whole pane: on a pane wider
+    // than the column the bubble ended past the right edge of every sent
+    // message and of the composer. With it, plus the same `px-4`/`px-2` as a
+    // message row, a queued line ends exactly where a sent one does.
+    <div data-testid="queued-bubbles" className={`chat-measure ${isMobile ? 'px-2' : 'px-4'}`}>
       {turns.map((turn) => (
         <QueuedBubble
           key={turn.id}
@@ -167,11 +173,12 @@ function QueuedBubble({
   return (
     <div className="group flex items-start justify-end gap-1 mt-1.5">
       {onRemove && !editing && (
-        // In the flex flow, not absolute: an absolute X anchored to the bubble's
-        // own box drifted outside the visible row once the bubble neared its
-        // max-width, since `-left-6` counted from an edge that had moved past
-        // the container's own padding. A flex sibling can never leave the row:
-        // the bubble shrinks (min-w-0) to make room for it instead.
+        // A flex sibling of the bubble, so it can neither cover the bubble nor
+        // leave the row: the bubble shrinks (min-w-0) to make room for it.
+        // It used to be `absolute -left-6` inside the bubble, and that never
+        // applied: `.tap-expand` then set `position: relative` outside any
+        // cascade layer, which beat Tailwind's `absolute`, so the X fell into
+        // the bubble's flow and `-left-6` only pushed it onto the dashed border.
         // `coarse:opacity-100` / `group-focus-within` keep it reachable with a
         // finger or the keyboard, which have no hover state to reveal it.
         <button
