@@ -7287,9 +7287,6 @@
       "stato",
       "venditore"
     ],
-    "tests/integration/helpers/index.ts": [
-      "radice"
-    ],
     "tests/integration/history-payload-weight.test.ts": [
       "det",
       "fattedDet"

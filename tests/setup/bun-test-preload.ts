@@ -50,11 +50,12 @@
  * La guardia che tiene insieme tutto questo, numeri compresi, e'
  * `tests/unit/test-default-timeout.test.ts`.
  */
-import { afterAll, setDefaultTimeout } from "bun:test";
+import { afterAll, beforeEach, setDefaultTimeout } from "bun:test";
 import { readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { acquireSlot, claimOutfile, slotCount, alreadyHeld, GATE_HELD_ENV } from "../../scripts/gate-slot.ts";
 import { stopOwnAiBridges } from "../../scripts/stray-ai-bridges.ts";
+import { removeFinishedTestTmpDirs } from "./test-tmp-dirs.ts";
 
 /**
  * 30s: sei volte il default di bun. Il numero e' una misura, non un gusto. Col
@@ -396,8 +397,26 @@ function retireOwnAiBridges(): void {
   afterAll(stopOwnAiBridges);
 }
 
+/**
+ * A `testTmpDir` ROOT GOES WITH THE FILE THAT MADE IT.
+ *
+ * The helper used to remove its roots on `process.on("exit")`, which `bun test`
+ * never calls: on 28/09 `/tmp/topics-test` held 76,579 directories and 36 GB
+ * and the disk was full. The preload is the only code that sees every file
+ * boundary, so the sweep lives here: before each test it removes the roots of
+ * files that are over (all their hooks have run), and after the last file it
+ * removes the rest. Registered last, so the daemons above are stopped before
+ * their sockets' folders go. Why not an `afterAll` in the helper, and the one
+ * root that waits: `tests/setup/test-tmp-dirs.ts`.
+ */
+function sweepTestTmpDirs(): void {
+  beforeEach(() => removeFinishedTestTmpDirs(Bun.main));
+  afterAll(() => removeFinishedTestTmpDirs(null));
+}
+
 claimOwnOutfile();
 holdGateSlot();
 boundOwnRuntime();
 guardDomGlobals();
 retireOwnAiBridges();
+sweepTestTmpDirs();
