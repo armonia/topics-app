@@ -71,10 +71,19 @@ il prompt dice che puo' chiudere il turno e aspettare la sveglia. Una card che
 lo faceva spendeva un tentativo e riceveva un sollecito sopra la sveglia, e un
 tentativo di fan-out veniva confrontato senza l'esito (28/09). Quel flusso resta
 alle chat normali: in una sessione dispatchata il prompt di sistema
-(`topicsAgentSystemPrompt` con `boardAgent`) e `run_command` nei profili
-`dispatch` e `codex-dispatch` (descrizione e risultato, `command-tools.ts`)
-dicono di aspettare dentro il turno. Se l'agente lo chiude lo stesso, la card
-aspetta la sveglia e il turno che apre, senza sollecito ne' tentativo
+(`topicsAgentSystemPrompt` con `boardAgent`, `boardWaits`) e `run_command` nei
+profili `dispatch` e `codex-dispatch` (descrizione e risultato,
+`command-tools.ts`) dicono di aspettare dentro il turno. Il prompt della board
+non consiglia nemmeno di chiudere il turno su un `Monitor` o su una shell in
+background: la rete qui sotto copre solo la sveglia di `run_command`, e su
+Windows, senza `run_command`, dice la stessa regola con `run_script`.
+«Sessione dispatchata» e' quella di `readDispatchBinding`, quindi anche i
+tentativi di fan-out dal 2 in poi, che stanno solo in `task_attempts`.
+Un limite dichiarato: con `dispatch_mcp='inherit'` il bridge non ha il profilo
+`dispatch`, e descrizione e risultato di `run_command` sono quelli delle chat.
+Restano il kickoff («even when the tool says it will wake you») e il prompt di
+sistema, che non dipendono dal profilo. Se l'agente chiude il turno lo stesso,
+la card aspetta la sveglia e il turno che apre, senza sollecito ne' tentativo
 (`commandWaits`): e' la rete, non la strada.
 
 **L'e2e di una consegna la misura la CI della PR, non questo Mac (dal 15/09/2026).**

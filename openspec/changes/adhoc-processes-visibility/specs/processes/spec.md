@@ -189,9 +189,15 @@ di sistema di una sessione dispatchata e `run_command` nei profili `dispatch` e
 `codex-dispatch` (descrizione e risultato) gli dicono di lanciare i comandi
 lunghi con `run_command` (`run_script` per uno script dichiarato, e solo quello
 dove `run_command` non c'è) e di prenderne l'esito con `wait_for_process` nello
-stesso turno, mai di chiuderlo con un comando in corso. Il flusso «chiudi il
-turno, la sveglia ti riporta» resta alle chat normali; l'attesa del dispatcher
-qui sopra è la rete per l'agente che chiude il turno lo stesso.
+stesso turno, mai di chiuderlo con un comando in corso. Il prompt di sistema
+della board non gli consiglia nemmeno di chiudere il turno su un `Monitor` o su
+una shell in background, perché la rete copre solo la sveglia di `run_command`;
+su Windows dice la stessa regola con `run_script`. È dispatchata ogni sessione
+legata a una card, compresi i tentativi di fan-out dal 2 in poi. Con
+`dispatch_mcp='inherit'` il bridge non ha il profilo `dispatch` e `run_command`
+parla come nelle chat: restano il kickoff e il prompt di sistema. Il flusso
+«chiudi il turno, la sveglia ti riporta» resta alle chat normali; l'attesa del
+dispatcher qui sopra è la rete per l'agente che chiude il turno lo stesso.
 
 #### Scenario: l'esito arriva nella topic
 - **GIVEN** un comando `zsh -c 'echo tick 1; echo tick 2; exit 3'` lanciato da una topic
@@ -240,6 +246,12 @@ qui sopra è la rete per l'agente che chiude il turno lo stesso.
 - **WHEN** l'agente legge il kickoff, il prompt di sistema e lo strumento `run_command`
 - **THEN** ognuno gli dice di prendere l'esito con `wait_for_process` nello stesso turno e di non chiuderlo mentre il comando gira
 - **AND** nessuno gli dice di lanciarlo con `&` né che può chiudere il turno e aspettare la sveglia
+
+#### Scenario: nessuna attesa della board chiude il turno
+- **GIVEN** il prompt di sistema di una sessione dispatchata, su macOS e su Windows, anche per il tentativo 2 di un fan-out
+- **WHEN** l'agente cerca come aspettare una build lunga
+- **THEN** il prompt gli dice di aspettarla con `wait_for_process` nello stesso turno
+- **AND** nessuna frase gli consiglia di chiudere il turno su un `Monitor`, su una shell in background o su una sveglia
 
 #### Scenario: l'attesa di una card regge ai riavvii
 - **GIVEN** una card che aspetta la sveglia di un comando che non finisce mai

@@ -34,7 +34,7 @@ import { parseCompactBoundary } from "./claude/compaction";
 import { foldRowTurns, isDeliveryMark, isNotificationTurnEnd, isWakeMark, rowTurn, wakeMark, type RowTurns } from "./claude/row-turn";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim } from "./claude/args";
 import { checkClaudeCliCompat, type ClaudeCliCompat } from "./claude/cli-compat";
-import { applyJobQuota } from "../services/agent-job-quota";
+import { applyJobQuota, readDispatchBinding } from "../services/agent-job-quota";
 import { resolveInheritedMcp } from "./mcp-inheritance";
 // La decodifica degli eventi `stream-json` — campi INTERNI della CLI, non
 // un'API pubblicata — vive in un modulo puro, provato su fixture registrate.
@@ -516,7 +516,7 @@ function peekClaudeSessionId(sessionKey: string): string | null {
  * narrow row read (not the full `getTopicBySessionKey`) to avoid a circular
  * import with utils.ts.
  */
-function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string | null; model: string | null; mcpPolicy: string | null; autonomy: string | null; dispatched: boolean } {
+export function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string | null; model: string | null; mcpPolicy: string | null; autonomy: string | null; dispatched: boolean } {
   try {
     const row = getDatabase()
       .prepare("SELECT id, effort, model, provider, mcp_policy, autonomy_level FROM topics WHERE session_key = ? LIMIT 1")
@@ -530,12 +530,10 @@ function getTopicSpawnOverridesForSession(sessionKey: string): { effort: string 
     // 'inherit' (`dispatch_mcp`) restando dispacciato — sono assi diversi.
     // Lettura stretta, come il resto qui, per non ricreare l'import circolare
     // con utils.ts.
-    let dispatched = false;
-    try {
-      dispatched = !!getDatabase()
-        .prepare("SELECT 1 FROM tasks WHERE assigned_topic_id = ? LIMIT 1")
-        .get(row.id ?? "");
-    } catch { /* board assente: resta una chat come le altre */ }
+    // `readDispatchBinding` also reads `task_attempts`: a fan-out binds only
+    // attempt 1 in `tasks.assigned_topic_id`, and attempts 2..N got a chat's
+    // system prompt, which lets an agent end its turn on a wake (28/09).
+    const dispatched = readDispatchBinding(getDatabase(), sessionKey).dispatched;
     const provider = row.provider ?? null;
     const providerIsUs = provider === null || provider === "claude-code" || provider === "claude-code-team";
     // Loose shape guard only (argv array — no shell involved): the CLI is the

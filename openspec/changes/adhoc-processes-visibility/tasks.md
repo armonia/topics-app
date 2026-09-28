@@ -23,6 +23,7 @@ Prima di tutto: `grep -qx 'status: approved' openspec/changes/adhoc-processes-vi
 - [x] 3.8 Gli agenti della board aspettano dentro il turno: `longCommandsRule` nei due kickoff (via `run_script` o `&`), il prompt di sistema della sessione dispatchata e `run_command` nei profili `dispatch`/`codex-dispatch` chiedono `wait_for_process` nello stesso turno; `docs/board-protocol.md` allineato. L'attesa del dispatcher resta come rete.
 - [x] 3.9 Una sveglia resta dovuta finché il turno che apre non è finito, non solo finché la route non ha preso la riga: la card che la incontra durante la statistica git del lancio aspetta. Il turno della sveglia non aspetta sé stesso (`commandWakeState(sk, processId)`). Caso in `process-run-command.test.ts`.
 - [x] 3.10 Lo snellimento del worktree di una card salta se un processo di Topics gira dentro (`topicsProcessRunsIn`, la stessa guardia della passata del GC). Caso in `worktree-gc-runner.test.ts`.
+- [x] 3.11 Il prompt di sistema della board (`boardWaits`) non consiglia di chiudere il turno su un `Monitor` o su una shell in background, e su Windows dice la regola con `run_script`; lo ricevono anche i tentativi di fan-out dal 2 in poi (`readDispatchBinding` nello spawn). Casi in `topics-agent-prompt.test.ts` e `claude-code-spawn-overrides.test.ts`. Il limite di `dispatch_mcp='inherit'` è dichiarato in spec e in `docs/board-protocol.md`.
 
 ## 4. Pannello e prompt (CMDRUN-02)
 - [x] 4.1 `ScriptRunner.tsx`: righe `command` vive e recenti con esito; tipo `source` in `client/src/lib/api.ts:919`.
