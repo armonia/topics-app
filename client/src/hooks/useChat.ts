@@ -63,7 +63,7 @@ import {
   type MessageResidencyInput,
 } from '../state/messageResidency';
 import { senderAlsoSeesFrame } from './senderAlsoSees';
-import { toolUpdatePatch, withPartialResult, type ToolUpdateEvent } from './toolUpdatePatch';
+import { toolUpdatePatch, withPartialResult, withToolUpdate, type ToolUpdateEvent } from './toolUpdatePatch';
 import {
   beginStreamTokenRate,
   finishStreamTokenRate,
@@ -1499,7 +1499,7 @@ export function useChat() {
         {
           const patch = toolUpdatePatch(event as ToolUpdateEvent);
           if (patch && event.toolCallId) {
-            applyToolPatch(sessionKey, event.toolCallId, (tc) => ({ ...tc, ...patch }));
+            applyToolPatch(sessionKey, event.toolCallId, (tc) => withToolUpdate(tc, patch));
           }
         }
         break;
