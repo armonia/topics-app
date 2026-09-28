@@ -14,7 +14,7 @@
  * ── SO IT IS AN ACCOUNT PANEL NOW, IN THIS ORDER ────────────────────────────
  *   1. WHO: the face and the name, one row that opens your profile, and
  *      underneath the address you are signed in with, or, in as many words,
- *      that no account is linked.
+ *      that no account is linked. With no account service, the name alone.
  *   2. THE WAY IN, when there is no account and this installation has a service
  *      to ask: the address, then the code that arrives by email. Both steps
  *      happen HERE, without the panel closing and without a trip to Settings.
@@ -23,8 +23,9 @@
  * ── WHAT IT NO LONGER SAYS ──────────────────────────────────────────────────
  * No «Account» heading over the name, which only labelled what the face and
  * the name already are. No «Open your profile» row: the name row is that door.
- * No «From this device» row and no devices door: the devices are a level of
- * their own in `ProfileMenu`, which lists this computer first.
+ * No device anywhere in it, neither the «From this device» row nor the device
+ * under the name: the devices are a level of their own in `ProfileMenu`, which
+ * lists the computer first and marks the one you are on.
  *
  * ── ONE VERB, NOT TWO ───────────────────────────────────────────────────────
  * There is no "register" button next to a "log in" button. The service sends a
@@ -48,17 +49,12 @@ import { useAccountLink } from '@/hooks/useAccountLink';
 import { mostraSezione as accountIsAThingHere } from '@/components/Settings/accountState';
 import type { LabelIdentity } from './identityLabel';
 
-/** A glyph component, taken as a prop: which device you are on is decided by
- *  the row above, and passing the icon beats deciding it twice. */
-type Glyph = React.ComponentType<{ size?: number; className?: string }>;
-
 const FIELD = 'w-full min-w-0 rounded border border-app-border bg-app-bg px-2 py-1.5 text-compact text-app-text outline-none focus:border-app-accent';
 const PRIMARY = 'flex w-full items-center justify-center gap-1.5 rounded border border-primary bg-primary/10 px-2 py-1.5 text-compact font-medium text-primary hover:bg-primary/20 disabled:opacity-50';
 const QUIET = 'flex-shrink-0 rounded px-2 py-1 text-mini text-app-text-tertiary hover:bg-app-hover';
 
-export function AccountPanel({ who, DeviceIcon, onOpenProfile }: {
+export function AccountPanel({ who, onOpenProfile }: {
   who: LabelIdentity;
-  DeviceIcon: Glyph;
   /** THE NAME ROW IS THE DOOR NOW. It used to sit next to a "Open your
    *  profile" row a few pixels below, which pointed at exactly what the
    *  face and the name already are - a person presses the name, not a
@@ -106,25 +102,22 @@ export function AccountPanel({ who, DeviceIcon, onOpenProfile }: {
             </span>}
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-prose font-medium text-app-text">{who.nome}</span>
-          {/* The second line is the ACCOUNT where the word means something, and
-              the device where it does not: never both, and never a blank. */}
-          {speaksOfAccounts
-            ? (
-              <span className={`flex min-w-0 items-center gap-1 text-mini ${linked ? 'text-app-text-secondary' : 'text-app-text-muted'}`}>
-                {linked
-                  ? <ShieldCheck size={11} className="flex-shrink-0 text-app-text-muted" />
-                  : <Mail size={11} className="flex-shrink-0 text-app-text-muted" />}
-                <span data-testid="account-line" className="truncate">
-                  {linked ? state?.email ?? '' : t('account.notLinked')}
-                </span>
+          {/* The second line is the ACCOUNT, where the word means something.
+              Where it does not, the name stands alone: this line used to fall
+              back to the device you are on («This computer», «iPad»), which
+              is the row the devices level draws with «you are here», one
+              gesture away. On the free plan, the only one where this line was
+              drawn, that made the device the one thing the menu said twice. */}
+          {speaksOfAccounts && (
+            <span className={`flex min-w-0 items-center gap-1 text-mini ${linked ? 'text-app-text-secondary' : 'text-app-text-muted'}`}>
+              {linked
+                ? <ShieldCheck size={11} className="flex-shrink-0 text-app-text-muted" />
+                : <Mail size={11} className="flex-shrink-0 text-app-text-muted" />}
+              <span data-testid="account-line" className="truncate">
+                {linked ? state?.email ?? '' : t('account.notLinked')}
               </span>
-            )
-            : who.dettaglio && (
-              <span className="flex min-w-0 items-center gap-1 text-mini text-app-text-muted">
-                <DeviceIcon size={11} className="flex-shrink-0" />
-                <span className="truncate">{who.dettaglio}</span>
-              </span>
-            )}
+            </span>
+          )}
         </span>
       </button>
 

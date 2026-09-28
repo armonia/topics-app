@@ -2536,6 +2536,9 @@ const IT: Dict = {
   // The devices level with no paired device: the computer is the row above it.
   'statusBar.me.devicesNone': 'Nessun altro dispositivo autorizzato',
   'statusBar.me.thisComputer': 'Questo computer',
+  // The same machine seen from a phone: the one the server runs on, which is
+  // not «this» one to whoever is holding the phone.
+  'statusBar.me.hostComputer': 'Il computer',
   'statusBar.me.devicesManage': 'Gestisci i dispositivi',
   'statusBar.orgs.manageOne': 'Gestisci questa organizzazione',
   'statusBar.orgs.manageAll': 'Gestisci le organizzazioni',

@@ -410,7 +410,6 @@ export function SidebarSystemMenu({ onOpenChangelog, isMobile = false, signals =
               devInstall={devInstall}
               hmrAge={isDev && lastChange ? formatChangeAge(lastChange) : undefined}
               desktop={isDesktop}
-              popoverOpen={mostraVersione}
             />
           </span>
         }

@@ -59,16 +59,17 @@ async function box(locator: Locator): Promise<{ left: number; right: number; top
 /** `/api/auth/devices` in the route's own shape: the computer apart in
  *  `thisComputer` (the loopback caller IS it, so it is `current`), the paired
  *  devices in `devices` with `current: false`, since a loopback request carries
- *  no session cookie to match. */
-function devicesRoute(phone: string, ipadConnected: boolean) {
-  const paired = (id: string, name: string, connected: boolean) => ({
+ *  no session cookie to match. `fromIpad` is the same answer to a request from
+ *  the iPad: the computer is no longer `current`, the iPad is. */
+function devicesRoute(phone: string, ipadConnected: boolean, fromIpad = false) {
+  const paired = (id: string, name: string, connected: boolean, current: boolean) => ({
     id, name, role: "owner", createdAt: 1, person: null,
-    lastSeenAt: 2, firstIp: null, revokedAt: null, connected, current: false,
+    lastSeenAt: 2, firstIp: null, revokedAt: null, connected, current,
   });
   return JSON.stringify({
-    thisComputer: { name: "Questo computer", current: true },
+    thisComputer: { name: "Questo computer", current: !fromIpad },
     people: [],
-    devices: [paired("dev-1", phone, true), paired("dev-2", "iPad", ipadConnected)],
+    devices: [paired("dev-1", phone, true, false), paired("dev-2", "iPad", ipadConnected, fromIpad)],
   });
 }
 
@@ -236,16 +237,24 @@ test.describe("il menu utente apre i livelli di lato", () => {
     const sibling = await box(menu.getByTestId("profile-menu-friends"));
     const own = await box(row);
     expect(own.height, `devices row ${own.height}px, friends row ${sibling.height}px`).toBe(sibling.height);
-    await expect(count).toHaveText("1 di 2 connessi");
 
     await row.click();
     const level = page.getByTestId("profile-menu-devices-menu");
     await expect(level).toBeVisible({ timeout: 10_000 });
     // The computer first, as in Settings, and the only «you are here»: a
     // loopback request matches no paired device.
-    await expect(level.getByTestId("device-row")).toHaveText([/Questo computer/, /iPhone/, /iPad/]);
-    await expect(level.getByTestId("device-row").first()).toContainText("stai qui");
+    const rows = level.getByTestId("device-row");
+    await expect(rows).toHaveText([/Questo computer/, /iPhone/, /iPad/]);
+    await expect(rows.first()).toContainText("stai qui");
     await expect(level.getByText("stai qui")).toHaveCount(1);
+    // THE NUMBER ON THE ROW IS THE LIST IT OPENS: read off the level, not
+    // written here. It counted the paired devices only, so it said «1 di 2»
+    // over three rows; the computer is a row, and a connected one, since it
+    // is the machine answering this very request.
+    const listed = await rows.count();
+    const live = await level.locator('[data-testid="device-row"][data-connected="true"]').count();
+    expect(`${live}/${listed}`, "the level lists the computer, the iPhone and the iPad, two of them live").toBe("2/3");
+    await expect(count).toHaveText(`${live} di ${listed} connessi`);
 
     // A RENAME IN SETTINGS SENDS NO EVENT, and the level shows names: it reads
     // the route again when it opens, not only when the page mounted.
@@ -263,10 +272,28 @@ test.describe("il menu utente apre i livelli di lato", () => {
     await expect(menu).toBeHidden({ timeout: 10_000 });
     ipadConnected = true;
     const again = await openProfileMenu(page);
-    await expect(again.getByTestId("devices-count")).toHaveText("2 di 2 connessi", { timeout: 10_000 });
+    await expect(again.getByTestId("devices-count")).toHaveText("3 di 3 connessi", { timeout: 10_000 });
   });
 
-  test("il livello della versione non segue una colonna larga, e il numero non ha un tooltip", async ({ page }) => {
+  test("dall'iPad il computer non si chiama «Questo computer», e stai qui è sull'iPad", async ({ page }) => {
+    // The same route answering a request from the iPad: the computer is the
+    // one the server runs on, not the one in your hand, so «this computer»
+    // would be false on the very row that sits next to «you are here».
+    await page.route("**/api/auth/devices", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: devicesRoute("iPhone", true, true) }));
+    await goToApp(page);
+    const menu = await openProfileMenu(page);
+    await menu.getByTestId("profile-menu-devices").click();
+    const level = page.getByTestId("profile-menu-devices-menu");
+    await expect(level).toBeVisible({ timeout: 10_000 });
+    const rows = level.getByTestId("device-row");
+    await expect(rows).toHaveText([/Il computer/, /iPhone/, /iPad/]);
+    await expect(level).not.toContainText("Questo computer");
+    await expect(rows.nth(2)).toContainText("stai qui");
+    await expect(level.getByText("stai qui")).toHaveCount(1);
+  });
+
+  test("il livello della versione non segue una colonna larga, e il numero non ha un tooltip né un secondo evidenziato", async ({ page }) => {
     // The column at its widest drag: the host panel follows it, and every
     // level of names follows the host. The version level holds fixed
     // `label · value` rows, so it stops at 300 instead of stretching them apart.
@@ -291,6 +318,11 @@ test.describe("il menu utente apre i livelli di lato", () => {
     await menu.getByTestId("menu-version").click();
     const level = page.getByTestId("menu-version-menu");
     await expect(level).toBeVisible({ timeout: 10_000 });
+    // AND NO SECOND HIGHLIGHT ON THE NUMBER. With the level open and the
+    // pointer on the row, the row carries its hover and the number carried a
+    // pill of its own inside it, a leftover of when the number was the
+    // trigger: one row, one highlight.
+    await expect.soft(anchor).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     const own = await box(level);
     const width = own.right - own.left;
     expect(width, `the version level is ${width}px`).toBeLessThanOrEqual(300);

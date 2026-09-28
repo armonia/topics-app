@@ -338,7 +338,6 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
             anchorEl={card}
             onClose={() => setOpen(false)}
             who={who}
-            DeviceIcon={DeviceIcon}
             devices={devices}
             onReadDevices={readDevices}
             orgs={presence.orgs}

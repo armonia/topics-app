@@ -74,10 +74,6 @@ export interface DeviceList {
   paired: LiveDevice[];
 }
 
-/** A glyph component, taken as a prop: which device you are on was decided by
- *  the card, and deciding it twice is how the two disagree. */
-type Glyph = React.ComponentType<{ size?: number; className?: string }>;
-
 /** The commands of the column, as they arrive from `App`: everything the
  *  «Topics» dropdown used to hold, minus the two things this menu decides for
  *  itself (which hand it is drawn for, and how it closes). */
@@ -126,12 +122,11 @@ function useAnchorWidth(anchorEl: HTMLElement | null, floor: number): number {
 }
 
 export function ProfileMenu({
-  anchorEl, onClose, who, DeviceIcon, devices, onReadDevices, orgs, friends, signals, commands, onOpenDevices,
+  anchorEl, onClose, who, devices, onReadDevices, orgs, friends, signals, commands, onOpenDevices,
 }: {
   anchorEl: HTMLElement | null;
   onClose: () => void;
   who: LabelIdentity;
-  DeviceIcon: Glyph;
   /** The devices, `null` until the route has answered once. */
   devices: DeviceList | null;
   /** Asks the route again. Stable: the devices level calls it on open. */
@@ -164,7 +159,6 @@ export function ProfileMenu({
         <Suspense fallback={null}>
           <AccountPanel
             who={who}
-            DeviceIcon={DeviceIcon}
             onOpenProfile={() => { onClose(); apriProfilo('profile'); }}
           />
         </Suspense>
@@ -388,9 +382,18 @@ const DEVICE_ROW = 'flex items-center gap-2 px-3 py-1 text-mini';
  * THE COMPUTER IS THE FIRST ROW. The route sends it apart from the paired
  * devices (`thisComputer`), and over loopback it is the only one marked as the
  * device you are looking from: a level that read only the paired ones left the
- * Mac out, and with an account linked the name row carries the address, so
- * the current device was then written nowhere in the menu. The count in the
- * tail stays on the paired devices, the rows that carry a live dot.
+ * Mac out, and this level is the one place in the menu that names the device
+ * you are on. It is «this computer» only when it is the one you are on: from a
+ * phone it is the computer the server runs on, and «this» would be false one
+ * row above «you are here».
+ *
+ * THE COUNT IN THE TAIL IS THE LIST: live rows over rows, the computer
+ * included. It counted the paired devices alone and read «1 of 2» over three
+ * rows. The computer is always live, since it is the machine answering this
+ * very request, so it carries the dot as well. The tint stays on the paired
+ * devices, as before: green when a phone or a tablet is live, which is the
+ * news, since the computer always is. With nothing paired the tail says
+ * nothing: «1 of 1», about the only machine there is, is not news either.
  *
  * READ AGAIN ON OPEN. A rename in Settings and a phone connecting send no
  * event, and this level shows names and live dots, not a bare count.
@@ -410,8 +413,11 @@ function DevicesSection({ devices, width, onReadDevices, onOpenDevices, onClose 
     if (open) onReadDevices();
   }, [onReadDevices]);
   if (!onOpenDevices) return null;
+  const computer = devices?.computer ?? null;
   const paired = devices?.paired ?? [];
-  const online = paired.filter((d) => d.connected).length;
+  const pairedOnline = paired.filter((d) => d.connected).length;
+  const listed = paired.length + (computer ? 1 : 0);
+  const online = pairedOnline + (computer ? 1 : 0);
 
   return (
     <SubmenuItem
@@ -422,22 +428,25 @@ function DevicesSection({ devices, width, onReadDevices, onOpenDevices, onClose 
       maxWidth={width}
       onOpenChange={onOpenChange}
       tail={paired.length > 0 ? (
-        <span data-testid="devices-count" className={`flex-shrink-0 tabular-nums ${online > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}>
-          {tr('statusBar.me.devicesCount', { n: online, tot: paired.length })}
+        <span data-testid="devices-count" className={`flex-shrink-0 tabular-nums ${pairedOnline > 0 ? SEGNALE_OK : CHIP_INK_DIM}`}>
+          {tr('statusBar.me.devicesCount', { n: online, tot: listed })}
         </span>
       ) : undefined}
     >
       {devices && (
         <div className="max-h-[240px] overflow-y-auto py-1">
-          {devices.computer && (
-            <div data-testid="device-row" className={DEVICE_ROW}>
+          {computer && (
+            <div data-testid="device-row" data-connected="true" className={DEVICE_ROW}>
               <Monitor size={12} className="flex-shrink-0 text-app-text-muted" />
-              <span className="min-w-0 flex-1 truncate text-app-text">{tr('statusBar.me.thisComputer')}</span>
-              {devices.computer.current && <span className="flex-shrink-0 text-app-text-muted">{tr('devices.youAreHere')}</span>}
+              <span className="min-w-0 flex-1 truncate text-app-text">
+                {tr(computer.current ? 'statusBar.me.thisComputer' : 'statusBar.me.hostComputer')}
+              </span>
+              {computer.current && <span className="flex-shrink-0 text-app-text-muted">{tr('devices.youAreHere')}</span>}
+              <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${PALLINO_OK}`} />
             </div>
           )}
           {paired.map((d) => (
-            <div key={d.id} data-testid="device-row" className={DEVICE_ROW}>
+            <div key={d.id} data-testid="device-row" data-connected={d.connected} className={DEVICE_ROW}>
               <Smartphone size={12} className="flex-shrink-0 text-app-text-muted" />
               <span className="min-w-0 flex-1 truncate text-app-text">{d.name}</span>
               {d.current && <span className="flex-shrink-0 text-app-text-muted">{tr('devices.youAreHere')}</span>}

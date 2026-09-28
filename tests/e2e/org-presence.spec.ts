@@ -653,5 +653,13 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     // The name row IS that way: no second row under it saying «open your
     // profile» about what pressing the name already does.
     await expect(panel.getByText("Apri il tuo profilo")).toHaveCount(0);
+    // AND NO DEVICE UNDER THE NAME. This is the plan the live installation
+    // runs (no account service), and here the second line of the name row was
+    // the device the session is named after: the duplicate of the devices
+    // level, which marks it as the one you are on, one gesture away. The
+    // address book knows the person, so the name row is the person's name
+    // and nothing else.
+    await expect(panel.getByTestId("account-identity")).toContainText("Io");
+    await expect(panel.getByTestId("account-identity")).not.toContainText("Questo computer");
   });
 });

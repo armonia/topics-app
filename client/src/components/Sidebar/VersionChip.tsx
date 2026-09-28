@@ -29,7 +29,6 @@
  * it" is a one-line change.
  */
 import { useT } from '../../hooks/useT';
-import { SIDEBAR_ACTIVE } from '../../lib/selectionStyles';
 import { PALLINO_ATTESA, SEGNALE_ATTESA } from './chromeSignals';
 import { shellGap, versionBadgeText } from './shellGap';
 import type { BundleDrift } from './bundleDrift';
@@ -41,7 +40,6 @@ export function VersionChip({
   devInstall,
   hmrAge,
   desktop,
-  popoverOpen,
 }: {
   /** The client bundle version actually running (what a deploy moves). */
   appVersion: string;
@@ -55,8 +53,6 @@ export function VersionChip({
   hmrAge?: string;
   /** False in a browser: there is no native shell to disagree with. */
   desktop?: boolean;
-  /** The level this chip sits on is open: the row is drawn as active. */
-  popoverOpen?: boolean;
 }) {
   const tr = useT();
   const gap = shellGap(appVersion, shellVersion, { desktop });
@@ -77,11 +73,11 @@ export function VersionChip({
       {/* NO TITLE HERE ANY MORE. It used to repeat, on hover, the same
           sentence the dropdown already shows one click away (`version-bundle-
           drift`, `version-built-at`): a tooltip that says what the panel it
-          sits on already says is a second, slower way to read the first. */}
-      <span
-        data-version-anchor
-        className={`text-app-text-muted rounded px-1 py-1 -mx-0.5 transition-colors ${popoverOpen ? `${SIDEBAR_ACTIVE} text-app-text-secondary` : ''}`}
-      >
+          sits on already says is a second, slower way to read the first.
+          AND NO PILL WHEN THE LEVEL OPENS: that was the open state of the
+          chip as a trigger. The row is the trigger now and carries the hover,
+          so a pill inside it drew one row highlighted twice. */}
+      <span data-version-anchor className="text-app-text-muted">
         v{appVersion}
         {/* A stale bundle gets a mark, not a banner: the number is read
             many times a day and the drift is rare, so it costs one dot

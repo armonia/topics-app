@@ -2206,6 +2206,7 @@ const EN = {
   'statusBar.me.devicesCount': '{n} of {tot} connected',
   'statusBar.me.devicesNone': 'No other authorised device',
   'statusBar.me.thisComputer': 'This computer',
+  'statusBar.me.hostComputer': 'The computer',
   'statusBar.me.devicesManage': 'Manage devices',
   'statusBar.orgs.manageOne': 'Manage this organization',
   'statusBar.orgs.manageAll': 'Manage organizations',
