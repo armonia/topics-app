@@ -23,9 +23,10 @@
 import type { AgentMessage } from "./agent-loop";
 import type { StreamHandler } from "../types";
 import {
-  needsCompaction, compact, charsPerTokenFrom, promptTooLong,
+  needsCompaction, compact, charsPerTokenFrom, promptTooLong, stripAllImages, estimateImageTokensTotal,
 } from "./compaction";
 import { CODING_TOOLS as DEFAULT_TOOLS } from "./tools";
+import { ApiHttpError } from "./retry";
 
 /**
  * How many times a turn may save itself from a "prompt is too long" by
@@ -154,6 +155,57 @@ export function recoverFromFullContext(err: unknown, ctx: {
   });
 }
 
+/** Matches a 400 whose message names an image, from a media-type mismatch. */
+const IMAGE_MISMATCH = /\bimage\b/i;
+
+/**
+ * THE FAILURE `recoverFromFullContext` DOES NOT KNOW ABOUT: too many BYTES in
+ * the request body (413), or a mislabelled image the API refuses by NAME
+ * (400, "specified using image/png ... appears to be image/jpeg").
+ *
+ * Neither is in `TRANSIENT_STATUSES`, so `classifyFailure` calls both
+ * "give-up" and rethrows unchanged: with the history untouched, the very next
+ * round sends the identical oversized or mislabelled request and fails the
+ * same way, forever. Measured: 13 reads of Darkroom PNGs reached 31.6 MB,
+ * 14 reached 34.5 MB and got a flat 413; a `v47.png` that is really JPEG
+ * bytes got a 400 naming the mismatch on every retry.
+ *
+ * The only sound recovery once the request has ALREADY been rejected is to
+ * stop being selective: strip every image from the history (captions stay)
+ * and retry the round exactly once. `normalizeImage` (`image-normalize.ts`)
+ * and `enforceImageHistoryBudget` exist to keep this from firing in the
+ * ordinary case; this is the backstop for what slips past both — an image
+ * `sips` cannot resize, or a media type the API rejects for a reason the
+ * normalizer did not anticipate.
+ *
+ * Returning normally means "images stripped, redo the round". Anything that
+ * is not a 413 or an image-naming 400, or a turn that already stripped once,
+ * is THROWN.
+ */
+export function recoverFromImageFailure(err: unknown, ctx: {
+  history: AgentMessage[];
+  state: RecoveryState & { imagesStripped?: boolean };
+  aborted: boolean;
+  handler: Pick<StreamHandler, "onRetry">;
+}): void {
+  if (ctx.aborted || ctx.state.imagesStripped) throw err;
+  const isOversized = err instanceof ApiHttpError && err.status === 413;
+  const namesAnImage = err instanceof ApiHttpError && err.status === 400 && IMAGE_MISMATCH.test(err.message);
+  if (!isOversized && !namesAnImage) throw err;
+
+  ctx.state.imagesStripped = true;
+  const stripped = stripAllImages(ctx.history);
+  ctx.history.length = 0;
+  ctx.history.push(...stripped);
+  console.log(`[native] immagine rifiutata dall'API (${(err as ApiHttpError).status}): tolte tutte le immagini dalla storia, rifaccio il giro`); // allow-italian: server log, not UI
+  ctx.handler.onRetry?.({
+    attempt: 1,
+    maxAttempts: 1,
+    delayMs: 0,
+    reason: "immagine rifiutata dall'API: tolgo le immagini e riprovo", // allow-italian: user-facing chat text, the UI is in Italian
+  });
+}
+
 /**
  * THE CALIBRATION IS ALSO TAKEN FROM THE ROUNDS THAT GO WELL, and this is the
  * part that AVOIDS the 400 instead of repairing it.
@@ -163,14 +215,26 @@ export function recoverFromFullContext(err: unknown, ctx: {
  * the same window. Compared with the characters we had sent, it gives how many
  * characters make a token IN THIS conversation, which on agent content (JSON,
  * diffs, source) is ~2 rather than the assumed 4.
+ *
+ * IMAGES ARE BACKED OUT FIRST (RT-11 finding #6). `sentChars` comes from
+ * `estimateChars`, which already SKIPS image blocks entirely — but
+ * `promptTokens` is the API's real total, INCLUDING whatever it actually
+ * charged for the images. Dividing chars-without-images by tokens-with-images
+ * understates the true chars/token ratio, which then overstates every later
+ * TEXT-only estimate — on top of `estimateTokens` separately adding its own
+ * image-token estimate. Two additions for one cost. Subtracting the same
+ * per-image formula `estimateTokens` uses keeps the calibration text-only,
+ * matching what `sentChars` actually measured.
  */
 export function calibrateFrom(
   calibration: Calibration,
   sentChars: number,
   usage: { input: number; cacheRead: number; cacheWrite: number },
+  history: AgentMessage[],
 ): void {
   const promptTokens = usage.input + usage.cacheRead + usage.cacheWrite;
-  if (promptTokens > 0) calibration.charsPerToken = charsPerTokenFrom(sentChars, promptTokens);
+  const textTokens = promptTokens - estimateImageTokensTotal(history);
+  if (textTokens > 0) calibration.charsPerToken = charsPerTokenFrom(sentChars, textTokens);
 }
 
 /**

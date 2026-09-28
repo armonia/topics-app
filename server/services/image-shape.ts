@@ -16,7 +16,7 @@
  * comunque quando la forma è ignota: questo modulo può far perdere un rifiuto,
  * non può far perdere un'anteprima.
  */
-import { closeSync, openSync, readSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync } from "node:fs";
 
 export interface ImageShape {
   width: number;
@@ -28,6 +28,13 @@ export interface ImageShape {
    * one of the two. Absent on shapes built by hand in tests that never cared.
    */
   vector?: boolean;
+  /**
+   * The real container format, read from the same bytes as width/height —
+   * never from the file's extension. This is what a `media_type` sent to the
+   * Anthropic API must be built from: an extension lies for free, a magic
+   * byte does not. Absent for a vector (SVG has no single canonical name here).
+   */
+  format?: "png" | "jpeg" | "gif" | "webp";
 }
 
 /** Quanto basta per l'header di tutti i formati qui sotto (SVG incluso). */
@@ -128,6 +135,32 @@ function svg(b: Buffer): [number, number] | null {
   return null;
 }
 
+/** I rilevatori in ordine, ciascuno abbinato al nome che deve produrre. */
+const RASTER_DETECTORS: Array<[NonNullable<ImageShape["format"]>, (b: Buffer) => [number, number] | null]> = [
+  ["png", png], ["gif", gif], ["webp", webp], ["jpeg", jpeg],
+];
+
+/**
+ * The core that reads from bytes already in hand, for a file and a buffer
+ * alike. The raster headers are read from the WHOLE of `b`: the JPEG walk
+ * jumps from segment to segment, so a longer buffer costs a few more jumps,
+ * not a scan. Only the SVG test, a regex over decoded text, stays on the head.
+ */
+function shapeFromBuffer(b: Buffer): ImageShape | null {
+  for (const [format, detect] of RASTER_DETECTORS) {
+    const dims = detect(b);
+    if (!dims) continue;
+    const [width, height] = dims;
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) continue;
+    return { width, height, ratio: height / width, vector: false, format };
+  }
+  const dims = svg(b.length > HEAD_BYTES ? b.subarray(0, HEAD_BYTES) : b);
+  if (!dims) return null;
+  const [width, height] = dims;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+  return { width, height, ratio: height / width, vector: true };
+}
+
 /**
  * Le dimensioni di un'immagine PNG/JPEG/GIF/WebP/SVG, oppure `null` per
  * qualunque altra cosa (video compresi) e per ogni file che non si lascia
@@ -137,12 +170,31 @@ function svg(b: Buffer): [number, number] | null {
 export function imageShape(path: string): ImageShape | null {
   const b = readHead(path);
   if (!b) return null;
-  const raster = png(b) ?? gif(b) ?? webp(b) ?? jpeg(b);
-  const dims = raster ?? svg(b);
-  if (!dims) return null;
-  const [width, height] = dims;
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
-  return { width, height, ratio: height / width, vector: !raster };
+  const shape = shapeFromBuffer(b);
+  if (shape || !jpegCutByWindow(b)) return shape;
+  // A JPEG whose APP segments (EXIF, XMP, ICC) fill the whole window before
+  // its SOF: the size is further in. Reading the file is what the caller does
+  // next anyway (`read_file` sends these bytes), and the magic bytes already
+  // say it is a JPEG, so this never reads a large file of any other kind.
+  try {
+    return shapeFromBuffer(readFileSync(path));
+  } catch {
+    return null;
+  }
+}
+
+/** A JPEG start (SOI then a marker) that the head window cut before its size was found. */
+function jpegCutByWindow(head: Buffer): boolean {
+  return head.length === HEAD_BYTES && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+}
+
+/**
+ * Come `imageShape`, ma su byte già in memoria: la stessa domanda quando il
+ * file non esiste su disco, ad esempio un'immagine base64 arrivata da un tool
+ * MCP o già letta per essere rimpicciolita.
+ */
+export function imageShapeFromBuffer(b: Buffer): ImageShape | null {
+  return shapeFromBuffer(b);
 }
 
 /**

@@ -50,8 +50,8 @@ describe('il filo fra le due superfici e la cascata', () => {
   test('il composer chiama la funzione condivisa con i suoi quattro operandi', () => {
     expect(composer).toContain("import { surfaceTopicsRoutingEnabled } from '../../lib/topicsRoutingGate';");
     expect(composer).toContain('surfaceTopicsRoutingEnabled(topicsRouting, boardTopicsRoutingDefault, model, boardDispatchModel)');
-    expect(composer).toContain('boardTopicsRoutingDefault = null');
-    expect(composer).toContain('boardDispatchModel = null');
+    expect(composer).toContain('const boardTopicsRoutingDefault = boardSettings?.dispatchTopicsRouting ?? null;');
+    expect(composer).toContain('const boardDispatchModel = boardSettings?.dispatchModel ?? null;');
   });
 
   test('il cassetto chiama la stessa, con il task al posto del locale', () => {

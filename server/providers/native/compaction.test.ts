@@ -15,6 +15,7 @@ import { describe, expect, test } from "bun:test";
 import {
   estimateTokens, needsCompaction, compact, windowFor, clipToolResult,
   estimateChars, charsPerTokenFrom, promptTooLong,
+  enforceImageHistoryBudget, stripAllImages, IMAGE_HISTORY_COUNT_BUDGET, IMAGE_HISTORY_BYTE_BUDGET,
 } from "./compaction";
 import type { AgentMessage, Block } from "./agent-loop";
 
@@ -369,5 +370,171 @@ describe("il 400 dell'API porta con sé la misura", () => {
   test("un altro 400 non viene scambiato per contesto pieno", () => {
     expect(promptTooLong("API 400: `tool_use` ids were found without `tool_result` blocks")).toBeNull();
     expect(promptTooLong("API 529: overloaded")).toBeNull();
+  });
+});
+
+/** A `read_file` `tool_result` for an image: `[text, image]`. */
+function imageResult(toolUseId: string, caption: string): AgentMessage {
+  return {
+    role: "user",
+    content: [{
+      type: "tool_result",
+      tool_use_id: toolUseId,
+      content: [
+        { type: "text", text: caption },
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "x".repeat(50_000) } },
+      ] as never,
+    }],
+  };
+}
+
+describe("un'immagine vale un peso fisso, non la lunghezza del base64", () => {
+  test("il conteggio dei token non cresce con il base64", () => {
+    const small = [imageResult("t", "a.png (10x10, image attached)")];
+    const big = [imageResult("t", "b.png (4000x4000, image attached)".padEnd(200, "z"))];
+    // `big`'s base64 is no longer here than `small`'s (same fake size), but
+    // even changing the caption length the image's own cost stays the same
+    // order of magnitude: about 1600 tokens, never proportional to the 50,000
+    // base64 characters.
+    const tokens = estimateTokens(small);
+    expect(tokens).toBeGreaterThan(1_000);
+    expect(tokens).toBeLessThan(3_000);
+    expect(estimateTokens(big)).toBeLessThan(tokens + 1_000);
+  });
+
+  test("due immagini pesano il doppio di una", () => {
+    const una = [imageResult("t1", "a.png (10x10, image attached)")];
+    const due = [imageResult("t1", "a.png (10x10, image attached)"), imageResult("t2", "b.png (10x10, image attached)")];
+    const tokensUna = estimateTokens(una);
+    const tokensDue = estimateTokens(due);
+    expect(tokensDue).toBeGreaterThan(tokensUna * 1.5);
+    expect(tokensDue).toBeLessThan(tokensUna * 2.5);
+  });
+});
+
+describe("la compattazione e le immagini", () => {
+  test("un'immagine vecchia diventa un segnaposto di testo, e il caption sopravvive", () => {
+    const h: AgentMessage[] = [
+      { role: "user", content: "guarda queste due immagini" },
+      ...longHistory(10, 3000).slice(1),
+      { role: "assistant", content: [{ type: "tool_use", id: "img1", name: "read_file", input: { path: "old.png" } }] },
+      imageResult("img1", "old.png (10x10, image attached)"),
+      ...longHistory(30, 3000).slice(1),
+    ];
+    const out = compact(h);
+    const middleBlock = out.messages.find((m) => {
+      if (typeof m.content === "string") return false;
+      return m.content.some((b) => b.type === "tool_result" && b.tool_use_id === "img1");
+    });
+    expect(middleBlock).toBeDefined();
+    const block = (middleBlock!.content as any[]).find((b) => b.tool_use_id === "img1");
+    expect(typeof block.content).toBe("string");
+    expect(block.content).toContain("old.png");
+  });
+
+  test("un'immagine nella coda recente resta un'immagine vera", () => {
+    const h: AgentMessage[] = [
+      { role: "user", content: "leggi l'immagine" },
+      ...longHistory(30, 3000).slice(1),
+      { role: "assistant", content: [{ type: "tool_use", id: "recent", name: "read_file", input: { path: "new.png" } }] },
+      imageResult("recent", "new.png (10x10, image attached)"),
+    ];
+    const out = compact(h);
+    const last = out.messages[out.messages.length - 1]!;
+    const block = (last.content as any[]).find((b) => b.tool_use_id === "recent");
+    expect(Array.isArray(block.content)).toBe(true);
+    expect(block.content.some((b: any) => b.type === "image")).toBe(true);
+  });
+});
+
+/** A `tool_use` + `[text, image]` `tool_result` pair, with a base64 of `dataChars` characters. */
+function imageRound(id: string, caption: string, dataChars = 1_000): AgentMessage[] {
+  return [
+    { role: "assistant", content: [{ type: "tool_use", id, name: "read_file", input: { path: id } }] },
+    {
+      role: "user",
+      content: [{
+        type: "tool_result",
+        tool_use_id: id,
+        content: [
+          { type: "text", text: caption },
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "x".repeat(dataChars) } },
+        ] as never,
+      }],
+    },
+  ];
+}
+
+/** The `tool_result` block of call `id`, wherever it sits in the history. */
+function resultOf(messages: AgentMessage[], id: string): Block {
+  for (const m of messages) {
+    if (typeof m.content === "string") continue;
+    const b = m.content.find((x) => x.type === "tool_result" && x.tool_use_id === id);
+    if (b) return b;
+  }
+  throw new Error(`no tool_result for ${id}`);
+}
+
+const hasImage = (b: Block) => Array.isArray(b.content) && (b.content as Array<{ type?: string }>).some((c) => c.type === "image");
+
+describe("a pruned image keeps its path even when the path has spaces", () => {
+  test.each([
+    "RAW/ChatGPT Image Aug 15, 2026, 11_25_32 AM.png",
+    "Schermata 2026-09-26 alle 10.11.12.png",
+  ])("%s", (path) => {
+    const h: AgentMessage[] = [{ role: "user", content: "guarda" }, ...imageRound("i1", `${path} (1254x1254, image attached)`)];
+    const out = stripAllImages(h);
+    expect(resultOf(out, "i1").content).toBe(`[immagine rimossa per fare spazio: ${path}]`);
+  });
+});
+
+describe("enforceImageHistoryBudget", () => {
+  test("under both budgets the history comes back untouched, the same array", () => {
+    const h: AgentMessage[] = [{ role: "user", content: "guarda" }, ...imageRound("i1", "a.png (10x10, image attached)")];
+    expect(enforceImageHistoryBudget(h)).toBe(h);
+  });
+
+  test("one image over the count budget: the OLDEST becomes a placeholder, the rest stay images", () => {
+    const h: AgentMessage[] = [{ role: "user", content: "guarda" }];
+    for (let i = 0; i <= IMAGE_HISTORY_COUNT_BUDGET; i++) h.push(...imageRound(`i${i}`, `shot ${i}.png (10x10, image attached)`));
+    const out = enforceImageHistoryBudget(h);
+    expect(resultOf(out, "i0").content).toBe("[immagine rimossa per fare spazio: shot 0.png]");
+    for (let i = 1; i <= IMAGE_HISTORY_COUNT_BUDGET; i++) expect(hasImage(resultOf(out, `i${i}`))).toBe(true);
+    // The call it answered is still there: the pair stays valid for the API.
+    expect(out).toHaveLength(h.length);
+  });
+
+  test("over the byte budget: oldest first until it fits, and the newest survives even alone over the budget", () => {
+    const quarter = Math.ceil(IMAGE_HISTORY_BYTE_BUDGET / 4);
+    const h: AgentMessage[] = [
+      { role: "user", content: "guarda" },
+      ...imageRound("old", "old.png (10x10, image attached)", quarter),
+      ...imageRound("mid", "mid.png (10x10, image attached)", quarter),
+      ...imageRound("new", "new.png (10x10, image attached)", IMAGE_HISTORY_BYTE_BUDGET + 1),
+    ];
+    const out = enforceImageHistoryBudget(h);
+    expect(resultOf(out, "old").content).toBe("[immagine rimossa per fare spazio: old.png]");
+    expect(resultOf(out, "mid").content).toBe("[immagine rimossa per fare spazio: mid.png]");
+    expect(hasImage(resultOf(out, "new"))).toBe(true);
+  });
+});
+
+describe("stripAllImages", () => {
+  test("every image goes, each tool_result keeps its id and a placeholder with the path", () => {
+    const h: AgentMessage[] = [
+      { role: "user", content: "guarda" },
+      ...imageRound("a", "a.png (10x10, image attached)"),
+      ...imageRound("b", "b.png (10x10, image attached)"),
+    ];
+    const out = stripAllImages(h);
+    expect(resultOf(out, "a")).toEqual({ type: "tool_result", tool_use_id: "a", content: "[immagine rimossa per fare spazio: a.png]" });
+    expect(resultOf(out, "b")).toEqual({ type: "tool_result", tool_use_id: "b", content: "[immagine rimossa per fare spazio: b.png]" });
+    // The input is not mutated: the caller decides when to swap it in.
+    expect(hasImage(resultOf(h, "a"))).toBe(true);
+  });
+
+  test("a history with no image comes back as the same array", () => {
+    const h = longHistory(3, 100);
+    expect(stripAllImages(h)).toBe(h);
   });
 });

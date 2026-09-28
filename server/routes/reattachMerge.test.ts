@@ -153,3 +153,34 @@ describe("mergeReattachedRow — i salvataggi a metà replay non sottraggono", (
     expect(m.content).toBe("Fatto.");
   });
 });
+
+describe("mergeReattachedRow: the person's side of a question survives the replay", () => {
+  // The form a question asked with and the answer it got are written by the
+  // routes, never by the provider, so the replay rebuilds the tool without
+  // them: with as many tools as before, its timeline wins, and the answer was
+  // gone from the row (third review of PR #135, point 3).
+  const schema = { kind: "questions", questions: [{ question: "Quale ramo?" }] };
+  const answer = { kind: "questions", answers: { "Quale ramo?": "sito" }, submittedAt: "2026-09-27T12:00:00.000Z" };
+  const answered = snap({
+    blocksJson: JSON.stringify([{ kind: "tool", toolCall: { id: "toolu_1", status: "running", userInputSchema: schema, userResponse: answer } }]),
+  });
+  const replayed = () => [
+    { kind: "tool", toolCall: { id: "toolu_1", status: "success", result: "{}" } },
+    { kind: "text", text: "Lavoro sul sito." },
+  ];
+
+  for (const phase of ["progress", "final"] as const) {
+    test(`${phase}: the replayed tool keeps its own status and takes the answer back`, () => {
+      const m = mergeReattachedRow(answered, { content: "Lavoro sul sito.", trackedTools: 1, blocks: replayed() }, phase);
+      const tool = (m.blocks?.[0] as { toolCall: Record<string, unknown> }).toolCall;
+      expect(tool).toEqual({ id: "toolu_1", status: "success", result: "{}", userInputSchema: schema, userResponse: answer });
+      expect(m.blocks?.[1]).toEqual({ kind: "text", text: "Lavoro sul sito." });
+    });
+  }
+
+  test("a replay that has nothing to take back returns its own timeline", () => {
+    const blocks = replayed();
+    const m = mergeReattachedRow(snap(), { content: "Lavoro sul sito.", trackedTools: 1, blocks });
+    expect(m.blocks).toBe(blocks);
+  });
+});

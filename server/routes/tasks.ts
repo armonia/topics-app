@@ -87,6 +87,7 @@ import { listOwnCommits, mergeNameStatus } from "../services/own-commits";
 import { createDeliveryCapture } from "../services/task-delivery-capture";
 import { makeSheetWriter } from "../services/delivery-sheet";
 import { resolveTaskDiffRange } from "../services/task-diff-range";
+import { gitDiffStat, type DiffStatEntry } from "../lib/git-diff-stat";
 import { isTaskLabel, normalizeLabels, type TaskFile } from "../../shared/task-labels";
 import { stopCauseOf, STOP_CAUSE_HEADER, type StopCause } from "../lib/abort-cause";
 import { probeUrl, invalidateProbeCache } from "../services/url-probe-cache";
@@ -569,99 +570,39 @@ const DIFF_PATCH_CAP = 200_000;
 const PUBLISH_STATUS_TTL_MS = 30_000;
 let publishStatusCache: { key: string; until: number; body: { projects: unknown[] } } | null = null;
 
-/** Cap on how many untracked files we fold into a task diff — a runaway worktree
- *  (node_modules never gitignored, a build dir…) must not spawn thousands of git
- *  processes. Beyond this we stop; the patch cap already bounds the payload. */
-const UNTRACKED_FILE_CAP = 500;
-
 /**
- * Il path di DESTINAZIONE da una riga di `--numstat`.
- *
- * Su un rename git non stampa un path: stampa la trasformazione, in due forme —
- * `vecchio => nuovo` quando cambia tutto, e `dir/{a => b}/f.ts` quando cambia un
- * pezzo solo. Prese alla lettera nessuna delle due combacia con il `b/…` del
- * patch, quindi la riga dello stat restava orfana: niente `+N −M` accanto al
- * nome, e — da quando l'elenco dei file si costruisce dallo stat — lo stesso file
- * elencato DUE volte, una per lo stat e una per il pezzo di patch.
+ * Patch headers with a path's own letters, not git's quoted octal
+ * (`"a/docs/citt\303\240.md"`): the drawer splits a patch on `diff --git a/… b/…`
+ * and matches it to the stat, which `-z` already gives unquoted.
  */
-export function numstatPath(raw: string): string {
-  const path = raw.trim();
-  if (!path.includes("=>")) return path;
-  // Prima la forma con le graffe, che è annidata dentro il path: si sostituisce
-  // il gruppo con il suo lato destro (vuoto = il segmento sparisce).
-  const braced = path.replace(/\{([^{}]*?) => ([^{}]*?)\}/g, "$2");
-  if (braced !== path) return braced.replace(/\/{2,}/g, "/");
-  const arrow = path.split(" => ");
-  return (arrow[arrow.length - 1] ?? path).trim();
-}
+const UNQUOTED_PATHS = ["-c", "core.quotePath=false"];
 
 /**
- * Build a unified-diff bundle for `range` (any `git diff` selector — a `a..b`
+ * Build a unified-diff bundle for `range` (any `git diff` selector: a `a..b`
  * range for a publish, or a base sha for a worktree). Returns the per-file stat
- * (additions/deletions/status, -1 count = binary) and the raw unified patch,
- * capped. Reuses `runGitCap`; never throws.
+ * (`gitDiffStat`, shared with the chat's changed-files strip) and the raw
+ * unified patch, capped. Never throws.
  *
  * `includeUntracked` folds in files git isn't tracking yet (new deliverables an
- * agent wrote but never committed): plain `git diff` ignores them entirely, so a
- * task whose ONLY output is a brand-new file otherwise renders as an empty diff.
- * They're listed as `A` and diffed against /dev/null (no index mutation). Off for
- * publish diffs, which compare two commits and have no working-tree notion.
+ * agent wrote but never committed), diffed against /dev/null. Off for publish
+ * diffs, which compare two commits and have no working-tree notion.
  */
 async function gitDiffBundle(cwd: string, range: string, gopts?: { includeUntracked?: boolean }): Promise<{
-  stat: { path: string; additions: number; deletions: number; status: string }[];
+  stat: DiffStatEntry[];
   patch: string;
   truncated: boolean;
 }> {
-  const [numstat, nameStatus] = await Promise.all([
-    runGitCap(cwd, ["diff", "--numstat", range]).then((r) => r.out),
-    runGitCap(cwd, ["diff", "--name-status", range]).then((r) => r.out),
-  ]);
-  const statusByPath = new Map<string, string>();
-  for (const line of nameStatus.split("\n").filter(Boolean)) {
-    const parts = line.split("\t");
-    const p = parts[parts.length - 1] ?? ""; // rename: status\told\tnew → take new
-    if (p) statusByPath.set(p, (parts[0] ?? "M")[0] ?? "M");
+  const { stat, untracked } = await gitDiffStat(cwd, range, gopts);
+  let full = (await runGitCap(cwd, [...UNQUOTED_PATHS, "diff", range])).out;
+  for (const f of untracked) {
+    // Past the cap no more patch text is fetched: the stat is still complete,
+    // the patch just gets flagged truncated below.
+    if (full.length > DIFF_PATCH_CAP) break;
+    // `git diff --no-index /dev/null <f>` is a pure file compare (no index
+    // touched); exit code 1 just means "differs", runGitCap returns .out anyway.
+    const p = (await runGitCap(cwd, [...UNQUOTED_PATHS, "diff", "--no-index", "--", "/dev/null", f])).out;
+    if (p) full += (full && !full.endsWith("\n") ? "\n" : "") + p;
   }
-  const stat = numstat.split("\n").filter(Boolean).map((line) => {
-    const parts = line.split("\t");
-    const add = parts[0] ?? "0";
-    const del = parts[1] ?? "0";
-    const path = numstatPath(parts[parts.length - 1] ?? "");
-    return {
-      path,
-      additions: add === "-" ? -1 : Number.parseInt(add, 10) || 0,
-      deletions: del === "-" ? -1 : Number.parseInt(del, 10) || 0,
-      status: statusByPath.get(path) ?? "M",
-    };
-  });
-  let full = (await runGitCap(cwd, ["diff", range])).out;
-
-  if (gopts?.includeUntracked) {
-    // -z: NUL-separated, so paths with spaces/newlines survive intact.
-    const others = (await runGitCap(cwd, ["ls-files", "--others", "--exclude-standard", "-z"])).out;
-    const files = others.split("\0").filter(Boolean).slice(0, UNTRACKED_FILE_CAP);
-    for (const f of files) {
-      // `git diff --no-index /dev/null <f>` is a pure file compare (no index
-      // touched); exit code 1 just means "differs" — runGitCap returns .out anyway.
-      const ns = (await runGitCap(cwd, ["diff", "--no-index", "--numstat", "--", "/dev/null", f])).out;
-      const parts = (ns.split("\n").find(Boolean) ?? "").split("\t");
-      const add = parts[0] ?? "0";
-      const del = parts[1] ?? "0";
-      stat.push({
-        path: f,
-        additions: add === "-" ? -1 : Number.parseInt(add, 10) || 0,
-        deletions: del === "-" ? -1 : Number.parseInt(del, 10) || 0,
-        status: "A",
-      });
-      // Skip fetching more patch text once we're already over the cap (stat is
-      // cheap and still complete; the patch just gets flagged truncated below).
-      if (full.length <= DIFF_PATCH_CAP) {
-        const p = (await runGitCap(cwd, ["diff", "--no-index", "--", "/dev/null", f])).out;
-        if (p) full += (full && !full.endsWith("\n") ? "\n" : "") + p;
-      }
-    }
-  }
-
   const truncated = full.length > DIFF_PATCH_CAP;
   return { stat, patch: truncated ? full.slice(0, DIFF_PATCH_CAP) : full, truncated };
 }
@@ -695,11 +636,11 @@ async function gitDiffFilePatch(
   gopts?: { includeUntracked?: boolean },
 ): Promise<{ path: string; patch: string; truncated: boolean } | null> {
   if (!path || isAbsolute(path) || path.split(/[\\/]/).includes("..") || path.includes("\0")) return null;
-  let patch = (await runGitCap(cwd, ["--literal-pathspecs", "diff", range, "--", path])).out;
+  let patch = (await runGitCap(cwd, [...UNQUOTED_PATHS, "--literal-pathspecs", "diff", range, "--", path])).out;
   if (!patch && gopts?.includeUntracked) {
     const others = (await runGitCap(cwd, ["--literal-pathspecs", "ls-files", "--others", "--exclude-standard", "-z", "--", path])).out;
     if (others.split("\0").includes(path)) {
-      patch = (await runGitCap(cwd, ["diff", "--no-index", "--", "/dev/null", path])).out;
+      patch = (await runGitCap(cwd, [...UNQUOTED_PATHS, "diff", "--no-index", "--", "/dev/null", path])).out;
     }
   }
   const truncated = patch.length > DIFF_FILE_PATCH_CAP;

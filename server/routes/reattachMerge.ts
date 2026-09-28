@@ -73,6 +73,34 @@ function countToolBlocks(blocks: unknown[]): number {
   return blocks.filter((b) => (b as { kind?: string } | null)?.kind === "tool").length;
 }
 
+type ToolBlock = { kind: "tool"; toolCall: { id?: string; userInputSchema?: unknown; userResponse?: unknown } };
+const isToolBlock = (b: unknown): b is ToolBlock => (b as { kind?: string } | null)?.kind === "tool";
+
+/**
+ * The person's side of a question, the form it asked with and the answer it
+ * got, is written by routes (`onUserInputRequired`, `/api/chat/tool-response`),
+ * never by the provider: a replay rebuilds the tool without it. A tool the
+ * replay re-emitted takes back what it lacks from the row as it was. Without
+ * this an answer given before the restart was gone from the row as soon as the
+ * replay re-emitted its tool (third review of PR #135, point 3).
+ */
+function withHumanSide(blocks: unknown[], snapshotBlocks: unknown[] | null): unknown[] {
+  const before = new Map((snapshotBlocks ?? []).filter(isToolBlock).map((b) => [b.toolCall.id, b.toolCall]));
+  let carried = false;
+  const out = blocks.map((b) => {
+    const was = isToolBlock(b) ? before.get(b.toolCall.id) : undefined;
+    if (!isToolBlock(b) || !was) return b;
+    const missing = {
+      ...(was.userInputSchema && !b.toolCall.userInputSchema ? { userInputSchema: was.userInputSchema } : {}),
+      ...(was.userResponse && !b.toolCall.userResponse ? { userResponse: was.userResponse } : {}),
+    };
+    if (Object.keys(missing).length === 0) return b;
+    carried = true;
+    return { ...b, toolCall: { ...b.toolCall, ...missing } };
+  });
+  return carried ? out : blocks;
+}
+
 /** Quando si sta scrivendo.
  *
  *  `final` è il verdetto del turno: quello che il riattacco ha prodotto è tutto
@@ -125,7 +153,7 @@ export function mergeReattachedRow(
   const verdetti = produced.blocks.filter((b) => (b as { kind?: string }).kind === "error");
   const blocchiTenuti = keepOldBlocks && snapshotBlocks
     ? [...snapshotBlocks, ...verdetti]
-    : (produced.blocks.length > 0 ? produced.blocks : undefined);
+    : (produced.blocks.length > 0 ? withHumanSide(produced.blocks, snapshotBlocks) : undefined);
 
   // A metà replay il testo nuovo prende il posto del vecchio solo quando lo ha
   // raggiunto: prima di allora quello che c'è in riga è ancora il turno intero

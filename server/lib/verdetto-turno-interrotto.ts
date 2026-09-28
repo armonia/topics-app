@@ -80,11 +80,17 @@ export function verdettoDaApporre(
  *
  * Ripetibile a ogni boot senza accumulare: `verdettoDaApporre` scarta chi ha
  * già un verdetto. Restituisce quante righe ha riparato.
+ *
+ * A row the boot sweep cut (`end_reason = 'cut-by-restart'`) is explained
+ * already: the sweep writes the restart notice right after it. A verdict on the
+ * row too gave the person two notices for one cut, the second saying "no
+ * activity for 3 minutes" about a restart (test D of card a57e6d4d).
  */
 export function bonificaTurniMuti(db: DbLike, testo: string): number {
   const iter = db.prepare(
     `SELECT id, blocks FROM messages WHERE role = 'assistant'
        AND blocks IS NOT NULL AND partial = 0
+       AND COALESCE(end_reason, '') <> 'cut-by-restart'
        AND timestamp >= date('now', '-30 days')
        AND ${NOT_ARCHIVED_SQL}`,
   ).iterate() as Iterable<{ id: string; blocks: unknown }>;

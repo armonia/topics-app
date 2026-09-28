@@ -1585,7 +1585,7 @@ const CUT_SEND_MAX_WAIT_MS = 30 * 60_000;
 // is adopted again after it (38 s after the cut, on 24/09): the wait rides it out.
 const CUT_SEND_UNREACHABLE_MS = 2 * 60_000;
 
-type ChatRow = { id?: string; role?: string; content?: string; partial?: boolean; blocks?: Array<{ kind?: string; text?: string }>; latencyMs?: number };
+type ChatRow = { id?: string; role?: string; content?: string; partial?: boolean; blocks?: Array<{ kind?: string; text?: string }>; latencyMs?: number; endReason?: string };
 
 /**
  * The stream was cut before `[DONE]` while the turn may still be running. Wait
@@ -1644,13 +1644,11 @@ async function awaitTurnEndAndReadReply(
         throw new Error(`send_chat_message: stream interrupted, and the turn then ended badly: ${(verdict.text ?? "error").replace(/[.\s]+$/, "")}.`
           + (text ? ` What it had written: ${JSON.stringify(text)}.` : "") + ` ${beforeResending(topicId)}`);
       }
-      // CLOSED FROM OUTSIDE, not finished: only a turn's own completion writes
-      // `latency_ms` (the discriminant `reuseOrCreatePartialForReattach` already
-      // relies on). The boot sweep after a crash and the stale-stream sweeper
-      // close the row without it, and the boot sweep writes no verdict on it:
-      // the person reads the restart notice after it, one notice is enough. A
-      // Stop that the provider finalizes writes it, and stays the open case.
-      if (row.latencyMs == null) {
+      // How the row was closed (`endReason`, card a57e6d4d): a Stop or a failure says so, the sweeps
+      // close it from outside (the boot's with no verdict: the restart notice follows). An older
+      // row has only `latency_ms`, which only a turn's own completion writes.
+      if (row.endReason === "stopped" || row.endReason === "error") throw new Error(unfinishedTurn({ end: row.endReason === "stopped" ? "cancelled" : "error" }, text, topicId));
+      if (row.endReason ? row.endReason !== "done" : row.latencyMs == null) {
         throw new Error(`send_chat_message: stream interrupted, and the turn was closed from outside before it finished (a restart or a watchdog).`
           + (text ? ` What it had written: ${JSON.stringify(text)}.` : " It had written nothing.") + ` ${beforeResending(topicId)}`);
       }
@@ -1712,7 +1710,7 @@ export async function callSendChatMessage(
   return reply;
 }
 
-type ListedRow = { role?: string; content?: string; partial?: boolean; latencyMs?: number; blocks?: Array<{ kind?: string; text?: string }> };
+type ListedRow = { role?: string; content?: string; partial?: boolean; latencyMs?: number; endReason?: string; blocks?: Array<{ kind?: string; text?: string }> };
 
 /** How the boot sweep's restart notice opens (`RESTART_INTERRUPTED_MARKER`, lib/boot-partial-sweep.ts). */
 export const RESTART_NOTICE_OPENING = "Turno interrotto da un riavvio del server";
@@ -1721,17 +1719,19 @@ export const RESTART_NOTICE_OPENING = "Turno interrotto da un riavvio del server
 const verdictOf = (row: ListedRow | undefined) => row?.blocks?.find((b) => b?.kind === "error")?.text;
 
 /**
- * The rows a restart cut: for each restart notice, the turn's own row, the first
+ * The rows a restart cut: the ones the boot sweep closed say so (`endReason`).
+ * Before that field, for each restart notice: the turn's own row, the first
  * answer (not a service line) after the person's message before it, when no
- * completion closed it. The notice hangs from the session's LAST row, and a
- * sub-agent's result or a system line can land after the turn's row meanwhile.
+ * completion closed it (no latency). Only for a turn with no `endReason` at all.
  */
 function rowsCutByRestart(rows: ListedRow[]): Set<number> {
   const cut = new Set<number>();
   rows.forEach((row, i) => {
+    if (row.endReason === "cut-by-restart") cut.add(i);
     if (row.role !== "assistant" || !`${row.content ?? ""} ${verdictOf(row) ?? ""}`.includes(RESTART_NOTICE_OPENING)) return;
     let asked = i - 1;
     while (asked >= 0 && rows[asked].role !== "user") asked--;
+    if (rows.slice(asked + 1, i).some((r) => r.endReason)) return;
     let turn = asked >= 0 ? asked + 1 : -1;
     while (turn > 0 && turn < i && rows[turn].blocks?.some((b) => b?.kind === "background-notice" || b?.kind === "machine-stop")) turn++;
     if (turn > 0 && turn < i && rows[turn].role === "assistant" && rows[turn].latencyMs == null && !verdictOf(rows[turn])) cut.add(turn);

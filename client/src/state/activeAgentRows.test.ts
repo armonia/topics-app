@@ -6,10 +6,14 @@
  * `activeAgentRowsFrom`, so the interesting cases are the gates: which
  * sessions are rows, which are not, and that every row has a name.
  *
- * @covers STATUSLINE-05
+ * A chat waiting on the work its closed turn left running is an active agent
+ * too, in a list of its own: it holds a CLI in RAM right now, and that list is
+ * what says which one to stop.
+ *
+ * @covers STATUSLINE-05, BGVIS-03
  */
 import { describe, expect, test } from "bun:test";
-import { activeAgentRowsFrom, visibleTopicSignalCount, visibleTopicSignalIds } from "./signals";
+import { activeAgentCount, activeAgentRowsFrom, visibleTopicSignalCount, visibleTopicSignalIds } from "./signals";
 import type { Topic } from "../types";
 
 const topic = (id: string, archived = false): Topic => ({ id, name: `chat ${id}`, archived } as Topic);
@@ -18,7 +22,9 @@ const quiet = {
   active: none, resting: none, busy: none,
   awaitingTerm: none, awaitingInputTerm: none, finishedTerms: none,
   liveStream: none, hydratedStream: none, awaitingTopics: none, awaitingInputTopics: none,
+  backgroundTopics: new Map<string, unknown>(),
 };
+const inBackground = (...ids: string[]) => new Map(ids.map((id) => [id, { sessionKey: `topic:${id}`, tasks: [], lastSignalAt: 0 }]));
 
 describe("visibleTopicSignalIds", () => {
   test("the count is the length of the ids, one gate", () => {
@@ -123,5 +129,31 @@ describe("activeAgentRowsFrom", () => {
     });
     // t2 is the shell: not an agent, so it enters no list.
     expect(rows.finished).toEqual([]);
+  });
+
+  test("a chat in the background is an active agent, in its own list, and the badge counts it", () => {
+    const topics = { a: topic("a") };
+    const rows = activeAgentRowsFrom([], topics, { ...quiet, backgroundTopics: inBackground("a") });
+    expect(rows.background).toEqual([{ id: "a", kind: "topic", label: "chat a" }]);
+    expect(rows.working).toEqual([]);
+    expect(activeAgentCount(rows)).toBe(1);
+  });
+
+  test("an archived or deleted chat in the background does not count", () => {
+    const rows = activeAgentRowsFrom([], { b: topic("b", true) }, { ...quiet, backgroundTopics: inBackground("b", "ghost") });
+    expect(rows.background).toEqual([]);
+    expect(activeAgentCount(rows)).toBe(0);
+  });
+
+  test("a chat mid reply is ONE row, the working one, even if its last turn left work behind", () => {
+    const topics = { a: topic("a"), b: topic("b") };
+    const rows = activeAgentRowsFrom([], topics, {
+      ...quiet,
+      liveStream: new Set(["a"]),
+      backgroundTopics: inBackground("a", "b"),
+    });
+    expect(rows.working).toEqual([{ id: "a", kind: "topic", label: "chat a" }]);
+    expect(rows.background).toEqual([{ id: "b", kind: "topic", label: "chat b" }]);
+    expect(activeAgentCount(rows)).toBe(2);
   });
 });

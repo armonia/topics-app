@@ -119,6 +119,34 @@ export function lateStartContent(above: string | undefined, delta: string): stri
   return (above && above.trim() ? `${above}\n\n` : '') + delta;
 }
 
+/** A closed turn's late chunk waiting for the next frame, with the frame that names its bubble. */
+export interface LateDelta {
+  sessionKey: string;
+  kind: 'content' | 'thinking';
+  text: string;
+  frame: { messageId?: string; late: true; lateStart?: true };
+}
+
+/**
+ * Queue a late chunk for the frame, glued to the one before when it continues
+ * it: same bubble, same kind, and not the start of a late answer. A queue and
+ * not one entry per bubble, as the live buffer has: the late lane sends
+ * thinking and text with nothing between them, and they land in arrival order.
+ */
+export function queueLateDelta(queue: LateDelta[], next: LateDelta): void {
+  const last = queue[queue.length - 1];
+  if (last && !next.frame.lateStart && last.sessionKey === next.sessionKey
+    && last.kind === next.kind && last.frame.messageId === next.frame.messageId) last.text += next.text;
+  else queue.push(next);
+}
+
+/** Take the queued chunks of one session (of all, when none is named) out of the queue, in order. */
+export function takeLateDeltas(queue: LateDelta[], sessionKey?: string): LateDelta[] {
+  const taken = queue.filter((d) => sessionKey == null || d.sessionKey === sessionKey);
+  if (taken.length) queue.splice(0, queue.length, ...queue.filter((d) => !taken.includes(d)));
+  return taken;
+}
+
 /**
  * Whether this late chunk opens the late answer. The server marks the FIRST
  * chunk (`lateStart`); when the client cleans that one to nothing (invisible

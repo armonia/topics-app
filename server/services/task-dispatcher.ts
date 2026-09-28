@@ -35,7 +35,7 @@ import { CODE_GATES_RULE, E2E_CI_CHECK, UNIT_CI_CHECK, isCiEvidenceCheck, ADMISS
 import { decideNight, deadlineFrom } from "./night-mode";
 import { effectiveDispatchCap, type MemoryFloorHold, type ResourceFloorKind, type ResourceFloorVerdict } from "./dispatch-capacity";
 import { daySpendSentence, heldResumeBlock, publishDispatchBlock, setHeldResumeBlock, type DispatchBlockKind } from "./dispatch-block-signal";
-import { effectiveTopicsRouting, taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
+import { effectiveTopicsRouting, reusedSessionRouteConflict, taskModelMatchesSession, taskModelSelection, taskModelValue } from "../../shared/task-coding-models";
 import {
   bookSessionCost,
   createSpendBrake,
@@ -269,7 +269,7 @@ export interface DispatcherDeps {
    * provider/catalog errors stay actionable and never cross to another provider.
    */
   /** The classifier selects model/provider, reasoning effort and independent machine weight. */
-  pickAutoModel?: (task: Task, selection?: string, options?: { effort?: string }) => Promise<{ model: string | null; provider?: string; effort?: string | null; weight?: string | null }>;
+  pickAutoModel?: (task: Task, selection?: string, options?: { effort?: string; topicsRouting?: boolean }) => Promise<{ model: string | null; provider?: string; effort?: string | null; weight?: string | null }>;
   /** An unconstrained Auto task may choose a ready coding runtime that is not itself held right now. */
   automaticModelAvailable?: () => boolean;
   /** Live machine capacity (CPU/load) for the ONE machine-wide cap, used when
@@ -403,9 +403,10 @@ export interface DispatcherDeps {
    */
   topicExists?: (topicId: string) => boolean;
   /** The actual binding inherited when a dependent reuses its blocker's session. */
-  topicModelSelection?: (topicId: string) => { model?: string | null; provider?: string | null } | null;
-  /** Same coding-provider resolution as createTopic, including the live default. */
-  resolveTaskProvider?: (model?: string | null) => string;
+  topicModelSelection?: (topicId: string) => { model?: string | null; provider?: string | null; topicsRouting?: boolean | null } | null;
+  /** Same coding-provider resolution as createTopic, including the live default
+   *  and the Topics switch (with ON every selection runs on the native engine). */
+  resolveTaskProvider?: (model?: string | null, topicsRouting?: boolean) => string;
   /**
    * Il lavoro che questa card ha consegnato è già DENTRO il ramo d'integrazione
    * del suo repo?
@@ -866,6 +867,15 @@ const CHIP_DELIVERED = "delivered";
 //              (no worktree, project path unresolvable) → amber "da sistemare".
 const CHIP_FAILED = "failed";
 const CHIP_BLOCKED = "blocked";
+/** Why a dependent parks when its blocker's session runs with the other Topics
+ *  routing switch, or with the same one OFF on another runtime than the one the
+ *  dependent names (reusedSessionRouteConflict). */
+const REUSED_SESSION_ROUTE_REASON = {
+  "switch-on": "This task has Topics routing off, but the previous session runs with the switch on, through the Topics engine. Turn the switch on or turn off session reuse before starting the task.",
+  "switch-off": "This task has Topics routing on, but the previous session runs with the switch off. Turn the switch off or turn off session reuse before starting the task.",
+  engine: "This task has Topics routing off and asks for a direct run, but the previous session runs on the Topics engine. Turn off session reuse before starting the task.",
+  direct: "This task names the Topics engine as its runtime, but the previous session runs directly on its provider. Turn off session reuse before starting the task.",
+} as const;
 // The agent DECLARED an external-condition wait (wait_for_condition): the task is
 // back in `todo`, its slot freed, and a deferral window keeps it out of the claim
 // until it elapses — then the tick re-dispatches it. It never produced output, so
@@ -1598,8 +1608,16 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     if (!provider) {
       const selected = model ?? task.model;
       const selection = taskModelSelection(selected);
-      if (!topicId && !selection.model && !selection.provider && deps.automaticModelAvailable?.()) return null;
-      try { provider = deps.resolveTaskProvider?.(selected) ?? taskModelSelection(selected).provider ?? "topics"; }
+      // Same switch the launch reads: the task's, then the board's, then the legacy prefix.
+      let boardRouting: boolean | null = null;
+      try { boardRouting = deps.svc.getBoardSettings(task.projectId).dispatchTopicsRouting; } catch { /* no board row: the task decides */ }
+      const topicsRouting = effectiveTopicsRouting(task.topicsRouting ?? boardRouting, selected);
+      // A free runtime elsewhere is no way out with ON: every Automatic
+      // candidate runs on the Claude engine, so the resolved runtime answers
+      // for all of them. Asking the fleet let Codex vouch for a card that
+      // then had no candidate and parked for good during a Claude hold.
+      if (!topicId && !selection.model && !selection.provider && !topicsRouting && deps.automaticModelAvailable?.()) return null;
+      try { provider = deps.resolveTaskProvider?.(selected, topicsRouting) ?? taskModelSelection(selected).provider ?? "topics"; }
       catch { return null; } // Unavailable routing is reported by createTopic, not disguised as quota.
     }
     const holdKey = providerHoldKey(provider);
@@ -1654,6 +1672,18 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   function markPlanWait(task: Task, reason: string): void {
     if (task.dispatchState === CHIP_QUEUED && task.dispatchError === reason) return;
     emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED, error: reason }));
+  }
+
+  /**
+   * The bare `queued` chip, written only when the row does not carry it already
+   * (the guard `markPlanWait` has). `setDispatchState` moves `updated_at` and
+   * every write goes out as a frame, so the tick's holds, which run at every
+   * 10 s poll, rewrote the same chip 360 times an hour on each held card.
+   * Returns whether it wrote (and sent) the card.
+   */
+  function queueChip(task: Task): boolean {
+    if (task.dispatchState === CHIP_QUEUED && !task.dispatchError) return false;
+    try { emit(deps.svc.setDispatchState({ taskId: task.id, state: CHIP_QUEUED })); return true; } catch { return false; }
   }
 
   /** A hold may arrive while the async model picker runs, before any resources exist. */
@@ -2009,6 +2039,10 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
   // card noted under the 120 s warm-up used to get nothing when the real floor
   // sentence replaced it, so the reason never arrived.
   const floorHeldNoted = new Map<string, string>();
+  // The machine block each held Todo card was last SENT with (its `holdKey`, its
+  // sentence, when), so the tick re-sends the card only when that changes, and
+  // once more when the block lifts. See the floor branch of `tick`.
+  const floorBlockSent = new Map<string, { key: string; reason: string; at: number }>();
   // Tasks already told "the provider's wall is days away, this is a spent plan".
   // Same discipline as `spendHeldNoted`, and for the same reason: this wait does
   // not end by itself inside any horizon a person would wait through, so the
@@ -2897,13 +2931,19 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       const requested = taskModelSelection(requestedSelection);
       let chosenModel: string | undefined = requested.model;
       let chosenProvider: string | undefined = requested.provider;
+      const reusedSession = reuseTopicId ? deps.topicModelSelection?.(reuseTopicId) : null;
       if (reuseTopicId && (chosenModel || deps.topicModelSelection)
-        && !taskModelMatchesSession(requestedSelection, deps.topicModelSelection?.(reuseTopicId))) {
+        && !taskModelMatchesSession(requestedSelection, reusedSession, settings.topicsRouting)) {
+        // The reused topic keeps its own switch: when the model matches, the
+        // switch or the route is what differs, and the reason names it.
+        const route = reusedSessionRouteConflict(requestedSelection, reusedSession, settings.topicsRouting);
         releaseAndEmit({
           taskId, requeue: false, parkState: CHIP_BLOCKED,
-          reason: chosenModel
-            ? "Il modello scelto per questo task non coincide con la sessione precedente. Disattiva il riuso della sessione o scegli lo stesso modello prima di avviare il task."
-            : "La sessione precedente non è disponibile come agente di coding. Disattiva il riuso della sessione prima di avviare il task.",
+          reason: route && (!chosenModel || chosenModel === reusedSession?.model)
+            ? REUSED_SESSION_ROUTE_REASON[route]
+            : chosenModel
+              ? "Il modello scelto per questo task non coincide con la sessione precedente. Disattiva il riuso della sessione o scegli lo stesso modello prima di avviare il task."
+              : "La sessione precedente non è disponibile come agente di coding. Disattiva il riuso della sessione prima di avviare il task.",
         });
         return;
       }
@@ -2921,7 +2961,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // automatic effort falls back to medium until a paired value exists;
       // never ask a provider-only classifier to judge another model's effort.
       if (!modelIsConcrete && !reuseTopicId && deps.pickAutoModel) {
-        const picked = await deps.pickAutoModel(task, requestedSelection, { effort: settings.effort });
+        const picked = await deps.pickAutoModel(task, requestedSelection, { effort: settings.effort, topicsRouting: settings.topicsRouting });
         // Il peso PRIMA di tutto il resto: se questo lancio non doveva avvenire,
         // deve fermarsi qui — prima del worktree, prima del topic, prima
         // dell'agente. (Il modello non si persiste in quel caso: al prossimo giro
@@ -3574,7 +3614,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         ? task.modelEffort!
         : settings.effort === "auto" ? DEFAULT_AUTO_EFFORT : settings.effort;
       if (!modelIsConcrete && deps.pickAutoModel) {
-        const picked = await deps.pickAutoModel(task, requestedSelection, { effort: settings.effort });
+        const picked = await deps.pickAutoModel(task, requestedSelection, { effort: settings.effort, topicsRouting: settings.topicsRouting });
         // Vale a maggior ragione qui: un task pesante in fan-out sono N
         // macinate in parallelo, cioè il caso peggiore che il peso esiste per
         // evitare. Il `finally` restituisce gli slot prenotati.
@@ -4957,6 +4997,14 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     const floorNoteKey = resourceFloor
       ? (floorNow.kind === "memory_warmup" ? null : `resources:${floorNow.kind}`)
       : daySpendBlock ? "spend" : pressure ? "pressure" : null;
+    // And which block the held cards are SENT with: the warm-up included, since
+    // the card reads it, and keyed like a held resume's chip (`holdKey`).
+    const floorSent = floorBlock
+      ? {
+        key: holdKey(resourceFloor ? "resources" : daySpendBlock ? "spend" : "pressure", floorNote, resourceFloor ? floorNow.kind : null),
+        reason: floorNote ?? floorBlock,
+      }
+      : null;
     // The spend caps, read ONCE per tick from the same '*' row that carries the
     // concurrency cap. With the caps off (zero = unlimited, the state of a fresh
     // install) this is the only extra read of the loop: no sum over the spend
@@ -4971,7 +5019,17 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
     // The block has lifted: forget the episode, so the next full disk says it
     // again instead of staying mute forever. It looks at the block and not at
     // the single card, because the block is one per machine.
-    if (!floorBlock) floorHeldNoted.clear();
+    if (!floorBlock) {
+      floorHeldNoted.clear();
+      // The cards sent with the block learn it lifted, once. No write says it
+      // (their chip stays `queued`), and the poll that sees the lift may be
+      // another board's: without this frame a card that goes on waiting (cap
+      // full, already noted) keeps showing a block that is gone.
+      for (const id of floorBlockSent.keys()) {
+        try { const fresh = deps.svc.get(id)?.task; if (fresh) emit(fresh); } catch { /* the task may have moved */ }
+      }
+      floorBlockSent.clear();
+    }
     // Agenti vivi ADESSO, e SOLO per spiegare: la decisione resta del CAS dentro
     // `claim`, che è l'unico punto atomico. Non si memoizza per tick — dentro il
     // ciclo i claim che riescono cambiano il numero, e una nota che cita un
@@ -5050,7 +5108,24 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         // thread line says the wait in words. One per EPISODE, and one ROW per
         // card across episodes and boots: it is the state of the wait, the same
         // slot as the resume's note (see `RESUME_WAIT_OPENINGS`).
-        try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+        //
+        // THE CHIP ONCE, THE CARD WHEN ITS BLOCK CHANGES. The chip is written
+        // only when the row lacks it: rewritten at every poll it moved
+        // `updated_at` and sent a frame 360 times an hour per card. What does
+        // change is the block the card reads (`currentDispatchBlock`, published
+        // above), so the card is re-sent without a write when that becomes
+        // another block, or the same one with figures a minute old, like a held
+        // resume's chip (`HELD_RESUME_REFRESH_MS`). Re-read, not `t`: `t` was
+        // mapped before this tick published its block.
+        const block = floorSent!;
+        const sent = floorBlockSent.get(t.id);
+        const stale = !sent || sent.key !== block.key
+          || (sent.reason !== block.reason && clock() - sent.at >= HELD_RESUME_REFRESH_MS);
+        const wrote = queueChip(t);
+        if (stale && !wrote) {
+          try { const fresh = deps.svc.get(t.id)?.task; if (fresh) emit(fresh); } catch { /* the task may have moved */ }
+        }
+        if (stale || wrote) floorBlockSent.set(t.id, { ...block, at: clock() });
         if (floorNote && floorNoteKey && floorHeldNoted.get(t.id) !== floorNoteKey) {
           floorHeldNoted.set(t.id, floorNoteKey);
           try {
@@ -5068,7 +5143,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // chip, like a full cap would give it, and its turn comes with a fresher
       // reading.
       if (rampActive && rampHeld()) {
-        try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+        queueChip(t);
         continue;
       }
       // Respect the grace debounce: a task still inside its window is claimed by
@@ -5204,7 +5279,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // again once this pass has started a card: it was read once at the top,
       // and a count-mode tick claims every free slot against that one reading.
       if (rampActive && rampHeld()) {
-        try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+        queueChip(t);
         continue;
       }
       if (!midPassFloor && startedThisTick > floorReadAfterStarts) {
@@ -5212,7 +5287,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         midPassFloor = admissionBlock();
       }
       if (midPassFloor) {
-        try { emit(deps.svc.setDispatchState({ taskId: t.id, state: CHIP_QUEUED })); } catch { /* best-effort */ }
+        queueChip(t);
         continue;
       }
       const forced = heavyCall.get(t.id) === "forced";

@@ -13,7 +13,7 @@
  * ONLY things that differ between the chat and edit routes.
  */
 
-import type { Topic, ActiveStream } from "../types";
+import type { Topic, ActiveStream, MessageEndReason } from "../types";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import type { ToolCall } from "../../shared/types";
 
@@ -63,6 +63,7 @@ export interface GatewaySseProcessorOpts {
     thinking?: string;
     partial?: undefined;
     streamedAt?: undefined;
+    endReason?: MessageEndReason;
   }, opts?: { rowId?: string }) => void;
   endStream: (sessionKey: string) => void;
   isStreaming: (sessionKey: string) => ActiveStream | undefined;
@@ -151,7 +152,8 @@ export function makeGatewaySseProcessor(opts: GatewaySseProcessorOpts): GatewayS
     const data = line.slice(6).trim();
 
     if (data === "[DONE]") {
-      if (!contentRef.value.trim()) {
+      const empty = !contentRef.value.trim();
+      if (empty) {
         contentRef.value = "\u26a0\ufe0f No response received. The AI service may be overloaded. Please try again.";
         console.warn(`${logTag} Empty response for ${sessionKey} — surfacing error to client`);
       }
@@ -160,6 +162,7 @@ export function makeGatewaySseProcessor(opts: GatewaySseProcessorOpts): GatewayS
         thinking: thinkingRef.value || undefined,
         partial: undefined,
         streamedAt: undefined,
+        endReason: empty ? "error" : "done",
       }, own);
       endStream(sessionKey);
       // Route-specific: the caller broadcasts stream:end with its own extra
@@ -317,11 +320,13 @@ export function makeGatewaySseProcessor(opts: GatewaySseProcessorOpts): GatewayS
       reader.releaseLock();
       await closeClient();
       if (isStreaming(sessionKey)) {
+        // Still streaming here means no `[DONE]` came: the read failed or the gateway hung up.
         updateLastMessage(sessionKey, {
           content: contentRef.value,
           thinking: thinkingRef.value || undefined,
           partial: undefined,
           streamedAt: undefined,
+          endReason: "error",
         }, own);
         endStream(sessionKey);
         broadcastToAll({ type: "stream:end", sessionKey, topicId: matchedTopic?.id, messageId: partialMsgId });

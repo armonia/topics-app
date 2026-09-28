@@ -317,7 +317,8 @@ export async function executeMcpTool(name: string, input: Record<string, unknown
     // a dispatched agent has one turn, and the difference between deterministic
     // and eventually is the difference between works and does not.
     if (!out.isError && conn.listChanged) await relistMcpServer(mounted.server);
-    return { content: out.content, isError: out.isError };
+    // The mounted tool's name labels its images: an MCP answer has no path.
+    return { content: out.content, images: out.images?.map((img) => ({ ...img, label: name })), isError: out.isError };
   } catch (err) {
     return { content: err instanceof Error ? err.message : String(err), isError: true };
   }

@@ -12,11 +12,66 @@ Il motivo e' che sono due domande diverse: *chi* risponde, e *per quale strada*
 passa il turno. Mescolarle in una lista sola fa sembrare un cambio di strada un
 cambio di fornitore.
 
+**Cosa significano esattamente le due posizioni** (semantica canonica della
+fonte, interpretazione dell'approvazione gia' data e non scope nuovo):
+
+- **ON** — l'esecuzione passa dal routing leggero Topics, e **provider e modello
+  selezionati sono il target/vincolo**. Con provider **Automatico**, Topics
+  sceglie secondo le proprie regole.
+- **OFF** — esecuzione **diretta** sul provider e modello selezionati.
+
+**Un provider esplicito non rende MAI lo switch un no-op silenzioso.** Con un
+provider concreto scelto e lo switch su ON, il routing deve instradare davvero
+verso quel target: non puo' ignorare la scelta ne' fingere di rispettarla. Un
+comando che sembra fare qualcosa e non fa niente e' peggio di un comando
+assente, perche' nessuno va a controllare.
+
+Quando un provider **non e' tecnicamente instradabile** le strade oneste sono
+due: lo switch resta **visibile e disabilitato** con il motivo, oppure si
+**completa il plumbing del contratto**. Nessun supporto finto, e nessuna
+restrizione della UX per far entrare il caso nel contratto esistente.
+
 #### Scenario: cambiare instradamento non tocca la scelta sotto
 - **GIVEN** un provider e un modello selezionati
 - **WHEN** l'utente attiva o disattiva l'instradamento leggero Topics
 - **THEN** provider e modello selezionati restano **identici**
 - **AND** lo stato dello switch si persiste per conto suo
+
+#### Scenario: ON con un provider esplicito instradabile
+- **GIVEN** un provider concreto e instradabile, con il suo modello
+- **WHEN** lo switch e' **ON**
+- **THEN** il turno passa dal routing leggero Topics
+- **AND** il **target** e' quel provider e quel modello, non un altro
+- **AND** la scelta resta invariata nell'interfaccia
+
+#### Scenario: ON con provider Automatico
+- **GIVEN** il provider impostato su **Automatico**
+- **WHEN** lo switch e' **ON**
+- **THEN** Topics sceglie secondo le proprie regole
+- **AND** il modello concreto scelto resta visibile
+- **AND** i turni gia' storici non vengono riscritti
+
+#### Scenario: OFF con un provider esplicito
+- **GIVEN** un provider concreto selezionato
+- **WHEN** lo switch e' **OFF**
+- **THEN** l'esecuzione e' **diretta** su quel provider e modello
+- **AND** il turno non passa dal routing leggero
+
+#### Scenario: provider non instradabile, switch OFF
+- **GIVEN** un provider che il routing leggero non sa instradare
+- **AND** lo switch e' **OFF**
+- **WHEN** l'utente apre il controllo
+- **THEN** lo switch e' **visibile e disabilitato**, con il **motivo**
+- **AND** non cambia in silenzio provider, modello o strada
+
+#### Scenario: provider non instradabile, switch gia' ON
+- **GIVEN** un provider che il routing leggero non sa instradare
+- **AND** lo switch e' gia' **ON** (una scelta fatta prima, o diventata incompatibile dopo)
+- **WHEN** l'utente apre il controllo
+- **THEN** lo switch resta **visibile** con il **motivo**, e **cliccabile solo per spegnerlo**
+- **AND** il turno in chat non parte e la card si ferma **bloccata**, sempre con il **motivo**
+- **AND** non cambia in silenzio provider, modello o strada: niente reinstradamento verso altro
+- **AND** in nessun caso lo switch resta attivo comportandosi da no-op
 
 #### Scenario: nessun provider Topics visibile
 - **WHEN** l'utente apre il selettore

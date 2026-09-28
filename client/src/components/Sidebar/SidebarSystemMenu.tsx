@@ -144,9 +144,11 @@ export interface SidebarSystemMenuProps {
    *  that owns this menu has already decided, and deciding twice is how the
    *  trigger and its panel end up sized for two different hands. */
   isMobile?: boolean;
-  /** What the installation is running right now, already picked and tiered by
-   *  `workSignals`. It rides on the same row as the machine's numbers because
-   *  «who is working» and «what it costs» are one question at two zooms. */
+  /** The two digits of the row's tail, picked by `workSignals`: the agents at
+   *  work (the card badge's number, from the rows this row's level lists) and
+   *  the installation's open chats. They ride on the same row as the
+   *  machine's numbers because «who is working» and «what it costs» are one
+   *  question at two zooms. */
   signals?: WorkSignal[];
 }
 

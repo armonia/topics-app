@@ -50,7 +50,9 @@ const DDL = `
     -- loadActiveThread non passa e quindi nessuno lo legge. Dieci cartelli
     -- scritti in un giorno, zero visibili (20/08, DB di produzione).
     parent_id TEXT,
-    branch_index INTEGER NOT NULL DEFAULT 0
+    branch_index INTEGER NOT NULL DEFAULT 0,
+    -- How the row was closed: the sweep writes that the restart cut it.
+    end_reason TEXT
   );
 `;
 
@@ -71,6 +73,7 @@ function rows(db: Database, sk: string) {
     partial: number;
     timestamp: string;
     sort_order: number;
+    end_reason: string | null;
   }>;
 }
 
@@ -129,6 +132,7 @@ describe("runBootPartialSweep", () => {
     // Il messaggio originale e' stato resettato
     const orig = all.find((r) => r.id === "m1");
     expect(orig!.partial).toBe(0);
+    expect(orig!.end_reason).toBe("cut-by-restart");
 
     // La notifica e' stata inserita
     const notif = all.find((r) => r.id === "notif-id");

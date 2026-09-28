@@ -30,6 +30,7 @@ import { skillInstructions } from './toolCardBody';
 import { useBackgroundShell, parseShellIdFromStartResult } from '../../hooks/useBackgroundShell';
 import { useWaitedProcess } from '../../hooks/useWaitedProcess';
 import type { LiveBackgroundShell } from '../../hooks/useBackgroundShell';
+import { liveShellTail } from './runningShellTail';
 
 /**
  * Monospace block with lazy syntax highlighting. hljs ESCAPES the source and
@@ -105,15 +106,19 @@ function LiveShellTail({ live }: { live: LiveBackgroundShell }) {
 
 // ── Shell ───────────────────────────────────────────────────────────────────
 
-export function ShellCard({ command, cwd, output, exitCode, isError, background, sessionKey }: {
+export function ShellCard({ command, cwd, output, exitCode, isError, background, sessionKey, liveResult }: {
   command: string; cwd?: string; output?: string; exitCode?: number | null; isError?: boolean;
   /** `run_in_background`: il risultato è l'id della shell, non il suo output. */
   background?: boolean; sessionKey?: string;
+  /** The partial output of the command still running (`runningShellOutput`): its tail stands in for `output` until the final one. */
+  liveResult?: string;
 }) {
+  const tr = useT();
   // L'id sta solo dentro il testo del risultato («Command running in background
   // with ID: bash_1»): il `detail` porta il comando, non l'id.
   const liveShellId = background && !isError ? parseShellIdFromStartResult(output) : undefined;
   const live = useBackgroundShell(liveShellId, sessionKey);
+  const running = liveResult ? liveShellTail(liveResult) : null;
   return (
     <div className="space-y-1">
       <HighlightedPre
@@ -126,7 +131,18 @@ export function ShellCard({ command, cwd, output, exitCode, isError, background,
         lang="bash"
       />
       {cwd && <div className="text-mini font-mono text-app-text-muted truncate">cwd: {cwd}</div>}
-      {output && (
+      {/* CHAT-TOOL-08: the last lines only, one row each, so the body keeps its
+          height while the output flows and the chat does not jump. */}
+      {running ? (
+        <div data-testid="shell-running-tail">
+          {running.hiddenAbove && <div className="text-mini text-app-text-muted mb-0.5">{tr('tool.runningTail.more')}</div>}
+          <div className="text-mini font-mono text-app-text-secondary bg-app-hover/40 rounded px-2 py-1.5">
+            {running.lines.map((line, i) => (
+              <div key={i} data-testid="shell-running-tail-line" className="overflow-hidden text-ellipsis whitespace-pre">{line || '\u00a0'}</div>
+            ))}
+          </div>
+        </div>
+      ) : output && (
         <div>
           {typeof exitCode === 'number' && exitCode !== 0 && (
             <div className="text-mini font-mono text-red-500 mb-0.5">exit {exitCode}</div>
@@ -713,15 +729,17 @@ export function UnknownCard({ args, result }: { args?: Record<string, unknown>; 
 // ── Dispatcher ──────────────────────────────────────────────────────────────
 
 
-export function ToolCardBody({ detail, isError, isRunning, sessionKey }: {
+export function ToolCardBody({ detail, isError, isRunning, sessionKey, liveResult }: {
   detail: ToolCallDetail; isError?: boolean; isRunning?: boolean;
   /** Serve alle sole card delle shell in background: è la metà della chiave
    *  con cui la shell sta nel registro dei processi. */
   sessionKey?: string;
+  /** A running shell's partial output (CHAT-TOOL-08); every other card ignores it. */
+  liveResult?: string;
 }) {
   switch (detail.type) {
     case 'shell':
-      return <ShellCard command={detail.command} cwd={detail.cwd} output={detail.output} exitCode={detail.exitCode} isError={isError} background={detail.background} sessionKey={sessionKey} />;
+      return <ShellCard command={detail.command} cwd={detail.cwd} output={detail.output} exitCode={detail.exitCode} isError={isError} background={detail.background} sessionKey={sessionKey} liveResult={liveResult} />;
     case 'read':
       return <ReadCard filePath={detail.filePath} content={detail.content} offset={detail.offset} limit={detail.limit} />;
     case 'edit':

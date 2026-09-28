@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { turnErrorOf, turnIsOnlyError, turnLooksUnanswered, interruptedTurnOf, liveInterruptionBlock, TURN_CAUSE_KEY } from './turnError';
+import { turnErrorOf, turnIsOnlyError, turnLooksUnanswered, interruptedTurnOf, liveInterruptionBlock, isRedoneAnswer, TURN_CAUSE_KEY } from './turnError';
+import { lastConversationMessage } from './machineRow';
 import { STOP_CAUSES } from '../../../../shared/ws-outbound';
 import type { ContentBlock, TurnEndCause } from '../../types';
 import it from '../../lib/i18n-it';
@@ -70,6 +71,49 @@ describe('turnIsOnlyError — il cancello del bottone Riprova', () => {
 
   test('nessun errore, nessun bottone', () => {
     expect(turnIsOnlyError({ content: 'tutto bene' })).toBe(false);
+  });
+
+  /**
+   * The resume sweep traces the restart notice before it resends, and a
+   * refused resend (503 `provider_unavailable`) leaves that trace behind with
+   * no answer after it. Counted as work, the trace took Retry off the notice
+   * that says "premi Riprova" exactly when nothing was resent (card edf3c4db).
+   * A resend that goes has its own row below, and Retry only ever sits on the
+   * last one.
+   */
+  test("the sweep's trace after the verdict is not work: a notice whose resend was refused keeps Retry", () => {
+    const notice = '⚠️ Turno interrotto da un riavvio del server. Il messaggio che hai inviato e\' ancora qui: premi Riprova per inviarlo di nuovo.';
+    expect(turnIsOnlyError({ content: notice, blocks: [errore(notice), { kind: 'ripreso', attempt: 1 }] })).toBe(true);
+    // The resent turn's own banner comes ahead of its verdict: that row is a
+    // turn the server ran, as before.
+    expect(turnIsOnlyError({ content: '', blocks: [{ kind: 'ripreso', attempt: 1 }, errore('x')] })).toBe(false);
+  });
+
+  /**
+   * The notice the sweep writes and resends at once ("... Lo rimando.") goes
+   * out with its trace, and base counted that trace as work so the notice
+   * never offered Retry: not while the resend was on its way, and not after a
+   * route that refused it either, a dead end under a notice that promised a
+   * resend. Now it offers Retry while it is the chat's last word: from its
+   * frame to the resend's `stream:start`, which the route sends before the
+   * provider spawns (in process, no network; only a turn checkpoint, off by
+   * default, waits on git in between), and for good when the route refused.
+   * Declared on review of card edf3c4db.
+   */
+  test('the notice the sweep resends at once offers Retry until the resend has a bubble below it', () => {
+    const text = '⚠️ Turno interrotto: il server si è riavviato prima che la risposta partisse e il messaggio è rimasto senza risposta. Lo rimando.';
+    const person = { id: 'u1', role: 'user', content: 'misura la ripresa' };
+    // As `restartNotificationFrame` sends it: the row's blocks, trace included.
+    const notice = { id: 'n1', role: 'assistant', content: text, blocks: [errore(text), { kind: 'ripreso' as const, attempt: 1 }] };
+    // The gate MessageList applies: the chat's last word, and only an error.
+    const retryOn = (rows: Array<{ id: string; role: string; content: string; blocks?: ContentBlock[] }>) => {
+      const last = lastConversationMessage(rows);
+      return last?.role === 'assistant' && turnIsOnlyError(last) ? last.id : null;
+    };
+    // Its frame, and nothing after it: the resend on its way, or refused.
+    expect(retryOn([person, notice])).toBe('n1');
+    // The resend's `stream:start` puts its bubble below (useChat's placeholder).
+    expect(retryOn([person, notice, { id: 'a1', role: 'assistant', content: '' }])).toBeNull();
   });
 });
 
@@ -230,5 +274,34 @@ describe('liveInterruptionBlock - the verdict built from stream:end', () => {
     const block = liveInterruptionBlock({ stopCause: 'process-died', error: 'morto' });
     expect(interruptedTurnOf({ blocks: [testo('a metà'), block as ContentBlock] }))
       .toMatchObject({ cause: 'process-died' });
+  });
+});
+
+/**
+ * "This is the redone answer" belongs to the row the resend produced, not to
+ * the row it was resent from (card edf3c4db). The chat route opens a resent
+ * turn with a `ripreso` block; the resume sweep also appends one, after the
+ * cut, to the row it resends from, to count the chain. Both drew the same
+ * banner, so the cut row and a notice claimed to be the redone answer, and
+ * after a refused resend no redone answer exists at all.
+ */
+describe('isRedoneAnswer: the resent turn, not the row it was resent from', () => {
+  const trace = (attempt: number) => ({ kind: 'ripreso' as const, attempt });
+  const cut = { kind: 'error' as const, text: 'Turno interrotto', cause: 'watchdog' as TurnEndCause };
+
+  test('the turn the route opened as a resend', () => {
+    expect(isRedoneAnswer([trace(1), testo('rifatto')])).toBe(true);
+    // Cut in turn, and traced for the next resend: still a redone answer.
+    expect(isRedoneAnswer([trace(1), testo('rifatto'), cut, trace(2)])).toBe(true);
+  });
+
+  test('the cut row, or the notice, the sweep resent from', () => {
+    expect(isRedoneAnswer([testo('stavo misurando'), cut, trace(1)])).toBe(false);
+    expect(isRedoneAnswer([errore('⚠️ Turno interrotto da un riavvio del server.'), trace(1)])).toBe(false);
+  });
+
+  test('no trace at all', () => {
+    expect(isRedoneAnswer([testo('risposta')])).toBe(false);
+    expect(isRedoneAnswer(null)).toBe(false);
   });
 });

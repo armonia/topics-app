@@ -94,8 +94,10 @@ export function runBootPartialSweep(
       continue;
     }
 
+    // The row says the restart cut it: that is what `read_chat_messages` and
+    // `send_chat_message` read, instead of guessing from a missing latency.
     const resetChanges = db.run(
-      "UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1",
+      "UPDATE messages SET partial = 0, streamed_at = NULL, end_reason = 'cut-by-restart' WHERE session_key = ? AND partial = 1",
       [row.sk]
     ).changes;
     cleared += resetChanges;
@@ -186,4 +188,17 @@ export function restartNotificationFrame(
   topicId: string, sessionKey: string, id: string, text: string, blocks: ContentBlock[] = noticeBlocks(text),
 ): OutboundMessage {
   return { type: "message:new", topicId, sessionKey, role: "assistant", messageId: id, content: text, preview: text.slice(0, 100), blocks };
+}
+
+/**
+ * The frame for rows of a chat that changed with no turn's frames to carry
+ * them: a sweep closed them, or traced them. The windows open on the chat read
+ * the thread again, and `threadChanged` takes that read past the client's
+ * history dedup: a plain `topic:updated` is dropped by a window that read the
+ * chat in the last 5 s, and at boot every window has just read it on
+ * reconnect (card edf3c4db).
+ */
+export function threadChangedFrame(topic: { id: string }, sessionKey: string): OutboundMessage {
+  // The open pane reconciles by the topic's session key and drops a frame without one.
+  return { type: "topic:updated", topic: { ...topic, sessionKey }, threadChanged: true };
 }

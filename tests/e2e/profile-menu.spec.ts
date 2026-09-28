@@ -29,7 +29,8 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { hermetic } from "./fixtures/hermetic";
 import { goToApp } from "./helpers";
-import { createTopic } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic } from "./helpers/api-fixtures";
+import { presenceSummary, type PresenceCounts } from "../../shared/presence-phrase";
 
 hermetic(test);
 
@@ -245,5 +246,71 @@ test.describe("il menu utente apre i livelli di lato", () => {
       path: "test-results/profile-menu/badge.png",
       clip: { x: 0, y: top, width, height: bottom - top },
     });
+  });
+
+  test("una chat in attesa del suo lavoro in background è un agente attivo, sotto un'intestazione sua", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "BGVIS-03" });
+    // No turn open, but the last one left an agent running: the route says
+    // `background`, and that work holds a CLI in RAM right now.
+    const chat = await createTopic(request, "E2E Background Agent");
+    // The installation as the presence route counts it at that instant: open
+    // chats, and NONE at work, because by the route's own rule a session with
+    // background work only is no open stream.
+    const presence: PresenceCounts = { openSessions: 12, workingSessions: 0, activeTasks: 0, focusProject: null };
+    try {
+      await page.route("**/api/system/presence", (r) =>
+        r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(presence) }));
+      await page.route("**/api/topics/streaming", (r) =>
+        r.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            sessions: [{
+              topicId: chat.id, sessionKey: `k-${chat.id}`, state: "background",
+              tasks: [{ type: "local_agent", description: "Verifica build" }], lastSignalAt: Date.now(),
+            }],
+          }),
+        }));
+
+      await goToApp(page);
+      const badge = page.getByTestId("identity-agents-badge").locator("[data-notification-count]");
+      await expect(badge).toHaveAttribute("data-notification-count", "1", { timeout: 20_000 });
+      // THE CARD'S TOOLTIP says the badge's number too. Composed from the
+      // route's working count it read "no agent at work" beside a badge
+      // reading 1: the same number and its text disagreeing, one hover apart.
+      // Built with the phrase's own function, so no wording is frozen here.
+      const card = page.getByTestId("identity-me-profile");
+      await expect.poll(() => card.getAttribute("title"), { timeout: 20_000 })
+        .toContain(presenceSummary({ ...presence, workingSessions: 1 }, "it"));
+      expect(await card.getAttribute("title")).not.toContain(presenceSummary(presence, "it"));
+
+      const menu = await openProfileMenu(page);
+      // The working digit in the tail of the system row is the badge's number,
+      // from the same rows (BGVIS-03), and it says it with the badge's own
+      // sentence: the one agent is background work, the chat is not answering.
+      const tailWorking = menu.getByTestId("presence-summary").locator('[data-signal="working"]');
+      await expect(tailWorking).toHaveText("1", { timeout: 10_000 });
+      const badgeTitle = await badge.getAttribute("title");
+      expect(badgeTitle, "the badge carries its sentence").toBeTruthy();
+      await expect(tailWorking).toHaveAttribute("title", badgeTitle!);
+      await menu.getByTestId("menu-system-status").click();
+      const status = page.getByTestId("menu-system-status-menu");
+      await expect(status).toBeVisible({ timeout: 10_000 });
+      await status.getByTestId("menu-system-performance").click();
+      const level = page.getByTestId("menu-system-performance-menu");
+      await expect(level).toBeVisible({ timeout: 10_000 });
+
+      // One row per chat, in its own list and never among the working ones.
+      const rows = level.getByTestId("background-agent-row");
+      await expect(rows).toHaveCount(1);
+      await expect(rows.first()).toContainText("E2E Background Agent");
+      await expect(level.getByTestId("active-agent-row")).toHaveCount(0);
+      // The number on the card and the digit in the tail are the rows they summarise.
+      const listed = String(await rows.count());
+      await expect(badge).toHaveAttribute("data-notification-count", listed);
+      await expect(tailWorking).toHaveText(listed);
+    } finally {
+      await deleteTopic(request, chat.id).catch(() => {});
+    }
   });
 });

@@ -25,6 +25,7 @@
  * pagare nel contesto di ogni chiamata.
  */
 
+import { readFileSync } from "fs";
 import {
   TOOL_HANDLERS,
   isToolAllowedForProfile,
@@ -33,6 +34,37 @@ import {
 } from "../../mcp/topics-mcp-server";
 import type { ToolSpec } from "./tools";
 import type { ToolResult } from "./tools";
+
+/** `format` field of a `browser_screenshot` response, translated to a MIME type. */
+const SCREENSHOT_MEDIA_TYPE: Record<string, string> = { png: "image/png", jpeg: "image/jpeg" };
+
+/**
+ * `browser_screenshot` with `inline: true` asked to SEE the picture, not just
+ * be told where it landed.
+ *
+ * The handler already wrote the file and answered with its path as JSON text
+ * (`callBrowserBridge` above, `JSON.stringify(body)`) — every other Topics
+ * tool stops there, because none of the other 38 ever produce an image. Rather
+ * than teach that whole shared pipeline a second return shape for one caller,
+ * the file is read back HERE, off the path the handler already gave us, and
+ * turned into the same `ToolResult.images` the native `read_file` produces.
+ * `inline` defaults to false/absent, which keeps today's path-only behavior
+ * exactly as it was — see the comment on `nativeScreenshotOp` in
+ * `browser-tool-dispatcher.ts` for why that default exists.
+ */
+export function inlineScreenshot(text: string): ToolResult["images"] {
+  try {
+    const body = JSON.parse(text) as { path?: unknown; format?: unknown };
+    const mediaType = typeof body.format === "string" ? SCREENSHOT_MEDIA_TYPE[body.format] : undefined;
+    if (typeof body.path !== "string" || !mediaType) return undefined;
+    const data = readFileSync(body.path).toString("base64");
+    return [{ mediaType, data, label: body.path }];
+  } catch {
+    // The path in the JSON does not exist, or the JSON itself is not what we
+    // expect: the agent still gets the text response, just without the image.
+    return undefined;
+  }
+}
 
 /**
  * Gli schemi dei tool di Topics, nella forma che l'API di Anthropic vuole.
@@ -97,6 +129,10 @@ export async function executeTopicsTool(
 
   try {
     const text = await handler(args, input);
+    if (name === "browser_screenshot" && input.inline === true) {
+      const images = inlineScreenshot(text);
+      if (images) return { content: text, images };
+    }
     return { content: text };
   } catch (err) {
     return { content: err instanceof Error ? err.message : String(err), isError: true };

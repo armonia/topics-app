@@ -765,9 +765,10 @@ function AttemptDiff({ projectId, taskId, attemptId }: { projectId: string; task
 export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpenTask, onOpenTopic, onMessage, loadHistory, sessionState = 'unknown', focusPaneId, boardTopicsRoutingDefault = null, boardDispatchModel = null }: {
   projectId: string; taskId: string; onClose: () => void; onChanged: () => void;
   /**
-   * Change signal (the task's updatedAt from the board's live list): any WS
-   * task:updated — a step flipping, a new comment — re-fetches the open detail,
-   * so the drawer follows the agent in real time instead of freezing at mount.
+   * Change signal (`taskDetailBump` of the board's live row: its updatedAt and
+   * its queue reason): any WS task:updated (a step flipping, a new comment, a
+   * held card re-sent with another block) re-fetches the open detail, so the
+   * drawer follows the agent in real time instead of freezing at mount.
    */
   bump?: string;
   /** Navigate the drawer to another task (subtask ↔ parent). */
@@ -2287,6 +2288,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <TaskModelMenuOptions
                 models={models}
                 value={task.model || null}
+                boardValue={boardDispatchModel}
                 onSelect={changeModel}
                 disabled={busy}
                 autoLabel={tr('board.task.modelAutoOption')}

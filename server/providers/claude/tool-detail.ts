@@ -90,6 +90,8 @@ export function deriveToolDetail(
     return {
       type: "shell",
       command: s(a.command) ?? s(a.cmd) ?? s(a.input) ?? "",
+      // Claude Code writes one on every Bash call: the row's readable label.
+      ...(s(a.description) ? { description: s(a.description)! } : {}),
       ...(s(a.cwd) ? { cwd: s(a.cwd)! } : {}),
       ...(a.run_in_background === true ? { background: true } : {}),
       ...(result ? { output: result } : {}),

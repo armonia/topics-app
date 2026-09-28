@@ -81,6 +81,12 @@ const CHAT_IT: Dict = {
   // The one button on the right of the composer, in its four states.
   'chat.send.stopStreaming': 'Ferma la risposta',
   'chat.send.stopBackground': 'Ferma il lavoro in background',
+  // The line above the composer while the chat waits on work its last turn left running.
+  'chat.background.waitingOne': 'In attesa di 1 lavoro in background:',
+  'chat.background.waitingMany': 'In attesa di {n} lavori in background:',
+  'chat.background.resuming': 'Il lavoro in background ha risposto: la chat sta per riprendere',
+  'chat.background.stale': 'nessuna notizia da {t}',
+  'chat.background.free': 'La chat è libera, puoi scrivere. Per fermare il lavoro c\'è lo Stop del composer, a campo vuoto',
   'chat.send.queueTitle': 'Metti in coda (Invio)',
   'chat.send.sendTitle': 'Invia (Invio)',
   'chat.send.queue': 'Metti il messaggio in coda',

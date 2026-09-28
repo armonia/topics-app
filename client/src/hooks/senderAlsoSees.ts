@@ -26,6 +26,11 @@
  *  · `stream:tool_detail` - a sub-agent's live progress. A whole snapshot that
  *    replaces the previous one.
  *  · `stream:compaction` - the compaction divider. An upsert by marker id.
+ *  · `stream:tool_update` - the live output of a running command (CHAT-TOOL-09).
+ *    It REPLACES `result` with the whole current tail, and the window you sent
+ *    from, the one surely watching, saw only a spinner for minutes. A partial
+ *    can reach it after the result from the SSE: `withPartialResult` refuses to
+ *    write on a row that has closed.
  *
  * THE RULE FOR ADDING ONE, which is the part that matters: the event must write
  * a FIXED state on the row, not accumulate. Receiving it twice has to leave the
@@ -38,7 +43,8 @@ export type SenderVisibleEventType =
   | 'stream:tool_permission_resolved'
   | 'stream:tool_user_input_required'
   | 'stream:tool_detail'
-  | 'stream:compaction';
+  | 'stream:compaction'
+  | 'stream:tool_update';
 
 /** The exceptions, in one place, so a test can count them. */
 export const SENDER_ALSO_SEES: readonly SenderVisibleEventType[] = [
@@ -48,6 +54,7 @@ export const SENDER_ALSO_SEES: readonly SenderVisibleEventType[] = [
   'stream:tool_user_input_required',
   'stream:tool_detail',
   'stream:compaction',
+  'stream:tool_update',
 ];
 
 /** Should this event also be delivered to whoever owns that session's SSE? */

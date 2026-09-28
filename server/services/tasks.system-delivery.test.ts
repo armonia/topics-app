@@ -34,20 +34,6 @@ import { freshDb } from "./tasks-test-db";
 import { createTaskService, TaskServiceError } from "./tasks";
 import { reviewEvidence } from "../../client/src/lib/reviewEvidence";
 
-/** Aggiunge task_attempts al DB del banco condiviso (non e' nella DDL base). */
-function withAttempts(db: Database): Database {
-  db.run(`CREATE TABLE IF NOT EXISTS task_attempts (
-    id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-    idx INTEGER NOT NULL, topic_id TEXT, worktree_id TEXT, branch TEXT, model TEXT,
-    state TEXT NOT NULL DEFAULT 'running', commit_sha TEXT, files_changed INTEGER,
-    insertions INTEGER, deletions INTEGER, summary TEXT, error TEXT,
-    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL, ended_at TEXT, selected_at TEXT,
-    UNIQUE (task_id, idx)
-  )`);
-  return db;
-}
-
 /** Crea un task e lo porta in_progress con un topic assegnato. */
 function seedInProgress(db: Database, svc: ReturnType<typeof createTaskService>): string {
   const t = svc.create({ text: "feat", projectId: "pX" });
@@ -67,7 +53,7 @@ function seedInProgress(db: Database, svc: ReturnType<typeof createTaskService>)
 describe("deliverToReviewBySystem: porte di sistema annota review_needs_summary", () => {
   let db: Database;
 
-  beforeEach(() => { db = withAttempts(freshDb()); });
+  beforeEach(() => { db = freshDb(); });
 
   test("(a) turno MUTO: nota di servizio visibile nel thread", () => {
     // Nessun commento dell'agente: la consegna e' muta.
@@ -178,7 +164,7 @@ describe("deliverToReviewBySystem: porte di sistema annota review_needs_summary"
 describe("askParkedChildren: porta di sistema annota review_needs_summary", () => {
   let db: Database;
 
-  beforeEach(() => { db = withAttempts(freshDb()); });
+  beforeEach(() => { db = freshDb(); });
 
   /**
    * Padre con un figlio parcheggiato in backlog: la condizione che spinge
@@ -249,7 +235,7 @@ describe("cancello review_needs_summary: comportamento invariato dopo l'estrazio
   let db: Database;
 
   beforeEach(() => {
-    db = withAttempts(freshDb());
+    db = freshDb();
     db.run("INSERT INTO topics (id) VALUES ('top-s1')");
   });
 
@@ -303,7 +289,7 @@ describe("cancello review_needs_summary: comportamento invariato dopo l'estrazio
 // here, on the row the gate would have read anyway.
 describe("deliverToReviewBySystem: promuove l'ultima parola dell'agente a delivery", () => {
   let db: Database;
-  beforeEach(() => { db = withAttempts(freshDb()); });
+  beforeEach(() => { db = freshDb(); });
 
   const kindOf = (id: string) => (db.prepare("SELECT kind FROM task_comments WHERE id = ?").get(id) as any).kind;
 

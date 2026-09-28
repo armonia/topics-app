@@ -23,7 +23,7 @@ import { TurnWorkRow } from './Chat/TurnWorkRow';
 import { foldFinishedTurn, noteWatchedLive, wasWatchedLive } from './Chat/turnFold';
 import { useTaskWorkFold } from './Chat/taskWorkFoldContext';
 import type { ToolCall } from '../types';
-import { LEGACY_ERROR_PREFIX, turnErrorOf } from './Chat/turnError';
+import { isRedoneAnswer, LEGACY_ERROR_PREFIX, turnErrorOf } from './Chat/turnError';
 import { releaseAudio } from '../lib/releaseAudio';
 import { ImageLightbox, ZoomableImage } from './Shared/ImageLightbox';
 import { hasDiffBlocks, parseMessageWithDiffs, type MessageSegment } from '../lib/diffParser';
@@ -1022,7 +1022,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   );
   const isLegacyErrorOnlyText = turnError !== null && rawCleanText.trim().startsWith(LEGACY_ERROR_PREFIX);
   // Il cartello del risveglio: c'è solo se questo turno è nato da un Monitor.
-  const ripreso = useMemo(() => blocks?.some((b) => b.kind === 'ripreso') ?? false, [blocks]);
+  const ripreso = useMemo(() => isRedoneAnswer(blocks), [blocks]);
   const woken = useMemo(
     () => blocks?.find((b) => b.kind === 'woken') as { kind: 'woken'; label?: string } | undefined,
     [blocks],

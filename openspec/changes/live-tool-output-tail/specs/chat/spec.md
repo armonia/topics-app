@@ -22,7 +22,10 @@ come `stream:tool_update`.
   `out` smette di crescere a `MAX_OUTPUT_CHARS * 2` (`tools.ts:285`), e una coda
   ritagliata da lì resterebbe ferma a metà su un comando verboso. Quando il
   buffer taglia la testa, la coda SHALL cominciare dopo il primo `\n`, mai a
-  metà riga.
+  metà riga. Una sola riga più lunga del buffer (una barra `\r`, un JSON su
+  una riga) non ha un inizio dove tagliare, nemmeno quando il suo `\n` la
+  chiude: resta com'è, dal primo carattere intero, e una coda vuota non segue
+  mai una non vuota. I 16 KB sono byte, non caratteri.
 - Le chiamate SHALL essere al massimo una ogni 250 ms, con un'ultima chiamata
   in coda per l'output arrivato dentro la finestra. Alla chiusura del comando
   (`chiudi`, `tools.ts:298`) la chiamata in coda SHALL essere annullata: l'esito
@@ -43,6 +46,17 @@ come `stream:tool_update`.
 - **THEN** la coda termina con `20000`
 - **AND** è lunga al massimo 16 KB e comincia a inizio riga
 
+#### Scenario: un output non ASCII resta nei 16 KB
+- **GIVEN** `bash` che stampa 3000 righe `✓ passes test number N ██████` e poi `sleep 1`
+- **WHEN** arriva una chiamata durante lo `sleep`
+- **THEN** la coda è lunga al massimo 16 KB in byte, termina con la riga 3000 e comincia a inizio riga
+
+#### Scenario: una riga più lunga del buffer, poi silenzio
+- **GIVEN** `bash` che stampa una barra `\r` di circa 40 KB, chiusa dal suo `\n`, e poi `sleep 1`
+- **WHEN** arrivano le chiamate
+- **THEN** nessuna porta una coda vuota
+- **AND** l'ultima termina con l'ultimo ridisegno della barra
+
 #### Scenario: niente dopo l'esito
 - **GIVEN** un `bash` che stampa di continuo per 1 s e poi esce
 - **WHEN** la promessa si è risolta e passano altri 500 ms
@@ -59,7 +73,10 @@ come `stream:tool_update`.
 Una riga `shell` con stato `pending` o `running`, il cui `detail` tipizzato non
 ha `output`, e con `tc.result` stringa non vuota, SHALL mostrare nel corpo
 aperto le **ultime 8 righe** di `tc.result`, sotto il comando. Vale per ogni
-provider che manda `stream:tool_update` (nativo, codex, acp, openclaw).
+provider che manda `stream:tool_update`, quando la sua riga è `shell`: il
+nativo sì. Codex e ACP no (corretto dopo la review del 27/09): codex chiama la
+riga col comando (`codex.ts:883-884`) e ACP col titolo (`acp/translate.ts:218`),
+quindi la riga resta `unknown`. Tipizzarle come `shell` è fuori da questa change.
 
 - Il taglio SHALL stare in una funzione pura raggiungibile da `bun:test`
   (in `client/src/components/Chat/toolDetail.ts` o accanto), che restituisce le
@@ -112,3 +129,4 @@ dell'evento (`toolUpdatePatch`) resta com'è.
 - **GIVEN** una riga `Bash` già in `success` con il suo `result` finale
 - **WHEN** arriva un `stream:tool_update` per la stessa riga
 - **THEN** `result` resta quello finale
+- **AND** sulla chat di `:13334`, con la riga senza `detail` tipizzato (come arriva dall'SSE nella finestra mittente), `tool-call-result` mostra ancora l'output finale

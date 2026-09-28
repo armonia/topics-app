@@ -124,6 +124,7 @@ export function deriveToolDetail(
     return {
       type: 'shell',
       command: s(a.command) ?? s(a.cmd) ?? s(a.input) ?? '',
+      ...(s(a.description) ? { description: s(a.description)! } : {}),
       ...(s(a.cwd) ? { cwd: s(a.cwd)! } : {}),
       ...(a.run_in_background === true ? { background: true } : {}),
       ...(result ? { output: result } : {}),
@@ -512,10 +513,19 @@ function stripLeadingCd(command: string): string {
   return out;
 }
 
-export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string): { name: string; summary?: string } {
+/**
+ * `tooltip`: hover text for the summary, set only when the summary stands in
+ * for something else (a Bash description in place of its command).
+ */
+export function buildToolDisplayLabel(detail: ToolCallDetail, rawName?: string): { name: string; summary?: string; tooltip?: string } {
   switch (detail.type) {
-    case 'shell':
-      return { name: detail.background ? 'Shell (background)' : 'Shell', summary: stripLeadingCd(detail.command) };
+    case 'shell': {
+      const name = detail.background ? 'Shell (background)' : 'Shell';
+      // The model's own "Run unit tests" reads better than the command; the
+      // command stays on hover and, whole, in the open card.
+      if (detail.description) return { name, summary: detail.description, tooltip: detail.command };
+      return { name, summary: stripLeadingCd(detail.command) };
+    }
     case 'read':
       return { name: 'Read', summary: stripCwd(detail.filePath) };
     case 'edit':

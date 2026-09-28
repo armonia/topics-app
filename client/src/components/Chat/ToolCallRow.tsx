@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, HelpCircle, Loader2, ShieldOff, X } from 'lu
 import type { ToolCall, ToolUserResponse } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
 import { resolveToolDetail, buildToolDisplayLabel } from './toolDetail';
+import { runningShellOutput } from './runningShellTail';
 import { ToolCardBody } from './ToolCards';
 import { toolCardHasBody } from './toolCardBody';
 import { iconForDetail } from './toolIcons';
@@ -373,7 +374,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
             {label ?? display.name}
           </span>
           {display.summary && (
-            <span className="min-w-0 flex items-baseline text-mini text-app-text-secondary font-mono">
+            <span className="min-w-0 flex items-baseline text-mini text-app-text-secondary font-mono" title={display.tooltip}>
               <span className="flex-shrink-0">(</span>
               <span className="truncate">{display.summary}</span>
               <span className="flex-shrink-0">)</span>
@@ -504,7 +505,7 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               {tr('chat.tool.noSessionContext')}
             </div>
           ) : (
-            <ToolCardBody detail={detail} isError={isError} isRunning={isRunning} sessionKey={sessionKey} />
+            <ToolCardBody detail={detail} isError={isError} isRunning={isRunning} sessionKey={sessionKey} liveResult={runningShellOutput(toolCall)} />
           )}
           <ToolDetailFetchStatus state={fetchState.state} error={fetchState.error} />
           {toolCall.userResponse && status !== 'waiting_for_input' && (

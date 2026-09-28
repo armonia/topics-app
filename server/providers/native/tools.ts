@@ -23,11 +23,14 @@
 import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from "fs";
 import { resolve, relative, isAbsolute, dirname } from "path";
 import { spawn } from "child_process";
+import { homedir } from "os";
 import { killProcessTree } from "../../lib/process-tree";
 import { registerNativeCommand } from "../../lib/native-command-registry";
 import { lowPriorityArgv } from "../../lib/low-priority";
 import { readSlashCommandSource } from "../../lib/slash-command-source";
 import { htmlToMarkdown } from "../../lib/html-to-markdown";
+import { imageShape } from "../../services/image-shape";
+import { imageCaption, type ToolImage } from "./image-normalize";
 
 export interface ToolSpec {
   name: string;
@@ -63,10 +66,32 @@ export interface ToolContext {
    * work (`server/lib/agent-tool-children.ts`).
    */
   sessionKey?: string;
+  /**
+   * THE OUTPUT OF A COMMAND STILL RUNNING, for whoever is watching the row.
+   *
+   * A `bash` at p90 lasts 65-115 s, and without this the chat showed a spinner
+   * and the command for all of it: nothing said whether it was working, stuck
+   * on a prompt or failing at test 3 of 400. Only `bash` passes it on. Every
+   * call carries the WHOLE current tail (the last 16 KB, starting at a line
+   * start unless one line fills them all), never the new piece: the client
+   * replaces the row's `result`, so applying every call or only the last
+   * leaves the same state. At most one call every 250 ms, none after the
+   * answer, and a callback that throws is ignored: this is a courtesy to the
+   * viewer and cannot break the agent's command. Absent = the behaviour of
+   * before, unchanged.
+   */
+  onOutput?: (tail: string) => void;
 }
 
 export interface ToolResult {
   content: string;
+  /**
+   * Images a tool call surfaced, as an `image` content block will want them:
+   * base64 bytes plus the media type the API needs to decode them. Absent for
+   * every ordinary text result, which is the vast majority — this field exists
+   * so `agent-loop.ts` can tell the two apart without inspecting `content`.
+   */
+  images?: ToolImage[];
   isError?: boolean;
 }
 
@@ -79,6 +104,14 @@ export interface ToolResult {
 const MAX_READ_BYTES = 120_000;
 /** Quanto output di un comando si rimanda al modello. */
 const MAX_OUTPUT_CHARS = 30_000;
+/**
+ * How much of a running command's output the live tail keeps: the LAST part,
+ * unlike `out`. Bytes, not characters: a check mark or a progress block is
+ * three bytes, and a cap in characters let a frame grow to three times this.
+ */
+const LIVE_TAIL_BYTES = 16 * 1024;
+/** The live tail goes out at most this often: 4 frames/s to every window watching the topic. */
+const LIVE_TAIL_EVERY_MS = 250;
 const DEFAULT_BASH_TIMEOUT_MS = 120_000;
 /** How long the last output still in the pipe gets, after the leader has exited. */
 const DRAIN_AFTER_EXIT_MS = 250;
@@ -106,6 +139,47 @@ function safePath(ctx: ToolContext, p: string): string {
   return abs;
 }
 
+/** A leading `~` or `~/...` expanded to the home directory. Everything else is unchanged. */
+function expandHome(p: string): string {
+  if (p === "~") return homedir();
+  if (p.startsWith("~/")) return resolve(homedir(), p.slice(2));
+  return p;
+}
+
+/** Only for a MISSING path outside the workspace, where there are no bytes to read. */
+const RASTER_IMAGE_NAME = /\.(png|jpe?g|gif|webp)$/i;
+
+/**
+ * Like `safePath`, but for reading ONLY: a raster image can live outside the
+ * workspace, no other file can.
+ *
+ * WHY. `read_file` is the only way for an agent to LOOK AT a picture it did
+ * not itself write (a screenshot in `~/Desktop`, an export in a sibling
+ * folder), and the perimeter cannot tell "look at" from "touch" apart.
+ * Measured: the native Darkroom topic could not read its own working photos.
+ *
+ * ONLY A RASTER (png, jpeg, gif, webp: `format` in `image-shape.ts`), decided
+ * on the BYTES. An SVG is text, like anything that merely contains an `<svg>`
+ * tag: letting the vector shape through handed back a source file of another
+ * repository as numbered text. `read_file` answers an outside path only as an
+ * image. A missing outside path named like an image passes, so `read_file`
+ * answers "not found" instead of sending the agent around a wall that is not there.
+ */
+function resolveReadPath(ctx: ToolContext, raw: string): { path: string; outside: boolean } {
+  const expanded = expandHome(raw);
+  try {
+    return { path: safePath(ctx, expanded), outside: false };
+  } catch (err) {
+    const abs = isAbsolute(expanded) ? resolve(expanded) : resolve(ctx.workspace, expanded);
+    if (!existsSync(abs)) {
+      if (RASTER_IMAGE_NAME.test(abs)) return { path: abs, outside: true };
+      throw err;
+    }
+    if (statSync(abs).isFile() && imageShape(abs)?.format) return { path: abs, outside: true };
+    throw err;
+  }
+}
+
 function truncate(s: string, max = MAX_OUTPUT_CHARS): string {
   if (s.length <= max) return s;
   const cut = s.length - max;
@@ -116,7 +190,7 @@ export const CODING_TOOLS: ToolSpec[] = [
   {
     name: "read_file",
     description:
-      "Read a file from the workspace. Returns the content with 1-based line numbers, which is what you need to then edit it precisely. Use `offset`/`limit` for large files. Prefer this over `bash cat`: the line numbers make edits reliable.",
+      "Read a file from the workspace. Returns the content with 1-based line numbers, which is what you need to then edit it precisely. Use `offset`/`limit` for large files. Prefer this over `bash cat`: the line numbers make edits reliable. Also reads IMAGES (PNG, JPEG, GIF, WebP): use it on any image path (including a path outside the workspace, and `~/`) and you will see the actual picture, not garbled text. Outside the workspace only those images can be read.",
     input_schema: {
       type: "object",
       properties: {
@@ -266,6 +340,7 @@ async function runCommand(
   timeoutMs: number,
   signal?: AbortSignal,
   owner?: { sessionKey?: string; command?: string },
+  onOutput?: (tail: string) => void,
 ): Promise<{ out: string; code: number | null; annullato?: boolean }> {
   // Già annullato: far partire il comando vorrebbe dire spendere secondi per
   // un risultato che nessuno leggerà, sul cammino di uno spegnimento che ha
@@ -279,10 +354,47 @@ async function runCommand(
     const child = spawn(argv[0]!, argv.slice(1), { cwd, stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     let annullato = false;
+    let closed = false;
+    // THE LIVE TAIL HAS A BUFFER OF ITS OWN. `out` stops growing at twice the
+    // cap, because the model gets its head and tail cut later on: a tail cut
+    // from `out` would stand still halfway through a verbose command. This one
+    // keeps the LAST 16 KB, dropping the head at a line start after every chunk,
+    // so its memory cost is fixed whatever the command prints. It holds bytes
+    // and is decoded only when it goes out, which also mends a character split
+    // across two chunks.
+    let tail = Buffer.alloc(0);
+    let tailTimer: ReturnType<typeof setTimeout> | undefined;
+    let tailSentAt = Date.now();
+    const sendTail = () => {
+      tailTimer = undefined;
+      tailSentAt = Date.now();
+      try { onOutput!(tail.toString()); } catch { /* the viewer's problem, never the command's */ }
+    };
     const cap = (d: Buffer) => {
       // Si tronca MENTRE arriva, non alla fine: un comando che sputa un giga
       // non deve riempire la memoria del server prima di essere tagliato.
       if (out.length < MAX_OUTPUT_CHARS * 2) out += d.toString();
+      // After the answer nothing goes out: a partial would only be old text on
+      // a row that already shows the result. A child holding the pipe open can
+      // still write here after that.
+      if (!onOutput || closed) return;
+      tail = Buffer.concat([tail, d]);
+      if (tail.length > LIVE_TAIL_BYTES) {
+        tail = tail.subarray(-LIVE_TAIL_BYTES);
+        // The cut goes after the first newline, when a line follows it. One
+        // line longer than the buffer (a `\r` progress bar, a JSON on one line)
+        // has no start to cut at, even once its own newline closes it: cutting
+        // there would send an EMPTY tail and the row would lose it. It is kept
+        // from the first whole character, and the client shows its last redraw.
+        const lineStart = tail.indexOf(0x0a);
+        let from = lineStart >= 0 && lineStart < tail.length - 1 ? lineStart + 1 : 0;
+        while (from < tail.length && (tail[from]! & 0xc0) === 0x80) from++;
+        tail = tail.subarray(from);
+      }
+      if (!tailTimer) {
+        tailTimer = setTimeout(sendTail, Math.max(0, tailSentAt + LIVE_TAIL_EVERY_MS - Date.now()));
+        tailTimer.unref?.();
+      }
     };
     child.stdout.on("data", cap);
     child.stderr.on("data", cap);
@@ -293,7 +405,6 @@ async function runCommand(
       // timeout doveva fermare, con la sua porta e la sua CPU.
       killProcessTree(child.pid ?? 0).catch(() => { /* nessuno da uccidere */ });
     };
-    let closed = false;
     let drainTimer: ReturnType<typeof setTimeout> | undefined;
     const chiudi = (r: { out: string; code: number | null }) => {
       if (closed) return;
@@ -301,6 +412,8 @@ async function runCommand(
       forgetCommand?.();
       if (timer) clearTimeout(timer);
       if (drainTimer) clearTimeout(drainTimer);
+      // The result travels on `onToolResult`: a tail still queued would land after it.
+      if (tailTimer) clearTimeout(tailTimer);
       signal?.removeEventListener("abort", suAbort);
       res({ ...r, ...(annullato ? { annullato: true } : {}) });
     };
@@ -522,10 +635,26 @@ export async function executeTool(
   try {
     switch (name) {
       case "read_file": {
-        const p = safePath(ctx, String(input.path));
-        if (!existsSync(p)) return { content: `file non trovato: ${input.path}`, isError: true };
+        const { path: p, outside } = resolveReadPath(ctx, String(input.path));
+        if (!existsSync(p)) return { content: `file non trovato: ${outside ? p : input.path}`, isError: true };
         const st = statSync(p);
         if (st.isDirectory()) return { content: `${input.path} è una directory, non un file`, isError: true };
+        // The format comes from the bytes, never the extension: a `.png`
+        // that is really a JPEG (measured: 13 of 568 files in one Darkroom
+        // tree) is identified here. Resize/recompression is no longer this
+        // tool's job: every image, from any source, goes through
+        // `toolResultContent` (`image-normalize.ts`) from here on.
+        const shape = imageShape(p);
+        if (shape && shape.format) {
+          const bytes = readFileSync(p);
+          return {
+            content: imageCaption(String(input.path), shape.width, shape.height),
+            images: [{ mediaType: `image/${shape.format}`, data: bytes.toString("base64"), label: String(input.path) }],
+          };
+        }
+        // Outside the workspace only a raster image is readable, and only as
+        // an image: whatever else got this far never reaches the text read.
+        if (outside) return { content: `percorso fuori dalla workspace: ${input.path}`, isError: true };
         const raw = readFileSync(p, "utf-8");
         const lines = raw.split("\n");
         const start = Math.max(0, (Number(input.offset) || 1) - 1);
@@ -567,6 +696,7 @@ export async function executeTool(
           "/bin/bash", ["-lc", String(input.command)],
           cwd, ctx.bashTimeoutMs ?? DEFAULT_BASH_TIMEOUT_MS, ctx.signal,
           { ...(ctx.sessionKey ? { sessionKey: ctx.sessionKey } : {}), command: String(input.command) },
+          ctx.onOutput,
         );
         const body = truncate(out.trim() || "(nessun output)");
         // Annullato non è fallito: `[exit null]` racconterebbe un comando

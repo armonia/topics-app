@@ -325,3 +325,61 @@ describe("historyFromPersistedThread — il tetto sulla storia ricostruita", () 
     expect(out[0]).toEqual({ role: "user", content: "lavora sul repo" });
   });
 });
+
+/**
+ * A REHYDRATED IMAGE ALWAYS COMES BACK AS TEXT, NEVER AS BASE64.
+ *
+ * `read_file` on an image only ever saves the caption to disk
+ * (`onToolResult` receives `out.content`, which is always text: the base64
+ * lives only in `ToolResult.images`, never in what lands in the DB). So
+ * `ToolCall.result` never holds image bytes, but if something someday wrote
+ * them anyway, this function has no branch that produces a `type: "image"`
+ * block: it always reads back text only. This test locks in that guarantee,
+ * not a behavior that already cannot happen today.
+ */
+describe("historyFromPersistedThread — an image never comes back as base64", () => {
+  test("il risultato persistito di un read_file su un'immagine è la didascalia, non i byte", () => {
+    const out = historyFromPersistedThread([
+      u("leggi lo screenshot"),
+      { role: "assistant", content: "Leggo l'immagine.", toolCalls: [
+        { id: "t1", name: "read_file", args: { path: "shot.png" }, status: "success",
+          result: "shot.png (1024x768, image attached)", contentOffset: 17 },
+      ] },
+      u("cosa vedi?"),
+    ]);
+    const resultBlock = (out[2]!.content as Block[])[0]!;
+    expect(resultBlock).toEqual({
+      type: "tool_result", tool_use_id: "t1",
+      content: "[immagine non più nel contesto: shot.png; rileggila con read_file]",
+    });
+    // No `image` block: the function has no branch that produces one.
+    expect((resultBlock as any).content).not.toContain("data:image");
+    for (const m of out) {
+      if (typeof m.content === "string") continue;
+      for (const b of m.content) expect(b.type).not.toBe("image");
+    }
+  });
+});
+
+describe("historyFromPersistedThread: an image caption whose path has spaces", () => {
+  // Real Darkroom names: every macOS screenshot and every ChatGPT export has
+  // spaces, and a caption matched on `\S+` left
+  // "image attached" in the rebuilt history for exactly those files.
+  test.each([
+    "Schermata 2026-09-26 alle 10.11.12.png",
+    "RAW/ChatGPT Image Aug 15, 2026, 11_25_32 AM.png",
+  ])("the caption of %s becomes the placeholder with the whole path", (path) => {
+    const out = historyFromPersistedThread([
+      u("guarda"),
+      { role: "assistant", content: "Leggo.", toolCalls: [
+        { id: "t1", name: "read_file", args: { path }, status: "success",
+          result: `${path} (2880x1800, image attached)`, contentOffset: 6 },
+      ] },
+      u("e allora?"),
+    ]);
+    expect((out[2]!.content as Block[])[0]).toEqual({
+      type: "tool_result", tool_use_id: "t1",
+      content: `[immagine non più nel contesto: ${path}; rileggila con read_file]`,
+    });
+  });
+});

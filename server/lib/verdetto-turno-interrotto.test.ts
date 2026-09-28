@@ -104,7 +104,7 @@ import { decodeCol, encodeCol } from "../../shared/message-blob";
 
 function dbDiProva(): Database {
   const db = new Database(":memory:");
-  db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, role TEXT, blocks BLOB, partial INTEGER, timestamp TEXT)`);
+  db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, role TEXT, blocks BLOB, partial INTEGER, timestamp TEXT, end_reason TEXT)`);
   // The sweep skips the archived topics: without this table it has nothing to
   // ask and the query fails.
   db.run(`CREATE TABLE topics (session_key TEXT, archived INTEGER)`);

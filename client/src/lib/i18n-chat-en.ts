@@ -66,6 +66,11 @@ const CHAT_EN: Dict = {
 
   'chat.send.stopStreaming': 'Stop streaming',
   'chat.send.stopBackground': 'Stop the work running in the background',
+  'chat.background.waitingOne': 'Waiting on 1 job in the background:',
+  'chat.background.waitingMany': 'Waiting on {n} jobs in the background:',
+  'chat.background.resuming': 'The background work reported back: the chat is about to resume',
+  'chat.background.stale': 'no news for {t}',
+  'chat.background.free': 'The chat is free, you can write. To stop the work, use the composer Stop with an empty field',
   'chat.send.queueTitle': 'Queue message (Enter)',
   'chat.send.sendTitle': 'Send (Enter)',
   'chat.send.queue': 'Queue message',

@@ -124,13 +124,16 @@ export function isTopicsModelServed(model: string | null | undefined, nativeMode
 
 /** A provider is reachable through the Topics native engine only if that
  * engine is itself ready and actually serves the requested model. Codex is
- * never routable: the native engine has no OpenAI-compatible execution path. */
+ * never routable: the native engine has no OpenAI-compatible execution path.
+ * The engine itself (`topics`: a model only it serves, or the legacy
+ * `topics:<model>`) is the router rather than a destination, and the same two
+ * conditions decide whether it runs the turn. */
 function isRoutableThroughTopics(
   provider: string,
   model: string | undefined,
   ready: ProvidersSnapshot['providers'],
 ): boolean {
-  if (provider === 'topics' || !CLAUDE_CODING_PROVIDERS.includes(provider)) return false;
+  if (!CLAUDE_CODING_PROVIDERS.includes(provider)) return false;
   const native = ready.find((entry) => entry.name === 'topics');
   if (!native) return false;
   return isTopicsModelServed(model, native.models);
@@ -153,8 +156,10 @@ export function topicsRoutingWaitsForCatalog(provider: string | null, snapshot?:
   return topicsCatalogPending(snapshot);
 }
 
-/** Same routability check, for the menu's switch row: null provider means
- * Automatic, which is always routable (topics picks per its own rules). */
+/** Whether the switch ON can run this runtime and model: one answer for the
+ * menu's switch row, the topic gate and the automatic task picker. A null
+ * provider means Automatic, routable while the engine is ready (topics picks
+ * per its own rules). */
 export function topicsRoutingAvailable(
   provider: string | null,
   model: string | null | undefined,
@@ -200,11 +205,6 @@ export function taskProviderForModel(
       throw new Error(`The selected coding runtime ${selected.label ?? selected.name} cannot run model "${selection.model}".`);
     }
     if (topicsRouting) {
-      // Legacy AICTRL-04 encoding: `topics:<model>` already meant "run
-      // native", never a pin to a target provider — isRoutableThroughTopics
-      // rightly refuses 'topics' as a target (it's the router, not one of
-      // its destinations), so that check does not apply to this value.
-      if (explicitlySelectedProvider === 'topics') return 'topics';
       // ON never falls through to a direct dispatch as a silent no-op: an
       // explicit provider Topics can't reach (Codex, categorically) is a
       // hard gate with a reason, the same contract the chat side enforces.
@@ -239,21 +239,55 @@ export function taskProviderForModel(
   throw new Error('No coding agent is available. Connect Topics, Claude Code or Codex in Settings before starting the task.');
 }
 
-/** A reused conversation must be a coding runtime and honor an explicit model. */
+/** How a reused session runs, against how the dependent asks to run (S1, S3).
+ * The turn goes on the reused topic, whose own switch decides who executes it
+ * (resolveTopicProvider): the engine with it ON, the pinned runtime directly
+ * with it OFF. So a dependent whose effective switch differs, whatever it names
+ * (Automatic, a bare model, a provider), would make its switch a silent no-op:
+ * returns the session's switch then. With the switch OFF on both sides an
+ * explicit provider also names who runs the turn, the engine itself (the
+ * legacy `topics:`) or a provider directly: returns where the session runs when
+ * it is not that. */
+export function reusedSessionRouteConflict(
+  value: string | null | undefined,
+  session: { provider?: string | null; topicsRouting?: boolean | null } | null | undefined,
+  topicsRouting: boolean | null | undefined,
+): 'switch-on' | 'switch-off' | 'engine' | 'direct' | null {
+  if (!session) return null;
+  const sessionRouting = !!session.topicsRouting;
+  if (effectiveTopicsRouting(topicsRouting, value) !== sessionRouting) return sessionRouting ? 'switch-on' : 'switch-off';
+  const selected = taskModelSelection(value);
+  if (sessionRouting || !selected.provider) return null;
+  const sessionOnEngine = session.provider === 'topics';
+  if (sessionOnEngine === (selected.provider === 'topics')) return null;
+  return sessionOnEngine ? 'engine' : 'direct';
+}
+
+/** A reused conversation must be a coding runtime, run with the dependent's
+ * switch and on the route an explicit provider asks for (`topicsRouting` is the
+ * dependent's effective switch; see reusedSessionRouteConflict), and honor an
+ * explicit model. A session bound to the engine with the switch ON (`provider:
+ * 'topics'`, no runtime pinned) is a Claude Code session the engine routes, so
+ * an explicit Claude Code target with its model and the switch ON continues it.
+ * With the switch OFF the engine is the runtime itself, not a route to Claude
+ * Code, and reusedSessionRouteConflict already refused that pairing. */
 export function taskModelMatchesSession(
   value: string | null | undefined,
-  session?: { provider?: string | null; model?: string | null } | null,
+  session?: { provider?: string | null; model?: string | null; topicsRouting?: boolean | null } | null,
+  topicsRouting?: boolean | null,
 ): boolean {
   const selected = taskModelSelection(value);
   if (!session) return false;
   const provider = session.provider === 'claude-code-team' ? 'claude-code' : session.provider;
   if (!provider || (provider !== 'codex' && !CLAUDE_CODING_PROVIDERS.includes(provider))) return false;
+  if (reusedSessionRouteConflict(value, session, topicsRouting)) return false;
   if (!selected.model && !selected.provider) return true;
   if (selected.provider === 'codex') {
     return provider === 'codex' && (!selected.model || selected.model === session.model);
   }
   if (selected.provider) {
-    return provider === selected.provider && (!selected.model || selected.model === session.model);
+    const sameRuntime = provider === selected.provider || (provider === 'topics' && selected.provider === 'claude-code');
+    return sameRuntime && (!selected.model || selected.model === session.model);
   }
   return CLAUDE_CODING_PROVIDERS.includes(provider) && selected.model === session.model;
 }

@@ -107,10 +107,14 @@ export async function stubIdentity(page: Page, population: Population): Promise<
         incoming: [],
         outgoing: [],
       }) }));
-  // THE WORST CASE FOR THE MENU HEADER, not a quiet machine: every count the
-  // server publishes is above zero, so the tail draws the two glyphs
-  // `workSignals` allows and no more. They ride on the menu's title now, not on
-  // the card, and the card has to stay the same width either way.
+  // A BUSY INSTALLATION, not a quiet machine: every count the server
+  // publishes is above zero. What reaches the screen is the open digit in the
+  // menu's tail and the open chats and tasks in the card's tooltip. The
+  // working digit is not read from here: it is the card badge's number,
+  // counted from the agent rows the menu lists (BGVIS-03), and with no chat on
+  // screen answering the tail draws the open digit alone. `workingSessions`
+  // stays because it is the route's real shape. The two-digit tail is
+  // PRESENCE-09's case (`org-presence.spec.ts`), which seeds chats answering.
   await page.route("**/api/system/presence", (r) =>
     r.fulfill({ status: 200, contentType: "application/json",
       body: JSON.stringify({ openSessions: 12, workingSessions: 3, activeTasks: 2, focusProject: null }) }));

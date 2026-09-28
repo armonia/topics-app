@@ -19,6 +19,7 @@ import { Menu } from '../Shared/Menu';
 import { Spinner } from '../Shared/Spinner';
 import { useTaskModelCatalog } from '../../hooks/useTaskModelCatalog';
 import { currentTaskTarget, reflectTaskOpen, reflectTaskClose, reflectTaskFocus, subscribePopstateTask } from '../../lib/openTaskLink';
+import { useTaskDeepLink } from './useTaskDeepLink';
 import { DEAD_TAB_MESSAGE } from '../../lib/tabLink';
 import { useToast } from '../Shared/Toast';
 import { usePaneStore } from '../../state/pane/store';
@@ -28,7 +29,7 @@ import { useBoardFeed } from '../../hooks/useBoardFeed';
 import { canAbsorbBoardTaskFrame } from '../../lib/boardTasksStore';
 import {
   boardApi, boardIdForPath, isProjectlessId, showsLandingDebt, TASK_STATUSES,
-  STATUS_LABEL,
+  STATUS_LABEL, taskDetailBump,
   type BoardTask, type TaskStatus, type BoardSettings,
   type PublishProject, type DiffBundle,
 } from '../../lib/board';
@@ -40,6 +41,7 @@ import { COLUMN_FLASH_MS, landedInColumn, statusSnapshot } from '../../lib/colum
 import { useBoardMotion } from './useBoardMotion';
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
+import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
 import { CREATED_FLASH_MS, filterFocusRingClass, PRIORITY_DOT, PRIORITY_LABEL, TOOLBAR_CONTROL_H, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
@@ -691,11 +693,13 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // fails, because by then the line claims a destination the card never
   // reached, right next to the red error saying so.
   const [dropNotice, setDropNotice] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  // Quale tab del task mettere davanti all'apertura, quando ad aprirlo è stato
-  // un gesto mirato (il bottone «apri in una tab» sull'anteprima della card).
-  // Si azzera a ogni altra apertura: vale per QUEL click, non è uno stato.
-  const [pendingPaneId, setPendingPaneId] = useState<string | null>(null);
+  // The drawer's task, and the deep-link target (from /task/<id> via
+  // openTaskLink, or `topics:open-task`): the GLOBAL board owns it, that is
+  // what the link opens. With it, the tab or diff file a targeted gesture
+  // asked to put in front.
+  const {
+    selectedId, setSelectedId, pendingSelect, setPendingSelect, pendingPaneId, setPendingPaneId, promote,
+  } = useTaskDeepLink(global);
   // THE COORDINATOR, while it is open: its Topic. It sits next to `selectedId`
   // because it answers the same question — what is in the drawer — and the two
   // are mutually exclusive: both are in-flow siblings of the columns, and
@@ -706,7 +710,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     setSelectedId(id);
     setPendingPaneId(focusPaneId ?? null);
     setOrchestratorTopic(null);
-  }, []);
+  }, [setSelectedId, setPendingPaneId]);
   const closeOrchestrator = useCallback(() => { setOrchestratorTopic(null); }, []);
   const openOrchestrator = useCallback(async () => {
     if (!global || !orchestrator || openingOrchestrator) return;
@@ -721,7 +725,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     } finally {
       setOpeningOrchestrator(false);
     }
-  }, [global, orchestrator, openingOrchestrator, tr]);
+  }, [global, orchestrator, openingOrchestrator, setSelectedId, tr]);
   // The escape hatch: the same conversation, promoted to a permanent tab. The
   // drawer is its home, not a cage — reading it full-width, or beside a
   // project, goes through here. The drawer closes on the way out, or the same
@@ -747,24 +751,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const [toolbarOverflowRight, setToolbarOverflowRight] = useState(false);
   // Provider model list for the board-default picker (settings panel). Same
   // hook the composer and the task drawer read, so the three cannot disagree.
-  // Deep-link target (from /task/<id> via openTaskLink): the GLOBAL board owns it
-  // (that's what the link opens). Seeded from the CURRENT URL (not a one-shot
-  // boot pending) so it survives a remount and an inactive→active board tab —
-  // the URL is the source of truth. Fed live by `topics:open-task` when the
-  // board is already open. Held until the task shows up in the loaded list,
-  // then it becomes the selection.
-  const [pendingSelect, setPendingSelect] = useState<string | null>(
-    () => (global ? currentTaskTarget()?.taskId ?? null : null),
-  );
-  useEffect(() => {
-    if (!global) return;
-    const onOpenTask = (e: Event) => {
-      const id = (e as CustomEvent<{ taskId?: string }>).detail?.taskId;
-      if (id) setPendingSelect(id);
-    };
-    window.addEventListener('topics:open-task', onOpenTask as EventListener);
-    return () => window.removeEventListener('topics:open-task', onOpenTask as EventListener);
-  }, [global]);
   // Opening the drawer shrinks the columns viewport (flex sibling): the card
   // that was just clicked can end up outside it. Bring it back after layout
   // settles — rAF fires post-commit, when the row already has its new width.
@@ -1643,6 +1629,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const selected = tasks.find((t) => t.id === selectedId)
     || (outsider && outsider.id === selectedId ? outsider : null);
 
+  // The drawer judges a card (its routing switch, the model the dispatcher
+  // runs on Auto) with its own board's defaults. In the all-boards view that
+  // board can be another than this pane's, whose settings are loaded above.
+  const cardSettings = useCardBoardSettings(selected?.projectId, projectId, settings);
+
   // L'id che il drawer deve mostrare: la selezione, o il deep-link ancora in
   // volo. Uno solo dei due è valorizzato nel caso normale.
   const wantId = selectedId ?? pendingSelect;
@@ -1652,14 +1643,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // loaded list (the global board loads every project's tasks, so it will).
   useEffect(() => {
     if (!pendingSelect) return;
-    if (tasks.some((t) => t.id === pendingSelect)) {
-      setSelectedId(pendingSelect);
-      setPendingSelect(null);
-      // The deep-link is fulfilled (drawer opening) → release the board focus
-      // intent held in usePanelLifecycle so later hydrates behave normally.
-      window.dispatchEvent(new CustomEvent('topics:task-opened'));
-    }
-  }, [pendingSelect, tasks]);
+    if (tasks.some((t) => t.id === pendingSelect)) promote(pendingSelect);
+  }, [pendingSelect, promote, tasks]);
 
   // Un id fuori dal feed passa comunque: la porta unica lo risolve e il drawer
   // si apre. Rigira a ogni cambio di `tasks` — la board rifetcha su ogni evento
@@ -1683,11 +1668,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
         if (!alive) return;
         if (t) {
           setOutsider(t);
-          if (deepLink) {
-            setSelectedId(wantId);
-            setPendingSelect(null);
-            window.dispatchEvent(new CustomEvent('topics:task-opened'));
-          }
+          if (deepLink) promote(wantId);
           return;
         }
         // Quell'id non esiste: chiudere è l'unica risposta onesta — restare
@@ -1719,7 +1700,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       });
     return () => { alive = false; };
     // `outsider` fuori dalle dipendenze di proposito: lo SCRIVE questo effetto.
-  }, [wantId, inFeed, tasks, pendingSelect, toast]);
+  }, [wantId, inFeed, tasks, pendingSelect, setPendingSelect, setSelectedId, promote, toast]);
 
   // URL ⇄ drawer reflection (GLOBAL board only — `/task/<id>` points at the
   // global board, matching buildTaskLink). Opening a drawer pushes `/task/<id>`;
@@ -1763,7 +1744,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   useEffect(() => {
     if (!global) return;
     return subscribePopstateTask((target) => setSelectedId(target?.taskId ?? null));
-  }, [global]);
+  }, [global, setSelectedId]);
 
   useEffect(() => {
     const el = toolbarScrollRef.current;
@@ -2121,8 +2102,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             hidden={typingElsewhere}
             hiddenBelowLg={!!selected}
             onDraft={setDraft}
-            boardTopicsRoutingDefault={settings?.dispatchTopicsRouting ?? null}
-            boardDispatchModel={settings?.dispatchModel ?? null}
+            paneSettings={settings}
           />
         </div>
         {orchestratorTopic && orchestrator && (
@@ -2139,7 +2119,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             key={selected.id} /* fresh edit/scroll state per task (drawer navigation) */
             projectId={selected.projectId}
             taskId={selected.id}
-            bump={selected.updatedAt}
+            bump={taskDetailBump(selected)}
             onClose={() => setSelectedId(null)}
             onChanged={refetch}
             onOpenTask={openTask}
@@ -2148,8 +2128,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             loadHistory={loadHistory}
             sessionState={resolveSession(selected.assignedTopicId)}
             focusPaneId={pendingPaneId ?? undefined}
-            boardTopicsRoutingDefault={settings?.dispatchTopicsRouting ?? null}
-            boardDispatchModel={settings?.dispatchModel ?? null}
+            boardTopicsRoutingDefault={cardSettings?.dispatchTopicsRouting ?? null}
+            boardDispatchModel={cardSettings?.dispatchModel ?? null}
             /* Apertura automatica nel workspace: SOLO dalla board globale, che
                è una superficie a sé. Dentro una finestra di progetto la board è
                una pane di quella stessa finestra, e promuovere lì il risultato
