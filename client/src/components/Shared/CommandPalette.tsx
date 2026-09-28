@@ -580,6 +580,7 @@ export function CommandPalette({
   const changeHistoryFilters = useCallback((next: HistoryFiltersValue) => {
     setHistoryKind(next.kind);
     setHistoryRange(next.range);
+    setSelectedIndex(0);
     if (!isMobile) inputRef.current?.focus();
   }, [isMobile]);
 
@@ -909,7 +910,11 @@ function PaletteRow({ item, idx, selected, onHover, compact, highlightTerm }: Pa
       data-cmd-idx={idx}
       data-testid={item.testId}
       onClick={item.action}
-      onMouseEnter={() => onHover(idx)}
+      // Only a pointer that really moves takes the selection. Chromium (and
+      // WebView2 on Windows) fires mouseenter when a row slides under a
+      // pointer at rest, after a filter or a search reflows the list: that
+      // silently moved ↵ onto another row. WebKit waits for a real move.
+      onMouseMove={selected ? undefined : () => onHover(idx)}
       title={item.titleOverride || item.description}
       className={`w-full ${compact ? 'px-3' : 'px-4'} ${rowHeight} flex items-center gap-2.5 text-left transition-colors ${
         selected

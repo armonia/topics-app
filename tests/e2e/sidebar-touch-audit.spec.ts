@@ -811,22 +811,26 @@ test.describe("Sidebar col dito — audit misurato", () => {
     // profilo, che ha portato via l'account dal menu «Topics». Il numero si
     // aggiorna insieme ai nomi, non da solo: contare e basta lascerebbe passare
     // una porta sostituita da un'altra.
+    // From 28/09 they are FIVE: «In attesa» (CHAT-WAIT-04, the phone half of
+    // Cmd+J) sits between the board and the profile, always in place.
     const fila = page.locator('[data-testid="mobile-chrome-bar"]');
-    await expect(fila.locator("button")).toHaveCount(4);
+    await expect(fila.locator("button")).toHaveCount(5);
     const cerca = (await fila.locator('[data-testid="mobile-chrome-search"]').boundingBox())!;
     const piu = (await fila.locator('[data-testid="pane-add-menu-trigger"]').boundingBox())!;
     const board = (await fila.locator('[data-testid="mobile-chrome-board"]').boundingBox())!;
+    const attesa = (await fila.locator('[data-testid="mobile-chrome-waiting"]').boundingBox())!;
     const profilo = (await fila.locator('[data-testid="mobile-chrome-profile"]').boundingBox())!;
 
-    for (const [nome, b] of [["il cerca", cerca], ["l'aggiungi", piu], ["la board", board], ["il profilo", profilo]] as const) {
+    for (const [nome, b] of [["il cerca", cerca], ["l'aggiungi", piu], ["la board", board], ["l'in attesa", attesa], ["il profilo", profilo]] as const) {
       expect(b.y, `${nome} deve stare sotto l'albero, in fondo allo schermo`).toBeGreaterThan(albero.y);
       expect(Math.round(b.height), `${nome} è alto ${b.height}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
       expect(Math.round(b.width), `${nome} è largo ${b.width}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
     }
-    // L'ordine della fila: cerca · aggiungi · board · profilo.
+    // L'ordine della fila: cerca · aggiungi · board · in attesa · profilo.
     expect(cerca.x).toBeLessThan(piu.x);
     expect(piu.x).toBeLessThan(board.x);
-    expect(board.x).toBeLessThan(profilo.x);
+    expect(board.x).toBeLessThan(attesa.x);
+    expect(attesa.x).toBeLessThan(profilo.x);
   });
 
   /**
