@@ -331,6 +331,32 @@ test.describe("The branch says where it comes from", () => {
     }
   });
 
+  test("a copy ending on two tool-only rows, drawn as one item: the divider sits under it", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-FORK-05" });
+    // An adopted Claude Code chat is one row per block: the fork point is the
+    // LAST of the tool rows, and the list draws the run with the FIRST one's id.
+    const origin = await createTopic(request, `Fork corsa ${Date.now()}`);
+    const sk = skOf(origin.id);
+    try {
+      await seedTurns(request, sk, 1);
+      await seedMessage(request, { sessionKey: sk, role: "user", content: "leggi i due file" });
+      for (const [id, path] of [["tc-a", "a.ts"], ["tc-b", "b.ts"]]) {
+        await seedMessage(request, { sessionKey: sk, role: "assistant", content: "", toolCalls: [{ id, name: "Read", args: { file_path: path }, status: "success", result: "ok" }] });
+      }
+      const res = await request.post(`${E2E_BASE}/api/topics/${origin.id}/fork`, { data: { name: `${origin.name} (ramo)` } });
+      expect(res.status()).toBe(201);
+      const branch = (await res.json()) as TopicRow;
+      const rows = await history(request, branch.sessionKey);
+      expect(branch.forkedFrom?.atMessageId).toBe(rows[4].id);
+      await openChat(page, request, branch);
+      await expect(row(page, rows[3].id)).toBeVisible({ timeout: 15_000 });
+      await expect(row(page, rows[4].id)).toHaveCount(0);
+      await expect(page.getByTestId("fork-origin-divider")).toBeVisible();
+    } finally {
+      await cleanup(request, origin.id);
+    }
+  });
+
   test("the divider is not conversation: neither the export nor the history carry it", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-FORK-05" });
     const { origin, branch } = await forkedWithOwnTurn(request);

@@ -364,6 +364,16 @@ conteggi dei messaggi.
 - **THEN** `fork-origin-divider` sta fra la seconda risposta e il terzo prompt, e dice «Diramata da Refactor login»
 - **AND** premendo il nome si apre «Refactor login»
 
+#### Scenario: il punto dentro una corsa di strumenti
+- **GIVEN** un ramo la cui storia copiata finisce con due righe di soli strumenti, che la lista disegna come UN elemento
+- **WHEN** si apre il ramo
+- **THEN** `fork-origin-divider` c'è, sotto quell'elemento
+
+#### Scenario: l'origine cancellata
+- **GIVEN** un ramo, e la riga della sua chat d'origine tolta da `topics` (chiudere una chat la archivia e la riga resta: l'origine archiviata si apre ancora dal nome)
+- **WHEN** si legge il ramo (`GET /api/topics/:id`, `GET /api/topics`)
+- **THEN** `forkedFrom.topicId` è nullo e `forkedFrom.name` è il nome dell'origine
+
 #### Scenario: il segno non è conversazione
 - **GIVEN** lo stesso ramo
 - **WHEN** si esporta la conversazione e si conta `GET /api/history` del ramo

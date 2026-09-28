@@ -141,6 +141,14 @@ describe("the branch is a new chat with the same history, and the original does 
     expect(announced?.topic?.forkedFrom?.name).toBe(t.name);
   });
 
+  test("the original gone: forkedFrom keeps its name and loses the link (CHAT-FORK-05)", async () => {
+    const t = chat(turns(1));
+    const branch = (await (await fork(t)).json()) as Topic;
+    ctx.db.prepare("DELETE FROM topics WHERE id = ?").run(t.id);
+    expect(ctx.getTopicById(branch.id)?.forkedFrom).toEqual({ topicId: null, name: t.name, atMessageId: branch.forkedFrom!.atMessageId });
+    expect(ctx.loadTopics().topics[branch.id]?.forkedFrom).toEqual({ topicId: null, name: t.name, atMessageId: branch.forkedFrom!.atMessageId });
+  });
+
   test("no name in the body: «<name> (ramo)»", async () => {
     const t = chat(turns(1));
     const branch = (await (await fork(t)).json()) as Topic;

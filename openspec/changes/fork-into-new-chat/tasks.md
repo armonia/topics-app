@@ -150,3 +150,25 @@ Prima del codice: `grep -qx 'status: approved' openspec/changes/fork-into-new-ch
       restano nello scratchpad della sessione, non nel repo. Giro 1: 10 verdi su
       10, con i due casi nuovi (la tab del ramo resta al clic singolo dopo; storia
       e divisore a schermo durante il primo turno di `/fork <testo>`).
+
+## 8. Giro 2 delle verifiche
+
+- [x] 8.1 Il fork di Claude Code si consuma al primo `system/init` dello spawn
+      col fork (`consumeFork`, `claude-code.ts`): un ramo spostato di progetto
+      dopo i suoi turni rifaceva il fork dalla madre e il modello perdeva i
+      turni del ramo. Test in `claude-code-fork-spawn.test.ts`, rosso prima.
+- [x] 8.2 La copia non porta il consumo (`copyThreadForFork`): un fork
+      raddoppiava costo e token di dashboard, profilo e consumo per progetto.
+      Test in `chat-fork-route.test.ts` (`computeProfileStats`,
+      `projectUsage`) e in `chat-fork.test.ts`, rossi prima.
+- [x] 8.3 Il punto della madre si legge dal transcript dovunque stia
+      (`findClaudeTranscript`): una madre spostata di progetto dopo i suoi
+      turni ripiegava sul riepilogo. Test in `chat-fork-route.test.ts`, rosso
+      prima.
+- [x] 8.4 Test mancanti su comportamenti già giusti: l'origine cancellata
+      (`forkedFrom.topicId` nullo col nome, nella rotta; rosso se la
+      proiezione legge `parent_topic_id` invece della LEFT JOIN) e il divisore
+      sotto una corsa di strumenti (e2e, rosso con `MessageList` che confronta
+      solo `msg.id`). L'e2e dell'origine cancellata non c'è: nessuna strada
+      dell'app toglie una riga da `topics` (`DELETE /api/topics/:id`
+      archivia), e con l'origine archiviata il nome si apre, giustamente.
