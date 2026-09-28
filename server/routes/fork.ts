@@ -67,7 +67,7 @@ export function createForkRouter(ctx: AppContext, deps: ForkDeps): RouteHandler 
     if (point < 0) return json({ error: "there is no finished answer to fork from", code: "nothing_to_fork" }, 400);
 
     const body = await readJSON(req);
-    const name = (typeof body?.name === "string" ? body.name.trim() : "") || `${parent.name} (ramo)`;
+    const name = (typeof body?.name === "string" ? body.name.trim() : "") || `${parent.name} (ramo)`; // allow-italian: the default name CHAT-FORK-01 fixes, for API callers; the client sends the translated one
 
     // The CLI runtimes fork the parent's own session, unless its memory would
     // not match the copy (`cliForkBlocker`): then the copy is the memory, and

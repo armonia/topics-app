@@ -103,8 +103,8 @@ describe("cliForkBlocker: when the CLI would remember something the copy does no
   });
 
   test("rule 1: an edited or regenerated row up to the point", () => {
-    const regen = clean.map((r) => (r.id === "a0" ? { ...r, branchIndex: 1 } : r));
-    expect(cliForkBlocker(regen, 3, { last })).toBe("edited-or-regenerated");
+    const regenerated = clean.map((r) => (r.id === "a0" ? { ...r, branchIndex: 1 } : r));
+    expect(cliForkBlocker(regenerated, 3, { last })).toBe("edited-or-regenerated");
   });
 
   test("rule 2: after the point only background notices are allowed", () => {
