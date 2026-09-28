@@ -5842,7 +5842,8 @@ const survivingTurnsAdopted = reattachSurvivingChatTurns();
 void survivingTurnsAdopted
   .catch(() => { /* logged by the chain below */ })
   .then(() => startProcessExitWakes({
-    db: ctx.db, getTopicById: ctx.getTopicById, isBusy: (sk) => activeStreams.has(sk), route: topicsRouter,
+    db: ctx.db, getTopicById: ctx.getTopicById, ownedByRunningTask: (id) => runningTaskOwnsTopic(ctx.db, id),
+    isBusy: (sk) => activeStreams.has(sk), route: topicsRouter,
     log: (m) => console.log(`[process-exit] ${m}`),
   }));
 survivingTurnsAdopted

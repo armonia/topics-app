@@ -150,8 +150,10 @@ output, dichiarate dato non fidato come in `read_process_output`.
   `process-exit` di quel `processId`. Si controlla prima di spedire, e al boot
   per ogni comando finito con `wake` e senza quella riga.
 
-Niente sveglia quando: `wake: false`; la topic è archiviata o cancellata (l'esito
-resta nel pannello); il comando è stato fermato da Stop nel pannello o da
+Niente sveglia quando: `wake: false`; la topic è cancellata, o archiviata e
+nessuna card in corso la possiede (l'esito resta nel pannello: la topic di un
+agente della board nasce archiviata e riceve la sveglia finché la sua card è in
+corso, la stessa regola delle sveglie del CLI in `server/lib/wake-adoption.ts`); il comando è stato fermato da Stop nel pannello o da
 `stop_process`; un `wait_for_process` della stessa sessione era aperto su quel
 processo quando è uscito (`watchesForProcess`, `server/lib/process-wait.ts:191`),
 perché quel turno l'esito l'ha già.
@@ -203,13 +205,13 @@ la route rifiuta per sempre resta dovuta al boot successivo ma non si aspetta.
 - **AND** a fine comando il turno della sveglia arriva come turno `woken` e viene giudicato
 
 #### Scenario: una card della board aspetta la sveglia
-- **GIVEN** una card in corso il cui agente ha lanciato un comando con `run_command`
+- **GIVEN** una card in corso il cui agente ha lanciato un comando con `run_command`, sulla topic archiviata che il dispatcher gli ha creato
 - **WHEN** l'agente chiude il turno mentre il comando gira
 - **THEN** la card resta in corso, senza sollecito e senza consumare un tentativo
 - **AND** a fine comando arriva la riga `process-exit`, e finito quel turno la card prosegue come dopo ogni turno
 
 #### Scenario: topic archiviata
-- **GIVEN** la topic archiviata mentre il comando girava
+- **GIVEN** la topic archiviata mentre il comando girava, e nessuna card in corso che la possiede
 - **WHEN** il comando esce
 - **THEN** nessun messaggio, e l'esito resta nel pannello
 

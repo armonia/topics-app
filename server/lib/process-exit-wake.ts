@@ -20,10 +20,16 @@
  * until somebody changes the topic's settings): it fails, and stays owed to
  * the next boot, with nobody waiting for it before then.
  *
+ * An archived topic gets nothing, unless a card in progress owns it: a board
+ * agent's topic is born archived, the rule the CLI's own wakes follow
+ * (`lib/wake-adoption.ts`).
+ *
  * ONCE. Delivered means the session holds a row with the `process-exit` block
  * of that process: checked before every send, and at boot for every finished
  * command still owed a wake (`requestProcessExitWake` from `loadState`).
  */
+
+import { wakeVerdict } from "./wake-adoption";
 
 /** What the topic is told about a process that ended. */
 export interface ProcessExitFacts {
@@ -58,6 +64,12 @@ type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => R
 export interface ProcessExitWakeDeps {
   db: { query(sql: string): { get(...args: string[]): unknown } };
   getTopicById(id: string): { sessionKey: string; archived?: boolean } | null;
+  /**
+   * A card in progress owns this topic (`runningTaskOwnsTopic`): a board
+   * agent's topic is born archived and still gets its wakes, the rule of
+   * `lib/wake-adoption.ts`.
+   */
+  ownedByRunningTask(topicId: string): boolean;
   /** A turn in flight on the session: the entry in `activeStreams`. */
   isBusy(sessionKey: string): boolean;
   route: ChatRoute;
@@ -141,9 +153,10 @@ export async function deliverProcessExit(
 ): Promise<"sent" | "delivered" | "no-topic" | "failed"> {
   const pollMs = deps.pollMs ?? 500;
   for (;;) {
-    // Resolved on every round: the topic can be archived while the wake waits.
+    // Resolved on every round: the topic can be archived, or its card leave
+    // the column, while the wake waits.
     const topic = deps.getTopicById(f.topicId);
-    if (!topic || topic.archived) return "no-topic";
+    if (!topic || wakeVerdict({ id: f.topicId, archived: topic.archived }, deps.ownedByRunningTask) !== "adopt") return "no-topic";
     // Busy first: the row cannot appear while somebody else's turn holds the
     // session, and the search below scans the session's rows.
     if (deps.isBusy(topic.sessionKey)) { await sleep(pollMs); continue; }

@@ -130,6 +130,7 @@ describe("deliverProcessExit", () => {
     const d: ProcessExitWakeDeps = {
       db,
       getTopicById: () => ({ sessionKey: "s-a" }),
+      ownedByRunningTask: () => false,
       isBusy: () => false,
       pollMs: 5,
       log: (msg) => logs.push(msg),
@@ -197,5 +198,19 @@ describe("deliverProcessExit", () => {
   test("an archived or deleted topic gets nothing", async () => {
     expect(await deliverProcessExit(deps({ getTopicById: () => ({ sessionKey: "s-a", archived: true }) }).d, FACTS)).toBe("no-topic");
     expect(await deliverProcessExit(deps({ getTopicById: () => null }).d, FACTS)).toBe("no-topic");
+  });
+
+  // A board agent's topic is born archived (`createDetachedTopic` with
+  // `background: true`) and lives while its card runs: refused as archived,
+  // every card's wake was dropped and the card got a blind nudge instead.
+  test("an archived topic that a card in progress owns gets its wake", async () => {
+    const asked: string[] = [];
+    const { d, bodies } = deps({
+      getTopicById: () => ({ sessionKey: "s-a", archived: true }),
+      ownedByRunningTask: (id) => { asked.push(id); return true; },
+    });
+    expect(await deliverProcessExit(d, FACTS)).toBe("sent");
+    expect(bodies).toHaveLength(1);
+    expect(asked).toEqual(["t-1"]);
   });
 });

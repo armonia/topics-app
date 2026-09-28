@@ -27,6 +27,7 @@ const PROJECT = realpathSync((mkdirSync(join(ROOT, "project"), { recursive: true
 
 const { commandWakeState, createProcessesRouter, logPathOf } = await import("../../server/routes/processes");
 const { startProcessExitWakes, processExitWakesIdle } = await import("../../server/lib/process-exit-wake");
+const { runningTaskOwnsTopic } = await import("../../server/lib/wake-adoption");
 const { createChatRouter } = await import("../../server/routes/chat");
 const { registerProvider, removeProvider } = await import("../../server/providers");
 const { TopicsRoutingIncompatibleError } = await import("../../server/providers/resolve-topic-provider");
@@ -87,7 +88,8 @@ async function makeBench() {
   } as never);
   const processes = createProcessesRouter(ctx);
   startProcessExitWakes({
-    db: ctx.db, getTopicById: ctx.getTopicById, isBusy: (sk) => ctx.activeStreams.has(sk), route: chat, pollMs: 50,
+    db: ctx.db, getTopicById: ctx.getTopicById, ownedByRunningTask: (id) => runningTaskOwnsTopic(ctx.db, id),
+    isBusy: (sk) => ctx.activeStreams.has(sk), route: chat, pollMs: 50,
   });
   return { ctx: ctx as AppContext, chat, processes, handlers, goalTurns };
 }
@@ -306,7 +308,8 @@ describe("a board card whose agent ended its turn on a command", () => {
     const { createTaskService } = await import("../../server/services/tasks");
     const { createTaskDispatcher } = await import("../../server/services/task-dispatcher");
     // The dispatcher's session of a card: `topic:` and the first 8 characters of its topic id.
-    const topic = newTopic({ id: "cardwake-topic", sessionKey: "topic:cardwake" });
+    // Archived, as the dispatcher creates it (`createDetachedTopic` with `background: true`).
+    const topic = newTopic({ id: "cardwake-topic", sessionKey: "topic:cardwake", archived: true });
     const db = bench.ctx.db;
     const svc = createTaskService(db);
     const now = new Date().toISOString();

@@ -18,6 +18,7 @@ Prima di tutto: `grep -qx 'status: approved' openspec/changes/adhoc-processes-vi
 - [x] 3.3 Consegna al boot dei comandi finiti senza riga.
 - [x] 3.4 `tests/integration/process-run-command.test.ts`: comando `echo tick 1; echo tick 2; exit 3` → riga con i due tick ed `exitCode 3`, una sola riga `process-exit` con `exit 3` e `tick 2`; con turno in volo arriva dopo; con `wait_for_process` aperto non arriva. Oggi: 404 sulla route.
 - [x] 3.5 Il dispatcher della board aspetta la sveglia di un comando come il ciclo dei goal (`awaitsCommandWake`, `isSessionBusy`): niente sollecito né tentativo, tetto `BACKGROUND_WORK_CAP_MS`; una sveglia rifiutata per sempre non si aspetta. `task-dispatcher-command-wake.test.ts` e la card in `process-run-command.test.ts`.
+- [x] 3.6 La topic di una card nasce archiviata: la sveglia la raggiunge finché una card in corso la possiede (`wakeVerdict` + `runningTaskOwnsTopic`, come le sveglie del CLI), e i token del turno della sveglia vanno sul conto della card. La card in `process-run-command.test.ts` usa una topic archiviata.
 
 ## 4. Pannello e prompt (CMDRUN-02)
 - [x] 4.1 `ScriptRunner.tsx`: righe `command` vive e recenti con esito; tipo `source` in `client/src/lib/api.ts:919`.

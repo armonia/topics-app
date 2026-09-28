@@ -79,6 +79,7 @@ if (mode === "boot") {
   startProcessExitWakes({
     db,
     getTopicById: (id) => (id === TOPIC.id ? { sessionKey: TOPIC.sessionKey } : null),
+    ownedByRunningTask: () => false,
     isBusy: () => false,
     pollMs: 20,
     route: async (req) => {
