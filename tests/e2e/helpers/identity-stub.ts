@@ -10,6 +10,7 @@
  * disagree the day a field moves.
  */
 import { expect, type Page } from "@playwright/test";
+import { fakeTauriShell } from "./fake-tauri-shell";
 
 /** A member as the route sends it: raw milliseconds, not a boolean. */
 export function member(id: string, name: string, lastSeenAt: number | null) {
@@ -124,21 +125,18 @@ export async function stubIdentity(page: Page, population: Population): Promise<
  * THE MACHINE'S NUMBERS, so the card has something to say. The shell command
  * the dot samples is `perf_metrics`, and without a shell (plain Chromium) the
  * card would show no memory and no CPU: a green on an empty span would prove
- * the layout of nothing.
+ * the layout of nothing. The shell is faked by `fakeTauriShell`, which also
+ * keeps every other call of the page on the test server: faked by hand here,
+ * it sent them to the desktop app's loopback proxy, that is to production.
  */
 export async function withMachineNumbers(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
-      metadata: { currentWindow: { label: "main" } },
-      invoke: async (cmd: string) => {
-        if (cmd !== "perf_metrics") throw new Error(`unmocked command: ${cmd}`);
-        return {
-          version: "e2e", total_mb: 1989, resident_mb: 594,
-          renderer_mb: 1400, gpu_mb: 130, other_mb: 459,
-          cpu_percent: 8, cpu_renderer: 4, cpu_gpu: 1,
-          cpu_sampled: 3, cpu_pids: 3, process_count: 8, partial: false,
-        };
-      },
+  await fakeTauriShell(page, () => async (cmd: string) => {
+    if (cmd !== "perf_metrics") throw new Error(`unmocked command: ${cmd}`);
+    return {
+      version: "e2e", total_mb: 1989, resident_mb: 594,
+      renderer_mb: 1400, gpu_mb: 130, other_mb: 459,
+      cpu_percent: 8, cpu_renderer: 4, cpu_gpu: 1,
+      cpu_sampled: 3, cpu_pids: 3, process_count: 8, partial: false,
     };
   });
 }

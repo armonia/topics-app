@@ -3,8 +3,8 @@
  * WITHOUT A RELOAD.
  *
  * Playwright runs the web build in Chromium: there is no WKWebView here. The
- * pane takes its native branch because `__TAURI_INTERNALS__` is faked (the same
- * disguise as `idle-frame-budget.spec.ts`), and the fake shell is what makes the
+ * pane takes its native branch because `__TAURI_INTERNALS__` is faked (by
+ * `helpers/fake-tauri-shell.ts`, like every spec), and the fake shell makes the
  * page heavy: every `perf_metrics` reports 17% of a core for this pane. What is
  * asserted is what the person sees (the tab glyph, the paused card, the still)
  * and what the shell receives (no reload, no navigation, no second open).
@@ -18,6 +18,7 @@ import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore, seedPaneStore, waitForTopicVisible } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { fakeTauriShell } from "./helpers/fake-tauri-shell";
 
 hermetic(test);
 
@@ -36,50 +37,30 @@ async function seedBrowserPane(request: Parameters<typeof seedPaneStore>[0], ctx
   return paneId;
 }
 
-/** The Tauri shell, faked: the loopback proxy sent home, and a recorder on every command. */
+/** The Tauri shell, faked (the loopback proxy sent home by the helper), and a recorder on every command. */
 async function fakeHeavyShell(page: Page, ctx: string, png: string): Promise<void> {
-  await page.addInitScript(({ ctx, png }) => {
-    const w = window as unknown as { __calls: string[]; __TAURI_INTERNALS__: unknown };
+  await fakeTauriShell(page, ({ ctx, png }) => {
+    const w = window as unknown as { __calls: string[] };
     w.__calls = [];
-    const proxy = "//127.0.0.1:13333";
-    const wsScheme = location.protocol === "https:" ? "wss:" : "ws:";
-    const home = (u: string): string =>
-      u.startsWith(`http:${proxy}`) ? location.origin + u.slice(`http:${proxy}`.length)
-      : u.startsWith(`ws:${proxy}`) ? `${wsScheme}//${location.host}${u.slice(`ws:${proxy}`.length)}`
-      : u;
-    const realFetch = window.fetch.bind(window);
-    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
-      realFetch(
-        typeof input === "string" ? home(input)
-        : input instanceof URL ? home(input.href)
-        : new Request(home(input.url), input),
-        init,
-      )) as typeof fetch;
-    window.WebSocket = new Proxy(window.WebSocket, {
-      construct: (Target, args: [string | URL, (string | string[])?]) => new Target(home(String(args[0])), args[1]),
-    });
     const perf = {
       version: "e2e", total_mb: 900, resident_mb: 600, renderer_mb: 400, gpu_mb: 100, other_mb: 400,
       cpu_percent: 22, cpu_renderer: 17, cpu_gpu: 2, cpu_sampled: 3, cpu_pids: 3, process_count: 3, partial: false,
       webviews: [{ label: `browserpane-${ctx}`, pid: 4242, memory_mb: 180, cpu_percent: 17 }],
     };
-    w.__TAURI_INTERNALS__ = {
-      metadata: { currentWindow: { label: "main" } },
-      invoke: (cmd: string, args?: unknown) => {
-        w.__calls.push(cmd);
-        if (cmd === "perf_metrics") return Promise.resolve(perf);
-        if (cmd === "browser_screenshot") return Promise.resolve(png);
-        // The 120 ms poll that reads the in-page click counter: `window.__bump`
-        // stands for a click the person gives inside the native page.
-        if (cmd === "browser_eval_js") {
-          const js = String((args as { js?: string } | undefined)?.js ?? "");
-          const bump = (window as unknown as { __bump?: number }).__bump ?? 0;
-          return Promise.resolve(js.includes("JSON.stringify({k:") ? JSON.stringify({ k: bump, m: null }) : "");
-        }
-        if (cmd === "browser_devtools_open") return Promise.resolve(false);
-        if (cmd.startsWith("browser_take_") || cmd === "browser_download_progress") return Promise.resolve([]);
-        return Promise.resolve(null);
-      },
+    return (cmd: string, args?: unknown) => {
+      w.__calls.push(cmd);
+      if (cmd === "perf_metrics") return Promise.resolve(perf);
+      if (cmd === "browser_screenshot") return Promise.resolve(png);
+      // The 120 ms poll that reads the in-page click counter: `window.__bump`
+      // stands for a click the person gives inside the native page.
+      if (cmd === "browser_eval_js") {
+        const js = String((args as { js?: string } | undefined)?.js ?? "");
+        const bump = (window as unknown as { __bump?: number }).__bump ?? 0;
+        return Promise.resolve(js.includes("JSON.stringify({k:") ? JSON.stringify({ k: bump, m: null }) : "");
+      }
+      if (cmd === "browser_devtools_open") return Promise.resolve(false);
+      if (cmd.startsWith("browser_take_") || cmd === "browser_download_progress") return Promise.resolve([]);
+      return Promise.resolve(null);
     };
   }, { ctx, png });
 }

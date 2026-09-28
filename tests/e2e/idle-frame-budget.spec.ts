@@ -9,6 +9,7 @@ import {
   seedPaneStore,
 } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { fakeTauriShell } from "./helpers/fake-tauri-shell";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -268,12 +269,13 @@ interface InvokeProbeWindow {
 }
 
 /**
- * Veste la pagina da guscio Tauri: ponte IPC contatore, visibilità pilotabile,
- * e la rete del guscio (proxy di loopback) riportata sull'origine della pagina.
+ * Dress the page as the Tauri shell: a counting IPC bridge and a visibility the
+ * test drives. The shell's network (the loopback proxy) is sent home by
+ * `fakeTauriShell`, which is the piece this spec used to carry on its own.
  */
 async function installTauriInvokeProbe(page: Page) {
-  await page.addInitScript(() => {
-    const w = window as unknown as InvokeProbeWindow & { __TAURI_INTERNALS__: unknown };
+  await fakeTauriShell(page, () => {
+    const w = window as unknown as InvokeProbeWindow;
     w.__invokeProbe = {};
     w.__topicsHidden = false;
 
@@ -286,48 +288,14 @@ async function installTauriInvokeProbe(page: Page) {
       get: () => w.__topicsHidden,
     });
 
-    // ── La rete del guscio, riportata a casa ────────────────────────────────
-    // Gli stessi due indirizzi che `lib/shell/net.ts` usa quando `isTauri`.
-    const HTTP_PROXY = "http://127.0.0.1:13333";
-    const WS_PROXY = "ws://127.0.0.1:13333";
-    const wsOrigin = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`;
-    const toLocal = (u: string): string => {
-      if (u.startsWith(HTTP_PROXY)) return location.origin + u.slice(HTTP_PROXY.length);
-      if (u.startsWith(WS_PROXY)) return wsOrigin + u.slice(WS_PROXY.length);
-      return u;
-    };
-
-    // `installNetShim` avvolge il `fetch` che trova al boot, cioè QUESTO: gli
-    // arriva quindi l'URL già riscritto verso il proxy, e lo si rimanda
-    // all'origine della pagina prima della fetch vera.
-    const nativeFetch = window.fetch.bind(window);
-    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
-      if (typeof input === "string") return nativeFetch(toLocal(input), init);
-      if (input instanceof URL) return nativeFetch(toLocal(input.href), init);
-      if (input instanceof Request) return nativeFetch(new Request(toLocal(input.url), input), init);
-      return nativeFetch(input, init);
-    }) as typeof fetch;
-
-    // I WebSocket non passano dallo shim: i callsite costruiscono l'URL con
-    // `serverWsBase()`, quindi si intercetta il costruttore. Un Proxy e non una
-    // sottoclasse, così le costanti statiche (OPEN, CLOSED…) restano quelle.
-    window.WebSocket = new Proxy(window.WebSocket, {
-      construct(target, args: [string | URL, (string | string[])?]) {
-        return new target(toLocal(String(args[0])), args[1]);
-      },
-    });
-
     const EMPTY: unknown[] = [];
-    w.__TAURI_INTERNALS__ = {
-      metadata: { currentWindow: { label: "main" } },
-      invoke: (cmd: string) => {
-        w.__invokeProbe[cmd] = (w.__invokeProbe[cmd] ?? 0) + 1;
-        // Risposte innocue: nessun comando deve RIGETTARE, o la pane resta su
-        // "Initializing native browser…" e il test misurerebbe una pane morta.
-        if (cmd === "browser_eval_js") return Promise.resolve("");
-        if (cmd.startsWith("browser_take_") || cmd === "browser_nav_entries") return Promise.resolve(EMPTY);
-        return Promise.resolve(null);
-      },
+    return (cmd: string) => {
+      w.__invokeProbe[cmd] = (w.__invokeProbe[cmd] ?? 0) + 1;
+      // Harmless answers: no command may REJECT, or the pane stays on
+      // "Initializing native browser…" and the test would measure a dead pane.
+      if (cmd === "browser_eval_js") return Promise.resolve("");
+      if (cmd.startsWith("browser_take_") || cmd === "browser_nav_entries") return Promise.resolve(EMPTY);
+      return Promise.resolve(null);
     };
   });
 }
