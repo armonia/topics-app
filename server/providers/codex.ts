@@ -1212,6 +1212,19 @@ export class CodexProvider implements AIProvider {
     }, KILL_GRACE_MS);
   }
 
+  /**
+   * `/clear`: forget the stored thread so the next turn runs a fresh
+   * `codex exec` instead of `codex exec resume <old thread>`, which would
+   * carry every message the user just saw disappear. A turn still running is
+   * stopped first, as the user asked to drop it. The rollout file stays on
+   * disk: it is Codex's history, we just never resume it again.
+   */
+  async resetSession(sessionKey: string): Promise<void> {
+    await this.abort(sessionKey);
+    try { forgetCodexThreadId(getDatabase(), sessionKey); } catch { /* no DB: nothing stored to forget */ }
+    console.log(`[codex] resetSession: ${sessionKey} starts a new thread on the next turn`);
+  }
+
   // --- Diagnostics ---
 
   async diagnose(): Promise<ProviderDiagnostic> {
