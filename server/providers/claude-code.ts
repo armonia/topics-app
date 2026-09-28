@@ -91,7 +91,7 @@ export interface ClaudeCodeProviderConfig {
 
 /** I one-shot (auto-titolo, digest, fallback SSE) NON sono lavoro d'agente e
  *  restano dov'erano: pagarli come una chat non serve a nessuno. */
-const DEFAULT_ONESHOT_MODEL = "claude-sonnet-5";
+const DEFAULT_ONESHOT_MODEL = "claude-sonnet-5-5";
 const DEFAULT_PERMISSION_MODE = "bypassPermissions";
 
 /**

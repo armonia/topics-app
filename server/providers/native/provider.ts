@@ -64,7 +64,7 @@ import { cancelled, stopCauseFromSignal, type StopCause, type TurnEndInfo } from
  * the guard in `routes/chat.ts` dropped every override to the 5 family, this
  * value was not the default: it was EVERYONE's model.
  */
-export const DEFAULT_MODEL = "claude-sonnet-5";
+export const DEFAULT_MODEL = "claude-sonnet-5-5";
 
 /**
  * DA QUANTO FERMA UNA SESSIONE PUÒ ESSERE SFRATTATA DALLA MEMORIA.
@@ -165,6 +165,7 @@ const MODELS = [
   "claude-opus-5-5",
   "claude-opus-5[1m]",
   "claude-opus-5",
+  "claude-sonnet-5-5",
   "claude-sonnet-5",
   "claude-fable-5",
   "claude-opus-4-6",
