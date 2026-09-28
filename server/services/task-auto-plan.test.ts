@@ -1,7 +1,9 @@
-/** @covers AGPT-01 AGPT-02 */
+/** @covers AGPT-01 AGPT-02 AICTRL-01 */
 import { describe, expect, test } from 'bun:test';
 import { pickCodingTaskPlan, TASK_CLASSIFIER_TIMEOUT_MS, type CodingModel } from './task-auto-plan';
 import { pickAutomaticTaskModel, automaticTaskModels, automaticTaskProvider } from './task-auto-model';
+import { resolveDispatchTopicIdentity } from './dispatch-topic-identity';
+import { TopicsRoutingUnavailableError } from '../../shared/task-coding-models';
 import type { AIProvider, CompletionOptions } from '../providers/types';
 import type { ProvidersSnapshot } from '../../shared/types';
 
@@ -92,14 +94,16 @@ describe('automatic host provider routing', () => {
     });
   }
 
-  test('Topics automatic stays inside Topics even when Codex is the default', async () => {
+  // The legacy `topics:` prefix also reads as the switch ON, so the dispatcher
+  // hands this selection over with topicsRouting true.
+  for (const topicsRouting of [undefined, true]) test(`Topics automatic stays inside Topics even when Codex is the default (switch ${topicsRouting ? 'ON' : 'unset'})`, async () => {
     const current = { defaultProvider: 'codex', providers: [
       { name: 'topics', status: 'ready', models: ['claude-opus-5'] },
       { name: 'codex', status: 'ready', models: models.map(model => model.slug) },
     ] } as ProvidersSnapshot;
     const accessed: string[] = [];
     const plan = await pickAutomaticTaskModel({ text: 'Task' }, 'topics:auto', {
-      snapshot: current, codexModels: () => models,
+      snapshot: current, codexModels: () => models, topicsRouting,
       getProvider: name => {
         accessed.push(name);
         return { connected: true, complete: async () => ({ content: '{"provider":"topics","model":"claude-opus-5","effort":"medium","weight":"light"}' }) } as unknown as AIProvider;
@@ -202,6 +206,64 @@ describe('general automatic catalog and constraints', () => {
     });
     expect(plan.model).toBe('claude-opus-5');
     expect(accessed).toEqual(['topics']);
+  });
+
+  test('Automatic with the Topics switch ON only offers what the Topics engine routes', async () => {
+    const fleet = { defaultProvider: 'codex', providers: [
+      { name: 'topics', status: 'ready', models: ['claude-sonnet-5', 'claude-opus-5'] },
+      { name: 'claude-code', status: 'ready', models: ['claude-sonnet-5', 'claude-opus-5'] },
+      { name: 'codex', status: 'ready', models: ['gpt-5.5'] },
+    ] } as ProvidersSnapshot;
+    const prompts: string[] = [];
+    const plan = await pickAutomaticTaskModel({ text: 'Task' }, undefined, {
+      snapshot: fleet, topicsRouting: true,
+      codexModels: () => [{ ...models[1]!, slug: 'gpt-5.5' }],
+      getProvider: () => ({ connected: true, complete: async (messages: Array<{ content: string }>) => {
+        prompts.push(messages[0]!.content);
+        // The classifier votes Codex: with ON it must not be on the ballot.
+        return { content: '{"provider":"codex","model":"gpt-5.5","effort":"medium","weight":"light"}' };
+      } }) as unknown as AIProvider,
+    });
+    expect(prompts[0]).not.toContain('gpt-5.5');
+    // The native engine is the router, not a target the ballot offers.
+    expect(prompts[0]).not.toContain('"provider":"topics"');
+    expect(plan.provider).toBe('claude-code');
+    // The plan passes the same gate the dispatcher applies when it creates the topic.
+    expect(resolveDispatchTopicIdentity({ provider: plan.provider, model: plan.model, topicsRouting: true }, fleet).executor).toBe('topics');
+  });
+
+  // The production catalogs name Haiku differently: the CLI by its alias, the
+  // engine by its dated id. Offering Claude Code targets only dropped the
+  // cheap tier the engine serves, and the classifier with it: Sonnet judged
+  // every Automatic dispatch with the switch ON.
+  test('Automatic with the Topics switch ON also offers the engine models no Claude Code target covers, unpinned', async () => {
+    const fleet = { defaultProvider: 'topics', providers: [
+      { name: 'claude-code', status: 'ready', models: ['claude-sonnet-5', 'claude-haiku-4-5'] },
+      { name: 'codex', status: 'ready', models: ['gpt-5.5'] },
+      { name: 'topics', status: 'ready', models: ['claude-sonnet-5', 'claude-haiku-4-5-20251001'] },
+    ] } as ProvidersSnapshot;
+    const calls: Array<{ judge: string; ballot: string[] }> = [];
+    const plan = await pickAutomaticTaskModel({ text: 'Fix a typo in the README' }, undefined, {
+      snapshot: fleet, topicsRouting: true,
+      codexModels: () => [{ ...models[1]!, slug: 'gpt-5.5' }],
+      getProvider: name => ({ connected: true, complete: async (messages: Array<{ content: string }>, options: CompletionOptions) => {
+        const catalog = JSON.parse(messages[0]!.content.split('Account catalog: ')[1]!.split('\nTask data')[0]!) as Array<{ provider: string; model: string }>;
+        calls.push({ judge: `${name}/${options.model}`, ballot: catalog.map(m => `${m.provider}/${m.model}`) });
+        return { content: '{"provider":"topics","model":"claude-haiku-4-5-20251001","effort":"low","weight":"light"}' };
+      } }) as unknown as AIProvider,
+    });
+    // Sonnet stays pinned to its Claude Code target; the engine adds only what no target covers.
+    expect(calls).toEqual([{ judge: 'topics/claude-haiku-4-5-20251001', ballot: ['claude-code/claude-sonnet-5', 'topics/claude-haiku-4-5-20251001'] }]);
+    expect(plan).toEqual({ model: 'claude-haiku-4-5-20251001', effort: 'low', weight: 'light' });
+  });
+
+  test('an explicit Codex runtime with the Topics switch ON is refused with the routing reason', async () => {
+    let classified = false;
+    await expect(pickAutomaticTaskModel({ text: 'Task' }, 'codex:auto', {
+      snapshot, topicsRouting: true, codexModels: () => models,
+      getProvider: () => { classified = true; return undefined; },
+    })).rejects.toThrow(new TopicsRoutingUnavailableError('codex', null).message);
+    expect(classified).toBe(false);
   });
 
   test('fixed effort filters execution candidates while retaining a cheap classifier', async () => {

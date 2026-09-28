@@ -1,5 +1,6 @@
 import type { Server } from "bun";
 import type { WSData } from "../types";
+import { NATIVE_EXECUTOR_PARAM } from "../../shared/browser-ws-messages";
 
 /** How much of a `?client=` we keep: enough for a uuid, not enough to be a payload. */
 const CLIENT_ID_MAX = 64;
@@ -13,8 +14,8 @@ const CLIENT_ID_MAX = 64;
  * authenticated device. Kept to a safe alphabet so it can be put in a log line
  * or a map key without thinking about it twice.
  */
-function paneClientId(req: Request): string | null {
-  const raw = new URL(req.url).searchParams.get("client");
+function paneClientId(params: URLSearchParams): string | null {
+  const raw = params.get("client");
   if (!raw) return null;
   const clean = raw.slice(0, CLIENT_ID_MAX);
   return /^[A-Za-z0-9_-]+$/.test(clean) ? clean : null;
@@ -34,7 +35,12 @@ export function upgradeWebSocket(
   } else if (pathname.startsWith("/ws/browser/")) {
     const browserContextId = decodeURIComponent(pathname.slice("/ws/browser/".length));
     if (!browserContextId) return new Response("Missing contextId", { status: 400 });
-    target = { browserContextId, clientId: paneClientId(req) };
+    const params = new URL(req.url).searchParams;
+    target = {
+      browserContextId,
+      clientId: paneClientId(params),
+      expectsExecutor: params.get(NATIVE_EXECUTOR_PARAM) === "1",
+    };
   } else if (pathname === "/ws") {
     target = {};
   } else {

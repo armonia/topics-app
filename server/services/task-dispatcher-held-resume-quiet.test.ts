@@ -26,7 +26,7 @@
  */
 import { describe, it, expect, setSystemTime, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { createTaskService, type TaskService } from "./tasks";
+import { createTaskService, type Task, type TaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
 import type { TurnEndInfo } from "../providers/stop-reason";
 import type { OutboundMessage } from "../../shared/ws-outbound";
@@ -35,6 +35,7 @@ import { createTaskAttemptStore } from "./task-attempts";
 import { dispatchResourceBlock, dispatchResourceVerdict } from "./dispatch-capacity";
 import type { HeldMemory } from "./mem-signal";
 import { clearProviderHold, resetProviderHoldStore, setProviderHold } from "../lib/provider-hold";
+import { taskDetailBump } from "../../client/src/lib/board";
 
 function freshDb(): Database {
   const db = new Database(":memory:");
@@ -101,6 +102,11 @@ function harness() {
   const db = freshDb();
   const svc: TaskService = createTaskService(db);
   const frames: string[] = [];
+  const lastFrames = new Map<string, Task>();
+  /** Every chip write that reached the row, whoever made it. */
+  const writes: string[] = [];
+  const setDispatchState = svc.setDispatchState.bind(svc);
+  svc.setDispatchState = (input) => { writes.push(input.taskId); return setDispatchState(input); };
   /** The injected probes; `null` memory = no reading, the composer holds nothing.
    *  `warming` is the state of the first 120 s of a process: readings arriving,
    *  no full window yet. */
@@ -115,7 +121,10 @@ function harness() {
     runTurn: () => new Promise<TurnEndInfo | void>(() => { /* stays in flight */ }),
     broadcast: (m: OutboundMessage) => {
       const msg = m as { type: string; task?: { id: string } };
-      if (msg.type === "task:updated" && msg.task) frames.push(msg.task.id);
+      if (msg.type === "task:updated" && msg.task) {
+        frames.push(msg.task.id);
+        lastFrames.set(msg.task.id, msg.task as Task);
+      }
     },
     graceMs: 0,
     retryBackoffMs: 0,
@@ -147,6 +156,8 @@ function harness() {
     },
     task: (id: string) => svc.get(id)!.task,
     framesOf: (id: string) => frames.filter((f) => f === id).length,
+    lastFrame: (id: string) => lastFrames.get(id),
+    writesOf: (id: string) => writes.filter((w) => w === id).length,
     serviceNotes: (id: string) => svc.get(id)!.comments.filter((c) => c.kind === "service").map((c) => c.content),
   };
 }
@@ -159,6 +170,18 @@ function heldCard(db: Database, id: string): void {
      VALUES (?, ?, 'held resume', 'in_progress', ?, ?, ?, 1, 2)`,
     [id, PID, `topic-${id}`, ts, ts],
   );
+}
+
+function todo(h: ReturnType<typeof harness>, id: string): void {
+  const ts = new Date().toISOString();
+  h.db.run("INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, priority) VALUES (?, ?, 'x', 'todo', ?, ?, 0, 2)", [id, PID, ts, ts]);
+}
+
+/** The 24h spend cap reached (`on`) or off, on the real service's two reads. */
+function daySpend(h: ReturnType<typeof harness>, on: boolean): void {
+  const spend = h.svc as unknown as { getSpendCaps: () => object; agentSpend: () => object };
+  spend.getSpendCaps = () => ({ perTaskCents: 0, perDayCents: on ? 1_000 : 0 });
+  spend.agentSpend = () => ({ cents24h: 1_200, centsTotal: 1_200, unpricedCostTokens24h: 0, unpricedCostTokensTotal: 0 });
 }
 
 describe("a held resume writes its chip when the hold changes, not at every retry", () => {
@@ -252,6 +275,41 @@ describe("a held resume writes its chip when the hold changes, not at every retr
     expect(h.framesOf("switch")).toBe(5);
     expect(h.task("switch").dispatchError).toContain("ultimi 2 minuti è 5.2 GB");
     expect(h.task("switch").queueReason).toMatchObject({ kind: "resource_floor" });
+  });
+
+  /**
+   * AN HOUR OF IT, with a person writing to the card every five minutes. The
+   * comment route calls `resume` with the words, so each comment is one more
+   * pass through the hold, between two retries. Card 0fcb7b87 asked for this
+   * count on the case it came from (89919742, a held resume in In progress).
+   */
+  it("an hour held with a comment every five minutes: one write on a steady floor, one a minute on a moving one", async () => {
+    const hour = async (readings: number[]) => {
+      const h = harness();
+      heldCard(h.db, "talked");
+      const t0 = Date.now();
+      const stamps = new Set<string>();
+      // 600 retries 6 s apart; a comment 3 s after every 50th, so its stamp is its own.
+      for (let retry = 0; retry < 600; retry++) {
+        setSystemTime(new Date(t0 + retry * 6_000));
+        h.floor.memGB = readings[retry % readings.length]!;
+        await h.dispatcher.resume("talked", "");
+        stamps.add(h.task("talked").updatedAt);
+        if (retry > 0 && retry % 50 === 0) {
+          setSystemTime(new Date(t0 + retry * 6_000 + 3_000));
+          const c = h.svc.addComment({ taskId: "talked", author: "user", content: `any news at minute ${retry / 10}?` });
+          await h.dispatcher.resume("talked", c.content, { commentIds: [c.id] });
+          stamps.add(h.task("talked").updatedAt);
+        }
+      }
+      expect(h.task("talked").status).toBe("in_progress");
+      expect(h.task("talked").queueReason).toMatchObject({ kind: "resource_floor" });
+      return { writes: h.writesOf("talked"), frames: h.framesOf("talked"), stamps: stamps.size };
+    };
+    // The first retry writes; after it only the eleven comments move the row.
+    expect(await hour([4.8])).toEqual({ writes: 1, frames: 1, stamps: 12 });
+    // Moving figures: the minute refresh (60 writes), plus the same eleven comments.
+    expect(await hour([4.2, 3.9, 3.5])).toEqual({ writes: 60, frames: 60, stamps: 71 });
   });
 
   it("another writer rewrites the chip between two retries: the next retry puts the hold back", async () => {
@@ -467,6 +525,54 @@ describe("a held card across restarts", () => {
   });
 
   /**
+   * The relearned frame is the only frame that carries no write, and it is owed
+   * once per card per boot. What the rest of the boot does to the row goes
+   * through the write path (another kind of hold, another writer clearing the
+   * chip) or finds the map already knowing the sentence: never a second frame
+   * of its own.
+   */
+  it("inside one boot, a kind that changes and a chip cleared by another writer add writes, not relearned frames", async () => {
+    const h = harness();
+    h.floor.memGB = 4.8;
+    heldCard(h.db, "oneboot");
+    const t0 = Date.now();
+    await h.dispatcher.resume("oneboot", "");
+    const sentence = h.task("oneboot").dispatchError;
+    let at = 35 * 60_000;
+    setSystemTime(new Date(t0 + at));
+    const d = h.restart();
+    const frames0 = h.framesOf("oneboot");
+    const writes0 = h.writesOf("oneboot");
+    const retry = async () => {
+      setSystemTime(new Date(t0 + (at += 6_000)));
+      await d.resume("oneboot", "");
+    };
+
+    await retry();
+    // The kind changes twice: the floor clears and the 24h spend holds, then
+    // the floor comes back with the very sentence the row carried at the boot.
+    h.floor.memGB = null;
+    daySpend(h, true);
+    await retry();
+    expect(h.task("oneboot").queueReason).toMatchObject({ kind: "spend_cap" });
+    daySpend(h, false);
+    h.floor.memGB = 4.8;
+    await retry();
+    expect(h.task("oneboot").dispatchError).toBe(sentence);
+    // Another writer clears the chip; the next retry puts the same sentence back.
+    h.db.run("UPDATE tasks SET dispatch_state = NULL, dispatch_error = NULL WHERE id = 'oneboot'");
+    await retry();
+    expect(h.task("oneboot").dispatchError).toBe(sentence);
+    // And quiet from there, past the minute refresh.
+    for (let i = 0; i < 20; i++) await retry();
+
+    const writes = h.writesOf("oneboot") - writes0;
+    expect(writes).toBe(3);
+    expect(h.framesOf("oneboot") - frames0 - writes).toBe(1);
+    expect(h.task("oneboot").queueReason).toMatchObject({ kind: "resource_floor" });
+  });
+
+  /**
    * A NEW episode with the same words comes back to the bottom. `once` kept the
    * old row wherever it was, so a wait that ended and started again after a
    * person had written stayed ABOVE that person's comment, and the thread read
@@ -501,11 +607,6 @@ describe("a held card across restarts", () => {
  * if it were its own copy. Found by the verifier (repro R1).
  */
 describe("the tick's wait note on a todo card", () => {
-  const todo = (h: ReturnType<typeof harness>, id: string) => {
-    const ts = new Date().toISOString();
-    h.db.run("INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, priority) VALUES (?, ?, 'x', 'todo', ?, ?, 0, 2)", [id, PID, ts, ts]);
-  };
-
   it("episodes of the floor with other figures leave one note on the card, the current one", async () => {
     const h = harness();
     todo(h, "queue1");
@@ -520,6 +621,223 @@ describe("the tick's wait note on a todo card", () => {
     const notes = h.serviceNotes("queue1").filter((c) => c.startsWith("Memoria"));
     expect(notes).toHaveLength(1);
     expect(notes[0]).toContain("4.2 GB");
+  });
+
+  /**
+   * The tick only writes on a Todo card, and a Todo card has no live resume
+   * wait: `resume` drops it as soon as the card is out of In progress. So the
+   * resume note the tick's note replaces is always the one of a wait that has
+   * ended, and the retry still in flight when the card moved does not bring
+   * it back.
+   */
+  it("a held resume dragged back to Todo keeps one wait note, the tick's, and the late retry leaves it there", async () => {
+    const h = harness();
+    h.floor.memGB = 4.8;
+    heldCard(h.db, "back");
+    const t0 = Date.now();
+    await h.dispatcher.resume("back", "");
+    const memory = () => h.serviceNotes("back").filter((c) => c.startsWith("Memoria"));
+    expect(memory()).toHaveLength(1);
+
+    // A person drags it back to Todo, which unbinds its topic.
+    h.db.run("UPDATE tasks SET status = 'todo', assigned_topic_id = NULL WHERE id = 'back'");
+    setSystemTime(new Date(t0 + 60_000));
+    h.floor.memGB = 5.1;
+    await h.dispatcher.tick(PID);
+    expect(memory()).toHaveLength(1);
+    expect(memory()[0]).toContain("5.1 GB");
+
+    // The resume's retry timer was still armed: it fires, finds a Todo card, and drops its wait.
+    await h.dispatcher.resume("back", "");
+    expect(memory()).toHaveLength(1);
+    expect(memory()[0]).toContain("5.1 GB");
+  });
+});
+
+/**
+ * A TODO CARD HELD BY THE MACHINE IS QUIET TOO.
+ *
+ * The tick polls every 10 s (`server.ts`), and its floor branch wrote the bare
+ * `queued` chip on every held Todo card at every poll: `setDispatchState` moves
+ * `updated_at` and the card went out as a `task:updated` frame. 360 writes and
+ * 360 frames an hour per card, for a chip that already said `queued`, the same
+ * burst the held resume had until 15/09. The chip is written when the row does
+ * not carry it; the card is re-sent without a write when the block holding the
+ * queue changes, with the held resume's one-minute refresh for moving figures,
+ * and once more when a tick sees the block lift. A tick that returns before it
+ * publishes (a paused board) sees nothing: the published block's own limit,
+ * written in `dispatch-block-signal.ts`.
+ */
+describe("a todo card held by the machine for an hour", () => {
+  it("a steady floor and a comment every five minutes: one write, one frame, updated_at moved only by the comments", async () => {
+    const h = harness();
+    h.floor.memGB = 4.8;
+    todo(h, "hour");
+    const t0 = Date.now();
+    const stamps = new Set<string>();
+    for (let poll = 0; poll < 360; poll++) {
+      setSystemTime(new Date(t0 + poll * 10_000));
+      if (poll > 0 && poll % 30 === 0) h.svc.addComment({ taskId: "hour", author: "user", content: `still waiting at minute ${poll / 6}?` });
+      await h.dispatcher.tick(PID);
+      stamps.add(h.task("hour").updatedAt);
+    }
+    expect(h.writesOf("hour")).toBe(1);
+    expect(h.framesOf("hour")).toBe(1);
+    // The first poll (chip and note in the same instant) and the eleven comments.
+    expect(stamps.size).toBe(12);
+    expect(h.task("hour").dispatchState).toBe("queued");
+    expect(h.task("hour").status).toBe("todo");
+    expect(h.task("hour").queueReason).toMatchObject({ kind: "resource_floor" });
+    expect(h.serviceNotes("hour").filter((c) => c.startsWith("Memoria"))).toHaveLength(1);
+  });
+
+  it("a moving reading under the floor re-sends the card at most once a minute, and never writes it again", async () => {
+    const h = harness();
+    todo(h, "moving");
+    const t0 = Date.now();
+    const readings = [4.8, 4.9, 5.1, 4.7];
+    for (let poll = 0; poll < 360; poll++) {
+      setSystemTime(new Date(t0 + poll * 10_000));
+      h.floor.memGB = readings[poll % readings.length]!;
+      await h.dispatcher.tick(PID);
+    }
+    expect(h.writesOf("moving")).toBe(1);
+    expect(h.framesOf("moving")).toBeGreaterThan(1);
+    expect(h.framesOf("moving")).toBeLessThanOrEqual(60);
+    expect(h.lastFrame("moving")!.queueReason).toMatchObject({ kind: "resource_floor" });
+  });
+
+  it("another block reaches the card at the next poll without a write, and the lift reaches it once, from any board", async () => {
+    const OTHER = "beta-def456";
+    const h = harness();
+    h.svc.updateBoardSettings(OTHER, { autoDispatch: true, dispatchUseWorktree: false });
+    h.floor.memGB = 4.8;
+    todo(h, "kinds");
+    const t0 = Date.now();
+    let at = 0;
+    const poll = async (board = PID) => {
+      setSystemTime(new Date(t0 + (at += 10_000)));
+      await h.dispatcher.tick(board);
+    };
+
+    await poll();
+    await poll();
+    expect(h.framesOf("kinds")).toBe(1);
+
+    // The floor clears and the 24h spend holds the queue: another block, sent at once.
+    h.floor.memGB = null;
+    daySpend(h, true);
+    await poll();
+    expect(h.framesOf("kinds")).toBe(2);
+    expect(h.lastFrame("kinds")!.queueReason).toMatchObject({ kind: "spend_cap" });
+    await poll();
+    expect(h.framesOf("kinds")).toBe(2);
+
+    // The spend clears too. The first tick to see it is another board's, whose
+    // queue is empty: the held card on this board still learns it, once.
+    daySpend(h, false);
+    await poll(OTHER);
+    expect(h.framesOf("kinds")).toBe(3);
+    expect(h.lastFrame("kinds")!.queueReason).toMatchObject({ kind: "slot" });
+    await poll(OTHER);
+    expect(h.framesOf("kinds")).toBe(3);
+    expect(h.writesOf("kinds")).toBe(1);
+  });
+
+  /**
+   * THE OPEN DRAWER FOLLOWS THE BLOCK. Those frames carry no write, so the
+   * card's `updated_at` stays where the first poll left it, and the drawer
+   * re-read its card only when that moved: opened under the floor, it kept the
+   * floor after the spend cap took over, and the figures of the minute it was
+   * opened, while the card beside it had moved on. Found by the verifier.
+   */
+  it("a drawer opened on the held card re-reads it when the figures change, the block changes and the block lifts", async () => {
+    const OTHER = "beta-def456";
+    const h = harness();
+    h.svc.updateBoardSettings(OTHER, { autoDispatch: true, dispatchUseWorktree: false });
+    h.floor.memGB = 4.8;
+    todo(h, "drawer");
+    const t0 = Date.now();
+    let at = 0;
+    const poll = async (stepMs = 10_000, board = PID) => {
+      setSystemTime(new Date(t0 + (at += stepMs)));
+      await h.dispatcher.tick(board);
+    };
+    const drawerSignal = () => taskDetailBump(h.lastFrame("drawer")!);
+
+    await poll();
+    await poll();
+    const opened = drawerSignal();
+
+    // Other figures under the same floor, sent with the minute refresh.
+    h.floor.memGB = 4.2;
+    await poll(60_000);
+    expect(JSON.stringify(h.lastFrame("drawer")!.queueReason)).toContain("4.2");
+    const figures = drawerSignal();
+    expect(figures).not.toBe(opened);
+
+    // The spend cap takes over from the floor.
+    h.floor.memGB = null;
+    daySpend(h, true);
+    await poll();
+    expect(h.lastFrame("drawer")!.queueReason).toMatchObject({ kind: "spend_cap" });
+    const spend = drawerSignal();
+    expect(spend).not.toBe(figures);
+
+    // And it lifts, seen by another board's tick.
+    daySpend(h, false);
+    await poll(10_000, OTHER);
+    expect(h.lastFrame("drawer")!.queueReason).toMatchObject({ kind: "slot" });
+    expect(drawerSignal()).not.toBe(spend);
+    expect(h.writesOf("drawer")).toBe(1);
+  });
+
+  it("the ramp does not rewrite a queued chip at every start", async () => {
+    const h = harness();
+    h.svc.setGlobalCap({ mode: "resources", budgetShare: 0.8 });
+    // The topic the harness's launches bind, so a start stays started.
+    h.db.run("INSERT INTO topics (id) VALUES ('topic-new')");
+    const t0 = Date.now();
+    for (const [i, id] of ["ramp-1", "ramp-2", "ramp-3"].entries()) {
+      setSystemTime(new Date(t0 + i));
+      todo(h, id);
+    }
+    // One start per poll: each start puts the chip on the cards behind it.
+    setSystemTime(new Date(t0 + 10_000));
+    await h.dispatcher.tick(PID);
+    setSystemTime(new Date(t0 + 20_000));
+    await h.dispatcher.tick(PID);
+    expect(h.task("ramp-1").status).toBe("in_progress");
+    expect(h.task("ramp-2").status).toBe("in_progress");
+    expect(h.task("ramp-3").dispatchState).toBe("queued");
+    expect(h.writesOf("ramp-3")).toBe(1);
+    expect(h.framesOf("ramp-3")).toBe(1);
+  });
+
+  // The floor re-read after a start (`midPassFloor`) holds the rest of that
+  // pass, and each start under a low floor goes through it again: the path of
+  // the memory derogation, where one card passes and the floor closes behind it.
+  it("the floor read again after a start does not rewrite a queued chip at every start", async () => {
+    const h = harness();
+    h.db.run("INSERT INTO topics (id) VALUES ('topic-new')");
+    const claim = h.svc.claim.bind(h.svc);
+    // The card that starts takes the memory the next read sees.
+    h.svc.claim = (input) => { const won = claim(input); if (won) h.floor.memGB = 4.8; return won; };
+    const t0 = Date.now();
+    for (const [i, id] of ["mid-1", "mid-2", "mid-3"].entries()) {
+      setSystemTime(new Date(t0 + i));
+      todo(h, id);
+    }
+    for (const poll of [1, 2]) {
+      h.floor.memGB = 20;
+      setSystemTime(new Date(t0 + poll * 10_000));
+      await h.dispatcher.tick(PID);
+    }
+    expect(h.task("mid-1").status).toBe("in_progress");
+    expect(h.task("mid-2").status).toBe("in_progress");
+    expect(h.task("mid-3").dispatchState).toBe("queued");
+    expect(h.writesOf("mid-3")).toBe(1);
+    expect(h.framesOf("mid-3")).toBe(1);
   });
 });
 

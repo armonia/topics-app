@@ -1,0 +1,44 @@
+# Tasks: single-changeset-diff-panel
+
+Barra: il test nuovo di ogni task e' ROSSO sull'albero di oggi e verde dopo;
+`board-task-changes-panel.spec.ts` e `board-diff-review.spec.ts` restano verdi.
+
+## Server
+
+- [ ] T1 `revsOfRange` in `task-diff-range.ts` + casi in
+      `task-diff-range.test.ts`: gamma `a..b`, revisione sola `live`, base
+      albero vuoto, `rev-parse` fallito → `null`.
+- [ ] T2 `gitDiffBundle` porta `origPath` su `R`/`C`; `/diff` e `/publish-diff`
+      rispondono con `revs` (DIFFPV-01).
+- [ ] T3 `shared/preview-kind.ts` (mappa estensione → tipo e MIME).
+- [ ] T4 `?file=&blob=` su `/diff` e `/publish-diff` (DIFFPV-05): controllo della
+      revisione, path, symlink, estensione, 10 MB, streaming, intestazioni.
+- [ ] T5 `?file=&context=full` su `/diff` e `/publish-diff` (DIFFPV-04);
+      `/publish-diff` impara anche il `?file=` semplice, che oggi ha solo `/diff`
+      (`tasks.ts:3292`): senza, il patch pigro della pubblicazione non esiste.
+
+## Client
+
+- [ ] T6 `DiffBundle.revs` e `DiffFileStat.origPath` in `lib/board.ts`;
+      `rowFromDiffStat` passa `origPath`.
+- [ ] T7 `UnifiedDiff` con `source`; i tre punti di montaggio
+      (`TaskDetail.tsx:560`, `:757`, `KanbanBoardPane.tsx:325`) aggiornati.
+- [ ] T8 Coppia Prima/Dopo (DIFFPV-02), interruttore «Anteprima» con
+      `resolveImage` in `MarkdownPreview` (DIFFPV-03), «File intero» (DIFFPV-04),
+      stringhe it/en.
+
+## Prova
+
+- [ ] T9 `tests/e2e/board-task-changes-panel.spec.ts` si estende sullo stesso
+      repo vero, su :13334:
+      `CHANGES-04` worktree vivo con un PNG modificato, un PNG nuovo non
+      committato e un `README.md` che include l'immagine: due `<img>` nella
+      coppia con `blob=<sha>` e `blob=worktree`, un solo Dopo per il nuovo,
+      «binario» assente, «Anteprima» mostra un titolo reso e l'immagine del
+      README alla stessa revisione.
+      `CHANGES-05` dopo il land: la coppia legge dagli SHA del merge.
+      `CHANGES-06` la rotta dei byte: symlink uscente `404`, `../` `400`,
+      revisione estranea `409`, `.env` `415`, PNG identico byte per byte.
+- [ ] T10 `UnifiedDiff.test.tsx`: una nota in sospeso resta alla sua riga passando
+      a «File intero» e tornando indietro.
+- [ ] T11 Video `.webm` del giro E2E di `CHANGES-04` allegato alla consegna.

@@ -1,6 +1,15 @@
-import { taskModelSelection, taskProviderForModel } from '../../shared/task-coding-models';
+import {
+  taskModelSelection,
+  taskProviderForModel,
+  topicsCatalogPending,
+  topicsRoutingAvailable,
+  TaskProviderPendingError,
+  TopicsRoutingUnavailableError,
+} from '../../shared/task-coding-models';
 import { EFFORT_TIERS } from '../../shared/effort';
+import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from '../../shared/provider-hold';
 import type { ProvidersSnapshot } from '../../shared/types';
+import { isProviderHeld, planUsage } from '../lib/provider-hold';
 import { familyOf } from '../providers/claude-models';
 import type { AIProvider } from '../providers/types';
 import { readCodexModels } from '../providers/codex/models';
@@ -13,6 +22,11 @@ const CLAUDE_DESCRIPTIONS: Record<string, string> = {
   opus: 'Highly capable model for complex and demanding coding work.',
   fable: 'Highest capability for the hardest reasoning and complex coding work.',
 };
+
+/** The engine lists Haiku by its dated id (`claude-haiku-4-5-20251001`), which
+ *  the family parser does not read: undescribed, the cheap tier was never the
+ *  classifier nor a candidate the classifier could tell apart. */
+const DATED_SUFFIX = /-\d{8}$/;
 
 /** Whether a runtime is one an unconstrained Auto may still pick: the default
  *  `() => false` is "nothing is held", so an absent predicate changes nothing. */
@@ -27,7 +41,7 @@ export function automaticTaskModels(snapshot: ProvidersSnapshot | null, codexMod
     if (entry.name === 'codex') return codexModels.filter(model => entry.models.includes(model.slug)).map(model => ({ ...model, provider: entry.name }));
     if (!CLAUDE_TASK_RUNTIMES.has(entry.name)) return [];
     return entry.models.filter(model => model.startsWith('claude-')).map(slug => ({
-      slug, provider: entry.name, description: CLAUDE_DESCRIPTIONS[familyOf(slug) ?? ''] ?? 'Available Claude coding model.',
+      slug, provider: entry.name, description: CLAUDE_DESCRIPTIONS[familyOf(slug.replace(DATED_SUFFIX, '')) ?? ''] ?? 'Available Claude coding model.',
       defaultEffort: 'medium', efforts: [...EFFORT_TIERS],
     }));
   });
@@ -44,7 +58,16 @@ export function automaticTaskProvider(provider: string, model: string | undefine
   return provider;
 }
 
-/** General Auto compares eligible runtimes; a legacy provider alias still restricts its catalog. */
+/** General Auto compares eligible runtimes; a legacy provider alias still restricts its catalog.
+ *  With the Topics switch ON (AICTRL-01) Topics picks by its own rules, so the
+ *  catalog holds only what the topic gate lets through: picking Codex there
+ *  parked the card with "Topics routing cannot dispatch". The engine itself is
+ *  the router, not a target: pinned on it, the card was stored as the legacy
+ *  `topics:<model>` value and kept running native after the switch went OFF.
+ *  So a model a Claude Code target reaches is offered on that target, and the
+ *  engine's own entries join, with no pin, for the models no target covers.
+ *  Only a legacy `topics:` selection, which already meant "run native", keeps
+ *  the pin. */
 export async function pickAutomaticTaskModel(
   task: { text: string; description?: string | null },
   selection: string | null | undefined,
@@ -52,21 +75,45 @@ export async function pickAutomaticTaskModel(
     snapshot: ProvidersSnapshot | null;
     getProvider: (name: string) => AIProvider | undefined;
     isHeld?: HeldCheck;
+    topicsRouting?: boolean;
     requiredEffort?: string;
     codexModels?: typeof readCodexModels;
     log?: (message: string) => void;
   },
 ) {
   const restrictedProvider = taskModelSelection(selection).provider;
-  if (restrictedProvider) taskProviderForModel(selection, deps.snapshot);
+  if (restrictedProvider) taskProviderForModel(selection, deps.snapshot, deps.topicsRouting);
   const isHeld = deps.isHeld ?? (() => false);
-  const models = automaticTaskModels(deps.snapshot, (deps.codexModels ?? readCodexModels)(), isHeld)
+  const eligible = automaticTaskModels(deps.snapshot, (deps.codexModels ?? readCodexModels)(), isHeld)
     .filter(model => !restrictedProvider || model.provider === restrictedProvider);
+  const routable = eligible.filter(model => !deps.topicsRouting || topicsRoutingAvailable(model.provider, model.slug, deps.snapshot));
+  const viaEngine = !!deps.topicsRouting && restrictedProvider !== 'topics';
+  const targets = routable.filter(model => model.provider !== 'topics');
+  // The engine is up but no target is ready yet: a target still in discovery
+  // is worth the wait, since picking it keeps the card's pin meaningful OFF.
+  if (viaEngine && !targets.length && routable.length) {
+    const discovering = deps.snapshot?.providers.find(p => p.status === 'loading' && p.name !== 'topics'
+      && CLAUDE_TASK_RUNTIMES.has(p.name) && !isHeld(p.name));
+    if (discovering) throw new TaskProviderPendingError(discovering.name);
+  }
+  // The catalogs disagree on ids (the CLI lists Haiku by its alias, the engine
+  // by its dated id), so offering the targets alone dropped whole tiers the
+  // engine serves, and with Haiku the cheap classifier.
+  const models = viaEngine
+    ? [...targets, ...routable.filter(model => model.provider === 'topics' && !targets.some(target => target.slug === model.slug))]
+    : routable;
+  // The switch emptied a catalog that had runtimes, so the engine is not
+  // ready: the reason is the switch, not the effort. Without this the card
+  // parked with "choose a compatible effort", which no effort fixes.
+  if (!models.length && eligible.length) {
+    if (topicsCatalogPending(deps.snapshot)) throw new TaskProviderPendingError('topics');
+    throw new TopicsRoutingUnavailableError(null, null);
+  }
   if (!models.length && deps.snapshot?.providers.some(p => p.status === 'loading'
     && (restrictedProvider ? p.name === restrictedProvider : !isHeld(p.name) && (p.name === 'codex' || CLAUDE_TASK_RUNTIMES.has(p.name))))) {
     throw Object.assign(new Error('Waiting for coding provider discovery.'), { code: 'task_provider_pending' });
   }
-  return pickCodingTaskPlan(task, {
+  const plan = await pickCodingTaskPlan(task, {
     models, requiredEffort: deps.requiredEffort,
     complete: async (prompt, options, providerName) => {
       const provider = deps.getProvider(providerName);
@@ -75,4 +122,52 @@ export async function pickAutomaticTaskModel(
     },
     log: deps.log,
   });
+  // Picked from the engine's own catalog: no pin. The topic gate routes the
+  // model-only card through the engine, and OFF later resolves the model afresh.
+  if (viaEngine && plan.provider === 'topics') return { model: plan.model, effort: plan.effort, weight: plan.weight };
+  return plan;
+}
+
+/** The dispatcher's three questions about Automatic, answered from the live
+ *  snapshot and the provider holds: which runtime a selection resolves to,
+ *  whether any runtime is free, and the pick itself. server.ts injects only
+ *  the readers, so the wiring a test drives is the one production runs. */
+export function automaticDispatchHooks(env: {
+  snapshot: () => ProvidersSnapshot;
+  getProvider: (name: string) => AIProvider | undefined;
+  codexModels?: typeof readCodexModels;
+  log?: (message: string) => void;
+}) {
+  const codexModels = env.codexModels ?? readCodexModels;
+  return {
+    resolveTaskProvider: (model?: string | null, topicsRouting?: boolean) => taskProviderForModel(model, env.snapshot(), topicsRouting),
+    // AGPT-01 extended: an unconstrained Auto task may start on ANY ready
+    // runtime that is not held right now, whichever one that is.
+    automaticModelAvailable: () => {
+      const snapshot = env.snapshot();
+      return automaticTaskModels(snapshot, codexModels(), provider => isProviderHeld(provider)).length > 0
+        || snapshot.providers.some(provider => provider.status === 'loading' && !isProviderHeld(provider.name));
+    },
+    pickAutoModel: (
+      task: { text: string; description?: string | null },
+      selection?: string,
+      options?: { effort?: string; topicsRouting?: boolean },
+    ) => {
+      const window = planUsage()?.fiveHour;
+      const claudeApproachingLimit = !!window && window.utilization >= PLAN_DISPATCH_HOLD_AT && (window.resetsAtMs ?? 0) > Date.now();
+      return pickAutomaticTaskModel(task, selection, {
+        snapshot: env.snapshot(),
+        getProvider: env.getProvider,
+        // Any provider under its own hold is excluded, not only Claude. Claude
+        // keeps one extra reason: the approaching-limit window has no Codex
+        // equivalent (Codex has no usage endpoint).
+        isHeld: provider => isProviderHeld(provider) || (providerHoldKey(provider) === 'claude' && claudeApproachingLimit),
+        // AICTRL-01: with the switch ON only what Topics routes is a candidate.
+        topicsRouting: options?.topicsRouting,
+        requiredEffort: options?.effort && options.effort !== 'auto' ? options.effort : undefined,
+        codexModels,
+        log: env.log,
+      });
+    },
+  };
 }

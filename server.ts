@@ -1,12 +1,10 @@
 import { configureApiCredentialRoot, readApiProviderKey } from "./server/services/api-provider-credentials";
 import { createLandingQueue } from "./server/services/landing-queue";
 import { basename, join, resolve, sep } from "path";
-import { finalizeOrphanTool } from "./server/lib/orphan-tool-sweep";
-import { bonificaTurniMuti } from "./server/lib/verdetto-turno-interrotto";
-import { NOT_ARCHIVED_SQL } from "./server/lib/archived-scope";
+import { finalizeOrphanedRunningTools } from "./server/lib/boot-orphan-tools";
 import { wakeVerdict, runningTaskOwnsTopic } from "./server/lib/wake-adoption";
 import { riprendiTurniInterrotti, type CtxRipresa } from "./server/lib/ripresa-boot";
-import { providerHold, isProviderHeld, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
+import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
 import { resolveStateDir } from "./server/lib/data-dir";
 import { createSwapFreezer } from "./server/services/swap-freeze";
 import { createSwapFreezeLedger, fileLedgerIo, thawLedgerAtBoot } from "./server/services/swap-freeze-ledger";
@@ -20,7 +18,6 @@ import { listNativeCommands, nativeCommandByPid } from "./server/lib/native-comm
 import { listSessionCliPids } from "./server/providers/session-pids";
 import { getAccessToken } from "./server/providers/native/auth";
 import { releaseHoldIfFreed } from "./server/providers/native/usage-window";
-import { spiegaTurnoTroncato } from "./server/lib/turno-troncato";
 import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, rmSync, readlinkSync, realpathSync } from "fs";
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket, Server } from "bun";
@@ -58,8 +55,7 @@ import { servedFileHeaders } from "./server/lib/served-file-headers";
 import { sweepStaleStreams, type SilenceMark } from "./server/lib/stale-stream-sweep";
 import { buildStreamCatchupFrame } from "./server/lib/stream-catchup-frame";
 import { flushTurnBody } from "./server/lib/turn-body-flush";
-import { timelineWithInterruptedVerdict } from "./server/lib/interrupted-turn-block";
-import type { ContentBlock } from "./shared/types";
+import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
 import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
 import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
@@ -138,7 +134,7 @@ import { sendBrowserWsMessage, parseBrowserWsMessage, type BrowserWsMessage } fr
 import { applyEngineSwitch } from "./server/browser-engine-switch";
 import { browserEngineRegistry, chromiumExtensionsCount, chromiumSidecar } from "./server/browser-engine-registry";
 import { nativeDelegateRegistry, handleNativeDelegationFrame } from "./server/browser-native-delegate";
-import { countSharedViewers, createViewerCountPublisher } from "./server/browser-viewer-count";
+import { countSharedViewers, createViewerCountPublisher, hasAttachedPane } from "./server/browser-viewer-count";
 import { createViewportWiring } from "./server/browser-viewport-wiring";
 import { seedNativeFromShared } from "./server/browser-session-handoff";
 import { parseChatWsInbound } from "./server/schemas/chat-ws-inbound";
@@ -168,11 +164,8 @@ import type { AbortReason } from "./server/providers/types";
 import { recordTurnEnd, takeTurnEnd, peekTurnEnd } from "./server/providers/turn-end-registry";
 import { readNativeUsage } from "./server/providers/native-usage-registry";
 import { getAiBridgeClient } from "./server/lib/ai-bridge-client";
-import { pickAutomaticTaskModel, automaticTaskModels } from "./server/services/task-auto-model";
-import { resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
-import { PLAN_DISPATCH_HOLD_AT, providerHoldKey } from "./shared/provider-hold";
-import { readCodexModels } from "./server/providers/codex/models";
-import { taskProviderForModel } from "./shared/task-coding-models";
+import { automaticDispatchHooks } from "./server/services/task-auto-model";
+import { dispatchTopicBinding, resolveDispatchTopicIdentity } from "./server/services/dispatch-topic-identity";
 import { createProcessesRouter, startProcessDetection } from "./server/routes/processes";
 import { createTasksRouter, ownCommitFiles } from "./server/routes/tasks";
 import { defaultLifecycleHooks } from "./server/services/lifecycle-hooks";
@@ -247,7 +240,7 @@ import { runBootPartialSweep } from "./server/lib/boot-partial-sweep";
 import { backfillDeliveries as backfillDeliveriesPass } from "./server/services/delivery-backfill";
 import { keepDeliveryCommit, pruneDeliveryRefs, DELIVERY_REF_RETENTION_DAYS } from "./server/services/delivery-ref-keep";
 import { runLandingAudit as runLandingAuditPass, auditOneLanding as auditOneLandingPass, type AuditWiring } from "./server/services/landing-audit-pass";
-import { decodeCol, encodeCol } from "./shared/message-blob";
+import { decodeCol } from "./shared/message-blob";
 import { budgetShare, capMode, governorReading, TURN_ERROR_PREFIX } from "./shared/board";
 import { noticeOwedChanges, postBackgroundNotice } from "./server/lib/background-notice";
 import type { ChatGoalLoop } from "./server/services/goal-continuation";
@@ -836,18 +829,13 @@ configureNativeHistorySource((sessionKey) => nativeHistorySource(ctx, sessionKey
 const webrtcBridge = createWebrtcBridge();
 
 // Create route handlers
-// «Qualcuno sta VEDENDO questo contextId?» — un socket `/ws/browser/<ctx>`
-// aperto e vivo. Lo apre sia la pane nativa (che poi si registra come delegato)
-// sia quella web (che guarda lo screencast), quindi è il segnale più vicino a
-// «la pane è montata» che il server abbia: il contesto headless, da solo, esiste
-// anche quando nessuna pane si è montata. `open-pane` lo usa per armare il
-// ripiego `browser:force-open` e per rispondere la verità (`visible`).
-const paneAttachedTo = (contextId: string): boolean => {
-  const set = browserWsClients.get(contextId);
-  if (!set) return false;
-  for (const w of set) if (w.readyState === 1) return true;
-  return false;
-};
+// "Is a pane attached to this contextId?" An open `/ws/browser/<ctx>` socket
+// is the closest the server gets to "the pane is mounted": the headless
+// context exists without any pane. A native pane's executor socket counts only
+// once it registered, because `open-pane` navigates right after this answers
+// yes (browser-viewer-count.ts, `hasAttachedPane`). `open-pane` also uses it to
+// arm the `browser:force-open` fallback and to answer `visible` truthfully.
+const paneAttachedTo = (contextId: string): boolean => hasAttachedPane(browserWsClients.get(contextId));
 // The user's `turn-end` hook reaches the chat route from here (HOOKS-02).
 let goalLoop: ChatGoalLoop | null = null;
 const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo, { hooks: defaultLifecycleHooks(), exposeGoalLoop: (l) => { goalLoop = l; } });
@@ -1728,22 +1716,17 @@ const taskDispatcher = createTaskDispatcher({
   // (agent tab deleted after a prior run) would never dispatch. tick() clears
   // the dead link so the task runs again.
   topicExists: (id) => !!ctx.getTopicById(id),
-  resolveTaskProvider: (model) => {
-    const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
-    return taskProviderForModel(model, getSnapshotManager().getSnapshot());
-  },
-  // AGPT-01 extended: an unconstrained Auto task may start on ANY ready
-  // runtime that is not held right now, whichever one that is (the memo does
-  // not name Claude specifically any more, see server/lib/provider-hold.ts).
-  automaticModelAvailable: () => {
-    const { getSnapshotManager } = require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager");
-    const snapshot = getSnapshotManager().getSnapshot();
-    return automaticTaskModels(snapshot, readCodexModels(), (provider) => isProviderHeld(provider)).length > 0
-      || snapshot.providers.some(provider => provider.status === "loading" && !isProviderHeld(provider.name));
-  },
+  // Which runtime a selection resolves to, whether an unconstrained Auto task
+  // has a runtime that is not held, and the automatic pick itself (AGPT-01).
+  // Built in task-auto-model.ts, where the dispatcher tests drive the same hooks.
+  ...automaticDispatchHooks({
+    snapshot: () => (require("./server/providers/snapshot-manager") as typeof import("./server/providers/snapshot-manager")).getSnapshotManager().getSnapshot(),
+    getProvider: tryGetProvider,
+    log: (message) => console.log(`[dispatcher] ${message}`),
+  }),
   topicModelSelection: (id) => {
     const topic = ctx.getTopicById(id);
-    return topic ? { model: topic.model, provider: topic.provider ?? getDefaultProviderName() } : null;
+    return topic ? dispatchTopicBinding(topic, getDefaultProviderName()) : null;
   },
   // Il cancello contro il lavoro rifatto: se il commit della consegna è già
   // dentro main, la card si chiude invece di far ripartire un agente sopra
@@ -1760,25 +1743,6 @@ const taskDispatcher = createTaskDispatcher({
     const dir = join(DISPATCH_WORKSPACE_DIR, "tasks", taskId.slice(0, 8));
     mkdirSync(dir, { recursive: true });
     return dir;
-  },
-  // General Auto compares eligible coding runtimes. Explicit provider aliases
-  // restrict that catalog, and held Claude runtimes cannot classify or execute.
-  pickAutoModel: async (task, selection, options) => {
-    const { getSnapshotManager } = await import("./server/providers/snapshot-manager");
-    const claudeApproachingLimit = (() => {
-      const window = planUsage()?.fiveHour;
-      return !!window && window.utilization >= PLAN_DISPATCH_HOLD_AT && (window.resetsAtMs ?? 0) > Date.now();
-    })();
-    return pickAutomaticTaskModel(task, selection, {
-      snapshot: getSnapshotManager().getSnapshot(),
-      getProvider: tryGetProvider,
-      // AGPT-01 extended: any provider under its own hold is excluded, not
-      // only Claude. Claude keeps one extra reason (the approaching-limit
-      // window has no equivalent for Codex, which has no usage endpoint).
-      isHeld: (provider) => isProviderHeld(provider) || (providerHoldKey(provider) === "claude" && claudeApproachingLimit),
-      requiredEffort: options?.effort && options.effort !== "auto" ? options.effort : undefined,
-      log: (message) => console.log(`[dispatcher] ${message}`),
-    });
   },
   // Auto concurrency cap: live machine capacity for boards on `maxAgentsAuto`.
   //
@@ -4025,7 +3989,11 @@ const opzioniServer = {
         const screencastTimer = setTimeout(() => {
           // Skip the deferred start if a native executor cancelled it OR the pane
           // already paused the stream (iframe-mode) during the grace window.
-          if (screencastCancelled || !streamActive) return;
+          // A socket opened with `?executor=1` said at open that it is a native
+          // executor: it never views frames, so it does not depend on its
+          // register frame beating the 250 ms (it often does not, see the
+          // 'registered' branch below).
+          if (screencastCancelled || !streamActive || ws.data.expectsExecutor) return;
           startScreencastForViewer();
         }, SCREENCAST_START_GRACE_MS);
         ws.data._browserSetStream = (active: boolean) => {
@@ -4826,154 +4794,8 @@ if (serverTunnel) {
   console.log(`[Tunnel] porta dedicata su 127.0.0.1:${portaTunnel} — chi entra da qui NON e' locale`);
 }
 
-// Boot cleanup: a FINALIZED message (partial=0) must never carry a tool still
-// marked 'running' — the client renders it as a spinner whose timer ticks
-// forever (observed: a Shell tool "running" for 2h+ at session end). These are
-// orphans from turns that died without finalizing their tools (a server restart
-// clears the in-memory activeStreams, so the stale-stream sweeper can no longer
-// reach them). Mark them interrupted and stamp endedAt so the duration freezes.
-// Scoped to partial=0 so a mid-turn message being adopted (partial=1) is never
-// touched. Idempotent — a clean boot finds nothing to fix.
-function finalizeOrphanedRunningTools() {
-  try {
-    // Finestra temporale, non tutta la storia. Senza il `timestamp >=` questa
-    // gira al boot come SCAN di una tabella da ~128 MB con quattro LIKE su
-    // colonne JSON — 215 ms misurati a caldo — e su questo DB restituiva 17
-    // righe che erano TUTTE falsi positivi: le stringhe `"status":"running"`
-    // comparivano dentro l'OUTPUT di un tool (un log, un pezzo di JSON citato),
-    // non in uno stato vero. Verificato incrociando con json_each su
-    // `$.status` e `$.toolCall.status`: zero tool davvero in corso.
-    //
-    // 30 giorni perché è una bonifica di orfani da un riavvio: un tool rimasto
-    // 'running' più vecchio di un mese non è un turno che qualcuno riprenderà,
-    // e il suo timer non lo sta guardando nessuno. L'indice
-    // idx_messages_timestamp (migration 074) rende il filtro una SEARCH.
-    // WHERE usa solo l'indice timestamp (migration 074): LIKE su BLOB compresso
-    // non funzionerebbe comunque. Il filtro sullo stato si fa in JS dopo decodeCol.
-    // SI SCORRE, NON SI CARICA — ed è la differenza fra 148 MB e 2,6 GB.
-    //
-    // Questa `.all()` materializzava OGNI riga di trenta giorni prima di
-    // guardarne una: misurato su questo DB, 8.354 righe per **706 MB** di
-    // `content` + `tool_calls` + `blocks`, che `decodeCol` poi raddoppia
-    // decomprimendo ognuna in una stringa UTF-16. Il footprint del server
-    // saliva a **2,6 GB in diciotto secondi di boot** e ricadeva a 148 MB —
-    // cioè il picco non era l'esercizio, era questa riga. Ed è il picco che
-    // lascia dietro di sé le pagine swappate che il footprint non restituisce
-    // più (vedi `server/lib/idle-gc.ts`): il costo non finisce col boot.
-    //
-    // `iterate()` tiene in RAM una riga per volta, e delle 8.354 ne sopravvive
-    // una manciata — quelle che hanno davvero un tool in corso. Il picco
-    // diventa proporzionale ai TROVATI, non al DB.
-    //
-    // Il filtro resta in JS, e non è una svista: la regex non buca il JSON
-    // compresso con zstd (`shared/message-blob.ts`), quindi un `LIKE` in SQL su
-    // quelle colonne non troverebbe niente. Ciò che cambia è dove si paga la
-    // decompressione: una riga alla volta, e subito buttata.
-    const rowIter = db.prepare(
-      `SELECT id, session_key, content, tool_calls, blocks FROM messages
-       WHERE timestamp >= date('now', '-30 days') AND partial = 0
-         AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)
-         AND ${NOT_ARCHIVED_SQL}`
-    ).iterate() as Iterable<{ id: string; session_key: string | null; content: string | null; tool_calls: unknown; blocks: unknown }>;
-    const RUNNING_RE = /"status":"(running|pending|waiting_for_input|awaiting_permission)"/;
-    const rows: Array<{ id: string; session_key: string | null; content: string | null; tool_calls: unknown; blocks: unknown }> = [];
-    for (const r of rowIter) {
-      const tc = decodeCol(r.tool_calls) ?? "";
-      const bl = decodeCol(r.blocks) ?? "";
-      // Si trattiene SOLO ciò che verrà riscritto: le altre righe escono di
-      // scope qui e il collettore se le riprende.
-      if (RUNNING_RE.test(tc + bl)) rows.push(r);
-    }
-    if (rows.length === 0) return;
-    const upd = db.prepare(`UPDATE messages SET content = ?, tool_calls = ?, blocks = ? WHERE id = ?`);
-    const INTERRUPTED_MARKER = "⚠️ Turno interrotto prima di una risposta finale: la sessione si è chiusa mentre un tool era ancora in corso (probabile comando che non è terminato). Il tool interessato risulta in errore qui sotto — puoi rilanciarlo o riprendere da qui.";
-    const now = Date.now();
-    let msgs = 0, tools = 0;
-    let spared = 0;
-    for (const r of rows) {
-      // Il figlio di questa sessione è ancora VIVO nel broker: quel tool può
-      // ancora consegnare, e una DOMANDA a schermo può ancora essere risposta.
-      // Bollarlo «interrotto» qui era il modo in cui una domanda viva diventava
-      // un ⚠️ con il bottone Retry al primo hot-reload che perdeva il flag
-      // `partial` (topic:ed2070df, 3 agosto). Chi è davvero morto lo dirà il
-      // prossimo boot, quando il broker non lo elencherà più.
-      const alive = !!r.session_key && liveBrokerChatSessions.has(r.session_key);
-      if (alive) spared++;
-      let changed = false;
-      const tcDecoded = decodeCol(r.tool_calls);
-      const blDecoded = decodeCol(r.blocks);
-      let tcStr: string | Uint8Array | null = r.tool_calls as string | null;
-      let blStr: string | Uint8Array | null = r.blocks as string | null;
-      // The client renders tool state from `blocks` (the chronological timeline)
-      // when present — so BOTH columns must be finalized, or the spinner keeps
-      // ticking off the stale block copy even though tool_calls is fixed.
-      try {
-        if (tcDecoded) {
-          const tcs = JSON.parse(tcDecoded) as Array<Record<string, unknown>>;
-          let c = false; for (const tc of tcs) if (finalizeOrphanTool(tc, { childAlive: alive, now })) { c = true; tools++; }
-          if (c) { tcStr = encodeCol(JSON.stringify(tcs)) ?? null; changed = true; }
-        }
-      } catch { /* skip malformed tool_calls */ }
-      try {
-        if (blDecoded) {
-          const bl = JSON.parse(blDecoded) as Array<Record<string, unknown>>;
-          let c = false;
-          for (const b of bl) if (b && b.kind === "tool" && finalizeOrphanTool(b.toolCall as Record<string, unknown>, { childAlive: alive, now })) { c = true; tools++; }
-          if (c) { blStr = encodeCol(JSON.stringify(bl)) ?? null; changed = true; }
-        }
-      } catch { /* skip malformed blocks */ }
-      if (changed) {
-        // If the interrupted turn produced no final prose, add an explanation
-        // so the user sees a reason instead of a bare unexplained error X.
-        const hasProse = typeof r.content === "string" && r.content.trim().length > 0;
-        // Il cartello «turno interrotto» NON va su una sessione viva: lì
-        // abbiamo chiuso solo un pannello di permesso, non il turno.
-        const content = hasProse || alive ? r.content : INTERRUPTED_MARKER;
-        upd.run(content, tcStr, blStr, r.id); msgs++;
-      }
-    }
-    if (msgs > 0) console.log(`[boot] finalized ${tools} orphaned running tool(s) across ${msgs} message(s)`);
-    if (spared > 0) console.log(`[boot] ${spared} message(s) with a live broker child: chiusi solo i permessi, il resto lasciato stare`);
-    // Second pass: an assistant turn already finalized as interrupted (its tool
-    // carries the "Interrotto" marker) but with no final prose renders as a bare
-    // unexplained error X. Give it the explanation. Idempotent — once content is
-    // set the row no longer matches. Uses decoded text — LIKE on compressed blobs
-    // would not match.
-    // Stessa forma, stesso rimedio: questa scorre le sole righe SENZA prosa,
-    // che sono molte meno, ma legge comunque due colonne pesanti per ognuna.
-    // Scorrerla costa quanto la riga più grande, non quanto la loro somma.
-    const explainIter = db.prepare(
-      `SELECT id, tool_calls, blocks FROM messages WHERE role = 'assistant'
-         AND (content IS NULL OR trim(content) = '')
-         AND timestamp >= date('now', '-30 days') AND partial = 0
-         AND (tool_calls IS NOT NULL OR blocks IS NOT NULL)
-         AND ${NOT_ARCHIVED_SQL}`
-    ).iterate() as Iterable<{ id: string; tool_calls: unknown; blocks: unknown }>;
-    const INTERROTTO_RE = /Interrotto/;
-    let explainCount = 0;
-    const explainUpd = db.prepare(`UPDATE messages SET content = ? WHERE id = ?`);
-    // Gli id da riscrivere si raccolgono PRIMA di scrivere: aggiornare la
-    // stessa tabella che si sta scorrendo è un comportamento che SQLite non
-    // definisce, e qui l'`UPDATE` tocca proprio la colonna del `WHERE`.
-    const daSpiegare: string[] = [];
-    for (const row of explainIter) {
-      const tc = decodeCol(row.tool_calls) ?? "";
-      const bl = decodeCol(row.blocks) ?? "";
-      if (INTERROTTO_RE.test(tc + bl)) daSpiegare.push(row.id);
-    }
-    for (const id of daSpiegare) { explainUpd.run(INTERRUPTED_MARKER, id); explainCount++; }
-    if (explainCount > 0) console.log(`[boot] added interruption explanation to ${explainCount} message(s)`);
-
-    // TERZA PASSATA: I MUTI CON LA PROSA, che sono la maggioranza. Le due
-    // sopra spiegano solo chi non aveva scritto NIENTE, e un turno d'agente
-    // quasi sempre qualcosa lo scrive. Il giro e la sua ragione stanno in
-    // `lib/verdetto-turno-interrotto.ts`, provati a parte.
-    bonificaTurniMuti(db, INTERRUPTED_MARKER.replace(/^⚠️\s*/, ""));
-  } catch (e) {
-    console.warn(`[boot] finalizeOrphanedRunningTools failed:`, e);
-  }
-}
-finalizeOrphanedRunningTools();
+// Tools a dead turn left 'running' are closed as interrupted (`lib/boot-orphan-tools.ts`).
+finalizeOrphanedRunningTools(db, liveBrokerChatSessions);
 
 // Stale stream cleanup
 const STALE_STREAM_CHECK_INTERVAL_MS = 30_000;
@@ -5050,27 +4872,7 @@ const staleStreamTimer = setInterval(() => {
     },
     endStream: (sk) => ctx.endStream(sk),
     broadcast: (msg) => broadcastToAll(msg as Parameters<typeof broadcastToAll>[0]),
-    finalizeMessage: ({ messageId, marker, interruption }) => {
-      if (marker === null) db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE id = ?", [messageId]);
-      else db.run("UPDATE messages SET partial = 0, streamed_at = NULL, content = ? WHERE id = ?", [marker, messageId]);
-      // WHY the turn ended, on the row, in the shape the composer's banner
-      // reads. Without it the reaper closed a turn cut mid-answer leaving the
-      // reason in the server log only: the 2026-09-03 report, "stuck with no
-      // feedback at all". `timelineWithInterruptedVerdict` refuses the rows
-      // that must not be touched (empty timeline, already explained).
-      try {
-        const row = db.query("SELECT blocks FROM messages WHERE id = ?").get(messageId) as { blocks?: unknown } | undefined;
-        const raw = decodeCol(row?.blocks);
-        const parsed = raw ? (JSON.parse(raw) as ContentBlock[]) : null;
-        const timeline = timelineWithInterruptedVerdict(parsed, interruption);
-        if (timeline) db.run("UPDATE messages SET blocks = ? WHERE id = ?", [encodeCol(JSON.stringify(timeline)) ?? null, messageId]);
-      } catch (err) {
-        // A row we cannot read is a row we leave alone: the marker above
-        // already said something, and rewriting a timeline we failed to parse
-        // would throw away the turn for not understanding it.
-        console.warn(`[StaleStream] verdetto non scritto su ${messageId}:`, err);
-      }
-    },
+    finalizeMessage: (args) => finalizeStaleRow(db, args),
     recordTurnEnd: (sk) => recordTurnEnd(sk, cancelled("watchdog", "stale stream sweep")),
     warn: (msg) => console.warn(msg),
     info: (msg) => console.log(msg),
@@ -5415,70 +5217,12 @@ async function reattachSurvivingChatTurns(): Promise<void> {
           if (end.end !== "end_turn") console.warn(`[chat-reattach] ${s.id}: ${describeTurnEnd(end)}`);
         })
         .catch((err) => console.warn(`[chat-reattach] ${s.id} failed:`, err?.message ?? err))
-        .finally(async () => {
-          // La gamba di riadozione è finita — ma il TURNO può non esserlo: un
-          // figlio fermo su `ask_user_question` resta aperto per ore, e il
-          // replay muto che ci riattacca dura un attimo. Azzerare `partial`
-          // qui dentro chiudeva la riga di un turno vivo, e al riavvio dopo
-          // `reuseOrCreatePartialForReattach` non aveva più niente da
-          // riutilizzare: ne apriva una NUOVA. Su topic:ed2070df sono uscite
-          // cinque copie dello stesso messaggio, una per ricarica del server,
-          // ognuna con una durata da 100ms che non misurava niente.
-          //
-          // Quindi si richiede al broker: se il turno è ancora aperto la riga
-          // resta com'è, ed è la stessa che il prossimo riattacco riprende.
-          try {
-            const prov = tryGetProvider("claude-code") as { brokerTurnState?: (sk: string) => Promise<"open" | "idle" | "unknown"> } | undefined;
-            const state = await prov?.brokerTurnState?.(s.id).catch(() => "unknown" as const);
-            if (state === "open") {
-              // «Resta viva» va SCRITTA, non solo non-disfatta.
-              //
-              // Saltare la pulizia qui sotto non bastava: la riga era già stata
-              // chiusa a monte. `finalizeStream` passa `partial: undefined` e la
-              // UPDATE di `updateMessage` (server/utils.ts:330) scrive
-              // `partial = $partial` SENZA COALESCE — quindi ogni gamba di
-              // riadozione, anche quella che finisce su un turno ancora aperto,
-              // lascia `partial` spento. E `reuseOrCreatePartialForReattach`
-              // (utils.ts:1347) riusa la riga SOLO se è assistant con
-              // `partial = 1`: al riavvio successivo non trovava niente da
-              // riprendere e ne apriva una NUOVA. È il conto esatto del
-              // 2026-08-18 su topic:9fe7a291 — dieci riadozioni, 1 riusata
-              // («partial in DB») + 8 nuove («store del broker aperto») = nove
-              // righe dove doveva essercene una. Lo stesso sintomo delle cinque
-              // copie su topic:ed2070df che il commento qui sopra dice curato:
-              // la guardia c'era, ma disarmava un flag che qualcun altro aveva
-              // già spento.
-              //
-              // Il broker ha appena detto `open`: la riga è di un turno vivo, e
-              // il flag si RIACCENDE. Solo l'ultima della sessione, che è quella
-              // che il prossimo riattacco riprenderà.
-              try {
-                ctx.db.run(
-                  "UPDATE messages SET partial = 1 WHERE id = (SELECT id FROM messages WHERE session_key = ? AND role = 'assistant' ORDER BY sort_order DESC LIMIT 1)",
-                  [s.id],
-                );
-              } catch { /* al peggio il prossimo riattacco apre una riga nuova, com'era prima */ }
-              console.log(`[chat-reattach] ${s.id}: la gamba è finita ma il turno è ancora aperto (domanda a schermo) — la riga resta viva`);
-              return;
-            }
-          } catch { /* nessuna risposta dal broker: si pulisce, come prima */ }
-          // IL TURNO È FINITO — MA SE È FINITO MALE VA DETTO.
-          //
-          // Questa riga spegneva `partial` in SILENZIO. Un turno completato non
-          // ha niente da spiegare, ma qui ci arriva anche chi è MORTO col
-          // riavvio: la riga si chiudeva a metà frase, senza cartello e senza
-          // niente che la distinguesse da una risposta finita bene. Le due chat
-          // segnalate il 20/08 («penso abbiano interrotto involontariamente»)
-          // erano esattamente questo: nel log `reaping idle broker session`,
-          // in chat nulla.
-          //
-          // Il cartello lo scrive `spiegaTurnoTroncato`, che riconosce da sé
-          // chi ha davvero bisogno di una spiegazione — e non ne scrive due.
-          try {
-            const chiuse = ctx.db.run("UPDATE messages SET partial = 0, streamed_at = NULL WHERE session_key = ? AND partial = 1", [s.id]).changes;
-            if (chiuse > 0) spiegaTurnoTroncato(ctx.db, s.id);
-          } catch { /* next boot's reset catches it */ }
-        });
+        // The leg is over, the TURN may not be: a child parked on
+        // `ask_user_question` stays open for hours, and the mute replay that
+        // reattaches to it lasts a moment. `endReattachLeg` asks the broker,
+        // then lights the leg's row again, or closes what is still open,
+        // explains it and tells the open windows.
+        .finally(() => endReattachLeg(ctx, s.id, tryGetProvider("claude-code")));
       continue;
     }
     // Idle / archived / deleted-topic session: reap. Guard against a send

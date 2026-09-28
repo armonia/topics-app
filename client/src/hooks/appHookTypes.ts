@@ -35,7 +35,7 @@ export interface ChatStreamHandlers {
     msg: { role: 'user' | 'assistant'; content: string; timestamp: string; id?: string },
   ) => void;
   clearSession: (sessionKey: string) => void;
-  loadHistory: (sessionKey: string) => void;
+  loadHistory: (sessionKey: string, opts?: { fresh?: boolean }) => void;
   appendMediaToLastAssistant: (sessionKey: string, media: string[]) => void;
   sendMessage: (
     sessionKey: string,

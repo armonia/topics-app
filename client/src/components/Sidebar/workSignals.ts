@@ -31,12 +31,17 @@ export type SignalKind = 'working' | 'open';
 export interface WorkSignal {
   kind: SignalKind;
   n: number;
+  /** The sentence for the hover and the screen reader, when the caller has a
+   *  truer one than the kind's own: the working digit is the badge's number,
+   *  so it carries the badge's sentence, which says how much of it is
+   *  background work (a chat that is free, not one answering). */
+  title?: string;
 }
 
 export interface WorkCounts {
   /** Sessions that exist and are not archived. */
   openSessions: number;
-  /** Sessions with an agent answering right now. */
+  /** Agents at work right now, background work included: the badge's number (`activeAgentCount`). */
   workingSessions: number;
 }
 

@@ -55,7 +55,7 @@ interface Harness {
   ctx: AppContext;
   startTurn: () => Promise<StreamHandler>;
   sent: WireMessage[];
-  row: () => { content: string; blocksText: string; toolStatuses: string[] };
+  row: () => { content: string; blocksText: string; toolStatuses: string[]; endReason?: string };
 }
 
 async function harness(sessionKey: string): Promise<Harness> {
@@ -132,7 +132,7 @@ async function harness(sessionKey: string): Promise<Harness> {
     const toolStatuses = (assistant.blocks ?? [])
       .filter((b) => b.kind === "tool")
       .map((b) => (b as { toolCall: { status: string } }).toolCall.status);
-    return { content: assistant.content, blocksText, toolStatuses };
+    return { content: assistant.content, blocksText, toolStatuses, endReason: assistant.endReason };
   };
 
   return { ctx, startTurn, sent, row };
@@ -181,6 +181,8 @@ describe("il watchdog chiude il turno: cosa arriva a chi sta guardando", () => {
 
     // And the row agrees with the announcement: one verdict, not two.
     expect(h.row().toolStatuses).toContain("error");
+    // Closed by the watchdog, not by the turn: a reattach may still adopt it (card a57e6d4d).
+    expect(h.row().endReason).toBe("closed-outside");
   });
 
   test("la coda della risposta resta: tutti e quindici i delta nei blocchi", async () => {

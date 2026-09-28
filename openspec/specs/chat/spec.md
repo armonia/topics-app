@@ -423,6 +423,19 @@ del topic, che nessun'altra parte dello schermo dice. Per un topic senza worktre
 SHALL mostrare solo il chip dei file, anche quando git ha risposto: il branch e' quello del
 progetto, che la sidebar mostra gia'.
 
+Su un topic a cui e' stato dispatchato un task l'elenco SHALL venire dalla gamma di diff del
+task, la stessa che disegna il drawer (worktree vivo, poi merge del land, poi commit di
+consegna): path relativi al repository e conteggi di git, compresi i file scritti da un comando
+di shell o da un sotto-agente. Una tool call SHALL fondersi con la riga della gamma dello stesso
+file solo se ha scritto nel worktree del task: finche' esiste, il suo path; dopo la potatura,
+la cartella che il ramo `topics/<nome>` nomina (quello della consegna registrata o, senza
+consegna, quello del tentativo lanciato nel topic). Le altre scritture SHALL restare righe
+proprie. Una riga della gamma SHALL aprire il drawer del task su quel file. Senza una gamma
+leggibile, o con una gamma letta dal commit di consegna che contiene piu' file di quanti la
+review ne ha misurati in quella consegna, l'elenco SHALL restare quello delle tool call. Un
+topic senza task SHALL restare sulle sue tool call anche dentro un worktree: nulla dice di chi
+sia la gamma di un worktree che la sidebar puo' aver aperto a un secondo topic.
+
 #### Scenario: il chip compare dopo un turno che ha scritto
 - **GIVEN** un topic la cui conversazione contiene una tool call `write` su un file
 - **WHEN** l'utente guarda il blocco sopra il composer della chat
@@ -455,8 +468,26 @@ progetto, che la sidebar mostra gia'.
 
 #### Scenario: dalla riga al diff
 - **GIVEN** l'elenco dei file modificati e' aperto
-- **WHEN** l'utente clicca su una riga
+- **WHEN** l'utente clicca su una riga che non viene dalla gamma di un task
 - **THEN** il diff di quel file si apre nella pane editor
+
+#### Scenario: il topic di un task atterrato elenca la gamma del land
+- **GIVEN** un task atterrato con `merge task <id>` e il suo worktree potato
+- **AND** una conversazione che ha scritto `src/a.ts` nel worktree con una tool call, e `gen.sh` con un comando di shell
+- **WHEN** si legge `GET /api/topics/:id/changes`
+- **THEN** ogni file compare una volta sola, relativo al repository, con i conteggi del merge
+- **AND** la riga di `src/a.ts` porta i turni della tool call, quella di `gen.sh` zero turni
+
+#### Scenario: dalla riga della gamma al drawer del task
+- **GIVEN** l'elenco dei file modificati di un topic di task e' aperto
+- **WHEN** l'utente clicca su una riga della gamma del task
+- **THEN** si apre il drawer del task sul pannello delle modifiche, con quel file a fuoco
+
+#### Scenario: un topic senza task nel worktree di un altro topic
+- **GIVEN** due topic legati allo stesso worktree, nessuno dei due con un task
+- **AND** il primo ha scritto e committato dei file, il secondo ha solo letto
+- **WHEN** si legge `GET /api/topics/:id/changes` del secondo
+- **THEN** l'elenco e' vuoto
 
 Le RIGHE dell'elenco non sono di questa striscia: sono il componente condiviso
 descritto da `GIT-FILELIST-01` (lettera di stato, percorso col nome intero,

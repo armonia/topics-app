@@ -5,7 +5,9 @@
  * of the topic's messages (`type: 'edit' | 'write'`) and, when the topic lives
  * in a git repo, crosses them with `git status` and `git diff --numstat`
  * LIMITED to those paths: the answer is what THIS conversation did, not the
- * state of the whole repository.
+ * state of the whole repository. On a topic a task was dispatched to, the
+ * task's own diff range (the drawer's) gives the files instead: shell and
+ * sub-agent writes show up too.
  */
 
 /** What happened to the file, after git had its say. */
@@ -15,9 +17,9 @@ export interface TopicChangedFile {
   /** Relative to the git root when the topic sits in a repo, absolute otherwise. */
   path: string;
   kind: TopicChangeKind;
-  /** How many assistant turns wrote to this file. */
+  /** How many assistant turns wrote to this file. `0` = no write tool call named it: a shell command or a sub-agent did. */
   turns: number;
-  /** ISO timestamp of the last write tool call on it. */
+  /** ISO timestamp of the last write tool call on it; empty when `turns` is 0. */
   lastAt: string;
   /** Lines added, from `git diff --numstat`. Absent outside a repo. */
   added?: number;
@@ -25,6 +27,13 @@ export interface TopicChangedFile {
   removed?: number;
   /** git counts no line of a binary file: it prints `-`, not `0`. */
   binary?: boolean;
+  /**
+   * Counted on the task's diff range rather than against the checkout's
+   * HEAD. The editor's diff compares HEAD with the disk, so on these rows it
+   * would show a different change: they open in the task's drawer, which
+   * draws the same range. Absent on a row only the tool calls gave.
+   */
+  inRange?: boolean;
 }
 
 export interface TopicChangesGit {
@@ -32,12 +41,14 @@ export interface TopicChangesGit {
   root: string;
   /** Branch name, or the short hash on a detached HEAD. */
   branch: string;
-  /** How many of the topic's OWN files git still reports as dirty. */
-  dirty: number;
+  /** How many of the topic's OWN files git still reports as dirty. Not measured on a task's range. */
+  dirty?: number;
 }
 
 export interface TopicChanges {
   files: TopicChangedFile[];
   /** `null` when the topic has no folder, or its folder is not a repo. */
   git: TopicChangesGit | null;
+  /** The task whose diff range gave the rows marked `inRange`. */
+  taskId?: string;
 }

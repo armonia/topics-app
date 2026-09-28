@@ -1,5 +1,58 @@
 [
   {
+    "version": "2.2.402",
+    "date": "2026-09-27",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-26 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "A Review with work is never narrower than an empty one, and KANBAN-94 names the list's reading cap",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The port-guard test no longer kills other shards' daemons, and the e2e grace outlasts a restart",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A wake opened while the previous wake's buffer drains is marked where its first line starts",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.401",
+    "date": "2026-09-25",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "A turn streamed over HTTP-SSE writes its body and tools on its own row, not on the last one",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The abrupt-end test waits for the stream to end, not for the response to close",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.400",
     "date": "2026-09-25",
     "sections": {
@@ -7,6 +60,11 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "The teardown's new import sits where main's does not: no conflict when the stack lands",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "A turn that ended while the server was away is replayed whole at the next boot, not handed over as its result alone",
           "en": "",
@@ -34,6 +92,11 @@
         },
         {
           "it": "The resume notices written by the server reach the windows open on the chat",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A wake's row is marked too, so a reattach replays the wake's own turn",
           "en": "",
           "scope": null
         }
@@ -137,6 +200,56 @@
           "it": "The spaces tests add their other window to every roster the server sends, instead of one timed roster",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "A recalled prompt's caret is placed before the next key, not a frame later",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The delivery verifier never asks git on the loop, and a late note never lands under a newer delivery",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The watchdog takes our stalls off the bridge's silence instead of restarting it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A late delivery note reaches the open board, and one lost to a restart is written at the next boot",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A test run that leaves an ai-bridge daemon alive ends red and names it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A client that hangs up with frames still queued no longer keeps an orphan daemon alive",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Every test that starts an ai-bridge daemon stops it, and a test daemon gives up 15s after its parent",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The run marker is part of the bank server's environment, and knip knows the script fixtures",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A server that recycles its socket and comes back after the grace keeps its sessions",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A test stops a daemon only if the kernel still names it as the parent",
+          "en": "",
+          "scope": null
         }
       ]
     }
@@ -150,7 +263,17 @@
       "perf": [],
       "internal": [
         {
+          "it": "A stalled server loop no longer costs its ai-bridge socket and CLIs: the watchdog measures its own lateness, and the daemon adopts the server that came back",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The e2e cleanups kill a saved PID only while it is still a test server",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A [LAG] line says where the stall went: the CPU spent in it and the time spent in the scheduler's queue",
           "en": "",
           "scope": null
         }
@@ -177,6 +300,21 @@
         },
         {
           "it": "A busy check-in doubles the interval without moving the pause, and a goal set anew starts its own check-ins",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The jcode census parses a session file once per rewrite, not every 20 s",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The Claude census keeps one parse per transcript, and drops only what it no longer sees",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The delivery verifier asks git log -S off the server's loop",
           "en": "",
           "scope": null
         }
@@ -1617,9 +1755,21 @@
           "breaking": false
         },
         {
+          "it": "la lista ha un tetto di larghezza, Review si allarga quando c'è lavoro dentro",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "Rewrite the ghost e2e in English and stop counting virtualized DOM rows",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "la crescita di Review in review rispetta il tetto senza-scroll dell'anteprima",
+          "en": "",
+          "scope": null,
+          "breaking": false
         },
         {
           "it": "swap-freeze: name a skipped or unrecognised pid once, not on every beat",

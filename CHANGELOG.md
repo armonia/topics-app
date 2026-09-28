@@ -2,15 +2,31 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.402 — 2026-09-27
+
+### Sotto il cofano
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-26 [skip ci]
+- A Review with work is never narrower than an empty one, and KANBAN-94 names the list's reading cap
+- The port-guard test no longer kills other shards' daemons, and the e2e grace outlasts a restart
+- A wake opened while the previous wake's buffer drains is marked where its first line starts
+
+## 2.2.401 — 2026-09-25
+
+### Sotto il cofano
+- A turn streamed over HTTP-SSE writes its body and tools on its own row, not on the last one
+- The abrupt-end test waits for the stream to end, not for the response to close
+
 ## 2.2.400 — 2026-09-25
 
 ### Sotto il cofano
+- The teardown's new import sits where main's does not: no conflict when the stack lands
 - A turn that ended while the server was away is replayed whole at the next boot, not handed over as its result alone
 - The reattach replays a closed turn only if it began after the row's message, and from the end of the result before it, an empty one included
 - The reattach replays a row's own turn, from the mark its send left in the store
 - No handler but the adopted row's sees a closed turn's replay
 - chat.ts back under its ceiling after the rebase on main
 - The resume notices written by the server reach the windows open on the chat
+- A wake's row is marked too, so a reattach replays the wake's own turn
 
 ## 2.2.399 — 2026-09-25
 
@@ -33,11 +49,23 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - closeTurnWithFailure ends the stream after stopping the writer, keeping chat.ts under its ceiling
 - A history read with no turn in flight forgets the live row's name, so a turn stopped while the socket was down leaves no bubble
 - The spaces tests add their other window to every roster the server sends, instead of one timed roster
+- A recalled prompt's caret is placed before the next key, not a frame later
+- The delivery verifier never asks git on the loop, and a late note never lands under a newer delivery
+- The watchdog takes our stalls off the bridge's silence instead of restarting it
+- A late delivery note reaches the open board, and one lost to a restart is written at the next boot
+- A test run that leaves an ai-bridge daemon alive ends red and names it
+- A client that hangs up with frames still queued no longer keeps an orphan daemon alive
+- Every test that starts an ai-bridge daemon stops it, and a test daemon gives up 15s after its parent
+- The run marker is part of the bank server's environment, and knip knows the script fixtures
+- A server that recycles its socket and comes back after the grace keeps its sessions
+- A test stops a daemon only if the kernel still names it as the parent
 
 ## 2.2.397 — 2026-09-25
 
 ### Sotto il cofano
+- A stalled server loop no longer costs its ai-bridge socket and CLIs: the watchdog measures its own lateness, and the daemon adopts the server that came back
 - The e2e cleanups kill a saved PID only while it is still a test server
+- A [LAG] line says where the stall went: the CPU spent in it and the time spent in the scheduler's queue
 
 ## 2.2.396 — 2026-09-25
 
@@ -45,6 +73,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - The reread after a cut reply goes past the history dedup, so a turn started meanwhile from another window gets its Stop
 - The e2e setup refuses the live server's port and kills only test servers, at every place that kills by port
 - A busy check-in doubles the interval without moving the pause, and a goal set anew starts its own check-ins
+- The jcode census parses a session file once per rewrite, not every 20 s
+- The Claude census keeps one parse per transcript, and drops only what it no longer sees
+- The delivery verifier asks git log -S off the server's loop
 
 ## 2.2.395 — 2026-09-25
 
@@ -365,7 +396,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Add e2e regression for the pre-pivot ghost bubble surviving a server stall
 - claude-import: snap the import cursor to EOF when a Topics turn ends
 - one-off cleanup of duplicated imported Claude messages
+- la lista ha un tetto di larghezza, Review si allarga quando c'è lavoro dentro
 - Rewrite the ghost e2e in English and stop counting virtualized DOM rows
+- la crescita di Review in review rispetta il tetto senza-scroll dell'anteprima
 - swap-freeze: name a skipped or unrecognised pid once, not on every beat
 - a 404 on the context probe is an answer, not a warning
 - dispatch-capacity: read memory from the async sample, not a vm_stat per call

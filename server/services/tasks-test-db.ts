@@ -60,6 +60,16 @@ export function freshDb(): Database {
     rubric_scores TEXT, justification TEXT, status TEXT NOT NULL DEFAULT 'pending',
     reviewed_by TEXT, review_comment TEXT, created_at TEXT NOT NULL, reviewed_at TEXT, expires_at TEXT
   )`);
+  // migration 065: `taskForTopic` reads the branch of the topic's own attempt.
+  db.run(`CREATE TABLE task_attempts (
+    id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    idx INTEGER NOT NULL, topic_id TEXT, worktree_id TEXT, branch TEXT, model TEXT,
+    state TEXT NOT NULL DEFAULT 'running', commit_sha TEXT, files_changed INTEGER,
+    insertions INTEGER, deletions INTEGER, summary TEXT, error TEXT,
+    agent_ms INTEGER NOT NULL DEFAULT 0, agent_tokens INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL, ended_at TEXT, selected_at TEXT,
+    UNIQUE (task_id, idx)
+  )`);
   return db;
 }
 

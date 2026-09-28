@@ -16,7 +16,7 @@
  * live client — then loads the app in both and (optionally) waits for both WS
  * connections to come up.
  */
-import type { Browser, BrowserContext, Page, APIRequestContext, Locator } from "@playwright/test";
+import type { Browser, BrowserContext, BrowserContextOptions, Page, APIRequestContext, Locator } from "@playwright/test";
 import { expect } from "@playwright/test";
 import { goToApp } from "../helpers";
 import { E2E_BASE } from "./test-server";
@@ -55,16 +55,23 @@ export interface OpenTwoDevicesOptions {
    * hydrate it deterministically. Receives device A's request context.
    */
   seed?: (request: APIRequestContext) => Promise<void>;
+  /**
+   * Extra options for BOTH contexts. The `video` of `test.use` films only the
+   * fixture's own page, never a context opened here: a two-window spec that
+   * owes a clip passes `recordVideo`, and the files are final once `dispose`
+   * has closed the contexts.
+   */
+  contextOptions?: BrowserContextOptions;
 }
 
 export async function openTwoDevices(
   browser: Browser,
   opts: OpenTwoDevicesOptions = {},
 ): Promise<TwoDevices> {
-  const { stubBrowserStream = true, waitConnected = true, seed } = opts;
+  const { stubBrowserStream = true, waitConnected = true, seed, contextOptions } = opts;
 
-  const ctxA = await browser.newContext({ baseURL: BASE_URL });
-  const ctxB = await browser.newContext({ baseURL: BASE_URL });
+  const ctxA = await browser.newContext({ ...contextOptions, baseURL: BASE_URL });
+  const ctxB = await browser.newContext({ ...contextOptions, baseURL: BASE_URL });
   const pageA = await ctxA.newPage();
   const pageB = await ctxB.newPage();
 

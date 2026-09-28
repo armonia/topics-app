@@ -33,6 +33,21 @@ export function boardTopicsRoutingSwitch(
   };
 }
 
+/** The board settings a card is judged with: its own board's, never the
+ *  pane's. The all-boards view lists every board's cards while a project pane
+ *  holds its own board's settings, so a card of another board waits for that
+ *  board's (`fetched`); until then its default is unknown (null), as on the
+ *  global board. */
+export function cardBoardSettings<T>(
+  cardBoardId: string | null | undefined,
+  paneBoardId: string,
+  paneSettings: T | null,
+  fetched: { projectId: string; settings: T } | null,
+): T | null {
+  if (!cardBoardId || cardBoardId === paneBoardId) return paneSettings;
+  return fetched?.projectId === cardBoardId ? fetched.settings : null;
+}
+
 /** Il bersaglio VERO dello switch, che menu e send leggevano diverso. `null` = Automatico vero (nessun override, nessun pin): sempre instradabile, Topics sceglie da solo. Con override o pin vale l'ordine di `resolveEffectiveProvider`. allow-italian: cosa conta come «Automatico vero» */
 export function resolveTopicsRoutingTarget(
   entries: ProviderSnapshotEntry[],

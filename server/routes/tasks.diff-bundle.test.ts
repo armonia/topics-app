@@ -2,10 +2,12 @@
  * @covers KANBAN-49
  */
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, renameSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gitDiffBundle, numstatPath } from "./tasks";
+import { gitDiffBundle } from "./tasks";
+import { gitDiffStat } from "../lib/git-diff-stat";
+import { splitPatch } from "../../client/src/components/Board/diffFileRows";
 
 // gitDiffBundle drives a real `git` — these tests build a throwaway repo per case
 // and assert the untracked-inclusion contract that keeps new-file-only deliveries
@@ -91,11 +93,81 @@ describe("gitDiffBundle untracked inclusion", () => {
     expect(bundle.stat.some((s) => s.path === "wanted.txt")).toBe(true);
   });
 
+  test("an untracked file is counted the way `git diff --no-index --numstat` counts it", async () => {
+    // The count is taken without a git spawn per file: it must still be git's.
+    writeFileSync(join(dir, "text.txt"), "a\nb\n");
+    writeFileSync(join(dir, "no-newline.txt"), "a\nb");
+    writeFileSync(join(dir, "crlf.txt"), "a\r\nb\r\n");
+    writeFileSync(join(dir, "empty.txt"), "");
+    writeFileSync(join(dir, "blob.bin"), Buffer.from([0x61, 0x00, 0x62, 0x0a]));
+    symlinkSync("text.txt", join(dir, "link"));
+    const names = ["blob.bin", "crlf.txt", "empty.txt", "link", "no-newline.txt", "text.txt"];
+    const byGit = async (f: string): Promise<[number, number]> => {
+      const p = Bun.spawn(["git", "diff", "--no-index", "--numstat", "--", "/dev/null", f], { cwd: dir, stdout: "pipe" });
+      const [a, d] = (await new Response(p.stdout).text()).split("\t");
+      return [a === "-" ? -1 : Number(a), d === "-" ? -1 : Number(d)];
+    };
+
+    const { stat } = await gitDiffStat(dir, base, { includeUntracked: true });
+    const counted = Object.fromEntries(stat.map((s) => [s.path, [s.additions, s.deletions]]));
+    expect(Object.keys(counted).sort()).toEqual(names);
+    for (const f of names) expect([f, ...counted[f]!]).toEqual([f, ...(await byGit(f))]);
+  });
+
+  test("an untracked file .gitattributes marks `-diff`, `binary` or `diff` is counted the way git counts it", async () => {
+    // `-diff` and `binary` turn a text file into «Binary files differ» in the
+    // patch of the same bundle; `diff` forces text on a file with a NUL.
+    writeFileSync(join(dir, ".gitattributes"), "*.lock -diff\n*.dat binary\n*.txt diff\n");
+    await git(dir, ["add", ".gitattributes"]);
+    await git(dir, ["commit", "-qm", "attributes"]);
+    writeFileSync(join(dir, "x.lock"), "a\nb\nc\n");
+    writeFileSync(join(dir, "y.dat"), "a\nb\n");
+    writeFileSync(join(dir, "z.txt"), Buffer.from([0x61, 0x00, 0x62, 0x0a]));
+    writeFileSync(join(dir, "w.md"), "q\n");
+    const names = ["w.md", "x.lock", "y.dat", "z.txt"];
+    const byGit = async (f: string): Promise<[number, number]> => {
+      const p = Bun.spawn(["git", "diff", "--no-index", "--numstat", "--", "/dev/null", f], { cwd: dir, stdout: "pipe" });
+      const [a, d] = (await new Response(p.stdout).text()).split("\t");
+      return [a === "-" ? -1 : Number(a), d === "-" ? -1 : Number(d)];
+    };
+
+    const { stat } = await gitDiffStat(dir, "HEAD", { includeUntracked: true });
+    const counted = Object.fromEntries(stat.map((s) => [s.path, [s.additions, s.deletions]]));
+    expect(Object.keys(counted).sort()).toEqual(names);
+    for (const f of names) expect([f, ...counted[f]!]).toEqual([f, ...(await byGit(f))]);
+  });
+
   test("paths with spaces survive (-z NUL split)", async () => {
     mkdirSync(join(dir, "docs"));
     writeFileSync(join(dir, "docs", "domande di chiarimento.md"), "q\n");
     const bundle = await gitDiffBundle(dir, base, { includeUntracked: true });
     expect(bundle.stat.some((s) => s.path === "docs/domande di chiarimento.md")).toBe(true);
+  });
+
+  test("a path with non-ASCII letters is the file's own name, not git's quoted octal", async () => {
+    // Without -z git prints `"docs/citt\303\240.md"`: the chat's strip then
+    // listed the same file twice, once from the tool call and once from here.
+    mkdirSync(join(dir, "docs"));
+    writeFileSync(join(dir, "docs", "città.md"), "a\nb\n");
+    await git(dir, ["add", "-A"]);
+    await git(dir, ["commit", "-qm", "accented"]);
+
+    const { stat } = await gitDiffStat(dir, `${base}..HEAD`);
+    expect(stat).toEqual([{ path: "docs/città.md", additions: 2, deletions: 0, status: "A" }]);
+  });
+
+  test("a non-ASCII path heads its own patch chunk, committed or untracked, so the drawer finds its lines", async () => {
+    // A quoted `diff --git "a/docs/citt\303\240.md" …` header is no chunk to the
+    // drawer's splitter: the file opened with no patch, and its lines went into
+    // the chunk of the file before it.
+    mkdirSync(join(dir, "docs"));
+    writeFileSync(join(dir, "docs", "città.md"), "a\nb\n");
+    await git(dir, ["add", "-A"]);
+    await git(dir, ["commit", "-qm", "accented"]);
+    writeFileSync(join(dir, "perché.txt"), "nuovo\n");
+
+    const bundle = await gitDiffBundle(dir, base, { includeUntracked: true });
+    expect(splitPatch(bundle.patch).map((c) => c.path).sort()).toEqual(["docs/città.md", "perché.txt"]);
   });
 
   // Su un rinominato `--numstat` non stampa un path ma la TRASFORMAZIONE: presa
@@ -117,29 +189,7 @@ describe("gitDiffBundle untracked inclusion", () => {
 
     const bundle = await gitDiffBundle(dir, from);
     expect(bundle.stat.map((s) => s.path)).toEqual(["nuova/modulo.ts"]);
+    expect(bundle.stat[0]!.status).toBe("R");
     expect(bundle.patch).toContain("b/nuova/modulo.ts");
-  });
-});
-
-describe("numstatPath", () => {
-  test("un path normale passa intatto", () => {
-    expect(numstatPath("server/routes/tasks.ts")).toBe("server/routes/tasks.ts");
-    expect(numstatPath("  spazi/attorno.ts  ")).toBe("spazi/attorno.ts");
-  });
-
-  test("la forma con la freccia dà il path di DESTINAZIONE", () => {
-    expect(numstatPath("vecchio.ts => nuovo.ts")).toBe("nuovo.ts");
-    expect(numstatPath("a/b/vecchio.ts => c/d/nuovo.ts")).toBe("c/d/nuovo.ts");
-  });
-
-  test("la forma con le graffe si risolve DENTRO il path", () => {
-    expect(numstatPath("server/{vecchia => nuova}/modulo.ts")).toBe("server/nuova/modulo.ts");
-    expect(numstatPath("{ => sotto}/f.ts")).toBe("sotto/f.ts");
-    // Il segmento sparisce del tutto: niente doppia barra nel risultato.
-    expect(numstatPath("server/{vecchia => }/modulo.ts")).toBe("server/modulo.ts");
-  });
-
-  test("una freccia che fa parte del NOME non viene scambiata per un rename", () => {
-    expect(numstatPath("docs/a=>b.md")).toBe("docs/a=>b.md");
   });
 });

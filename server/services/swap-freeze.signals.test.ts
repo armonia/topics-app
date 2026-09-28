@@ -63,14 +63,21 @@ function spawnHarness(): { dir: string; parentPid: number; rootPid: number } {
 import { appendFileSync } from "fs";
 import { spawn } from "child_process";
 const dir = ${JSON.stringify(dir)};
+const owner = ${process.pid};
 // The command tree: a shell with a child of its own, neither detached, so both
 // live in THIS process's group - the shape of the native runtime's bash tool.
 // The loops BURN CPU on purpose: the freezer refuses to stop an idle tree, and
 // a test that lowered that floor would be testing a different product.
-const spin = (out: string) => \`while :; do i=0; while [ $i -lt 4000 ]; do i=$((i+1)); done; printf z >> \${out}; done\`;
+// Each loop, and this harness, ends once the test runner is gone: afterEach
+// never runs for a runner killed by a timeout or a signal, and a detached
+// tree left behind spun at 90% CPU for four hours on 27/09.
+const spin = (out: string) => \`while kill -0 \${owner} 2>/dev/null; do i=0; while [ $i -lt 4000 ]; do i=$((i+1)); done; printf z >> \${out}; done\`;
 const child = spawn("/bin/sh", ["-c", \`\${spin(dir + "/root")} & /bin/sh -c '\${spin(dir + "/leaf")}' & wait\`], { stdio: "ignore" });
 appendFileSync(dir + "/rootpid", String(child.pid) + "\\n");
-setInterval(() => { appendFileSync(dir + "/heartbeat", "h"); }, 50);
+setInterval(() => {
+  try { process.kill(owner, 0); } catch { try { process.kill(-process.pid, "SIGKILL"); } catch { process.exit(0); } }
+  appendFileSync(dir + "/heartbeat", "h");
+}, 50);
 `);
   const proc = Bun.spawn(["bun", script], { stdio: ["ignore", "ignore", "ignore"], env: { ...process.env }, detached: true } as Parameters<typeof Bun.spawn>[1]);
   spawned.push(proc.pid);

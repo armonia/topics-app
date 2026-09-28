@@ -26,10 +26,17 @@
  * back with the panel RE-ARMED on a question already answered - the same stuck
  * row inviting a second answer. The state has to arrive from the server, which
  * is what this reads.
- * @covers ASK-09
+ *
+ * The other half of the event, the partial output, has its own guard at the
+ * bottom (CHAT-TOOL-09): in the window you sent from the result arrives on the
+ * SSE and the partial on WS, two channels with no order between them.
+ * @covers ASK-09, CHAT-TOOL-09
  */
 import { describe, expect, test } from 'bun:test';
-import { toolUpdatePatch } from './toolUpdatePatch';
+import { toolUpdatePatch, withPartialResult, withToolUpdate } from './toolUpdatePatch';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import type { ToolCall } from '@/types';
 
 describe('what a tool-update event changes on the row', () => {
   test('an announced transition produces a patch', () => {
@@ -66,5 +73,46 @@ describe('what a tool-update event changes on the row', () => {
 
   test('no id, no patch', () => {
     expect(toolUpdatePatch({ status: 'running' })).toBeNull();
+  });
+});
+
+describe('a partial output writes only on a row still running', () => {
+  const row = (status: ToolCall['status'], result: string): ToolCall =>
+    ({ id: 'tu_bash', name: 'Bash', args: { command: 'bun test' }, status, result });
+
+  test('a late partial does not overwrite the result', () => {
+    // The final result came on the SSE, the partial was still on the wire.
+    const closed = row('success', '400 pass, 0 fail');
+    expect(withPartialResult(closed, 'test 3 of 400').result).toBe('400 pass, 0 fail');
+    expect(withPartialResult(row('error', 'exit 1'), 'test 3 of 400').result).toBe('exit 1');
+  });
+
+  test('a running row takes the partial whole, replacing the one before', () => {
+    expect(withPartialResult(row('running', 'test 1'), 'test 1\ntest 2').result).toBe('test 1\ntest 2');
+    // No status yet reads as pending, which is running for the row too.
+    expect(withPartialResult(row(undefined, ''), 'test 1').result).toBe('test 1');
+  });
+});
+
+describe('a stale answer does not reopen a tool that returned', () => {
+  const ask = (status: ToolCall['status']): ToolCall =>
+    ({ id: 'tu_ask', name: 'AskUserQuestion', args: {}, status });
+
+  test('a second submission after the result leaves the row settled', () => {
+    // The phone reconnects with its form still open and answers again; the
+    // route broadcasts `running` although the tool has already returned.
+    const patch = toolUpdatePatch({ toolCallId: 'tu_ask', status: 'running', userResponse: { answers: {} } as never })!;
+    expect(withToolUpdate(ask('success'), patch)).toEqual(ask('success'));
+    expect(withToolUpdate(ask('error'), patch)).toEqual(ask('error'));
+  });
+
+  test('the first answer still moves a waiting row back to running', () => {
+    const patch = toolUpdatePatch({ toolCallId: 'tu_ask', status: 'running' })!;
+    expect(withToolUpdate(ask('waiting_for_input'), patch).status).toBe('running');
+  });
+
+  test('the stream handler goes through the guard', () => {
+    const src = readFileSync(join(import.meta.dir, 'useChat.ts'), 'utf8');
+    expect(src).toContain('(tc) => withToolUpdate(tc, patch)');
   });
 });

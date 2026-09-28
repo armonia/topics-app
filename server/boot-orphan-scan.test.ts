@@ -1,7 +1,7 @@
 /**
  * IL SETACCIO DEL BOOT NON DEVE CARICARSI IL DATABASE PER TROVARE QUATTRO RIGHE.
  *
- * PERCHÉ ESISTE. `finalizeOrphanedRunningTools()` (server.ts) cerca i tool
+ * PERCHÉ ESISTE. `finalizeOrphanedRunningTools()` (lib/boot-orphan-tools.ts) cerca i tool
  * rimasti «in corso» dopo un riavvio. Fino al 2026-08-19 lo faceva con una
  * `.all()` su trenta giorni di `messages`, cioè materializzava OGNI riga —
  * misurato su il DB di produzione: **8.354 righe per 706 MB** di `content` +

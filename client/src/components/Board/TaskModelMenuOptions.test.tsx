@@ -146,6 +146,91 @@ describe('the task model rows', () => {
   });
 });
 
+// Auto on a task is not a choice of its own: the dispatcher runs the board's
+// default model (`task.model ?? settings.model`). The switch has to judge that
+// value, or it offers ON for a Codex board and the card parks with "Topics
+// routing cannot dispatch to codex".
+describe('the Topics routing switch on an Automatic task', () => {
+  const ready = (name: string, models: string[]) => ({ name, label: name, status: 'ready' as const, isDefault: false, models, capabilities: ['coding-tasks'], requirements: [], fetchedAt: '2026-09-12T00:00:00Z' });
+  const FLEET: ProvidersSnapshot = {
+    defaultProvider: 'codex',
+    generatedAt: '2026-09-12T00:00:00Z',
+    providers: [ready('claude-code', ['claude-sonnet-5']), ready('codex', ['gpt-5.5']), ready('topics', ['claude-sonnet-5'])],
+  };
+  const routingSwitch = (boardValue: string | null, enabled = false, snapshot = FLEET) => renderToStaticMarkup(
+    <TaskModelMenuOptions snapshot={snapshot} models={[]} value={null} boardValue={boardValue} onSelect={() => {}} autoLabel="Auto" topicsRouting={{ enabled, onToggle: () => {} }} />,
+  ).match(/<button[^>]*data-testid="ai-selector-topics-routing"[^>]*>.*?<\/button>/s)![0];
+
+  for (const board of ['codex', 'codex:auto', 'gpt-5.5']) {
+    test(`a board default of ${board} disables the switch with the reason`, () => {
+      const drawn = routingSwitch(board);
+      expect(drawn).toMatch(/\sdisabled=""/);
+      expect(drawn).toContain('title="Non instradabile con la selezione attuale."');
+      expect(drawn).toContain('Non disponibile');
+    });
+  }
+
+  test('switched ON over a Codex board default it stays clickable, only to turn it off, and says why', () => {
+    const drawn = routingSwitch('codex', true);
+    expect(drawn).not.toMatch(/\sdisabled=""/);
+    expect(drawn).toContain('title="Non instradabile con la selezione attuale."');
+  });
+
+  for (const board of [null, 'auto', 'claude-code:claude-sonnet-5', 'topics:claude-sonnet-5']) {
+    test(`a board default of ${board} leaves the switch routable`, () => {
+      const drawn = routingSwitch(board);
+      expect(drawn).not.toMatch(/\sdisabled=""/);
+      expect(drawn).not.toContain('Non disponibile');
+    });
+  }
+
+  // A board default only the engine serves resolves to the engine itself: a
+  // plain model with no Claude Code target (not installed, still loading), the
+  // legacy `topics:<model>`, or a bare major the CLI drops for its point
+  // release. The dispatcher runs all of them on the engine with the switch ON.
+  const ENGINE_ONLY: ProvidersSnapshot = { ...FLEET, defaultProvider: 'topics', providers: [
+    ready('topics', ['claude-sonnet-5']), { ...ready('claude-code', []), status: 'unavailable' },
+  ] };
+  const CLI_WITHOUT_BARE_MAJOR: ProvidersSnapshot = { ...FLEET, defaultProvider: 'topics', providers: [
+    ready('claude-code', ['claude-opus-5-5', 'claude-sonnet-5']), ready('codex', ['gpt-5.5']), ready('topics', ['claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5']),
+  ] };
+  for (const [fleet, snapshot, board] of [
+    ['the engine alone', ENGINE_ONLY, 'claude-sonnet-5'],
+    ['the engine alone', ENGINE_ONLY, 'topics:claude-sonnet-5'],
+    ['a CLI without the bare major', CLI_WITHOUT_BARE_MAJOR, 'claude-opus-5'],
+    ['a CLI without the bare major', CLI_WITHOUT_BARE_MAJOR, 'topics:claude-opus-5'],
+  ] as const) {
+    test(`${fleet}: a board default of ${board} leaves the switch routable, OFF and ON`, () => {
+      for (const enabled of [false, true]) {
+        const drawn = routingSwitch(board, enabled, snapshot);
+        expect(drawn).not.toMatch(/\sdisabled=""/);
+        expect(drawn).not.toContain('Non disponibile');
+      }
+    });
+  }
+
+  // The engine is ready, so Automatic on its own is routable: only the board
+  // default the card inherits can disable the switch here.
+  test('a board default the ready engine does not serve disables the switch, while Automatic alone stays routable', () => {
+    const OPUS_4_1: ProvidersSnapshot = { ...FLEET, providers: [
+      ready('claude-code', ['claude-sonnet-5', 'claude-opus-4-1']), ready('codex', ['gpt-5.5']), ready('topics', ['claude-sonnet-5']),
+    ] };
+    expect(routingSwitch(null, false, OPUS_4_1)).not.toMatch(/\sdisabled=""/);
+    for (const board of ['claude-opus-4-1', 'claude-code:claude-opus-4-1']) {
+      const drawn = routingSwitch(board, false, OPUS_4_1);
+      expect(drawn).toMatch(/\sdisabled=""/);
+      expect(drawn).toContain('Non disponibile');
+    }
+  });
+
+  test('a model chosen on the task is judged on its own, not on the board default', () => {
+    const drawn = renderToStaticMarkup(
+      <TaskModelMenuOptions snapshot={FLEET} models={[]} value="claude-code:claude-sonnet-5" boardValue="codex" onSelect={() => {}} autoLabel="Auto" topicsRouting={{ enabled: false, onToggle: () => {} }} />,
+    ).match(/<button[^>]*data-testid="ai-selector-topics-routing"[^>]*>/)![0];
+    expect(drawn).not.toMatch(/\sdisabled=""/);
+  });
+});
+
 describe('one catalog for the three surfaces', () => {
   const surfaces = {
     composer: readFileSync(join(here, 'FloatingTaskComposer.tsx'), 'utf8'),
@@ -164,6 +249,28 @@ describe('one catalog for the three surfaces', () => {
   test('composer and drawer draw the shared rows instead of their own copy', () => {
     expect(surfaces.composer).toContain('<TaskModelMenuOptions');
     expect(surfaces.drawer).toContain('<TaskModelMenuOptions');
+  });
+
+  test('composer and drawer hand the rows the board default an Automatic task inherits', () => {
+    expect(surfaces.composer).toContain('boardValue={boardDispatchModel}');
+    expect(surfaces.drawer).toContain('boardValue={boardDispatchModel}');
+  });
+
+  // The all-boards view lists every board's cards while the pane holds its own
+  // board's settings: the drawer judges a card with its OWN board's defaults,
+  // and the composer, which picks its target there, with that target's.
+  test('in the all-boards view the drawer reads the card\'s own board and the composer the board it creates on', () => {
+    const composer = surfaces.board.slice(surfaces.board.indexOf('<FloatingTaskComposer'), surfaces.board.indexOf('<TaskDetail'));
+    const drawer = surfaces.board.slice(surfaces.board.indexOf('<TaskDetail'));
+    // What the drawer and the composer get, fetch included, is tested by
+    // mounting the hooks in hooks/useCardBoardSettings.test.ts; this pane pulls
+    // in the API and a dozen stores, so it does not mount here.
+    expect(surfaces.board).toContain('const cardSettings = useCardBoardSettings(selected?.projectId, projectId, settings);');
+    expect(drawer).toContain('boardTopicsRoutingDefault={cardSettings?.dispatchTopicsRouting ?? null}');
+    expect(drawer).toContain('boardDispatchModel={cardSettings?.dispatchModel ?? null}');
+    expect(composer).toContain('global={mode === \'all\'}');
+    expect(composer).toContain('paneSettings={settings}');
+    expect(surfaces.composer).toContain('useComposerBoardSettings(global, targetProject, projectId, paneSettings)');
   });
 
   test('each surface gives the catalog its stored value so a removed selection stays visible', () => {

@@ -171,6 +171,7 @@ import m20260918134053_registro_senza_righe_fantasma from "./migrations/20260918
 import m20260922142754_board_dispatch_topics_routing from "./migrations/20260922142754-board-dispatch-topics-routing.sql" with { type: "text" };
 import m20260922180000_ai_control_topics_routing from "./migrations/20260922180000-ai-control-topics-routing.sql" with { type: "text" };
 import m20260923230000_mark_old_goal_nudges from "./migrations/20260923230000-mark-old-goal-nudges.sql" with { type: "text" };
+import m20260927091818_message_end_reason from "./migrations/20260927091818-message-end-reason.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -346,4 +347,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260922142754, name: "20260922142754-board-dispatch-topics-routing.sql", sql: m20260922142754_board_dispatch_topics_routing },
   { version: 20260922180000, name: "20260922180000-ai-control-topics-routing.sql", sql: m20260922180000_ai_control_topics_routing },
   { version: 20260923230000, name: "20260923230000-mark-old-goal-nudges.sql", sql: m20260923230000_mark_old_goal_nudges },
+  { version: 20260927091818, name: "20260927091818-message-end-reason.sql", sql: m20260927091818_message_end_reason },
 ];

@@ -467,3 +467,47 @@ describe('a stop the machine wanted leaves no interruption banner', () => {
     });
   }
 });
+
+describe("a closed turn's late answer waits for the frame, like the live one", () => {
+  // Point 4 of the third review of PR #135 (card 63f2a686): the late chunks
+  // went to the store one at a time, a publish and a render of the chat per
+  // token, outside the frame buffer of CHAT-PERF-01.
+  const CLOSED = 'a1b2c3d4-0000-4000-8000-000000000002';
+  const late = (d: Driver, type: string, content: string, extra: Record<string, unknown> = {}) =>
+    d.chat.onWSMessage({ sessionKey: keyOf(), type, content, messageId: CLOSED, late: true, ...extra } as unknown as WSMessage);
+
+  function closedThenLive(): Driver {
+    const d = drive();
+    d.chat.addMessageFromWS(keyOf(), { id: CLOSED, role: 'assistant', content: PRIMA, timestamp: new Date().toISOString() });
+    d.ws({ type: 'stream:start', messageId: LIVE });
+    return d;
+  }
+
+  test('its chunks land together at the frame, in their order, on the bubble they name', () => {
+    const d = closedThenLive();
+    late(d, 'stream:thinking_chunk', 'Ci ');
+    late(d, 'stream:thinking_chunk', 'penso.');
+    late(d, 'stream:content_chunk', 'Anzi', { lateStart: true });
+    late(d, 'stream:content_chunk', ', ecco.');
+    expect(d.texts()).toEqual([PRIMA, '']);
+
+    flushFrames();
+    expect(d.texts()).toEqual([`${PRIMA}\n\nAnzi, ecco.`, '']);
+    expect(d.chat.getSessionMessages(keyOf())[0].blocks).toEqual([
+      { kind: 'thinking', text: 'Ci penso.' },
+      { kind: 'text', text: 'Anzi, ecco.' },
+    ]);
+    d.unmount();
+  });
+
+  test('an event that is not a chunk finds them already written: the text stays above the tool', () => {
+    const d = closedThenLive();
+    late(d, 'stream:content_chunk', 'Cerco.', { lateStart: true });
+    d.chat.onWSMessage({
+      sessionKey: keyOf(), type: 'stream:tool_call', messageId: CLOSED, late: true,
+      toolCall: { id: 'toolu_late', name: 'Grep', args: {}, status: 'running' },
+    } as unknown as WSMessage);
+    expect((d.chat.getSessionMessages(keyOf())[0].blocks ?? []).map((b) => b.kind)).toEqual(['text', 'tool']);
+    d.unmount();
+  });
+});

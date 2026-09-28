@@ -45,12 +45,12 @@ function realPng(width: number, height: number, rgb: [number, number, number] = 
 const isDarwin = process.platform === "darwin";
 
 describe("normalizeImage", () => {
-  test.if(isDarwin)("un'immagine reale sopra 1568px viene DAVVERO ridimensionata, non solo dichiarata tale", () => {
+  test.if(isDarwin)("un'immagine reale sopra 1568px viene DAVVERO ridimensionata, non solo dichiarata tale", async () => {
     const big = realPng(3000, 2000);
     const before = imageShapeFromBuffer(big);
     expect(before).toMatchObject({ width: 3000, height: 2000 });
 
-    const outcome = normalizeImage(big, "grande.png");
+    const outcome = await normalizeImage(big, "grande.png");
     expect(outcome.kind).toBe("image");
     if (outcome.kind !== "image") return;
 
@@ -65,17 +65,17 @@ describe("normalizeImage", () => {
     expect(outcome.image.mediaType).toBe("image/jpeg");
   });
 
-  test.if(isDarwin)("un'immagine reale già sotto il limite passa comunque per il tetto di byte (JPEG, non i byte originali)", () => {
+  test.if(isDarwin)("un'immagine reale già sotto il limite passa comunque per il tetto di byte (JPEG, non i byte originali)", async () => {
     const small = realPng(400, 300);
-    const outcome = normalizeImage(small, "piccola.png");
+    const outcome = await normalizeImage(small, "piccola.png");
     expect(outcome.kind).toBe("image");
     if (outcome.kind !== "image") return;
     expect(outcome.image.mediaType).toBe("image/jpeg");
   });
 
-  test("byte che non corrispondono a nessun formato noto: testo, non un blocco immagine rotto", () => {
+  test("byte che non corrispondono a nessun formato noto: testo, non un blocco immagine rotto", async () => {
     const garbage = Buffer.from("questo non è affatto un'immagine, sono solo parole"); // allow-italian: dato del test
-    const outcome = normalizeImage(garbage, "misteriosa.png");
+    const outcome = await normalizeImage(garbage, "misteriosa.png");
     expect(outcome.kind).toBe("text");
     if (outcome.kind !== "text") return;
     expect(outcome.text).toContain("misteriosa.png");
@@ -91,5 +91,102 @@ describe("normalizeImage", () => {
     const fakePngNamedJpegBytes = Buffer.concat([Buffer.from([0xff, 0xd8]), app0, sof0]);
     const shape = imageShapeFromBuffer(fakePngNamedJpegBytes);
     expect(shape?.format).toBe("jpeg"); // the file name (v47.png) never came into it
+  });
+});
+
+/** A valid PNG header only: enough for the shape, nothing a decoder could open. */
+function pngHeader(width: number, height: number): Buffer {
+  const b = Buffer.alloc(33);
+  b.writeUInt32BE(0x89504e47, 0); b.writeUInt32BE(0x0d0a1a0a, 4);
+  b.writeUInt32BE(13, 8); b.write("IHDR", 12, "latin1");
+  b.writeUInt32BE(width, 16); b.writeUInt32BE(height, 20);
+  b[24] = 8; b[25] = 6;
+  return b;
+}
+
+describe("normalizeImage never enlarges a picture", () => {
+  // Measured on the rework: `sips -Z 1568` scales UP as well as down, so a
+  // 64x64 icon went out as 1568x1568 and a 400x300 crop as 1568x1176, paying
+  // for pixels that were never there.
+  test.if(isDarwin)("a 64x64 image stays 64x64", async () => {
+    const outcome = await normalizeImage(realPng(64, 64), "icona.png");
+    expect(outcome.kind).toBe("image");
+    if (outcome.kind !== "image") return;
+    expect(imageShapeFromBuffer(Buffer.from(outcome.image.data, "base64"))).toMatchObject({ width: 64, height: 64 });
+  });
+
+  test.if(isDarwin)("a 400x300 image stays 400x300", async () => {
+    const outcome = await normalizeImage(realPng(400, 300), "ritaglio.png");
+    expect(outcome.kind).toBe("image");
+    if (outcome.kind !== "image") return;
+    expect(imageShapeFromBuffer(Buffer.from(outcome.image.data, "base64"))).toMatchObject({ width: 400, height: 300 });
+  });
+});
+
+describe("normalizeImage does not hold the event loop while sips runs", () => {
+  // `spawnSync` stopped the whole server for the length of every resize
+  // (104 ms on a 1254px Darkroom render, 209 ms on a 6000x4000): no socket,
+  // no timer, no other chat moved meanwhile.
+  test.if(isDarwin)("a timer keeps firing while a large image is being resized", async () => {
+    const big = realPng(3000, 2000);
+    // The widest gap between two ticks, not their count: a sync sips between
+    // async file calls still lets a few ticks through, but holds the loop for
+    // almost the whole resize (measured 83 ms of 89 with spawnSync, 4 of 85 now).
+    const started = performance.now();
+    let last = started;
+    let maxGap = 0;
+    const timer = setInterval(() => {
+      const now = performance.now();
+      maxGap = Math.max(maxGap, now - last);
+      last = now;
+    }, 1);
+    try {
+      const outcome = await normalizeImage(big, "grande.png");
+      expect(outcome.kind).toBe("image");
+    } finally {
+      clearInterval(timer);
+    }
+    const elapsed = performance.now() - started;
+    expect(maxGap).toBeLessThan(elapsed / 2);
+  });
+});
+
+describe("an SVG never becomes an image block", () => {
+  // The API takes png, jpeg, gif and webp only: an `image/svg+xml` block from
+  // an MCP server was a 400 that took every image out of the history with it.
+  test("an SVG comes back as text that carries its markup, on every platform", async () => {
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="40"><text>Topics</text></svg>');
+    const outcome = await normalizeImage(svg, "mcp__design__logo");
+    expect(outcome.kind).toBe("text");
+    if (outcome.kind !== "text") return;
+    expect(outcome.text).toContain("mcp__design__logo");
+    expect(outcome.text).toContain("<text>Topics</text>");
+  });
+});
+
+describe("without sips (Windows, Linux) an image already within the limits goes out as it is", () => {
+  test("a small PNG passes as a PNG, byte for byte, with no resize", async () => {
+    const small = realPng(40, 30);
+    const outcome = await normalizeImage(small, "shot.png", "linux");
+    expect(outcome.kind).toBe("image");
+    if (outcome.kind !== "image") return;
+    expect(outcome.image.mediaType).toBe("image/png");
+    expect(outcome.image.data).toBe(small.toString("base64"));
+  });
+
+  test("an image over the pixel cap becomes text naming the file and its size", async () => {
+    const outcome = await normalizeImage(pngHeader(3000, 2000), "RAW/foto grande.png", "win32");
+    expect(outcome.kind).toBe("text");
+    if (outcome.kind !== "text") return;
+    expect(outcome.text).toContain("RAW/foto grande.png");
+    expect(outcome.text).toContain("3000x2000");
+  });
+
+  test("an image within the pixel cap but over the byte cap becomes text as well", async () => {
+    const heavy = Buffer.concat([pngHeader(1000, 1000), Buffer.alloc(4 * 1024 * 1024)]);
+    const outcome = await normalizeImage(heavy, "pesante.png", "linux");
+    expect(outcome.kind).toBe("text");
+    if (outcome.kind !== "text") return;
+    expect(outcome.text).toContain("pesante.png");
   });
 });

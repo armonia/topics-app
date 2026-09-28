@@ -9,7 +9,7 @@ import { rememberDraggedPane } from '@/lib/dragPayload';
 import { startDragPreview } from '@/lib/dragPreview';
 import { getProjectLabel } from '@/lib/buildSidebarItems';
 import { DND_TYPES } from '@/lib/dndTypes';
-import { useTopicLoading, useTopicAttentionFill, useSeenDwell } from '@/state/signals';
+import { useTopicLoading, useTopicBackgroundWork, useTopicAttentionFill, useSeenDwell } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { TopicSubline } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
@@ -130,6 +130,9 @@ export const TopicItem = memo(function TopicItem({
   // upstream prop needed; deduplicates the wiring across surfaces.
   const tr = useT();
   const isStreaming = useTopicLoading(topic.id);
+  // No turn open, but work its last turn left running: the same slot shows the
+  // grey glyph, and the row gets no Stop (that one is the composer's).
+  const inBackground = !!useTopicBackgroundWork(topic.id);
   /** Topics is holding a command of this chat stopped: the row frosts over. */
   const swapFreeze = useSwapFreeze({ topicId: topic.id });
   // Attention TIER — amber 'input' (a permission gate, act now) vs blue 'done'
@@ -496,7 +499,7 @@ export const TopicItem = memo(function TopicItem({
             <AppWindow size={12} />
           </span>
         )}
-        {!isStreaming && (
+        {!isStreaming && !inBackground && (
           <RelativeTime
             at={topic.updatedAt}
             className={cn('flex-shrink-0 text-mini tabular-nums', onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-tertiary')}
@@ -508,7 +511,7 @@ export const TopicItem = memo(function TopicItem({
             state of a status glyph. */}
         {/* Frozen: no working glyph, because a command Topics has stopped is
             not working. The words are on the second line (above). */}
-        {isStreaming && !swapFreeze && (
+        {(isStreaming || inBackground) && !swapFreeze && (
           <TopicStreamingSpinner
             topicId={topic.id}
             variant="labeled"
@@ -516,6 +519,7 @@ export const TopicItem = memo(function TopicItem({
             // La durata del turno la dice già `SessionActivity` sotto al nome. Qui
             // resta il solo campanello dello STALLO — vedi `quiet`.
             quiet
+            onFill={onFill}
             className="flex-shrink-0"
           />
         )}

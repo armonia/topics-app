@@ -37,7 +37,7 @@
  *
  * @covers LAYOUT-33
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { basename } from "node:path";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
@@ -168,6 +168,11 @@ async function armBusyChild(page: Page): Promise<void> {
       }),
     }),
   );
+  await seedInnerChat(page);
+}
+
+/** The project's inner-tab list in localStorage, so the folder has its child row. See `armBusyChild`. */
+async function seedInnerChat(page: Page): Promise<void> {
   await page.addInitScript(
     ([key, topicId]) => {
       localStorage.setItem(
@@ -177,6 +182,44 @@ async function armBusyChild(page: Page): Promise<void> {
     },
     [projectPanesKey(projectPath), childId],
   );
+}
+
+/**
+ * A second chat of the project, waiting on the work its closed turn left
+ * running, served as a `background` row of the status snapshot; `alsoStreaming`
+ * adds the first child answering. The sibling needs no inner tab: the folder's
+ * roll-up walks every chat of the project.
+ *
+ * CALL IT BEFORE `resetPaneStore`. `createTopic` opens the new chat as a
+ * top-level pane (`seedTopicIntoSidebar`), and a project-linked chat open at
+ * load becomes the project WINDOW, whose open pane auto-expands the folder: the
+ * shut folder this is meant to test would never be on screen. The reset that
+ * follows is the last write to the pane store before the page loads.
+ */
+async function armBackgroundSibling(page: Page, request: APIRequestContext) {
+  const sibling = await createTopic(request, `e2e-folder-bg-${TS}`, { projectPath: SEED_PATH });
+  const res = await request.get(`${E2E_BASE}/api/topics`, { ignoreHTTPSErrors: true });
+  const body = (await res.json()) as { topics: Record<string, { sessionKey?: string }> };
+  const siblingKey = body.topics?.[sibling.id]?.sessionKey ?? "";
+  if (!siblingKey) throw new Error("the sibling topic has no sessionKey");
+  const snapshot = { alsoStreaming: false };
+  await page.route("**/api/topics/streaming", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        sessions: [
+          ...(snapshot.alsoStreaming ? [{ topicId: childId, sessionKey: childSessionKey, state: "streaming" }] : []),
+          {
+            topicId: sibling.id, sessionKey: siblingKey, state: "background",
+            tasks: [{ type: "local_bash", description: "Monitor deploy" }], lastSignalAt: Date.now(),
+          },
+        ],
+      }),
+    }),
+  );
+  await seedInnerChat(page);
+  return { siblingId: sibling.id, snapshot };
 }
 
 /** The project HEADER row: the element that owns the chevron, the name, the
@@ -313,5 +356,53 @@ test.describe("Project folder loader", () => {
       "data-loader-state",
       "working",
     );
+  });
+
+  test("a chat waiting on background work: the shut folder draws the grey ring and no clock, and a real turn wins over it", async ({
+    page,
+    request,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "BGVIS-01" });
+    const { siblingId, snapshot } = await armBackgroundSibling(page, request);
+    try {
+      await resetPaneStore(request, []);
+      await goToApp(page);
+      const header = projectHeader(page);
+      await expect(header).toBeVisible({ timeout: 15_000 });
+      await expect(header.getByRole("button", { name: `Expand ${PROJECT_NAME}` })).toBeVisible();
+
+      // SHUT, only background work inside: the third state, and no running
+      // clock, because no turn is running.
+      await didascalia(page, "Cartella CHIUSA, solo lavoro in background: anello grigio, niente tempo vivo");
+      const rollupLoader = header.locator("[data-loader-state]");
+      await expect(rollupLoader).toHaveAttribute("data-loader-state", "background", { timeout: 15_000 });
+      await expect(header.getByTestId("project-elapsed")).toHaveCount(0);
+      await beat(page);
+
+      // A REAL TURN in the same folder wins: the next poll brings it.
+      snapshot.alsoStreaming = true;
+      await didascalia(page, "Un'altra chat risponde: vince il turno vero");
+      await expect(rollupLoader).toHaveAttribute("data-loader-state", "working", { timeout: 20_000 });
+      await beat(page);
+    } finally {
+      await deleteTopic(request, siblingId).catch(() => {});
+    }
+  });
+
+  test("the project TAB says the same while it is not the selected pane", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "BGVIS-01" });
+    const { siblingId } = await armBackgroundSibling(page, request);
+    try {
+      await resetPaneStore(request, [projectPaneId, outsiderId]);
+      await goToApp(page);
+      const projectTab = page.locator(`[data-pane-id="${projectPaneId}"]`);
+      const otherTab = page.locator(`[data-pane-id="${outsiderId}"]`);
+      await expect(otherTab).toBeVisible({ timeout: 15_000 });
+      await otherTab.click();
+      await expect(projectTab).toHaveAttribute("data-active", "false");
+      await expect(projectTab.locator("[data-loader-state]")).toHaveAttribute("data-loader-state", "background", { timeout: 15_000 });
+    } finally {
+      await deleteTopic(request, siblingId).catch(() => {});
+    }
   });
 });

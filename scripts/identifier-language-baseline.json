@@ -4819,7 +4819,6 @@
       "scritto"
     ],
     "server/services/task-diff-range.ts": [
-      "anc",
       "introducing"
     ],
     "server/services/task-dispatcher-cap-note.test.ts": [

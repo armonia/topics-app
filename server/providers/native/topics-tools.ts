@@ -58,7 +58,7 @@ export function inlineScreenshot(text: string): ToolResult["images"] {
     const mediaType = typeof body.format === "string" ? SCREENSHOT_MEDIA_TYPE[body.format] : undefined;
     if (typeof body.path !== "string" || !mediaType) return undefined;
     const data = readFileSync(body.path).toString("base64");
-    return [{ mediaType, data }];
+    return [{ mediaType, data, label: body.path }];
   } catch {
     // The path in the JSON does not exist, or the JSON itself is not what we
     // expect: the agent still gets the text response, just without the image.
