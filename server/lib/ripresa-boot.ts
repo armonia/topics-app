@@ -40,11 +40,11 @@
  *   · a cut by an outage (the API down, the ai-bridge daemon dead) only on the
  *     direct answer to the person's message (`outageCutNotResent`);
  *   · at most MAX_RESUME_ATTEMPTS times per MESSAGE (a resend that met the
- *     API still down spends none), counted along the chain
- *     of resends (`parent_id`) and not on the single row; the trace lives in
- *     the DB (`kind: 'ripreso'`, with the attempt number), not in memory,
- *     or two restarts in a row would resume the same turn twice. Once the
- *     cap is hit it is WRITTEN in the chat, with the retry button;
+ *     API still down spends none), counted per message in the DB
+ *     (`resend_counts`, lib/resend-count.ts) and not read off the thread; in
+ *     the DB and not in memory, or two restarts in a row would resume the
+ *     same turn twice. Once the cap is hit it is WRITTEN in the chat, with
+ *     the retry button;
  *   · solo l'ULTIMO turno della chat: più indietro non è «interrotto», è
  *     storia, e l'utente ci ha già parlato sopra;
  *   · solo se l'ultimo messaggio è dell'assistente. Se dopo c'è già scritto
@@ -84,6 +84,11 @@ export const FINESTRA_RIPRESA_MS = 24 * 60 * 60 * 1000;
  * resumed turn holding the next restart. A watcher restarting the server every
  * thirty seconds turns that into a loop that buys the same turn until the
  * thirty-minute window closes.
+ *
+ * And counted per MESSAGE, not read off the thread: the chain walk that
+ * replaced the per-row count stopped at the first row with no trace, and a
+ * sub-agent's report or a background notice under a resent answer is one. The
+ * count is a number in the DB (`resend_counts`, card 069f823e).
  *
  * Two: the resume itself, plus one automatic retry for the resend that got cut
  * (the topic:0299ac2d case, which a yes/no switch used to lose). A third cut
@@ -162,9 +167,9 @@ export interface RigaDaValutare {
   blocks: ContentBlock[] | null;
   timestampMs: number;
   /**
-   * Resends already spent on this chain, this row included: the highest
-   * `attempt` any `ripreso` block along `parent_id` carries. The caller walks
-   * the chain (`attemptsInChain`); the rule stays pure.
+   * Resends the message has already spent since it was last answered. The
+   * caller reads the count (`resendChainOf`, lib/resend-count.ts); the rule
+   * stays pure.
    */
   attempts: number;
   /** A turn is live on this chat right now (`ctx.isStreaming`). */
@@ -297,13 +302,14 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   // cap too: an answered chain gets no cap notice. A resumed row that is cut
   // again ends with its own verdict, so only the last one is read.
   if (r.blocks.slice(lastCut + 1).some(isProducedContent)) return "no";
-  // Resumed TOO MANY times, on the CHAIN. The trace is written BEFORE the
-  // resend, on purpose: written after, a resend that dies halfway would be
-  // retried at every boot forever. And it is a counter, not a switch: a resend
-  // that got CUT by the next restart must get one more try (topic:0299ac2d,
-  // 2026-08-29, where the switch left two chats stuck under a notice promising
-  // they would resume on their own). Past the cap the row is still an
-  // interruption of ours, so the answer is not silence: it is `capped`.
+  // Resumed TOO MANY times, per message. The count is written BEFORE the
+  // resend, with the trace, on purpose: written after, a resend that dies
+  // halfway would be retried at every boot forever. And it is a counter, not a
+  // switch: a resend that got CUT by the next restart must get one more try
+  // (topic:0299ac2d, 2026-08-29, where the switch left two chats stuck under a
+  // notice promising they would resume on their own). Past the cap the row is
+  // still an interruption of ours, so the answer is not silence: it is
+  // `capped`.
   if (r.attempts >= MAX_RESUME_ATTEMPTS) return "capped";
   return "resend";
 }
@@ -331,14 +337,6 @@ export function chatDaRiprendere(r: RigaDaValutare, oraMs: number): boolean {
   return resumeVerdict(r, oraMs) === "resend";
 }
 
-/** The resend number a `ripreso` block stands for. Rows written before the
- *  field existed carry one resend each, which is what they meant. */
-function attemptOf(b: ContentBlock): number {
-  if (b?.kind !== "ripreso") return 0;
-  const a = (b as { attempt?: unknown }).attempt;
-  return typeof a === "number" && a > 0 ? a : 1;
-}
-
 /**
  * A RESEND THAT MET THE API STILL DOWN SPENDS NO ATTEMPT (card e30f35e4).
  *
@@ -360,12 +358,6 @@ function probedApiStillDown(blocks: ContentBlock[] | null, rowStartMs: number, l
   return marked(0, cut) && !marked(cut + 1) && lastAnswerMs < rowStartMs;
 }
 
-/** The highest resend number among a row's blocks; 0 when it has none. */
-export function attemptsOnRow(blocks: ContentBlock[] | null | undefined): number {
-  if (!Array.isArray(blocks)) return 0;
-  return blocks.reduce((n, b) => Math.max(n, attemptOf(b)), 0);
-}
-
 /**
  * Il GIRO della ripresa. La REGOLA — chi merita di essere ripreso — sta sopra,
  * in `chatDaRiprendere`, e si prova senza toccare un database.
@@ -380,6 +372,7 @@ import { insertRestartNotification, restartNotificationFrame, threadChangedFrame
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isBackgroundNoticeRow, rowsBack } from "./background-notice";
 import { lastApiAnswerMs, providerHold } from "./provider-hold";
+import { attemptsInChain, attemptsOnRow, chatHasCounts, recordResend, resendChainOf, type ResendChain } from "./resend-count";
 import { providerHoldKey } from "../../shared/provider-hold";
 
 /** A chat's last row, as the sweep reads it. */
@@ -526,47 +519,26 @@ function cardHold(db: Pick<Database, "query">, topicId: string): { bound: boolea
   } catch { return { bound: false, landed: false, inProgress: false }; }
 }
 
-/** A chain longer than this is not a chain: `parent_id` is cyclic or corrupt. */
-const CHAIN_WALK_LIMIT = 64;
-
 /**
- * How many resends the chain ending at `ultimoId` has already spent.
+ * THE COUNT OF A MESSAGE THE TABLE HAS NO ROW FOR (`resend_counts`, migration
+ * 20260928170113): the resend number on the row judged, the banner a resend
+ * opened the answer with (the goal continuation's too, which resends through
+ * the same route and keeps no count here). A message the person wrote
+ * carries none, and starts from zero.
  *
- * Walks `parent_id` upwards and takes the highest `attempt` any `ripreso`
- * block carries. The chain is every row born of the same resent message: the
- * cut answers (each opens with the banner `chat.ts` pushes), the boot notices
- * that explain them (each gains the trace written before the resend), and the
- * resent user rows in between. It ends at the first assistant row that carries
- * no `ripreso` block at all, which is the turn before all this began, except
- * for the row being judged itself: a fresh boot notice has no trace yet, and
- * the answer it explains is one hop up.
+ * Every resend of this sweep writes its count in the transaction of its
+ * trace, so in a chat the table has never seen, the sweep's numbers on the
+ * rows were written before the table, by a chain in flight at deploy, and
+ * none of them may buy that chain more resends than main gave it. There the
+ * count is main's own, the walk up the thread (`attemptsInChain`), and its
+ * free probes, which nothing counted, are spent. In a chat the table has
+ * seen, the rows above belong to a counted chain, and a message with no count
+ * under them is a new one.
  */
-export function attemptsInChain(db: Pick<Database, "query">, sessionKey: string, ultimoId: string): number {
-  return walkChain(db, sessionKey, ultimoId).attempts;
-}
-
-/** The walk behind `attemptsInChain`, which also counts the resends made:
- *  the answer rows a resend opened, each led by the route's banner. */
-function walkChain(db: Pick<Database, "query">, sessionKey: string, ultimoId: string): { attempts: number; resends: number } {
-  let max = 0;
-  let resends = 0;
-  let id: string | null = ultimoId;
-  for (let hop = 0; id && hop < CHAIN_WALK_LIMIT; hop++) {
-    const row = db.query(
-      `SELECT role, blocks, parent_id FROM messages WHERE id = ? AND session_key = ?`,
-    ).get(id, sessionKey) as { role: string; blocks: unknown; parent_id: string | null } | undefined | null;
-    if (!row) break;
-    if (row.role === "assistant") {
-      let blocks: ContentBlock[] | null = null;
-      try { blocks = JSON.parse(decodeCol(row.blocks) ?? "null") as ContentBlock[] | null; } catch { blocks = null; }
-      const n = attemptsOnRow(blocks);
-      if (n === 0 && hop > 0) break;
-      max = Math.max(max, n);
-      if (blocks?.find((b) => b?.kind !== "woken")?.kind === "ripreso") resends++;
-    }
-    id = row.parent_id;
-  }
-  return { attempts: max, resends };
+function uncountedChain(db: Pick<Database, "query">, row: LastRow, blocks: ContentBlock[] | null, messageId: string): ResendChain {
+  if (chatHasCounts(db, row.sk)) return { messageId, attempts: attemptsOnRow(blocks), freeProbes: 0 };
+  const attempts = attemptsInChain(db, row.sk, row.id);
+  return { messageId, attempts, freeProbes: attempts > 0 ? MAX_FREE_PROBES : 0 };
 }
 
 /** La route della chat, iniettata: è la STESSA porta di un messaggio umano. */
@@ -659,9 +631,10 @@ export async function riprendiTurniInterrotti(
 ): Promise<void> {
   const responseCeilingMs = ceilings.responseMs ?? RESPONSE_CEILING_MS;
   const streamCeilingMs = ceilings.streamMs ?? STREAM_CEILING_MS;
+  // `chain`: the count once this resend is made, written with its trace.
   // `fresh`: the resend is traced on a notice this sweep just wrote, which the
   // open windows have not seen yet.
-  const candidati: Array<{ sessionKey: string; messaggio: string; idTurno: string; blocks: ContentBlock[]; attempt: number; fresh?: { topicId: string; text: string } }> = [];
+  const candidati: Array<{ sessionKey: string; messaggio: string; idTurno: string; blocks: ContentBlock[]; chain: ResendChain; fresh?: { topicId: string; text: string } }> = [];
   try {
     // L'ULTIMO messaggio di ogni chat, che è l'unico che possa essere
     // «interrotto»: più indietro è storia, e l'utente ci ha già parlato sopra.
@@ -685,10 +658,15 @@ export async function riprendiTurniInterrotti(
       if (r !== found) {
         try { blocks = JSON.parse(decodeCol(r.blocks) ?? "null") as ContentBlock[] | null; } catch { continue; }
       }
-      const chain = walkChain(ctx.db, r.sk, r.id);
-      const attempts = chain.attempts;
       const topic = ctx.getTopicBySessionKey(r.sk);
       if (!topic || topic.archived) continue;
+      // The message a resend sends, which keys its count (lib/resend-count.ts).
+      const lastUser = ctx.db.query(
+        `SELECT id, content FROM messages WHERE session_key = ? AND role = 'user' ORDER BY rowid DESC LIMIT 1`,
+      ).get(r.sk) as { id: string; content: unknown } | undefined | null;
+      if (!lastUser) continue;
+      const chain = resendChainOf(ctx.db, r.sk, lastUser.id) ?? uncountedChain(ctx.db, r, blocks, lastUser.id);
+      const attempts = chain.attempts;
       const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false, inProgress: false };
       const row: RigaDaValutare = {
         sessionKey: r.sk, ruolo: r.ruolo, blocks, timestampMs: Date.parse(r.ts), attempts,
@@ -801,15 +779,13 @@ export async function riprendiTurniInterrotti(
       // Il messaggio da rimandare è l'ultimo dell'utente: è ciò che farebbe il
       // bottone «Riprova» (`handleRetry`, ChatPane), e la stessa cosa fatta
       // senza aspettare che qualcuno se ne accorga.
-      const dom = ctx.db.query(
-        `SELECT content FROM messages WHERE session_key = ? AND role = 'user'
-          ORDER BY rowid DESC LIMIT 1`,
-      ).get(r.sk) as { content: unknown } | undefined;
-      const messaggio = (decodeCol(dom?.content) ?? "").trim();
+      const messaggio = (decodeCol(lastUser.content) ?? "").trim();
       if (!messaggio) continue;
-      const free = chain.resends - attempts < MAX_FREE_PROBES && probedApiStillDown(blocks, row.timestampMs, lastApiAnswerMs());
-      const attempt = free ? attempts : attempts + 1;
-      candidati.push({ sessionKey: r.sk, messaggio, idTurno: resendRowId, blocks: rowBlocks, attempt, fresh });
+      const free = chain.freeProbes < MAX_FREE_PROBES && probedApiStillDown(blocks, row.timestampMs, lastApiAnswerMs());
+      const counted: ResendChain = free
+        ? { ...chain, freeProbes: chain.freeProbes + 1 }
+        : { ...chain, attempts: attempts + 1 };
+      candidati.push({ sessionKey: r.sk, messaggio, idTurno: resendRowId, blocks: rowBlocks, chain: counted, fresh });
     }
   } catch (err) {
     console.warn("[ripresa] non riesco a cercare i turni interrotti:", err);
@@ -837,13 +813,17 @@ export async function riprendiTurniInterrotti(
     // più danno del guasto che cura.
     //
     // The trace carries the resend NUMBER, and so does the banner the route
-    // pushes on the answer: it is how the boot after this one, finding that
-    // answer cut in turn, knows the chain is on its second try and not its
-    // first.
+    // pushes on the answer, for the chat to read. The count the next sweep
+    // reads is `resend_counts` (lib/resend-count.ts), written in the same
+    // transaction: a trace whose count were lost would let that sweep resend
+    // from the count before it.
     try {
-      const conTraccia: ContentBlock[] = [...c.blocks, { kind: "ripreso", attempt: c.attempt }];
-      ctx.db.prepare(`UPDATE messages SET blocks = ? WHERE id = ?`)
-        .run(encodeCol(JSON.stringify(conTraccia)) ?? null, c.idTurno);
+      const conTraccia: ContentBlock[] = [...c.blocks, { kind: "ripreso", attempt: c.chain.attempts }];
+      ctx.db.transaction(() => {
+        ctx.db.prepare(`UPDATE messages SET blocks = ? WHERE id = ?`)
+          .run(encodeCol(JSON.stringify(conTraccia)) ?? null, c.idTurno);
+        recordResend(ctx.db, c.sessionKey, c.chain);
+      })();
       // With its trace, as the row now is, and before the resend's own frames:
       // after them it would land under the answer's live bubble.
       if (c.fresh) ctx.broadcast?.(restartNotificationFrame(c.fresh.topicId, c.sessionKey, c.idTurno, c.fresh.text, conTraccia));
@@ -860,14 +840,16 @@ export async function riprendiTurniInterrotti(
     // route never came back. Reading the log could not tell them apart, so the
     // hunt had to start from the source. With this line the next occurrence
     // says which of the two it is, before anyone opens an editor.
-    console.log(`[ripresa] ${c.sessionKey}: rimando il messaggio alla route della chat (attempt ${c.attempt} di ${MAX_RESUME_ATTEMPTS})`);
+    console.log(`[ripresa] ${c.sessionKey}: rimando il messaggio alla route della chat (attempt ${c.chain.attempts} di ${MAX_RESUME_ATTEMPTS})`);
     let resumed = false;
     try {
       const url = new URL("http://localhost/api/chat");
       const body = JSON.stringify({
         sessionKey: c.sessionKey,
         messages: [{ role: "user", content: c.messaggio }],
-        ripresa: c.attempt,
+        ripresa: c.chain.attempts,
+        // The key of the count: the route writes its copy of the message on it.
+        resendOf: c.chain.messageId,
       });
       const answered = await withDeadline(
         Promise.resolve(router(

@@ -10,10 +10,12 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
   chatDaRiprendere, FINESTRA_RIPRESA_MS, MAX_FREE_PROBES, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti,
-  RESPONSE_CEILING_MS, STREAM_CEILING_MS, RESUME_CAP_MARKER, attemptsInChain, attemptsOnRow,
+  RESPONSE_CEILING_MS, STREAM_CEILING_MS, RESUME_CAP_MARKER,
   resumeVerdict, resumeAttemptOf, type RigaDaValutare, USER_TAIL_GRACE_MS, UNANSWERED_NOTICE,
 } from "./ripresa-boot";
 import { Database } from "bun:sqlite";
+import { RESEND_COUNTS_DDL } from "../db/test-schema";
+import { attemptsOnRow, noteResendCopy, recordResend } from "./resend-count";
 import { insertRestartNotification, runBootPartialSweep } from "./boot-partial-sweep";
 import { eCartelloDiInterruzione } from "./cancelled-notice";
 import { decodeCol } from "../../shared/message-blob";
@@ -268,6 +270,7 @@ describe("una route che non risponde non pianta il boot", () => {
       id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
       partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER
     )`);
+    db.run(RESEND_COUNTS_DDL);
     db.run(
       "INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, branch_index) VALUES ('m1','topic:x','user','misura la ripresa',0,?,0,0)",
       [nowIso()],
@@ -400,9 +403,10 @@ describe("la catena dei riavvii ha un tetto", () => {
     const db = new Database(":memory:");
     db.run(`CREATE TABLE messages (
       id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
-      partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER
+      partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER, end_reason TEXT, latency_ms INTEGER
     )`);
     db.run("CREATE TABLE compaction_markers (id TEXT PRIMARY KEY, session_key TEXT, after_message_id TEXT, trigger TEXT)");
+    db.run(RESEND_COUNTS_DDL);
     db.run(
       "INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, branch_index) VALUES ('u0','topic:x','user',?,0,?,0,0)",
       [MESSAGE, new Date().toISOString()],
@@ -425,9 +429,10 @@ describe("la catena dei riavvii ha un tetto", () => {
   );
 
   /** The chat route, as far as the resume can see it: it deposits the resent
-   *  user message and an answer carrying the same banner `chat.ts` pushes,
-   *  then returns a stream that closes. The answer will be "cut" by the test
-   *  calling `serverDiedUnderTheTurn` afterwards. */
+   *  user message, links it to its count as `chat.ts` does, and an answer
+   *  carrying the same banner `chat.ts` pushes, then returns a stream that
+   *  closes. The answer will be "cut" by the test calling
+   *  `serverDiedUnderTheTurn` afterwards. */
   function chatRoute(db: Database, calls: Array<Record<string, unknown>>): Parameters<typeof riprendiTurniInterrotti>[1] {
     return async (req) => {
       const body = await req.json() as Record<string, unknown>;
@@ -439,6 +444,7 @@ describe("la catena dei riavvii ha un tetto", () => {
         "INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,?,'user',?,0,?,?,?,0)",
         [`u${n}`, "topic:x", MESSAGE, new Date().toISOString(), order + 1, parent.id],
       );
+      if (typeof body.resendOf === "string") noteResendCopy(db, "topic:x", body.resendOf, `u${n}`);
       const banner: ContentBlock = typeof body.ripresa === "number"
         ? ({ kind: "ripreso", attempt: body.ripresa } as ContentBlock)
         : { kind: "ripreso" };
@@ -523,7 +529,7 @@ describe("la catena dei riavvii ha un tetto", () => {
    */
   test("the person deletes the restart notice: the row the boot closed, last again, is not resent", async () => {
     const db = freshDb();
-    for (const col of ["streamed_at", "thinking", "tool_calls", "end_reason"]) db.run(`ALTER TABLE messages ADD COLUMN ${col} TEXT`);
+    for (const col of ["streamed_at", "thinking", "tool_calls"]) db.run(`ALTER TABLE messages ADD COLUMN ${col} TEXT`);
     const sentAt = new Date(Date.now() - 5 * 60_000).toISOString();
     db.run("UPDATE messages SET timestamp = ? WHERE id = 'u0'", [sentAt]);
     db.run(
@@ -642,6 +648,9 @@ describe("la catena dei riavvii ha un tetto", () => {
       );
       row.run("a-cut", "assistant", "", JSON.stringify([{ kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } }, cut(startedAt), { kind: "ripreso", attempt: 1 }]), startedAt, 1, "u0");
       row.run("u-resent", "user", MESSAGE, null, startedAt, 2, "a-cut");
+      // What the first resend left: its count, and the copy the route wrote.
+      recordResend(db, "topic:x", { messageId: "u0", attempts: 1, freeProbes: 0 });
+      noteResendCopy(db, "topic:x", "u0", "u-resent");
       if (answered) liftApiDownHold();
       row.run("a-probe", "assistant", "Request timed out", JSON.stringify([{ kind: "ripreso", attempt: 1 }, { kind: "text", text: "Request timed out" }, cut(new Date().toISOString()), ...(traced ? [{ kind: "ripreso", attempt: 1 }] : [])]), startedAt, 3, "u-resent");
       const calls: Array<Record<string, unknown>> = [];
@@ -656,25 +665,27 @@ describe("la catena dei riavvii ha un tetto", () => {
    * 24-hour window moves with the chain: a probe failing on one chat only, or
    * after a reload that forgot the last answer, resent the message about once
    * an hour for good, each probe reopening the hold that stops every chat.
+   * The ceiling reads the count, not the thread.
    */
   test("past MAX_FREE_PROBES a probe into an API still down spends its attempt", async () => {
-    clearProviderHold(); resetProviderHoldStore();
-    const db = freshDb();
-    const at = new Date(Date.now() - 30_000).toISOString();
-    const cut = { kind: "error", text: "Turno interrotto: l'API di Claude non rispondeva più.", cause: "api-unavailable", at };
-    const row = db.prepare(
-      "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,'topic:x',?,?,?,0,?,?,?,0)",
-    );
-    // The first resend counted (attempt 1); the eight after it were free.
-    row.run("a0", "assistant", "", JSON.stringify([cut, { kind: "ripreso", attempt: 1 }]), at, 1, "u0");
-    for (let i = 1; i <= MAX_FREE_PROBES + 1; i++) {
-      row.run(`u-${i}`, "user", MESSAGE, null, at, 2 * i, i === 1 ? "a0" : `a-${i - 1}`);
-      const trace = i <= MAX_FREE_PROBES ? [{ kind: "ripreso", attempt: 1 }] : [];
-      row.run(`a-${i}`, "assistant", "", JSON.stringify([{ kind: "ripreso", attempt: 1 }, cut, ...trace]), at, 2 * i + 1, `u-${i}`);
+    for (const [probes, expected] of [[MAX_FREE_PROBES - 1, 1], [MAX_FREE_PROBES, 2]] as const) {
+      clearProviderHold(); resetProviderHoldStore();
+      const db = freshDb();
+      const at = new Date(Date.now() - 30_000).toISOString();
+      const cut = { kind: "error", text: "Turno interrotto: l'API di Claude non rispondeva più.", cause: "api-unavailable", at };
+      const row = db.prepare(
+        "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,'topic:x',?,?,?,0,?,?,?,0)",
+      );
+      // The first resend counted; `probes` resends after it were free, the last one cut like the rest.
+      row.run("a0", "assistant", "", JSON.stringify([cut, { kind: "ripreso", attempt: 1 }]), at, 1, "u0");
+      row.run("u-last", "user", MESSAGE, null, at, 2, "a0");
+      row.run("a-last", "assistant", "", JSON.stringify([{ kind: "ripreso", attempt: 1 }, cut]), at, 3, "u-last");
+      recordResend(db, "topic:x", { messageId: "u0", attempts: 1, freeProbes: probes });
+      noteResendCopy(db, "topic:x", "u0", "u-last");
+      const calls: Array<Record<string, unknown>> = [];
+      await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
+      expect(calls.map((c) => c.ripresa), `${probes} free probes before`).toEqual([expected]);
     }
-    const calls: Array<Record<string, unknown>> = [];
-    await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
-    expect(calls.map((c) => c.ripresa)).toEqual([2]);
   });
 
   test("a woken turn cut by an outage is left alone: the person's last message already had its answer", async () => {
@@ -702,42 +713,61 @@ describe("la catena dei riavvii ha un tetto", () => {
   });
 
   /**
-   * The walk itself, on the two shapes a cut resend leaves behind.
-   *
-   * Graceful shutdown writes the verdict ON the cut answer (`avvisoPerTurno`),
-   * so the row being judged already carries the banner. A SIGKILL leaves the
-   * answer partial, and the next boot's sweep explains it with a NEW notice
-   * row that carries nothing: the banner is one hop up. Both must count the
-   * same, and a turn the user asked for afresh must count as zero.
+   * A CHAIN IN FLIGHT BEFORE THE COUNT EXISTED (migration 20260928170113). Its
+   * rows carry resend numbers the table never saw, and none of them may buy
+   * the chain more resends than main gave it. The sweep reads the number as
+   * main's walk did, up the thread. A graceful shutdown leaves the number on
+   * the cut answer; a hard kill leaves a fresh notice under the answer that
+   * carries it; a copy of the message left unanswered hangs from the cut its
+   * resend was traced on; a resend's answer a reattach rebuilt without its
+   * banner hangs from the copy, two rows under that cut. Each goes on from
+   * where it was, never from zero, and its free probes,
+   * which nothing counted, are spent: a probe into an API still down spends
+   * its attempt. In a chat the table has seen, the numbers on the rows are
+   * the table's: a message nothing resent starts from zero under any of them.
    */
-  test("la catena si legge lungo parent_id, in entrambe le forme del taglio", () => {
-    const db = freshDb();
-    const insertRow = (id: string, role: string, blocks: ContentBlock[] | null, parent: string | null) => db.run(
-      "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,?,?,?,?,0,?,?,?,0)",
-      [id, "topic:x", role, "", blocks ? JSON.stringify(blocks) : null, new Date().toISOString(), Number(id.replace(/\D/g, "")) || 1, parent],
-    );
+  test("a chain in flight before the count existed goes on from the number its rows carry", async () => {
     const tool = (): ContentBlock => ({ kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } }) as ContentBlock;
-    // Boot 1 explained a0 with a notice n0, then resumed (trace #1 on n0).
-    insertRow("a0", "assistant", [tool()], "u0");
-    insertRow("n0", "assistant", [interrotto, { kind: "ripreso", attempt: 1 }], "a0");
-    insertRow("u1", "user", null, "n0");
-    // Shape A: the resumed answer, cut gracefully: verdict on the row itself.
-    insertRow("a1", "assistant", [{ kind: "ripreso", attempt: 1 }, tool(), interrotto], "u1");
-    expect(attemptsInChain(db, "topic:x", "a1")).toBe(1);
-    // Boot 2 resumed it (trace #2 on a1), and the answer was SIGKILLed:
-    // shape B, the sweep's fresh notice n2 with nothing on it.
-    db.run("UPDATE messages SET blocks = ? WHERE id = 'a1'", [JSON.stringify([{ kind: "ripreso", attempt: 1 }, tool(), interrotto, { kind: "ripreso", attempt: 2 }])]);
-    insertRow("u2", "user", null, "a1");
-    insertRow("a2", "assistant", [{ kind: "ripreso", attempt: 2 }, tool()], "u2");
-    insertRow("n2", "assistant", [interrotto], "a2");
-    expect(attemptsInChain(db, "topic:x", "n2")).toBe(2);
-    // A new message from the user after all that: its own turn, its own chain.
-    insertRow("u3", "user", null, "n2");
-    insertRow("a3", "assistant", [tool()], "u3");
-    insertRow("n3", "assistant", [interrotto], "a3");
-    expect(attemptsInChain(db, "topic:x", "n3")).toBe(0);
-    // A row nobody has resumed yet, with the very first notice: zero.
-    expect(attemptsInChain(db, "topic:x", "a0")).toBe(0);
+    const apiCut = { kind: "error", text: "Turno interrotto: l'API di Claude non rispondeva più.", cause: "api-unavailable", at: new Date(Date.now() - 30_000).toISOString() } as ContentBlock;
+    const shapes = ["graceful", "hard kill", "copy left unanswered", "reattached without the banner", "api still down", "new message, chat the count has seen"] as const;
+    const resent: Record<string, unknown[]> = {};
+    for (const shape of shapes) {
+      clearProviderHold(); resetProviderHoldStore();
+      const db = freshDb();
+      const insertRow = (id: string, role: string, blocks: ContentBlock[] | null, parent: string, agoMs = 30_000) => db.run(
+        "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,?,?,?,?,0,?,?,?,0)",
+        [id, "topic:x", role, role === "user" ? MESSAGE : "", blocks ? JSON.stringify(blocks) : null, new Date(Date.now() - agoMs).toISOString(), Number(id.replace(/\D/g, "")), parent],
+      );
+      const cut = shape === "api still down" ? apiCut : interrotto;
+      insertRow("a1", "assistant", [tool(), cut, { kind: "ripreso", attempt: 1 }], "u0");
+      insertRow("u2", "user", null, "a1");
+      insertRow("a3", "assistant", [{ kind: "ripreso", attempt: 1 }, tool(), cut, { kind: "ripreso", attempt: 2 }], "u2");
+      insertRow("u4", "user", null, "a3");
+      if (shape === "hard kill") {
+        insertRow("a5", "assistant", [{ kind: "ripreso", attempt: 2 }, tool()], "u4");
+        insertRow("n6", "assistant", [interrotto], "a5");
+      } else if (shape === "copy left unanswered") {
+        insertRow("a5", "assistant", [{ kind: "ripreso", attempt: 2 }, tool(), cut, { kind: "ripreso", attempt: 3 }], "u4");
+        insertRow("u6", "user", null, "a5", 5 * 60_000);
+      } else if (shape === "reattached without the banner") {
+        insertRow("a5", "assistant", [tool(), cut], "u4");
+      } else if (shape === "new message, chat the count has seen") {
+        recordResend(db, "topic:x", { messageId: "u0", attempts: 2, freeProbes: 0 });
+        noteResendCopy(db, "topic:x", "u0", "u4");
+        insertRow("a5", "assistant", [{ kind: "ripreso", attempt: 2 }, tool(), cut], "u4");
+        insertRow("u6", "user", null, "a5", 5 * 60_000);
+      } else {
+        insertRow("a5", "assistant", [{ kind: "ripreso", attempt: 2 }, tool(), cut], "u4");
+      }
+      const calls: Array<Record<string, unknown>> = [];
+      await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
+      resent[shape] = calls.map((c) => c.ripresa);
+    }
+    resetProviderHoldStore();
+    expect(resent).toEqual({
+      "graceful": [3], "hard kill": [3], "copy left unanswered": [4], "reattached without the banner": [3], "api still down": [3],
+      "new message, chat the count has seen": [1],
+    });
   });
 });
 
@@ -761,6 +791,7 @@ describe("i rimandi partono insieme, non in fila", () => {
       id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
       partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER
     )`);
+    db.run(RESEND_COUNTS_DDL);
     let order = 0;
     for (const sk of ["topic:uno", "topic:due"]) {
       db.run(

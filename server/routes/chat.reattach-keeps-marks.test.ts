@@ -22,6 +22,7 @@ import { createChatRouter } from "./chat";
 import { runBootPartialSweep, type PartialSweepDb } from "../lib/boot-partial-sweep";
 import { endReattachLeg } from "../lib/closed-outside";
 import { resumeVerdict, riprendiTurniInterrotti } from "../lib/ripresa-boot";
+import { noteResendCopy, recordResend } from "../lib/resend-count";
 import { outageNoticeResumes } from "../lib/cancelled-notice";
 import { clearProviderHold, resetProviderHoldStore } from "../lib/provider-hold";
 import { isRedoneAnswer, turnIsOnlyError } from "../../client/src/components/Chat/turnError";
@@ -137,11 +138,13 @@ describe("a free probe reattached after a restart stays free", () => {
   test("cut again by the API still down, it keeps its leading banner: the sweep resends it without spending an attempt, and the chat shows the redone answer", async () => {
     const sk = topic("reattach-probe");
     const cut = (at: string) => ({ kind: "error", text: "Turno interrotto: l'API di Claude non rispondeva più.", cause: "api-unavailable", at }) as ContentBlock;
-    ctx.appendLocalMessage(sk, "user", "Misura la catena");
-    // The first cut, traced by the sweep that resent it (attempt 1, counted).
+    const message = ctx.appendLocalMessage(sk, "user", "Misura la catena");
+    // The first cut, traced by the sweep that resent it (attempt 1, counted),
+    // and the copy of the message the resend wrote, linked to its count.
     const cutRow = ctx.createPartialMessage(sk, "assistant");
     ctx.updateLastMessage(sk, { content: "", blocks: [cut(new Date(Date.now() - 60_000).toISOString()), { kind: "ripreso", attempt: 1 }], partial: undefined, streamedAt: undefined, latencyMs: 10, endReason: "done" }, { rowId: cutRow.id });
-    ctx.appendLocalMessage(sk, "user", "Misura la catena");
+    recordResend(ctx.db, sk, { messageId: message.id, attempts: 1, freeProbes: 0 });
+    noteResendCopy(ctx.db, sk, message.id, ctx.appendLocalMessage(sk, "user", "Misura la catena").id);
     // The resend is the probe: the route's banner is on its row, its CLI retries into the blackout.
     const probe = ctx.createPartialMessage(sk, "assistant");
     ctx.updateLastMessage(sk, { blocks: [{ kind: "ripreso", attempt: 1 }] }, { rowId: probe.id });

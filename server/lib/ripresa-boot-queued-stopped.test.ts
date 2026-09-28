@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
-  MAX_RESUME_ATTEMPTS, RESUME_CAP_MARKER, UNANSWERED_NOTICE, attemptsOnRow, riprendiTurniInterrotti,
+  MAX_RESUME_ATTEMPTS, RESUME_CAP_MARKER, UNANSWERED_NOTICE, riprendiTurniInterrotti,
   resumeVerdict,
 } from "./ripresa-boot";
 // The notice builders are new: reached through the namespace so this file still
@@ -25,6 +25,8 @@ import { logStreamAborted } from "../db/activity-log";
 // `logStopPressed` is new: through the namespace, like the builders above.
 import * as activityLog from "../db/activity-log";
 import { decodeCol } from "../../shared/message-blob";
+import { RESEND_COUNTS_DDL } from "../db/test-schema";
+import { attemptsOnRow, noteResendCopy, recordResend } from "./resend-count";
 import { recordTurnEnd, resetTurnEndRegistry } from "../providers/turn-end-registry";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import type { ContentBlock } from "../types";
@@ -183,8 +185,10 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
     const db = new Database(":memory:");
     db.run(`CREATE TABLE messages (
       id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
-      partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER
+      partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER, end_reason TEXT, latency_ms INTEGER
     )`);
+    // The count of the resends (lib/resend-count.ts).
+    db.run(RESEND_COUNTS_DDL);
     // The columns of migration 001 the sweep reads.
     db.run(`CREATE TABLE activity_log (
       id TEXT PRIMARY KEY, timestamp TEXT NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL, session_key TEXT
@@ -471,15 +475,22 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
     expect(eCartelloDiInterruzione(notice.content)).toBe(true);
   });
 
-  const capped = (cut: ContentBlock, agoMs = 9 * 60_000) => () => chatDb([
+  /** The count a chain leaves once it has spent its attempts, `copy` the last resend's copy of the message. */
+  const spent = (db: Database, copy?: string) => {
+    recordResend(db, SK, { messageId: "u0", attempts: MAX_RESUME_ATTEMPTS, freeProbes: 0 });
+    if (copy) noteResendCopy(db, SK, "u0", copy);
+    return db;
+  };
+  const capped = (cut: ContentBlock, agoMs = 9 * 60_000) => () => spent(chatDb([
     { id: "u0", role: "user", agoMs: 10 * 60_000 },
     { id: "a0", role: "assistant", agoMs, blocks: [{ kind: "ripreso", attempt: MAX_RESUME_ATTEMPTS } as ContentBlock, proseBlock, cut], parent: "u0" },
-  ]);
-  const cappedTail = () => chatDb([
+  ]));
+  // The last resend's copy of the message, left unanswered.
+  const cappedTail = () => spent(chatDb([
     { id: "u0", role: "user", agoMs: 10 * 60_000 },
     { id: "a0", role: "assistant", agoMs: 9 * 60_000, blocks: [{ kind: "ripreso", attempt: MAX_RESUME_ATTEMPTS } as ContentBlock, proseBlock, watchdogCut], parent: "u0" },
     { id: "u1", role: "user", agoMs: 5 * 60_000, parent: "a0" },
-  ]);
+  ]), "u1");
   const EARLY_BOOT = () => Date.now() - HOUR;
   const LATE_BOOT = () => Date.now();
 

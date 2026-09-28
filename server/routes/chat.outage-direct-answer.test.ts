@@ -22,8 +22,14 @@
  * watcher's `deliverExit`), and every verdict is the real resume sweep's. A
  * resend of the chain goes back through the real chat route, so each link
  * opens with the banner the route writes. No block is written by hand.
+ *
+ * The chain's resends are a count per message (`resend_counts`, card
+ * 069f823e), not a reading of the thread: the service rows that land under a
+ * resent answer (a sub-agent's report, a background notice) do not reset it, a
+ * new message the person writes starts its own, and so does whatever is cut
+ * after the chain was answered.
  */
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createChatRouter } from "./chat";
@@ -33,10 +39,13 @@ import { _resetTurnBodyFlushers } from "../lib/turn-body-flush";
 import { runBootPartialSweep, type PartialSweepDb } from "../lib/boot-partial-sweep";
 import { endReattachLeg, finalizeStaleRow } from "../lib/closed-outside";
 import { INTERRUPTED_MARKER } from "../lib/stale-stream-sweep";
-import { MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti } from "../lib/ripresa-boot";
+import { MAX_FREE_PROBES, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti } from "../lib/ripresa-boot";
+import { postBackgroundNotice } from "../lib/background-notice";
 import { outageNoticeResumes } from "../lib/cancelled-notice";
 import { clearProviderHold, resetProviderHoldStore } from "../lib/provider-hold";
 import { noteApiHealth } from "../providers/claude/api-outage";
+import { cancelled } from "../providers/stop-reason";
+import { TopicsRoutingIncompatibleError } from "../providers/resolve-topic-provider";
 import type { AIProvider, StreamHandler } from "../providers/types";
 import type { AppContext, ContentBlock, Topic } from "../types";
 
@@ -56,9 +65,10 @@ const MESSAGE = "Lancia il build e avvisami";
 const CAUSES = ["api-unavailable", "broker-died"] as const;
 type Outage = (typeof CAUSES)[number];
 
-function topic(tid: string): string {
+/** `pinned: false`: the chat on the machine's default (the picker's PATCH), which the route resolves after writing the message. */
+function topic(tid: string, pinned = true): string {
   const now = new Date().toISOString();
-  ctx.saveSingleTopic({ id: tid, name: tid, slug: tid, parentId: null, links: [], sessionKey: `topic:${tid}`, color: "#aabbcc", icon: "chat", createdAt: now, updatedAt: now, archived: false, provider: "claude-code" } as Topic);
+  ctx.saveSingleTopic({ id: tid, name: tid, slug: tid, parentId: null, links: [], sessionKey: `topic:${tid}`, color: "#aabbcc", icon: "chat", createdAt: now, updatedAt: now, archived: false, provider: pinned ? "claude-code" : null } as Topic);
   return `topic:${tid}`;
 }
 
@@ -84,15 +94,21 @@ const provider = {
   complete: async () => ({ content: "Build lanciato di nuovo: ti avviso quando finisce." }),
 } as unknown as AIProvider;
 
-async function post(body: Record<string, unknown>): Promise<Response> {
+/** The real chat route, with `deps` over the test's own. */
+async function route(body: Record<string, unknown>, deps: Record<string, unknown> = {}): Promise<Response> {
   const chat = createChatRouter(ctx, {
     resolveProvider: () => provider, resolveProviderByName: () => provider,
     detectLocalhostAutoNav: () => {}, bindTopicToProject: () => {}, resolveProjectRef: () => null, getProjectIdForTopic: () => null,
     getWorkspaceProjects: () => [], autoBindProject: () => {}, watchSessionForSubagents: () => {}, updateUnreadCount: () => {},
     browserNavigatedTopics: new Set<string>(), WORKSPACE_DIR: join(ROOT, "ws"),
+    ...deps,
   } as never);
   const url = new URL("http://topics.test/api/chat");
-  const resp = (await chat(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: "claude-code", ...body }) }), url, url.pathname, "POST"))!;
+  return (await chat(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), url, url.pathname, "POST"))!;
+}
+
+async function post(body: Record<string, unknown>): Promise<Response> {
+  const resp = await route({ provider: "claude-code", ...body });
   expect(resp.status).toBe(200);
   return resp;
 }
@@ -130,11 +146,11 @@ async function open(sk: string, body: Record<string, unknown>, live: (h: StreamH
   };
 }
 
-/** A save under server/ reloads the server: the old process's streams and flushers are gone, the child lives on. */
-function reload(sk: string): void {
+/** A save under server/ reloads the server: the old process's streams and flushers are gone, the child lives on (or, on a hard kill, dies with it). */
+function reload(sk: string, child: "alive" | "dead" = "alive"): void {
   _resetTurnBodyFlushers();
   ctx.activeStreams.delete(sk);
-  runBootPartialSweep(ctx.db as unknown as PartialSweepDb, { listConfirmed: true, liveSessions: new Set([sk]) });
+  runBootPartialSweep(ctx.db as unknown as PartialSweepDb, { listConfirmed: true, liveSessions: new Set(child === "alive" ? [sk] : []) });
 }
 
 /** A reattach leg through the real route, read to its end, then ended as server.ts ends it (broker idle). */
@@ -156,7 +172,16 @@ const promises = (rowId: string) => outageNoticeResumes(`⚠️ ${lastError(ctx.
 
 /** The resends a sweep's route got for `sk`. With `through`, each goes on through the real chat route, and its turn stays live in `opened`. */
 const live: Response[] = [];
-async function resumeSweep(sk: string, opts: { through?: boolean } = {}): Promise<unknown[]> {
+// A turn a test leaves open (a hard kill, a failed assertion) is not the next test's to drain.
+afterEach(async () => {
+  for (const resp of live.splice(0)) await resp.body?.cancel().catch(() => {});
+});
+/**
+ * With `refused`, each goes on through the real chat route, which writes its
+ * copy of the message and then refuses the turn: a topic with no provider
+ * pinned whose routing cannot reach it (AICTRL-01, the 409 after the message).
+ */
+async function resumeSweep(sk: string, opts: { through?: boolean; refused?: boolean } = {}): Promise<unknown[]> {
   // The hold only: the store also keeps when the API last answered, which a
   // resend into an API still down reads to spend no attempt.
   clearProviderHold();
@@ -169,11 +194,13 @@ async function resumeSweep(sk: string, opts: { through?: boolean } = {}): Promis
     if (body.sessionKey === sk) {
       resent.push(body.ripresa);
       if (opts.through) { live.push(await post(body)); await tick(20); }
+      if (opts.refused) expect((await route(body, { resolveProvider: refuseTurn })).status).toBe(409);
     }
     return new Response(new ReadableStream({ start(c) { c.close(); } }), { status: 200, headers: { "Content-Type": "text/event-stream" } });
   });
   return resent;
 }
+const refuseTurn = () => { throw new TopicsRoutingIncompatibleError("claude-code", "routing on, provider not reachable through it"); };
 
 /** The resent turn meets the API (its first words lift the outage), then works on. */
 const resentTurn = (extra: (h: StreamHandler) => void = () => {}) => (h: StreamHandler) => {
@@ -443,4 +470,292 @@ describe("the late-answer lane writes the same promise", () => {
       expect(await resumeSweep(sk)).toEqual(report ? [] : [1]);
     });
   }
+});
+
+const capNotice = (sk: string) => ctx.loadLocalMessages(sk).at(-1)!.content;
+const COUNTED = Array.from({ length: MAX_RESUME_ATTEMPTS }, (_, i) => i + 1);
+const BETWEEN = ["nothing", "report", "background-notice"] as const;
+/** A service row under the chat's last row: a sub-agent's report, or a background notice. */
+function lands(sk: string, row: (typeof BETWEEN)[number]): void {
+  if (row === "report") reportLands(sk);
+  if (row === "background-notice") postBackgroundNotice(ctx as never, { sessionKey: sk, topicId: sk.slice(6) }, { kind: "background-notice", event: "deferred", change: "model" } as never);
+}
+
+/** The message cut by the daemon dying, resent `k` times through the real route, each resend cut the same way but the last, which ends as `last` says. */
+async function resentTimes(sk: string, k: number, last: "cut" | "answered"): Promise<void> {
+  await answered(sk, "Ciao", "Ciao, dimmi.");
+  const first = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => h.onTextDelta("Lavoro", "Lavoro"));
+  outageEnd("broker-died")(first.route);
+  await drain(first.resp);
+  send = resentTurn();
+  const resends: unknown[] = [];
+  for (let link = 1; link <= k; link++) {
+    resends.push(...await resumeSweep(sk, { through: true }));
+    if (link < k || last === "cut") await cutResent("broker-died");
+  }
+  expect(resends).toEqual(COUNTED.slice(0, k));
+  if (last === "answered") { opened!.onDone({ result: "Build fatto." } as never); await drain(live.shift()!); }
+}
+
+describe("a service row under every resent answer does not reset the count", () => {
+  /**
+   * Probe v5-cap (28/09): a turn that launches a sub-agent, and a restart that
+   * kills it with its child at every link. The report lands under the live
+   * answer, the boot's notice under the report, and the walk up the thread
+   * stopped at the report: the same message was resent seven times in seven
+   * restarts, each from attempt 1.
+   */
+  for (const between of ["nothing", "report"] as const) {
+    test(`${between} under each answer, killed with its child each time: ${MAX_RESUME_ATTEMPTS} resends, then the cap is said`, async () => {
+      const sk = topic(`killed-${between}`);
+      await answered(sk, "Ciao", "Ciao, dimmi.");
+      await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, spawnsSubAgent);
+      send = spawnsSubAgent;
+      const resends: unknown[] = [];
+      for (let link = 1; link <= MAX_RESUME_ATTEMPTS + 3; link++) {
+        if (between === "report") reportLands(sk);
+        reload(sk, "dead");
+        const resent = await resumeSweep(sk, { through: true });
+        if (resent.length === 0) break;
+        resends.push(...resent);
+      }
+      expect(resends).toEqual(COUNTED);
+      expect(capNotice(sk)).toStartWith("⚠️ Ripresa automatica sospesa");
+    });
+  }
+
+  /**
+   * Probe api-down-forever+bgnotice (28/09): the API never comes back, and a
+   * background notice lands under every cut. A resend into an API still down
+   * spends no attempt up to MAX_FREE_PROBES; the next resend hangs from the
+   * notice, the walk stopped there, and every link read as the first probe:
+   * twenty resends in twenty sweeps and no cap. With the notices the count is
+   * the one without them.
+   */
+  for (const [cause, notice] of [["api-unavailable", false], ["api-unavailable", true], ["broker-died", true]] as const) {
+    test(`${cause}${notice ? " with a background notice under every cut" : ""}: resent as the count allows, then the cap is said`, async () => {
+      const sk = topic(`down-${cause}-${notice}`);
+      await answered(sk, "Ciao", "Ciao, dimmi.");
+      const answer = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => h.onRetry!(retry(1)));
+      outageEnd(cause)(answer.route);
+      await drain(answer.resp);
+      if (notice) lands(sk, "background-notice");
+      // The resent turn never meets the API: it retries until the CLI gives up again.
+      send = (h) => h.onRetry!(retry(1));
+      const resends: unknown[] = [];
+      for (let link = 1; link <= 20; link++) {
+        const resent = await resumeSweep(sk, { through: true });
+        if (resent.length === 0) break;
+        resends.push(...resent);
+        await cutResent(cause);
+        if (notice) lands(sk, "background-notice");
+      }
+      const free = cause === "api-unavailable" ? MAX_FREE_PROBES : 0;
+      expect(resends).toEqual([...Array(free).fill(1), ...COUNTED]);
+      expect(capNotice(sk)).toStartWith("⚠️ Ripresa automatica sospesa");
+    });
+  }
+});
+
+describe("a new message under the fourth resend's cut starts its own count", () => {
+  /**
+   * The person writes before the sweep caps the chain: their message is new,
+   * whatever sits between it and the old chain's last cut. Read off the thread,
+   * it inherited the old chain's attempts and was capped at once (verifier
+   * probes of 28/09 on the rounds that read past service rows).
+   */
+  for (const between of BETWEEN) {
+    test(`${between} between: its cut is resent from 1 up to the cap`, async () => {
+      const sk = topic(`new-message-${between}`);
+      await resentTimes(sk, MAX_RESUME_ATTEMPTS, "cut");
+      lands(sk, between);
+      const next = await open(sk, { messages: [{ role: "user", content: "Lascia stare, fai un'altra cosa" }] }, (h) => h.onTextDelta("Inizio", "Inizio"));
+      outageEnd("broker-died")(next.route);
+      await drain(next.resp);
+      send = resentTurn();
+      const resends: unknown[] = [];
+      for (let link = 1; link <= MAX_RESUME_ATTEMPTS + 1; link++) {
+        const resent = await resumeSweep(sk, { through: true });
+        if (resent.length === 0) break;
+        resends.push(...resent);
+        await cutResent("broker-died");
+      }
+      expect(resends).toEqual(COUNTED);
+      expect(capNotice(sk)).toStartWith("⚠️ Ripresa automatica sospesa");
+    });
+
+    test(`${between} between: nobody answered it, and it is resent as the first of its count`, async () => {
+      const sk = topic(`new-tail-${between}`);
+      await resentTimes(sk, MAX_RESUME_ATTEMPTS, "cut");
+      lands(sk, between);
+      // The server died before the new message's answer row was born.
+      const tail = ctx.appendLocalMessage(sk, "user", "Lascia stare, fai un'altra cosa");
+      ctx.db.run("UPDATE messages SET timestamp = ? WHERE id = ?", [new Date(Date.now() - 5 * 60_000).toISOString(), tail.id]);
+      expect(await resumeSweep(sk)).toEqual([1]);
+    });
+  }
+});
+
+describe("a wake cut after the chain was answered starts its own count", () => {
+  /**
+   * The last resend answered in full, and the CLI opens a wake once its
+   * background work ends. Cut, the wake is resent as main resends it, from 1:
+   * the chain it hangs under is over. Main inherited the answered chain's
+   * attempts when nothing sat between (a third resend, or the cap at once),
+   * and the rounds that read past service rows did it in every shape.
+   */
+  for (const k of [2, MAX_RESUME_ATTEMPTS]) {
+    for (const between of BETWEEN) {
+      test(`answered on resend ${k}, ${between} under the answer, then a wake cut by the watchdog: resent from 1`, async () => {
+        const sk = topic(`wake-after-${k}-${between}`);
+        await resentTimes(sk, k, "answered");
+        lands(sk, between);
+        const wake = await open(sk, { messages: [], mode: "woken" }, (h) => {
+          h.onTextDelta("Leggo l'output del task", "Leggo l'output del task");
+          h.onAborted!({ turnEnd: cancelled("watchdog") } as never);
+        });
+        await drain(wake.resp);
+        expect(await resumeSweep(sk)).toEqual([1]);
+      });
+    }
+  }
+
+  /** The same wake killed with its child before its mark or its words reached the row: the boot's notice hangs from a row with nothing on it. */
+  for (const between of ["nothing", "background-notice"] as const) {
+    for (const words of [false, true]) {
+      test(`answered on resend ${MAX_RESUME_ATTEMPTS}, ${between} under it, a wake${words ? " with words" : ""} hard-killed before its row had them: resent from 1`, async () => {
+        const sk = topic(`wake-killed-${between}-${words}`);
+        await resentTimes(sk, MAX_RESUME_ATTEMPTS, "answered");
+        lands(sk, between);
+        const wake = await open(sk, { messages: [], mode: "woken" }, (h) => { if (words) h.onTextDelta("Leggo", "Leggo"); });
+        reload(sk, "dead");
+        expect(await resumeSweep(sk)).toEqual([1]);
+        await wake.resp.body?.cancel().catch(() => {});
+      });
+    }
+  }
+});
+
+/**
+ * A sub-agent's report that lands while the route is between the resend's
+ * copy of the message and the answer row it opens (the checkpoint it awaits):
+ * the report hangs from the copy, and the answer row from the report.
+ */
+async function withReportInTheGap<T>(sk: string, run: () => Promise<T>): Promise<T> {
+  const append = ctx.appendLocalMessage;
+  ctx.appendLocalMessage = ((...args: Parameters<typeof append>) => {
+    const row = append(...args);
+    if (args[0] === sk && args[1] === "user") reportLands(sk);
+    return row;
+  }) as typeof append;
+  try { return await run(); } finally { ctx.appendLocalMessage = append; }
+}
+
+describe("a service row under the chain's last copy does not answer it", () => {
+  /**
+   * Verifier probes of 28/09 on the count: a sub-agent's report, a background
+   * notice and the machine's line under a stopped turn are written whole
+   * (`done`) under the thread's last row. Where that row is the resend's copy
+   * of the message, because the route has not opened the answer row yet or
+   * never will, the chain read as answered and started over at every link:
+   * ten resends of ten, where main capped at four.
+   */
+  test(`a report between each resend's copy and its answer row, each resend killed with its child: ${MAX_RESUME_ATTEMPTS} resends, then the cap is said`, async () => {
+    const sk = topic("report-in-the-gap");
+    await answered(sk, "Ciao", "Ciao, dimmi.");
+    await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, spawnsSubAgent);
+    send = spawnsSubAgent;
+    const resends: unknown[] = [];
+    for (let link = 1; link <= MAX_RESUME_ATTEMPTS + 3; link++) {
+      reload(sk, "dead");
+      const resent = await withReportInTheGap(sk, () => resumeSweep(sk, { through: true }));
+      if (resent.length === 0) break;
+      resends.push(...resent);
+    }
+    expect(resends).toEqual(COUNTED);
+    expect(capNotice(sk)).toStartWith("⚠️ Ripresa automatica sospesa");
+  });
+
+  test(`each resend's copy left unanswered by the route, a background notice under it: ${MAX_RESUME_ATTEMPTS} resends, then the cap is said`, async () => {
+    const sk = topic("copy-refused");
+    await answered(sk, "Ciao", "Ciao, dimmi.");
+    const first = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => h.onTextDelta("Lavoro", "Lavoro"));
+    outageEnd("broker-died")(first.route);
+    await drain(first.resp);
+    // The person puts the chat back on the machine's default, which routing cannot reach.
+    topic("copy-refused", false);
+    const resends: unknown[] = [];
+    for (let link = 1; link <= MAX_RESUME_ATTEMPTS + 3; link++) {
+      const resent = await resumeSweep(sk, { refused: true });
+      if (resent.length === 0) break;
+      resends.push(...resent);
+      lands(sk, "background-notice");
+      // An unanswered message is the sweep's once it is older than a send in flight.
+      ctx.db.run("UPDATE messages SET timestamp = ? WHERE session_key = ?", [new Date(Date.now() - 5 * 60_000).toISOString(), sk]);
+    }
+    expect(resends).toEqual(COUNTED);
+    expect(capNotice(sk)).toStartWith("⚠️ Ripresa automatica sospesa");
+    // Each resend wrote its copy, and nothing answered any of them.
+    expect(ctx.loadLocalMessages(sk).filter((m) => m.role === "user" && m.content === MESSAGE)).toHaveLength(1 + MAX_RESUME_ATTEMPTS);
+  });
+
+  /** The answer that hangs from the report is the copy's all the same: once whole, a wake cut after it starts its own count. */
+  test("a report between the resend's copy and its answer row, the answer whole, then a wake cut by the watchdog: resent from 1", async () => {
+    const sk = topic("report-in-the-gap-answered");
+    await answered(sk, "Ciao", "Ciao, dimmi.");
+    const first = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => h.onTextDelta("Lavoro", "Lavoro"));
+    outageEnd("broker-died")(first.route);
+    await drain(first.resp);
+    send = resentTurn();
+    expect(await withReportInTheGap(sk, () => resumeSweep(sk, { through: true }))).toEqual([1]);
+    opened!.onDone({ result: "Build fatto." } as never);
+    await drain(live.shift()!);
+    const wake = await open(sk, { messages: [], mode: "woken" }, (h) => {
+      h.onTextDelta("Leggo l'output del task", "Leggo l'output del task");
+      h.onAborted!({ turnEnd: cancelled("watchdog") } as never);
+    });
+    await drain(wake.resp);
+    expect(await resumeSweep(sk)).toEqual([1]);
+  });
+});
+
+describe("a chain in flight at the deploy goes on from the number main read", () => {
+  /**
+   * Verifier probe of 28/09: the second resend is live when the deploy
+   * restarts the server, before its banner reached the row. Its reattach leg
+   * rebuilds the row from the replay, with no banner, under the copy of the
+   * message, and the watchdog cuts it. Read off that row and the copy above
+   * it, the chain counted from zero: four more resends, six in all. Main
+   * walked past the copy to the cut the resend was traced on.
+   */
+  test("its resend reattached without the banner and cut: resent from 3, then the cap is said", async () => {
+    const sk = topic("deploy-reattach");
+    await answered(sk, "Ciao", "Ciao, dimmi.");
+    const first = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => h.onTextDelta("Lavoro", "Lavoro"));
+    outageEnd("broker-died")(first.route);
+    await drain(first.resp);
+    send = resentTurn();
+    const before = await resumeSweep(sk, { through: true });
+    await cutResent("broker-died");
+    before.push(...await resumeSweep(sk, { through: true }));
+    expect(before).toEqual([1, 2]);
+    // The deploy: the rows were written before the table, which is born empty.
+    ctx.db.run("DELETE FROM resend_counts WHERE session_key = ?", [sk]);
+    // The old process's route, mute after the restart: not the next resend's to read.
+    const oldRoute = live.shift()!;
+    reload(sk, "alive");
+    await reattachLeg(sk, (h) => { h.onTextDelta("Riprendo il build", "Riprendo il build"); h.onAborted!({ turnEnd: cancelled("watchdog") } as never); });
+    expect(ctx.loadLocalMessages(sk).at(-1)!.blocks?.some((b) => b.kind === "ripreso")).toBe(false);
+    const after: unknown[] = [];
+    try {
+      for (let link = 1; link <= MAX_RESUME_ATTEMPTS + 2; link++) {
+        const resent = await resumeSweep(sk, { through: true });
+        if (resent.length === 0) break;
+        after.push(...resent);
+        await cutResent("broker-died");
+      }
+    } finally { await oldRoute.body?.cancel().catch(() => {}); }
+    expect(after).toEqual([3, 4]);
+    expect(capNotice(sk)).toStartWith("⚠️ Ripresa automatica sospesa");
+  });
 });

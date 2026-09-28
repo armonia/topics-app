@@ -41,6 +41,7 @@ import { buildContextUpdate } from "../usage/usage-update";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
 import { readTurnEnd, recordTurnEnd } from "../providers/turn-end-registry";
 import { directAnswerNow, resumeAttemptOf } from "../lib/ripresa-boot";
+import { noteResendCopy } from "../lib/resend-count";
 import { appendUsageRecord } from "../usage/store";
 import { autoreDaIdentita } from "../lib/message-author";
 import { makeGatewaySseProcessor } from "../lib/gateway-sse-consumer";
@@ -566,6 +567,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         // Non un istante prima: la riga è la prova, e finché non c'è, ripetere è
         // l'unica cosa giusta da fare.
         if (idempotencySlot) chatIdempotency.remember(idempotencySlot, storedUserMsg.id);
+        // A resend of the resume sweep: this copy of the message leads the next
+        // sweep back to its count, written in the same tick as the row.
+        if (resumeAttempt > 0 && typeof body.resendOf === "string") noteResendCopy(ctx.db, sessionKey, body.resendOf, storedUserMsg.id);
         if (matchedTopic) {
           // The marks travel WITH the frame. Without them every other window
           // drew the goal continuation as the person saying «Objective still

@@ -1,0 +1,150 @@
+/**
+ * HOW MANY TIMES THE RESUME SWEEP HAS RESENT A MESSAGE, as a number in the
+ * database (`resend_counts`, card 069f823e).
+ *
+ * The count was read off the thread's shape: from the row the sweep judged up
+ * `parent_id`, the highest `ripreso` number, stopping at the first assistant
+ * row with none. A sub-agent's report, a system message or a background notice
+ * under a resent answer is such a row, so the walk stopped there, every link
+ * counted from zero, and neither cap ever triggered (probes of 28/09: seven
+ * resends of one message in seven restarts, twenty of twenty into an API down
+ * for good). Three rounds that read past those rows each opened a regression
+ * of their own: a new message inheriting the old chain's attempts, a fresh wake
+ * hung on a chain already answered. A number keyed by the message has no shape
+ * to misread.
+ *
+ * The key is the message the chain resends. The sweep always resends the
+ * chat's last user row, and each resend writes a copy of it through the chat
+ * route: the sweep passes the key along (`resendOf`), and the route writes the
+ * copy's id on the row (`noteResendCopy`). From then on the copy leads back to
+ * the key, and the person's next message leads to nothing: it starts from
+ * zero by construction.
+ *
+ * A chain ends when it is answered: a turn after the last resend's copy ended
+ * by itself, closed `done` by the route (`answered`). Whatever is cut after
+ * that (a wake the CLI opens once its background work ends) is a new chain,
+ * keyed by that copy.
+ */
+import type { Database } from "bun:sqlite";
+import { decodeCol } from "../../shared/message-blob";
+import type { ContentBlock } from "../types";
+
+/** The resends a chain has spent, and the message its next resend sends. */
+export interface ResendChain {
+  /** The key the count is written under. */
+  messageId: string;
+  /** Resends that spent an attempt (MAX_RESUME_ATTEMPTS). */
+  attempts: number;
+  /** Resends into an API still down that spent none (MAX_FREE_PROBES). */
+  freeProbes: number;
+}
+
+/**
+ * The chain whose next resend would send `lastUserId`, the chat's last user
+ * row: the row keyed by it, or the one whose last copy it is. `null` when no
+ * resend ever sent it, which is also every chain in flight before the table
+ * existed (the caller's to read, see `chatHasCounts` and the migration). A
+ * chain whose last copy was answered is over: a new one starts, keyed by that
+ * copy.
+ */
+export function resendChainOf(db: Pick<Database, "query">, sessionKey: string, lastUserId: string): ResendChain | null {
+  const row = db.query(
+    `SELECT message_id, attempts, free_probes, last_copy_id FROM resend_counts
+      WHERE session_key = ?1 AND (message_id = ?2 OR last_copy_id = ?2)
+      ORDER BY message_id = ?2 DESC LIMIT 1`,
+  ).get(sessionKey, lastUserId) as { message_id: string; attempts: number; free_probes: number; last_copy_id: string | null } | null;
+  if (!row) return null;
+  if (row.last_copy_id && answered(db, sessionKey, row.last_copy_id)) return { messageId: lastUserId, attempts: 0, freeProbes: 0 };
+  return { messageId: row.message_id, attempts: row.attempts, freeProbes: row.free_probes };
+}
+
+/** Some resend of this chat was counted. Every resend of the sweep since the
+ *  table exists is, so a chat with none has had no such resend since: the
+ *  sweep's numbers its rows carry were written before the table. */
+export function chatHasCounts(db: Pick<Database, "query">, sessionKey: string): boolean {
+  return !!db.query(`SELECT 1 FROM resend_counts WHERE session_key = ? LIMIT 1`).get(sessionKey);
+}
+
+/** The resend number a `ripreso` block stands for. Rows written before the
+ *  field existed carry one resend each, which is what they meant. */
+function attemptOf(b: ContentBlock): number {
+  if (b?.kind !== "ripreso") return 0;
+  const a = (b as { attempt?: unknown }).attempt;
+  return typeof a === "number" && a > 0 ? a : 1;
+}
+
+/** The highest resend number among a row's blocks; 0 when it has none. */
+export function attemptsOnRow(blocks: ContentBlock[] | null | undefined): number {
+  if (!Array.isArray(blocks)) return 0;
+  return blocks.reduce((n, b) => Math.max(n, attemptOf(b)), 0);
+}
+
+/** A chain longer than this is not a chain: `parent_id` is cyclic or corrupt. */
+const CHAIN_WALK_LIMIT = 64;
+
+/**
+ * How many resends the chain ending at `ultimoId` spent, as the sweep read it
+ * before this table: the highest `attempt` any `ripreso` block carries up
+ * `parent_id`, through the copies of the message, to the first assistant row
+ * with none. The row judged is read past even with none: a hard kill's fresh
+ * notice has no trace yet (the answer it explains is one hop up), and a
+ * resend's answer a reattach rebuilt from the replay has lost its banner (the
+ * cut its resend was traced on is two hops up, above the copy). Read on the
+ * judged row and the one above alone, that answer counted from zero: four
+ * more resends of a message main had resent twice (verifier probe of 28/09).
+ * Only for a chat with no count (`chatHasCounts`): a service row under a
+ * resent answer stops this walk, which is what the table is for.
+ */
+export function attemptsInChain(db: Pick<Database, "query">, sessionKey: string, ultimoId: string): number {
+  let max = 0;
+  let id: string | null = ultimoId;
+  for (let hop = 0; id && hop < CHAIN_WALK_LIMIT; hop++) {
+    const row = db.query(
+      `SELECT role, blocks, parent_id FROM messages WHERE id = ? AND session_key = ?`,
+    ).get(id, sessionKey) as { role: string; blocks: unknown; parent_id: string | null } | undefined | null;
+    if (!row) break;
+    if (row.role === "assistant") {
+      let blocks: ContentBlock[] | null = null;
+      try { blocks = JSON.parse(decodeCol(row.blocks) ?? "null") as ContentBlock[] | null; } catch { blocks = null; }
+      const n = attemptsOnRow(blocks);
+      if (n === 0 && hop > 0) break;
+      max = Math.max(max, n);
+    }
+    id = row.parent_id;
+  }
+  return max;
+}
+
+/**
+ * A turn after this copy of the message ended by itself: `done`, with the
+ * `latency_ms` only the route's own close of a turn writes. A sub-agent's
+ * report, a background notice and the machine's line under a stopped turn are
+ * written whole with `done` too, under the thread's last row, which is the
+ * copy while the route has not opened the answer row yet or never will: none
+ * has a latency, and taken for the answer each started the chain over, with
+ * no cap (verifier probes of 28/09). After the copy and not under it: a report
+ * that lands before the answer row is born becomes that row's parent.
+ */
+function answered(db: Pick<Database, "query">, sessionKey: string, copyId: string): boolean {
+  return !!db.query(
+    `SELECT 1 FROM messages
+      WHERE session_key = ?1 AND role = 'assistant' AND end_reason = 'done' AND latency_ms IS NOT NULL
+        AND rowid > (SELECT rowid FROM messages WHERE id = ?2 AND session_key = ?1)
+      LIMIT 1`,
+  ).get(sessionKey, copyId);
+}
+
+/** The count after a resend, written with the sweep's trace and before the
+ *  resend goes out, as the trace is. The last copy stays until the route
+ *  writes the new one. */
+export function recordResend(db: Pick<Database, "prepare">, sessionKey: string, chain: ResendChain): void {
+  db.prepare(
+    `INSERT INTO resend_counts (message_id, session_key, attempts, free_probes, updated_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(message_id) DO UPDATE SET attempts = excluded.attempts, free_probes = excluded.free_probes, updated_at = excluded.updated_at`,
+  ).run(chain.messageId, sessionKey, chain.attempts, chain.freeProbes, new Date().toISOString());
+}
+
+/** The copy a resend just wrote, by the chat route, right after the row. */
+export function noteResendCopy(db: Pick<Database, "prepare">, sessionKey: string, messageId: string, copyId: string): void {
+  db.prepare(`UPDATE resend_counts SET last_copy_id = ? WHERE message_id = ? AND session_key = ?`).run(copyId, messageId, sessionKey);
+}

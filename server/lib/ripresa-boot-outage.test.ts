@@ -8,6 +8,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { RESEND_COUNTS_DDL } from "../db/test-schema";
 import { resumeCapNotice, resumeVerdict, riprendiTurniInterrotti } from "./ripresa-boot";
 import { INTERRUPTED_MARKER } from "./stale-stream-sweep";
 import { avvisoPerTurno } from "./cancelled-notice";
@@ -113,6 +114,7 @@ function sweepDb(): Database {
     partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER)`);
   db.run("CREATE TABLE tasks (id TEXT PRIMARY KEY, status TEXT, archived INTEGER, assigned_topic_id TEXT)");
   db.run("CREATE TABLE compaction_markers (id TEXT PRIMARY KEY, session_key TEXT, after_message_id TEXT, trigger TEXT)");
+  db.run(RESEND_COUNTS_DDL);
   return db;
 }
 
