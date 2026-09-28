@@ -5,8 +5,8 @@
  * `bun run check:e2e-touched`, which runs Playwright with Chromium inside the
  * agent's worktree. That night agents downloaded Chromium onto the owner's Mac
  * to run it, where no Chromium may live. The same measurement, and more, already
- * runs in the `CI` workflow of every pull request: the PR tier on four shards
- * plus the touched specs in shard 1.
+ * runs in the `CI` workflow of every pull request: the PR tier on eight shards
+ * (`e2e (1)`..`e2e (8)`) plus the touched specs in a job of their own, `e2e (0)`.
  *
  * WHAT IT DOES. After every local command of the delivery is green (the gate gave
  * its lane back first), the server, never the agent:
@@ -16,7 +16,8 @@
  *  3. polls GitHub every minute for the latest `pull_request` run of ci.yml whose
  *     head is that commit, and reads only `prepare-e2e` and `e2e (N)` for the
  *     e2e row, and only the step "Unit + integration tests" of the `check` job
- *     for the unit row.
+ *     for the unit row (that step is the verdict of the `unit` jobs, the
+ *     serial runner split by suite root into parallel jobs).
  * Green only when every e2e job (or that step) concluded `success`; red on a
  * `failure`; anything else is NOT MEASURED (exit 97), never a pass.
  *

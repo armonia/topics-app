@@ -479,7 +479,7 @@ describe("contracts", () => {
     expect(ci.search(/^ {2}e2e:$/m)).toBeGreaterThan(0);
     expect(e2e).toMatch(/^ {4}needs: prepare-e2e$/m);
     expect(e2e).toContain("E2E_TIER: pr");
-    expect(e2e).toContain("if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' }}");
+    expect(e2e).toContain("if: ${{ matrix.shard == 0 && github.event_name == 'pull_request' }}");
     expect(e2e).toContain("bun run check:e2e-touched --base=\"origin/${{ github.base_ref }}\"");
   });
 
@@ -498,16 +498,20 @@ describe("contracts", () => {
     const matrix = e2e.match(/^ {6}matrix:\n((?: {8}\S.*\n| {10}.*\n|\n)+)/m);
     expect(matrix).not.toBeNull();
     const axes = matrix![1]!.split("\n").filter((l) => /^ {8}\S/.test(l)).map((l) => l.trim().split(":")[0]);
-    expect(axes).toEqual(["shard"]);
-    // And the names that axis produces are the ones `E2E_JOB` accepts.
-    expect(e2e).toMatch(/^ {8}shard: \[(\d+(, )?)+\]$/m);
+    expect(axes).toEqual(["shard"]); // and every list it can take (literal, or picked by `fromJSON`) is integers: `E2E_JOB` names
+    const lists = [...(e2e.match(/^ {8}shard: (.+)$/m)?.[1] ?? "").matchAll(/\[[^\]]*\]/g)].map((m) => m[0]);
+    expect(lists.length).toBeGreaterThan(0);
+    for (const list of lists) expect(list).toMatch(/^\[(\d+(, )?)+\]$/);
   });
 
   test("ci.yml still runs the unit suite in the step the unit row reads, inside the check job", () => {
     const ci = readFileSync(join(import.meta.dir, "../../.github/workflows/ci.yml"), "utf8");
     const check = ci.slice(ci.search(/^ {2}check:$/m), ci.search(/^ {2}prepare-e2e:$/m));
     expect(ci.search(/^ {2}check:$/m)).toBeGreaterThan(0);
-    expect(check).toMatch(new RegExp(`- name: ${UNIT_STEP.replace(/[+]/g, "\\+")}\\n(?: .*\\n)*? +run: bun test:unit\\n`));
+    // The step is the verdict of the `unit` jobs, red unless all passed (what they run: tests/unit/ci-unit-slices-cover-the-suite.test.ts).
+    const step = check.slice(check.indexOf(`      - name: ${UNIT_STEP}\n`)).split(/\n {6}- name: /)[0]!;
+    expect(check).toMatch(/^ {4}needs: unit$/m);
+    expect(step).toMatch(/UNIT_RESULT: \$\{\{ needs\.unit\.result \}\}[\s\S]*if \[ "\$UNIT_RESULT" != "success" \]; then[\s\S]*exit 1/);
   });
 
   test("the client waits past the CI deadline plus the slowest local round, and below the CLI tool timeout", () => {

@@ -36,7 +36,100 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # THE UNIT SUITE, SPLIT BY SUITE ROOT INTO PARALLEL JOBS, EACH ONE SERIAL.
+  #
+  # Serially the suite was 12.4 of the 16.6 minutes of `check` (run
+  # 36461528241), and the only thing that shortens a serial run is running
+  # parts of it elsewhere. Two ways were measured on this runner (4 vCPU):
+  #
+  #  - IN-PROCESS SHARDS (scripts/test-unit-shards.ts, 4 then 3 workers on one
+  #    runner): 4.7 and 6.8 minutes, and red both times on tests that are green
+  #    serially, never the same ones (runs 36487615331, 36489705731). Timers
+  #    starved by the neighbouring workers, and a leak that only shows at this
+  #    speed: `reattach-final-reply.integration.test.ts` leaves two 60 s stream
+  #    timers behind, and `leak-stream-timers.test.ts` counted them.
+  #  - SEPARATE RUNNERS, what this job does: each slice is the SERIAL runner
+  #    (`test-unit-serial.ts`, same stray ai-bridge check, same time slack) on
+  #    a whole machine, over whole suite roots, so every file runs in the same
+  #    order and next to the same files as in the full serial run of its root.
+  #    What changes is only that a file no longer follows the roots of the
+  #    other slice.
+  #
+  # Two slices, measured on the serial run of 36485674755 (770 s): `./server`
+  # plus `./tests/integration` (403 + 190 s), and every other root (177 s). A
+  # root is the smallest unit that keeps the canonical order, and integration
+  # stays in the process of `./server`, after it, because it depends on what
+  # the server tests leave behind: in a slice without them
+  # `terminal-roster-boot-bridge-late.test.ts` went red, green in the full
+  # serial run (run 36491680424). At ~11 min this slice is still under the e2e
+  # shards, which are the critical path of the run.
+  #
+  # ON A PUSH TO MAIN IT IS ONE SLICE WITH EVERY ROOT, i.e. the full serial run:
+  # that is the safety net scripts/test-unit-shards.ts names in its header
+  # (point 3), and a leak that only bites across two roots is still caught one
+  # commit after it lands, before `auto-bump` ships anything.
+  #
+  # The union of the slices must be SUITE_ROOTS (scripts/test-unit-shards.ts),
+  # which tests/unit/ci-unit-slices-cover-the-suite.test.ts asserts: a root
+  # added there and not here would be a folder no pull request ever tests.
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        roots: ${{ fromJSON(github.event_name == 'push' && '["./client/src ./server ./shared ./relay ./tests/unit ./tests/integration ./scripts ./cli"]' || '["./server ./tests/integration", "./client/src ./shared ./relay ./tests/unit ./scripts ./cli"]') }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node (node-pty native bridge used by server tests)
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      # Same three install steps as `check`, for the same reasons written there.
+      - name: Install server deps (root)
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Rebuild node-pty (Linux)
+        run: npm rebuild node-pty
+
+      - name: Rimetti il bit +x sugli spawn-helper (il postinstall e' stato saltato)
+        run: bun run scripts/fix-node-pty-exec-bit.ts
+
+      - name: Install client deps
+        run: bun install --frozen-lockfile
+        working-directory: client
+
+      # server/browser-dom-cobrowse.test.ts launches a real Chromium (see the
+      # same step in `check`).
+      - name: Install Playwright browsers (Chromium)
+        run: npx playwright install --with-deps chromium
+
+      # `main` as a ref, like `check` has it before its own unit step (it
+      # fetches it for the migrations gate). tests/unit/migration-number-
+      # collision.test.ts resolves `main`/`origin/main` and is red without it
+      # (run 36491680424). The `+` for the same reason written on that step.
+      - name: Fetch main (tests read it as a ref)
+        run: git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/main
+
+      # `bun test:unit` is this same command with no roots: the slot wrapper
+      # (disabled under CI, but it still caps the run at 60 min) around the
+      # serial runner, which takes explicit roots in place of its default list.
+      - name: Unit + integration tests (serial, over these roots)
+        env:
+          UNIT_ROOTS: ${{ matrix.roots }}
+        run: bun run scripts/slot.ts test:unit -- "bun run scripts/test-unit-serial.ts $UNIT_ROOTS"
+
   check:
+    # After the unit jobs, because the step the board reads is their verdict;
+    # and even when they are red, because this job measures everything.
+    needs: unit
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -392,9 +485,23 @@ jobs:
           git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/main
           MIGRATION_BASE_REF=refs/remotes/origin/main bun run check:migrations
 
+      # THE STEP NAME IS A CONTRACT, AND THE TESTS NO LONGER RUN HERE. The board
+      # reads the unit verdict of a pull request from the step "Unit +
+      # integration tests" of job `check` (UNIT_JOB / UNIT_STEP in
+      # server/services/ci-evidence.ts), so the step stays, under that name, in
+      # this job. What it runs moved to the `unit` jobs above, and this step is
+      # their verdict: red unless every one of them concluded `success`. The
+      # names of the red tests are in the log of the red `unit (...)` job.
       - name: Unit + integration tests
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: bun test:unit
+        env:
+          UNIT_RESULT: ${{ needs.unit.result }}
+        run: |
+          echo "unit jobs of this run: $UNIT_RESULT"
+          if [ "$UNIT_RESULT" != "success" ]; then
+            echo "::error title=Unit + integration tests::the unit jobs of this run concluded '$UNIT_RESULT': the red tests are in the log of the red unit (...) job"
+            exit 1
+          fi
 
       # Guards a real production contract: the dev-only pane mutation log must
       # never reach the shipped bundle. The script has existed since phase 30
@@ -635,8 +742,14 @@ jobs:
 
   # Calcola il piano di sharding per durata UNA volta sola: `playwright test
   # --list` deve caricare e transpilare tutte le spec (~10s), farlo una volta
-  # per shard significherebbe pagarlo quattro volte. Il piano viene caricato
+  # per shard significherebbe pagarlo otto volte. Il piano viene caricato
   # come artifact e scaricato da ogni shard.
+  #
+  # Every second of this job is on the critical path: all nine e2e jobs wait
+  # for it. So it installs no browser. `--list` loads and transpiles the specs
+  # without launching anything (checked with PLAYWRIGHT_BROWSERS_PATH pointing
+  # at an empty folder: same 351 files, same plan), and the Chromium install
+  # it used to do cost 24 s (run 36461528241).
   prepare-e2e:
     runs-on: ubuntu-latest
     outputs:
@@ -667,16 +780,14 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: client
 
-      - name: Install Playwright browsers (Chromium)
-        run: npx playwright install --with-deps chromium
-
       - name: Calcola il piano di sharding per durata
         id: plan
         # E2E_TIER=pr: il piano copre solo i test del gate PR, come fa lo shard.
         # Se il piano fallisce (durate mancanti, --list crash) si fa ok=false e
-        # ogni shard cade nel fallback --shard=i/4, che e' sempre stato l'unico.
+        # ogni shard cade nel fallback --shard=i/8, che e' sempre stato l'unico.
+        # The 8 here, the matrix of `e2e` and that fallback are one number.
         run: |
-          if bun run scripts/e2e-plan-shards.ts 4 --out plan; then
+          if bun run scripts/e2e-plan-shards.ts 8 --out plan; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
             echo "ok=false" >> "$GITHUB_OUTPUT"
@@ -723,10 +834,25 @@ jobs:
     # A red here now means a real regression. If it ever goes noisy again, the
     # answer is a NAMED spec in `NIGHTLY_ONLY_SPECS` with a dated reason, never
     # this flag: a blanket amnesty is how thirty reds accumulated unseen.
+    #
+    # EIGHT SHARDS, PLUS A JOB OF ITS OWN FOR THE TOUCHED SPECS.
+    # With four shards every shard ran 18-20 minutes of Playwright, and shard 1
+    # then ran the touched specs on top (5.9 min): 26 minutes of wall clock for
+    # a pull request (run 36461528241). The suite runs ONE worker per shard
+    # (`workers: 1`, one test server and one DB per shard), so the only lever
+    # on its wall clock is the number of shards, and 8 halves it.
+    #
+    # `e2e (0)` is not a shard of the PR tier: it runs ONLY the step "E2E dei
+    # file toccati", in parallel with the eight shards instead of after one of
+    # them. It exists on pull requests only (that step has no base to diff
+    # against on a push). Its name keeps the `e2e (N)` shape on purpose: the
+    # board's e2e row reads every job matching `^e2e( \(\d+\))?$`
+    # (E2E_JOB in server/services/ci-evidence.ts), so a red in the touched
+    # specs is still a red of that row, not a job nobody reads.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: ${{ fromJSON(github.event_name == 'pull_request' && '[0, 1, 2, 3, 4, 5, 6, 7, 8]' || '[1, 2, 3, 4, 5, 6, 7, 8]') }}
     steps:
       - uses: actions/checkout@v5
 
@@ -769,9 +895,15 @@ jobs:
 
       # The isolated test server serves the client from public/ — without a
       # build it 404s on every route.
-      - name: Build client
-        run: bun run build:client
-
+      #
+      # SIDE BY SIDE WITH THE BROWSER INSTALL, because the two do not touch the
+      # same thing (the bundle lands in public/, the browsers in
+      # ~/.cache/ms-playwright and apt) and each cost ~46 s back to back on the
+      # critical path of every shard (run 36461528241). The build runs in the
+      # background, the install in the foreground, and the step waits for the
+      # build's own exit code: a failed build is still a red step, with its
+      # output printed.
+      #
       # DUE motori, non uno. `playwright.config.ts` dichiara un progetto
       # `webkit` che gira `drag-preview.spec.ts` (l'anteprima del trascinamento
       # va provata sullo STESSO asserto nei due motori, altrimenti una
@@ -782,8 +914,18 @@ jobs:
       # in locale non si vede mai perche' la macchina di sviluppo i browser li
       # ha entrambi. Misurato sul run 32430381446: 4 shard su 4 rossi, e i
       # falliti di webkit erano i 5 test di drag-preview.
-      - name: Install Playwright browsers (Chromium + WebKit)
-        run: npx playwright install --with-deps chromium webkit
+      - name: Build client, and install Playwright browsers (Chromium + WebKit) meanwhile
+        run: |
+          build_log="$RUNNER_TEMP/build-client.log"
+          bun run build:client > "$build_log" 2>&1 &
+          build_pid=$!
+          npx playwright install --with-deps chromium webkit
+          if ! wait "$build_pid"; then
+            cat "$build_log"
+            echo "::error title=Build client failed::bun run build:client exited non-zero (output above)"
+            exit 1
+          fi
+          cat "$build_log"
 
       # global-setup.ts and server/browser-service.ts auto-discover a cached
       # Chromium only under macOS's `~/Library/Caches/ms-playwright` layout,
@@ -802,13 +944,14 @@ jobs:
           echo "path=$bin" >> "$GITHUB_OUTPUT"
 
       - name: Scarica il piano di sharding
-        if: needs.prepare-e2e.outputs.plan-ok == 'true'
+        if: ${{ matrix.shard != 0 && needs.prepare-e2e.outputs.plan-ok == 'true' }}
         uses: actions/download-artifact@v4
         with:
           name: e2e-plan-pr
           path: plan/
 
       - name: Run E2E tests (Playwright)
+        if: ${{ matrix.shard != 0 }}
         # Usa il piano per durata (shard-N.txt) se disponibile; altrimenti fallback
         # a --shard=i/N di Playwright, che riparte per numero di test.
         # Il piano e' scritto con selettori regex (specSelector in e2e-plan-shards.ts)
@@ -820,8 +963,8 @@ jobs:
             readarray -t SELECTORS < "$PLAN_FILE"
             npx playwright test "${SELECTORS[@]}"
           else
-            echo "[ci] piano non disponibile, fallback a --shard=${{ matrix.shard }}/4"
-            npx playwright test --shard=${{ matrix.shard }}/4
+            echo "[ci] piano non disponibile, fallback a --shard=${{ matrix.shard }}/8"
+            npx playwright test --shard=${{ matrix.shard }}/8
           fi
         env:
           CHROMIUM_PATH: ${{ steps.chromium.outputs.path }}
@@ -834,10 +977,11 @@ jobs:
       #
       # Questo step chiude la finestra sui file che il ramo ha TOCCATO: sceglie le spec
       # legate al diff (testid, import, spec stesse) SENZA il filtro di tier, e le esegue.
-      # Solo sullo shard 1: la selezione dipende dal diff, non dallo shard, e quattro
-      # copie sarebbero quattro volte lo stesso lavoro.
+      # Only in `e2e (0)`: the selection depends on the diff, not on the shard, so
+      # one copy is the whole job. It used to run on shard 1 AFTER that shard's
+      # own tier, which made shard 1 the slowest job of every pull request.
       - name: E2E dei file toccati, anche fuori dal tier PR
-        if: ${{ matrix.shard == 1 && github.event_name == 'pull_request' }}
+        if: ${{ matrix.shard == 0 && github.event_name == 'pull_request' }}
         run: |
           # The PR checkout is ONE commit deep: the merge commit, without its parents.
           # A `--depth=100` fetch of the base is not enough, `git merge-base` still
