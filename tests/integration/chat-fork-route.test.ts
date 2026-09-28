@@ -22,6 +22,8 @@ import { nativeHistorySource } from "../../server/providers/native/history-sourc
 import { claudeTranscriptCandidates } from "../../server/lib/claude-transcript-path";
 import { readForkOrigin } from "../../server/lib/chat-fork-store";
 import { registerProvider, removeProvider } from "../../server/providers";
+import { computeProfileStats } from "../../server/services/profile-stats";
+import { projectUsage } from "../../server/usage/project-usage";
 import type { AIProvider } from "../../server/providers";
 import type { AppContext, ContentBlock, StoredMessage, Topic } from "../../server/types";
 
@@ -157,6 +159,26 @@ describe("the branch is a new chat with the same history, and the original does 
     });
     expect(branch.pinnedMessages ?? []).toEqual([]);
     expect(branch.mcpPolicy ?? null).toBeNull();
+  });
+
+  test("the copy spends nothing: measured cost and tokens do not move, the model and the latency stay", async () => {
+    const t = chat([
+      { id: "u0", role: "user", content: "hi" },
+      { id: "a0", role: "assistant", content: "hello", model: "claude-x", latencyMs: 1200, costCents: 500,
+        usagePromptTokens: 100_000, usageCompletionTokens: 2_000, cacheReadTokens: 40_000, cacheCreationTokens: 300, cacheCreation1hTokens: 20 },
+    ], { projectPath: PROJECT });
+    const measured = () => {
+      const profile = computeProfileStats(ctx.db);
+      return { cost: profile.cost, tokens: profile.tokens, projects: projectUsage(ctx.db).totals };
+    };
+    const before = measured();
+    const branch = (await (await fork(t)).json()) as Topic;
+    expect(measured()).toEqual(before);
+    const answer = ctx.loadActiveThread(branch.sessionKey)[1];
+    expect(answer).toMatchObject({ content: "hello", model: "claude-x", latencyMs: 1200 });
+    for (const field of ["costCents", "usagePromptTokens", "usageCompletionTokens", "cacheReadTokens", "cacheCreationTokens", "cacheCreation1hTokens"] as const) {
+      expect(answer[field] ?? null).toBeNull();
+    }
   });
 
   test("a partial row at the tail is not copied", async () => {

@@ -40,8 +40,18 @@ risposta 201.
 
 `copyThreadForFork(rows)` è pura, in `server/lib/chat-fork.ts`: id nuovi
 (`crypto.randomUUID()`), `parentId` rimappato sulla riga copiata precedente,
-`branchIndex: 0`, tutto il resto invariato. Il ramo copiato è lineare anche se
-l'originale aveva fratelli: il ramo parte da UNA storia, quella che vedevi.
+`branchIndex: 0`, tutto il resto invariato tranne il consumo. Il ramo copiato
+è lineare anche se l'originale aveva fratelli: il ramo parte da UNA storia,
+quella che vedevi.
+
+Il consumo resta sulle righe della madre: `costCents`, i token di prompt e di
+risposta e i tre di cache non si copiano (modello e latenza sì). Dashboard,
+profilo, consumo per progetto e per persona sommano `messages` su tutte le
+sessioni, e il ramo eredita `projectPath` e l'autore: copiato, ogni ramo di una
+chat costosa contava di nuovo la sua spesa, per sempre (secondo giro delle
+verifiche: un fork da 5 dollari portava il costo misurato da 5 a 10). Il prezzo
+è che la bolla copiata non mostra token e costo, ed è giusto: il ramo non li
+ha spesi.
 
 Perché non `POST /api/topics` più una copia dal client: sarebbero tre chiamate
 e un ramo mezzo creato al primo errore di rete, con la sessione della CLI

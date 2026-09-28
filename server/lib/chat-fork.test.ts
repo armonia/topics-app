@@ -46,8 +46,9 @@ describe("forkPointIndex: the last finished answer somebody said", () => {
 });
 
 describe("copyThreadForFork", () => {
-  test("new ids, the chain rehung on the copy, branch index 0, everything else as it was", () => {
-    const rows = turns(2).map((r) => ({ ...r, timestamp: "2026-09-28T10:00:00Z", model: "m" }));
+  test("new ids, the chain rehung on the copy, branch index 0, no spend, everything else as it was", () => {
+    const spend = { costCents: 5, usagePromptTokens: 100, usageCompletionTokens: 20, cacheReadTokens: 40, cacheCreationTokens: 3, cacheCreation1hTokens: 1 };
+    const rows = turns(2).map((r) => ({ ...r, ...spend, timestamp: "2026-09-28T10:00:00Z", model: "m", latencyMs: 900 }));
     rows[1] = { ...rows[1], branchIndex: 2 };
     const copy = copyThreadForFork(rows);
     expect(copy.map((r) => r.content)).toEqual(rows.map((r) => r.content));
@@ -55,7 +56,8 @@ describe("copyThreadForFork", () => {
     expect(copy[0].parentId).toBeNull();
     for (let i = 1; i < copy.length; i++) expect(copy[i].parentId).toBe(copy[i - 1].id);
     expect(copy.every((r) => r.branchIndex === 0)).toBe(true);
-    expect(copy.every((r) => r.timestamp === "2026-09-28T10:00:00Z" && r.model === "m")).toBe(true);
+    expect(copy.every((r) => r.timestamp === "2026-09-28T10:00:00Z" && r.model === "m" && r.latencyMs === 900)).toBe(true);
+    expect(copy.every((r) => Object.keys(spend).every((k) => !(k in r)))).toBe(true);
   });
 
   test("a partial row is left out and the chain closes over it", () => {

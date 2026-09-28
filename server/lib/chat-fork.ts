@@ -23,6 +23,12 @@ export interface ForkRow {
   parentId?: string | null;
   branchIndex?: number;
   blocks?: readonly ContentBlock[] | null;
+  costCents?: number | null;
+  usagePromptTokens?: number | null;
+  usageCompletionTokens?: number | null;
+  cacheReadTokens?: number | null;
+  cacheCreationTokens?: number | null;
+  cacheCreation1hTokens?: number | null;
 }
 
 /** Index of the fork point in the active branch, or -1 when there is no finished answer. */
@@ -36,11 +42,18 @@ export function forkPointIndex(thread: readonly ForkRow[]): number {
 
 /**
  * The branch's copy of the rows up to the point: new ids, each row hung from
- * the copied row before it, branch index 0, everything else as it was.
+ * the copied row before it, branch index 0, no spend, everything else as it
+ * was.
  *
  * Linear even when the original had siblings: the branch starts from ONE
  * history, the one on screen. `partial` rows are left out, and the chain
  * closes over them.
+ *
+ * No spend: cost, tokens and cache stay on the original's rows. Nobody called
+ * a model for the copies, and every figure of what was spent (the dashboard,
+ * the profile, the per-project and per-person usage) sums `messages` across
+ * all sessions: copied, each fork of a costly chat counted its cost again,
+ * forever. The model and the latency stay, they say who answered and how fast.
  */
 export function copyThreadForFork<T extends ForkRow>(rows: readonly T[]): T[] {
   const out: T[] = [];
@@ -48,7 +61,12 @@ export function copyThreadForFork<T extends ForkRow>(rows: readonly T[]): T[] {
   for (const row of rows) {
     if (row.partial) continue;
     const id = randomUUID();
-    out.push({ ...row, id, parentId: previous, branchIndex: 0 });
+    const {
+      costCents: _cost, usagePromptTokens: _prompt, usageCompletionTokens: _completion,
+      cacheReadTokens: _cacheRead, cacheCreationTokens: _cacheCreation, cacheCreation1hTokens: _cacheCreation1h,
+      ...kept
+    } = row;
+    out.push({ ...kept, id, parentId: previous, branchIndex: 0 } as T);
     previous = id;
   }
   return out;

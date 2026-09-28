@@ -20,8 +20,12 @@ UNA transazione:
 - la copia del RAMO ATTIVO dell'originale (`loadActiveThread(sk, { withBlocks: true })`,
   `server/utils.ts:1300`) dalla radice al punto del ramo compreso, con id nuovi,
   `parentId` rimappati sulla riga copiata precedente e `branchIndex` 0, e per
-  ogni riga contenuto, blocchi, strumenti, allegati, pensiero, autore, orari e
-  consumo. Le righe `partial` NON SHALL essere copiate;
+  ogni riga contenuto, blocchi, strumenti, allegati, pensiero, autore, orari,
+  modello e latenza. Le righe `partial` NON SHALL essere copiate. Il consumo
+  (`costCents`, i token di prompt e di risposta, i tre token di cache) NON
+  SHALL essere copiato: per le copie nessuno ha chiamato un modello, e ogni
+  cifra di spesa (dashboard, profilo, consumo per progetto e per persona)
+  somma `messages` su tutte le sessioni, quindi copiato conterebbe due volte;
 - una riga in `chat_forks` con la madre, il suo nome, l'ultima riga copiata e
   il modo del runtime (CHAT-FORK-03).
 
@@ -63,6 +67,12 @@ madre), scelta 4 (il 409 `turn_in_progress`).
 - **WHEN** lo si dirama
 - **THEN** il topic nuovo ha lo stesso modello, effort, autonomia, `projectPath` e `worktreeId`
 - **AND** ha `pinnedMessages` vuoto e `mcpPolicy` nullo
+
+#### Scenario: la copia non spende
+- **GIVEN** un topic la cui risposta ha costato 500 centesimi, con 100.000 token di prompt e 40.000 di cache
+- **WHEN** lo si dirama
+- **THEN** il costo misurato e i token del profilo (`computeProfileStats`) e i totali per progetto (`projectUsage`) sono gli stessi di prima
+- **AND** la copia della risposta ha lo stesso modello e la stessa latenza, e nessun costo né token
 
 #### Scenario: una riga a metà non si copia
 - **GIVEN** un ramo attivo che finisce con una risposta finita seguita da una riga `partial` rimasta da uno stream perso
