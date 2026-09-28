@@ -32,12 +32,6 @@
  *     answer of a closed turn is saved on its own row, under the verdict, and
  *     a row that carries one was answered whatever the verdict above it says.
  *     Resending it runs the message a second time (the 3019832f shape);
- *   · and never a row that comes after a turn which already ENDED under the
- *     person's last message (with its row, or leaving none: a /compact, a
- *     Stop before any output): that row is a later turn the CLI opened on its
- *     own (a wake), and the message it would resend was answered. Read off
- *     the thread (`answeredBeforeRow`), not off the row's `woken` mark, which
- *     a reload can take away;
  *   · never while a provider still holds a send for the chat
  *     (`sessionHasPendingSend`): a send queued behind a stuck turn is live
  *     even with no stream and no process (topic 3019832f, 24/09);
@@ -61,9 +55,9 @@ import type { ContentBlock } from "../types";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { readTurnEnd, type RecordedTurnEnd } from "../providers/turn-end-registry";
 import {
-  isOutsideCause, isRestartNotice, wakeCutByOutage, STOP_PRESSED_LOG_TITLE, USER_ABORT_LOG_TITLE,
+  eCartelloDiInterruzione, isOutsideCause, isRestartNotice, isResumableCause, wakeCutByOutage,
+  STOP_PRESSED_LOG_TITLE, USER_ABORT_LOG_TITLE,
 } from "./cancelled-notice";
-import { CHAIN_WALK_LIMIT, answeredBeforeRow, isProducedContent, lastInterruptionIndex, turnUnderServiceLine } from "./answered-before";
 import {
   UNANSWERED_NOTICE, unansweredNotice, capNotice, capLastCut,
 } from "./resume-notices";
@@ -130,6 +124,29 @@ export function resumeCapNotice(opts: { restarted: boolean; cause?: unknown }): 
   return capNotice(MAX_RESUME_ATTEMPTS, capLastCut(opts));
 }
 
+/** An interruption verdict of ours: recognised by its text or by its cause. */
+function isInterruptionVerdict(b: ContentBlock | null | undefined): boolean {
+  if (b?.kind !== "error") return false;
+  const text = (b as { text?: unknown }).text;
+  return eCartelloDiInterruzione(typeof text === "string" ? text : "")
+    || isResumableCause((b as { cause?: unknown }).cause);
+}
+
+/** Where the last interruption verdict sits among a row's blocks, or -1. */
+function lastInterruptionIndex(blocks: ContentBlock[] | null): number {
+  if (!Array.isArray(blocks)) return -1;
+  for (let i = blocks.length - 1; i >= 0; i--) if (isInterruptionVerdict(blocks[i])) return i;
+  return -1;
+}
+
+/** Something a turn produced: prose with words in it, or a tool call. The
+ *  resend trace (`ripreso`) and an empty text block are not an answer. */
+function isProducedContent(b: ContentBlock | null | undefined): boolean {
+  if (b?.kind === "tool") return true;
+  const text = (b as { text?: unknown } | null | undefined)?.text;
+  return b?.kind === "text" && typeof text === "string" && text.trim() !== "";
+}
+
 export interface RigaDaValutare {
   sessionKey: string;
   /** L'ultimo messaggio della chat: ruolo, blocchi, quando. */
@@ -142,9 +159,6 @@ export interface RigaDaValutare {
    * the chain (`attemptsInChain`); the rule stays pure.
    */
   attempts: number;
-  /** A turn under the person's last message ended before this row
-   *  (`answeredBeforeRow`): this row is a later turn, not the answer. */
-  answeredBefore?: boolean;
   /** A turn is live on this chat right now (`ctx.isStreaming`). */
   streaming?: boolean;
   /** A provider still holds a send for this chat, in flight or queued
@@ -247,12 +261,10 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   // recognised by neither until 05/09/2026: no chat it closed was ever resumed.
   const lastCut = lastInterruptionIndex(r.blocks);
   if (lastCut < 0) return "no";
-  // A LATER TURN UNDER A MESSAGE ALREADY ANSWERED, whatever cut it: the
-  // resend would run that message a second time. The thread says so
-  // (`answeredBeforeRow`); a wake's `woken` mark says it for an outage cut
-  // when the thread cannot (`wakeCutByOutage`, where the notice reads both).
+  // A WAKE CUT BY AN OUTAGE: the resend would be a message the row before
+  // already answered (`wakeCutByOutage`, where the rule and its notice live).
   const cause = (r.blocks[lastCut] as { cause?: unknown }).cause;
-  if (r.answeredBefore || wakeCutByOutage(cause, r.blocks)) return "no";
+  if (wakeCutByOutage(cause, r.blocks)) return "no";
   // A CARD IN PROGRESS OWNS ITS TURNS THAT ENDED IN ERROR: the dispatcher's
   // `onTurnEnd` resumes each one, lean, past its backoff. Resent from here too,
   // the card ran its envelope again at full context, and the dispatcher's own
@@ -361,25 +373,6 @@ function previousConversationRow(db: Database, row: LastRow): LastRow | null {
   return null;
 }
 
-/**
- * The row the sweep judges: the chat's last word, past the rows that answer
- * nobody. A run of background notices is read past by rowid, a service line
- * written under a turn (a sub-agent's report, a system message) by its
- * `parent_id` (`turnUnderServiceLine`), in whatever order they landed.
- */
-function lastWordRow(db: Database, found: LastRow): LastRow | null {
-  let row: LastRow | null = found;
-  for (let hop = 0; row && hop < CHAIN_WALK_LIMIT; hop++) {
-    let blocks: ContentBlock[] | null = null;
-    try { blocks = JSON.parse(decodeCol(row.blocks) ?? "null") as ContentBlock[] | null; } catch { /* unreadable: judged as it is */ }
-    if (isBackgroundNoticeRow(blocks)) { row = previousConversationRow(db, row); continue; }
-    const under = turnUnderServiceLine(db, row.sk, row.id);
-    if (!under) return row;
-    row = { sk: row.sk, id: under.id, ruolo: under.role, blocks: under.blocks, ts: under.timestamp };
-  }
-  return null;
-}
-
 /** Quel poco del contesto del server che serve al giro. */
 export interface CtxRipresa {
   db: Database;
@@ -468,6 +461,9 @@ function cardHold(db: Pick<Database, "query">, topicId: string): { bound: boolea
     return { bound: cards.length > 0, landed: cards.length > 0 && !onBoard, inProgress: cards.some((c) => !c.archived && c.status === "in_progress") };
   } catch { return { bound: false, landed: false, inProgress: false }; }
 }
+
+/** A chain longer than this is not a chain: `parent_id` is cyclic or corrupt. */
+const CHAIN_WALK_LIMIT = 64;
 
 /**
  * How many resends the chain ending at `ultimoId` has already spent.
@@ -619,11 +615,8 @@ export async function riprendiTurniInterrotti(
       try { blocks = JSON.parse(decodeCol(found.blocks) ?? "null") as ContentBlock[] | null; } catch { continue; }
       // A background notice is a service line, not the chat's last word: the
       // turn it follows is the one that may have been cut (second review of
-      // 25/09: a stall recycle of a person's message was never resent). So is
-      // a sub-agent's report or a system message written under a turn: during
-      // an outage the sub-agents hit the same API, and their reports land
-      // under the answer still retrying, which the outage then cuts above them.
-      const r = lastWordRow(ctx.db, found);
+      // 25/09: a stall recycle of a person's message was never resent).
+      const r = isBackgroundNoticeRow(blocks) ? previousConversationRow(ctx.db, found) : found;
       if (!r) continue;
       if (r !== found) {
         try { blocks = JSON.parse(decodeCol(r.blocks) ?? "null") as ContentBlock[] | null; } catch { continue; }
@@ -635,7 +628,6 @@ export async function riprendiTurniInterrotti(
       const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false, inProgress: false };
       const row: RigaDaValutare = {
         sessionKey: r.sk, ruolo: r.ruolo, blocks, timestampMs: Date.parse(r.ts), attempts,
-        answeredBefore: r.ruolo === "assistant" && answeredBeforeRow(ctx.db, r.sk, r.id),
         streaming: Boolean(ctx.isStreaming?.(r.sk)),
         // Settles in microtasks (a queue tail, no I/O), so reading the rows
         // and writing the traces still happen inside one macrotask, and a

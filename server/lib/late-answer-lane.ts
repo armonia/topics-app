@@ -23,17 +23,12 @@
  *     the last periodic save, and a failure now leaves the notice a live turn
  *     leaves, the one the sweep resumes.
  *
- * And the end is written on the row as the route's own finalize writes it
- * (`markEnded`: `end_reason` and latency). Left `closed-outside`, a turn that
- * answered after all still read as cut: the next reattach took the row back,
- * and a wake after it resent the message it had answered (`answeredBeforeRow`).
- *
  * And an END with nothing late before it is not a late answer: it is the turn
  * itself ending twice (claude-code reports a dead child on the session and
  * again on the send; Codex's abort arrives after the Stop already closed the
  * turn). Only something late opens the lane, so those are logged and left.
  */
-import type { ContentBlock, MessageEndReason, StoredMessage } from "../types";
+import type { ContentBlock, StoredMessage } from "../types";
 import type { ProviderDoneMessage, StreamHandler } from "../providers/types";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { classifyTurnError, type TurnEndInfo } from "../providers/stop-reason";
@@ -49,10 +44,6 @@ export interface LateAnswerLaneOptions {
   topicId?: string;
   /** The turn's own row. A function because the row is born after the lane. */
   rowId: () => string;
-  /** The person's last message already had a turn that ended before this row
-   *  (`answeredBeforeRow` in lib/answered-before.ts): no resend is due, and the
-   *  notice promises none. */
-  answeredBefore: () => boolean;
   isClosed: () => boolean;
   /** The row as it is in the database now. */
   readRow: () => StoredMessage | null;
@@ -66,8 +57,6 @@ export interface LateAnswerLaneOptions {
   setBlocksBytes: (bytes: number) => void;
   /** The turn's throttled write of content, thinking and blocks; `force` writes now. */
   save: (force: boolean) => void;
-  /** Write how the turn ended on its row, as the route's finalize does. */
-  markEnded: (endReason: MessageEndReason) => void;
   broadcast: (frame: OutboundMessage) => void;
   finalText: (message?: ProviderDoneMessage) => string | null;
   /** Deltas between two saves, as for the live text. */
@@ -145,11 +134,11 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
   };
   // An `error` end's cause goes on the block, as the route writes it: it is
   // what the resume and the banner read.
-  const end = (how: string, notice: string | null, info: TurnEndInfo | undefined, endReason: MessageEndReason) => {
+  const end = (how: string, notice: string | null, info?: TurnEndInfo) => {
     const cause = info?.end === "error" ? info.cause : undefined;
     if (notice) opts.blocks.push({ kind: "error", text: notice.replace(/^⚠️\s*/, ""), ...(cause ? { cause, at: new Date().toISOString() } : {}) });
     ended = true;
-    try { opts.save(true); opts.markEnded(endReason); }
+    try { opts.save(true); }
     catch (err) { console.warn(`[StreamWS] ${sessionKey}: late answer not saved on ${opts.rowId()}:`, err); }
     if (open) { open = false; opts.onClose(); }
     console.warn(`[StreamWS] ${sessionKey}: late answer of the closed turn ${opts.rowId()} ${how}, saved on its own row (${lateText.length} chars)`);
@@ -177,18 +166,17 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
       takeTail(message);
       const info = message?.turnEnd;
       const notice = info?.end === "error"
-        ? avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: resumesByItself(info.cause, opts.blocks, opts.answeredBefore) })
+        ? avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: resumesByItself(info.cause, opts.blocks) })
         : null;
-      end(notice ? `failed (${info?.cause})` : "ended", notice, info, info?.end === "error" ? "error" : "done");
+      end(notice ? `failed (${info?.cause})` : "ended", notice, info);
     },
     // The same notice a live turn failing this way gets. Not the live
     // `onError`: that one also rolls back the inline preamble mark, and after
     // the close the mark may belong to the next turn.
     onError: (error: string) => {
       if (trailing(`onError (${error})`)) return;
-      const info = classifyTurnError(error, "provider-error");
-      const notice = avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: resumesByItself(info.cause, opts.blocks, opts.answeredBefore) });
-      end(`failed (${error})`, notice ?? error, undefined, "error");
+      const notice = avvisoPerTurno(classifyTurnError(error, "provider-error"), { haProdotto: true, riprendeDaSolo: true });
+      end(`failed (${error})`, notice ?? error);
     },
     // A notice only for a cause the provider named, and not for the echo of a
     // stop somebody asked for (the person, or the machine on purpose): ACP and
@@ -199,8 +187,7 @@ export function createLateAnswerLane(opts: LateAnswerLaneOptions): LateAnswerLan
       takeTail(message);
       const info: TurnEndInfo | undefined = message?.turnEnd;
       const explained = !info || isWantedStop(info.cause);
-      end("aborted", explained ? null : avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: resumesByItself(info.cause, opts.blocks, opts.answeredBefore) }), info,
-        info?.end === "error" ? "error" : "stopped");
+      end("aborted", explained ? null : avvisoPerTurno(info, { haProdotto: true, riprendeDaSolo: resumesByItself(info.cause, opts.blocks) }), info);
     },
   };
 

@@ -1789,7 +1789,7 @@ const IT: Dict = {
   'chat.machineStop.wallClock': 'Fermato: la delega ha raggiunto la durata massima',
   'chat.machineStop.stall': 'Fermato: il turno è stato riciclato perché sembrava fermo',
   'chat.turnInterrupted.providerError': 'il provider ha risposto con un errore',
-  'chat.turnInterrupted.rateLimit': "il limite di richieste dell'API è rimasto saturo per tutti i tentativi",
+  'chat.turnInterrupted.rateLimit': "il limite di richieste dell'API è rimasto saturo per tutti i tentativi; riprende da solo",
   'chat.turnInterrupted.toolBudget': 'il turno ha esaurito i giri di tool concessi dal server; riprende da solo una volta',
   // A refusal is deterministic, so retrying the same message buys the same
   // result. Rephrasing is the useful recovery path.
