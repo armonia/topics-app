@@ -10,24 +10,24 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "os";
 import { join } from "path";
 
-// The registry fixes its state folder at import: this file gets its own when
-// it is the first to load it, and hands DATA_DIR back to the files after it.
+// The registry keeps its state in the folder DATA_DIR names when it writes:
+// this file's own for as long as it runs, handed back to the files after it.
 const STATE = mkdtempSync(join(tmpdir(), "topics-cmd-state-"));
 const previousDataDir = process.env.DATA_DIR;
 process.env.DATA_DIR = STATE;
 const { createProcessesRouter, listOwnedScripts } = await import("./processes");
-if (previousDataDir === undefined) delete process.env.DATA_DIR;
-else process.env.DATA_DIR = previousDataDir;
 
 const PROJECT = realpathSync(mkdtempSync(join(tmpdir(), "topics-cmd-project-")));
 mkdirSync(join(PROJECT, "sub"));
 // A link inside the project that points out of it: the third way out.
 symlinkSync(tmpdir(), join(PROJECT, "out"));
 writeFileSync(join(PROJECT, "package.json"), JSON.stringify({ scripts: { dev: "vite" } }));
-// STATE stays: when this file loaded the registry first, it is the registry's
-// folder for every file after it in the same process, and a command started
-// there opens its log in it. Removing it made the next file's commands fail.
-afterAll(() => rmSync(PROJECT, { recursive: true, force: true }));
+afterAll(() => {
+  if (previousDataDir === undefined) delete process.env.DATA_DIR;
+  else process.env.DATA_DIR = previousDataDir;
+  rmSync(STATE, { recursive: true, force: true });
+  rmSync(PROJECT, { recursive: true, force: true });
+});
 
 const TOPIC = { id: "topic-cmd", sessionKey: "topic:cmd" };
 

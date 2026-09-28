@@ -10,8 +10,9 @@
  * @covers CHAT-USERROW-01
  * @covers CHAT-ENV-01
  */
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { userRowMarks } from "./user-row-marks";
+import { repeatedRowMarks, userRowMarks } from "./user-row-marks";
 
 describe("userRowMarks", () => {
   test("the person's own words carry nothing", () => {
@@ -64,9 +65,46 @@ describe("userRowMarks", () => {
 
 describe("a resend of the envelope is still the envelope (card 46617a7f)", () => {
   test("Retry or the resume sweep resending the envelope's text keeps its mark, without the comment ids", () => {
-    expect(userRowMarks({ repeatsEnvelope: true })).toEqual([{ kind: "dispatched-envelope" }]);
+    const envelope = [{ kind: "dispatched-envelope" as const, commentIds: ["c0"] }];
+    expect(userRowMarks({ repeats: envelope })).toEqual([{ kind: "dispatched-envelope" }]);
     // A real dispatch says more, and wins: it carries its own ids.
-    expect(userRowMarks({ dispatched: true, repeatsEnvelope: true, commentIds: ["c1"] }))
+    expect(userRowMarks({ dispatched: true, repeats: envelope, commentIds: ["c1"] }))
       .toEqual([{ kind: "dispatched-envelope", commentIds: ["c1"] }]);
+  });
+});
+
+describe("a resend of any row the machine wrote keeps its marks (cross-review of tornata 2c)", () => {
+  test("a command's wake and a goal's continuation, resent as bare text, are still the machine's", () => {
+    const wake = [{ kind: "process-exit" as const, processId: "p-1", exitCode: 1, label: "bun run build" }];
+    expect(userRowMarks({ repeats: wake })).toEqual(wake);
+    expect(userRowMarks({ repeats: [{ kind: "goal-nudge", attempt: 2 }] })).toEqual([{ kind: "goal-nudge", attempt: 2 }]);
+  });
+
+  test("a row with a mark of its own keeps only its own", () => {
+    expect(userRowMarks({ goalNudge: 3, repeats: [{ kind: "goal-nudge", attempt: 2 }] })).toEqual([{ kind: "goal-nudge", attempt: 3 }]);
+  });
+});
+
+describe("repeatedRowMarks", () => {
+  function dbWith(rows: Array<{ content: string; blocks: string | null }>): Database {
+    const db = new Database(":memory:");
+    db.run("CREATE TABLE messages (session_key TEXT, role TEXT, content TEXT, blocks TEXT, sort_order INTEGER)");
+    rows.forEach((r, i) => db.run("INSERT INTO messages VALUES ('s', 'user', ?, ?, ?)", [r.content, r.blocks, i]));
+    return db;
+  }
+  const wake = { kind: "process-exit", processId: "p-1", exitCode: 1, label: "x" };
+
+  test("the marks of the chat's last user row, when the text repeats it word for word", () => {
+    const db = dbWith([{ content: "Command `x` finished: exit 1.", blocks: JSON.stringify([wake]) }]);
+    expect(repeatedRowMarks(db, "s", "Command `x` finished: exit 1.")).toEqual([wake] as never);
+    expect(repeatedRowMarks(db, "s", "Command `x` finished")).toBeUndefined();
+  });
+
+  test("nothing from a row the person wrote, nor from an older row", () => {
+    const db = dbWith([
+      { content: "same", blocks: JSON.stringify([wake]) },
+      { content: "same", blocks: null },
+    ]);
+    expect(repeatedRowMarks(db, "s", "same")).toBeUndefined();
   });
 });

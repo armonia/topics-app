@@ -152,6 +152,12 @@ function lastCutIsOutage(blocks: ContentBlock[] | null): boolean {
   return cut >= 0 && isOutage((blocks![cut] as { cause?: unknown }).cause);
 }
 
+/** The row's last cut is an outage's and nothing was produced after it: the
+ *  turn it cut was never answered. */
+export function outageCutUnanswered(blocks: ContentBlock[] | null): boolean {
+  return lastCutIsOutage(blocks) && !blocks!.slice(lastInterruptionIndex(blocks) + 1).some(isProducedContent);
+}
+
 /** Something a turn produced: prose with words in it, or a tool call. The
  *  resend trace (`ripreso`) and an empty text block are not an answer. */
 function isProducedContent(b: ContentBlock | null | undefined): boolean {
@@ -187,9 +193,8 @@ export interface RigaDaValutare {
   cardLanded?: boolean;
   /** ...or that card is in progress: the dispatcher resumes its turns. */
   cardInProgress?: boolean;
-  /** The row answers the person's message: its parent is a user row, not a
-   *  /compact already carried out (`answersPersonsMessage`). Absent reads as
-   *  no, and an outage's cut on the row is then not resent
+  /** The row answers the person's message (`answersPersonsMessage`). Absent
+   *  reads as no, and an outage's cut on the row is then not resent
    *  (`outageCutNotResent`). */
   answersMessage?: boolean;
   /** The person's message is a /compact the CLI carried out: a `manual`
@@ -359,6 +364,17 @@ function probedApiStillDown(blocks: ContentBlock[] | null, rowStartMs: number, l
 }
 
 /**
+ * The count once a resend of a cut row goes out: one more attempt than its
+ * chain has spent, or one more free probe when the row is a resend that met
+ * the API still down, up to MAX_FREE_PROBES of them. The sweep's resends and
+ * a command wake's copies (`outageResendAttempt`) both count through here.
+ */
+function nextResend(chain: ResendChain, blocks: ContentBlock[] | null, rowStartMs: number): ResendChain {
+  const free = chain.freeProbes < MAX_FREE_PROBES && probedApiStillDown(blocks, rowStartMs, lastApiAnswerMs());
+  return free ? { ...chain, freeProbes: chain.freeProbes + 1 } : { ...chain, attempts: chain.attempts + 1 };
+}
+
+/**
  * Il GIRO della ripresa. La REGOLA — chi merita di essere ripreso — sta sopra,
  * in `chatDaRiprendere`, e si prova senza toccare un database.
  *
@@ -374,6 +390,7 @@ import { isBackgroundNoticeRow, rowsBack } from "./background-notice";
 import { lastApiAnswerMs, providerHold } from "./provider-hold";
 import { attemptsInChain, attemptsOnRow, chatHasCounts, recordResend, resendChainOf, type ResendChain } from "./resend-count";
 import { providerHoldKey } from "../../shared/provider-hold";
+import { MACHINE_ROW_SQL } from "../../shared/prompt-number";
 
 /** A chat's last row, as the sweep reads it. */
 interface LastRow { sk: string; id: string; ruolo: string; blocks: unknown; ts: string }
@@ -388,19 +405,22 @@ function previousConversationRow(db: Database, row: LastRow): LastRow | null {
 }
 
 /**
- * The row answers the person's message: its parent_id is a user row, and that
- * message is not a /compact the CLI already carried out. A /compact's own row
- * is dropped once the compaction ends (it has nothing to show, routes/chat.ts
- * `discardIfEmptyTurn`), so the next turn the CLI opens by itself, a wake,
- * hangs from the "/compact" message as if it answered it: resent, it would
- * compact a second time. The compaction's receipt is its `manual` marker,
- * anchored on the message of the turn that made it.
+ * The row answers the person's message: its parent_id is a user row, not one
+ * the machine wrote (`MACHINE_ROW_KINDS`: a command's wake, a goal's
+ * continuation, the board's envelope, whose answer is a wake's: resent, the
+ * wake went back in the person's place), and that message is not a /compact
+ * the CLI already carried out. A /compact's own row is dropped once the
+ * compaction ends (it has nothing to show, routes/chat.ts `discardIfEmptyTurn`),
+ * so the next turn the CLI opens by itself, a wake, hangs from the "/compact"
+ * message as if it answered it: resent, it would compact a second time. The
+ * compaction's receipt is its `manual` marker, anchored on the message of the
+ * turn that made it.
  */
 export function answersPersonsMessage(db: Pick<Database, "query">, sessionKey: string, rowId: string): boolean {
   const parent = db.query(
-    `SELECT p.id AS id, p.role AS role FROM messages m JOIN messages p ON p.id = m.parent_id WHERE m.id = ? AND m.session_key = ?`,
-  ).get(rowId, sessionKey) as { id: string; role: string } | undefined | null;
-  if (parent?.role !== "user") return false;
+    `SELECT p.id AS id, p.role AS role, ${MACHINE_ROW_SQL.replaceAll("blocks", "p.blocks")} AS machine FROM messages m JOIN messages p ON p.id = m.parent_id WHERE m.id = ? AND m.session_key = ?`,
+  ).get(rowId, sessionKey) as { id: string; role: string; machine: number } | undefined | null;
+  if (parent?.role !== "user" || parent.machine) return false;
   return !compactionCarriedOut(db, sessionKey, parent.id);
 }
 
@@ -428,6 +448,42 @@ export function directAnswerNow(db: Database, sessionKey: string, rowId: string)
   if (!answersPersonsMessage(db, sessionKey, rowId)) return false;
   for (const r of rowsBack(db, sessionKey)) if (!isBackgroundNoticeRow(r.decoded)) return r.id === rowId;
   return false;
+}
+
+/**
+ * The chat owes the person's message the resend its notice promised: its last
+ * word (past background notices) is the direct answer to that message, cut by
+ * an outage with nothing after the cut. A command's wake waits behind it
+ * (`lib/process-exit-wake.ts`): landed under the cut, it became the last word
+ * and the promised resend never went.
+ */
+export function outageResendOwed(db: Database, sessionKey: string): boolean {
+  for (const r of rowsBack(db, sessionKey)) {
+    if (isBackgroundNoticeRow(r.decoded)) continue;
+    if (r.role !== "assistant" || !outageCutUnanswered(r.decoded)) return false;
+    return !outageCutNotResent(lastInterruption(r.decoded)?.cause, r.decoded, () => answersPersonsMessage(db, sessionKey, r.id));
+  }
+  return false;
+}
+
+/**
+ * The count a copy of a command's wake goes out with once an outage cut its
+ * turn on `row` (`lib/process-exit-wake.ts`), written before the copy goes,
+ * as the sweep writes its own. The sweep leaves a wake's cut alone
+ * (`answersPersonsMessage`), so the wake sends itself again on the sweep's
+ * count (`resend_counts`), keyed by the wake's row (`wakeId`): a wake the
+ * sweep resent after a restart and copied after an outage spends one budget.
+ * Null once the chain has spent it.
+ */
+export function outageResendAttempt(
+  db: Pick<Database, "query" | "prepare">, sessionKey: string,
+  row: { id: string; wakeId: string; blocks: ContentBlock[] | null; timestampMs: number },
+): ResendChain | null {
+  const chain = resendChainOf(db, sessionKey, row.wakeId) ?? uncountedChain(db, sessionKey, row, row.wakeId);
+  if (chain.attempts >= MAX_RESUME_ATTEMPTS) return null;
+  const next = nextResend(chain, row.blocks, row.timestampMs);
+  recordResend(db, sessionKey, next);
+  return next;
 }
 
 /** Quel poco del contesto del server che serve al giro. */
@@ -527,17 +583,20 @@ function cardHold(db: Pick<Database, "query">, topicId: string): { bound: boolea
  * carries none, and starts from zero.
  *
  * Every resend of this sweep writes its count in the transaction of its
- * trace, so in a chat the table has never seen, the sweep's numbers on the
- * rows were written before the table, by a chain in flight at deploy, and
- * none of them may buy that chain more resends than main gave it. There the
- * count is main's own, the walk up the thread (`attemptsInChain`), and its
- * free probes, which nothing counted, are spent. In a chat the table has
- * seen, the rows above belong to a counted chain, and a message with no count
- * under them is a new one.
+ * trace, and every copy of a command's wake before it goes
+ * (`outageResendAttempt`), so in a chat the table has never seen, the resend
+ * numbers on the rows were written before the table, by a chain in flight at
+ * deploy, and none of them may buy that chain more resends than main gave it.
+ * There the count is main's own, the walk up the thread (`attemptsInChain`),
+ * and its free probes, which nothing counted, are spent. In a chat the table
+ * has seen, the rows above belong to a counted chain, and a message with no
+ * count under them is a new one.
  */
-function uncountedChain(db: Pick<Database, "query">, row: LastRow, blocks: ContentBlock[] | null, messageId: string): ResendChain {
-  if (chatHasCounts(db, row.sk)) return { messageId, attempts: attemptsOnRow(blocks), freeProbes: 0 };
-  const attempts = attemptsInChain(db, row.sk, row.id);
+function uncountedChain(
+  db: Pick<Database, "query">, sessionKey: string, row: { id: string; blocks: ContentBlock[] | null }, messageId: string,
+): ResendChain {
+  if (chatHasCounts(db, sessionKey)) return { messageId, attempts: attemptsOnRow(row.blocks), freeProbes: 0 };
+  const attempts = attemptsInChain(db, sessionKey, row.id);
   return { messageId, attempts, freeProbes: attempts > 0 ? MAX_FREE_PROBES : 0 };
 }
 
@@ -665,7 +724,7 @@ export async function riprendiTurniInterrotti(
         `SELECT id, content FROM messages WHERE session_key = ? AND role = 'user' ORDER BY rowid DESC LIMIT 1`,
       ).get(r.sk) as { id: string; content: unknown } | undefined | null;
       if (!lastUser) continue;
-      const chain = resendChainOf(ctx.db, r.sk, lastUser.id) ?? uncountedChain(ctx.db, r, blocks, lastUser.id);
+      const chain = resendChainOf(ctx.db, r.sk, lastUser.id) ?? uncountedChain(ctx.db, r.sk, { id: r.id, blocks }, lastUser.id);
       const attempts = chain.attempts;
       const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false, inProgress: false };
       const row: RigaDaValutare = {
@@ -781,11 +840,7 @@ export async function riprendiTurniInterrotti(
       // senza aspettare che qualcuno se ne accorga.
       const messaggio = (decodeCol(lastUser.content) ?? "").trim();
       if (!messaggio) continue;
-      const free = chain.freeProbes < MAX_FREE_PROBES && probedApiStillDown(blocks, row.timestampMs, lastApiAnswerMs());
-      const counted: ResendChain = free
-        ? { ...chain, freeProbes: chain.freeProbes + 1 }
-        : { ...chain, attempts: attempts + 1 };
-      candidati.push({ sessionKey: r.sk, messaggio, idTurno: resendRowId, blocks: rowBlocks, chain: counted, fresh });
+      candidati.push({ sessionKey: r.sk, messaggio, idTurno: resendRowId, blocks: rowBlocks, chain: nextResend(chain, blocks, row.timestampMs), fresh });
     }
   } catch (err) {
     console.warn("[ripresa] non riesco a cercare i turni interrotti:", err);

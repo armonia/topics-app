@@ -23,6 +23,8 @@
  */
 
 import type { ContentBlock } from "../types";
+import { decodeCol } from "../../shared/message-blob";
+import { MACHINE_ROW_KINDS } from "../../shared/prompt-number";
 
 export interface UserRowOrigin {
   /** The consecutive continuation number, when the goal loop bought this turn. */
@@ -32,13 +34,15 @@ export interface UserRowOrigin {
   /** The card comments this envelope delivers, when it is a resume. */
   commentIds?: unknown;
   /**
-   * The row repeats, word for word, the chat's last user row, and that row is
-   * an envelope (`repeatsAnEnvelope`). Retry and the resume sweep resend the
-   * text alone, without `dispatched`: the copy is still the dispatcher's
-   * words, and unmarked it showed them as the person's and let the machine
-   * stop line miss the turn that answered it (fourth review of card 46617a7f).
+   * The machine's marks on the chat's last user row, when this row repeats it
+   * word for word (`repeatedRowMarks`). Retry and the resume sweep resend the
+   * text alone, without the fields that marked it: the copy is still the
+   * machine's words. An envelope's copy left unmarked showed them as the
+   * person's and let the machine stop line miss the turn that answered it
+   * (fourth review of card 46617a7f); a wake's copy of a command's end read as
+   * the person typing it, with an edit button (cross-review of tornata 2c).
    */
-  repeatsEnvelope?: boolean;
+  repeats?: readonly ContentBlock[];
   /** The command whose end this row reports (`lib/process-exit-wake.ts`). */
   processExit?: unknown;
 }
@@ -56,11 +60,6 @@ export function userRowMarks(origin: UserRowOrigin): ContentBlock[] | undefined 
   // buy anything, and marking that row would be inventing a continuation.
   if (typeof origin.goalNudge === "number" && origin.goalNudge > 0) {
     blocks.push({ kind: "goal-nudge", attempt: Math.floor(origin.goalNudge) });
-  }
-  if (origin.dispatched !== true && origin.repeatsEnvelope === true) {
-    // No comment ids: the row it repeats already delivered them, and a second
-    // anchor would draw the same words twice on the card.
-    blocks.push({ kind: "dispatched-envelope" });
   }
   if (origin.dispatched === true) {
     // Ids only on a row that IS an envelope, and only when there are any: a
@@ -81,29 +80,39 @@ export function userRowMarks(origin: UserRowOrigin): ContentBlock[] | undefined 
       label: typeof exit.label === "string" ? exit.label : "",
     });
   }
+  // A row that says who wrote it keeps its own word: a real dispatch carries
+  // its own ids. Only a bare resend takes the marks of the row it repeats.
+  if (!blocks.length && origin.repeats) {
+    for (const mark of origin.repeats) {
+      // No comment ids: the row it repeats already delivered them, and a second
+      // anchor would draw the same words twice on the card.
+      blocks.push(mark.kind === "dispatched-envelope" ? { kind: "dispatched-envelope" } : mark);
+    }
+  }
   return blocks.length ? blocks : undefined;
 }
 
 /**
- * Is `content` a word-for-word resend of the chat's last user row, and is that
- * row an envelope? Equality with one marked row, never a guess from the text:
- * recognising an envelope by its words is the migration's alone. The mark is a
- * few bytes of plain JSON, below the blob compression threshold, so a `LIKE`
- * reads it (the same reasoning as `MACHINE_ROW_SQL`).
+ * The machine's marks (`MACHINE_ROW_KINDS`) on the chat's last user row, when
+ * `content` repeats that row word for word; undefined otherwise. Equality with
+ * one marked row, never a guess from the text: recognising an envelope by its
+ * words is the migration's alone.
  */
-export function repeatsAnEnvelope(
+export function repeatedRowMarks(
   db: { query(sql: string): { get(...args: string[]): unknown } },
   sessionKey: string,
   content: string,
-): boolean {
+): ContentBlock[] | undefined {
   try {
     const row = db.query(
-      `SELECT content = ?2 AND blocks LIKE '%"kind":"dispatched-envelope"%' AS repeats
-         FROM messages WHERE session_key = ?1 AND role = 'user'
+      `SELECT content = ?2 AS same, blocks FROM messages WHERE session_key = ?1 AND role = 'user'
         ORDER BY sort_order DESC, rowid DESC LIMIT 1`,
-    ).get(sessionKey, content) as { repeats: number | null } | null;
-    return row?.repeats === 1;
+    ).get(sessionKey, content) as { same: number | null; blocks: unknown } | null;
+    if (row?.same !== 1) return undefined;
+    const blocks = JSON.parse(decodeCol(row.blocks) ?? "null") as ContentBlock[] | null;
+    const marks = Array.isArray(blocks) ? blocks.filter((b) => (MACHINE_ROW_KINDS as readonly unknown[]).includes(b?.kind)) : [];
+    return marks.length ? marks : undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }

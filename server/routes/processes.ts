@@ -171,14 +171,27 @@ registerFleetScriptSource(() => [
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 
-let PERSIST_DIR = "";
+/**
+ * The registry's folder, resolved again whenever the variables that name it
+ * change. Fixed at the first import, it outlived them: `bun test` runs many
+ * files in one process, the first file that loaded the registry named the
+ * folder, and once the per-file sweep removed that file's root a later file's
+ * commands opened their logs and their `scripts.json` in a folder that was
+ * gone (18 reds in process-run-command.test.ts after chat-woken-turn, 28/09).
+ * The folder goes through the one door (`resolveStateDir`, which is only an
+ * env read and a join); what is remembered is that it has been created, so a
+ * script's log, written from here once per output chunk, does not mkdir each
+ * time.
+ */
+let createdPersistDir: string | null = null;
 
 function getPersistDir(): string {
-  if (!PERSIST_DIR) {
-    PERSIST_DIR = join(resolveStateDir(process.cwd()), ".state");
-    mkdirSync(PERSIST_DIR, { recursive: true });
+  const dir = join(resolveStateDir(process.cwd()), ".state");
+  if (createdPersistDir !== dir) {
+    mkdirSync(join(dir, "scripts"), { recursive: true });
+    createdPersistDir = dir;
   }
-  return PERSIST_DIR;
+  return dir;
 }
 
 function persistPath(): string {
@@ -210,7 +223,7 @@ function persisted(sp: ScriptProcess): PersistedScript {
   };
 }
 
-/** Where a process's log lives. Exported for the tests, which cannot know which file loaded the registry first. */
+/** Where a process's log lives. Exported for the tests. */
 export const logPathOf = (processId: string) => join(getPersistDir(), "scripts", `${processId}.log`);
 const exitPathOf = (processId: string) => join(getPersistDir(), "scripts", `${processId}.exit`);
 

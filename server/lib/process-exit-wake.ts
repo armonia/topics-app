@@ -15,23 +15,51 @@
  * session has no turn in flight: a wake never cuts into a turn, and a 409
  * `stream_in_flight` (somebody else took the session first) puts it back to
  * wait instead of losing it. There is no cap on that wait: a wedged turn is
- * closed by the `[StaleStream]` sweep, and then the wake goes. Any other
- * refusal is not a busy session (a 409 `topics_routing_incompatible` lasts
- * until somebody changes the topic's settings): it fails, and stays owed to
- * the next boot, with nobody waiting for it before then.
+ * closed by the `[StaleStream]` sweep, and then the wake goes. It also waits
+ * while the topic's provider is held (`isProviderHeld`, the wall the resume
+ * sweep and the dispatcher wait behind), and while the chat owes the person's
+ * message the resend its notice promised (`outageResendOwed`): landed under
+ * that cut first, the wake became the chat's last word and the sweep resent
+ * nothing. Any other refusal is not a busy session
+ * (a 409 `topics_routing_incompatible` lasts until somebody changes the
+ * topic's settings): it fails, and stays owed to the next boot, with nobody
+ * waiting for it before then.
+ *
+ * AN OUTAGE THAT CUTS THE WAKE'S OWN TURN SENDS IT AGAIN. A wake's cut is not
+ * the person's message, and the sweep leaves it alone
+ * (`answersPersonsMessage`): the agent would never learn its command had
+ * ended. A hold does not prevent it: an api-down hold ends by time and lets
+ * the wake through as the probe of an API still down, a wake can go out
+ * before any hold exists, and a dead ai-bridge daemon holds nothing. So the
+ * turn's end is read off its answer row, and a cut by an outage with nothing
+ * after it (`outageCutUnanswered`) puts the wake back to wait: behind the hold
+ * its CLI's retries opened, or at once after a dead daemon (the one that
+ * reported it is the live one). The copy goes out on the sweep's count
+ * (`outageResendAttempt`, `resend_counts`), keyed by the wake's row and
+ * written before it goes, as a resend of the sweep is: the sweep's resends of
+ * the same wake after a restart and these copies spend one budget. Once that
+ * is spent the wake gives up: the cut notice promised nothing, so the person
+ * was told and pushed.
  *
  * An archived topic gets nothing, unless a card in progress owns it: a board
  * agent's topic is born archived, the rule the CLI's own wakes follow
  * (`lib/wake-adoption.ts`).
  *
  * ONCE. Delivered means the session holds a row with the `process-exit` block
- * of that process: checked before every send, and at boot for every finished
- * command still owed a wake (`requestProcessExitWake` from `loadState`). Or
- * that a `wait_for_process` or a `read_process_output` of the turn it waited
- * for handed it the outcome before the row went out (`owed`).
+ * of that process whose turn no outage cut (`wakeDelivered`): checked before
+ * every send, and at boot for every finished command still owed a wake
+ * (`requestProcessExitWake` from `loadState`). Or that a `wait_for_process` or
+ * a `read_process_output` of the turn it waited for handed it the outcome
+ * before the row went out (`owed`).
  */
 
+import type { Database } from "bun:sqlite";
+import type { ContentBlock } from "../types";
+import { decodeCol } from "../../shared/message-blob";
 import { wakeVerdict } from "./wake-adoption";
+import { isProviderHeld } from "./provider-hold";
+import { outageCutUnanswered, outageResendAttempt, outageResendOwed } from "./ripresa-boot";
+import type { ResendChain } from "./resend-count";
 
 /** What the topic is told about a process that ended. */
 export interface ProcessExitFacts {
@@ -49,7 +77,8 @@ export interface ProcessExitFacts {
 export interface ProcessExitRequest extends ProcessExitFacts {
   /**
    * Called once the topic owes nothing more for this process: for a wake sent,
-   * once the turn it opened has ended. Until then the wake still counts as
+   * once a turn it opened has ended uncut by an outage, or its resends are
+   * spent. Until then the wake still counts as
    * owed (`commandWakeState`), whether or not that turn holds `activeStreams`:
    * a board card whose own turn ended just before reads it after the git stat
    * of its launch, and settled when the route took the row, it read nothing
@@ -73,8 +102,10 @@ export interface ProcessExitRequest extends ProcessExitFacts {
 type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => Response | null | Promise<Response | null>;
 
 export interface ProcessExitWakeDeps {
-  db: { query(sql: string): { get(...args: string[]): unknown } };
-  getTopicById(id: string): { sessionKey: string; archived?: boolean } | null;
+  db: Database;
+  getTopicById(id: string): { sessionKey: string; archived?: boolean; provider?: string | null } | null;
+  /** The provider a topic with none pinned runs on; claude-code when absent. */
+  defaultProvider?(): string | undefined;
   /**
    * A card in progress owns this topic (`runningTaskOwnsTopic`): a board
    * agent's topic is born archived and still gets its wakes, the rule of
@@ -153,24 +184,51 @@ export function wakeOwedAtExit(c: { wake: boolean; topicId: string | null; stopp
 }
 
 /**
- * Does the session already hold the wake of this process? The mark is a few
- * bytes of plain JSON, below the blob compression threshold of
- * `shared/message-blob.ts`, so a `LIKE` reads it (as `MACHINE_ROW_SQL` does).
+ * The answer under the newest row of this process's wake, when an outage cut
+ * its turn and nothing was produced after the cut: the wake still has to go.
+ * Undefined when the session holds no such row, null when the wake is there
+ * (answered, in flight, or cut otherwise: a restart's cut is the sweep's,
+ * which resends the row with its mark). The mark is a few bytes of plain
+ * JSON, below the blob compression threshold of `shared/message-blob.ts`, so
+ * a `LIKE` reads it (as `MACHINE_ROW_SQL` does).
  */
-export function wakeDelivered(db: ProcessExitWakeDeps["db"], sessionKey: string, processId: string): boolean {
+function wakeCutByOutage(
+  db: Pick<Database, "query">, sessionKey: string, processId: string,
+): { id: string; wakeId: string; blocks: ContentBlock[] | null; timestampMs: number } | null | undefined {
   const row = db.query(
-    `SELECT 1 AS hit FROM messages WHERE session_key = ?1 AND blocks LIKE '%"kind":"process-exit"%' AND blocks LIKE ?2 LIMIT 1`,
-  ).get(sessionKey, `%"processId":"${processId}"%`);
-  return !!row;
+    `SELECT a.id AS id, w.id AS wakeId, a.blocks AS blocks, a.timestamp AS ts FROM messages w
+       LEFT JOIN messages a ON a.id = (SELECT id FROM messages WHERE parent_id = w.id AND role = 'assistant' ORDER BY rowid DESC LIMIT 1)
+      WHERE w.session_key = ?1 AND w.blocks LIKE '%"kind":"process-exit"%' AND w.blocks LIKE ?2
+      ORDER BY w.rowid DESC LIMIT 1`,
+  ).get(sessionKey, `%"processId":"${processId}"%`) as { id: string | null; wakeId: string; blocks: unknown; ts: string | null } | null;
+  if (!row) return undefined;
+  if (!row.id) return null;
+  let blocks: ContentBlock[] | null = null;
+  try { blocks = JSON.parse(decodeCol(row.blocks as never) ?? "null") as ContentBlock[] | null; } catch { return null; }
+  return outageCutUnanswered(blocks) ? { id: row.id, wakeId: row.wakeId, blocks, timestampMs: Date.parse(row.ts ?? "") } : null;
+}
+
+/** Does the session already hold the wake of this process, with a turn no outage cut? */
+export function wakeDelivered(db: Pick<Database, "query">, sessionKey: string, processId: string): boolean {
+  return wakeCutByOutage(db, sessionKey, processId) === null;
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r, ms); (t as { unref?: () => void }).unref?.(); });
 
-/** One wake, from the wait to the end of the turn it opened: "sent" comes back once that turn is over. */
+/**
+ * One wake, from the wait to the end of the turn it opened: "sent" comes back
+ * once a turn it opened is over uncut by an outage, "capped" once the copies
+ * sent after its cuts have spent the sweep's budget.
+ */
 export async function deliverProcessExit(
   deps: ProcessExitWakeDeps, f: ProcessExitFacts & Pick<ProcessExitRequest, "owed">,
-): Promise<"sent" | "delivered" | "no-topic" | "failed"> {
+): Promise<"sent" | "delivered" | "no-topic" | "failed" | "capped"> {
   const pollMs = deps.pollMs ?? 500;
+  let heldSaid = false;
+  let owedSaid = false;
+  // The count of the copy for the cut it answers, written once: a copy the
+  // route turns away as busy goes again with the same count, not one more.
+  let copy: { cutId: string; chain: ResendChain } | undefined;
   for (;;) {
     // Resolved on every round: the topic can be archived, or its card leave
     // the column, while the wake waits.
@@ -181,7 +239,30 @@ export async function deliverProcessExit(
     if (deps.isBusy(topic.sessionKey)) { await sleep(pollMs); continue; }
     // The turn it waited for read the outcome with `wait_for_process`: delivered there.
     if (f.owed?.() === false) return "delivered";
-    if (wakeDelivered(deps.db, topic.sessionKey, f.processId)) return "delivered";
+    // Before the search too: a hold lasts up to an hour.
+    if (isProviderHeld(topic.provider || deps.defaultProvider?.() || "claude-code")) {
+      if (!heldSaid) deps.log?.(`${f.processId}: the topic's provider is held, the wake waits for the hold to lift`);
+      heldSaid = true;
+      await sleep(pollMs);
+      continue;
+    }
+    if (outageResendOwed(deps.db, topic.sessionKey)) {
+      if (!owedSaid) deps.log?.(`${f.processId}: the person's message is owed its resend, the wake goes after it`);
+      owedSaid = true;
+      await sleep(pollMs);
+      continue;
+    }
+    const cut = wakeCutByOutage(deps.db, topic.sessionKey, f.processId);
+    if (cut === null) return "delivered";
+    if (cut && copy?.cutId !== cut.id) {
+      const chain = outageResendAttempt(deps.db, topic.sessionKey, cut);
+      if (!chain) {
+        deps.log?.(`${f.processId}: its turn was cut by an outage again and its resends are spent, the chat is left to the person`);
+        return "capped";
+      }
+      copy = { cutId: cut.id, chain };
+    }
+    const resend = cut && copy?.chain;
     const url = new URL("http://localhost/api/chat");
     const resp = await deps.route(
       new Request(url, {
@@ -191,6 +272,9 @@ export async function deliverProcessExit(
           sessionKey: topic.sessionKey,
           messages: [{ role: "user", content: processExitText(f) }],
           processExit: { processId: f.processId, exitCode: f.exitCode, label: f.label },
+          // A copy says which message it repeats: the route writes the copy's
+          // id on that count, as it does for a resend of the sweep.
+          ...(resend ? { ripresa: resend.attempts, resendOf: resend.messageId } : {}),
         }),
       }),
       url, "/api/chat", "POST",
@@ -206,9 +290,12 @@ export async function deliverProcessExit(
       return "failed";
     }
     // Drained to the end: the next wake of the same topic waits for this turn,
-    // and the wake is settled only after it.
+    // and the wake is settled only after it. Read right away, before any hold
+    // could keep an answered wake from settling; only an outage's cut sends
+    // it again.
     if (resp.body) await drainTurn(deps, topic.sessionKey, resp.body.getReader(), pollMs);
-    return "sent";
+    if (!wakeCutByOutage(deps.db, topic.sessionKey, f.processId)) return "sent";
+    deps.log?.(`${f.processId}: an outage cut the wake's turn, it goes again once the outage is over`);
   }
 }
 

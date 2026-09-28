@@ -14,20 +14,26 @@
  * written. Every other shape asks the person, including one the rule cannot
  * tell from a wake: a sub-agent's report under the live answer. A report or a
  * wake that lands under the cut after the notice promised is accepted as not
- * resent: the person retries.
+ * resent: the person retries. A row the machine wrote in the person's role (a
+ * command's wake, a goal's continuation) is not the person's message either,
+ * and a resend of one keeps its mark. A command's wake cut by an outage is
+ * sent again by the wake module itself once the outage is over, on the
+ * sweep's count, and it waits behind a resend the notice promised.
  *
  * Every row is written by the real route (a message through `sendChat`, a
  * wake through `mode: "woken"`, a reattach leg through `mode: "reattach"`, a
  * regeneration through the edit route, a report through the sub-agent
- * watcher's `deliverExit`), and every verdict is the real resume sweep's. A
- * resend of the chain goes back through the real chat route, so each link
- * opens with the banner the route writes. No block is written by hand.
+ * watcher's `deliverExit`, a command's end through `deliverProcessExit`), and
+ * every verdict is the real resume sweep's. A resend of the chain goes back
+ * through the real chat route, so each link opens with the banner the route
+ * writes. No block is written by hand.
  *
  * The chain's resends are a count per message (`resend_counts`, card
  * 069f823e), not a reading of the thread: the service rows that land under a
  * resent answer (a sub-agent's report, a background notice) do not reset it, a
  * new message the person writes starts its own, and so does whatever is cut
- * after the chain was answered.
+ * after the chain was answered. A command's wake sent again after an outage
+ * counts on the same number as the sweep's resends of it.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
@@ -40,14 +46,17 @@ import { runBootPartialSweep, type PartialSweepDb } from "../lib/boot-partial-sw
 import { endReattachLeg, finalizeStaleRow } from "../lib/closed-outside";
 import { INTERRUPTED_MARKER } from "../lib/stale-stream-sweep";
 import { MAX_FREE_PROBES, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti } from "../lib/ripresa-boot";
+import { attemptsOnRow } from "../lib/resend-count";
 import { postBackgroundNotice } from "../lib/background-notice";
 import { outageNoticeResumes } from "../lib/cancelled-notice";
-import { clearProviderHold, resetProviderHoldStore } from "../lib/provider-hold";
+import { clearProviderHold, holdForApiDown, liftApiDownHold, resetProviderHoldStore, setProviderHold } from "../lib/provider-hold";
 import { noteApiHealth } from "../providers/claude/api-outage";
 import { cancelled } from "../providers/stop-reason";
 import { TopicsRoutingIncompatibleError } from "../providers/resolve-topic-provider";
 import type { AIProvider, StreamHandler } from "../providers/types";
 import type { AppContext, ContentBlock, Topic } from "../types";
+import { deliverProcessExit } from "../lib/process-exit-wake";
+import { isPersonPrompt } from "../../shared/prompt-number";
 
 const ROOT = testTmpDir("chat-outage-direct-answer");
 let ctx: AppContext;
@@ -55,7 +64,16 @@ beforeAll(async () => {
   setupTestDataDir(join(ROOT, "data"));
   ctx = await createTestAppContext();
 });
-afterAll(() => {
+afterAll(async () => {
+  // A turn a test left open (a hard kill, the mute route of a reload) still
+  // owes a deferred write of its body, up to 15 s later: run in one process
+  // with the next file, it landed on this file's closed database and turned
+  // that file's tests red. Closed here, as a shutdown closes it.
+  for (const h of turnsOpened) {
+    try { h.onAborted?.({ turnEnd: { end: "cancelled", cause: "server-shutdown" } } as never); } catch { /* already over */ }
+  }
+  await tick(20);
+  for (const resp of live.splice(0)) await resp.body?.cancel().catch(() => {});
   clearProviderHold();
   resetProviderHoldStore();
   cleanupTestDataDir(ROOT);
@@ -80,31 +98,38 @@ function topic(tid: string, pinned = true): string {
 let opened: StreamHandler | undefined;
 let send: (h: StreamHandler) => void = () => {};
 let replay: (h: StreamHandler) => void = () => {};
+/** Every turn a route opened, over or not: the file closes them before its database. */
+const turnsOpened = new Set<StreamHandler>();
 const provider = {
   name: "claude-code", capabilities: new Set(["streaming"]), contextStrategy: "inline-system",
   get connected() { return true; },
   registerStreamHandler: () => {}, unregisterStreamHandler: () => {},
-  adoptWokenTurn: (_sk: string, h: StreamHandler) => { opened = h; return true; },
+  adoptWokenTurn: (_sk: string, h: StreamHandler) => { opened = h; turnsOpened.add(h); return true; },
   sendChat: (_sk: string, _content: unknown, h: StreamHandler) => {
     opened = h;
+    turnsOpened.add(h);
     return new Promise((resolve) => setTimeout(() => { send(h); resolve({ runId: "run" }); }, 5));
   },
-  reattach: async (_sk: string, h: StreamHandler) => { setTimeout(() => replay(h), 5); return "reattach-run"; },
+  reattach: async (_sk: string, h: StreamHandler) => { turnsOpened.add(h); setTimeout(() => replay(h), 5); return "reattach-run"; },
   defaultModel: () => "claude-opus-5", abort: async () => {}, start: () => {}, stop: () => {},
   complete: async () => ({ content: "Build lanciato di nuovo: ti avviso quando finisce." }),
 } as unknown as AIProvider;
 
-/** The real chat route, with `deps` over the test's own. */
-async function route(body: Record<string, unknown>, deps: Record<string, unknown> = {}): Promise<Response> {
-  const chat = createChatRouter(ctx, {
+/** The chat route, as every caller gets it (the person's window, the sweep, the wake module), with `deps` over the test's own. */
+function chatRoute(deps: Record<string, unknown> = {}) {
+  return createChatRouter(ctx, {
     resolveProvider: () => provider, resolveProviderByName: () => provider,
     detectLocalhostAutoNav: () => {}, bindTopicToProject: () => {}, resolveProjectRef: () => null, getProjectIdForTopic: () => null,
     getWorkspaceProjects: () => [], autoBindProject: () => {}, watchSessionForSubagents: () => {}, updateUnreadCount: () => {},
     browserNavigatedTopics: new Set<string>(), WORKSPACE_DIR: join(ROOT, "ws"),
     ...deps,
   } as never);
+}
+
+/** The real chat route, with `deps` over the test's own. */
+async function route(body: Record<string, unknown>, deps: Record<string, unknown> = {}): Promise<Response> {
   const url = new URL("http://topics.test/api/chat");
-  return (await chat(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), url, url.pathname, "POST"))!;
+  return (await chatRoute(deps)(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), url, url.pathname, "POST"))!;
 }
 
 async function post(body: Record<string, unknown>): Promise<Response> {
@@ -232,6 +257,42 @@ const spawnsSubAgent = (h: StreamHandler) => {
   h.onToolStart(`spawn-${reports}`, "mcp__topics__spawn_agent", { name: "lane-a" });
   h.onToolResult(`spawn-${reports}`, "spawned");
 };
+
+/** Each turn the route sends runs the next of `list`, and the last one runs every turn after it. */
+function turns(...list: Array<(h: StreamHandler) => void>): (h: StreamHandler) => void {
+  let next = 0;
+  return (h) => list[Math.min(next++, list.length - 1)]!(h);
+}
+const answers = (text: string) => (h: StreamHandler) => { h.onTextDelta(text, text); h.onDone({ result: text } as never); };
+
+/**
+ * A command started with `run_command` ends: the wake module writes its row
+ * through the real route, as soon as it lets itself. Returns its process and
+ * the delivery's outcome, still pending while the wake waits. With
+ * `processId`, the wake of a command that already ended, asked again as the
+ * boot asks for every wake still owed.
+ */
+let wakes = 0;
+function commandEnds(sk: string, processId = `p-${++wakes}`) {
+  const outcome = deliverProcessExit({
+    db: ctx.db,
+    getTopicById: (id) => { const t = ctx.getTopicById(id); return t ? { sessionKey: t.sessionKey, archived: !!t.archived, provider: t.provider } : null; },
+    ownedByRunningTask: () => false, isBusy: (k) => ctx.activeStreams.has(k), route: chatRoute(), pollMs: 10, endGraceMs: 200,
+  }, { processId, topicId: sk.slice("topic:".length), label: "bun run build", exitCode: 1, durationMs: 90_000, lines: ["error: 3 tests failed"] });
+  return { processId, outcome };
+}
+
+/** A command's wake whose turn is `turn`, delivered once. Returns the wake's row and the row of its answer. */
+async function commandWake(sk: string, turn: (h: StreamHandler) => void): Promise<{ wakeRow: string; rowId: string }> {
+  send = turn;
+  expect(await commandEnds(sk).outcome).toBe("sent");
+  return { wakeRow: ctx.loadLocalMessages(sk).filter((m) => m.role === "user").at(-1)!.id, rowId: lastAnswerRow(sk) };
+}
+
+/** Every row of a process's wake in the chat, oldest first: the first one and each copy sent again. */
+const wakeRows = (sk: string, processId: string) => ctx.loadLocalMessages(sk).filter((m) =>
+  m.role === "user" && (m.blocks ?? []).some((b) => b.kind === "process-exit" && (b as { processId?: unknown }).processId === processId));
+const answerTo = (sk: string, rowId: string) => ctx.loadLocalMessages(sk).find((m) => m.role === "assistant" && m.parentId === rowId)!;
 
 describe("the message's own answer cut by an outage", () => {
   for (const cause of CAUSES) {
@@ -377,6 +438,214 @@ describe("a wake the CLI opens under the direct answer after its promised cut (a
       for (let sweep = 0; sweep < 2; sweep++) expect(await resumeSweep(sk)).toEqual([]);
     });
   }
+});
+
+describe("a row the machine wrote is not the person's message", () => {
+  /**
+   * A `user` row nobody typed (`MACHINE_ROW_KINDS`): a command's wake, a
+   * goal's continuation, the board's envelope. Its answer cut by an outage is
+   * a wake's cut: the notice promises nothing, so the failure push goes out
+   * (`push-triggers.ts` reads the same promise), and no sweep resends it.
+   * Resent, the wake went back as a row with no mark: the machine's words in
+   * the person's bubble, with an edit button.
+   */
+  for (const cause of CAUSES) {
+    test(`${cause}: a run_command wake's turn: no promise and no resend of the sweep's; the wake goes again once the outage is over`, async () => {
+      const sk = topic(`pexit-${cause}`);
+      await answered(sk, "Lancia il build con run_command e avvisami", "Lanciato, ti sveglia lui.");
+      // No hold when it goes: the agent waits on the command and nothing else
+      // runs. Its CLI retries (an API that is down holds Claude, as
+      // `noteApiHealth` does), then the outage cuts the turn.
+      send = turns((h) => { h.onRetry!(retry(1)); if (cause === "api-unavailable") holdForApiDown(); outageEnd(cause)(h); }, answers("Build rosso: 3 test."));
+      const wake = commandEnds(sk);
+      if (cause === "api-unavailable") {
+        await tick(150);
+        // Cut, and waiting behind the hold its own retries opened.
+        expect(wakeRows(sk, wake.processId)).toHaveLength(1);
+        // A child elsewhere gets an answer.
+        liftApiDownHold();
+      }
+      expect(await wake.outcome).toBe("sent");
+      const [first, copy] = wakeRows(sk, wake.processId);
+      const cut = answerTo(sk, first!.id);
+      expect(lastError(cut.blocks)!.cause).toBe(cause);
+      expect(promises(cut.id)).toBe(false);
+      // The copy is the machine's row, answered.
+      expect(copy!.content).toBe(first!.content);
+      expect(isPersonPrompt(copy!)).toBe(false);
+      expect(answerTo(sk, copy!.id).content).toContain("Build rosso");
+      for (let sweep = 0; sweep < 2; sweep++) expect(await resumeSweep(sk)).toEqual([]);
+    });
+  }
+
+  test("api-unavailable: a goal continuation's turn: no promise, nothing resent", async () => {
+    const sk = topic("goal-nudge-cut");
+    await answered(sk, "Finisci il refactor", "Fatto a metà.");
+    const nudge = await open(sk, { messages: [{ role: "user", content: "Objective still open: finish the refactor." }], goalNudge: 1 }, (h) => h.onRetry!(retry(1)));
+    outageEnd("api-unavailable")(nudge.route);
+    await drain(nudge.resp);
+    expect(promises(nudge.rowId)).toBe(false);
+    expect(await resumeSweep(sk)).toEqual([]);
+  });
+
+  /**
+   * The person's answer launched the command and was cut with the promise;
+   * the command ended during the outage. Landed under the cut first, the wake
+   * became the chat's last word and the promised resend never went: before
+   * the verdict read machine rows, the sweep resent the wake's text in the
+   * message's place; after, it resent nothing. The wake waits behind the
+   * promise, and a lifted hold alone does not let it jump ahead (the sweep is
+   * nudged 20 s after the lift, the wake looked every 500 ms).
+   */
+  for (const cause of CAUSES) {
+    test(`${cause}: a run_command wake waits behind the person's promised resend, and goes after its turn`, async () => {
+      const sk = topic(`pexit-under-${cause}`);
+      await answered(sk, "Ciao", "Ciao, dimmi.");
+      const answer = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => {
+        h.onToolStart("rc1", "mcp__topics__run_command", { command: "bun run build" });
+        h.onToolResult("rc1", "started");
+        h.onRetry!(retry(1));
+        if (cause === "api-unavailable") holdForApiDown();
+      });
+      outageEnd(cause)(answer.route);
+      await drain(answer.resp);
+      expect(promises(answer.rowId)).toBe(true);
+      send = turns(answers("Riprendo il build."), answers("Build finito, exit 1."));
+      const wake = commandEnds(sk);
+      await tick(80);
+      if (cause === "api-unavailable") {
+        liftApiDownHold();
+        await tick(80);
+      }
+      expect(wakeRows(sk, wake.processId)).toHaveLength(0);
+      // The sweep keeps the promise, and the wake goes once the resent turn is over.
+      expect(await resumeSweep(sk, { through: true })).toEqual([1]);
+      await drain(live.shift()!);
+      expect(await wake.outcome).toBe("sent");
+      const tail = ctx.loadLocalMessages(sk).slice(-4).map((m) => `${m.role}:${m.content.split(":")[0]}`);
+      expect(tail).toEqual([`user:${MESSAGE}`, "assistant:Riprendo il build.", "user:Command `bun run build` finished", "assistant:Build finito, exit 1."]);
+      expect(await resumeSweep(sk)).toEqual([]);
+    });
+  }
+});
+
+describe("a run_command wake whose turn meets the outage goes again", () => {
+  /**
+   * The api-down hold ends by time, and what it lets through is the probe
+   * that says whether the API is back. A wake that goes out as that probe and
+   * meets the API still down is cut; its CLI's retries open the hold again,
+   * and the wake waits behind it for the next round.
+   */
+  test("a hold that ends with the API still down: the wake goes as the probe, is cut, and goes again once the API answers", async () => {
+    const sk = topic("pexit-probe");
+    await answered(sk, "Lancia il build con run_command e avvisami", "Lanciato, ti sveglia lui.");
+    setProviderHold({ untilMs: Date.now() + 150, window: "api-down", reason: "l'API di Claude non risponde" });
+    send = turns((h) => { h.onRetry!(retry(1)); holdForApiDown(); outageEnd("api-unavailable")(h); }, answers("Build rosso: 3 test."));
+    const wake = commandEnds(sk);
+    await tick(80);
+    expect(wakeRows(sk, wake.processId)).toHaveLength(0);
+    await tick(250);
+    const [probe] = wakeRows(sk, wake.processId);
+    expect(lastError(answerTo(sk, probe!.id).blocks)!.cause).toBe("api-unavailable");
+    liftApiDownHold();
+    expect(await wake.outcome).toBe("sent");
+    const rows = wakeRows(sk, wake.processId);
+    expect(rows).toHaveLength(2);
+    const answer = answerTo(sk, rows[1]!.id);
+    expect(answer.content).toContain("Build rosso");
+    // Said as a resend, and counted on the chain like one.
+    expect(attemptsOnRow(answer.blocks)).toBe(1);
+    for (let sweep = 0; sweep < 2; sweep++) expect(await resumeSweep(sk)).toEqual([]);
+  });
+
+  test("cut every time, it goes again MAX_RESUME_ATTEMPTS times and then leaves the chat to the person", async () => {
+    const sk = topic("pexit-cap");
+    await answered(sk, "Lancia il build con run_command e avvisami", "Lanciato, ti sveglia lui.");
+    send = (h) => { h.onRetry!(retry(1)); outageEnd("broker-died")(h); };
+    const wake = commandEnds(sk);
+    expect(await wake.outcome).toBe("capped");
+    const rows = wakeRows(sk, wake.processId);
+    expect(rows.map((r) => attemptsOnRow(answerTo(sk, r.id).blocks))).toEqual(Array.from({ length: MAX_RESUME_ATTEMPTS + 1 }, (_, attempt) => attempt));
+    expect(promises(answerTo(sk, rows.at(-1)!.id).id)).toBe(false);
+    expect(await resumeSweep(sk)).toEqual([]);
+  });
+
+  /**
+   * The wake's copies and the sweep's resends of the same wake are one chain
+   * on one count (`resend_counts`), keyed by the wake's first row: a restart's
+   * cut between two outages does not start the budget over, in either
+   * direction.
+   */
+  test("cut by the outage, its copy by a restart, the sweep's resend by the outage again: one count from the first cut to the cap", async () => {
+    const sk = topic("pexit-one-count");
+    await answered(sk, "Lancia il build con run_command e avvisami", "Lanciato, ti sveglia lui.");
+    const daemonDies = (h: StreamHandler) => { h.onRetry!(retry(1)); outageEnd("broker-died")(h); };
+    send = turns(daemonDies, (h) => h.onAborted!({ turnEnd: { end: "cancelled", cause: "server-shutdown" } } as never), daemonDies);
+    const wake = commandEnds(sk);
+    // A restart's cut is the sweep's: the wake is done with it.
+    expect(await wake.outcome).toBe("sent");
+    expect(await resumeSweep(sk, { through: true })).toEqual([2]);
+    await drain(live.shift()!);
+    // The sweep leaves the outage's cut of its copy alone; the boot asks for the wake again.
+    expect(await resumeSweep(sk)).toEqual([]);
+    expect(await commandEnds(sk, wake.processId).outcome).toBe("capped");
+    const rows = wakeRows(sk, wake.processId);
+    // The number each went out with, on the banner its answer opens with (the
+    // restart's cut also carries the sweep's trace, 2, after the cut).
+    const banner = (rowId: string) => attemptsOnRow(answerTo(sk, rowId).blocks?.filter((b) => b.kind === "ripreso").slice(0, 1));
+    expect(rows.map((r) => banner(r.id))).toEqual(Array.from({ length: MAX_RESUME_ATTEMPTS + 1 }, (_, attempt) => attempt));
+    expect(ctx.db.query("SELECT message_id, attempts, free_probes, last_copy_id FROM resend_counts WHERE session_key = ?").all(sk))
+      .toEqual([{ message_id: rows[0]!.id, attempts: MAX_RESUME_ATTEMPTS, free_probes: 0, last_copy_id: rows.at(-1)!.id }]);
+    expect(await resumeSweep(sk)).toEqual([]);
+  });
+
+  /**
+   * The probe api-down-forever+bgnotice on the wake: every copy meets the API
+   * still down, and a background notice lands under each cut, so each copy
+   * hangs from a notice. Its free probes read off the thread stopped at the
+   * notice and started over at every copy, with no cap; counted, they stop at
+   * MAX_FREE_PROBES and the copies go on to the cap.
+   */
+  test("the API down for good, a background notice under every cut: MAX_FREE_PROBES free copies, then the count up to the cap", async () => {
+    const sk = topic("pexit-down-notices");
+    await answered(sk, "Lancia il build con run_command e avvisami", "Lanciato, ti sveglia lui.");
+    send = (h) => { h.onRetry!(retry(1)); outageEnd("api-unavailable")(h); };
+    const append = ctx.appendLocalMessage;
+    ctx.appendLocalMessage = ((...args: Parameters<typeof append>) => {
+      if (args[0] === sk && args[1] === "user") lands(sk, "background-notice");
+      return append(...args);
+    }) as typeof append;
+    const wake = commandEnds(sk);
+    try { expect(await wake.outcome).toBe("capped"); } finally { ctx.appendLocalMessage = append; }
+    const rows = wakeRows(sk, wake.processId);
+    expect(rows.every((r) => ctx.getMessageById(r.parentId!)!.blocks?.[0]?.kind === "background-notice")).toBe(true);
+    expect(rows.map((r) => attemptsOnRow(answerTo(sk, r.id).blocks))).toEqual([0, ...Array(1 + MAX_FREE_PROBES).fill(1), ...COUNTED.slice(1)]);
+    expect(ctx.db.query("SELECT attempts, free_probes FROM resend_counts WHERE session_key = ?").all(sk))
+      .toEqual([{ attempts: MAX_RESUME_ATTEMPTS, free_probes: MAX_FREE_PROBES }]);
+  });
+});
+
+describe("a resend of a row the machine wrote keeps its mark", () => {
+  /**
+   * A cut of ours (a restart) keeps its rule: the sweep resends the chat's
+   * last user row, as the Retry button does. When that row is the machine's
+   * words, the copy the route writes says so, as a copy of the board's
+   * envelope already did (`repeatedRowMarks`, lib/user-row-marks.ts).
+   */
+  test("a run_command wake's turn cut by a restart: the copy carries the wake's process-exit mark", async () => {
+    const sk = topic("pexit-restart");
+    await answered(sk, "Lancia il build con run_command e avvisami", "Lanciato, ti sveglia lui.");
+    const wake = await commandWake(sk, (h) => h.onAborted!({ turnEnd: { end: "cancelled", cause: "server-shutdown" } } as never));
+    send = (h) => { h.onTextDelta("Build rosso: 3 test.", "Build rosso: 3 test."); h.onDone({ result: "Build rosso: 3 test." } as never); };
+    expect(await resumeSweep(sk, { through: true })).toEqual([1]);
+    await drain(live.shift()!);
+    const original = ctx.getMessageById(wake.wakeRow)!;
+    const copy = ctx.loadLocalMessages(sk).filter((m) => m.role === "user").at(-1)!;
+    expect(copy.id).not.toBe(original.id);
+    expect(copy.content).toBe(original.content);
+    expect(copy.blocks).toEqual(original.blocks);
+    expect(isPersonPrompt(copy)).toBe(false);
+  });
 });
 
 describe("a sub-agent's report under the message's own answer", () => {

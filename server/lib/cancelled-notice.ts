@@ -305,11 +305,12 @@ export function isOutage(cause: unknown): boolean {
  * paid turn and every effect again. Telling them apart by the thread's shape
  * did not converge: each shape it closed opened another. So the rule is
  * narrow on purpose: an outage's cut is resent only when `directAnswer` says
- * the cut row answers the person's message (its parent is a user row, not a
- * /compact already carried out) and is the chat's last word as the sweep
- * picks it (lib/ripresa-boot.ts). A `woken` mark on the row still says no on
- * its own. Every other shape asks the person, who retries. A cut of ours (a
- * restart, a stall) keeps the rule it always had.
+ * the cut row answers the person's message (its parent is a user row the
+ * person wrote, not a row the machine wrote nor a /compact already carried
+ * out) and is the chat's last word as the sweep picks it
+ * (lib/ripresa-boot.ts). A `woken` mark on the row still says no on its own.
+ * Every other shape asks the person, who retries. A cut of ours (a restart, a
+ * stall) keeps the rule it always had.
  *
  * The sweep (`resumeVerdict`) and every writer of the notice
  * (`resumesByItself`) read this one rule. `directAnswer` is asked only for an

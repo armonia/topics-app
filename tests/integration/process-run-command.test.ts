@@ -21,7 +21,7 @@ import type { TurnEndInfo } from "../../server/services/goal-continuation";
 import type { TurnEndInfo as TurnEnd } from "../../server/providers/stop-reason";
 
 const ROOT = testTmpDir("process-run-command");
-// Before the registry is imported: it fixes its state folder at import.
+// Before the registry is imported: its boot reads the state folder named then.
 setupTestDataDir(join(ROOT, "data"));
 const PROJECT = realpathSync((mkdirSync(join(ROOT, "project"), { recursive: true }), join(ROOT, "project")));
 // The live core quota of a card's command writes its number and its shims here,
@@ -377,7 +377,7 @@ describe("the end of a command reaches the topic that launched it", () => {
     const outcome = await Promise.race([processExitWakesIdle().then(() => "settled"), Bun.sleep(3000).then(() => "still waiting")]);
     expect(outcome).toBe("settled");
     expect(exitRows(topic.sessionKey)).toHaveLength(0);
-    // Beside the logs: the registry's folder is the one of the first file that loaded it.
+    // Beside the logs, in the state folder DATA_DIR names now.
     const saved = JSON.parse(readFileSync(join(dirname(dirname(logPathOf(processId))), "scripts.json"), "utf8")) as { recent: Array<{ processId: string; cmd?: { wake: boolean } }> };
     expect(saved.recent.find((r) => r.processId === processId)?.cmd?.wake).toBe(true);
     // Owed to the next boot, not to anybody waiting now: counted as queued, it
@@ -654,7 +654,8 @@ describe("the command outlives the server", () => {
     mkdirSync(state, { recursive: true });
     dbPath = join(state, "wakes.db");
     const db = new Database(dbPath);
-    db.run("CREATE TABLE messages (session_key TEXT, role TEXT, content TEXT, blocks TEXT)");
+    // The columns of the real table the wake reads: its row, and the answer under it.
+    db.run("CREATE TABLE messages (id TEXT, session_key TEXT, role TEXT, content TEXT, blocks TEXT, parent_id TEXT, timestamp TEXT)");
     db.close();
   });
 
