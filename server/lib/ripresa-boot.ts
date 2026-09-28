@@ -445,7 +445,12 @@ function compactionCarriedOut(db: Pick<Database, "query">, sessionKey: string, m
  * person, and nothing is resent.
  */
 export function directAnswerNow(db: Database, sessionKey: string, rowId: string): boolean {
-  if (!answersPersonsMessage(db, sessionKey, rowId)) return false;
+  return answersPersonsMessage(db, sessionKey, rowId) && isChatsLastWord(db, sessionKey, rowId);
+}
+
+/** The row is the chat's last word as the sweep picks it: the newest row,
+ *  read past background notices (`previousConversationRow`). */
+export function isChatsLastWord(db: Pick<Database, "query">, sessionKey: string, rowId: string): boolean {
   for (const r of rowsBack(db, sessionKey)) if (!isBackgroundNoticeRow(r.decoded)) return r.id === rowId;
   return false;
 }

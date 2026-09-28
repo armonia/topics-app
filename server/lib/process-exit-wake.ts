@@ -32,7 +32,9 @@
  * the wake through as the probe of an API still down, a wake can go out
  * before any hold exists, and a dead ai-bridge daemon holds nothing. So the
  * turn's end is read off its answer row, and a cut by an outage with nothing
- * after it (`outageCutUnanswered`) puts the wake back to wait: behind the hold
+ * after it (`outageCutUnanswered`), still the chat's last word as the sweep
+ * requires of its own resends (`isChatsLastWord`), puts the wake back to wait:
+ * behind the hold
  * its CLI's retries opened, or at once after a dead daemon (the one that
  * reported it is the live one). The copy goes out on the sweep's count
  * (`outageResendAttempt`, `resend_counts`), keyed by the wake's row and
@@ -58,7 +60,7 @@ import type { ContentBlock } from "../types";
 import { decodeCol } from "../../shared/message-blob";
 import { wakeVerdict } from "./wake-adoption";
 import { isProviderHeld } from "./provider-hold";
-import { outageCutUnanswered, outageResendAttempt, outageResendOwed } from "./ripresa-boot";
+import { isChatsLastWord, outageCutUnanswered, outageResendAttempt, outageResendOwed } from "./ripresa-boot";
 import type { ResendChain } from "./resend-count";
 
 /** What the topic is told about a process that ended. */
@@ -185,12 +187,14 @@ export function wakeOwedAtExit(c: { wake: boolean; topicId: string | null; stopp
 
 /**
  * The answer under the newest row of this process's wake, when an outage cut
- * its turn and nothing was produced after the cut: the wake still has to go.
- * Undefined when the session holds no such row, null when the wake is there
- * (answered, in flight, or cut otherwise: a restart's cut is the sweep's,
- * which resends the row with its mark). The mark is a few bytes of plain
- * JSON, below the blob compression threshold of `shared/message-blob.ts`, so
- * a `LIKE` reads it (as `MACHINE_ROW_SQL` does).
+ * its turn, nothing was produced after the cut, and the cut is still the
+ * chat's last word: the wake still has to go. Undefined when the session holds
+ * no such row, null when the wake is there (answered, in flight, cut
+ * otherwise: a restart's cut is the sweep's, which resends the row with its
+ * mark; or left behind: the cut's notice tells the person to write, and a
+ * copy under their message would run a stale turn). The mark is a few bytes
+ * of plain JSON, below the blob compression threshold of
+ * `shared/message-blob.ts`, so a `LIKE` reads it (as `MACHINE_ROW_SQL` does).
  */
 function wakeCutByOutage(
   db: Pick<Database, "query">, sessionKey: string, processId: string,
@@ -205,7 +209,8 @@ function wakeCutByOutage(
   if (!row.id) return null;
   let blocks: ContentBlock[] | null = null;
   try { blocks = JSON.parse(decodeCol(row.blocks as never) ?? "null") as ContentBlock[] | null; } catch { return null; }
-  return outageCutUnanswered(blocks) ? { id: row.id, wakeId: row.wakeId, blocks, timestampMs: Date.parse(row.ts ?? "") } : null;
+  if (!outageCutUnanswered(blocks) || !isChatsLastWord(db, sessionKey, row.id)) return null;
+  return { id: row.id, wakeId: row.wakeId, blocks, timestampMs: Date.parse(row.ts ?? "") };
 }
 
 /** Does the session already hold the wake of this process, with a turn no outage cut? */

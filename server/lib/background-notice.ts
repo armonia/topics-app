@@ -92,7 +92,7 @@ export type BackRow = { rowid: number; id: string; role: string; content: string
  * has six notices in a row, and a cap of five read that chat as having no last
  * word (third review of 25/09).
  */
-export function* rowsBack(db: Database, sessionKey: string, rowid = Number.MAX_SAFE_INTEGER): Generator<BackRow> {
+export function* rowsBack(db: Pick<Database, "query">, sessionKey: string, rowid = Number.MAX_SAFE_INTEGER): Generator<BackRow> {
   const page = db.query(
     `SELECT rowid, id, role, content, blocks, timestamp FROM messages WHERE session_key = ? AND rowid < ? ORDER BY rowid DESC LIMIT 20`,
   );

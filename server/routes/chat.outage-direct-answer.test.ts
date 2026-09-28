@@ -558,6 +558,29 @@ describe("a run_command wake whose turn meets the outage goes again", () => {
     for (let sweep = 0; sweep < 2; sweep++) expect(await resumeSweep(sk)).toEqual([]);
   });
 
+  /**
+   * The cut's notice tells the person to write, and they did while the wake
+   * waited behind the hold: its cut is no longer the chat's last word, the
+   * sweep's own condition, and a copy would run a stale turn under their
+   * answer.
+   */
+  test("the person writes while the wake waits behind the hold: the wake is done, no copy goes", async () => {
+    const sk = topic("pexit-moved-on");
+    await answered(sk, "Lancia il build con run_command e avvisami", "Lanciato, ti sveglia lui.");
+    send = (h) => { h.onRetry!(retry(1)); holdForApiDown(); outageEnd("api-unavailable")(h); };
+    const wake = commandEnds(sk);
+    await tick(150);
+    expect(wakeRows(sk, wake.processId)).toHaveLength(1);
+    await answered(sk, "Lascia stare il build, guarda i log", "Guardo i log.");
+    liftApiDownHold();
+    expect(await wake.outcome).toBe("delivered");
+    expect(wakeRows(sk, wake.processId)).toHaveLength(1);
+    expect(ctx.loadLocalMessages(sk).at(-1)!.content).toBe("Guardo i log.");
+    // Asked again, as the boot asks for every wake still owed: nothing more.
+    expect(await commandEnds(sk, wake.processId).outcome).toBe("delivered");
+    expect(await resumeSweep(sk)).toEqual([]);
+  });
+
   test("cut every time, it goes again MAX_RESUME_ATTEMPTS times and then leaves the chat to the person", async () => {
     const sk = topic("pexit-cap");
     await answered(sk, "Lancia il build con run_command e avvisami", "Lanciato, ti sveglia lui.");
