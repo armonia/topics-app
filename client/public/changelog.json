@@ -1,5 +1,183 @@
 [
   {
+    "version": "2.2.404",
+    "date": "2026-09-28",
+    "sections": {
+      "new": [
+        {
+          "it": "Sonnet 5.5 diventa il default di Topics",
+          "en": "",
+          "scope": "models",
+          "breaking": false
+        }
+      ],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "The full history panel gets type and day filters, waiting for a yes before any code",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A long queued line keeps its remove X beside the bubble, inside its row",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Two tests that could not see their own defect: a TZ restore that froze the zone, and a two-field search on one field",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "History filters proposal: restore the test zone by reassignment, not delete, and scenarios that can fail",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A board agent's system prompt offers no wait that ends its turn, on macOS or Windows",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Every attempt of a fan-out spawns as a board agent, not only attempt 1",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A wait_for_process left open by a turn that is over no longer swallows its command's wake",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A native turn stopped inside wait_for_process closes the request and ends at once",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A command wake's turn counts as over once its session has been free for 20 s, even if its stream never closes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A board agent leaves a dev server for the tab running and declares an external wait with wait_for_condition",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The x on a pasted image sits on the image's top-right corner",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A queued line stays inside the chat column on a pane wider than the column",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A command whose outcome a later wait_for_process of the same turn read no longer wakes the session after it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A /compact that finished is not resent after a reload",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A board card's run_command gets the core quota its Bash gets",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A testTmpDir root is removed once the test file that made it is over",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A command whose end the turn read through a matching until or read_process_output no longer wakes the session after it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The long queued line test measures a bubble that is still in the page",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The / menu lists skills that are links to a folder",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The board-doctor zone restore explains itself in English, as the comment rail asks",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Every e2e spec that fakes the Tauri shell keeps its network on the test server",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The identifier-language rail knows desktop, so the fake-shell guard test can name DESKTOP_SERVER_HOST",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The ai-bridge tests give their state folder back, and a registry life pins its own",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The run_command card test takes its card off the board, so no later dispatcher resumes it on a turn nobody closes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The bundle baseline records tornata 2c, with what each piece of the batch put in the entry",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The pane-attach spec writes its seeded layout from /manifest.json, a page Playwright does not abort under a route",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The run_command e2e brings the chat's tab back before opening the wake's service line",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The run_command registry keeps its state in the folder DATA_DIR names when it writes, not the one it named at first import",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A run_command wake waits while the topic's provider is held and goes out when the hold lifts",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A user row the machine wrote is not the person's message for the outage rule, and a resend of one keeps its marks",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A run_command wake that an outage cut goes again once the outage is over, after the person's promised resend",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The run_command registry finds its folder through the state-dir door on every call",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.403",
     "date": "2026-09-28",
     "sections": {
@@ -37,6 +215,16 @@
           "en": "",
           "scope": "e2e",
           "breaking": false
+        },
+        {
+          "it": "A turn cut by an API blackout or by the ai-bridge daemon dying resumes by itself",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The usage recheck no longer lifts an API outage hold because the usage endpoint answered",
+          "en": "",
+          "scope": null
         },
         {
           "it": "Automatic with Topics routing ON runs on the engine when no Claude Code target is ready, and waits while one is in discovery",
@@ -89,7 +277,27 @@
           "scope": null
         },
         {
+          "it": "A child that vanishes under the same ai-bridge daemon is pinned to process-died, not broker-died",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A woken turn cut by an outage is not resent as the person's last message",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "A turn a restart cut during a tool carries one notice, the restart's, not a second verdict on its row",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A resend that meets the API still down spends no attempt, and each outage hold it outlives doubles",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A stream:end whose stopCause the page does not know still ends the turn",
           "en": "",
           "scope": null
         },
@@ -144,6 +352,11 @@
           "scope": null
         },
         {
+          "it": "A file a Codex patch touches reaches the changed-files strip as its own tool call",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Untracked files in a diff range are counted without a git process each, and a chat that ran no tool asks git nothing",
           "en": "",
           "scope": null
@@ -154,7 +367,57 @@
           "scope": null
         },
         {
+          "it": "A wake cut by an outage says it will not resume, and a wake cut by the watchdog is resent again",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A late answer the CLI ends by giving up on the API leaves the notice the sweep resumes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "An API outage or a daemon death sends no failure push: the chat resumes by itself",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A message gets at most eight free probes into an API still down, then they count",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A lifted hold nudging the resume sweep, and an outage hold kept off the banner, are tested",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Where a row of the changed-files strip opens is one pure rule, pinned without a browser",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A child gone under the same ai-bridge daemon is process-died even after a spawn that found it alive",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The API outage integration test widens its watchdog window with the load",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A card whose turn the send watchdog cut spends an attempt and resumes at once, as the card asked",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A session cron armed by a closed turn keeps its CLI for up to two hours, not fifteen minutes",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The probe-ceiling and wake tests fit the file-size and comment-language rails",
           "en": "",
           "scope": null
         },
@@ -174,7 +437,27 @@
           "scope": null
         },
         {
+          "it": "A change owed by a turn that arms a session cron is said in the chat, as for a background task",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A session cron's fire disarms its one-shot even while a turn of ours is open",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A goal waiting on an armed session cron checks in as it does on a task, and ScheduleWakeup is named as out of reach",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "A held resume a person writes to every five minutes stays at one write an hour on a steady floor",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Fix the queued-message remove button drifting outside the row",
           "en": "",
           "scope": null
         },
@@ -205,6 +488,16 @@
         },
         {
           "it": "A closed turn's late answer reaches the screen once per frame, like the live one",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A reattach that folds a cron fire twice disarms one one-shot, not two",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A session cron closed at its two-hour bound is said in the chat, under its own reason",
           "en": "",
           "scope": null
         },
@@ -245,6 +538,16 @@
           "scope": null
         },
         {
+          "it": "A one-shot session cron that already fired stays disarmed when a reattach replays its arming",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A session cron closed at its bound reaches the chat under a reason every shipped client can draw",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "A reattach takes back the turn's row even when it was closed from outside before the reattach reached it",
           "en": "",
           "scope": null
@@ -270,6 +573,26 @@
           "scope": null
         },
         {
+          "it": "A Claude hold defers only Claude chats, and the boot resends a Codex chat cut by the reload",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A wake cut by an API outage or a daemon death sends its failure push again",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A card held by an API outage says it restarts when the API answers, not after a window reset",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tests pin the 429 gate, the watchdog's stall branches, an adopted turn's daemon and the late lane's cause",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "On an Automatic task the Topics routing switch judges the board default the card will run with",
           "en": "",
           "scope": null
@@ -285,7 +608,52 @@
           "scope": null
         },
         {
+          "it": "A restart after a session cron's fire finds the chat idle, not inside a phantom turn",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A peer's message queued into a session does not disarm its one-shot cron",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A durable cron keeps no CLI in RAM and is never announced as closed",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A closed-work reason without its sentence no longer compiles in the chat row",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "A reattach does not take back a row closed from outside when a turn that stopped or failed came after it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The resume sweep leaves a card in progress whose turn ended in error to the dispatcher",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A card cut during an API outage resumes once the API answers, not at the outage's horizon",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A native round the API answers lifts the API outage hold",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The resume sweep's periodic and nudge clocks live in their own module",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A Claude hold defers only the Claude chats in the periodic and nudged resume sweeps too",
           "en": "",
           "scope": null
         },
@@ -334,6 +702,16 @@
           "en": "",
           "scope": null,
           "breaking": false
+        },
+        {
+          "it": "A Codex patch cut off by an interrupted turn no longer lists its files as changed",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The fresh retry of a failed Codex resume names its tool calls apart from the resume's",
+          "en": "",
+          "scope": null
         },
         {
           "it": "The changed-files strip reads a diff range only on a task's topic, and folds into it only what the chat wrote in that task's own worktree",
@@ -401,6 +779,16 @@
           "scope": null
         },
         {
+          "it": "The row-mark boot test waits for the whole store before the server goes away",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A CLI starting a cron's fire reads as a wake on its way until its turn's init",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The live tail of a native bash stays within 16 KB of bytes and never empties on a line longer than the buffer",
           "en": "",
           "scope": null
@@ -456,6 +844,26 @@
           "scope": null
         },
         {
+          "it": "turno-troncato.ts matches main again: its settleReattachLeg moved into endReattachLeg",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A board diff names the two SHAs it compares and serves a changed picture's bytes at either of them",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The diff panel shows a changed picture as Before and After, renders a .md or .svg, and reads a text file whole",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The changes panel E2E covers the picture pair, the rendered README, the byte route and the pair after the land",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The card's tooltip and the tail's working glyph say the badge's number, in the badge's words",
           "en": "",
           "scope": null
@@ -471,12 +879,187 @@
           "scope": null
         },
         {
+          "it": "A background shell of the current CLI is read by the id the agent sees, with the file its output goes to",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "An agent can run any command as a Topics process that outlives its CLI and wakes its topic when it ends",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The Processes panel shows run_command rows with their live log and outcome, and the chat shows a command's end as a service line",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Agents are told to run long ad hoc waits with run_command instead of a background Bash",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A row taken back by a reattach keeps the woken mark and resend banner it opens with",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A turn an outage ended is saved with end_reason 'error', whichever leg closed it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A daemon change is concluded only from two known ai-bridge pids",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The per-file diff routes read a renamed file together with its old path",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Full file follows a rename, is re-read with the bundle, and shows a note or change past the row cap",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The changes panel E2E clicks Full file on a renamed file and re-reads a bundle the land made stale",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The chat card of a background Bash finds its shell by the id the current CLI announces",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The branch passes the identifier-language and comment-language rails",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A worktree with a run_command running inside is not slimmed, committed or removed under it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A wake or a resend has its opening mark on the row from the moment the route opens it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A command found dead at boot no longer drops the live processes listed after it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A wake still owed to a topic survives any number of other endings before a reload",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A wait_for_process whose caller went away no longer swallows the command's wake",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "run_command runs on Linux with /bin/sh and is not offered on Windows",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A reload reads only the last 500 KB of a command's log, not the whole file",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Command wakes start at boot even when a later boot sweep throws",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The run_command e2e observes the CLI restart instead of assuming it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The round's new identifiers pass the identifier-language rail",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "A dependent continues its blocker's session only with the switch that session runs with, and parks naming the switch otherwise",
           "en": "",
           "scope": null
         },
         {
+          "it": "A note written off the changed blocks reopens its file on Full file, and a live .md preview is re-read with the bundle",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A delivered .md renders in the diff panel without active elements, and its relative links stay text",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A partial row of opening marks alone is an empty placeholder to the history's cleanup",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The swap-freeze signals test leaves no spinning tree behind when its runner dies",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A picture or .svg read from a live worktree shows the new bytes once the re-read bundle carries a new block",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The diff panel's own tests fail if a 409 on a picture or a rendered README stops re-reading the bundle",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A delivered .md rendered in the diff panel draws nothing outside its own box",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The half of card af8ba9b4 this change defers is an open task of the change",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A command's wake waits only on a busy session and fails on any other refusal",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A card's drawer draws a command's wake as the machine's service line",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A command's log file is cut to its last 500 KB past 1 MB, like a script's",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The history cleanup keeps a partial row of opening marks as a body again",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A turn's opening marks reach its row with its first tool or tenth chunk again",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A cut turn after the answer to the person's last message is never resent",
           "en": "",
           "scope": null
         },
@@ -497,6 +1080,41 @@
         },
         {
           "it": "The board's hand-off of a strip row's file to the task drawer is pinned, so a board keeping a focus of its own fails a unit test",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A run_command process runs in the agent's cleaned environment, not the server's",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The agent's system prompt names run_command only where the bridge offers it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A command's wake fences its output with more backticks than any line it printed",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A goal waits for a run_command's wake instead of nudging over the running command",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A file a Codex sub-agent patches reaches the changed-files strip, read back from its rollout",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The run_command e2e opens a bound card and finds the wake as a service line",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A wake after any ended answer is not resent, and no notice promises its resume",
           "en": "",
           "scope": null
         },
@@ -522,6 +1140,11 @@
           "breaking": false
         },
         {
+          "it": "The person's answer that auto-compacted on its way is resent again when an outage or a restart cuts it",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "A landed task with no delivery recorded lists each file once: its topic's attempt names the pruned worktree",
           "en": "",
           "scope": null
@@ -537,12 +1160,67 @@
           "scope": null
         },
         {
+          "it": "The peer-message test fails when a queued command disarms the one-shot",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A recurring cron's fires do not keep a silent Monitor's CLI alive",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A stuck turn in a session with an armed cron is judged and recycled as on main",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "Record server/routes/topics.ts at 3103 lines, the sum of three backlog branches landing together",
           "en": "",
           "scope": null
         },
         {
+          "it": "A report or a system message under the person's live answer no longer keeps a restart's cut from its resend",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A board card whose agent ends its turn on a running run_command waits for the wake instead of spending an attempt",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A wake the chat route refused for good no longer holds a goal or a card until the next boot",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "BGVIS-04 says a session cron armed within the cap is one of the background tasks",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "A stale second answer does not reopen a tool that has already returned",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A report under the person's answer no longer keeps an outage's cut from the resend its notice promises",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A run_command wake reaches a board card's topic, which is born archived, while its card is in progress",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The tokens of a command wake's turn go on the card's cost",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Revert the five rounds that read the resend decision off the thread's shape",
           "en": "",
           "scope": null
         },
@@ -572,7 +1250,42 @@
           "scope": null
         },
         {
+          "it": "A fan-out attempt is told to keep its one turn open until its background commands end",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A card waiting for a command's wake keeps its cap, its reattach and its hold across a server restart",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The event-loop test of the image resize measures the longest stall, not whether a tick got through",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "An outage's cut is resent only as the direct answer to the person's message",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A command's wake stays owed until the turn it opened is over",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A card's worktree is not slimmed while a Topics process runs inside it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A board agent waits for its long commands inside its turn instead of ending it on a wake",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The drawer's user row is a component of its own, and a test renders a command's wake in it",
           "en": "",
           "scope": null
         }
