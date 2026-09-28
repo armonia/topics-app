@@ -111,6 +111,10 @@ export interface WSData {
    *  native pane reads 0 other viewers — otherwise its own delegate connection would
    *  make 'auto' oscillate native↔shared every poll ("il browser si resetta"). */
   _nativeDelegate?: boolean;
+  /** The socket opened with `?executor=1` (NATIVE_EXECUTOR_PARAM): a native
+   *  pane's executor, which counts as an attached pane only once
+   *  `_nativeDelegate` is set, and never needs the screencast. */
+  expectsExecutor?: boolean;
   /** WebRTC shared-session transport — the set of webrtc-bridge peer ids this WS
    *  opened (one per RTCPeerConnection). Used on close to tell the sidecar to tear
    *  each peer down. Absent until the pane sends its first `webrtc_offer`. */
