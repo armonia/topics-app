@@ -811,8 +811,8 @@ test.describe("Sidebar col dito — audit misurato", () => {
     // profilo, che ha portato via l'account dal menu «Topics». Il numero si
     // aggiorna insieme ai nomi, non da solo: contare e basta lascerebbe passare
     // una porta sostituita da un'altra.
-    // From 28/09 they are FIVE: «In attesa» (CHAT-WAIT-04, the phone half of
-    // Cmd+J) sits between the board and the profile, always in place.
+    // From 28/09 they are FIVE: the waiting door (CHAT-WAIT-04, the phone
+    // half of Cmd+J) sits between the board and the profile, always there.
     const fila = page.locator('[data-testid="mobile-chrome-bar"]');
     await expect(fila.locator("button")).toHaveCount(5);
     const cerca = (await fila.locator('[data-testid="mobile-chrome-search"]').boundingBox())!;
@@ -826,7 +826,7 @@ test.describe("Sidebar col dito — audit misurato", () => {
       expect(Math.round(b.height), `${nome} è alto ${b.height}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
       expect(Math.round(b.width), `${nome} è largo ${b.width}px: sotto la soglia del dito`).toBeGreaterThanOrEqual(44);
     }
-    // L'ordine della fila: cerca · aggiungi · board · in attesa · profilo.
+    // Row order: search, add, board, waiting, profile.
     expect(cerca.x).toBeLessThan(piu.x);
     expect(piu.x).toBeLessThan(board.x);
     expect(board.x).toBeLessThan(attesa.x);
