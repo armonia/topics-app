@@ -53,3 +53,12 @@ Barra: il test nuovo di ogni task e' ROSSO sull'albero di oggi e verde dopo;
 - [ ] T11 Video `.webm` del giro E2E di `CHANGES-04` allegato alla consegna.
       Aperto: questo giro non poteva lanciare Playwright. Il video si ottiene con
       `E2E_EVIDENCE=1 E2E_VIDEO=1 bunx playwright test tests/e2e/board-task-changes-panel.spec.ts -g CHANGES-04`.
+
+## Dopo questa change
+
+- [ ] T12 La meta' rimandata della card af8ba9b4 ha una sua card (o change)
+      `changeset-chat-strip` prima che il land chiuda af8ba9b4: il contratto
+      `ChangeSet` in `shared/`, `/api/topics/:id/changes` con `revs`, e la
+      striscia della chat che monta `UnifiedDiff` con sorgente `topic`
+      (proposta, Non-goals; `design.md` §1). Senza, la card si chiude e quella
+      meta' non la traccia piu' nessuno.
