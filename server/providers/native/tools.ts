@@ -30,6 +30,7 @@ import { lowPriorityArgv } from "../../lib/low-priority";
 import { readSlashCommandSource } from "../../lib/slash-command-source";
 import { htmlToMarkdown } from "../../lib/html-to-markdown";
 import { imageShape } from "../../services/image-shape";
+import type { ToolImage } from "./image-normalize";
 
 export interface ToolSpec {
   name: string;
@@ -90,7 +91,7 @@ export interface ToolResult {
    * every ordinary text result, which is the vast majority — this field exists
    * so `agent-loop.ts` can tell the two apart without inspecting `content`.
    */
-  images?: { mediaType: string; data: string }[];
+  images?: ToolImage[];
   isError?: boolean;
 }
 
@@ -648,7 +649,7 @@ export async function executeTool(
           const bytes = readFileSync(p);
           return {
             content: `${input.path} (${shape.width}x${shape.height}, image attached)`,
-            images: [{ mediaType: `image/${shape.format}`, data: bytes.toString("base64") }],
+            images: [{ mediaType: `image/${shape.format}`, data: bytes.toString("base64"), label: String(input.path) }],
           };
         }
         // Outside the workspace only a raster image is readable, and only as
