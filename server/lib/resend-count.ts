@@ -20,9 +20,10 @@
  * the key, and the person's next message leads to nothing: it starts from
  * zero by construction.
  *
- * A chain ends when it is answered: the turn the last resend opened ended by
- * itself (`end_reason = 'done'`). Whatever is cut after that (a wake the CLI
- * opens once its background work ends) is a new chain, keyed by that copy.
+ * A chain ends when it is answered: a turn after the last resend's copy ended
+ * by itself, closed `done` by the route (`answered`). Whatever is cut after
+ * that (a wake the CLI opens once its background work ends) is a new chain,
+ * keyed by that copy.
  */
 import type { Database } from "bun:sqlite";
 
@@ -62,10 +63,22 @@ export function chatHasCounts(db: Pick<Database, "query">, sessionKey: string): 
   return !!db.query(`SELECT 1 FROM resend_counts WHERE session_key = ? LIMIT 1`).get(sessionKey);
 }
 
-/** The turn opened for this copy of the message ended by itself. */
+/**
+ * A turn after this copy of the message ended by itself: `done`, with the
+ * `latency_ms` only the route's own close of a turn writes. A sub-agent's
+ * report, a background notice and the machine's line under a stopped turn are
+ * written whole with `done` too, under the thread's last row, which is the
+ * copy while the route has not opened the answer row yet or never will: none
+ * has a latency, and taken for the answer each started the chain over, with
+ * no cap (verifier probes of 28/09). After the copy and not under it: a report
+ * that lands before the answer row is born becomes that row's parent.
+ */
 function answered(db: Pick<Database, "query">, sessionKey: string, copyId: string): boolean {
   return !!db.query(
-    `SELECT 1 FROM messages WHERE session_key = ? AND parent_id = ? AND role = 'assistant' AND end_reason = 'done' LIMIT 1`,
+    `SELECT 1 FROM messages
+      WHERE session_key = ?1 AND role = 'assistant' AND end_reason = 'done' AND latency_ms IS NOT NULL
+        AND rowid > (SELECT rowid FROM messages WHERE id = ?2 AND session_key = ?1)
+      LIMIT 1`,
   ).get(sessionKey, copyId);
 }
 

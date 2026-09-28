@@ -185,7 +185,7 @@ describe("the sweep on a queued send, a Stop, and a notice with no restart behin
     const db = new Database(":memory:");
     db.run(`CREATE TABLE messages (
       id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
-      partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER, end_reason TEXT
+      partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER, end_reason TEXT, latency_ms INTEGER
     )`);
     // The count of the resends (lib/resend-count.ts).
     db.run(RESEND_COUNTS_DDL);

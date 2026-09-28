@@ -45,6 +45,7 @@ import { outageNoticeResumes } from "../lib/cancelled-notice";
 import { clearProviderHold, resetProviderHoldStore } from "../lib/provider-hold";
 import { noteApiHealth } from "../providers/claude/api-outage";
 import { cancelled } from "../providers/stop-reason";
+import { TopicsRoutingIncompatibleError } from "../providers/resolve-topic-provider";
 import type { AIProvider, StreamHandler } from "../providers/types";
 import type { AppContext, ContentBlock, Topic } from "../types";
 
@@ -64,9 +65,10 @@ const MESSAGE = "Lancia il build e avvisami";
 const CAUSES = ["api-unavailable", "broker-died"] as const;
 type Outage = (typeof CAUSES)[number];
 
-function topic(tid: string): string {
+/** `pinned: false`: the chat on the machine's default (the picker's PATCH), which the route resolves after writing the message. */
+function topic(tid: string, pinned = true): string {
   const now = new Date().toISOString();
-  ctx.saveSingleTopic({ id: tid, name: tid, slug: tid, parentId: null, links: [], sessionKey: `topic:${tid}`, color: "#aabbcc", icon: "chat", createdAt: now, updatedAt: now, archived: false, provider: "claude-code" } as Topic);
+  ctx.saveSingleTopic({ id: tid, name: tid, slug: tid, parentId: null, links: [], sessionKey: `topic:${tid}`, color: "#aabbcc", icon: "chat", createdAt: now, updatedAt: now, archived: false, provider: pinned ? "claude-code" : null } as Topic);
   return `topic:${tid}`;
 }
 
@@ -92,15 +94,21 @@ const provider = {
   complete: async () => ({ content: "Build lanciato di nuovo: ti avviso quando finisce." }),
 } as unknown as AIProvider;
 
-async function post(body: Record<string, unknown>): Promise<Response> {
+/** The real chat route, with `deps` over the test's own. */
+async function route(body: Record<string, unknown>, deps: Record<string, unknown> = {}): Promise<Response> {
   const chat = createChatRouter(ctx, {
     resolveProvider: () => provider, resolveProviderByName: () => provider,
     detectLocalhostAutoNav: () => {}, bindTopicToProject: () => {}, resolveProjectRef: () => null, getProjectIdForTopic: () => null,
     getWorkspaceProjects: () => [], autoBindProject: () => {}, watchSessionForSubagents: () => {}, updateUnreadCount: () => {},
     browserNavigatedTopics: new Set<string>(), WORKSPACE_DIR: join(ROOT, "ws"),
+    ...deps,
   } as never);
   const url = new URL("http://topics.test/api/chat");
-  const resp = (await chat(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: "claude-code", ...body }) }), url, url.pathname, "POST"))!;
+  return (await chat(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), url, url.pathname, "POST"))!;
+}
+
+async function post(body: Record<string, unknown>): Promise<Response> {
+  const resp = await route({ provider: "claude-code", ...body });
   expect(resp.status).toBe(200);
   return resp;
 }
@@ -168,7 +176,12 @@ const live: Response[] = [];
 afterEach(async () => {
   for (const resp of live.splice(0)) await resp.body?.cancel().catch(() => {});
 });
-async function resumeSweep(sk: string, opts: { through?: boolean } = {}): Promise<unknown[]> {
+/**
+ * With `refused`, each goes on through the real chat route, which writes its
+ * copy of the message and then refuses the turn: a topic with no provider
+ * pinned whose routing cannot reach it (AICTRL-01, the 409 after the message).
+ */
+async function resumeSweep(sk: string, opts: { through?: boolean; refused?: boolean } = {}): Promise<unknown[]> {
   // The hold only: the store also keeps when the API last answered, which a
   // resend into an API still down reads to spend no attempt.
   clearProviderHold();
@@ -181,11 +194,13 @@ async function resumeSweep(sk: string, opts: { through?: boolean } = {}): Promis
     if (body.sessionKey === sk) {
       resent.push(body.ripresa);
       if (opts.through) { live.push(await post(body)); await tick(20); }
+      if (opts.refused) expect((await route(body, { resolveProvider: refuseTurn })).status).toBe(409);
     }
     return new Response(new ReadableStream({ start(c) { c.close(); } }), { status: 200, headers: { "Content-Type": "text/event-stream" } });
   });
   return resent;
 }
+const refuseTurn = () => { throw new TopicsRoutingIncompatibleError("claude-code", "routing on, provider not reachable through it"); };
 
 /** The resent turn meets the API (its first words lift the outage), then works on. */
 const resentTurn = (extra: (h: StreamHandler) => void = () => {}) => (h: StreamHandler) => {
@@ -619,4 +634,87 @@ describe("a wake cut after the chain was answered starts its own count", () => {
       });
     }
   }
+});
+
+/**
+ * A sub-agent's report that lands while the route is between the resend's
+ * copy of the message and the answer row it opens (the checkpoint it awaits):
+ * the report hangs from the copy, and the answer row from the report.
+ */
+async function withReportInTheGap<T>(sk: string, run: () => Promise<T>): Promise<T> {
+  const append = ctx.appendLocalMessage;
+  ctx.appendLocalMessage = ((...args: Parameters<typeof append>) => {
+    const row = append(...args);
+    if (args[0] === sk && args[1] === "user") reportLands(sk);
+    return row;
+  }) as typeof append;
+  try { return await run(); } finally { ctx.appendLocalMessage = append; }
+}
+
+describe("a service row under the chain's last copy does not answer it", () => {
+  /**
+   * Verifier probes of 28/09 on the count: a sub-agent's report, a background
+   * notice and the machine's line under a stopped turn are written whole
+   * (`done`) under the thread's last row. Where that row is the resend's copy
+   * of the message, because the route has not opened the answer row yet or
+   * never will, the chain read as answered and started over at every link:
+   * ten resends of ten, where main capped at four.
+   */
+  test(`a report between each resend's copy and its answer row, each resend killed with its child: ${MAX_RESUME_ATTEMPTS} resends, then the cap is said`, async () => {
+    const sk = topic("report-in-the-gap");
+    await answered(sk, "Ciao", "Ciao, dimmi.");
+    await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, spawnsSubAgent);
+    send = spawnsSubAgent;
+    const resends: unknown[] = [];
+    for (let link = 1; link <= MAX_RESUME_ATTEMPTS + 3; link++) {
+      reload(sk, "dead");
+      const resent = await withReportInTheGap(sk, () => resumeSweep(sk, { through: true }));
+      if (resent.length === 0) break;
+      resends.push(...resent);
+    }
+    expect(resends).toEqual(COUNTED);
+    expect(capNotice(sk)).toStartWith("⚠️ Ripresa automatica sospesa");
+  });
+
+  test(`each resend's copy left unanswered by the route, a background notice under it: ${MAX_RESUME_ATTEMPTS} resends, then the cap is said`, async () => {
+    const sk = topic("copy-refused");
+    await answered(sk, "Ciao", "Ciao, dimmi.");
+    const first = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => h.onTextDelta("Lavoro", "Lavoro"));
+    outageEnd("broker-died")(first.route);
+    await drain(first.resp);
+    // The person puts the chat back on the machine's default, which routing cannot reach.
+    topic("copy-refused", false);
+    const resends: unknown[] = [];
+    for (let link = 1; link <= MAX_RESUME_ATTEMPTS + 3; link++) {
+      const resent = await resumeSweep(sk, { refused: true });
+      if (resent.length === 0) break;
+      resends.push(...resent);
+      lands(sk, "background-notice");
+      // An unanswered message is the sweep's once it is older than a send in flight.
+      ctx.db.run("UPDATE messages SET timestamp = ? WHERE session_key = ?", [new Date(Date.now() - 5 * 60_000).toISOString(), sk]);
+    }
+    expect(resends).toEqual(COUNTED);
+    expect(capNotice(sk)).toStartWith("⚠️ Ripresa automatica sospesa");
+    // Each resend wrote its copy, and nothing answered any of them.
+    expect(ctx.loadLocalMessages(sk).filter((m) => m.role === "user" && m.content === MESSAGE)).toHaveLength(1 + MAX_RESUME_ATTEMPTS);
+  });
+
+  /** The answer that hangs from the report is the copy's all the same: once whole, a wake cut after it starts its own count. */
+  test("a report between the resend's copy and its answer row, the answer whole, then a wake cut by the watchdog: resent from 1", async () => {
+    const sk = topic("report-in-the-gap-answered");
+    await answered(sk, "Ciao", "Ciao, dimmi.");
+    const first = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => h.onTextDelta("Lavoro", "Lavoro"));
+    outageEnd("broker-died")(first.route);
+    await drain(first.resp);
+    send = resentTurn();
+    expect(await withReportInTheGap(sk, () => resumeSweep(sk, { through: true }))).toEqual([1]);
+    opened!.onDone({ result: "Build fatto." } as never);
+    await drain(live.shift()!);
+    const wake = await open(sk, { messages: [], mode: "woken" }, (h) => {
+      h.onTextDelta("Leggo l'output del task", "Leggo l'output del task");
+      h.onAborted!({ turnEnd: cancelled("watchdog") } as never);
+    });
+    await drain(wake.resp);
+    expect(await resumeSweep(sk)).toEqual([1]);
+  });
 });

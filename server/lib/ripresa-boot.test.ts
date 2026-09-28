@@ -403,7 +403,7 @@ describe("la catena dei riavvii ha un tetto", () => {
     const db = new Database(":memory:");
     db.run(`CREATE TABLE messages (
       id TEXT PRIMARY KEY, session_key TEXT, role TEXT, content TEXT, blocks TEXT,
-      partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER, end_reason TEXT
+      partial INTEGER, timestamp TEXT, sort_order INTEGER, parent_id TEXT, branch_index INTEGER, end_reason TEXT, latency_ms INTEGER
     )`);
     db.run("CREATE TABLE compaction_markers (id TEXT PRIMARY KEY, session_key TEXT, after_message_id TEXT, trigger TEXT)");
     db.run(RESEND_COUNTS_DDL);

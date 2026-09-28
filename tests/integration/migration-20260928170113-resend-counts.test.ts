@@ -26,8 +26,9 @@ function dbBefore(): Database {
     if (!/create\s+table\s+(if\s+not\s+exists\s+)?messages\b/i.test(statement)) continue;
     db.run(statement);
   }
-  // The columns of 005 and 015 the sweep reads, then `end_reason`.
+  // The columns of 005, 014 and 015 the sweep reads, then `end_reason`.
   db.run("ALTER TABLE messages ADD COLUMN parent_id TEXT");
+  db.run("ALTER TABLE messages ADD COLUMN latency_ms INTEGER");
   db.run("ALTER TABLE messages ADD COLUMN blocks TEXT");
   db.run(read("20260927091818-message-end-reason.sql"));
   // A chain in flight at deploy: the message, its cut traced for the first
@@ -73,10 +74,14 @@ describe("migration 20260928170113: resend_counts", () => {
     noteResendCopy(db, SK, "u2", "u4");
     recordResend(db, SK, { messageId: "u2", attempts: 3, freeProbes: 1 });
     expect(resendChainOf(db, SK, "u4")).toEqual({ messageId: "u2", attempts: 3, freeProbes: 1 });
-    // A copy left under a cut is still the chain's; one whose turn ended by itself closes it.
+    // A copy left under a cut is still the chain's, and so is one under a row
+    // written whole with no latency (a report, a notice); a turn after it the
+    // route closed by itself ends the chain.
     db.run("INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, parent_id, end_reason) VALUES ('a5', ?, 'assistant', 'fatto', 0, '2026-09-28', 5, 'u4', 'error')", [SK]);
     expect(resendChainOf(db, SK, "u4")?.attempts).toBe(3);
     db.run("UPDATE messages SET end_reason = 'done' WHERE id = 'a5'");
+    expect(resendChainOf(db, SK, "u4")?.attempts).toBe(3);
+    db.run("UPDATE messages SET latency_ms = 1200 WHERE id = 'a5'");
     expect(resendChainOf(db, SK, "u4")).toEqual({ messageId: "u4", attempts: 0, freeProbes: 0 });
     // A message nobody resent has no count, and another session's copy is not this one's.
     expect(resendChainOf(db, SK, "u0")).toBeNull();

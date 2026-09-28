@@ -18,8 +18,8 @@
 -- `free_probes` are written with the sweep's trace, before the resend goes
 -- out. `last_copy_id` is written by the chat route when the resend writes its
 -- copy of the message: it is how the next sweep finds the chain from the
--- chat's last user row, and how it tells that the chain was answered (that
--- copy's answer ended by itself).
+-- chat's last user row, and how it tells that the chain was answered (a turn
+-- after that copy ended by itself, closed by the route).
 --
 -- ROWS WRITTEN BEFORE THIS TABLE. Nothing is backfilled: the resend numbers sit
 -- in `messages.blocks`, compressed past 512 bytes, where SQL cannot read them.
