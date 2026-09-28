@@ -5,7 +5,7 @@ Filtri della cronologia completa: 3 scelte prima del codice.
 2. Data: «Sempre · Oggi · Ieri · Prima», giorni separati: la lista va già dal più recente, quindi «Ieri» toglie le righe sopra, cioè lo scroll che risparmi (o: Oggi · 7 giorni · 30 giorni come il pannello consumi, che tagliano solo la coda)
 3. I filtri ripartono da Tutto e Sempre a ogni apertura, come la ricerca: un filtro dimenticato acceso sembra cronologia persa (o: ricorda l'ultima scelta sul dispositivo)
 Compreso, senza scelta: il pannello mostra tutto (fino a 50 tab e 200 pagine), non le 40 più recenti; la ricerca vuole tutte le parole, anche nell'indirizzo; ⇧⌘T resta sulla tab chiusa più recente; lista vuota con «Mostra tutto»; su telefono due righe da 44 px.
-Col sì: anche la Cronologia di ⌘K cerca con quella regola su tutta la lista, non più sulle 40 più recenti. Costo: cercare «Chiusa» per isolare le tab smette di funzionare, lo fa il filtro.
+Col sì: anche la Cronologia di ⌘K cerca con quella regola su tutta la lista, non più sulle 40 più recenti. Costo: in ⌘K cercare «Chiusa» per isolare le tab smette di funzionare, e lì non c'è un filtro che lo sostituisca; nel pannello completo lo fa il filtro Tab chiuse.
 «ok» = tutte le consigliate · «ok ma 2 no» = cambio la 2.
 
 | # | Dove cambiarla |

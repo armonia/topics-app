@@ -6,9 +6,11 @@ Prima del codice: `grep -qx 'status: approved' openspec/changes/history-panel-fi
 
 - [ ] 1.1 `client/src/lib/historyRows.test.ts`: i cinque scenari di HISTORY-02
       (tipo, ieri a mezzanotte, filtro prima del tetto, futuro, cambio d'ora con
-      `process.env.TZ = 'Europe/Rome'` e ripristino in `afterAll`). Header
-      `@covers HISTORY-01, HISTORY-02`. Rosso oggi: `kind`, `range` e
-      `historyRangeOf` non esistono.
+      `process.env.TZ = 'Europe/Rome'` in `beforeAll` e in `afterAll` la
+      riassegnazione del fuso letto prima con
+      `Intl.DateTimeFormat().resolvedOptions().timeZone`, mai `delete`: design
+      §2). Header `@covers HISTORY-01, HISTORY-02`. Rosso oggi: `kind`, `range`
+      e `historyRangeOf` non esistono.
 - [ ] 1.2 `tests/e2e/history-filters.spec.ts` (nuovo) su `:13334`, uno scenario
       per test con `test.info().annotations.push({ type: "spec", description: "HISTORY-0N" })`:
       HISTORY-03 (5), HISTORY-04 (5), HISTORY-05 (2). Semina: pagine con
@@ -43,7 +45,7 @@ Prima del codice: `grep -qx 'status: approved' openspec/changes/history-panel-fi
       `filterByQuery`; `testId` `history-row-tab`/`history-row-page`.
 - [ ] 3.4 Suggerimento ⇧⌘T per id (`:334-337`, design §5).
 - [ ] 3.5 Vuoto con filtri: `EmptyState` con `action` e `history-filter-reset`.
-- [ ] 3.6 `highlightQuery` (`:923-932`) a parole.
+- [ ] 3.6 `highlightQuery` (`:923-932`) a parole, dalla più lunga (design §6).
 - [ ] 3.7 Chiavi i18n in `i18n-it.ts` e `i18n-en.ts` accanto a
       `palette.searchHistory`: etichette dei 7 bottoni, dei 2 gruppi,
       «Niente con questi filtri», «Mostra tutto».

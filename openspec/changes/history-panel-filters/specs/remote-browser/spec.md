@@ -167,12 +167,12 @@ campi diversi, su nome, dettaglio e indirizzo.
 - **AND** scrivendo `quarantacinque` resta 1 riga, quella pagina
 
 #### Scenario: parole in campi diversi
-- **GIVEN** una pagina «Pull request» su `https://github.com/armonia/pull/3`
+- **GIVEN** una pagina «Pull request» su `https://github.com/armonia/topics/3`: `pull` sta solo nel titolo, `github` solo nell'indirizzo
 - **WHEN** si scrive `github pull`
 - **THEN** la pagina c'è
 
 #### Scenario: l'età non si cerca
-- **GIVEN** 3 tab chiuse da pochi minuti, con titoli che non contengono «fa» né «chiusa»
+- **GIVEN** 3 tab chiuse fra 2 e 10 minuti fa (sotto il minuto l'età è «ora», `CommandPalette.tsx:913`, e «fa» non comparirebbe), nessuna delle quali ha «fa» o «chiusa» nel titolo, nel progetto, nella cartella o nell'indirizzo
 - **WHEN** si scrive `fa`
 - **THEN** la lista è vuota
 
@@ -202,7 +202,7 @@ Nello scope `history`:
 
 In entrambi gli scope, il suggerimento ⇧⌘T (`CommandPalette.tsx:334-337`) SHALL
 stare sulla riga il cui `record.id` è quello di `closedTabs[0]`, la tab che
-⇧⌘T riapre davvero (CMD-03, `client/src/hooks/useKeyboardShortcuts.ts:372`), e
+⇧⌘T riapre davvero (CMD-03, `client/src/hooks/useKeyboardShortcuts.ts:387`), e
 su nessun'altra. Se quella riga è filtrata via, il suggerimento non compare.
 
 #### Scenario: filtri che svuotano la lista
