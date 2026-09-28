@@ -840,6 +840,42 @@ export interface SidebarStateSignals {
   workingTermIds: ReadonlySet<string>;
 }
 
+/** The per-subject sets as the signals store holds them, before the view
+ *  combines them. `claudePhaseAwaitingInputTermIds` is read only by the ⌘J
+ *  queue (`waitingQueue`), which picks the amber rows out of «Attende te». */
+export interface SidebarSignalSources {
+  awaitingFeedbackTopics: ReadonlySet<string>;
+  awaitingInputTopics: ReadonlySet<string>;
+  claudePhaseAwaitingTermIds: ReadonlySet<string>;
+  claudePhaseAwaitingInputTermIds: ReadonlySet<string>;
+  liveStreamTopics: ReadonlySet<string>;
+  hydratedStreamTopics: ReadonlySet<string>;
+  claudePhaseActiveTermIds: ReadonlySet<string>;
+}
+
+/**
+ * The state view's signals, built in one place for the view and for the ⌘J
+ * queue (CHROME-07, CHAT-WAIT-03).
+ *
+ * «Attende te» for a chat is the UNION of the finished hook turns
+ * (`awaitingFeedbackTopics`) and the chats parked on a question or a
+ * permission (`awaitingInputTopics`), i.e. every chat the sidebar paints amber
+ * or blue. The view used to read the first set only: a chat of the default
+ * runtime parked on `ask_user_question` reaches only the second, and with its
+ * stream still open it sat in the working section while painted amber.
+ *
+ * Working, for a chat, is a live OR a hydrated stream, as in
+ * `useAgentActivityCounts`: a silent channel must not hide real work.
+ */
+export function sidebarStateSignals(src: SidebarSignalSources): SidebarStateSignals {
+  return {
+    awaitingTopics: new Set([...src.awaitingFeedbackTopics, ...src.awaitingInputTopics]),
+    awaitingTermIds: src.claudePhaseAwaitingTermIds,
+    workingTopics: new Set([...src.liveStreamTopics, ...src.hydratedStreamTopics]),
+    workingTermIds: src.claudePhaseActiveTermIds,
+  };
+}
+
 /**
  * Il soggetto di un item, cioè la chiave con cui i Set dei segnali lo conoscono.
  *

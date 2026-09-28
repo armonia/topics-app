@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn app_chords_from_the_registry_are_forwarded() {
-        for ch in ['w', 'k', 'b', 'p', 'n', 't', 'e', '1', '9', '/'] {
+        for ch in ['w', 'k', 'b', 'p', 'n', 't', 'e', 'j', '1', '9', '/'] {
             let a = decide(&chord(true, false, ChordKey::Char(ch)));
             let (js, swallow) = forwarded_key(&a).unwrap_or_else(|| panic!("Ctrl+{ch} not forwarded"));
             assert!(js.contains(&format!("key:'{ch}'")), "{js}");

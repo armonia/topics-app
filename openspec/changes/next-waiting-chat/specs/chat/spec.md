@@ -21,8 +21,10 @@ il turno è chiuso, la riga non è ambra, e questa change non la colora. Il
 
 **L'ordine.** Le mete SHALL essere ordinate da una funzione pura
 `waitingQueue(allItems, pinnedIds, sig)` in `client/src/lib/waitingQueue.ts`:
-prima le righe fissate, nell'ordine dei Fissati; poi quelle che
-`groupSidebarItemsByState` mette in «Attende te», nel loro ordine. Ogni soggetto
+prima le righe fissate, nell'ordine dei Fissati (un progetto fissato porta al
+suo posto le mete fra le sue tab, che la sua fascia disegna lì e la lista sotto
+non ripete); poi quelle che `groupSidebarItemsByState` mette in «Attende te», nel
+loro ordine. Ogni soggetto
 SHALL comparire una volta sola, alla prima occorrenza: una chat fissata dentro un
 progetto sta sia fra i Fissati sia fra i figli che la vista promuove, e conta
 fra i Fissati.
@@ -103,6 +105,11 @@ lei e dal tasto.
 - **GIVEN** una chat X fissata e in attesa dentro un progetto, e una chat A in attesa fuori dai progetti
 - **WHEN** si calcola `waitingQueue`
 - **THEN** la coda è `[X, A]`, e la sua lunghezza, che è il numero della porta di CHAT-WAIT-04, è 2
+
+#### Scenario: una chat in attesa dentro un progetto fissato
+- **GIVEN** un progetto fissato con dentro una chat Q in attesa, e una chat A in attesa fuori dai progetti
+- **WHEN** si calcola `waitingQueue`
+- **THEN** la coda è `[Q, A]`
 
 #### Scenario: un turno finito non è una meta
 - **GIVEN** una chat in `awaitingFeedbackTopics` per la fase `awaiting-user` e non in `awaitingInputTopics`

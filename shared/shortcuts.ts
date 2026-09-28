@@ -165,6 +165,10 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: [MOD, 'U'], description: 'Attach file' },
       // Bare Escape keys off keyCode 53 — hand-written branch in lib.rs.
       { keys: ['Esc'], description: 'Interrupt the running turn' },
+      // CHAT-WAIT-03. `native` for the reason ⌘E carries it: without the field
+      // 'j' never enters the generated table, and with the focus in a browser
+      // pane the NSEvent monitor never forwards the chord.
+      { keys: [MOD, 'J'], description: 'Next chat waiting for you', native: { chars: ['j'] } },
     ],
   },
   {

@@ -1882,6 +1882,15 @@ const IT: Dict = {
   'sidebar.unpinVanishes': '{nome} esce dai Fissati e non resta in lista',
   'sidebar.unpinnedGone': '{nome} non è più fissato, e non ha una riga in lista',
   'sidebar.undo': 'Annulla',
+  // ⌘J and the phone door «In attesa» (CHAT-WAIT-03, CHAT-WAIT-04). No target
+  // is a notice, not a silent key: the first when nothing waits, the second
+  // when the only chat waiting is the one already in front of you.
+  'sidebar.noChatWaiting': 'Nessuna chat ti aspetta',
+  'sidebar.noOtherChatWaiting': 'Nessun\'altra chat ti aspetta',
+  'sidebar.waitingDoor': 'In attesa',
+  'sidebar.waitingDoorTitle': 'Vai alla prossima chat che ti aspetta',
+  'sidebar.profileDoorTitle': 'Profilo e statistiche',
+  'sidebar.profileDoorTitleNamed': '{nome}. Profilo e statistiche',
   // A topic's worktree in the sidebar: the chip on the row and the header of
   // the sub-section when a project works on several worktrees at once.
   // "Worktree" stays the same word in both languages: it is git's own name.
