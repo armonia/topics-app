@@ -268,7 +268,7 @@ export function TurnActivityIndicator({
       {state === 'slow' || state === 'retry' ? (
         <span className="turn-activity-dot inline-block w-1.5 h-1.5 rounded-full shrink-0 bg-amber-500" />
       ) : (
-        <OrbitLoader className="shrink-0" still={state === 'waiting'} />
+        <OrbitLoader className="shrink-0" state={state === 'waiting' ? 'waiting' : 'working'} />
       )}
       <span
         // `turn-activity-phrase` è lo shimmer del lavoro in corso: dipinge il

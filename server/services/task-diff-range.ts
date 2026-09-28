@@ -128,6 +128,14 @@ export async function worktreeOwnRange(
   cwd: string,
   opts: TaskDiffRangeOptions & { branch?: string | null } = {},
 ): Promise<TaskDiffRange | null> {
+  return (await worktreeRange(cwd, opts))?.range ?? null;
+}
+
+/** `worktreeOwnRange`, plus whether the branch still has a commit of its own. */
+async function worktreeRange(
+  cwd: string,
+  opts: TaskDiffRangeOptions & { branch?: string | null },
+): Promise<{ range: TaskDiffRange; hasOwn: boolean } | null> {
   const run = opts.runGit ?? defaultRunGit;
   const mainRef = opts.mainRef ?? "main";
   const branch =
@@ -149,7 +157,7 @@ export async function worktreeOwnRange(
     const mb = mergeBase.code === 0 ? mergeBase.stdout.trim() : "";
     base = await furthest(run, cwd, base, SHA_RE.test(mb) ? mb : null);
   }
-  return { source: "worktree", cwd, range: base, live: true };
+  return { range: { source: "worktree", cwd, range: base, live: true }, hasOwn: !!oldest };
 }
 
 /** Il merge che il land scrive su main. Deve restare uguale a `task-automerge.ts`. */
@@ -170,6 +178,12 @@ export async function landedMergeRange(
   taskId: string,
   opts: TaskDiffRangeOptions = {},
 ): Promise<TaskDiffRange | null> {
+  const sha = await landedMerge(repoPath, taskId, opts);
+  return sha ? mergeRange(repoPath, sha) : null;
+}
+
+/** The newest land merge on main that names the card, or `null`. */
+async function landedMerge(repoPath: string, taskId: string, opts: TaskDiffRangeOptions): Promise<string | null> {
   const run = opts.runGit ?? defaultRunGit;
   const mainRef = opts.mainRef ?? "main";
   const id = taskId.trim();
@@ -179,8 +193,26 @@ export async function landedMergeRange(
   ]);
   if (r.code !== 0) return null;
   const sha = lines(r.stdout)[0] ?? "";
-  if (!SHA_RE.test(sha)) return null;
+  return SHA_RE.test(sha) ? sha : null;
+}
+
+function mergeRange(repoPath: string, sha: string): TaskDiffRange {
   return { source: "landed-merge", cwd: repoPath, range: `${sha}^1..${sha}`, live: false };
+}
+
+/**
+ * Whether a live worktree IS what the land merged, and nothing more: its HEAD
+ * is within the merged side and its tree holds no work of its own, untracked
+ * files included. A card reopened after its land (a new worktree from main)
+ * or a chat still writing in the landed one has live work the old land does
+ * not know about. `--no-optional-locks`: this runs on every turn's end, while
+ * the chat may be running git in that same worktree.
+ */
+async function isLandedTree(run: GitRunner, cwd: string, merge: string): Promise<boolean> {
+  const within = await run(cwd, ["merge-base", "--is-ancestor", "HEAD", `${merge}^2`]);
+  if (within.code !== 0) return false;
+  const st = await run(cwd, ["--no-optional-locks", "status", "--porcelain", "--untracked-files=normal"]);
+  return st.code === 0 && st.stdout.trim() === "";
 }
 
 /**
@@ -189,12 +221,15 @@ export async function landedMergeRange(
  * il cui ramo è già stato potato.
  *
  * Due esiti, entrambi utili:
- *   · il commit ha ancora del suo fuori da main — è il caso del cherry-pick, le
- *     cui copie su main hanno altri sha: si misura dal padre del più vecchio,
- *     esattamente come sul worktree vivo;
- *   · il commit è già DENTRO main — allora ci è entrato con un merge, e il primo
- *     merge sul cammino fra i due è quello che l'ha portato. Serve quando il
+ *   · the commit still has work of its own outside main (a cherry-pick land,
+ *     whose copies on main have other shas): measured from the parent of the
+ *     oldest own commit, or from where the card last met main when that is
+ *     further on (as on the live worktree), up to the card's last own commit
+ *     before the realign merges that close it (`beforeRealigns`);
+ *   · il commit è già DENTRO main — allora ci è entrato con un merge. Serve quando il
  *     messaggio del merge non si fa trovare (rinominato a mano, o tagliato).
+ *     The merge is the oldest one on main's first-parent line that holds the
+ *     commit; a land by fast-forward has none, and gets `null`.
  */
 export async function deliveryCommitRange(
   repoPath: string,
@@ -216,22 +251,76 @@ export async function deliveryCommitRange(
   const others = await otherLocalBranches(repoPath, delivery.branch ?? mainRef, { mainRef, runGit: run });
   if (others === null) return null;
 
-  const rl = await run(repoPath, ["rev-list", sha, "--not", mainRef, ...others]);
+  const rl = await run(repoPath, ["rev-list", "--parents", sha, "--not", mainRef, ...others]);
   if (rl.code !== 0) return null;
-  const own = lines(rl.stdout);
-  if (own.length > 0) {
-    const base = await baseOf(run, repoPath, own[own.length - 1]!);
+  const parentsOf = new Map(lines(rl.stdout).map((l) => {
+    const [commit, ...parents] = l.split(" ");
+    return [commit!, parents] as const;
+  }));
+  const oldest = [...parentsOf.keys()].at(-1);
+  if (oldest) {
+    const tip = beforeRealigns(sha, parentsOf);
+    // An oldest commit that merges two lines, neither of them the card's (it
+    // began by merging a sibling card that reached main since, c4d48d3e), wrote
+    // nothing of its own: the card starts AT it, not at one of its parents.
+    const joined = parentsOf.get(oldest)!;
+    let base = joined.length > 1 && joined.every((p) => !parentsOf.has(p)) ? oldest : await baseOf(run, repoPath, oldest);
     if (!base) return null;
-    return { source: "delivery-commit", cwd: repoPath, range: `${base}..${sha}`, live: false };
+    // A realign merge the card made BEFORE its last commit is inside the
+    // range anyway: from where it met main on, main's side is not the card's.
+    const met = await run(repoPath, ["merge-base", mainRef, tip]);
+    base = await furthest(run, repoPath, base, met.code === 0 && SHA_RE.test(met.stdout.trim()) ? met.stdout.trim() : null);
+    return { source: "delivery-commit", cwd: repoPath, range: `${base}..${tip}`, live: false };
   }
 
-  const anc = await run(repoPath, ["rev-list", "--ancestry-path", "--merges", `${sha}..${mainRef}`]);
-  if (anc.code !== 0) return null;
-  // `rev-list` va dal più recente: il più VECCHIO dei merge sul cammino è quello
-  // che ha introdotto il commit, i successivi se lo sono solo portati dietro.
-  const introducing = lines(anc.stdout).at(-1);
+  // The merge that brought the delivery in sits on main's FIRST-PARENT line: a
+  // merge of main into the delivering branch after the delivery (the routine
+  // realign before a land) is on the ancestry path too, and older, but it is
+  // the branch's own and main was not in it yet. `rev-list` goes newest first,
+  // so the introducing merge is the oldest one on both lists.
+  const [anc, firstParent] = await Promise.all([
+    run(repoPath, ["rev-list", "--ancestry-path", "--merges", `${sha}..${mainRef}`]),
+    run(repoPath, ["rev-list", "--first-parent", "--merges", `${sha}..${mainRef}`]),
+  ]);
+  if (anc.code !== 0 || firstParent.code !== 0) return null;
+  const onMain = new Set(lines(firstParent.stdout));
+  const introducing = lines(anc.stdout).filter((m) => onMain.has(m)).at(-1);
   if (!introducing || !SHA_RE.test(introducing)) return null;
-  return { source: "landed-merge", cwd: repoPath, range: `${introducing}^1..${introducing}`, live: false };
+  // The merge speaks for this card only when what it merged IS the delivery.
+  // One whose branch went on past it carried other work too: a card born from
+  // this one's head that landed first (`merge task <other>`), or an
+  // integration branch. Its whole range would put that work under this
+  // card's name, so the range stops at the delivery, from where it met main.
+  if ((await revParse(run, repoPath, `${introducing}^2`)) === sha) {
+    return { source: "landed-merge", cwd: repoPath, range: `${introducing}^1..${introducing}`, live: false };
+  }
+  const met = await run(repoPath, ["merge-base", `${introducing}^1`, sha]);
+  const base = met.stdout.trim();
+  // `base === sha`: main already had the delivery before that merge (a land by
+  // fast-forward), so no merge says where it came from. `sha..sha` would read
+  // as "verified: no code", which is not what is known.
+  if (met.code !== 0 || !SHA_RE.test(base) || base === sha) return null;
+  return { source: "delivery-commit", cwd: repoPath, range: `${base}..${sha}`, live: false };
+}
+
+/**
+ * The delivery without the realign merges that close it.
+ *
+ * The routine before a land is «merge main into the branch», and the review
+ * often records THAT merge as the delivery. It is outside main, so it is one of
+ * the card's own commits, but what it brings is main's: measured up to it, the
+ * range held every other card main had gained since the fork (e8e3b8bf: 208
+ * files for its 9). Stepping down its first parent past such merges leaves the
+ * card's last own commit. A realign is an own merge with a parent that is not
+ * the card's; a merge of two of the card's own lines stays.
+ */
+function beforeRealigns(sha: string, parentsOf: Map<string, readonly string[]>): string {
+  let tip = sha;
+  for (;;) {
+    const [first, ...merged] = parentsOf.get(tip) ?? [];
+    if (!first || !parentsOf.has(first) || !merged.some((p) => !parentsOf.has(p))) return tip;
+    tip = first;
+  }
 }
 
 export interface TaskDiffAnchors extends TaskDiffRangeOptions {
@@ -251,13 +340,22 @@ export interface TaskDiffAnchors extends TaskDiffRangeOptions {
  */
 export async function resolveTaskDiffRange(a: TaskDiffAnchors): Promise<TaskDiffRange | null> {
   const opts: TaskDiffRangeOptions = { mainRef: a.mainRef, runGit: a.runGit };
+  let merge: string | null | undefined;
   if (a.worktree?.cwd) {
-    const live = await worktreeOwnRange(a.worktree.cwd, { ...opts, branch: a.worktree.branch });
-    if (live) return live;
+    const live = await worktreeRange(a.worktree.cwd, { ...opts, branch: a.worktree.branch });
+    if (live) {
+      // A branch with nothing of its own left may be one the land already
+      // merged, while the GC has not pruned its worktree yet (half an hour):
+      // its own range is then the empty tree against HEAD, and the land is
+      // what the card changed. Only while the worktree is exactly that land.
+      if (live.hasOwn || !a.repoPath) return live.range;
+      merge = await landedMerge(a.repoPath, a.taskId, opts);
+      if (!merge || !(await isLandedTree(a.runGit ?? defaultRunGit, a.worktree.cwd, merge))) return live.range;
+    }
   }
   if (a.repoPath) {
-    const landed = await landedMergeRange(a.repoPath, a.taskId, opts);
-    if (landed) return landed;
+    merge ??= await landedMerge(a.repoPath, a.taskId, opts);
+    if (merge) return mergeRange(a.repoPath, merge);
     if (a.delivery) {
       const delivered = await deliveryCommitRange(a.repoPath, a.delivery, opts);
       if (delivered) return delivered;

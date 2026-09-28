@@ -18,7 +18,11 @@
  * The existing panel test (`tests/e2e/permission-panel.spec.ts`) is green on the
  * complementary case: it seeds over HTTP and opens with `goToApp` without ever
  * sending a message, so that window has no SSE and the filter never engages.
- * @covers PERM-08
+ *
+ * The live output of a running tool joined later (CHAT-TOOL-09): the window you
+ * sent from threw away every `stream:tool_update`, so the one person certainly
+ * watching a long command was the one who saw only its spinner.
+ * @covers PERM-08, CHAT-TOOL-09
  */
 import { describe, expect, test } from 'bun:test';
 import { senderAlsoSees, senderAlsoSeesFrame, SENDER_ALSO_SEES } from './senderAlsoSees';
@@ -52,11 +56,17 @@ describe('the events that also reach whoever owns the SSE', () => {
     expect(senderAlsoSees('stream:compaction')).toBe(true);
   });
 
+  test('the live output of a running tool reaches the sender', () => {
+    // It travels only over WS, and it REPLACES the row's `result` with the
+    // whole current tail: received twice, it leaves the same state.
+    expect(senderAlsoSees('stream:tool_update')).toBe(true);
+  });
+
   test('events that ACCUMULATE stay out', () => {
     // The rule of the list: whoever writes a fixed state may enter, whoever
     // adds up may not. A text delta delivered twice would double the answer on
     // the screen of the person who sent it.
-    for (const t of ['stream:chunk', 'stream:tool_update', 'stream:thinking', 'stream:start', 'stream:end']) {
+    for (const t of ['stream:chunk', 'stream:thinking', 'stream:start', 'stream:end']) {
       expect(senderAlsoSees(t)).toBe(false);
     }
   });
@@ -81,6 +91,6 @@ describe('the events that also reach whoever owns the SSE', () => {
     // If it grows, it grows for a written reason: every entry costs one event
     // delivered twice to someone who already receives it on the SSE.
     expect(new Set(SENDER_ALSO_SEES).size).toBe(SENDER_ALSO_SEES.length);
-    expect(SENDER_ALSO_SEES.length).toBeLessThanOrEqual(6);
+    expect(SENDER_ALSO_SEES.length).toBeLessThanOrEqual(7);
   });
 });

@@ -57,7 +57,7 @@ import { createTurnBodyPersist } from "../lib/turn-body-persist";
 import { guardFinalizedTurn } from "../lib/finalized-turn-guard";
 import { createLateAnswerLane } from "../lib/late-answer-lane";
 import { isMachineStop } from "../lib/abort-cause";
-import { registerTurnBodyFlush, stopTurnBodyOf } from "../lib/turn-body-flush";
+import { patchOpenTool, registerTurnBodyFlush, stopTurnBodyOf } from "../lib/turn-body-flush";
 import { setProviderHold, holdUntilLabel } from "../lib/provider-hold";
 import { parseCodexUsageLimit } from "../providers/codex/usage-limit";
 
@@ -1021,17 +1021,17 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // spiegazione» e un errore che si legge.
           const withVerdict = appendErrorBlock(row, verdetto);
           if (notice) {
-            updateLastMessage(sessionKey, { content: notice, blocks: withVerdict, partial: undefined, streamedAt: undefined });
+            updateLastMessage(sessionKey, { content: notice, blocks: withVerdict, partial: undefined, streamedAt: undefined, endReason: "error" });
           } else {
             // La riga si tiene il suo contenuto; cade solo il flag che la
             // dichiara ancora in volo, o il setaccio di boot la crederebbe viva.
-            updateLastMessage(sessionKey, { blocks: withVerdict, partial: undefined, streamedAt: undefined });
+            updateLastMessage(sessionKey, { blocks: withVerdict, partial: undefined, streamedAt: undefined, endReason: "error" });
             console.warn(`[StreamWS] ${sessionKey}: turno fallito su una riga che porta già lavoro — contenuto preservato, errore aggiunto come blocco`);
           }
         } else {
           // Non è più l'ultima: si chiude solo la NOSTRA, per id, e non si tocca
           // il turno che è subentrato.
-          try { db.run("UPDATE messages SET partial = 0 WHERE id = ?", [rowId]); } catch { /* best effort */ }
+          try { db.run("UPDATE messages SET partial = 0, end_reason = 'error' WHERE id = ?", [rowId]); } catch { /* best effort */ }
           console.warn(`[StreamWS] ${sessionKey}: la riga ${rowId} non è più l'ultima (${ultima ?? "nessuna"}) — chiusa per id, esito non riscritto`);
         }
         const wire = notice ?? `⚠️ ${verdetto}`;
@@ -1170,15 +1170,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             save: (force) => persistTurnBody(true, force),
             broadcast: (frame) => broadcastStreamToTopic(frame, matchedTopic?.id),
             finalText: (message) => extractFinalText(message),
-            onOpen: () => { releaseLateFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush()); },
+            onOpen: () => { releaseLateFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush(), { patchTool: patchOpenTool(blocks, updateBlockTool) }); },
             onClose: () => { releaseLateFlush?.(); },
           });
-          // THE ROW, FOR WHOEVER READS IT INSTEAD OF THE STREAM. The outbound
-          // gate looks for the tool that is waiting in the last persisted row,
-          // and the throttle above can still owe that write for up to fifteen
-          // seconds: a confirmation would find no row and refuse a send nobody
-          // had a chance to see. Published here, taken down with the turn.
-          const releaseTurnBodyFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush(), { rowId: () => partialMsg.id, stop: () => turnBody.stop() });
+          // THE ROW, FOR WHOEVER READS IT INSTEAD OF THE STREAM: the outbound
+          // gate reads the waiting tool from a row the throttle can owe for
+          // fifteen seconds. And THE TIMELINE, for a route that writes a tool
+          // (the person's answer): the turn's next write is made from it.
+          // Published here, taken down with the turn: lib/turn-body-flush.ts.
+          const releaseTurnBodyFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush(), { rowId: () => partialMsg.id, stop: () => turnBody.stop(), patchTool: patchOpenTool(blocks, (id, patch) => updateBlockTool(id, patch)) });
           // A turn already finalized has no write budget left to save: whatever
           // still arrives (a tool result that came back after the end) is
           // written NOW. Deferring it would leave the row without it until an
@@ -1285,25 +1285,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // was watching (reuse + in-place JSONL replay) instead of spawning a
           // duplicate turn / leaving a ghost spinner. Normal sends always get a
           // fresh row.
-          // La riga com'è ADESSO, prima che il riattacco la svuoti per riusarla.
-          // Serve a garantire l'unica regola che conta qui: una riadozione può
-          // aggiungere, mai togliere. Vedi reattachMerge.ts.
-          // L'istantanea serve solo a chi RIUSA una riga: vedi `isWoken`.
-          const reattachSnapshot: RowSnapshot | null = isReattach
-            ? (() => {
-                try {
-                  const r = db.prepare(
-                    "SELECT content, thinking, tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1",
-                  ).get(sessionKey) as { content?: string; thinking?: string | null; tool_calls?: string | null; blocks?: string | null } | undefined;
-                  return r ? {
-                    content: r.content ?? "",
-                    thinking: r.thinking ?? null,
-                    toolCallsJson: decodeCol(r.tool_calls),
-                    blocksJson: decodeCol(r.blocks),
-                  } : null;
-                } catch { return null; }
-              })()
-            : null;
           // A SPONTANEOUS turn picks up the headstone before it, when there is
           // one. A task notification delivered by the CLI opens a turn of its
           // own, and its empty `result` stamps the «no answer» notice on the
@@ -1317,6 +1298,22 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             : isWoken
             ? reuseHeadstoneOrCreate(sessionKey)
             : createPartialMessage(sessionKey, "assistant");
+          // A reattach took the turn's row back, or found none and opened this one (`reuseOrCreatePartialForReattach`).
+          const reusedRow = isReattach && "reusedBody" in partialMsg && partialMsg.reusedBody;
+          // The ADOPTED row as the reattach found it (the reuse leaves its body
+          // in place), for the one rule that counts here: a re-adoption may add,
+          // never take away (reattachMerge.ts). By id, not the session's last
+          // row: a sub-agent's report written after the turn's row was merged
+          // INTO it (card a57e6d4d). A row born just now has nothing to keep.
+          const reattachSnapshot: RowSnapshot | null = reusedRow
+            ? (() => {
+                try {
+                  const r = db.prepare("SELECT content, thinking, tool_calls, blocks FROM messages WHERE id = ?")
+                    .get(partialMsg.id) as { content?: string; thinking?: string | null; tool_calls?: string | null; blocks?: string | null } | undefined;
+                  return r ? { content: r.content ?? "", thinking: r.thinking ?? null, toolCallsJson: decodeCol(r.tool_calls), blocksJson: decodeCol(r.blocks) } : null;
+                } catch { return null; }
+              })()
+            : null;
           // L'AbortController registrato insieme allo stream è l'unica maniglia
           // che chi finalizza da FUORI questa route ha sul client SSE. Lo
           // sweeper `[StaleStream]` (server.ts) chiudeva il turno in DB e
@@ -1368,7 +1365,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // DB: la vista si può rifare, il record no.
           broadcastToAll({
             type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id,
-            ...(isReattach && "reusedBody" in partialMsg && partialMsg.reusedBody ? { reattached: true as const } : {}),
+            ...(reusedRow ? { reattached: true as const } : {}),
             ...(resumeAttempt > 0 ? { resumedBy: "server" as const } : {}),
           });
 
@@ -1591,7 +1588,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // footnote. The EVENT is the block: the cause in code, which is
             // what the client draws the banner off (`interrupted-turn-block`).
             const graceBlocks = appendInterruptedVerdict(blocks, { text: timeoutMsg, cause: "watchdog" });
-            updateLastMessage(sessionKey, { content: fullContent, blocks: graceBlocks, partial: undefined, streamedAt: undefined }, ownRow);
+            updateLastMessage(sessionKey, { content: fullContent, blocks: graceBlocks, partial: undefined, streamedAt: undefined, endReason: "closed-outside" }, ownRow);
             endStreamAndAnnounce();
             topicProvider.unregisterStreamHandler?.(sessionKey);
             // Abort the underlying provider turn too. `unregisterStreamHandler` is
@@ -1647,7 +1644,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // the one this path broadcasts on `stream:end` below, and two
             // witnesses of the same turn must not disagree.
             const hardBlocks = appendInterruptedVerdict(blocks, { text: msg, cause: "watchdog" });
-            updateLastMessage(sessionKey, { content: fullContent, blocks: hardBlocks, partial: undefined, streamedAt: undefined }, ownRow);
+            updateLastMessage(sessionKey, { content: fullContent, blocks: hardBlocks, partial: undefined, streamedAt: undefined, endReason: "closed-outside" }, ownRow);
             endStreamAndAnnounce();
             topicProvider.unregisterStreamHandler?.(sessionKey);
             // See handleGraceExpiry: abort the orphaned provider turn (no-op
@@ -2138,7 +2135,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             const cutNotice = reason === "done" && (endInfo.end === "max_tokens" || endInfo.end === "refusal")
               ? avvisoPerTurno(endInfo, { haProdotto: fullContent.trim().length > 0 || rowHasWorkAfterMerge() })
               : null;
-            if (reason === "done" && !cutNotice && !fullContent.trim() && !rowHasWorkAfterMerge() && !askingPlanApproval && !soloCompattazione) {
+            if (reason === "done" && !cutNotice && !fullContent.trim() && !rowHasWorkAfterMerge() && !askingPlanApproval && !soloCompattazione && !(isReattach && !reusedRow)) {
               const emptyErrorMsg = "⚠️ Nessuna risposta: il turno si è chiuso senza produrre niente. Il tuo messaggio è ancora qui: «Riprova» lo rimanda.";
               fullContent = emptyErrorMsg;
               blocks.push({ kind: "error", text: "Nessuna risposta: il turno si è chiuso senza produrre niente." });
@@ -2242,8 +2239,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               content: fullContent,
               thinking: fullThinking || undefined,
               blocks: blocks.length > 0 ? blocks : undefined,
-              partial: undefined,
-              streamedAt: undefined,
+              partial: undefined, streamedAt: undefined,
+              endReason: reason === "aborted" ? "stopped" : reason,
               latencyMs,
               usagePromptTokens,
               usageCompletionTokens,
@@ -2282,8 +2279,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // E il RISVEGLIO A MANI VUOTE: un Monitor che si chiude sveglia un
             // turno per dirlo, e quello spesso tace (sentinella della CLI, vedi
             // shared/empty-turn.ts). Solo per `woken`: un turno CHIESTO che
-            // finisce vuoto è un guasto, e il suo ⚠️ resta.
-            const discardedMessageId = (reason === "aborted" || (reason === "done" && (compactedThisTurn || isWoken)))
+            // finisce vuoto è un guasto, e il suo ⚠️ resta. The same for a
+            // reattach that opened its own row: nobody asked it, and the «no
+            // answer» with Retry went under a reply already there (a57e6d4d).
+            const discardedMessageId = (reason === "aborted" || (reason === "done" && (compactedThisTurn || isWoken || (isReattach && !reusedRow))))
               ? discardIfEmptyTurn(sessionKey, finalizedMsg)
               : null;
             if (discardedMessageId) console.log(`[StreamWS] ${sessionKey}: turno vuoto scartato (${discardedMessageId})`);
@@ -2932,7 +2931,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'error', result, error: result } } }] }));
               } else {
                 updateToolCallResult(sessionKey, toolCallId, result, undefined, { endedAt }, ownMirrored);
-                updateBlockTool(toolCallId, { status: 'success', result, endedAt, ...(detail ? { detail } : {}) });
+                updateBlockTool(toolCallId, { status: 'success', result, error: undefined, endedAt, ...(detail ? { detail } : {}) }); // a second answer's 404 may have left one
                 broadcastTurnFrame({ type: "stream:tool_result", sessionKey, topicId: matchedTopic?.id, toolCallId, status: 'success', result, detail, endedAt }, matchedTopic?.id);
                 writeSSE(JSON.stringify({ choices: [{ index: 0, delta: { tool_result: { id: toolCallId, status: 'success', result } } }] }));
               }
@@ -3662,8 +3661,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               const notice = crashedTurnNotice(readRowForNotice(crashedPartialId), err);
               // Il flag `partial` cade comunque: aperta, quella riga farebbe
               // credere a un turno in volo che non esiste più.
-              if (notice) db.prepare("UPDATE messages SET content = ?, partial = 0 WHERE id = ?").run(notice, crashedPartialId);
-              else db.prepare("UPDATE messages SET partial = 0 WHERE id = ?").run(crashedPartialId);
+              if (notice) db.prepare("UPDATE messages SET content = ?, partial = 0, end_reason = 'error' WHERE id = ?").run(notice, crashedPartialId);
+              else db.prepare("UPDATE messages SET partial = 0, end_reason = 'error' WHERE id = ?").run(crashedPartialId);
               if (matchedTopic) {
                 const crashText = notice ?? `Errore interno di Topics: ${shortErrorDetail(err)}`;
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: crashText });
@@ -3708,7 +3707,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               ? "⚠️ Rate limit reached. The AI service is temporarily overloaded. Please wait a moment and try again."
               : `⚠️ AI service error (${resp.status}). Please try again.`;
             const errorPartial = createPartialMessage(sessionKey, "assistant");
-            updateLastMessage(sessionKey, { content: errorMsg, partial: undefined, streamedAt: undefined }, { rowId: errorPartial.id });
+            updateLastMessage(sessionKey, { content: errorMsg, partial: undefined, streamedAt: undefined, endReason: "error" }, { rowId: errorPartial.id });
             if (matchedTopic) {
               broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: errorMsg });
               broadcastToAll({ type: "message:new", topicId: matchedTopic.id, sessionKey, role: "assistant", messageId: errorPartial.id, content: errorMsg, preview: errorMsg.slice(0, 100) });

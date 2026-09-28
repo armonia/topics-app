@@ -50,34 +50,45 @@ function realPng(width: number, height: number, rgb: [number, number, number] = 
 const isDarwin = process.platform === "darwin";
 
 describe("toolResultContent", () => {
-  test("nessuna immagine: il contenuto resta una semplice stringa, come sempre", () => {
+  test("nessuna immagine: il contenuto resta una semplice stringa, come sempre", async () => {
     const out: ToolResult = { content: "ok, scritto" };
-    expect(toolResultContent(out)).toBe("ok, scritto");
+    expect(await toolResultContent(out)).toBe("ok, scritto");
   });
 
-  test("un array `images` vuoto si comporta come nessuna immagine", () => {
+  test("un array `images` vuoto si comporta come nessuna immagine", async () => {
     const out: ToolResult = { content: "niente da vedere", images: [] };
-    expect(toolResultContent(out)).toBe("niente da vedere");
+    expect(await toolResultContent(out)).toBe("niente da vedere");
   });
 
-  test("byte che non decodificano a nessuna immagine: il testo resta stringa, con la ragione allegata", () => {
+  test("byte che non decodificano a nessuna immagine: il testo resta stringa, con la ragione allegata", async () => {
     const out: ToolResult = {
       content: "a.png (10x10, image attached)",
-      images: [{ mediaType: "image/png", data: Buffer.from("non un'immagine vera").toString("base64") }],
+      images: [{ mediaType: "image/png", data: Buffer.from("non un'immagine vera").toString("base64"), label: "a.png" }],
     };
-    const content = toolResultContent(out);
+    const content = await toolResultContent(out);
     expect(typeof content).toBe("string");
     expect(content as string).toContain("a.png (10x10, image attached)");
     expect((content as string).toLowerCase()).toContain("non riconosciuto");
   });
 
-  test.if(isDarwin)("un'immagine reale: il contenuto diventa [testo, immagine]", () => {
+  test("an image that cannot be sent is named by its path in the note, not by a generic word", async () => {
+    const path = "RAW/Schermata 2026-09-26 alle 10.11.12.png";
+    const out: ToolResult = {
+      content: `${path} (2880x1800, image attached)`,
+      images: [{ mediaType: "image/png", data: Buffer.from("not an image at all").toString("base64"), label: path }],
+    };
+    const content = await toolResultContent(out);
+    expect(typeof content).toBe("string");
+    expect(content as string).toContain(`\n\n${path}: `);
+  });
+
+  test.if(isDarwin)("un'immagine reale: il contenuto diventa [testo, immagine]", async () => {
     const bytes = realPng(10, 10);
     const out: ToolResult = {
       content: "a.png (10x10, image attached)",
-      images: [{ mediaType: "image/png", data: bytes.toString("base64") }],
+      images: [{ mediaType: "image/png", data: bytes.toString("base64"), label: "a.png" }],
     };
-    const content = toolResultContent(out);
+    const content = await toolResultContent(out);
     expect(Array.isArray(content)).toBe(true);
     const blocks = content as any[];
     expect(blocks).toHaveLength(2);
@@ -88,26 +99,26 @@ describe("toolResultContent", () => {
     expect(blocks[1].source.media_type).toBe("image/jpeg");
   });
 
-  test.if(isDarwin)("più immagini nello stesso risultato producono più blocchi immagine", () => {
+  test.if(isDarwin)("più immagini nello stesso risultato producono più blocchi immagine", async () => {
     const out: ToolResult = {
       content: "due schermate",
       images: [
-        { mediaType: "image/png", data: realPng(10, 10, [10, 20, 30]).toString("base64") },
-        { mediaType: "image/jpeg", data: realPng(12, 8, [200, 30, 10]).toString("base64") },
+        { mediaType: "image/png", data: realPng(10, 10, [10, 20, 30]).toString("base64"), label: "uno.png" },
+        { mediaType: "image/jpeg", data: realPng(12, 8, [200, 30, 10]).toString("base64"), label: "due.png" },
       ],
     };
-    const blocks = toolResultContent(out) as any[];
+    const blocks = await toolResultContent(out) as any[];
     expect(blocks).toHaveLength(3);
     expect(blocks[1].source.media_type).toBe("image/jpeg");
     expect(blocks[2].source.media_type).toBe("image/jpeg");
   });
 
-  test.if(isDarwin)("il testo di un'immagine viene comunque tagliato se troppo lungo, l'immagine no", () => {
+  test.if(isDarwin)("il testo di un'immagine viene comunque tagliato se troppo lungo, l'immagine no", async () => {
     const out: ToolResult = {
       content: "x".repeat(50_000),
-      images: [{ mediaType: "image/png", data: realPng(10, 10).toString("base64") }],
+      images: [{ mediaType: "image/png", data: realPng(10, 10).toString("base64"), label: "a.png" }],
     };
-    const blocks = toolResultContent(out) as any[];
+    const blocks = await toolResultContent(out) as any[];
     expect(blocks[0].text.length).toBeLessThan(50_000);
     expect(blocks[1].type).toBe("image");
   });

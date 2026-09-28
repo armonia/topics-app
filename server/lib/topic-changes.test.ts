@@ -14,8 +14,8 @@ import { describe, test, expect } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { aggregateTouchedFiles, computeTopicChanges, refineKind } from "./topic-changes";
+import { join, win32 } from "node:path";
+import { aggregateTouchedFiles, computeTopicChanges, pathInTree, rangeFiles, refineKind } from "./topic-changes";
 import type { ToolCall } from "../../shared/types";
 
 function call(name: string, detail: ToolCall["detail"], extra: Partial<ToolCall> = {}): ToolCall {
@@ -156,6 +156,93 @@ describe("refineKind", () => {
   test("a file git does not mention keeps what the tool calls said", () => {
     expect(refineKind("created", null)).toBe("created");
     expect(refineKind("modified", null)).toBe("modified");
+  });
+});
+
+describe("rangeFiles", () => {
+  const stat = [
+    { path: "a.ts", additions: 1, deletions: 0, status: "M" },
+    { path: "src/a.ts", additions: 2, deletions: 1, status: "A" },
+    { path: "logo.png", additions: -1, deletions: -1, status: "A" },
+    { path: "gone.ts", additions: 0, deletions: 4, status: "D" },
+  ];
+
+  test("a pruned worktree known by its name: the path after that gone folder, in full", () => {
+    const at = "2026-01-01T12:00:00.000Z";
+    // A draft never committed: `src/tmp/a.ts` is not the range's `a.ts`.
+    const draft = { path: "/gone/worktrees/p/wt/src/tmp/a.ts", kind: "created" as const, turns: 1, lastAt: at };
+    // Another gone folder whose file is named like a range row.
+    const scratch = { path: "/gone/scratch/a.ts", kind: "created" as const, turns: 1, lastAt: at };
+    const { files, rest } = rangeFiles(stat, [
+      { path: "/gone/worktrees/p/wt/src/a.ts", kind: "created", turns: 2, lastAt: "2026-01-01T11:00:00.000Z" },
+      { path: "/gone/worktrees/p/wt/a.ts", kind: "modified", turns: 1, lastAt: "2026-01-01T10:00:00.000Z" },
+      draft,
+      scratch,
+    ], { name: "wt" });
+    expect(files).toEqual([
+      { path: "src/a.ts", kind: "created", turns: 2, lastAt: "2026-01-01T11:00:00.000Z", added: 2, removed: 1, inRange: true },
+      { path: "a.ts", kind: "modified", turns: 1, lastAt: "2026-01-01T10:00:00.000Z", added: 1, removed: 0, inRange: true },
+      { path: "logo.png", kind: "created", turns: 0, lastAt: "", added: 0, removed: 0, binary: true, inRange: true },
+      { path: "gone.ts", kind: "deleted", turns: 0, lastAt: "", added: 0, removed: 4, inRange: true },
+    ]);
+    // Not in the range is not "wrote nothing": the caller still lists it.
+    expect(rest).toEqual([draft, scratch]);
+  });
+
+  test("a path under a tree still on disk is read in that tree: another checkout or repo keeps its own row", () => {
+    const base = mkdtempSync(join(realpathSync(tmpdir()), "range-files-"));
+    const root = join(base, "wt");
+    const shared = join(base, "checkout");
+    const agents = join(base, "agents");
+    for (const dir of [join(root, "src"), join(shared, "src"), agents]) mkdirSync(dir, { recursive: true });
+    const at = "2026-01-01T10:00:00.000Z";
+    const inTree = { path: join(root, "src/a.ts"), kind: "created" as const, turns: 1, lastAt: at };
+    // The known failure: the agent wrote the shared checkout, not its worktree.
+    const wrongTree = { path: join(shared, "src/a.ts"), kind: "modified" as const, turns: 2, lastAt: at };
+    // Another repository whose file has the same name as one of the range.
+    const otherRepo = { path: join(agents, "a.ts"), kind: "modified" as const, turns: 1, lastAt: at };
+    // Inside the range's tree, a path is read exactly: `src/tmp/a.ts` is not `a.ts`.
+    const deletedDir = { path: join(root, "src/tmp/a.ts"), kind: "created" as const, turns: 1, lastAt: at };
+
+    const { files, rest } = rangeFiles(stat, [inTree, wrongTree, otherRepo, deletedDir], { path: root });
+    rmSync(base, { recursive: true, force: true });
+
+    expect(files.find((f) => f.path === "src/a.ts")).toMatchObject({ turns: 1, inRange: true });
+    expect(files.find((f) => f.path === "a.ts")).toMatchObject({ turns: 0, inRange: true });
+    expect(rest).toEqual([wrongTree, otherRepo, deletedDir]);
+  });
+});
+
+describe("rangeFiles on relative paths and other spellings", () => {
+  const stat = [{ path: "src/a.ts", additions: 2, deletions: 0, status: "A" }];
+  const at = "2026-01-01T12:00:00.000Z";
+
+  test("a relative path is the task's tree's own, even once only its name is left", () => {
+    // The native provider's write_file takes a path relative to the
+    // workspace, which on a task is its worktree.
+    const relativeWrite = { path: "src/a.ts", kind: "created" as const, turns: 1, lastAt: at };
+    const outsideTree = { path: "../other/a.ts", kind: "created" as const, turns: 1, lastAt: at };
+    for (const tree of [{ name: "wt" }, { path: "/gone/worktrees/p/wt" }]) {
+      const { files, rest } = rangeFiles(stat, [relativeWrite, outsideTree], tree);
+      expect(files).toEqual([{ path: "src/a.ts", kind: "created", turns: 1, lastAt: at, added: 2, removed: 0, inRange: true }]);
+      expect(rest).toEqual([outsideTree]);
+    }
+  });
+});
+
+describe("pathInTree", () => {
+  test("answers in git's spelling on Windows too: forward slashes, or the range's row gets a twin", () => {
+    expect(pathInTree("C:\\wt", "C:\\wt\\src\\a.ts", win32)).toBe("src/a.ts");
+    expect(pathInTree("C:\\wt", "C:\\other\\a.ts", win32)).toBeNull();
+    // Another drive: `relative` gives back the absolute path, which is not "under" the tree.
+    expect(pathInTree("C:\\wt", "D:\\wt\\a.ts", win32)).toBeNull();
+    expect(pathInTree("C:\\wt", "C:\\wt", win32)).toBeNull();
+  });
+
+  test("a name that only starts with two dots is inside", () => {
+    expect(pathInTree("/wt", "/wt/..env")).toBe("..env");
+    expect(pathInTree("/wt", "/wt/src/a.ts")).toBe("src/a.ts");
+    expect(pathInTree("/wt", "/other/a.ts")).toBeNull();
   });
 });
 

@@ -8,7 +8,7 @@ import { decideClientWipeOnStop } from './stopSessionPolicy';
 import { isEmptyAssistantTurn } from '../../../shared/empty-turn';
 import { mergeCatchupIntoPartial, shouldAdoptIntoPlaceholder, CLIENT_MESSAGE_ID_PREFIX } from './streamCatchupMerge';
 import { clearPartialForReattach, reviveClosedBubble } from './streamReattachReset';
-import { LiveTurnIds, carryLateStart, frameTargetIndex, lateStartContent, liveAssistantIndex, shouldFillFromBroadcast } from './liveTurn';
+import { LiveTurnIds, carryLateStart, frameTargetIndex, lateStartContent, liveAssistantIndex, queueLateDelta, shouldFillFromBroadcast, takeLateDeltas, type LateDelta } from './liveTurn';
 import { liveInterruptionBlock } from '../components/Chat/turnError';
 import { decideCacheWrite } from './messageCacheWrite';
 import { decideCachePrune } from './messageCachePrune';
@@ -63,7 +63,7 @@ import {
   type MessageResidencyInput,
 } from '../state/messageResidency';
 import { senderAlsoSeesFrame } from './senderAlsoSees';
-import { toolUpdatePatch, type ToolUpdateEvent } from './toolUpdatePatch';
+import { toolUpdatePatch, withPartialResult, withToolUpdate, type ToolUpdateEvent } from './toolUpdatePatch';
 import {
   beginStreamTokenRate,
   finishStreamTokenRate,
@@ -477,6 +477,7 @@ function patchToolCallInMessages(
       (m.blocks ?? []).flatMap((b) => (b.kind === 'tool' && b.toolCall.id === toolCallId ? [b.toolCall] : []))[0];
     if (!source) continue;
     const next = patch(source);
+    if (next === source) return msgs; // a patch that changed nothing (a late partial) redraws nothing
     const nextCalls = m.toolCalls?.map((t) => (t.id === toolCallId ? next : t));
     const nextBlocks = m.blocks?.map((b) =>
       b.kind === 'tool' && b.toolCall.id === toolCallId ? { kind: 'tool' as const, toolCall: next } : b,
@@ -629,7 +630,7 @@ export function useChat() {
   const sseFailsafeRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   // `loadHistory` è definito molto più in basso: il failsafe lo raggiunge da
   // qui senza dipendere dall'ordine di dichiarazione.
-  const loadHistoryRef = useRef<((sk: string) => Promise<boolean>) | null>(null);
+  const loadHistoryRef = useRef<((sk: string, opts?: { fresh?: boolean }) => Promise<boolean>) | null>(null);
   // Track sessions with active local SSE streams (to avoid double content from WS broadcast)
   const localSSESessionsRef = useRef<Set<string>>(new Set());
   // The turn's end reached this window while its own SSE held the session: the
@@ -653,6 +654,7 @@ export function useChat() {
   // can fire two concurrent fetches for the same session in one tick. This
   // collapses those onto one request.
   const inFlightHistoryRef = useRef<Set<string>>(new Set());
+  const rereadHistoryRef = useRef<Set<string>>(new Set()); // a `fresh` read that met one in flight
   // How many turns of each session this window lit and ended (`stream:end`).
   // A history answer that a start or an end overtook in flight no longer
   // describes the current turn: `loadHistory` compares the counts.
@@ -1119,9 +1121,15 @@ export function useChat() {
   // flushes synchronously first, so the chronological `blocks` timeline stays
   // correctly ordered: a tool block must never jump ahead of text before it.
   const liveDeltaBufferRef = useRef<Map<string, { content: string; thinking: string }>>(new Map());
+  // A closed turn's late answer waits for the same frame in a queue of its own:
+  // it names its bubble, and it is not the live turn's text (liveTurn.ts).
+  const lateDeltaQueueRef = useRef<LateDelta[]>([]);
   const liveDeltaRafRef = useRef<number | null>(null);
 
   const flushLiveDeltas = useCallback((sessionKey?: string) => {
+    for (const late of takeLateDeltas(lateDeltaQueueRef.current, sessionKey)) {
+      appendToLastMessage(late.sessionKey, late.kind === 'content' ? late.text : undefined, late.kind === 'thinking' ? late.text : undefined, late.frame);
+    }
     const buf = liveDeltaBufferRef.current;
     const keys = sessionKey != null ? (buf.has(sessionKey) ? [sessionKey] : []) : [...buf.keys()];
     for (const k of keys) {
@@ -1131,19 +1139,23 @@ export function useChat() {
         appendToLastMessage(k, pending.content || undefined, pending.thinking || undefined);
       }
     }
-    if (buf.size === 0 && liveDeltaRafRef.current != null) {
+    if (buf.size === 0 && lateDeltaQueueRef.current.length === 0 && liveDeltaRafRef.current != null) {
       cancelAnimationFrame(liveDeltaRafRef.current);
       liveDeltaRafRef.current = null;
     }
   }, [appendToLastMessage]);
 
-  const bufferLiveDelta = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string) => {
-    recordStreamText(sessionKey, `${contentDelta ?? ''}${thinkingDelta ?? ''}`);
-    const buf = liveDeltaBufferRef.current;
-    const entry = buf.get(sessionKey) ?? { content: '', thinking: '' };
-    if (contentDelta) entry.content += contentDelta;
-    if (thinkingDelta) entry.thinking += thinkingDelta;
-    buf.set(sessionKey, entry);
+  const bufferLiveDelta = useCallback((sessionKey: string, contentDelta?: string, thinkingDelta?: string, late?: LateDelta['frame']) => {
+    if (late) {
+      queueLateDelta(lateDeltaQueueRef.current, { sessionKey, frame: late, kind: contentDelta ? 'content' : 'thinking', text: contentDelta || thinkingDelta || '' });
+    } else {
+      recordStreamText(sessionKey, `${contentDelta ?? ''}${thinkingDelta ?? ''}`);
+      const buf = liveDeltaBufferRef.current;
+      const entry = buf.get(sessionKey) ?? { content: '', thinking: '' };
+      if (contentDelta) entry.content += contentDelta;
+      if (thinkingDelta) entry.thinking += thinkingDelta;
+      buf.set(sessionKey, entry);
+    }
     if (liveDeltaRafRef.current == null) {
       liveDeltaRafRef.current = requestAnimationFrame(() => {
         liveDeltaRafRef.current = null;
@@ -1207,7 +1219,7 @@ export function useChat() {
         if (!cur || cur.length === 0) continue;
         let msgs = cur;
         for (const [toolCallId, partialResult] of perTool) {
-          msgs = patchToolCallInMessages(msgs, toolCallId, tc => ({ ...tc, result: partialResult }));
+          msgs = patchToolCallInMessages(msgs, toolCallId, tc => withPartialResult(tc, partialResult));
         }
         if (msgs !== cur) next = { ...next, [sk]: msgs };
       }
@@ -1233,6 +1245,7 @@ export function useChat() {
   useEffect(() => () => {
     if (liveDeltaRafRef.current != null) cancelAnimationFrame(liveDeltaRafRef.current);
     liveDeltaBufferRef.current.clear();
+    lateDeltaQueueRef.current.length = 0;
     if (toolUpdateRafRef.current != null) cancelAnimationFrame(toolUpdateRafRef.current);
     toolUpdateBufferRef.current.clear();
   }, []);
@@ -1383,16 +1396,9 @@ export function useChat() {
         break;
 
       case 'stream:thinking_chunk':
-        if (event.content) {
-          // A closed turn's late answer goes straight to the bubble it names,
-          // outside the live buffer, which belongs to the turn in flight.
-          if (event.late) {
-            flushLiveDeltas(sessionKey);
-            appendToLastMessage(sessionKey, undefined, event.content, event);
-          } else {
-            bufferLiveDelta(sessionKey, undefined, event.content);
-          }
-        }
+        // A closed turn's late answer names its bubble, and waits apart from
+        // the live buffer, which belongs to the turn in flight.
+        if (event.content) bufferLiveDelta(sessionKey, undefined, event.content, event.late ? { messageId: event.messageId, late: true } : undefined);
         break;
 
       case 'stream:thinking_end':
@@ -1405,13 +1411,8 @@ export function useChat() {
           if (event.late) {
             // Same as the thinking above; and no watchdog reset, it guards the
             // turn in flight, not this one.
-            flushLiveDeltas(sessionKey);
             const opens = carryLateStart(pendingLateStartRef.current, event, !!cleanedChunk);
-            if (cleanedChunk) {
-              appendToLastMessage(sessionKey, cleanedChunk, undefined, {
-                messageId: event.messageId, late: event.late, ...(opens ? { lateStart: true as const } : {}),
-              });
-            }
+            if (cleanedChunk) bufferLiveDelta(sessionKey, cleanedChunk, undefined, { messageId: event.messageId, late: true, ...(opens ? { lateStart: true as const } : {}) });
             break;
           }
           if (cleanedChunk) bufferLiveDelta(sessionKey, cleanedChunk, undefined);
@@ -1478,9 +1479,9 @@ export function useChat() {
 
       case 'stream:tool_update':
         // Live partial result from a long-running tool (e.g. a Bash that
-        // streams output). Server's openclaw provider emits these via
-        // gateway-ws; claude-code currently doesn't (it only sees cumulative
-        // assistant snapshots). Patch the running tool's `result` field with
+        // streams output). The native runtime, codex, acp and openclaw emit
+        // these; the `cli` runtime cannot (its stream carries only heartbeats,
+        // no output). Patch the running tool's `result` field with
         // the partial so the user sees output flowing in instead of staring
         // at a spinner. Status stays 'running' — the terminal status comes
         // later via stream:tool_result.
@@ -1498,7 +1499,7 @@ export function useChat() {
         {
           const patch = toolUpdatePatch(event as ToolUpdateEvent);
           if (patch && event.toolCallId) {
-            applyToolPatch(sessionKey, event.toolCallId, (tc) => ({ ...tc, ...patch }));
+            applyToolPatch(sessionKey, event.toolCallId, (tc) => withToolUpdate(tc, patch));
           }
         }
         break;
@@ -1762,7 +1763,7 @@ export function useChat() {
         }
         break;
     }
-  }, [addToolCallToLastMessage, appendToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn]);
+  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {
@@ -2582,22 +2583,21 @@ export function useChat() {
   }, [applyOlderHistory]);
   useEffect(() => registerHistoryCompleter(completeHistory), [completeHistory]);
 
-  const loadHistory = useCallback(async (sessionKey: string): Promise<boolean> => {
+  const loadHistory = useCallback(async (sessionKey: string, opts?: { fresh?: boolean }): Promise<boolean> => {
     // Skip entirely if sendMessage is actively streaming via SSE — it owns the state
     if (localSSESessionsRef.current.has(sessionKey)) return true;
 
     // Dedup rapid re-fetches: a tab switch in StandaloneChatGroup re-mounts
-    // ChatPane, whose mount effect calls loadHistory. If we just fetched
-    // this session's history a few seconds ago AND we have non-empty cached
-    // messages, skip — WS keeps the cache fresh in between, so the user
-    // sees the existing messages instantly with no spinner flash.
-    const lastFetchedAt = lastHistoryFetchAtRef.current.get(sessionKey);
-    if (lastFetchedAt && Date.now() - lastFetchedAt < HISTORY_DEDUP_MS) {
-      const cached = messagesRef.current[sessionKey];
-      if (cached && cached.length > 0) return true;
-    }
+    // ChatPane, whose mount effect calls loadHistory. A read of this session a
+    // few seconds ago, with messages cached, is enough: WS keeps them fresh in
+    // between. Not for a `fresh` read: rows changed with no frame to carry
+    // them, and at boot every window has just read on reconnect (card edf3c4db).
+    const lastFetchedAt = opts?.fresh ? undefined : lastHistoryFetchAtRef.current.get(sessionKey);
+    if (lastFetchedAt && Date.now() - lastFetchedAt < HISTORY_DEDUP_MS && messagesRef.current[sessionKey]?.length) return true;
 
-    // Collapse concurrent callers onto the in-flight request.
+    // Collapse concurrent callers onto the in-flight request; a `fresh` one is
+    // read again after it, since that read may predate the change.
+    if (opts?.fresh && inFlightHistoryRef.current.has(sessionKey)) rereadHistoryRef.current.add(sessionKey);
     if (inFlightHistoryRef.current.has(sessionKey)) return true;
     inFlightHistoryRef.current.add(sessionKey);
     let endedMeanwhile = false;
@@ -2770,7 +2770,8 @@ export function useChat() {
     } finally {
       inFlightHistoryRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
-      if (endedMeanwhile) void loadHistoryRef.current?.(sessionKey);
+      if (rereadHistoryRef.current.delete(sessionKey)) void loadHistoryRef.current?.(sessionKey, { fresh: true });
+      else if (endedMeanwhile) void loadHistoryRef.current?.(sessionKey);
     }
   }, [resetStreamTimeout, beginStreaming, flushLiveDeltas]);
 

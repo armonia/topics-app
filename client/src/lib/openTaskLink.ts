@@ -266,11 +266,25 @@ export function subscribePopstateTask(cb: (target: TaskTarget | null) => void): 
 
 // ── Open in-app ──────────────────────────────────────────────────────────────
 
+/**
+ * The tab (or diff file, `diffFocusFor`) the last `openTaskInApp` asked the
+ * drawer of `taskId` to put in front. Same cold path as the URL written there:
+ * from a chat the global board is usually not mounted yet, `topics:open-task`
+ * reaches nobody, and the URL the board boots from carries the task and not the
+ * focus. The board reads it when it mounts; the next opening replaces it.
+ */
+let pendingFocus: { taskId: string; focusPaneId: string } | null = null;
+
+export function pendingTaskFocus(taskId: string): string | null {
+  return pendingFocus?.taskId === taskId ? pendingFocus.focusPaneId : null;
+}
+
 /** Activate the global board and open `target`'s drawer, IN-APP. Reflected in
  *  the URL by the board once its drawer opens. Used both at boot (openTaskFromUrl)
  *  and by self-origin link interception (a buildTaskLink URL pasted in a comment
  *  points back at this app — open the drawer instead of spawning a browser). */
-export function openTaskInApp(target: TaskTarget): void {
+export function openTaskInApp(target: TaskTarget, focusPaneId?: string): void {
+  pendingFocus = focusPaneId ? { taskId: target.taskId, focusPaneId } : null;
   // PRIMA la URL, poi gli eventi. L'ordine è load-bearing quando la board non è
   // ancora montata — il caso della cronologia delle notifiche, dove il click
   // parte dalla colonna e non da una board già aperta.
@@ -284,6 +298,6 @@ export function openTaskInApp(target: TaskTarget): void {
   // arriva comunque e `reflectPath` non spinge un duplicato.
   reflectTaskOpen(target);
   window.dispatchEvent(new CustomEvent('topics:open-utility', { detail: { type: 'board' } }));
-  window.dispatchEvent(new CustomEvent('topics:open-task', { detail: target }));
+  window.dispatchEvent(new CustomEvent('topics:open-task', { detail: focusPaneId ? { ...target, focusPaneId } : target }));
 }
 

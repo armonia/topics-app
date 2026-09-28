@@ -1287,7 +1287,7 @@ export function TopicTree({
               window is not the selected pane, so its inner tabs are not on
               screen either. The loader sits OUTSIDE the quiet rail, as on every
               row. */}
-          {!isExpanded && <ProjectStreamingSpinner projectPath={pp} />}
+          {!isExpanded && <ProjectStreamingSpinner projectPath={pp} onFill={projOnFill} />}
           {/* How long the oldest turn in there has been going, in the colour
               and the motion of the loader: this is the time that RUNS, and it
               must not be read as the grey "agg. X fa" in the trailing rail,

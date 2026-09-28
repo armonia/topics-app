@@ -8,13 +8,12 @@
  * one place and the names that make it up in another. They are one level now
  * (`SidebarSystemMenu`), and this file is the half of it that names the work.
  *
- * TWO SCOPES, AND THEY ARE NOT THE SAME QUESTION. These rows and the badge on
- * the card are what THIS window's signals can see, from one derivation
- * (`useActiveAgentRows`), so a row cannot exist without being counted. The
- * glyphs in the row's tail are the INSTALLATION's own counts, served by
- * `/api/system/presence`: a machine with sessions running behind another
- * window shows a tail digit larger than the badge, and that is the honest
- * reading of both.
+ * ONE COUNT FOR THE ROWS. These rows, the badge on the card and the working
+ * digit in the row's tail come from one derivation (`useActiveAgentRows`,
+ * `activeAgentCount`), so a row cannot exist without being counted and no
+ * digit can name work the list does not (BGVIS-03). The open digit is the
+ * INSTALLATION's own count, served by `/api/system/presence`: nothing here
+ * lists the open sessions one by one, so it has no rows to agree with.
  *
  * Read-only rows: there is no shared helper to jump from a row to its session
  * yet, and a row that looks like a button and does nothing is worse than text.
@@ -29,10 +28,22 @@ import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 
 export function AgentLines() {
   const tr = useT();
-  const { working, awaitingInput, finished } = useActiveAgentRows(useTerminalSessions(), useTopics());
+  const { working, background, awaitingInput, finished } = useActiveAgentRows(useTerminalSessions(), useTopics());
   return (
     <div className="max-h-[240px] overflow-y-auto py-1">
       {working.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="active-agent-row" alive />)}
+      {/* THE CHATS WAITING ON WORK THEIR LAST TURN LEFT RUNNING. Counted by the
+          badge with the working ones, because that work holds a CLI in RAM
+          right now; a list of their own, because no turn is open and the chat
+          is free, and this row is what says which one to stop. */}
+      {background.length > 0 && (
+        <>
+          <div className={`px-3 pb-0.5 pt-1.5 text-micro uppercase tracking-wide ${CHIP_INK_DIM}`}>
+            {tr('statusBar.agents.backgroundHeading')}
+          </div>
+          {background.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="background-agent-row" tone={CHIP_INK_DIM} />)}
+        </>
+      )}
       {awaitingInput.length > 0 && (
         <>
           <div className={`px-3 pb-0.5 pt-1.5 text-micro uppercase tracking-wide ${SEGNALE_ATTESA}`}>
@@ -55,7 +66,7 @@ export function AgentLines() {
           {finished.map((r) => <AgentLine key={`${r.kind}:${r.id}`} row={r} testId="finished-agent-row" tone={CHIP_INK_DIM} />)}
         </>
       )}
-      {working.length === 0 && awaitingInput.length === 0 && finished.length === 0 && (
+      {working.length === 0 && background.length === 0 && awaitingInput.length === 0 && finished.length === 0 && (
         <div className="px-3 py-2 text-mini text-app-text-secondary">{tr('statusBar.agents.none')}</div>
       )}
     </div>
@@ -91,16 +102,16 @@ export function WorkSignals({ signals }: { signals: WorkSignal[] }) {
   if (signals.length === 0) return null;
   return (
     <span data-testid="presence-summary" className="flex flex-shrink-0 items-center gap-1.5 tabular-nums">
-      {signals.map((s) => <Signal key={s.kind} kind={s.kind} n={s.n} />)}
+      {signals.map((s) => <Signal key={s.kind} kind={s.kind} n={s.n} title={s.title} />)}
     </span>
   );
 }
 
-function Signal({ kind, n }: { kind: SignalKind; n: number }) {
+function Signal({ kind, n, title }: { kind: SignalKind; n: number; title?: string }) {
   const tr = useT();
   const { Icon, tint, label, alive } = SIGNALS[kind];
   return (
-    <span className={`flex items-center gap-0.5 ${tint}`} title={tr(label, { n })}>
+    <span data-signal={kind} className={`flex items-center gap-0.5 ${tint}`} title={title ?? tr(label, { n })}>
       <Icon size={11} className={alive ? 'animate-pulse' : undefined} />
       <span>{n}</span>
     </span>

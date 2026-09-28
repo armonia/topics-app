@@ -328,6 +328,54 @@ test.describe.serial("Tool-call UI rewrite (Slice 7)", () => {
     }
   });
 
+  test("a stored Bash row is labelled by its description, the command stays on hover and in the open card", async ({ page, request }) => {
+    // A row written before the shell detail carried `description`: the typed
+    // detail has only the command, the description sits in `args`, and the
+    // history empties `args` for a typed detail. The label has to survive that.
+    const fresh = await createTopic(request, "Tool Bash Label " + Date.now());
+    const sk = `topic:${fresh.id.slice(0, 8)}`;
+    const command = "cd /tmp && echo labelled-by-description";
+    try {
+      const u = await seedMessage(request, {
+        sessionKey: sk, role: "user", content: "Hi",
+        timestamp: new Date(Date.now() - 3000).toISOString(),
+      });
+      await seedMessage(request, {
+        sessionKey: sk,
+        role: "assistant",
+        parentId: u.id,
+        content: "Done.",
+        timestamp: new Date(Date.now() - 2000).toISOString(),
+        toolCalls: [{
+          id: "tc-bash-label",
+          name: "Bash",
+          args: { command, description: "Print the label marker" },
+          detail: { type: "shell", command },
+          status: "success",
+          result: "labelled-by-description",
+        }],
+      });
+
+      await goToApp(page);
+      await page.keyboard.press("Escape");
+      await openTopic(page, new RegExp(fresh.name));
+
+      const row = page.locator('[data-testid="tool-call-row-tc-bash-label"]');
+      await row.waitFor({ state: "visible", timeout: RENDER });
+
+      // CLOSED: the description is the label, the command is its tooltip.
+      await expect(row).toContainText("Print the label marker");
+      await expect(row).not.toContainText("echo labelled-by-description");
+      await expect(row.getByTitle(command)).toHaveText("(Print the label marker)");
+
+      // OPEN: the whole command is in the card.
+      await row.locator("button").first().click();
+      await expect(row).toContainText(`$ ${command}`);
+    } finally {
+      await deleteTopic(request, fresh.id);
+    }
+  });
+
   test("a tool call with 30 KB of args arrives as its head and opens whole", async ({ page, request }) => {
     // WIRE-09: the history wire carries of a tool call only what the CLOSED
     // row draws. A 30 KB script travels as its first 512 characters (the

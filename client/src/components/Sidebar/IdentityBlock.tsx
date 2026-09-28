@@ -36,9 +36,12 @@
  * menu: two families of digits in one 240px row is the pile this redesign was
  * called in to undo, and the sentence that explains them was always in the
  * panel anyway. One number comes back out, as a pill and not as a glyph: how
- * many agents are WORKING right now, because that is the one figure you want
- * without opening anything, and it is the same list the menu names row by row
- * (`useActiveAgentRows`), so the pill and the list cannot disagree.
+ * many agents are WORKING right now, a chat waiting on work its last turn left
+ * running included, because that is the one figure you want without opening
+ * anything, and it is the same list the menu names row by row
+ * (`useActiveAgentRows`, `activeAgentCount`), so the pill and the list cannot
+ * disagree. The card says that number wherever it says one: the pill, the
+ * working digit in the menu's tail and the tooltip's phrase.
  */
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { Monitor, Smartphone } from 'lucide-react';
@@ -46,6 +49,7 @@ import { getSession, subscribeSession, type SessionState } from '@/lib/auth/sess
 import { etichettaIdentita } from './identityLabel';
 import { useIdentityPresence } from '@/hooks/useIdentityPresence';
 import { usePresenceSummary } from '@/hooks/usePresenceSummary';
+import { presenceSummary } from '../../../../shared/presence-phrase';
 import { openPersonProfile } from '@/state/profileTarget';
 import { IDENTITY_GLYPH_BOX, IDENTITY_GLYPH_INK, ROW_INSET } from '@/lib/selectionStyles';
 import { chipClass } from './identityChip';
@@ -56,11 +60,11 @@ import { TopicsLoadDot } from './TopicsLoadDot';
 import { friendChips, firstName } from './friendChips';
 import { useFriendPresence } from '@/hooks/useFriendPresence';
 import { workSignals } from './workSignals';
-import { useActiveAgentRows, useAgentActivityCounts } from '@/state/signals';
+import { activeAgentCount, useActiveAgentRows, useAgentActivityCounts } from '@/state/signals';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { useTopics, useTerminalSessions } from '@/contexts/TopicsContext';
 import { useLoad } from '@/state/systemLoad';
-import { useT } from '@/hooks/useT';
+import { useLocale, useT } from '@/hooks/useT';
 import { formatMemoryMB } from '@/lib/formatMemory';
 
 export function IdentityBlock({ onOpenDevices, commands, alarm = false }: {
@@ -174,6 +178,7 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
   alarm: boolean;
 }) {
   const tr = useT();
+  const locale = useLocale();
   // `getSession`, not «loading»: the store may already know (last answer kept
   // on this device), and a first frame without the card is the shift the cache
   // exists to remove.
@@ -181,12 +186,21 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
   const [devices, setDevices] = useState<LiveDevice[] | null>(null);
   const [open, setOpen] = useState(false);
   const [card, setCard] = useState<HTMLButtonElement | null>(null);
-  const { counts, summary } = usePresenceSummary();
+  const { counts } = usePresenceSummary();
   const roster = useTerminalSessions();
   const topics = useTopics();
   const agentCounts = useAgentActivityCounts(roster, topics);
-  // The badge counts the SAME rows the menu lists: badge === active-agent-row.
-  const workingAgents = useActiveAgentRows(roster, topics).working.length;
+  // The badge and the working digit in the tail of the menu's system row count
+  // the SAME rows the menu lists, through one function: the working ones and
+  // the chats waiting on background work (active-agent-row + background-agent-row).
+  const agentRows = useActiveAgentRows(roster, topics);
+  const activeAgents = activeAgentCount(agentRows);
+  // With any background row, n >= b >= 1, so one agent is that one row.
+  const agentsTitle = agentRows.background.length === 0
+    ? tr('statusBar.signals.working', { n: activeAgents })
+    : activeAgents === 1
+      ? tr('statusBar.signals.withBackgroundOne')
+      : tr('statusBar.signals.withBackgroundMany', { n: activeAgents, b: agentRows.background.length });
   const load = useLoad();
   useEffect(() => subscribeSession(setSession), []);
 
@@ -223,10 +237,24 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
   // Two counts and no more: what is answering now, and how much is open. The
   // sessions parked on a question and the turns nobody read are the `waiting`
   // lines just below, spelled out in words.
+  //
+  // THE WORKING DIGIT IS THE BADGE'S NUMBER (BGVIS-03): the tail sums up the
+  // level it opens, and a chat waiting on background work is a row of that
+  // level. Read from the server's presence it would count by a rule of its own
+  // (archived chats, sessions with no chat), and could say 1 beside a list
+  // that reads "no agent is working". The open digit stays the installation's
+  // count, which no list here names row by row.
   const signals = workSignals({
     openSessions: counts?.openSessions ?? 0,
-    workingSessions: counts?.workingSessions ?? 0,
-  });
+    workingSessions: activeAgents,
+  }).map((s) => (s.kind === 'working' ? { ...s, title: agentsTitle } : s));
+  // THE TOOLTIP'S PHRASE SAYS THE SAME NUMBER. The route's `workingSessions`
+  // counts open streams and busy terminals, so it leaves a chat waiting on
+  // background work out by construction: composed from it, the tooltip read
+  // "no agent at work" beside a badge reading 1. The open chats, the board
+  // tasks, the project and the sessions outside Topics stay the route's. The
+  // Discord presence keeps the route's number whole: it names no list.
+  const summary = counts ? presenceSummary({ ...counts, workingSessions: activeAgents }, locale) : null;
   const waiting = [
     agentCounts && agentCounts.awaitingInput > 0
       ? tr('statusBar.agents.awaitingInput', { n: agentCounts.awaitingInput }) : '',
@@ -277,12 +305,12 @@ function UserCard({ presence, friends, commands, onOpenDevices, alarm }: {
             dot, so a badge appearing does not shove the name or the digits:
             the row is `ml-auto` up to here and only the dot moves. Rendered
             only above zero, so a closed test can ask for its absence. */}
-        {workingAgents > 0 && (
+        {activeAgents > 0 && (
           <span data-testid="identity-agents-badge" className="flex flex-shrink-0 items-center">
             <NotificationBadge
-              count={workingAgents}
-              title={tr('statusBar.signals.working', { n: workingAgents })}
-              ariaLabel={tr('statusBar.signals.working', { n: workingAgents })}
+              count={activeAgents}
+              title={agentsTitle}
+              ariaLabel={agentsTitle}
             />
           </span>
         )}

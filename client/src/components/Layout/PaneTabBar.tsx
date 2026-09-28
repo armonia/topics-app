@@ -1700,7 +1700,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 glyph that says "working" and the command that acts on it occupy
                 one slot instead of two. */}
             {pane.type === 'chat' && pane.topicId && (
-              <TopicStreamingSpinner topicId={pane.topicId} />
+              <TopicStreamingSpinner topicId={pane.topicId} onFill={onFill} />
             )}
             {/* A PROJECT TAB IS A FOLDER, and its roll-up only shows while the
                 folder is SHUT. Selected, the project window is the one on
@@ -1711,7 +1711,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 the only thing that can speak for them. Same rule as the sidebar
                 project row, where "shut" is the collapsed accordion. */}
             {pane.type === 'project' && pane.projectPath && !isSelected && (
-              <ProjectStreamingSpinner projectPath={pane.projectPath} />
+              <ProjectStreamingSpinner projectPath={pane.projectPath} onFill={onFill} />
             )}
             {pane.type === 'terminal' && (() => {
               // Terminal panes are created at several sites that don't set

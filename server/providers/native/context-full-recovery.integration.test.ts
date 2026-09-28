@@ -264,4 +264,36 @@ describe("una chat col contesto pieno si rimette in moto da sola", () => {
     expect(calibration.charsPerToken).toBeLessThanOrEqual(REAL_RATIO);
     expect(calibration.charsPerToken).toBeGreaterThan(1);
   });
+
+  test("a 413 that arrives after a retried 529 still takes the images out and redoes the round", async () => {
+    // The retry wrapped the 413 that ended its attempts in a plain Error: the
+    // status was gone, the image recovery did not recognise it, and the turn
+    // died on the one request it existed for.
+    const reg = fresh();
+    const answers = [
+      () => new Response(JSON.stringify({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } }), { status: 529 }),
+      () => new Response(JSON.stringify({ type: "error", error: { type: "request_too_large", message: "Request exceeds the maximum size" } }), { status: 413 }),
+      () => new Response(healthyRound(1_000), { status: 200 }),
+    ];
+    const s = mountApi(() => answers[Math.min(s.calls() - 1, answers.length - 1)]!());
+    const history: AgentMessage[] = [
+      { role: "user", content: "guarda la foto" },
+      { role: "assistant", content: [{ type: "tool_use", id: "img", name: "read_file", input: { path: "foto.png" } }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "img", content: [
+        { type: "text", text: "foto.png (10x10, image attached)" },
+        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "QUFB" } },
+      ] as never }] },
+    ];
+    const out = await runAgentTurn(
+      { model: "claude-haiku-4-5-20251001", history, toolContext: { workspace: ws }, autonomy: "auto-apply", retryPolicy: FAST },
+      handler(reg),
+    );
+    expect(reg.errors).toEqual([]);
+    expect(out.turnEnd.end).toBe("end_turn");
+    expect(s.calls()).toBe(3);
+    expect(s.bodies[1]).toContain('"type":"image"');
+    expect(s.bodies[2]).not.toContain('"type":"image"');
+    expect(s.bodies[2]).toContain("[immagine rimossa per fare spazio: foto.png]");
+    expect(reg.retries.map((r) => r.reason)).toContain("immagine rifiutata dall'API: tolgo le immagini e riprovo");
+  });
 });

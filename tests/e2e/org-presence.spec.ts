@@ -411,7 +411,8 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     for (const id of seeded) await deleteTopic(request, id).catch(() => {});
   });
 
-  test("PRESENCE-09: il menu porta i NUMERI del lavoro, non la frase", async ({ page }) => {
+  test("PRESENCE-09: il menu porta i NUMERI del lavoro, non la frase", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "BGVIS-03" });
     // The presence phrase ("3 al lavoro, 12 aperte" allow-italian: the exact
     // string the bar used to print) repeated the same three words every day
     // and truncated the name to fit them. The digits ride on the menu's title
@@ -432,29 +433,46 @@ test.describe("presence dell'organizzazione, a schermo", () => {
     await page.route("**/api/system/presence", (r) =>
       r.fulfill({ status: 200, contentType: "application/json",
         body: JSON.stringify({ openSessions: 12, workingSessions: 3, activeTasks: 2, focusProject: null }) }));
-    await page.goto("/");
-    // NOT on the card: the card carries the machine's numbers and nothing
-    // else. Asserted before opening, because after opening the menu's copy
-    // is on screen and a stray one on the card would hide behind it.
-    await expect(page.getByTestId("identity-me-profile")).toBeVisible({ timeout: 20000 });
-    await expect(page.getByTestId("presence-summary")).toHaveCount(0);
-    const menu = await openMenu(page);
-    const signals = menu.getByTestId("presence-summary");
-    await expect(signals).toBeVisible({ timeout: 20000 });
-    await expect(signals).toContainText("3");
-    await expect(signals).toContainText("12");
-    // TWO digits and no more, with the board task above zero in the stub: a
-    // third glyph here is the pile the tail was cut down to avoid, and the
-    // count nobody can attribute without remembering the order of the icons.
-    await expect(signals.locator("> span")).toHaveCount(2);
-    // No words: those cost six times the glyph and say the same thing.
-    await expect(signals).not.toContainText("aperte");
-    await expect(signals).not.toContainText("lavoro");
-    await page.screenshot({ path: join(SHOTS, "segnali-chip.png") });
-    // The review evidence, cropped to the foot of the column and the menu
-    // above it: a full 1280px shot shown on a 268px card turns the whole band
-    // into four grey pixels.
-    await clipShot(page, menu, join(SHOTS, "fascia-identita.png"));
+    // THE WORKING DIGIT IS THE BADGE'S (BGVIS-03): it counts the rows of the
+    // agents level the tail opens, not the presence route's `workingSessions`.
+    // So the work is on screen as two chats answering, served by the status
+    // snapshot the client polls, and the digit reads 2 against the route's 3.
+    const working = [
+      await createTopic(request, `PRESENCE-09 a ${ora}`),
+      await createTopic(request, `PRESENCE-09 b ${ora}`),
+    ];
+    try {
+      await page.route("**/api/topics/streaming", (r) =>
+        r.fulfill({ status: 200, contentType: "application/json",
+          body: JSON.stringify({ sessions: working.map((t) => ({ topicId: t.id, sessionKey: `k-${t.id}`, state: "streaming" })) }) }));
+      await page.goto("/");
+      // NOT on the card: the card carries the machine's numbers and nothing
+      // else. Asserted before opening, because after opening the menu's copy
+      // is on screen and a stray one on the card would hide behind it.
+      await expect(page.getByTestId("identity-me-profile")).toBeVisible({ timeout: 20000 });
+      await expect(page.getByTestId("presence-summary")).toHaveCount(0);
+      const menu = await openMenu(page);
+      const signals = menu.getByTestId("presence-summary");
+      await expect(signals).toBeVisible({ timeout: 20000 });
+      // TWO digits and no more, with the board task above zero in the stub: a
+      // third glyph here is the pile the tail was cut down to avoid, and the
+      // count nobody can attribute without remembering the order of the icons.
+      // Working first, open last.
+      const digits = signals.locator("> span");
+      await expect(digits.nth(0)).toHaveText("2", { timeout: 20000 });
+      await expect(digits.nth(1)).toHaveText("12");
+      await expect(digits).toHaveCount(2);
+      // No words: those cost six times the glyph and say the same thing.
+      await expect(signals).not.toContainText("aperte");
+      await expect(signals).not.toContainText("lavoro");
+      await page.screenshot({ path: join(SHOTS, "segnali-chip.png") });
+      // The review evidence, cropped to the foot of the column and the menu
+      // above it: a full 1280px shot shown on a 268px card turns the whole band
+      // into four grey pixels.
+      await clipShot(page, menu, join(SHOTS, "fascia-identita.png"));
+    } finally {
+      for (const t of working) await deleteTopic(request, t.id).catch(() => {});
+    }
   });
 
   test("PRESENCE-07: senza nessuno non c'è la riga delle chip, e il menu spiega da dove vengono gli amici", async ({ page }) => {

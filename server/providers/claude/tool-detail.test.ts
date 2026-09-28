@@ -38,6 +38,19 @@ describe("deriveToolDetail", () => {
     }
   });
 
+  test("shell — keeps the model-written description, and the schema does not strip it", () => {
+    // Claude Code sends `description` on every Bash call. It is the readable
+    // label of the row; the sanitizer swaps detail for the zod-parsed copy, so
+    // a field missing from the schema is lost before it reaches the wire.
+    const d = deriveToolDetail("Bash", { command: "ls", description: "List files" });
+    expect(d.type, "without this line the assertions below are skipped in silence").toBe("shell");
+    if (d.type === "shell") expect(d.description).toBe("List files");
+    const parsed = parseToolCallDetail(d);
+    expect(parsed.ok && parsed.data.type === "shell" ? parsed.data.description : undefined).toBe("List files");
+    const bare = deriveToolDetail("Bash", { command: "ls" });
+    expect("description" in bare).toBe(false);
+  });
+
   test("read variants → type=read with filePath", () => {
     for (const name of ["Read", "read", "read_file", "view_file", "view"]) {
       const d = deriveToolDetail(name, { file_path: "/foo.ts" });

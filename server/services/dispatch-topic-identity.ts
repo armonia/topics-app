@@ -36,7 +36,7 @@ export function resolveDispatchTopicIdentity(
     ? automaticTaskProvider(o.provider, model, snapshot)
     : taskProviderForModel(o.model, snapshot, topicsRouting);
   // ON verso un bersaglio che il motore nativo non raggiunge e' un cancello duro, non un dispatch diretto silenzioso: stesso contratto del lato chat. allow-italian: perche' qui si lancia invece di proseguire
-  if (topicsRouting && o.provider && target !== 'topics' && !topicsRoutingAvailable(target, model, snapshot)) {
+  if (topicsRouting && o.provider && !topicsRoutingAvailable(target, model, snapshot)) {
     // Scoperta in corso non e' un no: si aspetta, come col warm-up di Codex. allow-italian: nota che prosegue l'intestazione italiana di questo file
     if (topicsRoutingWaitsForCatalog(target, snapshot)) throw new TaskProviderPendingError('topics');
     throw new TopicsRoutingUnavailableError(target, model ?? null);
@@ -49,5 +49,23 @@ export function resolveDispatchTopicIdentity(
     topicsRouting,
     // Con ON il bersaglio non parte: va verificata la connessione del motore nativo, non quella di una CLI che nessuno avviera'. allow-italian: dice cosa va verificato a valle
     executor: topicsRouting ? 'topics' : target,
+  };
+}
+
+/** What the dispatcher reads back from a dispatched topic: the binding its
+ *  provider hold and its session reuse are judged against. A topic pinned to
+ *  no runtime runs where resolveTopicProvider sends it: the native engine with
+ *  the switch ON, the registry default only with OFF. Reading the default for
+ *  an ON topic let a Codex default take a card the Claude engine was running
+ *  out from behind Claude's wall. */
+export function dispatchTopicBinding(
+  topic: { provider?: string | null; model?: string | null; topicsRouting?: boolean | null },
+  defaultProvider: string | null | undefined,
+): { model?: string | null; provider?: string | null; topicsRouting?: boolean | null } {
+  return {
+    model: topic.model,
+    provider: topic.provider ?? (topic.topicsRouting ? 'topics' : defaultProvider),
+    // The reuse gate tells an engine session routed for Claude Code from one the engine runs directly.
+    topicsRouting: topic.topicsRouting,
   };
 }

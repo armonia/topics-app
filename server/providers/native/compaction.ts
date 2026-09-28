@@ -51,6 +51,7 @@
 
 import type { Block, AgentMessage } from "./agent-loop";
 import { imageShapeFromBuffer } from "../../services/image-shape";
+import { pathFromImageCaption } from "./image-normalize";
 
 /**
  * Quanto della finestra si può usare prima di intervenire.
@@ -73,13 +74,13 @@ function hasImageBlock(blocks: unknown[]): boolean {
 
 /**
  * What replaces a pruned image: the path `read_file` / `browser_screenshot`
- * already wrote into the sibling text block, pulled back out with the same
- * pattern their own caption uses (`"<path> (..."`), or a generic notice when
- * no path can be recovered.
+ * already wrote into the sibling text block, pulled back out of `read_file`'s
+ * own caption (`imageCaption`), or a generic notice when no path can be
+ * recovered.
  */
 function pathFromCaption(text: string | undefined): string | undefined {
   if (!text) return undefined;
-  const plain = text.match(/^(\S+) \(/)?.[1];
+  const plain = pathFromImageCaption(text);
   if (plain) return plain;
   // `browser_screenshot inline:true` does not write a prose caption: its
   // caption is the raw JSON the handler already produced (`{"path":...}`),

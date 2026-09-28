@@ -30,7 +30,16 @@
  * A SET per session, not one slot: a closed turn's late answer registers its
  * flush while the next turn of the same chat is live (lib/late-answer-lane.ts),
  * and one slot let either hide the other's pending write from the reader.
+ *
+ * THE SAME REACH THE OTHER WAY, for a route that WRITES a tool of a live turn.
+ * The turn rewrites its row whole from its own timeline, so a field written on
+ * the row alone lasts until the turn's next write: the person's answer to a
+ * question (`userResponse`, `/api/chat/tool-response`) was gone from the row as
+ * soon as the tool returned, and a reload showed the question unanswered
+ * (third review of PR #135). `patchLiveTool` puts the patch in the timeline,
+ * of a tool that has not returned yet: `patchOpenTool`.
  */
+import type { ContentBlock, ToolCall } from "../types";
 
 /** The writer of a live turn, as the readers and the failure paths reach it. */
 interface TurnWriter {
@@ -38,6 +47,8 @@ interface TurnWriter {
   /** The row it writes, and how it stops: only the turn's own writer has them. */
   rowId?: () => string;
   stop?: () => void;
+  /** Merge a patch into a tool of the timeline; a tool it does not have, or that has returned, is left alone. */
+  patchTool?: (toolCallId: string, patch: Partial<ToolCall>) => void;
 }
 
 const flushers = new Map<string, Set<TurnWriter>>();
@@ -50,7 +61,7 @@ const flushers = new Map<string, Set<TurnWriter>>();
 export function registerTurnBodyFlush(
   sessionKey: string,
   flush: () => void,
-  owner?: { rowId: () => string; stop: () => void },
+  owner?: Omit<TurnWriter, "flush">,
 ): () => void {
   const own = flushers.get(sessionKey) ?? new Set<TurnWriter>();
   const writer: TurnWriter = { flush, ...owner };
@@ -122,6 +133,41 @@ export function flushTurnBody(sessionKey: string): boolean {
     }
   }
   return flushed;
+}
+
+/**
+ * Apply to the live timelines of this session the patch a route just wrote on
+ * a tool's row. Every writer gets it, since a late answer and the next turn can
+ * both be live: only the one that has the tool changes.
+ */
+export function patchLiveTool(sessionKey: string, toolCallId: string, patch: Partial<ToolCall>): void {
+  for (const writer of [...(flushers.get(sessionKey) ?? [])]) {
+    try {
+      writer.patchTool?.(toolCallId, patch);
+    } catch {
+      // The row already has the patch: a timeline that could not take it is
+      // the loss this fixes, not a reason to fail the route that wrote it.
+    }
+  }
+}
+
+/**
+ * A writer's `patchTool`: the patch reaches a tool of `blocks` only until that
+ * tool has returned. After that its end belongs to the turn. A second
+ * submission of a question already answered (another window, a stale panel)
+ * otherwise put the returned tool back to `running`, which the end of the turn
+ * then wrote as interrupted, or to the route's "no pending input" error.
+ * Not narrower than that: the outbound gate paints its confirmation on the row
+ * alone (routes/outbound.ts), so that tool still reads `running` here.
+ */
+export function patchOpenTool(
+  blocks: readonly ContentBlock[],
+  update: (toolCallId: string, patch: Partial<ToolCall>) => void,
+): (toolCallId: string, patch: Partial<ToolCall>) => void {
+  return (toolCallId, patch) => {
+    const block = blocks.find((b) => b.kind === "tool" && b.toolCall.id === toolCallId);
+    if (block?.kind === "tool" && block.toolCall.status !== "success" && block.toolCall.status !== "error") update(toolCallId, patch);
+  };
 }
 
 /** Only for the tests: the registry is process memory. */
