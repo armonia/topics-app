@@ -585,6 +585,31 @@ describe("a card's envelope answered and cut by an outage", () => {
         expect(await resumeSweep(sk)).toEqual([]);
       });
     }
+    /**
+     * A fan-out attempt is ONE turn the dispatcher judges when it ends and
+     * never resumes (task-dispatcher.ts runAttempt), whether the chat is the
+     * card's assigned topic (attempt 1) or only an attempt's (2..N).
+     */
+    for (const bound of ["assigned", "attempt-only"] as const) {
+      test(`${cause}, fan-out attempt (${bound}): the notice asks the person, and the sweep resends nothing`, async () => {
+        const sk = topic(`fanout-${bound}-${cause}`);
+        const topicId = sk.slice("topic:".length);
+        const now = new Date().toISOString();
+        ctx.db.run(
+          "INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, assigned_topic_id) VALUES (?, 'board', 'the card', 'in_progress', ?, ?, ?)",
+          [`card-${sk}`, now, now, bound === "assigned" ? topicId : null],
+        );
+        ctx.db.run(
+          "INSERT INTO task_attempts (id, task_id, idx, topic_id, state, created_at) VALUES (?, ?, ?, ?, 'running', ?)",
+          [`att-${sk}`, `card-${sk}`, bound === "assigned" ? 1 : 2, topicId, now],
+        );
+        const turn = await open(sk, { messages: [{ role: "user", content: "Card: fix the build." }], dispatched: true }, (h) => h.onRetry!(retry(1)));
+        outageEnd(cause)(turn.route);
+        await drain(turn.resp);
+        expect(promises(turn.rowId)).toBe(false);
+        expect(await resumeSweep(sk)).toEqual([]);
+      });
+    }
   }
 });
 

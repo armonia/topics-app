@@ -387,7 +387,6 @@ import { decodeCol, encodeCol } from "../../shared/message-blob";
 import { insertRestartNotification, restartNotificationFrame, threadChangedFrame, type PartialSweepDb } from "./boot-partial-sweep";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isBackgroundNoticeRow, rowsBack } from "./background-notice";
-import { runningTaskOwnsTopic } from "./wake-adoption";
 import { lastApiAnswerMs, providerHold } from "./provider-hold";
 import { attemptsInChain, attemptsOnRow, chatHasCounts, recordResend, resendChainOf, type ResendChain } from "./resend-count";
 import { providerHoldKey } from "../../shared/provider-hold";
@@ -459,14 +458,32 @@ export function isChatsLastWord(db: Pick<Database, "query">, sessionKey: string,
 /**
  * Whether an outage's cut on this row is picked up without the person, read
  * by the writers of the notice: the sweep resends it (`directAnswerNow`), or a
- * card in progress owns the chat (`runningTaskOwnsTopic`) and the dispatcher
- * resumes its turns that ended in error, which the sweep leaves to it
- * (`resumeVerdict`). The board's envelope is a row the machine wrote, so its
- * answer is never the direct one: read off that alone, the notice of a card at
- * work asked the person to write while the dispatcher resumed it.
+ * card in progress is bound to the chat and the dispatcher resumes its turns
+ * that ended in error, which the sweep leaves to it (`resumeVerdict`). The
+ * board's envelope is a row the machine wrote, so its answer is never the
+ * direct one: read off that alone, the notice of a card at work asked the
+ * person to write while the dispatcher resumed it.
  */
 export function outageCutPickedUp(db: Database, sessionKey: string, rowId: string, topicId: string | undefined): boolean {
-  return (!!topicId && runningTaskOwnsTopic(db, topicId)) || directAnswerNow(db, sessionKey, rowId);
+  return (!!topicId && dispatcherResumesTopic(db, topicId)) || directAnswerNow(db, sessionKey, rowId);
+}
+
+/**
+ * The card bound to this chat is in progress and the dispatcher resumes its
+ * turns: read as the sweep reads it (`cardHold`, assigned_topic_id), and never
+ * for a fan-out. A fan-out attempt is ONE turn the dispatcher judges when it
+ * ends and does not resume (task-dispatcher.ts runAttempt), whether its chat is
+ * the card's assigned topic (attempt 1) or only an attempt's (2..N), which is
+ * why `runningTaskOwnsTopic`, true for both, promised a resume nobody made.
+ */
+function dispatcherResumesTopic(db: Pick<Database, "query">, topicId: string): boolean {
+  if (!cardHold(db, topicId).inProgress) return false;
+  try {
+    const fanOut = db.query(
+      `SELECT 1 FROM task_attempts a JOIN tasks t ON t.id = a.task_id WHERE t.assigned_topic_id = ? LIMIT 1`,
+    ).get(topicId);
+    return !fanOut;
+  } catch { return true; }
 }
 
 /**
