@@ -387,6 +387,14 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
  *    integrati in testa al prompt — 40.566 → 9.292 token di prefisso (-77%) su
  *    CLI 2.1.220, stessa risposta. È variadico e si mangerebbe un prompt
  *    posizionale, ma qui il prompt entra da stdin.
+ *
+ * Auto memory is OFF for one-shots. The CLI picks it from the cwd, and a
+ * one-shot runs in $HOME (`defaultWorkspace || HOME` in `complete()`), so every
+ * task title, goal stop-judge and model pick loaded the user's personal
+ * MEMORY.md index plus the instructions for writing it: noise for a one-line
+ * job. Measured 29/09 on CLI 2.1.284, sonnet-5-5, this argv, cwd $HOME:
+ * 22,488 -> 11,821 prefix tokens, same answer. Chat keeps it: a chat runs in
+ * its project folder, and that memory is useful there.
  */
 export function buildClaudeOneshotArgs(opts: ClaudeOneshotArgsOptions): string[] {
   return [
@@ -395,6 +403,10 @@ export function buildClaudeOneshotArgs(opts: ClaudeOneshotArgsOptions): string[]
     "--model", opts.model,
     ...(opts.effort ? ["--effort", opts.effort] : []),
     "--setting-sources", "user,project,local",
+    // In the `--settings` env block, not the process env, for the same reason
+    // as `ENABLE_TOOL_SEARCH` above: `--setting-sources user` lets the `env`
+    // block of `~/.claude/settings.json` win over what the spawn passes.
+    "--settings", JSON.stringify({ env: { CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1" } }),
     ...(opts.emptyMcpConfigPath ? ["--mcp-config", opts.emptyMcpConfigPath, "--strict-mcp-config"] : []),
     "--tools", "",
     "--output-format", "json",
