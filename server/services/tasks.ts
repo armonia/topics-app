@@ -741,7 +741,8 @@ export interface TaskService {
    * handle the task-owned browser fork needs: id (→ the canonical
    * `task-<id8>-…` browser contextId), project, and text (→ the tab-inventory
    * label), plus the delivery the chat's changed-files strip anchors a pruned
-   * worktree's range on, and the branch of the latest attempt launched in THIS topic (its worktree's, the
+   * worktree's range on, how many files the review measured in it, and the
+   * branch of the latest attempt launched in THIS topic (its worktree's, the
    * only name left of a pruned folder when no delivery was recorded). Same
    * resolution as boardProjectForTopic (prefer non-archived, most recent).
    * Null when the topic owns no task (a normal chat, not a dispatch).
@@ -752,6 +753,7 @@ export interface TaskService {
     text: string;
     deliveryBranch: string | null;
     deliveryCommit: string | null;
+    deliveryFiles: number | null;
     attemptBranch: string | null;
   } | null;
   /**
@@ -4805,7 +4807,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
     taskForTopic(topicId) {
       if (!topicId) return null;
       const r = db.prepare(
-        `SELECT id, project_id, text, delivery_branch, delivery_commit,
+        `SELECT id, project_id, text, delivery_branch, delivery_commit, delivery_files_changed,
                 (SELECT branch FROM task_attempts
                   WHERE task_id = tasks.id AND topic_id = ?1 AND branch IS NOT NULL
                   ORDER BY idx DESC LIMIT 1) AS attempt_branch
@@ -4820,6 +4822,7 @@ export function createTaskService(db: Database, opts: ServiceOpts = {}): TaskSer
           text: r.text ?? "",
           deliveryBranch: r.delivery_branch ?? null,
           deliveryCommit: r.delivery_commit ?? null,
+          deliveryFiles: r.delivery_files_changed ?? null,
           attemptBranch: r.attempt_branch ?? null,
         }
         : null;

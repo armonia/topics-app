@@ -154,8 +154,8 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
     };
   }
 
-  /** A delivery as the review records it. */
-  type Delivery = { branch: string; commit: string };
+  /** A delivery as the review records it: branch, commit and, once measured, how many files it held. */
+  type Delivery = { branch: string; commit: string; files?: number };
 
   /** The task row the dispatcher writes, with the delivery the review records when there is one. */
   function bindTask(
@@ -166,9 +166,9 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
   ): void {
     const nowIso = new Date().toISOString();
     ctx.db.prepare(
-      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, assigned_topic_id, delivery_branch, delivery_commit)
-       VALUES (?, 'proj-changes', ?, 'done', ?, ?, ?, ?, ?)`,
-    ).run(taskId, `Task ${taskId}`, nowIso, nowIso, topicId, delivery?.branch ?? null, delivery?.commit ?? null);
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, assigned_topic_id, delivery_branch, delivery_commit, delivery_files_changed)
+       VALUES (?, 'proj-changes', ?, 'done', ?, ?, ?, ?, ?, ?)`,
+    ).run(taskId, `Task ${taskId}`, nowIso, nowIso, topicId, delivery?.branch ?? null, delivery?.commit ?? null, delivery?.files ?? null);
   }
 
   /** The attempt the dispatcher binds to the topic it launched, on its worktree's branch. */
@@ -183,11 +183,11 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
    * `<worktrees>/<slug>/<name>` on branch `topics/<name>`. After the prune that
    * name is all that is left of it, through the delivery branch.
    */
-  function taskWorktree(repo: string, label: string): { wt: string; branch: string } {
+  function taskWorktree(repo: string, label: string, from = "HEAD"): { wt: string; branch: string } {
     const name = `card-${label}`;
     const wt = join(realpathSync(ROOT), `worktrees-${label}`, name);
     const branch = `topics/${name}`;
-    git(repo, "worktree", "add", "-q", "-b", branch, wt);
+    git(repo, "worktree", "add", "-q", "-b", branch, wt, from);
     return { wt, branch };
   }
 
@@ -347,6 +347,47 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
     expect(body.files).toEqual([
       expect.objectContaining({ path: "src/a.ts", kind: "created", added: 2, removed: 0, turns: 1, inRange: true }),
     ]);
+  });
+
+  test("a delivery range wider than the delivery the review measured is not read: the strip keeps its tool calls", async () => {
+    // Read back after the branches around it are gone, a delivery commit
+    // counts as the card's every commit no local branch holds any more: a card
+    // born from another session's branch claims that session's work once the
+    // branch is deleted. On the production DB that is 24 deliveries: 22 older
+    // than the 21/08 history rewrite, which claimed the old history
+    // (7bc6b178: 3045 files for the 4 the review measured), and 2 carrying
+    // another session's commits (cf665621: 17 for 13). The review measured
+    // the delivery while those branches still said whose each commit was.
+    const label = `delivery-wide-${Date.now()}`;
+    const repo = makeRepo(label);
+    const taskId = crypto.randomUUID();
+    git(repo, "checkout", "-q", "-b", "other-session");
+    writeFileSync(join(repo, "other.ts"), "theirs\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-qm", "another session's work");
+    git(repo, "checkout", "-q", "main");
+    const { wt, branch } = taskWorktree(repo, label, "other-session");
+    mkdirSync(join(wt, "src"), { recursive: true });
+    writeFileSync(join(wt, "src/a.ts"), "alpha\nbeta\n");
+    git(wt, "add", "-A");
+    git(wt, "commit", "-qm", "task work");
+    const commit = execFileSync("git", ["rev-parse", branch], { cwd: repo, encoding: "utf8" }).trim();
+    git(repo, "worktree", "remove", "--force", wt);
+    git(repo, "branch", "-D", branch, "other-session");
+
+    const { ctx, topic, changes } = await landedTopic(repo, taskId, { branch, commit, files: 1 });
+    ctx.appendImportedMessages(topic.sessionKey, [writeTurn(join(wt, "src/a.ts"))]);
+
+    const body = await changes();
+    expect(body.taskId).toBeUndefined();
+    expect(body.files.map((f) => f.path)).toEqual([join(wt, "src/a.ts")]);
+    expect(body.files[0]!.inRange).toBeUndefined();
+
+    // The control: the same range where the review counted as many files is read.
+    ctx.db.prepare("UPDATE tasks SET delivery_files_changed = 2 WHERE id = ?").run(taskId);
+    const read = await changes();
+    expect(read.taskId).toBe(taskId);
+    expect(read.files.map((f) => f.path).sort()).toEqual(["other.ts", "src/a.ts"]);
   });
 
   test("live worktree: committed, uncommitted and untracked files all come from the task's range", async () => {

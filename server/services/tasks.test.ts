@@ -655,7 +655,7 @@ describe("taskForTopic / taskByIdPrefix (task-owned browser fork)", () => {
     db.prepare("UPDATE tasks SET assigned_topic_id = 'top-1' WHERE id = ?").run(t.id);
     expect(s.taskForTopic("top-1")).toEqual({
       id: t.id, projectId: PID, text: "build the thing",
-      deliveryBranch: null, deliveryCommit: null, attemptBranch: null,
+      deliveryBranch: null, deliveryCommit: null, deliveryFiles: null, attemptBranch: null,
     });
     expect(s.taskForTopic("top-nope")).toBeNull();
     expect(s.taskForTopic("")).toBeNull();
@@ -665,7 +665,7 @@ describe("taskForTopic / taskByIdPrefix (task-owned browser fork)", () => {
     const s = hexSvc(db);
     db.run("INSERT INTO topics (id) VALUES ('top-1'), ('top-2')");
     const t = s.create({ projectId: PID, text: "landed without a delivery" });
-    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-1' WHERE id = ?").run(t.id);
+    db.prepare("UPDATE tasks SET assigned_topic_id = 'top-1', delivery_files_changed = 4 WHERE id = ?").run(t.id);
     const attempt = db.prepare(
       "INSERT INTO task_attempts (id, task_id, idx, topic_id, branch, state, created_at) VALUES (?, ?, ?, ?, ?, 'failed', '2026-07-18T10:00:00.000Z')",
     );
@@ -673,7 +673,7 @@ describe("taskForTopic / taskByIdPrefix (task-owned browser fork)", () => {
     attempt.run("a2", t.id, 2, "top-1", "topics/second-try");
     attempt.run("a3", t.id, 3, "top-2", "topics/other-topic");
     attempt.run("a4", t.id, 4, "top-1", null);
-    expect(s.taskForTopic("top-1")).toMatchObject({ attemptBranch: "topics/second-try" });
+    expect(s.taskForTopic("top-1")).toMatchObject({ attemptBranch: "topics/second-try", deliveryFiles: 4 });
   });
 
   test("taskForTopic prefers a non-archived, most-recent binding", () => {

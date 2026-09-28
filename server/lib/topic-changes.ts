@@ -291,6 +291,8 @@ export interface TopicRangeAnchors {
     id: string;
     deliveryBranch: string | null;
     deliveryCommit: string | null;
+    /** How many files the review measured in the delivery, when it did. */
+    deliveryFiles: number | null;
     /** The branch of the latest attempt launched in this topic: its worktree's. */
     attemptBranch: string | null;
   };
@@ -330,6 +332,16 @@ async function rangeChanges(anchors: TopicRangeAnchors, touched: TouchedFile[]):
     includeUntracked: range.live,
     untrackedCap: MAX_UNTRACKED_COUNTS,
   });
+  // Read back after the branches around it are gone, a delivery commit counts
+  // as the card's every commit no local branch holds any more: another
+  // session's commit its branch carried (cf665621: 17 files where the review
+  // measured 13), or, for a delivery older than the 21/08 history rewrite,
+  // the old history since June (7bc6b178: 3045 for 4). The review measured
+  // the delivery while those branches still said whose each commit was, so a
+  // range holding more files than that is not the card's. The drawer still
+  // draws it; the strip keeps the tool calls. A land merge is exactly what
+  // the land brought, and stays.
+  if (range.source === "delivery-commit" && task.deliveryFiles !== null && stat.length > task.deliveryFiles) return null;
   // No recorded delivery (89 of the cards landed by `merge task <id>` on main
   // have none): the attempt still names the worktree the topic wrote in.
   const taskBranch = task.deliveryBranch ?? task.attemptBranch;
