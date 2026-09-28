@@ -37,7 +37,7 @@ import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
 import { getTopicWorkspaceForSession, topicsMcpBridgeSpec } from "./claude-code";
 import { buildCodexArgs, buildCodexOneshotArgs, buildCodexResumeArgs } from "./codex/args";
 import { readCodexModels, codexFallbackModel, readCodexConfiguredModel } from "./codex/models";
-import { codexRolloutExists } from "../lib/codex-session";
+import { codexRolloutExists, readSubagentFileChanges } from "../lib/codex-session";
 import { getDatabase } from "../db";
 import { applyJobQuota } from "../services/agent-job-quota";
 import { demoteAgentCli } from "./agent-cli-priority";
@@ -355,6 +355,16 @@ interface CodexTurnState {
   startedAt: number;
   /** Active command_execution tool calls, keyed by Codex's command id. */
   runningTools: Map<string, { toolCallId: string; partial: string }>;
+  /**
+   * Prepended to every Codex item id this process reports. `codex exec`
+   * numbers its items from item_0 in each process, and the fresh retry of a
+   * failed resume feeds the same handler, so its calls land in the same chat
+   * message as the resume's: with a repeated id, chat.ts closes the resume's
+   * row and leaves the retry's running until the stream end marks it failed.
+   */
+  idPrefix?: string;
+  /** The thread `thread.started` named: the root of every sub-agent this turn spawns. */
+  threadId?: string;
 }
 
 export class CodexProvider implements AIProvider {
@@ -644,8 +654,9 @@ export class CodexProvider implements AIProvider {
     history: ChatMessage[];
     argsOptsForFallback: Parameters<typeof buildCodexArgs>[0];
     allowResumeFallback: boolean;
+    idPrefix?: string;
   }): void {
-    const { sessionKey, bin, args, workspace, env, handler, explicitModel, invocationMode, prompt, message, history, argsOptsForFallback, allowResumeFallback } = params;
+    const { sessionKey, bin, args, workspace, env, handler, explicitModel, invocationMode, prompt, message, history, argsOptsForFallback, allowResumeFallback, idPrefix } = params;
 
     const child = spawn(bin, args, {
       cwd: workspace,
@@ -666,6 +677,7 @@ export class CodexProvider implements AIProvider {
       startedAt: Date.now(),
       runningTools: new Map(),
       ...(explicitModel ? { model: explicitModel } : {}),
+      ...(idPrefix ? { idPrefix } : {}),
     };
     this.activeChildren.set(sessionKey, child);
     this.sessionState.set(sessionKey, turnState);
@@ -715,6 +727,7 @@ export class CodexProvider implements AIProvider {
 
       const state = turnState;
       if (this.sessionState.get(sessionKey) === turnState) this.sessionState.delete(sessionKey);
+      this.reportSubagentFileChanges(state, handler);
 
       // A resumed thread that dies mid-turn (not a user abort) leaves its
       // stored thread id pointing at a resume that will fail the exact same
@@ -731,7 +744,7 @@ export class CodexProvider implements AIProvider {
         this.runCodexTurn({
           sessionKey, bin, args: freshArgs, workspace, env, handler, explicitModel,
           invocationMode: "fresh", prompt: freshPrompt, message, history, argsOptsForFallback,
-          allowResumeFallback: false,
+          allowResumeFallback: false, idPrefix: "retry:",
         });
         return;
       }
@@ -775,6 +788,23 @@ export class CodexProvider implements AIProvider {
     child.stdin!.end();
   }
 
+  /**
+   * Reports the patches this turn's sub-agents applied, read back from their
+   * rollouts. `codex exec --json` prints the primary thread's items only, so
+   * without this a task whose sub-agents did the editing lists a fraction of
+   * its files: 27 of 74 on task 7657f201, 1 of 57 on 05807e8e. Read at close,
+   * when the process has written everything, and before the turn ends, since
+   * the strip refreshes at `stream:end`. Each file is one call, named as a
+   * primary patch is (routeCodexEvent, `file_change`).
+   */
+  private reportSubagentFileChanges(state: CodexTurnState, handler: StreamHandler): void {
+    if (!state.threadId) return;
+    for (const change of readSubagentFileChanges({ sessionId: state.threadId, sinceMs: state.startedAt })) {
+      handler.onToolStart(change.id, change.kind === "add" ? "write" : "apply_patch", { file_path: change.path });
+      handler.onToolResult(change.id, "", false);
+    }
+  }
+
   // --- Routing for JSONL events from `codex exec --json` ---
 
   /**
@@ -802,6 +832,8 @@ export class CodexProvider implements AIProvider {
     if (t === "thread.started") {
       const threadId = typeof event.thread_id === "string" ? event.thread_id : null;
       if (threadId) {
+        const state = this.sessionState.get(sessionKey);
+        if (state) state.threadId = threadId;
         try { saveCodexThreadId(getDatabase(), sessionKey, threadId); } catch { /* next turn just starts fresh */ }
       }
       return null;
@@ -813,6 +845,8 @@ export class CodexProvider implements AIProvider {
     if (t === "item.completed" || t === "item.started" || t === "item.updated") {
       const item = (event.item && typeof event.item === "object" ? event.item as Record<string, unknown> : {});
       const itemType = item.type;
+      const itemId = (this.sessionState.get(sessionKey)?.idPrefix ?? "")
+        + (typeof item.id === "string" && item.id ? item.id : crypto.randomUUID());
 
       if (itemType === "agent_message" || itemType === "assistant_message") {
         const text = typeof item.text === "string" ? item.text
@@ -840,7 +874,7 @@ export class CodexProvider implements AIProvider {
       // `error`, and `status` on this shape. Keep the canonical MCP spelling so
       // Topics' normal tool renderer and task-comment anchoring see the call.
       if (itemType === "mcp_tool_call") {
-        const id = typeof item.id === "string" && item.id ? item.id : crypto.randomUUID();
+        const id = itemId;
         const server = typeof item.server === "string" ? item.server : "mcp";
         const tool = typeof item.tool === "string" ? item.tool : "tool";
         const name = `mcp__${server}__${tool}`;
@@ -878,8 +912,43 @@ export class CodexProvider implements AIProvider {
         return null;
       }
 
+      // One patch is one `file_change` item listing every file it touched
+      // (0.153.4: `changes: [{path, kind: "add"|"update"|"delete"}]`, started
+      // `in_progress`, completed `completed` or `failed`). The changed-files
+      // strip reads write/edit tool calls only, so each file becomes its own
+      // call: an added file is a `write` (created), anything else an
+      // `apply_patch` edit, and git's `D` later tells a deletion apart.
+      // These are the primary thread's patches only: a sub-agent's never reach
+      // this stream, see reportSubagentFileChanges.
+      if (itemType === "file_change") {
+        if (t === "item.updated" || !Array.isArray(item.changes)) return null;
+        const state = this.sessionState.get(sessionKey);
+        // Only `completed` was applied. An interrupted turn closes the patch it
+        // cut off as it stood, still `in_progress`, and codex-rs folds a
+        // declined patch into `failed`.
+        const failed = item.status !== "completed";
+        const errorText = item.status === "failed" ? "Patch not applied" : "Patch did not complete";
+        item.changes.forEach((change: unknown, i: number) => {
+          const path = change && typeof change === "object" ? (change as Record<string, unknown>).path : null;
+          if (typeof path !== "string" || !path) return;
+          const id = `${itemId}:${i}`;
+          if (!state?.runningTools.has(id)) {
+            const name = (change as Record<string, unknown>).kind === "add" ? "write" : "apply_patch";
+            state?.runningTools.set(id, { toolCallId: id, partial: "" });
+            handler.onToolStart(id, name, { file_path: path });
+          }
+          if (t === "item.completed") {
+            state?.runningTools.delete(id);
+            // chat.ts stores an error result as the call's `error`, and an
+            // empty one would read as a patch that was applied.
+            handler.onToolResult(id, failed ? errorText : "", failed);
+          }
+        });
+        return null;
+      }
+
       if (itemType === "command_execution" || itemType === "tool_call") {
-        const id = typeof item.id === "string" && item.id ? item.id : crypto.randomUUID();
+        const id = itemId;
         const name = typeof item.name === "string" ? item.name
           : typeof item.command === "string" ? item.command : "tool";
         const state = this.sessionState.get(sessionKey);

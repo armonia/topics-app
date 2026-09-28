@@ -26,8 +26,8 @@
  */
 
 import { homedir } from 'os';
-import { join } from 'path';
-import { existsSync, openSync, readSync, closeSync, readdirSync, statSync } from 'fs';
+import { dirname, join, relative, sep } from 'path';
+import { existsSync, openSync, readSync, closeSync, readdirSync, readFileSync, statSync } from 'fs';
 
 /** ($CODEX_HOME || ~/.codex)/sessions — where codex writes rollout JSONL files.
  *  $CODEX_HOME is honoured by the codex CLI itself and is on the chat
@@ -44,6 +44,8 @@ interface RolloutMeta {
   mtimeMs: number;
   isSubagent: boolean;
   originator: string | null;
+  /** The root thread of the session: a sub-agent's, at any depth, and the root's own id. */
+  sessionId: string | null;
 }
 
 function safeSubdirs(dir: string): string[] {
@@ -115,6 +117,7 @@ function readRolloutMeta(file: string): RolloutMeta | null {
     mtimeMs,
     isSubagent,
     originator: typeof p.originator === 'string' ? p.originator : null,
+    sessionId: typeof p.session_id === 'string' ? p.session_id : null,
   };
 }
 
@@ -218,4 +221,95 @@ export function codexRolloutPath(id: string, root?: string): string | null {
  */
 export function codexRolloutExists(id: string, root?: string): boolean {
   return codexRolloutPath(id, root) !== null;
+}
+
+/** The part of a rollout line a sub-agent's applied patch is read from. */
+interface RolloutLine {
+  timestamp?: unknown;
+  payload?: {
+    type?: unknown;
+    item?: { type?: unknown; id?: unknown; status?: unknown; changes?: Record<string, { type?: unknown } | null> };
+  };
+}
+
+/** A file one of a Codex session's sub-agents patched, read back from its rollout. */
+export interface CodexSubagentFileChange {
+  /** `<thread>:<item>:<index>`: item ids repeat across threads, thread ids do not. */
+  id: string;
+  path: string;
+  /** `add`, `update` or `delete`, as the rollout spells it. */
+  kind: string;
+}
+
+/**
+ * The files the sub-agents of Codex session `sessionId` patched since `sinceMs`,
+ * in the order their threads were spawned.
+ *
+ * `codex exec --json` prints the items of its primary thread only (exec's
+ * `should_process_notification`, codex-rs 0.153.4), so a sub-agent's patch never
+ * reaches stdout. Its rollout has it: every descendant thread, at any depth,
+ * writes one whose session_meta names the root thread as `session_id`, and each
+ * applied patch is an `item_completed` FileChange whose `changes` maps a path to
+ * `{type: add|update|delete, ...}`. The root's own patches are skipped, since
+ * the stream already carried them.
+ *
+ * `sinceMs` is checked per patch, not per file: a sub-agent can go on patching
+ * in a later turn of its session (4 of the 17 that patched on 12/09 did), so
+ * one rollout can hold several turns' patches. A descendant is never older
+ * than its session, so the walk starts at the day dir of the session's own
+ * rollout.
+ */
+export function readSubagentFileChanges(opts: { sessionId: string; sinceMs: number; root?: string }): CodexSubagentFileChange[] {
+  const root = opts.root ?? codexSessionsRoot();
+  const own = codexRolloutPath(opts.sessionId, root);
+  const fromDay = own ? relative(root, dirname(own)).split(sep).join('/') : '';
+  const out: CodexSubagentFileChange[] = [];
+  for (const file of rolloutFilesWrittenSince(root, fromDay, opts.sinceMs)) {
+    const meta = readRolloutMeta(file);
+    if (!meta || meta.sessionId !== opts.sessionId || meta.id === opts.sessionId) continue;
+    let text: string;
+    try {
+      text = readFileSync(file, 'utf-8');
+    } catch {
+      continue;
+    }
+    for (const line of text.split('\n')) {
+      if (!line.includes('"FileChange"')) continue;
+      let record: RolloutLine | null;
+      try {
+        record = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const item = record?.payload?.type === 'item_completed' ? record.payload.item : undefined;
+      if (item?.type !== 'FileChange' || item.status !== 'completed') continue;
+      if (typeof record?.timestamp !== 'string' || !(Date.parse(record.timestamp) >= opts.sinceMs)) continue;
+      if (!item.changes || typeof item.changes !== 'object') continue;
+      Object.entries(item.changes).forEach(([path, change], i) => {
+        out.push({ id: `${meta.id}:${String(item.id)}:${i}`, path, kind: typeof change?.type === 'string' ? change.type : 'update' });
+      });
+    }
+  }
+  return out;
+}
+
+/** Rollouts under day dirs from `fromDay` (YYYY/MM/DD) on, last written at or after `sinceMs`, oldest first. */
+function rolloutFilesWrittenSince(root: string, fromDay: string, sinceMs: number): string[] {
+  const out: string[] = [];
+  for (const y of safeSubdirs(root)) {
+    for (const m of safeSubdirs(join(root, y))) {
+      for (const d of safeSubdirs(join(root, y, m))) {
+        if (`${y}/${m}/${d}` < fromDay) continue;
+        for (const f of safeFiles(join(root, y, m, d))) {
+          if (!f.startsWith('rollout-') || !f.endsWith('.jsonl')) continue;
+          const file = join(root, y, m, d, f);
+          try {
+            if (statSync(file).mtimeMs >= sinceMs) out.push(file);
+          } catch { /* removed while walking */ }
+        }
+      }
+    }
+  }
+  // The filename starts with the thread's start time, so the path sorts by it.
+  return out.sort();
 }

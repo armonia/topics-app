@@ -50,12 +50,17 @@ beforeAll(() => {
 
   // The fixture fails every `exec resume`, and succeeds every fresh `exec`.
   // It reports the mode it saw AND the stdin prompt it received, so the test
-  // can tell a real retry (fresh, with history) from a bare failure.
+  // can tell a real retry (fresh, with history) from a bare failure. Each
+  // process first applies a patch as `item_0`, the id every real `codex exec`
+  // gives its first item, so both runs name different files with one id.
   const binary = join(tempRoot, 'fake-codex');
   writeFileSync(binary, `#!${process.execPath}
 const input = await Bun.stdin.text();
 const argv = process.argv.slice(2);
-if (argv.includes("resume")) {
+const resume = argv.includes("resume");
+const path = resume ? "/repo/a.txt" : "/repo/c.txt";
+console.log(JSON.stringify({ type: "item.completed", item: { id: "item_0", type: "file_change", status: "completed", changes: [{ path, kind: "update" }] } }));
+if (resume) {
   console.error("simulated resume failure");
   process.exit(1);
 }
@@ -105,5 +110,36 @@ describe('codex resume failure falls back to a fresh turn', () => {
       .prepare('SELECT codex_thread_id FROM codex_sessions WHERE session_key = ?')
       .get(sessionKey);
     expect(row).toBeNull();
+  });
+
+  // The retry feeds the same handler, so its rows land in the same chat
+  // message, and chat.ts closes the FIRST block carrying a result's id. With a
+  // repeated id the retry's row stayed running, was closed as an error at the
+  // end of the stream, and its file dropped out of the changed-files strip.
+  test('the fresh retry names its tool calls apart from the failed resume', async () => {
+    const sessionKey = 'topic:codex-resume-fallback-ids';
+    seedTopic(sessionKey);
+    seedStoredThreadId(sessionKey);
+
+    const provider = new CodexProvider({ type: 'codex', defaultWorkspace: tempRoot });
+    const starts: { id: string; path: unknown }[] = [];
+    const results: { id: string; error: boolean }[] = [];
+    await new Promise<void>((resolve, reject) => {
+      void provider.sendChat(sessionKey, 'the new message', {
+        onTextDelta() {},
+        onToolStart: (id, _name, args) => { starts.push({ id, path: args?.file_path }); },
+        onToolResult: (id, _result, error) => { results.push({ id, error: !!error }); },
+        onError: (message) => reject(new Error(message)),
+        onDone: () => resolve(),
+      }, { model: 'gpt-test-fixture' }).catch(reject);
+    });
+
+    expect(starts.map((s) => s.path)).toEqual(['/repo/a.txt', '/repo/c.txt']);
+    const [resumeId, retryId] = starts.map((s) => s.id);
+    expect(retryId).not.toBe(resumeId);
+    expect(results).toEqual([
+      { id: resumeId, error: false },
+      { id: retryId, error: false },
+    ]);
   });
 });
