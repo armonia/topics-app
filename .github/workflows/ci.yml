@@ -398,13 +398,19 @@ jobs:
       # server/services/ci-evidence.ts), so neither the name nor the job moves.
       #
       # On a PULL REQUEST it is the sharded runner (scripts/test-unit-shards.ts):
-      # the same files as the serial run, in 4 concurrent `bun test` workers
+      # the same files as the serial run, in 3 concurrent `bun test` workers
       # balanced by duration, then the OS racers (`SERIAL_GLOBS`) serially
       # after them, the same stray ai-bridge check at the end, and a
       # "riproduci:" line for every red shard. Serially this step was 12.4 of
-      # the 16.6 minutes of the job (run 36461528241); the runner has 4 vCPU,
-      # hence 4 shards. `TOPICS_UNIT_SHARDS` is explicit on purpose: it is also
-      # what keeps the load plan from quietly dropping to fewer workers.
+      # the 16.6 minutes of the job (run 36461528241).
+      #
+      # THREE, NOT FOUR, on a 4 vCPU runner. Four took 4.7 min and went red on
+      # two timing-window tests that are green serially (run 36487615331):
+      # four workers leave no core for the timers the tests wait on. This job
+      # is not the critical path of the run (the e2e shards are, ~12 min), so
+      # the worker given back costs no wall clock. `TOPICS_UNIT_SHARDS` is
+      # explicit on purpose: it is also what keeps the load plan from quietly
+      # dropping to fewer workers.
       #
       # On a PUSH TO MAIN it stays the SERIAL run, because that is the safety
       # net the sharded runner was built on (its header, point 3): the grouping
@@ -414,7 +420,7 @@ jobs:
       - name: Unit + integration tests
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         env:
-          TOPICS_UNIT_SHARDS: 4
+          TOPICS_UNIT_SHARDS: 3
         run: |
           if [ "$GITHUB_EVENT_NAME" = "push" ]; then
             bun test:unit

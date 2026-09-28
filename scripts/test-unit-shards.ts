@@ -58,7 +58,7 @@
  * still CI on main: a PUSH to main runs the SERIAL `bun test:unit`, so a leak
  * that only bites in the canonical order is caught one commit after it lands,
  * before anything ships. Pull requests run THIS script in CI (step "Unit +
- * integration tests", `TOPICS_UNIT_SHARDS=4` on a 4 vCPU runner): it shortens
+ * integration tests", `TOPICS_UNIT_SHARDS=3` on a 4 vCPU runner): it shortens
  * the run, it does not widen the trust.
  *
  * WHEN TO ADD A FILE TO PHASE 2. Only when it becomes flaky under parallelism
@@ -186,6 +186,14 @@ export const SERIAL_GLOBS = [
   // deadline: reproduced red on shard 1 under phase-1 CPU contention three
   // times in a row (10/09/2026), green standalone every time.
   "server/providers/codex-complete.test.ts",
+  // Both red on shard 1 of the first CI run of this runner (4 shards on a 4
+  // vCPU GitHub runner, run 36487615331, 28/09/2026), both green in the
+  // serial run of main and in every local run. The first waits 5 s for a fake
+  // PTY bridge to hear `list` over a unix socket (the router's module state is
+  // shared by the whole process); the second counts `fetch` calls inside a
+  // 550 ms window, and a stray call landed in it.
+  "tests/integration/terminal-roster-warming-503.test.ts",
+  "client/src/state/pane/bootstrap.test.ts",
 ] as const;
 
 const TEST_GLOBS = ["**/*.test.ts", "**/*.test.tsx"] as const;
