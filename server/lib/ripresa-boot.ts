@@ -457,16 +457,29 @@ export function isChatsLastWord(db: Pick<Database, "query">, sessionKey: string,
 
 /**
  * The chat owes the person's message the resend its notice promised: its last
- * word (past background notices) is the direct answer to that message, cut by
- * an outage with nothing after the cut. A command's wake waits behind it
- * (`lib/process-exit-wake.ts`): landed under the cut, it became the last word
- * and the promised resend never went.
+ * word (past background notices) is cut by an outage with nothing after the
+ * cut, and the sweep, reading the chat as it is now, would resend it
+ * (`resumeVerdict`: the direct answer to that message, inside the window, on a
+ * chat no card resumes or has landed, the topic not archived). A command's
+ * wake waits behind it (`lib/process-exit-wake.ts`): landed under the cut, it
+ * became the last word and the promised resend never went. Only while the
+ * sweep would keep the promise: on a cut it never resends, the wake waited
+ * for good. Past the cap the sweep still owes the chat its cap notice, which
+ * then becomes the last word, so the count is not read (attempts 0).
  */
-export function outageResendOwed(db: Database, sessionKey: string): boolean {
+export function outageResendOwed(
+  db: Database, sessionKey: string, topic: { id: string; archived?: boolean }, nowMs = Date.now(),
+): boolean {
+  if (topic.archived) return false;
   for (const r of rowsBack(db, sessionKey)) {
     if (isBackgroundNoticeRow(r.decoded)) continue;
     if (r.role !== "assistant" || !outageCutUnanswered(r.decoded)) return false;
-    return !outageCutNotResent(lastInterruption(r.decoded)?.cause, r.decoded, () => answersPersonsMessage(db, sessionKey, r.id));
+    const card = cardHold(db, topic.id);
+    return resumeVerdict({
+      sessionKey, ruolo: r.role, blocks: r.decoded, timestampMs: Date.parse(r.timestamp), attempts: 0,
+      boundToCard: card.bound, cardLanded: card.landed, cardInProgress: card.inProgress,
+      answersMessage: answersPersonsMessage(db, sessionKey, r.id),
+    }, nowMs) === "resend";
   }
   return false;
 }

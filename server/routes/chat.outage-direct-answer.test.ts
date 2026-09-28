@@ -45,7 +45,7 @@ import { _resetTurnBodyFlushers } from "../lib/turn-body-flush";
 import { runBootPartialSweep, type PartialSweepDb } from "../lib/boot-partial-sweep";
 import { endReattachLeg, finalizeStaleRow } from "../lib/closed-outside";
 import { INTERRUPTED_MARKER } from "../lib/stale-stream-sweep";
-import { MAX_FREE_PROBES, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti } from "../lib/ripresa-boot";
+import { FINESTRA_RIPRESA_MS, MAX_FREE_PROBES, MAX_RESUME_ATTEMPTS, riprendiTurniInterrotti } from "../lib/ripresa-boot";
 import { attemptsOnRow } from "../lib/resend-count";
 import { postBackgroundNotice } from "../lib/background-notice";
 import { outageNoticeResumes } from "../lib/cancelled-notice";
@@ -527,7 +527,43 @@ describe("a row the machine wrote is not the person's message", () => {
       expect(await resumeSweep(sk)).toEqual([]);
     });
   }
+
+  /**
+   * The wake waits behind a resend only the sweep makes, so only while the
+   * sweep would make it: a cut past its window, or on the chat of a card that
+   * landed or that the dispatcher resumes, is never resent, and a wake behind
+   * it waited for good.
+   */
+  const NEVER_RESENT = {
+    "a day old": (_sk: string, rowId: string) => ctx.db.run("UPDATE messages SET timestamp = ? WHERE id = ?", [new Date(Date.now() - FINESTRA_RIPRESA_MS - 60_000).toISOString(), rowId]),
+    "on a card that landed": (sk: string) => cardOn(sk, "done"),
+    "on a card in progress": (sk: string) => cardOn(sk, "in_progress"),
+  };
+  for (const [shape, apply] of Object.entries(NEVER_RESENT)) {
+    test(`broker-died: the person's answer cut ${shape}: the sweep resends nothing, and the wake goes`, async () => {
+      const sk = topic(`pexit-never-${shape.replaceAll(" ", "-")}`);
+      await answered(sk, "Ciao", "Ciao, dimmi.");
+      const answer = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => h.onRetry!(retry(1)));
+      outageEnd("broker-died")(answer.route);
+      await drain(answer.resp);
+      apply(sk, answer.rowId);
+      send = answers("Build finito, exit 1.");
+      const wake = commandEnds(sk);
+      expect(await Promise.race([wake.outcome, tick(1500).then(() => "still waiting")])).toBe("sent");
+      expect(wakeRows(sk, wake.processId)).toHaveLength(1);
+      expect(await resumeSweep(sk)).toEqual([]);
+    });
+  }
 });
+
+/** A board card on the topic of `sk`, in `status`. */
+function cardOn(sk: string, status: "in_progress" | "review" | "done"): void {
+  const now = new Date().toISOString();
+  ctx.db.run(
+    "INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, assigned_topic_id) VALUES (?, 'board', 'the card', ?, ?, ?, ?)",
+    [`card-${sk}`, status, now, now, sk.slice("topic:".length)],
+  );
+}
 
 describe("a run_command wake whose turn meets the outage goes again", () => {
   /**

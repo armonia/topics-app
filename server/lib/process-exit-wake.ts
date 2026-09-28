@@ -18,9 +18,9 @@
  * closed by the `[StaleStream]` sweep, and then the wake goes. It also waits
  * while the topic's provider is held (`isProviderHeld`, the wall the resume
  * sweep and the dispatcher wait behind), and while the chat owes the person's
- * message the resend its notice promised (`outageResendOwed`): landed under
- * that cut first, the wake became the chat's last word and the sweep resent
- * nothing. Any other refusal is not a busy session
+ * message the resend its notice promised and the sweep would make
+ * (`outageResendOwed`): landed under that cut first, the wake became the
+ * chat's last word and the sweep resent nothing. Any other refusal is not a busy session
  * (a 409 `topics_routing_incompatible` lasts until somebody changes the
  * topic's settings): it fails, and stays owed to the next boot, with nobody
  * waiting for it before then.
@@ -251,7 +251,7 @@ export async function deliverProcessExit(
       await sleep(pollMs);
       continue;
     }
-    if (outageResendOwed(deps.db, topic.sessionKey)) {
+    if (outageResendOwed(deps.db, topic.sessionKey, { id: f.topicId, archived: topic.archived })) {
       if (!owedSaid) deps.log?.(`${f.processId}: the person's message is owed its resend, the wake goes after it`);
       owedSaid = true;
       await sleep(pollMs);
