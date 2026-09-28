@@ -154,18 +154,28 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
     };
   }
 
+  /** A delivery as the review records it. */
+  type Delivery = { branch: string; commit: string };
+
   /** The task row the dispatcher writes, with the delivery the review records when there is one. */
   function bindTask(
     ctx: Awaited<ReturnType<typeof createTestAppContext>>,
     taskId: string,
     topicId: string,
-    delivery: { branch: string; commit: string } | null = null,
+    delivery: Delivery | null = null,
   ): void {
     const nowIso = new Date().toISOString();
     ctx.db.prepare(
       `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, assigned_topic_id, delivery_branch, delivery_commit)
        VALUES (?, 'proj-changes', ?, 'done', ?, ?, ?, ?, ?)`,
     ).run(taskId, `Task ${taskId}`, nowIso, nowIso, topicId, delivery?.branch ?? null, delivery?.commit ?? null);
+  }
+
+  /** The attempt the dispatcher binds to the topic it launched, on its worktree's branch. */
+  function bindAttempt(ctx: Awaited<ReturnType<typeof createTestAppContext>>, taskId: string, topicId: string, branch: string): void {
+    ctx.db.prepare(
+      `INSERT INTO task_attempts (id, task_id, idx, topic_id, branch, state, created_at) VALUES (?, ?, 1, ?, ?, 'selected', ?)`,
+    ).run(crypto.randomUUID(), taskId, topicId, branch, new Date().toISOString());
   }
 
   /**
@@ -191,7 +201,7 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
   }
 
   /** A topic in the project's checkout with the task bound to it: what a landed card's topic looks like once its worktree row is gone. */
-  async function landedTopic(repo: string, taskId: string, delivery: { branch: string; commit: string } | null) {
+  async function landedTopic(repo: string, taskId: string, delivery: Delivery | null) {
     const { createTopicsRouter } = await import("../../server/routes/topics");
     const ctx = await createTestAppContext();
     const router = createTopicsRouter(ctx);
@@ -310,6 +320,33 @@ describe("GET /api/topics/:id/changes on a task topic", () => {
     const byPath = Object.fromEntries(body.files.map((f) => [f.path, f]));
     expect(byPath["src/a.ts"]).toMatchObject({ kind: "created", added: 2, turns: 1, inRange: true });
     expect(byPath["shell.txt"]).toMatchObject({ kind: "created", added: 3, turns: 0, inRange: true });
+  });
+
+  test("landed with no delivery recorded: the topic's attempt names the pruned worktree, and each file is one row", async () => {
+    // 89 of the 416 cards landed by `merge task <id>` on main have no
+    // delivery_branch, so nothing named the pruned folder: 58 of their topics
+    // listed each file twice, the range's counted row and the tool call's
+    // absolute path (03a5e224: 15 rows for 8 files). The attempt the
+    // dispatcher bound to the topic still carries its worktree's branch.
+    const label = `landed-nodelivery-${Date.now()}`;
+    const repo = makeRepo(label);
+    const taskId = crypto.randomUUID();
+    const { wt, branch } = taskWorktree(repo, label);
+    mkdirSync(join(wt, "src"), { recursive: true });
+    writeFileSync(join(wt, "src/a.ts"), "alpha\nbeta\n");
+    git(wt, "add", "-A");
+    git(wt, "commit", "-qm", "task work");
+    landAndPrune(repo, wt, branch, taskId);
+
+    const { ctx, topic, changes } = await landedTopic(repo, taskId, null);
+    bindAttempt(ctx, taskId, topic.id, branch);
+    ctx.appendImportedMessages(topic.sessionKey, [writeTurn(join(wt, "src/a.ts"))]);
+
+    const body = await changes();
+    expect(body.taskId).toBe(taskId);
+    expect(body.files).toEqual([
+      expect.objectContaining({ path: "src/a.ts", kind: "created", added: 2, removed: 0, turns: 1, inRange: true }),
+    ]);
   });
 
   test("live worktree: committed, uncommitted and untracked files all come from the task's range", async () => {

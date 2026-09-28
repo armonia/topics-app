@@ -214,7 +214,8 @@ export function pathInTree(
  * The tree a task's tool calls wrote in: its worktree. A `path` while a
  * worktree row still names it; after the land's prune the row is gone too, and
  * only the folder's `name` is left, the one its branch `topics/<name>` was
- * made from (`worktree-manager.ts`), which the review recorded as the delivery.
+ * made from (`worktree-manager.ts`): the delivery the review recorded, or the
+ * attempt the dispatcher bound to the topic when no delivery was recorded.
  */
 export type TaskTree = { path: string } | { name: string };
 
@@ -286,7 +287,13 @@ export function rangeFiles(
 
 /** What the `/changes` route knows about the task dispatched to a topic. */
 export interface TopicRangeAnchors {
-  task: { id: string; deliveryBranch: string | null; deliveryCommit: string | null };
+  task: {
+    id: string;
+    deliveryBranch: string | null;
+    deliveryCommit: string | null;
+    /** The branch of the latest attempt launched in this topic: its worktree's. */
+    attemptBranch: string | null;
+  };
   /** The topic's worktree row, while it still has one. */
   worktree: { absPath: string; mode: string; branchName: string | null } | null;
   /** The project's own checkout: where main, and so the land merge, lives. */
@@ -323,7 +330,10 @@ async function rangeChanges(anchors: TopicRangeAnchors, touched: TouchedFile[]):
     includeUntracked: range.live,
     untrackedCap: MAX_UNTRACKED_COUNTS,
   });
-  const deliveredFrom = task.deliveryBranch?.split("/").pop();
+  // No recorded delivery (89 of the cards landed by `merge task <id>` on main
+  // have none): the attempt still names the worktree the topic wrote in.
+  const taskBranch = task.deliveryBranch ?? task.attemptBranch;
+  const deliveredFrom = taskBranch?.split("/").pop();
   const tree: TaskTree | null = wt?.absPath ? { path: wt.absPath } : deliveredFrom ? { name: deliveredFrom } : null;
   const { files, rest } = rangeFiles(stat, touched, tree);
   // The rest is asked of git only in the tree the range reads, the live
@@ -331,7 +341,7 @@ async function rangeChanges(anchors: TopicRangeAnchors, touched: TouchedFile[]):
   // wrong-tree write would come back as a second row named like the range's.
   const [outside, branch] = await Promise.all([
     !rest.length ? [] : range.live ? toolCallFiles(root, rest).then((r) => r.files) : rest.map(uncounted),
-    live?.branch ?? wt?.branchName ?? task.deliveryBranch ?? currentBranch(range.cwd),
+    live?.branch ?? wt?.branchName ?? taskBranch ?? currentBranch(range.cwd),
   ]);
   // No `dirty`: the range does not ask which of its files are still
   // uncommitted, and nothing reads that number to pay a git call per turn.
