@@ -98,8 +98,12 @@ madre), scelta 4 (il 409 `turn_in_progress`).
 ### Requirement: CHAT-FORK-02 — La sessione Claude Code del ramo nasce da quella della madre, fissata al punto del ramo
 
 Per un ramo con runtime `claude-cli`, alla creazione la rotta SHALL leggere
-l'id di sessione della madre (`claude_code_sessions`) e il suo transcript
-(`claudeTranscriptPath`, `server/lib/claude-transcript-path.ts:83`), prendere
+l'id di sessione della madre (`claude_code_sessions`) e il suo transcript,
+dovunque la CLI l'abbia archiviato (`findClaudeTranscript`,
+`server/lib/claude-transcript-path.ts`: prima sotto la cwd attuale della
+madre, poi in ogni cartella di `~/.claude/projects`; una madre spostata di
+progetto dopo i suoi turni ha il transcript sotto la cwd di prima, e la CLI la
+riprende lo stesso), prendere
 come `parent_at` l'`uuid` dell'ultima riga `type: "assistant"` non
 `isSidechain`, coniare l'uuid del ramo e scriverlo in
 `claude_code_sessions(sessionKey del ramo, uuid del ramo)` con `import_offset`
@@ -178,6 +182,11 @@ Le due bandiere SHALL stare in `CRITICAL_CLAUDE_FLAGS`
 - **WHEN** la chat passa a un altro progetto e si monta l'argv del suo spawn nella cwd nuova, dove il transcript del ramo non c'è
 - **THEN** l'argv finisce con `--resume C` e non contiene `--fork-session`
 - **AND** `parent_ref` del ramo è nullo
+
+#### Scenario: una madre spostata di progetto dopo i suoi turni si dirama
+- **GIVEN** una chat Claude Code il cui transcript sta sotto la cwd di prima, e il cui `projectPath` è ora un altro
+- **WHEN** la si dirama
+- **THEN** `parent_ref` è la sua sessione e `parent_at` l'uuid della sua ultima risposta
 
 #### Scenario: la madre non aveva una sessione
 - **GIVEN** un topic Claude Code con messaggi e nessuna riga in `claude_code_sessions` (per esempio una storia seminata)

@@ -72,8 +72,12 @@ Per Claude Code il punto va detto anche alla CLI, perché `--fork-session` da
 solo copia la sessione della madre com'è al PRIMO AVVIO del ramo, non com'era
 al clic: se nel frattempo continui nell'originale, il modello del ramo
 conoscerebbe turni che la sua chat non mostra. Alla creazione la rotta legge il
-transcript della madre (`claudeTranscriptPath(cwd madre, id madre)`,
-`server/lib/claude-transcript-path.ts:83`) e prende `uuid` e testo dell'ultima
+transcript della madre dovunque la CLI l'abbia archiviato
+(`findClaudeTranscript(cwd madre, id madre)`,
+`server/lib/claude-transcript-path.ts`: prima la cwd attuale, poi ogni cartella
+di `~/.claude/projects`; una madre spostata di progetto dopo i suoi turni ha il
+transcript sotto la cwd di prima, e la CLI la riprende da qualunque cwd) e
+prende `uuid` e testo dell'ultima
 riga `type: "assistant"` che non sia `isSidechain`. Allo spawn quell'uuid va in
 `--resume-session-at` (misurato: il ramo preso a «LIVE-ONE» non conosce
 «LIVE-TWO»). Funzione pura `lastMainAssistant(jsonlText)` →

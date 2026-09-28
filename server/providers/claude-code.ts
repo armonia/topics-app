@@ -79,7 +79,7 @@ import { defaultChatModel, discoverClaudeModels } from "./claude-models";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { forkStartFor, lastMainAssistant } from "../lib/chat-fork";
 import { consumeFork, readForkOrigin } from "../lib/chat-fork-store";
-import { claudeTranscriptPath } from "../lib/claude-transcript-path";
+import { claudeTranscriptPath, findClaudeTranscript } from "../lib/claude-transcript-path";
 
 // ============ Config ============
 
@@ -2159,8 +2159,10 @@ export class ClaudeCodeProvider implements AIProvider {
   forkPoint(sessionKey: string): { ref: string; at: string; text: string } | null {
     const sessionId = peekClaudeSessionId(sessionKey);
     if (!sessionId) return null;
+    const file = findClaudeTranscript(this.workspaceFor(sessionKey), sessionId);
+    if (!file) return null;
     let jsonl: string;
-    try { jsonl = readFileSync(claudeTranscriptPath(this.workspaceFor(sessionKey), sessionId), "utf-8"); } catch { return null; }
+    try { jsonl = readFileSync(file, "utf-8"); } catch { return null; }
     const last = lastMainAssistant(jsonl);
     return last ? { ref: sessionId, at: last.uuid, text: last.text } : null;
   }

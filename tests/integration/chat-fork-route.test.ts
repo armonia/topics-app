@@ -29,6 +29,8 @@ import type { AppContext, ContentBlock, StoredMessage, Topic } from "../../serve
 
 const ROOT = testTmpDir("chat-fork-route");
 const PROJECT = join(ROOT, "project");
+/** Where a parent ran before it moved to PROJECT (`/project`, `open_project`, autoBind): its transcript stayed there. */
+const PREVIOUS_PROJECT = join(ROOT, "previous-project");
 let ctx: AppContext;
 let router: ReturnType<typeof createForkRouter>;
 const broadcasts: { type: string; topic?: Topic }[] = [];
@@ -38,6 +40,7 @@ const codexPoint = { ref: "thread-parent", at: "4242" };
 beforeAll(async () => {
   setupTestDataDir(join(ROOT, "data"));
   mkdirSync(PROJECT, { recursive: true });
+  mkdirSync(PREVIOUS_PROJECT, { recursive: true });
   ctx = await createTestAppContext();
   (ctx as { broadcastToAll: (m: object) => void }).broadcastToAll = (m) => { broadcasts.push(m as never); };
   router = createForkRouter(ctx, {
@@ -50,7 +53,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  for (const file of claudeTranscriptCandidates(PROJECT, "x")) rmSync(dirname(file), { recursive: true, force: true });
+  for (const dir of [PROJECT, PREVIOUS_PROJECT]) for (const file of claudeTranscriptCandidates(dir, "x")) rmSync(dirname(file), { recursive: true, force: true });
   await cleanupTestDataDir(ROOT);
 });
 
@@ -93,12 +96,12 @@ const branchesOf = (sk: string) => ctx.db.prepare("SELECT * FROM active_branches
 const topicCount = () => (ctx.db.prepare("SELECT COUNT(*) AS n FROM topics").get() as { n: number }).n;
 const sessionOf = (sk: string) => ctx.db.prepare("SELECT claude_session_id, import_offset FROM claude_code_sessions WHERE session_key = ?").get(sk) as { claude_session_id: string; import_offset: number | null } | null;
 
-/** A Claude Code parent with a session and a transcript whose last answer is `lastText`. */
-function claudeParent(rows: Row[], lastText: string, uuid = "uuid-last"): Topic {
+/** A Claude Code parent with a session and a transcript whose last answer is `lastText`, filed under `transcriptCwd`. */
+function claudeParent(rows: Row[], lastText: string, uuid = "uuid-last", transcriptCwd = PROJECT): Topic {
   const t = chat(rows, { provider: "claude-code", projectPath: PROJECT });
   const sessionId = `sess-${crypto.randomUUID()}`;
   ctx.db.prepare("INSERT INTO claude_code_sessions (session_key, claude_session_id, created_at, updated_at) VALUES (?, ?, 'now', 'now')").run(t.sessionKey, sessionId);
-  const file = claudeTranscriptCandidates(PROJECT, sessionId)[0];
+  const file = claudeTranscriptCandidates(transcriptCwd, sessionId)[0];
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, [
     { type: "user", uuid: "u-x", message: { content: "prompt" } },
@@ -263,6 +266,12 @@ describe("each runtime's memory", () => {
     const origin = readForkOrigin(ctx.db, branch.sessionKey)!;
     expect(origin).toMatchObject({ runtime: "claude-cli", parentRef: sessionOf(t.sessionKey)!.claude_session_id, parentAt: "uuid-of-answer-1" });
     expect(sessionOf(branch.sessionKey)).toEqual({ claude_session_id: origin.branchRef!, import_offset: null });
+  });
+
+  test("claude-cli, a parent moved to another project after its turns: its transcript is found where it is, and the branch forks", async () => {
+    const t = claudeParent(turns(2), "answer 1", "uuid-before-the-move", PREVIOUS_PROJECT);
+    const branch = (await (await fork(t)).json()) as Topic;
+    expect(readForkOrigin(ctx.db, branch.sessionKey)).toMatchObject({ parentRef: sessionOf(t.sessionKey)!.claude_session_id, parentAt: "uuid-before-the-move" });
   });
 
   const noFork = async (t: Topic) => {
