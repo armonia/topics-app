@@ -688,20 +688,20 @@ function refusalDetail(details: StopDetails | null): string {
  * answer, whatever `mediaType` each of them thought it was sending. The real
  * format and size come from the bytes themselves, resized/recompressed under
  * a byte cap so a multi-megabyte screenshot cannot blow the request body into
- * a 413 — see `image-normalize.ts`. An image that cannot be made safe (no
- * `sips` on this OS, an undecodable format) becomes TEXT naming the problem
+ * a 413 — see `image-normalize.ts`. An image that cannot be made safe (over
+ * the caps with no `sips` on this OS, an SVG, an undecodable format) becomes
+ * TEXT naming the problem, by the label its tool gave it,
  * instead of a block the API is going to reject, which would otherwise repeat
  * on every following turn since the history never changes on its own.
  */
-export function toolResultContent(out: ToolResult): string | Block[] {
-  const clippedText = clipToolResult(out.content, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS);
+export async function toolResultContent(out: ToolResult): Promise<string | Block[]> {
   const images = out.images;
-  if (!images || images.length === 0) return clippedText;
+  if (!images || images.length === 0) return clipToolResult(out.content, RESULT_HEAD_CHARS, RESULT_TAIL_CHARS);
 
   const blocks: Block[] = [];
   const notes: string[] = [];
   for (const img of images) {
-    const outcome = normalizeImage(Buffer.from(img.data, "base64"), "immagine"); // allow-italian: etichetta di fallback, il chiamante ne passa una migliore quando ce l'ha
+    const outcome = await normalizeImage(Buffer.from(img.data, "base64"), img.label);
     if (outcome.kind === "image") {
       blocks.push({
         type: "image",
@@ -711,7 +711,12 @@ export function toolResultContent(out: ToolResult): string | Block[] {
       notes.push(outcome.text);
     }
   }
-  const text = notes.length > 0 ? `${clippedText}\n\n${notes.join("\n")}` : clippedText;
+  // The notes are clipped with the caption, under the same budget: an SVG's
+  // note carries its whole markup.
+  const text = clipToolResult(
+    notes.length > 0 ? `${out.content}\n\n${notes.join("\n")}` : out.content,
+    RESULT_HEAD_CHARS, RESULT_TAIL_CHARS,
+  );
   if (blocks.length === 0) return text;
   return [{ type: "text", text }, ...blocks] as Block[];
 }
@@ -968,7 +973,7 @@ export async function runAgentTurn(
       results.push({
         type: "tool_result",
         tool_use_id: t.id,
-        content: toolResultContent(out),
+        content: await toolResultContent(out),
         ...(out.isError ? { is_error: true } : {}),
       });
       // IL TURNO PUÒ ESSERE MORTO MENTRE QUESTO TOOL GIRAVA.

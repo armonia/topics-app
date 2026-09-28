@@ -253,7 +253,12 @@ export async function retryRound<T>(run: (token: string) => Promise<T>, ctx: Ret
       }
 
       if (verdict.kind !== "retry" || attempt >= policy.maxAttempts) {
-        throw attempt > 1 ? new Error(exhaustedMessage(message, attempt, Date.now() - startedAt)) : err;
+        if (attempt === 1) throw err;
+        const detail = exhaustedMessage(message, attempt, Date.now() - startedAt);
+        // The STATUS survives the new message: the recovery above the loop
+        // keys on it (a 413 after a retried 529 is still a 413 for
+        // `recoverFromImageFailure`, not a plain Error it cannot recognise).
+        throw err instanceof ApiHttpError ? new ApiHttpError(detail, err.status, err.retryAfterMs) : new Error(detail);
       }
 
       // A 429 with a spent usage window is not transient: its end is a clock,

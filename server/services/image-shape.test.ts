@@ -10,7 +10,7 @@ import { describe, test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { imageShape } from "./image-shape";
+import { imageShape, imageShapeFromBuffer } from "./image-shape";
 
 const dir = mkdtempSync(join(tmpdir(), "image-shape-"));
 function put(name: string, bytes: Buffer | string): string {
@@ -98,5 +98,32 @@ describe("imageShape", () => {
     expect(imageShape(put("vuoto.png", Buffer.alloc(0)))).toBeNull();
     expect(imageShape(put("zero.png", pngHeader(0, 100)))).toBeNull();
     expect(imageShape(put("testo.svg", "questo non è un svg"))).toBeNull();
+  });
+});
+
+/**
+ * A JPEG can carry more metadata before its SOF than the 64 KB window holds:
+ * APP1 (EXIF, XMP) and APP2 (ICC) segments of up to 64 KB each, one after the
+ * other. The size is still in the file, just further in.
+ */
+function jpegWithLargeMetadata(width: number, height: number): Buffer {
+  const app1 = () => {
+    const seg = Buffer.alloc(4 + 40_000 - 2);
+    seg[0] = 0xff; seg[1] = 0xe1; seg.writeUInt16BE(40_000, 2);
+    return seg;
+  };
+  const sof0 = Buffer.alloc(11);
+  sof0[0] = 0xff; sof0[1] = 0xc0; sof0.writeUInt16BE(9, 2); sof0[4] = 8;
+  sof0.writeUInt16BE(height, 5); sof0.writeUInt16BE(width, 7); sof0[9] = 3;
+  return Buffer.concat([Buffer.from([0xff, 0xd8]), app1(), app1(), sof0, Buffer.from([0xff, 0xd9])]);
+}
+
+describe("a JPEG whose metadata runs past the first 64 KB", () => {
+  test("imageShape still finds the SOF, reading on past the window", () => {
+    expect(imageShape(put("exif.jpg", jpegWithLargeMetadata(4000, 3000)))).toMatchObject({ width: 4000, height: 3000, format: "jpeg" });
+  });
+
+  test("imageShapeFromBuffer reads the raster header from the whole buffer, not only its first 64 KB", () => {
+    expect(imageShapeFromBuffer(jpegWithLargeMetadata(4000, 3000))).toMatchObject({ width: 4000, height: 3000, format: "jpeg" });
   });
 });
