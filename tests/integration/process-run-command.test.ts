@@ -242,6 +242,10 @@ describe("the end of a command reaches the topic that launched it", () => {
     // Beside the logs: the registry's folder is the one of the first file that loaded it.
     const saved = JSON.parse(readFileSync(join(dirname(dirname(logPathOf(processId))), "scripts.json"), "utf8")) as { recent: Array<{ processId: string; cmd?: { wake: boolean } }> };
     expect(saved.recent.find((r) => r.processId === processId)?.cmd?.wake).toBe(true);
+    // Owed to the next boot, not to anybody waiting now: counted as queued, it
+    // held the topic's goal (and a board card) on a wake that cannot come
+    // before a restart.
+    expect(commandWakeState(topic.sessionKey)).toBe("none");
   });
 
   test("a Stop from the panel wakes nobody", async () => {

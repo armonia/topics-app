@@ -103,6 +103,8 @@ interface ScriptProcess {
   };
   /** Only for `source: 'command'` (`run_command`). Persisted. */
   cmd?: CommandMeta;
+  /** Its wake was refused for good in this life of the server: owed to the next boot, not waited on now. Not persisted. */
+  wakeFailed?: boolean;
   /** Set while the log is a FILE somebody else writes (a command, a shell of
    *  the CLI): the registry follows it and never writes it. Not persisted. */
   tail?: FileTail;
@@ -696,23 +698,26 @@ function finishCommand(sp: ScriptProcess): void {
 /**
  * Where a session stands with the wakes its commands owe it: `running` while a
  * command that will wake it still runs, `wake-queued` once one has ended and
- * its row is not in the chat yet, `none` otherwise.
+ * its row is on its way to the chat, `none` otherwise. A wake the route
+ * refused for good waits for the next boot and counts as nothing: counted as
+ * queued, it held a goal on a wake that could not come before a restart.
  *
- * The goal loop reads it beside the CLI's own background work
- * (`backgroundOfTurn`): an agent sent to `run_command` for a long wait ends
- * its turn on it, and a goal that counted it as nothing judged that turn,
- * nudged over the running command, and paused as stalled before the wake came.
+ * The goal loop and the board dispatcher read it beside the CLI's own
+ * background work (`backgroundOfTurn`): an agent sent to `run_command` for a
+ * long wait ends its turn on it, and a goal that counted it as nothing judged
+ * that turn, nudged over the running command, and paused as stalled before
+ * the wake came; a card spent an attempt and was parked.
  */
 export type CommandWakeState = "running" | "wake-queued" | "none";
 export function commandWakeState(sessionKey: string): CommandWakeState {
   for (const sp of runningScripts.values()) if (sp.cmd?.wake && sp.cmd.sessionKey === sessionKey) return "running";
-  return recentScripts.some((sp) => sp.cmd?.wake && sp.cmd.sessionKey === sessionKey) ? "wake-queued" : "none";
+  return recentScripts.some((sp) => sp.cmd?.wake && !sp.wakeFailed && sp.cmd.sessionKey === sessionKey) ? "wake-queued" : "none";
 }
 
 /** Every session a command still owes a wake: the goals that wait again after a restart. */
 export function sessionsAwaitingCommandWake(): string[] {
   const keys = new Set<string>();
-  for (const sp of [...runningScripts.values(), ...recentScripts]) if (sp.cmd?.wake) keys.add(sp.cmd.sessionKey);
+  for (const sp of [...runningScripts.values(), ...recentScripts]) if (sp.cmd?.wake && !sp.wakeFailed) keys.add(sp.cmd.sessionKey);
   return [...keys];
 }
 
@@ -729,6 +734,7 @@ function requestWakeFor(sp: ScriptProcess): void {
     durationMs: ended - Date.parse(sp.startedAt),
     lines: sp.output.slice(-WAKE_TAIL_LINES),
     settle: () => { cmd.wake = false; saveState(); },
+    fail: () => { sp.wakeFailed = true; },
   });
 }
 

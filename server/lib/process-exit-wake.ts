@@ -17,7 +17,8 @@
  * wait instead of losing it. There is no cap on that wait: a wedged turn is
  * closed by the `[StaleStream]` sweep, and then the wake goes. Any other
  * refusal is not a busy session (a 409 `topics_routing_incompatible` lasts
- * until somebody changes the topic's settings): it fails, and stays owed.
+ * until somebody changes the topic's settings): it fails, and stays owed to
+ * the next boot, with nobody waiting for it before then.
  *
  * ONCE. Delivered means the session holds a row with the `process-exit` block
  * of that process: checked before every send, and at boot for every finished
@@ -42,9 +43,14 @@ export interface ProcessExitRequest extends ProcessExitFacts {
    * Called once the topic owes nothing more for this process: for a wake sent,
    * as soon as the route has taken its row, before the turn it opens ends.
    * That turn's end reads what is still owed (`commandWakeState`, for the goal
-   * loop), and its own wake is not.
+   * loop and the board), and its own wake is not.
    */
   settle?: () => void;
+  /**
+   * Called when the route refused it for good (`failed`): the wake stays owed
+   * to the next boot, and nobody should wait for it before then.
+   */
+  fail?: () => void;
 }
 
 type ChatRoute = (req: Request, url: URL, pathname: string, method: string) => Response | null | Promise<Response | null>;
@@ -188,6 +194,7 @@ function schedule(d: ProcessExitWakeDeps, r: ProcessExitRequest): void {
       // A failure stays owed: the next boot tries again. A wake sent settled
       // when the route took it.
       if (outcome === "delivered" || outcome === "no-topic") r.settle?.();
+      if (outcome === "failed") r.fail?.();
       d.log?.(`${r.processId} -> ${r.topicId}: ${outcome}`);
     })
     .catch((err) => d.log?.(`${r.processId}: ${err instanceof Error ? err.message : String(err)}`));
