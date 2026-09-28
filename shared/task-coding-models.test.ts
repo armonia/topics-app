@@ -1,7 +1,7 @@
 /** @covers MP-TASK-01, MP-TASK-02 */
 import { describe, expect, test } from 'bun:test';
 import type { ProviderSnapshotEntry, ProvidersSnapshot } from './types';
-import { availableTaskModels, isTopicsModelServed, taskExecutionOptions, taskModelMatchesSession, taskModelSelection, taskModelValue, taskProviderForModel, TopicsRoutingUnavailableError } from './task-coding-models';
+import { availableTaskModels, isTopicsModelServed, reusedSessionRouteConflict, taskExecutionOptions, taskModelMatchesSession, taskModelSelection, taskModelValue, taskProviderForModel, topicsRoutingAvailable, TopicsRoutingUnavailableError } from './task-coding-models';
 
 function entry(name: string, models: string[], status: ProviderSnapshotEntry['status'] = 'ready'): ProviderSnapshotEntry {
   return { name, models, status, isDefault: false, requirements: [], fetchedAt: '2026-09-08T00:00:00Z' };
@@ -85,6 +85,17 @@ describe('task coding models', () => {
     expect(isTopicsModelServed(null, ['claude-opus-5'])).toBe(true);
   });
 
+  // A plain model only the engine serves, and the legacy `topics:<model>`,
+  // resolve to the engine itself. The dispatcher runs them with the switch ON;
+  // the menu called them unroutable, because `topics` is no target the engine reaches.
+  test('the engine named as the target routes what it serves, while it is ready', () => {
+    const engine = entry('topics', ['claude-opus-5']);
+    expect(topicsRoutingAvailable('topics', 'claude-opus-5', snapshot([engine]))).toBe(true);
+    expect(topicsRoutingAvailable('topics', null, snapshot([engine]))).toBe(true);
+    expect(topicsRoutingAvailable('topics', 'claude-sonnet-5', snapshot([engine]))).toBe(false);
+    expect(topicsRoutingAvailable('topics', 'claude-opus-5', snapshot([entry('topics', ['claude-opus-5'], 'error')]))).toBe(false);
+  });
+
   test('only task-capable ACP runtimes enter the catalog and legacy jcode routes stay valid', () => {
     const chatOnly = { ...entry('jcode', ['claude-opus-5']), capabilities: ['streaming'] };
     const taskCapable = { ...chatOnly, capabilities: ['streaming', 'coding-tasks'] };
@@ -130,8 +141,46 @@ describe('task coding models', () => {
     expect(taskModelMatchesSession('gpt-5.4', { provider: 'codex', model: 'gpt-5.3' })).toBe(false);
     expect(taskModelMatchesSession('claude-opus-5', { provider: 'topics', model: 'claude-opus-5' })).toBe(true);
     expect(taskModelMatchesSession('claude-opus-5', { provider: 'claude', model: 'claude-opus-5' })).toBe(false);
+    // A topic bound to the engine is a Claude Code session only with the switch ON.
+    expect(taskModelMatchesSession('claude-code:claude-opus-5', { provider: 'topics', model: 'claude-opus-5', topicsRouting: true }, true)).toBe(true);
+    expect(taskModelMatchesSession('claude-code:claude-opus-5', { provider: 'topics', model: 'claude-opus-5', topicsRouting: false }, true)).toBe(false);
+    expect(taskModelMatchesSession('jcode:claude-opus-5', { provider: 'topics', model: 'claude-opus-5', topicsRouting: true }, true)).toBe(false);
     expect(taskModelMatchesSession('gpt-5.4', null)).toBe(false);
     expect(taskModelMatchesSession(undefined, { provider: 'codex', model: 'gpt-5.4' })).toBe(true);
+  });
+  // S1 and S3 on a reused session: the topic keeps its own switch, so the
+  // dependent continues it only with that same switch, whatever it names.
+  test('a dependent continues a session only with the switch the session runs with', () => {
+    const claudeCode = (topicsRouting: boolean) => ({ provider: 'claude-code', model: 'claude-opus-5', topicsRouting });
+    const engine = (topicsRouting: boolean) => ({ provider: 'topics', model: 'claude-opus-5', topicsRouting });
+    const codex = { provider: 'codex', model: 'gpt-5.4' };
+    // Automatic, a bare model, an explicit provider and the legacy prefix alike.
+    for (const value of [undefined, 'claude-opus-5', 'claude-code:claude-opus-5', 'topics:claude-opus-5']) {
+      for (const session of [claudeCode(true), engine(true)]) {
+        expect(reusedSessionRouteConflict(value, session, false)).toBe('switch-on');
+        expect(taskModelMatchesSession(value, session, false)).toBe(false);
+      }
+      for (const session of [claudeCode(false), engine(false), codex]) {
+        expect(reusedSessionRouteConflict(value, session, true)).toBe('switch-off');
+        expect(taskModelMatchesSession(value, session, true)).toBe(false);
+      }
+    }
+    // The legacy prefix reads as ON while the task's own switch was never set.
+    expect(reusedSessionRouteConflict('topics:claude-opus-5', engine(false), undefined)).toBe('switch-off');
+    expect(reusedSessionRouteConflict('topics:claude-opus-5', engine(true), undefined)).toBeNull();
+    // Both OFF, an explicit provider names who runs the turn: the engine itself or a provider directly.
+    expect(reusedSessionRouteConflict('claude-code:claude-opus-5', engine(false), false)).toBe('engine');
+    expect(reusedSessionRouteConflict('topics:claude-opus-5', claudeCode(false), false)).toBe('direct');
+    // The same switch and the same runtime on both sides.
+    expect(taskModelMatchesSession('claude-code:claude-opus-5', claudeCode(false), false)).toBe(true);
+    expect(taskModelMatchesSession('claude-code:claude-opus-5', claudeCode(true), true)).toBe(true);
+    expect(taskModelMatchesSession('claude-code:claude-opus-5', engine(true), true)).toBe(true);
+    expect(taskModelMatchesSession('topics:claude-opus-5', engine(false), false)).toBe(true);
+    expect(taskModelMatchesSession('codex:gpt-5.4', codex, false)).toBe(true);
+    for (const value of [undefined, 'claude-opus-5']) {
+      expect(taskModelMatchesSession(value, claudeCode(true), true)).toBe(true);
+      expect(taskModelMatchesSession(value, engine(false), false)).toBe(true);
+    }
   });
   test('auto reuse still requires a known coding runtime', () => {
     for (const provider of ['topics', 'claude-code', 'claude-code-team', 'jcode', 'codex']) {

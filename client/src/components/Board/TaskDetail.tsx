@@ -2297,6 +2297,7 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
               <TaskModelMenuOptions
                 models={models}
                 value={task.model || null}
+                boardValue={boardDispatchModel}
                 onSelect={changeModel}
                 disabled={busy}
                 autoLabel={tr('board.task.modelAutoOption')}

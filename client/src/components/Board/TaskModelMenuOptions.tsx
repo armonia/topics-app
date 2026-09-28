@@ -25,12 +25,16 @@ import { AiExecutionMenuOptions } from '../Shared/AiExecutionMenuOptions';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { taskExecutionOptions, taskModelSelection, taskModelValue } from '../../../../shared/task-coding-models';
 import type { ProvidersSnapshot } from '../../types';
+import type { AiExecutionSelection } from '../Shared/aiExecutionSelection';
 
 interface Props {
   /** The live catalog, already filtered to executable coding runtimes. */
   models: string[];
   /** Currently selected model id, or `null` for Auto. */
   value: string | null;
+  /** The board's default model, which a task on Auto runs with. Omitted where
+   *  `value` is itself the board default (the board settings picker). */
+  boardValue?: string | null;
   onSelect: (model: string | null) => void;
   /** Locks every row while a write is in flight. */
   disabled?: boolean;
@@ -46,10 +50,8 @@ interface Props {
   topicsRouting?: { enabled: boolean; onToggle: (next: boolean) => void };
 }
 
-export function TaskModelMenuOptions({ models, value, onSelect, disabled, autoLabel, autoIcon, autoTitle, snapshot: snapshotOverride, topicsRouting }: Props) {
-  void autoIcon;
-  const { snapshot: liveSnapshot } = useProvidersSnapshot();
-  const snapshot = snapshotOverride ?? liveSnapshot;
+/** The runtime and model a stored task value names, as the menu reads it. */
+function menuSelection(value: string | null, models: string[], snapshot: ProvidersSnapshot | null): AiExecutionSelection {
   const selected = taskModelSelection(value);
   // AICTRL-04: `topics:<model>` is the old "run via Topics" encoding, and a
   // bare model predates the prefix entirely. Neither names a runtime the menu
@@ -64,17 +66,28 @@ export function TaskModelMenuOptions({ models, value, onSelect, disabled, autoLa
   const nativeMatch = isLegacySelection
     ? snapshot?.providers.find((entry) => entry.name === 'topics' && entry.models.includes(selected.model!))
     : undefined;
-  const selectedProvider = (selected.provider && selected.provider !== 'topics' ? selected.provider : undefined)
+  const provider = (selected.provider && selected.provider !== 'topics' ? selected.provider : undefined)
     ?? legacyProviders.find((entry) => entry.name === snapshot?.defaultProvider)?.name
     ?? legacyProviders[0]?.name
     ?? nativeMatch?.name
     ?? (selected.model && models.includes(value ?? '') ? selected.model : null)
     ?? null;
+  return { provider, model: selected.model ?? null };
+}
+
+export function TaskModelMenuOptions({ models, value, boardValue, onSelect, disabled, autoLabel, autoIcon, autoTitle, snapshot: snapshotOverride, topicsRouting }: Props) {
+  void autoIcon;
+  const { snapshot: liveSnapshot } = useProvidersSnapshot();
+  const snapshot = snapshotOverride ?? liveSnapshot;
+  // Auto keeps its own check mark, but the switch judges what the dispatcher
+  // will run: the board default (`task.model ?? settings.model`).
+  const routingTarget = value === null && boardValue ? menuSelection(boardValue, models, snapshot) : undefined;
   return (
     <AiExecutionMenuOptions
       snapshot={snapshot}
       surface="task"
-      value={{ provider: selectedProvider, model: selected.model ?? null }}
+      value={menuSelection(value, models, snapshot)}
+      routingTarget={routingTarget}
       onSelect={(next) => onSelect(next.provider ? taskModelValue(next.provider, next.model) : null)}
       automaticLabel={autoLabel}
       automaticHint={autoTitle ?? autoLabel}

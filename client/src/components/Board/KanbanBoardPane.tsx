@@ -40,6 +40,7 @@ import { COLUMN_FLASH_MS, landedInColumn, statusSnapshot } from '../../lib/colum
 import { useBoardMotion } from './useBoardMotion';
 import { scrollDelta } from '../../lib/scrollDelta';
 import { resolveProjectRefs, useBoardProjects } from '../../lib/boardProjectsStore';
+import { useCardBoardSettings } from '../../hooks/useCardBoardSettings';
 import { UnifiedDiff } from './UnifiedDiff';
 import { useConfirm } from '../../hooks/useConfirm';
 import { CREATED_FLASH_MS, filterFocusRingClass, PRIORITY_DOT, PRIORITY_LABEL, TOOLBAR_CONTROL_H, type BoardFilters, type LiveUsage, type OpenTask } from './constants';
@@ -1643,6 +1644,11 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   const selected = tasks.find((t) => t.id === selectedId)
     || (outsider && outsider.id === selectedId ? outsider : null);
 
+  // The drawer judges a card (its routing switch, the model the dispatcher
+  // runs on Auto) with its own board's defaults. In the all-boards view that
+  // board can be another than this pane's, whose settings are loaded above.
+  const cardSettings = useCardBoardSettings(selected?.projectId, projectId, settings);
+
   // L'id che il drawer deve mostrare: la selezione, o il deep-link ancora in
   // volo. Uno solo dei due è valorizzato nel caso normale.
   const wantId = selectedId ?? pendingSelect;
@@ -2121,8 +2127,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             hidden={typingElsewhere}
             hiddenBelowLg={!!selected}
             onDraft={setDraft}
-            boardTopicsRoutingDefault={settings?.dispatchTopicsRouting ?? null}
-            boardDispatchModel={settings?.dispatchModel ?? null}
+            paneSettings={settings}
           />
         </div>
         {orchestratorTopic && orchestrator && (
@@ -2148,8 +2153,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             loadHistory={loadHistory}
             sessionState={resolveSession(selected.assignedTopicId)}
             focusPaneId={pendingPaneId ?? undefined}
-            boardTopicsRoutingDefault={settings?.dispatchTopicsRouting ?? null}
-            boardDispatchModel={settings?.dispatchModel ?? null}
+            boardTopicsRoutingDefault={cardSettings?.dispatchTopicsRouting ?? null}
+            boardDispatchModel={cardSettings?.dispatchModel ?? null}
             /* Apertura automatica nel workspace: SOLO dalla board globale, che
                è una superficie a sé. Dentro una finestra di progetto la board è
                una pane di quella stessa finestra, e promuovere lì il risultato
