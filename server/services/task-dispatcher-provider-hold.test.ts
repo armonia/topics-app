@@ -4,7 +4,7 @@ import { Database } from "bun:sqlite";
 import { createTaskAttemptStore } from "./task-attempts";
 import { createTaskService } from "./tasks";
 import { createTaskDispatcher, type DispatcherDeps } from "./task-dispatcher";
-import { clearPlanUsage, clearProviderHold, recordPlanUsage, setProviderHold, resetProviderHoldStore } from "../lib/provider-hold";
+import { clearPlanUsage, clearProviderHold, holdForApiDown, liftApiDownHold, recordPlanUsage, setProviderHold, resetProviderHoldStore } from "../lib/provider-hold";
 import { taskProviderForModel } from "../../shared/task-coding-models";
 import type { ProvidersSnapshot } from "../../shared/types";
 import type { TurnEndInfo } from "../providers/stop-reason";
@@ -319,6 +319,38 @@ describe("a hold longer than a day", () => {
     expect(chip).not.toContain("piano esaurito");
     expect((h.svc.get("held-for-hours")!.comments ?? []).filter(c => c.content.includes("piano esaurito"))).toHaveLength(0);
   });
+});
+
+test("an API outage is no window reset: the card waits for the API, with no hour", async () => {
+  // The outage hold ends at a horizon each retry pushes on (`holdForApiDown`):
+  // "the reset at 14:45" named a plan window that is not spent, at an hour
+  // that moved every few minutes.
+  const h = harness();
+  h.task("held-by-outage", CLAUDE);
+  holdForApiDown();
+  await h.dispatcher.tick(PID); await flush();
+  const chip = h.svc.get("held-by-outage")!.task.dispatchError ?? "";
+  expect(chip).toContain("l'API di Claude non risponde");
+  expect(chip).toContain("appena l'API torna a rispondere");
+  expect(chip).not.toContain("reset");
+});
+
+test("a card cut while an API outage holds resumes once the API answers, not at the outage's horizon", async () => {
+  // The outage hold ends at a horizon every retry pushes on (ten minutes, up
+  // to an hour), and a child streaming again lifts it early. The retry of a
+  // card cut under it was timed to that horizon anyway, so a passing 529 on
+  // another chat kept the card still with the API already back.
+  const h = harness("topics", { retryBackoffMs: 40 });
+  h.task("cut-in-outage", CLAUDE);
+  await h.dispatcher.tick(PID); await flush();
+  expect(h.turns).toHaveLength(1);
+  holdForApiDown();
+  h.ends[0]!({ end: "error", cause: "api-unavailable" });
+  await flush();
+  liftApiDownHold();
+  await new Promise((r) => setTimeout(r, 150));
+  await flush();
+  expect(h.turns).toHaveLength(2);
 });
 
 test("resume follows the bound provider and retains human updates while Claude waits", async () => {

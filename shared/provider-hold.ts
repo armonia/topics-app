@@ -3,7 +3,7 @@
 // Declared once here; server/lib/provider-hold.ts and client/src/state/providerHold.ts
 // re-export it (see tests/unit/no-type-mirrors.test.ts).
 
-export type UsageWindowKind = 'five_hour' | 'seven_day' | 'usage_limit';
+export type UsageWindowKind = 'five_hour' | 'seven_day' | 'usage_limit' | 'api-down';
 
 /** One of the plan's usage windows, as every reader of it says it. */
 export interface PlanUsageWindow {
@@ -47,7 +47,9 @@ export interface ProviderHold {
   untilMs: number;
   /** Which of the plan's windows is spent: the client translates this.
    *  `usage_limit` is a flat plan cap with no five-hour/seven-day shape
-   *  (Codex today: one published reset instant, nothing else). */
+   *  (Codex today: one published reset instant, nothing else). `api-down` is
+   *  no window at all: the API stopped answering (`holdForApiDown`), and the
+   *  status bar does not show it as a plan limit. */
   window: UsageWindowKind;
   /** One line for logs and the chat, naming the spent window. */
   reason: string;

@@ -169,3 +169,24 @@ describe('validateInbound — structural rejects', () => {
     if (!r.ok) expect(r.error).toContain('type');
   });
 });
+
+/**
+ * A server one cause ahead of the page is the normal state between a land and
+ * a rebuild: `server/` reloads on every save, `public/` is rebuilt by hand
+ * (scripts/start-prod.sh). A page built before `api-unavailable` and
+ * `broker-died` dropped every `stream:end` carrying one as malformed, and the
+ * turn's end with it: the spinner stayed on until the next poll of
+ * `/api/topics/streaming`, and no banner (review of 27/09).
+ */
+describe('validateInbound - a stopCause this build does not know', () => {
+  const frame = { type: 'stream:end', sessionKey: 'sk', topicId: 't-1', reason: 'error', stopCause: 'a-cause-from-a-newer-server' };
+
+  test('still ends the turn: the cause reads as absent, not the frame as broken', () => {
+    expect(validateInbound(frame).ok).toBe(true);
+  });
+
+  test('the server stays strict, and anything else wrong still drops the frame', () => {
+    expect(validateOutbound(frame).ok).toBe(false);
+    expect(validateInbound({ ...frame, sessionKey: 42 }).ok).toBe(false);
+  });
+});

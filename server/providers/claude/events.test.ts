@@ -19,6 +19,7 @@ import {
   readAssistantCallUsage,
   readAssistantContextTokens,
   readEventContent,
+  readApiRetry,
   readParentToolUseId,
   readRateLimitUsage,
   readResultErrorText,
@@ -84,6 +85,37 @@ describe("readRateLimitUsage", () => {
     });
     expect(usage?.fiveHour?.utilization).toBeCloseTo(104, 6);
     expect(usage?.sevenDay).toBeNull();
+  });
+});
+
+/**
+ * The CLI retrying a request the API did not answer (card e30f35e4). The shape
+ * is the CLI's own schema (`SDKAPIRetryMessage`, CLI 2.1.283): `error_status`
+ * is null for a request that got no HTTP answer at all, which is what a
+ * blackout looks like ("Request timed out", 25/09 02:06-02:30Z).
+ *
+ * @covers RESUME-04
+ */
+describe("readApiRetry", () => {
+  const retry = {
+    type: "system", subtype: "api_retry", attempt: 5, max_retries: 10, retry_delay_ms: 8000,
+    error_status: null, error: "unknown", session_id: "s", uuid: "u",
+  };
+
+  test("no HTTP answer, or a 5xx/529: the API is down", () => {
+    expect(readApiRetry(retry)).toEqual({ outage: true });
+    expect(readApiRetry({ ...retry, error_status: 500, error: "server_error" })).toEqual({ outage: true });
+    expect(readApiRetry({ ...retry, error_status: 529, error: "overloaded" })).toEqual({ outage: true });
+  });
+
+  test("a 429 is the plan's limit and a 4xx is our request: retried, but the API is up", () => {
+    expect(readApiRetry({ ...retry, error_status: 429, error: "rate_limit" })).toEqual({ outage: false });
+    expect(readApiRetry({ ...retry, error_status: 400, error: "invalid_request" })).toEqual({ outage: false });
+  });
+
+  test("any other line is no retry", () => {
+    expect(readApiRetry(F.SYSTEM_INIT)).toBeNull();
+    expect(readApiRetry({ type: "result", subtype: "success" })).toBeNull();
   });
 });
 

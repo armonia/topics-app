@@ -101,6 +101,23 @@ function withHumanSide(blocks: unknown[], snapshotBlocks: unknown[] | null): unk
   return carried ? out : blocks;
 }
 
+/**
+ * The marks a row OPENS with: a wake's `woken` header and the route's
+ * `ripreso` banner on a resent turn (`cartelloRisveglio` and the resume
+ * attempt, routes/chat.ts). A reattach route is neither a wake nor a resend,
+ * so its replay never writes them and the row's are the only copy. The resume
+ * reads both: `woken` keeps an outage cut of a wake from resending a message
+ * already answered (`outageCutNotResent`), and a leading `ripreso` is what makes
+ * a probe into an API still down free (`probedApiStillDown`). The sweep's own
+ * `ripreso` sits after the row's verdict, never in front, so it is not one.
+ */
+const OPENING_MARKS = new Set(["woken", "ripreso"]);
+
+function openingMarks(blocks: unknown[]): unknown[] {
+  const end = blocks.findIndex((b) => !OPENING_MARKS.has((b as { kind?: string } | null)?.kind ?? ""));
+  return end < 0 ? [...blocks] : blocks.slice(0, end);
+}
+
 /** Quando si sta scrivendo.
  *
  *  `final` è il verdetto del turno: quello che il riattacco ha prodotto è tutto
@@ -141,8 +158,11 @@ export function mergeReattachedRow(
       return Array.isArray(parsed) ? parsed : null;
     } catch { return null; }
   })();
-  const keepOldBlocks =
-    !!snapshotBlocks && producedToolBlocks < countToolBlocks(snapshotBlocks);
+  // A replay that brought no block at all keeps the row's too: the route
+  // appends its verdict to what the merge hands back, and handed nothing it
+  // wrote the verdict alone over the row.
+  const keepOldBlocks = !!snapshotBlocks && snapshotBlocks.length > 0
+    && (produced.blocks.length === 0 || producedToolBlocks < countToolBlocks(snapshotBlocks));
 
   // Il VERDETTO non è mai «vecchio»: è quello che sappiamo ADESSO su come è
   // finito il turno, e lo snapshot per definizione non ce l'ha. Tenere i
@@ -151,9 +171,11 @@ export function mergeReattachedRow(
   // porta il testo rifuso e non prende più il cartello. È la regola di questo
   // modulo applicata a sé stessa: aggiungere, mai togliere.
   const verdetti = produced.blocks.filter((b) => (b as { kind?: string }).kind === "error");
+  const marks = openingMarks(snapshotBlocks ?? []);
   const blocchiTenuti = keepOldBlocks && snapshotBlocks
     ? [...snapshotBlocks, ...verdetti]
-    : (produced.blocks.length > 0 ? withHumanSide(produced.blocks, snapshotBlocks) : undefined);
+    : produced.blocks.length === 0 ? undefined
+    : withHumanSide(marks.length > 0 ? [...marks, ...produced.blocks] : produced.blocks, snapshotBlocks);
 
   // A metà replay il testo nuovo prende il posto del vecchio solo quando lo ha
   // raggiunto: prima di allora quello che c'è in riga è ancora il turno intero

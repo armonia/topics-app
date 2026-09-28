@@ -40,7 +40,7 @@ import { recordSessionContext } from "../db/session-context";
 import { buildContextUpdate } from "../usage/usage-update";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
 import { readTurnEnd, recordTurnEnd } from "../providers/turn-end-registry";
-import { resumeAttemptOf } from "../lib/ripresa-boot";
+import { directAnswerNow, resumeAttemptOf } from "../lib/ripresa-boot";
 import { appendUsageRecord } from "../usage/store";
 import { autoreDaIdentita } from "../lib/message-author";
 import { makeGatewaySseProcessor } from "../lib/gateway-sse-consumer";
@@ -106,7 +106,7 @@ import { DEFAULT_CONTEXT_WINDOW } from "../usage/context-window";
 import { permissionModeForAutonomy, planModeFor } from "../lib/autonomy-mode";
 import { findPlanAwaitingApproval, shouldAskPlanApproval, planApprovalSchema } from "../lib/plan-approval";
 import { createIdempotencyCache } from "../lib/idempotency-cache";
-import { avvisoPerTurno, abortLogTitle, isResumableCause } from "../lib/cancelled-notice";
+import { avvisoPerTurno, abortLogTitle, outageCutNotResent, resumesByItself } from "../lib/cancelled-notice";
 import { toolOutcomeAtTurnEnd } from "../lib/tool-finalize-status";
 import { providerSurvivesRestart } from "../lib/quiescence";
 import { toolsSuspendSoftTimer } from "../lib/soft-timer-suspension";
@@ -1160,8 +1160,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // callbacks go there, which stay live and which are dropped:
           // lib/finalized-turn-guard.ts.
           let releaseLateFlush: (() => void) | null = null;
+          // An outage's cut on this row is resent only as the direct answer to
+          // the person's message, read off the database when the cut is written.
+          const directAnswer = () => directAnswerNow(db, sessionKey, partialMsg.id);
           const late = createLateAnswerLane({
-            sessionKey, topicId: matchedTopic?.id, rowId: () => partialMsg.id, blocks, saveEvery: SAVE_INTERVAL,
+            sessionKey, topicId: matchedTopic?.id, rowId: () => partialMsg.id, blocks, saveEvery: SAVE_INTERVAL, directAnswer,
             isClosed: () => streamState === "finalized",
             readRow: () => ctx.getMessageById(partialMsg.id),
             content: { get: () => fullContent, set: (value) => { fullContent = value; } },
@@ -1925,7 +1928,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // recognises instead of the raw "API 429 ..." text: that text
               // is in the server log, and in the chat it was the one error
               // nobody ever resumed (2026-09-04, two chats stuck for hours).
-              const shown = avvisoPerTurno(endInfo, { haProdotto: true, riprendeDaSolo: true }) ?? errorMsg;
+              const shown = avvisoPerTurno(endInfo, { haProdotto: true, riprendeDaSolo: !outageCutNotResent(endInfo.cause, blocks, directAnswer) }) ?? errorMsg;
               blocks.push({ kind: "error", text: shown.replace(/^⚠️\s*/, "") });
               turnError = shown;
               if (matchedTopic) {
@@ -2132,8 +2135,14 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // answers 200 with no content at all, so without this it fell into
             // the empty-turn notice below and the verdict — which the API does
             // explain — was never shown. See `native/agent-loop.ts:roundEnd`.
-            const cutNotice = reason === "done" && (endInfo.end === "max_tokens" || endInfo.end === "refusal")
-              ? avvisoPerTurno(endInfo, { haProdotto: fullContent.trim().length > 0 || rowHasWorkAfterMerge() })
+            // And a CLI that gave up on the API (`api-unavailable`): its row kept
+            // "Request timed out" and no verdict, and no sweep resent it (25/09).
+            // «Riprendo da solo» only where the sweep will resend: read off the
+            // blocks after the reattach merge, which carry a wake's mark, and
+            // for an outage off the row's place in the thread (`directAnswer`).
+            const riprendeDaSolo = resumesByItself(endInfo.cause, blocks, directAnswer);
+            const cutNotice = reason === "done" && (endInfo.end === "max_tokens" || endInfo.end === "refusal" || endInfo.end === "error")
+              ? avvisoPerTurno(endInfo, { haProdotto: fullContent.trim().length > 0 || rowHasWorkAfterMerge(), riprendeDaSolo })
               : null;
             if (reason === "done" && !cutNotice && !fullContent.trim() && !rowHasWorkAfterMerge() && !askingPlanApproval && !soloCompattazione && !(isReattach && !reusedRow)) {
               const emptyErrorMsg = "⚠️ Nessuna risposta: il turno si è chiuso senza produrre niente. Il tuo messaggio è ancora qui: «Riprova» lo rimanda.";
@@ -2157,7 +2166,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               //
               // `max_tokens` has no cause because it is a length limit, not an
               // attributed termination. Its notice already explains recovery.
-              const cutCause = endInfo.end === "refusal" ? ("refusal" as const) : undefined;
+              // An `error` end carries its own: it is what the resume reads.
+              const cutCause = endInfo.end === "refusal" ? ("refusal" as const) : endInfo.end === "error" ? endInfo.cause : undefined;
               blocks.push({
                 kind: "error",
                 text: cutNotice.replace(/^⚠️\s*/, ""),
@@ -2168,7 +2178,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // `reason: "error"` and the push gate mutes the cut turn.
               turnError = cutNotice;
               console.warn(
-                `[StreamWS] ${sessionKey}: ${endInfo.end === "refusal" ? "turn refused by the API" : "turn cut by the output cap"}`,
+                `[StreamWS] ${sessionKey}: ${endInfo.end === "refusal" ? "turn refused by the API" : endInfo.end === "error" ? `turn ended by ${endInfo.cause}` : "turn cut by the output cap"}`,
               );
               if (matchedTopic) {
                 broadcastToAll({ type: "stream:error", sessionKey, topicId: matchedTopic.id, error: cutNotice });
@@ -2219,13 +2229,15 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // Every cause the resume acts on, not only the restart: the
               // sweep (`riprendiTurniInterrotti`, every 5 min) reads the same
               // predicate off the block, so a notice saying "Riprendo da solo"
-              // is a promise the same code keeps.
-              const riprendeDaSolo = isResumableCause(endInfo.cause);
+              // is a promise the same code keeps (`riprendeDaSolo`, above).
               // A stop the machine wanted explains nothing and resumes nothing,
               // as a route stop did before (lib/abort-cause.ts).
               const avviso = wantedByMachine ? null : avvisoPerTurno(endInfo, { haProdotto, riprendeDaSolo });
               if (avviso) {
-                blocks.push({ kind: "error", text: avviso.replace(/^⚠️\s*/, "") });
+                // An `error` end here is an outage outside the turn: its cause
+                // goes on the block, for the resume and the banner.
+                const cause = endInfo.end === "error" ? endInfo.cause : undefined;
+                blocks.push({ kind: "error", text: avviso.replace(/^⚠️\s*/, ""), ...(cause ? { cause, at: new Date().toISOString() } : {}) });
                 turnError = avviso;
                 if (!fullContent.trim()) fullContent = avviso;
                 if (matchedTopic) {
@@ -2240,7 +2252,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               thinking: fullThinking || undefined,
               blocks: blocks.length > 0 ? blocks : undefined,
               partial: undefined, streamedAt: undefined,
-              endReason: reason === "aborted" ? "stopped" : reason,
+              // From the END, not from the leg that carried it: an outage
+              // (the CLI giving up on the API, the watchdog on an API retry,
+              // a dead ai-bridge daemon) closes through `done` or `aborted`,
+              // and the column read 'done' or 'stopped' for a turn that failed.
+              endReason: endInfo.end === "error" ? "error" : reason === "aborted" ? "stopped" : reason,
               latencyMs,
               usagePromptTokens,
               usageCompletionTokens,

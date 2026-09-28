@@ -35,7 +35,12 @@
  *   · never while a provider still holds a send for the chat
  *     (`sessionHasPendingSend`): a send queued behind a stuck turn is live
  *     even with no stream and no process (topic 3019832f, 24/09);
- *   · at most MAX_RESUME_ATTEMPTS times per MESSAGE, counted along the chain
+ *   · never under a hold on the chat's own provider (a spent plan window, an
+ *     API not answering);
+ *   · a cut by an outage (the API down, the ai-bridge daemon dead) only on the
+ *     direct answer to the person's message (`outageCutNotResent`);
+ *   · at most MAX_RESUME_ATTEMPTS times per MESSAGE (a resend that met the
+ *     API still down spends none), counted along the chain
  *     of resends (`parent_id`) and not on the single row; the trace lives in
  *     the DB (`kind: 'ripreso'`, with the attempt number), not in memory,
  *     or two restarts in a row would resume the same turn twice. Once the
@@ -52,7 +57,7 @@ import type { ContentBlock } from "../types";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { readTurnEnd, type RecordedTurnEnd } from "../providers/turn-end-registry";
 import {
-  eCartelloDiInterruzione, isRestartNotice, isResumableCause,
+  eCartelloDiInterruzione, isOutage, isOutsideCause, isRestartNotice, isResumableCause, outageCutNotResent,
   STOP_PRESSED_LOG_TITLE, USER_ABORT_LOG_TITLE,
 } from "./cancelled-notice";
 import {
@@ -91,6 +96,18 @@ export const FINESTRA_RIPRESA_MS = 24 * 60 * 60 * 1000;
 export const MAX_RESUME_ATTEMPTS = 4;
 
 /**
+ * How many resends into an API still down a message gets without spending an
+ * attempt (`probedApiStillDown`). Each resend is a row of its own, so the
+ * 24-hour window moves with the chain: without a ceiling, a failure that reads
+ * as an outage on one chat only, or a reload that forgets the last answer,
+ * resent the message about once an hour for good, each probe reopening the
+ * hold that stops every other chat and the board. Eight covers about six
+ * hours of holds doubling from ten minutes to an hour; the 25/09 blackout
+ * lasted eighty minutes.
+ */
+export const MAX_FREE_PROBES = 8;
+
+/**
  * THE QUESTION NOBODY ANSWERED. A chat whose LAST row is the person's message,
  * with no answer row after it, used to be read as "they resumed by hand" and
  * skipped. But that is also what a turn looks like when the server died BEFORE
@@ -122,6 +139,12 @@ function lastInterruptionIndex(blocks: ContentBlock[] | null): number {
   if (!Array.isArray(blocks)) return -1;
   for (let i = blocks.length - 1; i >= 0; i--) if (isInterruptionVerdict(blocks[i])) return i;
   return -1;
+}
+
+/** The row's last cut is an outage's: the one verdict that reads `answersMessage`. */
+function lastCutIsOutage(blocks: ContentBlock[] | null): boolean {
+  const cut = lastInterruptionIndex(blocks);
+  return cut >= 0 && isOutage((blocks![cut] as { cause?: unknown }).cause);
 }
 
 /** Something a turn produced: prose with words in it, or a tool call. The
@@ -157,6 +180,17 @@ export interface RigaDaValutare {
   /** ...and that card is done or archived, with none left on the board: its
    *  work landed, and a cut turn there has nothing left to resume. */
   cardLanded?: boolean;
+  /** ...or that card is in progress: the dispatcher resumes its turns. */
+  cardInProgress?: boolean;
+  /** The row answers the person's message: its parent is a user row, not a
+   *  /compact already carried out (`answersPersonsMessage`). Absent reads as
+   *  no, and an outage's cut on the row is then not resent
+   *  (`outageCutNotResent`). */
+  answersMessage?: boolean;
+  /** The person's message is a /compact the CLI carried out: a `manual`
+   *  compaction marker is anchored on it (`compactionCarriedOut`). Read for a
+   *  person's message only. */
+  compacted?: boolean;
 }
 
 /** The person pressed Stop on this message's turn, or on a later one. A Stop
@@ -168,10 +202,12 @@ function stoppedByPerson(r: RigaDaValutare): boolean {
 
 /** The message's turn ran and ended normally, and its answer was empty and
  *  discarded: a manual /compact, a CLI sentinel. It was answered. Only
- *  `end_turn` counts: a cancellation or an error left it unanswered. */
+ *  `end_turn` counts: a cancellation or an error left it unanswered. The
+ *  registry that records it dies with every reload, so a /compact's own
+ *  marker (`compacted`) counts as that end. */
 function endedNormallyAfter(r: RigaDaValutare): boolean {
   const e = r.lastTurnEnd;
-  return !!e && e.info.end === "end_turn" && e.atMs >= r.timestampMs;
+  return r.compacted === true || (!!e && e.info.end === "end_turn" && e.atMs >= r.timestampMs);
 }
 
 /** The rule's answer: resend, stop AND say so, leave the row alone - or, for a
@@ -244,6 +280,17 @@ export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
   // recognised by neither until 05/09/2026: no chat it closed was ever resumed.
   const lastCut = lastInterruptionIndex(r.blocks);
   if (lastCut < 0) return "no";
+  // AN OUTAGE'S CUT ON ANY ROW BUT THE DIRECT ANSWER to the person's message:
+  // resent, it could run a message already answered (`outageCutNotResent`,
+  // where the rule and its notice live). The row is the chat's last word by
+  // construction: it is the one the sweep picked.
+  const cause = (r.blocks[lastCut] as { cause?: unknown }).cause;
+  if (outageCutNotResent(cause, r.blocks, () => r.answersMessage === true)) return "no";
+  // A CARD IN PROGRESS OWNS ITS TURNS THAT ENDED IN ERROR: the dispatcher's
+  // `onTurnEnd` resumes each one, lean, past its backoff. Resent from here too,
+  // the card ran its envelope again at full context, and the dispatcher's own
+  // resume met a 409 behind it. Its cuts that are ours keep main's rule.
+  if (r.cardInProgress && isOutsideCause(cause)) return "no";
   // ANSWERED AFTER THE CUT. A late answer of a closed turn is saved on its own
   // row, under the verdict: prose or a tool after the LAST verdict means the
   // message was answered, and a resend would run it a second time. Past the
@@ -292,6 +339,27 @@ function attemptOf(b: ContentBlock): number {
   return typeof a === "number" && a > 0 ? a : 1;
 }
 
+/**
+ * A RESEND THAT MET THE API STILL DOWN SPENDS NO ATTEMPT (card e30f35e4).
+ *
+ * The api-down hold ends by time, so the resend it lets through is also the
+ * probe that says whether the API is back. When it is not, the resend's CLI
+ * retries until it gives up, its answer row (the one opening with the route's
+ * `ripreso` banner) is cut `api-unavailable` again, and no child anywhere got
+ * an answer since that row began. Counted, a 5xx blackout of an hour (ten
+ * retries in a few minutes, then the hold) spent all four attempts before the
+ * API came back. The probes stay few: every hold the outage outlives doubles
+ * the next one (`holdForApiDown`). A row this sweep already traced (`ripreso`
+ * after the cut) counts as before: its resend never wrote a row, and
+ * uncounted it would be resent every five minutes.
+ */
+function probedApiStillDown(blocks: ContentBlock[] | null, rowStartMs: number, lastAnswerMs: number): boolean {
+  const cut = lastInterruptionIndex(blocks);
+  if (cut < 0 || !blocks || (blocks[cut] as { cause?: unknown }).cause !== "api-unavailable") return false;
+  const marked = (from: number, to?: number) => blocks.slice(from, to).some((b) => b?.kind === "ripreso");
+  return marked(0, cut) && !marked(cut + 1) && lastAnswerMs < rowStartMs;
+}
+
 /** The highest resend number among a row's blocks; 0 when it has none. */
 export function attemptsOnRow(blocks: ContentBlock[] | null | undefined): number {
   if (!Array.isArray(blocks)) return 0;
@@ -311,6 +379,8 @@ import { decodeCol, encodeCol } from "../../shared/message-blob";
 import { insertRestartNotification, restartNotificationFrame, threadChangedFrame, type PartialSweepDb } from "./boot-partial-sweep";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isBackgroundNoticeRow, rowsBack } from "./background-notice";
+import { lastApiAnswerMs, providerHold } from "./provider-hold";
+import { providerHoldKey } from "../../shared/provider-hold";
 
 /** A chat's last row, as the sweep reads it. */
 interface LastRow { sk: string; id: string; ruolo: string; blocks: unknown; ts: string }
@@ -324,10 +394,56 @@ function previousConversationRow(db: Database, row: LastRow): LastRow | null {
   return null;
 }
 
+/**
+ * The row answers the person's message: its parent_id is a user row, and that
+ * message is not a /compact the CLI already carried out. A /compact's own row
+ * is dropped once the compaction ends (it has nothing to show, routes/chat.ts
+ * `discardIfEmptyTurn`), so the next turn the CLI opens by itself, a wake,
+ * hangs from the "/compact" message as if it answered it: resent, it would
+ * compact a second time. The compaction's receipt is its `manual` marker,
+ * anchored on the message of the turn that made it.
+ */
+export function answersPersonsMessage(db: Pick<Database, "query">, sessionKey: string, rowId: string): boolean {
+  const parent = db.query(
+    `SELECT p.id AS id, p.role AS role FROM messages m JOIN messages p ON p.id = m.parent_id WHERE m.id = ? AND m.session_key = ?`,
+  ).get(rowId, sessionKey) as { id: string; role: string } | undefined | null;
+  if (parent?.role !== "user") return false;
+  return !compactionCarriedOut(db, sessionKey, parent.id);
+}
+
+/** The person's message is a /compact the CLI carried out: its `manual`
+ *  compaction marker is anchored on it, and it outlives a reload. */
+function compactionCarriedOut(db: Pick<Database, "query">, sessionKey: string, messageId: string): boolean {
+  return !!db.query(
+    `SELECT 1 FROM compaction_markers WHERE session_key = ? AND after_message_id = ? AND trigger = 'manual' LIMIT 1`,
+  ).get(sessionKey, messageId);
+}
+
+/**
+ * Whether the sweep, reading the chat as it is now, takes this row for the
+ * direct answer to the person's message, the only row an outage's cut is
+ * resent from (`outageCutNotResent`): it answers that message
+ * (`answersPersonsMessage`), and it is the chat's last word as the sweep picks
+ * it (the newest row, read past background notices, as
+ * `previousConversationRow` does). Read by the writers of the notice when they
+ * write it. A row that lands under the cut afterwards still turns the sweep's
+ * answer to no, under a notice that promised: a sub-agent's report, or a wake
+ * the CLI opens when the turn's background work ends. That chat is left to the
+ * person, and nothing is resent.
+ */
+export function directAnswerNow(db: Database, sessionKey: string, rowId: string): boolean {
+  if (!answersPersonsMessage(db, sessionKey, rowId)) return false;
+  for (const r of rowsBack(db, sessionKey)) if (!isBackgroundNoticeRow(r.decoded)) return r.id === rowId;
+  return false;
+}
+
 /** Quel poco del contesto del server che serve al giro. */
 export interface CtxRipresa {
   db: Database;
-  getTopicBySessionKey(sessionKey: string): { id?: string; archived?: boolean | number } | undefined | null;
+  getTopicBySessionKey(sessionKey: string): { id?: string; archived?: boolean | number; provider?: string | null } | undefined | null;
+  /** The provider a chat with none pinned runs on (the registry's default);
+   *  claude-code when absent. Read to pick the hold that walls the chat. */
+  defaultProvider?(): string | undefined;
   /** Truthy when a turn is live on that chat (`ctx.isStreaming` in production). */
   isStreaming?(sessionKey: string): unknown;
   /** Whether a provider still holds a send for that chat, in flight or queued
@@ -385,6 +501,10 @@ function latestEnd(a: RecordedTurnEnd | undefined, b: RecordedTurnEnd | undefine
  *  without it a stopped chat would repeat the same line every sweep for a day. */
 const stopsLogged = new Map<string, number>();
 
+/** The row and hold kind a deferral was said for, per session: a weekly hold
+ *  said it for every cut chat at every sweep, for days. */
+const heldLogged = new Map<string, string>();
+
 /** The row whose queued-send line was already said, per session. An episode
  *  ends at the first sweep that finds the provider idle, or when the cut row
  *  changes: a chat that never goes idle can get stuck again on a new row, and
@@ -393,17 +513,17 @@ const stopsLogged = new Map<string, number>();
 const busyLogged = new Map<string, string>();
 
 /** Whether a board card owns this topic (those chats are the dispatcher's to
- *  resume: it re-sends its own kickoff), and whether its work has landed: a
- *  card done or archived, none left on the board. */
-function cardHold(db: Pick<Database, "query">, topicId: string): { bound: boolean; landed: boolean } {
+ *  resume: it re-sends its own kickoff), whether its work has landed (a card
+ *  done or archived, none left on the board), and whether it is in progress. */
+function cardHold(db: Pick<Database, "query">, topicId: string): { bound: boolean; landed: boolean; inProgress: boolean } {
   try {
     const cards = db.query(
       `SELECT status, archived FROM tasks WHERE assigned_topic_id = ?
           AND (status IN ('todo','in_progress','review','done') OR archived = 1)`,
     ).all(topicId) as Array<{ status: string; archived: number }>;
     const onBoard = cards.some((c) => !c.archived && c.status !== "done");
-    return { bound: cards.length > 0, landed: cards.length > 0 && !onBoard };
-  } catch { return { bound: false, landed: false }; }
+    return { bound: cards.length > 0, landed: cards.length > 0 && !onBoard, inProgress: cards.some((c) => !c.archived && c.status === "in_progress") };
+  } catch { return { bound: false, landed: false, inProgress: false }; }
 }
 
 /** A chain longer than this is not a chain: `parent_id` is cyclic or corrupt. */
@@ -422,7 +542,14 @@ const CHAIN_WALK_LIMIT = 64;
  * the answer it explains is one hop up.
  */
 export function attemptsInChain(db: Pick<Database, "query">, sessionKey: string, ultimoId: string): number {
+  return walkChain(db, sessionKey, ultimoId).attempts;
+}
+
+/** The walk behind `attemptsInChain`, which also counts the resends made:
+ *  the answer rows a resend opened, each led by the route's banner. */
+function walkChain(db: Pick<Database, "query">, sessionKey: string, ultimoId: string): { attempts: number; resends: number } {
   let max = 0;
+  let resends = 0;
   let id: string | null = ultimoId;
   for (let hop = 0; id && hop < CHAIN_WALK_LIMIT; hop++) {
     const row = db.query(
@@ -435,10 +562,11 @@ export function attemptsInChain(db: Pick<Database, "query">, sessionKey: string,
       const n = attemptsOnRow(blocks);
       if (n === 0 && hop > 0) break;
       max = Math.max(max, n);
+      if (blocks?.find((b) => b?.kind !== "woken")?.kind === "ripreso") resends++;
     }
     id = row.parent_id;
   }
-  return max;
+  return { attempts: max, resends };
 }
 
 /** La route della chat, iniettata: è la STESSA porta di un messaggio umano. */
@@ -557,10 +685,11 @@ export async function riprendiTurniInterrotti(
       if (r !== found) {
         try { blocks = JSON.parse(decodeCol(r.blocks) ?? "null") as ContentBlock[] | null; } catch { continue; }
       }
-      const attempts = attemptsInChain(ctx.db, r.sk, r.id);
+      const chain = walkChain(ctx.db, r.sk, r.id);
+      const attempts = chain.attempts;
       const topic = ctx.getTopicBySessionKey(r.sk);
       if (!topic || topic.archived) continue;
-      const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false };
+      const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false, inProgress: false };
       const row: RigaDaValutare = {
         sessionKey: r.sk, ruolo: r.ruolo, blocks, timestampMs: Date.parse(r.ts), attempts,
         streaming: Boolean(ctx.isStreaming?.(r.sk)),
@@ -576,6 +705,13 @@ export async function riprendiTurniInterrotti(
         ) ?? null,
         boundToCard: card.bound,
         cardLanded: card.landed,
+        cardInProgress: card.inProgress,
+        // Read off the database only for an outage's cut, the one verdict
+        // that asks (`outageCutNotResent`).
+        answersMessage: r.ruolo === "assistant" && lastCutIsOutage(blocks) && answersPersonsMessage(ctx.db, r.sk, r.id),
+        // A /compact that ended leaves no answer row, and after a reload no
+        // recorded end either: its marker is what says it was answered.
+        compacted: r.ruolo === "user" && compactionCarriedOut(ctx.db, r.sk, r.id),
       };
       if (!row.providerBusy) busyLogged.delete(r.sk);
       let verdict: ResumeVerdict = resumeVerdict(row, ora);
@@ -594,6 +730,14 @@ export async function riprendiTurniInterrotti(
         }
         continue;
       }
+      // A HOLD DEFERS THE CHATS IT WALLS, in every sweep: after a reload
+      // mid-blackout the hold comes back from disk, and the boot resent every
+      // cut Claude chat into it. Only its own provider's: a Codex chat is not
+      // held by the Claude API being down. Said once per row and hold kind.
+      const holdKey = providerHoldKey(topic.provider || ctx.defaultProvider?.() || "claude-code");
+      const hold = holdKey ? providerHold(ora, holdKey) : null;
+      if (hold && heldLogged.get(r.sk) !== `${r.id}:${hold.window}`) console.log(`[ripresa] ${r.sk}: rinviato, ${hold.reason}`);
+      if (hold) { heldLogged.set(r.sk, `${r.id}:${hold.window}`); continue; }
       // A person's message that predates this process lived through a restart:
       // the fallback evidence for their notices when no cause is known. Unless
       // a turn ended for it after the boot: then its answer started after the
@@ -663,7 +807,9 @@ export async function riprendiTurniInterrotti(
       ).get(r.sk) as { content: unknown } | undefined;
       const messaggio = (decodeCol(dom?.content) ?? "").trim();
       if (!messaggio) continue;
-      candidati.push({ sessionKey: r.sk, messaggio, idTurno: resendRowId, blocks: rowBlocks, attempt: attempts + 1, fresh });
+      const free = chain.resends - attempts < MAX_FREE_PROBES && probedApiStillDown(blocks, row.timestampMs, lastApiAnswerMs());
+      const attempt = free ? attempts : attempts + 1;
+      candidati.push({ sessionKey: r.sk, messaggio, idTurno: resendRowId, blocks: rowBlocks, attempt, fresh });
     }
   } catch (err) {
     console.warn("[ripresa] non riesco a cercare i turni interrotti:", err);

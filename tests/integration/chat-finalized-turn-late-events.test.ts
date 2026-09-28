@@ -33,7 +33,7 @@ import { setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import { slackMs } from "../helpers/time-slack";
 import { createChatRouter } from "../../server/routes/chat";
 import { insertRestartNotification, type PartialSweepDb } from "../../server/lib/boot-partial-sweep";
-import { RESUME_CAP_MARKER, resumeVerdict, riprendiTurniInterrotti } from "../../server/lib/ripresa-boot";
+import { answersPersonsMessage, RESUME_CAP_MARKER, resumeVerdict, riprendiTurniInterrotti } from "../../server/lib/ripresa-boot";
 import { createPermissionRouter } from "../../server/routes/permission";
 import { beginPermission, cancelPermissionsForSession } from "../../server/lib/permission-bridge";
 import { decodeCol } from "../../shared/message-blob";
@@ -477,6 +477,41 @@ describe("a late answer is kept whole, cheaply, on the row as its closer left it
     expect(resumeVerdict({
       sessionKey: sk, ruolo: "assistant", blocks, timestampMs: Date.parse(at.timestamp), attempts: 0,
     }, Date.now())).toBe("resend");
+  });
+
+  test("a late answer the CLI ends by giving up on the API leaves the notice the sweep resumes", async () => {
+    // Topic 4e5e2d76, 25/09: the CLI tried ten times, then closed its turn with
+    // a synthetic "Request timed out" and a `result` carrying `terminal_reason:
+    // api_error`. Reaching a turn already closed, that end wrote nothing, and
+    // the text it brought sat after the cut as an answer: the sweep read the
+    // message as answered and left it.
+    const sk = "topic:late-api-down";
+    const { h, handler, turnRowId } = await closedTurnWithLateText(sk, 1);
+    handler.onTextDelta("Request timed out", "pezzo1 Request timed out");
+    handler.onDone({ result: "Request timed out", turnEnd: { end: "error", cause: "api-unavailable", detail: "Request timed out" } } as never);
+    await sleep(20);
+
+    const blocks = h.blocksOf(turnRowId);
+    const last = blocks[blocks.length - 1];
+    expect(last?.kind).toBe("error");
+    expect(last && last.kind === "error" ? last.cause : undefined).toBe("api-unavailable");
+    const at = h.ctx.db.query("SELECT timestamp FROM messages WHERE id = ?").get(turnRowId) as { timestamp: string };
+    // The turn is the direct answer to the message: the one row an outage's cut is resent from.
+    const answersMessage = answersPersonsMessage(h.ctx.db, sk, turnRowId);
+    expect(answersMessage).toBe(true);
+    expect(resumeVerdict({
+      sessionKey: sk, ruolo: "assistant", blocks, timestampMs: Date.parse(at.timestamp), attempts: 0, answersMessage,
+    }, Date.now())).toBe("resend");
+  });
+
+  test("a late answer cut by the ai-bridge daemon's death carries that cause on its notice", async () => {
+    // The resume reads the cause, not the text: without it a wake cut this way
+    // is resent (`outageCutNotResent`), and the cap notice names an unknown cause.
+    const { h, handler, turnRowId } = await closedTurnWithLateText("topic:late-broker-died", 1);
+    handler.onAborted?.({ turnEnd: { end: "error", cause: "broker-died" } } as never);
+    // The late lane's end saves at once (`save(true)`), before it returns.
+    const last = h.blocksOf(turnRowId).at(-1);
+    expect(last && last.kind === "error" ? last.cause : undefined).toBe("broker-died");
   });
 
   test("a late answer that is aborted keeps every delta it streamed", async () => {

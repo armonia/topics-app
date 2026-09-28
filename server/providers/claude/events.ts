@@ -25,6 +25,7 @@
 import type { PlanUsage, PlanUsageWindow } from "../../../shared/provider-hold";
 import type { ProviderUsage, ToolArgs } from "../types";
 import { contextTokensFromUsage } from "../../usage/usage-update";
+import { isApiDownStatus } from "../stop-reason";
 
 /** A reading without the instant it was taken: this module never asks a clock. */
 export type PlanUsageReading = Omit<PlanUsage, "observedAtMs">;
@@ -104,6 +105,19 @@ function readUnifiedWindow(raw: unknown): PlanUsageWindow | null {
   const resetsAt = w.resetsAt;
   const resetsAtMs = typeof resetsAt === "number" && Number.isFinite(resetsAt) ? resetsAt * 1_000 : null;
   return { utilization: w.utilization * 100, resetsAtMs };
+}
+
+/**
+ * A `system/api_retry` line: the CLI is retrying a request the API did not
+ * answer, and prints nothing else while it waits (up to ten tries, six minutes
+ * apart on a timeout: 25/09, 02:06-02:30Z). `outage` when the status says the
+ * API itself is down (`isApiDownStatus`); a 429 or a 4xx is retried too, but
+ * the API is up. Null for any other line.
+ */
+export function readApiRetry(event: unknown): { outage: boolean } | null {
+  const e = asRecord(event);
+  if (!e || e.type !== "system" || e.subtype !== "api_retry") return null;
+  return { outage: isApiDownStatus(e.error_status) };
 }
 
 /**

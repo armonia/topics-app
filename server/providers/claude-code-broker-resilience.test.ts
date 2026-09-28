@@ -150,6 +150,142 @@ describe("claude-code provider · broker turns always reach the end", () => {
     provider.stop();
   }, 30000);
 
+  test("a child gone under the SAME daemon ends as process-died: only a new daemon makes it broker-died", async () => {
+    // The daemon forgets a session on an explicit kill and when its sweep reaps
+    // a dead child: missing, with no daemon death. `broker-died` is resumed up
+    // to four times, each one a paid turn, so a child that failed by itself
+    // must not wear it.
+    const sessionKey = "topic:resilience-child-death";
+    await seedTopic(sessionKey, "t-child");
+    setEnv("TOPICS_CLAUDE_CLI_PATH", writeFakeCli("fake-claude-child-death.sh", "30"));
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+
+    const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    provider.start();
+    let ended = null as string | null;
+    const turn = provider.sendChat(sessionKey, "cinque", {
+      onTextDelta: () => {}, onToolStart: () => {}, onToolResult: () => {},
+      onSubAgentUpdate: () => {}, onUserInputRequired: () => {},
+      onAborted: (info: any) => { ended = info?.turnEnd?.cause ?? info?.turnEnd?.end ?? "aborted"; },
+      onDone: () => { ended = "done"; },
+      onError: () => { ended = "error"; },
+    } as any).catch((e: Error) => { ended = ended ?? `rejected:${e.message}`; return {}; });
+
+    await new Promise((r) => setTimeout(r, 400));
+    const daemon = getAiBridgeClient().daemonPid;
+    // The daemon drops the session at once; the client drops its handler, so
+    // no `exit` frame reaches the provider and only the resync can tell.
+    getAiBridgeClient().kill(sessionKey);
+    expect(await provider.resyncStream(sessionKey)).toBe(false);
+    await turn;
+    expect(getAiBridgeClient().daemonPid).toBe(daemon);
+    expect(ended).toBe("process-died");
+
+    provider.stop();
+  }, 30000);
+
+  test("a spawn that finds the old daemon still answering is no new daemon: a child gone under it is process-died", async () => {
+    // One failed connect with the daemon alive (a slow accept under load) is
+    // enough for the client to spawn another. The new one finds the old one
+    // healthy and exits, and the client reconnects to the old one: nothing
+    // died. Counting spawns, a child that later vanished under that same
+    // daemon ended as `broker-died` and was resent up to four times, each one
+    // a paid turn (verifier of 27/09: "epoch 1 -> 2, pid 59814 -> 59814").
+    const sessionKey = "topic:resilience-spurious-spawn";
+    await seedTopic(sessionKey, "t-spur");
+    setEnv("TOPICS_CLAUDE_CLI_PATH", writeFakeCli("fake-claude-spurious-spawn.sh", "30"));
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+
+    const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    provider.start();
+    let ended = null as string | null;
+    const turn = provider.sendChat(sessionKey, "sei", {
+      onTextDelta: () => {}, onToolStart: () => {}, onToolResult: () => {},
+      onSubAgentUpdate: () => {}, onUserInputRequired: () => {},
+      onAborted: (info: any) => { ended = info?.turnEnd?.cause ?? info?.turnEnd?.end ?? "aborted"; },
+      onDone: () => { ended = "done"; },
+      onError: () => { ended = "error"; },
+    } as any).catch((e: Error) => { ended = ended ?? `rejected:${e.message}`; return {}; });
+    await new Promise((r) => setTimeout(r, 400));
+
+    const client = getAiBridgeClient() as any;
+    const pidPath = SOCK.replace(/\.sock$/, ".pid");
+    const daemonPid = readFileSync(pidPath, "utf8").trim();
+    const realTryConnect = client.tryConnect;
+    let failed = false;
+    client.tryConnect = function (this: unknown) {
+      if (!failed) { failed = true; return Promise.resolve(false); }
+      return realTryConnect.call(this);
+    };
+    try {
+      client.socket.destroy();
+      // Connected is not enough: the daemon's pid arrives with its pong, a
+      // round trip after `ready`. Reading it at `ready` read null on a slow
+      // runner (CI of PR #155), so wait for the pid itself.
+      const until = Date.now() + 10_000;
+      while (!(failed && client.ready && client.daemonPid !== null) && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+      expect(failed && client.ready).toBe(true);
+    } finally {
+      delete client.tryConnect;
+    }
+    expect(readFileSync(pidPath, "utf8").trim()).toBe(daemonPid);
+    expect(String(getAiBridgeClient().daemonPid)).toBe(daemonPid);
+
+    getAiBridgeClient().kill(sessionKey);
+    expect(await provider.resyncStream(sessionKey)).toBe(false);
+    await turn;
+    expect(ended).toBe("process-died");
+
+    provider.stop();
+  }, 30000);
+
+  test("a child gone while one side has not heard its daemon's pid yet is process-died: a daemon change needs two known pids", async () => {
+    // The pid arrives with the pong, a round trip after the connect: until
+    // then the client reads null, and a child recorded in that window holds
+    // null too. Neither says the daemon changed. Read as one, a child that
+    // died under the same daemon became `broker-died`, which the resume sends
+    // again by itself: a paid turn for a failure that was the child's own.
+    setEnv("TOPICS_CLAUDE_CLI_PATH", writeFakeCli("fake-claude-null-window.sh", "30"));
+    const { ClaudeCodeProvider } = await import("./claude-code");
+    const { getAiBridgeClient } = await import("../lib/ai-bridge-client");
+
+    const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
+    provider.start();
+    const client = getAiBridgeClient() as any;
+    const processes = (provider as any).processes as Map<string, { daemonPid?: number | null }>;
+    for (const unknownOn of ["client", "child"] as const) {
+      const sessionKey = `topic:resilience-null-window-${unknownOn}`;
+      await seedTopic(sessionKey, `t-null-${unknownOn}`);
+      let ended = null as string | null;
+      const turn = provider.sendChat(sessionKey, "sette", {
+        onTextDelta: () => {}, onToolStart: () => {}, onToolResult: () => {},
+        onSubAgentUpdate: () => {}, onUserInputRequired: () => {},
+        onAborted: (info: any) => { ended = info?.turnEnd?.cause ?? info?.turnEnd?.end ?? "aborted"; },
+        onDone: () => { ended = "done"; },
+        onError: () => { ended = "error"; },
+      } as any).catch((e: Error) => { ended = ended ?? `rejected:${e.message}`; return {}; });
+      const until = Date.now() + 10_000;
+      while (typeof processes.get(sessionKey)?.daemonPid !== "number" && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
+      const daemon = client.daemonPid as number;
+      expect(processes.get(sessionKey)?.daemonPid).toBe(daemon);
+      // The same daemon throughout: only what each side has heard of it differs.
+      if (unknownOn === "client") client.connectedDaemonPid = null;
+      else processes.get(sessionKey)!.daemonPid = null;
+      try {
+        getAiBridgeClient().kill(sessionKey);
+        expect(await provider.resyncStream(sessionKey)).toBe(false);
+        await turn;
+      } finally {
+        client.connectedDaemonPid = daemon;
+      }
+      expect([unknownOn, ended]).toEqual([unknownOn, "process-died"]);
+    }
+
+    provider.stop();
+  }, 30000);
+
   test("a turn whose daemon dies mid-flight ENDS (it does not hang believing the child is alive)", async () => {
     const sessionKey = "topic:resilience-daemon-death";
     await seedTopic(sessionKey, "t-dead");
@@ -158,7 +294,8 @@ describe("claude-code provider · broker turns always reach the end", () => {
 
     const provider = new ClaudeCodeProvider({ type: "claude-code", defaultWorkspace: tempDir });
     provider.start();
-    let ended: string | null = null;
+    // Widened on purpose: assigned in callbacks, so the compiler would narrow it to `null`.
+    let ended = null as string | null;
     const turn = provider.sendChat(sessionKey, "quattro", {
       onTextDelta: () => {}, onToolStart: () => {}, onToolResult: () => {},
       onSubAgentUpdate: () => {}, onUserInputRequired: () => {},
@@ -175,8 +312,11 @@ describe("claude-code provider · broker turns always reach the end", () => {
 
     // The client reconnects (respawning an empty daemon), the provider re-attaches
     // its live sessions, and the "no such session" answer finalizes the turn.
+    // As `broker-died`, not `process-died`: the child did not fail, the daemon
+    // holding it went away, and the resume acts on that cause. On 25/09 at
+    // 12:57 four chats ended "as died" this way and stayed stopped (51fb9359).
     await turn;
-    expect(ended).not.toBeNull();
+    expect(ended).toBe("broker-died");
 
     provider.stop();
   }, 30000);

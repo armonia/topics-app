@@ -368,7 +368,8 @@ function handleMessage(msg, client) {
     }
     case 'ping': {
       if (Number.isInteger(msg.pid) && msg.pid > 0) serverPids.set(client, msg.pid);
-      sendTo(client, { type: 'pong' });
+      // Our pid: a client tells a new daemon from this one by it.
+      sendTo(client, { type: 'pong', pid: process.pid });
       break;
     }
     default:
