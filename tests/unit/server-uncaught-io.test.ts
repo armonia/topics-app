@@ -21,12 +21,16 @@
  * predicate: a handler that re-throws is exactly the kind of code that reads
  * correct and loops forever, and only an exit code proves it does not.
  */
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { writeFileSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const dir = mkdtempSync(join(process.env.JCODE_SCRATCH_DIR ?? tmpdir(), "uncaught-"));
+// An `afterAll`, not `process.on("exit")`: `bun test` never calls an exit
+// handler, and on 28/09 this file had left 211 `uncaught-*` folders in the
+// system temp dir, one per run.
+afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 /**
  * The handler exactly as `server.ts` installs it, in a child that then throws
@@ -139,8 +143,4 @@ describe("the copy in this test matches the real handler", () => {
     // Five and only five: a sixth would need its own reason and its own test.
     expect(line!.match(/"/g)!.length / 2).toBe(5);
   });
-});
-
-process.on("exit", () => {
-  try { rmSync(dir, { recursive: true, force: true }); } catch { /* gone */ }
 });
