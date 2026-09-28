@@ -172,13 +172,13 @@ perché col fork il riepilogo non parte. Misurato (CLI 2.1.284): rifatto il fork
 con lo stesso id da un'altra cwd esce 0 e scrive un secondo transcript con la
 sola storia al punto del ramo.
 
-Una riga sola per ramo, scritta alla nascita. Per `claude-cli` non cambia più:
-il fork è legato a `branch_ref`, e ogni strada che dimentica la sessione lo
-consuma da sé (§6). Le sole modifiche ammesse sono `parent_ref = NULL` (con
-`parent_at`) in due casi:
+Una riga sola per ramo, scritta alla nascita. Il fork è legato a
+`branch_ref`, e ogni strada che dimentica la sessione lo consuma da sé (§6). Le
+sole modifiche ammesse sono `parent_ref = NULL` (con `parent_at`) in tre casi:
 
 - `codex-cli`, all'arrivo del `thread.started` di un turno `fork` e nel suo
   fallback (§7);
+- `claude-cli`, al primo `system/init` dello spawn col fork (§6);
 - `/clear` sul ramo, qualunque runtime (`server/routes/topics.ts:2909-2926`,
   una riga accanto a `clearActionFor`): una chat svuotata non riprende la
   storia di nessuno. Per Claude Code lo fa già `branch_ref`; per Codex serve,
@@ -254,6 +254,17 @@ e `buildClaudeArgs` riceve `forkFrom`. La coda dell'argv diventa:
   rifare il fork su un id che esiste è un errore della CLI (misurato,
   «already in use», exit 1). Uno spawn ucciso prima del primo messaggio non
   lascia il file, e allora il fork si rifà, giustamente.
+- Il primo `system/init` dello spawn col fork lo consuma (`parent_ref` nullo,
+  `consumeFork`), come il `thread.started` di Codex. Il controllo sul
+  transcript guarda solo la cwd attuale, e la cwd di una chat cambia
+  (`/project open`, `open_project`, l'autoBind dopo una risposta, un PATCH di
+  `projectPath`): senza il consumo, un ramo spostato di progetto dopo i suoi
+  turni rifaceva il fork dalla madre al respawn dopo (inattività, tetto di due
+  ore, config), e il modello dimenticava i turni del ramo senza riepilogo.
+  Misurato nel secondo giro delle verifiche (CLI 2.1.284): lo stesso argv col
+  fork lanciato da un'altra cwd esce 0 e risponde con la sola memoria della
+  madre. `spawnMeta.forkFrom` resta: i rifiuti del fork possono arrivare dopo
+  l'`init`, e il recupero li legge da lì.
 
 **Recupero.** `markMissingSessionRecovery` (`:3318`) dimentica la sessione e
 marca il processo per un respawn fresco, come oggi, e basta: il respawn conia

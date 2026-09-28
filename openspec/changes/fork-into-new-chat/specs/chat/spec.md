@@ -134,7 +134,14 @@ presente l'argv SHALL finire con `--resume <ramo>` e SENZA `--fork-session`:
 rifare il fork su un id che esiste è un errore della CLI (misurato il 28/09,
 «Session ID … is already in use.», exit 1).
 
-Il fork SHALL avvenire al più una volta. Una sessione del ramo dimenticata
+Il fork SHALL avvenire al più una volta. Il primo `system/init` dello spawn
+col fork SHALL consumarlo: `parent_ref` e `parent_at` diventano nulli, come al
+`thread.started` di un turno `fork` di Codex (CODEX-02). Il controllo sul
+transcript del ramo guarda solo la cwd attuale, e la cwd di una chat cambia
+(`/project open`, `open_project`, l'autoBind, un PATCH di `projectPath`):
+senza il consumo un ramo spostato di progetto rifaceva il fork dalla madre, e
+il modello perdeva i turni del ramo senza riepilogo (misurato su CLI 2.1.284,
+secondo giro delle verifiche). Una sessione del ramo dimenticata
 (`/clear`, il reap della worktree, il recupero da sessione persa) SHALL farlo
 ripartire con un uuid diverso da `branch_ref`, quindi con `--session-id` e il
 riepilogo di ciò che il database ha in quel momento, MAI con `--fork-session`:
@@ -165,6 +172,12 @@ Le due bandiere SHALL stare in `CRITICAL_CLAUDE_FLAGS`
 - **WHEN** si monta l'argv di un nuovo spawn
 - **THEN** l'argv finisce con `--resume C`
 - **AND** non contiene `--fork-session` né `--resume-session-at`
+
+#### Scenario: un ramo spostato di progetto dopo il suo primo avvio riprende la sua sessione
+- **GIVEN** un ramo il cui primo spawn col fork ha ricevuto `system/init`
+- **WHEN** la chat passa a un altro progetto e si monta l'argv del suo spawn nella cwd nuova, dove il transcript del ramo non c'è
+- **THEN** l'argv finisce con `--resume C` e non contiene `--fork-session`
+- **AND** `parent_ref` del ramo è nullo
 
 #### Scenario: la madre non aveva una sessione
 - **GIVEN** un topic Claude Code con messaggi e nessuna riga in `claude_code_sessions` (per esempio una storia seminata)

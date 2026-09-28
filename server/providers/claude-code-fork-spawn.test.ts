@@ -4,9 +4,10 @@
  * The route wrote the branch's session (`branch_ref`) and its fork. What is
  * proven here is what the spawn makes of it: the first start forks the parent
  * at the point and carries no recap; once the branch has a transcript it is an
- * ordinary resume; a session forgotten by `/clear`, a worktree reap or a
- * recovery never forks again; and a refused fork start is a recovery that
- * restarts fresh with the recap, not a crash.
+ * ordinary resume, and once its first start said `system/init` it is one from
+ * any cwd; a session forgotten by `/clear`, a worktree reap or a recovery
+ * never forks again; and a refused fork start is a recovery that restarts
+ * fresh with the recap, not a crash.
  *
  * The transcript of the branch is written where the CLI would write it, under
  * `~/.claude/projects/<the workspace, encoded>` (the house method of
@@ -25,6 +26,7 @@ import { buildClaudeArgs } from "./claude/args";
 import { insertChatFork } from "../lib/chat-fork-store";
 import { claudeTranscriptCandidates } from "../lib/claude-transcript-path";
 import { createWorktreeStore } from "../services/worktree-store";
+import { SidechainTracker } from "./claude/sidechain-tracker";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const NOW = "2026-09-28T00:00:00.000Z";
@@ -79,6 +81,18 @@ function argvOf(plan: ReturnType<typeof planClaudeSessionStart>): string[] {
   });
 }
 
+/** The live process of a forking start, as far as the stream handler reads it (`claude-code-context-size.test.ts`). */
+function forkingProcess(plan: ReturnType<typeof planClaudeSessionStart>) {
+  return {
+    sessionKey: SK, consumedOffset: 0, stderrBuf: "", recovering: false, pendingReject: null, pendingResolve: null,
+    spawnMeta: { claudeSessionId: plan.claudeSessionId, isNewSession: plan.isNewSession, forkFrom: plan.forkFrom },
+    createdAt: Date.now(), lastActivity: Date.now(), lastEventAt: Date.now(), alive: true, fullText: "",
+    activeToolCalls: new Set(), subAgentEmit: new Map(), pendingInputs: new Map(), sidechain: new SidechainTracker(),
+    needsHistoryReplay: false,
+    streamHandler: { onTextDelta() {}, onToolStart() {}, onToolResult() {}, onDone() {}, onError() {} },
+  };
+}
+
 function expectFreshWithoutFork(plan: ReturnType<typeof planClaudeSessionStart>): string[] {
   expect(plan.claudeSessionId).not.toBe(BRANCH);
   expect(plan.isNewSession).toBe(true);
@@ -108,6 +122,28 @@ describe("a forked chat's spawn", () => {
     expect(args.slice(-2)).toEqual(["--resume", BRANCH]);
     expect(args).not.toContain("--fork-session");
     expect(args).not.toContain("--resume-session-at");
+  });
+
+  test("the first start's system/init consumes the fork: a branch moved to another project resumes its own session", () => {
+    appendPrompt();
+    const plan = planClaudeSessionStart(SK, workspace);
+    expect(plan.forkFrom).not.toBeNull();
+    const provider = new ClaudeCodeProvider({ type: "claude-code" });
+    const pp = forkingProcess(plan);
+    (provider as unknown as { handleStreamEvent(pp: unknown, e: unknown): void })
+      .handleStreamEvent(pp, { type: "system", subtype: "init", session_id: BRANCH });
+    // `/project open`, `open_project`, autoBind or a PATCH of projectPath: the
+    // next spawn runs in a cwd where the branch's transcript is not. The CLI
+    // finds a session by id from any cwd; forked again, the model lost the
+    // branch's turns (measured on CLI 2.1.284, round 2 of the verifiers).
+    const moved = mkdtempSync(join(tmpdir(), "topics-fork-moved-"));
+    try {
+      const next = planClaudeSessionStart(SK, moved);
+      expect(next).toEqual({ claudeSessionId: BRANCH, isNewSession: false, forkFrom: null, needsHistoryReplay: false });
+      expect(argvOf(next).slice(-2)).toEqual(["--resume", BRANCH]);
+    } finally {
+      rmSync(moved, { recursive: true, force: true });
+    }
   });
 
   test("/clear on the branch: a new uuid, --session-id, and neither the parent nor a recap", async () => {

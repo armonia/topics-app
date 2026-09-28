@@ -3,9 +3,10 @@
  * (`server/routes/fork.ts`, migration 20260928203249-chat-forks.sql).
  *
  * After the birth the only write is `parent_ref = parent_at = NULL`, the
- * fork consumed: by a Codex fork turn once its thread is known, and by `/clear`
- * on the branch, on every runtime (a chat emptied by the person does not take
- * anybody's history back).
+ * fork consumed: by a Codex fork turn once its thread is known, by a Claude
+ * Code fork start at its first `system/init`, and by `/clear` on the branch, on
+ * every runtime (a chat emptied by the person does not take anybody's history
+ * back).
  */
 import type { Database } from "bun:sqlite";
 import type { ForkMode } from "../../shared/chat-fork";

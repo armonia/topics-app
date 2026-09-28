@@ -155,9 +155,11 @@ export interface ForkOrigin {
  * The fork happens at most once. It is bound to the uuid the route minted
  * (`branchRef`): `/clear`, a worktree reap and a lost-session recovery all
  * forget the session, the next spawn mints a different uuid, and the fork does
- * not come back. While the session IS that uuid, the fork runs until the
- * branch's transcript exists: forking onto an id that exists is a CLI error
- * ("Session ID … is already in use.", exit 1, measured 28/09).
+ * not come back. The fork start's first `system/init` consumes it
+ * (`parentRef` null, `claude-code.ts`), whatever cwd the next spawn has.
+ * Before that, the fork runs until the branch's transcript exists: forking
+ * onto an id that exists is a CLI error ("Session ID … is already in use.",
+ * exit 1, measured 28/09).
  */
 export function forkStartFor(
   origin: ForkOrigin | null,

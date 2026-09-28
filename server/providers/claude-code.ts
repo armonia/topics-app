@@ -78,7 +78,7 @@ import { clearSessionCliPid, setSessionCliPid } from "./session-pids";
 import { defaultChatModel, discoverClaudeModels } from "./claude-models";
 import { isGlobalOrchestratorSession } from "../services/global-orchestrator-session";
 import { forkStartFor, lastMainAssistant } from "../lib/chat-fork";
-import { readForkOrigin } from "../lib/chat-fork-store";
+import { consumeFork, readForkOrigin } from "../lib/chat-fork-store";
 import { claudeTranscriptPath } from "../lib/claude-transcript-path";
 
 // ============ Config ============
@@ -1013,6 +1013,8 @@ interface PersistentProcess {
   stderrBuf: string;
   /** Spawn-time facts the stderr scan + reattach need. */
   spawnMeta: { claudeSessionId: string; isNewSession: boolean; forkFrom?: { sessionId: string; atUuid: string } | null };
+  /** A forking start's fork is consumed in `chat_forks` (its first `system/init`). `forkFrom` stays: the fork's refusals may come after. */
+  forkConsumed?: boolean;
   createdAt: number;
   lastActivity: number;
   alive: boolean;
@@ -3535,6 +3537,19 @@ export class ClaudeCodeProvider implements AIProvider {
     // Each row's own turn, for the reattach; a delivery mark is Topics' line, not the CLI's (`claude/row-turn.ts`).
     if (pp.replayMute) pp.replayRowTurns = foldRowTurns(pp.replayRowTurns, event, pp.lineEndOffset ?? pp.consumedOffset);
     if (isDeliveryMark(event)) { if (pp.replayMute && !isWakeMark(event)) pp.replayTailOpen = true; return; }
+
+    // A FORKED CHAT'S FORK IS SPENT BY ITS FIRST START (CHAT-FORK-02). The
+    // CLI's `system/init` says it took the argv, fork included. Consumed here,
+    // the fork never runs again whatever cwd the next spawn has: the check on
+    // the branch's transcript looks under the CURRENT cwd only, and a branch
+    // moved to another project (`/project`, `open_project`, autoBind) forked
+    // the parent again and the model forgot the branch's own turns (CLI
+    // 2.1.284 finds a session by id from any cwd). The same spend as Codex's
+    // `thread.started` (CODEX-02).
+    if (line.label === "system/init" && pp.spawnMeta.forkFrom && !pp.forkConsumed && !pp.replayMute && !pp.replaySilent) {
+      pp.forkConsumed = true;
+      try { consumeFork(getDatabase(), pp.sessionKey); } catch { /* no database: the transcript check still holds in the same cwd */ }
+    }
 
     // Background work first, in every mode: the reattach scan rebuilds it from
     // the store the same way live traffic keeps it (`claude/background-work.ts`).
