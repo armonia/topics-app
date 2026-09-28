@@ -171,6 +171,59 @@ describe("the clocks that kill, against background work", () => {
     }
   });
 
+  /**
+   * An armed cron cannot speak inside a turn of ours: the CLI holds its fire
+   * until the turn's `result` (recorded 28/09 with CLI 2.1.283 and Topics'
+   * argv: a one-shot due at 10:42:00Z fired 11 ms after the result of a turn
+   * whose Bash ran until 10:42:03Z). A turn silent for minutes is not waiting
+   * on it, so neither the stall judge nor the lifetime cap's wedged-turn rule
+   * holds for it; the reaper and the goal loop, which read a closed turn, do.
+   */
+  test("a turn stuck in a session with an armed cron is judged, and a wedged one is recycled by the cap", async () => {
+    const cron = recordedSessionCron().map((l) => l.event as any);
+    const call = cron.find((e) => e.type === "assistant" && e.message.content.some((b: any) => b.name === "CronCreate"));
+    const armedAMinuteAgo = { ...cron.find((e) => e.tool_use_result?.id), timestamp: new Date(Date.now() - 60_000).toISOString() };
+
+    const sk = "topic:clocks-cron-stall";
+    const { provider, pp, counts, feed } = stub(sk, true);
+    let judged = 0;
+    const timers: Array<() => void> = [];
+    let now = Date.now();
+    try {
+      feed([call, armedAMinuteAgo]);
+      expect(provider.hasBackgroundWork(sk)).toBe(true);
+      // A turn of ours in flight, silent since.
+      pp.streamHandler = { onAborted() {} };
+      armStallDetector({
+        idleMs: 5 * 60_000,
+        isWaitingForHuman: () => false, isWaitingForChecks: () => false, isFrozen: () => false,
+        // Wired as server.ts wires it.
+        isWaitingForBackground: stallBackgroundHold(sk),
+        getTail: () => "assistant: tool_use Bash (bun run dev) ...",
+        judge: async () => { judged++; return "stuck"; },
+        onStuck: () => { void provider.abort(sk, undefined, "stall"); },
+        setTimer: (fn) => { timers.push(fn); return timers.length; }, clearTimer: () => {}, now: () => now,
+      });
+      now += 5 * 60_000; timers.shift()!();
+      await sleep(10);
+      expect(judged).toBe(1);
+      expect(counts.sigint).toBe(1);
+    } finally {
+      removeProvider("claude-code");
+    }
+
+    // A woken turn (no watchdog) wedged past the window: the cap ends it.
+    const sk2 = "topic:clocks-cron-wedged";
+    const second = stub(sk2);
+    second.feed([call, armedAMinuteAgo]);
+    second.pp.streamHandler = {};
+    second.pp.lastEventAt = Date.now() - 1_000;
+    (second.provider as any).armLifetime(second.pp, sk2, { ms: 20, rearmMs: 10, wedgedMs: 500 });
+    await sleep(100);
+    second.pp.lifetimeTimer?.clear();
+    expect(second.counts.kill).toBe(1);
+  });
+
   test("B2: the stall judge waits exactly as long as the other clocks: a Bash silent for 31 minutes is not judged", async () => {
     const sk = "topic:clocks-stall";
     // Registered, so the server's own door (`sessionHasBackgroundWork`) finds it.

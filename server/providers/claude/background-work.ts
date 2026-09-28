@@ -273,6 +273,18 @@ export function hasLiveTasks(work: BackgroundWork | undefined, now: number): boo
   return !!work && work.tasks.size > 0 && now - work.lastSignalAt < BACKGROUND_WORK_CAP_MS;
 }
 
+/**
+ * Work that can speak while a turn of ours is open: listed tasks with news, or
+ * a wake about to start. Not an armed cron: the CLI holds a fire until the
+ * turn's `result` (recorded 28/09, CLI 2.1.283: a one-shot due at 10:42:00Z
+ * fired 11 ms after the result of a turn whose Bash ran until 10:42:03Z), so a
+ * turn silent for minutes is not waiting on it. What the stall judge and the
+ * lifetime cap's wedged-turn rule read.
+ */
+export function hasTaskWork(work: BackgroundWork | undefined, now: number): boolean {
+  return hasLiveTasks(work, now) || isWakeQueued(work, now);
+}
+
 /** A session cron armed less than `BACKGROUND_WORK_CAP_MS` ago: the CLI will fire it by itself. */
 export function hasArmedCron(work: BackgroundWork | undefined, now: number): boolean {
   return !!work && [...work.crons.values()].some((c) => now - c.armedAt < BACKGROUND_WORK_CAP_MS);
@@ -299,5 +311,5 @@ export function closedWork<Why extends string>(work: BackgroundWork | undefined,
 
 /** Is there background work alive, or a wake about to answer it, as of `now`? */
 export function isBackgroundWorkAlive(work: BackgroundWork | undefined, now: number): boolean {
-  return hasLiveTasks(work, now) || hasArmedCron(work, now) || isWakeQueued(work, now);
+  return hasTaskWork(work, now) || hasArmedCron(work, now);
 }

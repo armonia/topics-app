@@ -11,6 +11,7 @@ import { registeredProviders } from "./index";
 /** The background probes a provider may answer. */
 type BackgroundProbe = {
   hasBackgroundWork?: (sk: string) => boolean;
+  hasTaskWork?: (sk: string) => boolean;
   backgroundState?: (sk: string) => string;
   backgroundSessionKeys?: () => string[];
   abort?: (sk: string, runId: string | undefined, reason: AbortReason) => Promise<void>;
@@ -41,9 +42,16 @@ export function sessionBackgroundState(sessionKey: string): string {
   return "none";
 }
 
-/** The stall detector's background hold, as `server.ts` wires it: the same bound as every clock that kills. */
+/**
+ * The stall detector's background hold, as `server.ts` wires it: the same bound
+ * as every clock that kills, over the work that can speak inside the turn it
+ * watches. Not an armed cron: the CLI fires it only after the turn's `result`,
+ * so a stuck turn waited thirty minutes for the send watchdog (review of 28/09).
+ */
 export function stallBackgroundHold(sessionKey: string): () => boolean {
-  return () => sessionHasBackgroundWork(sessionKey);
+  return () => probes().some((p) => {
+    try { return p.hasTaskWork?.(sessionKey) === true; } catch { return false; /* a failing probe claims nothing */ }
+  });
 }
 
 /**

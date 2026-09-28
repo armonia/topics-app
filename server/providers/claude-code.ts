@@ -54,7 +54,7 @@ import {
   type CallUsage,
 } from "./claude/events";
 import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
-import { closedWork, type ClosedWork, datedByLastWrite, hasArmedCron, hasLiveTasks, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
+import { closedWork, type ClosedWork, datedByLastWrite, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork } from "./claude/background-work";
 import { observePlanUsage } from "./native/usage-window";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
 import { modelPrice } from "../usage/pricing";
@@ -2158,7 +2158,7 @@ export class ClaudeCodeProvider implements AIProvider {
     if (!pp || !pp.alive) return;
 
     // A clock's stop takes the listed work with it: the stall judge past the
-    // two-hour bound (or with a stuck turn if the work reported meanwhile).
+    // two-hour bound, or with a stuck turn while it lives (an armed cron never holds it).
     if (reason === "stall") this.sayBackgroundClosed(pp, backgroundAlive(pp) ? "stuck-turn" : "silent", "the stall judge");
     if (reason === "watchdog") this.sayBackgroundClosed(pp, "stuck-turn", "the watchdog stop");
     if (reason === "wall-clock") this.sayBackgroundClosed(pp, "deadline", "the delegation's deadline");
@@ -2772,10 +2772,15 @@ export class ClaudeCodeProvider implements AIProvider {
    * The session's last turn left an Agent, a Bash or a Monitor running and the
    * CLI still reports on it, or armed a session cron (`BACKGROUND_WORK_CAP_MS`),
    * or a task just reported and its wake is on its way. Every clock that kills
-   * the child asks this, the stall judge included, and so does the goal loop.
+   * a child with no turn open asks this, and so does the goal loop.
    */
   hasBackgroundWork(sessionKey: string): boolean {
     return this.backgroundState(sessionKey) !== "none";
+  }
+
+  /** The part of it that can speak inside a turn, an armed cron left out (`hasTaskWork`): what the stall judge's hold reads. */
+  hasTaskWork(sessionKey: string): boolean {
+    return this.hasBackgroundWork(sessionKey) && hasTaskWork(this.processes.get(sessionKey)?.background, Date.now());
   }
 
   backgroundSessionKeys(): string[] {
@@ -4135,9 +4140,9 @@ export class ClaudeCodeProvider implements AIProvider {
         // woken turn has no watchdog, and the cap was the only thing ending it
         // if it wedged. It still is, so waiting never becomes waiting forever.
         // Not a second silence clock: this only ever fires past the 2 h mark.
-        // Background work waits the same way, bounded by two hours without
-        // news of it (`BACKGROUND_WORK_CAP_MS`).
-        if ((turnInFlight(pp) && Date.now() - quietSince(pp, sessionKey) < wedgedMs + rearmMs) || backgroundAlive(pp)) {
+        // Background work waits the same way (`BACKGROUND_WORK_CAP_MS`); under a
+        // wedged turn, only work that can speak inside it (a cron fires after).
+        if (turnInFlight(pp) ? Date.now() - quietSince(pp, sessionKey) < wedgedMs + rearmMs || hasTaskWork(pp.background, Date.now()) : backgroundAlive(pp)) {
           pp.lifetimeTimer = this.armLifetime(pp, sessionKey, { ms: rearmMs, rearmMs, wedgedMs });
           return;
         }
