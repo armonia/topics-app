@@ -159,4 +159,51 @@ test.describe("the x on an attachment", () => {
     await expect(attachments).toHaveCount(1);
     await expect(attachments.locator("img")).toHaveAttribute("src", survivorSrc!);
   });
+
+  /**
+   * The x of a pasted image sits ON the image's top-right corner, as its class
+   * says (`absolute -top-1.5 -right-1.5`), not under the image.
+   *
+   * `.tap-expand` used to set `position: relative` outside any cascade layer
+   * (index.css), and an unlayered rule beats every Tailwind utility, `absolute`
+   * included. The badge therefore stayed in the flow of its inline-block and
+   * wrapped under the thumbnail: measured on WebKit, the 80px image from y=334,
+   * the badge from y=408, computed `position: relative`.
+   */
+  test("pasted image: the x sits on the image's top-right corner", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-LAYOUT-01" });
+    const textarea = await openComposer(page, request);
+
+    await textarea.evaluate((el, b64: string) => {
+      const dt = new DataTransfer();
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      dt.items.add(new File([bytes], "pasted.png", { type: "image/png" }));
+      el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, RED_PNG_1x1);
+
+    const attachment = page.getByTestId("composer-attachment");
+    await expect(attachment).toHaveCount(1);
+    await expect(attachment.locator("img")).toBeVisible();
+
+    const rects = await attachment.evaluate((el) => {
+      const box = (node: Element | null) => {
+        if (!node) return null;
+        const r = node.getBoundingClientRect();
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+      };
+      return {
+        image: box(el.querySelector("img")),
+        remove: box(el.querySelector('[data-testid="composer-image-remove"]')),
+      };
+    });
+    const { image, remove } = rects;
+    if (!image || !remove) throw new Error(`missing box: ${JSON.stringify(rects)}`);
+
+    // The badge straddles the corner: it sticks out above and to the right of
+    // the image, and still covers its top-right pixel.
+    expect(remove.top, "the x must stick out above the image").toBeLessThan(image.top);
+    expect(remove.bottom, "the x must reach into the image from above").toBeGreaterThan(image.top);
+    expect(remove.right, "the x must stick out to the right of the image").toBeGreaterThan(image.right);
+    expect(remove.left, "the x must reach into the image from the right").toBeLessThan(image.right);
+  });
 });
