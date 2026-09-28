@@ -11,6 +11,12 @@
  * `swap-freeze.wiring.test.ts` does. Put back the base's inline SQL (a relight
  * of the session's last row, a close with no `end_reason`) and this goes red,
  * while every helper test stays green.
+ *
+ * The end of a reattach leg runs only when a broker child survived a restart,
+ * which no test server has, so its call is pinned here too: on the leg's own
+ * chain, with the server's context, whose `broadcastToAll` filters guests and
+ * carries the frame that tells the open windows (card edf3c4db; the helper's
+ * frames are driven in `turno-troncato.test.ts`).
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
@@ -27,9 +33,13 @@ function block(opener: string, closer: string): string {
 }
 
 describe("server.ts closes and relights turn rows only through the helpers", () => {
-  test("the end of a reattach leg is endReattachLeg, with the claude-code provider as the broker", () => {
-    expect(block("async function reattachSurvivingChatTurns(", "\n}\n"))
-      .toContain('.finally(() => endReattachLeg(ctx.db, s.id, tryGetProvider("claude-code")))');
+  test("the end of a reattach leg is endReattachLeg on the leg's own chain, with the server's context and the claude-code provider as the broker", () => {
+    const body = block("async function reattachSurvivingChatTurns(", "\n}\n");
+    const leg = body.indexOf("runHeadlessReattach(s.id");
+    expect(leg, "the reattach leg is gone").toBeGreaterThan(-1);
+    const end = body.indexOf('.finally(() => endReattachLeg(ctx, s.id, tryGetProvider("claude-code")))', leg);
+    expect(end, "the leg's end does not call endReattachLeg(ctx, s.id, the claude-code provider)").toBeGreaterThan(-1);
+    expect(end, "endReattachLeg is not on the leg's own chain").toBeLessThan(body.indexOf("continue;", leg));
   });
 
   test("the stale-stream sweeper closes a row through finalizeStaleRow", () => {

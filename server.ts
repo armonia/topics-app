@@ -5247,8 +5247,9 @@ async function reattachSurvivingChatTurns(): Promise<void> {
         // The leg is over, the TURN may not be: a child parked on
         // `ask_user_question` stays open for hours, and the mute replay that
         // reattaches to it lasts a moment. `endReattachLeg` asks the broker,
-        // then lights the leg's row again or closes what is still open.
-        .finally(() => endReattachLeg(ctx.db, s.id, tryGetProvider("claude-code")));
+        // then lights the leg's row again, or closes what is still open,
+        // explains it and tells the open windows.
+        .finally(() => endReattachLeg(ctx, s.id, tryGetProvider("claude-code")));
       continue;
     }
     // Idle / archived / deleted-topic session: reap. Guard against a send

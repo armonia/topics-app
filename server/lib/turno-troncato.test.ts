@@ -10,6 +10,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { èTroncato, TURNO_TRONCATO, spiegaTurnoTroncato } from "./turno-troncato";
+import { endReattachLeg } from "./closed-outside";
 import type { ContentBlock } from "../types";
 import { Database } from "bun:sqlite";
 import { decodeCol, encodeCol } from "../../shared/message-blob";
@@ -74,5 +75,89 @@ describe("il cartello finisce davvero sulla riga", () => {
   test("una sessione che non esiste non fa esplodere il boot", () => {
     const db = dbDiProva();
     expect(spiegaTurnoTroncato(db as never, "topic:mai-vista")).toBe(false);
+  });
+});
+
+/**
+ * THE END OF A BOOT REATTACH LEG TELLS THE OPEN WINDOWS (card edf3c4db).
+ *
+ * When the leg is over the broker is asked again (`endReattachLeg`,
+ * `closed-outside.ts`, which also writes how the row closed: card a57e6d4d). A
+ * turn still open (a question on screen) keeps its row live, and nothing is
+ * sent: a stray frame would reach windows watching that turn. A turn that is
+ * over has its rows closed and the cut explained, and that was written in the
+ * database only: a window open on the chat kept the bubble open and
+ * unexplained until a reload. The frame is the one that takes the window's
+ * read past its history dedup, since at boot every window has just read the
+ * chat on reconnect. The server.ts call is pinned in
+ * `closed-outside.wiring.test.ts`.
+ */
+describe("the end of a boot reattach leg", () => {
+  const withRows = () => {
+    const db = new Database(":memory:");
+    db.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, session_key TEXT, role TEXT, blocks BLOB, sort_order INTEGER, partial INTEGER, streamed_at TEXT, end_reason TEXT, latency_ms INTEGER)`);
+    return db;
+  };
+  const add = (db: Database, id: string, blocks: ContentBlock[], partial: number) =>
+    db.prepare(`INSERT INTO messages (id, session_key, role, blocks, sort_order, partial, streamed_at) VALUES (?, 'topic:x', 'assistant', ?, 0, ?, ?)`)
+      .run(id, encodeCol(JSON.stringify(blocks)) ?? null, partial, partial ? new Date().toISOString() : null);
+  const rowOf = (db: Database, id: string) => {
+    const r = db.query(`SELECT partial, streamed_at, end_reason, blocks FROM messages WHERE id = ?`).get(id) as { partial: number; streamed_at: string | null; end_reason: string | null; blocks: unknown };
+    return { partial: r.partial, streamedAt: r.streamed_at, endReason: r.end_reason, blocks: JSON.parse(decodeCol(r.blocks) ?? "[]") as ContentBlock[] };
+  };
+  const ctxOf = (db: Database, frames: unknown[]) => ({
+    db,
+    getTopicBySessionKey: () => ({ id: "t-x" }),
+    broadcastToAll: (m: unknown) => { frames.push(m); },
+  });
+  const says = (state: "open" | "idle") => ({ brokerTurnState: async () => state });
+  // With the session key: the open pane reconciles by it, and drops a frame without one.
+  const THREAD_CHANGED = { type: "topic:updated", topic: { id: "t-x", sessionKey: "topic:x" }, threadChanged: true };
+
+  test("the broker says the turn is over: the row is closed from outside, explained, and the open windows told once", async () => {
+    const db = withRows();
+    add(db, "cut", [testo("sto misurando"), tool()], 1);
+    const frames: unknown[] = [];
+    expect(await endReattachLeg(ctxOf(db, frames), "topic:x", says("idle"))).toEqual({ relit: false, closed: 1 });
+    const row = rowOf(db, "cut");
+    expect(row.partial).toBe(0);
+    expect(row.streamedAt).toBeNull();
+    expect(row.endReason).toBe("closed-outside");
+    expect(row.blocks.at(-1)).toEqual({ kind: "error", text: TURNO_TRONCATO });
+    expect(frames).toEqual([THREAD_CHANGED]);
+  });
+
+  test("the broker cannot answer: the rows are closed all the same, and announced", async () => {
+    const db = withRows();
+    add(db, "cut", [testo("sto misurando"), tool()], 1);
+    const frames: unknown[] = [];
+    expect(await endReattachLeg(ctxOf(db, frames), "topic:x", { brokerTurnState: () => Promise.reject(new Error("socket gone")) })).toEqual({ relit: false, closed: 1 });
+    expect(rowOf(db, "cut").partial).toBe(0);
+    expect(rowOf(db, "cut").endReason).toBe("closed-outside");
+    expect(frames).toEqual([THREAD_CHANGED]);
+  });
+
+  test("the broker says the turn is still open: the row stays live, and no window is told anything", async () => {
+    const db = withRows();
+    add(db, "asking", [testo("devo chiederti una cosa"), tool()], 0);
+    // The leg's finalize closed it as a finished reply, on a turn that goes on.
+    db.run("UPDATE messages SET end_reason = 'done', latency_ms = 500 WHERE id = 'asking'");
+    const frames: unknown[] = [];
+    expect(await endReattachLeg(ctxOf(db, frames), "topic:x", says("open"))).toEqual({ relit: true, closed: 0 });
+    const row = rowOf(db, "asking");
+    expect(row.partial).toBe(1);
+    expect(row.endReason).toBeNull();
+    expect(row.blocks.some((b) => b.kind === "error")).toBe(false);
+    expect(frames).toEqual([]);
+  });
+
+  test("nothing left open: nothing written, nobody told", async () => {
+    const db = withRows();
+    add(db, "done", [testo("sto misurando"), tool()], 0);
+    const frames: unknown[] = [];
+    expect(await endReattachLeg(ctxOf(db, frames), "topic:x", says("idle"))).toEqual({ relit: false, closed: 0 });
+    expect(rowOf(db, "done").blocks.some((b) => b.kind === "error")).toBe(false);
+    expect(rowOf(db, "done").endReason).toBeNull();
+    expect(frames).toEqual([]);
   });
 });

@@ -629,7 +629,7 @@ export function useChat() {
   const sseFailsafeRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   // `loadHistory` è definito molto più in basso: il failsafe lo raggiunge da
   // qui senza dipendere dall'ordine di dichiarazione.
-  const loadHistoryRef = useRef<((sk: string) => Promise<boolean>) | null>(null);
+  const loadHistoryRef = useRef<((sk: string, opts?: { fresh?: boolean }) => Promise<boolean>) | null>(null);
   // Track sessions with active local SSE streams (to avoid double content from WS broadcast)
   const localSSESessionsRef = useRef<Set<string>>(new Set());
   // The turn's end reached this window while its own SSE held the session: the
@@ -653,6 +653,7 @@ export function useChat() {
   // can fire two concurrent fetches for the same session in one tick. This
   // collapses those onto one request.
   const inFlightHistoryRef = useRef<Set<string>>(new Set());
+  const rereadHistoryRef = useRef<Set<string>>(new Set()); // a `fresh` read that met one in flight
   // How many turns of each session this window lit and ended (`stream:end`).
   // A history answer that a start or an end overtook in flight no longer
   // describes the current turn: `loadHistory` compares the counts.
@@ -2581,22 +2582,21 @@ export function useChat() {
   }, [applyOlderHistory]);
   useEffect(() => registerHistoryCompleter(completeHistory), [completeHistory]);
 
-  const loadHistory = useCallback(async (sessionKey: string): Promise<boolean> => {
+  const loadHistory = useCallback(async (sessionKey: string, opts?: { fresh?: boolean }): Promise<boolean> => {
     // Skip entirely if sendMessage is actively streaming via SSE — it owns the state
     if (localSSESessionsRef.current.has(sessionKey)) return true;
 
     // Dedup rapid re-fetches: a tab switch in StandaloneChatGroup re-mounts
-    // ChatPane, whose mount effect calls loadHistory. If we just fetched
-    // this session's history a few seconds ago AND we have non-empty cached
-    // messages, skip — WS keeps the cache fresh in between, so the user
-    // sees the existing messages instantly with no spinner flash.
-    const lastFetchedAt = lastHistoryFetchAtRef.current.get(sessionKey);
-    if (lastFetchedAt && Date.now() - lastFetchedAt < HISTORY_DEDUP_MS) {
-      const cached = messagesRef.current[sessionKey];
-      if (cached && cached.length > 0) return true;
-    }
+    // ChatPane, whose mount effect calls loadHistory. A read of this session a
+    // few seconds ago, with messages cached, is enough: WS keeps them fresh in
+    // between. Not for a `fresh` read: rows changed with no frame to carry
+    // them, and at boot every window has just read on reconnect (card edf3c4db).
+    const lastFetchedAt = opts?.fresh ? undefined : lastHistoryFetchAtRef.current.get(sessionKey);
+    if (lastFetchedAt && Date.now() - lastFetchedAt < HISTORY_DEDUP_MS && messagesRef.current[sessionKey]?.length) return true;
 
-    // Collapse concurrent callers onto the in-flight request.
+    // Collapse concurrent callers onto the in-flight request; a `fresh` one is
+    // read again after it, since that read may predate the change.
+    if (opts?.fresh && inFlightHistoryRef.current.has(sessionKey)) rereadHistoryRef.current.add(sessionKey);
     if (inFlightHistoryRef.current.has(sessionKey)) return true;
     inFlightHistoryRef.current.add(sessionKey);
     let endedMeanwhile = false;
@@ -2769,7 +2769,8 @@ export function useChat() {
     } finally {
       inFlightHistoryRef.current.delete(sessionKey);
       setLoading(prev => ({ ...prev, [sessionKey]: false }));
-      if (endedMeanwhile) void loadHistoryRef.current?.(sessionKey);
+      if (rereadHistoryRef.current.delete(sessionKey)) void loadHistoryRef.current?.(sessionKey, { fresh: true });
+      else if (endedMeanwhile) void loadHistoryRef.current?.(sessionKey);
     }
   }, [resetStreamTimeout, beginStreaming, flushLiveDeltas]);
 

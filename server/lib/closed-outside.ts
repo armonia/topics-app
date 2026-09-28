@@ -9,12 +9,15 @@
  * latency alone called such a row a finished reply.
  *
  * The reopen after a leg that ends on a turn still open is here too, since it
- * decides which row the next reattach takes back.
+ * decides which row the next reattach takes back, and so is the frame that
+ * tells the open windows a leg closed rows under them.
  */
 import type { Database } from "bun:sqlite";
 import { decodeCol, encodeCol } from "../../shared/message-blob";
 import type { ContentBlock, TurnEndCause } from "../../shared/types";
+import type { OutboundMessage } from "../../shared/ws-outbound";
 import type { AIProvider } from "../providers/types";
+import { threadChangedFrame } from "./boot-partial-sweep";
 import { timelineWithInterruptedVerdict } from "./interrupted-turn-block";
 import { spiegaTurnoTroncato } from "./turno-troncato";
 
@@ -62,32 +65,55 @@ export function relightReattachedRow(db: Database, sessionKey: string): void {
   );
 }
 
+/** What the end of a reattach leg needs from the server's context. */
+interface ReattachLegContext {
+  db: Database;
+  getTopicBySessionKey(sessionKey: string): { id: string } | null | undefined;
+  /** Filters guests: the frame names a topic a guest may not be granted. */
+  broadcastToAll(msg: OutboundMessage): void;
+}
+
 /**
  * The end of a reattach leg (`reattachSurvivingChatTurns` in server.ts): the
  * leg is over, the TURN may not be, so the broker is asked first. `broker` is
- * the claude-code provider, absent when it is not up.
+ * the claude-code provider, absent when it is not up. Never throws: it runs in
+ * the `.finally` of a promise nobody awaits.
  *
- * Open: the row is written open again. The leg's finalize has already turned
- * `partial` off, and a turn parked on `ask_user_question` stays open for
- * hours: left closed, every restart opened a new row for the same turn (nine
- * rows for one on topic:9fe7a291, 2026-08-18; five copies on topic:ed2070df).
+ * Open: the leg's row is written open again (`relightReattachedRow`). The
+ * leg's finalize has already turned `partial` off, and a turn parked on
+ * `ask_user_question` stays open for hours: left closed, every restart opened a
+ * new row for the same turn (nine rows for one on topic:9fe7a291, 2026-08-18;
+ * five copies on topic:ed2070df). Nothing is sent: the windows are watching
+ * that turn.
  *
  * Anything else, a broker that does not answer included: whatever is still
  * open is closed from outside, and a turn the restart killed mid-tool gets its
  * notice (`spiegaTurnoTroncato`). Closed in silence, it looked like a finished
- * answer: the two chats of 20/08.
+ * answer: the two chats of 20/08. Rows closed are announced
+ * (`threadChangedFrame`): written in the database only, the open windows kept
+ * the bubble open and unexplained until a reload (card edf3c4db). Nothing
+ * closed, nothing sent.
  */
-export async function endReattachLeg(db: Database, sessionKey: string, broker: Pick<AIProvider, "brokerTurnState"> | undefined): Promise<"relit" | "closed"> {
+export async function endReattachLeg(
+  ctx: ReattachLegContext,
+  sessionKey: string,
+  broker: Pick<AIProvider, "brokerTurnState"> | undefined,
+): Promise<{ relit: boolean; closed: number }> {
   let brokerSays: "open" | "idle" | "unknown" = "unknown";
   try { brokerSays = (await broker?.brokerTurnState?.(sessionKey)) ?? "unknown"; } catch { /* no answer: closed, as before */ }
   if (brokerSays === "open") {
-    try { relightReattachedRow(db, sessionKey); } catch { /* at worst the next reattach opens a new row, as before */ }
+    try { relightReattachedRow(ctx.db, sessionKey); } catch { /* at worst the next reattach opens a new row, as before */ }
     console.log(`[chat-reattach] ${sessionKey}: the leg is over but the turn is still open (a question on screen), its row stays live`);
-    return "relit";
+    return { relit: true, closed: 0 };
   }
+  let closed = 0;
   try {
-    const closed = db.run("UPDATE messages SET partial = 0, streamed_at = NULL, end_reason = 'closed-outside' WHERE session_key = ? AND partial = 1", [sessionKey]).changes;
-    if (closed > 0) spiegaTurnoTroncato(db, sessionKey);
+    closed = ctx.db.run("UPDATE messages SET partial = 0, streamed_at = NULL, end_reason = 'closed-outside' WHERE session_key = ? AND partial = 1", [sessionKey]).changes;
+    if (closed > 0) {
+      spiegaTurnoTroncato(ctx.db, sessionKey);
+      const topic = ctx.getTopicBySessionKey(sessionKey);
+      if (topic) ctx.broadcastToAll(threadChangedFrame(topic, sessionKey));
+    }
   } catch { /* the next boot's reset catches it */ }
-  return "closed";
+  return { relit: false, closed };
 }

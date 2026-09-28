@@ -308,7 +308,7 @@ export function attemptsOnRow(blocks: ContentBlock[] | null | undefined): number
  */
 import type { Database } from "bun:sqlite";
 import { decodeCol, encodeCol } from "../../shared/message-blob";
-import { insertRestartNotification, restartNotificationFrame, type PartialSweepDb } from "./boot-partial-sweep";
+import { insertRestartNotification, restartNotificationFrame, threadChangedFrame, type PartialSweepDb } from "./boot-partial-sweep";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isBackgroundNoticeRow, rowsBack } from "./background-notice";
 
@@ -715,6 +715,7 @@ export async function riprendiTurniInterrotti(
     // hunt had to start from the source. With this line the next occurrence
     // says which of the two it is, before anyone opens an editor.
     console.log(`[ripresa] ${c.sessionKey}: rimando il messaggio alla route della chat (attempt ${c.attempt} di ${MAX_RESUME_ATTEMPTS})`);
+    let resumed = false;
     try {
       const url = new URL("http://localhost/api/chat");
       const body = JSON.stringify({
@@ -786,8 +787,13 @@ export async function riprendiTurniInterrotti(
         return;
       }
       console.log(`[ripresa] ${c.sessionKey}: turno ripreso`);
+      resumed = true;
     } catch (err) {
       console.warn(`[ripresa] ${c.sessionKey}: la ripresa non è riuscita:`, err);
+    } finally {
+      // A resend with no answer has no end to reload the traced row; a fresh notice went out traced (card edf3c4db).
+      const topic = !resumed && !c.fresh ? ctx.getTopicBySessionKey(c.sessionKey) : null;
+      if (topic?.id) ctx.broadcast?.(threadChangedFrame({ ...topic, id: topic.id }, c.sessionKey));
     }
   }
 }

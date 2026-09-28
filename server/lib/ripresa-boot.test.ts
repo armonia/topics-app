@@ -330,6 +330,42 @@ describe("una route che non risponde non pianta il boot", () => {
     expect(lines.join("\n")).toContain("non è finito entro");
   });
 
+  /**
+   * A REFUSED RESEND TELLS THE OPEN WINDOWS (card edf3c4db). The trace lands on
+   * a row the windows already hold, and no frame carried it: the resend's own
+   * end was meant to reload the row. A route that refuses (503
+   * `provider_unavailable`, a topic pinned to a provider that is not connected)
+   * starts nothing, and the windows kept the row without its trace until a
+   * reload. `threadChanged` takes their read past the history dedup: a window
+   * that read the chat in the last 5 s would drop a plain `topic:updated`.
+   */
+  test("a refused resend makes the windows open on the chat read the traced row again", async () => {
+    const db = dbWithCutTurn();
+    const frames: unknown[] = [];
+    await withWarn(() => riprendiTurniInterrotti(
+      { db, getTopicBySessionKey: () => ({ id: "t-x", archived: false }), broadcast: (m) => { frames.push(m); } },
+      () => Response.json({ error: "Provider unavailable", code: "provider_unavailable" }, { status: 503 }),
+    ));
+    // With the session key: the open pane reconciles by it, and drops a frame without one.
+    expect(frames).toEqual([{ type: "topic:updated", topic: { id: "t-x", archived: false, sessionKey: "topic:x" }, threadChanged: true }]);
+  });
+
+  test("a resend that answers leaves the row to the frames of its own turn", async () => {
+    const db = dbWithCutTurn();
+    const frames: unknown[] = [];
+    await withWarn(() => riprendiTurniInterrotti(
+      { db, getTopicBySessionKey: () => ({ id: "t-x", archived: false }), broadcast: (m) => { frames.push(m); } },
+      () => {
+        db.run(
+          "INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, branch_index) VALUES ('a1','topic:x','assistant','fatto',0,?,9,0)",
+          [new Date(Date.now() + 1_000).toISOString()],
+        );
+        return new Response(new ReadableStream({ start(c) { c.close(); } }), { status: 200 });
+      },
+    ));
+    expect(frames).toEqual([]);
+  });
+
   test("i tetti di produzione sono minuti, non secondi", () => {
     // A tight ceiling would kill the real resumes: the response is headers,
     // the stream is the whole turn.
@@ -457,10 +493,21 @@ describe("la catena dei riavvii ha un tetto", () => {
     // Before the resend's own frames, or the notice lands under its live bubble.
     expect(order).toEqual(["frame:message:new", "resend"]);
     expect(frames[0]).toMatchObject({ type: "message:new", topicId: "t-x", sessionKey: "topic:x", messageId: notice.id, content: notice.content });
-    // The blocks the row has: the trace too, which makes it a resumed turn and
-    // not a failure to retry.
+    // The blocks the row has, the trace too: a later history read finds the
+    // same row the frame drew.
     expect(frames[0]!.blocks).toEqual(blocksOf(notice.blocks));
     expect(blocksOf(notice.blocks).some((b) => b.kind === "ripreso")).toBe(true);
+  });
+
+  test("a notice written this sweep, whose resend the route refused, goes out once: its own frame already carries the trace", async () => {
+    const db = freshDb();
+    db.run("UPDATE messages SET timestamp = ? WHERE id = 'u0'", [new Date(Date.now() - 5 * 60_000).toISOString()]);
+    const frames: Array<Record<string, unknown>> = [];
+    await quietly(() => riprendiTurniInterrotti(
+      { db, getTopicBySessionKey: () => ({ id: "t-x", archived: false }), bootedAtMs: Date.now(), broadcast: (m) => { frames.push(m as Record<string, unknown>); } },
+      () => Response.json({ error: "Provider unavailable", code: "provider_unavailable" }, { status: 503 }),
+    ));
+    expect(frames.map((f) => f.type)).toEqual(["message:new"]);
   });
 
   /**
