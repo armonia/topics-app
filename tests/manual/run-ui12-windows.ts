@@ -16,6 +16,7 @@
  *   bun run tests/manual/run-ui12-windows.ts
  */
 import { readFileSync } from "node:fs";
+import { sendProxyHomeScript } from "../e2e/helpers/fake-tauri-shell";
 
 const CDP = process.env.TOPICS_WIN_CDP ?? "http://127.0.0.1:9555";
 const APP = process.env.TOPICS_WIN_UI ?? "http://127.0.0.1:8199/";
@@ -76,8 +77,18 @@ await cdp("Runtime.enable");
 // maximize, close call into Tauri, which is not there). It proves what the fix
 // 4a206509d changed: that they APPEAR with the Topics menu and go
 // non-clickable with it. The native side stays a manual check.
+//
+// THE MARKER ALSO MOVES THE NETWORK, so the proxy is sent home first. With the
+// shell declared, `lib/shell/net.ts` sends every API call and every WebSocket
+// to 127.0.0.1:13333, and on this PC that is the proxy of the Topics.app
+// installed there, in front of its real server. `sendProxyHomeScript()` is the
+// rewrite the e2e fake uses: those URLs go to the page's own origin, the :8199
+// bundle server, which is not a Topics server.
 await cdp("Page.addScriptToEvaluateOnNewDocument", {
-  source: "window.__TAURI_INTERNALS__ = window.__TAURI_INTERNALS__ || { invoke: () => Promise.resolve() };",
+  source: [
+    sendProxyHomeScript(),
+    "window.__TAURI_INTERNALS__ = window.__TAURI_INTERNALS__ || { invoke: () => Promise.resolve() };",
+  ].join("\n"),
 });
 await cdp("Page.navigate", { url: APP });
 await new Promise((r) => setTimeout(r, 6_000));

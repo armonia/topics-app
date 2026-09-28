@@ -18,6 +18,12 @@
  * `tests/e2e/helpers/fake-tauri-shell.ts`, no code under `tests/e2e` names the
  * shell's globals. Comments may: they are how specs explain the disguise.
  *
+ * `tests/manual` has the same hole with a different door. Its drivers speak raw
+ * CDP to a Chrome on the Windows PC, where 127.0.0.1:13333 is the proxy of the
+ * Topics.app installed there, and they cannot call a Playwright helper. So a
+ * file there may name the global, but only if it also injects the helper's
+ * rewrite, `sendProxyHomeScript()`, imported from the helper and not copied.
+ *
  * @covers E2E-GATE-06
  */
 import { describe, expect, test } from "bun:test";
@@ -26,7 +32,10 @@ import { join, relative } from "node:path";
 import { SHELL_PROXY_HOST } from "../e2e/helpers/fake-tauri-shell";
 
 const E2E_DIR = join(import.meta.dir, "../e2e");
+const MANUAL_DIR = join(import.meta.dir, "../manual");
 const HELPER = "helpers/fake-tauri-shell.ts";
+/** The helper's rewrite as page source, the one thing a non-Playwright driver can reuse. */
+const REWRITE_EXPORT = "sendProxyHomeScript";
 const NET_TS = join(import.meta.dir, "../../client/src/lib/shell/net.ts");
 /** The two globals `detectShell()` reads (`client/src/lib/shell/index.ts`). */
 const SHELL_GLOBAL = /__TAURI(?:_INTERNALS)?__/;
@@ -63,10 +72,31 @@ describe("the Tauri shell is faked through one helper", () => {
     ).toEqual([]);
   });
 
+  test("a manual driver that fakes the shell also injects the helper's rewrite", () => {
+    const offenders: string[] = [];
+    for (const file of sourceFiles(MANUAL_DIR)) {
+      const code = readFileSync(file, "utf8").split("\n").filter((line) => !isComment(line)).join("\n");
+      if (!SHELL_GLOBAL.test(code)) continue;
+      const imported = new RegExp(
+        `import\\s*\\{[^}]*\\b${REWRITE_EXPORT}\\b[^}]*\\}\\s*from\\s*["'][./]*e2e/helpers/fake-tauri-shell["']`,
+      ).test(code);
+      const injected = new RegExp(`\\b${REWRITE_EXPORT}\\(\\)`).test(code);
+      if (!imported || !injected) offenders.push(`tests/manual/${relative(MANUAL_DIR, file)}`);
+    }
+    expect(
+      offenders,
+      "These drivers declare the Tauri shell without sending its proxy home, so the page they drive " +
+        "talks to 127.0.0.1:13333, the Topics.app installed on the machine that runs it. " +
+        `Import ${REWRITE_EXPORT} from tests/e2e/${HELPER} and inject it with the shell marker:\n${offenders.join("\n")}`,
+    ).toEqual([]);
+  });
+
   test("the helper rewrites the proxy address net.ts actually calls", () => {
     // If the shell's proxy moves, the helper must move with it: otherwise it
     // rewrites and blocks an address nobody calls, and the leak is back.
-    const host = readFileSync(NET_TS, "utf8").match(/const DESKTOP_SERVER_HOST = ['"]([^'"]+)['"]/)?.[1];
+    // `\s` and not a literal space: `check:identifier-language` reads
+    // `const <name>` as a declaration, even inside a regex literal.
+    const host = readFileSync(NET_TS, "utf8").match(/const\s+DESKTOP_SERVER_HOST\s*=\s*['"]([^'"]+)['"]/)?.[1];
     expect(host, "DESKTOP_SERVER_HOST not found in client/src/lib/shell/net.ts").toBeDefined();
     expect(SHELL_PROXY_HOST).toBe(host!);
   });
