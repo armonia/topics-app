@@ -119,18 +119,13 @@ describe('la conversazione e\' UNA lista', () => {
 /**
  * THE END OF A COMMAND IS THE MACHINE'S LINE, ON THE CARD TOO.
  *
- * The wake of a `run_command` process is a `user` row, because a provider only
- * answers those (server/lib/process-exit-wake.ts). The chat draws it as a
- * service line (`MessageBubble`); the drawer drew every user row of the session
- * as the person's grey bubble, and board agents are the ones the prompt sends
- * to `run_command` for their long waits. This reads the branch on the source;
- * the drawer drawing it for a real wake is `tests/e2e/processes-run-command.spec.ts`.
+ * What a user row of the session looks like, a command's wake included, is
+ * rendered in `TaskSessionUserRow.test.tsx`. What only the source can say here
+ * is that the drawer hands every user row of the session to that component.
  */
 describe("a command's end in the card's session", () => {
-  test('a user row carrying the process-exit block is drawn before, and instead of, the bubble', () => {
-    const branch = src.slice(src.indexOf("if (item.msg.role === 'user') {"), src.indexOf('className="user-bubble'));
-    expect(branch).toContain('processExitOf(item.msg.blocks)');
-    expect(branch).toContain('<ProcessExitRow');
+  test('every user row of the session goes to TaskSessionUserRow', () => {
+    expect(src).toContain("if (item.msg.role === 'user') return <TaskSessionUserRow key={item.id} message={item.msg} />;");
   });
 });
 

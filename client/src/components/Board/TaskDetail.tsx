@@ -83,9 +83,9 @@ import { useTaskBrowserGroupLayout, type TaskBrowserGroupLayout, type RenderSurf
 import { POPOVER_DIVIDER, POPOVER_ITEM } from '@/lib/popoverStyles';
 import { machineStopOf } from '../Chat/machineRow';
 import { MachineStopLine } from '../Chat/MachineStopLine';
-import { backgroundNoticeOf, processExitOf } from '../Chat/machineRow';
+import { backgroundNoticeOf } from '../Chat/machineRow';
 import { BackgroundNoticeLine } from '../Chat/BackgroundNoticeLine';
-import { ProcessExitRow } from '../Chat/ProcessExitRow';
+import { TaskSessionUserRow } from './TaskSessionUserRow';
 
 /** Feature flag (per-client kill-switch): the task's browser lives as a
  *  task-owned tiling group driven by the app's real GroupLayout engine (split /
@@ -1880,21 +1880,8 @@ export function TaskDetail({ projectId, taskId, bump, onClose, onChanged, onOpen
         );
       }
       if (item.envelope) return <DispatchEnvelopeRow key={item.id} messageId={item.msg.id} content={item.msg.content} />;
-      if (item.msg.role === 'user') {
-        // The end of a command the agent started: the machine's line, as in the chat.
-        const exit = processExitOf(item.msg.blocks);
-        if (exit) return <ProcessExitRow key={item.id} messageId={item.msg.id} block={exit} content={item.msg.content} />;
-        // Something typed into the topic itself rather than into the card. The
-        // same grey bubble a comment of yours gets: it is the same voice, and
-        // two greys for one person would be a difference that means nothing.
-        return (
-          <div key={item.id} className="flex justify-end">
-            <div className="user-bubble max-w-[88%] rounded-lg bg-app-user-bubble px-2.5 py-1.5 text-body-lg leading-5 text-app-text">
-              <div className={COMPACT_MD_CLS}><ChatMarkdown components={{}}>{item.msg.content}</ChatMarkdown></div>
-            </div>
-          </div>
-        );
-      }
+      // Typed into the topic itself, or a command's wake (`TaskSessionUserRow`).
+      if (item.msg.role === 'user') return <TaskSessionUserRow key={item.id} message={item.msg} />;
       // Imported system/session notices remain readable too.
       return <SessionRun key={item.id} items={[{ ...item, foldProgress: false }]} sessionKey={sessionKey} />;
     };
