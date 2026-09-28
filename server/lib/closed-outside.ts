@@ -20,12 +20,27 @@ import type { AIProvider } from "../providers/types";
 import { threadChangedFrame } from "./boot-partial-sweep";
 import { timelineWithInterruptedVerdict } from "./interrupted-turn-block";
 import { spiegaTurnoTroncato } from "./turno-troncato";
+import { answeredBeforeRow } from "./answered-before";
+import { INTERRUPTED_MARKER, INTERRUPTED_NO_RESUME_MARKER } from "./stale-stream-sweep";
 
-/** The stale-stream sweeper's `finalizeMessage` (`lib/stale-stream-sweep.ts`). */
+/**
+ * The stale-stream sweeper's `finalizeMessage` (`lib/stale-stream-sweep.ts`).
+ *
+ * Its sentence promises the resume sweep's resend, which a later turn under a
+ * message already answered never gets (`answeredBeforeRow`): on such a row the
+ * same cut is said without the promise, in the text and in the verdict.
+ */
 export function finalizeStaleRow(
   db: Database,
-  { messageId, marker, interruption }: { messageId: string; marker: string | null; interruption: { text: string; cause: TurnEndCause; at: string } },
+  args: { messageId: string; marker: string | null; interruption: { text: string; cause: TurnEndCause; at: string } },
 ): void {
+  const { messageId } = args;
+  let { marker, interruption } = args;
+  const sessionKey = () => (db.query("SELECT session_key FROM messages WHERE id = ?").get(messageId) as { session_key?: string } | null)?.session_key;
+  if (interruption.text === INTERRUPTED_MARKER && answeredBeforeRow(db, sessionKey() ?? "", messageId)) {
+    if (marker === INTERRUPTED_MARKER) marker = INTERRUPTED_NO_RESUME_MARKER;
+    interruption = { ...interruption, text: INTERRUPTED_NO_RESUME_MARKER };
+  }
   if (marker === null) db.run("UPDATE messages SET partial = 0, streamed_at = NULL, end_reason = 'closed-outside' WHERE id = ?", [messageId]);
   else db.run("UPDATE messages SET partial = 0, streamed_at = NULL, end_reason = 'closed-outside', content = ? WHERE id = ?", [marker, messageId]);
   // WHY the turn ended, on the row, in the shape the composer's banner reads.

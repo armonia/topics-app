@@ -16,6 +16,7 @@
 import { staleStreamVerdict } from "./stale-stream-verdict";
 import type { TurnEndCause } from "../../shared/types";
 import { pendingAskVerdict } from "./ask-user-bridge";
+import { NO_RESUME_TAIL } from "./cancelled-notice";
 
 /** Il minimo di `ActiveStream` che questo giro legge. */
 export interface SweepableStream {
@@ -115,9 +116,16 @@ export interface StaleStreamSweepDeps {
   info: (msg: string) => void;
 }
 
+const INTERRUPTED_OPENING =
+  "⚠️ Risposta interrotta: nessuna attività per 3 minuti (il processo potrebbe essersi bloccato o disconnesso).";
+
 /** Il testo che sostituisce una bolla vuota: senza, il client la nasconde. */
-export const INTERRUPTED_MARKER =
-  "⚠️ Risposta interrotta: nessuna attività per 3 minuti (il processo potrebbe essersi bloccato o disconnesso). Riprende da solo entro pochi minuti.";
+export const INTERRUPTED_MARKER = `${INTERRUPTED_OPENING} Riprende da solo entro pochi minuti.`;
+
+/** The same cut on a turn the resume sweep leaves alone, a later turn under a
+ *  message already answered: the promise is the sweep's, and it would not come.
+ *  Chosen where the row is written (`finalizeStaleRow`), which reads the thread. */
+export const INTERRUPTED_NO_RESUME_MARKER = `${INTERRUPTED_OPENING} ${NO_RESUME_TAIL}`;
 
 /** Cosa il giro ha fatto a ciascuna sessione: il valore di ritorno esiste per i test. */
 export type SweepOutcome = "dropped" | "held" | "rescued" | "extended" | "finalized";

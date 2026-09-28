@@ -40,7 +40,8 @@ import { recordSessionContext } from "../db/session-context";
 import { buildContextUpdate } from "../usage/usage-update";
 import { cancelled, classifyTurnError, isAcpStopReason, type TurnEndInfo } from "../providers/stop-reason";
 import { readTurnEnd, recordTurnEnd } from "../providers/turn-end-registry";
-import { answeredBeforeRow, resumeAttemptOf } from "../lib/ripresa-boot";
+import { resumeAttemptOf } from "../lib/ripresa-boot";
+import { answeredBeforeRow } from "../lib/answered-before";
 import { appendUsageRecord } from "../usage/store";
 import { autoreDaIdentita } from "../lib/message-author";
 import { makeGatewaySseProcessor } from "../lib/gateway-sse-consumer";
@@ -1173,6 +1174,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             thinking: { get: () => fullThinking, set: (value) => { fullThinking = value; } },
             appendTextBlock, appendThinkingBlock, setBlocksBytes: (bytes) => { blocksBytes = bytes; },
             save: (force) => persistTurnBody(true, force),
+            markEnded: (endReason) => updateLastMessage(sessionKey, {
+              endReason, latencyMs: Math.max(0, Date.now() - turnStartMs - humanWait.totalMs()),
+            }, { rowId: partialMsg.id }),
             broadcast: (frame) => broadcastStreamToTopic(frame, matchedTopic?.id),
             finalText: (message) => extractFinalText(message),
             onOpen: () => { releaseLateFlush = registerTurnBodyFlush(sessionKey, () => turnBody.flush()); },
@@ -1930,7 +1934,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               // recognises instead of the raw "API 429 ..." text: that text
               // is in the server log, and in the chat it was the one error
               // nobody ever resumed (2026-09-04, two chats stuck for hours).
-              const shown = avvisoPerTurno(endInfo, { haProdotto: true, riprendeDaSolo: true }) ?? errorMsg;
+              // «Riprendo da solo» only where the sweep will resend, as on the
+              // other two legs below: never on a later turn under a message
+              // already answered, nor for a cause the sweep does not read.
+              const shown = avvisoPerTurno(endInfo, {
+                haProdotto: true, riprendeDaSolo: resumesByItself(endInfo.cause, blocks, answeredBeforeThisRow),
+              }) ?? errorMsg;
               blocks.push({ kind: "error", text: shown.replace(/^⚠️\s*/, "") });
               turnError = shown;
               if (matchedTopic) {

@@ -1571,12 +1571,15 @@ const EN = {
   'chat.machineStop.wallClock': 'Stopped: the delegation reached its maximum duration',
   'chat.machineStop.stall': 'Stopped: the turn was recycled because it looked stuck',
   'chat.turnInterrupted.providerError': 'the provider answered with an error',
-  'chat.turnInterrupted.rateLimit': 'the API stayed rate-limited through every retry; it resumes on its own',
+  // Cause only, as for the watchdog: a later turn under a message already
+  // answered (a wake) is not resumed (server/lib/cancelled-notice.ts,
+  // `resumesByItself`), and the row's own notice says whether it will be.
+  'chat.turnInterrupted.rateLimit': 'the API stayed rate-limited through every retry',
+  // The tool budget's resume is live and not the sweep's
+  // (server/services/goal-continuation.ts): it comes for a wake too.
   'chat.turnInterrupted.toolBudget': 'the turn used up the server budget of tool rounds; it resumes once by itself',
   'chat.turnInterrupted.refusal': 'the model refused the request',
-  // Cause only, as for the watchdog: a wake cut this way is not resumed
-  // (server/lib/cancelled-notice.ts, `wakeCutByOutage`), and the row's own
-  // notice says whether it will be.
+  // Cause only, as above.
   'chat.turnInterrupted.apiUnavailable': 'the API stopped answering',
   'chat.turnInterrupted.brokerDied': 'the process hosting the agent stopped',
   'git.noRepoInitialized': 'No git repository initialized',

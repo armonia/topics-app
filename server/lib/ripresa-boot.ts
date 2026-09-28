@@ -33,7 +33,8 @@
  *     a row that carries one was answered whatever the verdict above it says.
  *     Resending it runs the message a second time (the 3019832f shape);
  *   · and never a row that comes after a turn which already ENDED under the
- *     person's last message: that row is a later turn the CLI opened on its
+ *     person's last message (with its row, or leaving none: a /compact, a
+ *     Stop before any output): that row is a later turn the CLI opened on its
  *     own (a wake), and the message it would resend was answered. Read off
  *     the thread (`answeredBeforeRow`), not off the row's `woken` mark, which
  *     a reload can take away;
@@ -60,9 +61,9 @@ import type { ContentBlock } from "../types";
 import { cancelled, type TurnEndInfo } from "../providers/stop-reason";
 import { readTurnEnd, type RecordedTurnEnd } from "../providers/turn-end-registry";
 import {
-  eCartelloDiInterruzione, isOutsideCause, isRestartNotice, isResumableCause, wakeCutByOutage,
-  STOP_PRESSED_LOG_TITLE, USER_ABORT_LOG_TITLE,
+  isOutsideCause, isRestartNotice, wakeCutByOutage, STOP_PRESSED_LOG_TITLE, USER_ABORT_LOG_TITLE,
 } from "./cancelled-notice";
+import { CHAIN_WALK_LIMIT, answeredBeforeRow, isProducedContent, lastInterruptionIndex } from "./answered-before";
 import {
   UNANSWERED_NOTICE, unansweredNotice, capNotice, capLastCut,
 } from "./resume-notices";
@@ -129,29 +130,6 @@ export function resumeCapNotice(opts: { restarted: boolean; cause?: unknown }): 
   return capNotice(MAX_RESUME_ATTEMPTS, capLastCut(opts));
 }
 
-/** An interruption verdict of ours: recognised by its text or by its cause. */
-function isInterruptionVerdict(b: ContentBlock | null | undefined): boolean {
-  if (b?.kind !== "error") return false;
-  const text = (b as { text?: unknown }).text;
-  return eCartelloDiInterruzione(typeof text === "string" ? text : "")
-    || isResumableCause((b as { cause?: unknown }).cause);
-}
-
-/** Where the last interruption verdict sits among a row's blocks, or -1. */
-function lastInterruptionIndex(blocks: ContentBlock[] | null): number {
-  if (!Array.isArray(blocks)) return -1;
-  for (let i = blocks.length - 1; i >= 0; i--) if (isInterruptionVerdict(blocks[i])) return i;
-  return -1;
-}
-
-/** Something a turn produced: prose with words in it, or a tool call. The
- *  resend trace (`ripreso`) and an empty text block are not an answer. */
-function isProducedContent(b: ContentBlock | null | undefined): boolean {
-  if (b?.kind === "tool") return true;
-  const text = (b as { text?: unknown } | null | undefined)?.text;
-  return b?.kind === "text" && typeof text === "string" && text.trim() !== "";
-}
-
 export interface RigaDaValutare {
   sessionKey: string;
   /** L'ultimo messaggio della chat: ruolo, blocchi, quando. */
@@ -164,8 +142,8 @@ export interface RigaDaValutare {
    * the chain (`attemptsInChain`); the rule stays pure.
    */
   attempts: number;
-  /** A row between the person's last message and this one is a turn that
-   *  ended (`answeredBeforeRow`): this row is a later turn, not the answer. */
+  /** A turn under the person's last message ended before this row
+   *  (`answeredBeforeRow`): this row is a later turn, not the answer. */
   answeredBefore?: boolean;
   /** A turn is live on this chat right now (`ctx.isStreaming`). */
   streaming?: boolean;
@@ -472,9 +450,6 @@ function cardHold(db: Pick<Database, "query">, topicId: string): { bound: boolea
   } catch { return { bound: false, landed: false, inProgress: false }; }
 }
 
-/** A chain longer than this is not a chain: `parent_id` is cyclic or corrupt. */
-const CHAIN_WALK_LIMIT = 64;
-
 /**
  * How many resends the chain ending at `ultimoId` has already spent.
  *
@@ -513,59 +488,6 @@ function walkChain(db: Pick<Database, "query">, sessionKey: string, ultimoId: st
     id = row.parent_id;
   }
   return { attempts: max, resends };
-}
-
-/** A row of the thread, as `answeredBeforeRow` reads it. */
-interface ThreadRow {
-  role: string; blocks: unknown; parent_id: string | null;
-  partial: number | null; latency_ms: number | null; end_reason: string | null;
-}
-
-/**
- * THE PERSON'S LAST MESSAGE HAD ITS TURN BEFORE THIS ROW.
- *
- * The resend is the person's last message. A row that comes after a turn
- * which already ended under that message is a later turn, one the CLI opened
- * on its own (a wake: a Monitor firing, a background task reporting), and a
- * resend would run the answered message a second time: a paid turn, with every
- * effect again. The row's own `woken` mark cannot be the proof: the route
- * keeps it in memory until the first tool or the tenth chunk of text, and a
- * reload in that window (every save under server/ on this Mac) hands the row
- * to a reattach that never writes it, or to a history cleanup that deletes
- * the row and lets the reattach open a new one.
- *
- * Walks `parent_id` up from the row to the person's message. A row met on the
- * way is a turn that ended when the route closed it (`latency_ms`, which no
- * outside closer writes), and not by a cut of ours: not closed from outside or
- * by a restart (`end_reason`), and not ending on an interruption verdict with
- * nothing produced after it. What a resend chain leaves between the message
- * and its cut (the cut turns, the boot's and the sweep's notices, service
- * lines written whole) is none of that, and keeps its resend. A database that
- * cannot answer is no evidence.
- */
-export function answeredBeforeRow(db: Pick<Database, "query">, sessionKey: string, rowId: string): boolean {
-  try {
-    const read = db.query(
-      `SELECT role, blocks, parent_id, partial, latency_ms, end_reason FROM messages WHERE id = ? AND session_key = ?`,
-    );
-    let id = (read.get(rowId, sessionKey) as ThreadRow | null)?.parent_id ?? null;
-    for (let hop = 0; id && hop < CHAIN_WALK_LIMIT; hop++) {
-      const row = read.get(id, sessionKey) as ThreadRow | null;
-      if (!row || row.role !== "assistant") return false;
-      if (turnEndedUncut(row)) return true;
-      id = row.parent_id;
-    }
-  } catch { /* no evidence: the resend keeps the rule it had */ }
-  return false;
-}
-
-function turnEndedUncut(row: ThreadRow): boolean {
-  if (row.partial || row.latency_ms == null) return false;
-  if (row.end_reason === "closed-outside" || row.end_reason === "cut-by-restart") return false;
-  let blocks: ContentBlock[] | null = null;
-  try { blocks = JSON.parse(decodeCol(row.blocks) ?? "null") as ContentBlock[] | null; } catch { return false; }
-  const cut = lastInterruptionIndex(blocks);
-  return cut < 0 || (blocks ?? []).slice(cut + 1).some(isProducedContent);
 }
 
 /** La route della chat, iniettata: è la STESSA porta di un messaggio umano. */

@@ -138,17 +138,19 @@ export function avvisoPerTurno(
   // agent's doing: the same turn goes through once the account's limit frees,
   // so the notice is one of ours and the resume (`ripresa-boot.ts` for a chat,
   // the dispatcher for a card) picks it up. One sentence for both cases: what
-  // was produced stays, nobody is asked to press anything.
-  if (info.end === "error" && info.cause === "rate-limit") return rateLimitNotice(info.detail);
+  // was produced stays, nobody is asked to press anything. A later turn under
+  // a message already answered is not resent (`resumesByItself`), and its
+  // notice promises nothing.
+  if (info.end === "error" && info.cause === "rate-limit") return rateLimitNotice(info.detail, !!opts.riprendeDaSolo);
   // AN OUTAGE OUTSIDE THE TURN, the API or the daemon hosting the agent.
   // Nobody's doing and not deterministic: the sweep resends it (the API's once
   // it answers again), and then nobody is asked to press. A wake cut that way
   // is not resent (`resumesByItself`), and its notice promises nothing.
   if (info.end === "error" && info.cause === "api-unavailable") {
-    return opts.riprendeDaSolo ? API_UNAVAILABLE_NOTICE : `${API_UNAVAILABLE_OPENING} ${OUTAGE_NO_RESUME}`;
+    return opts.riprendeDaSolo ? API_UNAVAILABLE_NOTICE : `${API_UNAVAILABLE_OPENING} ${NO_RESUME_TAIL}`;
   }
   if (info.end === "error" && info.cause === "broker-died") {
-    return opts.riprendeDaSolo ? BROKER_DIED_NOTICE : `${BROKER_DIED_OPENING} ${OUTAGE_NO_RESUME}`;
+    return opts.riprendeDaSolo ? BROKER_DIED_NOTICE : `${BROKER_DIED_OPENING} ${NO_RESUME_TAIL}`;
   }
   // A TURN CUT BY THE OUTPUT CAP IS NOT A FINISHED TURN.
   //
@@ -298,9 +300,11 @@ export function isOutsideCause(cause: unknown): boolean {
  * It is the second signal, not the first: the mark lives in the route's
  * memory until the first tool or the tenth chunk of text, and a reload in
  * that window loses it. The first is the thread, for every cause
- * (`answeredBeforeRow` in lib/ripresa-boot.ts). The sweep (`resumeVerdict`)
- * and every writer of the notice (`resumesByItself`) read both, so "Riprende
- * da solo" is written exactly where the sweep keeps it.
+ * (`answeredBeforeRow` in lib/answered-before.ts). The sweep (`resumeVerdict`)
+ * reads both, and so does every notice that promises the sweep's resend: the
+ * route's and the late-answer lane's (`resumesByItself`), and the stale
+ * sweeper's (`finalizeStaleRow`). The tool budget's promise is not the
+ * sweep's: goal-continuation.ts resumes it live, once, wake or not.
  */
 export function wakeCutByOutage(cause: unknown, blocks: readonly unknown[] | null | undefined): boolean {
   return (cause === "api-unavailable" || cause === "broker-died")
@@ -321,7 +325,8 @@ export function resumesByItself(
 
 const API_UNAVAILABLE_OPENING = "⚠️ Turno interrotto: l'API di Claude non rispondeva più.";
 const BROKER_DIED_OPENING = "⚠️ Turno interrotto: si è fermato il processo che ospitava l'agente (ai-bridge).";
-const OUTAGE_NO_RESUME = "Se ti serve che continui, scriviglielo in un nuovo messaggio.";
+/** The tail of a notice on a cut nobody resends: the person says whether to go on. */
+export const NO_RESUME_TAIL = "Se ti serve che continui, scriviglielo in un nuovo messaggio.";
 
 /** The notice for a turn the API left unanswered (`api-unavailable`). */
 export const API_UNAVAILABLE_NOTICE = `${API_UNAVAILABLE_OPENING} Riprende da solo appena torna a rispondere.`;
@@ -341,21 +346,23 @@ export function outageNoticeResumes(text: string): boolean {
  * text (which stays in the server log), and recognised below so the resume
  * resends the message once the limit frees.
  */
-export const RATE_LIMIT_NOTICE =
-  "⚠️ Turno interrotto: il limite di richieste dell'API è rimasto saturo per tutti i tentativi. Riprende da solo appena si libera.";
+const RATE_LIMIT_OPENING = "⚠️ Turno interrotto: il limite di richieste dell'API è rimasto saturo per tutti i tentativi.";
+export const RATE_LIMIT_NOTICE = `${RATE_LIMIT_OPENING} Riprende da solo appena si libera.`;
 
 /**
  * The same notice with the HOUR on it, when the runtime knew one: a spent
  * usage window ends at a published time (`usage-window.ts`), and the hour is
  * the one thing the reader wants to know. The opening is the same prefix, so
- * the resume recognises both.
+ * the resume recognises both. `resumes` false (a later turn under a message
+ * already answered) keeps the reason and drops the promise.
  */
-export function rateLimitNotice(detail: string | undefined): string {
+export function rateLimitNotice(detail: string | undefined, resumes: boolean): string {
   const m = /resets at (\S+)/.exec(detail ?? "");
   const at = m ? Date.parse(m[1]) : NaN;
-  if (!Number.isFinite(at)) return RATE_LIMIT_NOTICE;
+  if (!Number.isFinite(at)) return resumes ? RATE_LIMIT_NOTICE : `${RATE_LIMIT_OPENING} ${NO_RESUME_TAIL}`;
   const ora = new Date(at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
-  return `⚠️ Turno interrotto: il limite di richieste dell'API è esaurito fino alle ${ora} (finestra di utilizzo del piano). Riprende da solo dopo quell'ora.`;
+  const opening = `⚠️ Turno interrotto: il limite di richieste dell'API è esaurito fino alle ${ora} (finestra di utilizzo del piano).`;
+  return `${opening} ${resumes ? "Riprende da solo dopo quell'ora." : NO_RESUME_TAIL}`;
 }
 
 /**

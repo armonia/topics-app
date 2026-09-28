@@ -11,18 +11,25 @@
  * the tenth chunk of text: a wake into an API that only retries has none on
  * disk when a save reloads the server, and the reattach that takes the row
  * back never writes it. The thread says it anyway: the row comes after a turn
- * that ended.
+ * that ended, however that turn was closed: by the route, written whole by a
+ * regeneration, answered late after the stale sweeper gave up on it, or
+ * discarded empty (a /compact, a Stop before any output) with only its
+ * divider or the Stop left on disk. And no notice on such a row promises a
+ * resume the sweep will not make, whatever the cause and whichever leg wrote
+ * it.
  *
  * Every row here is written by the real route (a message answered through
  * `sendChat`, a wake through `mode: "woken"`, the leg through `mode:
- * "reattach"`), the reload is the old process's streams and flushers gone,
- * then the boot's partial sweep and the end of the leg, or the stale sweeper's
- * finalize, and the real resume sweep. No block is written by hand.
+ * "reattach"`, a regeneration through the edit route), the reload is the old
+ * process's streams and flushers gone, then the boot's partial sweep and the
+ * end of the leg, or the stale sweeper's finalize, and the real resume sweep.
+ * No block is written by hand.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
 import { createChatRouter } from "./chat";
+import { createEditRouter } from "./edit";
 import { _resetTurnBodyFlushers } from "../lib/turn-body-flush";
 import { runBootPartialSweep, type PartialSweepDb } from "../lib/boot-partial-sweep";
 import { endReattachLeg, finalizeStaleRow } from "../lib/closed-outside";
@@ -72,7 +79,8 @@ const provider = {
     return new Promise((resolve) => setTimeout(() => { send(h); resolve({ runId: "run" }); }, 5));
   },
   reattach: async (_sk: string, h: StreamHandler) => { setTimeout(() => replay(h), 5); return "reattach-run"; },
-  defaultModel: () => "claude-opus-5", abort: async () => {}, start: () => {}, stop: () => {}, complete: async () => ({ content: "" }),
+  defaultModel: () => "claude-opus-5", abort: async () => {}, start: () => {}, stop: () => {},
+  complete: async () => ({ content: "Build lanciato di nuovo: ti avviso quando finisce." }),
 } as unknown as AIProvider;
 
 async function post(body: Record<string, unknown>): Promise<Response> {
@@ -109,7 +117,7 @@ async function open(sk: string, body: Record<string, unknown>, live: (h: StreamH
   const route = opened!;
   live(route);
   return {
-    rowId,
+    rowId, route, resp,
     teardown: async () => {
       route.onAborted?.({ turnEnd: { end: "cancelled", cause: "server-shutdown" } } as never);
       await resp.body?.cancel().catch(() => {});
@@ -159,6 +167,29 @@ async function expectLeftAlone(sk: string, why: string): Promise<void> {
 }
 
 const retry = (attempt: number) => ({ attempt, maxAttempts: 10, delayMs: 30_000, reason: "overloaded" });
+const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const PROMISE = /Riprend[eo] da solo/;
+
+/** A turn the person asked for, driven by `drive` through the real route to its end. */
+async function personTurn(sk: string, content: string, drive: (h: StreamHandler) => void): Promise<void> {
+  send = drive;
+  await drain(await post({ sessionKey: sk, messages: [{ role: "user", content }] }));
+}
+
+/** The stale sweeper gives up on the turn: its finalize, then the SSE abort it sends the route. */
+async function staleSweeperCloses(sk: string, rowId: string): Promise<void> {
+  finalizeStaleRow(ctx.db, { messageId: rowId, marker: INTERRUPTED_MARKER, interruption: { text: INTERRUPTED_MARKER, cause: "watchdog", at: new Date().toISOString() } });
+  ctx.activeStreams.get(sk)?.abortController?.abort();
+  await tick(10);
+}
+
+/** The wake the tests share: the Monitor wakes the agent into an API that only retries, a save reloads the server, and the replayed leg is cut. */
+async function wakeReloadedAndCut(sk: string, cause: "api-unavailable" | "broker-died"): Promise<{ notice: { text: string; cause?: string }; teardown: () => Promise<void> }> {
+  const wake = await open(sk, { messages: [], mode: "woken", wokenLabel: "build finito" }, (h) => { h.onRetry!(retry(1)); h.onRetry!(retry(2)); });
+  reload(sk);
+  await reattachLeg(sk, outageEnd(cause));
+  return { notice: lastError(ctx.getMessageById(wake.rowId)!.blocks)!, teardown: wake.teardown };
+}
 const lastError = (blocks: ContentBlock[] | undefined) => (blocks ?? []).filter((b) => b.kind === "error").at(-1) as { text: string; cause?: string } | undefined;
 const outageEnd = (cause: "api-unavailable" | "broker-died") => (h: StreamHandler) => {
   if (cause === "api-unavailable") h.onDone({ result: "", turnEnd: { end: "error", cause, detail: "API Error: Request timed out" } } as never);
@@ -202,7 +233,12 @@ describe("a wake closed by the stale sweeper", () => {
         if (work) { h.onToolStart("t1", "Bash", { command: "cat build.log" }); h.onToolResult("t1", "ok"); }
       });
       finalizeStaleRow(ctx.db, { messageId: wake.rowId, marker: INTERRUPTED_MARKER, interruption: { text: INTERRUPTED_MARKER, cause: "watchdog", at: new Date().toISOString() } });
-      expect(ctx.getMessageById(wake.rowId)!.endReason).toBe("closed-outside");
+      const row = ctx.getMessageById(wake.rowId)!;
+      expect(row.endReason).toBe("closed-outside");
+      // The sweeper's sentence promises the resume sweep's resend: not here.
+      expect(row.content).toStartWith("⚠️ Risposta interrotta: nessuna attività");
+      expect(row.content).not.toMatch(PROMISE);
+      if (work) expect(lastError(row.blocks)!.text).not.toMatch(PROMISE);
       await expectLeftAlone(sk, work ? "wake with a tool" : "idle wake");
       await wake.teardown();
     });
@@ -225,4 +261,131 @@ describe("the message's own answer cut by an outage is still resent, once", () =
       await answer.teardown();
     });
   }
+});
+
+describe("a wake after an answer the route did not close with a latency", () => {
+  for (const cause of ["api-unavailable", "broker-died"] as const) {
+    test(`${cause}: a regenerated answer (written whole by the edit route) is an answer`, async () => {
+      const sk = topic(`regen-${cause}`);
+      await answered(sk, MESSAGE, "Build lanciato, ti avviso.");
+      const first = ctx.loadLocalMessages(sk).filter((m) => m.role === "assistant").at(-1)!;
+      const edit = createEditRouter(ctx, { resolveProvider: () => provider, updateUnreadCount: () => {} } as never);
+      const url = new URL(`http://topics.test/api/messages/${first.id}/regenerate`);
+      const regenerated = await edit(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }), url, url.pathname, "POST");
+      expect(regenerated?.status).toBe(200);
+      await drain(regenerated!);
+      const answer = ctx.loadLocalMessages(sk).filter((m) => m.role === "assistant").at(-1)!;
+      expect(answer.endReason).toBe("done");
+      expect(answer.latencyMs).toBeUndefined();
+      const wake = await wakeReloadedAndCut(sk, cause);
+      expect(outageNoticeResumes(`⚠️ ${wake.notice.text}`)).toBe(false);
+      await expectLeftAlone(sk, cause);
+      await wake.teardown();
+    });
+
+    test(`${cause}: an answer the stale sweeper closed and the CLI then finished late is an answer`, async () => {
+      const sk = topic(`late-${cause}`);
+      await answered(sk, "Ciao", "Ciao, dimmi.");
+      const answer = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => {
+        h.onToolStart("t1", "Bash", { command: "make build &" });
+        h.onToolResult("t1", "started");
+      });
+      await staleSweeperCloses(sk, answer.rowId);
+      expect(ctx.getMessageById(answer.rowId)!.endReason).toBe("closed-outside");
+      // The CLI was alive after all: its answer reaches the closed turn late.
+      const late = "Build lanciato, ti avviso quando finisce.";
+      answer.route.onTextDelta(late, late);
+      answer.route.onDone({ result: late } as never);
+      await tick(20);
+      await answer.resp.body?.cancel().catch(() => {});
+      const closed = ctx.getMessageById(answer.rowId)!;
+      ctx.activeStreams.delete(sk);
+      const wake = await wakeReloadedAndCut(sk, cause);
+      expect(outageNoticeResumes(`⚠️ ${wake.notice.text}`)).toBe(false);
+      await expectLeftAlone(sk, cause);
+      await wake.teardown();
+      // The late end is written as the route's own finalize writes one.
+      expect(closed.endReason).toBe("done");
+      expect(closed.latencyMs).toBeNumber();
+    });
+  }
+});
+
+describe("a wake after a turn that ended and left no row", () => {
+  /**
+   * The route discards an empty answer, and the wake after it then hangs from
+   * the person's message itself, as its own answer would. What says the
+   * message had its turn is on disk anyway: the compaction divider anchored
+   * to it, or the person's Stop in the activity log.
+   */
+  const discards: Array<[string, string, (h: StreamHandler) => void]> = [
+    ["a /compact", "/compact", (h) => { h.onCompaction!({ trigger: "manual", preTokens: 120_000 } as never); h.onDone({ result: "" } as never); }],
+    ["a Stop before any output", MESSAGE, (h) => h.onAborted!({ turnEnd: { end: "cancelled", cause: "user" } } as never)],
+  ];
+  for (const [name, content, drive] of discards) {
+    for (const cause of ["api-unavailable", "broker-died"] as const) {
+      test(`${name}, then a wake cut by ${cause}: the notice asks the person, nothing is resent`, async () => {
+        const sk = topic(`noRow-${content === MESSAGE ? "stop" : "compact"}-${cause}`);
+        await answered(sk, "Ciao", "Ciao, dimmi.");
+        await personTurn(sk, content, drive);
+        expect(ctx.loadLocalMessages(sk).at(-1)!.role).toBe("user");
+        const wake = await wakeReloadedAndCut(sk, cause);
+        expect(outageNoticeResumes(`⚠️ ${wake.notice.text}`)).toBe(false);
+        await expectLeftAlone(sk, `${name}, ${cause}`);
+        await wake.teardown();
+      });
+    }
+  }
+});
+
+describe("every leg that writes the notice promises the resume only where the sweep makes it", () => {
+  const cuts: Array<[string, string, (h: StreamHandler) => void]> = [
+    ["rate-limit", "the API rate limit, reported by the CLI", (h) => {
+      h.onTextDelta("Il build e' finito, ", "Il build e' finito, ");
+      h.onDone({ result: "", turnEnd: { end: "error", cause: "rate-limit", detail: "API Error: 429 rate_limit_error" } } as never);
+    }],
+    ["error-leg", "the silence cap, through the route's error leg", (h) => {
+      h.onTextDelta("Controllo il log", "Controllo il log");
+      h.onError("wall-clock: silent for too long");
+    }],
+  ];
+  for (const [slug, name, cut] of cuts) {
+    test(`${name}: on a wake, no promise and nothing resent`, async () => {
+      const sk = topic(`wake-${slug}`);
+      await answered(sk, MESSAGE, "Build lanciato, ti avviso.");
+      const wake = await open(sk, { messages: [], mode: "woken", wokenLabel: "build finito" }, cut);
+      await drain(wake.resp);
+      expect(lastError(ctx.getMessageById(wake.rowId)!.blocks)!.text).not.toMatch(PROMISE);
+      await expectLeftAlone(sk, name);
+    });
+
+    test(`${name}: on the message's own answer, the promise and the resend (a guard)`, async () => {
+      const sk = topic(`answer-${slug}`);
+      await answered(sk, "Ciao", "Ciao, dimmi.");
+      const answer = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, cut);
+      await drain(answer.resp);
+      expect(lastError(ctx.getMessageById(answer.rowId)!.blocks)!.text).toMatch(PROMISE);
+      expect((await resumeSweep(sk)).resent).toEqual([1]);
+    });
+  }
+
+  test("the late-answer lane's error leg: on a wake, no promise and nothing resent", async () => {
+    const sk = topic("wake-late-error");
+    await answered(sk, MESSAGE, "Build lanciato, ti avviso.");
+    const wake = await open(sk, { messages: [], mode: "woken", wokenLabel: "build finito" }, (h) => {
+      h.onToolStart("t1", "Bash", { command: "cat build.log" });
+      h.onToolResult("t1", "ok");
+    });
+    await staleSweeperCloses(sk, wake.rowId);
+    wake.route.onTextDelta("Il build e' finito, ", "Il build e' finito, ");
+    wake.route.onError("wall-clock: silent for too long");
+    await tick(20);
+    await wake.resp.body?.cancel().catch(() => {});
+    const row = ctx.getMessageById(wake.rowId)!;
+    expect(lastError(row.blocks)!.text).toStartWith("Turno interrotto: era fermo da troppo");
+    expect(lastError(row.blocks)!.text).not.toMatch(PROMISE);
+    ctx.activeStreams.delete(sk);
+    await expectLeftAlone(sk, "late error on a wake");
+    expect(row.endReason).toBe("error");
+  });
 });
