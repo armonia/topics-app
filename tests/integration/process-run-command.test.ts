@@ -654,7 +654,8 @@ describe("the command outlives the server", () => {
     mkdirSync(state, { recursive: true });
     dbPath = join(state, "wakes.db");
     const db = new Database(dbPath);
-    db.run("CREATE TABLE messages (session_key TEXT, role TEXT, content TEXT, blocks TEXT)");
+    // The columns of the real table the wake reads: its row, and the answer under it.
+    db.run("CREATE TABLE messages (id TEXT, session_key TEXT, role TEXT, content TEXT, blocks TEXT, parent_id TEXT, timestamp TEXT)");
     db.close();
   });
 

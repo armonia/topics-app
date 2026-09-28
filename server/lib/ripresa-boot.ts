@@ -147,6 +147,12 @@ function lastCutIsOutage(blocks: ContentBlock[] | null): boolean {
   return cut >= 0 && isOutage((blocks![cut] as { cause?: unknown }).cause);
 }
 
+/** The row's last cut is an outage's and nothing was produced after it: the
+ *  turn it cut was never answered. */
+export function outageCutUnanswered(blocks: ContentBlock[] | null): boolean {
+  return lastCutIsOutage(blocks) && !blocks!.slice(lastInterruptionIndex(blocks) + 1).some(isProducedContent);
+}
+
 /** Something a turn produced: prose with words in it, or a tool call. The
  *  resend trace (`ripreso`) and an empty text block are not an answer. */
 function isProducedContent(b: ContentBlock | null | undefined): boolean {
@@ -359,6 +365,16 @@ function probedApiStillDown(blocks: ContentBlock[] | null, rowStartMs: number, l
   return marked(0, cut) && !marked(cut + 1) && lastAnswerMs < rowStartMs;
 }
 
+/**
+ * The number a resend of a cut row goes out with: one more than its chain has
+ * spent, or the same when the row is a resend that met the API still down,
+ * up to MAX_FREE_PROBES of them.
+ */
+function resendAttempt(chain: { attempts: number; resends: number }, blocks: ContentBlock[] | null, rowStartMs: number): number {
+  const free = chain.resends - chain.attempts < MAX_FREE_PROBES && probedApiStillDown(blocks, rowStartMs, lastApiAnswerMs());
+  return free ? chain.attempts : chain.attempts + 1;
+}
+
 /** The highest resend number among a row's blocks; 0 when it has none. */
 export function attemptsOnRow(blocks: ContentBlock[] | null | undefined): number {
   if (!Array.isArray(blocks)) return 0;
@@ -438,6 +454,35 @@ export function directAnswerNow(db: Database, sessionKey: string, rowId: string)
   if (!answersPersonsMessage(db, sessionKey, rowId)) return false;
   for (const r of rowsBack(db, sessionKey)) if (!isBackgroundNoticeRow(r.decoded)) return r.id === rowId;
   return false;
+}
+
+/**
+ * The chat owes the person's message the resend its notice promised: its last
+ * word (past background notices) is the direct answer to that message, cut by
+ * an outage with nothing after the cut. A command's wake waits behind it
+ * (`lib/process-exit-wake.ts`): landed under the cut, it became the last word
+ * and the promised resend never went.
+ */
+export function outageResendOwed(db: Database, sessionKey: string): boolean {
+  for (const r of rowsBack(db, sessionKey)) {
+    if (isBackgroundNoticeRow(r.decoded)) continue;
+    if (r.role !== "assistant" || !outageCutUnanswered(r.decoded)) return false;
+    return !outageCutNotResent(lastInterruption(r.decoded)?.cause, r.decoded, () => answersPersonsMessage(db, sessionKey, r.id));
+  }
+  return false;
+}
+
+/**
+ * The attempt a copy of a command's wake goes out with once an outage cut its
+ * turn on `row` (`lib/process-exit-wake.ts`): the sweep leaves a wake's cut
+ * alone (`answersPersonsMessage`), so the wake sends itself again, on the
+ * sweep's budget along the chain. Null once the chain has spent it.
+ */
+export function outageResendAttempt(
+  db: Pick<Database, "query">, sessionKey: string, row: { id: string; blocks: ContentBlock[] | null; timestampMs: number },
+): number | null {
+  const chain = walkChain(db, sessionKey, row.id);
+  return chain.attempts >= MAX_RESUME_ATTEMPTS ? null : resendAttempt(chain, row.blocks, row.timestampMs);
 }
 
 /** Quel poco del contesto del server che serve al giro. */
@@ -810,8 +855,7 @@ export async function riprendiTurniInterrotti(
       ).get(r.sk) as { content: unknown } | undefined;
       const messaggio = (decodeCol(dom?.content) ?? "").trim();
       if (!messaggio) continue;
-      const free = chain.resends - attempts < MAX_FREE_PROBES && probedApiStillDown(blocks, row.timestampMs, lastApiAnswerMs());
-      const attempt = free ? attempts : attempts + 1;
+      const attempt = resendAttempt(chain, blocks, row.timestampMs);
       candidati.push({ sessionKey: r.sk, messaggio, idTurno: resendRowId, blocks: rowBlocks, attempt, fresh });
     }
   } catch (err) {

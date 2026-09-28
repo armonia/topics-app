@@ -99,24 +99,52 @@ describe("the row is the machine's", () => {
   });
 });
 
-function dbWith(rows: Array<{ session_key: string; blocks: string | null }>): Database {
+/** The columns of `messages` the wake reads. */
+type Row = { session_key: string; blocks: string | null; id?: string; role?: string; parent_id?: string };
+let rowIds = 0;
+function insert(db: Database, r: Row): void {
+  db.run("INSERT INTO messages VALUES (?, ?, ?, 'x', ?, ?, ?)", [r.id ?? `r-${++rowIds}`, r.session_key, r.role ?? "user", r.blocks, r.parent_id ?? null, new Date().toISOString()]);
+}
+function dbWith(rows: Row[]): Database {
   const db = new Database(":memory:");
-  db.run("CREATE TABLE messages (session_key TEXT, role TEXT, content TEXT, blocks TEXT)");
-  for (const r of rows) db.run("INSERT INTO messages VALUES (?, 'user', 'x', ?)", [r.session_key, r.blocks]);
+  db.run("CREATE TABLE messages (id TEXT, session_key TEXT, role TEXT, content TEXT, blocks TEXT, parent_id TEXT, timestamp TEXT)");
+  for (const r of rows) insert(db, r);
   return db;
 }
+const wakeMark = (id: string) => JSON.stringify([{ kind: "process-exit", processId: id, exitCode: 0, label: "x" }]);
 
 describe("wakeDelivered", () => {
   test("finds the row of THAT process in THAT session, and nothing else", () => {
-    const block = (id: string) => JSON.stringify([{ kind: "process-exit", processId: id, exitCode: 0, label: "x" }]);
     const db = dbWith([
-      { session_key: "s-a", blocks: block("p-1") },
-      { session_key: "s-b", blocks: block("p-2") },
+      { session_key: "s-a", blocks: wakeMark("p-1") },
+      { session_key: "s-b", blocks: wakeMark("p-2") },
       { session_key: "s-a", blocks: JSON.stringify([{ kind: "goal-nudge", attempt: 1 }]) },
     ]);
     expect(wakeDelivered(db, "s-a", "p-1")).toBe(true);
     expect(wakeDelivered(db, "s-a", "p-2")).toBe(false);
     expect(wakeDelivered(db, "s-b", "p-1")).toBe(false);
+  });
+
+  // The sweep does not resend a wake's cut (`answersPersonsMessage`): a row
+  // whose turn an outage cut, with nothing after the cut, still owes the wake.
+  // A restart's cut is the sweep's, which resends the row with its mark.
+  test("a row whose turn an outage cut is not delivered until a copy's turn is not", () => {
+    const cut = (cause: string, after: object[] = []) => JSON.stringify([{ kind: "error", text: "⚠️ Turno interrotto", cause }, ...after]);
+    const db = dbWith([
+      { id: "w-1", session_key: "s-a", blocks: wakeMark("p-1") },
+      { session_key: "s-a", role: "assistant", parent_id: "w-1", blocks: cut("api-unavailable") },
+    ]);
+    expect(wakeDelivered(db, "s-a", "p-1")).toBe(false);
+    insert(db, { id: "w-2", session_key: "s-a", blocks: wakeMark("p-1") });
+    expect(wakeDelivered(db, "s-a", "p-1")).toBe(true);
+    insert(db, { session_key: "s-a", role: "assistant", parent_id: "w-2", blocks: cut("broker-died") });
+    expect(wakeDelivered(db, "s-a", "p-1")).toBe(false);
+    insert(db, { id: "w-3", session_key: "s-a", blocks: wakeMark("p-1") });
+    insert(db, { session_key: "s-a", role: "assistant", parent_id: "w-3", blocks: cut("api-unavailable", [{ kind: "text", text: "Build rosso." }]) });
+    expect(wakeDelivered(db, "s-a", "p-1")).toBe(true);
+    insert(db, { id: "w-4", session_key: "s-a", blocks: wakeMark("p-1") });
+    insert(db, { session_key: "s-a", role: "assistant", parent_id: "w-4", blocks: cut("server-shutdown") });
+    expect(wakeDelivered(db, "s-a", "p-1")).toBe(true);
   });
 });
 
@@ -141,7 +169,7 @@ describe("deliverProcessExit", () => {
         const answer = answers.shift() ?? 200;
         if (answer === 200) {
           const exit = body.processExit as { processId: string };
-          db.run("INSERT INTO messages VALUES ('s-a', 'user', 'x', ?)", [JSON.stringify([{ kind: "process-exit", processId: exit.processId, exitCode: 3, label: "x" }])]);
+          insert(db, { session_key: "s-a", blocks: JSON.stringify([{ kind: "process-exit", processId: exit.processId, exitCode: 3, label: "x" }]) });
           return new Response("data: [DONE]\n\n", { status: 200 });
         }
         return Response.json({ error: "refused", code: answer.code }, { status: answer.status });
@@ -180,13 +208,16 @@ describe("deliverProcessExit", () => {
   });
 
   test("a busy session is not searched for the row on every round", async () => {
-    let busy = 3;
-    let searches = 0;
-    const { d } = deps({ isBusy: () => busy-- > 0 });
-    const db = d.db;
-    d.db = { query: (sql) => { const q = db.query(sql); return { get: (...a) => { searches++; return q.get(...a); } }; } };
-    expect(await deliverProcessExit(d, FACTS)).toBe("sent");
-    expect(searches).toBe(1);
+    const searchesOf = async (busyRounds: number): Promise<number> => {
+      let busy = busyRounds;
+      let searches = 0;
+      const { d } = deps({ isBusy: () => busy-- > 0 });
+      const db = d.db;
+      d.db = { query: (sql: string) => { searches++; return db.query(sql); } } as never;
+      expect(await deliverProcessExit(d, FACTS)).toBe("sent");
+      return searches;
+    };
+    expect(await searchesOf(3)).toBe(await searchesOf(0));
   });
 
   // The wake is settled when its turn is over, read from the end of the
@@ -243,7 +274,7 @@ describe("deliverProcessExit", () => {
 
   test("once: a row already there means nothing is sent", async () => {
     const { d, bodies, db } = deps({});
-    db.run("INSERT INTO messages VALUES ('s-a', 'user', 'x', ?)", [JSON.stringify([{ kind: "process-exit", processId: "p-1", exitCode: 3, label: "x" }])]);
+    insert(db, { session_key: "s-a", blocks: JSON.stringify([{ kind: "process-exit", processId: "p-1", exitCode: 3, label: "x" }]) });
     expect(await deliverProcessExit(d, FACTS)).toBe("delivered");
     expect(bodies).toHaveLength(0);
   });
