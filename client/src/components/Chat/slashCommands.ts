@@ -1,4 +1,4 @@
-import { Brain, ChevronsDownUp, Cpu, FolderOpen, Gauge, Globe, HelpCircle, Info, Play, Target, Trash2, Users } from 'lucide-react';
+import { Brain, ChevronsDownUp, Cpu, FolderOpen, Gauge, GitBranch, Globe, HelpCircle, Info, Play, Target, Trash2, Users } from 'lucide-react';
 
 /**
  * The slash commands the composer offers.
@@ -72,5 +72,8 @@ export const SLASH_COMMANDS = [
   { cmd: '/project', descriptionKey: 'chat.slash.project.description', icon: FolderOpen },
   { cmd: '/browser', descriptionKey: 'chat.slash.browser.description', icon: Globe },
   { cmd: '/goal', descriptionKey: 'chat.slash.goal.description', icon: Target },
+  // Handled in `ChatPane` (the same call as the message's «Fork into a new
+  // chat»), and NOT in the server's `CLI_BUILTINS`: the CLI never receives it.
+  { cmd: '/fork', descriptionKey: 'chat.slash.fork.description', icon: GitBranch },
   { cmd: '/help', descriptionKey: 'chat.slash.help.description', icon: HelpCircle },
 ];

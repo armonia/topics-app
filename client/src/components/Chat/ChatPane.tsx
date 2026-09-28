@@ -9,13 +9,14 @@ import { adoptLegacyQueue, clearQueue, getQueue, releaseHold, removeTurn, update
 import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
-import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, contextAnalysisApi, topicsApi, chatApi } from '../../lib/api';
+import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, contextAnalysisApi, topicsApi, chatApi, apiErrorCode } from '../../lib/api';
 import { claimCenteredHandoff } from '../../state/composerHandoff';
 import { markDraftTouched, setDraftDirty } from '../../state/draftPane';
 import { ChatEmptyState } from './ChatEmptyState';
 import { findPendingPlan, planApprovalMessage } from './planDetection';
 import { clearAskDraft, readAskDraft } from './askDraft';
 import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL, PLAN_EDIT_KEY, PLAN_REJECT_LABEL } from '../../../../shared/plan-decision';
+import { forkModeFor } from '../../../../shared/chat-fork';
 import { useConfirm } from '../../hooks/useConfirm';
 import { chatAcceptsFileDrag } from './chatFileDrop';
 import { dragLeftHost } from '../../lib/dragLeave';
@@ -962,6 +963,24 @@ function ChatPaneComponent({
   // callback memoized on fewer deps than those options.
   const sendMessageRef = useRef<((text: string) => Promise<unknown>) | null>(null);
 
+  // «Fork into a new chat» and `/fork [text]`: one call for both doors
+  // (CHAT-FORK-04). The branch opens as a permanent tab with the focus, through
+  // the funnel every other surface uses, and the text is its first message on
+  // the ordinary send path. A refusal says why and opens nothing.
+  const forkHere = useCallback(async (prompt?: string) => {
+    try {
+      const branch = await topicsApi.fork(topic.id, { name: tr('chat.fork.name', { name: topic.name }) });
+      window.dispatchEvent(new CustomEvent('topics:open-topic', { detail: { topicId: branch.id, topic: branch, mode: 'permanent', reveal: true } }));
+      if (prompt?.trim()) await sendMessage(branch.sessionKey, prompt.trim());
+    } catch (e) {
+      const key = ({ turn_in_progress: 'chat.fork.busy', fork_unsupported: 'chat.fork.unsupported', nothing_to_fork: 'chat.fork.nothing' } as Record<string, string>)[apiErrorCode(e) ?? ''];
+      setCommandResult({ type: 'error', message: key ? tr(key) : errMessage(e) });
+    }
+  }, [topic.id, topic.name, sendMessage, tr]);
+  const handleFork = useCallback(() => { void forkHere(); }, [forkHere]);
+  // Openclaw and the ACP agents keep their conversation outside Topics; no pinned provider = the server decides.
+  const canFork = !isGlobalOrchestrator && (!topic.provider || forkModeFor(topic.provider) !== null);
+
   const handleSlashCommand = useCallback(async (text: string): Promise<boolean> => {
     const cmd = text.toLowerCase().trim();
     if (isGlobalOrchestrator && cmd.startsWith('/')) {
@@ -986,6 +1005,7 @@ function ChatPaneComponent({
     if (cmd === '/clear') { if (!await confirm({ title: tr('chat.clear.title'), body: tr('chat.clear.body'), confirmLabel: tr('chat.clear.confirm') })) return true; setCommandLoading(true); try { await commandApi.clear(topic.sessionKey); loadHistory(topic.sessionKey); setCommandResult({ type: 'success', message: tr('chat.clear.done') }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/reasoning') { setCommandLoading(true); try { const r = await commandApi.toggleReasoning(topic.sessionKey); setCommandResult({ type: 'success', message: r.message || 'Reasoning toggled' }); } catch (e) { setCommandResult({ type: 'error', message: errMessage(e) }); } finally { setCommandLoading(false); } return true; }
     if (cmd === '/help') { setCommandResult({ type: 'success', message: slashCommandsHelp(tr).join('\n') }); return true; }
+    if (cmd === '/fork' || cmd.startsWith('/fork ')) { await forkHere(text.trim().slice('/fork'.length)); return true; }
 
     // `/rewind` is answered here rather than forwarded, because forwarding it
     // does NOTHING and says nothing about it.
@@ -1164,7 +1184,7 @@ function ChatPaneComponent({
     // dispatch the original text to the chat pipeline.
 
     return false;
-  }, [topic.sessionKey, topic.id, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr]);
+  }, [topic.sessionKey, topic.id, isGlobalOrchestrator, loadHistory, goal, declareGoal, closeGoal, confirm, sendMessage, getCompactionMarkers, tr, forkHere]);
 
   // Toggle Fast Mode. Updates: (1) local state for immediate UI feedback,
   // (2) localStorage for cold-boot hydration, (3) server via PUT so other
@@ -1781,7 +1801,7 @@ function ChatPaneComponent({
       )}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
       <TaskWorkFoldContext.Provider value={foldTaskWork}>
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={isGlobalOrchestrator ? undefined : handleRememberMessage} onEdit={!isGlobalOrchestrator && editMessage ? handleEditMessage : undefined} onRegenerate={!isGlobalOrchestrator && regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onDeleteMessage={!isGlobalOrchestrator && deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={!isGlobalOrchestrator && switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerCentered={composerCentered} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={isGlobalOrchestrator ? undefined : handleRememberMessage} onEdit={!isGlobalOrchestrator && editMessage ? handleEditMessage : undefined} onRegenerate={!isGlobalOrchestrator && regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onFork={canFork ? handleFork : undefined} onDeleteMessage={!isGlobalOrchestrator && deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={!isGlobalOrchestrator && switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerCentered={composerCentered} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} />
       </TaskWorkFoldContext.Provider>
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it

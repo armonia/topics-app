@@ -369,6 +369,7 @@ const EN = {
   'chat.slash.project.description': 'Create or open a project',
   'chat.slash.browser.description': 'Open browser tab and navigate (e.g. /browser https://example.com)',
   'chat.slash.goal.description': 'Chat goal: /goal <text> · /goal done · /goal stop',
+  'chat.slash.fork.description': 'Fork into a new chat: /fork [first message]',
   'chat.slash.help.description': 'Show available commands',
 
   'diff.note.placeholder': 'What is wrong with this line…',

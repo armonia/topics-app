@@ -373,6 +373,7 @@ const IT: Dict = {
   'chat.slash.project.description': 'Crea o apri un progetto',
   'chat.slash.browser.description': 'Apri una scheda del browser e naviga (es. /browser https://example.com)',
   'chat.slash.goal.description': 'Obiettivo della chat: /goal <testo> · /goal fatto · /goal basta',
+  'chat.slash.fork.description': 'Dirama in una nuova chat: /fork [primo messaggio]',
   'chat.slash.help.description': 'Mostra i comandi disponibili',
 
   'diff.note.placeholder': 'Cosa non va in questa riga…',

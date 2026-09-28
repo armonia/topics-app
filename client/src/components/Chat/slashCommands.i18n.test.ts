@@ -36,6 +36,7 @@ const DESCRIPTIONS: string[] = [
   'chat.slash.project.description',
   'chat.slash.browser.description',
   'chat.slash.goal.description',
+  'chat.slash.fork.description',
   'chat.slash.help.description',
 ];
 

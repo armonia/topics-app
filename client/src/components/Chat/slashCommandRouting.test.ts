@@ -31,7 +31,7 @@
  * alias those files use. The fact under test is not behavioural anyway; it is
  * "these two lists agree", and the lists are literals.
  *
- * @covers CMD-06
+ * @covers CMD-06, CHAT-FORK-04
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -112,6 +112,15 @@ describe("`/help` cannot fall behind the menu", () => {
     expect(CHAT_PANE, "`ChatPane` must import the menu, not copy it").toContain(
       "import { SLASH_COMMANDS } from './slashCommands'",
     );
+  });
+});
+
+describe("`/fork` is Topics' own", () => {
+  // It creates a topic and opens a tab: nothing the CLI could do, and a CLI
+  // that received it would answer an unknown command as prose.
+  test("answered in the composer, never passed naked to the CLI", () => {
+    expect(handled("fork")).toBe(true);
+    expect(naked.has("fork")).toBe(false);
   });
 });
 
