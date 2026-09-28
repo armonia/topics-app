@@ -880,7 +880,7 @@ export async function runAgentTurn(
         : isMcpTool(t.name!)
           ? await executeMcpTool(t.name!, (t.input ?? {}) as Record<string, unknown>)
           : opts.topics && isTopicsTool(t.name!)
-            ? await executeTopicsTool(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.topics)
+            ? await executeTopicsTool(t.name!, (t.input ?? {}) as Record<string, unknown>, opts.topics, opts.signal)
             : await executeTool(t.name!, (t.input ?? {}) as Record<string, any>, opts.toolContext);
       handler.onToolResult(t.id!, out.content, out.isError);
       // EVERY RESULT IS CAPPED HERE, whichever family produced it (machine,

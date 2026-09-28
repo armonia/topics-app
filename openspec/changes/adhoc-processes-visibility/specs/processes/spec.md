@@ -159,7 +159,9 @@ processo quando è uscito (`watchesForProcess`, `server/lib/process-wait.ts:191`
 perché quel turno l'esito l'ha già. L'attesa conta solo finché il turno che l'ha
 aperta è in corso: finito il turno (`endStream`), non conta più anche se la sua
 richiesta resta aperta, perché il bridge di un CLI ignora l'annullamento di una
-tool call.
+tool call. Sul runtime nativo la richiesta si chiude con il turno, e un turno
+fermato dentro `wait_for_process` finisce subito invece di aspettare la risposta
+della rotta.
 
 Per il ciclo dei goal (`server/services/goal-loop.ts`) un comando che deve
 ancora una sveglia alla sessione è lavoro in background come quello del CLI
@@ -227,6 +229,7 @@ dispatcher qui sopra è la rete per l'agente che chiude il turno lo stesso.
 - **GIVEN** un `wait_for_process` aperto sul comando da un turno della stessa sessione
 - **WHEN** quel turno finisce (fermato, sostituito) con la richiesta ancora aperta, e poi il comando esce
 - **THEN** la topic riceve la riga `process-exit`
+- **AND** sul runtime nativo il turno fermato esce subito dall'attesa e ne chiude la richiesta
 
 #### Scenario: Stop dal pannello non sveglia
 - **WHEN** l'utente ferma il comando dal pannello

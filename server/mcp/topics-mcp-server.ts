@@ -1881,9 +1881,12 @@ export async function callWaitForProcess(
   // Il margine sopra il tetto della rotta: se scade questo vuol dire che a non
   // rispondere e' il server, non il processo atteso.
   const budget = (typeof toolArgs.timeout_ms === "number" ? Math.min(toolArgs.timeout_ms, 240_000) : 120_000) + 20_000;
-  const body = await httpJson<ProcessWaitResp>(
-    args, "GET", path, undefined, fetchImpl, AbortSignal.timeout(budget),
-  );
+  // A stopped turn of the native runtime closes the request: left open, the
+  // loop sat in it for minutes and the route's watch still counted the wake
+  // as taken.
+  const deadline = AbortSignal.timeout(budget);
+  const signal = args.turnSignal ? AbortSignal.any([deadline, args.turnSignal]) : deadline; // allow-any: the method that joins two signals, not the type
+  const body = await httpJson<ProcessWaitResp>(args, "GET", path, undefined, fetchImpl, signal);
 
   let output = typeof body?.output === "string" ? body.output : "";
   const MAX = 8000;

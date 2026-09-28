@@ -75,6 +75,8 @@ export async function executeTopicsTool(
   name: string,
   input: Record<string, unknown>,
   ctx: TopicsToolContext,
+  /** The turn's end, as `ToolContext.signal` carries it to the machine tools. */
+  signal?: AbortSignal,
 ): Promise<ToolResult> {
   // Tool schemas are only a hint to the model. Enforce the profile again at
   // execution time so a native runtime cannot call a hidden ordinary-session
@@ -90,6 +92,7 @@ export async function executeTopicsTool(
     sessionKey: ctx.sessionKey,
     gatewayToken: ctx.gatewayToken,
     profile: ctx.profile,
+    ...(signal ? { turnSignal: signal } : {}),
   };
 
   try {
