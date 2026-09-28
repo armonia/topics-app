@@ -178,19 +178,20 @@ registerFleetScriptSource(() => [
  * folder, and once the per-file sweep removed that file's root a later file's
  * commands opened their logs and their `scripts.json` in a folder that was
  * gone (18 reds in process-run-command.test.ts after chat-woken-turn, 28/09).
- * Remembered rather than resolved on every call: a script's log is written
- * from here once per output chunk.
+ * The folder goes through the one door (`resolveStateDir`, which is only an
+ * env read and a join); what is remembered is that it has been created, so a
+ * script's log, written from here once per output chunk, does not mkdir each
+ * time.
  */
-let persist: { names: string; dir: string } | null = null;
+let createdPersistDir: string | null = null;
 
 function getPersistDir(): string {
-  const names = `${process.env.TOPICS_DATA_DIR ?? ""}\n${process.env.DATA_DIR ?? ""}`;
-  if (persist?.names !== names) {
-    const dir = join(resolveStateDir(process.cwd()), ".state");
+  const dir = join(resolveStateDir(process.cwd()), ".state");
+  if (createdPersistDir !== dir) {
     mkdirSync(join(dir, "scripts"), { recursive: true });
-    persist = { names, dir };
+    createdPersistDir = dir;
   }
-  return persist.dir;
+  return dir;
 }
 
 function persistPath(): string {
