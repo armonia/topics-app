@@ -17,7 +17,10 @@
  * divider or the Stop left on disk. And no notice on such a row promises a
  * resume the sweep will not make, whatever the cause and whichever leg wrote
  * it. The message's own answer is still resent: a compaction the CLI made on
- * its way is that answer's work, not a turn that ended before it.
+ * its way is that answer's work, not a turn that ended before it, and a
+ * sub-agent's report or a system message written whole under it while it
+ * worked is not its answer: a row written whole answers the message only
+ * hanging from it.
  *
  * Every row here is written by the real route (a message answered through
  * `sendChat`, a wake through `mode: "woken"`, the leg through `mode:
@@ -32,6 +35,8 @@ import { cleanupTestDataDir, createTestAppContext, setupTestDataDir, testTmpDir 
 import { createChatRouter } from "./chat";
 import { createEditRouter } from "./edit";
 import { createHistoryRouter } from "./history";
+import { createTopicsRouter } from "./topics";
+import { createSubagentWatcher } from "../lib/subagent-watch";
 import { _resetTurnBodyFlushers } from "../lib/turn-body-flush";
 import { runBootPartialSweep, type PartialSweepDb } from "../lib/boot-partial-sweep";
 import { endReattachLeg, finalizeStaleRow } from "../lib/closed-outside";
@@ -335,6 +340,52 @@ describe("the message's own answer that compacted on its way is still resent, on
     await drain(wake.resp);
     expect((await resumeSweep(sk)).resent).toEqual([1]);
   });
+});
+
+describe("the message's own answer with a service row written under it while it worked is still resent, once", () => {
+  /**
+   * A sub-agent's report and the system-message verb are written whole, with
+   * prose, under the thread's last row: the answer's, while it works. They are
+   * not its answer. The restart with the child dead writes its notice after
+   * them, and the sweep judges that notice.
+   */
+  const watcher = createSubagentWatcher({
+    gatewayUrl: "", gatewayToken: "", getTopicById: (id) => ctx.getTopicById(id),
+    getTopicBySessionKey: (k) => ctx.getTopicBySessionKey(k), saveSingleTopic: (t) => ctx.saveSingleTopic(t),
+    appendLocalMessage: (sk, role, content) => ctx.appendLocalMessage(sk, role, content),
+    broadcastToAll: () => {}, bumpUnread: () => {}, resolveProvider: () => provider,
+  });
+  afterAll(() => watcher.stop());
+  const writers: Array<[string, (tid: string) => Promise<void>]> = [
+    ["a sub-agent's exit report", async (tid) => {
+      watcher.deliverExit({ parentSessionKey: `topic:${tid}`, childId: `child-${tid}`, name: "lane-a", result: "Lane A: 12 test verdi.", exitCode: 0 });
+    }],
+    ["the system-message verb", async (tid) => {
+      const url = new URL(`http://topics.test/api/topics/${tid}/system-message`);
+      const resp = await createTopicsRouter(ctx)(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "Build di staging pronto." }) }), url, url.pathname, "POST");
+      expect(resp?.status).toBe(200);
+    }],
+  ];
+  for (const [name, write] of writers) {
+    test(`${name}, then a restart with the child dead: the boot's notice, then the resend`, async () => {
+      const tid = `service-${name.split(" ").at(-1)}`;
+      const sk = topic(tid);
+      await answered(sk, "Ciao", "Ciao, dimmi.");
+      const answer = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => {
+        h.onToolStart("t1", "mcp__topics__spawn_agent", { name: "lane-a" });
+        h.onToolResult("t1", "spawned");
+      });
+      await tick(10);
+      await write(tid);
+      const service = ctx.loadLocalMessages(sk).at(-1)!;
+      expect(service.parentId).toBe(answer.rowId);
+      expect(service.endReason).toBe("done");
+      reload(sk, true);
+      expect(ctx.getMessageById(answer.rowId)!.endReason).toBe("cut-by-restart");
+      expect((await resumeSweep(sk)).resent).toEqual([1]);
+      await answer.teardown();
+    });
+  }
 });
 
 describe("a wake after an answer the route did not close with a latency", () => {

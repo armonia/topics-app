@@ -64,11 +64,20 @@ interface ThreadRow {
  * the row and lets the reattach open a new one.
  *
  * Walks `parent_id` up from the row to the person's message. A row met on the
- * way is a turn that ended (`turnEndedUncut`), or it is not; at the message,
+ * way is a turn that ended (`howRowEnded`), or it is not; a row written whole
+ * with prose answers the message only when it hangs from it; at the message,
  * a turn that ended and left no row (`turnLeftNoRow`). What a resend chain
  * leaves between the message and its cut (the cut turns, the boot's and the
- * sweep's notices, service lines written whole) is none of that, and keeps
- * its resend. A database that cannot answer is no evidence.
+ * sweep's notices, a report or a system message that landed while a turn
+ * worked) is none of that, and keeps its resend. A database that cannot
+ * answer is no evidence.
+ *
+ * One shape the thread cannot tell apart, and the rule takes it as answered:
+ * a service row hanging from the message itself, because it landed while the
+ * message was the thread's last row, or because the history's cleanup deleted
+ * the answer's empty row and moved its children up. On disk it is a command's
+ * answer or a regenerated reply, and resending one of those runs the message
+ * a second time; left alone, the chat asks for Retry.
  */
 export function answeredBeforeRow(db: Pick<Database, "query">, sessionKey: string, rowId: string): boolean {
   try {
@@ -78,11 +87,16 @@ export function answeredBeforeRow(db: Pick<Database, "query">, sessionKey: strin
     );
     const cutRow = read.get(rowId, sessionKey) as ThreadRow | null;
     let id = cutRow?.parent_id ?? null;
+    // The row just met was written whole with an answer in it: it is the
+    // message's answer only if the next hop is the message itself.
+    let wholeAnswer = false;
     for (let hop = 0; cutRow && id && hop < CHAIN_WALK_LIMIT; hop++) {
       const row = read.get(id, sessionKey) as ThreadRow | null;
-      if (row?.role === "user") return turnLeftNoRow(db, sessionKey, { id, timestamp: row.timestamp }, cutRow.timestamp);
+      if (row?.role === "user") return wholeAnswer || turnLeftNoRow(db, sessionKey, { id, timestamp: row.timestamp }, cutRow.timestamp);
       if (!row || row.role !== "assistant") return false;
-      if (turnEndedUncut(row)) return true;
+      const ended = howRowEnded(row);
+      if (ended === "turn") return true;
+      wholeAnswer = ended === "whole";
       id = row.parent_id;
     }
   } catch { /* no evidence: the resend keeps the rule it had */ }
@@ -90,27 +104,36 @@ export function answeredBeforeRow(db: Pick<Database, "query">, sessionKey: strin
 }
 
 /**
- * A row closed as a turn that ended, and not by a cut of ours.
+ * How a row met on the walk ended: a turn that ended, and not by a cut of
+ * ours (`turn`); a row written whole with an answer in it (`whole`); neither.
  *
  * Read off how the row was closed: `end_reason` where it is written, and
  * `latency_ms`, which only the route's own finalize writes, for the rows
  * before that column. Closed from outside or by a restart is not an end: the
  * late-answer lane writes the end on a row whose answer came after all. An
- * interruption verdict with nothing produced after it is a cut. A row written
- * whole (`done` with no latency) ended only when it holds an answer: a
- * regenerated or streamed reply, a command's answer, a report. The notices
- * and the service lines hold no prose and no tool.
+ * interruption verdict with nothing produced after it is a cut.
+ *
+ * A row written whole (`done` with no latency) holding prose or a tool is
+ * `whole`, and its columns cannot say whose it is. A regenerated or edited
+ * reply, a command's answer and the fallback's answer are written that way,
+ * and so are a sub-agent's report, the system-message verb and a hook's
+ * verdict, which answer nobody. What tells them apart is where they hang: an
+ * answer hangs from the message it answers (the edit route opens it under
+ * the message, the chat route writes it right after the message), a service
+ * row from the thread's last row when it lands, which while a turn works is
+ * that turn's row. The notices hold no prose and no tool, and are neither.
  */
-function turnEndedUncut(row: ThreadRow): boolean {
-  if (row.partial) return false;
-  if (row.end_reason === "closed-outside" || row.end_reason === "cut-by-restart") return false;
+function howRowEnded(row: ThreadRow): "turn" | "whole" | null {
+  if (row.partial) return null;
+  if (row.end_reason === "closed-outside" || row.end_reason === "cut-by-restart") return null;
   let blocks: ContentBlock[] | null = null;
-  try { blocks = JSON.parse(decodeCol(row.blocks) ?? "null") as ContentBlock[] | null; } catch { return false; }
+  try { blocks = JSON.parse(decodeCol(row.blocks) ?? "null") as ContentBlock[] | null; } catch { return null; }
   const cut = lastInterruptionIndex(blocks);
-  if (cut >= 0) return (blocks ?? []).slice(cut + 1).some(isProducedContent);
-  if (row.latency_ms != null) return true;
-  if (row.end_reason !== "done") return false;
-  return blocks?.length ? blocks.some(isProducedContent) : (decodeCol(row.content) ?? "").trim() !== "";
+  if (cut >= 0) return (blocks ?? []).slice(cut + 1).some(isProducedContent) ? "turn" : null;
+  if (row.latency_ms != null) return "turn";
+  if (row.end_reason !== "done") return null;
+  const holdsAnswer = blocks?.length ? blocks.some(isProducedContent) : (decodeCol(row.content) ?? "").trim() !== "";
+  return holdsAnswer ? "whole" : null;
 }
 
 /**
