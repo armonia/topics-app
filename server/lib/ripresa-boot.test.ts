@@ -714,29 +714,56 @@ describe("la catena dei riavvii ha un tetto", () => {
 
   /**
    * A CHAIN IN FLIGHT BEFORE THE COUNT EXISTED (migration 20260928170113). Its
-   * rows carry resend numbers and no count: the sweep goes on from the number
-   * on the row it judges, the banner a graceful shutdown leaves the cut answer
-   * with, neither at the cap nor from zero. A hard kill's fresh notice carries
-   * none and counts from zero, as the migration says.
+   * rows carry resend numbers the table never saw, and none of them may buy
+   * the chain more resends than main gave it. The sweep reads the number as
+   * the walk did: on the row it judges, or, on a row that carries none, on the
+   * row above it. A graceful shutdown leaves the number on the cut answer; a
+   * hard kill leaves a fresh notice under the answer that carries it; a copy
+   * of the message left unanswered hangs from the cut its resend was traced
+   * on. Each goes on from where it was, never from zero, and its free probes,
+   * which nothing counted, are spent: a probe into an API still down spends
+   * its attempt. In a chat the table has seen, the numbers on the rows are
+   * the table's: a message nothing resent starts from zero under any of them.
    */
-  test("a chain in flight before the count existed goes on from the number its row carries", async () => {
-    for (const [shape, expected] of [["graceful", 3], ["hard kill", 1]] as const) {
+  test("a chain in flight before the count existed goes on from the number its rows carry", async () => {
+    const tool = (): ContentBlock => ({ kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } }) as ContentBlock;
+    const apiCut = { kind: "error", text: "Turno interrotto: l'API di Claude non rispondeva più.", cause: "api-unavailable", at: new Date(Date.now() - 30_000).toISOString() } as ContentBlock;
+    const shapes = ["graceful", "hard kill", "copy left unanswered", "api still down", "new message, chat the count has seen"] as const;
+    const resent: Record<string, unknown[]> = {};
+    for (const shape of shapes) {
+      clearProviderHold(); resetProviderHoldStore();
       const db = freshDb();
-      const insertRow = (id: string, role: string, blocks: ContentBlock[] | null, parent: string) => db.run(
+      const insertRow = (id: string, role: string, blocks: ContentBlock[] | null, parent: string, agoMs = 30_000) => db.run(
         "INSERT INTO messages (id, session_key, role, content, blocks, partial, timestamp, sort_order, parent_id, branch_index) VALUES (?,?,?,?,?,0,?,?,?,0)",
-        [id, "topic:x", role, role === "user" ? MESSAGE : "", blocks ? JSON.stringify(blocks) : null, new Date().toISOString(), Number(id.replace(/\D/g, "")), parent],
+        [id, "topic:x", role, role === "user" ? MESSAGE : "", blocks ? JSON.stringify(blocks) : null, new Date(Date.now() - agoMs).toISOString(), Number(id.replace(/\D/g, "")), parent],
       );
-      const tool = (): ContentBlock => ({ kind: "tool", toolCall: { id: "t", name: "Bash", args: {}, status: "success" } }) as ContentBlock;
-      insertRow("a1", "assistant", [tool(), interrotto, { kind: "ripreso", attempt: 1 }], "u0");
+      const cut = shape === "api still down" ? apiCut : interrotto;
+      insertRow("a1", "assistant", [tool(), cut, { kind: "ripreso", attempt: 1 }], "u0");
       insertRow("u2", "user", null, "a1");
-      insertRow("a3", "assistant", [{ kind: "ripreso", attempt: 1 }, tool(), interrotto, { kind: "ripreso", attempt: 2 }], "u2");
+      insertRow("a3", "assistant", [{ kind: "ripreso", attempt: 1 }, tool(), cut, { kind: "ripreso", attempt: 2 }], "u2");
       insertRow("u4", "user", null, "a3");
-      insertRow("a5", "assistant", [{ kind: "ripreso", attempt: 2 }, tool(), ...(shape === "graceful" ? [interrotto] : [])], "u4");
-      if (shape === "hard kill") insertRow("n6", "assistant", [interrotto], "a5");
+      if (shape === "hard kill") {
+        insertRow("a5", "assistant", [{ kind: "ripreso", attempt: 2 }, tool()], "u4");
+        insertRow("n6", "assistant", [interrotto], "a5");
+      } else if (shape === "copy left unanswered") {
+        insertRow("a5", "assistant", [{ kind: "ripreso", attempt: 2 }, tool(), cut, { kind: "ripreso", attempt: 3 }], "u4");
+        insertRow("u6", "user", null, "a5", 5 * 60_000);
+      } else if (shape === "new message, chat the count has seen") {
+        recordResend(db, "topic:x", { messageId: "u0", attempts: 2, freeProbes: 0 });
+        noteResendCopy(db, "topic:x", "u0", "u4");
+        insertRow("a5", "assistant", [{ kind: "ripreso", attempt: 2 }, tool(), cut], "u4");
+        insertRow("u6", "user", null, "a5", 5 * 60_000);
+      } else {
+        insertRow("a5", "assistant", [{ kind: "ripreso", attempt: 2 }, tool(), cut], "u4");
+      }
       const calls: Array<Record<string, unknown>> = [];
       await quietly(() => riprendiTurniInterrotti(ctxOf(db), chatRoute(db, calls)));
-      expect(calls.map((c) => c.ripresa), shape).toEqual([expected]);
+      resent[shape] = calls.map((c) => c.ripresa);
     }
+    resetProviderHoldStore();
+    expect(resent).toEqual({
+      "graceful": [3], "hard kill": [3], "copy left unanswered": [4], "api still down": [3], "new message, chat the count has seen": [1],
+    });
   });
 });
 

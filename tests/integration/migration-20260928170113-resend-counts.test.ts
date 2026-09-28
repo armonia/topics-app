@@ -5,15 +5,16 @@
  *
  * The file itself, run against a synthetic database with the `messages` table
  * of 001 plus the columns the sweep reads, holding a chain in flight: the table appears empty
- * (nothing is backfilled, the sweep reads such a chain off the row it judges),
- * no message moves, and the statements `lib/resend-count.ts` runs work on it.
+ * (nothing is backfilled: the chat has no count, and the sweep reads such a
+ * chain off its rows), no message moves, and the statements
+ * `lib/resend-count.ts` runs work on it.
  */
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import * as fs from "node:fs";
 import path from "node:path";
 import { PROJECT_ROOT } from "./helpers";
-import { noteResendCopy, recordResend, resendChainOf } from "../../server/lib/resend-count";
+import { chatHasCounts, noteResendCopy, recordResend, resendChainOf } from "../../server/lib/resend-count";
 
 const read = (name: string) => fs.readFileSync(path.join(PROJECT_ROOT, "server/db/migrations", name), "utf-8");
 const MIGRATION_SQL = read("20260928170113-resend-counts.sql");
@@ -55,6 +56,7 @@ describe("migration 20260928170113: resend_counts", () => {
     db.run(MIGRATION_SQL);
     expect(db.prepare("SELECT * FROM resend_counts").all()).toEqual([]);
     expect(resendChainOf(db, SK, "u2")).toBeNull();
+    expect(chatHasCounts(db, SK)).toBe(false);
     expect(messages(db)).toEqual(before);
     db.close();
   });
@@ -64,6 +66,8 @@ describe("migration 20260928170113: resend_counts", () => {
     db.run(MIGRATION_SQL);
     recordResend(db, SK, { messageId: "u2", attempts: 2, freeProbes: 1 });
     expect(resendChainOf(db, SK, "u2")).toEqual({ messageId: "u2", attempts: 2, freeProbes: 1 });
+    // From its first counted resend on, the chat's numbers are the table's.
+    expect(chatHasCounts(db, SK)).toBe(true);
     // The route writes the resend's copy of the message, and the chain goes on from it.
     db.run("INSERT INTO messages (id, session_key, role, content, partial, timestamp, sort_order, parent_id) VALUES ('u4', ?, 'user', 'fai il deploy', 0, '2026-09-28', 4, 'a3')", [SK]);
     noteResendCopy(db, SK, "u2", "u4");

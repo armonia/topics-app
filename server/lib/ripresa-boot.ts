@@ -386,7 +386,7 @@ import { insertRestartNotification, restartNotificationFrame, threadChangedFrame
 import type { OutboundMessage } from "../../shared/ws-outbound";
 import { isBackgroundNoticeRow, rowsBack } from "./background-notice";
 import { lastApiAnswerMs, providerHold } from "./provider-hold";
-import { recordResend, resendChainOf, type ResendChain } from "./resend-count";
+import { chatHasCounts, recordResend, resendChainOf, type ResendChain } from "./resend-count";
 import { providerHoldKey } from "../../shared/provider-hold";
 
 /** A chat's last row, as the sweep reads it. */
@@ -533,6 +533,36 @@ function cardHold(db: Pick<Database, "query">, topicId: string): { bound: boolea
   } catch { return { bound: false, landed: false, inProgress: false }; }
 }
 
+/**
+ * THE COUNT OF A MESSAGE THE TABLE HAS NO ROW FOR (`resend_counts`, migration
+ * 20260928170113): the resend number on the row judged, the banner a resend
+ * opened the answer with (the goal continuation's too, which resends through
+ * the same route and keeps no count here). A message the person wrote
+ * carries none, and starts from zero.
+ *
+ * Every resend of this sweep writes its count in the transaction of its
+ * trace, so in a chat the table has never seen, the sweep's numbers on the
+ * rows were written before the table, by a chain in flight at deploy, and
+ * none of them may buy that chain more resends than main gave it. There the
+ * count is the one the walk read: on a row that carries no number, the one on
+ * the row above it (the cut answer a hard kill's fresh notice explains, the
+ * cut a copy of the message left unanswered was resent from). Its free probes
+ * were never counted, so none are left. In a chat the table has seen, the row
+ * above belongs to a counted chain, and a message with no count under it is a
+ * new one.
+ */
+function uncountedChain(db: Pick<Database, "query">, row: LastRow, blocks: ContentBlock[] | null, messageId: string): ResendChain {
+  let attempts = attemptsOnRow(blocks);
+  if (chatHasCounts(db, row.sk)) return { messageId, attempts, freeProbes: 0 };
+  if (attempts === 0) {
+    const above = db.query(
+      `SELECT p.blocks AS blocks FROM messages m JOIN messages p ON p.id = m.parent_id WHERE m.id = ? AND m.session_key = ?`,
+    ).get(row.id, row.sk) as { blocks: unknown } | undefined | null;
+    try { attempts = attemptsOnRow(JSON.parse(decodeCol(above?.blocks) ?? "null") as ContentBlock[] | null); } catch { attempts = 0; }
+  }
+  return { messageId, attempts, freeProbes: attempts > 0 ? MAX_FREE_PROBES : 0 };
+}
+
 /** La route della chat, iniettata: è la STESSA porta di un messaggio umano. */
 export type RouterChat = (
   req: Request, url: URL, path: string, method: string,
@@ -657,11 +687,7 @@ export async function riprendiTurniInterrotti(
         `SELECT id, content FROM messages WHERE session_key = ? AND role = 'user' ORDER BY rowid DESC LIMIT 1`,
       ).get(r.sk) as { id: string; content: unknown } | undefined | null;
       if (!lastUser) continue;
-      // No count: nothing resent it since the table exists. A chain in flight
-      // at deploy goes on from the number the judged row carries (migration
-      // 20260928170113-resend-counts.sql).
-      const chain = resendChainOf(ctx.db, r.sk, lastUser.id)
-        ?? { messageId: lastUser.id, attempts: attemptsOnRow(blocks), freeProbes: 0 };
+      const chain = resendChainOf(ctx.db, r.sk, lastUser.id) ?? uncountedChain(ctx.db, r, blocks, lastUser.id);
       const attempts = chain.attempts;
       const card = topic.id ? cardHold(ctx.db, topic.id) : { bound: false, landed: false, inProgress: false };
       const row: RigaDaValutare = {

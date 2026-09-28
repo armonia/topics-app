@@ -23,15 +23,15 @@
 --
 -- ROWS WRITTEN BEFORE THIS TABLE. Nothing is backfilled: the resend numbers sit
 -- in `messages.blocks`, compressed past 512 bytes, where SQL cannot read them.
--- A chain in flight at deploy has no row here, and the sweep takes its count
--- from the resend number on the row it judges (the banner on a resent answer,
--- the trace on a row it resent from), the number the walk read first: a
--- deploy is a reload, whose graceful shutdown writes the cut on the answer
--- itself, so the chain goes on from where it was, neither capped nor from
--- zero. A row that carries no number (a hard kill's fresh notice, a copy left
--- unanswered) counts from zero: that message gets at most MAX_RESUME_ATTEMPTS
--- more resends, once, inside the 24-hour window. Its free probes start from
--- zero too.
+-- A chain in flight at deploy has no row here, and no chat it lives in has
+-- one: every resend of the sweep since the table exists writes its count, so
+-- a chat with none has had no such resend since. There the sweep takes the
+-- count the walk read, and no more: the resend number on the row it judges (the banner on a
+-- resent answer, the trace on a row it resent from) or, on a row that carries
+-- none, on the row above it (the cut answer a hard kill's fresh notice
+-- explains, the cut a copy left unanswered was resent from). The chain goes
+-- on from where it was, neither capped nor from zero, and its free probes,
+-- which nothing counted, are taken as spent.
 CREATE TABLE IF NOT EXISTS resend_counts (
   message_id   TEXT PRIMARY KEY,
   session_key  TEXT NOT NULL,

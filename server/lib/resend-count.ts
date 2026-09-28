@@ -40,8 +40,9 @@ export interface ResendChain {
  * The chain whose next resend would send `lastUserId`, the chat's last user
  * row: the row keyed by it, or the one whose last copy it is. `null` when no
  * resend ever sent it, which is also every chain in flight before the table
- * existed (the caller's to read, see the migration). A chain whose last copy
- * was answered is over: a new one starts, keyed by that copy.
+ * existed (the caller's to read, see `chatHasCounts` and the migration). A
+ * chain whose last copy was answered is over: a new one starts, keyed by that
+ * copy.
  */
 export function resendChainOf(db: Pick<Database, "query">, sessionKey: string, lastUserId: string): ResendChain | null {
   const row = db.query(
@@ -52,6 +53,13 @@ export function resendChainOf(db: Pick<Database, "query">, sessionKey: string, l
   if (!row) return null;
   if (row.last_copy_id && answered(db, sessionKey, row.last_copy_id)) return { messageId: lastUserId, attempts: 0, freeProbes: 0 };
   return { messageId: row.message_id, attempts: row.attempts, freeProbes: row.free_probes };
+}
+
+/** Some resend of this chat was counted. Every resend of the sweep since the
+ *  table exists is, so a chat with none has had no such resend since: the
+ *  sweep's numbers its rows carry were written before the table. */
+export function chatHasCounts(db: Pick<Database, "query">, sessionKey: string): boolean {
+  return !!db.query(`SELECT 1 FROM resend_counts WHERE session_key = ? LIMIT 1`).get(sessionKey);
 }
 
 /** The turn opened for this copy of the message ended by itself. */
