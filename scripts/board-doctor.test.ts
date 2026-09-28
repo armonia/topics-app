@@ -116,10 +116,11 @@ describe("parseDbTimestamp", () => {
    * fuso va forzato qui dentro.
    */
   function withTz(tz: string, fn: () => void): void {
-    // Il fuso EFFETTIVO, non la variabile: sotto `bun test` TZ non e' impostato,
-    // e un `delete process.env.TZ` non torna a UTC, CONGELA il fuso sull'ultimo
-    // valore per il resto del processo e ignora le assegnazioni dopo (misurato,
-    // Bun 1.3.8). Col `delete` ogni file dopo questo girava in Europe/Rome.
+    // The EFFECTIVE zone, not the variable: under `bun test` TZ is unset, and a
+    // `delete process.env.TZ` does not go back to UTC, it FREEZES the zone on
+    // the last value for the rest of the process and ignores later assignments
+    // (measured, Bun 1.3.8). With the delete every file after this one ran in
+    // Europe/Rome.
     const before = Intl.DateTimeFormat().resolvedOptions().timeZone;
     process.env.TZ = tz;
     try { fn(); } finally { process.env.TZ = before; }
