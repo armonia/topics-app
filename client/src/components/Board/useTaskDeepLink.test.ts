@@ -12,6 +12,8 @@
  * @covers CHAT-CHANGES-01
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import * as React from 'react';
 import { mount, type Harness } from '../../test/reactHarness';
 import { useTaskDeepLink } from './useTaskDeepLink';
@@ -89,5 +91,21 @@ describe('useTaskDeepLink', () => {
     const current = drive(false);
     expect(current()).toEqual({ select: null, paneId: null });
     expect(listeners.get('topics:open-task')?.size ?? 0).toBe(0);
+  });
+});
+
+describe("the board's end", () => {
+  // The last link, board to drawer, is pinned on the source, as
+  // globalOrchestratorEntry.test.ts pins the board: mounting 2,000 lines of
+  // board to watch one prop pass is the e2e's job
+  // (chat-changed-files-task-range.spec.ts, which opens the drawer on the file).
+  // A board that kept a focus of its own, or stopped handing it over, would
+  // leave every test above green.
+  const board = readFileSync(join(import.meta.dir, 'KanbanBoardPane.tsx'), 'utf8');
+  const pin = (needle: string) => expect(board.includes(needle) ? needle : `MISSING: ${needle}`).toBe(needle);
+
+  test('the board takes the focus from this hook and hands it to the drawer', () => {
+    pin('const { pendingSelect, setPendingSelect, pendingPaneId, setPendingPaneId } = useTaskDeepLink(global);');
+    pin('focusPaneId={pendingPaneId ?? undefined}');
   });
 });
