@@ -55,6 +55,7 @@ import {
 import { clampMaxTokens } from "../../lib/native-parity";
 import { defaultLifecycleHooks } from "../../services/lifecycle-hooks";
 import { cancelled, stopCauseFromSignal, type StopCause, type TurnEndInfo } from "../stop-reason";
+import { nativeModelId } from "../../../shared/task-coding-models";
 
 /**
  * The model we start from when nobody asks for one.
@@ -159,14 +160,30 @@ const NO_WORKSPACE_NOTE =
  * Se un domani se ne aggiunge uno, si prova allo stesso modo prima di scriverlo.
  * The 5.5 family was probed on 2026-09-23 through runAgentTurn: 200 once the
  * user-agent follows the installed CLI (cli-user-agent.ts), 400 at 2.1.0.
+ *
+ * Today the guard is the Topics routing switch: `isTopicsModelServed`
+ * (shared/task-coding-models.ts) disables the switch for any model missing
+ * here, so a model Claude Code offers and this list lacks cannot be routed.
+ * Probed on 2026-09-28 through runAgentTurn, max_tokens 1, user-agent
+ * claude-cli/2.1.284, against the Claude Code catalog of that day:
+ * 200 for claude-fable-5-1, claude-opus-4-8, claude-opus-4-8[1m],
+ * claude-sonnet-5-5, claude-sonnet-5-5[1m] (added below) and claude-haiku-4-5
+ * (an alias of the dated id, see NATIVE_MODEL_ALIASES). Left out:
+ * claude-sonnet-4-6[1m] answered 429 "Usage credits are required for long
+ * context requests", claude-haiku-3-55 answered 404 not_found_error.
  */
 const MODELS = [
   "claude-opus-5-5[1m]",
   "claude-opus-5-5",
   "claude-opus-5[1m]",
   "claude-opus-5",
+  "claude-sonnet-5-5[1m]",
+  "claude-sonnet-5-5",
   "claude-sonnet-5",
+  "claude-fable-5-1",
   "claude-fable-5",
+  "claude-opus-4-8[1m]",
+  "claude-opus-4-8",
   "claude-opus-4-6",
   "claude-sonnet-4-6",
   "claude-haiku-4-5-20251001",
@@ -610,7 +627,7 @@ export class NativeProvider implements AIProvider {
       // altrimenti cambiare il modello in Impostazioni non ha effetto finche' il
       // server non riparte — che e' esattamente il difetto che `resolveClaudeCodeModel`
       // ha gia' pagato una volta per claude-code (vedi il suo commento).
-      const turnModel = session.model ?? resolveClaudeModel() ?? this.config.model ?? DEFAULT_MODEL;
+      const turnModel = nativeModelId(session.model ?? resolveClaudeModel() ?? this.config.model ?? DEFAULT_MODEL);
       // L'effort si rilegge a ogni turno, come l'autonomia: chi muove lo slider
       // se lo aspetta dal messaggio dopo, non dalla prossima chat.
       const turnEffort = resolveClaudeEffort(this.topicEffort(sessionKey));
@@ -764,7 +781,7 @@ export class NativeProvider implements AIProvider {
     let text = "";
     const out = await runAgentTurn(
       {
-        model: options?.model ?? this.config.model ?? DEFAULT_MODEL,
+        model: nativeModelId(options?.model ?? this.config.model ?? DEFAULT_MODEL),
         effort: options?.reasoningEffort,
         signal: options?.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
         history,
