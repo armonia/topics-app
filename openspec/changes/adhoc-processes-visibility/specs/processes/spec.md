@@ -14,7 +14,11 @@ non è installato di serie. Windows non ha una shell POSIX: lì il tool non
 viene offerto, il prompt di sistema non lo nomina e la route risponde 501.
 L'ambiente del comando è quello del CLI dell'agente (allowlist più blocklist
 di `server/lib/agent-env.ts`), non quello del server: il tool non dà
-all'agente niente che il suo `Bash` non abbia già.
+all'agente niente che il suo `Bash` non abbia già. E non gli toglie il recinto
+che quel `Bash` ha: quando la sessione è quella di una card della board, il
+comando riceve la stessa quota di core (`applyJobQuota`,
+`server/services/agent-job-quota.ts`: `CARGO_BUILD_JOBS`, `MAKEFLAGS` e gli
+shim di `cargo`/`make` che rileggono il numero vivo); una chat non ne riceve.
 
 La riga nel registro ha `source: "command"`, `scriptName` = `shellLabel(command)`
 (`processes.ts:775`), `command` intero, `projectPath` = radice del progetto
@@ -54,6 +58,12 @@ sola lettura» lo copre senza modifiche.
 - **GIVEN** il server con un segreto nel suo ambiente (`TOPICS_GOOGLE_CLIENT_SECRET`, `GEMINI_API_KEY`)
 - **WHEN** l'agente lancia `run_command` con `echo $TOPICS_GOOGLE_CLIENT_SECRET`
 - **THEN** il log stampa una riga vuota: il comando parte con l'ambiente ripulito del CLI dell'agente (`server/lib/agent-env.ts`), non con quello del server
+
+#### Scenario: il comando di una card ha la quota di core del suo Bash
+- **GIVEN** la sessione di una card in corso
+- **WHEN** l'agente lancia `run_command` con `echo "jobs=$CARGO_BUILD_JOBS make=$MAKEFLAGS"`
+- **THEN** il log stampa `jobs=N make=-jN`, la quota che riceve il `Bash` della stessa sessione
+- **AND** lo stesso comando da una chat stampa `jobs= make=`
 
 #### Scenario: il coordinatore globale non ha cartella
 - **GIVEN** la sessione del coordinatore globale della board

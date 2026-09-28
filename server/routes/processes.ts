@@ -28,6 +28,7 @@ import { commandArgv, confineCommandCwd, readExitCode } from "../lib/command-pro
 import { requestProcessExitWake, wakeDelivered, wakeOwedAtExit, WAKE_TAIL_LINES } from "../lib/process-exit-wake";
 import { isWatchedBySession } from "../lib/process-wait";
 import { agentBaseEnv } from "../lib/agent-env";
+import { applyJobQuota } from "../services/agent-job-quota";
 
 interface ScriptProcess {
   processId: string;
@@ -767,21 +768,23 @@ function settleWakeTakenByWait(sp: ScriptProcess, sessionKey: string, db: AppCon
  */
 function startCommandProcess(o: {
   projectPath: string; cwd: string; command: string;
-  sessionKey: string; topicId: string | null; wake: boolean;
+  sessionKey: string; topicId: string | null; wake: boolean; db: AppContext["db"];
 }): { processId: string; scriptName: string; pid: number | null; startedAt: string; wake: boolean } | null {
   const processId = crypto.randomUUID();
   const argv = commandArgv(o.command, exitPathOf(processId));
   if (!argv) return null; // no POSIX shell here (Windows)
+  // The environment of the agent's own Bash, not the server's: its secrets
+  // would reach the log, the panel and the wake row (`lib/agent-env.ts`).
+  const env = augmentEnv(agentBaseEnv(), { FORCE_COLOR: "0", NO_COLOR: "1" });
+  // And the core quota that Bash gets when the session is a board card's
+  // (`providers/claude-code.ts`): the board sends its builds, tests and
+  // installs here. A chat's session gets none, and `env` stays as it is.
+  applyJobQuota(o.db, o.sessionKey, env);
   const logPath = logPathOf(processId);
   const fd = openSync(logPath, "a");
   let proc: ReturnType<typeof Bun.spawn>;
   try {
-    proc = Bun.spawn(argv, {
-      cwd: o.cwd, stdin: "ignore", stdout: fd, stderr: fd, detached: true,
-      // The environment of the agent's own Bash, not the server's: its secrets
-      // would reach the log, the panel and the wake row (`lib/agent-env.ts`).
-      env: augmentEnv(agentBaseEnv(), { FORCE_COLOR: "0", NO_COLOR: "1" }),
-    });
+    proc = Bun.spawn(argv, { cwd: o.cwd, stdin: "ignore", stdout: fd, stderr: fd, detached: true, env });
   } finally {
     closeSync(fd);
   }
@@ -2009,7 +2012,7 @@ export function createProcessesRouter(ctx: AppContext): RouteHandler {
           const started = startCommandProcess({
             projectPath: r.path, cwd, command, sessionKey,
             topicId: ctx.getTopicBySessionKey(sessionKey)?.id ?? null,
-            wake: body?.wake !== false,
+            wake: body?.wake !== false, db: ctx.db,
           });
           if (!started) return json({ error: "run_command needs a POSIX shell, and this system has none" }, 501);
           return json(started);

@@ -11,6 +11,7 @@ Prima di tutto: `grep -qx 'status: approved' openspec/changes/adhoc-processes-vi
 - [x] 2.2 Tail del file per righe `command` e shell con file; `appendOutput` non riscrive il log per quelle righe; ripresa del tail in `loadState`.
 - [x] 2.3 Route `POST /api/sessions/:sessionKey/commands/run` con cwd confinata; `finishCommand` unico per uscita, riadozione e stop.
 - [x] 2.4 `topics-mcp-server.ts`: tool `run_command` + `callRunCommand` + voce nel dispatcher (`:2696`); test in `topics-mcp-server.test.ts` (POST `{command, cwd}`, ritorna `processId`).
+- [x] 2.5 Il comando di una card riceve la quota di core del suo `Bash` (`applyJobQuota` sullo spawn di `startCommandProcess`); una chat no. Caso in `process-run-command.test.ts`.
 
 ## 3. Sveglia (CMDRUN-04)
 - [x] 3.1 `shared/types.ts`: kind `process-exit`; `MACHINE_ROW_KINDS` e `MACHINE_KINDS`; `userRowMarks` accetta l'origine `processExit`; il client la disegna come riga di servizio (i18n it/en).

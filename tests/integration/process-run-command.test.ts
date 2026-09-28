@@ -8,7 +8,7 @@
  * (`helpers/process-registry-life.ts`): the registry is module state and its
  * boot is its import, so that is what a restart is.
  *
- * @covers CMDRUN-03, CMDRUN-04
+ * @covers CMDRUN-01, CMDRUN-03, CMDRUN-04
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -24,6 +24,10 @@ const ROOT = testTmpDir("process-run-command");
 // Before the registry is imported: it fixes its state folder at import.
 setupTestDataDir(join(ROOT, "data"));
 const PROJECT = realpathSync((mkdirSync(join(ROOT, "project"), { recursive: true }), join(ROOT, "project")));
+// The live core quota of a card's command writes its number and its shims here,
+// not under the home (`agent-job-quota.ts`).
+const previousQuotaDir = process.env.TOPICS_JOB_QUOTA_DIR;
+process.env.TOPICS_JOB_QUOTA_DIR = join(ROOT, "job-quota");
 
 const { commandWakeState, createProcessesRouter, logPathOf } = await import("../../server/routes/processes");
 const { startProcessExitWakes, processExitWakesIdle } = await import("../../server/lib/process-exit-wake");
@@ -34,6 +38,8 @@ const { TopicsRoutingIncompatibleError } = await import("../../server/providers/
 
 registerProvider({ type: "openai", apiKey: "" } as never);
 afterAll(async () => {
+  if (previousQuotaDir === undefined) delete process.env.TOPICS_JOB_QUOTA_DIR;
+  else process.env.TOPICS_JOB_QUOTA_DIR = previousQuotaDir;
   try { removeProvider("openai"); } catch { /* already gone */ }
   const { closeDatabase } = await import("../../server/db");
   closeDatabase();
@@ -485,6 +491,38 @@ describe("a board card whose agent ended its turn on a command", () => {
       dispatcher.shutdown();
       if (bench.ctx.activeStreams.has(topic.sessionKey)) await finishTurn("closing");
       await processExitWakesIdle();
+    }
+  });
+});
+
+// A card's agent is told to run builds, tests and installs with run_command
+// (`longCommandsRule`). Spawned with the bare environment of the agent, they
+// escaped the core quota its Bash gets (`services/agent-job-quota.ts`): a
+// cargo build in a card took every core beside the other cards.
+describe("a command's core quota", () => {
+  test("a board card's command gets the quota its Bash gets; a chat's command gets none", async () => {
+    const card = newTopic({ id: "quota-card-topic", sessionKey: "topic:quotacard", archived: true });
+    const chat = newTopic();
+    const now = new Date().toISOString();
+    bench.ctx.db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, dispatch_attempts, assigned_topic_id, dispatch_state)
+       VALUES ('card-quota', 'board-quota', 'build it', 'in_progress', ?, ?, 1, ?, 'working')`,
+      [now, now, card.id],
+    );
+    const printed = async (topic: Topic) => {
+      const started = await call(bench.processes, "POST", `/api/sessions/${encodeURIComponent(topic.sessionKey)}/commands/run`, {
+        command: 'echo "jobs=$CARGO_BUILD_JOBS make=$MAKEFLAGS"', wake: false,
+      });
+      const { processId } = (await started.json()) as { processId: string };
+      await until(async () => (await scriptRow(processId))?.status !== "running");
+      return ((await (await call(bench.processes, "GET", `/api/scripts/${processId}/output`)).json()) as { output: string }).output.trim();
+    };
+    try {
+      expect(await printed(card)).toMatch(/^jobs=([1-9]\d*) make=-j\1$/);
+      expect(await printed(chat)).toBe("jobs= make=");
+    } finally {
+      // Not left in progress: the dispatcher of another test would take it.
+      bench.ctx.db.run("DELETE FROM tasks WHERE id = 'card-quota'");
     }
   });
 });
