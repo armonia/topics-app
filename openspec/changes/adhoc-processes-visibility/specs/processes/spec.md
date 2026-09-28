@@ -167,8 +167,10 @@ Per il ciclo dei goal (`server/services/goal-loop.ts`) un comando che deve
 ancora una sveglia alla sessione è lavoro in background come quello del CLI
 (`backgroundOfTurn`): `running` finché gira, `wake-queued` da quando è uscito
 finché il turno aperto dalla sua riga non è finito, che quel turno occupi o no
-`activeStreams`. Il turno che finisce su di lui aspetta invece di essere
-giudicato e spinto avanti; il turno della sveglia non aspetta sé stesso e conta
+`activeStreams`. Il turno è finito quando il suo stream si chiude, o quando la
+sessione è libera da 20 s e lo stream tace ancora (la stessa grazia del lettore
+headless, per lo stesso stream che una volta non si è chiuso). Il turno che
+finisce su di lui aspetta invece di essere giudicato e spinto avanti; il turno della sveglia non aspetta sé stesso e conta
 come notizia (`woken`), cioè come progresso.
 
 Lo stesso vale per il dispatcher della board (`server/services/task-dispatcher.ts`):
@@ -230,6 +232,11 @@ dispatcher qui sopra è la rete per l'agente che chiude il turno lo stesso.
 - **WHEN** quel turno finisce (fermato, sostituito) con la richiesta ancora aperta, e poi il comando esce
 - **THEN** la topic riceve la riga `process-exit`
 - **AND** sul runtime nativo il turno fermato esce subito dall'attesa e ne chiude la richiesta
+
+#### Scenario: lo stream del turno della sveglia non si chiude
+- **GIVEN** il turno aperto dalla sveglia finito, e il suo stream ancora aperto
+- **WHEN** la sessione resta libera per la grazia
+- **THEN** la sveglia è chiusa come consegnata e non tiene più il goal né la card
 
 #### Scenario: Stop dal pannello non sveglia
 - **WHEN** l'utente ferma il comando dal pannello

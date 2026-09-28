@@ -80,7 +80,18 @@ export interface ProcessExitWakeDeps {
   log?: (msg: string) => void;
   /** Between two looks at a busy session (ms). */
   pollMs?: number;
+  /** How long a free session's silent stream is still trusted to close (ms). */
+  endGraceMs?: number;
 }
+
+/**
+ * The end of the wake's turn is read from the end of its stream, and a stream
+ * can stay open after the turn: on 04/09 (c8039b35) this same in-process route
+ * finalized a turn and its body never closed. The session free for this long
+ * with the stream still open means the turn is over (`HEADLESS_END_GRACE_MS`
+ * in `server.ts` is the same grace for the same route).
+ */
+const WAKE_END_GRACE_MS = 20_000;
 
 /** How many lines of output the wake carries. */
 export const WAKE_TAIL_LINES = 20;
@@ -187,11 +198,25 @@ export async function deliverProcessExit(
     }
     // Drained to the end: the next wake of the same topic waits for this turn,
     // and the wake is settled only after it.
-    if (resp.body) {
-      const reader = resp.body.getReader();
-      while (!(await reader.read()).done) { /* the turn is still running */ }
-    }
+    if (resp.body) await drainTurn(deps, topic.sessionKey, resp.body.getReader(), pollMs);
     return "sent";
+  }
+}
+
+/** Until the stream of the wake's turn ends, or the session has been free for the grace. */
+async function drainTurn(
+  deps: ProcessExitWakeDeps, sessionKey: string, reader: ReadableStreamDefaultReader<Uint8Array>, pollMs: number,
+): Promise<void> {
+  const graceMs = deps.endGraceMs ?? WAKE_END_GRACE_MS;
+  let read = reader.read();
+  let freeSince: number | null = null;
+  for (;;) {
+    const r = await Promise.race([read, sleep(pollMs).then(() => null)]);
+    if (r?.done) return;
+    if (r) read = reader.read();
+    if (deps.isBusy(sessionKey)) { freeSince = null; continue; }
+    freeSince ??= Date.now();
+    if (Date.now() - freeSince >= graceMs) { void reader.cancel().catch(() => {}); return; }
   }
 }
 

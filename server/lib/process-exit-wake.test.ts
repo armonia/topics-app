@@ -188,6 +188,26 @@ describe("deliverProcessExit", () => {
     expect(searches).toBe(1);
   });
 
+  // The wake is settled when its turn is over, read from the end of the
+  // stream. On 04/09 (c8039b35) the same in-process route finalized a turn and
+  // its body never closed: the wake stayed «queued», and a card waited on it
+  // for the two-hour cap. Once the session has been free for the grace, the
+  // turn is over even if its stream says nothing.
+  test("a turn that is over settles the wake even when its stream never closes", async () => {
+    let checks = 0;
+    let closed = false;
+    const { d } = deps({
+      // Free before the send, busy while the wake's turn runs, free after it.
+      isBusy: () => { checks++; return checks > 1 && checks <= 4; },
+      endGraceMs: 30,
+      route: async () => new Response(new ReadableStream({ cancel() { closed = true; } }), { status: 200 }),
+    });
+    const outcome = await Promise.race([deliverProcessExit(d, FACTS), Bun.sleep(2000).then(() => "still reading")]);
+    expect(outcome).toBe("sent");
+    expect(checks).toBeGreaterThan(4);
+    expect(closed).toBe(true);
+  });
+
   test("once: a row already there means nothing is sent", async () => {
     const { d, bodies, db } = deps({});
     db.run("INSERT INTO messages VALUES ('s-a', 'user', 'x', ?)", [JSON.stringify([{ kind: "process-exit", processId: "p-1", exitCode: 3, label: "x" }])]);
