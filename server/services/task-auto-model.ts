@@ -1,4 +1,5 @@
 import {
+  nativeModelId,
   taskModelSelection,
   taskProviderForModel,
   topicsCatalogPending,
@@ -96,11 +97,12 @@ export async function pickAutomaticTaskModel(
       && CLAUDE_TASK_RUNTIMES.has(p.name) && !isHeld(p.name));
     if (discovering) throw new TaskProviderPendingError(discovering.name);
   }
-  // The catalogs disagree on ids (the CLI lists Haiku by its alias, the engine
-  // by its dated id), so offering the targets alone dropped whole tiers the
-  // engine serves, and with Haiku the cheap classifier.
+  // Offering the targets alone dropped whole tiers the engine serves, and with
+  // Haiku the cheap classifier. A target covers an engine entry under its
+  // alias too (the CLI lists Haiku as `claude-haiku-4-5`, the engine by its
+  // dated id), or the same model would sit on the ballot twice.
   const models = viaEngine
-    ? [...targets, ...routable.filter(model => model.provider === 'topics' && !targets.some(target => target.slug === model.slug))]
+    ? [...targets, ...routable.filter(model => model.provider === 'topics' && !targets.some(target => nativeModelId(target.slug) === model.slug))]
     : routable;
   // The switch emptied a catalog that had runtimes, so the engine is not
   // ready: the reason is the switch, not the effort. Without this the card
@@ -116,8 +118,13 @@ export async function pickAutomaticTaskModel(
   const plan = await pickCodingTaskPlan(task, {
     models, requiredEffort: deps.requiredEffort,
     complete: async (prompt, options, providerName) => {
-      const provider = deps.getProvider(providerName);
-      if (!provider?.connected) throw new Error(`${providerName} is disconnected`);
+      // With the switch ON the engine runs every Claude Code target, the
+      // classifier too: judged on the target, each Automatic dispatch spawned a
+      // `claude -p`. Every classifier model here passed the routing switch, so
+      // the engine serves it (an alias under its catalog id).
+      const runtime = viaEngine && providerName === 'claude-code' ? 'topics' : providerName;
+      const provider = deps.getProvider(runtime);
+      if (!provider?.connected) throw new Error(`${runtime} is disconnected`);
       return (await provider.complete([{ role: 'user', content: prompt }], options)).content ?? '';
     },
     log: deps.log,

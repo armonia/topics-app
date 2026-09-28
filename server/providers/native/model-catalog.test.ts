@@ -20,9 +20,14 @@
  * «il catalogo e il codice che esegue sono d'accordo?».
   * @covers RT-06
  */
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { NativeProvider, DEFAULT_MODEL } from "./provider";
 import { splitLongWindow } from "./long-window";
+import { topicsRoutingAvailable } from "../../../shared/task-coding-models";
+import type { ProvidersSnapshot } from "../../../shared/types";
 
 const provider = new NativeProvider({ type: "native" });
 
@@ -78,5 +83,78 @@ describe("catalogo dei modelli del runtime nativo", () => {
     const oldCatalogue = ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"];
     const lunghi = oldCatalogue.filter((m) => splitLongWindow(m).longWindow);
     expect(lunghi.length, "il catalogo 4-6 non aveva nessuna finestra lunga: è esattamente il caso da bocciare").toBe(0);
+  });
+});
+
+/** The Claude models the live Claude Code catalog offered on 2026-09-28. */
+const CLAUDE_CODE_OFFER = [
+  "claude-opus-5-5", "claude-opus-5-5[1m]", "claude-opus-4-8", "claude-opus-4-8[1m]",
+  "claude-sonnet-5-5", "claude-sonnet-5-5[1m]", "claude-sonnet-4-6", "claude-sonnet-4-6[1m]",
+  "claude-haiku-4-5", "claude-haiku-3-55", "claude-fable-5-1",
+];
+/** The ids of that offer that did NOT answer 200 on the 2026-09-28 probe (see MODELS). */
+const NOT_SERVED = ["claude-sonnet-4-6[1m]", "claude-haiku-3-55"];
+
+function routingSnapshot(nativeModels: string[]): ProvidersSnapshot {
+  const entry = (name: string, models: string[]) =>
+    ({ name, models, status: "ready" as const, isDefault: false, requirements: [], fetchedAt: "2026-09-28T00:00:00Z" });
+  return {
+    providers: [entry("topics", nativeModels), entry("claude-code", CLAUDE_CODE_OFFER)],
+    defaultProvider: "claude-code",
+    generatedAt: "2026-09-28T00:00:00Z",
+  };
+}
+
+describe("the routing switch reads this catalog", () => {
+  test("every Claude Code model the engine answered 200 for can be routed through Topics", async () => {
+    // The switch was disabled for Fable 5.1, Opus 4.8 and Haiku 4.5 by its
+    // short name: the catalog lacked the first two, and knew Haiku only by
+    // its dated id.
+    const snapshot = routingSnapshot(await provider.listModels());
+    for (const model of CLAUDE_CODE_OFFER) {
+      expect(topicsRoutingAvailable("claude-code", model, snapshot), model).toBe(!NOT_SERVED.includes(model));
+    }
+  });
+});
+
+describe("the engine runs an alias under its catalog id", () => {
+  const realHome = process.env.HOME;
+  const realFetch = globalThis.fetch;
+  let home: string;
+
+  beforeAll(() => {
+    // A fake but fresh token: the turn never reaches the refresh path or the network.
+    home = mkdtempSync(join(tmpdir(), "native-alias-home-"));
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(
+      join(home, ".claude", ".credentials.json"),
+      JSON.stringify({ claudeAiOauth: { accessToken: "fake-but-fresh", refreshToken: "r", expiresAt: Date.now() + 3_600_000 } }),
+    );
+    process.env.HOME = home;
+  });
+
+  afterAll(() => {
+    globalThis.fetch = realFetch;
+    if (realHome === undefined) delete process.env.HOME; else process.env.HOME = realHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test("a turn asked for claude-haiku-4-5 sends the dated id the catalog lists", async () => {
+    const sent: string[] = [];
+    const done = [
+      { type: "message_start", message: { usage: { input_tokens: 1 } } },
+      { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } },
+    ].map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      if (String(url).includes("/v1/messages")) sent.push(JSON.parse(String(init.body)).model);
+      return new Response(done, { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const engine = new NativeProvider({ type: "native", defaultWorkspace: home });
+    await engine.sendChat("topic:alias-probe", "hi", {
+      onTextDelta: () => {}, onToolStart: () => {}, onToolResult: () => {}, onDone: () => {}, onError: () => {},
+    }, { model: "claude-haiku-4-5" });
+
+    expect(sent).toEqual(["claude-haiku-4-5-20251001"]);
   });
 });

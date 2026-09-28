@@ -117,9 +117,24 @@ export function availableTaskModels(snapshot?: ProvidersSnapshot | null): string
   return [...models];
 }
 
+/** Names another runtime offers for a model the native engine lists under a
+ * different id. The Claude Code picker says `claude-haiku-4-5`, the engine's
+ * probed catalog says `claude-haiku-4-5-20251001`: without this table the
+ * routing switch called the same model unroutable. The routing rule and the
+ * engine both read it (`isTopicsModelServed`, and the engine's turn model), so
+ * an alias added here is served and executed under the catalog id in one step. */
+const NATIVE_MODEL_ALIASES: Record<string, string> = {
+  'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
+};
+
+/** The id the native engine runs for `model`: its catalog id when `model` is an alias. */
+export function nativeModelId(model: string): string {
+  return NATIVE_MODEL_ALIASES[model] ?? model;
+}
+
 /** AICTRL-05 #4: "il motore serve QUESTO modello ora", un helper solo condiviso col lato chat invece di due copie che derivano. `nativeModels` assente = non verificabile, e la regola resta permissiva: mai piu' severa per un dato che manca. allow-italian: la scelta su cosa fare quando il dato manca */
 export function isTopicsModelServed(model: string | null | undefined, nativeModels: string[] | undefined): boolean {
-  return !model || !nativeModels || nativeModels.includes(model);
+  return !model || !nativeModels || nativeModels.includes(nativeModelId(model));
 }
 
 /** A provider is reachable through the Topics native engine only if that
@@ -218,7 +233,7 @@ export function taskProviderForModel(
   // Codex default — the switch is a routing decision, not a suggestion.
   if (topicsRouting) {
     const native = ready.find((entry) => entry.name === 'topics');
-    if (native && (!selection.model || native.models.includes(selection.model))) return 'topics';
+    if (native && isTopicsModelServed(selection.model, native.models)) return 'topics';
     if (topicsCatalogPending(snapshot)) throw new TaskProviderPendingError('topics');
     throw new TopicsRoutingUnavailableError(null, selection.model ?? null);
   }

@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
-test('native classification passes its model and bounded abort through to the HTTP request', async () => {
+test('native classification sends its model under the catalog id, with the bounded abort, to the HTTP request', async () => {
   const root = mkdtempSync(join(tmpdir(), 'native-completion-deadline-'));
   mkdirSync(join(root, '.claude'));
   writeFileSync(join(root, '.claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: {
@@ -32,6 +32,6 @@ test('native classification passes its model and bounded abort through to the HT
     const [code, out, error] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
     expect(code, error).toBe(0);
     const result = JSON.parse(out.trim().split('\n').at(-1)!);
-    expect(result).toEqual({ calls: 1, aborted: true, model: 'claude-haiku-4-5' });
+    expect(result).toEqual({ calls: 1, aborted: true, model: 'claude-haiku-4-5-20251001' });
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

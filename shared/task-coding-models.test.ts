@@ -76,6 +76,14 @@ describe('task coding models', () => {
     expect(taskProviderForModel('topics:auto', ready, true)).toBe('topics');
   });
 
+  // A task saved before provider prefixes names Haiku as the CLI does; the
+  // engine lists it by its dated id. The switch threw "Topics routing cannot
+  // dispatch" for a model the engine runs.
+  test('with the switch ON a bare Claude Code alias routes to the engine that lists its dated id', () => {
+    const ready = snapshot([entry('topics', ['claude-haiku-4-5-20251001'])]);
+    expect(taskProviderForModel('claude-haiku-4-5', ready, true)).toBe('topics');
+  });
+
   test('requisito #4: isTopicsModelServed e\' l\'unico helper del mezzo modello, condiviso col lato chat', () => {
     // Assente = motore non ancora raggiunto: permissivo, mai piu' severo per un dato che manca. allow-italian: la scelta su cosa fare quando la lista manca
     expect(isTopicsModelServed('claude-opus-5', undefined)).toBe(true);
