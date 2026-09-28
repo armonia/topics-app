@@ -5,7 +5,10 @@
  * @covers KANBAN-01, KANBAN-07
  */
 import { test, expect, describe } from 'bun:test';
-import { blockedByChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, isUnfinishedReview, nothingDeliveredWins, systemDeliveryChip, TASK_STATUSES, parseQuestionBlock, waitingOnThisChip, type BoardTask } from './board';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { blockedByChip, reopenedChip, boardIdForPath, diffTotals, hasCodeQuestion, isUnfinishedReview, nothingDeliveredWins, systemDeliveryChip, TASK_STATUSES, parseQuestionBlock, taskDetailBump, waitingOnThisChip, type BoardTask } from './board';
+import { deriveQueueReason } from '../../../shared/board';
 import { t } from './i18n';
 
 // The chip builders take the words from the catalogue now, so the test hands
@@ -259,6 +262,46 @@ describe('hasCodeQuestion', () => {
   test('review e done hanno SEMPRE la domanda, anche senza topic', () => {
     expect(hasCodeQuestion(t({ status: 'review' }))).toBe(true);
     expect(hasCodeQuestion(t({ status: 'done' }))).toBe(true);
+  });
+});
+
+/**
+ * The signal that makes the open drawer re-read its card moves when the reason
+ * changes, not when only the clock does. A short deferral's countdown (`{min}`)
+ * is recomputed from `now` at every read of the list (one a minute), and every
+ * drawer re-read costs the task GET, the attempts GET and the diff: up to 90 of
+ * them on one deferred card.
+ */
+describe('taskDetailBump', () => {
+  const updatedAt = '2026-09-27T10:00:00.000Z';
+  const until = '2026-09-27T10:30:00.000Z';
+  const deferred = (now: string) => deriveQueueReason(
+    {
+      status: 'todo', parentTaskId: null, dispatchState: 'queued', dispatchAttempts: 1,
+      dispatchDeferredUntil: until, dispatchError: 'CI in corso', blockedByTaskId: null, blockedBy: null,
+    },
+    { now, autoDispatch: true, retryCap: 3, ahead: 0, parentStatus: null, projectless: false, openSubtasks: 0 },
+  );
+
+  test('a deferred card re-read a minute later keeps the signal: only its countdown moved', () => {
+    const early = deferred('2026-09-27T10:05:00.000Z');
+    const later = deferred('2026-09-27T10:06:00.000Z');
+    expect(early?.params?.min).not.toBe(later?.params?.min);
+    expect(taskDetailBump({ updatedAt, queueReason: later })).toBe(taskDetailBump({ updatedAt, queueReason: early }));
+  });
+
+  test('another reason, or other words for the same one, moves it', () => {
+    const early = deferred('2026-09-27T10:05:00.000Z')!;
+    const bump = taskDetailBump({ updatedAt, queueReason: early });
+    expect(taskDetailBump({ updatedAt, queueReason: { ...early, params: { ...early.params, reason: 'review' } } })).not.toBe(bump);
+    expect(taskDetailBump({ updatedAt, queueReason: { kind: 'slot', tone: 'queued', key: 'board.queue.slot.first' } })).not.toBe(bump);
+  });
+
+  // KanbanBoardPane does not mount under bun (store, layout, the `@/` alias):
+  // the fact is structural, so the structure is read, as `kanbanTopbar.test.ts` does.
+  test('the board hands the drawer this signal, not the bare updatedAt', () => {
+    const pane = readFileSync(join(import.meta.dir, '../components/Board/KanbanBoardPane.tsx'), 'utf8');
+    expect(pane).toContain('bump={taskDetailBump(selected)}');
   });
 });
 
