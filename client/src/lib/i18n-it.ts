@@ -389,7 +389,12 @@ const IT: Dict = {
   'diff.cutHere': "…il patch si interrompe qui: oltre c'è il tetto del payload, non la fine del file.",
   'diff.noChanges': 'Nessuna modifica.',
   'diff.pendingNotes': '{n} note in sospeso',
-  'diff.truncated': 'Diff troncato (molto grande){rest}: apri il progetto per vederlo intero.',
+  'diff.before': 'Prima',
+  'diff.after': 'Dopo',
+  'diff.preview': 'Anteprima',
+  'diff.viewDiff': 'Diff',
+  'diff.fullFile': 'File intero',
+  'diff.previewUnavailable': 'Anteprima non disponibile',
   'diff.truncated.loadable': 'Diff troncato (molto grande){rest}: apri un file per caricarne il diff.',
   'diff.truncated.countOnly': ': di {n} file resta solo il conteggio',
 

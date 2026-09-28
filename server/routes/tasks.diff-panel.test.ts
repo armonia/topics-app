@@ -7,11 +7,11 @@
  *    land, quando il worktree è stato potato;
  *  · quando un diff non c'è, il `code` dice PERCHÉ — «verificato: nessun codice»,
  *    «non ricostruibile» e «non dispatchato» erano lo stesso silenzio.
-  * @covers KANBAN-43
+  * @covers KANBAN-43, DIFFPV-01, DIFFPV-04, DIFFPV-05
  */
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppContext } from "../types";
@@ -83,6 +83,21 @@ function matchRoute(pathname: string, pattern: string): Record<string, string> |
 
 type Worktree = { id: string; mode: string; absPath: string; branchName: string } | null;
 
+/** The tasks router over one repository, with the card's worktree read at call time. */
+function routerFor(db: Database, repo: string, worktree: () => Worktree) {
+  const ctx = {
+    db,
+    json: (data: any, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } }),
+    readJSON: (req: Request) => req.json(),
+    matchRoute,
+    broadcastToAll: () => {},
+    getTopicById: (id: string) => ({ id, name: id, projectPath: repo, worktreeId: worktree()?.id }),
+    getTopicBySessionKey: () => null,
+    worktreeStore: { get: (id: string) => { const wt = worktree(); return wt && wt.id === id ? wt : null; } },
+  } as unknown as AppContext;
+  return createTasksRouter(ctx, undefined, { listProjectDirs: () => [repo] });
+}
+
 function call(router: any, path: string) {
   const req = new Request(`http://x${path}`, { method: "GET" });
   return router(req, new URL(req.url), new URL(req.url).pathname, "GET") as Promise<Response | null>;
@@ -123,17 +138,7 @@ describe("GET /tasks/:id/diff", () => {
     await commit("base.txt", "base\n", "base");
 
     db = freshDb();
-    const ctx = {
-      db,
-      json: (data: any, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } }),
-      readJSON: (req: Request) => req.json(),
-      matchRoute,
-      broadcastToAll: () => {},
-      getTopicById: (id: string) => ({ id, name: id, projectPath: repo, worktreeId: worktree?.id }),
-      getTopicBySessionKey: () => null,
-      worktreeStore: { get: (id: string) => (worktree && worktree.id === id ? worktree : null) },
-    } as unknown as AppContext;
-    router = createTasksRouter(ctx, undefined, { listProjectDirs: () => [repo] });
+    router = routerFor(db, repo, () => worktree);
   });
 
   afterEach(() => rmSync(repo, { recursive: true, force: true }));
@@ -247,17 +252,7 @@ describe("GET /tasks/:id/diff?file=", () => {
        VALUES ('T', ?, 'la card', 'review', ?, ?, 'topic-1')`,
       [pid, now, now],
     );
-    const ctx = {
-      db,
-      json: (data: any, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } }),
-      readJSON: (req: Request) => req.json(),
-      matchRoute,
-      broadcastToAll: () => {},
-      getTopicById: (id: string) => ({ id, name: id, projectPath: repo, worktreeId: worktree?.id }),
-      getTopicBySessionKey: () => null,
-      worktreeStore: { get: (id: string) => (worktree && worktree.id === id ? worktree : null) },
-    } as unknown as AppContext;
-    router = createTasksRouter(ctx, undefined, { listProjectDirs: () => [repo] });
+    router = routerFor(db, repo, () => worktree);
   });
 
   afterEach(() => rmSync(repo, { recursive: true, force: true }));
@@ -293,5 +288,262 @@ describe("GET /tasks/:id/diff?file=", () => {
     // `*` read as a pathspec would be the whole diff again.
     const star = await (await call(router, `/api/boards/${pid}/tasks/T/diff?file=${encodeURIComponent("*")}`))!.json();
     expect(star.patch).toBe("");
+  });
+});
+
+/** A real 1x1 PNG: its first byte (0x89) is not UTF-8, so any `.text()` on the way corrupts it. */
+const PNG_A = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+/** Different bytes behind the same PNG header: the After of a modified picture. */
+const PNG_B = Buffer.concat([PNG_A, Buffer.from([0x00, 0xff, 0x10])]);
+const SHA = /^[0-9a-f]{40}$/;
+
+async function gitBytes(cwd: string, args: string[]): Promise<Buffer> {
+  const p = Bun.spawn(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", env: ENV });
+  const out = Buffer.from(await new Response(p.stdout).arrayBuffer());
+  await p.exited;
+  return out;
+}
+
+/**
+ * The panel names two revisions (`revs`) and reads a file's bytes at one of
+ * them. What is pinned: the SHAs are full and are the ones the range compares,
+ * a picture arrives byte for byte, and the query string cannot read anything
+ * the bundle does not name: another revision, a path out of the tree, a
+ * symlink out of the worktree, a file with no preview.
+ */
+describe("GET /tasks/:id/diff: revs and ?file=&blob=", () => {
+  let repo: string, outside: string, db: Database, router: any, pid: string;
+  let worktree: Worktree;
+  const url = (q: string) => `/api/boards/${pid}/tasks/T/diff${q}`;
+  const blobOf = (path: string, rev: string) => url(`?file=${encodeURIComponent(path)}&blob=${encodeURIComponent(rev)}`);
+
+  beforeEach(async () => {
+    repo = realpathSync(mkdtempSync(join(tmpdir(), "diffblob-")));
+    outside = realpathSync(mkdtempSync(join(tmpdir(), "diffblob-outside-")));
+    pid = projectIdForPath(repo);
+    await git(repo, ["init", "-q", "-b", "main"]);
+    await git(repo, ["config", "user.email", "t@t.t"]);
+    await git(repo, ["config", "user.name", "t"]);
+    await git(repo, ["config", "commit.gpgsign", "false"]);
+    mkdirSync(join(repo, "assets"));
+    writeFileSync(join(repo, "assets", "logo.png"), PNG_A);
+    writeFileSync(join(repo, ".env"), "SECRET=1\n");
+    writeFileSync(join(repo, "long.ts"), Array.from({ length: 80 }, (_, i) => `line ${i + 1}`).join("\n") + "\n");
+    await git(repo, ["add", "-A"]);
+    await git(repo, ["commit", "-qm", "base"]);
+    await git(repo, ["checkout", "-q", "-b", "topics/card"]);
+    writeFileSync(join(repo, "assets", "logo.png"), PNG_B);
+    writeFileSync(join(repo, "diagram.svg"), '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>\n');
+    writeFileSync(join(repo, ".env"), "SECRET=2\n");
+    writeFileSync(join(repo, "long.ts"), Array.from({ length: 80 }, (_, i) => (i === 39 ? "line 40 changed" : `line ${i + 1}`)).join("\n") + "\n");
+    await git(repo, ["add", "-A"]);
+    await git(repo, ["commit", "-qm", "the delivery"]);
+    // Never committed: the After of a live worktree is the working tree.
+    writeFileSync(join(repo, "assets", "new.png"), PNG_A);
+    writeFileSync(join(outside, "secret.png"), "OUTSIDE-THE-WORKTREE");
+    symlinkSync(join(outside, "secret.png"), join(repo, "leak.png"));
+    worktree = { id: "wt-1", mode: "branch", absPath: repo, branchName: "topics/card" };
+
+    db = freshDb();
+    const now = new Date().toISOString();
+    db.run("INSERT OR IGNORE INTO topics (id) VALUES (?)", ["topic-1"]);
+    db.run(
+      `INSERT INTO tasks (id, project_id, text, status, created_at, updated_at, assigned_topic_id)
+       VALUES ('T', ?, 'la card', 'review', ?, ?, 'topic-1')`,
+      [pid, now, now],
+    );
+    router = routerFor(db, repo, () => worktree);
+  });
+
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  test("a live worktree names its base SHA and no head: the After is the working tree", async () => {
+    const bundle = await (await call(router, url("")))!.json();
+    const mainSha = await git(repo, ["rev-parse", "main"]);
+    expect(bundle.revs).toEqual({ base: mainSha, head: null });
+  });
+
+  test("the Before arrives byte for byte, typed, and cached as the content address it is", async () => {
+    const mainSha = await git(repo, ["rev-parse", "main"]);
+    const res = (await call(router, blobOf("assets/logo.png", mainSha)))!;
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("image/png");
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(res.headers.get("Cache-Control")).toContain("immutable");
+    expect(Buffer.from(await res.arrayBuffer()).equals(PNG_A)).toBe(true);
+  });
+
+  test("`worktree` reads the disk, is never cached, and a file new to the tree has no Before", async () => {
+    const after = (await call(router, blobOf("assets/logo.png", "worktree")))!;
+    expect(after.status).toBe(200);
+    expect(after.headers.get("Cache-Control")).toBe("no-store");
+    expect(Buffer.from(await after.arrayBuffer()).equals(PNG_B)).toBe(true);
+
+    const fresh = (await call(router, blobOf("assets/new.png", "worktree")))!;
+    expect(Buffer.from(await fresh.arrayBuffer()).equals(PNG_A)).toBe(true);
+    const mainSha = await git(repo, ["rev-parse", "main"]);
+    expect((await call(router, blobOf("assets/new.png", mainSha)))!.status).toBe(404);
+  });
+
+  test("a symlink pointing out of the worktree is a 404, and none of its bytes leave", async () => {
+    const res = (await call(router, blobOf("leak.png", "worktree")))!;
+    expect(res.status).toBe(404);
+    expect(await res.text()).not.toContain("OUTSIDE-THE-WORKTREE");
+  });
+
+  test("a path out of the tree is 400, a revision the bundle does not name is 409, a file with no preview is 415", async () => {
+    const mainSha = await git(repo, ["rev-parse", "main"]);
+    for (const bad of ["../x.png", "/etc/x.png", "assets/../../x.png", ""]) {
+      expect((await call(router, blobOf(bad, mainSha)))!.status).toBe(400);
+    }
+    // Any other commit, even a real one, and a symbolic name for the right one.
+    const own = await git(repo, ["rev-parse", "topics/card"]);
+    for (const rev of ["0".repeat(40), own, "main"]) {
+      const res = (await call(router, blobOf("assets/logo.png", rev)))!;
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.code).toBe("stale_rev");
+      expect(body.revs).toEqual({ base: mainSha, head: null });
+    }
+    const env = (await call(router, blobOf(".env", mainSha)))!;
+    expect(env.status).toBe(415);
+    expect(await env.text()).not.toContain("SECRET");
+  });
+
+  test("over 10 MB is a 413 with the size, before a byte is read", async () => {
+    // Sparse on disk: the size is real, nothing was written.
+    writeFileSync(join(repo, "huge.png"), "");
+    truncateSync(join(repo, "huge.png"), 11 * 1024 * 1024);
+    const res = (await call(router, blobOf("huge.png", "worktree")))!;
+    expect(res.status).toBe(413);
+    expect((await res.json()).size).toBe(11 * 1024 * 1024);
+  });
+
+  test("an SVG is served as an inert picture: no script runs if it is opened on its own", async () => {
+    const res = (await call(router, blobOf("diagram.svg", "worktree")))!;
+    expect(res.headers.get("Content-Type")).toBe("image/svg+xml");
+    expect(res.headers.get("Content-Security-Policy")).toBe("default-src 'none'; style-src 'unsafe-inline'; sandbox");
+  });
+
+  test("after the land the revs are the merge's, and the After is exactly git's blob at that SHA", async () => {
+    await git(repo, ["add", "-A"]);
+    await git(repo, ["commit", "-qm", "the rest"]);
+    await git(repo, ["checkout", "-q", "main"]);
+    await git(repo, ["merge", "--no-ff", "-m", "merge task T: la card", "topics/card"]);
+    await git(repo, ["branch", "-qD", "topics/card"]);
+    worktree = null;
+    const merge = await git(repo, ["rev-parse", "HEAD"]);
+    const parent = await git(repo, ["rev-parse", "HEAD^1"]);
+
+    const bundle = await (await call(router, url("")))!.json();
+    expect(bundle.source).toBe("landed-merge");
+    expect(bundle.revs).toEqual({ base: parent, head: merge });
+    expect(bundle.revs.base).toMatch(SHA);
+    expect(bundle.revs.head).toMatch(SHA);
+
+    const res = (await call(router, blobOf("assets/logo.png", merge)))!;
+    expect(res.status).toBe(200);
+    const want = await gitBytes(repo, ["cat-file", "blob", `${merge}:assets/logo.png`]);
+    expect(Buffer.from(await res.arrayBuffer()).equals(want)).toBe(true);
+    // Two commits: there is no working tree to read any more.
+    expect((await call(router, blobOf("assets/logo.png", "worktree")))!.status).toBe(409);
+  });
+
+  test("`context=full` returns the whole file on the same line numbers; the plain patch only the hunk", async () => {
+    const plain = await (await call(router, url("?file=long.ts")))!.json();
+    expect(plain.patch).toContain("+line 40 changed");
+    expect(plain.patch).not.toContain(" line 1\n");
+
+    const full = await (await call(router, url("?file=long.ts&context=full")))!.json();
+    expect(full.patch).toContain("@@ -1,80 +1,80 @@");
+    expect(full.patch).toContain(" line 1\n");
+    expect(full.patch).toContain(" line 80\n");
+    expect(full.patch).toContain("-line 40\n+line 40 changed");
+  });
+
+  test("a renamed text file is read together with its old path: one changed line, not a whole new file", async () => {
+    // With the new path alone in the pathspec git cannot see the rename, and
+    // "Full file" drew 80 green rows with no old side for a note to hang on.
+    await git(repo, ["mv", "long.ts", "longer.ts"]);
+    await git(repo, ["commit", "-qm", "rename"]);
+    const bundle = await (await call(router, url("")))!.json();
+    expect(bundle.stat.find((s: { path: string }) => s.path === "longer.ts")?.origPath).toBe("long.ts");
+
+    const plain = await (await call(router, url("?file=longer.ts&orig=long.ts")))!.json();
+    expect(plain.patch).toContain("rename from long.ts");
+    expect(plain.patch).toContain("-line 40\n+line 40 changed");
+
+    const full = await (await call(router, url("?file=longer.ts&orig=long.ts&context=full")))!.json();
+    expect(full.patch).toContain("rename from long.ts");
+    expect(full.patch).toContain("@@ -1,80 +1,80 @@");
+    expect(full.patch).toContain(" line 1\n");
+    expect(full.patch).toContain("-line 40\n+line 40 changed");
+
+    // The old path is held to the same rules as the path.
+    expect((await call(router, url("?file=longer.ts&orig=../long.ts")))!.status).toBe(400);
+  });
+});
+
+/**
+ * The publish diff is the same panel on another range (`upstream..HEAD`): it
+ * names its revisions too, and learns the per-file answers the card diff has,
+ * which it never had (a file past the cap could not be read at all).
+ */
+describe("GET /publish-diff: revs and the per-file answers", () => {
+  let repo: string, router: any, pid: string;
+
+  beforeEach(async () => {
+    repo = realpathSync(mkdtempSync(join(tmpdir(), "pubdiff-")));
+    pid = projectIdForPath(repo);
+    await git(repo, ["init", "-q", "-b", "main"]);
+    await git(repo, ["config", "user.email", "t@t.t"]);
+    await git(repo, ["config", "user.name", "t"]);
+    await git(repo, ["config", "commit.gpgsign", "false"]);
+    writeFileSync(join(repo, "logo.png"), PNG_A);
+    writeFileSync(join(repo, "a.ts"), "export const a = 1;\n");
+    writeFileSync(join(repo, "lines.ts"), Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n") + "\n");
+    await git(repo, ["add", "-A"]);
+    await git(repo, ["commit", "-qm", "pushed"]);
+    // What the remote has: the fallback range is `origin/<branch>..HEAD`.
+    await git(repo, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    writeFileSync(join(repo, "logo.png"), PNG_B);
+    writeFileSync(join(repo, "a.ts"), "export const a = 2;\n");
+    await git(repo, ["add", "-A"]);
+    await git(repo, ["commit", "-qm", "to publish"]);
+    router = routerFor(freshDb(), repo, () => null);
+  });
+
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  test("the bundle names both SHAs, and the bytes and the file patch come from that range", async () => {
+    const bundle = await (await call(router, `/api/boards/${pid}/publish-diff`))!.json();
+    const origin = await git(repo, ["rev-parse", "origin/main"]);
+    const head = await git(repo, ["rev-parse", "HEAD"]);
+    expect(bundle.revs).toEqual({ base: origin, head });
+
+    const before = (await call(router, `/api/boards/${pid}/publish-diff?file=logo.png&blob=${origin}`))!;
+    expect(Buffer.from(await before.arrayBuffer()).equals(PNG_A)).toBe(true);
+    expect((await call(router, `/api/boards/${pid}/publish-diff?file=logo.png&blob=worktree`))!.status).toBe(409);
+
+    const one = await (await call(router, `/api/boards/${pid}/publish-diff?file=a.ts`))!.json();
+    expect(one.path).toBe("a.ts");
+    expect(one.patch).toContain("+export const a = 2;");
+    expect(one.patch).not.toContain("logo.png");
+    const full = await (await call(router, `/api/boards/${pid}/publish-diff?file=a.ts&context=full`))!.json();
+    expect(full.patch).toContain("+export const a = 2;");
+  });
+
+  test("a renamed file's whole-file patch follows the rename on the publish range too", async () => {
+    await git(repo, ["mv", "lines.ts", "moved.ts"]);
+    writeFileSync(join(repo, "moved.ts"), Array.from({ length: 20 }, (_, i) => (i === 9 ? "line 10 changed" : `line ${i + 1}`)).join("\n") + "\n");
+    await git(repo, ["add", "-A"]);
+    await git(repo, ["commit", "-qm", "rename"]);
+    const full = await (await call(router, `/api/boards/${pid}/publish-diff?file=moved.ts&orig=lines.ts&context=full`))!.json();
+    expect(full.patch).toContain("rename from lines.ts");
+    expect(full.patch).toContain(" line 1\n");
+    expect(full.patch).toContain("-line 10\n+line 10 changed");
   });
 });

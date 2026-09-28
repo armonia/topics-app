@@ -20,6 +20,8 @@ export interface DiffStatEntry {
   deletions: number;
   /** The `--name-status` letter (A, M, D, R, C, T). Untracked files are `A`. */
   status: string;
+  /** Only on a rename or copy (`R`, `C`): the OLD path, where the diff panel reads a picture's Before. */
+  origPath?: string;
 }
 
 /**
@@ -104,19 +106,20 @@ export async function runGitRead(cwd: string, args: string[]): Promise<{ code: n
 }
 
 /**
- * `git diff --name-status -z`: path -> status letter. Each record is the
- * status, then one path, or two on a rename or copy (`R100`, `C75`), OLD then
- * NEW; the key is the new one, the path `--numstat` reports too.
+ * `git diff --name-status -z`: path -> status letter, plus the old path of a
+ * rename or copy. Each record is the status, then one path, or two on a rename
+ * or copy (`R100`, `C75`), OLD then NEW; the key is the new one, the path
+ * `--numstat` reports too.
  */
-function parseNameStatusZ(text: string): Map<string, string> {
-  const byPath = new Map<string, string>();
+function parseNameStatusZ(text: string): Map<string, { letter: string; origPath?: string }> {
+  const byPath = new Map<string, { letter: string; origPath?: string }>();
   const fields = text.split("\0");
   for (let i = 0; i < fields.length; i++) {
     const letter = fields[i]?.[0];
     if (!letter) continue;
-    if (letter === "R" || letter === "C") i++;
+    const origPath = letter === "R" || letter === "C" ? fields[++i] : undefined;
     const path = fields[++i];
-    if (path) byPath.set(path, letter);
+    if (path) byPath.set(path, origPath ? { letter, origPath } : { letter });
   }
   return byPath;
 }
@@ -144,12 +147,16 @@ export async function gitDiffStat(
     runGitRead(cwd, ["diff", "--numstat", "-z", range]).then((r) => parseNumstatZ(r.text)),
     runGitRead(cwd, ["diff", "--name-status", "-z", range]).then((r) => parseNameStatusZ(r.text)),
   ]);
-  const stat: DiffStatEntry[] = [...numstat].map(([path, n]) => ({
-    path,
-    additions: n.binary ? -1 : n.added,
-    deletions: n.binary ? -1 : n.removed,
-    status: nameStatus.get(path) ?? "M",
-  }));
+  const stat: DiffStatEntry[] = [...numstat].map(([path, n]) => {
+    const named = nameStatus.get(path);
+    return {
+      path,
+      additions: n.binary ? -1 : n.added,
+      deletions: n.binary ? -1 : n.removed,
+      status: named?.letter ?? "M",
+      ...(named?.origPath ? { origPath: named.origPath } : {}),
+    };
+  });
 
   const untracked: string[] = [];
   if (opts.includeUntracked) {

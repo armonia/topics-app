@@ -32,6 +32,7 @@
  */
 
 import { listOwnCommits, otherLocalBranches, defaultRunGit, type GitRunner } from "./own-commits";
+import type { DiffRevs } from "../../shared/diff-revs";
 
 /** Da dove viene la gamma — il drawer lo mostra, perché cambia cosa stai leggendo. */
 export type TaskDiffSource = "worktree" | "landed-merge" | "delivery-commit";
@@ -321,6 +322,39 @@ function beforeRealigns(sha: string, parentsOf: Map<string, readonly string[]>):
     if (!first || !parentsOf.has(first) || !merged.some((p) => !parentsOf.has(p))) return tip;
     tip = first;
   }
+}
+
+/**
+ * `a` as a commit, or as a tree when it is one. The tree case is the empty tree
+ * `baseOf` falls back to when the card's oldest commit is the root: every read
+ * of a path inside it is a miss, which is exactly "the file was added".
+ */
+async function commitOrTree(run: GitRunner, cwd: string, ref: string): Promise<string | null> {
+  const commit = await revParse(run, cwd, ref);
+  if (commit) return commit;
+  const r = await run(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{tree}`]);
+  const sha = r.stdout.trim();
+  return r.code === 0 && SHA_RE.test(sha) ? sha : null;
+}
+
+/**
+ * Resolve the range of a diff to its two SHAs. A range `a..b` gives both; a
+ * single revision on a `live` range gives the base, and the After is the
+ * working tree. `null` = git could not resolve it, never a guess.
+ */
+export async function revsOfRange(run: GitRunner, cwd: string, range: string, live: boolean): Promise<DiffRevs | null> {
+  if (live) {
+    const base = await commitOrTree(run, cwd, range);
+    return base ? { base, head: null } : null;
+  }
+  const cut = range.indexOf("..");
+  // `a...b` is a symmetric difference, not a pair: nothing here produces it.
+  if (cut <= 0 || range.slice(cut + 2).startsWith(".")) return null;
+  const [base, head] = await Promise.all([
+    commitOrTree(run, cwd, range.slice(0, cut)),
+    revParse(run, cwd, range.slice(cut + 2)),
+  ]);
+  return base && head ? { base, head } : null;
 }
 
 export interface TaskDiffAnchors extends TaskDiffRangeOptions {
