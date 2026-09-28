@@ -9,6 +9,7 @@ import {
 } from '../services/app-settings';
 import { EFFORT_TIERS, CODEX_REASONING_EFFORTS } from '../../shared/effort';
 import type { OutputLanguage } from '../../shared/types';
+import { hasCommandShell } from './command-process';
 
 /**
  * La riga che dice al modello in che lingua rispondere. UNA riga, e sempre la
@@ -52,13 +53,18 @@ export function languageDirective(lang: OutputLanguage = resolveOutputLanguage()
  * command, Topics auto-detects the listening process under the session's PTY and
  * registers it (see the process detector in routes/processes.ts) — so this prompt
  * is the preferred path, not the only safety net.
+ *
+ * `cmd`: this system has the POSIX shell `run_command` needs (`hasCommandShell`).
+ * Where the bridge does not offer the tool, the prompt does not name it either,
+ * or the agent spends a tool round looking for it and trusts a wake that never
+ * comes.
  */
-const TOPICS_AGENT_PROCESS_PROMPT = [
+const topicsAgentProcessPrompt = (cmd: boolean): string => [
   'You are running inside Topics, a workspace that tracks long-running processes.',
   'To start a long-running dev server, watcher, or build process, ALWAYS prefer the',
   'Topics MCP tool `mcp__topics__run_script` (it runs a script declared in the',
-  "project's package.json) instead of backgrounding the command in the shell. Any other",
-  'long-running or long-waiting command goes through `mcp__topics__run_command`.',
+  "project's package.json) instead of backgrounding the command in the shell.",
+  ...(cmd ? ['Any other long-running or long-waiting command goes through `mcp__topics__run_command`.'] : []),
   'Processes started this way appear in the Topics Processes panel with live logs,',
   'status, port links, and a stop button, and are managed across restarts.',
   'Use `mcp__topics__list_processes` to see what is running, `mcp__topics__read_process_output`',
@@ -109,17 +115,24 @@ const TOPICS_AGENT_PROCESS_PROMPT = [
   'reopens the conversation with its output. But that is its behaviour, not a guarantee',
   'you control: a command that never terminates never reports, AND it dies with the CLI.',
   'A server restart kills the wait, its output file just says `[killed]`, and nobody is',
-  'ever woken. For a long ad hoc wait (a retry loop, a one-off script, anything that is not',
-  'a declared script) use `mcp__topics__run_command` instead: it runs as a Topics process,',
-  'shown in the Processes panel, it survives a restart of your CLI, and when it ends this',
-  'chat receives its exit code and last lines, which wakes you, so you can end your turn.',
-  'Pass `wake: false` for a dev server or anything not meant to end.',
-  'Prefer it (or `Monitor`) when the point IS being woken. If you promise the user a',
+  'ever woken.',
+  ...(cmd
+    ? [
+      'For a long ad hoc wait (a retry loop, a one-off script, anything that is not',
+      'a declared script) use `mcp__topics__run_command` instead: it runs as a Topics process,',
+      'shown in the Processes panel, it survives a restart of your CLI, and when it ends this',
+      'chat receives its exit code and last lines, which wakes you, so you can end your turn.',
+      'Pass `wake: false` for a dev server or anything not meant to end.',
+      'Prefer it (or `Monitor`) when the point IS being woken.',
+    ]
+    : ['Prefer `Monitor`, when you have it, if the point IS being woken.']),
+  'If you promise the user a',
   'wake-up, make sure the command can actually end, and say what you will do if it does',
   'not arrive. You can always come back and read it yourself with',
   '`mcp__topics__read_process_output`.',
-  'Only fall back to a bare shell command when neither a package.json script nor',
-  '`mcp__topics__run_command` fits, or the command is a short one-off.',
+  cmd
+    ? 'Only fall back to a bare shell command when neither a package.json script nor `mcp__topics__run_command` fits, or the command is a short one-off.'
+    : 'Only fall back to a bare shell command when no package.json script fits, or the command is a short one-off.',
 ].join(' ');
 
 /**
@@ -137,9 +150,10 @@ const TOPICS_AGENT_PROCESS_PROMPT = [
  * lingua in Impostazioni vale dalla sessione successiva senza riavviare il
  * server (stesso contratto di `resolveClaudeCodeModel`).
  */
-export function topicsAgentSystemPrompt(lang: OutputLanguage = resolveOutputLanguage()): string {
+export function topicsAgentSystemPrompt(lang: OutputLanguage = resolveOutputLanguage(), platform: NodeJS.Platform = process.platform): string {
   const directive = languageDirective(lang);
-  return directive ? `${TOPICS_AGENT_PROCESS_PROMPT} ${directive}` : TOPICS_AGENT_PROCESS_PROMPT;
+  const processes = topicsAgentProcessPrompt(hasCommandShell(platform));
+  return directive ? `${processes} ${directive}` : processes;
 }
 
 /**

@@ -257,6 +257,19 @@ describe('topicsAgentSystemPrompt', () => {
     }
   });
 
+  // Windows has no POSIX shell for it: the bridge does not offer the tool
+  // (`toolsForProfile`) and the route answers 501. A prompt that sent the
+  // agent there spent a tool round and promised a wake that never comes.
+  test('run_command is named only where the bridge offers it', () => {
+    expect(topicsAgentSystemPrompt('auto', 'darwin')).toContain('mcp__topics__run_command');
+    expect(topicsAgentSystemPrompt('auto', 'linux')).toContain('mcp__topics__run_command');
+    const win = topicsAgentSystemPrompt('auto', 'win32');
+    expect(win).not.toContain('run_command');
+    expect(win).toContain('mcp__topics__run_script');
+    expect(win).toContain('mcp__topics__wait_for_process');
+    expect(win.endsWith('or the command is a short one-off.')).toBe(true);
+  });
+
   test("con 'auto' il prompt è ESATTAMENTE quello di prima: nessuna coda", () => {
     const auto = topicsAgentSystemPrompt('auto');
     expect(auto.endsWith('or the command is a short one-off.')).toBe(true);

@@ -11,7 +11,7 @@ cartella con `resolveSessionCwd` (`server/routes/processes.ts:1536`) come fa gi�
 `run_script`, e lancia il comando lì: `zsh -c` su macOS (la shell con cui
 gira il Bash dell'agente), `/bin/sh -c` sugli altri sistemi POSIX, dove zsh
 non è installato di serie. Windows non ha una shell POSIX: lì il tool non
-viene offerto e la route risponde 501.
+viene offerto, il prompt di sistema non lo nomina e la route risponde 501.
 L'ambiente del comando è quello del CLI dell'agente (allowlist più blocklist
 di `server/lib/agent-env.ts`), non quello del server: il tool non dà
 all'agente niente che il suo `Bash` non abbia già.
@@ -47,6 +47,7 @@ sola lettura» lo copre senza modifiche.
 #### Scenario: su Windows il tool non c'è
 - **GIVEN** il server che gira su Windows
 - **THEN** `run_command` non compare fra i tool del bridge
+- **AND** il prompt di sistema dell'agente non lo nomina
 - **AND** la route risponde 501 senza lanciare niente
 
 #### Scenario: il comando non vede i segreti del server

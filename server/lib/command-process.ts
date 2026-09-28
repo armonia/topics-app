@@ -13,6 +13,16 @@ import { resolve } from "path";
 import { isInsideDir } from "./path-containment";
 
 /**
+ * Is there a POSIX shell to run a command in? Not on Windows. The one answer
+ * the three places that depend on it read: the spawn below, the bridge that
+ * offers `run_command` (`toolsForProfile`) and the system prompt that sends
+ * the agent to it (`topicsAgentSystemPrompt`).
+ */
+export function hasCommandShell(platform: NodeJS.Platform = process.platform): boolean {
+  return platform !== "win32";
+}
+
+/**
  * The spawn, as argv. The command runs in an INNER shell so that an early
  * `exit` in it still leaves the outer one alive to write the code, and the
  * code goes to a file beside the log: after a server reload the process is
@@ -26,7 +36,7 @@ import { isInsideDir } from "./path-containment";
  * not offered there (`toolsForProfile`).
  */
 export function commandArgv(command: string, exitPath: string, platform: NodeJS.Platform = process.platform): string[] | null {
-  if (platform === "win32") return null;
+  if (!hasCommandShell(platform)) return null;
   const shell = platform === "darwin" ? "/bin/zsh" : "/bin/sh";
   return [shell, "-c", `${shell} -c "$1"; rc=$?; printf '%s\\n' "$rc" > "$2"; exit $rc`, "_", command, exitPath];
 }

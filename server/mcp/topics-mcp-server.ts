@@ -34,6 +34,7 @@ import { commentAuthorLabel } from "../../shared/comment-author";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
 import { OUTBOUND_TOOLS, callGoogleCall, callSendMail } from "./outbound-tools";
 import { COMMAND_TOOLS, callRunCommand } from "./command-tools";
+import { hasCommandShell } from "../lib/command-process";
 import { HttpAnswerError, httpJson, lostRequestError, loopbackInit, REQUEST_TIMEOUT_MS } from "./topics-http";
 import type { ParsedArgs } from "./topics-http";
 
@@ -862,7 +863,7 @@ export function toolsForProfile(profile: string | undefined, platform: NodeJS.Pl
     && (profile !== "dispatch" || !DISPATCH_EXCLUDED_TOOLS.has(t.name))
     && (profile !== "codex-dispatch" || !CODEX_DISPATCH_EXCLUDED_TOOLS.has(t.name))
     // No POSIX shell to run it in (`commandArgv`): offered, it could only fail.
-    && (platform !== "win32" || t.name !== "run_command"),
+    && (hasCommandShell(platform) || t.name !== "run_command"),
   );
 }
 
