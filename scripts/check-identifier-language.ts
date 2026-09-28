@@ -358,6 +358,14 @@ export const PROJECT_WORDS = new Set([
   // cannot be named after anything else without describing a different thing.
   "topics", "topic", "openclaw", "armonia", "tauri", "kanban", "pane", "panes",
   "org", "orgs",
+  // `desktop` is what this product calls its shell (`desktop-tauri/`) and the
+  // address that shell proxies to (`DESKTOP_SERVER_HOST` in
+  // `client/src/lib/shell/net.ts`): plain English the 1934 list does not
+  // carry. The baseline had grandfathered seven names with it (`isDesktop`,
+  // `desktopSidebarWidth`, the three `DESKTOP_SERVER_*`) rather than face the
+  // question, and the e2e fake-shell guard test has to name the constant it
+  // reads (2026-09-28).
+  "desktop",
   "jcode", "unfollow",
   "sharing", "inflight", "worktree", "worktrees", "dispatcher", "dispatch", "board", "boards", "drawer",
   // tech and tooling
