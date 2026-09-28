@@ -93,10 +93,12 @@ export interface BackgroundWork {
   commands: Set<string>;
   /** One-shots a fire disarmed: a replay of their CronCreate result does not arm them again. */
   fired: Set<string>;
+  /** The CLI started a command (a cron's fire, a peer's message): the next init opens its turn, and is no Monitor's event. */
+  commandStarted: boolean;
 }
 
 export function newBackgroundWork(): BackgroundWork {
-  return { tasks: new Map(), lastSignalAt: 0, facts: new Map(), wakeQueuedAt: null, monitorCalls: new Set(), cronCalls: new Set(), crons: new Map(), commands: new Set(), fired: new Set() };
+  return { tasks: new Map(), lastSignalAt: 0, facts: new Map(), wakeQueuedAt: null, monitorCalls: new Set(), cronCalls: new Set(), crons: new Map(), commands: new Set(), fired: new Set(), commandStarted: false };
 }
 
 /**
@@ -154,6 +156,7 @@ export function noteBackgroundLine(
   // deferred turn's resume. A peer's message is `queued` first, a cron trigger
   // never is; the other two look like a fire and are read as one.
   if (e?.type === "command_lifecycle" && (e.state === "queued" || e.state === "started")) noteCronFired(work, e.command_uuid, e.state);
+  if (e?.type === "command_lifecycle" && e.state === "started") work.commandStarted = true;
   // With no turn of ours open, a started command opens the CLI's own turn. Its
   // init comes 182 ms later in the recording, and until then no turn is
   // visible: the fire has just disarmed its one-shot, and a clock ticking in
@@ -164,10 +167,15 @@ export function noteBackgroundLine(
     if (e.subtype === "init") {
       // A turn of the model starts: whatever was queued is being answered.
       work.wakeQueuedAt = null;
+      const command = work.commandStarted;
+      work.commandStarted = false;
       // A wake is news of a listed MONITOR, the one task whose events wake the
       // CLI with no task line. Any wake counted for every task, so a lost Bash
       // stayed kept for good by a CronCreate's wakes (second review of 25/09).
-      if (opts.unattended && [...work.tasks.keys()].some((t) => work.facts.get(t)?.monitor)) work.lastSignalAt = now;
+      // Not the turn of a command the CLI started: a Monitor's wake has no
+      // `command_lifecycle` (2.1.282 fixture), and a recurring cron's fires
+      // kept a silent Monitor for the cron's seven days (review of 28/09).
+      if (opts.unattended && !command && [...work.tasks.keys()].some((t) => work.facts.get(t)?.monitor)) work.lastSignalAt = now;
       return;
     }
     if (!id || !e.subtype.startsWith("task_")) return;

@@ -285,6 +285,30 @@ describe("a session cron, from the recorded CLI session (CronCreate, CLI 2.1.282
     expect([...work.crons.keys()]).toEqual(["a"]);
   });
 
+  test("a cron's fire is no Monitor's event: a silent Monitor listed next to a recurring cron is not kept by its fires", () => {
+    // A Monitor's wake carries no `command_lifecycle` (the 2.1.282 background
+    // fixture has none); a fire's turn opens after its `started`.
+    const work = newBackgroundWork();
+    const t0 = 50_000_000;
+    noteBackgroundLine(work, { type: "assistant", message: { content: [{ type: "tool_use", name: "Monitor", id: "toolu_mon" }] } }, t0, { unattended: false });
+    noteBackgroundLine(work, snapshot([{ task_id: "m1", task_type: "local_bash", description: "watch the log" }]), t0, { unattended: false });
+    noteBackgroundLine(work, started("m1", "toolu_mon"), t0, { unattended: false });
+    noteBackgroundLine(work, cronCreate("toolu_c1", true), t0, { unattended: false });
+    noteBackgroundLine(work, cronScheduled("toolu_c1", "c1", true, t0), t0, { unattended: false });
+    // A day of fires every ten minutes. The first lands 11 ms after a turn of
+    // ours ends, while that turn may still hold the session.
+    const day = t0 + 24 * 60 * 60_000;
+    for (let t = t0 + 600_000, n = 0; t < day; t += 600_000, n++) {
+      noteBackgroundLine(work, { type: "command_lifecycle", command_uuid: `fire-${n}`, state: "started" }, t, { unattended: n > 0 });
+      noteBackgroundLine(work, { type: "system", subtype: "init" }, t + 182, { unattended: true });
+    }
+    expect(work.lastSignalAt).toBe(t0);
+    expect(isBackgroundWorkAlive(work, day)).toBe(false);
+    // A wake with no `started` before it is still the Monitor's event.
+    noteBackgroundLine(work, { type: "system", subtype: "init" }, day, { unattended: true });
+    expect(work.lastSignalAt).toBe(day);
+  });
+
   test("a durable cron arms nothing: it lives in .claude/scheduled_tasks.json and the next launch resumes it", () => {
     const work = newBackgroundWork();
     noteBackgroundLine(work, cronCreate("toolu_d", true), 10_000, { unattended: false });
