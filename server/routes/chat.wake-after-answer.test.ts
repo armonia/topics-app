@@ -20,7 +20,8 @@
  * its way is that answer's work, not a turn that ended before it, and a
  * sub-agent's report or a system message written whole under it while it
  * worked is not its answer: a row written whole answers the message only
- * hanging from it.
+ * hanging from it. Nor is it the chat's last word when an outage or a restart
+ * cuts the answer above it: the sweep judges the turn it landed under.
  *
  * Every row here is written by the real route (a message answered through
  * `sendChat`, a wake through `mode: "woken"`, the leg through `mode:
@@ -342,50 +343,136 @@ describe("the message's own answer that compacted on its way is still resent, on
   });
 });
 
+/**
+ * The service rows the tests write, each through its real writer: a
+ * sub-agent's report and the system-message verb, written whole, with prose,
+ * under the thread's last row when they land.
+ */
+const watcher = createSubagentWatcher({
+  gatewayUrl: "", gatewayToken: "", getTopicById: (id) => ctx.getTopicById(id),
+  getTopicBySessionKey: (k) => ctx.getTopicBySessionKey(k), saveSingleTopic: (t) => ctx.saveSingleTopic(t),
+  appendLocalMessage: (sk, role, content) => ctx.appendLocalMessage(sk, role, content),
+  broadcastToAll: () => {}, bumpUnread: () => {}, resolveProvider: () => provider,
+});
+afterAll(() => watcher.stop());
+const writers: Array<[string, (tid: string) => Promise<void>]> = [
+  ["a sub-agent's exit report", async (tid) => {
+    watcher.deliverExit({ parentSessionKey: `topic:${tid}`, childId: `child-${tid}`, name: "lane-a", result: "Lane A: 12 test verdi.", exitCode: 0 });
+  }],
+  ["the system-message verb", async (tid) => {
+    const url = new URL(`http://topics.test/api/topics/${tid}/system-message`);
+    const resp = await createTopicsRouter(ctx)(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "Build di staging pronto." }) }), url, url.pathname, "POST");
+    expect(resp?.status).toBe(200);
+  }],
+];
+
+/** The person's message, its answer at work on a sub-agent when `write` lands a service row under it. */
+async function answerWithServiceRowUnder(sk: string, tid: string, write: (tid: string) => Promise<void>, cut: (h: StreamHandler) => void = () => {}) {
+  await answered(sk, "Ciao", "Ciao, dimmi.");
+  const answer = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => {
+    h.onToolStart("t1", "mcp__topics__spawn_agent", { name: "lane-a" });
+    h.onToolResult("t1", "spawned");
+  });
+  await tick(10);
+  await write(tid);
+  const service = ctx.loadLocalMessages(sk).at(-1)!;
+  expect(service.parentId).toBe(answer.rowId);
+  expect(service.endReason).toBe("done");
+  cut(answer.route);
+  return answer;
+}
+
 describe("the message's own answer with a service row written under it while it worked is still resent, once", () => {
   /**
-   * A sub-agent's report and the system-message verb are written whole, with
-   * prose, under the thread's last row: the answer's, while it works. They are
-   * not its answer. The restart with the child dead writes its notice after
-   * them, and the sweep judges that notice.
+   * A sub-agent's report and the system-message verb are not the answer they
+   * land under. The restart with the child dead writes its notice after them,
+   * and the sweep judges that notice.
    */
-  const watcher = createSubagentWatcher({
-    gatewayUrl: "", gatewayToken: "", getTopicById: (id) => ctx.getTopicById(id),
-    getTopicBySessionKey: (k) => ctx.getTopicBySessionKey(k), saveSingleTopic: (t) => ctx.saveSingleTopic(t),
-    appendLocalMessage: (sk, role, content) => ctx.appendLocalMessage(sk, role, content),
-    broadcastToAll: () => {}, bumpUnread: () => {}, resolveProvider: () => provider,
-  });
-  afterAll(() => watcher.stop());
-  const writers: Array<[string, (tid: string) => Promise<void>]> = [
-    ["a sub-agent's exit report", async (tid) => {
-      watcher.deliverExit({ parentSessionKey: `topic:${tid}`, childId: `child-${tid}`, name: "lane-a", result: "Lane A: 12 test verdi.", exitCode: 0 });
-    }],
-    ["the system-message verb", async (tid) => {
-      const url = new URL(`http://topics.test/api/topics/${tid}/system-message`);
-      const resp = await createTopicsRouter(ctx)(new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: "Build di staging pronto." }) }), url, url.pathname, "POST");
-      expect(resp?.status).toBe(200);
-    }],
-  ];
   for (const [name, write] of writers) {
     test(`${name}, then a restart with the child dead: the boot's notice, then the resend`, async () => {
       const tid = `service-${name.split(" ").at(-1)}`;
       const sk = topic(tid);
-      await answered(sk, "Ciao", "Ciao, dimmi.");
-      const answer = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => {
-        h.onToolStart("t1", "mcp__topics__spawn_agent", { name: "lane-a" });
-        h.onToolResult("t1", "spawned");
-      });
-      await tick(10);
-      await write(tid);
-      const service = ctx.loadLocalMessages(sk).at(-1)!;
-      expect(service.parentId).toBe(answer.rowId);
-      expect(service.endReason).toBe("done");
+      const answer = await answerWithServiceRowUnder(sk, tid, write);
       reload(sk, true);
       expect(ctx.getMessageById(answer.rowId)!.endReason).toBe("cut-by-restart");
       expect((await resumeSweep(sk)).resent).toEqual([1]);
       await answer.teardown();
     });
   }
+});
+
+describe("the message's own answer cut by an outage under a service row is resent, as its notice promises", () => {
+  /**
+   * The cut is written on the answer's row, above the report or the system
+   * message that landed while it worked: the chat's last row answers nobody,
+   * and the sweep judges the turn it landed under. During an outage the
+   * sub-agents hit the same API, give up, and their reports land exactly
+   * there, under the answer still retrying.
+   */
+  const cuts: Array<[string, (h: StreamHandler) => void]> = [
+    ["api-unavailable", outageEnd("api-unavailable")],
+    ["the rate limit", (h) => h.onDone({ result: "", turnEnd: { end: "error", cause: "rate-limit", detail: "API Error: 429 rate_limit_error" } } as never)],
+    ["the silence cap", (h) => h.onError("wall-clock: silent for too long")],
+  ];
+  for (const [name, write] of writers) {
+    for (const [cutName, cut] of cuts) {
+      test(`${name}, then ${cutName} on the route's own leg`, async () => {
+        const tid = `outage-${name.split(" ").at(-1)}-${cutName.split(" ").at(-1)}`;
+        const sk = topic(tid);
+        const answer = await answerWithServiceRowUnder(sk, tid, write, cut);
+        await drain(answer.resp);
+        expect(lastError(ctx.getMessageById(answer.rowId)!.blocks)!.text).toMatch(PROMISE);
+        expect((await resumeSweep(sk)).resent).toEqual([1]);
+      });
+    }
+  }
+
+  for (const cause of ["api-unavailable", "broker-died"] as const) {
+    test(`a sub-agent's exit report, a reload with the child alive, then the leg cut by ${cause}`, async () => {
+      const tid = `outage-leg-${cause}`;
+      const sk = topic(tid);
+      const answer = await answerWithServiceRowUnder(sk, tid, writers[0][1]);
+      reload(sk);
+      await reattachLeg(sk, outageEnd(cause));
+      expect(outageNoticeResumes(`⚠️ ${lastError(ctx.getMessageById(answer.rowId)!.blocks)!.text}`)).toBe(true);
+      expect((await resumeSweep(sk)).resent).toEqual([1]);
+      await answer.teardown();
+    });
+  }
+
+  test("a restart with the child dead, and the sub-agent's report landing after the boot's notice", async () => {
+    const tid = "outage-after-notice";
+    const sk = topic(tid);
+    await answered(sk, "Ciao", "Ciao, dimmi.");
+    const answer = await open(sk, { messages: [{ role: "user", content: MESSAGE }] }, (h) => {
+      h.onToolStart("t1", "mcp__topics__spawn_agent", { name: "lane-a" });
+      h.onToolResult("t1", "spawned");
+    });
+    await tick(10);
+    reload(sk, true);
+    // The sub-agent's PTY outlived the restart in the bridge: its exit lands now.
+    await writers[0][1](tid);
+    const [notice, report] = ctx.loadLocalMessages(sk).slice(-2);
+    expect(report.parentId).toBe(notice.id);
+    expect((await resumeSweep(sk)).resent).toEqual([1]);
+    await answer.teardown();
+  });
+
+  test("a wake under an answered message, cut with a report under it: still left alone (a guard)", async () => {
+    const tid = "outage-wake-report";
+    const sk = topic(tid);
+    await answered(sk, MESSAGE, "Build lanciato, ti avviso.");
+    const wake = await open(sk, { messages: [], mode: "woken", wokenLabel: "build finito" }, (h) => {
+      h.onToolStart("t1", "Bash", { command: "cat build.log" });
+      h.onToolResult("t1", "ok");
+    });
+    await tick(10);
+    await writers[0][1](tid);
+    outageEnd("api-unavailable")(wake.route);
+    await drain(wake.resp);
+    expect(lastError(ctx.getMessageById(wake.rowId)!.blocks)!.text).not.toMatch(PROMISE);
+    await expectLeftAlone(sk, "wake with a report under it");
+  });
 });
 
 describe("a wake after an answer the route did not close with a latency", () => {

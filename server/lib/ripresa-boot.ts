@@ -63,7 +63,7 @@ import { readTurnEnd, type RecordedTurnEnd } from "../providers/turn-end-registr
 import {
   isOutsideCause, isRestartNotice, wakeCutByOutage, STOP_PRESSED_LOG_TITLE, USER_ABORT_LOG_TITLE,
 } from "./cancelled-notice";
-import { CHAIN_WALK_LIMIT, answeredBeforeRow, isProducedContent, lastInterruptionIndex } from "./answered-before";
+import { CHAIN_WALK_LIMIT, answeredBeforeRow, isProducedContent, lastInterruptionIndex, turnUnderServiceLine } from "./answered-before";
 import {
   UNANSWERED_NOTICE, unansweredNotice, capNotice, capLastCut,
 } from "./resume-notices";
@@ -361,6 +361,25 @@ function previousConversationRow(db: Database, row: LastRow): LastRow | null {
   return null;
 }
 
+/**
+ * The row the sweep judges: the chat's last word, past the rows that answer
+ * nobody. A run of background notices is read past by rowid, a service line
+ * written under a turn (a sub-agent's report, a system message) by its
+ * `parent_id` (`turnUnderServiceLine`), in whatever order they landed.
+ */
+function lastWordRow(db: Database, found: LastRow): LastRow | null {
+  let row: LastRow | null = found;
+  for (let hop = 0; row && hop < CHAIN_WALK_LIMIT; hop++) {
+    let blocks: ContentBlock[] | null = null;
+    try { blocks = JSON.parse(decodeCol(row.blocks) ?? "null") as ContentBlock[] | null; } catch { /* unreadable: judged as it is */ }
+    if (isBackgroundNoticeRow(blocks)) { row = previousConversationRow(db, row); continue; }
+    const under = turnUnderServiceLine(db, row.sk, row.id);
+    if (!under) return row;
+    row = { sk: row.sk, id: under.id, ruolo: under.role, blocks: under.blocks, ts: under.timestamp };
+  }
+  return null;
+}
+
 /** Quel poco del contesto del server che serve al giro. */
 export interface CtxRipresa {
   db: Database;
@@ -600,8 +619,11 @@ export async function riprendiTurniInterrotti(
       try { blocks = JSON.parse(decodeCol(found.blocks) ?? "null") as ContentBlock[] | null; } catch { continue; }
       // A background notice is a service line, not the chat's last word: the
       // turn it follows is the one that may have been cut (second review of
-      // 25/09: a stall recycle of a person's message was never resent).
-      const r = isBackgroundNoticeRow(blocks) ? previousConversationRow(ctx.db, found) : found;
+      // 25/09: a stall recycle of a person's message was never resent). So is
+      // a sub-agent's report or a system message written under a turn: during
+      // an outage the sub-agents hit the same API, and their reports land
+      // under the answer still retrying, which the outage then cuts above them.
+      const r = lastWordRow(ctx.db, found);
       if (!r) continue;
       if (r !== found) {
         try { blocks = JSON.parse(decodeCol(r.blocks) ?? "null") as ContentBlock[] | null; } catch { continue; }

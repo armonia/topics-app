@@ -7,6 +7,8 @@
  * route's notices and the late-answer lane (routes/chat.ts), the stale
  * sweeper's finalize (lib/closed-outside.ts) and the sweep itself read the
  * one rule here, so "Riprende da solo" is written where the sweep keeps it.
+ * The sweep also reads here which row it judges: a service line written
+ * under a turn is not the chat's last word (`turnUnderServiceLine`).
  *
  * With it, the two readers of a row's blocks the rule is made of: where the
  * last interruption verdict of ours sits, and what counts as produced.
@@ -101,6 +103,36 @@ export function answeredBeforeRow(db: Pick<Database, "query">, sessionKey: strin
     }
   } catch { /* no evidence: the resend keeps the rule it had */ }
   return false;
+}
+
+/** A row of the thread, as the resume sweep judges it. */
+export interface JudgedRow { id: string; role: string; blocks: unknown; timestamp: string }
+
+/**
+ * THE TURN A SERVICE LINE LANDED UNDER, when the row is one.
+ *
+ * The same position `answeredBeforeRow` reads, from the other side: a row
+ * written whole with prose that hangs from an assistant row is a sub-agent's
+ * report, the system-message verb or a hook's verdict, which land under the
+ * thread's last row: the turn's while it works, the boot's notice after a
+ * restart. It answers nobody, so it is not the chat's last word either: the
+ * row it hangs from is, and the resume sweep judges that one. Were it judged
+ * itself (no blocks, no verdict), the answer cut above it would never be
+ * resent, under a notice promising it would. Null for any other row, a whole
+ * row hanging from the person's message included: the ambiguous shape, a
+ * command's answer or a regenerated reply, stays the last word.
+ */
+export function turnUnderServiceLine(db: Pick<Database, "query">, sessionKey: string, rowId: string): JudgedRow | null {
+  try {
+    const read = db.query(
+      `SELECT role, content, blocks, parent_id, timestamp, partial, latency_ms, end_reason
+         FROM messages WHERE id = ? AND session_key = ?`,
+    );
+    const row = read.get(rowId, sessionKey) as ThreadRow | null;
+    if (row?.role !== "assistant" || !row.parent_id || howRowEnded(row) !== "whole") return null;
+    const under = read.get(row.parent_id, sessionKey) as ThreadRow | null;
+    return under?.role === "assistant" ? { id: row.parent_id, role: under.role, blocks: under.blocks, timestamp: under.timestamp } : null;
+  } catch { return null; }
 }
 
 /**
