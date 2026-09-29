@@ -49,8 +49,9 @@ import {
 } from './spaceHelpers';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
 import {
-  BrowserTabIcon, BrowserTabMenuButton, BrowserTabCornerMark, BrowserTabTakeControl, useBrowserKindNames,
+  BrowserTabIcon, BrowserTabMenuButton, BrowserTabCornerMark, BrowserTabTakeControl,
 } from '../Browser/BrowserTabChrome';
+import { useBrowserKindNames } from '../Browser/browserKindNames';
 import { BrowserTabSheet } from '../Browser/BrowserTabSheet';
 import { prefetchBrowserTabSheet } from '../Browser/browserTabSheetLazy';
 import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
