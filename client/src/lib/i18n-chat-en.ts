@@ -107,6 +107,7 @@ const CHAT_EN: Dict = {
   'chat.branch.next': 'Next branch',
 
   'chat.picker.title': 'Provider & model',
+  'chat.picker.menuFailed': 'The model menu did not load: reload the window',
   'chat.tokenRate.estimatedAria': 'Estimated generation speed: {rate} tokens per second',
   'chat.tokenRate.actualAria': 'Measured generation speed: {rate} tokens per second',
   'chat.tokenRate.estimatedTitle': 'Estimate from generated text, averaged over 2.5 seconds',

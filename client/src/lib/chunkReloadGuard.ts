@@ -31,8 +31,69 @@ export function isChunkLoadError(input: unknown): boolean {
   return CHUNK_ERROR_RX.test(msg);
 }
 
+/** Why the reload prompt is up: a chunk of THIS window failed to load. */
+export const CHUNK_FAILURE_REASON = 'chunk';
+
+function signalChunkFailure(): void {
+  window.dispatchEvent(new CustomEvent(BUNDLE_STALE_EVENT, { detail: { reason: CHUNK_FAILURE_REASON } }));
+}
+
+/**
+ * The catch of every lazy load that is not awaited by a component: `warm`, the
+ * hover prefetches, the idle warm-ups.
+ *
+ * Those catches used to be `() => {}`, and a chunk that 404s there is exactly
+ * the window left behind by a rebuild: nothing on screen said so, the control
+ * that needed the chunk simply did not open. A chunk-load failure now raises
+ * the reload prompt; any other rejection (the chunk arrived and threw while
+ * evaluating) is a real bug, not a stale bundle, so it is logged and no reload
+ * is offered as a cure. Returns whether it was a chunk-load failure.
+ */
+export function reportLoadFailure(error: unknown): boolean {
+  if (isChunkLoadError(error)) {
+    signalChunkFailure();
+    return true;
+  }
+  console.error('[lazy] a chunk loaded but failed to evaluate', error);
+  return false;
+}
+
+/**
+ * The URL of a lazy chunk, read from the `<link rel="modulepreload">` Vite's
+ * preload helper puts in the document before it imports the chunk (the chunk is
+ * in its own dependency list). `null` when there is none: the dev server, or a
+ * chunk never asked for.
+ */
+export function findChunkHref(root: ParentNode, chunkName: string): string | null {
+  for (const link of root.querySelectorAll<HTMLLinkElement>('link[rel="modulepreload"]')) {
+    const file = new URL(link.href, 'http://x').pathname.split('/').pop() ?? '';
+    if (file.startsWith(`${chunkName}-`) && file.endsWith('.js')) return link.href;
+  }
+  return null;
+}
+
+/**
+ * Import a chunk again after `cause` made the first import fail.
+ *
+ * WHY A NEW URL: WebKit (so the Tauri window too) remembers a failed module for
+ * the life of the document. Measured 2026-09-29 in Playwright WebKit: after one
+ * 404, a second `import()` of the same URL rejected at once with no request on
+ * the wire, even with the file back. A chunk that failed once, during a server
+ * restart or a network blip, stayed dead until a reload. The query string makes
+ * it a different module for the loader; its own imports keep their URLs, so the
+ * shared chunks are not duplicated. A failure that is not a chunk-load failure,
+ * or a chunk with no known URL, rethrows `cause` untouched.
+ */
+export async function reimportChunk<M>(chunkName: string, cause: unknown): Promise<M> {
+  const href = isChunkLoadError(cause) ? findChunkHref(document, chunkName) : null;
+  if (!href) throw cause;
+  const url = new URL(href, window.location.href);
+  url.searchParams.set('retry', String(Date.now()));
+  return (await import(/* @vite-ignore */ url.href)) as M;
+}
+
 export function initChunkReloadGuard(): () => void {
-  const signalStale = () => window.dispatchEvent(new CustomEvent(BUNDLE_STALE_EVENT));
+  const signalStale = signalChunkFailure;
 
   // Vite's dedicated hook — fired on the window when a preloaded/dynamic chunk
   // fails to load. Most reliable signal; not preventing default keeps the

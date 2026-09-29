@@ -72,6 +72,7 @@ const EN = {
   'tool.runningTail.more': 'More output above',
   'kpi.noSource': 'Data unavailable: no source for this metric',
   'dev.newerBuild': 'A newer build is ready',
+  'dev.chunkFailed': 'Part of the app did not load: this window is on an old build',
   'dev.reload': 'Reload',
   'topic.notFound': 'Topic not found',
   'compaction.summaryTitle': 'Summary of the compacted context',

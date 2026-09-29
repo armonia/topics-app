@@ -73,6 +73,7 @@ const IT: Dict = {
   'tool.runningTail.more': "Sopra c'è altro output",
   'kpi.noSource': 'Dato non disponibile: nessuna fonte per questa metrica',
   'dev.newerBuild': 'Build più recente pronta',
+  'dev.chunkFailed': "Una parte dell'app non si è caricata: questa finestra è su una build vecchia",
   'dev.reload': 'Ricarica',
   'topic.notFound': 'Topic non trovato',
   'compaction.summaryTitle': 'Riassunto del contesto compattato',

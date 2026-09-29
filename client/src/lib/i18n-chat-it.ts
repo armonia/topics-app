@@ -126,6 +126,7 @@ const CHAT_IT: Dict = {
 
   // Provider and model picker.
   'chat.picker.title': 'Provider e modello',
+  'chat.picker.menuFailed': 'Il menu dei modelli non si è caricato: ricarica la finestra',
   'chat.tokenRate.estimatedAria': 'Velocità di generazione stimata: {rate} token al secondo',
   'chat.tokenRate.actualAria': 'Velocità di generazione misurata: {rate} token al secondo',
   'chat.tokenRate.estimatedTitle': 'Stima dal testo generato, media mobile di 2,5 secondi',

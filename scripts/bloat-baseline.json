@@ -221,7 +221,7 @@
     "client/src/hooks/usePanelLifecycle.ts": 2691,
     "client/src/components/Layout/PaneTabBar.tsx": 2648,
     "client/src/App.tsx": 2639,
-    "client/src/lib/i18n-en.ts": 2532,
+    "client/src/lib/i18n-en.ts": 2659,
     "shared/board.ts": 2396,
     "server/browser-service.ts": 2361,
     "server/mcp/topics-mcp-server.test.ts": 2337,

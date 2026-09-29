@@ -721,6 +721,32 @@ lo ha chiuso una volta non ha detto «mai più».
 - **GIVEN** un secondo segnale dopo il congedo
 - **THEN** l'avviso SHALL ripresentarsi
 
+### Requirement: BUNDLE-TOAST-02 — Un chunk che non si carica non è MAI muto
+
+Un caricamento lazy che fallisce perché il chunk non arriva (404 dopo una
+ricostruzione, server giù per un attimo) SHALL far comparire l'avviso di
+ricarica, in produzione come in sviluppo, anche quando chi lo ha chiesto ne
+ingoia l'errore. Un chunk arrivato che lancia un errore NON è un pacchetto
+vecchio: SHALL finire nel log, senza proporre la ricarica come cura.
+
+L'avviso SHALL essere nel viewport anche con la sidebar chiusa.
+
+Il selettore del modello SHALL rispondere al clic fallito (l'avviso, e il chip
+che segnala il fallimento), e il clic successivo, col chunk di nuovo
+raggiungibile, SHALL aprire il menu: WebKit ricorda un modulo fallito per tutta
+la vita del documento, quindi il nuovo tentativo SHALL chiederlo con un URL
+nuovo.
+
+#### Scenario: il chunk del menu risponde 404
+- **GIVEN** una chat aperta e il chunk del menu che risponde 404
+- **WHEN** si clicca il chip del modello
+- **THEN** l'avviso di ricarica SHALL essere nel viewport e il chip SHALL segnare il fallimento
+
+#### Scenario: il chunk torna raggiungibile
+- **GIVEN** un clic fallito
+- **WHEN** il chunk torna raggiungibile e si clicca di nuovo
+- **THEN** il menu SHALL aprirsi con le sue righe
+
 ### Requirement: SWCACHE-01 — Un riavvio del server NON serve il guscio VECCHIO dalla cache
 
 Il difetto storico: trattare OGNI fallimento di rete come «sono offline», e

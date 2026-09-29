@@ -1,5 +1,5 @@
 import { Suspense, useMemo, useRef, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Loader2 } from 'lucide-react';
 import { useT } from '../../hooks/useT';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { Menu } from '../Shared/Menu';
@@ -28,6 +28,9 @@ interface Props {
 export function ProviderModelPicker({ override, defaultProviderLabel, onChange, topicsRouting, onTopicsRoutingChange }: Props) {
   const tr = useT();
   const [open, setOpen] = useState(false);
+  // Where the menu chunk stands, as far as this chip knows: a click that waits
+  // shows it is working, a load that failed shows it on the chip.
+  const [loadState, setLoadState] = useState<'idle' | 'loading' | 'failed'>('idle');
   const buttonRef = useRef<HTMLButtonElement>(null);
   const { snapshot } = useProvidersSnapshot();
   const entries = useMemo(() => snapshot?.providers ?? [], [snapshot]);
@@ -57,18 +60,29 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
   );
   const matchesProv = (entry: (typeof entries)[number]) => entry.name === effective?.provider;
   const effectiveProviderLabel = entries.find(matchesProv)?.label ?? effective?.provider;
-  const prefetchMenu = () => { loadAiExecutionMenu().catch(() => {}); };
+  // The failure itself is reported by the loader (the reload prompt); the
+  // chip only records it, so a hover that failed does not look like nothing.
+  const prefetchMenu = () => {
+    if (aiExecutionMenuReady()) return;
+    loadAiExecutionMenu().then(() => setLoadState('idle'), () => setLoadState('failed'));
+  };
   // The menu body is a chunk of its own (see `aiExecutionMenuLazy`). Opening
   // waits for it, so the panel is placed and focused with its rows already in
-  // it. A chunk that fails to load leaves the chip closed: the stale-bundle
-  // toast is what speaks then, and the next click tries again.
+  // it. A chunk that fails to load leaves the menu closed but NOT the click
+  // unanswered: the loader raises the reload prompt and the chip turns to a
+  // warning. The next click tries again.
   const toggle = () => {
     if (open || aiExecutionMenuReady()) {
       setOpen((current) => !current);
       return;
     }
-    loadAiExecutionMenu().then(() => setOpen(true), () => {});
+    setLoadState('loading');
+    loadAiExecutionMenu().then(
+      () => { setLoadState('idle'); setOpen(true); },
+      () => setLoadState('failed'),
+    );
   };
+  const failed = loadState === 'failed';
 
   return (
     <>
@@ -80,10 +94,14 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         onFocus={prefetchMenu}
         data-testid="provider-model-picker"
         data-model={activeModelId ?? undefined}
+        data-load-state={loadState === 'idle' ? undefined : loadState}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="inline-flex h-8 flex-shrink-0 items-center gap-1 rounded-lg px-2 text-mini font-medium text-app-text-muted transition-colors hover:bg-app-hover hover:text-app-text"
-        title={tr('chat.picker.title')}
+        aria-busy={loadState === 'loading' || undefined}
+        className={`inline-flex h-8 flex-shrink-0 items-center gap-1 rounded-lg px-2 text-mini font-medium transition-colors hover:bg-app-hover hover:text-app-text ${
+          failed ? 'text-amber-600 dark:text-amber-400' : 'text-app-text-muted'
+        }`}
+        title={failed ? tr('chat.picker.menuFailed') : tr('chat.picker.title')}
       >
         <span className="max-w-[160px] truncate @max-[380px]:max-w-[70px]">
           {modelName ? friendlyModelLabel(modelName) : 'Model'}
@@ -101,7 +119,13 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         >
           {activeWindow.known ? '' : '≈'}{formatContextWindow(activeWindow.tokens)}
         </span>
-        <ChevronDown className="h-3 w-3 shrink-0" />
+        {loadState === 'loading' ? (
+          <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+        ) : failed ? (
+          <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
+        ) : (
+          <ChevronDown className="h-3 w-3 shrink-0" />
+        )}
       </button>
       <Menu
         open={open}

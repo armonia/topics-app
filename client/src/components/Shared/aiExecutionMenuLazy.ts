@@ -21,15 +21,26 @@
  */
 import type { ComponentProps, ComponentType } from 'react';
 import { lazyWarm, warm, warmed } from '@/lib/lazyWarm';
+import { reimportChunk } from '@/lib/chunkReloadGuard';
 // Type-only: erased from the output, so the module stays out of this chunk.
 import type { AiExecutionMenuOptions as Body } from './AiExecutionMenuOptions';
+
+type MenuModule = typeof import('./AiExecutionMenuOptions');
 
 // Destructured on purpose, not `() => import('./AiExecutionMenuOptions')`:
 // knip reads a bare `import()` as opaque and every export of the module counts
 // as used, so a dead export there would go blind (`check:deadcode-blindspots`).
+// The second import is what makes "the next click tries again" true on WebKit,
+// which otherwise keeps answering a failed chunk from memory: see
+// `reimportChunk`. It must name the chunk file, i.e. this module's file name.
 const loadAiExecutionMenuOptions = async () => {
-  const { AiExecutionMenuOptions: Component } = await import('./AiExecutionMenuOptions');
-  return { AiExecutionMenuOptions: Component };
+  try {
+    const { AiExecutionMenuOptions: Component } = await import('./AiExecutionMenuOptions');
+    return { AiExecutionMenuOptions: Component };
+  } catch (error) {
+    const { AiExecutionMenuOptions: Component } = await reimportChunk<MenuModule>('AiExecutionMenuOptions', error);
+    return { AiExecutionMenuOptions: Component };
+  }
 };
 
 export const AiExecutionMenuOptions: ComponentType<ComponentProps<typeof Body>> = lazyWarm(
@@ -40,7 +51,8 @@ export const AiExecutionMenuOptions: ComponentType<ComponentProps<typeof Body>> 
 let pending: Promise<unknown> | null = null;
 
 /** Start loading the menu chunk; the same promise for every caller. A failed
- *  load is forgotten, so the next hover or click tries again. */
+ *  load is reported by `warm` (the reload prompt) and forgotten, so the next
+ *  hover or click tries again. */
 export function loadAiExecutionMenu(): Promise<unknown> {
   pending ??= warm(loadAiExecutionMenuOptions).catch((error: unknown) => {
     pending = null;

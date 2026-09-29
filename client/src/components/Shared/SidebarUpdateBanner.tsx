@@ -70,6 +70,7 @@ export function SidebarUpdateBanner({
   children,
   onDismiss,
   testId,
+  docked = true,
 }: {
   kind: UpdateBannerKind;
   /** `ready` = c'è qualcosa da fare adesso (verde); `error` = è andata male. */
@@ -81,6 +82,9 @@ export function SidebarUpdateBanner({
   children?: React.ReactNode;
   onDismiss?: () => void;
   testId?: string;
+  /** False when the sidebar is collapsed: its slot is then off screen, so the
+   *  banner takes the corner as in a window with no sidebar. */
+  docked?: boolean;
 }) {
   const tr = useT();
   const card = (
@@ -118,7 +122,7 @@ export function SidebarUpdateBanner({
     </div>
   );
 
-  const slot = typeof document !== 'undefined'
+  const slot = docked && typeof document !== 'undefined'
     ? document.querySelector<HTMLElement>(SLOT_SELECTOR)
     : null;
 

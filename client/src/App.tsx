@@ -48,7 +48,7 @@ import { initDevLayoutProbe } from './lib/devLayoutProbe';
 import { initDevHeapProbe } from './lib/devHeapProbe';
 import { initDevStorageProbe } from './lib/devStorageProbe';
 import { registerFeatureWeightSources } from './lib/featureWeightSources';
-import { initChunkReloadGuard } from './lib/chunkReloadGuard';
+import { initChunkReloadGuard, reportLoadFailure } from './lib/chunkReloadGuard';
 import { DevBundleToast } from './components/DevBundleToast';
 import { ReloadedFlash } from './components/ReloadedFlash';
 import { currentTaskTarget } from './lib/openTaskLink';
@@ -283,7 +283,7 @@ function App() {
   // scheduled so it never competes with the initial paint; guarded for Safari
   // (no requestIdleCallback) with a setTimeout fallback.
   useEffect(() => {
-    const warm = () => { void importCommandPalette().catch(() => {}); };
+    const warm = () => { void importCommandPalette().catch(reportLoadFailure); };
     const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
     if (ric) { const id = ric(warm, { timeout: 3000 }); return () => (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback?.(id); }
     const t = window.setTimeout(warm, 1500);
@@ -2428,7 +2428,7 @@ function App() {
       <UpdaterToast />
       {/* In-page bundle refresh prompt (dev rebuilds + stale-chunk 404s) —
           the manual-reload replacement for the old silent auto-reload. */}
-      <DevBundleToast />
+      <DevBundleToast docked={!sidebarCollapsed} />
       {/* ACK «Ricaricata» dopo un reload chiesto dall'utente: un ricarico che
           rifà lo stesso schermo, senza una parola, si legge come «non va». */}
       <ReloadedFlash />
