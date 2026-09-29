@@ -122,3 +122,47 @@ export function waitingSubjects(
 ): ChromeSubject[] {
   return subjects.filter((s) => s.kind !== 'notification' && !!s.id && !unseenNotificationKeys.has(s.key));
 }
+
+/** How many chats the tray menu lists: the menu stays short. */
+export const TRAY_CHAT_ROWS = 8;
+
+/** A chat row of the tray menu: `set_app_status` items. */
+export interface TrayChatItem {
+  id: string;
+  title: string;
+}
+
+/**
+ * The chat rows of the tray menu, read from the subjects the tray glyph counts
+ * (`chromeAttentionSubjects`), so the menu cannot list fewer chats than the
+ * number beside it: a chat marked 'done' and a chat known only by an unseen
+ * notification are rows too. It used to filter topics by
+ * `topicAttentionCount`, which knows unread and needs-you but not the 'done'
+ * mark, and the tray said N while listing N-1.
+ *
+ * Heaviest first (more unread messages first, the rest in subject order), at
+ * most `TRAY_CHAT_ROWS`. Terminals, panes and cards are not chat rows: the
+ * cards ride the board groups of the same call.
+ */
+export function trayChatItems(
+  subjects: readonly ChromeSubject[],
+  topics: Record<string, Topic>,
+  unread: Record<string, { unreadCount: number } | undefined>,
+): TrayChatItem[] {
+  const rows: { id: string; title: string; weight: number }[] = [];
+  const listed = new Set<string>();
+  for (const s of subjects) {
+    let id: string | null = null;
+    if (s.kind === 'chat') id = s.id;
+    else if (s.kind === 'notification' && s.key.startsWith('topic:')) id = s.key.slice('topic:'.length);
+    if (!id || listed.has(id)) continue;
+    const topic = topics[id];
+    if (!topic || topic.archived) continue;
+    listed.add(id);
+    rows.push({ id, title: topic.name || id, weight: Math.max(unread[id]?.unreadCount || 0, 1) });
+  }
+  return rows
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, TRAY_CHAT_ROWS)
+    .map(({ id, title }) => ({ id, title }));
+}

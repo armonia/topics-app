@@ -1,7 +1,7 @@
 import { createContext, useContext, useCallback, useMemo, useState, useEffect, type ReactNode } from 'react';
 import type { UnreadData, WSMessage } from '../types';
 import { useAttentionSignals, useSignalsStore, rollupProjectAttention, topicAttentionCount, terminalAttentionCount, projectAttentionSubjects, describeProjectAttention } from '../state/signals';
-import { chromeAttentionSubjects, type ChromeSubject } from '../state/attentionTotal';
+import { chromeAttentionSubjects, trayChatItems, type ChromeSubject } from '../state/attentionTotal';
 import { useUnseenNotificationsStore } from '../state/notificationUnseen';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 import { getTerminalSessionFromPaneId } from '../state/pane/adapters';
@@ -161,18 +161,6 @@ export function TabNotificationProvider({
     );
   }, [topics, terminalSessions, unreadData, claudeAttentionTopics, terminalFinishedIds]);
 
-  // The top attention chats, as clickable tray-menu rows (id + title). Sorted by
-  // attention weight, capped so the tray menu stays short. Only chat topics: they
-  // navigate cleanly via handleTopicClick; terminal attention still counts
-  // toward the badge but isn't a menu row.
-  const attentionItems = useMemo(() => {
-    return Object.values(topics)
-      .map((t) => ({ id: t.id, title: t.name || t.id, n: topicAttentionCount(t.id, unreadData, claudeAttentionTopics) }))
-      .filter((x) => x.n > 0)
-      .sort((a, b) => b.n - a.n)
-      .slice(0, 8)
-      .map(({ id, title }) => ({ id, title }));
-  }, [topics, unreadData, claudeAttentionTopics]);
   // THE BOARD'S WORK, in the same call. The tray is the only surface left when
   // the window is hidden, and it used to list only the chats waiting for a reply:
   // nothing about open cards. The rows come from the SAME store that feeds the
@@ -205,6 +193,13 @@ export function TabNotificationProvider({
     unseenNotificationKeys,
   }), [topics, unreadData, claudeAttentionTopics, terminalFinishedIds, chatFinishedTopics, allBoardGroups, extraCounts, unseenNotificationKeys]);
   const chromeCount = attentionSubjects.length;
+  // The chats of the tray menu, read from the subjects the glyph counts, so
+  // the menu lists what the number says (finished chats included). Capped so
+  // the menu stays short; terminals count toward the number but are not rows.
+  const attentionItems = useMemo(
+    () => trayChatItems(attentionSubjects, topics, unreadData),
+    [attentionSubjects, topics, unreadData],
+  );
   useEffect(() => {
     if (!isTauri) return;
     void tauriInvoke('set_app_status', {

@@ -11,7 +11,7 @@
  * @covers CHROME-COUNT-01, NOTIF-ONE-02
  */
 import { describe, test, expect } from "bun:test";
-import { chromeAttentionSubjects, chromeAttentionTotal, paneAttentionTotal, waitingSubjects } from "./attentionTotal";
+import { TRAY_CHAT_ROWS, chromeAttentionSubjects, chromeAttentionTotal, paneAttentionTotal, trayChatItems, waitingSubjects } from "./attentionTotal";
 import { topicAttentionCount, terminalAttentionCount } from "./signals";
 import { buildSidebarItems } from "../lib/buildSidebarItems";
 import { utilityPanelId } from "./pane/adapters/utilityPanelId";
@@ -288,5 +288,64 @@ describe("the one number unions the live signals with the unseen notifications",
     expect(chromeAttentionTotal({ ...none, boardGroups: cut })).toBe(7);
     // The anonymous rest is counted but not listed: it has nowhere to go.
     expect(waitingSubjects(chromeAttentionSubjects({ ...none, boardGroups: cut }), new Set())).toHaveLength(2);
+  });
+});
+
+/**
+ * The tray menu lists what its glyph counts. The glyph reads
+ * `chromeAttentionSubjects`; its chat rows used to be built from
+ * `topicAttentionCount`, which does not know the 'done' mark, so a finished
+ * chat made the tray say 1 and list nothing.
+ */
+describe("trayChatItems: the tray menu lists the chats its number counts", () => {
+  const none = {
+    topics: {} as Record<string, Topic>,
+    unread: {} as Record<string, { unreadCount: number }>,
+    claudeAttentionTopics: new Set<string>(),
+    terminalFinishedIds: new Set<string>(),
+    boardGroups: [] as ReturnType<typeof trayBoardGroups>,
+    paneCounts: new Map<string, number>(),
+  };
+
+  test("a finished chat is a row, beside the unread and the waiting ones", () => {
+    const input = {
+      ...none,
+      topics: { f: topic("f", { name: "Finished" }), a: topic("a"), w: topic("w"), quiet: topic("quiet") },
+      unread: unread({ a: 3 }),
+      claudeAttentionTopics: new Set(["w"]),
+      chatFinishedTopics: new Set(["f"]),
+    };
+    const subjects = chromeAttentionSubjects(input);
+    const items = trayChatItems(subjects, input.topics, input.unread);
+    expect(items).toEqual([{ id: "a", title: "a" }, { id: "w", title: "w" }, { id: "f", title: "Finished" }]);
+    // Every chat the number counts has its row.
+    expect(new Set(items.map((i) => i.id))).toEqual(new Set(subjects.filter((s) => s.kind === "chat").map((s) => s.id)));
+  });
+
+  test("a chat counted only by its unseen notification is a row; a row with no chat, a terminal or a card is not", () => {
+    const input = {
+      ...none,
+      topics: { read: topic("read"), gone: topic("gone", { archived: true }) },
+      terminalFinishedIds: new Set(["s1"]),
+      boardGroups: trayBoardGroups([card("r1", "review")]),
+      unseenNotificationKeys: new Set(["topic:read", "topic:gone", "row-uuid-1", "terminal:s1"]),
+    };
+    const items = trayChatItems(chromeAttentionSubjects(input), input.topics, input.unread);
+    expect(items).toEqual([{ id: "read", title: "read" }]);
+  });
+
+  test("a chat that is unread, finished and notified is one row, and the menu stays short", () => {
+    const many = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`c${i}`, topic(`c${i}`)]));
+    const input = {
+      ...none,
+      topics: many,
+      unread: unread({ c0: 1, c11: 9 }),
+      chatFinishedTopics: new Set(Object.keys(many)),
+      unseenNotificationKeys: new Set(["topic:c0"]),
+    };
+    const items = trayChatItems(chromeAttentionSubjects(input), input.topics, input.unread);
+    expect(items).toHaveLength(TRAY_CHAT_ROWS);
+    expect(items[0]).toEqual({ id: "c11", title: "c11" });
+    expect(items.filter((i) => i.id === "c0")).toHaveLength(1);
   });
 });
