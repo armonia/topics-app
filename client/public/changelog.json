@@ -1,5 +1,36 @@
 [
   {
+    "version": "2.2.409",
+    "date": "2026-09-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Seeing a notification anywhere clears it everywhere, and the dock counts chats instead of messages",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The bell shows the dock's number and the panel lists what it counts; opening a chat sees its late notification",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The notifications-one-truth delta says which two requirements it rewrites: the panel's seen also reads a chat, and the bell shows the dock's number",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "MUTE-01 reads the badge baseline before the completions, since the loud chat's banner record already counts it",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.408",
     "date": "2026-09-29",
     "sections": {

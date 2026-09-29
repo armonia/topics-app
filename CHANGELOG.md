@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.409 — 2026-09-29
+
+### Sotto il cofano
+- Seeing a notification anywhere clears it everywhere, and the dock counts chats instead of messages
+- The bell shows the dock's number and the panel lists what it counts; opening a chat sees its late notification
+- The notifications-one-truth delta says which two requirements it rewrites: the panel's seen also reads a chat, and the bell shows the dock's number
+- MUTE-01 reads the badge baseline before the completions, since the loud chat's banner record already counts it
+
 ## 2.2.408 — 2026-09-29
 
 ### Sotto il cofano
