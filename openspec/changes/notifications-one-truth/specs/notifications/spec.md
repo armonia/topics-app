@@ -99,3 +99,109 @@ mano.
 #### Scenario: niente da mostrare
 - **WHEN** non c'e' nessun soggetto in attesa
 - **THEN** il totale SHALL essere zero, che e' il badge spento
+
+### Requirement: UNREAD-01 — Un messaggio incrementa SEMPRE, e solo una lettura esplicita azzera
+
+L'arrivo di un messaggio su un topic SHALL incrementare il suo non-letto,
+SEMPRE. Solo un atto di VEDERE SHALL azzerarlo: la lettura esplicita che il
+client manda dopo una permanenza continua sullo sguardo, oppure il «visto» della
+sua notifica dato dalla persona nel pannello (clic sulla riga, «segna tutto»),
+che passa dalla stessa porta del server (NOTIF-ONE-01).
+
+Con UNA eccezione, e la parola «SEMPRE» sopra vale dentro quel confine: un topic
+ARCHIVIATO NON SHALL prendere il badge, e il suo incremento NON SHALL essere
+ANNUNCIATO — un annuncio fa ridisegnare a ogni client un badge che non esiste.
+
+L'archiviazione azzera già il conteggio, quindi l'invariante sembrava chiusa: era
+chiusa sul bordo dell'ARCHIVIAZIONE soltanto. Un messaggio arrivato DOPO rialzava
+il badge su un topic che nessuno riaprirà. Misurato il 26/08/2026, tre settimane
+dopo quel lavoro: **475** topic archiviati con un badge appeso, con l'ultima
+lettura fino al 23/08. Un contatore riparato dove si scrive e mai dove si
+incrementa è riparato sul bordo sbagliato.
+
+La condizione «è archiviato» SHALL essere una dipendenza OBBLIGATORIA di chi
+incrementa, non facoltativa: una condizione facoltativa vale «no» in ogni punto
+di chiamata che la dimentica, ed è esattamente il silenzio che questa regola
+chiude.
+
+Un conteggio già accumulato su un topic archiviato NON SHALL essere ripulito da
+chi incrementa — quella è una cura sul bordo sbagliato una seconda volta. Il
+residuo storico si toglie una volta sola, e chi incrementa SHALL limitarsi a
+smettere di produrlo.
+
+NON SHALL esistere un cancello del tipo «se il topic è a fuoco, non contare».
+Quel cancello equivaleva a «presente = letto», senza nessuna nozione di tempo, e
+si rompeva in due modi:
+
+1. un messaggio ad applicazione in secondo piano NON produceva MAI il badge,
+   perché il server considerava ancora a fuoco l'ultima chat vista — non
+   esisteva un annuncio di uscita affidabile e il fuoco veniva ri-annunciato a
+   ogni riconnessione;
+2. la soppressione era GLOBALE: bastava una qualunque connessione — un altro
+   dispositivo, un'altra finestra, un'applicazione web dimenticata — con quel
+   topic a fuoco perché NESSUNO ricevesse il badge.
+
+Da quando la lettura è marcata sulla soglia di permanenza, quel cancello è
+insieme ridondante e dannoso. Vedi [[MUTE-02]] per l'altra metà: l'uscita dal
+fuoco va comunque detta al server.
+
+Messaggi ravvicinati NON SHALL essere collassati: ognuno conta.
+
+L'incremento NON SHALL toccare il non-letto degli ALTRI topic, e NON SHALL
+azzerare l'istante di ultima lettura di una riga che esiste già.
+
+L'annuncio SHALL portare il conteggio NUOVO, non quello precedente
+all'incremento.
+
+Un errore di persistenza del non-letto NON SHALL propagare: il badge è
+accessorio, il messaggio no.
+
+#### Scenario: un messaggio su un topic archiviato
+- **GIVEN** un topic archiviato
+- **WHEN** arriva un messaggio
+- **THEN** il non-letto NON SHALL crescere, e NESSUN annuncio SHALL partire
+
+#### Scenario: messaggi a raffica
+- **GIVEN** più messaggi ravvicinati sullo stesso topic
+- **THEN** il conteggio SHALL crescere di uno per ciascuno
+
+#### Scenario: la scrittura del badge fallisce
+- **GIVEN** un errore nel persistere il non-letto
+- **THEN** la consegna del messaggio NON SHALL fallire
+
+### Requirement: NOTIF-SEEN-01 — Una notifica il cui soggetto e' andato avanti NON SHALL restare accesa
+
+Il contatore della campanella e quello del chrome (tray e icona dell'app: un
+solo numero, una sola chiamata, non possono divergere fra loro) mostrano
+lo STESSO numero (NOTIF-ONE-02): i soggetti che aspettano te e quelli con una
+notifica non vista, ciascuno una volta. Il pannello elenca tutto cio' che quel
+numero conta.
+
+Il difetto e' che gli eventi non si spengono. Una notifica SHALL essere
+considerata vista quando il fatto che la ha prodotta non e' piu' vero:
+
+- un avviso di card in review, quando la card non e' piu' in `review`;
+- un avviso di task parcheggiato, quando il task non attende piu' una risposta;
+- l'avviso di un comando finito, che segnala un fatto transitorio.
+
+Misurato il 29/08/2026: 400 righe non viste contro una decina di segnali vivi.
+74 erano avvisi di card gia' approvate, 1 di un task gia' ripartito, 325 di
+terminali finiti. `markTargetNotificationsSeen` esisteva gia' e le avrebbe
+spente, ma in tutto il repository ha UN SOLO chiamante, e solo per i topic.
+
+Cio' che e' ancora da guardare NON SHALL essere spento da un automatismo: una
+correzione che spegne troppo ruba un avviso, e chi lo perde non ha modo di
+sapere che c'era. Il «segna tutto» della persona e' un atto di vedere, non un
+automatismo, e spegne tutto cio' che il pannello elencava.
+
+#### Scenario: la card e' stata approvata tre settimane fa
+- **WHEN** una riga `task-review` punta a un task che non e' piu' in `review`
+- **THEN** SHALL risultare vista
+
+#### Scenario: la card e' ancora in attesa
+- **WHEN** una riga `task-review` punta a un task ancora in `review`
+- **THEN** NON SHALL essere toccata
+
+#### Scenario: il comando e' appena finito
+- **WHEN** un avviso di sessione e' piu' recente della finestra di grazia
+- **THEN** NON SHALL essere spento: e' ancora una notizia
