@@ -28,9 +28,9 @@ Prima del codice: `grep -qx 'status: approved' openspec/changes/live-tool-output
 - [x] 4.1 I test del §1 verdi; typecheck; rails statiche.
 - [x] 4.2 Prova video dell'E2E (`.webm`) con la coda che scorre e poi lascia il posto all'esito.
       `tests/e2e/tool-live-tail.spec.ts` su WebKit con video acceso, server di test isolato su :13461,
-      testa `94da68cdc` (29/09): 2 passed. Video in
-      `/private/tmp/claude-501/-Users-zorahrel-Projects-topics-app/73f11438-0d8f-4434-b4a4-dc2862c80ec1/scratchpad/evidence/openspec/live-tool-output-tail/tail-follows-then-result.webm` (24,4 s) e
-      `/private/tmp/claude-501/-Users-zorahrel-Projects-topics-app/73f11438-0d8f-4434-b4a4-dc2862c80ec1/scratchpad/evidence/openspec/live-tool-output-tail/partial-after-result-does-not-overwrite.webm` (3,9 s).
+      testa `94da68cdc` (29/09): 2 passed. I video restano nello scratchpad della sessione, non nel repo:
+      `evidence/openspec/live-tool-output-tail/tail-follows-then-result.webm` (24,4 s) e
+      `evidence/openspec/live-tool-output-tail/partial-after-result-does-not-overwrite.webm` (3,9 s).
 
 ## 5. Review del 27/09
 

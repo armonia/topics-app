@@ -52,9 +52,9 @@ Barra: il test nuovo di ogni task e' ROSSO sull'albero di oggi e verde dopo;
       un `.md` reso.
 - [x] T11 Video `.webm` del giro E2E di `CHANGES-04` allegato alla consegna.
       `tests/e2e/board-task-changes-panel.spec.ts` su WebKit con video acceso, server di test
-      isolato su :13461, testa `94da68cdc` (29/09): 6 passed. Video in
-      `/private/tmp/claude-501/-Users-zorahrel-Projects-topics-app/73f11438-0d8f-4434-b4a4-dc2862c80ec1/scratchpad/evidence/openspec/single-changeset-diff-panel/CHANGES-04.webm` (12,6 s); il land a drawer aperto in
-      `/private/tmp/claude-501/-Users-zorahrel-Projects-topics-app/73f11438-0d8f-4434-b4a4-dc2862c80ec1/scratchpad/evidence/openspec/single-changeset-diff-panel/CHANGES-05.webm`.
+      isolato su :13461, testa `94da68cdc` (29/09): 6 passed. I video restano nello scratchpad della sessione, non nel repo:
+      `evidence/openspec/single-changeset-diff-panel/CHANGES-04.webm` (12,6 s); il land a drawer aperto in
+      `evidence/openspec/single-changeset-diff-panel/CHANGES-05.webm`.
 
 ## Dopo questa change
 
