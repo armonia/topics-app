@@ -216,6 +216,62 @@ async function dragOverPoint(page: Page, target: { x: number; y: number }): Prom
 }
 
 /**
+ * Frames `dragOverAndWatch` looks for a preview. NOT a timing gate (this file
+ * reads trees; the timing of a split is split-reorg-budget.spec.ts's): the
+ * preview landed at frame 1, sometimes 2, on WebKit at load 42-71 with the
+ * bundle of before SPLITPERF-01 and with the one after alike (10 runs each).
+ * The budget is wide so that "not painted" means never, and a check that no
+ * preview is painted has waited long enough to mean it.
+ */
+const PREVIEW_WAIT_FRAMES = 30;
+
+/**
+ * PHASE TWO, with the paint read in the SAME task as the dispatch: the
+ * dragover, then the animation frames until `selector` is in the document, up
+ * to `PREVIEW_WAIT_FRAMES`.
+ *
+ * Why not `dragOverPoint` and then a `count()`: React commits a dragover's
+ * state in a task of its own (continuous priority, not flushed at the end of
+ * the event), and the next protocol message can reach the page before that
+ * task runs. The count then reads the DOM of BEFORE the dragover: PRJ-6 went
+ * red with "0 overlays" on a loaded Mac while the very next read, a few ms
+ * later, found the overlay there. A count in a later round trip reads the
+ * protocol's timing, not the app's, and it makes a "nothing is painted" check
+ * pass before anything had the chance to be. `frames` is 0 when the preview is
+ * in the DOM before the first frame after the dragover, -1 when it never
+ * appears within the wait.
+ */
+async function dragOverAndWatch(
+  page: Page,
+  target: { x: number; y: number },
+  selector: string,
+): Promise<{ accepted: boolean; frames: number; count: number }> {
+  return page.evaluate(
+    async ({ target, selector, maxFrames }) => {
+      const held = (window as unknown as { __dndMatrix?: { dt: DataTransfer; src: Element } }).__dndMatrix;
+      if (!held) throw new Error("no drag in flight");
+      const el = document.elementFromPoint(target.x, target.y);
+      if (!el) throw new Error("no element at drop point");
+      const mk = (type: string) =>
+        new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: held.dt, clientX: target.x, clientY: target.y });
+      el.dispatchEvent(mk("dragenter"));
+      const over = mk("dragover");
+      el.dispatchEvent(over);
+      // React has not committed in the turn of the dispatch: the first look
+      // is one task later, before any frame.
+      await new Promise<void>((r) => setTimeout(r, 0));
+      for (let frame = 0; frame <= maxFrames; frame++) {
+        const count = document.querySelectorAll(selector).length;
+        if (count > 0) return { accepted: over.defaultPrevented, frames: frame, count };
+        if (frame < maxFrames) await new Promise<void>((r) => requestAnimationFrame(() => r()));
+      }
+      return { accepted: over.defaultPrevented, frames: -1, count: 0 };
+    },
+    { target, selector, maxFrames: PREVIEW_WAIT_FRAMES },
+  );
+}
+
+/**
  * PHASE THREE: the release, on whatever is topmost at that point NOW.
  *
  * With a fresh `dragover` first, and the answer comes back: a real pointer keeps
@@ -1068,15 +1124,18 @@ test.describe("Drag-and-drop and split: the case table", () => {
 
     await startDrag(page, `[data-pane-id*="${projectC}"]`, { scope: PROJECT_PATH });
     const point = edgePoint(await paneBodyBox(page, projectB), "right");
-    expect(await dragOverPoint(page, point), "the side band of a nested pane must offer the gesture").toBe(true);
+    const hover = await dragOverAndWatch(page, point, "[data-grid-split-overlay]");
+    expect(hover.accepted, "the side band of a nested pane must offer the gesture").toBe(true);
+    expect(hover.frames, "the band paints its preview").toBeGreaterThanOrEqual(0);
 
     // THE ONE PLACE A RECT IS THE RIGHT PROOF, and it is here because the claim
     // IS about pixels: a left/right release inserts a column as tall as the
     // whole row, so an outline drawn on the pointed SLOT would be a promise the
     // drop cannot keep. Everything else in this file reads the tree.
+    expect(hover.count, "still exactly one overlay for the gesture").toBe(1);
     expect(
       await page.locator("[data-grid-split-overlay]").count(),
-      "still exactly one overlay for the gesture",
+      "and it stays one while the pointer rests",
     ).toBe(1);
     const measured = await page.evaluate((leafId) => {
       const overlay = document.querySelector("[data-grid-split-overlay]");
@@ -1240,17 +1299,17 @@ test.describe("Drag-and-drop and split: the case table", () => {
 
     await startDrag(page, `[data-pane-id*="${projectB}"]`, { scope: PROJECT_PATH });
     const point = center(await paneBodyBox(page, projectB));
-    await dragOverPoint(page, point);
+    // Watched for the whole preview budget, not read once: a count taken
+    // before React commits the dragover would pass whatever it was about to
+    // paint (see dragOverAndWatch).
+    const hover = await dragOverAndWatch(page, point, '[data-grid-split-overlay="center"]');
 
     // The assertion is the PAINT, not the acceptance. The dragover still calls
     // preventDefault so the release is consumed here -- without it WKWebView
     // reads the drop as a drag-OUT and the pop-out path closes the pane -- but
     // a merge into the group the tab already lives in changes nothing, so
     // nothing may be promised.
-    expect(
-      await page.locator('[data-grid-split-overlay="center"]').count(),
-      "the centre of your own group offers no merge",
-    ).toBe(0);
+    expect(hover.count, "the centre of your own group offers no merge").toBe(0);
     await dropAtPoint(page, point);
     await endDrag(page, point);
 

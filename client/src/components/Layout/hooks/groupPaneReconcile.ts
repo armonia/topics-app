@@ -46,8 +46,19 @@ export function reconcileGroupsWithPanes(
 ): GroupPaneReconciliation {
   const allPaneIds = new Set(panes.map(p => p.id));
   let anyGroupChanged = false;
+  // ONE GROUP PER PANE. A pane listed by two groups is drawn twice, and since
+  // SPLITPERF-01 a pane body is mounted once per surface, so the second group
+  // is an empty cell. Two writers can produce it in the same tick (the
+  // empty-project migration and this pass itself each placing the first chat,
+  // measured on WebKit): the first group that lists a pane keeps it, a later
+  // one drops it, and a group left empty by that goes with the pruning below.
+  const placed = new Set<string>();
   let updated = prev.map(g => {
-    const filtered = g.paneIds.filter(id => allPaneIds.has(id));
+    const filtered = g.paneIds.filter(id => {
+      if (!allPaneIds.has(id) || placed.has(id)) return false;
+      placed.add(id);
+      return true;
+    });
     if (filtered.length === g.paneIds.length) return g;
     anyGroupChanged = true;
     const activePaneId = filtered.includes(g.activePaneId)

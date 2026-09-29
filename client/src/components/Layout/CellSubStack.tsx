@@ -14,9 +14,15 @@ import { DRAG_SLOP_PX } from '../../hooks/useGridResize';
  * The component owns the in-stack vertical-resize divider behavior and
  * notifies the parent via `onResize(newHeights)` when the user drags.
  *
- * If `stack` is undefined (the common case — cell hosts a single pane), we
- * render the primary child directly without any wrapper, so the legacy
- * single-pane render path is unchanged.
+ * The wrapper and the primary slot are rendered in EVERY case, stack or no
+ * stack, and that is what keeps the primary mounted when the cell is split
+ * down (SPLITPERF-01). It used to render the primary bare when there was no
+ * stack and inside two divs when there was one: the primary changed parent the
+ * moment a pane was dropped on the cell's bottom edge, so React rebuilt the
+ * whole group above the new pane, tab bar and bodies included, and again when
+ * the stack was closed. With no stack the two divs are flex boxes that fill the
+ * cell exactly as the bare primary did, and they carry none of the tree
+ * attributes: a single-pane cell still publishes no split.
  */
 export interface CellSubStackProps {
   stack?: PanelGridCellStack;
@@ -50,17 +56,11 @@ export function CellSubStack({
   onResize,
   isDragActive: _isDragActive,
 }: CellSubStackProps) {
-  // No stack — render the primary as before. This branch is the hot path
-  // for the vast majority of cells; we deliberately avoid any wrapper
-  // elements so the existing flex chain (cell → StandaloneChatGroup) is
-  // byte-identical to the pre-substack render.
-  if (!stack || stack.items.length === 0) {
-    return <>{primary}</>;
-  }
-
-  const totalSlots = stack.items.length + 1;
-  const heights = stack.heights.length === totalSlots
-    ? stack.heights
+  const items = stack?.items ?? [];
+  const stacked = items.length > 0;
+  const totalSlots = items.length + 1;
+  const heights = stacked && stack!.heights.length === totalSlots
+    ? stack!.heights
     : Array.from({ length: totalSlots }, () => 1 / totalSlots);
 
   return (
@@ -70,8 +70,8 @@ export function CellSubStack({
       // hosting cell, with one slot per pane. It lives INSIDE the cell the tree
       // renders as a leaf, so a reader that stops at `data-split-leaf` sees the
       // coarse shape and one that keeps walking sees the finer one.
-      data-split-node="col"
-      data-split-arity={totalSlots}
+      data-split-node={stacked ? 'col' : undefined}
+      data-split-arity={stacked ? totalSlots : undefined}
     >
       {/* `relative` so a drop overlay rendered alongside the slot's content
           anchors to the SLOT and not to the whole cell: the centre-merge
@@ -79,11 +79,11 @@ export function CellSubStack({
       <div
         className="relative flex flex-col min-h-0 min-w-0 overflow-hidden"
         style={{ flex: `${heights[0]} 1 0%` }}
-        data-split-leaf={primaryKey}
+        data-split-leaf={stacked ? primaryKey : undefined}
       >
         {primary}
       </div>
-      {stack.items.map((itemKey, i) => (
+      {items.map((itemKey, i) => (
         <Fragment key={itemKey}>
           <SubStackResizeDivider
             slotIdx={i}

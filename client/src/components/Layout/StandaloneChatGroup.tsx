@@ -42,6 +42,7 @@ import { primaryFromSoloCellKey } from './soloCells';
 import { canSplitPane, standaloneSplitSurface } from './splitRules';
 import { paneCellBg, paneCellTopInset } from '../../lib/paneCellBg';
 import { PaneKeepAlive } from './PaneKeepAlive';
+import { PaneEventLevel, StagedPane } from './PaneStage';
 import type { ZoomScope } from './zoomScope';
 import { paneShellOrder } from './paneShellOrder';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
@@ -919,6 +920,20 @@ export function StandaloneChatGroup({
     );
   };
 
+  // The card's handlers, named once: the element carries them for the events
+  // that start on it, its PaneEventLevel hands the same ones to the staged
+  // bodies inside it.
+  const cardHandlers = {
+    onMouseDownCapture: () => {
+      if (activePaneId && focusedPanelId !== activePaneId) {
+        onFocusPanel(activePaneId);
+      }
+    },
+    onDragOver: handleStandaloneDragOver,
+    onDragLeave: handleStandaloneDragLeave,
+    onDrop: handleStandaloneDrop,
+  };
+
   return (
     <>
       <div
@@ -929,15 +944,14 @@ export function StandaloneChatGroup({
         data-drop-active={panelDragOver ? 'into' : undefined}
         className="relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden transition-shadow"
         style={CHROME_BAR_H_VAR}
-        onMouseDownCapture={() => {
-          if (activePaneId && focusedPanelId !== activePaneId) {
-            onFocusPanel(activePaneId);
-          }
-        }}
-        onDragOver={handleStandaloneDragOver}
-        onDragLeave={handleStandaloneDragLeave}
-        onDrop={handleStandaloneDrop}
+        onMouseDownCapture={cardHandlers.onMouseDownCapture}
+        onDragOver={cardHandlers.onDragOver}
+        onDragLeave={cardHandlers.onDragLeave}
+        onDrop={cardHandlers.onDrop}
       >
+        {/* The bodies below are staged by the grid (PaneStage): their events
+            reach this card's handlers through the level. */}
+        <PaneEventLevel selector="[data-split-card]" handlers={cardHandlers}>
         {/* Single shared header — tab bar + (optional) sidebar toggle.
             Previously every pane-type branch rendered its own copy of
             this header; consolidating it lets the body switch underneath
@@ -1013,26 +1027,32 @@ export function StandaloneChatGroup({
             //
             // Inside it, shell order, not tab order: see paneShellOrder. A
             // reposition of the strip must not move these subtrees in the DOM.
-            <PaneAliveContext.Provider value={surfaceAlive && hasBox}>
-              {paneShellOrder(visitedPanes, stableKeyOf).map((pane) => {
-                const isPaneActive = pane.id === activePaneId;
-                return (
-                  <PaneKeepAlive
-                    // `stableKey` (when set by the pane reducer) survives
-                    // PANE_ID_REMAP — same pattern as PaneTabBar's tab DOM
-                    // and GroupLayout's keep-alive wrapper.
-                    key={stableKeyOf(pane)}
-                    paneKey={stableKeyOf(pane)}
-                    isVisible={isPaneActive}
-                    className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)} ${paneCellTopInset(pane.type)}`}
-                  >
-                    {renderPaneBody(pane, isPaneActive)}
-                  </PaneKeepAlive>
-                );
-              })}
-            </PaneAliveContext.Provider>
+            //
+            // STAGED (SPLITPERF-01): the body is mounted by the grid's
+            // PaneStage and shown here, so moving it to another cell does not
+            // rebuild it. `stableKey` (when set by the pane reducer) survives
+            // PANE_ID_REMAP — same pattern as PaneTabBar's tab DOM and
+            // GroupLayout's keep-alive wrapper. The Provider travels with the
+            // body, because the stage mounts it outside this element.
+            paneShellOrder(visitedPanes, stableKeyOf).map((pane) => {
+              const isPaneActive = pane.id === activePaneId;
+              return (
+                <StagedPane key={stableKeyOf(pane)} paneKey={stableKeyOf(pane)}>
+                  <PaneAliveContext.Provider value={surfaceAlive && hasBox}>
+                    <PaneKeepAlive
+                      paneKey={stableKeyOf(pane)}
+                      isVisible={isPaneActive}
+                      className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)} ${paneCellTopInset(pane.type)}`}
+                    >
+                      {renderPaneBody(pane, isPaneActive)}
+                    </PaneKeepAlive>
+                  </PaneAliveContext.Provider>
+                </StagedPane>
+              );
+            })
           )}
         </div>
+        </PaneEventLevel>
       </div>
       {settingsTopic && (
         <Suspense fallback={null}>
