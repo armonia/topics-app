@@ -6660,8 +6660,7 @@
     "tests/e2e/project-tabs.spec.ts": [
       "finestra",
       "progetto",
-      "questaTab",
-      "voce"
+      "questaTab"
     ],
     "tests/e2e/real-tool-calls.spec.ts": [
       "TC_MULTI_IDS"

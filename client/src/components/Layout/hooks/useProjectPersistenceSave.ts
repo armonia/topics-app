@@ -23,6 +23,7 @@ import {
   savePersistedTabState,
   savePersistedLayoutState,
   selectNonChatPanesToPersist,
+  rememberSessionOnlyPanes,
 } from './projectPersistence';
 import { getBrowserContextFromPaneId, recordBrowserOrigin } from '../../../state/pane/adapters';
 
@@ -73,6 +74,9 @@ export function useProjectPersistenceSave(
     // survive reload, or its cell collapses and focus snaps to a chat. See
     // selectNonChatPanesToPersist.
     const nonChatPanes = selectNonChatPanesToPersist(panes, groups, projectPath);
+    // What the snapshot leaves out stays open until the next reload, even if
+    // the window remounts meanwhile: see `rememberSessionOnlyPanes`.
+    rememberSessionOnlyPanes(projectPath, panes, nonChatPanes);
     const openChatTopicIds = panes
       .filter(p => p.type === 'chat' && p.topicId)
       .map(p => p.topicId!);

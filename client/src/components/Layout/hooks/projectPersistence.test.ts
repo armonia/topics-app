@@ -6,7 +6,11 @@
  * @covers LAYOUT-02
  */
 import { describe, expect, test } from 'bun:test';
-import { selectNonChatPanesToPersist } from './projectPersistence';
+import {
+  rememberSessionOnlyPanes,
+  selectNonChatPanesToPersist,
+  withSessionOnlyPanes,
+} from './projectPersistence';
 import { createPaneId } from '../../../state/pane/adapters';
 import type { Pane, PaneGroup } from '../../../types';
 
@@ -78,5 +82,45 @@ describe('selectNonChatPanesToPersist', () => {
     const groups = [group('g1', ['terminal:1'], 'terminal:1')];
     const ids = selectNonChatPanesToPersist([wrapper, term], groups, PROJECT).map(p => p.id);
     expect(ids).toEqual(['terminal:1']);
+  });
+});
+
+// A remount is not a reload: crossing the phone breakpoint remounts the project
+// window, which seeds from the snapshot above — so the background preview the
+// snapshot leaves out has to come back from the page-lifetime memory.
+describe('rememberSessionOnlyPanes / withSessionOnlyPanes', () => {
+  const OTHER = '/tmp/other-proj';
+
+  test('a background preview left out of the snapshot comes back on the next mount', () => {
+    const term = pane('terminal:1', 'terminal', false);
+    const git = pane('git:1', 'git', true);
+    const panes = [term, git];
+    const groups = [group('g1', ['terminal:1', 'git:1'], 'terminal:1')];
+    const persisted = selectNonChatPanesToPersist(panes, groups, PROJECT);
+    expect(persisted.map(p => p.id)).toEqual(['terminal:1']);
+    rememberSessionOnlyPanes(PROJECT, panes, persisted);
+    expect(withSessionOnlyPanes(PROJECT, persisted).map(p => p.id)).toEqual(['terminal:1', 'git:1']);
+    // Scoped to its project.
+    expect(withSessionOnlyPanes(OTHER, []).map(p => p.id)).toEqual([]);
+  });
+
+  test('a pane closed since is forgotten, so a remount does not resurrect it', () => {
+    const term = pane('terminal:1', 'terminal', false);
+    const git = pane('git:1', 'git', true);
+    const groups = [group('g1', ['terminal:1', 'git:1'], 'terminal:1')];
+    rememberSessionOnlyPanes(PROJECT, [term, git], selectNonChatPanesToPersist([term, git], groups, PROJECT));
+    // The next commit, after the Git tab was closed.
+    const after = [term];
+    rememberSessionOnlyPanes(PROJECT, after, selectNonChatPanesToPersist(after, [group('g1', ['terminal:1'], 'terminal:1')], PROJECT));
+    expect(withSessionOnlyPanes(PROJECT, [term]).map(p => p.id)).toEqual(['terminal:1']);
+  });
+
+  test('chats, the wrapper pane and panes already in the snapshot are not duplicated', () => {
+    const chat = { id: createPaneId('chat', 't1'), type: 'chat' as const, title: 'c', preview: false, topicId: 't1' };
+    const wrapper = pane(createPaneId('project', PROJECT), 'project', false);
+    const git = pane('git:1', 'git', true);
+    const persisted = [git];
+    rememberSessionOnlyPanes(PROJECT, [chat, wrapper, git], persisted);
+    expect(withSessionOnlyPanes(PROJECT, persisted)).toBe(persisted);
   });
 });

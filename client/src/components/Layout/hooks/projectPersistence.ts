@@ -102,6 +102,44 @@ export function selectNonChatPanesToPersist(
   );
 }
 
+// --- Panes that live for the page, not for the reload ---
+// A preview pane that is not its group's active tab is left OUT of the
+// snapshot on purpose (see `selectNonChatPanesToPersist`): it must not come
+// back after a RELOAD. But the project window also remounts without any
+// reload — crossing the 768px breakpoint swaps the surface that hosts it —
+// and the remount seeds from that same snapshot, so a tab that was still open
+// vanished when the window was resized (PROJECT-TABS-MOBILE-01b). This memory
+// lives as long as the page: it carries those panes across a remount, and a
+// reload starts empty, so the reload rule is unchanged.
+const sessionOnlyPanes = new Map<string, Pane[]>();
+
+/** Record the open non-chat panes that `persisted` (the snapshot just written)
+ *  leaves out, so the next mount of this project window in the same page can
+ *  put them back. Called by the save effect on every commit, so a close
+ *  drops the pane here too. */
+export function rememberSessionOnlyPanes(
+  projectPath: string,
+  panes: Pane[],
+  persisted: Pane[],
+): void {
+  const persistedIds = new Set(persisted.map(p => p.id));
+  const extra = stripWrapperPaneId(
+    panes.filter(p => p.type !== 'chat' && !persistedIds.has(p.id)),
+    projectPath,
+  );
+  if (extra.length > 0) sessionOnlyPanes.set(projectPath, extra);
+  else sessionOnlyPanes.delete(projectPath);
+}
+
+/** `nonChatPanes` plus the session-only panes remembered for this project. */
+export function withSessionOnlyPanes(projectPath: string, nonChatPanes: Pane[]): Pane[] {
+  const extra = sessionOnlyPanes.get(projectPath);
+  if (!extra) return nonChatPanes;
+  const ids = new Set(nonChatPanes.map(p => p.id));
+  const missing = extra.filter(p => !ids.has(p.id));
+  return missing.length > 0 ? [...nonChatPanes, ...missing] : nonChatPanes;
+}
+
 /** Subscribe to async hydration of `projects[path]` from the pane reducer
  * (WS init, cross-device sync). Wraps `loadProjectLayout`'s callback param
  * with shape-detection so callers always receive a `PersistedTabState`,
@@ -240,8 +278,14 @@ export function loadPersistedState(
     const lraw = localStorage.getItem(layoutStorageKey(projectPath));
     if (lraw) layout = sanitizeLayout(JSON.parse(lraw));
   } catch {}
-  if (!tabState) return layout ? { nonChatPanes: [], ...layout } : null;
-  return { ...tabState, ...layout };
+  // Only this synchronous mount read seeds React state; the server snapshot
+  // delivered through `onUpdate` is left as it is.
+  const nonChatPanes = withSessionOnlyPanes(projectPath, tabState?.nonChatPanes ?? []);
+  if (!tabState) {
+    if (nonChatPanes.length > 0) return { nonChatPanes, ...layout };
+    return layout ? { nonChatPanes: [], ...layout } : null;
+  }
+  return { ...tabState, nonChatPanes, ...layout };
 }
 
 // --- Chat-sync gate ---

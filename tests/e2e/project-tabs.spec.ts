@@ -5,6 +5,9 @@ import { createTopic, deleteTopic, resetPaneStore, seedProjectPane } from "./hel
 import { mkdirSync, writeFileSync } from "fs";
 import { hermetic } from "./fixtures/hermetic";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
+import { projectPanesKey } from "../../shared/project-keys";
+import { addPaneInProject, openProjectFromSidebar, projectWindow } from "./helpers/project-window";
+import { randomUUID } from "crypto";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -49,66 +52,8 @@ test.describe("Project Tabs", () => {
     await seedProjectPane(page.request, PROJECT_PATH).catch(() => {});
   });
 
-  /** Open the e2e project by clicking its sidebar button.
-   *  Uses a unique root path so it gets its own standalone button. */
-  async function openTestProject(page: import("@playwright/test").Page) {
-    // Expand sezione Progetti
-    const projectsSection = page.getByRole("button", {
-      name: /sezione Progetti/,
-    });
-    if ((await projectsSection.count()) > 0) {
-      const expanded = await projectsSection.getAttribute("aria-expanded");
-      if (expanded === "false") {
-        await projectsSection.click();
-        // La sezione è aperta quando lo DICE, non dopo mezzo secondo.
-        await expect(projectsSection).toHaveAttribute("aria-expanded", "true");
-      }
-    }
-
-    // Match by the beginning of the folder name (before timestamp)
-    const btn = page
-      .locator('[aria-label="Topics sidebar"] button')
-      .filter({ hasText: /e2e-project-tabs/ })
-      .first();
-    await expect(btn).toBeVisible({ timeout: 10000 });
-    await btn.click();
-
-    // Wait for project window tab bar
-    await expect(
-      page.locator('[data-testid="panel-tab-bar"]').first()
-    ).toBeVisible({ timeout: 10000 });
-  }
-
-  /** La finestra di progetto, che è l'unico posto dove «una tab di progetto»
-   *  esiste: fuori di lì c'è la tab DEL progetto, che è un'altra cosa. */
-  function projectWindow(page: import("@playwright/test").Page) {
-    return page.locator('[data-testid="project-window"]:visible').first();
-  }
-
-  /**
-   * Aggiunge una pane DENTRO la finestra di progetto.
-   *
-   * Il «+» va preso lì e non con `getByTitle("Add pane").first()`: il primo
-   * della pagina è quello della barra STANDALONE, sopra la finestra, e la pane
-   * che crea nasce al livello dell'app, accanto alla tab del progetto invece
-   * che dentro. Un test che chiede «il progetto» e clicca quello misura una
-   * superficie che non ha mai aperto — e resta verde finché è la standalone a
-   * comportarsi come si aspetta.
-   */
-  async function addPaneInProject(
-    page: import("@playwright/test").Page,
-    itemTestId: string,
-  ) {
-    const finestra = projectWindow(page);
-    const trigger = finestra
-      .locator('[data-testid="pane-add-menu-trigger"]:visible')
-      .first();
-    await expect(trigger).toBeVisible({ timeout: 10000 });
-    await trigger.click();
-    const voce = page.getByTestId(itemTestId).first();
-    await expect(voce).toBeVisible({ timeout: 5000 });
-    await voce.click();
-  }
+  const openTestProject = (page: import("@playwright/test").Page) =>
+    openProjectFromSidebar(page, /e2e-project-tabs/);
 
   // PROJECT-TABS-01: Project Window Pane Management
 
@@ -717,6 +662,84 @@ test.describe("Project Tabs", () => {
       .poll(async () => visibleIds(bars.first().locator("[data-pane-id]")), { timeout: 10000 })
       .toEqual(suDesktop);
   });
+  // Regression (CI, 29/09): PROJECT-TABS-MOBILE-01 failed on every first
+  // attempt, always with the same pane missing from the phone strip — a Git
+  // tab that PROJECT-TABS-02c leaves in this project's synced snapshot as a
+  // PREVIEW. Once other tabs are opened next to it, that preview is no longer
+  // its group's active tab, so the snapshot drops it (the reload rule); and
+  // crossing the phone breakpoint REMOUNTS the project window, which seeded
+  // from that snapshot — the tab vanished on a resize, with no reload. Here the
+  // same state is built on purpose instead of inherited from an earlier test.
+  test("PROJECT-TABS-MOBILE-01b: a background preview tab survives the switch to a phone and back", async ({
+    page,
+  }) => {
+    test.info().annotations.push({
+      type: "spec",
+      description: "PROJECT-TABS-MOBILE-01",
+    });
+    const panesKey = projectPanesKey(PROJECT_PATH);
+    const gitPaneId = `git:${randomUUID()}`;
+    // The synced snapshot another session left behind: one preview Git tab.
+    const seeded = await page.request.put(`/api/ui-state/${panesKey}`, {
+      data: {
+        nonChatPanes: [{ id: gitPaneId, type: "git", title: "Git", preview: true }],
+        openChatTopicIds: [],
+      },
+    });
+    expect(seeded.ok()).toBe(true);
+
+    await goToApp(page);
+    await openTestProject(page);
+    const projectWin = projectWindow(page);
+    await expect(projectWin.locator(`[data-pane-id="${gitPaneId}"]`)).toHaveCount(1, { timeout: 10000 });
+
+    await addPaneInProject(page, "pane-add-menu-new-chat");
+    await addPaneInProject(page, "pane-add-menu-browser");
+
+    const visibleIds = async (loc: import("@playwright/test").Locator) =>
+      [...new Set(await loc.evaluateAll((els) =>
+        els.map((el) => el.getAttribute("data-pane-id") ?? ""),
+      ))].filter(Boolean).sort();
+    const idsInProject = () => visibleIds(projectWin.locator("[data-pane-id]:visible"));
+    // Panes left open in this project by earlier tests may sit next to these
+    // (the project's snapshot outlives the pane-store reset), so the check is
+    // on the three kinds this test opened, not on the whole set.
+    await expect
+      .poll(async () => {
+        const ids = await idsInProject();
+        return ids.includes(gitPaneId)
+          && ids.some((id) => id.startsWith("chat:"))
+          && ids.some((id) => id.startsWith("browser:"));
+      }, { timeout: 10000 })
+      .toBe(true);
+    const onDesktop = await idsInProject();
+
+    // The precondition that makes this a test of the remount and not of the
+    // snapshot: the Git tab is open but NOT in the persisted snapshot.
+    await expect
+      .poll(() => page.evaluate(({ key, id }) => {
+        const raw = localStorage.getItem(key);
+        const panes: { id: string }[] = raw ? (JSON.parse(raw).nonChatPanes ?? []) : [];
+        return panes.some((p) => p.id === id);
+      }, { key: panesKey, id: gitPaneId }))
+      .toBe(false);
+
+    const desktopSize = page.viewportSize()!;
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator("[data-group-cell]")).toHaveCount(0, { timeout: 5000 });
+    const bars = page.locator('[data-testid="panel-tab-bar"]:visible');
+    await expect(bars).toHaveCount(1);
+    // `arrayContaining`: a pane that arrives late may join, none may leave.
+    await expect
+      .poll(async () => visibleIds(bars.first().locator("[data-pane-id]")), { timeout: 10000 })
+      .toEqual(expect.arrayContaining(onDesktop));
+
+    // And back: the same remount happens the other way.
+    await page.setViewportSize(desktopSize);
+    await expect(projectWin.locator("[data-group-cell]").first()).toBeVisible({ timeout: 5000 });
+    await expect.poll(idsInProject, { timeout: 10000 }).toEqual(expect.arrayContaining(onDesktop));
+  });
+
   /**
    * PROJECT-TABS-PIN — dentro un progetto le cose fissabili sono DUE, e il menu
    * le deve nominare entrambe.
