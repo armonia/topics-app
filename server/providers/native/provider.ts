@@ -590,6 +590,9 @@ export class NativeProvider implements AIProvider {
       // com'era prima di questa riga.
       const topics = this.topicsContext(sessionKey);
       const globalOrchestrator = topics?.profile === "global-orchestrator";
+      // The process tools need the topic's OWN project, not any workspace: the
+      // route resolves the topic, and a configured default root does not count.
+      const hasProject = !!getTopicWorkspaceForSession(sessionKey);
       // ── THE GLOBAL MCP FLEET, AND THE LEVER THAT TURNS IT OFF ───────────
       //
       // The servers configured on the machine (`~/.claude.json`) are mounted by
@@ -619,7 +622,7 @@ export class NativeProvider implements AIProvider {
           // No workspace does not mean no tools: the two that resolve no path
           // (the turn's plan, and reading a URL) stay. See `WORKSPACE_FREE_TOOLS`.
           ...(workspace ? CODING_TOOLS : WORKSPACE_FREE_TOOLS),
-          ...(topics ? topicsToolSpecs(topics.profile) : []),
+          ...(topics ? topicsToolSpecs(topics.profile, { hasProject }) : []),
           ...(fleetAllowed ? mcpToolSpecs() : []),
         ];
       };

@@ -251,7 +251,7 @@ afterAll(() => watcher.stop());
 let reports = 0;
 function reportLands(sk: string): void {
   reports += 1;
-  watcher.deliverExit({ parentSessionKey: sk, childId: `child-${reports}`, name: "lane-a", result: "Lane A: 12 test verdi.", exitCode: 0 });
+  watcher.deliverExit({ parentSessionKey: sk, childId: `child-${reports}`, name: "lane-a", outcome: { status: "completed", partial: false, text: "Lane A: 12 test verdi." }, exitCode: 0 });
 }
 const spawnsSubAgent = (h: StreamHandler) => {
   h.onToolStart(`spawn-${reports}`, "mcp__topics__spawn_agent", { name: "lane-a" });

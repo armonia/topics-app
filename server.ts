@@ -5156,7 +5156,7 @@ const dispatchTimer = setInterval(() => {
   // suo PTY sopravviveva all'archiviazione della chat per sempre.
   // `orphanChildSessions` chiede la stessa domanda alle due forme di padre.
   try {
-    for (const id of orphanChildSessions(ctx.db)) retireTerminalSession(id);
+    for (const id of orphanChildSessions(ctx.db)) retireTerminalSession(id, "swept");
   } catch (err) { console.error("[board] reap delle sessioni figlie fallito", err); }
 }, DISPATCH_POLL_MS);
 

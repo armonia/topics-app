@@ -43,6 +43,17 @@ describe("gli schemi dei tool di Topics", () => {
     expect(topicsToolSpecs("dispatch").length).toBeLessThan(topicsToolSpecs().length);
   });
 
+  test("a topic with no project is not offered the tools its route refuses (topic:5a738995)", () => {
+    // Both answer 400 "This topic has no project directory": offered anyway, the
+    // chat called run_command, met the 400 and told the user it had no shell.
+    const without = new Set(topicsToolSpecs(undefined, { hasProject: false }).map((s) => s.name));
+    expect(without.has("run_command")).toBe(false);
+    expect(without.has("run_script")).toBe(false);
+    expect(without.has("spawn_agent")).toBe(true);
+    const withProject = new Set(topicsToolSpecs(undefined, { hasProject: true }).map((s) => s.name));
+    expect(withProject.has("run_command")).toBe(true);
+  });
+
   // I due gruppi devono restare distinguibili, o il loop instrada male.
   test("nessun nome collide con i tool di coding", () => {
     const topics = new Set(topicsToolSpecs().map((s) => s.name));

@@ -35,7 +35,7 @@ import { resolveAppDataDir } from "./data-dir";
 import type { Topic, StoredMessage } from "../types";
 import type { AIProvider } from "../providers";
 import type { OutboundMessage } from "../../shared/ws-outbound";
-import { formatSubAgentExitMessage, formatSubAgentExitBody, type SubAgentExitInfo } from "../routes/subagent-exit";
+import { formatSubAgentExitMessage, formatSubAgentExitBody, type ReportLanguage, type SubAgentExitInfo } from "../routes/subagent-exit";
 
 /** Una sessione padre sorvegliata, col cursore di lettura del suo transcript. */
 interface WatchedSession {
@@ -75,6 +75,15 @@ export interface SubagentWatchDeps {
   pollIntervalMs?: number;
   /** Dopo quanto si smette di sorvegliare una sessione. */
   watchTimeoutMs?: number;
+  /**
+   * Is a turn of this session still open? A sub-agent's report waits for it to
+   * close (`deliverExit`). Absent = never open, the report is written at once.
+   */
+  isTurnOpen?: (sessionKey: string) => boolean;
+  /** The language of the report. Absent = Italian, the language it always had. */
+  reportLanguage?: () => ReportLanguage;
+  /** How often a waiting report looks at the turn again. Injectable for tests. */
+  turnWaitStepMs?: number;
 }
 
 export interface SubagentWatcher {
@@ -91,6 +100,8 @@ export interface SubagentWatcher {
 }
 
 const DEFAULT_POLL_MS = 5_000;
+/** How long a sub-agent's report waits for its parent's open turn to close. */
+const EXIT_WAIT_CAP_MS = 30 * 60_000;
 const DEFAULT_WATCH_TIMEOUT_MS = 30 * 60_000;
 
 /** Il testo di un `content` che può essere una stringa o un array di blocchi. */
@@ -349,10 +360,30 @@ export function createSubagentWatcher(deps: SubagentWatchDeps): SubagentWatcher 
     if (!info.parentSessionKey.startsWith("topic:")) return;
     if (deliveredExits.has(info.childId)) return;
     deliveredExits.add(info.childId);
+    writeExitWhenTurnCloses(info, 0);
+  }
+
+  /**
+   * Not under a turn still open. The parent usually stops its child from inside
+   * a turn (`stop_agent`), so the report used to be appended while that turn was
+   * streaming, and a turn that persists its body into "the session's last row"
+   * then wrote over the report: the row read as a copy of the turn and the
+   * child's result was gone (7 stops confirmed on 858162f5 and c82359c1). The
+   * same wait the background notices use (`lib/background-notice.ts`), with the
+   * same cap, after which the report is written anyway.
+   */
+  function writeExitWhenTurnCloses(info: SubAgentExitInfo, waitedMs: number): void {
+    if (deps.isTurnOpen?.(info.parentSessionKey) && waitedMs < EXIT_WAIT_CAP_MS) {
+      const step = deps.turnWaitStepMs ?? 500;
+      const t = setTimeout(() => writeExitWhenTurnCloses(info, waitedMs + step), step);
+      (t as { unref?: () => void }).unref?.();
+      return;
+    }
     const topic = deps.getTopicBySessionKey(info.parentSessionKey);
     if (!topic) return;
-    const body = formatSubAgentExitBody(info);
-    const content = formatSubAgentExitMessage(info);
+    const language = deps.reportLanguage?.() ?? "it";
+    const body = formatSubAgentExitBody(info, language);
+    const content = formatSubAgentExitMessage(info, language);
     // NON si usa `deliverMessage` qui: l'ordine dei broadcast è quello
     // originale e va tenuto — `unread:updated` arriva DOPO `topic:updated`, non
     // prima. Sono due messaggi che il client applica in sequenza, e invertirli

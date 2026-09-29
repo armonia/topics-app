@@ -9,7 +9,7 @@
  *
  * Il provider finto NON è `openclaw`, così il recapito prende la strada del
  * risultato grezzo e nessun test tocca la rete.
- * @covers SUBAGENT-06
+ * @covers SUBAGENT-06, SUBAGENT-07
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, writeFileSync, appendFileSync, rmSync, renameSync } from "fs";
@@ -219,5 +219,53 @@ describe("extractTextContent", () => {
     expect(extractTextContent(null)).toBe("");
     expect(extractTextContent(42)).toBe("");
     expect(extractTextContent({ text: "non è un array" })).toBe("");
+  });
+});
+
+describe("deliverExit - the report of a spawn_agent child", () => {
+  const outcome = { status: "completed" as const, partial: false, text: "Report: 3 files" };
+
+  function exitWatcher(turnOpen: { value: boolean }) {
+    const topic = { id: TOPIC_ID, sessionKey: SESSION_KEY, name: "Chat" } as unknown as Topic;
+    const appended: string[] = [];
+    const watcher = createSubagentWatcher({
+      gatewayUrl: "http://gateway.invalid",
+      gatewayToken: "t",
+      getTopicById: () => topic,
+      getTopicBySessionKey: () => topic,
+      saveSingleTopic: () => {},
+      appendLocalMessage: (_sk, _role, content) => {
+        appended.push(content);
+        return { id: `m${appended.length}`, role: "assistant", content, timestamp: "" } as StoredMessage;
+      },
+      broadcastToAll: () => {},
+      bumpUnread: () => {},
+      resolveProvider: () => ({ name: "anthropic" }) as unknown as AIProvider,
+      pollIntervalMs: 60_000,
+      isTurnOpen: () => turnOpen.value,
+      turnWaitStepMs: 5,
+    });
+    live = watcher;
+    return { watcher, appended };
+  }
+
+  it("waits for the parent's open turn to close before writing its row", async () => {
+    // The parent stops its child from inside a turn. A row written under that
+    // turn was overwritten by the turn's own body: the report vanished (858162f5).
+    const turn = { value: true };
+    const { watcher, appended } = exitWatcher(turn);
+    watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c1", name: "dnd-audit", outcome, exitCode: null });
+    await Bun.sleep(30);
+    expect(appended).toEqual([]);
+    turn.value = false;
+    for (let i = 0; i < 100 && appended.length === 0; i++) await Bun.sleep(5);
+    expect(appended).toEqual(['**Sotto-agente "dnd-audit", esito:**\n\nReport: 3 files']);
+  });
+
+  it("writes at once when no turn is open, and only once per child", () => {
+    const { watcher, appended } = exitWatcher({ value: false });
+    watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c2", name: "lane-a", outcome, exitCode: 0 });
+    watcher.deliverExit({ parentSessionKey: SESSION_KEY, childId: "c2", name: "lane-a", outcome, exitCode: 0 });
+    expect(appended).toHaveLength(1);
   });
 });
