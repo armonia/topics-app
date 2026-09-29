@@ -2,11 +2,29 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.412 — 2026-09-29
+
+### Sotto il cofano
+- The browser tab's kind in words lives in its own module, so the tab chrome exports components only
+
 ## 2.2.411 — 2026-09-29
 
 ### Sotto il cofano
+- Four more landed changes go to the archive, and their requirements into the living specs
 - An archived project stays forgotten while its window is still mounted, so the reopen has no background preview
+- Console errors win a browser tab's corner, and take back control gets a target of its own
+- Archived tasks cite their videos relative to the session scratchpad, not by an absolute path that carries the username
+- Evidence mode keeps the video out of the trace, so a clip over 64 KB no longer hangs the teardown
 - The banner of the chat in front is recorded already seen, so the Dock does not move at its turn end with the default settings
+- The shared pane's red dot counts this page, lists its rows, and yields the corner to a lost link
+- The phone subscribes to push with one tap, and every push leaves a line in the log
+- A chat seen in one window drops its 'done' mark in every window, and every pinned tile kind takes the detour to its group
+- The background work line is the last row of the transcript, so its coming and going no longer moves the composer
+- The evidence trace keeps a spec's attachments except on Node 26, the only Node where their merge stalls
+- The tap on "Enable on this device" asks for permission itself, so iOS shows "Allow" even after the no-gesture ask at startup
+- The agent browser tools read a local fixture page, so a changed example.com cannot turn them red
+- Browser persistence restores the local fixture page, so the test no longer needs example.com to be up
+- The living chat spec carries BGVIS-04 as the line at the end of the transcript
 
 ## 2.2.410 — 2026-09-29
 
