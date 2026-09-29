@@ -2,6 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.410 — 2026-09-29
+
+### Sotto il cofano
+- An answer that produced a media file forks the CLI session: the MEDIA lines Topics appends are not the transcript being ahead
+- Six changes that landed on 28-29/09 go to the archive, and their requirements into the living specs
+- A browser tab's kind rides on the favicon's corner and a 99+ count fits the 20px slot
+- The mark all clears only what the panel listed, and a finished chat counts one like a finished terminal
+- ⌘J into another group takes the window there first, as the row's click does; the phone's «In attesa» door says its count; Ctrl+J stays with the terminal
+- A background preview tab survives the project window's remount at the phone breakpoint
+- A 99+ count fits the tab slot in the Linux CI's font too
+- notification-history reads every seeded chat before the wipe, and NH-05 posts only once the socket is up
+- Living specs carry the lanes' last edits, and a fork point compares both sides without their trailing MEDIA lines
+
 ## 2.2.409 — 2026-09-29
 
 ### Sotto il cofano

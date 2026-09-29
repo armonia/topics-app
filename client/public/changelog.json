@@ -1,5 +1,61 @@
 [
   {
+    "version": "2.2.410",
+    "date": "2026-09-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "An answer that produced a media file forks the CLI session: the MEDIA lines Topics appends are not the transcript being ahead",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Six changes that landed on 28-29/09 go to the archive, and their requirements into the living specs",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A browser tab's kind rides on the favicon's corner and a 99+ count fits the 20px slot",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The mark all clears only what the panel listed, and a finished chat counts one like a finished terminal",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "⌘J into another group takes the window there first, as the row's click does; the phone's «In attesa» door says its count; Ctrl+J stays with the terminal",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A background preview tab survives the project window's remount at the phone breakpoint",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A 99+ count fits the tab slot in the Linux CI's font too",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "notification-history reads every seeded chat before the wipe, and NH-05 posts only once the socket is up",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Living specs carry the lanes' last edits, and a fork point compares both sides without their trailing MEDIA lines",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.409",
     "date": "2026-09-29",
     "sections": {
