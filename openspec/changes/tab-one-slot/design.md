@@ -76,5 +76,11 @@ La riga di sidebar non cambia.
 
 Misurato su WebKit: «13» al passo mini con `px-1` era largo 22,6 px, «99+» 27,
 contro uno slot di 20. Nello slot (`NotificationBadge compact`) due cifre stanno
-con 2 px di margine, tre scendono al passo nano (9 px, il pavimento della scala).
+con 2 px di margine, tre scendono al passo nano (9 px, il pavimento della scala)
+senza padding e con `tracking-tighter`. Il font conta: la CI Linux disegna in
+DejaVu Sans, dove «99+» con `px-px` e `tracking-tight` era 21,4 px e usciva
+dallo slot mentre su macOS (SF, 19,6) stava dentro. Ora è 18,7 in DejaVu, 19,3
+in Verdana, 16,9 in SF. Il test f) disegna i numeri dello slot in Verdana (con
+DejaVu come ripiego su Linux), il più largo misurato, così un giro su macOS
+fallisce dove fallirebbe la CI.
 Il numero esatto va nel nome accessibile della tab (`tab.attentionCount`).

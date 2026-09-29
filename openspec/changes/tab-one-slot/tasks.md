@@ -22,7 +22,7 @@
 - [x] 4.3 Download sui tre puntini, che li aprono; puntini in `.tab-extras` sopra la coda del nome
 - [x] 4.4 Tolti `PaneTabCommands`, `StopTurnButton`, `BrowserTabDownloadsCue`, `SessionElapsed`
 - [x] 4.5 Tipo del browser sull'angolo della favicon (`BrowserTabCornerMark`, precedenza in `browserCornerMark`), non piu' in fila
-- [x] 4.6 Numeri dello slot dentro i 20 px (`NotificationBadge compact`, «99+» al passo nano); numero esatto nel nome accessibile
+- [x] 4.6 Numeri dello slot dentro i 20 px (`NotificationBadge compact`, «99+» al passo nano senza padding, dentro anche in DejaVu Sans); numero esatto nel nome accessibile
 
 ## 5. Prove
 - [x] 5.1 `tests/e2e/tab-one-slot.spec.ts` (a, b, c, d) verde su WebKit con video

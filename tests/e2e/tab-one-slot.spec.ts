@@ -78,6 +78,19 @@ async function expectInside(inner: Locator, outer: Locator, what: string) {
   expect(i.y + i.height, `${what}: bottom edge inside`).toBeLessThanOrEqual(o.y + o.height + SAME_PX);
 }
 
+/**
+ * Draw the slot's figures in the widest UI font a runner can resolve. The
+ * Linux CI falls back to DejaVu Sans, where "99+" at 9px is 19.39px against
+ * 17.59 with SF: a macOS run passed while the CI spilled out of the slot.
+ * Verdana, on every Mac, is wider still (19.94), so forcing it makes this
+ * machine fail wherever the CI would; DejaVu is the fallback on Linux.
+ */
+async function forceWideUiFont(page: Page) {
+  await page.addStyleTag({
+    content: '[data-testid="pane-tab-slot"] [data-notification-count] { font-family: Verdana, "DejaVu Sans", sans-serif !important; }',
+  });
+}
+
 /** Park the pointer where no tab is, so "rest" really is rest. */
 async function pointerAway(page: Page) {
   await page.mouse.move(640, 700);
@@ -249,6 +262,7 @@ test.describe.serial("Una tab, tre zone", () => {
     ws.send({ type: "unread:updated", topicId: childId, unreadCount: 150 });
     const ringNumber = slot.locator('[data-loader-state="working"] [data-notification-count]');
     await expect(ringNumber).toHaveText("99+", { timeout: 10_000 });
+    await forceWideUiFont(page);
     await expectInside(ringNumber, slot, "99+ in the ring");
   });
 
@@ -418,6 +432,7 @@ test.describe.serial("Una tab, tre zone", () => {
     const slot = tab.getByTestId("pane-tab-slot");
     await expect(tab).toHaveAttribute("data-active", "false", { timeout: 15_000 });
     const figure = slot.locator("[data-notification-count]");
+    await forceWideUiFont(page);
 
     for (const [count, shown] of [[13, "13"], [150, "99+"]] as const) {
       ws.send({ type: "unread:updated", topicId: chatA.id, unreadCount: count });

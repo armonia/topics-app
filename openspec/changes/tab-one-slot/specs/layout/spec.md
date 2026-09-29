@@ -28,7 +28,8 @@ nome, senza stringerlo.
 
 Lo slot SHALL essere l'ultima zona della tab, largo 20 px, allo stesso x in ogni
 stato, e SHALL essere riservato anche quando è vuoto. Ogni segnale SHALL stare
-dentro i suoi 20 px, anche «99+»; il numero esatto SHALL stare nel nome
+dentro i suoi 20 px, anche «99+» e in qualunque font dell'interfaccia (DejaVu
+Sans della CI Linux compreso); il numero esatto SHALL stare nel nome
 accessibile della tab. A riposo SHALL mostrare
 UN solo segnale, secondo questa precedenza:
 
@@ -48,7 +49,7 @@ restano spenti, come prima: li mostra la sua barra.
 
 #### Scenario: un numero a tre cifre
 - **GIVEN** una tab di chat con 150 messaggi da leggere
-- **THEN** lo slot SHALL mostrare «99+» dentro i suoi 20 px, e il nome accessibile della tab SHALL dire 150
+- **THEN** lo slot SHALL mostrare «99+» dentro i suoi 20 px anche nel font più largo (Verdana, DejaVu Sans), e il nome accessibile della tab SHALL dire 150
 
 #### Scenario: lavoro e attenzione insieme
 - **GIVEN** una tab di progetto chiusa con 13 cose in attesa e un figlio al lavoro

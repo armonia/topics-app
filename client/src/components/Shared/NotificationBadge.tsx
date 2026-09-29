@@ -28,8 +28,9 @@ interface NotificationBadgeProps {
   variant?: 'default' | 'onFill';
   testId?: string;
   /** The badge lives in a fixed 20px box (the tab slot, TABSLOT-02): it trims
-   *  its padding, and "99+" drops to the nano step, so no count spills out of
-   *  the box. The exact count stays in `ariaLabel` and in the host's name. */
+   *  its padding, and "99+" drops to the nano step with none, so no count
+   *  spills out of the box in any UI font a runner resolves (DejaVu included).
+   *  The exact count stays in `ariaLabel` and in the host's name. */
   compact?: boolean;
 }
 
@@ -37,9 +38,12 @@ export function NotificationBadge({ count, className = '', ariaLabel, title, var
   if (count <= 0) return null;
   const display = count > 99 ? '99+' : String(count);
   // Measured on WebKit: "13" at the mini step with `px-1` is 22.6px, "99+" 27;
-  // the slot is 20. Two figures fit with 2px of padding, three only at nano.
+  // the slot is 20. Two figures fit with 2px of padding, three only at nano,
+  // with no padding and the tighter tracking: the Linux CI draws DejaVu Sans,
+  // where "99+" at nano with `tracking-tight` and `px-px` was 21.4px. Now it is
+  // 18.7 there, 19.3 in Verdana (the widest we measured), 16.9 with SF.
   const size = !compact ? 'text-mini px-1'
-    : display.length > 2 ? 'text-nano px-px tracking-tight'
+    : display.length > 2 ? 'text-nano px-0 tracking-tighter'
     : 'text-mini px-0.5';
   // `onFill`: a translucent-black pill + white text reads on BOTH attention
   // fills (dark-text amber AND white-text blue), where the default primary-blue
