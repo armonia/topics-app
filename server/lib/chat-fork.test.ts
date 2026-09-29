@@ -112,6 +112,9 @@ describe("cliForkBlocker: when the CLI would remember something the copy does no
     // A marker the model wrote in the middle of its text is the text: the transcript still decides.
     expect(cliForkBlocker(withMedia("MEDIA:/tmp/a.png\nanswer 1"), 3, { last })).toBeNull();
     expect(cliForkBlocker(withMedia("answer 0\nMEDIA:/tmp/a.png"), 3, { last })).toBe("transcript-ahead");
+    // A MEDIA line the model wrote itself sits in the transcript as well as in the row.
+    const lastWithMedia = { ...last, text: "answer 1\n\nMEDIA:/tmp/x.pdf" };
+    expect(cliForkBlocker(withMedia("answer 1\n\nMEDIA:/tmp/x.pdf"), 3, { last: lastWithMedia })).toBeNull();
   });
 
   test("rule 1: an edited or regenerated row up to the point", () => {

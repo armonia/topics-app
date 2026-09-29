@@ -1895,8 +1895,10 @@ it: reaching a tab is not asking for its address.
 
 ### Requirement: BROWSER-TAB-LABEL-02 — Reaching a browser tab SHALL NOT open its address
 
-The first click on a browser tab that is not active SHALL only make it active.
-The address dropdown SHALL open only on a click on a tab that is already active.
+The first click on a browser tab that is not active SHALL only make it active:
+it SHALL NOT open the address dropdown. A click on the tab once it is active
+opens it, like the other ways the address is edited (Cmd/Ctrl+L, a pane with no
+address).
 
 #### Scenario: the first click on another tab
 - **GIVEN** two panes in one tab bar, the browser one NOT active

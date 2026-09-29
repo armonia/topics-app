@@ -3913,7 +3913,11 @@ la sidebar (`TopicTree`) SHALL rispondere chiamando lo stesso gestore del clic
 sulla riga: `handleChatRowClick` per le chat, e per i terminali un
 `handleTerminalRowClick` che spegne il «finito» (`clearTerminalFinished`) e poi
 chiama `onTerminalClick`, estratto dalla riga (`TopicTree.tsx:2376`) e usato da
-lei e dal tasto.
+lei e dal tasto. Una meta disegnata nella card di un gruppo che la finestra non
+mostra SHALL passare prima da `goToSpace` di quel gruppo, come fa la cattura del
+clic sulla card (`SpaceGroups`): la finestra va sul gruppo, e in una
+finestra-gruppo (`?space=`) la query lo segue; un gruppo che vive in una
+finestra sua viene portato davanti.
 
 **Il tasto.**
 
@@ -3984,6 +3988,26 @@ lei e dal tasto.
 - **GIVEN** un terminale Claude Code in `claudePhaseAwaitingInputTermIds`
 - **THEN** è nella coda, al posto della sua riga
 
+#### Scenario: su Windows Ctrl+J resta al terminale
+- **GIVEN** su `:13334` una chat A ferma su un permesso e il fuoco dentro un terminale
+- **WHEN** si scrive `echo $((6*7))<marcatore>` e si preme Ctrl+J (`ctrlKey` sì, `metaKey` no)
+- **THEN** il terminale stampa `42<marcatore>`: il tasto è arrivato alla shell come a capo
+- **AND** A non riceve il fuoco
+- **WHEN** si preme ⌘J nello stesso terminale
+- **THEN** a fuoco va A
+
+#### Scenario: Ctrl+J scatta anche dal composer
+- **GIVEN** su `:13334` una chat A ferma su un permesso e il fuoco nel composer di un'altra chat
+- **WHEN** si preme Ctrl+J
+- **THEN** a fuoco va A
+
+#### Scenario: in una finestra-gruppo ⌘J va dove va il clic sulla riga
+- **GIVEN** su `:13334` una finestra `?space=<G>` con A nel gruppo G e B nel gruppo Principale, entrambe ferme su un permesso, e il fuoco su A
+- **WHEN** si preme ⌘J
+- **THEN** la tab a fuoco è B, il gruppo attivo è Principale e la query dice `space=space:default`
+- **WHEN** si preme ⌘J di nuovo
+- **THEN** la tab a fuoco è A e il gruppo attivo è di nuovo G
+
 #### Scenario: l'accordo passa anche da una pane browser
 - **WHEN** la tabella decisionale dei tasti riceve Ctrl+J (`chords.rs`)
 - **THEN** l'accordo è inoltrato alla webview principale come `key:'j'`
@@ -4000,18 +4024,22 @@ attesa», prima del Profilo, con il glifo `Hourglass` della sezione «Attende te
 - A coda vuota la porta SHALL restare al suo posto, `disabled`, con un titolo
   che dice che nessuna chat ti aspetta: le altre porte NON SHALL spostarsi quando
   il numero cambia.
+- Il nome accessibile della porta SHALL portare il numero, zero compreso
+  («In attesa, 3», «In attesa, 0»): il numero sulla porta è solo disegnato, e il
+  titolo resta il suggerimento.
 - Il Profilo SHALL restare l'ultima porta; ogni porta SHALL restare almeno 44 px
   e la fila SHALL continuare a seguire la curva dello schermo agli estremi.
 
 #### Scenario: la porta porta alle due in attesa
 - **GIVEN** su `:13334` un viewport da telefono e le tre chat di CHAT-WAIT-03
 - **THEN** `mobile-chrome-waiting` mostra `2`
+- **AND** il suo nome accessibile è «In attesa, 2»
 - **WHEN** la si preme due volte
 - **THEN** a fuoco va la prima meta e poi la seconda, e mai la chat al lavoro
 
 #### Scenario: a zero è spenta e non sposta niente
 - **GIVEN** nessuna chat in attesa
-- **THEN** `mobile-chrome-waiting` è `disabled`
+- **THEN** `mobile-chrome-waiting` è `disabled`, e il suo nome accessibile è «In attesa, 0»
 - **AND** le cinque porte hanno la stessa larghezza di quando il numero è `2`
 
 ### Requirement: CHAT-FORK-01 — Diramare crea una chat NUOVA con la stessa storia, e l'originale non cambia
@@ -4127,8 +4155,9 @@ nullo e in `chat_forks.branch_ref`.
   che la sessione della CLI non ha mai visto);
 - dopo il punto il ramo attivo ha altre righe oltre agli avvisi di background
   (una riga `partial`, un prompt senza risposta, una riga di stop);
-- il testo del punto, spazi ai bordi esclusi, non finisce col testo dell'ultima
-  riga `assistant` del transcript, o quella riga non ha testo.
+- il testo del punto, spazi ai bordi e righe `MEDIA:` in coda esclusi, non
+  finisce col testo dell'ultima riga `assistant` del transcript (anch'esso senza
+  le righe `MEDIA:` in coda), o quella riga non ha testo.
 
 In quei casi il ramo parte fresco: lo spawn conia la sessione con `isNew` vero e
 il suo primo messaggio porta il riepilogo del database (CCLI-06), cioè la storia

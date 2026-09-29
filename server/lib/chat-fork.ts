@@ -145,7 +145,9 @@ export function cliForkBlocker(
   if (thread.slice(0, point + 1).some((row) => (row.branchIndex ?? 0) > 0)) return "edited-or-regenerated";
   if (thread.slice(point + 1).some((row) => !isBackgroundNoticeOnly(row))) return "rows-after-point";
   if (transcript) {
-    const last = transcript.last?.text.trim() ?? "";
+    // Both sides lose their trailing MEDIA run: the server appends one to the
+    // row, and a model that writes its own is in the transcript too.
+    const last = withoutMediaSuffix(transcript.last?.text ?? "").trim();
     if (!last) return "transcript-without-answer";
     if (!withoutMediaSuffix(thread[point].content).trim().endsWith(last)) return "transcript-ahead";
   }

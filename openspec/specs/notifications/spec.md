@@ -635,7 +635,7 @@ funzione pura, e quella funzione SHALL essere l'unico posto dove quel numero
 esiste.
 
 Il criterio e' uno: QUANTE COSE STANNO CHIEDENDO QUALCOSA A UN UMANO. Le chat
-non lette o ferme in attesa, i terminali che hanno finito, le card della board
+non lette, ferme in attesa o finite (segno «done»), i terminali che hanno finito, le card della board
 che aspettano una decisione. Cose, non messaggi (NOTIF-ONE-02). Il lavoro che
 gira da solo non entra, e un topic ARCHIVIATO non entra mai.
 
@@ -758,13 +758,18 @@ tutte le righe della lista) SHALL passare dalla stessa porta lato server, che
 azzera il non-letto della chat E segna viste le sue righe, e lo annuncia a ogni
 finestra con `unread:updated` e `notification:seen`.
 
-Aprire il pannello SHALL spegnere anche le chat con non-letti che non hanno
-più righe non viste, e i segni «finito» dei terminali. SHALL risparmiare solo i
-soggetti con una notifica arrivata DOPO la lista letta: quella non è stata vista.
+Aprire il pannello SHALL spegnere esattamente ciò che il pannello elencava: le
+righe fino alla più recente letta, con le chat dietro di esse, e le chat e i
+terminali sotto «Aspettano te» (anche una chat con non-letti e nessuna riga non
+vista, il segno «finito» di un terminale, il segno «done» di una chat). NON
+SHALL spegnere ciò che non ha mostrato: una chat silenziata (MUTE-01) o zittita
+dal Non disturbare non ha righe, e i suoi messaggi arrivati dopo la lettura
+della lista restano non letti. SHALL risparmiare anche i soggetti elencati con
+una notifica arrivata DOPO la lista letta: quella non è stata vista.
 
-Il frame `notification:seen` SHALL nominare i soggetti spenti (`subjects`) o,
-per il «segna tutto», quelli risparmiati (`allExcept`), così ogni finestra spegne
-i propri segni in memoria e i pallini delle sole righe nominate.
+Il frame `notification:seen` SHALL nominare i soggetti spenti (`subjects`: la
+chiave di gruppo, o l'id di una riga senza gruppo), così ogni finestra spegne i
+propri segni in memoria e i pallini delle sole righe nominate.
 
 #### Scenario: una notifica di chat vista nel pannello
 - **WHEN** si clicca nel pannello la notifica di una chat con 4 non letti
@@ -779,6 +784,11 @@ i propri segni in memoria e i pallini delle sole righe nominate.
 - **WHEN** una notifica arriva dopo la lettura della lista
 - **THEN** la sua chat NON SHALL essere spenta dal «segna tutto»
 
+#### Scenario: una chat silenziata che il pannello non ha mostrato
+- **GIVEN** il pannello si apre, e il suo «segna tutto» non è ancora applicato
+- **WHEN** una chat silenziata riceve 3 messaggi (nessun banner, nessuna riga)
+- **THEN** il «segna tutto» NON SHALL azzerarne il non-letto, e la chat SHALL restare contata e elencata
+
 #### Scenario: aprire una chat con il non-letto già a zero
 - **WHEN** si apre una chat che ha righe non viste e non-letto zero
 - **THEN** il client SHALL mandare il «visto» della chat anche senza non-letti, e le sue righe SHALL essere segnate viste
@@ -788,7 +798,8 @@ i propri segni in memoria e i pallini delle sole righe nominate.
 Il numero globale (Dock, tray, badge PWA) e il numero della campanella SHALL
 essere LO STESSO numero, calcolato da una funzione sola: i SOGGETTI in attesa
 (una chat vale 1 qualunque sia il numero dei suoi messaggi, un terminale finito
-1, una pane con badge 1, una card in review 1) uniti ai soggetti con una
+1, una chat finita col segno «done» 1, una pane con badge 1, una card in review
+1) uniti ai soggetti con una
 notifica non vista, ognuno una volta sola. Due righe dello stesso gruppo sono
 una cosa sola; una chat con non letti e con la sua notifica è una cosa sola. Le
 righe e le tab POSSONO continuare a mostrare il numero dei messaggi della chat.
@@ -804,6 +815,10 @@ quando non c'è niente né lì né nella cronologia.
 #### Scenario: una card in review senza notifica
 - **WHEN** una card entra in review e nessuna riga del registro la nomina
 - **THEN** il numero globale e la campanella SHALL contarla 1, e aprendo il pannello la card SHALL comparire sotto «Aspettano te» e non SHALL comparire «Nessuna notifica»
+
+#### Scenario: una chat che ha finito, senza righe e senza non-letti
+- **WHEN** una chat senza hook finisce il turno e porta il segno «done», senza riga né non-letti
+- **THEN** il numero globale e la campanella SHALL contarla 1, il pannello SHALL elencarla sotto «Aspettano te», e il «segna tutto» SHALL spegnerne il segno in ogni finestra
 
 #### Scenario: una chat che ti aspetta, con le righe già viste
 - **WHEN** una chat è ferma in attesa di te e tutte le sue righe sono viste
