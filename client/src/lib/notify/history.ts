@@ -76,7 +76,7 @@ export function markTargetSeen(targetKind: string, targetId: string): void {
 
 /** Segna viste: tutte fino a un istante, e/o alcune righe puntuali. */
 export async function markNotificationsSeen(
-  body: { ids?: string[]; upTo?: string },
+  body: { ids?: string[]; upTo?: string; subjects?: string[] },
 ): Promise<{ unseen: number; unseenKeys?: string[] }> {
   const r = await fetch('/api/notifications/seen', {
     method: 'POST',

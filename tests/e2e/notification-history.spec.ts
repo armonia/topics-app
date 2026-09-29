@@ -50,6 +50,15 @@ async function postNotification(
 /** Il registro riparte pulito prima di ogni prova: il conteggio è
  *  un'asserzione, e un residuo del test precedente lo renderebbe illeggibile. */
 async function wipeRegistry(request: APIRequestContext): Promise<void> {
+  // The bell shows the one number (NOTIF-ONE-02): unseen rows AND chats still
+  // counting unread. A mark all up to now clears only the rows and the chats
+  // behind them, so a seeded chat with unread and no row (the e2e baseline has
+  // one) would keep the bell at 1. Every such chat is read first, through the
+  // route that opening it uses.
+  const unread = (await (await request.get(`${BASE}/api/unread`)).json()) as Record<string, { unreadCount?: number }>;
+  for (const [id, u] of Object.entries(unread)) {
+    if ((u?.unreadCount ?? 0) > 0) await request.post(`${BASE}/api/topics/${id}/read`);
+  }
   // Non c'è (di proposito) una rotta che CANCELLA la cronologia: si segna tutto
   // visto fino ad adesso, che è ciò che azzera il contatore.
   await request.post(`${BASE}/api/notifications/seen`, { data: { upTo: new Date().toISOString() } });
@@ -261,14 +270,18 @@ test.describe("Cronologia notifiche", () => {
     // il test passa senza aver mai provato niente. Contare i fronti alla porta
     // del client e' il modo onesto, ed e' quello che chiede CONVENTIONS.md.
     await page.addInitScript(() => {
-      const w = window as unknown as { __frontiNotifica?: number };
+      const w = window as unknown as { __frontiNotifica?: number; __wsWelcome?: number };
       w.__frontiNotifica = 0;
+      w.__wsWelcome = 0;
       window.WebSocket = new Proxy(window.WebSocket, {
         construct(target, args: ConstructorParameters<typeof WebSocket>) {
           const ws = new target(...args);
           ws.addEventListener("message", (e: MessageEvent) => {
             if (typeof e.data === "string" && e.data.includes("notification:new")) {
               w.__frontiNotifica = (w.__frontiNotifica ?? 0) + 1;
+            }
+            if (typeof e.data === "string" && e.data.includes('"type":"welcome"')) {
+              w.__wsWelcome = (w.__wsWelcome ?? 0) + 1;
             }
           });
           return ws;
@@ -280,6 +293,16 @@ test.describe("Cronologia notifiche", () => {
     await expect(bell(page)).toBeVisible({ timeout: 15_000 });
     // La lettura di montaggio è finita: quello che segue è solo il ritardo.
     await expect(badge(page)).toHaveCount(0);
+    // The socket must be up before the notification is posted: the badge is
+    // absent while the app mounts too, and a POST that lands before the socket
+    // connects is broadcast to nobody, so the probe below waited for a frame
+    // that was never sent (red in 3 runs out of 8, on the base code too).
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { __wsWelcome?: number }).__wsWelcome ?? 0), {
+        timeout: 15_000,
+        message: "the page socket never received its welcome frame",
+      })
+      .toBeGreaterThanOrEqual(1);
 
     await postNotification(page.request, {
       kind: "task-review",

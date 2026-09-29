@@ -1167,8 +1167,6 @@ export interface WSNotificationSeenMessage {
   unseenKeys?: string[];
   /** Group keys of the subjects this seen cleared (`topic:<id>`, `terminal:<id>`, ...). */
   subjects?: string[];
-  /** Mark all: every subject was seen except these (rows still unseen). */
-  allExcept?: string[];
 }
 
 export type WSMessage =

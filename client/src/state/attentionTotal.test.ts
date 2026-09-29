@@ -259,6 +259,29 @@ describe("the one number unions the live signals with the unseen notifications",
     expect(waitingSubjects(chromeAttentionSubjects(input), keys)).toEqual([]);
   });
 
+  test("a chat that finished (its 'done' mark) counts 1 like a finished terminal, and the panel lists it", () => {
+    const input = { ...none, topics: { f: topic("f") }, chatFinishedTopics: new Set(["f"]) };
+    expect(chromeAttentionTotal(input)).toBe(1);
+    const waiting = waitingSubjects(chromeAttentionSubjects(input), new Set());
+    expect(waiting.map((w) => [w.kind, w.id, w.key])).toEqual([["chat", "f", "topic:f"]]);
+    // The terminal twin, for the same shape.
+    const term = { ...none, terminalFinishedIds: new Set(["s1"]) };
+    expect(chromeAttentionTotal(term)).toBe(1);
+  });
+
+  test("a finished chat that is also unread, or has an unseen row, is still ONE", () => {
+    const keys = new Set(["topic:f"]);
+    const input = {
+      ...none, topics: { f: topic("f") }, unread: unread({ f: 5 }), chatFinishedTopics: new Set(["f"]), unseenNotificationKeys: keys,
+    };
+    expect(chromeAttentionTotal(input)).toBe(1);
+  });
+
+  test("a finished mark on an archived or unknown chat counts nothing: no row could clear it", () => {
+    const input = { ...none, topics: { gone: topic("gone", { archived: true }) }, chatFinishedTopics: new Set(["gone", "deleted"]) };
+    expect(chromeAttentionTotal(input)).toBe(0);
+  });
+
   test("a review group cut to its first rows still counts every card", () => {
     const cards = Array.from({ length: 7 }, (_, i) => card(`r${i}`, "review"));
     const cut = trayBoardGroups(cards, { rowsPerGroup: 2 });

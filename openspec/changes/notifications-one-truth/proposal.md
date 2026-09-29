@@ -3,8 +3,8 @@
 Nessuna scelta aperta: decise da Jarvis su delega, dopo la segnalazione di Attilio del 29/09.
 
 1. Un solo «visto» per soggetto (chat, terminale): aprire la chat, cliccare la sua notifica nel pannello o aprire il pannello (che è il «segna tutto») spengono la stessa cosa ovunque, non-letti della chat compresi.
-2. Il «segna tutto» spegne anche le chat con non-letti e nessuna riga non vista (le 6 chat ferme di oggi) e i segni «finito» dei terminali; risparmia solo ciò che ha una notifica arrivata dopo che la lista è stata letta.
-3. Il numero globale (Dock, tray, badge PWA) e quello della campanella contano SOGGETTI, non messaggi: una chat con 39 non letti vale 1. Riga e tab continuano a mostrare quanti messaggi.
+2. Il «segna tutto» spegne esattamente ciò che il pannello elencava: le righe e le loro chat, e sotto «Aspettano te» anche le chat con non-letti e nessuna riga non vista (le 6 chat ferme di oggi), i segni «finito» dei terminali e «done» delle chat. Non tocca ciò che non ha mostrato (una chat silenziata o in Non disturbare, senza righe, i cui messaggi arrivano dopo); risparmia ciò che ha una notifica arrivata dopo che la lista è stata letta.
+3. Il numero globale (Dock, tray, badge PWA) e quello della campanella contano SOGGETTI, non messaggi: una chat con 39 non letti vale 1, una chat finita col segno «done» vale 1 come un terminale finito. Riga e tab continuano a mostrare quanti messaggi.
 4. Il rollup del progetto (badge della riga di progetto) resta una somma di messaggi: è un badge di riga, e la decisione 3 riguarda solo i numeri globali.
 5. Nessuna migration: bastano le tabelle `unread` e `notification_log` che ci sono.
 6. La campanella mostra LO STESSO numero del Dock (non più le sole righe non viste): i soggetti che chiedono qualcosa uniti a quelli con una notifica non vista. Il pannello elenca in cima, sotto «Aspettano te», ciò che il numero conta e la cronologia non mostra (una card in review, una chat che ti aspetta). Senza questo il Dock restava acceso sopra un pannello che diceva «Nessuna notifica».
@@ -44,7 +44,7 @@ Due difetti:
   (`unread:updated`, `notification:seen`).
 - `POST /api/topics/:id/read` e `POST /api/notifications/seen` passano da lì;
   il «visto per bersaglio» di un topic pure.
-- `notification:seen` porta `subjects` o `allExcept`: ogni finestra spegne i
+- `notification:seen` porta `subjects`, i soggetti spenti: ogni finestra spegne i
   propri segni in memoria (terminale «finito», chat «done») e i pallini delle sole
   righe nominate.
 - `rollupGlobalAttention` e `paneAttentionTotal` contano soggetti;

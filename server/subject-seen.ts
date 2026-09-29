@@ -19,7 +19,7 @@
  *
  * Terminal "finished" marks and chat "done" marks live in each window's memory,
  * not here: the `notification:seen` frame names the subjects it cleared
- * (`subjects`, or everything but `allExcept`) so each window drops its own.
+ * (`subjects`) so each window drops its own.
  */
 import type { UnreadData } from "../shared/types";
 import type { OutboundMessage } from "../shared/ws-outbound";
@@ -28,7 +28,6 @@ import {
   groupKeysOfNotifications,
   markNotificationsSeen,
   markTargetNotificationsSeen,
-  unseenNotificationGroupKeys,
   unseenSnapshot,
   type UnseenSnapshot,
 } from "./db/notification-log";
@@ -70,7 +69,8 @@ function resetUnread(deps: SubjectSeenDeps, pick: (unread: UnreadData) => Iterab
 }
 
 /**
- * Opening a chat: its unread goes to zero and so do its notification rows.
+ * Opening a chat: its unread goes to zero and so do its notification rows, and
+ * every window drops its marks for the chat.
  *
  * The rows are cleared even when the unread counter was already zero. The old
  * read route returned early on a zero counter, which left the bell lit for a
@@ -79,7 +79,10 @@ function resetUnread(deps: SubjectSeenDeps, pick: (unread: UnreadData) => Iterab
 export function markTopicSeen(deps: SubjectSeenDeps, topicId: string): { unreadCleared: boolean; rowsSeen: number } {
   const unreadCleared = resetUnread(deps, () => [topicId]).length > 0;
   const rowsSeen = markTargetNotificationsSeen("topic", topicId);
-  if (rowsSeen > 0) {
+  // Announced whenever the chat was seen, not only when it had rows: every
+  // window keeps its own 'done' mark for it, and a finished chat's reply is
+  // usually unread with no row (muted, Do Not Disturb, a hidden window).
+  if (unreadCleared || rowsSeen > 0) {
     const subject = defaultNotificationGroupKey("topic", topicId);
     deps.broadcastToAll({
       type: "notification:seen",
@@ -105,22 +108,41 @@ export function markNotificationRowsSeen(deps: SubjectSeenDeps, ids: string[]): 
   return snapshot;
 }
 
+/** How many listed subjects one mark all may name: the panel lists tens, a
+ *  runaway body must not become a runaway broadcast. */
+const MAX_LISTED_SUBJECTS = 500;
+
 /**
- * Opening the panel, i.e. MARK ALL: every row up to `upTo`, and every chat
- * that is still counting unread messages, whether or not it has a row left.
+ * Opening the panel, i.e. MARK ALL: every row up to `upTo`, and every subject
+ * the panel LISTED (`subjects`: the chats and terminals under "Waiting for
+ * you"), nothing else.
  *
- * The second half is the one that clears what the first cannot reach: chats
- * whose rows were seen long ago (by the panel, before this door existed) while
- * their unread kept counting. The only chats spared are those with a row that
- * is STILL unseen, i.e. newer than `upTo`: a notification that arrived after
- * the list was read has not been seen, and it keeps its chat lit with it.
+ * It used to reset every chat still counting unread, listed or not. That
+ * cleared chats the panel had never shown: a muted chat (MUTE-01, no banner
+ * so no row) or one silenced by Do Not Disturb, whose messages landed after
+ * the list was read. A chat with a row was spared by the row newer than
+ * `upTo`; a chat with no row had nothing to spare it.
+ *
+ * A listed subject with a row that is STILL unseen, i.e. newer than `upTo`,
+ * stays lit: a notification that arrived after the list was read has not been
+ * seen. The frame names exactly the subjects this call cleared, so each
+ * window drops those marks (terminal "finished", chat "done") and those dots.
  */
-export function markAllNotificationsSeen(deps: SubjectSeenDeps, upTo: string): UnseenSnapshot {
-  markNotificationsSeen({ upTo });
-  const stillUnseen = unseenNotificationGroupKeys();
-  const spared = new Set(stillUnseen.map(topicIdOfGroupKey).filter((id): id is string => !!id));
-  resetUnread(deps, (unread) => Object.keys(unread).filter((id) => !spared.has(id)));
+export function markAllNotificationsSeen(
+  deps: SubjectSeenDeps,
+  opts: { upTo?: string; subjects?: readonly string[] },
+): UnseenSnapshot {
+  const before = unseenSnapshot().unseenKeys;
+  if (opts.upTo) markNotificationsSeen({ upTo: opts.upTo });
   const snapshot = unseenSnapshot();
-  deps.broadcastToAll({ type: "notification:seen", ...snapshot, allExcept: stillUnseen } as OutboundMessage);
+  const stillUnseen = new Set(snapshot.unseenKeys);
+  const rowSubjects = before.filter((key) => !stillUnseen.has(key));
+  const listed = (opts.subjects ?? [])
+    .filter((key) => typeof key === "string" && !!key && !stillUnseen.has(key))
+    .slice(0, MAX_LISTED_SUBJECTS);
+  const subjects = [...new Set([...rowSubjects, ...listed])];
+  const topicIds = subjects.map(topicIdOfGroupKey).filter((id): id is string => !!id);
+  resetUnread(deps, () => topicIds);
+  if (subjects.length) deps.broadcastToAll({ type: "notification:seen", ...snapshot, subjects } as OutboundMessage);
   return snapshot;
 }

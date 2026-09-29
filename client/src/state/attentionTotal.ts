@@ -10,6 +10,8 @@
  *     (`topicAttentionCount`, the same helper each sidebar row and tab uses);
  *   - every claude-code terminal whose turn finished and has not been opened
  *     (`terminalAttentionCount`, again the per-row helper);
+ *   - every non-archived chat whose turn finished and has not been opened
+ *     (`chatFinishedTopics`, the chat twin of the terminal mark), once;
  *   - every window-local pane badge (`paneCounts`, the notification layer's
  *     `extraCounts`, which the sidebar utility rows read through the same map);
  *   - every board card waiting for a decision (`trayBoardAttention`);
@@ -38,6 +40,8 @@ export interface ChromeAttentionInput {
   unread: Record<string, { unreadCount: number } | undefined>;
   claudeAttentionTopics: Set<string>;
   terminalFinishedIds: Set<string>;
+  /** Chats marked 'done' (a clean turn end nobody has opened since). */
+  chatFinishedTopics?: ReadonlySet<string>;
   boardGroups: readonly TrayGroup[];
   paneCounts: ReadonlyMap<string, number>;
   /** The registry's unseen subjects (`useUnseenNotificationsStore`). */
@@ -79,6 +83,11 @@ export function chromeAttentionSubjects(input: ChromeAttentionInput): ChromeSubj
   for (const id of globalAttentionTopicIds(input.topics, input.unread, input.claudeAttentionTopics)) {
     add({ key: defaultNotificationGroupKey('topic', id) ?? `topic:${id}`, kind: 'chat', id });
   }
+  for (const id of input.chatFinishedTopics ?? []) {
+    const topic = input.topics[id];
+    if (!topic || topic.archived) continue;
+    add({ key: defaultNotificationGroupKey('topic', id) ?? `topic:${id}`, kind: 'chat', id });
+  }
   for (const id of input.terminalFinishedIds) add({ key: terminalNotificationGroupKey(id), kind: 'terminal', id });
   for (const [id, n] of input.paneCounts) if (n > 0) add({ key: `pane:${id}`, kind: 'pane', id });
   const review = input.boardGroups.find((g) => g.status === 'review');
@@ -94,8 +103,8 @@ export function chromeAttentionSubjects(input: ChromeAttentionInput): ChromeSubj
 }
 
 /**
- * Chats + terminals + pane badges + board cards in review + unseen
- * notifications, each subject once. Every OS surface and the bell read THIS.
+ * Chats (unread, waiting or finished) + terminals + pane badges + board cards
+ * in review + unseen notifications, each subject once. Every OS surface and the bell read THIS.
  */
 export function chromeAttentionTotal(input: ChromeAttentionInput): number {
   return chromeAttentionSubjects(input).length;
