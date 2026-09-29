@@ -150,8 +150,10 @@ phase signal is folded into the badge.
 ### Requirement: UNREAD-01 — Un messaggio incrementa SEMPRE, e solo una lettura esplicita azzera
 
 L'arrivo di un messaggio su un topic SHALL incrementare il suo non-letto,
-SEMPRE. Solo una lettura ESPLICITA — quella che il client manda dopo una
-permanenza continua sullo sguardo — SHALL azzerarlo.
+SEMPRE. Solo un atto di VEDERE SHALL azzerarlo: la lettura esplicita che il
+client manda dopo una permanenza continua sullo sguardo, oppure il «visto» della
+sua notifica dato dalla persona nel pannello (clic sulla riga, «segna tutto»),
+che passa dalla stessa porta del server (NOTIF-ONE-01).
 
 Con UNA eccezione, e la parola «SEMPRE» sopra vale dentro quel confine: un topic
 ARCHIVIATO NON SHALL prendere il badge, e il suo incremento NON SHALL essere
@@ -591,10 +593,10 @@ segno di visto lo renderebbe muto su un evento che nessuno ha guardato.
 ### Requirement: NOTIF-SEEN-01 — Una notifica il cui soggetto e' andato avanti NON SHALL restare accesa
 
 Il contatore della campanella e quello del chrome (tray e icona dell'app: un
-solo numero, una sola chiamata, non possono divergere fra loro) contano cose
-diverse per costruzione. Il chrome conta LAVORO PENDENTE, cioe' stato vivo; la
-campanella conta EVENTI in un registro a 30 giorni. La differenza fra i due non
-e' un difetto.
+solo numero, una sola chiamata, non possono divergere fra loro) mostrano
+lo STESSO numero (NOTIF-ONE-02): i soggetti che aspettano te e quelli con una
+notifica non vista, ciascuno una volta. Il pannello elenca tutto cio' che quel
+numero conta.
 
 Il difetto e' che gli eventi non si spengono. Una notifica SHALL essere
 considerata vista quando il fatto che la ha prodotta non e' piu' vero:
@@ -608,8 +610,10 @@ Misurato il 29/08/2026: 400 righe non viste contro una decina di segnali vivi.
 terminali finiti. `markTargetNotificationsSeen` esisteva gia' e le avrebbe
 spente, ma in tutto il repository ha UN SOLO chiamante, e solo per i topic.
 
-Cio' che e' ancora da guardare NON SHALL essere spento: una correzione che
-spegne troppo ruba un avviso, e chi lo perde non ha modo di sapere che c'era.
+Cio' che e' ancora da guardare NON SHALL essere spento da un automatismo: una
+correzione che spegne troppo ruba un avviso, e chi lo perde non ha modo di
+sapere che c'era. Il «segna tutto» della persona e' un atto di vedere, non un
+automatismo, e spegne tutto cio' che il pannello elencava.
 
 #### Scenario: la card e' stata approvata tre settimane fa
 - **WHEN** una riga `task-review` punta a un task che non e' piu' in `review`
@@ -623,44 +627,38 @@ spegne troppo ruba un avviso, e chi lo perde non ha modo di sapere che c'era.
 - **WHEN** un avviso di sessione e' piu' recente della finestra di grazia
 - **THEN** NON SHALL essere spento: e' ancora una notizia
 
-
 ### Requirement: CHROME-COUNT-01 — Un numero solo per il dock, la tray e l'icona, ed e' quello della sidebar
 
 Il numero che Topics dipinge sul sistema operativo (badge dell'icona, glifo
 nella barra dei menu, Badging API della PWA) SHALL essere il risultato di UNA
 funzione pura, e quella funzione SHALL essere l'unico posto dove quel numero
-esiste. Finche' l'espressione viveva dentro un componente, «lo stesso conto
-della sidebar» era una promessa scritta in un commento: nessun test la teneva,
-e una superficie poteva cambiare criterio senza che l'altra se ne accorgesse.
+esiste.
 
 Il criterio e' uno: QUANTE COSE STANNO CHIEDENDO QUALCOSA A UN UMANO. Le chat
 non lette o ferme in attesa, i terminali che hanno finito, le card della board
-che aspettano una decisione. Il lavoro che gira da solo non entra, e un topic
-ARCHIVIATO non entra mai: non ha una riga da aprire, quindi il suo conteggio
-non si potrebbe spegnere da nessuna parte.
+che aspettano una decisione. Cose, non messaggi (NOTIF-ONE-02). Il lavoro che
+gira da solo non entra, e un topic ARCHIVIATO non entra mai.
 
-La somma SHALL coincidere con la somma dei badge che la sidebar mostra per gli
-stessi soggetti, e la parita' SHALL essere provata calcolando l'attesa dagli
-stessi aiutanti per-riga, non da un numero scritto a mano: un test che ripete a
-memoria il totale resta verde proprio nel caso che deve prendere.
+Il numero SHALL coincidere con il numero di righe di sidebar che mostrano un
+badge per gli stessi soggetti, piu' le card in review, piu' i soggetti con una
+notifica non vista che non hanno gia' un badge; e la parita' SHALL essere provata
+calcolando l'attesa dagli stessi aiutanti per-riga, non da un numero scritto a
+mano.
 
 #### Scenario: le due superfici sullo stesso stato
-- **WHEN** un insieme di topic, terminali e card produce il conteggio del chrome
-- **THEN** quel numero SHALL essere uguale alla somma dei badge delle righe di
-  sidebar degli stessi soggetti
+- **WHEN** un insieme di topic, terminali e card, senza notifiche non viste, produce il conteggio del chrome
+- **THEN** quel numero SHALL essere uguale al numero di righe di sidebar con un badge per gli stessi soggetti, piu' le card in review
 
 #### Scenario: la chat letta
 - **WHEN** un topic con non letti viene letto e il suo conteggio va a zero
-- **THEN** il totale SHALL calare esattamente della sua quota, senza toccare gli altri
+- **THEN** il totale SHALL calare di uno, senza toccare gli altri
 
 #### Scenario: un topic archiviato con non letti
 - **THEN** SHALL contare zero: nessuna superficie lo mostra, nessun gesto lo spegne
 
 #### Scenario: archiviato in vista, con «mostra archiviati» acceso
 - **WHEN** la riga di un topic archiviato con non letti compare in sidebar
-- **THEN** SHALL portare badge zero, come il chrome: la riga c'e', ma non
-  esiste nessuna lettura che possa spegnerla, e mostrarne il conteggio faceva
-  leggere sette dove il sistema operativo diceva zero
+- **THEN** SHALL portare badge zero, come il chrome
 
 #### Scenario: niente da mostrare
 - **WHEN** non c'e' nessun soggetto in attesa
@@ -695,3 +693,118 @@ vedere la stessa diagnosi di prima e' indistinguibile dal non aver fatto nulla.
 #### Scenario: niente da fare
 - **WHEN** il permesso e' concesso, o l'app non gira da un bundle, o non e' macOS
 - **THEN** NON SHALL comparire nessun tasto
+
+### Requirement: CHAT-DONE-01 — Una chat che ha finito resta segnata come un terminale che ha finito
+
+Una chat il cui turno finisce pulito (`stream:end` che `isCleanChatTurnEnd`
+accetta: `completed`, non `dispatched`, non annullato) SHALL accendere un segno
+«finito», qualunque sia il runtime, con o senza hook Claude Code. Il segno SHALL
+dipingersi sulla riga della sidebar e sulla tab con lo stesso tier `done`
+(«turno finito») di un terminale che ha finito, e le due superfici SHALL
+esporlo come `data-attention="done"`.
+
+Il segno SHALL spegnersi quando la chat viene aperta (è la pane attiva col
+fuoco), quando si clicca la sua riga (anche se la chat la tiene un'altra
+finestra, dove il clic porta avanti quella finestra) o quando comincia un nuovo turno (`stream:start`). Se la chat è già
+davanti quando il turno finisce, il segno NON SHALL restare acceso. Come quello
+dei terminali, vive in memoria: un ricarico della pagina riparte senza.
+
+#### Scenario: chat senza hook che finisce dietro un'altra tab
+- **GIVEN** una chat senza hook aperta in una tab, e un'altra tab attiva
+- **WHEN** il suo turno finisce pulito
+- **THEN** la sua tab e la sua riga SHALL avere `data-attention="done"`
+
+#### Scenario: aprire la chat spegne il segno
+- **WHEN** la tab della chat segnata viene attivata
+- **THEN** tab e riga NON SHALL avere più `data-attention`
+
+#### Scenario: la riga di una chat tenuta da un'altra finestra si spegne al clic
+- **GIVEN** una chat tenuta da un'altra finestra, segnata `done` sulla riga di questa
+- **WHEN** si clicca la sua riga, che porta avanti l'altra finestra senza aprire niente qui
+- **THEN** la riga NON SHALL avere più `data-attention`
+
+#### Scenario: una chat con gli hook non perde il segno dopo 15 minuti
+- **GIVEN** una chat con hook finita e mai aperta
+- **WHEN** la fase passa da `awaiting-user` a `completed`
+- **THEN** il segno SHALL restare finché la chat non viene aperta
+
+#### Scenario: un turno fermato non è un turno finito
+- **WHEN** arriva `stream:end` con `reason: user_abort` o `dispatched: true`
+- **THEN** NON SHALL accendersi nessun segno
+
+### Requirement: CHAT-DONE-02 — Una chat che ha finito suona una volta, qualunque runtime e quante che siano le finestre
+
+Un `stream:end` pulito SHALL alzare un banner di sistema anche per una chat senza
+hook e con la finestra visibile dietro un'altra app, con gli stessi cancelli
+degli altri percorsi (interruttore, silenzio, archiviata, agente di board, chat
+davanti con la finestra a fuoco). Il banner SHALL claimare la stessa chiave del
+banner di `message:new` per la risposta dello stesso turno (il suo `messageId`),
+così due finestre, una nascosta e una visibile, alzano UN banner.
+
+#### Scenario: due finestre, un banner
+- **GIVEN** la finestra B nascosta e la finestra A visibile dietro un'altra app
+- **WHEN** B claima il banner su `message:new` e A su `stream:end` dello stesso turno
+- **THEN** solo una delle due SHALL consegnarlo
+
+#### Scenario: i turni che non sono una fine non suonano
+- **WHEN** un'altra chat riceve `stream:end` con `dispatched: true` o `reason: user_abort`
+- **THEN** NON SHALL alzarsi un banner per quella chat
+
+### Requirement: NOTIF-ONE-01 — Un solo «visto» per soggetto, e vederlo ovunque lo spegne ovunque
+
+Una chat e un terminale SHALL avere un solo stato di «visto». Aprire la chat,
+cliccare una sua notifica nel pannello o aprire il pannello (che segna viste
+tutte le righe della lista) SHALL passare dalla stessa porta lato server, che
+azzera il non-letto della chat E segna viste le sue righe, e lo annuncia a ogni
+finestra con `unread:updated` e `notification:seen`.
+
+Aprire il pannello SHALL spegnere anche le chat con non-letti che non hanno
+più righe non viste, e i segni «finito» dei terminali. SHALL risparmiare solo i
+soggetti con una notifica arrivata DOPO la lista letta: quella non è stata vista.
+
+Il frame `notification:seen` SHALL nominare i soggetti spenti (`subjects`) o,
+per il «segna tutto», quelli risparmiati (`allExcept`), così ogni finestra spegne
+i propri segni in memoria e i pallini delle sole righe nominate.
+
+#### Scenario: una notifica di chat vista nel pannello
+- **WHEN** si clicca nel pannello la notifica di una chat con 4 non letti
+- **THEN** il non-letto della chat SHALL essere zero, e la sua riga, la sua tab e il numero globale SHALL calare insieme
+
+#### Scenario: il pannello aperto su una chat ferma
+- **GIVEN** una chat con 3 non letti e nessuna riga non vista
+- **WHEN** si apre il pannello
+- **THEN** il suo non-letto SHALL andare a zero e nessuna superficie SHALL mostrarla
+
+#### Scenario: una notifica più nuova della lista letta
+- **WHEN** una notifica arriva dopo la lettura della lista
+- **THEN** la sua chat NON SHALL essere spenta dal «segna tutto»
+
+#### Scenario: aprire una chat con il non-letto già a zero
+- **WHEN** si apre una chat che ha righe non viste e non-letto zero
+- **THEN** il client SHALL mandare il «visto» della chat anche senza non-letti, e le sue righe SHALL essere segnate viste
+
+### Requirement: NOTIF-ONE-02 — I numeri globali contano soggetti, non messaggi
+
+Il numero globale (Dock, tray, badge PWA) e il numero della campanella SHALL
+essere LO STESSO numero, calcolato da una funzione sola: i SOGGETTI in attesa
+(una chat vale 1 qualunque sia il numero dei suoi messaggi, un terminale finito
+1, una pane con badge 1, una card in review 1) uniti ai soggetti con una
+notifica non vista, ognuno una volta sola. Due righe dello stesso gruppo sono
+una cosa sola; una chat con non letti e con la sua notifica è una cosa sola. Le
+righe e le tab POSSONO continuare a mostrare il numero dei messaggi della chat.
+
+Il pannello SHALL elencare sotto «Aspettano te» ogni soggetto contato che la
+cronologia non mostra già con un pallino, e SHALL dire «Nessuna notifica» solo
+quando non c'è niente né lì né nella cronologia.
+
+#### Scenario: due chat, sei messaggi
+- **WHEN** una chat ha 4 non letti e un'altra 2, ognuna con la sua notifica
+- **THEN** il numero globale e la campanella SHALL dire 2
+
+#### Scenario: una card in review senza notifica
+- **WHEN** una card entra in review e nessuna riga del registro la nomina
+- **THEN** il numero globale e la campanella SHALL contarla 1, e aprendo il pannello la card SHALL comparire sotto «Aspettano te» e non SHALL comparire «Nessuna notifica»
+
+#### Scenario: una chat che ti aspetta, con le righe già viste
+- **WHEN** una chat è ferma in attesa di te e tutte le sue righe sono viste
+- **THEN** il numero globale e la campanella SHALL contarla 1, e il pannello SHALL elencarla sotto «Aspettano te»
