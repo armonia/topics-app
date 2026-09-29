@@ -3548,7 +3548,7 @@ export class ClaudeCodeProvider implements AIProvider {
     // the parent again and the model forgot the branch's own turns (CLI
     // 2.1.284 finds a session by id from any cwd). The same spend as Codex's
     // `thread.started` (CODEX-02).
-    if (line.label === "system/init" && pp.spawnMeta.forkFrom && !pp.forkConsumed && !pp.replayMute && !pp.replaySilent) {
+    if (line.label === "system/init" && pp.spawnMeta?.forkFrom && !pp.forkConsumed && !pp.replayMute && !pp.replaySilent) {
       pp.forkConsumed = true;
       try { consumeFork(getDatabase(), pp.sessionKey); } catch { /* no database: the transcript check still holds in the same cwd */ }
     }
