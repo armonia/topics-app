@@ -26,7 +26,11 @@ Prima del codice: `grep -qx 'status: approved' openspec/changes/live-tool-output
 ## 4. Verifica
 
 - [x] 4.1 I test del §1 verdi; typecheck; rails statiche.
-- [ ] 4.2 Prova video dell'E2E (`.webm`) con la coda che scorre e poi lascia il posto all'esito. Aperto: in questa sessione Playwright non gira (il server di test sulla 13334 è condiviso con altri agenti), e la CI registra il video solo con `E2E_VIDEO=1`. Il `.webm` viene da `E2E_VIDEO=1 npx playwright test tests/e2e/tool-live-tail.spec.ts`.
+- [x] 4.2 Prova video dell'E2E (`.webm`) con la coda che scorre e poi lascia il posto all'esito.
+      `tests/e2e/tool-live-tail.spec.ts` su WebKit con video acceso, server di test isolato su :13461,
+      testa `94da68cdc` (29/09): 2 passed. Video in
+      `/private/tmp/claude-501/-Users-zorahrel-Projects-topics-app/73f11438-0d8f-4434-b4a4-dc2862c80ec1/scratchpad/evidence/openspec/live-tool-output-tail/tail-follows-then-result.webm` (24,4 s) e
+      `/private/tmp/claude-501/-Users-zorahrel-Projects-topics-app/73f11438-0d8f-4434-b4a4-dc2862c80ec1/scratchpad/evidence/openspec/live-tool-output-tail/partial-after-result-does-not-overwrite.webm` (3,9 s).
 
 ## 5. Review del 27/09
 
