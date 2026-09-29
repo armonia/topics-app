@@ -297,8 +297,20 @@ export default defineConfig({
     //
     // `sources: false` toglie la copia dei sorgenti del test, che serve solo alla
     // scheda "Source" e chi guarda la living-doc il repo ce l'ha.
+    //
+    // `attachments: false` keeps the test's attachments (the video first of
+    // all) OUT of the trace; they stay beside it in the report, where the
+    // living-doc reads them. With the video recording, Playwright 1.59 copies
+    // the .webm into trace.zip and the merge of that zip stalls once the clip
+    // passes ~64 KB: the test is green, then teardown hangs until "Test timeout
+    // of 30000ms exceeded" and trace.zip is left truncated after the first
+    // entry, which is the webm. Measured on WebKit, 2026-09-29: clips of 3-55 KB
+    // always passed, clips of 87-170 KB always hung (NH-01, notifications-one-
+    // truth, board-labels, board-waiting-on-chip), and the same runs with this
+    // option passed with 160 KB clips. The default path ("on-first-retry") is
+    // left as it was.
     trace: EVIDENCE
-      ? { mode: "on", sources: false, screenshots: TRACE_SCREENCAST, snapshots: true }
+      ? { mode: "on", sources: false, screenshots: TRACE_SCREENCAST, snapshots: true, attachments: false }
       : "on-first-retry",
     viewport: { width: 1280, height: 800 },
     launchOptions: SLOWMO ? { slowMo: 300 } : {},
