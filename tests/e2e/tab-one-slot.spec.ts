@@ -205,6 +205,24 @@ test.describe.serial("Una tab, tre zone", () => {
     // Nothing in flow between label and slot: only the row gap (8px).
     expect(Math.abs(slotBox.x - (label.x + label.width) - 8), "nothing between the label and the slot").toBeLessThanOrEqual(SAME_PX);
     expect(slotBox.width, "the slot is 20px").toBeCloseTo(20, 0);
+
+    // THE RING IS A CIRCLE AROUND THE NUMBER, measured, not inferred from
+    // `data-signal`: an orbit left in flow became a 6.6px sliver beside the
+    // "13", with the attribute and the text still right.
+    const ring = await slot.locator('[data-loader-state="working"]').evaluate((el) => {
+      const r = (e: Element) => e.getBoundingClientRect();
+      const orbit = el.querySelector('span[aria-hidden="true"]')!;
+      const number = el.querySelector("[data-notification-count]")!;
+      return { ring: r(el).toJSON(), orbit: r(orbit).toJSON(), number: r(number).toJSON() };
+    });
+    console.log(`[a] ring x=${ring.ring.x} w=${ring.ring.width} | orbit x=${ring.orbit.x} w=${ring.orbit.width} h=${ring.orbit.height} | number x=${ring.number.x} w=${ring.number.width}`);
+    for (const k of ["x", "y", "width", "height"] as const) {
+      expect(Math.abs(ring.orbit[k] - ring.ring[k]), `the orbit fills the ring box (${k})`).toBeLessThanOrEqual(SAME_PX);
+    }
+    const mid = (b: { x: number; width: number }) => b.x + b.width / 2;
+    const midY = (b: { y: number; height: number }) => b.y + b.height / 2;
+    expect(Math.abs(mid(ring.number) - mid(ring.orbit)), "the number sits on the orbit's centre (x)").toBeLessThanOrEqual(SAME_PX);
+    expect(Math.abs(midY(ring.number) - midY(ring.orbit)), "the number sits on the orbit's centre (y)").toBeLessThanOrEqual(SAME_PX);
     await projectTab.screenshot({ path: test.info().outputPath("project-tab-all-signals.png") });
   });
 

@@ -172,18 +172,21 @@ test.describe("I widget in coda a una tab", () => {
       await expect(tab.getByTestId(state.stream ? "pane-tab-stop" : "pane-tab-close")).toBeVisible();
       const sopra = await misura(page, a.id);
 
-      // THE SLOT is the tab's last zone and ends at ROW_PX from the edge, in
-      // every state: that is what keeps the label from moving.
-      expect(riposo.slot!.dx, "lo slot si ferma a ROW_PX dal bordo").toBe(ROW_PX);
+      // THE SLOT is the tab's last zone, at the same place in every state:
+      // that is what keeps the label from moving. It is centred on the
+      // command glyph's column, so it reaches (20 - 16) / 2 into the padding.
+      expect(riposo.slot!.dx, "lo slot e' centrato sulla colonna del glifo").toBe(ROW_PX - (riposo.slot!.w - GLIFO) / 2);
       expect(sopra.slot, "lo slot non si muove sotto il puntatore").toEqual(riposo.slot);
       // The signal at rest (the badge, or the loader) sits centred in the slot…
       const signal = state.unread ? riposo.badge! : riposo.loader!;
       const slotMid = riposo.slot!.dx + riposo.slot!.w / 2;
       expect(signal.dx + signal.w / 2, "il segnale sta al centro dello slot").toBe(slotMid);
-      // …and the command's GLYPH lands on the same centre: its box is larger
+      // …and the command's GLYPH lands on the same centre (CHROME-04), ending
+      // at ROW_PX from the edge like the row's (CHROME-05): its box is larger
       // than the glyph, the glyph is what the eye follows.
       const ring = sopra.comando!;
       const glyphDx = ring.dx + (ring.w - GLIFO) / 2;
+      expect(glyphDx, "il glifo del comando finisce a ROW_PX dal bordo").toBe(ROW_PX);
       expect(glyphDx + GLIFO / 2, "il glifo del comando atterra dove stava il segnale").toBe(slotMid);
       expect(ring.dCentro, "comando centrato in verticale").toBe(0);
     }

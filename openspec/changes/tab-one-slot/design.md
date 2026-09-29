@@ -39,9 +39,12 @@ altrimenti             -> nessun comando
 ```
 
 `canStop` legge `useTopicLoading`: fermato il turno torna falso e lo stesso slot
-diventa Chiudi. Il comando e' centrato sullo slot con la scatola condivisa
-`ROW_ACTION_BOX` (28, 36 col dito): sborda di 4 px nel padding a destra e nel
-gap a sinistra, mai sul nome. Col dito (`not (hover: hover)`) il comando sta
+diventa Chiudi. Lo slot e' centrato sulla colonna del glifo di comando (16 px,
+che finisce a `ROW_PX` dal bordo come sulla riga, CHROME-05): sta a 6 px dal
+bordo, 2 dentro il padding, cosi' segnale e glifo hanno lo stesso centro
+(CHROME-04). La scatola condivisa `ROW_ACTION_BOX` (28, 36 col dito) sborda
+dallo slot, mai sul nome; con la 36 resta a filo del bordo e il glifo cade a
+10 px, lo stesso residuo della riga. Col dito (`not (hover: hover)`) il comando sta
 sulla tab selezionata (`data-active="true"`); un conto alla rovescia in corso
 (`data-pending`) lo tiene acceso ovunque sia il puntatore. Regole in
 `index.css`, blocco «ONE TAB, THREE ZONES».

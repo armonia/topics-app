@@ -190,7 +190,12 @@ function SlotView({
             data-count={workingCount}
             title={attentionTitle}
           >
-            <OrbitLoader size={SLOT_PX} onFill={onFill} className="absolute inset-0" />
+            {/* The orbit's own box is `relative`, and a class passed to it
+                cannot win over that: the wrapper takes it out of flow, or it
+                becomes a flex item squeezed beside the number. */}
+            <div className="absolute inset-0 flex">
+              <OrbitLoader size={SLOT_PX} onFill={onFill} />
+            </div>
             <span
               data-notification-count={display}
               data-testid={attentionTestId}

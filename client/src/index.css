@@ -2078,10 +2078,14 @@ input[type="range"]::-webkit-slider-thumb {
  *
  * The tab's last zone is 20px, always reserved, and holds ONE signal at rest
  * (`lib/tabSlot.ts`). On hover or keyboard focus the same box becomes the one
- * command (CHROME-12): the command is centred on the slot and its larger box
- * (`ROW_ACTION_BOX`) spills into the padding on the right and the gap on the
- * left, never onto the label. Nothing moves, because nothing is in flow but
- * the slot itself.
+ * command (CHROME-12). Nothing moves, because nothing is in flow but the slot.
+ *
+ * WHERE THE SLOT SITS is set by the command, not by the padding. The row's
+ * close glyph (16) ends at ROW_PX (8px) from its edge, and the tab's must end
+ * at the same distance (CHROME-05); the signal it replaces must share its
+ * centre (CHROME-04). So the slot is centred on the glyph's column, 16px from
+ * the edge: it reaches 2px into the tab's padding. Centred on the padding
+ * instead, the glyph landed at 10px on the tab and 8px on the row.
  *
  * Without hover (touch) there is no "passing over": the SELECTED tab shows the
  * command, the others keep their signal, and tapping a tab selects it first.
@@ -2092,6 +2096,8 @@ input[type="range"]::-webkit-slider-thumb {
   flex: none;
   width: 20px;
   height: 20px;
+  /* (glyph 16 - slot 20) / 2: see above. */
+  margin-right: -2px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2103,10 +2109,16 @@ input[type="range"]::-webkit-slider-thumb {
   transition: opacity 100ms ease;
 }
 .tab-slot-command {
+  /* The command box (`ROW_ACTION_BOX`, 36 under 768px, 28 above) spills past
+   * the slot. Its glyph ends at 8px from the tab's edge, as `.row-actions`
+   * does, and with the 36 box it stays flush with the edge rather than be
+   * clipped by the tab's overflow (glyph at 10, the row's same residue).
+   * `right` is measured from the slot, which ends 6px from the tab's edge. */
+  --tab-command-box: 36px;
   position: absolute;
   top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  right: max(-6px, calc(2px - (var(--tab-command-box) - 16px) / 2));
+  transform: translateY(-50%);
   z-index: 20;
   display: flex;
   opacity: 0;
@@ -2125,13 +2137,14 @@ input[type="range"]::-webkit-slider-thumb {
   justify-content: center;
   border-radius: 9999px;
 }
+@media (min-width: 768px) { .tab-slot-command { --tab-command-box: 28px; } }
 /* The browser's extra commands (the dots) cover the label's tail, left of the
- * slot, instead of taking its width. 36px = the tab's 8px padding + the 20px
- * slot + the 8px gap. The label fades under them rather than showing through. */
+ * slot, instead of taking its width. 34px = the slot's 6px from the edge + its
+ * 20px + the 8px gap. The label fades under them rather than showing through. */
 .tab-extras {
   position: absolute;
   top: 50%;
-  right: 36px;
+  right: 34px;
   transform: translateY(-50%);
   z-index: 20;
   display: flex;
