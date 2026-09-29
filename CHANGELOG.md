@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.411 — 2026-09-29
+
+### Sotto il cofano
+- An archived project stays forgotten while its window is still mounted, so the reopen has no background preview
+- The banner of the chat in front is recorded already seen, so the Dock does not move at its turn end with the default settings
+
 ## 2.2.410 — 2026-09-29
 
 ### Sotto il cofano
@@ -14,6 +20,11 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - A 99+ count fits the tab slot in the Linux CI's font too
 - notification-history reads every seeded chat before the wipe, and NH-05 posts only once the socket is up
 - Living specs carry the lanes' last edits, and a fork point compares both sides without their trailing MEDIA lines
+- Archiving a project also forgets its session-only panes, so un-archiving starts from a clean layout
+- The tray menu lists the chats its number counts, finished chats included
+- A chat that finishes in front of you raises no 'done' mark, so the Dock number no longer flickers at each turn end
+- ⌘J to a pinned chat whose tab lives in another group takes the window there, and so does its tile
+- The chat-in-view registry lives in its own module, and the turn end reads it through chatFinishedEdge
 
 ## 2.2.409 — 2026-09-29
 
