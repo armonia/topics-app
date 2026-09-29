@@ -12,7 +12,8 @@ dipingersi sulla riga della sidebar e sulla tab con lo stesso tier `done`
 esporlo come `data-attention="done"`.
 
 Il segno SHALL spegnersi quando la chat viene aperta (è la pane attiva col
-fuoco) o quando comincia un nuovo turno (`stream:start`). Se la chat è già
+fuoco), quando si clicca la sua riga (anche se la chat la tiene un'altra
+finestra, dove il clic porta avanti quella finestra) o quando comincia un nuovo turno (`stream:start`). Se la chat è già
 davanti quando il turno finisce, il segno NON SHALL restare acceso. Come quello
 dei terminali, vive in memoria: un ricarico della pagina riparte senza.
 
@@ -24,6 +25,11 @@ dei terminali, vive in memoria: un ricarico della pagina riparte senza.
 #### Scenario: aprire la chat spegne il segno
 - **WHEN** la tab della chat segnata viene attivata
 - **THEN** tab e riga NON SHALL avere più `data-attention`
+
+#### Scenario: la riga di una chat tenuta da un'altra finestra si spegne al clic
+- **GIVEN** una chat tenuta da un'altra finestra, segnata `done` sulla riga di questa
+- **WHEN** si clicca la sua riga, che porta avanti l'altra finestra senza aprire niente qui
+- **THEN** la riga NON SHALL avere più `data-attention`
 
 #### Scenario: una chat con gli hook non perde il segno dopo 15 minuti
 - **GIVEN** una chat con hook finita e mai aperta

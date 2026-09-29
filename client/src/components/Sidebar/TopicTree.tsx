@@ -905,6 +905,10 @@ export function TopicTree({
   // resolves the remaining space/active/closed steps (b–d) inside usePanelLifecycle.
   const handleChatRowClick = useCallback(
     (topicId: string, detachedWindowLabel: string | undefined, e?: React.MouseEvent) => {
+      // The click is having seen it, as for a terminal row. It must happen
+      // here: a chat held by another window never mounts a pane in this one,
+      // so the pane-focus clear would never switch this window's mark off.
+      signalsActions.clearChatFinished(topicId);
       if (detachedWindowLabel) {
         void tauriInvoke<boolean>('window_focus_label', { label: detachedWindowLabel })
           .then((focused) => {

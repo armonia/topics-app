@@ -20,19 +20,23 @@
  * The second half is the mark (CHAT-DONE-01): a finished terminal keeps a
  * 'done' tier on its tab until you open it, and a hookless chat had nothing but
  * an unread count, hidden on the active tab. Now the chat's row and tab carry
- * the same `data-attention="done"` a finished terminal's tab carries.
+ * the same `data-attention="done"` a finished terminal's tab carries. The
+ * third test is a chat held by ANOTHER window: its row here is the only place
+ * the mark shows, and the click that brings that window forward must clear it.
  */
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { fakeTauriShell } from "./helpers/fake-tauri-shell";
 
 hermetic(test);
 
 declare global {
   interface Window {
     __bannerLog?: { title: string; body: string }[];
+    __shellCalls?: string[];
   }
 }
 
@@ -85,13 +89,26 @@ async function sessionKeyOf(request: APIRequestContext, id: string): Promise<str
 
 /** Pass the page's socket through and return a way to push frames on it, as
  *  the server would broadcast them. Survives a reload: the route re-catches
- *  the new socket and `send` follows it. */
-async function routeStreamFrames(page: Page): Promise<(frame: Record<string, unknown>) => void> {
+ *  the new socket and `send` follows it. With `otherWindow`, every roster the
+ *  server sends (`presence:windows`, after each `hello` and announce) arrives
+ *  with that window added: a roster injected once loses to the server's next
+ *  one (the same reason as `declareOtherWindow` in spaces-switcher.spec.ts). */
+async function routeStreamFrames(
+  page: Page,
+  { otherWindow }: { otherWindow?: Record<string, unknown> } = {},
+): Promise<(frame: Record<string, unknown>) => void> {
   let inject: ((data: string) => void) | null = null;
   await page.routeWebSocket(/\/ws/, (ws) => {
     const server = ws.connectToServer();
     ws.onMessage((m) => server.send(m));
-    server.onMessage((m) => ws.send(m));
+    server.onMessage((m) => {
+      if (otherWindow && typeof m === "string" && m.includes('"presence:windows"')) {
+        const roster = JSON.parse(m) as { windows?: unknown[] };
+        ws.send(JSON.stringify({ ...roster, windows: [...(roster.windows ?? []), otherWindow] }));
+        return;
+      }
+      ws.send(m);
+    });
     inject = (data: string) => ws.send(data);
   });
   return (frame) => {
@@ -239,6 +256,58 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
       await expect(rowA).not.toHaveAttribute("data-attention", /done|input/);
     } finally {
       await deleteTopic(request, topicA.id);
+      await deleteTopic(request, topicO.id);
+    }
+  });
+
+  test("the row of a chat held by another window drops its 'done' mark when clicked, though the chat opens over there", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-DONE-01" });
+    const stamp = Date.now();
+    const nameX = `Detached Chat ${stamp}`;
+    const nameO = `Here Chat ${stamp}`;
+    const topicX = await createTopic(request, nameX, { provider: "topics" });
+    const topicO = await createTopic(request, nameO, { provider: "topics" });
+    const keyX = await sessionKeyOf(request, topicX.id);
+    // Only the other chat is open HERE: X lives in the detached window.
+    await resetPaneStore(request, [topicO.id]);
+
+    try {
+      await prepareBackgroundWindow(page, { focused: true });
+      // The desktop shell, faked through the one helper that keeps its network
+      // on the test server. Its only job here: say the other window came
+      // forward, and record that the row asked for it.
+      await fakeTauriShell(page, () => {
+        window.__shellCalls = [];
+        return (cmd: string) => {
+          window.__shellCalls!.push(cmd);
+          return cmd === "window_focus_label" ? true : null;
+        };
+      });
+      // Another window holds X. X has no tab here, so being held elsewhere is
+      // also what gives it a row.
+      const push = await routeStreamFrames(page, {
+        otherWindow: {
+          windowId: "e2e-other-window", clientId: "e2e-c1", windowLabel: "detach-e2e", detached: true,
+          topicIds: [topicX.id], tabs: [{ id: topicX.id, type: "chat", title: nameX }],
+        },
+      });
+
+      await goToApp(page);
+      await expect(page.locator('[role="tab"][data-pane-id]', { hasText: nameO })).toBeVisible({ timeout: 15_000 });
+      const rowX = page.getByRole("treeitem", { name: nameX, exact: true });
+      await expect(rowX.locator("[data-elsewhere]"), "the row does not know another window holds the chat").toBeVisible({ timeout: 10_000 });
+
+      push({ type: "stream:end", sessionKey: keyX, topicId: topicX.id, messageId: "dx-1", completed: true, stopReason: "end_turn" });
+      await expect(rowX, "the finished chat's row carries no 'done' mark").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
+
+      // The click brings the other window forward and opens nothing here: the
+      // chat never mounts a pane in this window, and the mark still goes.
+      await rowX.click();
+      await expect.poll(() => page.evaluate(() => window.__shellCalls ?? []), { timeout: 10_000 }).toContain("window_focus_label");
+      await expect(rowX, "the row kept its 'done' mark after the click").not.toHaveAttribute("data-attention", /done|input/, { timeout: 10_000 });
+      await expect(page.locator('[role="tab"][data-pane-id]', { hasText: nameX })).toHaveCount(0);
+    } finally {
+      await deleteTopic(request, topicX.id);
       await deleteTopic(request, topicO.id);
     }
   });
