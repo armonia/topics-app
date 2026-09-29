@@ -4,6 +4,7 @@ import { readFile } from "fs/promises";
 import { join } from "path";
 import { E2E_BASE, E2E_DATA_DIR } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { serveFixturePage, type FixturePage } from "./helpers/fixture-page-server";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
@@ -26,9 +27,20 @@ function storagePathFor(ctxId: string): string {
   return join(BROWSER_STATE_DIR, sanitize(ctxId), "storage.json");
 }
 
+// The page the contexts navigate to: a local fixture served on loopback by
+// this process, not a live site, so a third party being down or changed cannot
+// fail a test about OUR persistence. It stays up for the whole file because the
+// restore step reopens the saved URL after the context was destroyed.
+let fixture: FixturePage;
+
+test.beforeAll(async () => {
+  fixture = await serveFixturePage("agent-control-page.html");
+});
+
 // Chi sporca pulisce: vedi la docstring di `closeAllBrowserContexts`.
 test.afterAll(async ({ request }) => {
   await closeAllBrowserContexts(request);
+  await fixture?.close();
 });
 
 test.describe("BROWSER-CHAT-01 persistence", () => {
@@ -43,7 +55,7 @@ test.describe("BROWSER-CHAT-01 persistence", () => {
     try {
       // 1. Spawn a context + navigate (REST opens & navigates via Playwright server-side)
       const openRes = await request.post(`${BASE}/api/browsers/${ctxId}/agent/open`, {
-        data: { url: "https://example.com" },
+        data: { url: fixture.url },
         headers: { "Content-Type": "application/json" },
       });
       expect(openRes.ok()).toBe(true);
@@ -102,13 +114,13 @@ test.describe("BROWSER-CHAT-01 persistence", () => {
       // 4b. The reopen above recreated the context from scratch (it was DELETEd
       // at step 2) — the same cold path a post-restart lazy creation takes.
       // createContext restores the persisted last-url from disk, so the fresh
-      // context must be sitting on example.com, not about:blank. This is the
+      // context must be sitting on the fixture page, not about:blank. This is the
       // load-bearing "restore" assertion the test's title promises; without it
       // the spec never actually verified that the URL came BACK.
       const stateRes = await request.get(`${BASE}/api/browsers/${ctxId}`);
       expect(stateRes.ok()).toBe(true);
       const state = (await stateRes.json()) as { url?: string };
-      expect(state.url ?? "").toContain("example.com");
+      expect(state.url).toBe(fixture.url);
 
       // 5. Topic.browserState.url MUST reflect the last navigation. The
       // onNavigate hook fires on service.navigate (agent/open path) and resolves
@@ -132,7 +144,7 @@ test.describe("BROWSER-CHAT-01 persistence", () => {
       };
       const restoredTopic = topicData.topic;
       expect(restoredTopic?.browserState?.url).toBeTruthy();
-      expect(restoredTopic!.browserState!.url).toContain("example.com");
+      expect(restoredTopic!.browserState!.url).toBe(fixture.url);
     } finally {
       await request.delete(`${BASE}/api/browsers/${ctxId}`).catch(() => {});
       await deleteTopic(request, ctxId).catch(() => {});
@@ -145,7 +157,7 @@ test.describe("BROWSER-CHAT-01 persistence", () => {
     try {
       // 1. Open context + navigate
       const openRes = await request.post(`${BASE}/api/browsers/${ctxId}/agent/open`, {
-        data: { url: "https://example.com" },
+        data: { url: fixture.url },
         headers: { "Content-Type": "application/json" },
       });
       expect(openRes.ok()).toBe(true);
