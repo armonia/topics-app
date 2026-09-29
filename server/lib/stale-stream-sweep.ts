@@ -52,7 +52,6 @@ export interface SilenceMark {
 export interface StaleStreamSweepDeps {
   now: () => number;
   timeoutMs: number;
-  askTtlMs: number;
   /** I turni in trasmissione ADESSO. Il giro può cancellarne le voci. */
   activeStreams: Map<string, SweepableStream>;
   /** Chi ha già speso il suo unico resync. */
@@ -276,7 +275,6 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
     if (askAge !== null) {
       const verdict = pendingAskVerdict({
         askAgeMs: askAge,
-        askTtlMs: deps.askTtlMs,
         childAlive: deps.childAlive(sessionKey),
       });
       if (verdict === "defer") {

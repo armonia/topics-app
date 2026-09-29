@@ -71,7 +71,10 @@ function harness(rows: Row[]) {
       writes.push({ toolCallId, status: fields.status, ...(opts ? { opts } : {}) });
     },
   } as any;
-  const router = createTopicsRouter(ctx);
+  const sent: Array<{ sessionKey: string; content: string }> = [];
+  const router = createTopicsRouter(ctx, undefined, undefined, {
+    sendAnswerAsMessage: async (sessionKey, content) => { sent.push({ sessionKey, content }); },
+  });
   const answer = async (sessionKey: string, toolCallId: string, response: unknown) => {
     const url = new URL("http://topics.test/api/chat/tool-response");
     return await router(new Request(url.toString(), {
@@ -80,7 +83,7 @@ function harness(rows: Row[]) {
       body: JSON.stringify({ sessionKey, toolCallId, response }),
     }), url, url.pathname, "POST") as Response;
   };
-  return { answer, writes };
+  return { answer, writes, sent };
 }
 
 const PLAN_YES = { kind: "questions", answers: { [PLAN_APPROVAL_QUESTION]: PLAN_APPROVE_LABEL } };
@@ -88,12 +91,31 @@ const NATIVE_ANSWER = { kind: "questions", answers: { "Quale ramo?": "sito" } };
 
 describe("POST /api/chat/tool-response: the answer goes where the question is", () => {
   test("a question under a newer notice gets its answer on its own row, not on the notice", async () => {
+    // The turn that asked was closed by the watchdog: nobody polls for this
+    // question any more, so the answer is recorded on the question's row and
+    // goes to the model as the next message.
     const sk = "topic:answer-row";
     const h = harness([NOTICE, toolRow("toolu_ask", "mcp__topics__ask_user_question")]);
     try {
       const resp = await h.answer(sk, "toolu_ask", NATIVE_ANSWER);
       expect(resp.status).toBe(200);
-      expect(h.writes).toEqual([{ toolCallId: "toolu_ask", status: "running", opts: { rowId: "turn-row" } }]);
+      expect(h.writes).toEqual([{ toolCallId: "toolu_ask", status: "success", opts: { rowId: "turn-row" } }]);
+      expect(h.sent.map((m) => m.sessionKey)).toEqual([sk]);
+      expect(h.sent[0]!.content).toContain("sito");
+    } finally {
+      cancelAsk(sk);
+    }
+  });
+
+  test("with the asker still polling, the answer goes to the rendez-vous as before", async () => {
+    const sk = "topic:answer-row-live";
+    const h = harness([NOTICE, toolRow("toolu_ask_live", "mcp__topics__ask_user_question")]);
+    beginAsk(sk);
+    try {
+      const resp = await h.answer(sk, "toolu_ask_live", NATIVE_ANSWER);
+      expect(resp.status).toBe(200);
+      expect(h.writes).toEqual([{ toolCallId: "toolu_ask_live", status: "running", opts: { rowId: "turn-row" } }]);
+      expect(h.sent).toEqual([]);
     } finally {
       cancelAsk(sk);
     }

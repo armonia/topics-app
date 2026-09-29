@@ -7,7 +7,7 @@ import { join, resolve, dirname } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic, ToolCall } from "../types";
-import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
+import { getProvider, getDefaultProvider, getDefaultProviderName, resolveTurnAlive, type AIProvider } from "../providers";
 import { backgroundStatusRows, stopBackgroundOnly, type StreamingStatusRow } from "../providers/background-probes";
 import { createTopicProviderResolver } from "../providers/topic-provider-resolver";
 import { getSnapshotManager } from "../providers/snapshot-manager";
@@ -66,7 +66,8 @@ import { autonomyForPermissionMode } from "../lib/autonomy-mode";
 import { EFFORT_TIERS } from "../../shared/effort";
 // Only the «delivery» side: the waiting legs (beginAsk/waitForAnswer) live in
 // the human channel, in ./permission.
-import { deliverAnswer, hasPendingAsk, cancelAsk, openAskToolCallId, ASK_NOT_CURRENT_LINE } from "../lib/ask-user-bridge";
+import { deliverAnswer, hasPendingAsk, cancelAsk, endAsk, openAskToolCallId, ASK_NOT_CURRENT_LINE } from "../lib/ask-user-bridge";
+import { storedToolCall, askerStillThere, questionTexts, answerAsNextMessage, type StoredQuestionCall } from "../lib/question-outlives-asker";
 // "Waiting on you" is also read off the ROW: the panel's questions travel over
 // the MCP bridge, not the provider's native channel, and after a restart no
 // in-memory map remembers them. See lib/waiting-ask.ts.
@@ -473,7 +474,16 @@ export function createTopicsRouter(
   browserService?: BrowserService,
   paneAttachedTo: (contextId: string) => boolean = () => false,
   /** What the chat route needs from the outside and this closure does not own. */
-  extra: { hooks?: LifecycleHookRunner; exposeGoalLoop?: (loop: ChatGoalLoop) => void } = {},
+  extra: {
+    hooks?: LifecycleHookRunner;
+    exposeGoalLoop?: (loop: ChatGoalLoop) => void;
+    /**
+     * How an answer whose asker is gone reaches the model: a user message on the session. The
+     * default sends it through `POST /api/chat` like a typed one; a test
+     * injects a recorder to see exactly what the model would receive.
+     */
+    sendAnswerAsMessage?: (sessionKey: string, content: string) => Promise<void>;
+  } = {},
 ): RouteHandler {
   const {
     GATEWAY_URL, GATEWAY_TOKEN, OPENCLAW_DIR,
@@ -905,27 +915,38 @@ export function createTopicsRouter(
    * a restart has nothing to send a second time; from here on the chat row is
    * its only copy. The SSE body is drained so the turn runs to its end.
    */
-  async function sendInitialMessage(sessionKey: string, content: string): Promise<void> {
+  async function sendInitialMessage(sessionKey: string, content: string, label = "initial message", retryWhileBusyMs = 0): Promise<void> {
     const url = new URL("http://localhost/api/chat");
+    const deadline = Date.now() + retryWhileBusyMs;
     try {
-      const resp = await chatRouter(
-        new Request(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }] }),
-        }),
-        url, "/api/chat", "POST",
-      );
+      let resp: Response | null = null;
+      for (;;) {
+        resp = await chatRouter(
+          new Request(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }] }),
+          }),
+          url, "/api/chat", "POST",
+        );
+        // A turn still in flight on the session answers 409: such an answer
+        // waits for it to end instead of being dropped (its asker was a turn
+        // that no longer listens, and the one running now will end).
+        if (resp?.status !== 409 || Date.now() >= deadline) break;
+        await new Promise((r) => setTimeout(r, 5_000));
+      }
       if (!resp?.ok) {
-        console.warn(`[topics] initial message of ${sessionKey} refused by the chat route: ${resp?.status ?? "no response"}`);
+        console.warn(`[topics] ${label} of ${sessionKey} refused by the chat route: ${resp?.status ?? "no response"}`);
         return;
       }
       const reader = resp.body?.getReader();
       if (reader) while (!(await reader.read()).done) { /* drain */ }
     } catch (err) {
-      console.warn(`[topics] initial message of ${sessionKey} failed:`, err);
+      console.warn(`[topics] ${label} of ${sessionKey} failed:`, err);
     }
   }
+  const sendAnswerAsMessage = extra.sendAnswerAsMessage
+    ?? ((sessionKey: string, content: string) => sendInitialMessage(sessionKey, content, "answer to a question whose asker is gone", 10 * 60_000));
   // Il ponte MCP del browser (le sei rotte `…/browser/*` in due forme
   // d'indirizzo) sta in `browser-bridge.ts` con i tre helper di risoluzione del
   // contesto che usava SOLO lui. `browserNavigatedTopics` è la stessa istanza
@@ -2554,10 +2575,13 @@ export function createTopicsRouter(
       // A machine's stop says so on them, not "Interrotto…", which the boot's
       // repair pass would take for a turn to resume.
       const closedBecause = isMachineStop(cause) ? machineStopToolError(cause) : undefined;
-      for (const tc of endStream(sessionKey, closedBecause ? { closedBecause } : undefined)) {
+      // A Stop ends the question on screen too: it is the one explicit cancel
+      // a person has, and the panel then says so (`askEnded: 'cancelled'`).
+      for (const tc of endStream(sessionKey, { ...(closedBecause ? { closedBecause } : {}), cancelQuestions: true })) {
         broadcastToAll({
           type: "stream:tool_result", sessionKey, topicId, toolCallId: tc.id, status: "error",
           result: tc.result, error: tc.error, endedAt: tc.endedAt,
+          ...(tc.askEnded ? { askEnded: tc.askEnded } : {}),
           ...(stream.messageId ? { messageId: stream.messageId } : {}),
         });
       }
@@ -2694,9 +2718,45 @@ export function createTopicsRouter(
           submittedAt,
         };
         const topic = getTopicBySessionKey(sessionKey);
+        const liveAsk = hasPendingAsk(sessionKey);
+        const asked: StoredQuestionCall | null = askRowId ? storedToolCall(recentRows, toolCallId, decodeCol) : null;
+        // A PANEL THAT IS NO LONGER OPEN takes no answer. With no live ask, the
+        // row is the only witness, and a question already answered or ended
+        // there is a stale form (another window, a phone that reconnected):
+        // delivering it would reopen a closed row and hand the model an answer
+        // to nothing.
+        if (!liveAsk && asked && asked.status !== 'waiting_for_input') {
+          return json({ error: ASK_NOT_CURRENT_LINE, code: "ask_not_current" }, 409);
+        }
+        // THE ASKER IS GONE: the turn that asked ended, the server restarted
+        // under it, its child died. The question stayed open on purpose, and
+        // the answer reaches the model as the next user message with the
+        // question quoted (`lib/question-outlives-asker.ts`), never into a buffer nobody
+        // will read.
+        const deliverAsMessage = (late: Record<string, string>) => {
+          endAsk(sessionKey);
+          patchToolRow({ status: 'success', userResponse: normalised });
+          broadcastToAll({
+            type: 'stream:tool_update', sessionKey, topicId: topic?.id, toolCallId,
+            status: 'success', userResponse: normalised,
+          });
+          void sendAnswerAsMessage(sessionKey, answerAsNextMessage(questionTexts(asked), late));
+        };
+        const askerThere = askerStillThere({
+          pendingAsk: liveAsk,
+          call: asked,
+          streaming: Boolean(ctx.isStreaming?.(sessionKey)),
+          turnAlive: resolveTurnAlive(sessionKey),
+        });
+        if (!askerThere) {
+          deliverAsMessage(answers);
+          return json({ ok: true, submittedAt, deliveredAs: 'message' });
+        }
         // Unblock the bridge handler → it returns the answers as its tool
-        // result → the CLI resumes the turn.
-        deliverAnswer(sessionKey, answers);
+        // result → the CLI resumes the turn. If no leg ever claims it (the
+        // asker died between the check above and now), the buffer hands it to
+        // the delivery as a message instead of dropping it.
+        deliverAnswer(sessionKey, answers, { onUnclaimed: deliverAsMessage });
         // Forget the provider's pending entry so a reattach REPLAY won't
         // re-open the panel for an already-answered question. We intentionally
         // do NOT call resumeWithToolResponse — the bridge return is the result.

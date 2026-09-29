@@ -20,12 +20,20 @@
  *
  * AND IT MUST STOP HOLDING. A deferral without an end is a block with a nicer
  * name: an answered question flips its status (so it stops matching by itself),
- * and a question older than the ask TTL - the same window
- * `ask-user-bridge.ts` gives a question to live - has outlived every human
- * attention it could have had, so it holds nothing either.
+ * and past `PARKED_ASK_HOLD_MS` the reload goes ahead. That window is the
+ * GATE's patience, not the question's life: a question has none, and it
+ * survives the reload on its row (its answer then reaches the model as the next
+ * message, `lib/question-outlives-asker.ts`). The deferral only spares a live turn the
+ * detour.
+ *
+ * A question whose asking process is already gone (`askerGone`) holds nothing:
+ * no process is blocked on it, so a restart cannot hurt it.
  */
 
 import { waitingAskStartedAt } from "./waiting-ask";
+
+/** How long a reload waits for a live question before going ahead anyway. */
+export const PARKED_ASK_HOLD_MS = 24 * 60 * 60 * 1000;
 
 /** One stored message, already decoded, with the session it belongs to. */
 export interface ParkedAskRow {
@@ -63,7 +71,7 @@ export function sessionsParkedOnQuestion(
     // No timestamp on the tool call: the question exists all the same, and
     // treating it as just opened is the only reading that does not invent an
     // age. It costs at most one TTL window of patience, once.
-    const startedAt = waitingAskStartedAt(row.toolCalls, row.blocks, opts.now);
+    const startedAt = waitingAskStartedAt(row.toolCalls, row.blocks, opts.now, { liveOnly: true });
     if (startedAt === null) continue;
     if (opts.now - startedAt >= opts.ttlMs) continue;
     seen.add(key);

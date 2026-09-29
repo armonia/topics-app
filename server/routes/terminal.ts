@@ -2659,7 +2659,8 @@ function tryParkSession(
   motivo: string,
 ): { parked: true } | { parked: false; reason: ParkRefusal } {
   const activity = terminalActivity.get(id);
-  const phase = s.claudeSessionId ? (_tracker?.getSession(s.claudeSessionId)?.phase ?? null) : null;
+  const state = s.claudeSessionId ? _tracker?.getSession(s.claudeSessionId) : undefined;
+  const phase = state?.phase ?? null;
   const decision = decidePark(
     {
       id,
@@ -2678,6 +2679,8 @@ function tryParkSession(
       // PTY now would strand it (`lib/swap-freeze-hold.ts`). The freeze lasts
       // ten minutes at most, so the park is postponed, not cancelled.
       hasFrozenTree: isSwapFreezeHold(id),
+      // A prompt still open in the TUI, whatever phase the reaper demoted it to.
+      awaitingHuman: !!state?.pendingApproval,
     },
     thresholdMs,
   );

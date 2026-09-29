@@ -485,11 +485,11 @@ async function confirmHeld(
   // ours to close and nothing of anybody else's to touch.
   if (busy && !asked) return { state: "refused", reason: CARD_HELD_REASON };
 
-  if (!beginAsk(request.sessionKey)) {
-    cancelAsk(request.sessionKey, "no answer: the confirmation expired");
-    endMyQuestion(deps, hold, CONFIRM_ENDED_LINE);
-    return { state: "refused", reason: "the confirmation expired with no answer" };
-  }
+  // No expiry here: the rendez-vous has none (29/09). A confirmation left
+  // unanswered is bounded by its own leg budget (`outbound-tools.ts`), which
+  // refuses the send with its reason: for an irreversible action, silence is
+  // a no.
+  beginAsk(request.sessionKey);
 
   const schema = schemaFor(request);
 
@@ -504,7 +504,7 @@ async function confirmHeld(
 
   if (!asked) {
     // Neither road exists: no card thread and no row to paint on. Waiting here
-    // would be a question nobody can see, held open until its TTL — so it is
+    // would be a question nobody can see, held open for nothing — so it is
     // refused NOW, with the reason, which is the only honest answer.
     cancelAsk(request.sessionKey, "nowhere to ask");
     return {

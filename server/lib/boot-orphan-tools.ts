@@ -61,6 +61,7 @@ export function finalizeOrphanedRunningTools(db: Database, liveSessions: Readonl
     const now = Date.now();
     let msgs = 0, tools = 0;
     let spared = 0;
+    let keptOpen = 0;
     for (const r of rows) {
       // The session's child is still ALIVE in the broker: its tool can still
       // deliver and a QUESTION on screen can still be answered. Calling it
@@ -75,13 +76,23 @@ export function finalizeOrphanedRunningTools(db: Database, liveSessions: Readonl
       const blDecoded = decodeCol(r.blocks);
       let tcStr: string | Uint8Array | null = r.tool_calls as string | null;
       let blStr: string | Uint8Array | null = r.blocks as string | null;
+      // Whether this pass CLOSED something on the row. A question it only
+      // marked `askerGone` is still open and needs no "interrupted" prose.
+      let closedAny = false;
+      const sweep = (tc: Record<string, unknown> | null | undefined): boolean => {
+        const was = tc?.status;
+        if (!finalizeOrphanTool(tc, { childAlive: alive, now })) return false;
+        if (tc?.status === "error" && was !== "error") closedAny = true;
+        else keptOpen++;
+        return true;
+      };
       // The client renders tool state from `blocks` (the chronological timeline)
       // when present, so BOTH columns must be finalized, or the spinner keeps
       // ticking off the stale block copy even though tool_calls is fixed.
       try {
         if (tcDecoded) {
           const toolCalls = JSON.parse(tcDecoded) as Array<Record<string, unknown>>;
-          let c = false; for (const tc of toolCalls) if (finalizeOrphanTool(tc, { childAlive: alive, now })) { c = true; tools++; }
+          let c = false; for (const tc of toolCalls) if (sweep(tc)) { c = true; tools++; }
           if (c) { tcStr = encodeCol(JSON.stringify(toolCalls)) ?? null; changed = true; }
         }
       } catch { /* skip malformed tool_calls */ }
@@ -89,7 +100,7 @@ export function finalizeOrphanedRunningTools(db: Database, liveSessions: Readonl
         if (blDecoded) {
           const bl = JSON.parse(blDecoded) as Array<Record<string, unknown>>;
           let c = false;
-          for (const b of bl) if (b && b.kind === "tool" && finalizeOrphanTool(b.toolCall as Record<string, unknown>, { childAlive: alive, now })) { c = true; tools++; }
+          for (const b of bl) if (b && b.kind === "tool" && sweep(b.toolCall as Record<string, unknown>)) { c = true; tools++; }
           if (c) { blStr = encodeCol(JSON.stringify(bl)) ?? null; changed = true; }
         }
       } catch { /* skip malformed blocks */ }
@@ -101,12 +112,13 @@ export function finalizeOrphanedRunningTools(db: Database, liveSessions: Readonl
         // it is the explanation, and a second one was handed back by
         // send_chat_message as what the turn had written (card a57e6d4d).
         const hasProse = typeof r.content === "string" && r.content.trim().length > 0;
-        const content = hasProse || alive || r.end_reason === "cut-by-restart" ? r.content : INTERRUPTED_MARKER;
+        const content = hasProse || alive || !closedAny || r.end_reason === "cut-by-restart" ? r.content : INTERRUPTED_MARKER;
         updateRow.run(content, tcStr, blStr, r.id); msgs++;
       }
     }
     if (msgs > 0) console.log(`[boot] finalized ${tools} orphaned running tool(s) across ${msgs} message(s)`);
     if (spared > 0) console.log(`[boot] ${spared} message(s) with a live broker child: only permissions closed, the rest left alone`);
+    if (keptOpen > 0) console.log(`[boot] ${keptOpen} question(s) whose asker is gone kept open: an answer goes out as the next message`);
     // Second pass: an assistant turn already finalized as interrupted (its
     // tool carries the orphan rule's error, `INTERRUPTED_RE`) but with no final
     // prose renders as a bare unexplained error X. Give it the explanation.

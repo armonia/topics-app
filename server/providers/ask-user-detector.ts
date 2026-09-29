@@ -36,12 +36,14 @@ export interface ToolUseLike {
  */
 export function detectUserInputRequest(toolUse: ToolUseLike): UserInputSchema | null {
   // --- Claude Agent SDK: AskUserQuestion, and the Topics MCP bridge tool ---
-  // The SDK's built-in `AskUserQuestion` is only registered in the CLI's
-  // INTERACTIVE mode; Topics spawns the CLI headless (`--print` stream-json)
-  // where it is absent, so the model can never emit it. The Topics bridge
-  // re-exposes the exact same contract as `mcp__topics__ask_user_question`
-  // (see server/mcp/topics-mcp-server.ts) — same `questions` input shape — so
-  // it renders through the identical `kind: "questions"` panel.
+  // The built-in `AskUserQuestion` IS registered by the headless CLI (CLI
+  // 2.1.285, 29/09), but there it closes as "The user did not answer" the
+  // moment its permission is granted, so Topics disallows it
+  // (`HEADLESS_DISALLOWED_TOOLS`, providers/claude/args.ts). It is still
+  // recognised here: an interactive TUI and older rows carry it. The Topics
+  // bridge re-exposes the exact same contract as
+  // `mcp__topics__ask_user_question` (see server/mcp/topics-mcp-server.ts),
+  // same `questions` input shape, rendered through the same panel.
   //
   // AND THE BARE NAME, which is the SAME tool once more. The native runtime
   // imports the Topics handlers straight from `mcp/topics-mcp-server`

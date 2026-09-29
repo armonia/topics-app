@@ -24,8 +24,15 @@ export function waitingAskStartedAt(
   toolCallsJson: string | null | undefined,
   blocksJson: string | null | undefined,
   fallbackNow?: number,
+  /**
+   * Skip questions whose asking process is gone (`askerGone`). They still wait
+   * for the person, so the sidebar counts them; but no process is blocked on
+   * them, so a restart cannot hurt them and the restart gate must not.
+   */
+  opts: { liveOnly?: boolean } = {},
 ): number | null {
-  const waiting = findWaiting(toolCallsJson) ?? findWaitingInBlocks(blocksJson);
+  const accept = (t: MaybeToolCall | null | undefined): boolean => isWaitingAsk(t) && !(opts.liveOnly && (t as MaybeToolCall).askerGone === true);
+  const waiting = findWaiting(toolCallsJson, accept) ?? findWaitingInBlocks(blocksJson, accept);
   if (!waiting) return null;
   const started = typeof waiting.startedAt === "number" && Number.isFinite(waiting.startedAt) && waiting.startedAt > 0
     ? waiting.startedAt
@@ -36,24 +43,24 @@ export function waitingAskStartedAt(
   return started ?? fallbackNow ?? null;
 }
 
-interface MaybeToolCall { name?: unknown; status?: unknown; startedAt?: unknown }
+interface MaybeToolCall { name?: unknown; status?: unknown; startedAt?: unknown; askerGone?: unknown }
 
 function isWaitingAsk(t: MaybeToolCall | null | undefined): t is { name: string; status: string; startedAt?: number } {
   if (!t || typeof t !== "object") return false;
   return isAwaitingHuman(t.status as ToolCallStatus | undefined);
 }
 
-function findWaiting(json: string | null | undefined): { startedAt?: number } | null {
+function findWaiting(json: string | null | undefined, accept: (t: MaybeToolCall) => boolean): { startedAt?: number } | null {
   if (!json) return null;
   try {
     const parsed = JSON.parse(json);
     if (!Array.isArray(parsed)) return null;
-    const hit = parsed.find(isWaitingAsk);
+    const hit = parsed.find(accept) as MaybeToolCall | undefined;
     return hit ? { startedAt: typeof hit.startedAt === "number" ? hit.startedAt : undefined } : null;
   } catch { return null; }
 }
 
-function findWaitingInBlocks(json: string | null | undefined): { startedAt?: number } | null {
+function findWaitingInBlocks(json: string | null | undefined, accept: (t: MaybeToolCall) => boolean): { startedAt?: number } | null {
   if (!json) return null;
   try {
     const parsed = JSON.parse(json);
@@ -62,7 +69,7 @@ function findWaitingInBlocks(json: string | null | undefined): { startedAt?: num
       const tc = (b as { kind?: string; toolCall?: MaybeToolCall } | null)?.kind === "tool"
         ? (b as { toolCall?: MaybeToolCall }).toolCall
         : null;
-      if (isWaitingAsk(tc)) return { startedAt: typeof tc.startedAt === "number" ? tc.startedAt : undefined };
+      if (tc && accept(tc)) return { startedAt: typeof tc.startedAt === "number" ? tc.startedAt : undefined };
     }
     return null;
   } catch { return null; }

@@ -1,0 +1,456 @@
+/**
+ * A QUESTION WAITS FOR ITS HUMAN, like it does in Claude Code (29/09).
+ *
+ * "Vedi anche la gestione delle domande da parte di un topic, perché sembra
+ * possa scadere. Non ha senso." A question asked by a topic used to end on a
+ * clock (the 24-hour TTL of the rendez-vous), with the process that asked it
+ * (a restart, a dead child: the row was closed as "Interrotto"), and with
+ * whatever killer ran over its turn. Here each of those, against the real
+ * routes on a real database:
+ *
+ *   1. an ask open for 25 hours is still answerable;
+ *   2. across a server restart, with the asker gone, the answer still reaches
+ *      the model: as the next user message, with the question quoted;
+ *   3. across a restart with the asker still alive (a CLI child in the broker)
+ *      an answer given before the restart is collected from the row;
+ *   4. every killer on the map skips a turn that is waiting on a question;
+ *   5. a new message supersedes a question nobody is waiting on, and says so.
+ *
+ * The restart is simulated at the boundary the design has: the in-memory
+ * rendez-vous is dropped (`_dropAskStateLikeARestart`), the routers are built
+ * again, and the boot sweep runs over the same database.
+ *
+ * @covers ASK-11
+ * @covers HOLD-01
+ */
+import { describe, test, expect, beforeAll, afterAll, afterEach, setSystemTime } from "bun:test";
+import { cleanupTestDataDir, setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
+import type { AppContext, Topic, ToolCall } from "../../server/types";
+import type { AIProvider, StreamHandler } from "../../server/providers/types";
+import { createTopicsRouter } from "../../server/routes/topics";
+import { createChatRouter } from "../../server/routes/chat";
+import { decodeCol } from "../../shared/message-blob";
+import { createPermissionRouter } from "../../server/routes/permission";
+import {
+  beginAsk, endAsk, hasPendingAsk, pendingAskVerdict, _dropAskStateLikeARestart,
+} from "../../server/lib/ask-user-bridge";
+import { isHumanHold } from "../../server/lib/human-hold";
+import { finalizeOrphanedRunningTools } from "../../server/lib/boot-orphan-tools";
+import { ClaudeCodeProvider, turnWatchdogDecision } from "../../server/providers/claude-code";
+import { armStallDetector } from "../../server/lib/stall-detector";
+import { decidePark } from "../../server/lib/terminal-idle-park";
+import { runWithDelegatedDeadline } from "../../server/services/task-dispatcher-delegated";
+import { armCodexTurnTimeout } from "../../server/providers/codex";
+
+const TEST_DATA = testTmpDir("question-waits");
+let ctx: AppContext;
+
+/**
+ * THE MODEL, as far as this bench goes: a provider that records every message
+ * a turn hands it and never answers (the turn is closed by hand). What
+ * `sendChat` receives is exactly what the model would read.
+ */
+const modelReceived: Array<{ sessionKey: string; message: string }> = [];
+const handlers: StreamHandler[] = [];
+const fakeModel = {
+  name: "fake-model",
+  capabilities: new Set(["streaming"]),
+  contextStrategy: "history-aware",
+  get connected() { return true; },
+  registerStreamHandler: (_sk: string, _rid: string | undefined, h: StreamHandler) => { handlers.push(h); },
+  unregisterStreamHandler: () => {},
+  sendChat: (sessionKey: string, message: string) => {
+    modelReceived.push({ sessionKey, message });
+    return new Promise<{ runId?: string }>(() => {});
+  },
+  defaultModel: () => "fake-model",
+  abort: async () => {},
+  start: () => {}, stop: () => {},
+  complete: async () => ({ content: "ok" }),
+} as unknown as AIProvider;
+
+const HOUR = 60 * 60 * 1000;
+const QUESTION = "Which branch do we ship?";
+const QUESTIONS = [{ question: QUESTION, header: "Branch", options: [{ label: "main" }, { label: "next" }], multiSelect: false }];
+let seq = 0;
+
+function seedTopic(sessionKey: string): void {
+  const now = new Date().toISOString();
+  const topic: Topic = {
+    id: `qwait-${++seq}-aaaa-bbbb-cccc-000000000001`,
+    name: `Question ${seq}`,
+    slug: `question-${seq}`,
+    parentId: null,
+    links: [],
+    sessionKey,
+    color: "#aabbcc",
+    icon: "chat",
+    createdAt: now,
+    updatedAt: now,
+    archived: false,
+  };
+  ctx.saveSingleTopic(topic);
+}
+
+/** A turn that asked the bridge question: the row the panel is painted on. */
+function askOnRow(sessionKey: string, toolCallId: string, opts: { finalize?: boolean } = {}): string {
+  seedTopic(sessionKey);
+  ctx.appendLocalMessage(sessionKey, "user", "help me decide");
+  const msg = ctx.createPartialMessage(sessionKey, "assistant");
+  ctx.startStream(sessionKey, msg.id);
+  const call: ToolCall = {
+    id: toolCallId,
+    name: "mcp__topics__ask_user_question",
+    args: { questions: QUESTIONS },
+    status: "waiting_for_input",
+    startedAt: Date.now(),
+    userInputSchema: { kind: "questions", questions: QUESTIONS },
+  };
+  ctx.addToolCallToLastMessage(sessionKey, call);
+  if (opts.finalize) {
+    // The row as a crash leaves it once the boot's partial sweep has run: final,
+    // with the question still `waiting_for_input` and no stream in memory.
+    ctx.updateLastMessage(sessionKey, { partial: undefined, streamedAt: undefined }, { rowId: msg.id });
+    ctx.activeStreams.delete(sessionKey);
+  }
+  return msg.id;
+}
+
+/** The tool call as stored: the timeline copy first, the column as fallback. */
+function storedCall(rowId: string, toolCallId: string): ToolCall | undefined {
+  const row = ctx.db.query("SELECT tool_calls, blocks FROM messages WHERE id = ?").get(rowId) as { tool_calls: unknown; blocks: unknown } | null;
+  const blocks = JSON.parse(decodeCol(row?.blocks) ?? "[]") as Array<{ kind: string; toolCall?: ToolCall }>;
+  const calls = JSON.parse(decodeCol(row?.tool_calls) ?? "[]") as ToolCall[];
+  return blocks.find((b) => b.kind === "tool" && b.toolCall?.id === toolCallId)?.toolCall
+    ?? calls.find((t) => t.id === toolCallId);
+}
+
+function chatRouter() {
+  return createChatRouter(ctx, {
+    resolveProvider: () => fakeModel,
+    detectLocalhostAutoNav: () => {},
+    bindTopicToProject: () => {},
+    resolveProjectRef: () => null,
+    getProjectIdForTopic: () => null,
+    getWorkspaceProjects: () => [],
+    autoBindProject: () => {},
+    watchSessionForSubagents: () => {},
+    updateUnreadCount: () => {},
+    browserNavigatedTopics: new Set<string>(),
+    WORKSPACE_DIR: testTmpDir("question-waits-ws"),
+  } as never);
+}
+
+/** A message into the real chat route, the way the composer (or the server) sends one. */
+async function postChat(chat: ReturnType<typeof chatRouter>, sessionKey: string, content: string): Promise<number> {
+  const url = new URL("http://topics.test/api/chat");
+  const resp = await chat(new Request(url.toString(), {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }] }),
+  }), url, "/api/chat", "POST");
+  resp?.body?.cancel().catch(() => {});
+  // Close the turn the way the model would, so the next send is not a 409.
+  const h = handlers[handlers.length - 1];
+  h?.onTextDelta("ok", "ok");
+  h?.onDone();
+  await new Promise((r) => setTimeout(r, 60));
+  return resp?.status ?? 0;
+}
+
+/** The server, as a process starts it: fresh routers over the same database. */
+function bootServer() {
+  const lateMessages: Array<{ sessionKey: string; content: string }> = [];
+  const chat = chatRouter();
+  const topics = createTopicsRouter(ctx, undefined, undefined, {
+    // The answer goes through the REAL chat route to the model.
+    sendAnswerAsMessage: async (sessionKey, content) => {
+      lateMessages.push({ sessionKey, content });
+      await postChat(chat, sessionKey, content);
+    },
+  });
+  const permission = createPermissionRouter(ctx);
+  const call = async (router: typeof topics, path: string, body: unknown) => {
+    const url = new URL(`http://topics.test${path}`);
+    const resp = await router(new Request(url.toString(), {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }), url, url.pathname, "POST");
+    return { status: resp!.status, body: await resp!.json() as Record<string, unknown> };
+  };
+  return {
+    lateMessages,
+    /** One poll leg of the bridge, as `callAskUserQuestion` sends it. */
+    leg: (sessionKey: string) => call(permission, `/api/sessions/${encodeURIComponent(sessionKey)}/ask-user`, { questions: QUESTIONS, legMs: 100 }),
+    /** The panel's Send button. */
+    answer: (sessionKey: string, toolCallId: string, choice: string) => call(topics, "/api/chat/tool-response", {
+      sessionKey, toolCallId, response: { kind: "questions", answers: { [QUESTION]: choice } },
+    }),
+    /** A message typed in the composer. */
+    send: (sessionKey: string, content: string) => postChat(chat, sessionKey, content),
+  };
+}
+
+beforeAll(async () => {
+  setupTestDataDir(TEST_DATA);
+  ctx = await createTestAppContext();
+  (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void }).broadcastToTopicSubscribers = () => {};
+});
+
+afterAll(async () => {
+  setSystemTime();
+  _dropAskStateLikeARestart();
+  await cleanupTestDataDir(TEST_DATA);
+});
+
+afterEach(() => {
+  setSystemTime();
+  _dropAskStateLikeARestart();
+});
+
+describe("no clock ends a question", () => {
+  test("an ask open for 25 hours is still answerable, and the answer is the tool's result", async () => {
+    const sk = "topic:q-25h";
+    const toolCallId = "toolu_q_25h";
+    askOnRow(sk, toolCallId);
+    const server = bootServer();
+    const t0 = Date.now();
+
+    expect((await server.leg(sk)).body).toEqual({ pending: true });
+    // The person went home. The server used to answer this leg with "the
+    // question expired with no answer" and the CLI closed the tool.
+    setSystemTime(new Date(t0 + 25 * HOUR));
+    expect((await server.leg(sk)).body).toEqual({ pending: true });
+    expect(hasPendingAsk(sk)).toBe(true);
+
+    const answered = await server.answer(sk, toolCallId, "next");
+    expect(answered.status).toBe(200);
+    expect((await server.leg(sk)).body).toEqual({ answers: { [QUESTION]: "next" } });
+    // The asker was there, so no second channel was used.
+    expect(server.lateMessages).toEqual([]);
+  });
+});
+
+describe("a question survives the process that asked it", () => {
+  test("restart with the asker gone: the boot keeps the question open and the answer reaches the model as the next message", async () => {
+    const sk = "topic:q-restart-gone";
+    const toolCallId = "toolu_q_gone";
+    const rowId = askOnRow(sk, toolCallId, { finalize: true });
+    beginAsk(sk);
+
+    // THE RESTART: memory gone, a native turn gone with it, the boot sweep
+    // runs with no live child for this session.
+    _dropAskStateLikeARestart();
+    finalizeOrphanedRunningTools(ctx.db, new Set());
+    const server = bootServer();
+
+    // The panel is still there to be clicked (a reload paints it from here).
+    const kept = storedCall(rowId, toolCallId);
+    expect(kept?.status).toBe("waiting_for_input");
+    expect(kept?.askerGone).toBe(true);
+
+    const answered = await server.answer(sk, toolCallId, "main");
+    expect(answered.status).toBe(200);
+    expect(answered.body.deliveredAs).toBe("message");
+
+    // What the model receives, through the real chat route: the question it
+    // asked, quoted, and the answer.
+    const until = Date.now() + 3000;
+    while (!modelReceived.some((m) => m.sessionKey === sk) && Date.now() < until) await new Promise((r) => setTimeout(r, 10));
+    const received = modelReceived.filter((m) => m.sessionKey === sk);
+    expect(received).toHaveLength(1);
+    expect(received[0]!.message).toContain(`> ${QUESTION}`);
+    expect(received[0]!.message).toContain("main");
+    // And the panel shows it answered, not "Interrotto".
+    const after = storedCall(rowId, toolCallId);
+    expect(after?.status).toBe("success");
+    expect(after?.userResponse).toMatchObject({ kind: "questions", answers: { [QUESTION]: "main" } });
+
+    // A second click (another window) is refused: the question is closed.
+    const again = await server.answer(sk, toolCallId, "next");
+    expect(again.status).toBe(409);
+    expect(server.lateMessages).toHaveLength(1);
+  });
+
+  test("restart with the asker alive: an answer given before the restart is collected from the row", async () => {
+    const sk = "topic:q-restart-alive";
+    const toolCallId = "toolu_q_alive";
+    askOnRow(sk, toolCallId);
+    const before = bootServer();
+    expect((await before.leg(sk)).body).toEqual({ pending: true });
+    // Answered between two legs: the answer sits in the in-memory buffer...
+    expect((await before.answer(sk, toolCallId, "next")).status).toBe(200);
+
+    // ...and the restart empties it, while the CLI child keeps polling.
+    _dropAskStateLikeARestart();
+    const after = bootServer();
+    expect((await after.leg(sk)).body).toEqual({ answers: { [QUESTION]: "next" } });
+    expect(after.lateMessages).toEqual([]);
+  });
+});
+
+describe("every killer on the map skips a turn waiting on a question", () => {
+  const AGE = 25 * HOUR;
+
+  function fakeTimers(start = 1_000_000) {
+    let now = start;
+    let seqId = 0;
+    const pending = new Map<number, { fn: () => void; at: number }>();
+    return {
+      now: () => now,
+      setTimer: (fn: () => void, ms: number) => { const id = ++seqId; pending.set(id, { fn, at: now + ms }); return id; },
+      clearTimer: (h: unknown) => { pending.delete(h as number); },
+      /** Advance the clock, firing every timer that falls due, in order. */
+      advance(ms: number) {
+        const end = now + ms;
+        for (;;) {
+          const due = [...pending.entries()].filter(([, t]) => t.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
+          if (!due) break;
+          pending.delete(due[0]);
+          now = due[1].at;
+          due[1].fn();
+        }
+        now = end;
+      },
+    };
+  }
+
+  function providerWithChild(sessionKey: string) {
+    const provider = new ClaudeCodeProvider({ type: "claude-code" });
+    const p = provider as unknown as Record<string, any>;
+    const pp = {
+      sessionKey, alive: true, inactivityTimer: null, lifetimeTimer: null, heartbeatInterval: null,
+      subAgentEmit: new Map(), streamHandler: null, lastEventAt: Date.now(),
+      io: { writeStdin: () => {}, kill: () => {}, signal: () => {} }, readline: { close() {} },
+    };
+    p.processes.set(sessionKey, pp);
+    let killed = 0;
+    p.killProcess = () => { killed++; };
+    p.stopHeartbeat = () => {};
+    return { p, pp, killed: () => killed };
+  }
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  test("the CLI child's lifetime cap rearms under a question", async () => {
+    const sk = "killer:lifetime";
+    const { p, pp, killed } = providerWithChild(sk);
+    beginAsk(sk);
+    const d = p.armLifetime(pp, sk, { ms: 5, rearmMs: 5 });
+    await sleep(60);
+    expect(killed()).toBe(0);
+    d.clear();
+    endAsk(sk);
+  });
+
+  test("the idle reaper does not reap a child parked on a question", async () => {
+    const sk = "killer:reaper";
+    const { p, pp, killed } = providerWithChild(sk);
+    beginAsk(sk);
+    p.resetInactivityTimer(sk, pp, { ms: 5 });
+    await sleep(60);
+    expect(killed()).toBe(0);
+    endAsk(sk);
+  });
+
+  test("the turn watchdog rearms however old the question is", () => {
+    const sk = "killer:watchdog";
+    beginAsk(sk, Date.now() - AGE);
+    expect(turnWatchdogDecision({ pendingAsk: hasPendingAsk(sk), idleMs: AGE, windowMs: 30 * 60_000 }).action).toBe("rearm");
+    endAsk(sk);
+  });
+
+  test("the stall judge is never asked while the question is open", () => {
+    const sk = "killer:stall";
+    const t = fakeTimers();
+    beginAsk(sk, t.now());
+    let stuck = 0;
+    let judged = 0;
+    const d = armStallDetector({
+      idleMs: 5 * 60_000,
+      isWaitingForHuman: () => isHumanHold(sk),
+      getTail: () => "assistant: waiting",
+      judge: async () => { judged++; return "stuck"; },
+      onStuck: () => { stuck++; },
+      now: t.now, setTimer: t.setTimer, clearTimer: t.clearTimer,
+    });
+    t.advance(AGE);
+    expect(judged).toBe(0);
+    expect(stuck).toBe(0);
+    d.clear();
+    endAsk(sk);
+  });
+
+  test("the stale-stream sweep defers a 25-hour question on a live child", () => {
+    expect(pendingAskVerdict({ askAgeMs: AGE, childAlive: true })).toBe("defer");
+  });
+
+  test("the terminal park does not kill a TUI whose question the reaper demoted to paused", () => {
+    const decision = decidePark({
+      id: "pty-1", type: "claude-code", claudeSessionId: "cs-1", busy: false, idleMs: AGE,
+      attachedClients: 0, hasTranscript: true, phase: "paused", awaitingHuman: true,
+    }, 30 * 60_000);
+    expect(decision).toEqual({ park: false, reason: "awaiting-human" });
+  });
+
+  test("the delegated wall clock does not count the person's time", async () => {
+    const sk = "killer:delegated";
+    const t = fakeTimers();
+    let held = false;
+    let aborted = 0;
+    let finish: () => void = () => {};
+    const run = new Promise<void>((r) => { finish = r; });
+    const deadlineAt = t.now() + 10 * 60_000;
+    const racing = runWithDelegatedDeadline({
+      resolvePolicy: () => ({ maxDurationMinutes: 10, model: "m", effort: "high" }) as never,
+      persistedDeadlineAt: deadlineAt,
+      sessionKey: sk,
+      clock: t.now,
+      abortTurn: async () => { aborted++; },
+      run: () => run,
+      isHumanHold: () => held,
+      setTimer: t.setTimer, clearTimer: t.clearTimer,
+    });
+    t.advance(5 * 60_000);      // five minutes of work
+    held = true;
+    t.advance(AGE);             // a question open for 25 hours
+    expect(aborted).toBe(0);
+    held = false;
+    t.advance(4 * 60_000);      // four more minutes of work: still inside ten
+    expect(aborted).toBe(0);
+    t.advance(2 * 60_000);      // eleven minutes of work: now it fires
+    expect(aborted).toBe(1);
+    finish();
+    await racing;
+  });
+
+  test("the Codex turn cap rearms under a question and gives the turn a full window after", () => {
+    const t = fakeTimers();
+    let held = true;
+    let expired = 0;
+    const cap = armCodexTurnTimeout({
+      sessionKey: "killer:codex", ms: 30 * 60_000, isHumanHold: () => held,
+      onExpired: () => { expired++; }, now: t.now, setTimer: t.setTimer, clearTimer: t.clearTimer,
+    });
+    t.advance(AGE);
+    expect(expired).toBe(0);
+    held = false;
+    t.advance(29 * 60_000);
+    expect(expired).toBe(0);
+    t.advance(3 * 60_000);
+    expect(expired).toBe(1);
+    cap.clear();
+  });
+});
+
+describe("a question ends only because of a person, and says why", () => {
+  test("a new message supersedes a question nobody is waiting on, in plain words", async () => {
+    const sk = "topic:q-superseded";
+    const toolCallId = "toolu_q_super";
+    const rowId = askOnRow(sk, toolCallId, { finalize: true });
+    finalizeOrphanedRunningTools(ctx.db, new Set());
+    const server = bootServer();
+    expect(await server.send(sk, "never mind, do something else")).toBe(200);
+    const ended = storedCall(rowId, toolCallId);
+    expect(ended?.status).toBe("error");
+    expect(ended?.askEnded).toBe("superseded");
+  });
+});

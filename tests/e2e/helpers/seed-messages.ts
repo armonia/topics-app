@@ -21,6 +21,8 @@ export interface SeedToolCall {
    *  vedi la nota in shared/types.ts. */
   permissionRequest?: unknown;
   permissionOutcome?: unknown;
+  /** A question whose asking process is gone: its answer goes out as the next message. */
+  askerGone?: boolean;
   contentOffset?: number;
   /** Real-usage window bounds (epoch ms) — drive duration rendering. */
   startedAt?: number;

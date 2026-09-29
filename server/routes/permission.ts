@@ -1,7 +1,8 @@
 import type { AppContext, RouteHandler } from "../types";
-import { waitForAnswer, cancelAsk, beginAsk, deliverAnswer, AskWaitError, ASK_LEG_MS } from "../lib/ask-user-bridge";
+import { waitForAnswer, beginAsk, endAsk, deliverAnswer, AskWaitError, ASK_LEG_MS } from "../lib/ask-user-bridge";
+import { answerRecordedOnRow } from "../lib/question-outlives-asker";
 import { createTaskService } from "../services/tasks";
-import { routeAskToTaskThread, clearRoutedAsk, closeRoutedAsk, clearRoutedAsksOfEndedSession, ENDED_LINE } from "../services/board-ask-routing";
+import { routeAskToTaskThread, clearRoutedAsk, closeRoutedAsk, ENDED_LINE } from "../services/board-ask-routing";
 import { outboundHoldOfSession } from "../lib/outbound-gate";
 import {
   beginPermission,
@@ -22,7 +23,7 @@ import { sessionIsFree, switchSessionToFree } from "../lib/session-free-mode";
 import { etichettaAutore } from "../lib/message-author";
 import { logActivity } from "../db/activity-log";
 import { decodeCol } from "../../shared/message-blob";
-import { recentActiveRows, rowCarryingTool } from "../lib/ask-answer-routing";
+import { recentActiveRows, rowCarryingTool, type AskHaystackRow } from "../lib/ask-answer-routing";
 import { flushTurnBody } from "../lib/turn-body-flush";
 
 /**
@@ -127,13 +128,13 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
     // ways: `{answers}` (the human submitted the panel, via
     // /api/chat/tool-response → deliverAnswer), `{pending:true}` (nobody has
     // answered yet — come straight back), or `{cancelled,reason}` (the ask is
-    // over: aborted, superseded, or expired).
+    // over: aborted or superseded). Never "expired": no clock ends a question.
     //
     // WHY legs instead of one long block: the first live question died after
     // minutes with a socket connection error. A single request held open with
     // zero bytes flowing is exactly what an idle-socket timeout kills, and it
     // dies CLIENT-side, so no amount of server patience helps. Short legs always
-    // come back; `beginAsk` keeps the TTL on the ask itself, not on the leg.
+    // come back; `beginAsk` keeps the age on the ask itself, not on the leg.
     //
     // The panel is NOT rendered from here — the CLI also emits a `tool_use` for
     // this call that the provider's detector turns into
@@ -155,16 +156,22 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
         const legMs = typeof body.legMs === "number" && Number.isFinite(body.legMs)
           ? Math.min(Math.max(body.legMs, 100), 60_000)
           : undefined;
-        const firstLeg = beginAsk(sk);
-        if (!firstLeg) {
-          // The ask outlived its TTL. Close it here rather than letting the
-          // bridge poll on into the CLI child's own lifetime cap.
-          cancelAsk(sk, "no answer: the question expired");
-          // The rendez-vous of this session is over for good, so every question
-          // of its on the board is unanswerable: this is the one caller allowed
-          // to clear by SESSION, and the line above is what makes it true.
-          clearRoutedAsksOfEndedSession(sk);
-          return json({ cancelled: true, reason: "ask_user_question: the question expired with no answer" });
+        // No expiry branch here any more: this route answered "the question
+        // expired with no answer" after 24 hours, which ended a question nobody
+        // had cancelled. A question waits for its human (29/09).
+        beginAsk(sk);
+        // THE ANSWER MAY ALREADY BE ON THE ROW. Given before a restart, it sat
+        // in a buffer the restart emptied, while this child kept polling. The
+        // row is the durable record, so the leg collects it there instead of
+        // waiting forever for an answer the person already gave.
+        {
+          let rows: AskHaystackRow[] = [];
+          try { rows = recentActiveRows(ctx, sk); } catch { /* no rows readable: wait as usual */ }
+          const recorded = answerRecordedOnRow(rows, body.questions as unknown[], decodeCol);
+          if (recorded) {
+            endAsk(sk);
+            return json({ answers: recorded });
+          }
         }
         // LA DOMANDA ESCE NEL THREAD DEL TASK, se questa sessione ne ha uno.
         // La chiamata è su OGNI gamba ma scrive una volta sola: il registro di
@@ -243,9 +250,9 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
           // from the tab PANEL means the NEXT question silently stops reaching
           // the card - the board shows "waiting on you" and what it wants
           // appears nowhere, which is the exact defect that module exists to
-          // close. The two existing clears do not cover this case: one is the
-          // TTL expiry (above), the other is an answer written IN the thread
-          // (`answerRoutedAsk`, which deletes its own entry).
+          // close. The other clear does not cover this case: it is an answer
+          // written IN the thread (`answerRoutedAsk`, which deletes its own
+          // entry).
           if (askId) clearRoutedAsk(askId);
           return json({ answers });
         } catch (err: any) {

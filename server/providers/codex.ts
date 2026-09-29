@@ -31,6 +31,9 @@ import type {
   StreamHandler,
 } from "./types";
 import { probeBinaryPath } from "../utils/executable";
+import { detectUserInputRequest } from "./ask-user-detector";
+import { isHumanHold } from "../lib/human-hold";
+import { armTurnDeadline, type TurnDeadline } from "../lib/turn-deadline";
 import { resolveCodexBin } from "../lib/codex-bin";
 import { resolveAppDataDir } from "../lib/data-dir";
 import { resolveCodexReasoningEffort } from "../lib/topics-agent-prompt";
@@ -71,6 +74,34 @@ export function codexTopicsMcpProfile(
 
 const MESSAGE_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
 export const KILL_GRACE_MS = 3_000;
+
+/**
+ * The turn's 30-minute cap, with the person's time taken out: while a question
+ * or a permission is open (`isHumanHold`) it rearms instead of killing, and the
+ * turn gets a whole window again once it is answered. Same rule as every other
+ * clock that can end a turn (HOLD-01).
+ */
+export function armCodexTurnTimeout(opts: {
+  sessionKey: string;
+  onExpired: () => void;
+  ms?: number;
+  isHumanHold?: (sessionKey: string) => boolean;
+  setTimer?: (fn: () => void, ms: number) => unknown;
+  clearTimer?: (handle: unknown) => void;
+  now?: () => number;
+}): { clear: () => void } {
+  const held = opts.isHumanHold ?? isHumanHold;
+  const deadline: TurnDeadline = armTurnDeadline({
+    ms: opts.ms ?? MESSAGE_TIMEOUT_MS,
+    isWaitingForHuman: () => held(opts.sessionKey),
+    onRearm: () => deadline.noteActivity(),
+    onExpired: opts.onExpired,
+    ...(opts.setTimer ? { setTimer: opts.setTimer } : {}),
+    ...(opts.clearTimer ? { clearTimer: opts.clearTimer } : {}),
+    ...(opts.now ? { now: opts.now } : {}),
+  });
+  return { clear: () => deadline.clear() };
+}
 
 const ENV_ALLOWLIST = new Set([
   "PATH", "HOME", "TERM", "LANG", "LC_ALL", "LC_CTYPE",
@@ -720,20 +751,23 @@ export class CodexProvider implements AIProvider {
       if (stderrBuf.length > 4096) stderrBuf = stderrBuf.slice(-4096);
     });
 
-    const timeout = setTimeout(() => {
-      try { child.kill("SIGTERM"); } catch {}
-      handler.onError("Codex turn timed out after 30 minutes");
-      // SIGKILL fallback if it ignores SIGTERM, so the close handler runs and
-      // we don't leak an orphan child. Mirrors abort()'s grace-window guard.
-      setTimeout(() => {
-        if (this.activeChildren.get(sessionKey) === child) {
-          try { child.kill("SIGKILL"); } catch {}
-        }
-      }, KILL_GRACE_MS);
-    }, MESSAGE_TIMEOUT_MS);
+    const timeout = armCodexTurnTimeout({
+      sessionKey,
+      onExpired: () => {
+        try { child.kill("SIGTERM"); } catch {}
+        handler.onError("Codex turn timed out after 30 minutes");
+        // SIGKILL fallback if it ignores SIGTERM, so the close handler runs and
+        // we don't leak an orphan child. Mirrors abort()'s grace-window guard.
+        setTimeout(() => {
+          if (this.activeChildren.get(sessionKey) === child) {
+            try { child.kill("SIGKILL"); } catch {}
+          }
+        }, KILL_GRACE_MS);
+      },
+    });
 
     child.on("close", (code) => {
-      clearTimeout(timeout);
+      timeout.clear();
       // Owner-scoped cleanup (see turnState above): never strip a newer turn's
       // entries, and read THIS turn's state, not whatever the map holds now.
       if (this.activeChildren.get(sessionKey) === child) this.activeChildren.delete(sessionKey);
@@ -791,7 +825,7 @@ export class CodexProvider implements AIProvider {
     });
 
     child.on("error", (err) => {
-      clearTimeout(timeout);
+      timeout.clear();
       // Owner-scoped, same as the close handler.
       if (this.activeChildren.get(sessionKey) === child) this.activeChildren.delete(sessionKey);
       if (this.sessionState.get(sessionKey) === turnState) this.sessionState.delete(sessionKey);
@@ -897,8 +931,16 @@ export class CodexProvider implements AIProvider {
 
         if (t === "item.started") {
           state?.runningTools.set(id, { toolCallId: id, partial: "" });
-          handler.onToolStart(id, name, this.coerceArgs(item.arguments));
+          const args = this.coerceArgs(item.arguments);
+          handler.onToolStart(id, name, args);
           handler.onToolExecStart?.(id);
+          // A TOOL THAT ASKS THE HUMAN NEEDS A FORM ON SCREEN. The answer
+          // channel only carries the reply back; the panel is painted from the
+          // detector's verdict, which the Claude and native runtimes already
+          // call. Without it a Codex question blocked the turn with no control
+          // anywhere (the native runtime's defect of 28/08, one provider later).
+          const askSchema = detectUserInputRequest({ name, input: args });
+          if (askSchema) handler.onUserInputRequired?.(id, name, askSchema);
         } else if (t === "item.updated") {
           handler.onToolActivity?.(id);
           const update = this.codexItemText(item.result ?? item.error);

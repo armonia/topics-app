@@ -11,6 +11,20 @@
  * a monte: questo file le mette in fila, non le prende.
  */
 
+import { ASK_TRANSPORT_CEILING_MS } from "../../lib/ask-user-bridge";
+
+/**
+ * The patience Codex gives the Topics bridge on ONE tool call, in seconds.
+ *
+ * Its default is short (60 s per the Codex docs, not measured here), and
+ * `ask_user_question` blocks for as long as the person takes, so a question
+ * asked from a Codex chat died after a minute ("timed out awaiting
+ * tools/call"). A question has no lifetime: this is the same transport ceiling
+ * the Claude CLI gets (`ASK_TRANSPORT_CEILING_MS`, ~24.8 days), in Codex's
+ * unit. Every other bridge tool bounds itself.
+ */
+export const CODEX_TOPICS_TOOL_TIMEOUT_SEC = Math.floor(ASK_TRANSPORT_CEILING_MS / 1000);
+
 /** Ciò che serve per montare l'argv di un turno di chat. */
 export interface CodexExecArgsOptions {
   /**
@@ -80,6 +94,7 @@ function codexSharedFlags(opts: CodexExecArgsOptions, viaConfigSandbox: boolean)
   if (opts.bridge) {
     args.push("-c", `mcp_servers.topics.command=${JSON.stringify(opts.bridge.command)}`);
     args.push("-c", `mcp_servers.topics.args=${JSON.stringify(opts.bridge.args)}`);
+    args.push("-c", `mcp_servers.topics.tool_timeout_sec=${CODEX_TOPICS_TOOL_TIMEOUT_SEC}`);
   }
   if (opts.reasoningEffort) {
     args.push("-c", `model_reasoning_effort=${JSON.stringify(opts.reasoningEffort)}`);

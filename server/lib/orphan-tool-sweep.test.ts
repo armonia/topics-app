@@ -6,7 +6,7 @@ import { ORPHAN_ERRORS, finalizeOrphanTool } from "./orphan-tool-sweep";
 
 const NOW = 1_700_000_000_000;
 
-describe("sessione MORTA: si chiude tutto ciò che era rimasto appeso", () => {
+describe("sessione MORTA: si chiude tutto ciò che era rimasto appeso, tranne la domanda", () => {
   it("un tool in corso", () => {
     const tc: Record<string, unknown> = { status: "running", startedAt: NOW - 5_000 };
     expect(finalizeOrphanTool(tc, { now: NOW })).toBe(true);
@@ -17,10 +17,16 @@ describe("sessione MORTA: si chiude tutto ciò che era rimasto appeso", () => {
     expect(tc.endedAt).toBe(NOW - 5_000);
   });
 
-  it("una domanda a schermo", () => {
+  it("a question on screen is NOT closed: it stays open with its asker marked gone", () => {
+    // A restart used to end a question nobody had cancelled. It now waits for
+    // its person on the row, and the answer goes out as the next message.
     const tc: Record<string, unknown> = { status: "waiting_for_input" };
     expect(finalizeOrphanTool(tc, { now: NOW })).toBe(true);
-    expect(tc.error).toBe(ORPHAN_ERRORS.question);
+    expect(tc.status).toBe("waiting_for_input");
+    expect(tc.askerGone).toBe(true);
+    expect(tc.error).toBeUndefined();
+    // Idempotent: the next boot finds nothing to change.
+    expect(finalizeOrphanTool(tc, { now: NOW })).toBe(false);
   });
 
   it("un permesso a schermo", () => {

@@ -66,7 +66,7 @@ import { toolResultText } from "../../shared/tool-result-text";
 import { topicsAgentSystemPrompt, resolveClaudeEffort, resolveMcpOutputTokens } from "../lib/topics-agent-prompt";
 import { resolveClaudeCodeModel } from "../services/app-settings";
 import { detectUserInputRequest } from "./ask-user-detector";
-import { endAsk, ASK_TTL_MS } from "../lib/ask-user-bridge";
+import { endAsk, ASK_TRANSPORT_CEILING_MS } from "../lib/ask-user-bridge";
 // «Aspetta una persona» ha DUE sorgenti (una domanda, una richiesta di
 // permesso) e sei posti che devono saperlo. Porta unica: lib/human-hold.ts.
 import { isHumanHold, releaseHumanHold } from "../lib/human-hold";
@@ -258,17 +258,16 @@ export function buildSafeEnv(): Record<string, string> {
 
   env.JARVIS_SPAWN = "1";
 
-  // The CLI's own patience with an MCP tool call. Its default (30 min) is
-  // SHORTER than how long a question is allowed to stay on screen (ASK_TTL_MS),
-  // so a human who took a long lunch came back to "no response and no progress
-  // for 1800s" and a question that had died under them. The bridge emits
-  // `notifications/progress` on every poll leg, which resets this timer in a
-  // client that honours it — questo è la cintura per uno che non lo fa, e non
-  // costa niente altrove: un tool davvero incastrato lo miete comunque il
-  // watchdog del turno (30 min), che si ferma SOLO per una domanda a schermo.
-  // Cresce insieme al TTL della domanda per costruzione: legarlo a mano a un
-  // numero è esattamente il modo in cui i due si sono già disallineati una volta.
-  env.MCP_TOOL_TIMEOUT = String(ASK_TTL_MS + 5 * 60_000);
+  // The CLI's own patience with an MCP tool call. Its default (30 min) killed a
+  // question under a human who took a long lunch ("no response and no progress
+  // for 1800s"). The bridge emits `notifications/progress` on every poll leg,
+  // which resets this timer in a client that honours it; this is the belt for
+  // one that does not, and it costs nothing elsewhere: a tool really stuck is
+  // still reaped by the turn watchdog (30 min), which stops ONLY for a question
+  // on screen. A question has no lifetime, so the value is the largest delay a
+  // JS timer honours: one more millisecond overflows to 1 ms and kills every
+  // call at once (see `ASK_TRANSPORT_CEILING_MS`).
+  env.MCP_TOOL_TIMEOUT = String(ASK_TRANSPORT_CEILING_MS);
 
   return env;
 }

@@ -170,14 +170,14 @@ describe("message field-ownership on updateMessage", () => {
     expect(row.toolCalls?.[0]?.result).toBe("ok");
   });
 
-  test("endStream spegne anche una domanda rimasta a schermo: un pannello vivo su un turno morto non promette niente a nessuno", () => {
-    // Il difetto visto su `topic:ed2070df`: `fix()` finalizzava 'running' e
-    // 'pending', non `waiting_for_input`. Il turno veniva chiuso, ma il tool
-    // della domanda restava in attesa — e `waiting_for_input` è lo stato che
-    // rende il pannello CLICCABILE. Sullo schermo: una domanda che invita a
-    // rispondere accanto al banner «Nessuna risposta ricevuta / Retry», con la
-    // certezza che quel clic non sarebbe arrivato a nessuno, perché il
-    // rendez-vous vive nel processo che ha appena dichiarato morto il turno.
+  test("a turn that ends on its own does NOT end the question on screen: it waits for its person", () => {
+    // It used to: `fix()` closed `waiting_for_input` with "Interrotto: il turno
+    // è finito mentre la domanda era ancora a schermo", so every machine ending
+    // (a sweep, a dead child, a server going down under a native turn) ended a
+    // question nobody had cancelled. Now the question outlives the turn: still
+    // clickable, its asker marked gone, and its answer goes out as the next
+    // message (`lib/question-outlives-asker.ts`). The in-memory ask is released, so whoever
+    // is blocked on it fails instead of hanging.
     const msg = ctx.createPartialMessage(SK, "assistant");
     ctx.startStream(SK, msg.id);
     ctx.addToolCallToLastMessage(SK, tool("t8", {
@@ -189,15 +189,31 @@ describe("message field-ownership on updateMessage", () => {
 
     const interrupted = ctx.endStream(SK);
 
-    expect(interrupted.map(t => t.id)).toEqual(["t8"]);
-    expect(interrupted[0]?.status).toBe("error");
-    expect(interrupted[0]?.error).toMatch(/domanda era ancora a schermo/i);
-    expect(typeof interrupted[0]?.endedAt).toBe("number");
-
+    // Not announced as ended: the panel on every screen stays as it is.
+    expect(interrupted).toEqual([]);
     const row = ctx.getMessageById(msg.id)!;
-    expect(row.toolCalls?.[0]?.status).toBe("error");
-    // …e l'ask è chiusa: chi fosse bloccato sul bridge fallisce pulito invece
-    // di restare appeso a una risposta che non arriverà.
+    expect(row.toolCalls?.[0]?.status).toBe("waiting_for_input");
+    expect(row.toolCalls?.[0]?.askerGone).toBe(true);
+    expect(row.toolCalls?.[0]?.error).toBeUndefined();
+    expect(hasPendingAsk(SK)).toBe(false);
+  });
+
+  test("a Stop ends the question, and says it was the Stop", () => {
+    const msg = ctx.createPartialMessage(SK, "assistant");
+    ctx.startStream(SK, msg.id);
+    ctx.addToolCallToLastMessage(SK, tool("t8b", {
+      name: "mcp__topics__ask_user_question",
+      status: "waiting_for_input",
+    }));
+    beginAsk(SK);
+
+    const interrupted = ctx.endStream(SK, { cancelQuestions: true });
+
+    expect(interrupted.map(t => t.id)).toEqual(["t8b"]);
+    expect(interrupted[0]?.status).toBe("error");
+    expect(interrupted[0]?.askEnded).toBe("cancelled");
+    expect(typeof interrupted[0]?.endedAt).toBe("number");
+    expect(ctx.getMessageById(msg.id)!.toolCalls?.[0]?.status).toBe("error");
     expect(hasPendingAsk(SK)).toBe(false);
   });
 

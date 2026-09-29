@@ -32,6 +32,10 @@ export interface ToolUpdatePatch {
   status?: ToolCall['status'];
   /** The answer the person gave, so the row can show it without a reload. */
   userResponse?: ToolUserResponse;
+  /** A question the person ended without answering, and how. */
+  askEnded?: ToolCall['askEnded'];
+  /** The process that asked is gone; the question stays open. */
+  askerGone?: boolean;
 }
 
 /** The shape read off the wire. Loose on purpose: the schema is loose too. */
@@ -40,6 +44,8 @@ export interface ToolUpdateEvent {
   partialResult?: unknown;
   status?: unknown;
   userResponse?: unknown;
+  askEnded?: unknown;
+  askerGone?: unknown;
 }
 
 const KNOWN_STATUSES = ['pending', 'running', 'success', 'error', 'waiting_for_input', 'awaiting_permission'] as const;
@@ -60,6 +66,8 @@ export function toolUpdatePatch(event: ToolUpdateEvent): ToolUpdatePatch | null 
   const patch: ToolUpdatePatch = {};
   if (isKnownStatus(event.status)) patch.status = event.status;
   if (event.userResponse !== undefined) patch.userResponse = event.userResponse as ToolUserResponse;
+  if (event.askEnded === 'cancelled' || event.askEnded === 'superseded') patch.askEnded = event.askEnded;
+  if (event.askerGone === true) patch.askerGone = true;
   return Object.keys(patch).length > 0 ? patch : null;
 }
 

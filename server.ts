@@ -60,7 +60,7 @@ import { flushTurnBody } from "./server/lib/turn-body-flush";
 import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
 import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
-import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
+import { chatsParkedOnQuestion, PARKED_ASK_HOLD_MS } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
 import { probePort, verdictMessage, realProbeDeps } from "./server/lib/port-squatter";
 import { giroIdleGc, IDLE_GC_EVERY_MS } from "./server/lib/idle-gc";
@@ -223,7 +223,7 @@ import { startBundleProbe } from "./server/lib/bundle-probe";
 // `pendingAskAgeMs`/`hasPendingAsk` non si importano più qui: chiedere della
 // sola domanda era il difetto. Restano il verdetto e il TTL, che valgono per
 // entrambi i silenzi.
-import { pendingAskVerdict, cancelAsk, pendingAskKeys, ASK_TTL_MS } from "./server/lib/ask-user-bridge";
+import { pendingAskVerdict, cancelAsk, pendingAskKeys } from "./server/lib/ask-user-bridge";
 // The stale-stream rule, pure so it can be tested without a server: the
 // finalize decision must never be reachable while the child process is alive.
 import { staleStreamVerdict } from "./server/lib/stale-stream-verdict";
@@ -4849,7 +4849,6 @@ const staleStreamTimer = setInterval(() => {
   const sweepOutcomes = sweepStaleStreams({
     now: () => Date.now(),
     timeoutMs: STALE_STREAM_TIMEOUT_MS,
-    askTtlMs: ASK_TTL_MS,
     activeStreams,
     rescued: staleStreamRescued,
     silence: staleStreamSilence,
@@ -6196,7 +6195,7 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
   if (cards === 0) {
     const now = Date.now();
     if (now - askProbeCache.at >= QUIESCENCE_BROKER_PROBE_MS) {
-      askProbeCache = { at: now, parked: chatsParkedOnQuestion(ctx.db, decodeCol, { now, ttlMs: ASK_TTL_MS, fastPathKeys: pendingAskKeys() }) };
+      askProbeCache = { at: now, parked: chatsParkedOnQuestion(ctx.db, decodeCol, { now, ttlMs: PARKED_ASK_HOLD_MS, fastPathKeys: pendingAskKeys() }) };
     }
     parked = askProbeCache.parked;
   }

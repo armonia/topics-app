@@ -2055,13 +2055,20 @@ export function createAppContext(baseDir: string): AppContext {
    * fixes a later reload). Parse → map → serialize (never a substring REPLACE,
    * which would clobber a literal `"status":"running"` inside args/result).
    *
-   * `waiting_for_input` counts as interrupted too, and it's the nastier case:
-   * a tool left in that state renders a CLICKABLE question panel. If the turn
-   * is over, there is nobody left to receive the click — the panel promises
-   * something the process can no longer honour. Observed on topic:ed2070df: a
-   * panel still inviting an answer 22 minutes after its turn had been closed,
-   * with a Retry banner right underneath. The ask is cancelled here for the
-   * same reason: whoever is blocked on it must fail, not hang.
+   * A PERMISSION left `awaiting_permission` counts as interrupted: its
+   * decision could only unblock this turn, and the turn is over.
+   *
+   * A QUESTION left `waiting_for_input` does NOT (29/09). It used to be closed
+   * here too ("Interrotto: il turno è finito mentre la domanda era ancora a
+   * schermo"), which let every machine ending - a sweep, a dead child, a server
+   * going down under a native turn - end a question nobody had cancelled. The
+   * question now outlives the process that asked: it stays `waiting_for_input`
+   * with `askerGone`, the panel stays clickable, and the answer reaches the
+   * model as the next user message (`lib/question-outlives-asker.ts`). The in-memory ask is
+   * still released, so whoever is blocked on it fails instead of hanging.
+   *
+   * `cancelQuestions` is the person's own Stop: THEN the question ends, marked
+   * `askEnded: 'cancelled'` so the panel says so in plain words.
    *
    * `keepAwaiting` is the ONE exception, and it exists because one ask is not
    * a leftover: the plan approval is posted BY the end of the turn, and its
@@ -2073,7 +2080,7 @@ export function createAppContext(baseDir: string): AppContext {
    * stopped on purpose (lib/abort-cause.ts): the boot's repair pass reads that
    * prefix as a turn to resume.
    */
-  function endStream(sessionKey: string, opts?: { keepAwaiting?: readonly string[]; closedBecause?: string }): ToolCall[] {
+  function endStream(sessionKey: string, opts?: { keepAwaiting?: readonly string[]; closedBecause?: string; cancelQuestions?: boolean }): ToolCall[] {
     const keepAwaiting = new Set(opts?.keepAwaiting ?? []);
     const stream = activeStreams.get(sessionKey);
     const interrupted: ToolCall[] = [];
@@ -2081,23 +2088,30 @@ export function createAppContext(baseDir: string): AppContext {
       try {
         const row = db.prepare(`SELECT tool_calls, blocks FROM messages WHERE id = ?`).get(stream.messageId) as any;
         const endedAt = Date.now();
-        const fix = (tc: any): boolean => {
+        const fix = (tc: any): boolean | 'detached' => {
           if (tc && (tc.status === 'running' || tc.status === 'pending')) {
             tc.status = 'error';
             if (tc.endedAt == null) tc.endedAt = endedAt;
             if (!tc.error) tc.error = opts?.closedBecause ?? 'Interrotto: il turno è terminato senza risultato';
             return true;
           }
-          // Un pannello a schermo su un turno finito è la variante peggiore:
-          // invita un click che non raggiungerà più nessuno. Vale per la
-          // domanda E per il permesso — sono stati diversi, ma qui contano per
-          // lo stesso motivo, quindi la condizione è il predicato condiviso e
-          // non due `if` che possono divergere.
+          // A panel on screen over a finished turn: a permission is closed (its
+          // decision could only unblock this turn), a question survives (see
+          // the docstring). One predicate for both, so they cannot drift apart
+          // about what "awaiting a human" means.
           if (tc && isAwaitingHuman(tc.status)) {
             // An ask that outlives the turn on purpose: leave it exactly as it
             // is, panel included.
             if (keepAwaiting.has(tc.id)) return false;
             const eraPermesso = tc.status === 'awaiting_permission';
+            // A question survives its turn unless the person stopped it.
+            if (!eraPermesso && !opts?.cancelQuestions) {
+              releaseHumanHold(sessionKey, 'the turn that asked has ended; the question stays open');
+              if (tc.askerGone === true) return false;
+              tc.askerGone = true;
+              return 'detached';
+            }
+            if (!eraPermesso) tc.askEnded = 'cancelled';
             tc.status = 'error';
             if (tc.endedAt == null) tc.endedAt = endedAt;
             if (!tc.error) {
@@ -2117,7 +2131,14 @@ export function createAppContext(baseDir: string): AppContext {
           const toolCallsDecoded = decodeCol(row.tool_calls);
           const toolCalls = JSON.parse(toolCallsDecoded ?? "null") as ToolCall[];
           let c = false;
-          for (const tc of toolCalls) if (fix(tc)) { c = true; interrupted.push(tc); }
+          for (const tc of toolCalls) {
+            const r = fix(tc);
+            if (!r) continue;
+            c = true;
+            // A detached question is rewritten but not announced as ended: its
+            // panel stays exactly as it is on every screen.
+            if (r === true) interrupted.push(tc);
+          }
           // `toolCallsForDisk` anche qui: questa riga la scrive di nuovo
           // INTERA, quindi e' una scrittura come le altre. Le tool call che
           // arrivano fin qui sono gia' magre (le ha scritte questo stesso
@@ -2141,9 +2162,10 @@ export function createAppContext(baseDir: string): AppContext {
           const announced = new Set(interrupted.map((tc) => tc.id));
           for (const b of bl) {
             if (b?.kind !== 'tool') continue;
-            if (!fix(b.toolCall)) continue;
+            const r = fix(b.toolCall);
+            if (!r) continue;
             c = true;
-            if (b.toolCall && !announced.has(b.toolCall.id)) {
+            if (r === true && b.toolCall && !announced.has(b.toolCall.id)) {
               announced.add(b.toolCall.id);
               interrupted.push(b.toolCall as ToolCall);
             }

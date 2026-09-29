@@ -20,7 +20,10 @@ import { join } from "path";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { repeatedRowMarks, userRowMarks } from "../lib/user-row-marks";
 import { startSsePing } from "../lib/sse-ping";
-import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
+import { getProvider, resolveTurnAlive, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
+import { hasPendingAsk } from "../lib/ask-user-bridge";
+import { recentActiveRows } from "../lib/ask-answer-routing";
+import { askerStillThere, openQuestionsOnRows } from "../lib/question-outlives-asker";
 import { TopicsRoutingIncompatibleError } from "../providers/resolve-topic-provider";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { cartelloRisveglio } from "../providers/claude/woken-turn";
@@ -204,6 +207,35 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     startStream, updateStreamContent, updateStreamActivity, endStream, isStreaming,
     findNewMediaFiles, updateLastMessageWithMedia,
   } = ctx;
+
+  /**
+   * A NEW MESSAGE SUPERSEDES A QUESTION NOBODY IS WAITING ON ANY MORE.
+   *
+   * A question outlives the turn that asked it (`lib/question-outlives-asker.ts`), so it
+   * can still be on screen when the person writes something else instead of
+   * answering. That message is the person's choice, and the standard's third
+   * way to end a question: the panel is closed as `superseded`, and it says so
+   * in plain words instead of inviting a click that would now arrive AFTER a
+   * newer request. A question whose asker is still there (a live ask, a child
+   * still running) is left alone: the composer answers those.
+   */
+  function supersedeOpenQuestions(sessionKey: string, topicId: string | undefined): void {
+    let open: ReturnType<typeof openQuestionsOnRows> = [];
+    try { open = openQuestionsOnRows(recentActiveRows(ctx, sessionKey), decodeCol); } catch { return; }
+    if (open.length === 0) return;
+    const turnAlive = resolveTurnAlive(sessionKey);
+    const pendingAsk = hasPendingAsk(sessionKey);
+    const endedAt = Date.now();
+    for (const { rowId, call } of open) {
+      if (askerStillThere({ pendingAsk, call, streaming: false, turnAlive })) continue;
+      const error = "Superseded: a new message was sent instead of an answer";
+      updateToolCallFields(sessionKey, call.id, { status: "error", askEnded: "superseded", error, endedAt }, { rowId });
+      broadcastToAll({
+        type: "stream:tool_result", sessionKey, topicId, toolCallId: call.id,
+        status: "error", error, endedAt, askEnded: "superseded",
+      });
+    }
+  }
   const {
     resolveProvider, resolveProviderByName = getProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
@@ -587,6 +619,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // for hours and still show its row from a day-old rename.
           bumpTopicActivity(matchedTopic);
         }
+        supersedeOpenQuestions(sessionKey, matchedTopic?.id);
 
         // THE AUTOMATIC CHECKPOINT, and this is the only moment it can be taken.
         //

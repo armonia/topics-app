@@ -38,7 +38,7 @@ import {
  * Questo predicato disarma watchdog, reaper e tetto di vita: dice «il silenzio
  * è legittimo, non toccare». Per una domanda quel disarmo è senza scadenza di
  * proposito — chi lascia il computer alle sei e risponde la mattina dopo deve
- * ritrovare il pannello vivo (vedi la nota su `DEFAULT_ASK_TTL_MS`).
+ * ritrovare il pannello vivo (see the header of `ask-user-bridge.ts`: no clock ends a question).
  *
  * Per un permesso no, e il motivo è la forma di come muore. Le richieste vivono
  * in memoria e si chiudono da sole solo quando il bridge torna a pollare: se il

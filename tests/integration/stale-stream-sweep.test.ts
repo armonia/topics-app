@@ -109,7 +109,6 @@ function harness(opts?: {
   const deps: StaleStreamSweepDeps = {
     now: () => clock.t,
     timeoutMs: 3 * MIN,
-    askTtlMs: 30 * MIN,
     activeStreams,
     rescued: new Set<string>(),
     silence,
@@ -330,6 +329,14 @@ describe("il numero nel log è il silenzio VERO", () => {
 describe("i pannelli aperti sull'umano non contano come morte", () => {
   test("una domanda a schermo dentro il TTL rinvia, non finalizza", () => {
     const h = harness({ alive: true, silentMs: 20 * MIN, humanHoldAgeMs: 5 * MIN });
+    expect(sweepStaleStreams(h.deps).get(SK)).toBe("held");
+    expect(h.rows.get(MSG)?.partial).toBe(true);
+  });
+
+  test("a question open for 25 hours on a live child still holds: no clock ends it", () => {
+    // The sweep used to close the ask past its TTL, on a child still alive and
+    // a person who had simply gone home for the night.
+    const h = harness({ alive: true, silentMs: 20 * MIN, humanHoldAgeMs: 25 * 60 * MIN });
     expect(sweepStaleStreams(h.deps).get(SK)).toBe("held");
     expect(h.rows.get(MSG)?.partial).toBe(true);
   });

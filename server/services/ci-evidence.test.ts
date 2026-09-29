@@ -33,7 +33,7 @@ import {
 import { ChecksInterruptedError } from "./checks-gate";
 import { CHECKS_LEG_MS } from "./checks-gate";
 import { CHECKS_MAX_LEGS } from "../mcp/topics-mcp-server";
-import { ASK_TTL_MS } from "../lib/ask-user-bridge";
+import { ASK_TRANSPORT_CEILING_MS } from "../lib/ask-user-bridge";
 import { SHA, checkJob, green, job, run, step } from "./ci-evidence.testkit";
 
 describe("readE2eEvidence", () => {
@@ -517,7 +517,7 @@ describe("contracts", () => {
   test("the client waits past the CI deadline plus the slowest local round, and below the CLI tool timeout", () => {
     const legsMs = CHECKS_MAX_LEGS * CHECKS_LEG_MS;
     expect(CI_E2E_DEADLINE_MS + 30 * 60_000).toBeLessThanOrEqual(legsMs);
-    expect(legsMs).toBeLessThan(ASK_TTL_MS + 5 * 60_000);
+    expect(legsMs).toBeLessThan(ASK_TRANSPORT_CEILING_MS);
   });
 });
 

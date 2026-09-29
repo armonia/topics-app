@@ -93,6 +93,16 @@ describe("decidePark", () => {
         expect(decidePark(parkable({ phase }), THRESHOLD)).toEqual({ park: true });
       });
     }
+
+    test("a question still open in the TUI is never parked, whatever phase the reaper demoted it to", () => {
+      // `awaiting-approval` becomes `paused` after ten minutes and keeps the
+      // prompt: parking there killed the PTY under an unanswered question, and
+      // the revive with `--resume` no longer had it (29/09).
+      expect(decidePark(parkable({ phase: "paused", awaitingHuman: true }), THRESHOLD)).toEqual({
+        park: false,
+        reason: "awaiting-human",
+      });
+    });
   });
 
   describe("non si parcheggia sotto gli occhi di qualcuno", () => {

@@ -465,22 +465,6 @@ export function closeRoutedAsk(deps: AskRoutingDeps, askId: string | undefined, 
   return false;
 }
 
-/**
- * The SESSION's rendez-vous itself is over - it expired, or it was cancelled -
- * so no question of that session can be answered any more: drop them all.
- *
- * ONLY from a caller that has just ENDED that rendez-vous. The unit here is the
- * session and that is exactly the danger: two requests of one session share one
- * rendez-vous, so calling this when only YOUR request is done deletes the entry
- * of the one still waiting. A request that is done with its own question calls
- * `clearRoutedAsk(askId)`.
- */
-export function clearRoutedAsksOfEndedSession(sessionKey: string): void {
-  for (const [taskId, r] of routed) {
-    if (r.sessionKey === sessionKey) routed.delete(taskId);
-  }
-}
-
 /** Solo per i test: il registro è memoria di processo. */
 export function _resetRoutedAsks(): void {
   routed.clear();
