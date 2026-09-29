@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.408 — 2026-09-29
+
+### Sotto il cofano
+- Clicking the row of a finished chat held by another window switches its 'done' mark off, as a terminal row does
+- The finished-mark e2e proves what did not happen with a sentinel chat's end instead of three fixed waits
+
 ## 2.2.407 — 2026-09-29
 
 ### Sotto il cofano
@@ -11,8 +17,10 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Tab e2e measure three fixed zones, and the specs that pinned trailing signals follow them to the slot and the icon corner
 - The ring stays a circle around the number, and the tab's command ends at ROW_PX like the row's, on the signal it replaces
 - The org-sharing corner mark stands for the project marker, and three comments stop naming what the tab no longer uses
+- A chat that finishes banners like a terminal that finishes, whatever its runtime
 - The kill-race test of the ai-bridge daemon accepts the old child's own exit before the new spawn, and still refuses one after it
 - A frozen tab says «pausa» in its accessible name, since its one slot only has room for the snowflake
+- A chat that finished stays marked 'done' on its row and tab, like a finished terminal
 
 ## 2.2.406 — 2026-09-29
 
