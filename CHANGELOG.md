@@ -2,6 +2,21 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.405 — 2026-09-29
+
+### Sotto il cofano
+- Pull request CI runs the unit suite as two parallel serial jobs split by suite root, and the check step the board reads is their verdict
+- The unit jobs fetch main as a ref, and the integration tests run after the server tests in the same slice
+- A run_command wake's copy after an outage goes only while its cut is still the chat's last word
+- A run_command wake waits behind the person's promised resend only while the sweep would really make it
+- The outage notice on a card in progress says it resumes by itself again, and the sweep still leaves it to the dispatcher
+- The run_command registry resolves and creates its folder once per state-dir target, not at every log write
+- The test of a command's bounded log waits for the cut it asserts, not for the first tail tick
+- An outage notice on a fan-out attempt's chat asks the person again, since the dispatcher never resumes that turn
+- Spegni la memoria automatica nei completamenti a un colpo solo
+- A filter click leaves the history selection on the first row in Chromium too, and the phone row counts its fifth door
+- The phone row test's comments speak English
+
 ## 2.2.404 — 2026-09-28
 
 ### Novità
@@ -26,20 +41,44 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - A testTmpDir root is removed once the test file that made it is over
 - A command whose end the turn read through a matching until or read_process_output no longer wakes the session after it
 - The long queued line test measures a bubble that is still in the page
+- Attilio approved the history panel filters with every recommended choice
 - The / menu lists skills that are links to a folder
+- Propose next-waiting-chat: Cmd+J and a phone door go to the next chat waiting for you
+- The board-doctor zone restore explains itself in English
+- The full history panel filters by type and day and searches its whole list
+- The resume sweep counts each message's resends in the database, so a service row under a resent answer no longer resets the cap
+- next-waiting-chat: the proposal promised a plan and an order it could not deliver
 - The board-doctor zone restore explains itself in English, as the comment rail asks
 - Every e2e spec that fakes the Tauri shell keeps its network on the test server
+- The Windows UI driver sends the shell's proxy home before it declares Tauri
+- The history panel spec fails if the highlight marks only whole phrases or an empty history reads as filtered
+- A resend chain in flight before the count table goes on from the number main read, with its free probes spent
+- The user menu's devices level lists the computer you are on, stays as wide as the menu and reads the devices again when it opens
+- Propose fork-into-new-chat: a message menu item and /fork open a new chat that continues from the last reply with tools, leaving the original untouched
+- On a phone a tap on a history filter leaves the focus where it was
+- The history panel spec fails if «Mostra tutto» keeps a filter, if ⌘K loses its cap of 40 or if the project finder shows the filter bar
 - The identifier-language rail knows desktop, so the fake-shell guard test can name DESKTOP_SERVER_HOST
 - The ai-bridge tests give their state folder back, and a registry life pins its own
+- fork-into-new-chat: the fork could happen twice, and its two points could disagree
+- A service row under a resend's copy no longer ends its chain: only a turn the route closed by itself does
+- A chain in flight before the count table reads its resends with main's walk, past a reattached answer that lost its banner
 - The run_command card test takes its card off the board, so no later dispatcher resumes it on a turn nobody closes
 - The bundle baseline records tornata 2c, with what each piece of the batch put in the entry
+- The user menu names the device you are on only in the devices level, and the count on that row is the list it opens
 - The pane-attach spec writes its seeded layout from /manifest.json, a page Playwright does not abort under a route
 - The run_command e2e brings the chat's tab back before opening the wake's service line
 - The run_command registry keeps its state in the folder DATA_DIR names when it writes, not the one it named at first import
 - A run_command wake waits while the topic's provider is held and goes out when the hold lifts
 - A user row the machine wrote is not the person's message for the outage rule, and a resend of one keeps its marks
+- Attilio delegated the fork proposal and it is approved with every recommended choice
+- Attilio approved Cmd+J to the next chat waiting for him, with every recommended choice
+- The Topics routing switch accepts Fable 5.1, Opus 4.8, Sonnet 5.5 and Haiku 4.5 by its short name
+- With Topics routing ON the engine runs the Automatic classifier, and a native completion is tested to send the catalog id
 - A run_command wake that an outage cut goes again once the outage is over, after the person's promised resend
+- Cmd+J and the phone's «In attesa» door take you to the next chat waiting for you
 - The run_command registry finds its folder through the state-dir door on every call
+- Pull request CI runs the unit suite in four shards and the e2e tier in eight, with the touched specs in a job of their own
+- Pull request CI runs the unit suite in three shards, and two timing-window tests run in the serial tail
 
 ## 2.2.403 — 2026-09-28
 
@@ -77,6 +116,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - The refused-resend e2e times each window's read from the write, and says what the DOM cannot tell
 - A delivery that reached main through a realigned branch is measured from the merge on main's own line
 - A chat's write in the shared checkout or in another folder keeps its own row next to the worktree's range
+- Sidebar user menu: remove duplicates, submenu devices, bound Version width
 - A file a Codex patch touches reaches the changed-files strip as its own tool call
 - Untracked files in a diff range are counted without a git process each, and a chat that ran no tool asks git nothing
 - The identifier-language baseline no longer lists a name task-diff-range.ts dropped
@@ -94,6 +134,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - Tests pin one relearned frame per held card per boot, and a tick note that replaces only an ended resume wait
 - A todo card held by the machine is written once, and re-sent only when its block changes or lifts
 - A person's answer to a question stays on the row after the turn that asked writes again
+- Fix e2e specs for the removed profile/devices test ids
 - A change owed by a turn that arms a session cron is said in the chat, as for a background task
 - A session cron's fire disarms its one-shot even while a turn of ours is open
 - A goal waiting on an armed session cron checks in as it does on a task, and ScheduleWakeup is named as out of reach
@@ -105,6 +146,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - A native browser pane counts as attached for open_browser_pane once it has registered, not when its socket opens
 - A native pane's executor socket never starts the headless screencast, whatever its register frame's timing
 - A closed turn's late answer reaches the screen once per frame, like the live one
+- Drop the stale "Account" heading assertion in org-presence spec
 - A reattach that folds a cron fire twice disarms one one-shot, not two
 - A session cron closed at its two-hour bound is said in the chat, under its own reason
 - A Claude Code Bash row is labelled by its description, and the command stays on hover and in the open card
