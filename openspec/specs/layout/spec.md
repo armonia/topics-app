@@ -2759,16 +2759,23 @@ The rule, on both tiling surfaces (the standalone grid and a project's grid):
 - The new tree SHALL be on screen by the second animation frame after the drop.
 - During a divider drag the layout SHALL commit a bounded number of times
   (press and release), not once per pointer move, and no pane body SHALL render
-  while the divider moves: the drag writes the two flanking sizes to the DOM and
-  commits once on release.
+  because the divider moves: the drag writes the two flanking sizes to the DOM
+  and commits once on release, and a body that observes its own size hands
+  React a new HEIGHT only, never a width it does not use (the chat's composer,
+  pane and greeting observers).
 - A body SHALL render only when what it is rendered from changes (its pane, its
   focus, its visibility, the host's renderer), not because the layout around it
   did.
 
 The gate counts, it does not time: remounts (as React reports them and as the
-DOM shows them), commits and body renders do not depend on how loaded the
-machine is. Timings (pointer to next frame, frame gaps) are reported next to
-the load average.
+DOM shows them), commits and body renders. For the divider drag the count is
+made independent of the load on purpose: every pointer move is laid out on a
+frame of its own (a loaded machine used to lay out 45 frames where an idle one
+coalesced the same 40 moves into 14), and the drag starts only once no pane
+body has rendered for a second, so a render still in flight from the previous
+gesture (the chat's composer renders once more about half a second after it) is
+not counted as the drag's. Timings (pointer to next frame, frame
+gaps) are reported next to the load average.
 
 #### Scenario: Moving a pane keeps it and every other pane mounted
 - **GIVEN** a project grid with a chat holding a long transcript, a terminal, a browser pane, a files pane and a git pane, each visited once
@@ -2782,8 +2789,8 @@ the load average.
 - **THEN** no pane that was open before a gesture has been mounted again after it
 
 #### Scenario: A divider drag does not render per move
-- **GIVEN** two columns side by side
-- **WHEN** the divider between them is dragged across 40 pointer moves and released
+- **GIVEN** two columns side by side, one of them a chat, and no pane body rendering
+- **WHEN** the divider between them is dragged across 40 pointer moves, each laid out on its own frame, and released
 - **THEN** the layout commits at most 4 times in total, and no pane body renders while the divider moves
 
 ### Requirement: LAYOUT-30 — L'aria a sinistra del nome di una riga si paga UNA VOLTA, non una per colonna riservata

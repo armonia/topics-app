@@ -454,8 +454,15 @@ function ChatPaneComponent({
   useEffect(() => {
     const el = inputAreaRef.current;
     if (!el) return;
+    // Only a new HEIGHT reaches React: dragging a divider narrows or widens
+    // the pane on every frame, and each of those notifications would otherwise
+    // hand React a setState to bail out of (SPLITPERF-01).
+    let last: number | null = null;
     const observer = new ResizeObserver(([entry]) => {
-      setInputAreaHeight(entry.contentRect.height);
+      const h = entry.contentRect.height;
+      if (h === last) return;
+      last = h;
+      setInputAreaHeight(h);
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -470,8 +477,13 @@ function ChatPaneComponent({
   useEffect(() => {
     const el = paneRootRef.current;
     if (!el) return;
+    // Height only, as above: a divider drag changes the width of the pane.
+    let last: number | null = null;
     const observer = new ResizeObserver(([entry]) => {
-      setPaneHeight(entry.contentRect.height);
+      const h = entry.contentRect.height;
+      if (h === last) return;
+      last = h;
+      setPaneHeight(h);
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -877,7 +889,14 @@ function ChatPaneComponent({
     const el = greetingRef.current;
     if (!el) { setGreetingHeight(0); return; }
     setGreetingHeight(el.getBoundingClientRect().height);
-    const ro = new ResizeObserver(([entry]) => setGreetingHeight(entry.contentRect.height));
+    // Height only: a divider drag changes the width of the pane on every frame.
+    let last: number | null = null;
+    const ro = new ResizeObserver(([entry]) => {
+      const h = entry.contentRect.height;
+      if (h === last) return;
+      last = h;
+      setGreetingHeight(h);
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, [showGreeting]);

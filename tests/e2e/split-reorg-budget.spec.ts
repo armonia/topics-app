@@ -16,16 +16,12 @@
  *    counted twice, independently -- by React itself (a `data-pane-shell` host
  *    node created in a commit while its key already existed) and by the DOM (the
  *    shell node that was there before is no longer the one there after).
- *  - FLUID: during a divider drag of N pointer moves the layout commits O(1)
- *    times, not N, and no pane body renders at all.
+ *  - FLUID: during a divider drag of N pointer moves, each laid out on a frame
+ *    of its own, the layout commits O(1) times, not N, and no pane body
+ *    renders at all. The drag starts from rest (`settlePanes`), so what the
+ *    window counts is the drag and nothing still in flight from before.
  *
- * HOW REACT IS OBSERVED WITHOUT A SPECIAL BUILD. React calls
- * `__REACT_DEVTOOLS_GLOBAL_HOOK__.onCommitFiberRoot` on every commit, in the
- * production bundle too: it is how the DevTools attach to any site. The init
- * script installs a minimal hook BEFORE the bundle, counts the commits and walks
- * the part of the fiber tree each commit actually touched (the same rule the
- * DevTools use: a fiber whose `child` is still its alternate's child was not
- * reconciled). No code of the app is compiled in for the test.
+ * HOW REACT IS OBSERVED: see helpers/react-commit-probe.ts.
  *
  * The timings (pointer to next frame, frame gaps, longtasks) are REPORTED next
  * to the load average and are not the gate: they move with the machine. WebKit
@@ -53,6 +49,14 @@ import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 import { canonicalTmpDir } from "./helpers/file-project";
 import { projectPanesKey } from "../../shared/project-keys";
+import {
+  beginGesture,
+  endGesture,
+  installProbe,
+  QUIET_MS,
+  settlePanes,
+  type GestureResult,
+} from "./helpers/react-commit-probe";
 
 hermetic(test);
 // The card asks for a video of the gestures.
@@ -70,179 +74,6 @@ function paneTabScopeType(scope: string): string {
   let h = 5381;
   for (let i = 0; i < scope.length; i++) h = (((h << 5) + h) ^ scope.charCodeAt(i)) >>> 0;
   return `application/x-pane-scope-${h.toString(36)}`;
-}
-
-interface ProbeWindow {
-  __reorg: {
-    on: boolean;
-    commits: number;
-    surfaceCommits: number;
-    mounts: string[];
-    renders: Record<string, number>;
-    names: Record<string, number>;
-  };
-}
-
-/**
- * The React commit probe. Installed before the bundle so React finds the hook
- * when it boots; everything it records is gated on `on`, so the boot costs
- * nothing and every number belongs to one gesture.
- */
-async function installProbe(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    type Fiber = {
-      tag: number;
-      flags: number;
-      child: Fiber | null;
-      sibling: Fiber | null;
-      alternate: Fiber | null;
-      memoizedProps: Record<string, unknown> | null;
-    };
-    const probe = {
-      on: false,
-      commits: 0,
-      surfaceCommits: 0,
-      mounts: [] as string[],
-      renders: {} as Record<string, number>,
-      names: {} as Record<string, number>,
-    };
-    (window as unknown as ProbeWindow).__reorg = probe;
-    // Fiber tags of the components whose render function runs: function,
-    // class, forwardRef, memo, simple memo.
-    const COMPONENT_TAGS = new Set([0, 1, 11, 14, 15]);
-    const HOST_COMPONENT = 5;
-    const PERFORMED_WORK = 1;
-    // Returns whether anything rendered INSIDE a tiling surface: a commit that
-    // only touched the sidebar or the status bar is not the layout's.
-    const walk = (rootFiber: Fiber): boolean => {
-      let touchedSurface = false;
-      const stack: Array<[Fiber, string, boolean]> = [[rootFiber, "layout", false]];
-      while (stack.length > 0) {
-        const [fiber, owner, underSurface] = stack.pop()!;
-        const fresh = fiber.alternate === null;
-        let key = owner;
-        let inSurface = underSurface;
-        if (fiber.tag === HOST_COMPONENT && fiber.memoizedProps?.["data-split-surface"] !== undefined) inSurface = true;
-        if (fiber.tag === HOST_COMPONENT) {
-          const shell = fiber.memoizedProps?.["data-pane-shell"];
-          if (typeof shell === "string") {
-            key = shell;
-            if (fresh) probe.mounts.push(shell);
-          }
-        }
-        if (COMPONENT_TAGS.has(fiber.tag) && (fresh || (fiber.flags & PERFORMED_WORK) !== 0)) {
-          if (inSurface) touchedSurface = true;
-          probe.renders[key] = (probe.renders[key] ?? 0) + 1;
-          // The component's name, for the report only: minified in a release
-          // bundle, readable in a build with `keepNames`.
-          const t = (fiber as unknown as { type?: { displayName?: string; name?: string; type?: { name?: string }; render?: { name?: string } } }).type;
-          const name = t?.displayName || t?.name || t?.type?.name || t?.render?.name || "?";
-          const nk = `${key.split(":")[0]}|${name}`;
-          probe.names[nk] = (probe.names[nk] ?? 0) + 1;
-        }
-        // A fiber whose children are still its alternate's children was not
-        // reconciled in this commit: nothing under it rendered.
-        if (fresh || fiber.child !== fiber.alternate!.child) {
-          for (let c = fiber.child; c; c = c.sibling) stack.push([c, key, inSurface]);
-        }
-      }
-      return touchedSurface;
-    };
-    const renderers = new Map<number, unknown>();
-    (window as unknown as { __REACT_DEVTOOLS_GLOBAL_HOOK__: unknown }).__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
-      supportsFiber: true,
-      renderers,
-      inject(renderer: unknown) {
-        const id = renderers.size + 1;
-        renderers.set(id, renderer);
-        return id;
-      },
-      checkDCE() {},
-      onScheduleFiberRoot() {},
-      onCommitFiberUnmount() {},
-      onPostCommitFiberRoot() {},
-      onCommitFiberRoot(_id: number, root: { current: Fiber }) {
-        if (!probe.on) return;
-        probe.commits += 1;
-        if (walk(root.current)) probe.surfaceCommits += 1;
-      },
-    };
-  });
-}
-
-interface GestureMarks {
-  shells: string[];
-}
-
-/** Start counting, and mark every mounted pane shell so a replacement is visible in the DOM. */
-async function beginGesture(page: Page): Promise<GestureMarks> {
-  return page.evaluate(() => {
-    const p = (window as unknown as ProbeWindow).__reorg;
-    p.commits = 0;
-    p.surfaceCommits = 0;
-    p.mounts = [];
-    p.renders = {};
-    p.names = {};
-    p.on = true;
-    const shells: string[] = [];
-    for (const el of Array.from(document.querySelectorAll<HTMLElement>("[data-pane-shell]"))) {
-      (el as unknown as { __reorgMark?: boolean }).__reorgMark = true;
-      shells.push(el.getAttribute("data-pane-shell") ?? "");
-    }
-    return { shells };
-  });
-}
-
-interface GestureResult {
-  commits: number;
-  /** Commits in which something inside a tiling surface rendered. */
-  surfaceCommits: number;
-  layoutRenders: number;
-  paneRenders: number;
-  /** Keys that existed before and were mounted again, as React saw it. */
-  reactRemounts: string[];
-  /** Keys whose shell node is no longer the one marked before, as the DOM sees it. */
-  domRemounts: string[];
-  /** Component renders per owner (pane shell key, or `layout`). */
-  byOwner: Record<string, number>;
-  /** The most rendered components, `<owner kind>|<name>` (diagnostic). */
-  topNames: string;
-}
-
-async function endGesture(page: Page, marks: GestureMarks): Promise<GestureResult> {
-  return page.evaluate((before) => {
-    const p = (window as unknown as ProbeWindow).__reorg;
-    p.on = false;
-    const existed = new Set(before);
-    const reactRemounts = [...new Set(p.mounts.filter((k) => existed.has(k)))];
-    const domRemounts: string[] = [];
-    for (const key of before) {
-      const el = document.querySelector(`[data-pane-shell="${CSS.escape(key)}"]`);
-      // A pane that is gone was closed or evicted, not rebuilt: the gestures
-      // below never close a pane they then count.
-      if (el && !(el as unknown as { __reorgMark?: boolean }).__reorgMark) domRemounts.push(key);
-    }
-    let layoutRenders = 0;
-    let paneRenders = 0;
-    // A shell that HOSTS other shells (the project window inside the outer
-    // grid) is layout: what renders in it is the project's own tiling.
-    const hosts = new Set(
-      Array.from(document.querySelectorAll("[data-pane-shell]"))
-        .filter((el) => el.querySelector("[data-pane-shell]"))
-        .map((el) => el.getAttribute("data-pane-shell")),
-    );
-    for (const [k, n] of Object.entries(p.renders)) {
-      if (k === "layout" || hosts.has(k)) layoutRenders += n;
-      else paneRenders += n;
-    }
-    return { commits: p.commits, surfaceCommits: p.surfaceCommits, layoutRenders, paneRenders, reactRemounts, domRemounts, byOwner: { ...p.renders },
-      topNames: Object.entries(p.names)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 12)
-        .map(([k, n]) => `${k}:${n}`)
-        .join(" "),
-    };
-  }, marks.shells);
 }
 
 /** The tree of the project surface as one comparable string: leaves with their tabs. */
@@ -571,10 +402,23 @@ test.describe("split reorganisation budget", () => {
         // stamps at all (every latency came out undefined).
         window.addEventListener("mousemove", () => w.__reorgFrames.moves.push(performance.now()), { capture: true });
       });
+      const settled = await settlePanes(page);
+      extra.push(
+        `divider drag: pane bodies quiet for ${QUIET_MS}ms after ${settled.ms}ms, ${settled.renders} body renders before that ${settled.names}`,
+      );
       const marks = await beginGesture(page);
       await page.mouse.move(start.x, start.y);
       await page.mouse.down();
-      await page.mouse.move(start.x - 160, start.y, { steps: DRAG_MOVES });
+      // One animation frame after EVERY move, and not `steps`: with `steps`
+      // the moves arrive as fast as the machine takes them, so an idle Mac
+      // coalesced 40 moves into 14 frames and a loaded one laid out 45, and a
+      // render caused by the new width showed up only on the loaded one. Here
+      // each move is laid out on its own frame, whatever the load: the worst
+      // case, every time.
+      for (let i = 1; i <= DRAG_MOVES; i++) {
+        await page.mouse.move(start.x - (160 * i) / DRAG_MOVES, start.y);
+        await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+      }
       const during = await endGesture(page, marks);
       const releaseMarks = await beginGesture(page);
       await page.mouse.up();
