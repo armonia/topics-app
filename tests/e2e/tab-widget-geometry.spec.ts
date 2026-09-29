@@ -62,11 +62,12 @@ test.afterAll(async ({ request }) => {
 });
 
 /**
- * Apre due tab, accende sulla PRIMA (che resta inattiva, quindi può portare il
- * badge) sia il conteggio di notifica sia un turno in corso — cioè lo stato in
- * cui la coda della tab è piena e i tre widget convivono.
+ * Opens two tabs and lights up, on the FIRST (which stays inactive, so it can
+ * carry the badge), the notification count, a running turn, or both. The tab
+ * has ONE slot (TABSLOT-02): with both on it draws the ring around the number,
+ * so the badge and the loader are measured each in the state that draws it.
  */
-async function tabCarica(page: Page) {
+async function tabCarica(page: Page, { unread = true, stream = true }: { unread?: boolean; stream?: boolean } = {}) {
   const ws = await interceptWebSocket(page);
   await goToApp(page);
   await page.keyboard.press("Escape");
@@ -74,10 +75,10 @@ async function tabCarica(page: Page) {
   await openTopic(page, new RegExp(b.name));
   const tab = page.locator(`[data-pane-id="${a.id}"]`);
   await expect(tab).toBeVisible({ timeout: 15000 });
-  ws.send({ type: "unread:updated", topicId: a.id, unreadCount: 3 });
-  ws.send({ type: "stream:start", sessionKey: sessionKeyA, topicId: a.id, messageId: "geo_probe" });
-  await expect(tab.locator("span").filter({ hasText: /^3$/ })).toBeVisible({ timeout: 8000 });
-  await expect(tab.locator("[data-loader-state]")).toBeVisible({ timeout: 8000 });
+  if (unread) ws.send({ type: "unread:updated", topicId: a.id, unreadCount: 3 });
+  if (stream) ws.send({ type: "stream:start", sessionKey: sessionKeyA, topicId: a.id, messageId: "geo_probe" });
+  if (unread) await expect(tab.locator("span").filter({ hasText: /^3$/ })).toBeVisible({ timeout: 8000 });
+  if (stream) await expect(tab.locator("[data-loader-state]")).toBeVisible({ timeout: 8000 });
   return tab;
 }
 
@@ -89,9 +90,9 @@ interface Misura {
   loaderGlifo: Riquadro | null;
   badge: Riquadro | null;
   badgeInk: Ink | null;
+  slot: Riquadro | null;
+  /** The command the slot turns into under the pointer (close, or stop). */
   comando: Riquadro | null;
-  /** The last command in the rail: the close ring, whatever rides before it. */
-  comandoUltimo: Riquadro | null;
 }
 interface Riquadro { w: number; h: number; sx: number; dx: number; dCentro: number }
 interface Ink { dCentro: number; inkSx: number; inkDx: number }
@@ -149,47 +150,45 @@ async function misura(page: Page, paneId: string): Promise<Misura> {
       loaderGlifo: box(loader?.querySelector("span") ?? null),
       badge: box(badge),
       badgeInk: ink(badge),
-      comando: box(tab.querySelector(".row-actions")),
-      // The rail can hold more than one command (stop, then close): the ring
-      // that covers the trailing signal is always its LAST child, so that is
-      // the box whose glyph inset is measured.
-      comandoUltimo: box(tab.querySelector(".row-actions > :last-child")),
+      slot: box(tab.querySelector('[data-testid="pane-tab-slot"]')),
+      // The slot holds ONE command at a time (CHROME-12), centred on it.
+      comando: box(tab.querySelector(".tab-slot-command > :first-child")),
     };
   }, paneId);
 }
 
 test.describe("I widget in coda a una tab", () => {
-  test("GEO-1: il cerchio di chiusura atterra ESATTAMENTE sul badge che sostituisce", async ({ page, request }) => {
+  for (const state of [{ unread: true, stream: false }, { unread: false, stream: true }]) {
+  test(`GEO-1: il cerchio di chiusura atterra ESATTAMENTE sul ${state.unread ? "badge" : "loader"} che sostituisce`, async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHROME-04" });
-    await resetPaneStore(request, [a.id, b.id]);
-    const tab = await tabCarica(page);
-    const riposo = await misura(page, a.id);
-    // Il binario dei comandi si scopre solo col mouse sopra.
-    await tab.hover();
-    await page.waitForTimeout(200);
-    const sopra = await misura(page, a.id);
+    test.info().annotations.push({ type: "spec", description: "TABSLOT-02" });
+    {
+      await resetPaneStore(request, [a.id, b.id]);
+      const tab = await tabCarica(page, state);
+      const riposo = await misura(page, a.id);
+      // The command appears only with the pointer over the tab: Close on the
+      // idle tab, Stop on the one whose turn runs (CHROME-12), same place.
+      await tab.hover();
+      await expect(tab.getByTestId(state.stream ? "pane-tab-stop" : "pane-tab-close")).toBeVisible();
+      const sopra = await misura(page, a.id);
 
-    // THE LAST quiet signal of the trail is the one the command covers. Since
-    // 2026-09-07 the trail ends with the loader (badge, pin, time, loader: the
-    // loading glyph sits at the right), so on a working tab the loader is what
-    // stops at ROW_PX and the badge sits one step before it; on an idle tab the
-    // badge is still last. The measured promise is unchanged: whatever is last
-    // stops at ROW_PX and the ring lands exactly there.
-    const ultimo = riposo.loader ?? riposo.badge;
-    expect(ultimo, "in coda alla tab c'è un segnale quieto").not.toBeNull();
-    expect(ultimo!.dx, "l'ultimo segnale si ferma a ROW_PX dal bordo").toBe(ROW_PX);
-    expect(riposo.badge!.dx, "il badge sta un passo prima del loader, mai sotto").toBeGreaterThanOrEqual(ROW_PX);
-    // The command's box is larger than its glyph: it is the GLYPH inset that
-    // must equal ROW_PX, not the box's. And on a working tab the rail carries
-    // TWO commands (stop, then close): the one covering the last signal is the
-    // last child, the ring.
-    const ring = sopra.comandoUltimo!;
-    const glyphDx = ring.dx + (ring.w - GLIFO) / 2;
-    expect(glyphDx, "il glifo del comando si ferma dove si ferma l'ultimo segnale").toBe(ROW_PX);
-    // …e allora i due occupano lo STESSO rettangolo: niente salto sotto il dito.
-    expect(glyphDx).toBe(ultimo!.dx);
-    expect(ring.dCentro, "comando centrato in verticale").toBe(0);
+      // THE SLOT is the tab's last zone and ends at ROW_PX from the edge, in
+      // every state: that is what keeps the label from moving.
+      expect(riposo.slot!.dx, "lo slot si ferma a ROW_PX dal bordo").toBe(ROW_PX);
+      expect(sopra.slot, "lo slot non si muove sotto il puntatore").toEqual(riposo.slot);
+      // The signal at rest (the badge, or the loader) sits centred in the slot…
+      const signal = state.unread ? riposo.badge! : riposo.loader!;
+      const slotMid = riposo.slot!.dx + riposo.slot!.w / 2;
+      expect(signal.dx + signal.w / 2, "il segnale sta al centro dello slot").toBe(slotMid);
+      // …and the command's GLYPH lands on the same centre: its box is larger
+      // than the glyph, the glyph is what the eye follows.
+      const ring = sopra.comando!;
+      const glyphDx = ring.dx + (ring.w - GLIFO) / 2;
+      expect(glyphDx + GLIFO / 2, "il glifo del comando atterra dove stava il segnale").toBe(slotMid);
+      expect(ring.dCentro, "comando centrato in verticale").toBe(0);
+    }
   });
+  }
 
   test("GEO-2: nessuna riga di testo nasce su un frammento di pixel", async ({ page, request }) => {
     await resetPaneStore(request, [a.id, b.id]);
@@ -205,7 +204,8 @@ test.describe("I widget in coda a una tab", () => {
 
   test("GEO-3: il numero sta al centro del pallino, sui due assi", async ({ page, request }) => {
     await resetPaneStore(request, [a.id, b.id]);
-    await tabCarica(page);
+    // The pill is the slot's signal when nothing is running.
+    await tabCarica(page, { stream: false });
     const m = await misura(page, a.id);
     expect(m.badge!.w, "pallino").toBe(16);
     expect(m.badge!.h).toBe(16);
@@ -354,7 +354,7 @@ test.describe("I widget in coda a una tab", () => {
 
   test("GEO-4: il glifo del loader nasce su coordinate intere", async ({ page, request }) => {
     await resetPaneStore(request, [a.id, b.id]);
-    await tabCarica(page);
+    await tabCarica(page, { unread: false });
     const m = await misura(page, a.id);
     // La matrice vecchia era larga 7,5 in una scatola da 16 → margine 4,25, e un
     // quadrato da 3px su un quarto di pixel non ha bordi: ha due colonne
