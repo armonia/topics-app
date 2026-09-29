@@ -23,6 +23,10 @@ describe("openingChatClearsSomething", () => {
   test("nothing of THIS chat: no round-trip (another chat's row does not count)", () => {
     expect(openingChatClearsSomething(unread(0), new Set(["topic:b", "task:a"]), "a")).toBe(false);
   });
+
+  test("unread zero, no row, but a 'done' mark cleared here: the seen goes out (CHAT-DONE-01)", () => {
+    expect(openingChatClearsSomething(unread(0), new Set(), "a", true)).toBe(true);
+  });
 });
 
 describe("unseenKeysOf", () => {

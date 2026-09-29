@@ -75,14 +75,22 @@ function resetUnread(deps: SubjectSeenDeps, pick: (unread: UnreadData) => Iterab
  * The rows are cleared even when the unread counter was already zero. The old
  * read route returned early on a zero counter, which left the bell lit for a
  * chat whose messages had been read elsewhere.
+ *
+ * `doneMark`: the window that opened the chat cleared its 'done' mark. That
+ * mark lives in the windows and nowhere here, so with nothing of its own to
+ * clear the door announces anyway: the frame is the only way the others drop it.
  */
-export function markTopicSeen(deps: SubjectSeenDeps, topicId: string): { unreadCleared: boolean; rowsSeen: number } {
+export function markTopicSeen(
+  deps: SubjectSeenDeps,
+  topicId: string,
+  opts: { doneMark?: boolean } = {},
+): { unreadCleared: boolean; rowsSeen: number } {
   const unreadCleared = resetUnread(deps, () => [topicId]).length > 0;
   const rowsSeen = markTargetNotificationsSeen("topic", topicId);
   // Announced whenever the chat was seen, not only when it had rows: every
   // window keeps its own 'done' mark for it, and a finished chat's reply is
   // usually unread with no row (muted, Do Not Disturb, a hidden window).
-  if (unreadCleared || rowsSeen > 0) {
+  if (unreadCleared || rowsSeen > 0 || opts.doneMark) {
     const subject = defaultNotificationGroupKey("topic", topicId);
     deps.broadcastToAll({
       type: "notification:seen",

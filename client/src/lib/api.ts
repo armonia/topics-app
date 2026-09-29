@@ -237,9 +237,13 @@ export const topicsApi = {
     });
   },
 
-  async markRead(id: string): Promise<{ ok: boolean }> {
+  /** `doneMark`: this window cleared the chat's 'done' mark, which only the
+   *  windows know about, so the server announces the seen even when it had
+   *  nothing of its own to clear. */
+  async markRead(id: string, opts: { doneMark?: boolean } = {}): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>(`/topics/${id}/read`, {
       method: 'POST',
+      ...(opts.doneMark ? { body: JSON.stringify({ doneMark: true }) } : {}),
     });
   },
 };

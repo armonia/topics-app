@@ -32,6 +32,7 @@ import { ProjectGlyphSlot } from './ProjectGlyphSlot';
 import { ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from '@/components/Layout/StreamingIndicator';
 import { RowSplitMap } from './RowSplitMap';
 import { useAttentionSignals, signalsActions, useTerminalAttentionFill, useSeenDwell, attentionFillFor, useSignalsStore, projectAttentionTier, useSessionLastActivity } from '@/state/signals';
+import { seeChatFinished } from '@/state/chatInView';
 import { useProjectFocusStore } from '@/state/projectFocus';
 import { usePaneStore } from '@/state/pane/store';
 import { useShallow } from 'zustand/react/shallow';
@@ -909,7 +910,7 @@ export function TopicTree({
       // The click is having seen it, as for a terminal row. It must happen
       // here: a chat held by another window never mounts a pane in this one,
       // so the pane-focus clear would never switch this window's mark off.
-      signalsActions.clearChatFinished(topicId);
+      seeChatFinished(topicId);
       if (detachedWindowLabel) {
         void tauriInvoke<boolean>('window_focus_label', { label: detachedWindowLabel })
           .then((focused) => {
@@ -1557,9 +1558,11 @@ export function TopicTree({
    *  più, non un sostituto. Quindi il click porta là sopra comunque, e per un
    *  progetto apre anche le sue tab qui sotto. */
   const activatePinned = (item: SidebarItem) => {
-    // The chat and terminal tiles open like their rows, detour included; the
-    // board knows its own way to its window (`onOpenBoard`).
-    if (item.type === 'chat' || item.type === 'terminal') goToHomeSpaceOf(item);
+    // Every tile takes its row's detour to the group its tab lives in, whatever
+    // its kind: a project or browser tile left out opened its pane inside a
+    // group the window was not showing. The board alone knows its own way to
+    // its window (`onOpenBoard`), and a second detour there would be a double.
+    if (!(item.type === 'utility' && item.id === BOARD_ID && onOpenBoard)) goToHomeSpaceOf(item);
     switch (item.type) {
       case 'project':
         if (item.projectPath) onProjectClick?.(item.projectPath);
