@@ -1138,9 +1138,9 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   // spent a permanent corner saying "connected" — the state that carries no
   // information, which is why it already hid itself in the steady case.
   //
-  // They are now the pane's published state: the tab draws ONE icon between
-  // favicon and title when this pane is not the default kind
-  // (`BrowserTabTypeIcon`), and the two switches live in the Session section of
+  // They are now the pane's published state: the tab draws ONE mark on its
+  // favicon's corner when this pane is not the default kind
+  // (`BrowserTabCornerMark`), and the two switches live in the Session section of
   // the tab's sheet, one click from the tab that names the page. The temporary,
   // user-armed overlay (element-select in `DomCoBrowse`) stays: the rule is
   // about permanent chrome, not about a mode you turned on and can see end.

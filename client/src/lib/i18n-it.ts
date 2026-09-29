@@ -532,6 +532,7 @@ const IT: Dict = {
 
   'tab.openedBrowser': 'Questa tab ha aperto un browser',
   'tab.cloudSession': 'Sessione cloud (OpenClaw)',
+  'tab.attentionCount': '{n} da leggere',
   'tab.project': 'Progetto',
   'tab.stopTurn': 'Ferma il turno',
   'tab.stopTurnOn': 'Ferma il turno su {name}',

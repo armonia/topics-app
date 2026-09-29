@@ -27,7 +27,9 @@ nome, senza stringerlo.
 ### Requirement: TABSLOT-02 — Lo stato sta sempre a destra, in un solo slot
 
 Lo slot SHALL essere l'ultima zona della tab, largo 20 px, allo stesso x in ogni
-stato, e SHALL essere riservato anche quando è vuoto. A riposo SHALL mostrare
+stato, e SHALL essere riservato anche quando è vuoto. Ogni segnale SHALL stare
+dentro i suoi 20 px, anche «99+»; il numero esatto SHALL stare nel nome
+accessibile della tab. A riposo SHALL mostrare
 UN solo segnale, secondo questa precedenza:
 
 1. pausa (un comando che Topics ha fermato): il fiocco;
@@ -44,6 +46,10 @@ restano spenti, come prima: li mostra la sua barra.
 - **WHEN** passa da vuota a lavoro, ad attenzione, al passaggio del mouse
 - **THEN** lo slot SHALL avere lo stesso x e la stessa larghezza in ogni stato
 
+#### Scenario: un numero a tre cifre
+- **GIVEN** una tab di chat con 150 messaggi da leggere
+- **THEN** lo slot SHALL mostrare «99+» dentro i suoi 20 px, e il nome accessibile della tab SHALL dire 150
+
 #### Scenario: lavoro e attenzione insieme
 - **GIVEN** una tab di progetto chiusa con 13 cose in attesa e un figlio al lavoro
 - **THEN** lo slot SHALL mostrare il 13 con l'anello attorno, e nient'altro
@@ -55,14 +61,23 @@ segno «ha aperto un browser» né quello del cloud: la riga di sidebar li mostr
 e il nome accessibile della tab li dice.
 
 Il marcatore di progetto (CHROME-14), l'avviso di condivisione con
-un'organizzazione e gli errori della console di un browser SHALL stare in un
-segno d'angolo sull'icona, largo zero. Se ne vale più d'uno, vince l'avviso di
-organizzazione, poi gli errori, poi il marcatore di progetto. I download di un
-browser SHALL stare nel suo menu ⋯.
+un'organizzazione, gli errori della console di un browser e il tipo di un
+browser (agente al volante, connessione assente o lenta, pagina pesante,
+Chromium vero, condiviso) SHALL stare in un segno d'angolo sull'icona, largo
+zero: quando un segno compare o sparisce il nome SHALL NON spostarsi. Se ne
+vale più d'uno, vince l'avviso di organizzazione, poi gli errori, poi il
+marcatore di progetto. Su un browser vince uno stato della pagina (agente,
+connessione, pesante), poi gli errori, poi i fatti (Chromium vero, condiviso).
+I download di un browser SHALL stare nel suo menu ⋯.
 
 #### Scenario: la tab fissata
 - **GIVEN** una tab fissata
 - **THEN** SHALL NON portare lo spillo, e la sua riga fra i Fissati SHALL restare
+
+#### Scenario: il tipo del browser va e viene
+- **GIVEN** una tab browser senza tipo
+- **WHEN** l'agente prende il volante, e poi lo restituisce
+- **THEN** il tipo SHALL comparire sull'angolo della favicon, e il bordo sinistro e la larghezza del nome SHALL restare identici
 
 ## MODIFIED Requirements
 

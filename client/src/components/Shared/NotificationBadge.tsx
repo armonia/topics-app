@@ -27,11 +27,20 @@ interface NotificationBadgeProps {
    *  primary-blue, which rendered blue-on-blue (invisible) on the awaiting fill. */
   variant?: 'default' | 'onFill';
   testId?: string;
+  /** The badge lives in a fixed 20px box (the tab slot, TABSLOT-02): it trims
+   *  its padding, and "99+" drops to the nano step, so no count spills out of
+   *  the box. The exact count stays in `ariaLabel` and in the host's name. */
+  compact?: boolean;
 }
 
-export function NotificationBadge({ count, className = '', ariaLabel, title, variant = 'default', testId }: NotificationBadgeProps) {
+export function NotificationBadge({ count, className = '', ariaLabel, title, variant = 'default', testId, compact = false }: NotificationBadgeProps) {
   if (count <= 0) return null;
   const display = count > 99 ? '99+' : String(count);
+  // Measured on WebKit: "13" at the mini step with `px-1` is 22.6px, "99+" 27;
+  // the slot is 20. Two figures fit with 2px of padding, three only at nano.
+  const size = !compact ? 'text-mini px-1'
+    : display.length > 2 ? 'text-nano px-px tracking-tight'
+    : 'text-mini px-0.5';
   // `onFill`: a translucent-black pill + white text reads on BOTH attention
   // fills (dark-text amber AND white-text blue), where the default primary-blue
   // pill went blue-on-blue (invisible) on the awaiting surface.
@@ -79,7 +88,7 @@ export function NotificationBadge({ count, className = '', ariaLabel, title, var
       // trim non sposta un centesimo). Le due centrature, quella nuova e quella
       // di prima come fallback, stanno nella stessa regola apposta: separate,
       // a decidere sarebbe l'ordine dentro `@layer utilities`.
-      className={`flex-shrink-0 ${tone} text-mini font-semibold rounded-full min-w-[16px] h-4 cap-box px-1 leading-4 tabular-nums ${className}`}
+      className={`flex-shrink-0 ${tone} ${size} font-semibold rounded-full min-w-[16px] h-4 cap-box leading-4 tabular-nums ${className}`}
       aria-label={ariaLabel ?? `${count} unread`}
       title={title}
     >

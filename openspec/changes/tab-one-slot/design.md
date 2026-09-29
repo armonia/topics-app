@@ -62,7 +62,8 @@ l'attenzione sono le card in review, `useBoardTabCounts`).
 | BoardTabCounts (glifo + numero per stato) | slot: review = numero, in corso = anello; conteggi esatti nel title (`useBoardTabCounts`) |
 | marcatore di progetto `tab-project-marker` | icona di tipo progetto se manca la favicon, altrimenti segno d'angolo |
 | SharedOrgBadge `pane-tab-shared-org` | segno d'angolo, vince sul marcatore |
-| BrowserTabConsoleCue | pallino rosso sull'angolo della favicon |
+| BrowserTabConsoleCue | pallino rosso sull'angolo della favicon (`BrowserTabCornerMark`) |
+| BrowserTabTypeIcon (tipo del browser, in fila fra favicon e nome) | segno d'angolo sulla favicon (`BrowserTabCornerMark`): uno stato della pagina vince sugli errori, gli errori sui fatti (`browserCornerMark`) |
 | BrowserTabDownloadsCue (segnale + bottone) | conteggio sui tre puntini, che con download aperti aprono il foglio sui Download |
 | tre puntini del browser nel binario | `.tab-extras`: al passaggio, sopra la coda del nome (sfumata), a sinistra dello slot |
 | spillo `tab-pinned`, globo `tab-spawned-browser`, cloud `tab-cloud` | nome accessibile della tab (`aria-label`) |
@@ -71,8 +72,9 @@ l'attenzione sono le card in review, `useBoardTabCounts`).
 
 La riga di sidebar non cambia.
 
-## Fuori
+## Numeri nello slot
 
-- `BrowserTabTypeIcon` (connessione assente, Chromium vero, condiviso) resta in
-  fila fra favicon e nome: e' nella zona icona, ma compare e sparisce, quindi su
-  una tab browser il nome si sposta ancora quando cambia quel tipo.
+Misurato su WebKit: «13» al passo mini con `px-1` era largo 22,6 px, «99+» 27,
+contro uno slot di 20. Nello slot (`NotificationBadge compact`) due cifre stanno
+con 2 px di margine, tre scendono al passo nano (9 px, il pavimento della scala).
+Il numero esatto va nel nome accessibile della tab (`tab.attentionCount`).

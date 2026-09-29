@@ -48,7 +48,7 @@ import {
   nextSpaceName,
 } from './spaceHelpers';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
-import { BrowserTabIcon, BrowserTabTypeIcon, BrowserTabMenuButton, BrowserTabConsoleCue } from '../Browser/BrowserTabChrome';
+import { BrowserTabIcon, BrowserTabMenuButton, BrowserTabCornerMark } from '../Browser/BrowserTabChrome';
 import { BrowserTabSheet } from '../Browser/BrowserTabSheet';
 import { prefetchBrowserTabSheet } from '../Browser/browserTabSheetLazy';
 import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
@@ -1286,7 +1286,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // scritto accanto, e duplicherebbe i title dei figli (spinner,
             // SessionActivity) che dicono la loro parte.
             aria-label={[
-              label, tabFreeze && tr('swapFreeze.short'), stateTab, detailProject,
+              label, tabFreeze && tr('swapFreeze.short'), stateTab,
+              // The slot shows at most "99+": the exact count is said here.
+              badgeCount > 0 && tr('tab.attentionCount', { n: String(badgeCount) }),
+              detailProject,
               pinned && tr('sidebar.pinned'),
               spawnedBrowser && tr('tab.openedBrowser'),
               cloud && tr('tab.cloudSession'),
@@ -1428,11 +1431,11 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(pane.title); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()}</span>
             ) : pane.type === 'browser' ? (
               // The SITE's icon, the same one the address bar shows. Under the
-              // pointer it becomes Reload (see BrowserTabIcon); console errors
-              // are a mark on its corner.
+              // pointer it becomes Reload (see BrowserTabIcon); the tab's kind
+              // or its console errors are a mark on its corner.
               <span className="relative flex flex-shrink-0">
                 <BrowserTabIcon paneId={pane.id} url={pane.url || getBrowserPaneUrl(pane.id) || ''} />
-                <BrowserTabConsoleCue paneId={pane.id} />
+                <BrowserTabCornerMark paneId={pane.id} />
               </span>
             ) : isClaudeCodeTab ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
@@ -1457,10 +1460,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 <Icon size={14} />
               </span>
             ) : null}
-            {/* WHAT KIND of browser tab this is (shared, real Chromium, no
-                connection): between the favicon and the title, and nothing at
-                all on the default kind. See `BrowserTabTypeIcon`. */}
-            {pane.type === 'browser' && <BrowserTabTypeIcon paneId={pane.id} />}
             {/* ZONE 2, THE LABEL: the only zone that flexes, never under 56px.
                 Usage and elapsed time ride in its tooltip (see TabLabel): the
                 container uses `aria-label` and not `title` on purpose. */}
