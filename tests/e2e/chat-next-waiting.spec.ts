@@ -364,4 +364,56 @@ test.describe("⌘J in a group window (`?space=`)", () => {
       for (const s of [a, b]) await deleteTopic(request, s.id).catch(() => {});
     }
   });
+
+  // A PINNED target is drawn in the tile block above every group, in no card:
+  // the lookup through the cards found no group for it, so ⌘J (and the tile's
+  // own click) opened B inside the hidden default group and the active tab
+  // stayed A. Its group now comes from the pane map, as for any row.
+  test("⌘J to a pinned chat whose tab lives in the other group takes the window there, and so does its tile", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-WAIT-03" });
+    const a = await mk(request, "pin-a");
+    const b = await mk(request, "pin-b");
+    const pins = (pinnedItems: string[]) =>
+      request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
+        data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems, pinnedLayout: [] },
+      });
+    try {
+      await resetPaneStore(request, [a.id, b.id]);
+      expect((await pins([b.id])).ok()).toBe(true);
+      const ws = await interceptWebSocket(page);
+      await goToApp(page);
+      await expect(page.locator(`[role="tab"][data-pane-id="${b.id}"]`)).toBeVisible({ timeout: 15_000 });
+      const spaceId = await moveToNewGroup(page, a.id);
+
+      await page.goto(`/?space=${encodeURIComponent(spaceId)}`);
+      const tabA = page.locator(`[role="tab"][data-pane-id="${a.id}"]`);
+      await expect(tabA).toBeVisible({ timeout: 15_000 });
+      await expect(page.locator(`[role="tab"][data-pane-id="${b.id}"]`), "B lives in the other group").toHaveCount(0);
+      const tileB = page.getByTestId("sidebar-pinned-section").getByTestId("pinned-tile").and(page.getByRole("treeitem", { name: b.name }));
+      await expect(tileB, "B is pinned: its tile is its only place in this sidebar").toBeVisible({ timeout: 15_000 });
+
+      permission(ws, a);
+      permission(ws, b);
+      await expect(tabA).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
+      await tabA.click();
+      await expect(activeTab(page)).toHaveAttribute("data-pane-id", a.id);
+
+      // Two targets and the focus on one: the step is the pinned B.
+      await page.keyboard.press("Meta+j");
+      await expect(activeTab(page), "B is opened AND visible, not opened in a hidden group").toHaveAttribute("data-pane-id", b.id);
+      await expect(page.getByTestId("space-row-active")).toContainText("Principale");
+
+      await page.keyboard.press("Meta+j");
+      await expect(activeTab(page)).toHaveAttribute("data-pane-id", a.id);
+      await expect(page.getByTestId("space-row-active")).toContainText("Gruppo 2");
+
+      // The tile's click is the row's click: same detour.
+      await tileB.click();
+      await expect(activeTab(page), "the pinned tile opened B in a group you cannot see").toHaveAttribute("data-pane-id", b.id);
+      await expect(page.getByTestId("space-row-active")).toContainText("Principale");
+    } finally {
+      await pins([]).catch(() => {});
+      for (const s of [a, b]) await deleteTopic(request, s.id).catch(() => {});
+    }
+  });
 });

@@ -809,6 +809,25 @@ export function groupSidebarItemsBySpace(
   return { bySpace, loose };
 }
 
+/**
+ * The group a row's tab lives in, found from the pane map rather than from the
+ * cards: `groupSidebarItemsBySpace` sorts only the UNpinned rows (a pinned one
+ * lives in the tile block above every group), so a pinned row is in no card
+ * and a lookup through them finds nothing. Its group is its own pane's, or for
+ * a child row with no pane of its own, its parent's. Undefined when neither is
+ * a tab of any group.
+ */
+export function sidebarItemSpace(
+  item: SidebarItem,
+  items: readonly SidebarItem[],
+  paneSpaceById: ReadonlyMap<string, string>,
+): string | undefined {
+  const own = paneSpaceById.get(sidebarItemPaneId(item));
+  if (own) return own;
+  const parent = items.find(row => (row.children ?? []).some(child => child.id === item.id));
+  return parent ? paneSpaceById.get(sidebarItemPaneId(parent)) : undefined;
+}
+
 // ── Raggruppamento per STATO ───────────────────────────────────────────────────
 //
 // Perché serve. La sidebar ordina con

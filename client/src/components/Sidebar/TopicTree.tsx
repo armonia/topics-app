@@ -54,7 +54,7 @@ import type { BoardTask, TaskStatus } from '@/lib/board';
 import { BoardRowSummary } from './BoardStatusCounts';
 import { utilityPanelId } from '@/state/pane/adapters/utilityPanelId';
 import { getPaneConfig } from '@/state/pane/adapters/paneConfig';
-import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, sidebarStateSignals, type SidebarItem, type SidebarSignalSources, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
+import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupSidebarItemsBySpace, sidebarItemSpace, sidebarStateSignals, type SidebarItem, type SidebarSignalSources, type SidebarStateBucket, type BrowserContextInfo } from '@/lib/buildSidebarItems';
 import { nextWaiting, waitingQueue } from '@/lib/waitingQueue';
 import { NEXT_WAITING_EVENT, useWaitingQueueStore, waitingQueueActions } from '@/state/waitingQueue';
 import { SpaceGroupCard } from './SpaceGroups';
@@ -931,6 +931,22 @@ export function TopicTree({
     onTerminalClick?.(sessionId, sessionName);
   }, [onTerminalClick]);
 
+  /**
+   * A row whose tab lives in a group this window is not showing: take the
+   * window there first, as the card's capture click does (`SpaceGroups`), or
+   * the chat opens in a group you cannot see. ⌘J and the pinned tile take the
+   * same detour; with the group in a window of its own, `goToSpace` brings
+   * that window to the front instead. A pinned row is drawn in no card, so its
+   * group comes from the pane map (`sidebarItemSpace`).
+   */
+  const goToHomeSpaceOf = useCallback((item: SidebarItem) => {
+    if (!spaceScoped) return;
+    const home = [...bySpace].find(([, rows]) =>
+      rows.some(row => row === item || (row.children ?? []).includes(item)))?.[0]
+      ?? sidebarItemSpace(item, allItems, paneSpaceById ?? new Map<string, string>());
+    if (home && !spaceCards.some(card => card.id === home && card.active)) goToSpace(home);
+  }, [spaceScoped, bySpace, allItems, paneSpaceById, spaceCards, goToSpace]);
+
   // ⌘J and the phone door announce `NEXT_WAITING_EVENT`; the step is taken
   // here, where the order, the focused row and the row's click all live. The
   // focused row is the App-level panel or, for a project window, its active
@@ -948,20 +964,13 @@ export function TopicTree({
         return;
       }
       waitingQueueActions.setLast({ queue, target: target.subject });
-      // A row drawn in the card of a group this window is not showing: the
-      // card's capture click takes the window there first (`SpaceGroups`), or
-      // the chat would open in a group you cannot see. The chord is the click,
-      // so it takes the same detour; with the group in a window of its own,
-      // `goToSpace` brings that window to the front instead.
-      const home = [...bySpace].find(([, rows]) =>
-        rows.some(row => row === target.item || (row.children ?? []).includes(target.item)))?.[0];
-      if (home && !spaceCards.some(card => card.id === home && card.active)) goToSpace(home);
+      goToHomeSpaceOf(target.item);
       if (target.kind === 'chat') handleChatRowClick(target.subject, target.item.detachedWindowLabel);
       else handleTerminalRowClick(target.subject, target.item.name);
     };
     window.addEventListener(NEXT_WAITING_EVENT, onNext);
     return () => window.removeEventListener(NEXT_WAITING_EVENT, onNext);
-  }, [waitingTargets, focusedTopicId, activePaneByProject, handleChatRowClick, handleTerminalRowClick, toast, tr, bySpace, spaceCards, goToSpace]);
+  }, [waitingTargets, focusedTopicId, activePaneByProject, handleChatRowClick, handleTerminalRowClick, toast, tr, goToHomeSpaceOf]);
 
   /**
    * `chip: false` for a row drawn INSIDE its own worktree section: the header
@@ -1548,6 +1557,9 @@ export function TopicTree({
    *  più, non un sostituto. Quindi il click porta là sopra comunque, e per un
    *  progetto apre anche le sue tab qui sotto. */
   const activatePinned = (item: SidebarItem) => {
+    // The chat and terminal tiles open like their rows, detour included; the
+    // board knows its own way to its window (`onOpenBoard`).
+    if (item.type === 'chat' || item.type === 'terminal') goToHomeSpaceOf(item);
     switch (item.type) {
       case 'project':
         if (item.projectPath) onProjectClick?.(item.projectPath);

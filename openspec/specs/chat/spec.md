@@ -3917,7 +3917,10 @@ lei e dal tasto. Una meta disegnata nella card di un gruppo che la finestra non
 mostra SHALL passare prima da `goToSpace` di quel gruppo, come fa la cattura del
 clic sulla card (`SpaceGroups`): la finestra va sul gruppo, e in una
 finestra-gruppo (`?space=`) la query lo segue; un gruppo che vive in una
-finestra sua viene portato davanti.
+finestra sua viene portato davanti. Una meta FISSATA non sta in nessuna card
+(i fissati stanno nel blocco delle tessere sopra i gruppi): il suo gruppo SHALL
+leggersi dalla mappa delle pane (`sidebarItemSpace`), e la meta SHALL fare la
+stessa deviazione; anche il clic sulla sua tessera la fa.
 
 **Il tasto.**
 
@@ -4007,6 +4010,13 @@ finestra sua viene portato davanti.
 - **THEN** la tab a fuoco è B, il gruppo attivo è Principale e la query dice `space=space:default`
 - **WHEN** si preme ⌘J di nuovo
 - **THEN** la tab a fuoco è A e il gruppo attivo è di nuovo G
+
+#### Scenario: una meta fissata con la tab in un altro gruppo
+- **GIVEN** la stessa finestra `?space=<G>`, con B fissata e la sua tab nel gruppo Principale
+- **WHEN** si preme ⌘J
+- **THEN** la tab a fuoco è B e il gruppo attivo è Principale
+- **WHEN** dopo essere tornati su A si clicca la tessera di B
+- **THEN** la tab a fuoco è di nuovo B, nel gruppo Principale
 
 #### Scenario: l'accordo passa anche da una pane browser
 - **WHEN** la tabella decisionale dei tasti riceve Ctrl+J (`chords.rs`)
