@@ -192,6 +192,28 @@ if (
   );
 }
 
+/**
+ * Whether the evidence trace may carry the test's attachments on this Node.
+ *
+ * Playwright 1.59 folds every attachment (a spec's json and png, the poster,
+ * the video) into trace.zip, and on Node 26 the merge of that zip stalls once
+ * one attachment deflates past ~64 KB: the test is green, teardown hangs until
+ * "Test timeout of 30000ms exceeded", trace.zip is left truncated. Measured
+ * 2026-09-29 with Playwright's own zip bundle and a 200 KB random entry: Node
+ * 22.23, 24.21 and 25.9 finish the merge, 26.9 stalls. With the runner on
+ * Node 26 a 200 KB random png timed out, a 30 KB one and 200 KB of zeros
+ * passed, and clips of 87-170 KB always hung.
+ *
+ * WHAT NODE 26 LOSES: the attachments disappear from the trace, and the
+ * living-doc does not get them back from the report, because it reads only
+ * video, trace and screenshot there (scripts/build-uat-index.ts). The rest
+ * (a geometry json, a theme png) stays in the local Playwright report only.
+ * Everywhere else (CI runs Node 20) the trace keeps them all.
+ */
+export function traceKeepsAttachments(nodeVersion: string): boolean {
+  return Number(nodeVersion.split(".")[0]) < 26;
+}
+
 export default defineConfig({
   globalSetup: "./tests/e2e/global-setup.ts",
   testDir: "./tests/e2e",
@@ -297,8 +319,16 @@ export default defineConfig({
     //
     // `sources: false` toglie la copia dei sorgenti del test, che serve solo alla
     // scheda "Source" e chi guarda la living-doc il repo ce l'ha.
+    //
+    // `attachments` is off ONLY on Node 26 and later: see traceKeepsAttachments.
     trace: EVIDENCE
-      ? { mode: "on", sources: false, screenshots: TRACE_SCREENCAST, snapshots: true }
+      ? {
+          mode: "on",
+          sources: false,
+          screenshots: TRACE_SCREENCAST,
+          snapshots: true,
+          attachments: traceKeepsAttachments(process.versions.node),
+        }
       : "on-first-retry",
     viewport: { width: 1280, height: 800 },
     launchOptions: SLOWMO ? { slowMo: 300 } : {},
