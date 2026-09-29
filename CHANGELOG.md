@@ -2,6 +2,12 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.406 — 2026-09-29
+
+### Sotto il cofano
+- codex.ts grows by the Codex fork turn and the /clear reset: the bloat baseline records 1303 lines
+- A stream event on a process built without spawn metadata is not a fork start
+
 ## 2.2.405 — 2026-09-29
 
 ### Sotto il cofano
@@ -14,8 +20,15 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - The test of a command's bounded log waits for the cut it asserts, not for the first tail tick
 - An outage notice on a fan-out attempt's chat asks the person again, since the dispatcher never resumes that turn
 - Spegni la memoria automatica nei completamenti a un colpo solo
+- A fork's copied rows carry no cost or tokens, so every spend figure counts each model call once
+- A Claude Code branch spends its fork at the first start's system/init, so a branch moved to another project resumes its own session
+- A Claude Code parent moved to another project forks from its transcript wherever the CLI filed it
+- The «Forked from» divider under a folded tool run and the projection of a removed original are pinned by tests
 - A filter click leaves the history selection on the first row in Chromium too, and the phone row counts its fifth door
 - The phone row test's comments speak English
+- A /clear on a Codex chat forgets its thread, so the next turn starts fresh instead of resuming the old conversation
+- A new chat's first message is sent by the server through the chat route when the chat is created
+- A branch waiting for its first turn keeps its minted session across a restart, so its fork still runs
 
 ## 2.2.404 — 2026-09-28
 
@@ -76,9 +89,16 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - With Topics routing ON the engine runs the Automatic classifier, and a native completion is tested to send the catalog id
 - A run_command wake that an outage cut goes again once the outage is over, after the person's promised resend
 - Cmd+J and the phone's «In attesa» door take you to the next chat waiting for you
+- Forking a chat creates a new topic with the copied history, and its CLI session forks the parent's once
+- The last answer offers «Fork into a new chat», and /fork [text] opens the branch with the text as its first message
+- The fork-into-new-chat tasks are all done, with the wire probe on CLI 2.1.284
 - The run_command registry finds its folder through the state-dir door on every call
 - Pull request CI runs the unit suite in four shards and the e2e tier in eight, with the touched specs in a job of their own
 - Pull request CI runs the unit suite in three shards, and two timing-window tests run in the serial tail
+- The fork route and its tests pass the language rails CI runs
+- The «Forked from» divider sits under a fork point folded into a run of tool rows
+- A chat opened as permanent is pinned in the standalone tab group, so a fork survives the next single click
+- `/fork <text>` shows the copied history and the divider while the branch's first turn runs
 
 ## 2.2.403 — 2026-09-28
 

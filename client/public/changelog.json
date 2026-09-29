@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.406",
+    "date": "2026-09-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "codex.ts grows by the Codex fork turn and the /clear reset: the bloat baseline records 1303 lines",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A stream event on a process built without spawn metadata is not a fork start",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.405",
     "date": "2026-09-29",
     "sections": {
@@ -53,12 +74,47 @@
           "scope": null
         },
         {
+          "it": "A fork's copied rows carry no cost or tokens, so every spend figure counts each model call once",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A Claude Code branch spends its fork at the first start's system/init, so a branch moved to another project resumes its own session",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A Claude Code parent moved to another project forks from its transcript wherever the CLI filed it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The «Forked from» divider under a folded tool run and the projection of a removed original are pinned by tests",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "A filter click leaves the history selection on the first row in Chromium too, and the phone row counts its fifth door",
           "en": "",
           "scope": null
         },
         {
           "it": "The phone row test's comments speak English",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A /clear on a Codex chat forgets its thread, so the next turn starts fresh instead of resuming the old conversation",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A new chat's first message is sent by the server through the chat route when the chat is created",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A branch waiting for its first turn keeps its minted session across a restart, so its fork still runs",
           "en": "",
           "scope": null
         }
@@ -346,6 +402,21 @@
           "scope": null
         },
         {
+          "it": "Forking a chat creates a new topic with the copied history, and its CLI session forks the parent's once",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The last answer offers «Fork into a new chat», and /fork [text] opens the branch with the text as its first message",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The fork-into-new-chat tasks are all done, with the wire probe on CLI 2.1.284",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The run_command registry finds its folder through the state-dir door on every call",
           "en": "",
           "scope": null
@@ -357,6 +428,26 @@
         },
         {
           "it": "Pull request CI runs the unit suite in three shards, and two timing-window tests run in the serial tail",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The fork route and its tests pass the language rails CI runs",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The «Forked from» divider sits under a fork point folded into a run of tool rows",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A chat opened as permanent is pinned in the standalone tab group, so a fork survives the next single click",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "`/fork <text>` shows the copied history and the divider while the branch's first turn runs",
           "en": "",
           "scope": null
         }
