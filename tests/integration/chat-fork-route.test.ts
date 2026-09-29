@@ -276,6 +276,14 @@ describe("each runtime's memory", () => {
     expect(sessionOf(branch.sessionKey)).toEqual({ claude_session_id: origin.branchRef!, import_offset: null });
   });
 
+  test("claude-cli, an answer that produced a media file: the MEDIA line Topics appended is not the transcript being ahead, the branch forks", async () => {
+    const t = claudeParent(turns(2), "answer 1", "uuid-of-the-media-answer");
+    ctx.updateLastMessageWithMedia(t.sessionKey, [join(PROJECT, "chart.png")]);
+    expect(ctx.loadActiveThread(t.sessionKey).at(-1)!.content).toContain("\nMEDIA:");
+    const branch = (await (await fork(t)).json()) as Topic;
+    expect(readForkOrigin(ctx.db, branch.sessionKey)).toMatchObject({ runtime: "claude-cli", parentRef: sessionOf(t.sessionKey)!.claude_session_id, parentAt: "uuid-of-the-media-answer" });
+  });
+
   test("claude-cli, the minted branch session waits for its fork: the boot sweep of orphaned transcripts skips it until the fork is consumed", async () => {
     const t = claudeParent(turns(2), "answer 1", "uuid-of-answer-1");
     const branch = (await (await fork(t)).json()) as Topic;

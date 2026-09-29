@@ -104,6 +104,16 @@ describe("cliForkBlocker: when the CLI would remember something the copy does no
     expect(cliForkBlocker([...clean.slice(0, 3), { ...clean[3], content: "I ran it.\n\nanswer 1  " }], 3, { last })).toBeNull();
   });
 
+  test("the media lines Topics appends to the answer (updateLastMessageWithMedia) are not the transcript being ahead", () => {
+    const withMedia = (content: string) => [...clean.slice(0, 3), { ...clean[3], content }];
+    expect(cliForkBlocker(withMedia("answer 1\nMEDIA:/Users/me/.topics/media/a.png"), 3, { last })).toBeNull();
+    // Two turns of media collection, and a path with a space: every appended line goes.
+    expect(cliForkBlocker(withMedia("answer 1 \nMEDIA:/tmp/a b.png\nMEDIA:/tmp/c.mp4"), 3, { last })).toBeNull();
+    // A marker the model wrote in the middle of its text is the text: the transcript still decides.
+    expect(cliForkBlocker(withMedia("MEDIA:/tmp/a.png\nanswer 1"), 3, { last })).toBeNull();
+    expect(cliForkBlocker(withMedia("answer 0\nMEDIA:/tmp/a.png"), 3, { last })).toBe("transcript-ahead");
+  });
+
   test("rule 1: an edited or regenerated row up to the point", () => {
     const regenerated = clean.map((r) => (r.id === "a0" ? { ...r, branchIndex: 1 } : r));
     expect(cliForkBlocker(regenerated, 3, { last })).toBe("edited-or-regenerated");

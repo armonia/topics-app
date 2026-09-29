@@ -112,6 +112,15 @@ function isBackgroundNoticeOnly(row: ForkRow): boolean {
 }
 
 /**
+ * The row's content without the trailing `\nMEDIA:<path>` lines that
+ * `updateLastMessageWithMedia` appends (one per file, possibly over more than
+ * one collection). Only a trailing run goes: a marker inside the text is text.
+ */
+function withoutMediaSuffix(content: string): string {
+  return content.replace(/(?:\nMEDIA:[^\n]*)+\s*$/, "");
+}
+
+/**
  * Why the CLI's memory would not match the copied history, or null when it
  * does. Then the branch starts fresh with the recap of the copy (CCLI-06)
  * instead of forking the CLI session.
@@ -124,7 +133,9 @@ function isBackgroundNoticeOnly(row: ForkRow): boolean {
  *     turn the copy does not carry.
  *  3. Claude Code only (`transcript` given): the transcript is ahead of the
  *     database. The point's text, trimmed, does not end with the text of the
- *     transcript's last answer, or that answer has no text.
+ *     transcript's last answer, or that answer has no text. The `MEDIA:` lines
+ *     Topics appends to the row after the turn (`updateLastMessageWithMedia`
+ *     in `server/utils.ts`) are not compared: the CLI never said them.
  */
 export function cliForkBlocker(
   thread: readonly ForkRow[],
@@ -136,7 +147,7 @@ export function cliForkBlocker(
   if (transcript) {
     const last = transcript.last?.text.trim() ?? "";
     if (!last) return "transcript-without-answer";
-    if (!thread[point].content.trim().endsWith(last)) return "transcript-ahead";
+    if (!withoutMediaSuffix(thread[point].content).trim().endsWith(last)) return "transcript-ahead";
   }
   return null;
 }
