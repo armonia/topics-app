@@ -1,5 +1,5 @@
 /**
- * WHAT THE CHAT IS WAITING ON, one line above the composer.
+ * WHAT THE CHAT IS WAITING ON, the last row of the transcript.
  *
  * A turn that ends with an Agent, a Bash, a Monitor or a Workflow still running
  * leaves the chat with no turn open and nothing on screen: no phrase, no timer,
@@ -10,6 +10,16 @@
  * NO STOP HERE. The composer already offers it with an empty field
  * (`composerAction.ts`), and two commands for one thing read as two things; the
  * tooltip says where it is.
+ *
+ * IT SITS UNDER THE LAST MESSAGE, NOT ABOVE THE COMPOSER. Mounted among the
+ * strips of the composer block, every start and end of the work grew or shrank
+ * that block: the composer jumped by the line's height and the transcript lost
+ * it. As the last row of the list (Virtuoso's `Footer`, in `MessageList`) it
+ * scrolls with the conversation, answers the turn it belongs to, and its
+ * height reaches the list through `totalListHeightChanged`, the same hook that
+ * keeps a chat at the bottom pinned while a reader scrolled up stays put.
+ * `chat-measure` and the row padding put it on the message column, as
+ * `QueuedTurns` beside it.
  *
  * Past `WORK_STALE_AFTER_MS` without news the line says for how long, with the
  * amber of `LabeledLoader`'s stale readout: the CLI may have stopped reporting.
@@ -28,13 +38,17 @@ import { useTopicBackgroundWork } from '../../state/signals';
 import type { TopicBackgroundWork } from '../../state/backgroundWork';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
-import { CHAT_STRIP_NEUTRAL, CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
+import { CHAT_STRIP_ROW } from '../../lib/chatStripStyles';
 import { OrbitLoader } from '../Layout/StreamingIndicator';
 
-export const BackgroundWorkLine = memo(function BackgroundWorkLine({ topicId }: { topicId: string }) {
+export const BackgroundWorkLine = memo(function BackgroundWorkLine({ topicId, isMobile }: { topicId: string; isMobile: boolean }) {
   const work = useTopicBackgroundWork(topicId);
   // Mounted only while there is work, so the shared clock ticks only then.
-  return work ? <Line work={work} /> : null;
+  return work ? (
+    <div className={`chat-measure pb-2 ${isMobile ? 'px-2' : 'px-4'}`}>
+      <Line work={work} />
+    </div>
+  ) : null;
 });
 
 function Line({ work }: { work: TopicBackgroundWork }) {
@@ -48,7 +62,7 @@ function Line({ work }: { work: TopicBackgroundWork }) {
     <div
       data-testid="background-work-line"
       data-stale={isStale ? 'true' : undefined}
-      className={CHAT_STRIP_NEUTRAL}
+      className="rounded-lg border border-app-border/60 bg-app-hover/40 text-app-text"
       title={[names, tr('chat.background.free')].filter(Boolean).join('\n')}
     >
       <div className={`${CHAT_STRIP_ROW} flex-wrap gap-y-0.5`}>
