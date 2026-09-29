@@ -50,6 +50,12 @@ describe("parseNotificationInput", () => {
     expect(p?.body?.length).toBe(400);
   });
 
+  test("a row is born seen only when the sender says so, with a real true", () => {
+    expect(parseNotificationInput({ title: "t", dedupeKey: "k" })?.seen).toBeUndefined();
+    expect(parseNotificationInput({ title: "t", dedupeKey: "k", seen: true })?.seen).toBe(true);
+    expect(parseNotificationInput({ title: "t", dedupeKey: "k", seen: "true" })?.seen).toBeUndefined();
+  });
+
   test("la sorgente è banner salvo dichiarazione contraria", () => {
     expect(parseNotificationInput({ title: "t", dedupeKey: "k" })?.source).toBe("banner");
     expect(parseNotificationInput({ title: "t", dedupeKey: "k", source: "push" })?.source).toBe("push");

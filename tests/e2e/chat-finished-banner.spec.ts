@@ -97,13 +97,14 @@ async function sessionKeyOf(request: APIRequestContext, id: string): Promise<str
  *  one (the same reason as `declareOtherWindow` in spaces-switcher.spec.ts). */
 async function routeStreamFrames(
   page: Page,
-  { otherWindow }: { otherWindow?: Record<string, unknown> } = {},
+  { otherWindow, onServerFrame }: { otherWindow?: Record<string, unknown>; onServerFrame?: (m: string) => void } = {},
 ): Promise<(frame: Record<string, unknown>) => void> {
   let inject: ((data: string) => void) | null = null;
   await page.routeWebSocket(/\/ws/, (ws) => {
     const server = ws.connectToServer();
     ws.onMessage((m) => server.send(m));
     server.onMessage((m) => {
+      if (onServerFrame && typeof m === "string") onServerFrame(m);
       if (otherWindow && typeof m === "string" && m.includes('"presence:windows"')) {
         const roster = JSON.parse(m) as { windows?: unknown[] };
         ws.send(JSON.stringify({ ...roster, windows: [...(roster.windows ?? []), otherWindow] }));
@@ -284,11 +285,14 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
     const stamp = Date.now();
     const nameA = `Front Chat ${stamp}`;
     const nameS = `Sentinel Chat ${stamp}`;
+    const nameT = `Closing Chat ${stamp}`;
     const topicA = await createTopic(request, nameA, { provider: "topics" });
     const topicS = await createTopic(request, nameS, { provider: "topics" });
+    const topicT = await createTopic(request, nameT, { provider: "topics" });
     const keyA = await sessionKeyOf(request, topicA.id);
     const keyS = await sessionKeyOf(request, topicS.id);
-    await resetPaneStore(request, [topicA.id, topicS.id]);
+    const keyT = await sessionKeyOf(request, topicT.id);
+    await resetPaneStore(request, [topicA.id, topicS.id, topicT.id]);
     // Earlier tests leave unseen rows in the registry: they count on the badge
     // (NOTIF-ONE-02) and would land at an unknown moment after the load.
     await request.post(`${E2E_BASE}/api/notifications/seen`, { data: { upTo: new Date().toISOString() } });
@@ -307,7 +311,15 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
         nav.setAppBadge = (n?: number) => { window.__badgeLog!.push(n ?? 0); return Promise.resolve(); };
         nav.clearAppBadge = () => { window.__badgeLog!.push(0); return Promise.resolve(); };
       });
-      const push = await routeStreamFrames(page);
+      // The targets of the `notification:new` frames the server sends this page.
+      const announced: string[] = [];
+      const push = await routeStreamFrames(page, {
+        onServerFrame: (m) => {
+          if (!m.includes('"notification:new"')) return;
+          const target = (JSON.parse(m) as { row?: { targetId?: string | null } }).row?.targetId;
+          if (target) announced.push(target);
+        },
+      });
       const finish = (sessionKey: string, topicId: string, messageId: string): void =>
         push({ type: "stream:end", sessionKey, topicId, messageId, completed: true, stopReason: "end_turn" });
       // Consecutive repeats are the same paint: the history is the values it went through.
@@ -317,8 +329,10 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
       await goToApp(page);
       const tabA = page.locator('[role="tab"][data-pane-id]', { hasText: nameA });
       const tabS = page.locator('[role="tab"][data-pane-id]', { hasText: nameS });
+      const tabT = page.locator('[role="tab"][data-pane-id]', { hasText: nameT });
       await expect(tabA).toBeVisible({ timeout: 15_000 });
       await expect(tabS).toBeVisible({ timeout: 15_000 });
+      await expect(tabT).toBeVisible({ timeout: 15_000 });
       await tabA.click();
       await expect(tabA).toHaveAttribute("data-active", "true");
       await expect.poll(async () => (await badgeHistory()).length, { timeout: 10_000, message: "the badge was never painted" }).toBeGreaterThan(0);
@@ -331,19 +345,39 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
       // once its mark is on its tab the five before it have been handled.
       finish(keyS, topicS.id, "sentinel-1");
       await expect(tabS, "the sentinel chat was not marked").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
-      await expect.poll(badgeHistory, { timeout: 10_000 }).toEqual([...history0, base + 1]);
+      // With the default settings ("notify even when focused") the chat in
+      // front banners too, and the banner is recorded: POST, then the server's
+      // `notification:new`, up to a second after the marks. Reading the Dock
+      // before that frame is applied proves nothing, so the check waits for
+      // both frames, then for a later sentinel: frames are applied in order.
+      await expect
+        .poll(() => [topicA.id, topicS.id].map((id) => announced.includes(id)), {
+          timeout: 10_000, message: "the two banners were not recorded",
+        })
+        .toEqual([true, true]);
+      finish(keyT, topicT.id, "sentinel-2");
+      await expect(tabT, "the late sentinel chat was not marked").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
+      // The banner about the chat in front is recorded already seen: the row
+      // is in the history, and it never counted.
+      const rows = ((await (await request.get(`${E2E_BASE}/api/notifications?limit=50`)).json()) as {
+        rows: { targetId: string | null; createdAt: string; seenAt: string | null }[];
+      }).rows;
+      const rowA = rows.find((r) => r.targetId === topicA.id)!;
+      expect(rowA.seenAt, "the banner of the chat in front was recorded unseen").toBe(rowA.createdAt);
+      expect(await badgeHistory()).toEqual([...history0, base + 1, base + 2]);
       await expect(tabA).not.toHaveAttribute("data-attention", /done|input/);
 
       // Behind another app nobody is looking: the same chat's end counts...
       await page.evaluate(() => { window.__awake = false; window.dispatchEvent(new Event("blur")); });
       finish(keyA, topicA.id, "behind-1");
-      await expect.poll(badgeHistory, { timeout: 10_000, message: "a chat finished while you were away does not count" }).toEqual([...history0, base + 1, base + 2]);
+      await expect.poll(badgeHistory, { timeout: 10_000, message: "a chat finished while you were away does not count" }).toEqual([...history0, base + 1, base + 2, base + 3]);
       // ...until the window comes back to the front, which is having seen it.
       await page.evaluate(() => { window.__awake = true; window.dispatchEvent(new Event("focus")); });
-      await expect.poll(badgeHistory, { timeout: 10_000 }).toEqual([...history0, base + 1, base + 2, base + 1]);
+      await expect.poll(badgeHistory, { timeout: 10_000 }).toEqual([...history0, base + 1, base + 2, base + 3, base + 2]);
     } finally {
       await deleteTopic(request, topicA.id);
       await deleteTopic(request, topicS.id);
+      await deleteTopic(request, topicT.id);
     }
   });
 

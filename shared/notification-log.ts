@@ -58,6 +58,11 @@ export interface NotificationRecordInput {
    *  banner web). Segnare visto un membro segna visto tutto il gruppo. */
   groupKey?: string | null;
   source?: NotificationSource;
+  /** Born seen: the banner is about a chat the person is looking at right now
+   *  (`isChatInFront`). The row stays in the history, but it never counts as
+   *  unseen, so the badge and the Dock do not go up and come back down one
+   *  seen-dwell later at every turn end of the chat in front. */
+  seen?: boolean;
 }
 
 /** Una riga del registro, come la legge il client. */
@@ -208,5 +213,6 @@ export function parseNotificationInput(raw: unknown): NotificationRecordInput | 
     dedupeKey: dedupeKey.slice(0, 200),
     groupKey: typeof o.groupKey === 'string' && o.groupKey ? o.groupKey.slice(0, 200) : null,
     source: o.source === 'push' ? 'push' : 'banner',
+    ...(o.seen === true ? { seen: true } : {}),
   };
 }

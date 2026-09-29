@@ -95,12 +95,13 @@ export function recordNotification(input: NotificationRecordInput, now = Date.no
       // Applicato QUI, cioè nell'unico punto che scrive, così nessuno dei due
       // scrittori può dimenticarselo e lasciare righe fuori da ogni gruppo.
       group_key: input.groupKey ?? defaultNotificationGroupKey(input.targetKind, input.targetId),
-      seen_at: null,
+      // A row born seen (the chat was in front of the person) never counts.
+      seen_at: input.seen ? new Date(now).toISOString() : null,
     };
     db.run(
       `INSERT INTO notification_log
          (id, created_at, kind, title, body, target_kind, target_id, target_url, source, dedupe_key, group_key, seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.id,
         row.created_at,
@@ -113,6 +114,7 @@ export function recordNotification(input: NotificationRecordInput, now = Date.no
         row.source,
         input.dedupeKey,
         row.group_key,
+        row.seen_at,
       ],
     );
     enforceRetention(db, now);

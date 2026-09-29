@@ -187,6 +187,30 @@ describe("recordAndAnnounce — il cancello degli archiviati", () => {
     __resetNotificationRegistry();
   });
 
+  // The banner about a chat the person is looking at: the row is kept, and
+  // the frame that announces it already carries a counter without it, so no
+  // badge goes up to come back down one seen dwell later.
+  test("a row born seen is announced, but it never counts as unseen", () => {
+    wipe();
+    const snapshots: { unseen: number; unseenKeys?: string[] }[] = [];
+    configureNotificationRegistry({
+      announce: (_row, snap) => { snapshots.push(snap); },
+      announceSeen: () => {},
+      isTopicArchived: () => false,
+    });
+    const row = recordAndAnnounce({
+      kind: "chat-message", title: "In front", dedupeKey: "chat-done:front",
+      targetKind: "topic", targetId: "front", seen: true,
+    });
+    expect(row?.seenAt).not.toBeNull();
+    expect(listNotifications().map((r) => r.id)).toEqual([row!.id]);
+    expect(countUnseenNotifications()).toBe(0);
+    expect(snapshots).toEqual([{ unseen: 0, unseenKeys: [] }]);
+    // Nothing is left for the seen dwell to clear, so it announces nothing.
+    expect(markTargetNotificationsSeen("topic", "front")).toBe(0);
+    __resetNotificationRegistry();
+  });
+
   test("un doppione non viene annunciato una seconda volta", () => {
     wipe();
     let calls = 0;

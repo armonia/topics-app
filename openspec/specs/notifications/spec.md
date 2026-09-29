@@ -723,15 +723,22 @@ fuoco in una finestra dietro un'altra app non è davanti a nessuno: il segno
 SHALL accendersi e contare, e SHALL spegnersi quando la finestra torna davanti. Come quello
 dei terminali, vive in memoria: un ricarico della pagina riparte senza.
 
+Vale anche per il banner: con «notifica anche se a fuoco» (il default) la chat
+davanti manda il suo banner, e la sua riga nella cronologia SHALL nascere già
+vista (`seen: true` nel POST, `seenAt` uguale a `createdAt`). Registrata non
+vista, alzava il numero del Dock di uno finché il seen-dwell non la segnava vista,
+a ogni fine turno della chat che si sta guardando.
+
 #### Scenario: chat senza hook che finisce dietro un'altra tab
 - **GIVEN** una chat senza hook aperta in una tab, e un'altra tab attiva
 - **WHEN** il suo turno finisce pulito
 - **THEN** la sua tab e la sua riga SHALL avere `data-attention="done"`
 
 #### Scenario: la chat davanti che finisce non muove il numero del Dock
-- **GIVEN** una chat senza hook a fuoco, in una finestra sveglia
+- **GIVEN** una chat senza hook a fuoco, in una finestra sveglia, con le impostazioni di serie
 - **WHEN** finiscono cinque suoi turni
-- **THEN** la cronologia di `setAppBadge` NON SHALL cambiare
+- **THEN** la riga del suo banner nella cronologia SHALL essere già vista
+- **AND** la cronologia di `setAppBadge` NON SHALL cambiare, anche dopo che il fronte `notification:new` di quella riga è stato applicato
 - **WHEN** la finestra passa dietro un'altra app e un turno finisce
 - **THEN** il numero SHALL salire di uno, e SHALL tornare giù quando la finestra torna davanti
 
