@@ -3,12 +3,28 @@ import { createTopic, deleteTopic } from "./helpers/api-fixtures";
 import { readFileSync } from "fs";
 import { E2E_BASE, E2E_WS_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { serveFixturePage, type FixturePage } from "./helpers/fixture-page-server";
 
 // Confine ermetico: questo file riparte dalla baseline del globalSetup, non
 // dallo stato lasciato dalle spec precedenti. Vedi fixtures/hermetic.ts.
 hermetic(test);
 
 const BASE = E2E_BASE;
+
+// The page every agent tool here reads: a local fixture served on loopback by
+// this process, not a live site. What the assertions below expect (the h1, the
+// link and button that become observe refs, the body text) is written in
+// fixtures/agent-control-page.html and nowhere else.
+const FIXTURE_HEADING = "Agent control fixture";
+let fixture: FixturePage;
+
+test.beforeAll(async () => {
+  fixture = await serveFixturePage("agent-control-page.html");
+});
+
+test.afterAll(async () => {
+  await fixture?.close();
+});
 
 test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05)", () => {
   test.beforeEach(({}, testInfo) => {
@@ -21,14 +37,14 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
     const ctxId = topic.id;
     try {
       const res = await request.post(`${BASE}/api/browsers/${ctxId}/agent/open`, {
-        data: { url: "https://example.com" },
+        data: { url: fixture.url },
         headers: { "Content-Type": "application/json" },
       });
       expect(res.ok()).toBe(true);
       const body = (await res.json()) as { url?: string; title?: string; error?: string };
       expect(body.error).toBeUndefined();
-      expect(body.url).toMatch(/example\.com/);
-      expect(typeof body.title).toBe("string");
+      expect(body.url).toBe(fixture.url);
+      expect(body.title).toBe(FIXTURE_HEADING);
     } finally {
       await request.delete(`${BASE}/api/browsers/${ctxId}`).catch(() => {});
       await deleteTopic(request, ctxId).catch(() => {});
@@ -40,7 +56,7 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
     const ctxId = topic.id;
     try {
       const openRes = await request.post(`${BASE}/api/browsers/${ctxId}/agent/open`, {
-        data: { url: "https://example.com" },
+        data: { url: fixture.url },
         headers: { "Content-Type": "application/json" },
       });
       expect(openRes.ok()).toBe(true);
@@ -93,7 +109,7 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
       });
       const txt = (await txtRes.json()) as { text?: string };
       expect(typeof txt.text).toBe("string");
-      expect(txt.text!.length).toBeGreaterThan(0);
+      expect(txt.text!).toContain(FIXTURE_HEADING);
 
       // extract: deterministic CSS scrape.
       const exRes = await request.post(`${BASE}/api/browsers/${ctxId}/agent/extract`, {
@@ -101,7 +117,7 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
       });
       const ex = (await exRes.json()) as { extracted?: { heading?: string }; error?: string };
       expect(ex.error).toBeUndefined();
-      expect(typeof ex.extracted!.heading).toBe("string");
+      expect(ex.extracted!.heading).toBe(FIXTURE_HEADING);
     } finally {
       await request.delete(`${BASE}/api/browsers/${ctxId}`).catch(() => {});
       await deleteTopic(request, ctxId).catch(() => {});
@@ -145,7 +161,7 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
       // 3. Trigger an INVALID act (forces handler to fail post-lock). Open
       // first so the handler reaches the act path, not "no context" early-exit.
       await request.post(`${BASE}/api/browsers/${ctxId}/agent/open`, {
-        data: { url: "https://example.com" },
+        data: { url: fixture.url },
         headers: { "Content-Type": "application/json" },
       });
 
@@ -199,7 +215,7 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
     try {
       // Open a browser pane for topic A (creates a CDP context browserService tracks).
       const openRes = await request.post(`${BASE}/api/browsers/${ctxId}/agent/open`, {
-        data: { url: "https://example.com" },
+        data: { url: fixture.url },
         headers: { "Content-Type": "application/json" },
       });
       expect(openRes.ok()).toBe(true);
@@ -216,7 +232,7 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
       expect(a).toBeTruthy();
       expect(a!.kind).toBe("topic");
       expect(a!.label).toBe(topic.name);
-      expect(a!.url).toMatch(/example\.com/);
+      expect(a!.url).toContain(fixture.host);
       expect(a!.isOwn).toBe(false); // not the lister's own pane
 
       // Cross-session drive: get-text against topic A via the contextId override.
@@ -226,7 +242,7 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
       expect(txtRes.ok()).toBe(true);
       const txt = (await txtRes.json()) as { text?: string };
       expect(typeof txt.text).toBe("string");
-      expect(txt.text!.length).toBeGreaterThan(0);
+      expect(txt.text!).toContain(FIXTURE_HEADING);
 
       // An unknown contextId is rejected (never upserts a phantom context) and
       // the error lists the live ids so the agent can recover.
@@ -273,13 +289,13 @@ test.describe("BROWSER-CHAT-03 Agent control + native browser tools (@plan-30-05
     try {
       // Open first so the handler can hit the screenshot+point flow.
       await request.post(`${BASE}/api/browsers/${ctxId}/agent/open`, {
-        data: { url: "https://example.com" },
+        data: { url: fixture.url },
         headers: { "Content-Type": "application/json" },
         timeout: 30000,
       });
 
       const res = await request.post(`${BASE}/api/browsers/${ctxId}/agent/point`, {
-        data: { description: "the example link" },
+        data: { description: "the Read the details link" },
         headers: { "Content-Type": "application/json" },
         timeout: 30000,
       });
