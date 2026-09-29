@@ -1,5 +1,71 @@
 [
   {
+    "version": "2.2.405",
+    "date": "2026-09-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "Pull request CI runs the unit suite as two parallel serial jobs split by suite root, and the check step the board reads is their verdict",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The unit jobs fetch main as a ref, and the integration tests run after the server tests in the same slice",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A run_command wake's copy after an outage goes only while its cut is still the chat's last word",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A run_command wake waits behind the person's promised resend only while the sweep would really make it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The outage notice on a card in progress says it resumes by itself again, and the sweep still leaves it to the dispatcher",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The run_command registry resolves and creates its folder once per state-dir target, not at every log write",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The test of a command's bounded log waits for the cut it asserts, not for the first tail tick",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "An outage notice on a fan-out attempt's chat asks the person again, since the dispatcher never resumes that turn",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Spegni la memoria automatica nei completamenti a un colpo solo",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A filter click leaves the history selection on the first row in Chromium too, and the phone row counts its fifth door",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The phone row test's comments speak English",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.404",
     "date": "2026-09-28",
     "sections": {
@@ -105,7 +171,37 @@
           "scope": null
         },
         {
+          "it": "Attilio approved the history panel filters with every recommended choice",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The / menu lists skills that are links to a folder",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Propose next-waiting-chat: Cmd+J and a phone door go to the next chat waiting for you",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The board-doctor zone restore explains itself in English",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The full history panel filters by type and day and searches its whole list",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The resume sweep counts each message's resends in the database, so a service row under a resent answer no longer resets the cap",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "next-waiting-chat: the proposal promised a plan and an order it could not deliver",
           "en": "",
           "scope": null
         },
@@ -120,6 +216,41 @@
           "scope": null
         },
         {
+          "it": "The Windows UI driver sends the shell's proxy home before it declares Tauri",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The history panel spec fails if the highlight marks only whole phrases or an empty history reads as filtered",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A resend chain in flight before the count table goes on from the number main read, with its free probes spent",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The user menu's devices level lists the computer you are on, stays as wide as the menu and reads the devices again when it opens",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Propose fork-into-new-chat: a message menu item and /fork open a new chat that continues from the last reply with tools, leaving the original untouched",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "On a phone a tap on a history filter leaves the focus where it was",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The history panel spec fails if «Mostra tutto» keeps a filter, if ⌘K loses its cap of 40 or if the project finder shows the filter bar",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The identifier-language rail knows desktop, so the fake-shell guard test can name DESKTOP_SERVER_HOST",
           "en": "",
           "scope": null
@@ -130,12 +261,32 @@
           "scope": null
         },
         {
+          "it": "fork-into-new-chat: the fork could happen twice, and its two points could disagree",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A service row under a resend's copy no longer ends its chain: only a turn the route closed by itself does",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A chain in flight before the count table reads its resends with main's walk, past a reattached answer that lost its banner",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The run_command card test takes its card off the board, so no later dispatcher resumes it on a turn nobody closes",
           "en": "",
           "scope": null
         },
         {
           "it": "The bundle baseline records tornata 2c, with what each piece of the batch put in the entry",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The user menu names the device you are on only in the devices level, and the count on that row is the list it opens",
           "en": "",
           "scope": null
         },
@@ -165,12 +316,47 @@
           "scope": null
         },
         {
+          "it": "Attilio delegated the fork proposal and it is approved with every recommended choice",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Attilio approved Cmd+J to the next chat waiting for him, with every recommended choice",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The Topics routing switch accepts Fable 5.1, Opus 4.8, Sonnet 5.5 and Haiku 4.5 by its short name",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "With Topics routing ON the engine runs the Automatic classifier, and a native completion is tested to send the catalog id",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "A run_command wake that an outage cut goes again once the outage is over, after the person's promised resend",
           "en": "",
           "scope": null
         },
         {
+          "it": "Cmd+J and the phone's «In attesa» door take you to the next chat waiting for you",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The run_command registry finds its folder through the state-dir door on every call",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pull request CI runs the unit suite in four shards and the e2e tier in eight, with the touched specs in a job of their own",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Pull request CI runs the unit suite in three shards, and two timing-window tests run in the serial tail",
           "en": "",
           "scope": null
         }
@@ -352,6 +538,11 @@
           "scope": null
         },
         {
+          "it": "Sidebar user menu: remove duplicates, submenu devices, bound Version width",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "A file a Codex patch touches reaches the changed-files strip as its own tool call",
           "en": "",
           "scope": null
@@ -437,6 +628,11 @@
           "scope": null
         },
         {
+          "it": "Fix e2e specs for the removed profile/devices test ids",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "A change owed by a turn that arms a session cron is said in the chat, as for a background task",
           "en": "",
           "scope": null
@@ -488,6 +684,11 @@
         },
         {
           "it": "A closed turn's late answer reaches the screen once per frame, like the live one",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Drop the stale \"Account\" heading assertion in org-presence spec",
           "en": "",
           "scope": null
         },
