@@ -50,18 +50,26 @@ export function browserTabKind(
  * WHICH MARK the favicon's corner carries (TABSLOT-03): one at a time, zero
  * width, so the label never moves when one comes or goes.
  *
- * THE CONSOLE ERRORS WIN, over every kind. They are the one mark that reports
- * something BROKEN, and the corner is the only thing a tab shows about its page
- * at rest. Until 2026-09-29 a state of the pane (agent, link, heavy) won
- * instead, so the red dot vanished exactly on the tabs doing the most. The kind
- * that loses the corner is not lost: the tab's accessible name and its tooltip
- * say it (`browserKindName`), and "take back control" is a command of its own
- * under the pointer (`BrowserTabTakeControl`), not the corner.
+ * THE CONSOLE ERRORS WIN, over every kind but a link that is not live. They
+ * are the one mark that reports something BROKEN, and the corner is the only
+ * thing a tab shows about its page at rest. Until 2026-09-29 a state of the pane
+ * (agent, link, heavy) won instead, so the red dot vanished exactly on the tabs
+ * doing the most. The kind that loses the corner is not lost: the tab's
+ * accessible name and its tooltip say it (`browserKindName`), and "take back
+ * control" is a command of its own under the pointer (`BrowserTabTakeControl`).
+ *
+ * A LINK THAT IS NOT LIVE (gone, reconnecting, polling) beats the errors: the
+ * console reaches the pane over that socket, so without it the tally is frozen
+ * and the fresh fact is the link. Letting the errors win there hid "connection
+ * lost" for good on any tab whose page had thrown once.
  */
+const LINK_KINDS: ReadonlySet<BrowserTabKind> = new Set(['disconnected', 'connecting', 'degraded']);
+
 export function browserCornerMark(
   kind: BrowserTabKind | undefined,
   consoleErrors: number,
 ): 'kind' | 'errors' | undefined {
+  if (kind && LINK_KINDS.has(kind)) return 'kind';
   if (consoleErrors > 0) return 'errors';
   return kind ? 'kind' : undefined;
 }

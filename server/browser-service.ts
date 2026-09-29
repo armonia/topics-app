@@ -907,6 +907,9 @@ export async function createBrowserService(opts: BrowserServiceOptions = {}): Pr
         type: 'console',
         level,
         text: text.length > 2000 ? text.slice(0, 2000) + '…' : text,
+        // The page the line belongs to, read now: the pane hears of a new
+        // page only at its `load`, after the scripts that may have thrown.
+        pageUrl: page.url(),
       });
     });
 

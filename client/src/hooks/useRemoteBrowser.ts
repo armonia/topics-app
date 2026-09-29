@@ -8,6 +8,9 @@ import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 import { attachViewerChannel, pushViewerCount } from '../lib/viewerCountBus';
 import { mapCoordinates } from './browserCoords';
 import { tracePaneAttach } from '../lib/paneAttachTrace';
+import {
+  appendStreamConsole, keepConsoleOfPage, tallyConsole, type StreamConsoleEntry,
+} from '../components/Browser/streamConsole';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'fallback-http';
 
@@ -75,9 +78,10 @@ interface RemoteBrowserState {
    *  (WebRTC/JPEG, default); 'dom' = a native rrweb DOM reconstruction (real
    *  browser, cross-device-sharp) — the server streams DOM events instead of pixels. */
   renderMode: 'video' | 'dom';
-  /** Errors and warnings the server page logged since this pane mounted. Only
-   *  the tallies: they light the tab's corner and the dots' badge. */
-  consoleSummary: { errors: number; warnings: number };
+  /** The server page's console lines, each with the page it was logged on
+   *  (`streamConsole.ts`). The sheet lists them; their tallies light the tab's
+   *  corner and the dots' badge. */
+  consoleEntries: StreamConsoleEntry[];
 }
 
 interface InteractionHandlers {
@@ -87,6 +91,9 @@ interface InteractionHandlers {
 }
 
 interface RemoteBrowser extends RemoteBrowserState, InteractionHandlers {
+  consoleSummary: { errors: number; warnings: number };
+  /** Empty this pane's rows. The server's own buffer (the agent's) is untouched. */
+  clearConsole: () => void;
   navigate: (url: string) => void;
   goBack: () => void;
   goForward: () => void;
@@ -272,8 +279,9 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     // when it can't snapshot the page (canvas/WebGL/injection blocked), and only
     // THEN does the WebRTC pixel transport negotiate.
     renderMode: 'dom',
-    consoleSummary: { errors: 0, warnings: 0 },
+    consoleEntries: [],
   });
+  const consoleIdRef = useRef(0);
 
   const imgRef = useRef<HTMLImageElement | null>(null);
   // WebRTC shared-session transport (opt-in): the <video>, its RTCPeerConnection,
@@ -780,7 +788,12 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
           case 'nav':
             if (msg.phase === 'response') {
               clearLoadingWatchdog();
-              setState(s => ({ ...s, url: msg.url, loading: false, error: null, errorUrl: null }));
+              // A loaded document: the rows of any other page leave the tally
+              // (the new page's own load-time errors carry its url and stay).
+              setState(s => ({
+                ...s, url: msg.url, loading: false, error: null, errorUrl: null,
+                consoleEntries: keepConsoleOfPage(s.consoleEntries, msg.url),
+              }));
             } else if (msg.phase === 'error') {
               // Failed goto/launch: the page is still on the previous URL —
               // surface the reason instead of silently clearing the spinner
@@ -792,12 +805,20 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
           case 'console':
             // Forward to devtools console; full UI surface deferred to plan 30-04.
             console.debug(`[browser ${contextId}] ${msg.level}: ${msg.text}`);
-            // The tallies reach the tab, the same as the native pane's: a page
-            // that throws while an agent drives it is the one to know about.
-            // Plain logs change no tally and cost no render.
-            if (msg.level === 'error' || msg.level === 'warn') {
-              const key = msg.level === 'error' ? 'errors' : 'warnings';
-              setState(s => ({ ...s, consoleSummary: { ...s.consoleSummary, [key]: s.consoleSummary[key] + 1 } }));
+            // Kept as rows, the same as the native pane's: the sheet lists them
+            // and the tab's dot counts them. Plain logs are rows too (the
+            // server already throttles them), so the list is a console and not
+            // just its errors. An older server sends no `pageUrl`: the row
+            // belongs to the page the pane shows.
+            {
+              const id = ++consoleIdRef.current;
+              const at = Date.now();
+              setState(s => ({
+                ...s,
+                consoleEntries: appendStreamConsole(s.consoleEntries, {
+                  id, level: msg.level, text: msg.text, at, page: msg.pageUrl ?? s.url,
+                }),
+              }));
             }
             break;
           case 'agent_active':
@@ -1297,7 +1318,10 @@ function rememberFramable(url: string, framable: boolean): void {
 
   const reload = useCallback(() => {
     if (!connectionStateRef.current || connectionStateRef.current === 'disconnected') return;
-    setState(s => ({ ...s, loading: true }));
+    // A reload is a new document at the same url, which the page filter in
+    // `keepConsoleOfPage` cannot tell apart: the rows go here, before the
+    // reloaded page logs anything.
+    setState(s => ({ ...s, loading: true, consoleEntries: [] }));
     armLoadingWatchdog();
     markActive();
     interact({ action: 'reload' }).then(() => {
@@ -1501,6 +1525,10 @@ function rememberFramable(url: string, framable: boolean): void {
   const clearDownloads = useCallback(() => {
     setState(s => (s.downloads.length ? { ...s, downloads: [] } : s));
   }, []);
+  const clearConsole = useCallback(() => {
+    setState(s => (s.consoleEntries.length ? { ...s, consoleEntries: [] } : s));
+  }, []);
+  const consoleSummary = useMemo(() => tallyConsole(state.consoleEntries), [state.consoleEntries]);
 
   // After every commit: if the <img> (re)mounted it carries the stale
   // state.screenshotSrc — re-assert the newest direct-written frame. A cheap
@@ -1545,5 +1573,7 @@ function rememberFramable(url: string, framable: boolean): void {
     sendInput,
     dismissDownload,
     clearDownloads,
-  }), [state, framable, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, setWatching, retryWebrtc, setRenderMode, registerDomSink, registerFocusSink, sendInput, dismissDownload, clearDownloads]);
+    consoleSummary,
+    clearConsole,
+  }), [state, framable, consoleSummary, clearConsole, navigate, goBack, goForward, reload, goHome, onClick, onWheel, onKeyDown, containerRef, takeControl, enterSelectMode, exitSelectMode, setSelectedElement, setEngine, setStreamActive, setWatching, retryWebrtc, setRenderMode, registerDomSink, registerFocusSink, sendInput, dismissDownload, clearDownloads]);
 }

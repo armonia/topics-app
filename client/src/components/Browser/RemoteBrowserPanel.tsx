@@ -812,8 +812,9 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
   const paneFramable = isRealUrl(browser.url) ? browser.framable : isUrlFramable(paneUrl);
   const useIframe = !isTauri && !!paneUrl && !browser.agentActive && paneFramable;
   // Same tab-is-the-chrome bridge as the Tauri branch. The shared pane has no
-  // DevTools, no zoom, no device emulation and no console of its own, so it
-  // simply does not publish those commands: the tab menu offers what exists.
+  // DevTools, no zoom and no device emulation, so it simply does not publish
+  // those commands: the tab menu offers what exists. Its console is the server
+  // page's, relayed over the socket.
   const sharedCanForget = !!siteHostOf(browser.url);
 
   // TAKING THE WHEEL BACK, and saying so without stopping anything.
@@ -838,6 +839,8 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     backToSpawner: backToSpawner?.onBackToSpawner,
     returnToTopicWindow,
     toggleShare: onToggleShare,
+    // With the rows in the sheet goes the command that empties them.
+    clearConsole: useIframe ? undefined : browser.clearConsole,
     // THE TWO SWITCHES THAT USED TO BE PILLS OVER THE PAGE (TOPIC-BROWSER-03),
     // now rows of the sheet's Session section. Each is offered only where it
     // means something: the engine one when the server says a real Chromium is
@@ -865,9 +868,11 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     loading: browser.loading,
     canGoBack: true,
     canGoForward: true,
-    // The server page's tallies. The iframe branch shows this device's own
-    // page, whose console the server does not see.
+    // The server page's console: the tallies for the tab, the rows for the
+    // sheet. The iframe branch shows this device's own page, whose console the
+    // server does not see.
     consoleSummary: useIframe ? undefined : browser.consoleSummary,
+    consoleEntries: useIframe ? undefined : browser.consoleEntries,
     downloads: streamDownloads.items.length,
     downloadsStarted: streamDownloads.startedCount,
     // SHARED MEANS "THIS PANE IS SHOWING THE SERVER SESSION", not "this pane was

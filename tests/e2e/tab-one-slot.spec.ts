@@ -26,7 +26,12 @@
  *     still said by the tab's accessible name and tooltip;
  *  h) "take back control" is a command with a target of its own: its box
  *     overlaps none of Reload, the dots and Close. As a 10px corner of the
- *     favicon it sat on the Reload button.
+ *     favicon it sat on the Reload button;
+ *  i) the red dot counts THIS page: landing on another document drops it
+ *     (a load-time error of the new page stays), the sheet opened from the
+ *     dots lists the error and its Clear turns the dot off, and a lost link
+ *     takes the corner back from the errors. A tally that survived every
+ *     navigation, with no rows behind it, hid "connection lost" for good.
  *
  * It is a behaviour: video on, the .webm is the evidence.
  *
@@ -539,6 +544,77 @@ test.describe.serial("Una tab, tre zone", () => {
         .toEqual(expect.arrayContaining([expect.objectContaining({ type: "take_control" })]));
       await expect(tab.locator('[data-testid="browser-tab-type-icon"][data-kind="agent"]'), "the wheel is back").toHaveCount(0, { timeout: 5_000 });
       await expect(take, "no agent, no command to end it").toHaveCount(0);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+      await closeAllBrowserContexts(request);
+    }
+  });
+
+  test("i) TABSLOT-03: the red dot is this page's: another page drops it, the sheet lists and clears it, a lost link takes the corner", async ({ page, request, browserProcessPageV2 }) => {
+    test.info().annotations.push({ type: "spec", description: "TABSLOT-03" });
+    const FIRST = "https://example.com/";
+    const OTHER = "https://other.example.org/";
+    const THIRD = "https://third.example.net/";
+    // The pane must stay on the server stream: a framable page would move to
+    // an iframe, whose console the server does not see, and the dot would go
+    // for that reason instead of the one under test.
+    await page.route(/\/api\/browsers\/framable/, (route) => route.fulfill({ json: { framable: false } }));
+    await mockStreamingPane(request, browserProcessPageV2);
+    const topic = await createTopic(request, `slot-page-errors-${TS}`);
+    try {
+      const tab = await browserTabWithAgent(page, browserProcessPageV2, topic.id);
+      browserProcessPageV2.broadcastAgentActive(false);
+      await expect(tab.locator('[data-testid="browser-tab-type-icon"][data-kind="agent"]')).toHaveCount(0, { timeout: 10_000 });
+      await pointerAway(page);
+      const cue = tab.getByTestId("browser-tab-console-cue");
+      const dots = tab.getByTestId("browser-tab-menu");
+
+      // 1. ANOTHER PAGE, NOT THIS ONE. The dot says "errors on this page".
+      browserProcessPageV2.sendConsole("error", "Uncaught TypeError: boom", FIRST);
+      await expect(cue).toHaveAttribute("data-console-errors", "1", { timeout: 10_000 });
+      await expect(dots).toHaveAttribute("data-console-errors", "1");
+      browserProcessPageV2.sendNavLoaded(OTHER);
+      await expect(cue, "another page drops the dot").toHaveCount(0, { timeout: 10_000 });
+      await expect(dots, "and the dots' badge").not.toHaveAttribute("data-console-errors", /.+/);
+
+      // 2. THE NEXT PAGE THROWS WHILE LOADING: the server hears that error
+      //    before the page's load. At the load the error of the page left goes,
+      //    the one of the page arrived stays: 2 becomes 1, not 0.
+      browserProcessPageV2.sendConsole("error", "Uncaught TypeError: late", OTHER);
+      browserProcessPageV2.sendConsole("error", "Uncaught ReferenceError: early", THIRD);
+      await expect(cue).toHaveAttribute("data-console-errors", "2", { timeout: 10_000 });
+      browserProcessPageV2.sendNavLoaded(THIRD);
+      await expect(cue, "a load-time error of the page shown stays").toHaveAttribute("data-console-errors", "1", { timeout: 10_000 });
+
+      // 3. THE ROWS BEHIND THE DOT, and the command that empties them.
+      await tab.hover();
+      await dots.click();
+      await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 10_000 });
+      const consoleRow = page.getByTestId("browser-tab-console");
+      await expect(consoleRow, "the sheet offers the console the dot counts").toBeVisible();
+      await consoleRow.click();
+      const panel = page.getByTestId("browser-console-panel");
+      await expect(panel.getByTestId("browser-console-row")).toHaveCount(1, { timeout: 10_000 });
+      await expect(panel.getByTestId("browser-console-row")).toContainText("Uncaught ReferenceError: early");
+      await page.screenshot({ path: test.info().outputPath("browser-tab-console-rows.png") });
+      await panel.getByTestId("browser-console-clear").click();
+      await expect(cue, "Clear turns the dot off").toHaveCount(0, { timeout: 10_000 });
+      await expect(dots).not.toHaveAttribute("data-console-errors", /.+/);
+      await page.keyboard.press("Escape");
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("browser-tab-sheet")).toHaveCount(0, { timeout: 10_000 });
+
+      // 4. A LOST LINK TAKES THE CORNER: without the socket the tally cannot
+      //    move, and "connection lost" is the news. The errors stay on the dots.
+      browserProcessPageV2.sendConsole("error", "Uncaught TypeError: again", THIRD);
+      await pointerAway(page);
+      await expect(cue).toHaveAttribute("data-console-errors", "1", { timeout: 10_000 });
+      await browserProcessPageV2.dropWsForGood();
+      await expect(tab.getByTestId("browser-tab-type-icon"), "the lost link is the corner mark")
+        .toHaveAttribute("data-kind", /^(disconnected|connecting|degraded)$/, { timeout: 10_000 });
+      await expect(cue, "one mark at a time").toHaveCount(0);
+      await expect(dots, "the errors are still on the dots").toHaveAttribute("data-console-errors", "1");
+      await tab.screenshot({ path: test.info().outputPath("browser-tab-link-over-errors.png") });
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
       await closeAllBrowserContexts(request);

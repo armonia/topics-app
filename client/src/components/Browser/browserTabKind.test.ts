@@ -1,7 +1,8 @@
 /**
  * The one glyph a browser tab shows, when several kinds are true at once. The
  * agent stays first; the heavy kinds slot after the connection kinds and before
- * the facts nobody can act on. On the corner the console errors beat any kind.
+ * the facts nobody can act on. On the corner the console errors beat any kind
+ * but a link that is not live.
  *
  * @covers BROWSER-HEAVY-04
  * @covers TABSLOT-03
@@ -29,9 +30,15 @@ describe('browserTabKind order', () => {
 });
 
 describe('browserCornerMark: one mark on the favicon corner', () => {
-  test('the console errors beat every kind, states and facts alike', () => {
-    for (const kind of ['agent', 'disconnected', 'connecting', 'degraded', 'heavy-paused', 'heavy', 'chromium', 'shared', undefined] as const) {
+  test('the console errors beat the agent, the heavy page and the facts', () => {
+    for (const kind of ['agent', 'heavy-paused', 'heavy', 'chromium', 'shared', undefined] as const) {
       expect(browserCornerMark(kind, 3)).toBe('errors');
+    }
+  });
+
+  test('a link that is not live beats the errors: without it the tally is frozen', () => {
+    for (const kind of ['disconnected', 'connecting', 'degraded'] as const) {
+      expect(browserCornerMark(kind, 3)).toBe('kind');
     }
   });
 

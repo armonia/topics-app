@@ -76,6 +76,9 @@ const consoleMessageSchema = z.object({
   type: z.literal('console'),
   level: z.enum(['log', 'warn', 'error']),
   text: z.string(),
+  /** The page the line was logged on: the pane drops a row when it lands on
+   *  another document. Optional: an older server does not send it. */
+  pageUrl: z.optional(z.string()),
 });
 
 const takeControlMessageSchema = z.object({

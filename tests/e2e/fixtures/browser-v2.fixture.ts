@@ -339,10 +339,27 @@ export class BrowserProcessPageV2 extends BrowserProcessPage {
     this.wsRouteRef.send(JSON.stringify({ type: 'download', ...info }));
   }
 
-  /** Send a synthetic console message over the active WS route. */
-  sendConsole(level: 'log' | 'warn' | 'error', text: string): void {
+  /** Send a synthetic console message over the active WS route. `pageUrl` is
+   *  the page the server says the line was logged on (absent: an older server). */
+  sendConsole(level: 'log' | 'warn' | 'error', text: string, pageUrl?: string): void {
     if (!this.wsRouteRef) throw new Error('mockBrowserWs() must be called first');
-    this.wsRouteRef.send(JSON.stringify({ type: 'console', level, text }));
+    this.wsRouteRef.send(JSON.stringify({ type: 'console', level, text, ...(pageUrl ? { pageUrl } : {}) }));
+  }
+
+  /** The server page finished loading `url` (the server's `load` broadcast). */
+  sendNavLoaded(url: string): void {
+    if (!this.wsRouteRef) throw new Error('mockBrowserWs() must be called first');
+    this.wsRouteRef.send(JSON.stringify({ type: 'nav', url, phase: 'response' }));
+  }
+
+  /**
+   * Drop the link AND keep it down: every reconnect from here on is closed on
+   * arrival. `closeWs()` alone is a transient drop, answered by the next
+   * backoff tick (~1s), too short to look at what a lost link shows.
+   */
+  async dropWsForGood(): Promise<void> {
+    await this.page.routeWebSocket(/\/ws\/browser\//, (ws) => { ws.close(); });
+    this.closeWs();
   }
 
   /**

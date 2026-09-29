@@ -114,8 +114,8 @@ export function BrowserTabIcon({ paneId, url }: { paneId: string; url: string })
  * between the favicon and the title, a fourth zone that pushed the label 20px
  * to the right every time the agent took the wheel.
  *
- * Which mark wins when both are true is `browserCornerMark`: the console
- * errors, then the kind. Neither is a command: "take back control" has its own
+ * Which mark wins when both are true is `browserCornerMark`: a link that is
+ * not live, then the console errors, then the kind. None is a command: "take back control" has its own
  * button (`BrowserTabTakeControl`), because a 10px corner on the favicon sits
  * on the Reload button, which fills the favicon's box.
  */

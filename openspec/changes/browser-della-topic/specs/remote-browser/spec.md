@@ -124,8 +124,8 @@ Nessun elemento DOM permanente SHALL stare sopra l'area della pagina di una sche
 browser. Lo stato di connessione, il motore e la modalità di condivisione SHALL
 comparire come un segno d'angolo sulla favicon della tab (TABSLOT-03), largo zero,
 solo quando differiscono dal tipo predefinito (vista nativa, non condivisa, connessa).
-Quando la pagina dà errori l'angolo SHALL mostrare gli errori e il tipo SHALL restare
-detto nel nome accessibile e nel tooltip della tab. I commutatori di motore e di resa
+Quando la pagina dà errori l'angolo SHALL mostrare gli errori, salvo un collegamento
+che non è vivo, e il tipo SHALL restare detto nel nome accessibile e nel tooltip della tab. I commutatori di motore e di resa
 SHALL stare nella sezione Sessione del foglio della tab.
 
 Il motore Playwright del server NON SHALL essere etichettato «Nativo».
