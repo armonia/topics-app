@@ -2,8 +2,8 @@
  * REORGANISING THE SPLITS IS INSTANT: NO PANE IS REBUILT, AND A DIVIDER DRAG
  * DOES NOT RENDER PER POINTER MOVE.
  *
- * Attilio, 29/09: "alla riorganizzazione degli split sia tutto perfettamente
- * istantaneo performante e fluido". This file turns the three adjectives into
+ * Attilio, 29/09, asked that reorganising the splits be perfectly instant,
+ * performant and fluid. This file turns the three adjectives into
  * counts that do not depend on how loaded the machine is:
  *
  *  - INSTANT: every gesture (split by edge drop, split down, move a pane to
@@ -593,7 +593,7 @@ test.describe("split reorganisation budget", () => {
           .filter((x) => Number.isFinite(x))
           .sort((a, b) => a - b);
         const q = (p: number) => latency[Math.min(latency.length - 1, Math.floor(p * latency.length))] ?? NaN;
-        const longtaskSupported =
+        const longTaskApi =
           typeof PerformanceObserver !== "undefined" && PerformanceObserver.supportedEntryTypes.includes("longtask");
         return {
           moves: moves.length,
@@ -602,7 +602,7 @@ test.describe("split reorganisation budget", () => {
           gapsOver50: gaps.filter((g) => g > 50).length,
           p50: q(0.5),
           p95: q(0.95),
-          longtaskSupported,
+          longTaskApi,
         };
       });
       extra.push(`divider drag renders by owner: ${JSON.stringify(during.byOwner)} / release ${JSON.stringify(release.byOwner)}`);
@@ -611,7 +611,7 @@ test.describe("split reorganisation budget", () => {
       extra.push(
         `divider drag: ${timing.moves} mousemoves, ${timing.frames} frames, max frame gap ${timing.maxGap.toFixed(1)}ms, ` +
           `gaps>50ms ${timing.gapsOver50}, pointer->next frame p50 ${timing.p50.toFixed(1)}ms p95 ${timing.p95.toFixed(1)}ms, ` +
-          `longtask API ${timing.longtaskSupported ? "yes" : "absent (WebKit): frame gaps are the proxy"}`,
+          `longtask API ${timing.longTaskApi ? "yes" : "absent (WebKit): frame gaps are the proxy"}`,
       );
       // Counted on the commits that touched a tiling surface: the status bar or
       // the sidebar ticking during the drag is not the drag's cost.
