@@ -2,6 +2,18 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.407 — 2026-09-29
+
+### Sotto il cofano
+- one tab, three zones; state in one right slot that becomes Stop, then Close
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-29 [skip ci]
+- A tab keeps its label: one slot on the right carries its state and becomes Stop, then Close
+- Tab e2e measure three fixed zones, and the specs that pinned trailing signals follow them to the slot and the icon corner
+- The ring stays a circle around the number, and the tab's command ends at ROW_PX like the row's, on the signal it replaces
+- The org-sharing corner mark stands for the project marker, and three comments stop naming what the tab no longer uses
+- The kill-race test of the ai-bridge daemon accepts the old child's own exit before the new spawn, and still refuses one after it
+- A frozen tab says «pausa» in its accessible name, since its one slot only has room for the snowflake
+
 ## 2.2.406 — 2026-09-29
 
 ### Sotto il cofano

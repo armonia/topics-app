@@ -1,5 +1,58 @@
 [
   {
+    "version": "2.2.407",
+    "date": "2026-09-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "one tab, three zones; state in one right slot that becomes Stop, then Close",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-29 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "A tab keeps its label: one slot on the right carries its state and becomes Stop, then Close",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Tab e2e measure three fixed zones, and the specs that pinned trailing signals follow them to the slot and the icon corner",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The ring stays a circle around the number, and the tab's command ends at ROW_PX like the row's, on the signal it replaces",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The org-sharing corner mark stands for the project marker, and three comments stop naming what the tab no longer uses",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The kill-race test of the ai-bridge daemon accepts the old child's own exit before the new spawn, and still refuses one after it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A frozen tab says «pausa» in its accessible name, since its one slot only has room for the snowflake",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.406",
     "date": "2026-09-29",
     "sections": {
