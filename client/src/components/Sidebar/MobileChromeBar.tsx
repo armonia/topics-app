@@ -313,6 +313,9 @@ export function MobileChromeBar({ onSearch, addSlot, boardInFront, onToggleBoard
           forma={forma(3)}
           disabled={waitingCount === 0}
           titolo={waitingCount === 0 ? tr('sidebar.noChatWaiting') : tr('sidebar.waitingDoorTitle')}
+          // The number is only drawn (the badge), so the name has to say it:
+          // the label and the count, zero included when nothing waits.
+          accessibleName={tr('sidebar.waitingDoorName', { n: waitingCount })}
         >
           <span className="relative flex">
             <Hourglass size={22} aria-hidden="true" />
@@ -408,7 +411,7 @@ function PortaProfilo({ onClick, forma }: { onClick: () => void; forma: FormaSca
  * rotazione, e Tailwind compila le classi che vede nel sorgente. Il filo di
  * `edge-lit` lo segue da sé — quel bordo eredita il raggio (`inherit`).
  */
-function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, forma, disabled }: {
+function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, forma, disabled, accessibleName }: {
   etichetta: string;
   onClick: () => void;
   children: ReactNode;
@@ -419,6 +422,9 @@ function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, for
   /** Off, but in place: glyph and word dim, the raised ground stays
    *  (MOBILE-CHROME-06 measures the ground of every door at rest). */
   disabled?: boolean;
+  /** The accessible name when it must carry more than the title, e.g. a
+   *  count that is only drawn. The title then stays the tooltip. */
+  accessibleName?: string;
 }) {
   const tone = attivo
     ? `${SIDEBAR_ACTIVE} text-primary`
@@ -430,7 +436,7 @@ function BottoneFila({ etichetta, onClick, children, attivo, testId, titolo, for
       disabled={disabled}
       data-testid={testId}
       title={titolo ?? etichetta}
-      aria-label={titolo ?? etichetta}
+      aria-label={accessibleName ?? titolo ?? etichetta}
       // `h-full`, not `h-11`: the slab is as tall as the strip. The reading
       // band stays 44 and stays at the TOP (`justify-start` plus the inner
       // box), so the five words keep sitting on one line while the surface
