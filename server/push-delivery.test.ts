@@ -24,7 +24,7 @@ import { initDatabase, closeDatabase, getDatabase } from "./db";
 
 // The decryptor web-push itself is built on, resolved from web-push's own
 // location: it is what a receiving device does with the body.
-const ece = createRequire(require.resolve("web-push"))("http_ece") as {
+const httpContentEncoding = createRequire(require.resolve("web-push"))("http_ece") as {
   decrypt: (buf: Buffer, params: { version: string; privateKey: ReturnType<typeof createECDH>; authSecret: Buffer }) => Buffer;
 };
 
@@ -64,10 +64,10 @@ beforeEach(() => {
 });
 
 function subscriber() {
-  const ecdh = createECDH("prime256v1");
-  ecdh.generateKeys();
+  const keyPair = createECDH("prime256v1");
+  keyPair.generateKeys();
   const auth = randomBytes(16);
-  return { ecdh, auth, p256dh: ecdh.getPublicKey().toString("base64url"), authB64: auth.toString("base64url") };
+  return { keyPair, auth, p256dh: keyPair.getPublicKey().toString("base64url"), authB64: auth.toString("base64url") };
 }
 
 function vapid(): VapidDetails {
@@ -132,7 +132,7 @@ describe("deliverPush: the request a push service receives", () => {
 
     // The device's check: only its private key opens the body, and the body
     // is the payload the trigger built.
-    const clear = ece.decrypt(req.body, { version: "aes128gcm", privateKey: sub.ecdh, authSecret: sub.auth });
+    const clear = httpContentEncoding.decrypt(req.body, { version: "aes128gcm", privateKey: sub.keyPair, authSecret: sub.auth });
     expect(JSON.parse(clear.toString("utf8"))).toEqual(payload);
 
     expect(lines).toContain(`[Push] delivered tag=chat-end-t1 to="iPhone" via=127.0.0.1:${fakeService.port} status=201`);
@@ -235,7 +235,7 @@ describe("sendPushToAll: from the table to the wire", () => {
     const byPath = new Map(received.map((r) => [r.path, r]));
     expect([...byPath.keys()].sort()).toEqual(["/gone/old", "/ok/mac", "/ok/phone"]);
     const open = (path: string, s: ReturnType<typeof subscriber>) =>
-      JSON.parse(ece.decrypt(byPath.get(path)!.body, { version: "aes128gcm", privateKey: s.ecdh, authSecret: s.auth }).toString("utf8"));
+      JSON.parse(httpContentEncoding.decrypt(byPath.get(path)!.body, { version: "aes128gcm", privateKey: s.keyPair, authSecret: s.auth }).toString("utf8"));
     expect(open("/ok/phone", phone)).toEqual({ title: "💬 Rifai lo schema", body: "Claude ha finito di rispondere", tag: "chat-end-t1", url: "/topic/t1", whenOpen: "native" });
     expect(open("/ok/mac", mac).whenOpen).toBe("in-app");
 

@@ -15,11 +15,11 @@
  * address that reproduces the phone's branch of `boot.js`.
  *
  * Only the push SERVICE is faked (`PushManager.subscribe` / `getSubscription`
- * and the permission prompt): there is no Apple or Mozilla endpoint here, and
- * the fake endpoint lives under `.invalid`, a TLD that never resolves, so the
- * test server cannot deliver anything to a real device. The worker
- * registration, the settings card, the subscribe route and the SQLite row are
- * the real ones.
+ * and the permission prompt, which follows WebKit's gesture rule): there is no
+ * Apple or Mozilla endpoint here, and the fake endpoint lives under `.invalid`,
+ * a TLD that never resolves, so the test server cannot deliver anything to a
+ * real device. The worker registration, the settings card, the subscribe route
+ * and the SQLite row are the real ones.
  */
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/settings.fixture";
@@ -39,6 +39,7 @@ const PHONE_LIKE_ORIGIN = E2E_BASE.replace("//localhost:", "//127.0.0.1:");
 function stubPushService(): void {
   const SUB_KEY = "e2e.fakePushEndpoint";
   const PERM_KEY = "e2e.fakeNotificationPermission";
+  const CALLS_KEY = "e2e.permissionRequests";
   // A syntactically valid P-256 public key and auth secret: the server stores
   // them, it never uses them in this test.
   const keys = {
@@ -64,7 +65,16 @@ function stubPushService(): void {
     configurable: true,
     get: () => sessionStorage.getItem(PERM_KEY) ?? "default",
   });
+  // WebKit's rule, the one the iPhone applies: a request made outside a user
+  // gesture resolves "denied" with no prompt and leaves the permission at
+  // "default"; only a request inside the tap shows "Allow" (granted here).
+  // Every call is logged with whether a gesture was active.
   N.requestPermission = () => {
+    const active = (navigator as { userActivation?: { isActive: boolean } }).userActivation?.isActive === true;
+    const log = JSON.parse(sessionStorage.getItem(CALLS_KEY) ?? "[]") as boolean[];
+    log.push(active);
+    sessionStorage.setItem(CALLS_KEY, JSON.stringify(log));
+    if (!active) return Promise.resolve("denied");
     sessionStorage.setItem(PERM_KEY, "granted");
     return Promise.resolve("granted");
   };
@@ -75,21 +85,26 @@ function stubPushService(): void {
   if (typeof w.PushManager === "undefined") {
     w.PushManager = class PushManager {} as unknown;
   }
-  const PM = w.PushManager as { new (): object; prototype: Record<string, unknown> };
-  const SWR = w.ServiceWorkerRegistration as { prototype: object } | undefined;
-  if (SWR && !("pushManager" in SWR.prototype)) {
-    const shared = new PM();
-    Object.defineProperty(SWR.prototype, "pushManager", { configurable: true, get: () => shared });
+  const PushManagerClass = w.PushManager as { new (): object; prototype: Record<string, unknown> };
+  const RegistrationClass = w.ServiceWorkerRegistration as { prototype: object } | undefined;
+  if (RegistrationClass && !("pushManager" in RegistrationClass.prototype)) {
+    const shared = new PushManagerClass();
+    Object.defineProperty(RegistrationClass.prototype, "pushManager", { configurable: true, get: () => shared });
   }
-  PM.prototype.subscribe = function subscribe() {
+  PushManagerClass.prototype.subscribe = function subscribe() {
     const endpoint = `https://push.invalid/e2e/${Math.random().toString(36).slice(2)}`;
     sessionStorage.setItem(SUB_KEY, endpoint);
     return Promise.resolve(fakeSubscription(endpoint));
   };
-  PM.prototype.getSubscription = function getSubscription() {
+  PushManagerClass.prototype.getSubscription = function getSubscription() {
     const endpoint = sessionStorage.getItem(SUB_KEY);
     return Promise.resolve(endpoint ? fakeSubscription(endpoint) : null);
   };
+}
+
+/** Every permission request so far: `true` = made inside a user gesture. */
+async function permissionRequests(page: import("@playwright/test").Page): Promise<boolean[]> {
+  return page.evaluate(() => JSON.parse(sessionStorage.getItem("e2e.permissionRequests") ?? "[]") as boolean[]);
 }
 
 /** Is a service worker registered for this page right now? */
@@ -121,8 +136,15 @@ test.describe("Phone push: enrolment from Settings", () => {
     const enable = page.getByTestId("push-subscribe");
     await expect(enable).toBeEnabled();
 
-    // 3. One tap: permission, subscription, server row.
+    // 3. One tap: permission, subscription, server row. Any request made
+    //    before the tap had no gesture, so it was answered "denied" and the
+    //    permission is still undecided: the tap itself must ask, inside the
+    //    gesture, or no "Allow" ever appears on the phone.
+    const before = await permissionRequests(page);
+    expect(before.every((inGesture) => !inGesture)).toBe(true);
+    expect(await page.evaluate(() => Notification.permission)).toBe("default");
     await enable.click();
+    await expect.poll(() => permissionRequests(page)).toEqual([...before, true]);
     await expect(headline).toContainText("Iscritto: le notifiche arrivano anche ad app chiusa");
 
     const deviceId = await page.evaluate(() => localStorage.getItem("topics.push.deviceId"));

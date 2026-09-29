@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { primeWebNotificationPermission } from "../lib/shell/app";
+import { requestWebNotificationPermissionFromTap } from "../lib/shell/app";
 import { describePushState, type PushStatusView } from "../lib/push/pushStatus";
 import { ensurePushRegistration, pushDeviceId, pushCapable, readPushEnvironment } from "../lib/push/environment";
 import { usePushDeviceStore, type PushWhenOpen } from "../state/pushDevice";
@@ -107,7 +107,10 @@ export function usePushNotifications() {
     if (!pushCapable()) return false;
     setLoading(true);
     try {
-      const permission = await primeWebNotificationPermission();
+      // Asked synchronously, before any other await: iOS shows the "Allow"
+      // prompt only inside the tap, and a request made outside it comes back
+      // "denied" without a prompt.
+      const permission = await requestWebNotificationPermissionFromTap();
       if (permission !== "granted") {
         // Anche un rifiuto va DETTO: `describePushState` legge il permesso vero
         // e trasforma il no in «negato dal sistema, si riattiva da lì» invece di
