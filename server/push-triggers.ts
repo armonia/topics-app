@@ -9,6 +9,7 @@ import {
   type NotificationRecordInput,
 } from "../shared/notification-log";
 import { questionAsksHuman } from "../shared/board";
+import { isCleanChatTurnEnd } from "../shared/chat-turn-end";
 import { outageNoticeResumes } from "./lib/cancelled-notice";
 
 // Il modulo è puro (nessuna dipendenza dal DB), ma la push di fine chat vuole il
@@ -351,11 +352,9 @@ export function maybeSendPush(message: Record<string, any>): void {
       });
       return;
     }
-    const dirty =
-      message.reason === "user_abort" ||
-      message.stopCause === "watchdog" ||
-      message.stopReason === "cancelled";
-    if (message.completed !== true || dispatched || dirty || !topicId) return;
+    // The gates listed at the top of this branch, as one predicate shared with the in-page banner
+    // (client/src/lib/notify/chatFinished.ts): same fact, same rule.
+    if (!isCleanChatTurnEnd(message)) return;
     // Archiviato o mutato → niente push. Una chat chiusa che finisce un turno
     // (il dispatcher che pota, un reattach che chiude un giro) non è un evento
     // per cui svegliare qualcuno, e il nome che porterebbe è quello di una

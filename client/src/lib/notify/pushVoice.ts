@@ -25,6 +25,7 @@ export type NotifyEventKind =
   | 'task:review-ready'
   | 'task:parked'
   | 'message:new'
+  | 'stream:end'
   | 'session:state';
 
 /**
@@ -38,6 +39,8 @@ export const PUSH_COVERED_EVENTS: ReadonlySet<NotifyEventKind> = new Set<NotifyE
   'task:review-ready',
   'task:parked',
   'message:new',
+  // The clean end of a chat turn IS the server's reply push, the very same frame.
+  'stream:end',
 ]);
 
 /**

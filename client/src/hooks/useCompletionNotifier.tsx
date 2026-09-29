@@ -11,6 +11,8 @@ import { isAgentTurnNoise } from '../lib/notify/dispatchedTopic';
 import { isTopicMuted as isTopicMutedPure } from '../lib/notify/muteGate';
 import { bannerClaimKey, bannerClaimant, claimMessageBanner } from '../lib/notify/messageBannerClaim';
 import { decideMessageBanner } from '../lib/notify/messageBanner';
+import { decideChatFinishedBanner, isChatPaneSelected } from '../lib/notify/chatFinished';
+import { isCleanChatTurnEnd } from '../../../shared/chat-turn-end';
 import { backgroundNoticeOf, machineStopOf } from '../components/Chat/machineRow';
 import { buildNotifyActions, type NotifyAction } from '../../../shared/notify-actions';
 import { questionAsksHuman } from '../../../shared/board';
@@ -43,6 +45,7 @@ const REGISTRY_KIND: Record<NotifyEventKind, NotificationKind> = {
   'task:review-ready': 'task-review',
   'task:parked': 'task-parked',
   'message:new': 'chat-message',
+  'stream:end': 'chat-message',
   'session:state': 'session',
 };
 
@@ -523,6 +526,63 @@ export function useCompletionNotifier({
           { dedupeKey: chatNotificationKey(msg.topicId), topicId: msg.topicId },
           null,
           decision.tag,
+        );
+      });
+  });
+
+  // ── Chat turn finished (the chat twin of the terminal pty `finished`) ──
+  // Every chat runtime ends a clean turn with `stream:end { completed: true }`,
+  // hooks or not. Before this handler the client read that frame only to re-sort
+  // the sidebar, so a chat without Claude Code hooks (provider `topics`, Topics
+  // routing, codex, jcode, ACP) finished with no banner at all: `session:state`
+  // never comes for it, and `message:new` banners only a HIDDEN window, while a
+  // Topics window behind another app is `visible`.
+  //
+  // A hook chat gets here too, and gets one banner, not two: its awaiting-user
+  // `session:state` lands a few hundred ms before `stream:end` and both paths
+  // share the bare-topic-id cooldown. The hidden-window `message:new` banner
+  // writes `msg:<topicId>`, read here for the same reason.
+  useWSSubscription(onWSMessage, 'stream:end', async (msg) => {
+      if (!isCleanChatTurnEnd(msg)) return;
+      const topicId = msg.topicId;
+      const cfg = settingsRef.current;
+      if (!cfg.notificationsEnabled) return;
+      const topic = topicsRef.current[topicId] ?? (await ensureTopicRef.current?.(topicId)) ?? null;
+      const task = taskForTopicRef.current?.(topicId) ?? null;
+      const lastFires = [cooldownRef.current.get(topicId), cooldownRef.current.get(`msg:${topicId}`)]
+        .filter((t): t is number => t !== undefined);
+      const decision = decideChatFinishedBanner({
+        topicId,
+        notificationsEnabled: cfg.notificationsEnabled,
+        topicName: topic?.name,
+        archived: !!topic?.archived,
+        muted: isTopicMuted(topicId),
+        agentWorking: isAgentWorking(task?.dispatchState),
+        isFocusedAndVisible: isTabActivelyVisible(
+          isChatPaneSelected(topicId, focusedRef.current, useProjectFocusStore.getState().activePaneByProject),
+          typeof document !== 'undefined' ? document.hasFocus() : true,
+        ),
+        notifyEvenWhenFocused: cfg.notifyEvenWhenFocused,
+        lastFiredAt: lastFires.length ? Math.max(...lastFires) : undefined,
+        now: Date.now(),
+      });
+      if (!decision) return;
+      cooldownRef.current.set(decision.cooldownKey, Date.now());
+      // The frame is a broadcast: with detached groups N windows receive it and
+      // every gate above is true in all of them. One delivery per turn end, not
+      // per window, through the same shared claim as `message:new`.
+      const claimKey = `turn-end:${msg.messageId ?? `${topicId}:${msg.latencyMs ?? ''}`}`;
+      void claimMessageBanner(claimKey, bannerClaimant()).then((mine) => {
+        if (!mine) return;
+        fire(
+          'stream:end',
+          decision.title,
+          decision.body,
+          cfg.notificationsSound,
+          // The key of the server's reply push for the same turn end: one row.
+          { dedupeKey: chatNotificationKey(topicId), topicId },
+          task?.taskId ?? null,
+          `topic-${topicId}`,
         );
       });
   });
