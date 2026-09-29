@@ -1,6 +1,6 @@
 import { memo, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useT } from '../../hooks/useT';
-import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Target, Trash2 } from 'lucide-react';
+import { Copy, Check, Pin, Brain, Pencil, ChevronLeft, ChevronRight, RotateCw, Target, Trash2, GitBranch } from 'lucide-react';
 import { backgroundNoticeOf, processExitOf } from './machineRow';
 import { ProcessExitRow } from './ProcessExitRow';
 import { BackgroundNoticeLine } from './BackgroundNoticeLine';
@@ -110,6 +110,9 @@ interface MessageBubbleProps {
   /** Regenerate this assistant reply as a sibling branch (host gates it off
    *  while the session is streaming). */
   onRegenerate?: (msg: ChatMessage) => void;
+  /** Fork the chat into a new one from here (CHAT-FORK-04). The list passes it
+   *  only to the chat's last word when that is a finished answer. */
+  onFork?: () => void;
   /** Delete this message + its descendant branches. Two-click confirm is
    *  handled locally (the button arms, then fires). */
   onDeleteMessage?: (msg: ChatMessage) => void;
@@ -153,6 +156,7 @@ export const MessageBubble = memo(function MessageBubble({
   onRemember,
   onEdit,
   onRegenerate,
+  onFork,
   onDeleteMessage,
   onSwitchBranch,
   onMessage,
@@ -426,6 +430,17 @@ export const MessageBubble = memo(function MessageBubble({
                   data-testid="msg-action-regenerate"
                 >
                   <RotateCw size={14} />
+                </button>
+              )}
+              {onFork && (
+                <button
+                  onClick={onFork}
+                  className={actionBtnClass}
+                  title={tr('chat.message.fork')}
+                  aria-label={tr('chat.message.forkAria')}
+                  data-testid="msg-action-fork"
+                >
+                  <GitBranch size={14} />
                 </button>
               )}
               {onDeleteMessage && !msg.partial && (

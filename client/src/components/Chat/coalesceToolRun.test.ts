@@ -7,10 +7,10 @@
  * volte su centodiciassette. `toolGrouping` era giusto e restava verde: il
  * difetto era che gli arrivava sempre un array di lunghezza uno.
  *
- * @covers CHAT-TOOL-02
+ * @covers CHAT-TOOL-02, CHAT-FORK-05
  */
 import { describe, it, expect } from 'bun:test';
-import { coalesceToolRuns, isWorkOnlyAssistant, blocksOf } from './coalesceToolRun';
+import { coalesceToolRuns, isWorkOnlyAssistant, blocksOf, itemHolds } from './coalesceToolRun';
 import type { ChatMessage, ToolCall } from '../../types';
 
 let seq = 0;
@@ -277,5 +277,25 @@ describe('the line under a turn the machine stopped', () => {
     const tools = msg({ blocks: [{ kind: 'woken' }, { kind: 'tool', toolCall: tool('Bash') }] });
     expect(isWorkOnlyAssistant(stop)).toBe(false);
     expect(coalesceToolRuns([stop, tools]).items.map((m) => m.id)).toEqual([stop.id, tools.id]);
+  });
+});
+
+describe('a row absorbed into a run is still found on its item', () => {
+  it('the fork point on the LAST tool-only row of an imported chat: the divider has an item to sit under', () => {
+    // An adopted Claude Code chat is one row per block. When its active branch
+    // ends on two tool-only rows, the fork point is the last of them, and the
+    // list draws both as ONE item carrying the first row's id.
+    const prompt = msg({ role: 'user', content: 'run it' });
+    const first = azione('Bash');
+    const point = azione('Read');
+    const { items } = coalesceToolRuns([prompt, first, point]);
+    expect(items.map((m) => m.id)).toEqual([prompt.id, first.id]);
+    expect(items.filter((m) => itemHolds(m, point.id)).map((m) => m.id)).toEqual([first.id]);
+  });
+
+  it('an item that absorbed nothing holds its own row and no other', () => {
+    const answer = msg({ content: 'done' });
+    expect(itemHolds(answer, answer.id)).toBe(true);
+    expect(itemHolds(answer, 'elsewhere')).toBe(false);
   });
 });

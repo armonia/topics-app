@@ -28,7 +28,7 @@ import {
   type ScrollAuthorityState,
   type ScrollEvent,
 } from './scrollAuthority';
-import { coalesceToolRuns, type CoalescedMessage } from './coalesceToolRun';
+import { coalesceToolRuns, itemHolds, type CoalescedMessage } from './coalesceToolRun';
 import { SkeletonChatMessages } from '../Shared/Skeleton';
 import { listPaintedAndWhole } from './listPaintedAndWhole';
 import { decideHistoryCompletion } from './historyCompletionDecision';
@@ -37,7 +37,8 @@ import { resolvePromptNumbers } from './promptNumber';
 import { usePaneAlive } from '../../state/paneLiveness';
 import type { QueuedTurn } from '../../state/chatQueue';
 import { QueuedTurns } from './QueuedTurns';
-import { lastConversationMessage } from './machineRow';
+import { isMachineRow, lastConversationMessage } from './machineRow';
+import { ForkOriginDivider } from './ForkOriginDivider';
 
 /**
  * La LISTA di Virtuoso, cappata alla misura di lettura.
@@ -123,6 +124,8 @@ interface MessageListProps {
   onRemember?: (msg: ChatMessage) => void;
   onEdit?: (msg: ChatMessage) => void;
   onRegenerate?: (msg: ChatMessage) => void;
+  /** «Fork into a new chat» (CHAT-FORK-04): drawn only on the chat's last word, when it is a finished answer. */
+  onFork?: () => void;
   onDeleteMessage?: (msg: ChatMessage) => void;
   onSwitchBranch?: (messageId: string, branchIndex: number) => void;
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
@@ -185,6 +188,7 @@ export function MessageList({
   onRemember,
   onEdit,
   onRegenerate,
+  onFork,
   onDeleteMessage,
   onSwitchBranch,
   onMessage,
@@ -2116,6 +2120,11 @@ export function MessageList({
                   onRemember={onRemember}
                   onEdit={onEdit}
                   onRegenerate={onRegenerate}
+                  // The same anchor as Retry (`lastWord` skips the background
+                  // notices after it), and only on a finished answer somebody
+                  // said: during a turn the last word is the reply in flight,
+                  // after a cut turn it is the stop line.
+                  onFork={isLastAssistant && !msg.partial && !isMachineRow(msg.blocks) ? onFork : undefined}
                   onDeleteMessage={onDeleteMessage}
                   onSwitchBranch={onSwitchBranch}
                   onMessage={onMessage}
@@ -2124,6 +2133,7 @@ export function MessageList({
                 />
               </div>
               </CompactionHoistContext.Provider>
+              {topic.forkedFrom && itemHolds(msg, topic.forkedFrom.atMessageId) && <ForkOriginDivider origin={topic.forkedFrom} />}
               {trailingMarkers && trailingMarkers.map((mk) => (
                 <CompactionDivider key={mk.id} marker={mk} summary={trailingSummary ?? undefined} />
               ))}

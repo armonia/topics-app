@@ -603,6 +603,9 @@ export default defineConfig({
         // A turn over the HTTP fallback keeps its answer on its own bubble, in
         // two windows, live and after a reload.
         "**/chat-sse-own-row.spec.ts",
+        // «Fork into a new chat» and `/fork`: the new tab with the copied
+        // history and its «Forked from» line, filmed on the engine that ships.
+        "**/chat-fork-new-chat.spec.ts",
       ],
       use: {
         browserName: "webkit",

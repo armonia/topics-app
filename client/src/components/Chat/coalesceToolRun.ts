@@ -51,6 +51,15 @@ export interface CoalescedMessage extends ChatMessage {
 }
 
 /**
+ * Whether this item draws the row `id`: its own, or one it absorbed. What
+ * anchors to a row (the «Forked from» divider) must look here, not at `id`
+ * alone, or a row folded into a run has nowhere to sit.
+ */
+export function itemHolds(item: CoalescedMessage, id: string): boolean {
+  return item.id === id || !!item.mergedIds?.includes(id);
+}
+
+/**
  * Il messaggio è una riga di CRONACA — lavoro senza parole?
  *
  * `content` vuoto e almeno un tool (o del ragionamento). È esattamente la

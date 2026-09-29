@@ -9,7 +9,7 @@
  * Quando un cambio è voluto si aggiorna la fotografia, e il diff del commit
  * mostra esattamente cosa si è deciso di cambiare. Quando non lo è, il rosso è
  * la domanda giusta al momento giusto.
-  * @covers CCLI-07
+  * @covers CCLI-07, CHAT-FORK-02
  */
 import { describe, expect, test } from "bun:test";
 import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim, TRIMMED_TOOLS_CHAT, TRIMMED_TOOLS_DISPATCHED } from "./args";
@@ -276,6 +276,32 @@ describe("buildClaudeArgs — la fotografia", () => {
     ]);
   });
 
+  test("forked chat, first start: the tail forks the parent at the point, onto OUR uuid", () => {
+    const args = buildClaudeArgs({
+      ...BASE, effort: null, isNewSession: false,
+      forkFrom: { sessionId: "parent-0000", atUuid: "point-uuid-1" },
+    });
+    // The whole tail, in order: it decides what the branch's model remembers.
+    expect(args.slice(-7)).toEqual([
+      "--resume", "parent-0000",
+      "--resume-session-at", "point-uuid-1",
+      "--fork-session",
+      "--session-id", "11111111-2222-3333-4444-555555555555",
+    ]);
+    // The branch's own id is never resumed on the forking start: it does not exist yet.
+    expect(args.filter((a) => a === "--resume")).toHaveLength(1);
+  });
+
+  test("without a fork neither flag appears, on a minted or on a resumed session", () => {
+    for (const isNewSession of [true, false]) {
+      for (const forkFrom of [null, undefined]) {
+        const args = buildClaudeArgs({ ...BASE, isNewSession, forkFrom });
+        expect(args).not.toContain("--fork-session");
+        expect(args).not.toContain("--resume-session-at");
+      }
+    }
+  });
+
   test("sessione RIPRESA: `--resume` al posto di `--session-id`", () => {
     const args = buildClaudeArgs({ ...BASE, effort: null, isNewSession: false });
     expect(args).toContain("--resume");
@@ -309,18 +335,20 @@ describe("buildClaudeArgs — la fotografia", () => {
   });
 
   test("ogni flag ha il suo valore subito dopo: niente coppie spaiate", () => {
-    const args = buildClaudeArgs({ ...BASE, effort: "high" });
     const takesValue = new Set([
       "--permission-mode", "--model", "--effort", "--setting-sources", "--mcp-config",
       "--permission-prompt-tool", "--append-system-prompt", "--input-format",
-      "--output-format", "--session-id", "--resume",
+      "--output-format", "--session-id", "--resume", "--resume-session-at",
     ]);
-    for (let i = 0; i < args.length; i++) {
-      if (!takesValue.has(args[i]!)) continue;
-      const value = args[i + 1];
-      expect(value).toBeDefined();
-      expect(value!.startsWith("--")).toBe(false);
-      i++;
+    const forked = { sessionId: "parent-0000", atUuid: "point-uuid-1" };
+    for (const args of [buildClaudeArgs({ ...BASE, effort: "high" }), buildClaudeArgs({ ...BASE, effort: "high", isNewSession: false, forkFrom: forked })]) {
+      for (let i = 0; i < args.length; i++) {
+        if (!takesValue.has(args[i]!)) continue;
+        const value = args[i + 1];
+        expect(value).toBeDefined();
+        expect(value!.startsWith("--")).toBe(false);
+        i++;
+      }
     }
   });
 });

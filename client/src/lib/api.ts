@@ -187,6 +187,15 @@ export const topicsApi = {
      giorno in cui l'adozione torna ad avere una superficie, il client la
      richiama da lì. Un metodo senza chiamanti, invece, marcisce.) */
 
+  /**
+   * Fork a chat into a new one (CHAT-FORK-01): a topic with a copy of the
+   * active branch up to the last finished answer. A refusal carries a `code`
+   * (`turn_in_progress`, `fork_unsupported`, `nothing_to_fork`) for `apiErrorCode`.
+   */
+  async fork(id: string, data: { name?: string }): Promise<Topic> {
+    return request<Topic>(`/topics/${encodeURIComponent(id)}/fork`, { method: 'POST', body: JSON.stringify(data) });
+  },
+
   async update(id: string, data: UpdateTopicRequest): Promise<Topic> {
     return request<Topic>(`/topics/${id}`, {
       method: 'PATCH',

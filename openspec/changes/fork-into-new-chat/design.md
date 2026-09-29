@@ -40,8 +40,18 @@ risposta 201.
 
 `copyThreadForFork(rows)` è pura, in `server/lib/chat-fork.ts`: id nuovi
 (`crypto.randomUUID()`), `parentId` rimappato sulla riga copiata precedente,
-`branchIndex: 0`, tutto il resto invariato. Il ramo copiato è lineare anche se
-l'originale aveva fratelli: il ramo parte da UNA storia, quella che vedevi.
+`branchIndex: 0`, tutto il resto invariato tranne il consumo. Il ramo copiato
+è lineare anche se l'originale aveva fratelli: il ramo parte da UNA storia,
+quella che vedevi.
+
+Il consumo resta sulle righe della madre: `costCents`, i token di prompt e di
+risposta e i tre di cache non si copiano (modello e latenza sì). Dashboard,
+profilo, consumo per progetto e per persona sommano `messages` su tutte le
+sessioni, e il ramo eredita `projectPath` e l'autore: copiato, ogni ramo di una
+chat costosa contava di nuovo la sua spesa, per sempre (secondo giro delle
+verifiche: un fork da 5 dollari portava il costo misurato da 5 a 10). Il prezzo
+è che la bolla copiata non mostra token e costo, ed è giusto: il ramo non li
+ha spesi.
 
 Perché non `POST /api/topics` più una copia dal client: sarebbero tre chiamate
 e un ramo mezzo creato al primo errore di rete, con la sessione della CLI
@@ -62,8 +72,12 @@ Per Claude Code il punto va detto anche alla CLI, perché `--fork-session` da
 solo copia la sessione della madre com'è al PRIMO AVVIO del ramo, non com'era
 al clic: se nel frattempo continui nell'originale, il modello del ramo
 conoscerebbe turni che la sua chat non mostra. Alla creazione la rotta legge il
-transcript della madre (`claudeTranscriptPath(cwd madre, id madre)`,
-`server/lib/claude-transcript-path.ts:83`) e prende `uuid` e testo dell'ultima
+transcript della madre dovunque la CLI l'abbia archiviato
+(`findClaudeTranscript(cwd madre, id madre)`,
+`server/lib/claude-transcript-path.ts`: prima la cwd attuale, poi ogni cartella
+di `~/.claude/projects`; una madre spostata di progetto dopo i suoi turni ha il
+transcript sotto la cwd di prima, e la CLI la riprende da qualunque cwd) e
+prende `uuid` e testo dell'ultima
 riga `type: "assistant"` che non sia `isSidechain`. Allo spawn quell'uuid va in
 `--resume-session-at` (misurato: il ramo preso a «LIVE-ONE» non conosce
 «LIVE-TWO»). Funzione pura `lastMainAssistant(jsonlText)` →
@@ -162,13 +176,13 @@ perché col fork il riepilogo non parte. Misurato (CLI 2.1.284): rifatto il fork
 con lo stesso id da un'altra cwd esce 0 e scrive un secondo transcript con la
 sola storia al punto del ramo.
 
-Una riga sola per ramo, scritta alla nascita. Per `claude-cli` non cambia più:
-il fork è legato a `branch_ref`, e ogni strada che dimentica la sessione lo
-consuma da sé (§6). Le sole modifiche ammesse sono `parent_ref = NULL` (con
-`parent_at`) in due casi:
+Una riga sola per ramo, scritta alla nascita. Il fork è legato a
+`branch_ref`, e ogni strada che dimentica la sessione lo consuma da sé (§6). Le
+sole modifiche ammesse sono `parent_ref = NULL` (con `parent_at`) in tre casi:
 
 - `codex-cli`, all'arrivo del `thread.started` di un turno `fork` e nel suo
   fallback (§7);
+- `claude-cli`, al primo `system/init` dello spawn col fork (§6);
 - `/clear` sul ramo, qualunque runtime (`server/routes/topics.ts:2909-2926`,
   una riga accanto a `clearActionFor`): una chat svuotata non riprende la
   storia di nessuno. Per Claude Code lo fa già `branch_ref`; per Codex serve,
@@ -244,6 +258,17 @@ e `buildClaudeArgs` riceve `forkFrom`. La coda dell'argv diventa:
   rifare il fork su un id che esiste è un errore della CLI (misurato,
   «already in use», exit 1). Uno spawn ucciso prima del primo messaggio non
   lascia il file, e allora il fork si rifà, giustamente.
+- Il primo `system/init` dello spawn col fork lo consuma (`parent_ref` nullo,
+  `consumeFork`), come il `thread.started` di Codex. Il controllo sul
+  transcript guarda solo la cwd attuale, e la cwd di una chat cambia
+  (`/project open`, `open_project`, l'autoBind dopo una risposta, un PATCH di
+  `projectPath`): senza il consumo, un ramo spostato di progetto dopo i suoi
+  turni rifaceva il fork dalla madre al respawn dopo (inattività, tetto di due
+  ore, config), e il modello dimenticava i turni del ramo senza riepilogo.
+  Misurato nel secondo giro delle verifiche (CLI 2.1.284): lo stesso argv col
+  fork lanciato da un'altra cwd esce 0 e risponde con la sola memoria della
+  madre. `spawnMeta.forkFrom` resta: i rifiuti del fork possono arrivare dopo
+  l'`init`, e il recupero li legge da lì.
 
 **Recupero.** `markMissingSessionRecovery` (`:3318`) dimentica la sessione e
 marca il processo per un respawn fresco, come oggi, e basta: il respawn conia

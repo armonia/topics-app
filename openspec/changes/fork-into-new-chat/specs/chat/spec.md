@@ -20,8 +20,12 @@ UNA transazione:
 - la copia del RAMO ATTIVO dell'originale (`loadActiveThread(sk, { withBlocks: true })`,
   `server/utils.ts:1300`) dalla radice al punto del ramo compreso, con id nuovi,
   `parentId` rimappati sulla riga copiata precedente e `branchIndex` 0, e per
-  ogni riga contenuto, blocchi, strumenti, allegati, pensiero, autore, orari e
-  consumo. Le righe `partial` NON SHALL essere copiate;
+  ogni riga contenuto, blocchi, strumenti, allegati, pensiero, autore, orari,
+  modello e latenza. Le righe `partial` NON SHALL essere copiate. Il consumo
+  (`costCents`, i token di prompt e di risposta, i tre token di cache) NON
+  SHALL essere copiato: per le copie nessuno ha chiamato un modello, e ogni
+  cifra di spesa (dashboard, profilo, consumo per progetto e per persona)
+  somma `messages` su tutte le sessioni, quindi copiato conterebbe due volte;
 - una riga in `chat_forks` con la madre, il suo nome, l'ultima riga copiata e
   il modo del runtime (CHAT-FORK-03).
 
@@ -64,6 +68,12 @@ madre), scelta 4 (il 409 `turn_in_progress`).
 - **THEN** il topic nuovo ha lo stesso modello, effort, autonomia, `projectPath` e `worktreeId`
 - **AND** ha `pinnedMessages` vuoto e `mcpPolicy` nullo
 
+#### Scenario: la copia non spende
+- **GIVEN** un topic la cui risposta ha costato 500 centesimi, con 100.000 token di prompt e 40.000 di cache
+- **WHEN** lo si dirama
+- **THEN** il costo misurato e i token del profilo (`computeProfileStats`) e i totali per progetto (`projectUsage`) sono gli stessi di prima
+- **AND** la copia della risposta ha lo stesso modello e la stessa latenza, e nessun costo né token
+
 #### Scenario: una riga a metà non si copia
 - **GIVEN** un ramo attivo che finisce con una risposta finita seguita da una riga `partial` rimasta da uno stream perso
 - **WHEN** lo si dirama
@@ -88,8 +98,12 @@ madre), scelta 4 (il 409 `turn_in_progress`).
 ### Requirement: CHAT-FORK-02 — La sessione Claude Code del ramo nasce da quella della madre, fissata al punto del ramo
 
 Per un ramo con runtime `claude-cli`, alla creazione la rotta SHALL leggere
-l'id di sessione della madre (`claude_code_sessions`) e il suo transcript
-(`claudeTranscriptPath`, `server/lib/claude-transcript-path.ts:83`), prendere
+l'id di sessione della madre (`claude_code_sessions`) e il suo transcript,
+dovunque la CLI l'abbia archiviato (`findClaudeTranscript`,
+`server/lib/claude-transcript-path.ts`: prima sotto la cwd attuale della
+madre, poi in ogni cartella di `~/.claude/projects`; una madre spostata di
+progetto dopo i suoi turni ha il transcript sotto la cwd di prima, e la CLI la
+riprende lo stesso), prendere
 come `parent_at` l'`uuid` dell'ultima riga `type: "assistant"` non
 `isSidechain`, coniare l'uuid del ramo e scriverlo in
 `claude_code_sessions(sessionKey del ramo, uuid del ramo)` con `import_offset`
@@ -124,7 +138,14 @@ presente l'argv SHALL finire con `--resume <ramo>` e SENZA `--fork-session`:
 rifare il fork su un id che esiste è un errore della CLI (misurato il 28/09,
 «Session ID … is already in use.», exit 1).
 
-Il fork SHALL avvenire al più una volta. Una sessione del ramo dimenticata
+Il fork SHALL avvenire al più una volta. Il primo `system/init` dello spawn
+col fork SHALL consumarlo: `parent_ref` e `parent_at` diventano nulli, come al
+`thread.started` di un turno `fork` di Codex (CODEX-02). Il controllo sul
+transcript del ramo guarda solo la cwd attuale, e la cwd di una chat cambia
+(`/project open`, `open_project`, l'autoBind, un PATCH di `projectPath`):
+senza il consumo un ramo spostato di progetto rifaceva il fork dalla madre, e
+il modello perdeva i turni del ramo senza riepilogo (misurato su CLI 2.1.284,
+secondo giro delle verifiche). Una sessione del ramo dimenticata
 (`/clear`, il reap della worktree, il recupero da sessione persa) SHALL farlo
 ripartire con un uuid diverso da `branch_ref`, quindi con `--session-id` e il
 riepilogo di ciò che il database ha in quel momento, MAI con `--fork-session`:
@@ -155,6 +176,17 @@ Le due bandiere SHALL stare in `CRITICAL_CLAUDE_FLAGS`
 - **WHEN** si monta l'argv di un nuovo spawn
 - **THEN** l'argv finisce con `--resume C`
 - **AND** non contiene `--fork-session` né `--resume-session-at`
+
+#### Scenario: un ramo spostato di progetto dopo il suo primo avvio riprende la sua sessione
+- **GIVEN** un ramo il cui primo spawn col fork ha ricevuto `system/init`
+- **WHEN** la chat passa a un altro progetto e si monta l'argv del suo spawn nella cwd nuova, dove il transcript del ramo non c'è
+- **THEN** l'argv finisce con `--resume C` e non contiene `--fork-session`
+- **AND** `parent_ref` del ramo è nullo
+
+#### Scenario: una madre spostata di progetto dopo i suoi turni si dirama
+- **GIVEN** una chat Claude Code il cui transcript sta sotto la cwd di prima, e il cui `projectPath` è ora un altro
+- **WHEN** la si dirama
+- **THEN** `parent_ref` è la sua sessione e `parent_at` l'uuid della sua ultima risposta
 
 #### Scenario: la madre non aveva una sessione
 - **GIVEN** un topic Claude Code con messaggi e nessuna riga in `claude_code_sessions` (per esempio una storia seminata)
@@ -331,6 +363,16 @@ conteggi dei messaggi.
 - **WHEN** si apre il ramo
 - **THEN** `fork-origin-divider` sta fra la seconda risposta e il terzo prompt, e dice «Diramata da Refactor login»
 - **AND** premendo il nome si apre «Refactor login»
+
+#### Scenario: il punto dentro una corsa di strumenti
+- **GIVEN** un ramo la cui storia copiata finisce con due righe di soli strumenti, che la lista disegna come UN elemento
+- **WHEN** si apre il ramo
+- **THEN** `fork-origin-divider` c'è, sotto quell'elemento
+
+#### Scenario: l'origine cancellata
+- **GIVEN** un ramo, e la riga della sua chat d'origine tolta da `topics` (chiudere una chat la archivia e la riga resta: l'origine archiviata si apre ancora dal nome)
+- **WHEN** si legge il ramo (`GET /api/topics/:id`, `GET /api/topics`)
+- **THEN** `forkedFrom.topicId` è nullo e `forkedFrom.name` è il nome dell'origine
 
 #### Scenario: il segno non è conversazione
 - **GIVEN** lo stesso ramo

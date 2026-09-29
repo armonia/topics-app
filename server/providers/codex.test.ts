@@ -6,10 +6,16 @@
  * deterministic upstream, neither of which is achievable here. The helpers
  * are where the real complexity lives anyway (multi-shape usage payloads
  * and double-encoded error messages).
-  * @covers CODEX-01, CHAT-COMPACT-01, CHAT-CHANGES-01
+  * @covers CODEX-01, CODEX-02, CHAT-COMPACT-01, CHAT-CHANGES-01
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { closeDatabase, getDatabase, initDatabase } from "../db";
+import { codexForkOf } from "./codex/fork";
+import { insertChatFork, readForkOrigin } from "../lib/chat-fork-store";
 import { CodexProvider, codexTopicsMcpProfile, extractCodexErrorMessage, extractCodexUsage, resolveCodexInvocation } from "./codex";
 import { aggregateTouchedFiles } from "../lib/topic-changes";
 import type { ToolCall } from "../../shared/types";
@@ -594,6 +600,90 @@ describe("resolveCodexInvocation", () => {
   test("starts fresh when the stored thread's rollout is gone (pruned CODEX_HOME, deleted session file, ...)", () => {
     expect(resolveCodexInvocation({ storedThreadId: "thread-stale", rolloutExists: false }))
       .toEqual({ mode: "fresh" });
+  });
+
+  // A forked chat (CODEX-02): its first turn forks the parent's thread.
+  const fork = (over: Partial<{ parentRolloutExists: boolean; parentUnchanged: boolean }> = {}) =>
+    ({ parentThreadId: "thread-parent", parentRolloutExists: true, parentUnchanged: true, ...over });
+
+  test("a branch's own thread wins over its fork", () => {
+    expect(resolveCodexInvocation({ storedThreadId: "thread-branch", rolloutExists: true, fork: fork() }))
+      .toEqual({ mode: "resume", threadId: "thread-branch" });
+  });
+
+  test("no thread of its own and the parent still as it was at the click: fork", () => {
+    expect(resolveCodexInvocation({ storedThreadId: null, rolloutExists: false, fork: fork() }))
+      .toEqual({ mode: "fork", parentThreadId: "thread-parent" });
+  });
+
+  test("the parent moved on, or is gone: fresh, on the copied history", () => {
+    expect(resolveCodexInvocation({ storedThreadId: null, rolloutExists: false, fork: fork({ parentUnchanged: false }) }))
+      .toEqual({ mode: "fresh" });
+    expect(resolveCodexInvocation({ storedThreadId: null, rolloutExists: false, fork: fork({ parentRolloutExists: false, parentUnchanged: false }) }))
+      .toEqual({ mode: "fresh" });
+  });
+
+  test("a consumed fork (no fork pending) and the branch's thread lost: fresh, never the parent again", () => {
+    expect(resolveCodexInvocation({ storedThreadId: "thread-branch", rolloutExists: false, fork: null }))
+      .toEqual({ mode: "fresh" });
+  });
+});
+
+/**
+ * The fork of a Codex branch against a real database and real rollout files:
+ * what the provider reads before a turn (`codexForkOf`), and the fork consumed
+ * by the `thread.started` of a fork turn, and not by a resume's.
+ */
+describe("a Codex branch's fork, on disk", () => {
+  let root: string;
+  const previous = { DATA_DIR: process.env.DATA_DIR, CODEX_HOME: process.env.CODEX_HOME };
+  const PARENT = "11111111-aaaa-bbbb-cccc-000000000001";
+  let rollout: string;
+
+  beforeAll(() => {
+    try { closeDatabase(); } catch { /* none open */ }
+    root = mkdtempSync(join(tmpdir(), "codex-fork-"));
+    process.env.DATA_DIR = join(root, "data");
+    process.env.CODEX_HOME = join(root, "codex");
+    initDatabase(join(import.meta.dir, "..", ".."), root);
+    const day = join(root, "codex", "sessions", "2026", "09", "28");
+    mkdirSync(day, { recursive: true });
+    rollout = join(day, `rollout-2026-09-28T10-00-00-${PARENT}.jsonl`);
+    writeFileSync(rollout, "{\"type\":\"session_meta\"}\n");
+  });
+
+  afterAll(() => {
+    try { closeDatabase(); } catch { /* cleanup */ }
+    for (const [k, v] of Object.entries(previous)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function branch(sk: string, parentAt: string | null): void {
+    const db = getDatabase();
+    db.prepare("INSERT INTO topics (id, name, slug, session_key, created_at, updated_at) VALUES (?, ?, ?, ?, 'now', 'now')").run(sk, sk, sk, sk);
+    insertChatFork(db, { sessionKey: sk, parentTopicId: "p", parentName: "Parent", forkPointMessageId: "m", runtime: "codex-cli", parentRef: PARENT, parentAt, branchRef: null, createdAt: "now" });
+  }
+
+  test("parent unchanged since the click: a fork is pending; grown: it is not taken", () => {
+    const size = String(Bun.file(rollout).size);
+    branch("topic:cxfork1", size);
+    expect(codexForkOf(getDatabase(), "topic:cxfork1")).toEqual({ parentThreadId: PARENT, parentRolloutExists: true, parentUnchanged: true });
+    appendFileSync(rollout, "{\"type\":\"turn\"}\n");
+    expect(codexForkOf(getDatabase(), "topic:cxfork1")?.parentUnchanged).toBe(false);
+  });
+
+  test("thread.started of a FORK turn consumes the fork; a resume's does not", () => {
+    branch("topic:cxfork2", "1");
+    branch("topic:cxfork3", "1");
+    const provider = new CodexProvider({ type: "codex" });
+    const state = (provider as unknown as { sessionState: Map<string, object> }).sessionState;
+    state.set("topic:cxfork2", { aborted: false, startedAt: Date.now(), runningTools: new Map(), forking: true });
+    state.set("topic:cxfork3", { aborted: false, startedAt: Date.now(), runningTools: new Map() });
+    pushEvent(provider, "topic:cxfork2", { type: "thread.started", thread_id: "thread-branch-2" }, makeHandler());
+    pushEvent(provider, "topic:cxfork3", { type: "thread.started", thread_id: "thread-branch-3" }, makeHandler());
+    expect(readForkOrigin(getDatabase(), "topic:cxfork2")).toMatchObject({ parentRef: null, parentAt: null });
+    expect(codexForkOf(getDatabase(), "topic:cxfork2")).toBeNull();
+    expect(readForkOrigin(getDatabase(), "topic:cxfork3")).toMatchObject({ parentRef: PARENT });
   });
 });
 

@@ -1189,6 +1189,14 @@ export interface Topic {
    */
   initialMessage?: string | null;
   /**
+   * CHAT-FORK-05: the chat this one was forked from, projected by the server
+   * from `chat_forks`. Absent for a chat that is not a branch, so the list does
+   * not grow for whoever never forks. `topicId` null = the original is gone;
+   * `atMessageId` is the branch's copy of the fork point, the row the «Forked
+   * from» divider sits under.
+   */
+  forkedFrom?: { topicId: string | null; name: string; atMessageId: string };
+  /**
    * Phase 30 BROWSER-CHAT-01 — last-known browser state for this topic.
    * Populated by BrowserService on every navigation. Restored on server
    * boot via browserService.restoreAllContexts(topics). NULL = topic has

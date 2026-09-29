@@ -173,6 +173,7 @@ import m20260922180000_ai_control_topics_routing from "./migrations/202609221800
 import m20260923230000_mark_old_goal_nudges from "./migrations/20260923230000-mark-old-goal-nudges.sql" with { type: "text" };
 import m20260927091818_message_end_reason from "./migrations/20260927091818-message-end-reason.sql" with { type: "text" };
 import m20260928170113_resend_counts from "./migrations/20260928170113-resend-counts.sql" with { type: "text" };
+import m20260928203249_chat_forks from "./migrations/20260928203249-chat-forks.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -350,4 +351,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260923230000, name: "20260923230000-mark-old-goal-nudges.sql", sql: m20260923230000_mark_old_goal_nudges },
   { version: 20260927091818, name: "20260927091818-message-end-reason.sql", sql: m20260927091818_message_end_reason },
   { version: 20260928170113, name: "20260928170113-resend-counts.sql", sql: m20260928170113_resend_counts },
+  { version: 20260928203249, name: "20260928203249-chat-forks.sql", sql: m20260928203249_chat_forks },
 ];

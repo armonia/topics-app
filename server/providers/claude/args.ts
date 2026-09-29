@@ -45,6 +45,12 @@ export interface ClaudeSpawnArgsOptions {
   /** Sessione mai vista: si CONIA con `--session-id`; altrimenti si RIPRENDE. */
   isNewSession: boolean;
   /**
+   * The first start of a forked chat (CHAT-FORK-02): the parent's session and
+   * the uuid of the answer the fork was taken at. Null/absent for every other
+   * spawn. The spawn decides it (`forkStartFor`, lib/chat-fork.ts).
+   */
+  forkFrom?: { sessionId: string; atUuid: string } | null;
+  /**
    * Il valore di `ENABLE_TOOL_SEARCH` da IMPORRE alla sessione, o null per non
    * imporne nessuno (la CLI usa allora i suoi settings files).
    *
@@ -371,7 +377,22 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
     "--include-partial-messages",
     // Prima volta: si CONIA l'uuid. Tutte le altre: si RIPRENDE, ed è quello
     // che restituisce al modello la memoria dei turni precedenti.
-    ...(opts.isNewSession ? ["--session-id", opts.claudeSessionId] : ["--resume", opts.claudeSessionId]),
+    //
+    // A FORKED chat's first start takes the parent's memory without touching
+    // it. Measured on CLI 2.1.283/2.1.284 with haiku on 28/09:
+    //  - `--fork-session` copies the parent into a new session, and the
+    //    parent's transcript stays byte-identical after two turns of the branch;
+    //  - `--session-id` next to `--resume` is accepted ONLY with
+    //    `--fork-session`, and it makes the branch's uuid ours, the one the
+    //    route already wrote in `claude_code_sessions`;
+    //  - `--resume-session-at <uuid>` (not in `--help`) pins the point: a
+    //    branch taken at answer «LIVE-ONE» did not know the «LIVE-TWO» turn the
+    //    parent made afterwards. Without it the branch would copy the parent as
+    //    it is at the branch's FIRST START, not as it was at the click.
+    ...(opts.forkFrom
+      ? ["--resume", opts.forkFrom.sessionId, "--resume-session-at", opts.forkFrom.atUuid,
+         "--fork-session", "--session-id", opts.claudeSessionId]
+      : opts.isNewSession ? ["--session-id", opts.claudeSessionId] : ["--resume", opts.claudeSessionId]),
   ];
 }
 

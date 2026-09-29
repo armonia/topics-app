@@ -93,6 +93,19 @@ export const CRITICAL_CLAUDE_FLAGS: readonly FlagWindow[] = [
     introducedIn: "2.0.0",
     breaks: "le impostazioni utente/progetto non entrano nella sessione",
   },
+  // A forked chat's first start (CHAT-FORK-02, `claude/args.ts`). No
+  // `introducedIn`: nobody has measured which release brought them, and
+  // `--resume-session-at` is not even in `--help` (seen working on 2.1.284).
+  // A release that drops them is recovered at spawn (the branch restarts from
+  // the database recap), and this line is where the version goes once known.
+  {
+    flag: "--fork-session",
+    breaks: "forked chats restart from the database recap, without the tool results",
+  },
+  {
+    flag: "--resume-session-at",
+    breaks: "forked chats restart from the database recap, without the tool results",
+  },
 ];
 
 export interface ClaudeCliCompat {

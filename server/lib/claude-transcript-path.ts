@@ -11,7 +11,7 @@
  * which is exactly what the reaper/reconcile needs to decide whether a row is
  * worth keeping (resumable) or truly dead.
  */
-import { existsSync, realpathSync } from "fs";
+import { existsSync, readdirSync, realpathSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -90,6 +90,30 @@ export function claudeTranscriptPath(cwd: string, sessionId: string): string {
     }
   }
   return candidates[candidates.length - 1];
+}
+
+/**
+ * A session's transcript wherever the CLI filed it, or null when it is nowhere.
+ *
+ * The folder is the cwd of the CLI that wrote it, and a chat's cwd moves:
+ * `/project open`, the agent's `open_project`, autoBind after an answer, a
+ * PATCH of `projectPath`. The CLI finds a session by id from any cwd (measured
+ * on 2.1.284: `--resume` from another folder remembers), so a reader that
+ * looks under the current cwd only says "no transcript" of a session the CLI
+ * would resume. The current cwd comes first, since the CLI writes there from
+ * its next turn on; then every folder under `~/.claude/projects`.
+ */
+export function findClaudeTranscript(cwd: string, sessionId: string): string | null {
+  const here = claudeTranscriptPath(cwd, sessionId);
+  if (existsSync(here)) return here;
+  const root = join(homedir(), ".claude", "projects");
+  let dirs: string[];
+  try { dirs = readdirSync(root); } catch { return null; }
+  for (const dir of dirs) {
+    const candidate = join(root, dir, `${sessionId}.jsonl`);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
 }
 
 /**
