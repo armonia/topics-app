@@ -70,7 +70,15 @@ type Frame = {
   scroller: { top: number; h: number; ch: number; v: boolean } | null;
   tabs: { id: string; x: number; w: number; text: string }[];
 };
-type Mutation = { t: number; op: "add" | "remove"; testId: string; id: number; role?: string; mid?: string };
+/**
+ * `batch` numbers the MutationObserver callback that logged the entry: every
+ * DOM change made in one task (one React commit) is delivered in ONE callback,
+ * and no frame is painted inside a task. Two entries with the same batch are
+ * the same mutation; `t` is only for the report. Comparing `t` instead is
+ * flaky: a callback that logs across a clock tick (1ms on WebKit, ~0.1ms on
+ * Chromium) splits one swap into two instants.
+ */
+type Mutation = { t: number; batch: number; op: "add" | "remove"; testId: string; id: number; role?: string; mid?: string };
 type Probe = { frames: Frame[]; mutations: Mutation[]; running: boolean; nodeId: (el: Element) => number };
 
 async function installProbe(page: Page) {
@@ -89,7 +97,8 @@ async function installProbe(page: Page) {
       "chat-scroll-container", "chat-input-area", "composer-card", "chat-message",
       "chat-streaming-indicator", "background-work-line", "chat-skeleton", "chat-empty-state",
     ]);
-    const log = (op: "add" | "remove", root: Node) => {
+    let batchSeq = 0;
+    const log = (op: "add" | "remove", root: Node, t: number, batch: number) => {
       if (!(root instanceof Element)) return;
       const hits: Element[] = [];
       if (root.matches("[data-testid]")) hits.push(root);
@@ -97,7 +106,7 @@ async function installProbe(page: Page) {
       for (const el of hits) {
         const testId = el.getAttribute("data-testid")!;
         if (!WATCHED.has(testId)) continue;
-        p.mutations.push({ t: performance.now(), op, testId, id: nodeId(el), role: el.getAttribute("data-role") ?? undefined, mid: el.getAttribute("data-message-id") ?? undefined });
+        p.mutations.push({ t, batch, op, testId, id: nodeId(el), role: el.getAttribute("data-role") ?? undefined, mid: el.getAttribute("data-message-id") ?? undefined });
       }
     };
     // The requests of the gesture, on the same clock: they say WHY a frame changed.
@@ -105,14 +114,17 @@ async function installProbe(page: Page) {
     window.fetch = Object.assign((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       const method = init?.method ?? (input instanceof Request ? input.method : "GET");
-      if (p.running) p.mutations.push({ t: performance.now(), op: "add", testId: `fetch ${method} ${url.replace(location.origin, "")}`, id: 0 });
+      if (p.running) p.mutations.push({ t: performance.now(), batch: 0, op: "add", testId: `fetch ${method} ${url.replace(location.origin, "")}`, id: 0 });
       return origFetch(input, init);
     }, { preconnect: window.fetch.preconnect });
     new MutationObserver((records) => {
       if (!p.running) return;
+      // One clock read and one batch number for the whole callback.
+      const t = performance.now();
+      const batch = ++batchSeq;
       for (const r of records) {
-        r.removedNodes.forEach((n) => log("remove", n));
-        r.addedNodes.forEach((n) => log("add", n));
+        r.removedNodes.forEach((n) => log("remove", n, t, batch));
+        r.addedNodes.forEach((n) => log("add", n, t, batch));
       }
     }).observe(document, { childList: true, subtree: true });
 
@@ -230,9 +242,9 @@ function analyse(frames: Frame[], mutations: Mutation[], draftTabId: string, t0:
   if (seenSkeleton >= 0) out.push(`${at(seenSkeleton)} skeleton: shown after the send (${frames.filter((f) => f.skeleton).length} frames)`);
   // The greeting leaves by FADING: never replaced by a new node outside the
   // pane swap, never more than half its opacity in one frame.
-  const swapTimes = new Set(mutations.filter((m) => m.testId === "chat-scroll-container").map((m) => m.t));
+  const swapBatches = new Set(mutations.filter((m) => m.testId === "chat-scroll-container").map((m) => m.batch));
   for (const m of mutations) {
-    if (m.testId === "chat-empty-state" && m.op === "add" && !swapTimes.has(m.t)) out.push(`+${Math.round(m.t - t0)}ms empty state: replaced by a new node #${m.id}`);
+    if (m.testId === "chat-empty-state" && m.op === "add" && !swapBatches.has(m.batch)) out.push(`+${Math.round(m.t - t0)}ms empty state: replaced by a new node #${m.id}`);
   }
   for (let i = 1; i < frames.length; i++) {
     const a = frames[i - 1]!.empty, b = frames[i]!.empty;
@@ -273,7 +285,7 @@ function analyse(frames: Frame[], mutations: Mutation[], draftTabId: string, t0:
   const paneAdds = mutations.filter((m) => m.testId === "chat-scroll-container" && m.op === "add");
   if (paneRemoves.length > 1 || paneAdds.length > 1) out.push(`pane: remounted ${paneRemoves.length} times, the promotion allows one`);
   for (const r of paneRemoves) {
-    if (!paneAdds.some((a) => a.t === r.t)) out.push(`+${Math.round(r.t - t0)}ms pane: removed without a new one in the same mutation`);
+    if (!paneAdds.some((a) => a.batch === r.batch)) out.push(`+${Math.round(r.t - t0)}ms pane: removed without a new one in the same mutation`);
   }
 
   // ── Loading between send and first token: one stable element ──────────
@@ -370,6 +382,33 @@ function frameTable(frames: Frame[], t0: number): string {
   return rows.join("\n");
 }
 
+// The swap rules read the mutation BATCH, never the clock. Pinned on a log
+// taken from a real WebKit run (29/09) whose swap callback crossed a
+// millisecond: remove at 1119.000, adds at 1120.000, all one callback. Read by
+// time it was reported as "removed without a new one" and "empty state:
+// replaced", 1 run in 6. And the other way round: two callbacks at the same
+// instant are two mutations, and a frame can be painted between them.
+test("the pane swap is judged by mutation batch, not by timestamp", () => {
+  const m = (t: number, batch: number, op: "add" | "remove", testId: string, id: number): Mutation => ({ t, batch, op, testId, id });
+  const swapRules = (mutations: Mutation[]) =>
+    analyse([], mutations, "draft:x", 1000).filter((l) => /pane:|empty state: replaced/.test(l));
+  expect(swapRules([
+    m(1119, 7, "remove", "chat-empty-state", 3),
+    m(1119, 7, "remove", "chat-scroll-container", 4),
+    m(1120, 7, "remove", "composer-card", 5),
+    m(1120, 7, "add", "chat-scroll-container", 11),
+    m(1121, 7, "add", "chat-empty-state", 12),
+  ]), "one callback straddling a clock tick is one swap").toEqual([]);
+  expect(swapRules([
+    m(1119, 7, "remove", "chat-scroll-container", 4),
+    m(1119, 8, "add", "chat-scroll-container", 11),
+    m(1119, 9, "add", "chat-empty-state", 12),
+  ]), "two callbacks at the same instant are not one swap").toEqual([
+    "+119ms empty state: replaced by a new node #12",
+    "+119ms pane: removed without a new one in the same mutation",
+  ]);
+});
+
 test.describe("First send in a new topic", () => {
   let hostId = "";
   const hostName = `First Send Host ${Date.now()}`;
@@ -445,7 +484,7 @@ test.describe("First send in a new topic", () => {
     });
     promotedId = frames[frames.length - 1]?.tabs.find((x) => x.id !== hostId && !x.id.startsWith("draft:"))?.id ?? "";
     const t0 = sendT;
-    const mutationLog = mutations.map((m) => `+${Math.round(m.t - t0)}ms ${m.op} ${m.testId}${m.role ? `[${m.role}]` : ""}${m.mid ? ` ${m.mid}` : ""} #${m.id}`).join("\n");
+    const mutationLog = mutations.map((m) => `+${Math.round(m.t - t0)}ms b${m.batch} ${m.op} ${m.testId}${m.role ? `[${m.role}]` : ""}${m.mid ? ` ${m.mid}` : ""} #${m.id}`).join("\n");
     // On disk next to the video, so the table survives a red run whole.
     for (const [name, body] of [["frames.tsv", frameTable(frames, t0)], ["mutations.txt", mutationLog], ["frames.json", JSON.stringify({ frames, mutations })]] as const) {
       const path = testInfo.outputPath(name);
