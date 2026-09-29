@@ -27,6 +27,14 @@ import { interceptWebSocket } from "./helpers/ws-helpers";
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
+import { TerminalPage } from "./fixtures/terminal.fixture";
+import {
+  resetTerminalWorkspace,
+  seedTerminalTopic,
+  cleanupTerminalTopic,
+  gotoTerminalProject,
+  openShellViaSidebar,
+} from "./helpers/terminal-workspace";
 
 hermetic(test);
 test.use({ video: "on" });
@@ -172,6 +180,8 @@ test.describe("the «In attesa» door, on the phone", () => {
       permission(ws, a);
 
       await expect(door(page).locator("[data-notification-count]")).toHaveAttribute("data-notification-count", "2", { timeout: 20_000 });
+      // The badge is only drawn: the number has to be in the door's name too.
+      await expect(door(page)).toHaveAccessibleName("In attesa, 2");
       const queue = await awaitingOrder(page, [a, b, c]);
       expect([...queue].sort()).toEqual([a.id, b.id].sort());
 
@@ -200,6 +210,7 @@ test.describe("the «In attesa» door, on the phone", () => {
       await goToApp(page);
       await expect(door(page)).toBeVisible({ timeout: 15_000 });
       await expect(door(page)).toBeDisabled();
+      await expect(door(page), "zero is said, not left out").toHaveAccessibleName("In attesa, 0");
 
       const widths = () => page.evaluate(() =>
         Array.from(document.querySelectorAll('[data-testid="mobile-chrome-bar"] button')).map((el) => {
@@ -214,7 +225,141 @@ test.describe("the «In attesa» door, on the phone", () => {
       permission(ws, b);
       await expect(door(page).locator("[data-notification-count]")).toHaveAttribute("data-notification-count", "2", { timeout: 15_000 });
       await expect(door(page)).toBeEnabled();
+      await expect(door(page)).toHaveAccessibleName("In attesa, 2");
       expect(await widths()).toEqual(atZero);
+    } finally {
+      for (const s of [a, b]) await deleteTopic(request, s.id).catch(() => {});
+    }
+  });
+});
+
+test.describe("Ctrl+J, the Windows way in", () => {
+  // `isMod` is `metaKey || ctrlKey`, so Ctrl+J is the chord on Windows. On a
+  // Mac runner Control+J is byte for byte what Windows sends (`ctrlKey` true,
+  // `metaKey` false), so the Windows path is reproducible here.
+  test.describe.configure({ timeout: 75_000 });
+
+  test("Ctrl+J steps from the chat composer, a text field included", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-WAIT-03" });
+    const a = await mk(request, "ctrl-target");
+    const c = await mk(request, "ctrl-composer");
+    try {
+      await resetPaneStore(request, [a.id, c.id]);
+      const ws = await interceptWebSocket(page);
+      await goToApp(page);
+      const tabA = page.locator(`[role="tab"][data-pane-id="${a.id}"]`);
+      await expect(tabA).toBeVisible({ timeout: 15_000 });
+      permission(ws, a);
+      await expect(tabA).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
+
+      await page.locator(`[role="tab"][data-pane-id="${c.id}"]`).click();
+      await expect(activeTab(page)).toHaveAttribute("data-pane-id", c.id);
+      const composer = page.getByRole("textbox", { name: /Campo del messaggio/ }).first();
+      await composer.click();
+      await expect(composer).toBeFocused();
+
+      await page.keyboard.press("Control+j");
+      await expect(activeTab(page)).toHaveAttribute("data-pane-id", a.id);
+    } finally {
+      for (const s of [a, c]) await deleteTopic(request, s.id).catch(() => {});
+    }
+  });
+
+  test("in a terminal Ctrl+J is the terminal's newline, and Meta+J still steps", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-WAIT-03" });
+    const terminalPage = new TerminalPage(page);
+    const seeded = await seedTerminalTopic(request, "next-waiting-ctrl");
+    const a = await mk(request, "term-target");
+    try {
+      await resetTerminalWorkspace(request, seeded.topicId);
+      await resetPaneStore(request, [seeded.topicId, a.id]);
+      const ws = await interceptWebSocket(page);
+      await gotoTerminalProject(page, seeded.topicName);
+      // The permission goes in BEFORE the shell: the terminal opens a socket of
+      // its own that the same route also matches, and `send` talks to the last.
+      const tabA = page.locator(`[role="tab"][data-pane-id="${a.id}"]`);
+      await expect(tabA).toBeVisible({ timeout: 15_000 });
+      permission(ws, a);
+      await expect(tabA).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
+      await openShellViaSidebar(page, terminalPage);
+
+      await terminalPage.focus();
+      // The project window and its inner terminal tab are both `data-active`,
+      // so the check reads A's own tab rather than «the» active one.
+      await expect(tabA, "the terminal has the focus, not the waiting chat").toHaveAttribute("data-active", "false");
+
+      // Typed without Enter, then sent with Ctrl+J: the arithmetic only turns
+      // into `42` if the shell received the newline, so the output is the
+      // proof that the terminal got the key, and the happens-after that makes
+      // the negative check below mean something.
+      const marker = `ctrlj${Date.now()}`;
+      await page.keyboard.type(`echo $((6*7))${marker}`);
+      await page.keyboard.press("Control+j");
+      await terminalPage.waitForOutput(`42${marker}`);
+      await expect(tabA, "Ctrl+J stayed with the terminal: no step").toHaveAttribute("data-active", "false");
+
+      // Cmd is absolute: the same key with Meta steps from the terminal too.
+      await terminalPage.focus();
+      await page.keyboard.press("Meta+j");
+      await expect(tabA).toHaveAttribute("data-active", "true");
+    } finally {
+      await deleteTopic(request, a.id).catch(() => {});
+      await cleanupTerminalTopic(request, seeded.topicId);
+    }
+  });
+});
+
+test.describe("⌘J in a group window (`?space=`)", () => {
+  test.describe.configure({ timeout: 75_000 });
+
+  /** Moves `paneId` to a new group through the tab menu, as a user does, and
+   *  returns that group's id (`spaces-switcher.spec.ts`, same gesture). */
+  async function moveToNewGroup(page: Page, paneId: string): Promise<string> {
+    await page.locator(`[role="tab"][data-pane-id="${paneId}"]`).click({ button: "right" });
+    await page.getByText("Sposta nel gruppo", { exact: true }).click();
+    await page.getByRole("menu").getByRole("button", { name: "Nuovo gruppo" }).click();
+    const row = page.getByTestId("space-row").filter({ hasText: "Gruppo 2" });
+    await expect(row).toHaveCount(1, { timeout: 5_000 });
+    const id = await row.getAttribute("data-space-id");
+    if (!id) throw new Error("the new group's row carries no data-space-id");
+    return id;
+  }
+
+  test("⌘J goes where a click on the row goes: into the other group, and the window follows", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-WAIT-03" });
+    const a = await mk(request, "grp-a");
+    const b = await mk(request, "grp-b");
+    try {
+      await resetPaneStore(request, [a.id, b.id]);
+      const ws = await interceptWebSocket(page);
+      await goToApp(page);
+      await expect(page.locator(`[role="tab"][data-pane-id="${b.id}"]`)).toBeVisible({ timeout: 15_000 });
+      const spaceId = await moveToNewGroup(page, a.id);
+
+      // The group window: the whole app, pinned to A's group by its query.
+      await page.goto(`/?space=${encodeURIComponent(spaceId)}`);
+      const tabA = page.locator(`[role="tab"][data-pane-id="${a.id}"]`);
+      await expect(tabA).toBeVisible({ timeout: 15_000 });
+      await expect(page.locator(`[role="tab"][data-pane-id="${b.id}"]`), "B lives in the other group").toHaveCount(0);
+
+      permission(ws, a);
+      permission(ws, b);
+      await expect(tabA).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
+      // B has no tab here, so its sidebar row is the only place that says it waits.
+      await expect(page.locator(`[role="treeitem"][aria-label="${b.name}"]`)).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
+
+      await tabA.click();
+      await expect(activeTab(page)).toHaveAttribute("data-pane-id", a.id);
+
+      // Two targets and the focus on one: the step is the other, whatever the order.
+      await page.keyboard.press("Meta+j");
+      await expect(activeTab(page), "B is opened AND visible, not opened in a hidden group").toHaveAttribute("data-pane-id", b.id);
+      await expect(page.getByTestId("space-row-active")).toContainText("Principale");
+      await expect.poll(() => new URL(page.url()).searchParams.get("space"), { message: "the query follows, or the next hydrate undoes the step" }).toBe("space:default");
+
+      await page.keyboard.press("Meta+j");
+      await expect(activeTab(page)).toHaveAttribute("data-pane-id", a.id);
+      await expect(page.getByTestId("space-row-active")).toContainText("Gruppo 2");
     } finally {
       for (const s of [a, b]) await deleteTopic(request, s.id).catch(() => {});
     }

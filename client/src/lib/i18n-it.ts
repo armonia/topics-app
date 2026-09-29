@@ -1893,6 +1893,9 @@ const IT: Dict = {
   'sidebar.noChatWaiting': 'Nessuna chat ti aspetta',
   'sidebar.noOtherChatWaiting': 'Nessun\'altra chat ti aspetta',
   'sidebar.waitingDoor': 'In attesa',
+  // The door's accessible name: the badge is drawn, so without the number here a
+  // screen reader hears «In attesa» and never how many (zero included).
+  'sidebar.waitingDoorName': 'In attesa, {n}',
   'sidebar.waitingDoorTitle': 'Vai alla prossima chat che ti aspetta',
   'sidebar.profileDoorTitle': 'Profilo e statistiche',
   'sidebar.profileDoorTitleNamed': '{nome}. Profilo e statistiche',

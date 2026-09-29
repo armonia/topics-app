@@ -1662,6 +1662,7 @@ const EN = {
   'sidebar.noChatWaiting': 'No chat is waiting for you',
   'sidebar.noOtherChatWaiting': 'No other chat is waiting for you',
   'sidebar.waitingDoor': 'Waiting',
+  'sidebar.waitingDoorName': 'Waiting, {n}',
   'sidebar.waitingDoorTitle': 'Go to the next chat waiting for you',
   'sidebar.profileDoorTitle': 'Profile and statistics',
   'sidebar.profileDoorTitleNamed': '{nome}. Profile and statistics',

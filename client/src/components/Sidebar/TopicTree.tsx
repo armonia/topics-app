@@ -58,7 +58,7 @@ import { buildSidebarItems, filterSidebarItems, groupSidebarItemsByState, groupS
 import { nextWaiting, waitingQueue } from '@/lib/waitingQueue';
 import { NEXT_WAITING_EVENT, useWaitingQueueStore, waitingQueueActions } from '@/state/waitingQueue';
 import { SpaceGroupCard } from './SpaceGroups';
-import { useSpaceCards } from './useSpaceCards';
+import { useGoToSpace, useSpaceCards } from './useSpaceCards';
 
 /**
  * Le sezioni della vista per STATO, nell'ordine in cui si leggono.
@@ -608,6 +608,7 @@ export function TopicTree({
   // dell'utente, quindi si RICORDA: un gruppo richiuso che si riapre a ogni
   // ricarica è un gruppo che non si può chiudere.
   const spaceCards = useSpaceCards();
+  const goToSpace = useGoToSpace();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(loadCollapsedGroups);
   const toggleGroup = useCallback((id: string) => {
     setCollapsedGroups(prev => {
@@ -947,12 +948,20 @@ export function TopicTree({
         return;
       }
       waitingQueueActions.setLast({ queue, target: target.subject });
+      // A row drawn in the card of a group this window is not showing: the
+      // card's capture click takes the window there first (`SpaceGroups`), or
+      // the chat would open in a group you cannot see. The chord is the click,
+      // so it takes the same detour; with the group in a window of its own,
+      // `goToSpace` brings that window to the front instead.
+      const home = [...bySpace].find(([, rows]) =>
+        rows.some(row => row === target.item || (row.children ?? []).includes(target.item)))?.[0];
+      if (home && !spaceCards.some(card => card.id === home && card.active)) goToSpace(home);
       if (target.kind === 'chat') handleChatRowClick(target.subject, target.item.detachedWindowLabel);
       else handleTerminalRowClick(target.subject, target.item.name);
     };
     window.addEventListener(NEXT_WAITING_EVENT, onNext);
     return () => window.removeEventListener(NEXT_WAITING_EVENT, onNext);
-  }, [waitingTargets, focusedTopicId, activePaneByProject, handleChatRowClick, handleTerminalRowClick, toast, tr]);
+  }, [waitingTargets, focusedTopicId, activePaneByProject, handleChatRowClick, handleTerminalRowClick, toast, tr, bySpace, spaceCards, goToSpace]);
 
   /**
    * `chip: false` for a row drawn INSIDE its own worktree section: the header
