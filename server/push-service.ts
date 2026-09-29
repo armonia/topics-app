@@ -4,7 +4,8 @@ import { join, dirname } from "path";
 import { getDatabase } from "./db";
 import { resolveStateDir } from "./lib/data-dir";
 import { DEFAULT_WHEN_OPEN, parseWhenOpen } from "./push-devices";
-import { deliverableSubscriptions, type DeliverableSubscription } from "./push-recipients";
+import { deliverableSubscriptions } from "./push-recipients";
+import { deliverPush, type VapidDetails } from "./push-delivery";
 import type { NotifyAction, NotifyActionRequest } from "../shared/notify-actions";
 
 interface VapidKeys {
@@ -28,16 +29,16 @@ export function initVapid(): VapidKeys {
     const generated = webpush.generateVAPIDKeys();
     vapidKeys = { publicKey: generated.publicKey, privateKey: generated.privateKey };
     mkdirSync(dirname(keysPath), { recursive: true });
-    writeFileSync(keysPath, JSON.stringify(vapidKeys, null, 2));
+    // Owner-only: the private key signs every push this machine sends.
+    writeFileSync(keysPath, JSON.stringify(vapidKeys, null, 2), { mode: 0o600 });
     console.log("[Push] Generated new VAPID keys");
   }
 
   // VAPID "subject" must be a mailto: or https: URL identifying the app
   // operator. Override via VAPID_SUBJECT env var; the default is a neutral
   // placeholder so the public repo ships no private contact/host info.
-  const vapidSubject = process.env.VAPID_SUBJECT || "mailto:admin@example.com";
   webpush.setVapidDetails(
-    vapidSubject,
+    vapidSubject(),
     vapidKeys!.publicKey,
     vapidKeys!.privateKey
   );
@@ -45,29 +46,20 @@ export function initVapid(): VapidKeys {
   return vapidKeys!;
 }
 
+function vapidSubject(): string {
+  return process.env.VAPID_SUBJECT || "mailto:admin@example.com";
+}
+
+/** The signing identity, passed explicitly to every request rather than read
+ *  from web-push's global state. */
+function vapidDetails(): VapidDetails {
+  const keys = initVapid();
+  return { subject: vapidSubject(), publicKey: keys.publicKey, privateKey: keys.privateKey };
+}
+
 export function getVapidPublicKey(): string {
   const keys = initVapid();
   return keys.publicKey;
-}
-
-/** La riga come sta in SQLite: colonne piatte. Il tipo vive accanto alla query
- *  che la produce (`push-recipients.ts`) — due dichiarazioni della stessa riga
- *  sono due verità in attesa di separarsi. `when_open` viaggia DENTRO il payload
- *  invece di essere una copia che il service worker si tiene da parte: la
- *  preferenza è per-dispositivo e il mittente la conosce già riga per riga. */
-type PushSubscriptionRow = DeliverableSubscription;
-
-/** La forma che vuole webpush: chiavi annidate. NON coincide con la riga, ed è
- *  il motivo per cui esistono entrambi i tipi — l'interfaccia c'era già ma non la
- *  usava nessuno, mentre la query si accontentava di `any[]`: il rimappaggio
- *  colonna→chiave era quindi l'unico punto non controllato dal compilatore. */
-interface PushSubscription {
-  endpoint: string;
-  keys: { p256dh: string; auth: string };
-}
-
-function toPushSubscription(row: PushSubscriptionRow): PushSubscription {
-  return { endpoint: row.endpoint, keys: { p256dh: row.keys_p256dh, auth: row.keys_auth } };
 }
 
 /**
@@ -100,30 +92,21 @@ export async function sendPushToAll(payload: OutgoingPushPayload) {
   // quindi un telefono revocato continuava a ricevere per sempre.
   const subs = deliverableSubscriptions(db);
 
-  if (subs.length === 0) return;
-
-  const results = await Promise.allSettled(
-    subs.map(sub =>
-      webpush.sendNotification(
-        toPushSubscription(sub),
-        // Un payload PER DISPOSITIVO: la preferenza «ad app aperta» decide chi
-        // disegna il banner (service worker o pagina) e viaggia col messaggio,
-        // così il worker non deve tenersi una copia che può invecchiare.
-        JSON.stringify({ ...payload, whenOpen: parseWhenOpen(sub.when_open) ?? DEFAULT_WHEN_OPEN })
-      ).catch(err => {
-        // 410 Gone or 404 = subscription expired, remove it
-        if (err.statusCode === 410 || err.statusCode === 404) {
-          // Bindings in forma di array: è la firma che `Database.run` dichiara.
-          // Con `sub` tipizzato `any` il compilatore non poteva dirlo.
-          db.run("DELETE FROM push_subscriptions WHERE endpoint = ?", [sub.endpoint]);
-          console.log(`[Push] Removed expired subscription`);
-        } else {
-          console.error(`[Push] Send failed:`, err.statusCode || err.message);
-        }
-      })
-    )
+  // One payload PER DEVICE: the "when open" preference decides who draws the
+  // banner (service worker or page) and travels with the message, so the
+  // worker never keeps a copy of it that can go stale.
+  await deliverPush(
+    subs.map((sub) => ({
+      endpoint: sub.endpoint,
+      keys_p256dh: sub.keys_p256dh,
+      keys_auth: sub.keys_auth,
+      label: sub.device_label,
+      body: JSON.stringify({ ...payload, whenOpen: parseWhenOpen(sub.when_open) ?? DEFAULT_WHEN_OPEN }),
+    })),
+    {
+      tag: payload.tag ?? "untagged",
+      vapid: vapidDetails(),
+      onExpired: (endpoint) => db.run("DELETE FROM push_subscriptions WHERE endpoint = ?", [endpoint]),
+    },
   );
-
-  const sent = results.filter(r => r.status === "fulfilled").length;
-  if (sent > 0) console.log(`[Push] Sent to ${sent}/${subs.length} subscribers`);
 }

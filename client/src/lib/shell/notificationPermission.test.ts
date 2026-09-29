@@ -75,9 +75,15 @@ async function loadApp() {
   const {
     __resetWebNotificationPrimeForTests,
     primeWebNotificationPermission,
+    requestWebNotificationPermissionFromTap,
     webNotificationPermission,
   } = await import('./app');
-  return { __resetWebNotificationPrimeForTests, primeWebNotificationPermission, webNotificationPermission };
+  return {
+    __resetWebNotificationPrimeForTests,
+    primeWebNotificationPermission,
+    requestWebNotificationPermissionFromTap,
+    webNotificationPermission,
+  };
 }
 
 beforeEach(() => { installFakeNotification(); });
@@ -146,5 +152,65 @@ describe('primeWebNotificationPermission', () => {
 
     expect(app.webNotificationPermission()).toBe('unsupported');
     expect(await app.primeWebNotificationPermission()).toBe('unsupported');
+  });
+});
+
+/**
+ * WebKit's rule (iOS home-screen app, Safari): a request outside a user gesture
+ * resolves "denied" with no prompt and leaves `Notification.permission` at
+ * "default". Only a request inside a gesture shows "Allow".
+ */
+function installWebKitNotification(): { setGesture: (on: boolean) => void; calls: boolean[] } {
+  let inGesture = false;
+  const calls: boolean[] = [];
+  permission = 'default';
+  (globalThis as unknown as { Notification: unknown }).Notification = {
+    get permission() { return permission; },
+    requestPermission: () => {
+      calls.push(inGesture);
+      if (!inGesture) return Promise.resolve<NotificationPermission>('denied');
+      permission = 'granted';
+      return Promise.resolve<NotificationPermission>('granted');
+    },
+  };
+  return { setGesture: (on) => { inGesture = on; }, calls };
+}
+
+describe('requestWebNotificationPermissionFromTap', () => {
+  test('a no-gesture "denied" cached at mount does not answer the tap: the tap asks the system', async () => {
+    mockShell('web');
+    const app = await loadApp();
+    app.__resetWebNotificationPrimeForTests();
+    const webkit = installWebKitNotification();
+
+    // Mount: no gesture, WebKit answers "denied" and shows nothing.
+    expect(await app.primeWebNotificationPermission()).toBe('denied');
+    expect(app.webNotificationPermission()).toBe('default');
+
+    // The tap: the request is made synchronously inside the gesture.
+    webkit.setGesture(true);
+    const answer = app.requestWebNotificationPermissionFromTap();
+    webkit.setGesture(false);
+    expect(await answer).toBe('granted');
+    expect(webkit.calls).toEqual([false, true]);
+
+    // The tap's answer becomes the window's answer.
+    expect(await app.primeWebNotificationPermission()).toBe('granted');
+    expect(webkit.calls).toEqual([false, true]);
+  });
+
+  test('a decided permission is not asked again, and under Tauri nothing is asked', async () => {
+    mockShell('web');
+    let app = await loadApp();
+    app.__resetWebNotificationPrimeForTests();
+    permission = 'denied';
+    expect(await app.requestWebNotificationPermissionFromTap()).toBe('denied');
+    expect(asked).toBe(0);
+
+    mockShell('tauri');
+    app = await loadApp();
+    permission = 'default';
+    expect(await app.requestWebNotificationPermissionFromTap()).toBe('unsupported');
+    expect(asked).toBe(0);
   });
 });

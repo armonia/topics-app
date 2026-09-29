@@ -479,6 +479,8 @@ const EN = {
   'notif.push.others': 'Other devices',
   'notif.push.offHere': 'Turn off on this device',
   'notif.push.onHere': 'Turn back on for this device',
+  'notif.push.swFailed': 'The service worker does not register on this address',
+  'notif.push.swFailedHint': 'Without a service worker no notification arrives. It is usually the certificate: on the iPhone enable the local CA in Settings › General › About › Certificate Trust Settings, then reopen Topics from the Home Screen and try again.',
   'notif.topic.blurb': 'An in-window toast when an agent finishes (or errors) on a topic. The system banner is added only if the operating system allows it. The real state is below.',
 
   'browser.find.placeholder': 'Find in page',

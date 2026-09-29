@@ -636,6 +636,9 @@ export default defineConfig({
         // «Fork into a new chat» and `/fork`: the new tab with the copied
         // history and its «Forked from» line, filmed on the engine that ships.
         "**/chat-fork-new-chat.spec.ts",
+        // Phone push enrolment: the service worker on a non-localhost origin
+        // and the Settings toggle, on the engine iOS ships (stubbed PushManager).
+        "**/push-phone-enroll.spec.ts",
       ],
       use: {
         browserName: "webkit",

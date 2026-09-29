@@ -148,6 +148,34 @@ export function primeWebNotificationPermission(): Promise<NotificationPermission
   return webPermissionPrimed;
 }
 
+/**
+ * The permission request for a TAP: call it synchronously from the click
+ * handler, before any `await`.
+ *
+ * It does not read the cache of `primeWebNotificationPermission`. WebKit (iOS
+ * home-screen app, Safari) answers a request made outside a user gesture with
+ * "denied" without showing anything and leaves `Notification.permission` at
+ * "default". A cached "denied" of that kind would answer every later tap the
+ * same way, and the "Allow" prompt would never appear. A tap is an explicit
+ * request, so while the system has not decided it always asks the system.
+ *
+ * Under Tauri it asks nothing, same rule as the shared entry point. Never throws.
+ */
+export function requestWebNotificationPermissionFromTap(): Promise<NotificationPermission | 'unsupported'> {
+  const current = webNotificationPermission();
+  if (current !== 'default') return Promise.resolve(current);
+  let asked: Promise<NotificationPermission | 'unsupported'>;
+  try {
+    asked = Promise.resolve(Notification.requestPermission())
+      .catch(() => webNotificationPermission());
+  } catch {
+    asked = Promise.resolve(webNotificationPermission());
+  }
+  // The tap's answer is the newest one: later primes in this window reuse it.
+  webPermissionPrimed = asked;
+  return asked;
+}
+
 /** Azzera la memoria della richiesta. Solo per i test. */
 export function __resetWebNotificationPrimeForTests(): void {
   webPermissionPrimed = null;

@@ -483,6 +483,8 @@ const IT: Dict = {
   'notif.push.others': 'Altri dispositivi',
   'notif.push.offHere': 'Spegni su questo dispositivo',
   'notif.push.onHere': 'Riaccendi su questo dispositivo',
+  'notif.push.swFailed': 'Il service worker non si registra su questo indirizzo',
+  'notif.push.swFailedHint': "Senza service worker le notifiche non arrivano. Di solito è il certificato: sull'iPhone attiva la CA locale in Impostazioni › Generali › Info › Impostazioni certificati attendibili, poi riapri Topics dalla Home e riprova.",
   'notif.topic.blurb': "Toast in finestra quando un agente finisce (o va in errore) su un topic. Il banner di sistema si aggiunge solo se il sistema operativo lo consente. Qui sotto c'è lo stato reale.",
 
   'browser.find.placeholder': 'Trova nella pagina',

@@ -25,6 +25,7 @@ import { isChatInFront } from '../state/chatInView';
 import type { NotifyTarget } from '../lib/notify/notifyTarget';
 import {
   chatNotificationKey,
+  chatWaitingNotificationKey,
   taskParkedNotificationKey,
   taskReviewNotificationKey,
   terminalNotificationGroupKey,
@@ -47,6 +48,7 @@ const REGISTRY_KIND: Record<NotifyEventKind, NotificationKind> = {
   'task:parked': 'task-parked',
   'message:new': 'chat-message',
   'stream:end': 'chat-message',
+  'chat:waiting': 'session',
   'session:state': 'session',
 };
 
@@ -809,20 +811,21 @@ export function useCompletionNotifier({
       // Dispatched-task topic → the banner carries the taskId so a click opens it.
       const taskId = task?.taskId ?? null;
 
-      // LA RIGA DI REGISTRO di questo banner, una per tutti e quattro i rami.
+      // THE REGISTRY ROW of this banner, one for all four branches.
       //
-      // La chiave ha due forme, e la differenza non è estetica.
-      // `awaiting-user` e `completed` sono «il turno è finito», cioè lo STESSO
-      // evento che la push di fine risposta annuncia sul telefono: chiave
-      // condivisa (`chat:<topicId>`) e una riga sola per i due mezzi.
-      // `awaiting-approval` e `error` la push non li manda affatto, e
-      // collassarli con la fine turno perderebbe la notizia più importante
-      // delle due — quindi chiave propria, per fase.
+      // `awaiting-user` and `completed` mean "the turn is over", the SAME event
+      // the reply push announces on the phone: shared key (`chat:<topicId>`),
+      // one row for both. `awaiting-approval` is the wait the server also
+      // pushes, keyed by `chatWaitingNotificationKey` on both sides. `error`
+      // keeps a key of its own: collapsing it into the turn end would lose the
+      // more important news of the two.
       const turnEnded = phase === 'awaiting-user' || phase === 'completed';
       const log = {
         dedupeKey: topicId && turnEnded
           ? chatNotificationKey(topicId)
-          : `session:${topicId || state.claudeSessionId || sessionKey}:${phase}`,
+          : topicId && phase === 'awaiting-approval'
+            ? chatWaitingNotificationKey(topicId)
+            : `session:${topicId || state.claudeSessionId || sessionKey}:${phase}`,
         topicId,
       };
       // Il corpo lo scrive `statusBody`, la stessa funzione del ramo terminale:
@@ -832,7 +835,8 @@ export function useCompletionNotifier({
           fire('session:state', label, statusBody('awaiting-user'), cfg.notificationsSound, log, taskId);
           break;
         case 'awaiting-approval':
-          fire('session:state', label, statusBody('awaiting-approval'), cfg.notificationsSound, log, taskId);
+          // Its own kind: a subscribed device hears this wait from the push.
+          fire('chat:waiting', label, statusBody('awaiting-approval'), cfg.notificationsSound, log, taskId);
           break;
         case 'completed':
           fire('session:state', label, statusBody('completed'), cfg.notificationsSound, log, taskId);

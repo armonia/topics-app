@@ -4,6 +4,7 @@ import {
   approvalNotificationKey,
   chatErrorNotificationKey,
   chatNotificationKey,
+  chatWaitingNotificationKey,
   taskParkedNotificationKey,
   taskReviewNotificationKey,
   type NotificationRecordInput,
@@ -20,6 +21,11 @@ import { outageNoticeResumes } from "./lib/cancelled-notice";
 let resolveTopicName: ((topicId: string) => string | null | undefined) | null = null;
 let resolveTopicSilenced: ((topicId: string) => boolean) | null = null;
 let recordSent: ((input: NotificationRecordInput) => void) | null = null;
+let resolveTopicIdForSessionKey: ((sessionKey: string) => string | null | undefined) | null = null;
+
+/** The approval request already announced, per session: `session:state` is
+ *  re-broadcast on every revision while the chat waits, and one wait is one push. */
+const waitAnnounced = new Map<string, number>();
 
 export function configurePushTriggers(opts: {
   getTopicName: (topicId: string) => string | null | undefined;
@@ -51,10 +57,18 @@ export function configurePushTriggers(opts: {
    * porte e deve lasciare una riga sola.
    */
   recordNotification?: (input: NotificationRecordInput) => void;
+  /**
+   * The topic behind a chat session key. `session:state` carries only the key,
+   * and without a topic there is nothing to name, nothing to open and no mute to
+   * check: the waiting-for-you push stays quiet, which is the side to fail on.
+   */
+  topicIdForSessionKey?: (sessionKey: string) => string | null | undefined;
 }): void {
   resolveTopicName = opts.getTopicName;
   resolveTopicSilenced = opts.isTopicSilenced;
   recordSent = opts.recordNotification ?? null;
+  resolveTopicIdForSessionKey = opts.topicIdForSessionKey ?? null;
+  waitAnnounced.clear();
 }
 
 /** Registra la push appena mandata. Best-effort: il registro non deve mai
@@ -300,6 +314,48 @@ export function maybeSendPush(message: Record<string, any>): void {
         source: "push",
       });
     }
+    return;
+  }
+
+  // A chat BLOCKED on you: Claude asked a question (AskUserQuestion), wants a
+  // plan approved (ExitPlanMode) or a permission granted. The turn does not end
+  // (no `stream:end`), so without this branch the phone stayed silent exactly
+  // when the chat could not go on without you. Only the ENTRY into the wait
+  // pushes: the tracker re-broadcasts the same state on every revision, and the
+  // request's own timestamp tells a new question from the same one again.
+  // Terminal sessions carry no session key and keep their in-page banner.
+  if (type === "session:state") {
+    const sessionKey = typeof message.sessionKey === "string" ? message.sessionKey : "";
+    const state = message.state && typeof message.state === "object" ? message.state : null;
+    if (!sessionKey || !state) return;
+    if (state.phase !== "awaiting-approval") {
+      waitAnnounced.delete(sessionKey);
+      return;
+    }
+    const approval = state.pendingApproval && typeof state.pendingApproval === "object" ? state.pendingApproval : null;
+    const requestedAt = typeof approval?.requestedAt === "number"
+      ? approval.requestedAt
+      : typeof state.phaseUpdatedAt === "number" ? state.phaseUpdatedAt : 0;
+    if (waitAnnounced.get(sessionKey) === requestedAt) return;
+    waitAnnounced.set(sessionKey, requestedAt);
+
+    const topicId = resolveTopicIdForSessionKey?.(sessionKey);
+    if (!topicId) return;
+    if (resolveTopicSilenced?.(topicId)) return;
+    const name = resolveTopicName?.(topicId);
+    const title = name ? `❓ ${name}` : "❓ Claude ti sta aspettando";
+    const prompt = typeof approval?.prompt === "string" ? approval.prompt.trim() : "";
+    const body = prompt ? prompt.slice(0, 120) : "Claude aspetta una tua risposta per andare avanti";
+    firePush({ title, body, tag: `chat-wait-${topicId}`, url: topicUrl(topicId) });
+    logSent({
+      kind: "session",
+      title,
+      body,
+      targetKind: "topic",
+      targetId: topicId,
+      dedupeKey: chatWaitingNotificationKey(topicId),
+      source: "push",
+    });
     return;
   }
 

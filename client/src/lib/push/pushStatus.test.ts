@@ -7,6 +7,7 @@
  * l'interruttore compare solo dove premerlo fa qualcosa.
  *
  * @covers CMD-02
+ * @covers PUSH-05
  *
  * Partial, with a sharp boundary. CMD-02 has eleven scenarios: the first four
  * are STATES (unsupported, denied, default with no subscription, already
@@ -27,6 +28,23 @@ const base: PushEnvironment = {
 };
 
 describe('describePushState', () => {
+  test('a service worker that fails to register is said, with the remedy, and the button stays for a retry (PUSH-05)', () => {
+    // On a phone there is no console: without this state an untrusted
+    // certificate looked exactly like "not subscribed" after every tap.
+    const v = describePushState({ ...base, permission: 'granted', serviceWorkerFailed: true });
+    expect(v.health).toBe('blocked');
+    expect(v.reason).toBe('service-worker-failed');
+    expect(v.headlineKey).toBe('notif.push.swFailed');
+    expect(v.hintKey).toBe('notif.push.swFailedHint');
+    expect(v.canSubscribe).toBe(true);
+  });
+
+  test('a denied permission still wins over a failed worker: the remedy is elsewhere', () => {
+    const v = describePushState({ ...base, permission: 'denied', serviceWorkerFailed: true });
+    expect(v.reason).toBe('denied');
+    expect(v.canSubscribe).toBe(false);
+  });
+
   test('non iscritto: si può attivare, e si dice cosa manca', () => {
     const v = describePushState(base);
     expect(v.health).toBe('off');

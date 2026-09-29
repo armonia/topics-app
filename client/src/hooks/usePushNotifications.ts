@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { primeWebNotificationPermission } from "../lib/shell/app";
+import { requestWebNotificationPermissionFromTap } from "../lib/shell/app";
 import { describePushState, type PushStatusView } from "../lib/push/pushStatus";
-import { pushDeviceId, pushCapable, readPushEnvironment } from "../lib/push/environment";
+import { ensurePushRegistration, pushDeviceId, pushCapable, readPushEnvironment } from "../lib/push/environment";
 import { usePushDeviceStore, type PushWhenOpen } from "../state/pushDevice";
 
 const API_BASE = import.meta.env.DEV ? "http://localhost:3333" : "";
@@ -72,9 +72,9 @@ export function usePushNotifications() {
     }
   }, [setPushDevice]);
 
-  const applyState = useCallback((isSubscribed: boolean) => {
+  const applyState = useCallback((isSubscribed: boolean, serviceWorkerFailed = false) => {
     setSubscribed(isSubscribed);
-    setStatus(describePushState(readPushEnvironment(isSubscribed)));
+    setStatus(describePushState(readPushEnvironment(isSubscribed, serviceWorkerFailed)));
     setPushDevice({ subscribed: isSubscribed });
   }, [setPushDevice]);
 
@@ -88,8 +88,10 @@ export function usePushNotifications() {
     let alive = true;
     (async () => {
       try {
-        const reg = await navigator.serviceWorker.ready;
-        const sub = await reg.pushManager.getSubscription();
+        // `getRegistration`, not `ready`: with no worker registered `ready`
+        // never settles, and the card would keep a guess instead of the truth.
+        const reg = await navigator.serviceWorker.getRegistration();
+        const sub = reg ? await reg.pushManager.getSubscription() : null;
         if (!alive) return;
         applyState(!!sub);
         if (sub) void refreshDevices();
@@ -105,7 +107,10 @@ export function usePushNotifications() {
     if (!pushCapable()) return false;
     setLoading(true);
     try {
-      const permission = await primeWebNotificationPermission();
+      // Asked synchronously, before any other await: iOS shows the "Allow"
+      // prompt only inside the tap, and a request made outside it comes back
+      // "denied" without a prompt.
+      const permission = await requestWebNotificationPermissionFromTap();
       if (permission !== "granted") {
         // Anche un rifiuto va DETTO: `describePushState` legge il permesso vero
         // e trasforma il no in «negato dal sistema, si riattiva da lì» invece di
@@ -117,7 +122,14 @@ export function usePushNotifications() {
       const res = await fetch(`${API_BASE}/api/push/vapid-public-key`);
       const { publicKey } = await res.json();
 
-      const reg = await navigator.serviceWorker.ready;
+      let reg: ServiceWorkerRegistration;
+      try {
+        reg = await ensurePushRegistration();
+      } catch (err) {
+        console.error('[Push] service worker registration failed:', err);
+        applyState(false, true);
+        return false;
+      }
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
@@ -147,8 +159,8 @@ export function usePushNotifications() {
   const unsubscribe = useCallback(async () => {
     setLoading(true);
     try {
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = reg ? await reg.pushManager.getSubscription() : null;
       if (sub) {
         await fetch(`${API_BASE}/api/push/unsubscribe`, {
           method: "POST",

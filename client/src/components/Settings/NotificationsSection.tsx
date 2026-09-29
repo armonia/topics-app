@@ -264,8 +264,10 @@ function PushDevices() {
           <AlertCircle size={13} className={`shrink-0 mt-px ${tone}`} />
         )}
         <div className="min-w-0">
-          <div className={tone} data-testid="push-status-headline">{status.headline}</div>
-          {status.hint && <div className="text-app-text-muted mt-0.5">{status.hint}</div>}
+          <div className={tone} data-testid="push-status-headline">{status.headlineKey ? tr(status.headlineKey) : status.headline}</div>
+          {(status.hintKey || status.hint) && (
+            <div className="text-app-text-muted mt-0.5" data-testid="push-status-hint">{status.hintKey ? tr(status.hintKey) : status.hint}</div>
+          )}
         </div>
       </div>
 

@@ -30,6 +30,8 @@ export interface DeliverableSubscription {
   keys_p256dh: string;
   keys_auth: string;
   when_open: string | null;
+  /** The name the settings list shows: the delivery log names the device with it. */
+  device_label: string | null;
 }
 
 /**
@@ -63,7 +65,7 @@ export interface DeliverableSubscription {
  */
 export function deliverableSubscriptions(db: RecipientsDb): DeliverableSubscription[] {
   return db.query(
-    `SELECT ps.endpoint, ps.keys_p256dh, ps.keys_auth, ps.when_open
+    `SELECT ps.endpoint, ps.keys_p256dh, ps.keys_auth, ps.when_open, ps.device_label
        FROM push_subscriptions ps
        LEFT JOIN devices d ON d.id = ps.auth_device_id
       WHERE ps.enabled = 1
