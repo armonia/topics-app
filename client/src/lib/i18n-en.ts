@@ -623,6 +623,7 @@ const EN = {
   'browser.tab.kind.agentDoing': 'The agent: {action}',
   'browser.tab.kind.heavy': 'Heavy page: it was using {pctIl} of the Mac. Pauses when you leave this tab',
   'browser.tab.kind.heavyPaused': 'Paused to save CPU',
+  'browser.tab.kind.heavyShort': 'Heavy page',
   'browser.heavy.paused.title': 'Paused',
   'browser.heavy.paused.body': 'This page was using {pctIl} of the Mac. It picks up where it was.',
   'browser.heavy.paused.keepOnce': 'Keep it running this time',

@@ -14,10 +14,13 @@
  *    command and it now costs no width at all: at rest the slot shows where you
  *    are, under the pointer it shows what you want to do to it.
  *  - `BrowserTabCornerMark`: the favicon's corner, zero width (TABSLOT-03).
- *    It carries WHAT KIND of browser tab this is (shared, real Chromium,
- *    connection gone; nothing on the default kind), which is where the three
- *    pills that used to float over the page ended up (`TOPIC-BROWSER-03`), or
- *    the console errors, one at a time by `browserCornerMark`.
+ *    It carries the console errors or, without them, WHAT KIND of browser tab
+ *    this is (shared, real Chromium, connection gone; nothing on the default
+ *    kind), which is where the three pills that used to float over the page
+ *    ended up (`TOPIC-BROWSER-03`), one at a time by `browserCornerMark`. The
+ *    kind is also said by the tab's accessible name (`useBrowserKindNames`).
+ *  - `BrowserTabTakeControl`: while an agent drives, "take back control", a
+ *    command of its own beside the dots, clear of Reload.
  *  - `BrowserTabMenuButton`: the three dots, which OPEN THE TAB SHEET
  *    (`BrowserTabSheet`) where everything else lives in plain sight, and the
  *    downloads with it.
@@ -27,11 +30,13 @@
  * (a restored tab whose pane is still cold): the tab keeps its favicon slot,
  * and the dots stay away until there is something behind them.
  */
-import { useCallback } from 'react';
-import { RotateCw, MoreVertical, MonitorSmartphone, Puzzle, WifiOff, WifiLow, Loader2, Bot, Gauge, CirclePause } from 'lucide-react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import { RotateCw, MoreVertical, MonitorSmartphone, Puzzle, WifiOff, WifiLow, Loader2, Bot, Gauge, CirclePause, Hand } from 'lucide-react';
 import { browserCornerMark, browserTabKind, type BrowserTabKind } from './browserTabKind';
 import { BrowserFavicon } from './BrowserFavicon';
-import { useBrowserPaneChrome, type BrowserPaneChrome } from '../../state/browserPaneChrome';
+import {
+  getBrowserPaneChrome, subscribeBrowserPaneChrome, useBrowserPaneChrome, type BrowserPaneChrome,
+} from '../../state/browserPaneChrome';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { useActiveLocale, useT } from '../../hooks/useT';
@@ -109,8 +114,10 @@ export function BrowserTabIcon({ paneId, url }: { paneId: string; url: string })
  * between the favicon and the title, a fourth zone that pushed the label 20px
  * to the right every time the agent took the wheel.
  *
- * Which mark wins when both are true is `browserCornerMark`: a state of the
- * pane first, then the console errors, then the facts.
+ * Which mark wins when both are true is `browserCornerMark`: the console
+ * errors, then the kind. Neither is a command: "take back control" has its own
+ * button (`BrowserTabTakeControl`), because a 10px corner on the favicon sits
+ * on the Reload button, which fills the favicon's box.
  */
 export function BrowserTabCornerMark({ paneId }: { paneId: string }) {
   const chrome = useBrowserPaneChrome(paneId);
@@ -208,33 +215,6 @@ function KindMark({ chrome, kind }: { chrome: BrowserPaneChrome; kind: BrowserTa
     <Glyph size={8} className={kind === 'connecting' && !prefersReducedMotion() ? 'animate-spin' : ''} />
   );
 
-  // THE AGENT GLYPH IS A BUTTON, the other four are not. Every other kind
-  // reports a fact you cannot act on from a corner; this one names a state
-  // that the person may want to END, and the page underneath is now visible and
-  // untouched, so the tab is the only place left holding a handle. It is also
-  // the handle on the paths where the page itself cannot carry one (the native
-  // pane composites above the DOM: a transparent layer over it would catch
-  // nothing).
-  if (kind === 'agent' && chrome.commands.takeControl) {
-    const takeControl = chrome.commands.takeControl;
-    return (
-      <button
-        type="button"
-        className={`tab-corner-mark bg-app-bg ring-1 ring-app-bg ${tone} hover:opacity-70 transition-opacity`}
-        title={`${label} - ${t('browser.agent.takeControl')}`}
-        aria-label={t('browser.agent.takeControl')}
-        data-testid="browser-tab-type-icon"
-        data-kind={kind}
-        data-connection={chrome.connection}
-        onPointerDown={swallow}
-        onDoubleClick={swallow}
-        onClick={(e) => { swallow(e); takeControl(); }}
-      >
-        {glyph}
-      </button>
-    );
-  }
-
   return (
     <span
       className={`tab-corner-mark bg-app-bg ring-1 ring-app-bg ${tone}`}
@@ -250,6 +230,108 @@ function KindMark({ chrome, kind }: { chrome: BrowserPaneChrome; kind: BrowserTa
     >
       {glyph}
     </span>
+  );
+}
+
+/**
+ * THE KIND IN WORDS, for the tab's accessible name and tooltip: the corner can
+ * be taken by the console errors, and a glyph does not speak anyway.
+ *
+ * The short form on purpose: no agent action, no CPU share. Those change every
+ * few seconds, and this text is read by the whole tab bar, which must render
+ * again only when a tab's kind changes. The corner mark's own tooltip keeps
+ * the long form.
+ */
+export function browserKindName(
+  kind: BrowserTabKind,
+  chrome: Pick<BrowserPaneChrome, 'engineExtensions'>,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+): string {
+  switch (kind) {
+    case 'agent': return t('browser.tab.kind.agent');
+    case 'disconnected': return t('browser.tab.kind.disconnected');
+    case 'connecting': return t('browser.tab.kind.connecting');
+    case 'degraded': return t('browser.tab.kind.degraded');
+    case 'heavy-paused': return t('browser.tab.kind.heavyPaused');
+    case 'heavy': return t('browser.tab.kind.heavyShort');
+    case 'chromium': return t('browser.tab.kind.chromium', { n: String(chrome.engineExtensions ?? 0) });
+    case 'shared': return t('browser.tab.kind.shared');
+  }
+}
+
+/** Row and field separators of the snapshot below: never in a pane id. */
+const ROW_SEP = '\u0001';
+const FIELD_SEP = '\u0000';
+
+/**
+ * The kind of every browser tab in a bar, in words (`browserKindName`), keyed
+ * by pane id. Tabs without a kind are absent.
+ *
+ * ONE SUBSCRIPTION FOR THE BAR, whose tabs are drawn inside a `map` where a
+ * per-tab hook cannot live. The snapshot is a string, so a favicon or a zoom
+ * change in some pane re-renders nothing: only a changed name does.
+ */
+export function useBrowserKindNames(paneIds: readonly string[]): ReadonlyMap<string, string> {
+  const t = useT();
+  const key = paneIds.join(ROW_SEP);
+  const subscribeAll = useCallback((fn: () => void) => {
+    const offs = key ? key.split(ROW_SEP).map((id) => subscribeBrowserPaneChrome(id, fn)) : [];
+    return () => { for (const off of offs) off(); };
+  }, [key]);
+  const snapshot = useSyncExternalStore(
+    subscribeAll,
+    () => {
+      let out = '';
+      for (const id of key ? key.split(ROW_SEP) : []) {
+        const chrome = getBrowserPaneChrome(id);
+        const kind = chrome ? browserTabKind(chrome) : undefined;
+        if (chrome && kind) out += `${id}${FIELD_SEP}${browserKindName(kind, chrome, t)}${ROW_SEP}`;
+      }
+      return out;
+    },
+    () => '',
+  );
+  return useMemo(() => new Map(
+    snapshot.split(ROW_SEP).filter(Boolean).map((row) => row.split(FIELD_SEP) as [string, string]),
+  ), [snapshot]);
+}
+
+/**
+ * "Take back control", while an agent drives this pane.
+ *
+ * It used to be the agent glyph on the favicon's corner: a 10px target whose
+ * box overlapped the Reload button (which fills the favicon) by 6x6px, so a
+ * click aimed at one could land on the other. Now it is a command like the
+ * dots, beside them in the tab's hover extras (`.tab-extras`): 16px, clear of
+ * Reload, the dots and Close. Keyboard focus reveals it like the others.
+ *
+ * It exists while the state does: the pane offers `takeControl` only while an
+ * agent is at the wheel, and a command that ends a state nobody is in is a
+ * dead door. The page itself is the other handle where it can carry one (the
+ * transparent layer in `RemoteBrowserPanel`); on the native pane, which
+ * composites above the DOM, this button is the only one.
+ */
+export function BrowserTabTakeControl({ paneId }: { paneId: string }) {
+  const chrome = useBrowserPaneChrome(paneId);
+  const t = useT();
+  const takeControl = chrome?.agentActive ? chrome.commands.takeControl : undefined;
+  if (!chrome || !takeControl) return null;
+  const doing = chrome.agentAction
+    ? t('browser.tab.kind.agentDoing', { action: chrome.agentAction })
+    : t('browser.tab.kind.agent');
+  return (
+    <button
+      type="button"
+      onClick={(e) => { swallow(e); takeControl(); }}
+      onPointerDown={swallow}
+      onDoubleClick={swallow}
+      className="w-4 h-4 flex items-center justify-center rounded flex-shrink-0 text-primary hover:bg-app-hover"
+      title={`${doing} - ${t('browser.agent.takeControl')}`}
+      aria-label={t('browser.agent.takeControl')}
+      data-testid="browser-tab-take-control"
+    >
+      <Hand size={12} />
+    </button>
   );
 }
 

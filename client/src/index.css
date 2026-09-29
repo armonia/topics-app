@@ -2174,6 +2174,12 @@ input[type="range"]::-webkit-slider-thumb {
     -webkit-mask-image: linear-gradient(to left, transparent 20px, #000 32px);
     mask-image: linear-gradient(to left, transparent 20px, #000 32px);
   }
+  /* Two extras (take back control + the dots, 16 + 2 + 16): the fade moves
+   * left by one command, or the label shows through the first. */
+  [role='tab'][data-tab-extras]:has(> .tab-extras > :nth-child(2)):hover > [data-testid='pane-tab-label'] {
+    -webkit-mask-image: linear-gradient(to left, transparent 38px, #000 50px);
+    mask-image: linear-gradient(to left, transparent 38px, #000 50px);
+  }
 }
 @media not (hover: hover) {
   [role='tab'][data-active='true'] > .tab-slot > .tab-slot-command,
@@ -2185,6 +2191,10 @@ input[type="range"]::-webkit-slider-thumb {
   [role='tab'][data-active='true'][data-tab-extras] > [data-testid='pane-tab-label'] {
     -webkit-mask-image: linear-gradient(to left, transparent 20px, #000 32px);
     mask-image: linear-gradient(to left, transparent 20px, #000 32px);
+  }
+  [role='tab'][data-active='true'][data-tab-extras]:has(> .tab-extras > :nth-child(2)) > [data-testid='pane-tab-label'] {
+    -webkit-mask-image: linear-gradient(to left, transparent 38px, #000 50px);
+    mask-image: linear-gradient(to left, transparent 38px, #000 50px);
   }
 }
 

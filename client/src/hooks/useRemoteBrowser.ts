@@ -75,6 +75,9 @@ interface RemoteBrowserState {
    *  (WebRTC/JPEG, default); 'dom' = a native rrweb DOM reconstruction (real
    *  browser, cross-device-sharp) — the server streams DOM events instead of pixels. */
   renderMode: 'video' | 'dom';
+  /** Errors and warnings the server page logged since this pane mounted. Only
+   *  the tallies: they light the tab's corner and the dots' badge. */
+  consoleSummary: { errors: number; warnings: number };
 }
 
 interface InteractionHandlers {
@@ -269,6 +272,7 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
     // when it can't snapshot the page (canvas/WebGL/injection blocked), and only
     // THEN does the WebRTC pixel transport negotiate.
     renderMode: 'dom',
+    consoleSummary: { errors: 0, warnings: 0 },
   });
 
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -788,6 +792,13 @@ export function useRemoteBrowser(contextId: string, isVisible = true): RemoteBro
           case 'console':
             // Forward to devtools console; full UI surface deferred to plan 30-04.
             console.debug(`[browser ${contextId}] ${msg.level}: ${msg.text}`);
+            // The tallies reach the tab, the same as the native pane's: a page
+            // that throws while an agent drives it is the one to know about.
+            // Plain logs change no tally and cost no render.
+            if (msg.level === 'error' || msg.level === 'warn') {
+              const key = msg.level === 'error' ? 'errors' : 'warnings';
+              setState(s => ({ ...s, consoleSummary: { ...s.consoleSummary, [key]: s.consoleSummary[key] + 1 } }));
+            }
             break;
           case 'agent_active':
             // Phase 30 BROWSER-CHAT-04 — agent lock state surfaced to RemoteBrowserPanel

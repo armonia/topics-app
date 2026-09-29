@@ -207,6 +207,12 @@ export function getBrowserPaneChrome(paneId: string): BrowserPaneChrome | undefi
   return registry.get(paneId);
 }
 
+/** Listen to one pane's chrome without a hook: for a reader that follows
+ *  several panes at once (the tab bar's accessible names). */
+export function subscribeBrowserPaneChrome(paneId: string, fn: () => void): () => void {
+  return subscribe(paneId, fn);
+}
+
 function subscribe(paneId: string, fn: () => void): () => void {
   let set = listeners.get(paneId);
   if (!set) { set = new Set(); listeners.set(paneId, set); }

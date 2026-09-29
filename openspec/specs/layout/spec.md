@@ -3001,9 +3001,15 @@ browser (agente al volante, connessione assente o lenta, pagina pesante,
 Chromium vero, condiviso) SHALL stare in un segno d'angolo sull'icona, largo
 zero: quando un segno compare o sparisce il nome SHALL NON spostarsi. Se ne
 vale più d'uno, vince l'avviso di organizzazione, poi gli errori, poi il
-marcatore di progetto. Su un browser vince uno stato della pagina (agente,
-connessione, pesante), poi gli errori, poi i fatti (Chromium vero, condiviso).
+marcatore di progetto. Su un browser gli errori SHALL vincere su qualunque
+tipo, stati della pagina (agente, connessione, pesante) compresi; il tipo che
+perde l'angolo SHALL restare detto nel nome accessibile e nel tooltip della tab.
 I download di un browser SHALL stare nel suo menu ⋯.
+
+Un segno d'angolo SHALL NON essere un comando: sta sopra Ricarica, che occupa
+l'icona. «Riprendi il controllo», finché un agente guida, SHALL essere un
+comando accanto al menu ⋯, largo almeno 16 px, e la sua area SHALL NON
+sovrapporsi a quella di Ricarica, del menu ⋯ né di Chiudi.
 
 #### Scenario: la tab fissata
 - **GIVEN** una tab fissata
@@ -3013,3 +3019,12 @@ I download di un browser SHALL stare nel suo menu ⋯.
 - **GIVEN** una tab browser senza tipo
 - **WHEN** l'agente prende il volante, e poi lo restituisce
 - **THEN** il tipo SHALL comparire sull'angolo della favicon, e il bordo sinistro e la larghezza del nome SHALL restare identici
+
+#### Scenario: la pagina dà errori mentre l'agente guida
+- **GIVEN** una tab browser con l'agente al volante
+- **WHEN** la pagina scrive un errore nella console
+- **THEN** l'angolo della favicon SHALL mostrare il pallino rosso degli errori, e il nome accessibile e il tooltip della tab SHALL dire che l'agente sta guidando
+
+#### Scenario: riprendere il controllo
+- **GIVEN** una tab browser con l'agente al volante, sotto il puntatore
+- **THEN** «Riprendi il controllo» SHALL essere largo almeno 16 px e la sua area SHALL NON sovrapporsi a Ricarica, al menu ⋯ né a Chiudi

@@ -4,9 +4,9 @@
  *
  *   agent > disconnected > connecting > degraded > heavy-paused > heavy > chromium > shared
  *
- * The agent stays first: it is the one kind you can act on right now (the glyph
- * is the take-control button), and an agent-driven pane is exempt from the
- * heavy pause anyway. A heavy pane that is also shared or real Chromium shows
+ * The agent stays first: it is the one kind you can act on right now (the tab
+ * offers take-control while it lasts), and an agent-driven pane is exempt from
+ * the heavy pause anyway. A heavy pane that is also shared or real Chromium shows
  * the heavy glyph: that is the fact that explains why the page is paused.
  */
 import type { BrowserPaneChrome } from '../../state/browserPaneChrome';
@@ -50,19 +50,18 @@ export function browserTabKind(
  * WHICH MARK the favicon's corner carries (TABSLOT-03): one at a time, zero
  * width, so the label never moves when one comes or goes.
  *
- * A STATE of the pane beats the console errors: the agent at the wheel, a link
- * that is gone or limping, a heavy pane throttled or paused. Each one explains
- * what the page is doing right now, and the agent's mark is also the
- * take-control button. The errors beat the two FACTS (real Chromium, shared),
- * which are true for the pane's whole life and say nothing new. The losing
- * errors are not lost: the dots carry their badge and the sheet their list.
+ * THE CONSOLE ERRORS WIN, over every kind. They are the one mark that reports
+ * something BROKEN, and the corner is the only thing a tab shows about its page
+ * at rest. Until 2026-09-29 a state of the pane (agent, link, heavy) won
+ * instead, so the red dot vanished exactly on the tabs doing the most. The kind
+ * that loses the corner is not lost: the tab's accessible name and its tooltip
+ * say it (`browserKindName`), and "take back control" is a command of its own
+ * under the pointer (`BrowserTabTakeControl`), not the corner.
  */
 export function browserCornerMark(
   kind: BrowserTabKind | undefined,
   consoleErrors: number,
 ): 'kind' | 'errors' | undefined {
-  const isFact = kind === 'chromium' || kind === 'shared';
-  if (kind && !isFact) return 'kind';
   if (consoleErrors > 0) return 'errors';
   return kind ? 'kind' : undefined;
 }

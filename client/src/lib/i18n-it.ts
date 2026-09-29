@@ -627,6 +627,7 @@ const IT: Dict = {
   'browser.tab.kind.agentDoing': 'L\'agente: {action}',
   'browser.tab.kind.heavy': 'Pagina pesante: usava {pctIl} del Mac. Va in pausa quando lasci questa scheda',
   'browser.tab.kind.heavyPaused': 'In pausa per risparmiare CPU',
+  'browser.tab.kind.heavyShort': 'Pagina pesante',
   'browser.heavy.paused.title': 'In pausa',
   'browser.heavy.paused.body': 'Questa pagina usava {pctIl} del Mac. Riprende da dove era.',
   'browser.heavy.paused.keepOnce': 'Mantieni per questa volta',

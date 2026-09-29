@@ -387,15 +387,19 @@ test.describe("BROWSER-CHAT-04 browser tab open + agent integration (@plan-30-05
       await expect(overlay).toBeHidden({ timeout: 5000 });
       await expect(page.locator('[data-testid="browser-tab-type-icon"][data-kind="agent"]')).toHaveCount(0);
 
-      // THE OTHER HANDLE: the tab's agent glyph is a button, and it pulls the
-      // same wire. It is the only handle on the shells where the page cannot
-      // carry one (the native pane composites above the DOM), so it is checked
-      // here rather than trusted.
+      // THE OTHER HANDLE: the tab's own "take back control" command, under the
+      // pointer beside the dots, pulls the same wire. It is the only handle on
+      // the shells where the page cannot carry one (the native pane composites
+      // above the DOM), so it is checked here rather than trusted. It is no
+      // longer the agent glyph on the favicon's corner, which sat on Reload.
       browserProcessPageV2.broadcastAgentActive(true);
       const agentIcon = page.locator('[data-testid="browser-tab-type-icon"][data-kind="agent"]');
       await expect(agentIcon).toBeVisible({ timeout: 5000 });
+      await page.locator('[role="tab"][data-pane-id^="browser:"]').first().hover();
+      const takeBack = page.getByTestId("browser-tab-take-control");
+      await expect(takeBack).toBeVisible({ timeout: 5000 });
       browserProcessPageV2.drainInputMessages();
-      await agentIcon.click();
+      await takeBack.click();
       await expect
         .poll(() => browserProcessPageV2.drainInputMessages(), { timeout: 5000 })
         .toEqual(

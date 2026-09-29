@@ -48,7 +48,9 @@ import {
   nextSpaceName,
 } from './spaceHelpers';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
-import { BrowserTabIcon, BrowserTabMenuButton, BrowserTabCornerMark } from '../Browser/BrowserTabChrome';
+import {
+  BrowserTabIcon, BrowserTabMenuButton, BrowserTabCornerMark, BrowserTabTakeControl, useBrowserKindNames,
+} from '../Browser/BrowserTabChrome';
 import { BrowserTabSheet } from '../Browser/BrowserTabSheet';
 import { prefetchBrowserTabSheet } from '../Browser/browserTabSheetLazy';
 import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
@@ -324,6 +326,10 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // vedrebbe mai. `useSyncExternalStore` e non uno stato locale: lo snapshot
   // e' UNO per tutta l'app, e ogni tab bar deve leggere lo stesso.
   useSyncExternalStore(subscribePaneUsage, getPaneUsageVersion, getPaneUsageVersion);
+  // A browser tab's kind in words (TABSLOT-03): its corner can be taken by the
+  // console errors, and the kind it loses is still said by the tab's name and
+  // tooltip. One subscription for the bar, re-rendering only on a kind change.
+  const browserKindNames = useBrowserKindNames(panes.filter((p) => p.type === 'browser').map((p) => p.id));
   // Una misura in anticipo, al montaggio della barra. Senza, il PRIMO passaggio
   // del mouse trovava sempre lo store vuoto e leggeva «non ancora misurato»:
   // tecnicamente esatto, praticamente una porta in faccia — la fetch parte in
@@ -1171,6 +1177,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         // "Vite + React" apart, and it costs the label nothing. And it is not
         // the system tooltip: `TooltipDelegate` intercepts `title` and redraws
         // it after 350 ms instead of the well over a second macOS takes.
+        const browserKind = pane.type === 'browser' ? browserKindNames.get(pane.id) : undefined;
         const browserHover = pane.type === 'browser'
           ? (() => {
             const input = {
@@ -1181,7 +1188,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             const raw = browserTabLabel(input);
             const name = raw === NEW_TAB_LABEL ? tr('browser.newTab.title') : raw;
             const address = browserTabSubtitle(input);
-            return address ? `${name}\n${address}` : name;
+            return [name, address, browserKind].filter(Boolean).join('\n');
           })()
           : null;
         // Lo stato A PAROLE, per chi non vede il colore.
@@ -1290,6 +1297,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
               // The slot shows at most "99+": the exact count is said here.
               badgeCount > 0 && tr('tab.attentionCount', { n: String(badgeCount) }),
               detailProject,
+              browserKind,
               pinned && tr('sidebar.pinned'),
               spawnedBrowser && tr('tab.openedBrowser'),
               cloud && tr('tab.cloudSession'),
@@ -1491,11 +1499,13 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 pane.type === 'chat' ? sessionKeyForPaneId(pane.id, topics) : null,
               )}`}
             >{pane.type === 'browser' ? <BrowserTabSheet paneId={pane.id} label={label} /> : label}</TabLabel>
-            {/* The browser's extra command, on hover only and OVER the label's
-                tail (`.tab-extras`): the dots open the sheet, downloads and
-                console included. */}
+            {/* The browser's extra commands, on hover only and OVER the label's
+                tail (`.tab-extras`): take back control while an agent drives,
+                and the dots, which open the sheet, downloads and console
+                included. */}
             {pane.type === 'browser' && (
               <span className="tab-extras">
+                <BrowserTabTakeControl paneId={pane.id} />
                 <BrowserTabMenuButton paneId={pane.id} />
               </span>
             )}

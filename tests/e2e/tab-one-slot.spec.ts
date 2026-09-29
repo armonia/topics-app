@@ -20,7 +20,13 @@
  *     gives it back) keeps its label at the same x and width: the kind is a
  *     corner mark on the favicon, not a fourth zone in flow;
  *  f) a "99+" count stays inside the 20px slot, and the exact count is in the
- *     tab's accessible name.
+ *     tab's accessible name;
+ *  g) a browser tab whose page logs errors while it has a kind (the agent at
+ *     the wheel) shows the red dot on the corner, and the kind it displaced is
+ *     still said by the tab's accessible name and tooltip;
+ *  h) "take back control" is a command with a target of its own: its box
+ *     overlaps none of Reload, the dots and Close. As a 10px corner of the
+ *     favicon it sat on the Reload button.
  *
  * It is a behaviour: video on, the .webm is the evidence.
  *
@@ -411,9 +417,128 @@ test.describe.serial("Una tab, tre zone", () => {
         expect(Math.abs(z.label.x - seen.rest.label.x), `label x in ${state}`).toBeLessThanOrEqual(SAME_PX);
         expect(Math.abs(z.label.width - seen.rest.label.width), `label width in ${state}`).toBeLessThanOrEqual(SAME_PX);
       }
-      // The mark sits on the favicon's corner: it starts inside the lead icon.
-      console.log(`[e] lead x=${lead.x - tabBox.x} w=${lead.width} | mark x=${mark.x - tabBox.x} w=${mark.width}`);
+      // The mark sits on the favicon's corner: it starts inside the lead icon
+      // and ends before the label starts, so it neither is a zone of its own
+      // nor covers the name.
+      const labelAtAgent = seen.agent!.label;
+      console.log(`[e] lead x=${lead.x - tabBox.x} w=${lead.width} | mark x=${mark.x - tabBox.x} w=${mark.width} | label x=${labelAtAgent.x - tabBox.x} w=${labelAtAgent.width}`);
+      expect(mark.x, "the kind starts on the favicon").toBeGreaterThanOrEqual(lead.x - SAME_PX);
       expect(mark.x, "the kind is a corner of the favicon, not a zone of its own").toBeLessThan(lead.x + lead.width);
+      expect(mark.x + mark.width, "the corner mark ends before the label").toBeLessThanOrEqual(labelAtAgent.x + SAME_PX);
+      expect(labelAtAgent.width, "the label keeps its floor with the kind on").toBeGreaterThanOrEqual(LABEL_MIN_PX);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+      await closeAllBrowserContexts(request);
+    }
+  });
+
+  /** A browser tab on the server session, the agent at the wheel. */
+  async function browserTabWithAgent(
+    page: Page,
+    browser: import("./fixtures/browser-v2.fixture").BrowserProcessPageV2,
+    topicId: string,
+  ) {
+    await goToApp(page);
+    await waitForTopicVisible(page, topicId);
+    await page.evaluate((tid) => {
+      window.dispatchEvent(new CustomEvent("browser:open-and-navigate", { detail: { topicId: tid, url: "https://example.com" } }));
+    }, topicId);
+    const tab = page.locator('[role="tab"][data-pane-id^="browser:"]').first();
+    await expect(tab).toBeVisible({ timeout: 15_000 });
+    await browser.waitForWsConnected();
+    browser.broadcastAgentActive(true, "Compila il modulo");
+    await expect(tab.getByTestId("browser-tab-type-icon")).toHaveAttribute("data-kind", "agent", { timeout: 10_000 });
+    return tab;
+  }
+
+  /** Before `createTopic`: resetting the pane store after it hides the topic. */
+  async function mockStreamingPane(
+    request: import("@playwright/test").APIRequestContext,
+    browser: import("./fixtures/browser-v2.fixture").BrowserProcessPageV2,
+  ) {
+    await resetPaneStore(request, []);
+    await browser.mockBrowserWs({ framesPerSecond: 15 });
+    await browser.mockBrowserContexts([]);
+    await browser.mockRemoteBrowserPane({ connected: true, url: "https://example.com", title: "Example", hasScreenshot: true });
+  }
+
+  test("g) TABSLOT-03: console errors win the corner over the browser's kind, and the kind is still said", async ({ page, request, browserProcessPageV2 }) => {
+    test.info().annotations.push({ type: "spec", description: "TABSLOT-03" });
+    await mockStreamingPane(request, browserProcessPageV2);
+    const topic = await createTopic(request, `slot-errors-${TS}`);
+    try {
+      const tab = await browserTabWithAgent(page, browserProcessPageV2, topic.id);
+      // THE PAGE BREAKS while the agent drives: the one mark that reports
+      // something BROKEN must be the one on the corner, at rest.
+      browserProcessPageV2.sendConsole("error", "Uncaught TypeError: boom");
+      await pointerAway(page);
+      const cue = tab.getByTestId("browser-tab-console-cue");
+      await expect(cue, "the red dot is the corner mark").toBeVisible({ timeout: 10_000 });
+      await expect(cue).toHaveAttribute("data-console-errors", "1");
+      await expect(tab.getByTestId("browser-tab-type-icon"), "one mark at a time").toHaveCount(0);
+      await tab.screenshot({ path: test.info().outputPath("browser-tab-errors-over-kind.png") });
+
+      // The dot sits on the favicon's corner, like the kind did.
+      const lead = (await tab.getByTestId("browser-tab-icon").boundingBox())!;
+      const dot = (await cue.boundingBox())!;
+      console.log(`[g] lead x=${lead.x} w=${lead.width} | dot x=${dot.x} w=${dot.width}`);
+      expect(dot.x, "the dot is on the favicon").toBeGreaterThanOrEqual(lead.x - SAME_PX);
+      expect(dot.x, "the dot is on the favicon").toBeLessThan(lead.x + lead.width);
+
+      // THE KIND IT DISPLACED IS STILL SAID: in the tab's accessible name and
+      // in the label's tooltip.
+      const agentSaid = /agente sta guidando|agent is driving/i;
+      await expect(tab, "the kind is in the tab's accessible name").toHaveAttribute("aria-label", agentSaid);
+      await expect(tab.getByTestId("pane-tab-label"), "the kind is in the tab's tooltip").toHaveAttribute("title", agentSaid);
+
+      // The agent lets go: the errors stay, and so does the dot.
+      browserProcessPageV2.broadcastAgentActive(false);
+      await expect(tab, "the kind leaves the accessible name with the state").not.toHaveAttribute("aria-label", agentSaid, { timeout: 10_000 });
+      await expect(cue).toBeVisible();
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+      await closeAllBrowserContexts(request);
+    }
+  });
+
+  test("h) TABSLOT-03: take back control has a target of its own, clear of Reload, the dots and Close", async ({ page, request, browserProcessPageV2 }) => {
+    test.info().annotations.push({ type: "spec", description: "TABSLOT-03" });
+    await mockStreamingPane(request, browserProcessPageV2);
+    const topic = await createTopic(request, `slot-take-${TS}`);
+    try {
+      const tab = await browserTabWithAgent(page, browserProcessPageV2, topic.id);
+      await tab.hover();
+      const take = tab.getByRole("button", { name: /Riprendi il controllo|Take back control/ });
+      await expect(take).toBeVisible({ timeout: 5_000 });
+      const others: Record<string, Locator> = {
+        reload: tab.getByTestId("browser-tab-reload"),
+        dots: tab.getByTestId("browser-tab-menu"),
+        close: tab.getByTestId("pane-tab-close"),
+      };
+      for (const [name, loc] of Object.entries(others)) await expect(loc, `${name} is offered under the pointer`).toBeVisible();
+      await tab.screenshot({ path: test.info().outputPath("browser-tab-take-control.png") });
+
+      const t = (await take.boundingBox())!;
+      console.log(`[h] take x=${t.x.toFixed(2)} y=${t.y.toFixed(2)} w=${t.width.toFixed(2)} h=${t.height.toFixed(2)}`);
+      for (const [name, loc] of Object.entries(others)) {
+        const o = (await loc.boundingBox())!;
+        const dx = Math.min(t.x + t.width, o.x + o.width) - Math.max(t.x, o.x);
+        const dy = Math.min(t.y + t.height, o.y + o.height) - Math.max(t.y, o.y);
+        console.log(`[h] ${name} x=${o.x.toFixed(2)} y=${o.y.toFixed(2)} w=${o.width.toFixed(2)} h=${o.height.toFixed(2)} | overlap ${Math.max(0, dx).toFixed(2)}x${Math.max(0, dy).toFixed(2)}`);
+        expect(dx > SAME_PX && dy > SAME_PX, `take control overlaps ${name}`).toBe(false);
+      }
+      // A command, not a badge: as big as the dots next to it.
+      expect(t.width, "take control is at least 16px wide").toBeGreaterThanOrEqual(16 - SAME_PX);
+      expect(t.height, "take control is at least 16px tall").toBeGreaterThanOrEqual(16 - SAME_PX);
+
+      // And it does what it says.
+      browserProcessPageV2.drainInputMessages();
+      await take.click();
+      await expect
+        .poll(() => browserProcessPageV2.drainInputMessages(), { timeout: 5_000 })
+        .toEqual(expect.arrayContaining([expect.objectContaining({ type: "take_control" })]));
+      await expect(tab.locator('[data-testid="browser-tab-type-icon"][data-kind="agent"]'), "the wheel is back").toHaveCount(0, { timeout: 5_000 });
+      await expect(take, "no agent, no command to end it").toHaveCount(0);
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});
       await closeAllBrowserContexts(request);

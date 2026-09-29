@@ -1,7 +1,7 @@
 /**
  * The one glyph a browser tab shows, when several kinds are true at once. The
- * agent stays first (it is the take-control button); the heavy kinds slot after
- * the connection kinds and before the facts nobody can act on.
+ * agent stays first; the heavy kinds slot after the connection kinds and before
+ * the facts nobody can act on. On the corner the console errors beat any kind.
  *
  * @covers BROWSER-HEAVY-04
  * @covers TABSLOT-03
@@ -29,19 +29,14 @@ describe('browserTabKind order', () => {
 });
 
 describe('browserCornerMark: one mark on the favicon corner', () => {
-  test('a state of the pane beats the console errors', () => {
-    for (const kind of ['agent', 'disconnected', 'connecting', 'degraded', 'heavy-paused', 'heavy'] as const) {
-      expect(browserCornerMark(kind, 3)).toBe('kind');
+  test('the console errors beat every kind, states and facts alike', () => {
+    for (const kind of ['agent', 'disconnected', 'connecting', 'degraded', 'heavy-paused', 'heavy', 'chromium', 'shared', undefined] as const) {
+      expect(browserCornerMark(kind, 3)).toBe('errors');
     }
   });
 
-  test('the console errors beat the facts', () => {
-    expect(browserCornerMark('chromium', 3)).toBe('errors');
-    expect(browserCornerMark('shared', 3)).toBe('errors');
-    expect(browserCornerMark(undefined, 3)).toBe('errors');
-  });
-
-  test('a fact alone still shows, and nothing shows nothing', () => {
+  test('without errors the kind shows, and nothing shows nothing', () => {
+    expect(browserCornerMark('agent', 0)).toBe('kind');
     expect(browserCornerMark('shared', 0)).toBe('kind');
     expect(browserCornerMark(undefined, 0)).toBeUndefined();
   });

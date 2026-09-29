@@ -865,6 +865,9 @@ function RemoteBrowserPanelStreaming({ contextId, initialUrl, navigateUrl, onUrl
     loading: browser.loading,
     canGoBack: true,
     canGoForward: true,
+    // The server page's tallies. The iframe branch shows this device's own
+    // page, whose console the server does not see.
+    consoleSummary: useIframe ? undefined : browser.consoleSummary,
     downloads: streamDownloads.items.length,
     downloadsStarted: streamDownloads.startedCount,
     // SHARED MEANS "THIS PANE IS SHOWING THE SERVER SESSION", not "this pane was
