@@ -113,6 +113,15 @@ export function selectNonChatPanesToPersist(
 // reload starts empty, so the reload rule is unchanged.
 const sessionOnlyPanes = new Map<string, Pane[]>();
 
+// Projects whose persistence was just forgotten (archive). The window being
+// archived stays mounted for a few more commits after the forget, and its save
+// effect runs again in them (`onOpenPanesChange` is a new function at every
+// parent render): each run wrote the keys and the page memory back, so the
+// background preview came back on the next reopen. Every write is refused until
+// a window of this project mounts again, which is the read in
+// `loadPersistedState`.
+const forgottenProjects = new Set<string>();
+
 /** Record the open non-chat panes that `persisted` (the snapshot just written)
  *  leaves out, so the next mount of this project window in the same page can
  *  put them back. Called by the save effect on every commit, so a close
@@ -122,6 +131,7 @@ export function rememberSessionOnlyPanes(
   panes: Pane[],
   persisted: Pane[],
 ): void {
+  if (forgottenProjects.has(projectPath)) return;
   const persistedIds = new Set(persisted.map(p => p.id));
   const extra = stripWrapperPaneId(
     panes.filter(p => p.type !== 'chat' && !persistedIds.has(p.id)),
@@ -145,9 +155,12 @@ export function withSessionOnlyPanes(projectPath: string, nonChatPanes: Pane[]):
  * localStorage keys and the session-only panes above. Archiving calls it, so
  * un-archiving starts from a clean layout. Removing only the keys left the
  * page memory behind, and a project archived, restored and reopened in the
- * same page brought back the background preview tab it had before.
+ * same page brought back the background preview tab it had before. The saves
+ * of the window still mounted are refused until the project mounts again:
+ * see `forgottenProjects`.
  */
 export function forgetProjectPersistence(projectPath: string): void {
+  forgottenProjects.add(projectPath);
   sessionOnlyPanes.delete(projectPath);
   try {
     localStorage.removeItem(storageKey(projectPath));
@@ -275,6 +288,8 @@ export function loadPersistedState(
   projectPath: string,
   onUpdate?: (fresh: PersistedTabState) => void,
 ): PersistedState | null {
+  // A window of this project is mounting: it may save again.
+  forgottenProjects.delete(projectPath);
   // Read tab state directly from this project's localStorage key. We used to
   // go through `loadProjectLayout`, which preferred the pane-store reducer's
   // `projects[path]` snapshot — but that snapshot uses a completely different
@@ -325,6 +340,7 @@ export function savePersistedTabState(
   projectPath: string,
   state: PersistedTabState,
 ): void {
+  if (forgottenProjects.has(projectPath)) return;
   // ALWAYS write localStorage immediately. A refresh during the chat-sync
   // gate window still gets the most recent state.
   saveProjectLayoutLocalOnly(storageKey(projectPath), state);
@@ -339,5 +355,6 @@ export function savePersistedLayoutState(
   projectPath: string,
   state: PersistedLayoutState,
 ): void {
+  if (forgottenProjects.has(projectPath)) return;
   saveProjectLayoutLocalOnly(layoutStorageKey(projectPath), state);
 }

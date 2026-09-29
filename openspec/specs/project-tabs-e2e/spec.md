@@ -43,6 +43,12 @@ The system SHALL persist project window tab layout and restore it when the proje
 - **WHEN** the user reloads the page
 - **THEN** the split layout is restored with the same groups and tabs
 
+#### Scenario: An archived project reopens without the tabs it had
+- **GIVEN** a project window has a Git preview open in the background next to a browser, and another tab shares the project's group
+- **WHEN** the user archives the project from the sidebar menu, the project is restored and reopened in the same page
+- **THEN** the reopened project window does not show the Git preview
+- **AND** the project's local tab snapshot does not list it
+
 ### Requirement: PROJECT-TABS-03 — Project Tab Status Badges
 
 The system SHALL display status badges on project tabs indicating git status and running processes.

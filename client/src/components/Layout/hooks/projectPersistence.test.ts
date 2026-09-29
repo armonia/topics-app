@@ -11,6 +11,8 @@ import {
   layoutStorageKey,
   loadPersistedState,
   rememberSessionOnlyPanes,
+  savePersistedLayoutState,
+  savePersistedTabState,
   selectNonChatPanesToPersist,
   storageKey,
   withSessionOnlyPanes,
@@ -174,6 +176,38 @@ describe('forgetProjectPersistence (archive)', () => {
       expect(store.has(storageKey(ARCHIVED))).toBe(false);
       expect(store.has(layoutStorageKey(ARCHIVED))).toBe(false);
       expect(loadPersistedState(ARCHIVED)).toBeNull();
+    });
+  });
+
+  // The archived window is still mounted when the forget runs, and its save
+  // effect runs again in the next commits (measured in WebKit: forget, then a
+  // remember 1 ms later with the Git preview). Those saves must not bring the
+  // project back; the next mount of the window lifts the refusal.
+  test('the saves of the window still mounted after the forget write nothing', () => {
+    withStorage((store) => {
+      const browser = pane('browser:1', 'browser', false);
+      const git = pane('git:1', 'git', true);
+      const groups = [group('g1', ['browser:1', 'git:1'], 'browser:1')];
+      const persisted = selectNonChatPanesToPersist([browser, git], groups, ARCHIVED);
+      rememberSessionOnlyPanes(ARCHIVED, [browser, git], persisted);
+
+      forgetProjectPersistence(ARCHIVED);
+      // One more run of useProjectPersistenceSave, same order as the effect.
+      rememberSessionOnlyPanes(ARCHIVED, [browser, git], persisted);
+      savePersistedTabState(ARCHIVED, { nonChatPanes: persisted, openChatTopicIds: [] });
+      savePersistedLayoutState(ARCHIVED, { groups, sidebarCollapsed: false });
+
+      expect(store.has(storageKey(ARCHIVED))).toBe(false);
+      expect(store.has(layoutStorageKey(ARCHIVED))).toBe(false);
+      // The reopen mounts from nothing.
+      expect(loadPersistedState(ARCHIVED)).toBeNull();
+
+      // Mounted again, the window saves as before.
+      rememberSessionOnlyPanes(ARCHIVED, [browser, git], persisted);
+      savePersistedLayoutState(ARCHIVED, { sidebarCollapsed: true });
+      expect(withSessionOnlyPanes(ARCHIVED, []).map(p => p.id)).toEqual(['git:1']);
+      expect(store.has(layoutStorageKey(ARCHIVED))).toBe(true);
+      rememberSessionOnlyPanes(ARCHIVED, [], []);
     });
   });
 
