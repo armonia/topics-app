@@ -139,6 +139,16 @@ test.describe("Mute gate + app badge", () => {
     ws.send(phaseFrame(keyMuted, "running"));
     ws.send(phaseFrame(keyLoud, "running"));
 
+    // The badge baseline is read BEFORE the completions. The badge counts
+    // subjects (NOTIF-ONE-02): the Loud chat's banner records a notification
+    // that already counts it, asynchronously, so a baseline read after the
+    // banner may or may not include it depending on when that record lands.
+    // Measured against a baseline to stay immune to stale attention in the
+    // shared test DB.
+    const badge = () =>
+      page.evaluate(() => (window as unknown as { __badge: number | null }).__badge ?? 0);
+    const base = await badge();
+
     // Frame 2 = both flip running→completed: two completions in the same tick.
     ws.send(phaseFrame(keyMuted, "completed"));
     ws.send(phaseFrame(keyLoud, "completed"));
@@ -155,14 +165,9 @@ test.describe("Mute gate + app badge", () => {
     expect(bannerTitles.some((t) => t.includes(loudTopic.name))).toBe(true);
     expect(bannerTitles.some((t) => t.includes(mutedTopic.name))).toBe(false);
 
-    // (2) Badge counts BOTH topics though one is muted. The badge rides the
-    // attention rollup (unread + claude-attention), which never consults the
-    // mute gate — so marking each topic unread raises setAppBadge by exactly 2.
-    // Measure against a baseline to stay immune to any stale attention in the
-    // shared test DB.
-    const badge = () =>
-      page.evaluate(() => (window as unknown as { __badge: number | null }).__badge ?? 0);
-    const base = await badge();
+    // (2) Badge counts BOTH topics though one is muted: the rollup never
+    // consults the mute gate, and each chat counts once whether it is its
+    // notification or its unread that makes it count.
     ws.send({ type: "unread:updated", topicId: mutedTopic.id, unreadCount: 1 });
     ws.send({ type: "unread:updated", topicId: loudTopic.id, unreadCount: 1 });
     await expect.poll(badge, { timeout: 5000 }).toBe(base + 2);
