@@ -5,6 +5,7 @@ import { describe, test, expect } from "bun:test";
 import { clearActionFor } from "./clearPolicy";
 import { ClaudeCodeProvider } from "../providers/claude-code";
 import { OpenClawProvider } from "../providers/openclaw";
+import { CodexProvider } from "../providers/codex";
 
 /**
  * Il difetto che questi test bloccano: `/clear` chiamava
@@ -43,5 +44,6 @@ describe("clearActionFor", () => {
   test("i provider VERI cadono nel ramo giusto (prototipi, non finti oggetti)", () => {
     expect(clearActionFor(ClaudeCodeProvider.prototype as object)).toEqual({ kind: "reset" });
     expect(clearActionFor(OpenClawProvider.prototype as object)).toEqual({ kind: "in-band" });
+    expect(clearActionFor(CodexProvider.prototype as object)).toEqual({ kind: "reset" });
   });
 });
