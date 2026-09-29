@@ -1286,7 +1286,7 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // scritto accanto, e duplicherebbe i title dei figli (spinner,
             // SessionActivity) che dicono la loro parte.
             aria-label={[
-              label, stateTab, detailProject,
+              label, tabFreeze && tr('swapFreeze.short'), stateTab, detailProject,
               pinned && tr('sidebar.pinned'),
               spawnedBrowser && tr('tab.openedBrowser'),
               cloud && tr('tab.cloudSession'),

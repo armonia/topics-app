@@ -414,7 +414,10 @@ test.describe("La brina di un comando congelato", () => {
         return words.scrollWidth - words.clientWidth;
       });
       expect(clipped, "the row's pause line is not truncated at the default sidebar width").toBeLessThanOrEqual(1);
-      await expect(tab).toContainText(/pausa/i);
+      // The tab has one 20px slot (TABSLOT-02): the snowflake sits there and the
+      // word travels in the tab's accessible name and the glyph's tooltip.
+      await expect(tab).toHaveAttribute("aria-label", /pausa/i);
+      await expect(tab.getByTestId("swap-freeze-glyph")).toBeVisible();
       // The row says it on its second line, so the NAME keeps all its room
       // (it lost 36 px to the close ring the frost pulled back into the flow).
       expect(before.row - after.row, "the row name keeps its room").toBeLessThanOrEqual(1);
