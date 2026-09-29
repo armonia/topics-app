@@ -897,6 +897,35 @@ export function createTopicsRouter(
     hooks: extra.hooks, goalLoop,
   }, browserService);
   goalLoop.useRoute(async (...a) => chatRouter(...a)); // now: a boot check-in may come before any request
+
+  /**
+   * A new chat's first message, sent by the server through `POST /api/chat`
+   * like any typed message: same user row, same turn, and no client window
+   * has to stay open for it. It is never stored on the topic, so a reload or
+   * a restart has nothing to send a second time; from here on the chat row is
+   * its only copy. The SSE body is drained so the turn runs to its end.
+   */
+  async function sendInitialMessage(sessionKey: string, content: string): Promise<void> {
+    const url = new URL("http://localhost/api/chat");
+    try {
+      const resp = await chatRouter(
+        new Request(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }] }),
+        }),
+        url, "/api/chat", "POST",
+      );
+      if (!resp?.ok) {
+        console.warn(`[topics] initial message of ${sessionKey} refused by the chat route: ${resp?.status ?? "no response"}`);
+        return;
+      }
+      const reader = resp.body?.getReader();
+      if (reader) while (!(await reader.read()).done) { /* drain */ }
+    } catch (err) {
+      console.warn(`[topics] initial message of ${sessionKey} failed:`, err);
+    }
+  }
   // Il ponte MCP del browser (le sei rotte `…/browser/*` in due forme
   // d'indirizzo) sta in `browser-bridge.ts` con i tre helper di risoluzione del
   // contesto che usava SOLO lui. `browserNavigatedTopics` è la stessa istanza
@@ -1276,18 +1305,20 @@ export function createTopicsRouter(
         topic.worktreeId = body.worktreeId;
       }
       // Phase C · TOPIC-IM-01: optional one-shot initial message.
-      // Validation: ≤ 8000 chars, control-char strip. Empty string normalises
-      // to null so callers can send "" without persisting useless rows.
+      // Validation: ≤ 8000 chars, control-char strip. Empty or whitespace-only
+      // sends nothing.
+      let initialMessage: string | null = null;
       if (body.initialMessage !== undefined && body.initialMessage !== null) {
         const cleaned = String(body.initialMessage).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "").trim();
         if (cleaned.length > 8000) return json({ error: "initialMessage too long (max 8000)" }, 400);
-        if (cleaned.length > 0) topic.initialMessage = cleaned;
+        if (cleaned.length > 0) initialMessage = cleaned;
       }
 
       data.topics[id] = topic;
       topic.sessionKey = "topic:" + id.slice(0, 8);
       saveSingleTopic(topic);
       broadcastToAll({ type: "topic:created", topic });
+      if (initialMessage) void sendInitialMessage(topic.sessionKey, initialMessage);
       return json(topic, 201);
     }
 

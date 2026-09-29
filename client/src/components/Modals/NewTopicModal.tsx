@@ -446,7 +446,7 @@ export function NewTopicModal({ isOpen, onClose, onCreate, projectPath, worktree
               Initial message <span className="text-app-text-muted font-normal">(optional)</span>
             </label>
             <p className="text-mini text-app-text-muted mb-2">
-              Type your first prompt now. It will be queued and delivered as soon as the agent connects, so you don't have to wait.
+              Type your first prompt now. It is sent as the chat's first message as soon as the chat is created, so you don't have to wait.
             </p>
             <textarea
               value={initialMessage}
