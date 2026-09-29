@@ -40,9 +40,14 @@ export function createNotificationsRouter(ctx: AppContext): RouteHandler {
 
     if (method === "POST" && pathname === "/api/notifications/seen") {
       const body = (await readJSON(req)) as
-        { ids?: unknown; upTo?: unknown; targetKind?: unknown; targetId?: unknown } | null;
+        { ids?: unknown; upTo?: unknown; subjects?: unknown; targetKind?: unknown; targetId?: unknown } | null;
       const ids = Array.isArray(body?.ids) ? body!.ids.filter((v): v is string => typeof v === "string") : undefined;
       const upTo = typeof body?.upTo === "string" ? body!.upTo : undefined;
+      // The mark all names what the panel listed beyond its rows; only those
+      // are cleared (`markAllNotificationsSeen`).
+      const subjects = Array.isArray(body?.subjects)
+        ? body!.subjects.filter((v): v is string => typeof v === "string")
+        : undefined;
       // Third form: BY TARGET. Opening the terminal that finished is the
       // natural gesture by which a person says "I have seen it", and until now
       // the registry did not know - only the history panel cleared it, and
@@ -59,12 +64,12 @@ export function createNotificationsRouter(ctx: AppContext): RouteHandler {
       }
       // Nessuno dei due → non è "segna tutto", è una chiamata malformata. Una
       // cronologia che si azzera per sbaglio è peggio di un errore 400.
-      if (!ids?.length && !upTo) return json({ error: "ids, upTo or target required" }, 400);
+      if (!ids?.length && !upTo && !subjects?.length) return json({ error: "ids, upTo, subjects or target required" }, 400);
       // Both doors broadcast `notification:seen` to EVERY window, with the
       // subjects they cleared: whoever looked at the list here must see it
       // switch off there too (detached groups, a phone on the same network).
       let snapshot = unseenSnapshot();
-      if (upTo) snapshot = markAllNotificationsSeen(seenDeps, upTo);
+      if (upTo || subjects?.length) snapshot = markAllNotificationsSeen(seenDeps, { upTo, subjects });
       if (ids?.length) snapshot = markNotificationRowsSeen(seenDeps, ids);
       return json({ ok: true, ...snapshot });
     }

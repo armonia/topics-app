@@ -115,6 +115,9 @@ let a: { id: string; name: string };
 let b: { id: string; name: string };
 let stale: { id: string; name: string };
 let late: { id: string; name: string };
+let shown: { id: string; name: string };
+let muted: { id: string; name: string };
+let finished: { id: string; name: string };
 const CARD_BOARD = `one-truth-${TS}`;
 let cardId = "";
 
@@ -123,10 +126,20 @@ test.beforeAll(async ({ request }) => {
   b = await createTopic(request, `OneTruth-Few-${TS}`);
   stale = await createTopic(request, `OneTruth-Stale-${TS}`);
   late = await createTopic(request, `OneTruth-Late-${TS}`);
+  shown = await createTopic(request, `OneTruth-Shown-${TS}`);
+  muted = await createTopic(request, `OneTruth-Muted-${TS}`);
+  // The per-topic mute (migration 073): its turns raise no banner, hence no row.
+  const res = await request.patch(`${BASE}/api/topics/${muted.id}`, { data: { muted: true } });
+  expect(res.ok()).toBe(true);
+  // Hookless AND muted: its finished turn writes no banner row, so only the
+  // 'done' mark can make it count.
+  finished = await createTopic(request, `OneTruth-Finished-${TS}`, { provider: "topics" });
+  const mute = await request.patch(`${BASE}/api/topics/${finished.id}`, { data: { muted: true } });
+  expect(mute.ok()).toBe(true);
 });
 
 test.afterAll(async ({ request }) => {
-  for (const t of [a, b, stale, late]) if (t) await deleteTopic(request, t.id).catch(() => {});
+  for (const t of [a, b, stale, late, shown, muted, finished]) if (t) await deleteTopic(request, t.id).catch(() => {});
   if (cardId) await deleteTask(request, CARD_BOARD, cardId).catch(() => {});
 });
 
@@ -266,4 +279,115 @@ test("NOTIF-ONE: opening a chat whose notification was born after its unread was
   await expectBoth(page, base);
   await didascalia(page, "e · the chat opened: its late notification is seen, bell and Dock back");
   await beat(page, 1400);
+});
+
+test("NOTIF-ONE: the mark all clears what the panel listed, and a muted chat whose messages came after the list keeps its unread", async ({ page }) => {
+  test.info().annotations.push({ type: "spec", description: "NOTIF-ONE-01" });
+  test.info().annotations.push({ type: "spec", description: "MUTE-01" });
+  test.setTimeout(60_000);
+  await stubAppBadge(page);
+  await cleanStart(page);
+  await openWith(page, [shown.id, muted.id, BOARD], BOARD);
+  const base = await globalNumber(page);
+  await expectBoth(page, base);
+
+  // `shown` is in the panel when it opens: unread and a notification.
+  await messages(page.request, shown.id, 2);
+  await notify(page.request, shown.id, "Shown replied");
+  await expectBoth(page, base + 1);
+
+  // The mark all is held on the wire (passed through untouched) so that the
+  // muted chat's messages land AFTER the list was read and BEFORE the server
+  // applies the mark all. A muted chat raises no banner, so it never has a row
+  // that could spare it: only what the panel listed may be cleared.
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  let posted!: () => void;
+  const seenPosted = new Promise<void>((r) => { posted = r; });
+  await page.route("**/api/notifications/seen", async (route) => {
+    posted();
+    await gate;
+    await route.continue();
+  });
+
+  await bell(page).click();
+  await expect(panel(page)).toBeVisible();
+  await seenPosted;
+  await messages(page.request, muted.id, 3);
+  await expect(rowBadge(page, muted.name)).toHaveAttribute("data-notification-count", "3", { timeout: 10_000 });
+  const applied = page.waitForResponse((r) => r.url().endsWith("/api/notifications/seen") && r.request().method() === "POST");
+  release();
+  expect((await applied).ok()).toBe(true);
+  await page.unroute("**/api/notifications/seen");
+
+  // What the panel listed is seen; the muted chat it had not shown is not.
+  await expect.poll(() => unreadOf(page.request, shown.id), { timeout: 10_000 }).toBe(0);
+  expect(await unreadOf(page.request, muted.id)).toBe(3);
+  await expect(rowBadge(page, muted.name)).toHaveAttribute("data-notification-count", "3");
+  await expect(page.locator(`[data-testid="notification-waiting-row"][data-subject="topic:${muted.id}"]`)).toBeVisible();
+  // Mute silences the banner, never the count (MUTE-01): it is still one.
+  await expectBoth(page, base + 1);
+  await didascalia(page, "f · mark all: the listed chat clears, the muted one that came after keeps its 3");
+});
+
+test("NOTIF-ONE: a hookless chat that finished counts one on the bell and the Dock, is listed, and the mark all clears it", async ({ page }) => {
+  test.info().annotations.push({ type: "spec", description: "NOTIF-ONE-02" });
+  test.info().annotations.push({ type: "spec", description: "CHAT-DONE-01" });
+  test.setTimeout(60_000);
+  await stubAppBadge(page);
+  // The turn end arrives on the real socket, injected with the shape the
+  // server broadcasts (an external boundary); the server's own frames pass.
+  let inject: ((data: string) => void) | null = null;
+  await page.routeWebSocket(/\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((m) => server.send(m));
+    server.onMessage((m) => ws.send(m));
+    inject = (data: string) => ws.send(data);
+  });
+  const topics = (await (await page.request.get(`${BASE}/api/topics`)).json()) as {
+    topics: Record<string, { sessionKey?: string }>;
+  };
+  const sessionKey = topics.topics[finished.id]?.sessionKey;
+  expect(sessionKey).toBeTruthy();
+
+  await cleanStart(page);
+  // Its tab is open (a chat with neither a tab nor unread has no row), the
+  // board holds the focus: nobody is looking at the chat when it finishes.
+  await openWith(page, [finished.id, BOARD], BOARD);
+  const finishedRow = page.getByRole("treeitem", { name: finished.name, exact: true });
+  await expect(finishedRow).toBeVisible({ timeout: 15_000 });
+  const base = await globalNumber(page);
+
+  // The panel is open first, so the mark arrives while it is on screen.
+  await bell(page).click();
+  await expect(panel(page)).toBeVisible();
+  await expectBoth(page, base);
+
+  expect(inject).not.toBeNull();
+  inject!(JSON.stringify({
+    type: "stream:end", sessionKey, topicId: finished.id, messageId: `done-${TS}`, completed: true, stopReason: "end_turn",
+  }));
+  await expect(finishedRow).toHaveAttribute("data-attention", "done", { timeout: 10_000 });
+  // Nothing but the mark: no unread, no notification row (muted, no banner).
+  expect(await unreadOf(page.request, finished.id)).toBe(0);
+  const listed = (await (await page.request.get(`${BASE}/api/notifications`)).json()) as {
+    rows: Array<{ targetId: string | null }>;
+  };
+  expect(listed.rows.filter((r) => r.targetId === finished.id)).toHaveLength(0);
+
+  // One subject, like a finished terminal, on both numbers and in the panel.
+  await expectBoth(page, base + 1);
+  const waitingRow = page.locator(`[data-testid="notification-waiting-row"][data-subject="topic:${finished.id}"]`);
+  await expect(waitingRow).toBeVisible({ timeout: 10_000 });
+  await didascalia(page, "g · a hookless chat finished: one more on the bell and the Dock, listed in the panel");
+
+  // Closing and reopening the panel is the mark all: the mark goes everywhere.
+  await bell(page).click();
+  await expect(panel(page)).toHaveCount(0);
+  await bell(page).click();
+  await expect(panel(page)).toBeVisible();
+  await expect(finishedRow).not.toHaveAttribute("data-attention", /done|input/, { timeout: 10_000 });
+  await expect(waitingRow).toHaveCount(0);
+  await expectBoth(page, base);
+  await didascalia(page, "g · panel reopened: the finished chat's mark is seen, bell and Dock back");
 });

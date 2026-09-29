@@ -321,16 +321,3 @@ export function unseenSnapshot(): UnseenSnapshot {
     return { unseen: 0, unseenKeys: [] };
   }
 }
-
-/** The subjects that still have an unseen row, by group key. */
-export function unseenNotificationGroupKeys(): string[] {
-  try {
-    const rows = getDatabase()
-      .query("SELECT DISTINCT group_key FROM notification_log WHERE seen_at IS NULL AND group_key IS NOT NULL")
-      .all() as Array<{ group_key: string }>;
-    return rows.map((r) => r.group_key);
-  } catch (err) {
-    console.warn("[notification-log] unseen groups failed:", (err as Error)?.message || err);
-    return [];
-  }
-}

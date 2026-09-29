@@ -9,17 +9,15 @@
 import { defaultNotificationGroupKey, terminalNotificationGroupKey } from '../../../../shared/notification-log';
 
 export interface SeenFrame {
-  /** Group keys cleared (`topic:<id>`, `terminal:<id>`, `task:<id>`). */
+  /** Subjects cleared: group keys (`topic:<id>`, `terminal:<id>`, `task:<id>`),
+   *  or the id of a row with no group. */
   subjects?: string[];
-  /** Mark all: everything was seen except these group keys. */
-  allExcept?: string[];
 }
 
 /** Does this frame cover the subject with this group key? A frame that names
  *  nothing (older servers) is read as covering nothing: the in-memory marks are
  *  then cleared by the gestures that always cleared them. */
 export function frameCoversSubject(frame: SeenFrame, groupKey: string): boolean {
-  if (frame.allExcept) return !frame.allExcept.includes(groupKey);
   return !!frame.subjects?.includes(groupKey);
 }
 
@@ -40,10 +38,10 @@ export function marksClearedBy(
   return out;
 }
 
-/** Should a history row lose its unseen dot on this frame? A legacy frame (no
- *  subjects, no allExcept) is the old "the whole list was seen". */
-export function rowSeenByFrame(frame: SeenFrame, groupKey: string | null): boolean {
-  if (!frame.subjects && !frame.allExcept) return true;
-  if (!groupKey) return !!frame.allExcept;
-  return frameCoversSubject(frame, groupKey);
+/** Should a history row lose its unseen dot on this frame? `subjectKey` is the
+ *  row's key as the server counts it: its group key, or its own id when it has
+ *  no group. A legacy frame (no subjects) is the old "the whole list was seen". */
+export function rowSeenByFrame(frame: SeenFrame, subjectKey: string): boolean {
+  if (!frame.subjects) return true;
+  return frameCoversSubject(frame, subjectKey);
 }

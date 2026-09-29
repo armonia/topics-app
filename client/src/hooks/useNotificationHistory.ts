@@ -31,8 +31,11 @@ export interface NotificationHistoryState {
    * APRIRE la cronologia: rileggere l'elenco e segnare viste le righe che si
    * stanno guardando. È UNA azione sola, e va chiesta così — vedi il commento
    * sull'implementazione: erano due, partivano insieme, e sbagliavano.
+   *
+   * `listed`: the subjects the panel shows above its rows ("Waiting for
+   * you"), the only ones besides the rows that the mark all may clear.
    */
-  openAndMarkSeen: () => void;
+  openAndMarkSeen: (listed: readonly string[]) => void;
   /** Click su una riga: segna vista (col suo gruppo) e porta alla cosa.
    *  Torna false se non c'era niente da aprire. */
   openRow: (row: NotificationRow) => boolean;
@@ -172,10 +175,10 @@ export function useNotificationHistory(
     // Only the rows of the subjects the frame names: opening ONE chat used to
     // switch off every dot in the list, including those still unseen.
     const at = new Date().toISOString();
-    setRows((prev) => prev.map((r) => (r.seenAt || !rowSeenByFrame(msg, r.groupKey) ? r : { ...r, seenAt: at })));
+    setRows((prev) => prev.map((r) => (r.seenAt || !rowSeenByFrame(msg, r.groupKey ?? r.id) ? r : { ...r, seenAt: at })));
   });
 
-  const openAndMarkSeen = useCallback(() => {
+  const openAndMarkSeen = useCallback((listed: readonly string[]) => {
     // PRIMA si legge, POI si segna visto. In quest'ordine, e aspettando.
     //
     // Il click sul tastino ne lanciava due insieme: una rilettura e un «visto».
@@ -205,12 +208,14 @@ export function useNotificationHistory(
         // viste le cose che ho avuto sotto gli occhi. Una notifica arrivata DOPO
         // questa lettura resta non vista, ed è giusto così.
         const upTo = (page?.rows ?? rowsRef.current)[0]?.createdAt;
-        if (!upTo) return;
-        return markNotificationsSeen({ upTo }).then((snapshot) => {
+        // An empty history can still list subjects: those are seen too.
+        if (!upTo && !listed.length) return;
+        return markNotificationsSeen({ ...(upTo ? { upTo } : {}), subjects: [...listed] }).then((snapshot) => {
+          setUnseen(snapshot);
+          if (!upTo) return;
           // Alzato solo a CONFERMA avvenuta: è ciò che il server dice di aver
           // segnato, non ciò che gli abbiamo chiesto.
           if (upTo > seenUpTo.current) seenUpTo.current = upTo;
-          setUnseen(snapshot);
           const at = new Date().toISOString();
           setRows((prev) => prev.map((r) => (r.seenAt || r.createdAt > upTo ? r : { ...r, seenAt: at })));
         });

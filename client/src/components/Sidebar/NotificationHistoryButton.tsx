@@ -17,7 +17,7 @@
  * prima di lui nessuno registrava cosa fosse stato mandato. Fingere una
  * cronologia piena ricostruendola a posteriori sarebbe una lista inventata.
  */
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Bell, Settings, Inbox, MessageSquare, SquareCheck, TerminalSquare, PanelTop } from 'lucide-react';
 import type { WSMessage } from '../../types';
@@ -66,7 +66,7 @@ export function NotificationHistoryButton({
   // review with no notification, a chat waiting for you) is listed on top.
   const { attentionTotal: unseen, attentionSubjects } = useTabNotifications();
   const unseenKeys = useUnseenNotificationsStore((s) => s.keys);
-  const waiting = waitingSubjects(attentionSubjects, unseenKeys);
+  const waiting = useMemo(() => waitingSubjects(attentionSubjects, unseenKeys), [attentionSubjects, unseenKeys]);
   const topics = useTopics();
   const terminalSessions = useTerminalSessions();
   const waitingLabel = (s: ChromeSubject): { title: string; detail: string; url: string | null } => {
@@ -103,9 +103,14 @@ export function NotificationHistoryButton({
     // UNA chiamata, non due: la rilettura e il «visto» sono in sequenza dentro
     // l'hook. Lanciarli da qui come due cose parallele è ciò che lasciava il
     // contatore acceso per sempre — il perché è scritto su `openAndMarkSeen`.
-    openAndMarkSeen();
+    //
+    // The mark all clears what the panel shows: its rows (up to the newest one
+    // read) and the chats and terminals listed under "Waiting for you", read
+    // HERE, at the click. Cards and pane badges are listed but not seen by
+    // looking: a card clears when decided, a pane when opened.
+    openAndMarkSeen(waiting.filter((s) => s.kind === 'chat' || s.kind === 'terminal').map((s) => s.key));
     setOpen(true);
-  }, [open, openAndMarkSeen]);
+  }, [open, openAndMarkSeen, waiting]);
 
   const rect = anchor;
   const left = rect

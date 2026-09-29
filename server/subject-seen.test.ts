@@ -46,7 +46,7 @@ beforeEach(() => {
   getDatabase().run("DELETE FROM notification_log");
 });
 
-type Frame = { type: string; topicId?: string; unreadCount?: number; unseen?: number; unseenKeys?: string[]; subjects?: string[]; allExcept?: string[] };
+type Frame = { type: string; topicId?: string; unreadCount?: number; unseen?: number; unseenKeys?: string[]; subjects?: string[] };
 
 function harness(counts: Record<string, number>) {
   let store: UnreadData = Object.fromEntries(
@@ -120,6 +120,12 @@ describe("markTopicSeen (opening a chat)", () => {
     expect(countUnseenNotifications()).toBe(0);
   });
 
+  test("a chat with unread and no row still announces its seen, so every window drops its 'done' mark", () => {
+    const h = harness({ a: 3 });
+    expect(markTopicSeen(h.deps, "a")).toEqual({ unreadCleared: true, rowsSeen: 0 });
+    expect(h.frames).toContainEqual({ type: "notification:seen", unseen: 0, unseenKeys: [], subjects: ["topic:a"] });
+  });
+
   test("a no-op writes nothing and wakes nobody", () => {
     const h = harness({ a: 0 });
     expect(markTopicSeen(h.deps, "a")).toEqual({ unreadCleared: false, rowsSeen: 0 });
@@ -152,31 +158,72 @@ describe("markNotificationRowsSeen (a row clicked in the panel)", () => {
 });
 
 describe("markAllNotificationsSeen (opening the panel = mark all)", () => {
-  test("clears every row AND every chat still counting unread, with or without a row", () => {
+  test("clears every row up to the list read, the chats behind them, and the chats the panel listed", () => {
     // `stale` is today's live case: its rows were seen by the panel long ago,
-    // its 22 unread messages kept counting on the dock.
+    // its 22 unread messages kept counting, and the panel lists it under
+    // "Waiting for you".
     const h = harness({ a: 4, b: 1, stale: 22 });
     chatRow("a", "a1");
     const newest = chatRow("b", "b1");
-    const snapshot = markAllNotificationsSeen(h.deps, newest!.createdAt);
+    const snapshot = markAllNotificationsSeen(h.deps, { upTo: newest!.createdAt, subjects: ["topic:stale"] });
     expect(snapshot).toEqual({ unseen: 0, unseenKeys: [] });
     expect(h.unread("a")).toBe(0);
     expect(h.unread("b")).toBe(0);
     expect(h.unread("stale")).toBe(0);
     expect(h.saves()).toBe(1);
     expect(h.frames.filter((f) => f.type === "unread:updated").map((f) => f.topicId).sort()).toEqual(["a", "b", "stale"]);
-    expect(h.frames).toContainEqual({ type: "notification:seen", unseen: 0, unseenKeys: [], allExcept: [] });
+    const seen = h.frames.find((f) => f.type === "notification:seen");
+    expect(seen?.subjects?.sort()).toEqual(["topic:a", "topic:b", "topic:stale"]);
   });
 
-  test("spares a chat whose notification arrived AFTER the list was read", () => {
+  test("a chat the panel did not list keeps its unread: a muted chat has no row to spare it", () => {
+    // MUTE-01: a muted chat raises no banner, so it never has a row. Its
+    // messages landed after the list was read; the old door reset every chat
+    // counting unread, and cleared it.
+    const h = harness({ shown: 2, muted: 3 });
+    const row = chatRow("shown", "s1");
+    markAllNotificationsSeen(h.deps, { upTo: row!.createdAt, subjects: [] });
+    expect(h.unread("shown")).toBe(0);
+    expect(h.unread("muted")).toBe(3);
+    expect(h.frames).toEqual([
+      { type: "unread:updated", topicId: "shown", unreadCount: 0 },
+      { type: "notification:seen", unseen: 0, unseenKeys: [], subjects: ["topic:shown"] },
+    ]);
+  });
+
+  test("an empty history still clears the listed subjects, and names terminals and finished chats for every window", () => {
+    const h = harness({ w: 1 });
+    markAllNotificationsSeen(h.deps, { subjects: ["topic:w", "terminal:s1", "topic:done"] });
+    expect(h.unread("w")).toBe(0);
+    expect(h.frames).toContainEqual({
+      type: "notification:seen", unseen: 0, unseenKeys: [], subjects: ["topic:w", "terminal:s1", "topic:done"],
+    });
+  });
+
+  test("spares a chat whose notification arrived AFTER the list was read, listed or not", () => {
     const h = harness({ a: 4, late: 1 });
     const t0 = Date.now();
     const seenRow = chatRow("a", "a1", t0);
     chatRow("late", "late1", t0 + 5_000);
-    markAllNotificationsSeen(h.deps, seenRow!.createdAt);
+    markAllNotificationsSeen(h.deps, { upTo: seenRow!.createdAt, subjects: ["topic:late"] });
     expect(h.unread("a")).toBe(0);
     expect(h.unread("late")).toBe(1);
     expect(unseenRowsOf("late")).toBe(1);
-    expect(h.frames).toContainEqual({ type: "notification:seen", unseen: 1, unseenKeys: ["topic:late"], allExcept: ["topic:late"] });
+    expect(h.frames).toContainEqual({ type: "notification:seen", unseen: 1, unseenKeys: ["topic:late"], subjects: ["topic:a"] });
+  });
+
+  test("a row with no group is named by its own id, so other windows drop its dot", () => {
+    const h = harness({});
+    const loose = recordNotification({ kind: "other", title: "loose", dedupeKey: "loose-all" });
+    markAllNotificationsSeen(h.deps, { upTo: loose!.createdAt });
+    expect(h.frames).toEqual([{ type: "notification:seen", unseen: 0, unseenKeys: [], subjects: [loose!.id] }]);
+  });
+
+  test("nothing listed and nothing unseen wakes nobody", () => {
+    const h = harness({ quiet: 2 });
+    markAllNotificationsSeen(h.deps, { subjects: [] });
+    expect(h.unread("quiet")).toBe(2);
+    expect(h.saves()).toBe(0);
+    expect(h.frames).toEqual([]);
   });
 });

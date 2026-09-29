@@ -1,6 +1,6 @@
 import { createContext, useContext, useCallback, useMemo, useState, useEffect, type ReactNode } from 'react';
 import type { UnreadData, WSMessage } from '../types';
-import { useAttentionSignals, rollupProjectAttention, topicAttentionCount, terminalAttentionCount, projectAttentionSubjects, describeProjectAttention } from '../state/signals';
+import { useAttentionSignals, useSignalsStore, rollupProjectAttention, topicAttentionCount, terminalAttentionCount, projectAttentionSubjects, describeProjectAttention } from '../state/signals';
 import { chromeAttentionSubjects, type ChromeSubject } from '../state/attentionTotal';
 import { useUnseenNotificationsStore } from '../state/notificationUnseen';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
@@ -185,6 +185,8 @@ export function TabNotificationProvider({
   // review by id, to union it with its own notification row.
   const allBoardGroups = useMemo(() => trayBoardGroups(boardTasks, { rowsPerGroup: Number.MAX_SAFE_INTEGER }), [boardTasks]);
   const unseenNotificationKeys = useUnseenNotificationsStore((s) => s.keys);
+  // A finished chat's 'done' mark counts like a finished terminal (CHAT-DONE-01).
+  const chatFinishedTopics = useSignalsStore((s) => s.chatFinishedTopics);
   // THE ONE OS NUMBER. Dock badge, menu-bar tray glyph and the PWA Badging API
   // below all read `chromeCount`, and `chromeCount` is `chromeAttentionTotal`:
   // the pure function whose rule ("how many things are asking a human for
@@ -197,10 +199,11 @@ export function TabNotificationProvider({
     unread: unreadData,
     claudeAttentionTopics,
     terminalFinishedIds,
+    chatFinishedTopics,
     boardGroups: allBoardGroups,
     paneCounts: extraCounts,
     unseenNotificationKeys,
-  }), [topics, unreadData, claudeAttentionTopics, terminalFinishedIds, allBoardGroups, extraCounts, unseenNotificationKeys]);
+  }), [topics, unreadData, claudeAttentionTopics, terminalFinishedIds, chatFinishedTopics, allBoardGroups, extraCounts, unseenNotificationKeys]);
   const chromeCount = attentionSubjects.length;
   useEffect(() => {
     if (!isTauri) return;
