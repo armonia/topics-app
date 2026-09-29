@@ -11,7 +11,7 @@ import { isAgentTurnNoise } from '../lib/notify/dispatchedTopic';
 import { isTopicMuted as isTopicMutedPure } from '../lib/notify/muteGate';
 import { bannerClaimKey, bannerClaimant, claimMessageBanner } from '../lib/notify/messageBannerClaim';
 import { decideMessageBanner } from '../lib/notify/messageBanner';
-import { decideChatFinishedBanner, isChatPaneSelected } from '../lib/notify/chatFinished';
+import { decideChatFinishedBanner, isChatPaneSelected, turnEndClaimKey } from '../lib/notify/chatFinished';
 import { isCleanChatTurnEnd } from '../../../shared/chat-turn-end';
 import { backgroundNoticeOf, machineStopOf } from '../components/Chat/machineRow';
 import { buildNotifyActions, type NotifyAction } from '../../../shared/notify-actions';
@@ -570,9 +570,10 @@ export function useCompletionNotifier({
       cooldownRef.current.set(decision.cooldownKey, Date.now());
       // The frame is a broadcast: with detached groups N windows receive it and
       // every gate above is true in all of them. One delivery per turn end, not
-      // per window, through the same shared claim as `message:new`.
-      const claimKey = `turn-end:${msg.messageId ?? `${topicId}:${msg.latencyMs ?? ''}`}`;
-      void claimMessageBanner(claimKey, bannerClaimant()).then((mine) => {
+      // per window, and on the SAME key `message:new` claims for this turn's
+      // reply, so a hidden window bannering the reply and a visible one
+      // bannering the end also share one delivery.
+      void claimMessageBanner(turnEndClaimKey({ ...msg, topicId }), bannerClaimant()).then((mine) => {
         if (!mine) return;
         fire(
           'stream:end',

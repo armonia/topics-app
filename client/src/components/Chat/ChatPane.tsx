@@ -69,6 +69,7 @@ import { useSessionMessages } from '../../state/useSessionMessages';
 import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAttachments';
 import { useServedFromCache } from '../../state/historyFromCache';
 import { holdTopic } from '../../state/topicSubscriptions';
+import { useClearChatFinishedWhileViewed } from '../../state/signals';
 
 /**
  * The text `/help` prints, DERIVED from the composer's own menu.
@@ -174,6 +175,8 @@ function ChatPaneComponent({
   // pane stays mounted and keeps receiving its messages, and the person reads
   // them on coming back.
   useEffect(() => holdTopic(topic.id), [topic.id]);
+  // Opening the chat is having seen that it finished: its 'done' mark goes.
+  useClearChatFinishedWhileViewed(topic.id, isFocused);
   const isGlobalOrchestrator = topic.isGlobalOrchestrator === true;
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   useEffect(() => { const h = () => setIsMobile(window.innerWidth < 768); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []);

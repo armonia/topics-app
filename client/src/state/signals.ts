@@ -301,6 +301,12 @@ interface SignalsState {
   // quando arriva un nuovo "tocca a te" (`resetSeenOnNewAttention`).
   seenSubjects: ReadonlySet<string>;
   terminalFinishedIds: Set<string>;     // claude-code finished a turn, until the user looks
+  // The chat twin of `terminalFinishedIds`: a chat whose turn ended cleanly
+  // (`isCleanChatTurnEnd`, any runtime, hooks or not), until the user opens it
+  // or a new turn starts. In memory only, like its terminal twin: a reload
+  // starts empty for both. `useSignalsSync` folds it into
+  // `awaitingFeedbackTopics`, so it paints through the same blue 'done' tier.
+  chatFinishedTopics: Set<string>;
   terminalReloadingIds: Set<string>;    // a terminal is restarting (Ricarica), until it reconnects
   // "What is this session doing right now" — a compact descriptor keyed by
   // SUBJECT id (topicId for chats, terminalSessionId for terminals; the two id
@@ -330,6 +336,8 @@ interface SignalsState {
   setTerminalBusy: (id: string, busy: boolean) => void;
   markTerminalFinished: (id: string) => void;
   clearTerminalFinished: (id: string) => void;
+  markChatFinished: (topicId: string) => void;
+  clearChatFinished: (topicId: string) => void;
   markTerminalReloading: (id: string) => void;
   clearTerminalReloading: (id: string) => void;
   reconcileTerminals: (roster: TerminalRosterEntry[]) => void;
@@ -490,6 +498,7 @@ export const useSignalsStore = create<SignalsState>((set) => ({
   attentionEdgeTopics: new Set(),
   seenSubjects: new Set(),
   terminalFinishedIds: new Set(),
+  chatFinishedTopics: new Set(),
   terminalReloadingIds: new Set(),
   sessionActivity: new Map(),
   sessionLastActivity: new Map(),
@@ -549,6 +558,18 @@ export const useSignalsStore = create<SignalsState>((set) => ({
     set((s) => {
       const next = withToggled(s.terminalFinishedIds, id, false);
       return next ? { terminalFinishedIds: next } : s;
+    }),
+
+  markChatFinished: (topicId) =>
+    set((s) => {
+      const next = withToggled(s.chatFinishedTopics, topicId, true);
+      return next ? { chatFinishedTopics: next } : s;
+    }),
+
+  clearChatFinished: (topicId) =>
+    set((s) => {
+      const next = withToggled(s.chatFinishedTopics, topicId, false);
+      return next ? { chatFinishedTopics: next } : s;
     }),
 
   markTerminalReloading: (id) =>
@@ -673,6 +694,8 @@ export const signalsActions = {
     useSignalsStore.getState().clearTerminalFinished(id);
     markTargetSeen(TERMINAL_TARGET_KIND, id);
   },
+  markChatFinished: (topicId: string) => useSignalsStore.getState().markChatFinished(topicId),
+  clearChatFinished: (topicId: string) => useSignalsStore.getState().clearChatFinished(topicId),
   markTerminalReloading: (id: string) => useSignalsStore.getState().markTerminalReloading(id),
   clearTerminalReloading: (id: string) => useSignalsStore.getState().clearTerminalReloading(id),
   reconcileTerminals: (roster: TerminalRosterEntry[]) => useSignalsStore.getState().reconcileTerminals(roster),
@@ -1227,6 +1250,19 @@ export function useTerminalLoading(sessionId: string | undefined): boolean {
 /** A claude-code session finished a turn and the user hasn't looked yet. */
 export function useTerminalFinished(sessionId: string | undefined): boolean {
   return useSignalsStore((s) => !!sessionId && s.terminalFinishedIds.has(sessionId));
+}
+
+/**
+ * Viewing a chat clears its "finished" mark, the twin of the effect in
+ * `SingleTerminalPane`. It depends on the mark too, not only on `viewing`: a
+ * chat that finishes while you are already in front of it never shows the mark,
+ * because the effect re-runs on the mark's rising edge and clears it at once.
+ */
+export function useClearChatFinishedWhileViewed(topicId: string, viewing: boolean): void {
+  const finished = useSignalsStore((s) => s.chatFinishedTopics.has(topicId));
+  useEffect(() => {
+    if (viewing && finished) signalsActions.clearChatFinished(topicId);
+  }, [viewing, finished, topicId]);
 }
 
 /** A terminal session is restarting via "Ricarica", until it reconnects. */

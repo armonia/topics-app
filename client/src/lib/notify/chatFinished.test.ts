@@ -1,14 +1,20 @@
 /**
  * The chat twin of the terminal "finished" banner: every gate between a clean
- * `stream:end` and an OS banner.
+ * `stream:end` and an OS banner, the edge that raises and drops the chat's
+ * 'done' mark, and the claim key that keeps two windows at one banner.
+ *
+ * @covers CHAT-DONE-01, CHAT-DONE-02
  */
 import { describe, expect, it } from 'bun:test';
 import {
   CHAT_FINISHED_REPEAT_WINDOW_MS,
+  chatFinishedEdge,
   decideChatFinishedBanner,
   isChatPaneSelected,
+  turnEndClaimKey,
   type ChatFinishedBannerInput,
 } from './chatFinished';
+import { bannerClaimKey, claimBannerIn, type ClaimStorage } from './messageBannerClaim';
 import { isCleanChatTurnEnd } from '../../../../shared/chat-turn-end';
 
 // The case that MUST banner. Every test below changes one field, so what it
@@ -118,5 +124,58 @@ describe('isChatPaneSelected', () => {
   it('never a substring match', () => {
     expect(isChatPaneSelected('t1', 'chat:t10')).toBe(false);
     expect(isChatPaneSelected('t1', 'browser:t1')).toBe(false);
+  });
+});
+
+describe('chatFinishedEdge: what a stream frame does to the chat mark', () => {
+  it('a clean end raises it', () => {
+    expect(chatFinishedEdge({ type: 'stream:end', topicId: 't1', completed: true })).toEqual({ op: 'mark', topicId: 't1' });
+  });
+
+  it('an end that is not a finish leaves it alone: agent turn, stop, error', () => {
+    expect(chatFinishedEdge({ type: 'stream:end', topicId: 't1', completed: true, dispatched: true })).toBeNull();
+    expect(chatFinishedEdge({ type: 'stream:end', topicId: 't1', reason: 'user_abort' })).toBeNull();
+    expect(chatFinishedEdge({ type: 'stream:end', topicId: 't1' })).toBeNull();
+  });
+
+  it('a new turn drops it', () => {
+    expect(chatFinishedEdge({ type: 'stream:start', topicId: 't1' })).toEqual({ op: 'clear', topicId: 't1' });
+    expect(chatFinishedEdge({ type: 'stream:start' })).toBeNull();
+  });
+
+  it('any other frame leaves it alone', () => {
+    expect(chatFinishedEdge({ type: 'stream:delta', topicId: 't1', completed: true })).toBeNull();
+  });
+});
+
+describe('turnEndClaimKey: one banner per turn across windows', () => {
+  function memoryStorage(): ClaimStorage {
+    const m = new Map<string, string>();
+    return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => { m.set(k, v); } };
+  }
+
+  it('is the key `message:new` claims for the reply of the same turn', () => {
+    // The server stamps `message:new` and `stream:end` of a turn with the id of
+    // the same assistant row (server/routes/chat.ts).
+    expect(turnEndClaimKey({ topicId: 't1', messageId: 'm-42' }))
+      .toBe(bannerClaimKey({ topicId: 't1', role: 'assistant', messageId: 'm-42', content: 'done' }));
+  });
+
+  it('window B (hidden) claims on message:new, window A (visible) on stream:end: one wins', () => {
+    const shared = memoryStorage();
+    const now = 1_000_000;
+    const hiddenB = claimBannerIn(shared, bannerClaimKey({ topicId: 't1', role: 'assistant', messageId: 'm-42' }), 'win-B', now);
+    const visibleA = claimBannerIn(shared, turnEndClaimKey({ topicId: 't1', messageId: 'm-42' }), 'win-A', now + 5);
+    expect([hiddenB, visibleA]).toEqual([true, false]);
+  });
+
+  it('two turns of the same chat are two claims', () => {
+    const shared = memoryStorage();
+    expect(claimBannerIn(shared, turnEndClaimKey({ topicId: 't1', messageId: 'm-1' }), 'win-A', 1)).toBe(true);
+    expect(claimBannerIn(shared, turnEndClaimKey({ topicId: 't1', messageId: 'm-2' }), 'win-A', 2)).toBe(true);
+  });
+
+  it('without a messageId the key is still per turn end, shared by every window', () => {
+    expect(turnEndClaimKey({ topicId: 't1', latencyMs: 4200 })).toBe('turn-end:t1:4200');
   });
 });

@@ -15,6 +15,8 @@
 
 import { statusBody } from './terminalNotify';
 import { createPaneId } from '../../state/pane/adapters/paneConfig';
+import { bannerClaimKey } from './messageBannerClaim';
+import { isCleanChatTurnEnd, type ChatTurnEnd } from '../../../../shared/chat-turn-end';
 
 export interface ChatFinishedBannerInput {
   topicId: string;
@@ -84,4 +86,36 @@ export function isChatPaneSelected(
     if (createPaneId('project', projectPath) === focusedPanelId) return true;
   }
   return false;
+}
+
+/**
+ * The claim key of a turn-end banner: the SAME key `message:new` claims for the
+ * reply of that turn. The server stamps both frames with the id of the one
+ * assistant row (`server/routes/chat.ts`), so a window that banners on
+ * `message:new` (hidden) and one that banners on `stream:end` (visible, behind
+ * another app) compete for one claim and raise ONE banner. With a key of its own
+ * each path won its own claim and the turn rang twice.
+ *
+ * Without a `messageId` the fallback cannot meet the `message:new` key, and it
+ * stays per turn end so two windows still share it.
+ */
+export function turnEndClaimKey(end: { topicId: string; messageId?: string; latencyMs?: number }): string {
+  if (end.messageId) return bannerClaimKey({ messageId: end.messageId, topicId: end.topicId, role: 'assistant' });
+  return `turn-end:${end.topicId}:${end.latencyMs ?? ''}`;
+}
+
+/**
+ * What a stream frame does to the chat "finished" mark, the twin of what
+ * `terminal:activity` does to the terminal one: a clean turn end raises it (the
+ * same rule the banner and the server push read), a new turn drops it. Anything
+ * else leaves it alone: an aborted or failed turn is not "finished, your turn".
+ */
+export function chatFinishedEdge(
+  frame: { type: string; topicId?: unknown } & ChatTurnEnd,
+): { op: 'mark' | 'clear'; topicId: string } | null {
+  if (frame.type === 'stream:end') return isCleanChatTurnEnd(frame) ? { op: 'mark', topicId: frame.topicId } : null;
+  if (frame.type === 'stream:start' && typeof frame.topicId === 'string' && frame.topicId) {
+    return { op: 'clear', topicId: frame.topicId };
+  }
+  return null;
 }

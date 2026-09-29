@@ -9,7 +9,7 @@ import { rememberDraggedPane } from '@/lib/dragPayload';
 import { startDragPreview } from '@/lib/dragPreview';
 import { getProjectLabel } from '@/lib/buildSidebarItems';
 import { DND_TYPES } from '@/lib/dndTypes';
-import { useTopicLoading, useTopicBackgroundWork, useTopicAttentionFill, useSeenDwell } from '@/state/signals';
+import { useTopicLoading, useTopicBackgroundWork, useTopicAttentionFill, useTopicAttentionTier, useSeenDwell } from '@/state/signals';
 import { NotificationBadge } from '@/components/Shared/NotificationBadge';
 import { TopicSubline } from '@/components/Shared/SessionActivity';
 import { RelativeTime } from '@/components/Shared/RelativeTime';
@@ -147,6 +147,9 @@ export const TopicItem = memo(function TopicItem({
   useSeenDwell(topic.id, isFocused);
   const attentionTier = useTopicAttentionFill(topic.id);
   const onFill = attentionTier !== null;
+  // The raw tier, for `data-attention`: the same value the chat's tab exposes
+  // (PaneTabBar `rawTier`), so a test reads one state on both surfaces.
+  const rawAttentionTier = useTopicAttentionTier(topic.id);
 
   // NO `useSortable` HERE, and its absence is the point.
   //
@@ -273,6 +276,7 @@ export const TopicItem = memo(function TopicItem({
       aria-label={topic.name}
       tabIndex={isFocused ? 0 : -1}
       data-pinned={pinned ? 'true' : undefined}
+      data-attention={rawAttentionTier ?? undefined}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();

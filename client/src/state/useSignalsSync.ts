@@ -8,6 +8,7 @@ import type { Topic, ClaudeSessionState, TerminalSessionInfo, WSMessage } from '
 import { signalsActions, derivePhaseTerminals, deriveSessionActivity, deriveSessionLastActivity, setsEqual, useSignalsStore, type TerminalPhaseLite } from './signals';
 import { NOTABLE_CLAUDE_PHASES, deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics } from './signals';
 import { readStreamingSnapshot, type StreamingRowInput } from './backgroundWork';
+import { chatFinishedEdge } from '../lib/notify/chatFinished';
 
 /** Insieme vuoto condiviso: identità stabile, così il primo giro non fa churn. */
 const EMPTY_TOPIC_SET: Set<string> = new Set();
@@ -41,6 +42,10 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
     setAskWaitingTopics(next);
   }, []);
 
+  // Chats whose turn ended cleanly and nobody has opened since: see the
+  // `stream:end` handler below and `chatFinishedTopics` in signals.ts.
+  const chatFinishedTopics = useSignalsStore((s) => s.chatFinishedTopics);
+
   // Claude "needs you" phases → attention by topic.
   useEffect(() => {
     const ids = new Set<string>();
@@ -58,6 +63,12 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
   // can pick amber vs blue.
   useEffect(() => {
     const awaiting = deriveAwaitingFeedbackTopics(topics, claudeSessions);
+    // A finished chat is 'done' like a finished terminal, whatever its runtime.
+    // The hook phase alone left a hookless chat without a mark, and a hook chat
+    // lost its mark ~15 min later when `awaiting-user` became `completed`. It
+    // goes in BEFORE `applyNewAttention` so a chat read an hour ago is unseen on
+    // the new finish, as a new `awaiting-user` would be.
+    for (const id of chatFinishedTopics) awaiting.add(id);
     // Due sorgenti, un solo insieme: le fasi del terminale (awaiting-approval) e
     // le chat sospese su una domanda. Per chi guarda la sidebar è la stessa cosa
     // (la palla è sua) quindi è giusto che sia lo stesso colore.
@@ -71,7 +82,7 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
     signalsActions.applyNewAttention(new Set([...awaiting, ...input]));
     signalsActions.setAwaitingFeedbackTopics(awaiting);
     signalsActions.setAwaitingInputTopics(input);
-  }, [topics, claudeSessions, askWaitingTopics]);
+  }, [topics, claudeSessions, askWaitingTopics, chatFinishedTopics]);
 
   // L'aura smorzata per la fase `watching` (Monitor armato) non ha piu' un
   // segnale suo: `watching` e' una fase ATTIVA e passa da
@@ -140,6 +151,12 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
     };
     const unsub = onWSMessage((msg) => {
       if (msg.type === 'stream:start' || msg.type === 'stream:end') {
+        // The chat "finished" mark, the twin of `terminal:activity` below: a
+        // clean end raises it, a new turn drops it. Opening the chat drops it
+        // too (`useClearChatFinishedWhileViewed`, in the chat pane).
+        const edge = chatFinishedEdge(msg);
+        if (edge?.op === 'mark') signalsActions.markChatFinished(edge.topicId);
+        else if (edge?.op === 'clear') signalsActions.clearChatFinished(edge.topicId);
         // Turno finito ⇒ nessuna domanda può essergli sopravvissuta. Si spegne
         // subito invece di aspettare la poll: 400ms di "ti aspetta" su una chat
         // che ha già chiuso sono 400ms di bugia.
