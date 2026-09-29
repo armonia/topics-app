@@ -22,11 +22,14 @@
  *                      deletes at the end.
  *   "CLIPID"           "cli-pid:<pid>", at once: which process answered, so a
  *                      spec can tell a restarted CLI from the one it had.
+ *   "THINK:<ms>"       combines with any of the above: <ms> of silence after
+ *                      the init and before the first piece, the pause of a
+ *                      model that thinks before it writes.
  *   anything else      "ok", at once.
  *
  * `--version` answers and exits 0; a one-shot (`--output-format json`, the
- * auto-namer) prints one result; an interactive PTY (no stream-json input)
- * stays alive until it is killed. Installed for one spec at a time by
+ * auto-namer) prints one result, the title "Titolo" as the JSON it asks for;
+ * an interactive PTY (no stream-json input) stays alive until it is killed. Installed for one spec at a time by
  * `fake-claude-cli.ts`.
  */
 export {};
@@ -45,7 +48,9 @@ if (argv.includes("--version") || argv.includes("-v")) {
 if (flag("--output-format") === "json") {
   process.stdin.on("data", () => {});
   setTimeout(() => {
-    process.stdout.write(JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "Titolo" }) + "\n");
+    // The auto-namer is the one-shot caller, and it reads a JSON title: a plain
+    // word was logged as "did not return JSON" and the tab was never renamed.
+    process.stdout.write(JSON.stringify({ type: "result", subtype: "success", is_error: false, result: '{"title": "Titolo"}' }) + "\n");
     process.exit(0);
   }, 50);
 } else if (flag("--input-format") !== "stream-json") {
@@ -124,6 +129,8 @@ if (flag("--output-format") === "json") {
       if (asked === null) continue;
       queue = queue.then(async () => {
         init();
+        const think = /THINK:(\d+)/.exec(asked);
+        if (think) await sleep(Number(think[1]));
         const tool = /TOOLTURN:(\d+)/.exec(asked);
         const slow = /SLOW:(\d+):([A-Za-z0-9]+)/.exec(asked);
         const fast = /FAST:(\d+):(\d+):([A-Za-z0-9]+)/.exec(asked);
