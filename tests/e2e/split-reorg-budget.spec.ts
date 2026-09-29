@@ -76,6 +76,7 @@ interface ProbeWindow {
   __reorg: {
     on: boolean;
     commits: number;
+    surfaceCommits: number;
     mounts: string[];
     renders: Record<string, number>;
     names: Record<string, number>;
@@ -100,6 +101,7 @@ async function installProbe(page: Page): Promise<void> {
     const probe = {
       on: false,
       commits: 0,
+      surfaceCommits: 0,
       mounts: [] as string[],
       renders: {} as Record<string, number>,
       names: {} as Record<string, number>,
@@ -110,12 +112,17 @@ async function installProbe(page: Page): Promise<void> {
     const COMPONENT_TAGS = new Set([0, 1, 11, 14, 15]);
     const HOST_COMPONENT = 5;
     const PERFORMED_WORK = 1;
-    const walk = (rootFiber: Fiber): void => {
-      const stack: Array<[Fiber, string]> = [[rootFiber, "layout"]];
+    // Returns whether anything rendered INSIDE a tiling surface: a commit that
+    // only touched the sidebar or the status bar is not the layout's.
+    const walk = (rootFiber: Fiber): boolean => {
+      let touchedSurface = false;
+      const stack: Array<[Fiber, string, boolean]> = [[rootFiber, "layout", false]];
       while (stack.length > 0) {
-        const [fiber, owner] = stack.pop()!;
+        const [fiber, owner, underSurface] = stack.pop()!;
         const fresh = fiber.alternate === null;
         let key = owner;
+        let inSurface = underSurface;
+        if (fiber.tag === HOST_COMPONENT && fiber.memoizedProps?.["data-split-surface"] !== undefined) inSurface = true;
         if (fiber.tag === HOST_COMPONENT) {
           const shell = fiber.memoizedProps?.["data-pane-shell"];
           if (typeof shell === "string") {
@@ -124,6 +131,7 @@ async function installProbe(page: Page): Promise<void> {
           }
         }
         if (COMPONENT_TAGS.has(fiber.tag) && (fresh || (fiber.flags & PERFORMED_WORK) !== 0)) {
+          if (inSurface) touchedSurface = true;
           probe.renders[key] = (probe.renders[key] ?? 0) + 1;
           // The component's name, for the report only: minified in a release
           // bundle, readable in a build with `keepNames`.
@@ -135,9 +143,10 @@ async function installProbe(page: Page): Promise<void> {
         // A fiber whose children are still its alternate's children was not
         // reconciled in this commit: nothing under it rendered.
         if (fresh || fiber.child !== fiber.alternate!.child) {
-          for (let c = fiber.child; c; c = c.sibling) stack.push([c, key]);
+          for (let c = fiber.child; c; c = c.sibling) stack.push([c, key, inSurface]);
         }
       }
+      return touchedSurface;
     };
     const renderers = new Map<number, unknown>();
     (window as unknown as { __REACT_DEVTOOLS_GLOBAL_HOOK__: unknown }).__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
@@ -155,7 +164,7 @@ async function installProbe(page: Page): Promise<void> {
       onCommitFiberRoot(_id: number, root: { current: Fiber }) {
         if (!probe.on) return;
         probe.commits += 1;
-        walk(root.current);
+        if (walk(root.current)) probe.surfaceCommits += 1;
       },
     };
   });
@@ -170,6 +179,7 @@ async function beginGesture(page: Page): Promise<GestureMarks> {
   return page.evaluate(() => {
     const p = (window as unknown as ProbeWindow).__reorg;
     p.commits = 0;
+    p.surfaceCommits = 0;
     p.mounts = [];
     p.renders = {};
     p.names = {};
@@ -185,6 +195,8 @@ async function beginGesture(page: Page): Promise<GestureMarks> {
 
 interface GestureResult {
   commits: number;
+  /** Commits in which something inside a tiling surface rendered. */
+  surfaceCommits: number;
   layoutRenders: number;
   paneRenders: number;
   /** Keys that existed before and were mounted again, as React saw it. */
@@ -223,7 +235,7 @@ async function endGesture(page: Page, marks: GestureMarks): Promise<GestureResul
       if (k === "layout" || hosts.has(k)) layoutRenders += n;
       else paneRenders += n;
     }
-    return { commits: p.commits, layoutRenders, paneRenders, reactRemounts, domRemounts, byOwner: { ...p.renders },
+    return { commits: p.commits, surfaceCommits: p.surfaceCommits, layoutRenders, paneRenders, reactRemounts, domRemounts, byOwner: { ...p.renders },
       topNames: Object.entries(p.names)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 12)
@@ -385,7 +397,7 @@ function report(surface: string, rows: Row[], extra: string[]): void {
   const load = loadavg()[0]!.toFixed(2);
   const lines = rows.map(
     (r) =>
-      `  ${r.gesture.padEnd(22)} frames=${String(r.frames).padStart(2)} commits=${String(r.commits).padStart(3)} ` +
+      `  ${r.gesture.padEnd(22)} frames=${String(r.frames).padStart(2)} commits=${String(r.commits).padStart(3)} surfaceCommits=${String(r.surfaceCommits).padStart(3)} ` +
       `layoutRenders=${String(r.layoutRenders).padStart(4)} paneRenders=${String(r.paneRenders).padStart(4)} ` +
       `remounts(react)=${r.reactRemounts.length} remounts(dom)=${r.domRemounts.length}` +
       (r.chatScroll ? ` chatFromBottom=${r.chatScroll}` : "") +
@@ -527,6 +539,10 @@ test.describe("split reorganisation budget", () => {
       const firstRow = await box(page, `[data-split-leaf="${await leafOf(page, terminalPane)}"]`);
       const target = { x: firstRow.x + firstRow.width / 2, y: firstRow.y + 8 };
       expect(await dragOverPoint(page, target), "swap: the first row must accept the row").toBe(true);
+      // The row drop reads the side the dragover chose from committed state,
+      // exactly as a real pointer does after hovering: wait for the blade that
+      // says it, or a loaded machine releases before the hover has landed.
+      await expect(page.locator('[data-group-cell][data-drop-active="before"]').first()).toBeAttached({ timeout: 5000 });
       const frames = await dropAndCountFrames(page, target, before);
       rows.push({
         gesture: "swap-rows",
@@ -597,7 +613,12 @@ test.describe("split reorganisation budget", () => {
           `gaps>50ms ${timing.gapsOver50}, pointer->next frame p50 ${timing.p50.toFixed(1)}ms p95 ${timing.p95.toFixed(1)}ms, ` +
           `longtask API ${timing.longtaskSupported ? "yes" : "absent (WebKit): frame gaps are the proxy"}`,
       );
-      expect.soft(during.commits + release.commits, `divider drag of ${DRAG_MOVES} moves: commits`).toBeLessThanOrEqual(MAX_DRAG_COMMITS);
+      // Counted on the commits that touched a tiling surface: the status bar or
+      // the sidebar ticking during the drag is not the drag's cost.
+      expect.soft(
+        during.surfaceCommits + release.surfaceCommits,
+        `divider drag of ${DRAG_MOVES} moves: commits of the layout`,
+      ).toBeLessThanOrEqual(MAX_DRAG_COMMITS);
       expect.soft(during.paneRenders, "divider drag: no pane body renders while the divider moves").toBe(0);
     }
 
