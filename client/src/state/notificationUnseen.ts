@@ -52,12 +52,18 @@ export function unseenKeysOf(snapshot: { unseen?: number; unseenKeys?: string[] 
  * messages OR an unseen notification. Reading only the unread left a chat's
  * notification lit forever when it was born after the unread had already been
  * cleared (another window, a push): the POST was skipped as a no-op.
+ *
+ * Or a 'done' mark this window cleared (`doneMark`): the mark lives in every
+ * window, and only the server's seen frame reaches the others. With 0 unread
+ * and no row, skipping the POST left it lit everywhere but here.
  */
 export function openingChatClearsSomething(
   unread: UnreadData,
   unseenKeys: ReadonlySet<string>,
   topicId: string,
+  doneMark = false,
 ): boolean {
+  if (doneMark) return true;
   if (hasUnread(unread, topicId)) return true;
   const key = defaultNotificationGroupKey('topic', topicId);
   return !!key && unseenKeys.has(key);

@@ -714,7 +714,12 @@ esporlo come `data-attention="done"`.
 
 Il segno SHALL spegnersi quando la chat viene aperta (è la pane attiva col
 fuoco), quando si clicca la sua riga (anche se la chat la tiene un'altra
-finestra, dove il clic porta avanti quella finestra) o quando comincia un nuovo turno (`stream:start`). Se la chat è già
+finestra, dove il clic porta avanti quella finestra) o quando comincia un nuovo turno (`stream:start`).
+Il segno vive in ogni finestra: aprirla in una SHALL spegnerlo in tutte. La
+finestra che la apre, passato il seen-dwell, SHALL passare dalla porta del
+«visto» (`POST /api/topics/:id/read`) anche con zero non letti e nessuna riga,
+dicendo `doneMark: true`; il server SHALL allora annunciare `notification:seen`
+col soggetto della chat, e ogni finestra spegne il suo segno. Se la chat è già
 davanti quando il turno finisce (la pane a fuoco la mostra e la finestra è
 sveglia, `isWindowAwake`), il segno NON SHALL accendersi affatto: si decide
 dove il segno si accende, non spegnendolo un render dopo, perché anche un
@@ -745,6 +750,11 @@ a ogni fine turno della chat che si sta guardando.
 #### Scenario: aprire la chat spegne il segno
 - **WHEN** la tab della chat segnata viene attivata
 - **THEN** tab e riga NON SHALL avere più `data-attention`
+
+#### Scenario: aperta in una finestra, si spegne anche nell'altra
+- **GIVEN** due finestre, e in entrambe una chat senza hook segnata `done`, con zero non letti e nessuna riga nella cronologia
+- **WHEN** la chat viene aperta nella finestra A
+- **THEN** la sua riga NON SHALL avere più `data-attention` né in A né in B
 
 #### Scenario: la riga di una chat tenuta da un'altra finestra si spegne al clic
 - **GIVEN** una chat tenuta da un'altra finestra, segnata `done` sulla riga di questa

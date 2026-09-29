@@ -3920,7 +3920,11 @@ finestra-gruppo (`?space=`) la query lo segue; un gruppo che vive in una
 finestra sua viene portato davanti. Una meta FISSATA non sta in nessuna card
 (i fissati stanno nel blocco delle tessere sopra i gruppi): il suo gruppo SHALL
 leggersi dalla mappa delle pane (`sidebarItemSpace`), e la meta SHALL fare la
-stessa deviazione; anche il clic sulla sua tessera la fa.
+stessa deviazione; anche il clic sulla sua tessera la fa, e così SHALL fare la
+tessera di OGNI tipo (chat, terminale, progetto, browser, utility), dalla stessa
+`goToHomeSpaceOf`. Fa eccezione la sola board, che porta la finestra dal suo
+gruppo con `onOpenBoard`. In una finestra normale (senza `?space=`) il passo
+SHALL commutare la griglia sul gruppo della meta, e la query NON SHALL comparire.
 
 **Il tasto.**
 
@@ -3999,6 +4003,13 @@ stessa deviazione; anche il clic sulla sua tessera la fa.
 - **WHEN** si preme ⌘J nello stesso terminale
 - **THEN** a fuoco va A
 
+#### Scenario: su Windows Ctrl+J resta all'editor
+- **GIVEN** su `:13334` una chat A ferma su un permesso e il fuoco dentro un editor CodeMirror (`.cm-editor`) di un progetto
+- **WHEN** si preme Ctrl+J e poi si scrive un marcatore
+- **THEN** il marcatore compare nell'editor e A non riceve il fuoco
+- **WHEN** si preme ⌘J nello stesso editor
+- **THEN** a fuoco va A
+
 #### Scenario: Ctrl+J scatta anche dal composer
 - **GIVEN** su `:13334` una chat A ferma su un permesso e il fuoco nel composer di un'altra chat
 - **WHEN** si preme Ctrl+J
@@ -4017,6 +4028,20 @@ stessa deviazione; anche il clic sulla sua tessera la fa.
 - **THEN** la tab a fuoco è B e il gruppo attivo è Principale
 - **WHEN** dopo essere tornati su A si clicca la tessera di B
 - **THEN** la tab a fuoco è di nuovo B, nel gruppo Principale
+
+#### Scenario: una tessera progetto o browser con la tab in un altro gruppo
+- **GIVEN** la finestra `?space=<G>`, con un progetto e un browser fissati e le loro tab nel gruppo Principale
+- **WHEN** si clicca la tessera del progetto
+- **THEN** il gruppo attivo è Principale e la tab del progetto è attiva
+- **WHEN** di nuovo in `?space=<G>` si clicca la tessera del browser
+- **THEN** il gruppo attivo è Principale e la tab del browser è attiva
+
+#### Scenario: nella finestra normale ⌘J commuta la griglia sul gruppo della meta
+- **GIVEN** su `:13334` una finestra senza `?space=`, con A nel gruppo G e B nel gruppo Principale, entrambe ferme su un permesso, la finestra su Principale e il fuoco su B
+- **WHEN** si preme ⌘J
+- **THEN** la tab a fuoco è A, il gruppo attivo è G e la URL non ha `space`
+- **WHEN** si preme ⌘J di nuovo
+- **THEN** la tab a fuoco è B e il gruppo attivo è di nuovo Principale
 
 #### Scenario: l'accordo passa anche da una pane browser
 - **WHEN** la tabella decisionale dei tasti riceve Ctrl+J (`chords.rs`)

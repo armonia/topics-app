@@ -132,6 +132,15 @@ describe("markTopicSeen (opening a chat)", () => {
     expect(h.saves()).toBe(0);
     expect(h.frames).toEqual([]);
   });
+
+  test("a chat opened with a 'done' mark and nothing else to clear still announces, so every window drops the mark", () => {
+    // CHAT-DONE-01: 0 unread, no row, the mark only in the windows. Silent,
+    // the window that opened it cleared its mark and every other kept it.
+    const h = harness({ a: 0 });
+    expect(markTopicSeen(h.deps, "a", { doneMark: true })).toEqual({ unreadCleared: false, rowsSeen: 0 });
+    expect(h.saves()).toBe(0);
+    expect(h.frames).toEqual([{ type: "notification:seen", unseen: 0, unseenKeys: [], subjects: ["topic:a"] }]);
+  });
 });
 
 describe("markNotificationRowsSeen (a row clicked in the panel)", () => {

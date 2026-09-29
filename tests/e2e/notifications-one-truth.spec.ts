@@ -92,6 +92,22 @@ async function stubAppBadge(page: Page): Promise<void> {
   });
 }
 
+/** Relays the page's real socket and returns a way to inject a frame into it,
+ *  with the shape the server broadcasts (an external boundary). */
+async function relaySocket(page: Page): Promise<(frame: Record<string, unknown>) => void> {
+  let inject: ((data: string) => void) | null = null;
+  await page.routeWebSocket(/\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((m) => server.send(m));
+    server.onMessage((m) => ws.send(m));
+    inject = (data: string) => ws.send(data);
+  });
+  return (frame) => {
+    if (!inject) throw new Error("the page has not opened its socket yet");
+    inject(JSON.stringify(frame));
+  };
+}
+
 /** A clean start on BOTH sides of the fix: every chat of the seeded baseline
  *  read through the route that has always cleared a chat, every row seen. */
 async function cleanStart(page: Page): Promise<void> {
@@ -118,6 +134,7 @@ let late: { id: string; name: string };
 let shown: { id: string; name: string };
 let muted: { id: string; name: string };
 let finished: { id: string; name: string };
+let crossDone: { id: string; name: string };
 const CARD_BOARD = `one-truth-${TS}`;
 let cardId = "";
 
@@ -136,10 +153,13 @@ test.beforeAll(async ({ request }) => {
   finished = await createTopic(request, `OneTruth-Finished-${TS}`, { provider: "topics" });
   const mute = await request.patch(`${BASE}/api/topics/${finished.id}`, { data: { muted: true } });
   expect(mute.ok()).toBe(true);
+  // Same shape, for the two-window case: its only trace is the windows' marks.
+  crossDone = await createTopic(request, `OneTruth-CrossDone-${TS}`, { provider: "topics" });
+  expect((await request.patch(`${BASE}/api/topics/${crossDone.id}`, { data: { muted: true } })).ok()).toBe(true);
 });
 
 test.afterAll(async ({ request }) => {
-  for (const t of [a, b, stale, late, shown, muted, finished]) if (t) await deleteTopic(request, t.id).catch(() => {});
+  for (const t of [a, b, stale, late, shown, muted, finished, crossDone]) if (t) await deleteTopic(request, t.id).catch(() => {});
   if (cardId) await deleteTask(request, CARD_BOARD, cardId).catch(() => {});
 });
 
@@ -337,13 +357,7 @@ test("NOTIF-ONE: a hookless chat that finished counts one on the bell and the Do
   await stubAppBadge(page);
   // The turn end arrives on the real socket, injected with the shape the
   // server broadcasts (an external boundary); the server's own frames pass.
-  let inject: ((data: string) => void) | null = null;
-  await page.routeWebSocket(/\/ws/, (ws) => {
-    const server = ws.connectToServer();
-    ws.onMessage((m) => server.send(m));
-    server.onMessage((m) => ws.send(m));
-    inject = (data: string) => ws.send(data);
-  });
+  const inject = await relaySocket(page);
   const topics = (await (await page.request.get(`${BASE}/api/topics`)).json()) as {
     topics: Record<string, { sessionKey?: string }>;
   };
@@ -363,10 +377,9 @@ test("NOTIF-ONE: a hookless chat that finished counts one on the bell and the Do
   await expect(panel(page)).toBeVisible();
   await expectBoth(page, base);
 
-  expect(inject).not.toBeNull();
-  inject!(JSON.stringify({
+  inject({
     type: "stream:end", sessionKey, topicId: finished.id, messageId: `done-${TS}`, completed: true, stopReason: "end_turn",
-  }));
+  });
   await expect(finishedRow).toHaveAttribute("data-attention", "done", { timeout: 10_000 });
   // Nothing but the mark: no unread, no notification row (muted, no banner).
   expect(await unreadOf(page.request, finished.id)).toBe(0);
@@ -390,4 +403,57 @@ test("NOTIF-ONE: a hookless chat that finished counts one on the bell and the Do
   await expect(waitingRow).toHaveCount(0);
   await expectBoth(page, base);
   await didascalia(page, "g · panel reopened: the finished chat's mark is seen, bell and Dock back");
+});
+
+test("NOTIF-ONE: a finished chat opened in one window drops its 'done' mark in the other, with no unread and no row", async ({ page, browser }) => {
+  test.info().annotations.push({ type: "spec", description: "CHAT-DONE-01" });
+  test.setTimeout(90_000);
+  // Two windows: this page (A) and a second context (B), each with its own
+  // device-local focus, like the Mac app and a browser tab on the same server.
+  const other = await browser.newContext({ recordVideo: { dir: test.info().outputPath("window-b") } });
+  try {
+    const windowB = await other.newPage();
+    const injectA = await relaySocket(page);
+    const injectB = await relaySocket(windowB);
+    const topics = (await (await page.request.get(`${BASE}/api/topics`)).json()) as {
+      topics: Record<string, { sessionKey?: string }>;
+    };
+    const sessionKey = topics.topics[crossDone.id]?.sessionKey;
+    expect(sessionKey).toBeTruthy();
+
+    await cleanStart(page);
+    // Both windows show the chat's tab with the board in front: nobody is
+    // looking at the chat when its turn ends.
+    await openWith(page, [crossDone.id, BOARD], BOARD);
+    await windowB.goto("/");
+    await windowB.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 15_000 });
+    await windowB.locator(`[data-pane-id="${BOARD}"]`).click();
+    const rowA = page.getByRole("treeitem", { name: crossDone.name, exact: true });
+    const rowB = windowB.getByRole("treeitem", { name: crossDone.name, exact: true });
+    await expect(rowA).toBeVisible({ timeout: 15_000 });
+    await expect(rowB).toBeVisible({ timeout: 15_000 });
+
+    const end = { type: "stream:end", sessionKey, topicId: crossDone.id, messageId: `cross-${TS}`, completed: true, stopReason: "end_turn" };
+    injectA(end);
+    injectB(end);
+    await expect(rowA).toHaveAttribute("data-attention", "done", { timeout: 10_000 });
+    await expect(rowB).toHaveAttribute("data-attention", "done", { timeout: 10_000 });
+    // Nothing but the marks: no unread, no notification row (muted, no banner).
+    expect(await unreadOf(page.request, crossDone.id)).toBe(0);
+    const listed = (await (await page.request.get(`${BASE}/api/notifications`)).json()) as {
+      rows: Array<{ targetId: string | null }>;
+    };
+    expect(listed.rows.filter((r) => r.targetId === crossDone.id)).toHaveLength(0);
+    await didascalia(page, "h · a hookless chat finished: 'done' in both windows, nothing on the server");
+
+    // Opened in A: A drops its mark at once, and after the seen dwell the
+    // server's frame drops it in B too.
+    await page.bringToFront();
+    await page.locator(`[data-pane-id="${crossDone.id}"]`).click();
+    await expect(rowA).not.toHaveAttribute("data-attention", /done|input/, { timeout: 10_000 });
+    await expect(rowB, "the chat seen in A is seen in B").not.toHaveAttribute("data-attention", /done|input/, { timeout: 10_000 });
+    await didascalia(page, "h · opened in A: the mark is gone in B as well");
+  } finally {
+    await other.close();
+  }
 });

@@ -13,8 +13,9 @@
  * @covers CHAT-DONE-01
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { holdChatInView, isChatInFront } from "./chatInView";
+import { holdChatInView, isChatInFront, seeChatFinished, takeChatDoneSeen } from "./chatInView";
 import { chatFinishedEdge } from "../lib/notify/chatFinished";
+import { signalsActions, useSignalsStore } from "./signals";
 
 const end = (topicId: string) => ({ type: "stream:end", topicId, completed: true, stopReason: "end_turn" });
 
@@ -52,5 +53,38 @@ describe("the chat 'done' mark and the chat in front", () => {
     expect(isChatInFront("twice")).toBe(true);
     b();
     expect(isChatInFront("twice")).toBe(false);
+  });
+});
+
+/**
+ * The mark lives per window, and the seen dwell (`useWebSocket`) fires after
+ * the pane has already cleared it here: `takeChatDoneSeen` is how the dwell
+ * still knows the chat carried one, so the server's seen frame reaches the
+ * other windows (CHAT-DONE-01, cross-window).
+ */
+describe("a 'done' mark seen here, for the seen door", () => {
+  test("a look clears the mark and is remembered once", () => {
+    signalsActions.markChatFinished("seen-once");
+    seeChatFinished("seen-once");
+    expect(useSignalsStore.getState().chatFinishedTopics.has("seen-once")).toBe(false);
+    expect(takeChatDoneSeen("seen-once")).toBe(true);
+    expect(takeChatDoneSeen("seen-once")).toBe(false);
+  });
+
+  test("a new turn is not a look: the dwell has nothing to tell", () => {
+    signalsActions.markChatFinished("restarted");
+    signalsActions.clearChatFinished("restarted");
+    expect(takeChatDoneSeen("restarted")).toBe(false);
+  });
+
+  test("a look at a chat with no mark tells nothing", () => {
+    seeChatFinished("never-marked");
+    expect(takeChatDoneSeen("never-marked")).toBe(false);
+  });
+
+  test("a mark still on the chat when the dwell fires counts too", () => {
+    signalsActions.markChatFinished("still-on");
+    expect(takeChatDoneSeen("still-on")).toBe(true);
+    signalsActions.clearChatFinished("still-on");
   });
 });

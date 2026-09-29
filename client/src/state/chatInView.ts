@@ -14,6 +14,36 @@ import { useEffect } from 'react';
 import { signalsActions, useSignalsStore } from './signals';
 import { isWindowAwake } from './windowAwake';
 
+/**
+ * Chats whose 'done' mark THIS window switched off because the person looked
+ * at them, not yet told to the server. The mark lives per window, so the
+ * others hear about it only through the chat's seen door, after the dwell
+ * (`useWebSocket`): by then the pane has already cleared the mark here, and
+ * reading the store at that moment would find nothing. Consumed once.
+ */
+const chatDoneSeenHere = new Set<string>();
+
+/**
+ * The person LOOKED at the chat (its row clicked, its pane in front): the mark
+ * goes here now, and the seen door tells every other window after the dwell
+ * (`takeChatDoneSeen`). A new turn is not a look, and keeps the plain
+ * `signalsActions.clearChatFinished`. Before, the clear stayed in this window,
+ * and a finished chat with no unread and no notification row kept its mark in
+ * every other one.
+ */
+export function seeChatFinished(topicId: string): void {
+  if (!useSignalsStore.getState().chatFinishedTopics.has(topicId)) return;
+  chatDoneSeenHere.add(topicId);
+  signalsActions.clearChatFinished(topicId);
+}
+
+/** Does opening `topicId` here clear a 'done' mark: one seen since the last
+ *  call, or one still on it? Consumes the first. */
+export function takeChatDoneSeen(topicId: string): boolean {
+  const seen = chatDoneSeenHere.delete(topicId);
+  return seen || useSignalsStore.getState().chatFinishedTopics.has(topicId);
+}
+
 /** Topic id → how many mounted panes show it as their focused chat (two
  *  windows of one page, a remount overlapping). */
 const chatsInView = new Map<string, number>();
@@ -50,7 +80,7 @@ export function useClearChatFinishedWhileViewed(topicId: string, viewing: boolea
   useEffect(() => (viewing ? holdChatInView(topicId) : undefined), [viewing, topicId]);
   useEffect(() => {
     if (!viewing || !finished) return;
-    const clearIfAwake = () => { if (isWindowAwake()) signalsActions.clearChatFinished(topicId); };
+    const clearIfAwake = () => { if (isWindowAwake()) seeChatFinished(topicId); };
     clearIfAwake();
     // `isWindowAwake` reads visibility and focus: either can bring the window
     // back (the same events `useSeenDwell` listens to).

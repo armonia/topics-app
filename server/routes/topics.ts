@@ -1966,7 +1966,8 @@ export function createTopicsRouter(
         // unread counter AND the notification rows, each announced only when
         // it changed. The panel's seen goes through the same function, so the
         // bell and the badges cannot tell two different stories.
-        markTopicSeen({ loadUnread, saveUnread, broadcastToAll }, params.id);
+        const body = (await readJSON(req)) as { doneMark?: unknown } | null;
+        markTopicSeen({ loadUnread, saveUnread, broadcastToAll }, params.id, { doneMark: body?.doneMark === true });
         return json({ ok: true });
       }
     }

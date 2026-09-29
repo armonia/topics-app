@@ -20,9 +20,12 @@
  *
  * Behaviour, so a video: the `.webm` of the three presses is the proof.
  */
+import { mkdirSync, realpathSync } from "fs";
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { goToApp } from "./helpers";
-import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { createTopic, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane } from "./helpers/api-fixtures";
+import { canonicalTmpDir, cleanupFileProject, removeTmpDir, seedFileProject } from "./helpers/file-project";
+import { projectRowSelector } from "./fixtures/file-explorer.fixture";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { seedMessage } from "./helpers/seed-messages";
 import { E2E_BASE } from "./helpers/test-server";
@@ -98,6 +101,19 @@ async function awaitingOrder(page: Page, seeded: Seeded[]): Promise<string[]> {
 }
 
 const activeTab = (page: Page) => page.locator('[role="tab"][data-active="true"]');
+
+/** Moves `paneId` to a new group through the tab menu, as a user does, and
+ *  returns that group's id (`spaces-switcher.spec.ts`, same gesture). */
+async function moveToNewGroup(page: Page, paneId: string): Promise<string> {
+  await page.locator(`[role="tab"][data-pane-id="${paneId}"]`).click({ button: "right" });
+  await page.getByText("Sposta nel gruppo", { exact: true }).click();
+  await page.getByRole("menu").getByRole("button", { name: "Nuovo gruppo" }).click();
+  const row = page.getByTestId("space-row").filter({ hasText: "Gruppo 2" });
+  await expect(row).toHaveCount(1, { timeout: 5_000 });
+  const id = await row.getAttribute("data-space-id");
+  if (!id) throw new Error("the new group's row carries no data-space-id");
+  return id;
+}
 const focusedRow = (page: Page) => page.locator('[role="treeitem"][aria-selected="true"]');
 
 test.describe("⌘J, on the desktop", () => {
@@ -307,23 +323,60 @@ test.describe("Ctrl+J, the Windows way in", () => {
       await cleanupTerminalTopic(request, seeded.topicId);
     }
   });
+
+  // The other half of the concession: a CodeMirror editor owns its key combos
+  // too (`isRawKeySurfaceFocused`, `.cm-editor`). The terminal test above does
+  // not reach that branch, so without this one it could go and stay green.
+  test("in a code editor Ctrl+J stays with the editor, and Meta+J still steps", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-WAIT-03" });
+    const project = await seedFileProject(request, `next-waiting-editor-${Date.now()}`);
+    const a = await mk(request, "editor-target");
+    try {
+      // The project row is drawn while its pane is open, so the pane is seeded
+      // next to A's tab (`seedProjectPane` appends).
+      await resetPaneStore(request, [a.id]);
+      await resetProjectPanes(request, project.tmpDir);
+      await seedProjectPane(request, project.tmpDir);
+      const ws = await interceptWebSocket(page);
+      await goToApp(page);
+      const tabA = page.locator(`[role="tab"][data-pane-id="${a.id}"]`);
+      await expect(tabA).toBeVisible({ timeout: 15_000 });
+      permission(ws, a);
+      await expect(tabA).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
+
+      const projects = page.getByRole("button", { name: /sezione Progetti/ });
+      if ((await projects.count()) > 0 && (await projects.getAttribute("aria-expanded")) === "false") await projects.click();
+      await page.locator(projectRowSelector(project.tmpDir)).first().click();
+      const tree = page.locator('[data-testid="file-tree"]').first();
+      await expect(tree).toBeVisible({ timeout: 15_000 });
+      const indexTs = tree.getByRole("treeitem", { name: /index\.ts/ });
+      if (!(await indexTs.isVisible())) await tree.locator('[role="treeitem"]', { hasText: /^src$/ }).click();
+      await indexTs.click();
+      const content = page.locator(".cm-editor .cm-content").first();
+      await expect(content).toContainText("hello", { timeout: 15_000 });
+      await content.click();
+      await expect(tabA, "the editor has the focus, not the waiting chat").toHaveAttribute("data-active", "false");
+
+      // Ctrl+J, then a marker typed after it: the marker lands in the editor
+      // only if the focus never left it, and it is the happens-after that makes
+      // the negative check below mean something.
+      const marker = `ctrlj${Date.now()}`;
+      await page.keyboard.press("Control+j");
+      await page.keyboard.type(marker);
+      await expect(content).toContainText(marker);
+      await expect(tabA, "Ctrl+J stayed with the editor: no step").toHaveAttribute("data-active", "false");
+
+      await page.keyboard.press("Meta+j");
+      await expect(tabA).toHaveAttribute("data-active", "true");
+    } finally {
+      await deleteTopic(request, a.id).catch(() => {});
+      await cleanupFileProject(request, project);
+    }
+  });
 });
 
 test.describe("⌘J in a group window (`?space=`)", () => {
   test.describe.configure({ timeout: 75_000 });
-
-  /** Moves `paneId` to a new group through the tab menu, as a user does, and
-   *  returns that group's id (`spaces-switcher.spec.ts`, same gesture). */
-  async function moveToNewGroup(page: Page, paneId: string): Promise<string> {
-    await page.locator(`[role="tab"][data-pane-id="${paneId}"]`).click({ button: "right" });
-    await page.getByText("Sposta nel gruppo", { exact: true }).click();
-    await page.getByRole("menu").getByRole("button", { name: "Nuovo gruppo" }).click();
-    const row = page.getByTestId("space-row").filter({ hasText: "Gruppo 2" });
-    await expect(row).toHaveCount(1, { timeout: 5_000 });
-    const id = await row.getAttribute("data-space-id");
-    if (!id) throw new Error("the new group's row carries no data-space-id");
-    return id;
-  }
 
   test("⌘J goes where a click on the row goes: into the other group, and the window follows", async ({ page, request }) => {
     test.info().annotations.push({ type: "spec", description: "CHAT-WAIT-03" });
@@ -413,6 +466,92 @@ test.describe("⌘J in a group window (`?space=`)", () => {
       await expect(page.getByTestId("space-row-active")).toContainText("Principale");
     } finally {
       await pins([]).catch(() => {});
+      for (const s of [a, b]) await deleteTopic(request, s.id).catch(() => {});
+    }
+  });
+
+  // Every pinned tile kind, not only chats and terminals: a project tile and a
+  // browser tile opened their pane inside the hidden group, and nothing moved.
+  test("a pinned project tile and a pinned browser tile whose tab lives in the other group take the window there", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-WAIT-03" });
+    const a = await mk(request, "tile-a");
+    const dir = canonicalTmpDir("e2e-next-waiting-tile");
+    mkdirSync(dir, { recursive: true });
+    const projectPath = realpathSync(dir);
+    const projectKey = `project:${projectPath}`;
+    const projectPane = `project:${encodeURIComponent(projectPath)}`;
+    const browserPane = `browser:e2e-next-waiting-${Date.now()}`;
+    const pins = (pinnedItems: string[]) =>
+      request.put(`${E2E_BASE}/api/ui-state/sidebar-state`, {
+        data: { viewMode: "timeline", showArchived: false, expandedNodes: [], pinnedItems, pinnedLayout: [] },
+      });
+    try {
+      await resetPaneStore(request, [a.id, projectPane, browserPane]);
+      expect((await pins([projectKey, browserPane])).ok()).toBe(true);
+      await goToApp(page);
+      await expect(page.locator(`[role="tab"][data-pane-id="${a.id}"]`)).toBeVisible({ timeout: 15_000 });
+      const spaceId = await moveToNewGroup(page, a.id);
+      const groupWindow = async () => {
+        await page.goto(`/?space=${encodeURIComponent(spaceId)}`);
+        await expect(page.locator(`[role="tab"][data-pane-id="${a.id}"]`)).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByTestId("space-row-active")).toContainText("Gruppo 2");
+      };
+      const tile = (key: string) => page.getByTestId("sidebar-pinned-section").locator(`[data-pinned-tile="${key}"]`);
+
+      await groupWindow();
+      await expect(page.locator(`[role="tab"][data-pane-id="${projectPane}"]`), "the project lives in the other group").toHaveCount(0);
+      await tile(projectKey).click();
+      await expect(page.getByTestId("space-row-active"), "the project tile took the window to its group").toContainText("Principale");
+      await expect(page.locator(`[role="tab"][data-pane-id="${projectPane}"]`)).toHaveAttribute("data-active", "true");
+
+      await groupWindow();
+      await expect(page.locator(`[role="tab"][data-pane-id="${browserPane}"]`), "the browser lives in the other group").toHaveCount(0);
+      await tile(browserPane).click();
+      await expect(page.getByTestId("space-row-active"), "the browser tile took the window to its group").toContainText("Principale");
+      await expect(page.locator(`[role="tab"][data-pane-id="${browserPane}"]`)).toHaveAttribute("data-active", "true");
+    } finally {
+      await pins([]).catch(() => {});
+      await deleteTopic(request, a.id).catch(() => {});
+      removeTmpDir(projectPath);
+    }
+  });
+});
+
+test.describe("⌘J in the normal window, with groups", () => {
+  test.describe.configure({ timeout: 75_000 });
+
+  // Without `?space=` the window is not pinned to a group: the step switches
+  // the grid to the target's group, and the query stays out of it.
+  test("⌘J into the other group switches the grid there, and back", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-WAIT-03" });
+    const a = await mk(request, "norm-a");
+    const b = await mk(request, "norm-b");
+    try {
+      await resetPaneStore(request, [a.id, b.id]);
+      const ws = await interceptWebSocket(page);
+      await goToApp(page);
+      const tabB = page.locator(`[role="tab"][data-pane-id="${b.id}"]`);
+      await expect(tabB).toBeVisible({ timeout: 15_000 });
+      await moveToNewGroup(page, a.id);
+      await expect(page.getByTestId("space-row-active"), "the move leaves the window where it was").toContainText("Principale");
+      await expect(page.locator(`[role="tab"][data-pane-id="${a.id}"]`), "A lives in the other group").toHaveCount(0);
+
+      permission(ws, a);
+      permission(ws, b);
+      await expect(tabB).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
+      await expect(page.locator(`[role="treeitem"][aria-label="${a.name}"]`)).toHaveAttribute("data-attention", "input", { timeout: 15_000 });
+      await tabB.click();
+      await expect(activeTab(page)).toHaveAttribute("data-pane-id", b.id);
+
+      await page.keyboard.press("Meta+j");
+      await expect(activeTab(page), "A is opened AND visible").toHaveAttribute("data-pane-id", a.id);
+      await expect(page.getByTestId("space-row-active")).toContainText("Gruppo 2");
+      expect(new URL(page.url()).searchParams.get("space"), "a normal window stays a normal window").toBeNull();
+
+      await page.keyboard.press("Meta+j");
+      await expect(activeTab(page)).toHaveAttribute("data-pane-id", b.id);
+      await expect(page.getByTestId("space-row-active")).toContainText("Principale");
+    } finally {
       for (const s of [a, b]) await deleteTopic(request, s.id).catch(() => {});
     }
   });

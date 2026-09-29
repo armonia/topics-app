@@ -15,6 +15,7 @@ import {
   buildSidebarItems,
   groupSidebarItemsBySpace,
   sidebarItemPaneId,
+  sidebarItemSpace,
   type SidebarItem,
 } from "./buildSidebarItems";
 import type { TerminalSessionInfo, Topic } from "../types";
@@ -927,5 +928,53 @@ describe("groupSidebarItemsBySpace", () => {
     expect(bySpace.get("space:1")?.map((i) => i.id)).toEqual(["a", "c"]);
     expect(bySpace.get("space:2")?.map((i) => i.id)).toEqual(["b"]);
     expect(loose.map((i) => i.id)).toEqual(["d"]);
+  });
+});
+
+/**
+ * The group a row's tab lives in, read from the pane map: the lookup ⌘J and a
+ * pinned tile use for a row drawn in no group card (CHAT-WAIT-03).
+ */
+describe("sidebarItemSpace", () => {
+  const item = (over: Partial<SidebarItem> & Pick<SidebarItem, "id" | "type">): SidebarItem => ({
+    name: over.id,
+    icon: "",
+    lastActivity: 0,
+    notificationCount: 0,
+    archived: false,
+    ...over,
+  });
+
+  test("a row with a tab of its own is in that tab's group, pinned or not", () => {
+    const chat = item({ id: "a", type: "chat", pinned: true });
+    expect(sidebarItemSpace(chat, [chat], new Map([["a", "space:2"]]))).toBe("space:2");
+  });
+
+  test("a project is found by the ENCODED path of its pane, not by its row id", () => {
+    const project = item({ id: `project:${PP}`, type: "project", projectPath: PP });
+    const map = new Map([[projectPaneId, "space:2"]]);
+    expect(sidebarItemSpace(project, [project], map)).toBe("space:2");
+    expect(sidebarItemSpace(project, [project], new Map([[`project:${PP}`, "space:2"]]))).toBeUndefined();
+  });
+
+  test("a child with no tab of its own is in its parent's group", () => {
+    const browser = item({ id: "browser:ctx", type: "browser", projectPath: PP });
+    const project = item({ id: `project:${PP}`, type: "project", projectPath: PP, children: [browser] });
+    expect(sidebarItemSpace(browser, [project], new Map([[projectPaneId, "space:3"]]))).toBe("space:3");
+  });
+
+  test("its own tab wins over its parent's", () => {
+    const chat = item({ id: "c", type: "chat" });
+    const project = item({ id: `project:${PP}`, type: "project", projectPath: PP, children: [chat] });
+    const map = new Map([[projectPaneId, "space:1"], ["c", "space:2"]]);
+    expect(sidebarItemSpace(chat, [project], map)).toBe("space:2");
+  });
+
+  test("a row that is no group's tab, nor a child of one, has no group", () => {
+    const loose = item({ id: "t1", type: "chat", notificationCount: 3 });
+    const orphan = item({ id: "browser:x", type: "browser" });
+    const project = item({ id: `project:${PP}`, type: "project", projectPath: PP, children: [orphan] });
+    expect(sidebarItemSpace(loose, [loose], new Map())).toBeUndefined();
+    expect(sidebarItemSpace(orphan, [project], new Map())).toBeUndefined();
   });
 });
