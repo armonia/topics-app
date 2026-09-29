@@ -4544,10 +4544,18 @@ mostrata come lavoro in corso. Un cron di sessione armato entro lo stesso tetto
 una chat che aspetta solo il suo cron mostrerebbe «sta per riprendere» per due
 ore. Nessuna scrittura: DB, processo e orologi non cambiano.
 
-La chat SHALL mostrare, sopra il composer accanto a `SubAgentsStrip`
-(`client/src/components/Chat/ChatPane.tsx:1848`), una riga
-`data-testid="background-work-line"`: «In attesa di N lavori in background:»
-seguita dai nomi, troncati. Con `tasks` vuoto (stato `wake-queued`, il task ha
+La chat SHALL mostrare, come ULTIMA RIGA DEL TRASCRITTO, sotto l'ultimo
+messaggio (il `Footer` di Virtuoso in
+`client/src/components/Chat/MessageList.tsx`, prima delle bolle in coda), una
+riga `data-testid="background-work-line"`: «In attesa di N lavori in
+background:» seguita dai nomi, troncati. La riga scorre con la conversazione e
+NON SHALL stare nel blocco del composer: comparendo e sparendo lì spostava il
+composer e toglieva altezza al trascritto (Attilio, 29/09: «L'indicatore del
+lavoro in background [...] dovrebbe, in realtà, apparire in fondo ai messaggi
+della chat, perché dove è, al momento, è un po' fastidioso»). Con la vista in
+fondo, la riga che compare, cambia altezza o sparisce SHALL lasciare la lista
+incollata al fondo; con la vista risalita a leggere, SHALL non spostare ciò che
+si sta leggendo. Con `tasks` vuoto (stato `wake-queued`, il task ha
 risposto e la CLI sta per riprendere) la riga SHALL dire che la chat sta per
 riprendere. Oltre `WORK_STALE_AFTER_MS` (`client/src/state/workLongevity.ts:22`,
 10 min) da `lastSignalAt` la riga SHALL aggiungere da quanto non arrivano
@@ -4562,6 +4570,22 @@ leggono come due cose diverse.
   `background` per la chat T con i task «Verifica build» e «Monitor deploy»
 - **WHEN** si apre T
 - **THEN** `[data-testid="background-work-line"]` è visibile e contiene entrambi i nomi
+
+#### Scenario: la riga è l'ultima del trascritto e il composer non si muove
+- **GIVEN** la chat T aperta con dei messaggi, vista in fondo, nessun lavoro in background
+- **WHEN** il poll successivo riporta T in background
+- **THEN** la riga compare dentro lo scroller del trascritto, sotto l'ultimo
+  messaggio e sopra il composer
+- **AND** il blocco del composer (`chat-input-area`) ha la stessa y e la stessa
+  altezza di prima, a meno di 0,5px, e la lista resta in fondo
+- **WHEN** il poll successivo non riporta più T
+- **THEN** la riga sparisce, il composer resta dov'era e la lista resta in fondo
+
+#### Scenario: la riga che compare non sposta chi legge
+- **GIVEN** la chat T risalita con la rotellina oltre 600px dal fondo
+- **WHEN** il poll riporta T in background e la riga compare in fondo al trascritto
+- **THEN** il primo messaggio visibile non si sposta di più di 0,5px nei trenta
+  frame che seguono
 
 #### Scenario: la riga sparisce quando il lavoro finisce
 - **GIVEN** la chat T con la riga visibile
