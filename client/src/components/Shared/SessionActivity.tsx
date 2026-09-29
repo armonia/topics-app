@@ -84,8 +84,7 @@ function SessionActivityText({ subjectId, onFill, className = '' }: SessionActiv
   // smontava e rimontava a ogni cambio di strumento, quindi l'intervallo da 1s
   // veniva azzerato PRIMA di scattare: un agente che cambia tool più di una
   // volta al secondo — cioè il caso normale — lasciava il contatore inchiodato
-  // sul valore iniziale. Il gemello a fondo file (`SessionElapsedTicking`) non
-  // ne soffriva perché legge il tick condiviso.
+  // sul valore iniziale. La soluzione e' il tick condiviso.
   const working = activity?.working ?? false;
   useEffect(() => {
     if (!working) return;
@@ -241,7 +240,7 @@ export function ProjectElapsed({ projectPath, onFill, className = '' }: {
   onFill?: boolean;
   className?: string;
 }) {
-  // Gate BEFORE the clock, like SessionElapsed: a quiet project must not
+  // Gate BEFORE the clock: a quiet project must not
   // subscribe to the shared tick just to render nothing every 10s.
   const startedAt = useProjectWorkStart(projectPath);
   if (!startedAt) return null;

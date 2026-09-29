@@ -118,7 +118,9 @@ Una scheda di progetto SHALL portare un marcatore di tipo, distinto dall'icona
 reale del progetto, e SHALL restare visibile tanto a riposo quanto
 SELEZIONATA. Il marcatore SHALL essere un segno d'angolo sull'icona
 (TABSLOT-03), largo zero: non SHALL togliere spazio al nome. Un progetto senza
-un'icona spedita SHALL mostrare al suo posto l'icona di tipo progetto.
+un'icona spedita SHALL mostrare al suo posto l'icona di tipo progetto. Quando il
+segno d'angolo è l'avviso di condivisione con un'organizzazione, che solo un
+progetto porta, quell'avviso vale anche come marcatore di tipo.
 
 #### Scenario: progetto senza favicon, a riposo
 - **GIVEN** una scheda di progetto che non ha un'icona spedita
