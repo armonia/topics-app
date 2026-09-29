@@ -48,7 +48,7 @@ import { initDevLayoutProbe } from './lib/devLayoutProbe';
 import { initDevHeapProbe } from './lib/devHeapProbe';
 import { initDevStorageProbe } from './lib/devStorageProbe';
 import { registerFeatureWeightSources } from './lib/featureWeightSources';
-import { initChunkReloadGuard } from './lib/chunkReloadGuard';
+import { initChunkReloadGuard, reportLoadFailure } from './lib/chunkReloadGuard';
 import { DevBundleToast } from './components/DevBundleToast';
 import { ReloadedFlash } from './components/ReloadedFlash';
 import { currentTaskTarget } from './lib/openTaskLink';
@@ -283,7 +283,7 @@ function App() {
   // scheduled so it never competes with the initial paint; guarded for Safari
   // (no requestIdleCallback) with a setTimeout fallback.
   useEffect(() => {
-    const warm = () => { void importCommandPalette().catch(() => {}); };
+    const warm = () => { void importCommandPalette().catch(reportLoadFailure); };
     const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
     if (ric) { const id = ric(warm, { timeout: 3000 }); return () => (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback?.(id); }
     const t = window.setTimeout(warm, 1500);
@@ -2168,6 +2168,14 @@ function App() {
         </div>{/* /space-frame */}
         </ErrorBoundary>
         </div>{/* /content-flip-layer */}
+        {/* The version banner's second slot, for a collapsed sidebar (whose own
+            slot is slid off screen). IN FLOW, under the panes: the banner takes
+            a row of its own and the panes give it the height, instead of a
+            floating card over the composer's send and voice buttons (measured
+            2026-09-29, 1280x800: the corner card covered both). The bottom pad
+            keeps it off the home indicator on a phone. */}
+        <div data-update-slot-main className="flex flex-shrink-0 justify-end empty:hidden"
+          style={{ paddingInline: ROW_INSET, paddingTop: ROW_INSET, paddingBottom: `max(${ROW_INSET}px, env(safe-area-inset-bottom, 0px))` }} />
       </div>
 
       {/* Portal dropdowns (rendered outside sidebar to escape overflow-hidden) */}
@@ -2428,7 +2436,7 @@ function App() {
       <UpdaterToast />
       {/* In-page bundle refresh prompt (dev rebuilds + stale-chunk 404s) —
           the manual-reload replacement for the old silent auto-reload. */}
-      <DevBundleToast />
+      <DevBundleToast docked={!sidebarCollapsed} />
       {/* ACK «Ricaricata» dopo un reload chiesto dall'utente: un ricarico che
           rifà lo stesso schermo, senza una parola, si legge come «non va». */}
       <ReloadedFlash />

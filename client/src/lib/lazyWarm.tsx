@@ -18,16 +18,23 @@
  * the pane and lose its state).
  */
 import { lazy, useState, type ComponentType } from 'react';
+import { reportLoadFailure } from './chunkReloadGuard';
 
 type Loader<M> = () => Promise<M>;
 
 /** Loader -> the module it resolved to. Keyed by identity: share the loader. */
 const resolved = new WeakMap<Loader<unknown>, unknown>();
 
-/** Run `loader` and remember its module, so `lazyWarm` can skip the boundary. */
+/**
+ * Run `loader` and remember its module, so `lazyWarm` can skip the boundary.
+ *
+ * A failure is REPORTED here, once, whatever the caller does with the promise
+ * it gets back: most callers are prefetches that swallow it, and a swallowed
+ * 404 is a control that silently stops opening (see `reportLoadFailure`).
+ */
 export function warm<M>(loader: Loader<M>): Promise<M> {
   const pending = loader();
-  pending.then((module) => { resolved.set(loader as Loader<unknown>, module); }).catch(() => {});
+  pending.then((module) => { resolved.set(loader as Loader<unknown>, module); }).catch(reportLoadFailure);
   return pending;
 }
 

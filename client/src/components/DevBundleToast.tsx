@@ -21,15 +21,26 @@ import { useEffect, useState } from 'react';
 import { useT } from '../hooks/useT';
 import { RefreshCw } from 'lucide-react';
 import { BUNDLE_STALE_EVENT, reloadForNewBundle } from '@/lib/devBundleReload';
+import { CHUNK_FAILURE_REASON } from '@/lib/chunkReloadGuard';
 import { SidebarUpdateBanner } from './Shared/SidebarUpdateBanner';
 
-export function DevBundleToast() {
+/**
+ * `docked` = the sidebar is on screen. A collapsed sidebar is slid off screen,
+ * not unmounted, so a prompt portaled into its slot was invisible exactly when
+ * a chunk failed under a full-width chat (measured 2026-09-29, viewport ratio
+ * 0); undocked, the banner takes the corner.
+ */
+export function DevBundleToast({ docked = true }: { docked?: boolean }) {
   const tr = useT();
   const [stale, setStale] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  // What raised it: a failed chunk says so, instead of announcing a build.
+  const [chunkFailed, setChunkFailed] = useState(false);
 
   useEffect(() => {
-    const onStale = () => {
+    const onStale = (event: Event) => {
+      const reason = (event as CustomEvent<{ reason?: string } | null>).detail?.reason;
+      setChunkFailed(reason === CHUNK_FAILURE_REASON);
       setStale(true);
       // A fresh signal re-surfaces the prompt even if a previous one was
       // dismissed — the bundle moved again, the user should know.
@@ -45,12 +56,13 @@ export function DevBundleToast() {
     <SidebarUpdateBanner
       kind="build"
       testId="bundle-stale-toast"
+      docked={docked}
       icon={<RefreshCw size={14} className="text-primary" />}
       // Il titolo dice il FATTO, l'occhiello dice il genere. Prima entrambi i
       // banner scrivevano «Nuova versione disponibile», quindi la frase non
       // distingueva una build di lavoro da una release firmata — che è la
       // differenza fra «ricarica quando ti va» e «riavvia l'app».
-      title={tr('dev.newerBuild')}
+      title={tr(chunkFailed ? 'dev.chunkFailed' : 'dev.newerBuild')}
       onDismiss={() => setDismissed(true)}
     >
       <button
