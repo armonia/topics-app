@@ -9,6 +9,7 @@ import { signalsActions, derivePhaseTerminals, deriveSessionActivity, deriveSess
 import { NOTABLE_CLAUDE_PHASES, deriveAwaitingFeedbackTopics, deriveAwaitingInputTopics } from './signals';
 import { readStreamingSnapshot, type StreamingRowInput } from './backgroundWork';
 import { chatFinishedEdge } from '../lib/notify/chatFinished';
+import { marksClearedBy, terminalSubject, topicSubject } from '../lib/notify/seenFrame';
 
 /** Insieme vuoto condiviso: identità stabile, così il primo giro non fa churn. */
 const EMPTY_TOPIC_SET: Set<string> = new Set();
@@ -194,6 +195,21 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
     });
     return () => { cancelled = true; clearInterval(interval); unsub(); };
   }, [onWSMessage, reconcileServerStreams, setAskWaiting]);
+
+  // ONE SEEN-STATE PER SUBJECT: a subject seen anywhere (its chat opened, its
+  // row clicked in the panel, the panel opened = mark all) switches off the
+  // marks this window keeps in memory for it. The unread badges already follow
+  // `unread:updated`; the terminal "finished" and the chat "done" marks exist
+  // only here, and the frame names what it cleared. The STORE setters, not the
+  // facade: the facade would POST the seen back to the server that just sent it.
+  useEffect(() => {
+    return onWSMessage((msg) => {
+      if (msg.type !== 'notification:seen') return;
+      const st = useSignalsStore.getState();
+      for (const id of marksClearedBy(msg, terminalSubject, st.terminalFinishedIds)) st.clearTerminalFinished(id);
+      for (const id of marksClearedBy(msg, topicSubject, st.chatFinishedTopics)) st.clearChatFinished(id);
+    });
+  }, [onWSMessage]);
 
   // Server-tracked pty activity → terminal busy (loading) + claude-code
   // finished (notification). Works for every session, mounted or not.

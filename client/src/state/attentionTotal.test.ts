@@ -1,14 +1,14 @@
 /**
  * `chromeAttentionTotal`: the ONE number the OS chrome paints (dock badge, tray
  * glyph, PWA badge). The contract worth pinning is not the arithmetic, it is the
- * PARITY: for the same state, the chrome total equals the sum of the badges the
- * sidebar shows for the same subjects, and the expectation is computed from the
- * very per-row helpers the sidebar calls (`topicAttentionCount`,
- * `terminalAttentionCount`, the `extraCounts` map, `trayBoardAttention`), never
- * from a number typed by hand. If one surface changes its criterion and the other
- * does not, this file goes red.
+ * PARITY: for the same state, the chrome total equals the number of sidebar rows
+ * that carry a badge (SUBJECTS, not the messages inside them), and the
+ * expectation is computed from the very per-row helpers the sidebar calls
+ * (`topicAttentionCount`, `terminalAttentionCount`, the `extraCounts` map,
+ * `trayBoardAttention`), never from a number typed by hand. If one surface
+ * changes its criterion and the other does not, this file goes red.
  *
- * @covers CHROME-COUNT-01
+ * @covers CHROME-COUNT-01, NOTIF-ONE-02
  */
 import { describe, test, expect } from "bun:test";
 import { chromeAttentionTotal, paneAttentionTotal } from "./attentionTotal";
@@ -77,7 +77,7 @@ function chromeOf(f: ReturnType<typeof fixture>, over: Partial<Parameters<typeof
 }
 
 /** The sidebar as the user sees it for that state: every subject's tab open,
- *  archived hidden unless asked. Returns the sum of the LEAF rows' badges.
+ *  archived hidden unless asked. Returns how many LEAF rows carry a badge.
  *  No workspace projects, so no project rollup row can double-count a child. */
 function sidebarBadgeSum(f: ReturnType<typeof fixture>, showArchived = false): number {
   const items = buildSidebarItems({
@@ -91,14 +91,31 @@ function sidebarBadgeSum(f: ReturnType<typeof fixture>, showArchived = false): n
     extraCounts: f.paneCounts,
   });
   expect(items.some((i) => i.type === "project")).toBe(false);
-  return items.reduce((n, i) => n + i.notificationCount, 0);
+  return items.filter((i) => i.notificationCount > 0).length;
 }
 
 describe("chromeAttentionTotal", () => {
-  test("is the sum of non-archived topics + finished terminals + pane badges + board cards in review", () => {
+  test("counts SUBJECTS: non-archived chats + finished terminals + badged panes + board cards in review", () => {
     const f = fixture();
-    // a=3, b=1, c=max(2,1)=2, quiet=0, gone=archived(0); s1+s2=2; dashboard=2; review=2.
-    expect(chromeOf(f)).toBe(3 + 1 + 2 + 0 + 0 + 2 + 2 + 2);
+    // a (3 messages) = 1, b = 1, c (2 messages + needs-you) = 1, quiet = 0,
+    // gone = archived (0); s1 + s2 = 2; dashboard (badge 2) = 1; review = 2.
+    expect(chromeOf(f)).toBe(1 + 1 + 1 + 0 + 0 + 2 + 1 + 2);
+  });
+
+  test("a chat with many unread messages is ONE, not the message sum", () => {
+    // The measured case of 2026-09-29: 132 messages on 6 chats painted 133.
+    const topics = { a: topic("a"), b: topic("b") };
+    const input = {
+      topics,
+      unread: unread({ a: 39, b: 1 }),
+      claudeAttentionTopics: new Set<string>(),
+      terminalFinishedIds: new Set<string>(),
+      boardGroups: [],
+      paneCounts: new Map<string, number>(),
+    };
+    expect(chromeAttentionTotal(input)).toBe(2);
+    // Reading the big one drops the number by ONE, like the panel's list.
+    expect(chromeAttentionTotal({ ...input, unread: unread({ a: 0, b: 1 }) })).toBe(1);
   });
 
   test("an archived topic with unread contributes ZERO", () => {
@@ -117,16 +134,17 @@ describe("chromeAttentionTotal", () => {
     })).toBe(0);
   });
 
-  test("PARITY: equals the sum of the badges the sidebar rows show for the same subjects", () => {
+  test("PARITY: equals the number of sidebar rows that show a badge for the same subjects", () => {
     const f = fixture();
-    // Expectation from the per-row helpers, the ones every sidebar row calls.
+    // Expectation from the per-row helpers, the ones every sidebar row calls:
+    // a row counts once when its helper says it is waiting.
     const perRow =
       Object.values(f.topics).filter((t) => !t.archived)
-        .reduce((n, t) => n + topicAttentionCount(t.id, f.unreadData, f.claudeAttentionTopics), 0)
-      + f.terminalSessions.reduce((n, t) => n + terminalAttentionCount(t.id, f.terminalFinishedIds), 0)
+        .filter((t) => topicAttentionCount(t.id, f.unreadData, f.claudeAttentionTopics) > 0).length
+      + f.terminalSessions.filter((t) => terminalAttentionCount(t.id, f.terminalFinishedIds) > 0).length
       + paneAttentionTotal(f.paneCounts);
     // The board share comes from the shared tray helper, the same one the glyph
-    // uses. The sidebar "Board" row is NOT part of this sum on purpose: it shows
+    // uses. The sidebar "Board" row is NOT part of this count on purpose: it shows
     // open work (every card not done), a different quantity by design.
     const board = trayBoardAttention(f.boardGroups);
     expect(chromeOf(f)).toBe(perRow + board);
@@ -156,28 +174,24 @@ describe("chromeAttentionTotal", () => {
     expect(chromeOf(f) - trayBoardAttention(f.boardGroups)).toBe(sidebarBadgeSum(f, true));
   });
 
-  test("reading a topic drops exactly that topic's share and nothing else", () => {
+  test("reading a topic drops exactly that topic's ONE and nothing else", () => {
     const f = fixture();
     const before = chromeOf(f);
     const afterUnread = { ...f.unreadData, a: { unreadCount: 0 } };
-    const after = chromeOf(f, { unread: afterUnread });
-    const share = topicAttentionCount("a", f.unreadData, f.claudeAttentionTopics)
-      - topicAttentionCount("a", afterUnread, f.claudeAttentionTopics);
-    expect(share).toBeGreaterThan(0);
-    expect(before - after).toBe(share);
-    // A topic that is ALSO waiting on Claude keeps its needs-you unit when read:
-    // unread clears on reading, attention clears when the session moves on.
+    expect(topicAttentionCount("a", f.unreadData, f.claudeAttentionTopics)).toBeGreaterThan(1);
+    expect(before - chromeOf(f, { unread: afterUnread })).toBe(1);
+    // A topic that is ALSO waiting on Claude stays a subject when read: unread
+    // clears on reading, attention clears when the session moves on.
     const cRead = { ...f.unreadData, c: { unreadCount: 0 } };
-    expect(before - chromeOf(f, { unread: cRead })).toBe(
-      topicAttentionCount("c", f.unreadData, f.claudeAttentionTopics) - topicAttentionCount("c", cRead, f.claudeAttentionTopics),
-    );
+    expect(chromeOf(f, { unread: cRead })).toBe(before);
   });
 
-  test("window-local pane badges (the notifyPane map) count once per unit, like their utility rows", () => {
+  test("window-local pane badges (the notifyPane map) count once per badged pane, like their utility rows", () => {
     const f = fixture();
     const panes = new Map<string, number>([[DASHBOARD, 2], [SCHEDULE, 1]]);
-    expect(chromeOf(f, { paneCounts: panes }) - chromeOf(f, { paneCounts: new Map() })).toBe(3);
-    expect(paneAttentionTotal(panes)).toBe(3);
+    expect(chromeOf(f, { paneCounts: panes }) - chromeOf(f, { paneCounts: new Map() })).toBe(2);
+    expect(paneAttentionTotal(panes)).toBe(2);
+    expect(paneAttentionTotal(new Map([[DASHBOARD, 0]]))).toBe(0);
     expect(paneAttentionTotal(new Map())).toBe(0);
   });
 

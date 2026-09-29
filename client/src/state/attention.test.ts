@@ -89,7 +89,7 @@ describe("rollupProjectAttention", () => {
 });
 
 describe("rollupGlobalAttention", () => {
-  test("sums every topic's attention across ALL projects + all finished terminals", () => {
+  test("counts every SUBJECT waiting across ALL projects + all finished terminals", () => {
     const topics = {
       a: topic("a", { projectPath: "/work/app" }),
       b: topic("b", { projectPath: "/work/elsewhere" }),
@@ -101,9 +101,10 @@ describe("rollupGlobalAttention", () => {
       new Set(["b"]),           // b: Claude needs-you (1)
       new Set(["t1", "t2"]),    // two finished terminal turns (project-agnostic)
     );
-    // 2 (a) + 1 (b) + 1 (c) + 2 (terminals) = 6. Unlike the project rollup, no
-    // cwd/project filtering — every subject counts once toward the dock badge.
-    expect(sum).toBe(6);
+    // a, b, c + 2 terminals = 5 subjects. `a` has 2 unread messages and still
+    // counts ONE: the dock counts things to open, not messages. Unlike the
+    // project rollup, no cwd/project filtering.
+    expect(sum).toBe(5);
   });
 
   test("is zero when nothing anywhere is pending", () => {
@@ -111,10 +112,12 @@ describe("rollupGlobalAttention", () => {
     expect(rollupGlobalAttention(topics, unread({}), new Set(), new Set())).toBe(0);
   });
 
-  test("takes max(unread, needs-you) per chat — never double counts", () => {
+  test("a chat is ONE subject however many messages, unread AND needs-you included", () => {
     const topics = { a: topic("a") };
-    // a is BOTH 3-unread AND needs-you → still 3 (max), plus no terminals.
-    expect(rollupGlobalAttention(topics, unread({ a: 3 }), new Set(["a"]), new Set())).toBe(3);
+    // a is BOTH 3-unread AND needs-you → one thing to open.
+    expect(rollupGlobalAttention(topics, unread({ a: 3 }), new Set(["a"]), new Set())).toBe(1);
+    // 39 unread messages in one chat (the measured case) → still 1.
+    expect(rollupGlobalAttention(topics, unread({ a: 39 }), new Set(), new Set())).toBe(1);
   });
 });
 

@@ -170,7 +170,13 @@ test.describe("Cronologia notifiche", () => {
       kind: "chat-message", title: "Secondo messaggio",
       targetKind: "topic", targetId: topicId, dedupeKey: `e2e-grp-b-${Date.now()}`,
     });
-    await expect(badge(page)).toHaveText("2", { timeout: 10_000 });
+    // Two rows, ONE subject: the bell counts things to look at (NOTIF-ONE-02).
+    // Both rows are in the registry, the number is 1.
+    await expect(badge(page)).toHaveText("1", { timeout: 10_000 });
+    const listed = (await (await page.request.get(`${BASE}/api/notifications`)).json()) as {
+      rows: Array<{ targetId: string | null; seenAt: string | null }>;
+    };
+    expect(listed.rows.filter((r) => r.targetId === topicId && !r.seenAt)).toHaveLength(2);
 
     // Il conteggio azzerato dal server, non dall'ottimismo del client: si
     // rilegge la rotta.

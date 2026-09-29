@@ -1,5 +1,6 @@
 import type { AppContext, RouteHandler } from "../types";
-import { countUnseenNotifications, listNotifications, markNotificationsSeen } from "../db/notification-log";
+import { countUnseenNotifications, listNotifications } from "../db/notification-log";
+import { markAllNotificationsSeen, markNotificationRowsSeen, markTopicSeen } from "../subject-seen";
 import { markTargetSeenAndAnnounce, recordAndAnnounce } from "../notification-registry";
 import { parseNotificationInput } from "../../shared/notification-log";
 
@@ -18,6 +19,9 @@ import { parseNotificationInput } from "../../shared/notification-log";
  */
 export function createNotificationsRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON } = ctx;
+  // The seen door needs the unread store: a chat's notification seen here is
+  // the chat seen, exactly as if it had been opened.
+  const seenDeps = { loadUnread: ctx.loadUnread, saveUnread: ctx.saveUnread, broadcastToAll: ctx.broadcastToAll };
 
   return async function notificationsRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
     if (method === "GET" && pathname === "/api/notifications") {
@@ -47,18 +51,21 @@ export function createNotificationsRouter(ctx: AppContext): RouteHandler {
       const targetKind = typeof body?.targetKind === "string" ? body!.targetKind : undefined;
       const targetId = typeof body?.targetId === "string" ? body!.targetId : undefined;
       if (targetKind && targetId) {
-        // Announces by itself (to every window) only if it cleared something.
-        markTargetSeenAndAnnounce(targetKind, targetId);
+        // A chat goes through the same door as opening it (unread + rows);
+        // anything else announces by itself only if it cleared something.
+        if (targetKind === "topic") markTopicSeen(seenDeps, targetId);
+        else markTargetSeenAndAnnounce(targetKind, targetId);
         return json({ ok: true, unseen: countUnseenNotifications() });
       }
       // Nessuno dei due → non è "segna tutto", è una chiamata malformata. Una
       // cronologia che si azzera per sbaglio è peggio di un errore 400.
       if (!ids?.length && !upTo) return json({ error: "ids, upTo or target required" }, 400);
-      markNotificationsSeen({ ids, upTo });
-      const unseen = countUnseenNotifications();
-      // Il contatore vive su OGNI finestra: chi ha guardato la lista qui deve
-      // spegnerlo anche là (gruppi staccati, telefono sulla stessa rete).
-      ctx.broadcastToAll({ type: "notification:seen", unseen });
+      // Both doors broadcast `notification:seen` to EVERY window, with the
+      // subjects they cleared: whoever looked at the list here must see it
+      // switch off there too (detached groups, a phone on the same network).
+      let unseen = countUnseenNotifications();
+      if (upTo) unseen = markAllNotificationsSeen(seenDeps, upTo);
+      if (ids?.length) unseen = markNotificationRowsSeen(seenDeps, ids);
       return json({ ok: true, unseen });
     }
 

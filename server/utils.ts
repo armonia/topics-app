@@ -1232,7 +1232,7 @@ export function createAppContext(baseDir: string): AppContext {
   // annunciare la riga nuova, e se il topic bersaglio è archiviato.
   configureNotificationRegistry({
     announce: (row, unseen) => broadcastToAll({ type: "notification:new", row, unseen }),
-    announceSeen: (unseen) => broadcastToAll({ type: "notification:seen", unseen }),
+    announceSeen: (unseen, subjects) => broadcastToAll({ type: "notification:seen", unseen, subjects }),
     isTopicArchived: (topicId) => !!getTopicById(topicId)?.archived,
   });
 

@@ -162,11 +162,21 @@ export function listNotifications(opts: { limit?: number; before?: string } = {}
   }
 }
 
-/** Quante non ne hai ancora guardate. È il numero sul tastino. */
+/**
+ * How many SUBJECTS are still unseen: the number on the bell.
+ *
+ * Subjects, not rows. Rows sharing a `group_key` (two replies in the same chat,
+ * a reply and an error in it) are one thing to look at, and seeing one sees
+ * them all (the cascade below): counting them apart made the bell say 2 where
+ * the dock, which counts subjects too, said 1. A row with no group answers
+ * only for itself, so it counts as its own subject.
+ */
 export function countUnseenNotifications(): number {
   try {
     const db = getDatabase();
-    const r = db.query("SELECT COUNT(*) AS c FROM notification_log WHERE seen_at IS NULL").get() as
+    const r = db
+      .query("SELECT COUNT(DISTINCT COALESCE(group_key, id)) AS c FROM notification_log WHERE seen_at IS NULL")
+      .get() as
       | { c: number }
       | null;
     return r?.c ?? 0;
@@ -265,5 +275,34 @@ export function markNotificationsSeen(opts: { ids?: string[]; upTo?: string }, n
   } catch (err) {
     console.warn("[notification-log] mark seen failed:", (err as Error)?.message || err);
     return 0;
+  }
+}
+
+/** The group keys of these rows (the subjects they talk about), no duplicates. */
+export function groupKeysOfNotifications(ids: string[]): string[] {
+  const clean = ids.filter((s) => typeof s === "string" && s).slice(0, 500);
+  if (!clean.length) return [];
+  try {
+    const marks = clean.map(() => "?").join(",");
+    const rows = getDatabase()
+      .query(`SELECT DISTINCT group_key FROM notification_log WHERE id IN (${marks}) AND group_key IS NOT NULL`)
+      .all(...clean) as Array<{ group_key: string }>;
+    return rows.map((r) => r.group_key);
+  } catch (err) {
+    console.warn("[notification-log] group keys failed:", (err as Error)?.message || err);
+    return [];
+  }
+}
+
+/** The subjects that still have an unseen row, by group key. */
+export function unseenNotificationGroupKeys(): string[] {
+  try {
+    const rows = getDatabase()
+      .query("SELECT DISTINCT group_key FROM notification_log WHERE seen_at IS NULL AND group_key IS NOT NULL")
+      .all() as Array<{ group_key: string }>;
+    return rows.map((r) => r.group_key);
+  } catch (err) {
+    console.warn("[notification-log] unseen groups failed:", (err as Error)?.message || err);
+    return [];
   }
 }

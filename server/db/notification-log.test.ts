@@ -57,6 +57,11 @@ function wipe(): void {
   getDatabase().run("DELETE FROM notification_log");
 }
 
+/** Unseen ROWS, as opposed to `countUnseenNotifications`, which counts subjects. */
+function unseenRows(): number {
+  return listNotifications({ limit: 200 }).filter((r) => r.seenAt === null).length;
+}
+
 describe("recordNotification — dedup a finestra", () => {
   test("due mittenti dello stesso evento lasciano UNA riga", () => {
     wipe();
@@ -123,10 +128,13 @@ describe("il «visto»", () => {
     // seconda non nascerebbe proprio.
     const first = recordNotification({ kind: "chat-message", title: "m1", dedupeKey: "chat:x", targetKind: "topic", targetId: "x" }, t0);
     recordNotification({ kind: "chat-message", title: "m2", dedupeKey: "chat:x", targetKind: "topic", targetId: "x" }, t0 + NOTIFICATION_DEDUPE_MS + 1);
-    expect(countUnseenNotifications()).toBe(2);
+    // Two rows, ONE subject: the bell counts things to look at, not rows.
+    expect(unseenRows()).toBe(2);
+    expect(countUnseenNotifications()).toBe(1);
     markNotificationsSeen({ ids: [first!.id] });
     // Senza la cascata sul gruppo qui resterebbe 1 — ed è esattamente il difetto
     // per cui il contatore non tornava mai a zero.
+    expect(unseenRows()).toBe(0);
     expect(countUnseenNotifications()).toBe(0);
   });
 
@@ -216,7 +224,8 @@ describe("markTargetNotificationsSeen — leggere una chat spegne la sua campane
     wipe();
     notifica("t1", "primo");
     notifica("t1", "secondo");
-    expect(countUnseenNotifications()).toBe(2);
+    expect(unseenRows()).toBe(2);
+    expect(countUnseenNotifications()).toBe(1);
 
     expect(markTargetNotificationsSeen("topic", "t1")).toBe(2);
     expect(countUnseenNotifications()).toBe(0);
@@ -298,7 +307,9 @@ describe("markTargetNotificationsSeen — task e terminali, non solo le chat", (
     recordNotification({ kind: "session", title: "finito", body: "", dedupeKey: "terminal:a-1", groupKey: "terminal:sess-a" });
     recordNotification({ kind: "session", title: "finito ancora", body: "", dedupeKey: "terminal:a-2", groupKey: "terminal:sess-a" });
     recordNotification({ kind: "session", title: "un altro", body: "", dedupeKey: "terminal:b-1", groupKey: "terminal:sess-b" });
-    expect(countUnseenNotifications()).toBe(3);
+    // Three rows, two terminals: the counter is the terminals.
+    expect(unseenRows()).toBe(3);
+    expect(countUnseenNotifications()).toBe(2);
 
     expect(markTargetNotificationsSeen("terminal", "sess-a")).toBe(2);
     expect(countUnseenNotifications()).toBe(1);

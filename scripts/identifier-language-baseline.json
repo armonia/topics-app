@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-28",
+  "generated": "2026-09-29",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -4272,8 +4272,7 @@
       "rec",
       "stmt",
       "submittedAt",
-      "txt",
-      "viste"
+      "txt"
     ],
     "server/routes/ui-state-settings-strip.test.ts": [
       "arr"

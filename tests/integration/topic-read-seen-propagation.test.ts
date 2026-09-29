@@ -15,7 +15,7 @@
  * The unread is raised the way the e2e suite raises it, with a system message;
  * the bell row is written through the same POST the banner path uses.
  *
- * @covers UNREAD-01, NOTIF-SEEN-01
+ * @covers UNREAD-01, NOTIF-SEEN-01, NOTIF-ONE-01
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { testTmpDir, spawnRealServer, type RealServer } from "./helpers";
@@ -105,7 +105,8 @@ describe("POST /api/topics/:id/read propagates 'seen' to both counters and to ev
       const mine = before.rows.filter((r) => r.targetKind === "topic" && r.targetId === topic.id);
       expect(mine).toHaveLength(2);
       expect(mine.every((r) => r.seenAt === null)).toBe(true);
-      expect(before.unseen).toBeGreaterThanOrEqual(3);
+      // `unseen` counts SUBJECTS: two rows of one chat are one thing to look at.
+      expect(before.unseen).toBeGreaterThanOrEqual(2);
 
       // THE GESTURE. Everything below is what one read must produce.
       const mark = frames.length;
@@ -123,8 +124,10 @@ describe("POST /api/topics/:id/read propagates 'seen' to both counters and to ev
       const after = await getJson<NotificationsPage>("/api/notifications");
       expect(after.rows.filter((r) => r.targetId === topic.id).every((r) => r.seenAt !== null)).toBe(true);
       expect(after.rows.filter((r) => r.targetId === other.id).every((r) => r.seenAt === null)).toBe(true);
-      expect(after.unseen).toBe(before.unseen - 2);
+      expect(after.unseen).toBe(before.unseen - 1);
       expect(seenFrame.unseen).toBe(after.unseen);
+      // The frame names the subject, so every window can drop its own marks.
+      expect(seenFrame.subjects).toEqual([`topic:${topic.id}`]);
     } finally {
       ws.close();
     }

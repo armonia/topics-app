@@ -3,7 +3,9 @@
  * macOS menu-bar tray glyph, and the PWA Badging API all project the value this
  * module computes, and nothing else computes it.
  *
- * One criterion: HOW MANY THINGS ARE ASKING A HUMAN FOR SOMETHING. That is
+ * One criterion: HOW MANY THINGS ARE ASKING A HUMAN FOR SOMETHING. Things, not
+ * messages: a chat with 39 unread messages is ONE (its row keeps showing 39).
+ * That is
  *   - every non-archived chat that is unread or waiting for the user
  *     (`topicAttentionCount`, the same helper each sidebar row and tab uses);
  *   - every claude-code terminal whose turn finished and has not been opened
@@ -32,10 +34,11 @@ export interface ChromeAttentionInput {
   paneCounts: ReadonlyMap<string, number>;
 }
 
-/** Sum of the window-local pane badges (agents pane, session viewer, ...). */
+/** How many window-local panes carry a badge (agents pane, session viewer, ...):
+ *  a pane is one subject, whatever its count, like a chat. */
 export function paneAttentionTotal(paneCounts: ReadonlyMap<string, number>): number {
   let sum = 0;
-  for (const n of paneCounts.values()) sum += n;
+  for (const n of paneCounts.values()) if (n > 0) sum += 1;
   return sum;
 }
 

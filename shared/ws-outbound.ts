@@ -1306,6 +1306,12 @@ const notificationNewSchema = z.looseObject({
 const notificationSeenSchema = z.looseObject({
   type: z.literal('notification:seen'),
   unseen: z.number(),
+  /** The subjects (group keys: `topic:<id>`, `terminal:<id>`, `task:<id>`)
+   *  this seen cleared. Each window drops its own in-memory marks for them. */
+  subjects: z.optional(z.array(z.string())),
+  /** MARK ALL: every subject was seen except these, whose rows are still
+   *  unseen because they arrived after the list was read. */
+  allExcept: z.optional(z.array(z.string())),
 });
 
 // ---- Registry --------------------------------------------------------------

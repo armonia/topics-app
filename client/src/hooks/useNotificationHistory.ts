@@ -12,6 +12,7 @@ import {
 } from '../lib/notify/history';
 import { NOTIFICATION_MAX_ROWS, NOTIFICATION_PAGE_SIZE } from '../../../shared/notification-log';
 import { openDeepLinkInApp } from '../lib/deepLinkEntry';
+import { rowSeenByFrame } from '../lib/notify/seenFrame';
 
 export interface NotificationHistoryState {
   rows: NotificationRow[];
@@ -157,8 +158,10 @@ export function useNotificationHistory(
     // Le righe in pagina si spengono insieme al contatore: un pallino che resta
     // acceso su una riga mentre il totale dice zero è una contraddizione a
     // schermo.
+    // Only the rows of the subjects the frame names: opening ONE chat used to
+    // switch off every dot in the list, including those still unseen.
     const at = new Date().toISOString();
-    setRows((prev) => prev.map((r) => (r.seenAt ? r : { ...r, seenAt: at })));
+    setRows((prev) => prev.map((r) => (r.seenAt || !rowSeenByFrame(msg, r.groupKey) ? r : { ...r, seenAt: at })));
   });
 
   const openAndMarkSeen = useCallback(() => {

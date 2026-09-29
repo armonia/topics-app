@@ -1641,14 +1641,20 @@ export function describeProjectAttention(subjects: AttentionSubject[]): string {
 }
 
 /**
- * App-wide attention total for the desktop dock badge + macOS menu-bar tray glyph
- * (Electron parity). The number of things needing the user across EVERY topic and
- * terminal, using the SAME per-subject attention the tab badges show — chats
- * contribute their unread-or-awaiting count, finished claude-code turns one each —
- * summed once. Pure so it's unit-testable and shares the single definition of
- * "attention" with the tab bar / sidebar (no drift). Agent/session-viewer pane
- * badges live in the notification layer's local `extraCounts`, so the caller adds
- * those; keeping them out here keeps this a pure function of the global stores.
+ * App-wide attention total for the desktop dock badge + macOS menu-bar tray glyph.
+ * The number of SUBJECTS waiting for the user across every topic and terminal:
+ * a chat counts ONE whatever its unread (39 messages in one chat are one thing to
+ * open), a finished claude-code turn counts one. Which subjects count is decided
+ * by the same per-subject helpers the tab badges use (`topicAttentionCount` > 0),
+ * so the two cannot disagree on WHO is waiting; they differ only on the unit, and
+ * on purpose: the row shows how many messages, the dock how many things.
+ *
+ * It used to sum the messages, and that is how the dock said 133 while the
+ * notifications panel, which lists subjects, said there was nothing left
+ * (measured 2026-09-29: 132 unread messages on 6 chats).
+ *
+ * Pure so it's unit-testable. Agent/session-viewer pane badges live in the
+ * notification layer's local `extraCounts`, so the caller adds those.
  */
 export function rollupGlobalAttention(
   topics: Record<string, Topic>,
@@ -1666,7 +1672,7 @@ export function rollupGlobalAttention(
     // non si potevano azzerare da nessuna parte, perché non esiste una superficie
     // dove andare a spegnerle. Stesso gate di `visibleTopicSignalCount`.
     if (t.archived) continue;
-    sum += topicAttentionCount(t.id, unread, claudeAttentionTopics);
+    if (topicAttentionCount(t.id, unread, claudeAttentionTopics) > 0) sum += 1;
   }
   return sum + terminalFinishedIds.size;
 }

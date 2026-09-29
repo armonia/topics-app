@@ -32,7 +32,7 @@ import type { BrowserService } from "../browser-service";
 import { resolveContextIdForTopic } from "../browser-tool-dispatcher";
 import { getTerminalSessionById, setSubAgentExitHandler } from "./terminal";
 import { getSessionContext } from "../db/session-context";
-import { markTargetNotificationsSeen, countUnseenNotifications } from "../db/notification-log";
+import { markTopicSeen } from "../subject-seen";
 import { logMachineStop, logStopPressed } from "../db/activity-log";
 import { isMachineStop, machineStopToolError, stopCauseOf } from "../lib/abort-cause";
 import { leaveMachineStopNotice } from "../lib/machine-stop-notice";
@@ -1962,32 +1962,11 @@ export function createTopicsRouter(
     {
       const params = matchRoute(pathname, "/api/topics/:id/read");
       if (params && method === "POST") {
-        const unread = loadUnread();
-        // Riga assente = già a zero: `updateUnreadCount` se la crea da sé quando
-        // arriva il primo messaggio non letto, quindi materializzarla qui è
-        // un'altra scrittura inutile.
-        if ((unread[params.id]?.unreadCount ?? 0) === 0) return json({ ok: true });
-        unread[params.id] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
-        saveUnread(unread);
-        broadcastToAll({ type: "unread:updated", topicId: params.id, unreadCount: 0 });
-        // E LA CAMPANELLA SI SPEGNE CON LEI.
-        //
-        // Fino a qui la lettura azzerava il non-letto nella sidebar e lasciava
-        // acceso il contatore delle notifiche: due numeri sullo stesso fatto che
-        // dicevano cose diverse. Il peggiore dei due era quello che restava
-        // acceso, perche' nessun gesto naturale lo spegneva - solo aprire il
-        // pannello della cronologia, che e' un posto in cui non si passa mai
-        // apposta. Segnalato: «assicuriamoci che le notifiche siano
-        // sincronizzate con lo stato della notifica della sidebar».
-        //
-        // Il broadcast parte SOLO se qualcosa e' cambiato davvero: questa rotta
-        // e' gia' silenziosa sul no-op per la stessa ragione (un
-        // `unread:updated{0}` inutile sveglia ogni client connesso), e sarebbe
-        // strano che la riga sotto reintroducesse il costo appena evitato.
-        const viste = markTargetNotificationsSeen("topic", params.id);
-        if (viste > 0) {
-          broadcastToAll({ type: "notification:seen", unseen: countUnseenNotifications() });
-        }
+        // ONE door for "I have seen this chat" (`server/subject-seen.ts`): the
+        // unread counter AND the notification rows, each announced only when
+        // it changed. The panel's seen goes through the same function, so the
+        // bell and the badges cannot tell two different stories.
+        markTopicSeen({ loadUnread, saveUnread, broadcastToAll }, params.id);
         return json({ ok: true });
       }
     }
