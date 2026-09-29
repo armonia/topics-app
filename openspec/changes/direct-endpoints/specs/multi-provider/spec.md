@@ -1,4 +1,4 @@
-## Requirements
+## ADDED Requirements
 
 ### Requirement: MP-DIRECT-01 — Configurable OpenAI-compatible chat endpoints
 

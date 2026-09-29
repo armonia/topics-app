@@ -4425,3 +4425,282 @@ conteggi dei messaggi.
 - **GIVEN** lo stesso ramo
 - **WHEN** si esporta la conversazione e si conta `GET /api/history` del ramo
 - **THEN** il file e il conteggio non contengono «Diramata da»
+
+### Requirement: BGVIS-01 — Una chat in background ha un glifo suo, diverso da «risponde» e da «aspetta te»
+
+Quando una chat non ha un turno aperto ma il suo ultimo turno ha lasciato lavoro
+in background (riga `state:"background"` di `/api/topics/streaming`), la riga di
+sidebar, la sua tab e, a cartella chiusa, il roll-up del progetto SHALL mostrare
+il glifo `background`: lo stesso anello di `OrbitLoader`
+(`client/src/components/Layout/StreamingIndicator.tsx:94`), arco **grigio**
+(`text-app-text-tertiary`) che gira **lento**, reso da `LoaderSlot` con
+`data-loader-state="background"`.
+
+È un terzo stato e non va confuso con gli altri due: l'anello blu che gira dice
+«sta rispondendo, l'invio si accoda», l'ambra ferma dice «tocca a te». Qui
+nessuna delle due è vera: la chat è libera e il lavoro gira da sé.
+
+Precedenza, sulla stessa riga o sullo stesso progetto: `waiting` (ambra) >
+`working` (blu) > `background` (grigio). Con `prefers-reduced-motion` l'arco
+SHALL stare fermo, come `.animate-orbit-spin` (`client/src/index.css:2900`).
+
+Il tooltip SHALL dire quanti lavori e che la chat è libera (chiavi i18n it/en).
+`ProjectElapsed` (`Sidebar/TopicTree.tsx:1295`) NON SHALL contare il lavoro in
+background: misura il turno più vecchio in corso, e questo non è un turno.
+
+Dove cambiarla: scelta 1 del blocco «Da decidere». Con «no» il glifo diventa lo
+stesso `working` blu, e cade lo scenario «non si confonde».
+
+#### Scenario: la riga di sidebar di una chat in background
+- **GIVEN** `/api/topics/streaming` che risponde una sola riga
+  `{topicId: T, state: "background", tasks: [2 task]}`
+- **WHEN** la sidebar mostra la chat T
+- **THEN** la riga di T contiene `[data-loader-state="background"]`
+- **AND** non contiene `[data-loader-state="working"]` né `[data-loader-state="waiting"]`
+
+#### Scenario: la tab e il progetto chiuso dicono lo stesso
+- **GIVEN** la chat T in background, aperta in una tab, dentro il progetto P
+- **WHEN** la cartella di P è chiusa in sidebar
+- **THEN** la tab di T e la riga di P mostrano `[data-loader-state="background"]`
+
+#### Scenario: un turno vero vince sul background
+- **GIVEN** il progetto P con la chat T in background e la chat U che sta rispondendo
+- **WHEN** la cartella di P è chiusa
+- **THEN** la riga di P mostra `[data-loader-state="working"]`
+
+### Requirement: BGVIS-02 — Il background non entra negli insiemi di streaming
+
+Il lavoro in background SHALL essere uno stato **a parte** nello store dei
+segnali (`client/src/state/signals.ts`). La risposta del poll
+(`client/src/state/useSignalsSync.ts:110-139`) SHALL scrivere, nello stesso
+giro, `backgroundWorkSessions` (per sessione, letto dal composer, invariato) e
+il lavoro per topic `{sessionKey, tasks, lastSignalAt}` letto dai glifi, dalla
+riga in chat e dagli agenti attivi. `dropBackgroundWork(sessionKey)`
+(`signals.ts:627`) SHALL svuotare entrambi.
+
+Una chat in background NON SHALL entrare in `liveStreamTopics` né in
+`hydratedStreamTopics`, e `useTopicLoading` (`signals.ts:1041`) SHALL restare
+falso per lei. Altrimenti `reconcileServerStreams` e il composer la
+tratterebbero come un turno in volo: invio bloccato o accodato, e una
+riapertura fantasma del turno.
+
+#### Scenario: l'invio resta libero
+- **GIVEN** la chat T in background, composer con del testo
+- **WHEN** si preme invio
+- **THEN** il messaggio parte come in una chat a riposo (`decideComposerAction`
+  → `send`, `client/src/components/Chat/composerAction.ts:78`), non si accoda
+
+#### Scenario: lo Stop spegne tutto subito
+- **GIVEN** la chat T in background, composer vuoto
+- **WHEN** si preme lo Stop del composer e la route risponde `ok`
+- **THEN** glifo, riga in chat e riga fra gli agenti attivi spariscono senza
+  aspettare il poll successivo
+
+### Requirement: BGVIS-03 — Le chat in background contano fra gli agenti attivi
+
+`activeAgentRowsFrom` (`client/src/state/signals.ts:1313`) SHALL restituire,
+oltre a `working`, `awaitingInput` e `finished`, un gruppo `background`: una riga
+per chat (mai per task), solo per le chat a schermo (`visibleTopicSignalIds`),
+mai anche in `working`. `Sidebar/AgentLines.tsx` SHALL mostrarlo sotto
+un'intestazione propria («In background»), righe con
+`data-testid="background-agent-row"`.
+
+Il numero sul pulsante del menu (`Sidebar/IdentityBlock.tsx:189`) e la coda
+della riga «Agenti attivi» SHALL contare `working + background`, calcolati da
+una sola funzione sulle stesse righe, così numero ed elenco non possono
+divergere (STATUSLINE-05).
+
+Dove cambiarla: scelta 2 del blocco «Da decidere». Con «no» il gruppo resta
+nell'elenco ma il numero torna `working.length`, come per `awaitingInput` e
+`finished`.
+
+#### Scenario: una chat in background è un agente attivo
+- **GIVEN** la chat T con la sessione S in background, nessun turno aperto
+- **WHEN** si calcola `activeAgentRowsFrom`
+- **THEN** `background` contiene una riga `{id: T, kind: "topic"}`
+- **AND** `working` non contiene T
+- **AND** il numero sul pulsante del menu vale 1
+
+#### Scenario: una chat archiviata non conta
+- **GIVEN** la chat T in background ma archiviata
+- **WHEN** si calcola `activeAgentRowsFrom`
+- **THEN** `background` è vuoto
+
+### Requirement: BGVIS-04 — In chat una riga dice chi si sta aspettando
+
+Il server SHALL aggiungere alla riga `background` di `/api/topics/streaming` i
+campi `tasks: {type, description}[]` e `lastSignalAt`, letti da `pp.background`
+(`server/providers/claude/background-work.ts:59-70`) con una sonda nuova del
+provider accanto a `backgroundState` (`server/providers/claude-code.ts:2786`) e
+riportati da `backgroundStatusRows` (`server/providers/background-probes.ts:95`,
+tipo `StreamingStatusRow`). Una `description` vuota SHALL ripiegare su `type`,
+come fa già `claude-code.ts:2902`. La sonda SHALL riportare i task solo quando
+`backgroundState` vale `running` (`hasLiveTasks`,
+`server/providers/claude/background-work.ts:172`), e `[]` in `wake-queued`: una
+lista oltre `BACKGROUND_WORK_CAP_MS` è già data per persa dal server e non va
+mostrata come lavoro in corso. Un cron di sessione armato entro lo stesso tetto
+(card 8b53d9d1) SHALL comparire fra i `tasks` come `{type: "cron", description:
+"<schedule> (cron)"}`, e `lastSignalAt` non SHALL mai precedere l'armo: senza,
+una chat che aspetta solo il suo cron mostrerebbe «sta per riprendere» per due
+ore. Nessuna scrittura: DB, processo e orologi non cambiano.
+
+La chat SHALL mostrare, sopra il composer accanto a `SubAgentsStrip`
+(`client/src/components/Chat/ChatPane.tsx:1848`), una riga
+`data-testid="background-work-line"`: «In attesa di N lavori in background:»
+seguita dai nomi, troncati. Con `tasks` vuoto (stato `wake-queued`, il task ha
+risposto e la CLI sta per riprendere) la riga SHALL dire che la chat sta per
+riprendere. Oltre `WORK_STALE_AFTER_MS` (`client/src/state/workLongevity.ts:22`,
+10 min) da `lastSignalAt` la riga SHALL aggiungere da quanto non arrivano
+notizie, con lo stesso trattamento «stale» di `LabeledLoader`.
+
+La riga NON SHALL portare un secondo Stop: lo Stop è già quello del composer a
+campo vuoto (`composerAction.ts:79`), e due comandi per la stessa cosa si
+leggono come due cose diverse.
+
+#### Scenario: la riga elenca i task
+- **GIVEN** `/api/topics/streaming` intercettato con `page.route`, una riga
+  `background` per la chat T con i task «Verifica build» e «Monitor deploy»
+- **WHEN** si apre T
+- **THEN** `[data-testid="background-work-line"]` è visibile e contiene entrambi i nomi
+
+#### Scenario: la riga sparisce quando il lavoro finisce
+- **GIVEN** la chat T con la riga visibile
+- **WHEN** il poll successivo non riporta più T
+- **THEN** la riga sparisce, e anche il glifo `background`
+
+#### Scenario: il server porta i task
+- **GIVEN** un provider finto registrato che riporta la sessione S in background
+  con due task, uno senza `description`
+- **WHEN** si chiama `backgroundStatusRows`
+- **THEN** la riga di S ha `tasks` di lunghezza 2, e il task senza descrizione
+  porta il suo `type` come nome
+- **AND** ha `lastSignalAt` numerico
+
+### Requirement: CHAT-NTOOL-04 — Il `bash` nativo manda la coda del suo output mentre gira
+
+Il runtime nativo SHALL rendere visibile l'output di un `bash` mentre il comando
+gira, attraverso il canale che gli altri provider usano già:
+`handler.onToolUpdate(toolCallId, partialResult)`, che `chat.ts:2765` trasmette
+come `stream:tool_update`.
+
+- `ToolContext` (`server/providers/native/tools.ts:38`) SHALL avere un campo
+  opzionale `onOutput?: (tail: string) => void`. Assente = comportamento di oggi.
+- Il caso `bash` (`tools.ts:565`) SHALL passarlo a `runCommand`. `grep`
+  (`tools.ts:585`) e l'altro chiamante (`tools.ts:593`) NON SHALL passarlo.
+- `agent-loop.ts:884` SHALL costruire il contesto della singola chiamata con
+  `onOutput: (s) => handler.onToolUpdate?.(t.id!, s)`.
+- Ogni chiamata SHALL portare la coda **intera** corrente, non il pezzo nuovo:
+  il client sostituisce `result` (`useChat.ts:1210`), e con la sostituzione
+  applicare tutti i frame o solo l'ultimo lascia lo stesso stato.
+- La coda SHALL venire da un buffer suo, degli ultimi 16 KB, e NON da `out`:
+  `out` smette di crescere a `MAX_OUTPUT_CHARS * 2` (`tools.ts:285`), e una coda
+  ritagliata da lì resterebbe ferma a metà su un comando verboso. Quando il
+  buffer taglia la testa, la coda SHALL cominciare dopo il primo `\n`, mai a
+  metà riga. Una sola riga più lunga del buffer (una barra `\r`, un JSON su
+  una riga) non ha un inizio dove tagliare, nemmeno quando il suo `\n` la
+  chiude: resta com'è, dal primo carattere intero, e una coda vuota non segue
+  mai una non vuota. I 16 KB sono byte, non caratteri.
+- Le chiamate SHALL essere al massimo una ogni 250 ms, con un'ultima chiamata
+  in coda per l'output arrivato dentro la finestra. Alla chiusura del comando
+  (`chiudi`, `tools.ts:298`) la chiamata in coda SHALL essere annullata: l'esito
+  viaggia su `onToolResult`, e nessun parziale SHALL arrivare dopo.
+- Un `onOutput` che lancia SHALL essere ignorato: l'esito del tool NON SHALL
+  cambiare.
+
+#### Scenario: un comando lento si vede mentre gira
+- **GIVEN** `executeTool('bash', { command: 'for i in 1 2 3; do echo L$i; sleep 0.4; done' }, { workspace, onOutput })`
+- **WHEN** il comando gira
+- **THEN** `onOutput` è chiamato almeno due volte prima che la promessa si risolva
+- **AND** una chiamata intermedia contiene `L1` e non `L3`
+- **AND** il `content` finale è identico a quello di una chiamata senza `onOutput`
+
+#### Scenario: un comando verboso non congela la coda
+- **GIVEN** `bash` con `seq 1 20000; sleep 1` (circa 109 KB, oltre il tetto di `out`)
+- **WHEN** arriva una chiamata durante lo `sleep`
+- **THEN** la coda termina con `20000`
+- **AND** è lunga al massimo 16 KB e comincia a inizio riga
+
+#### Scenario: un output non ASCII resta nei 16 KB
+- **GIVEN** `bash` che stampa 3000 righe `✓ passes test number N ██████` e poi `sleep 1`
+- **WHEN** arriva una chiamata durante lo `sleep`
+- **THEN** la coda è lunga al massimo 16 KB in byte, termina con la riga 3000 e comincia a inizio riga
+
+#### Scenario: una riga più lunga del buffer, poi silenzio
+- **GIVEN** `bash` che stampa una barra `\r` di circa 40 KB, chiusa dal suo `\n`, e poi `sleep 1`
+- **WHEN** arrivano le chiamate
+- **THEN** nessuna porta una coda vuota
+- **AND** l'ultima termina con l'ultimo ridisegno della barra
+
+#### Scenario: niente dopo l'esito
+- **GIVEN** un `bash` che stampa di continuo per 1 s e poi esce
+- **WHEN** la promessa si è risolta e passano altri 500 ms
+- **THEN** il numero di chiamate a `onOutput` non è cambiato
+- **AND** le chiamate totali sono al massimo 5
+
+#### Scenario: un callback rotto non rompe il tool
+- **GIVEN** un `onOutput` che lancia a ogni chiamata
+- **WHEN** gira `echo ok`
+- **THEN** il tool risponde `ok`, senza errore
+
+### Requirement: CHAT-TOOL-08 — La riga di un comando in corso mostra le sue ultime 8 righe
+
+Una riga `shell` con stato `pending` o `running`, il cui `detail` tipizzato non
+ha `output`, e con `tc.result` stringa non vuota, SHALL mostrare nel corpo
+aperto le **ultime 8 righe** di `tc.result`, sotto il comando. Vale per ogni
+provider che manda `stream:tool_update`, quando la sua riga è `shell`: il
+nativo sì. Codex e ACP no (corretto dopo la review del 27/09): codex chiama la
+riga col comando (`codex.ts:883-884`) e ACP col titolo (`acp/translate.ts:218`),
+quindi la riga resta `unknown`. Tipizzarle come `shell` è fuori da questa change.
+
+- Il taglio SHALL stare in una funzione pura raggiungibile da `bun:test`
+  (in `client/src/components/Chat/toolDetail.ts` o accanto), che restituisce le
+  righe da mostrare e se ne sono state nascoste sopra.
+- Una riga ridisegnata con `\r` (le barre di avanzamento, es. `curl`) SHALL
+  contare come il suo ultimo ridisegno, non come un muro di testo.
+- Quando le righe sono più di 8, SHALL comparire un avviso che sopra c'è altro
+  output, SENZA numero: la coda nativa è già tagliata dal server e un conteggio
+  sarebbe falso. Il testo passa dall'i18n (`i18n-it.ts`, `i18n-en.ts`).
+- Il blocco SHALL avere `data-testid="shell-running-tail"`, distinto da
+  `shell-live-output` (la shell in background, `ToolCards.tsx:96`) e da
+  `tool-call-result` (l'output finale).
+- Quando la riga chiude, il corpo SHALL mostrare l'output definitivo del
+  `detail` come oggi; la coda sparisce. L'apertura e la chiusura del corpo
+  restano quelle di CHAT-TOOL-03.
+
+#### Scenario: venti righe, se ne vedono otto
+- **GIVEN** una riga `Bash` in `running` con `detail = { type: 'shell', command }` e `result` di 20 righe `r1…r20`
+- **WHEN** si risolve cosa mostrare
+- **THEN** si mostrano `r13…r20`
+- **AND** è segnalato che sopra c'è altro
+
+#### Scenario: una barra di avanzamento è una riga
+- **GIVEN** `result = "scarico\n 10%\r 50%\r100%\nfatto"`
+- **THEN** le righe mostrate sono `scarico`, `100%`, `fatto`
+
+#### Scenario: la coda segue il comando e lascia il posto all'esito
+- **GIVEN** la chat su `:13334` e, via `page.routeWebSocket`, un `stream:tool_call` `Bash` in `running`
+- **WHEN** arrivano due `stream:tool_update` con 12 e poi 20 righe
+- **THEN** il corpo auto-aperto mostra in `shell-running-tail` le ultime 8 righe del primo, poi del secondo
+- **AND** dopo `stream:tool_result` con `detail.output` il `shell-running-tail` non c'è più e `tool-call-result` mostra l'output definitivo
+
+### Requirement: CHAT-TOOL-09 — La coda raggiunge anche la finestra da cui hai scritto, e non scrive mai su una riga chiusa
+
+`stream:tool_update` SHALL entrare in `SENDER_ALSO_SEES`
+(`client/src/hooks/senderAlsoSees.ts:44`). Rispetta la regola del file: scrive
+uno stato fisso (sostituisce `result`), e riceverlo due volte lascia lo stesso
+stato.
+
+Nella finestra mittente l'esito arriva sull'SSE e il parziale su WS: due canali
+senza ordine fra loro. Per questo `flushToolUpdates` (`useChat.ts:1210`) SHALL
+scrivere `result` solo su una riga in `pending` o `running`. La parte di stato
+dell'evento (`toolUpdatePatch`) resta com'è.
+
+#### Scenario: la finestra da cui hai scritto vede la coda
+- **WHEN** si chiede `senderAlsoSees('stream:tool_update')`
+- **THEN** la risposta è `true`
+
+#### Scenario: un parziale in ritardo non cancella l'esito
+- **GIVEN** una riga `Bash` già in `success` con il suo `result` finale
+- **WHEN** arriva un `stream:tool_update` per la stessa riga
+- **THEN** `result` resta quello finale
+- **AND** sulla chat di `:13334`, con la riga senza `detail` tipizzato (come arriva dall'SSE nella finestra mittente), `tool-call-result` mostra ancora l'output finale
