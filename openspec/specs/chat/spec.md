@@ -1447,6 +1447,22 @@ The exit report is persisted and broadcast as an ordinary new message while the 
 - **WHEN** a persisted message for that same id arrives carrying a shorter preview
 - **THEN** the text already displayed SHALL NOT be shortened
 
+### Requirement: SUBSTRIP-01 — A chat's sub-agent stays in its strip while it runs, and is marked ended when it ends
+
+A sub-agent spawned by a chat (a terminal session whose `parentSessionKey` is that chat's sessionKey) SHALL keep its row in the chat's sub-agent strip for as long as its session is live, whatever is sent in the parent chat or typed into the sub-agent's terminal pane. When its session leaves the live roster (the process exits, is stopped or crashes) the row SHALL stay, marked ended with the "done" check, until the user dismisses it, closes its terminal tab, or the parent chat is archived; it SHALL survive a reload. A sub-agent resumed from its pane SHALL be listed live again.
+
+#### Scenario: A message in the parent chat does not take the sub-agent away
+- **GIVEN** a chat with a live sub-agent listed in its strip and its terminal pane open
+- **WHEN** the user sends a message in the chat
+- **THEN** the strip row and the terminal pane SHALL still be there
+
+#### Scenario: The sub-agent ends and is marked, not lost
+- **GIVEN** a chat whose only sub-agent is live
+- **WHEN** the sub-agent's process ends
+- **THEN** the strip SHALL still show its row, marked ended
+- **AND** the sub-agent's terminal pane SHALL stay open
+- **AND** after a reload the ended row SHALL still be there, until the user dismisses it
+
 ### Requirement: TODO-01 — The session's latest todo list is the plan pinned above the composer
 
 The system SHALL keep the most recent todo list written by the agent
