@@ -118,13 +118,15 @@ tab.
 - **WHEN** l'utente preme Esc
 - **THEN** il foglio si chiude, la scheda resta sull'URL di prima e la pagina è di nuovo viva
 
-### Requirement: TOPIC-BROWSER-03 — Niente sopra la pagina: il tipo della scheda è un'icona nella tab
+### Requirement: TOPIC-BROWSER-03 — Niente sopra la pagina: il tipo della scheda è un segno sulla favicon
 
 Nessun elemento DOM permanente SHALL stare sopra l'area della pagina di una scheda
 browser. Lo stato di connessione, il motore e la modalità di condivisione SHALL
-comparire come un'icona dentro la tab, tra favicon e titolo, solo quando differiscono
-dal tipo predefinito (vista nativa, non condivisa, connessa). I commutatori di motore
-e di resa SHALL stare nella sezione Sessione del foglio della tab.
+comparire come un segno d'angolo sulla favicon della tab (TABSLOT-03), largo zero,
+solo quando differiscono dal tipo predefinito (vista nativa, non condivisa, connessa).
+Quando la pagina dà errori l'angolo SHALL mostrare gli errori, salvo un collegamento
+che non è vivo, e il tipo SHALL restare detto nel nome accessibile e nel tooltip della tab. I commutatori di motore e di resa
+SHALL stare nella sezione Sessione del foglio della tab.
 
 Il motore Playwright del server NON SHALL essere etichettato «Nativo».
 
@@ -134,7 +136,7 @@ selezione dell'elemento, resta ammesso finché la modalità è attiva.
 #### Scenario: una scheda condivisa
 - **GIVEN** una scheda in modalità condivisa, connessa, su motore Playwright
 - **THEN** `browser-engine-toggle`, `browser-render-toggle` e `browser-connection-indicator` non esistono dentro l'area della pagina
-- **AND** la tab porta l'icona della condivisione
+- **AND** l'angolo della favicon della tab porta il segno della condivisione
 - **AND** il foglio della tab contiene i commutatori di motore e di resa
 
 #### Scenario: una scheda normale
