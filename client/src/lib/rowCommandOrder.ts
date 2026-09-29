@@ -16,9 +16,9 @@
  * was.
  *
  * It lives in its own module, taking booleans and returning strings, because
- * two surfaces have to agree on it and neither of them can be asked in a unit
- * test: `PaneTabBar` needs a whole layout to render a tab, `TopicItem` a whole
- * sidebar. The sequence itself is the part that can be wrong, so the sequence
+ * the sidebar row cannot be asked in a unit test: `TopicItem` needs a whole
+ * sidebar. (The tab no longer reads it: its one slot shows Stop, then Close,
+ * see `lib/tabSlot.ts`.) The sequence itself is the part that can be wrong, so the sequence
  * is the part that is testable on its own.
  */
 

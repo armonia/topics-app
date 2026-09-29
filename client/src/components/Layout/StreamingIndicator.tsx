@@ -86,16 +86,12 @@ const DONUT_MASK = `radial-gradient(closest-side, transparent calc(100% - ${STRO
  *  two glyphs of the family cannot drift apart. */
 const TRACK_WASH = 'color-mix(in srgb, currentColor 22%, transparent)';
 
-/**
- * Stroke width in lucide's 24-unit box. The default 2 lands at 1px once the
- * icon is scaled to 12, which reads thinner than the 2px track under it: the
- * arc has to be the loud layer, so it is scaled to match.
- */
-const ARC_STROKE = (STROKE / GLYPH) * 24;
-
-/** `onFill`: the glyph sits on an attention fill, and its arc takes the fill's ink (`loaderArcClass`). */
-export function OrbitLoader({ className = '', state = 'working', onFill = false }: { className?: string; state?: LoaderState; onFill?: boolean }) {
-  const box = { width: GLYPH, height: GLYPH } as const;
+/** `onFill`: the glyph sits on an attention fill, and its arc takes the fill's ink (`loaderArcClass`).
+ *  `size`: the tab slot draws the same ring at 20 around a count (TABSLOT-02). */
+export function OrbitLoader({ className = '', state = 'working', onFill = false, size = GLYPH }: { className?: string; state?: LoaderState; onFill?: boolean; size?: number }) {
+  const box = { width: size, height: size } as const;
+  // Stroke width in lucide's 24-unit box, scaled so the arc lands at the
+  // track's STROKE px at any size: the arc has to be the loud layer.
   return (
     <span
       className={`relative inline-block ${className}`}
@@ -113,8 +109,8 @@ export function OrbitLoader({ className = '', state = 'working', onFill = false 
         }}
       />
       <LoaderCircle
-        size={GLYPH}
-        strokeWidth={ARC_STROKE}
+        size={size}
+        strokeWidth={(STROKE / size) * 24}
         className={`absolute inset-0 ${loaderArcClass(state, onFill)}`}
       />
     </span>
@@ -148,7 +144,7 @@ interface LoaderSlotProps {
  * command can carry a label, a tooltip and a keyboard focus. What is left here
  * only ever answers "is it working".
  */
-function LoaderSlot({ title, className = '', size = 16, state = 'working', onFill = false }: LoaderSlotProps) {
+export function LoaderSlot({ title, className = '', size = 16, state = 'working', onFill = false }: LoaderSlotProps) {
   const tip = title ?? (state === 'waiting' ? 'Ferma: in attesa di una tua risposta' : 'In esecuzione');
   return (
     <span

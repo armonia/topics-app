@@ -244,4 +244,10 @@ test("un progetto senza favicon resta marcato come progetto, selezionato o a rip
   await projectTab.click();
   await expect(projectTab).toHaveAttribute("data-active", "true", { timeout: 10000 });
   await expect(projectMarker).toBeVisible();
+
+  // The marker costs the label nothing (TABSLOT-03): with no shipped icon it
+  // IS the lead icon, so it ends before the label starts.
+  const marker = (await projectMarker.boundingBox())!;
+  const label = (await projectTab.getByTestId("pane-tab-label").boundingBox())!;
+  expect(marker.x + marker.width, "the marker sits in the lead zone, before the label").toBeLessThanOrEqual(label.x);
 });

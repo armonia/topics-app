@@ -82,6 +82,7 @@ const EN = {
   'lightbox.image': 'Image',
   'activity.runningFor': 'Running for {label}{approx}',
   'activity.atLeast': ' (at least: the turn was already going at the last server restart)',
+  'activity.finishedAgo': 'Finished {label} ago',
 
   'board.settings.oneCmdPerLine': '(one command per line)',
   'board.settings.saveOnBlur': 'Saves when you leave the field (or ⌘↵).',
@@ -530,6 +531,9 @@ const EN = {
   'tab.project': 'Project',
   'tab.stopTurn': 'Stop the turn',
   'tab.stopTurnOn': 'Stop the turn on {name}',
+  'tab.close': 'Close tab',
+  'tab.closeNamed': 'Close tab {name}',
+  'tab.cancelClose': 'Cancel close',
   'tab.menu.stopTurn': 'Stop the turn',
   'tab.restartSession': 'Restart the session (Claude/codex resume via --resume)',
   'tab.restartSessionFailed': 'Restart failed: the server refused',

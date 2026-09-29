@@ -451,7 +451,7 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
     }
   });
 
-  test("Download: the cue appears in the tab, the click opens the sheet, and no row over the page [native-grade]", async ({ page, browserProcessPageV2, request }) => {
+  test("Download: the dots carry the count, the click opens the sheet, and no row over the page [native-grade]", async ({ page, browserProcessPageV2, request }) => {
     await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
     await browserProcessPageV2.mockWebrtcPeer(); // shared-session <video> surface
     await browserProcessPageV2.mockBrowserContexts([]);
@@ -475,23 +475,21 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
         state: "completed",
       });
 
-      // 1. THE FILE ANNOUNCES ITSELF AND OPENS NOTHING. The cue lights up in
-      //    the tab's quiet rail; the page stays uncovered and live. No address
+      // 1. THE FILE ANNOUNCES ITSELF AND OPENS NOTHING. The tab's three dots
+      //    carry the count (TABSLOT-03: downloads live in the dots' sheet, not
+      //    in flow on the tab); the page stays uncovered and live. No address
       //    row over the page, and no old strip at the foot of the pane either.
-      // AT REST it is the inert signal in the quiet rail; the pressable twin
-      // lives in the command rail, which only exists under the pointer (the two
-      // rails take turns by design: `index.css`, `.row-trail`).
-      const signal = page.getByTestId("browser-tab-downloads-signal");
-      await expect(signal).toBeVisible({ timeout: 5000 });
+      const dots = page.getByTestId("browser-tab-menu");
+      await expect(dots).toHaveAttribute("data-downloads", "1", { timeout: 5000 });
       await expect(page.getByTestId("browser-download-strip")).toHaveCount(0);
       await expectNoRowAboveThePage(page, "a download brings no row over the page");
       await expect(page.getByTestId("browser-tab-sheet"), "a download does not open the sheet").toHaveCount(0);
 
-      // 2. THE CLICK ON THE CUE IS WHAT OPENS, with the sheet already on its
-      //    Downloads section - and without taking the address caret.
+      // 2. THE CLICK ON THE DOTS IS WHAT OPENS, with the sheet already on its
+      //    Downloads section - and without taking the address caret. The dots
+      //    ride over the label's tail under the pointer.
       await page.locator('[data-pane-id^="browser:"]').first().hover();
-      const cue = page.getByTestId("browser-tab-downloads-cue");
-      await cue.click();
+      await dots.click();
       await expect(page.getByTestId("browser-tab-sheet")).toBeVisible({ timeout: 5000 });
       await expect(page.getByTestId("browser-tab-address-input")).not.toBeFocused();
       const menu = page.getByTestId("browser-downloads-menu");
@@ -511,11 +509,10 @@ test.describe("BROWSER-CHAT-02 WebSocket streaming", () => {
       await page.getByTestId("browser-tab-downloads").click();
       await expect(menu).toBeVisible();
 
-      // 4. An entry is dismissed by hand, and with the last one the tab's cue
-      //    goes too: at rest the rail is back the way it was.
+      // 4. An entry is dismissed by hand, and with the last one the dots lose
+      //    their count: the tab is back the way it was.
       await menu.locator('[data-testid="browser-download-dismiss"]').first().click();
-      await expect(cue).toHaveCount(0);
-      await expect(signal).toHaveCount(0);
+      await expect(dots).not.toHaveAttribute("data-downloads", /.+/);
 
       // 5. ...and ESC STILL CLOSES THE SHEET, although this door never put the
       //    caret in the address field: the focus is nowhere near it.

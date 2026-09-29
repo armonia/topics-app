@@ -1301,7 +1301,7 @@ html, body {
   position: relative;
   isolation: isolate;
 }
-.swap-ice-host > :not(.swap-ice):not(.swap-ice-glints):not(.row-actions) {
+.swap-ice-host > :not(.swap-ice):not(.swap-ice-glints):not(.row-actions):not(.tab-extras) {
   position: relative;
   z-index: 1;
 }
@@ -2071,6 +2071,120 @@ input[type="range"]::-webkit-slider-thumb {
   .row-card:has(> .row-actions[data-pending='true']) > .row-trail {
     opacity: 0;
     pointer-events: none;
+  }
+}
+
+/* ── ONE TAB, THREE ZONES: the slot is where state lives (TABSLOT-01/02) ─────
+ *
+ * The tab's last zone is 20px, always reserved, and holds ONE signal at rest
+ * (`lib/tabSlot.ts`). On hover or keyboard focus the same box becomes the one
+ * command (CHROME-12). Nothing moves, because nothing is in flow but the slot.
+ *
+ * WHERE THE SLOT SITS is set by the command, not by the padding. The row's
+ * close glyph (16) ends at ROW_PX (8px) from its edge, and the tab's must end
+ * at the same distance (CHROME-05); the signal it replaces must share its
+ * centre (CHROME-04). So the slot is centred on the glyph's column, 16px from
+ * the edge: it reaches 2px into the tab's padding. Centred on the padding
+ * instead, the glyph landed at 10px on the tab and 8px on the row.
+ *
+ * Without hover (touch) there is no "passing over": the SELECTED tab shows the
+ * command, the others keep their signal, and tapping a tab selects it first.
+ * A running close countdown keeps its ring lit wherever the pointer is, so it
+ * stays cancellable. */
+.tab-slot {
+  position: relative;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  /* (glyph 16 - slot 20) / 2: see above. */
+  margin-right: -2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tab-slot-signal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 100ms ease;
+}
+.tab-slot-command {
+  /* The command box (`ROW_ACTION_BOX`, 36 under 768px, 28 above) spills past
+   * the slot. Its glyph ends at 8px from the tab's edge, as `.row-actions`
+   * does, and with the 36 box it stays flush with the edge rather than be
+   * clipped by the tab's overflow (glyph at 10, the row's same residue).
+   * `right` is measured from the slot, which ends 6px from the tab's edge. */
+  --tab-command-box: 36px;
+  position: absolute;
+  top: 50%;
+  right: max(-6px, calc(2px - (var(--tab-command-box) - 16px) / 2));
+  transform: translateY(-50%);
+  z-index: 20;
+  display: flex;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+/* A mark on the corner of the lead icon: zero width in the row (TABSLOT-03). */
+.tab-corner-mark {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 10px;
+  height: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+}
+@media (min-width: 768px) { .tab-slot-command { --tab-command-box: 28px; } }
+/* The browser's extra commands (the dots) cover the label's tail, left of the
+ * slot, instead of taking its width. 34px = the slot's 6px from the edge + its
+ * 20px + the 8px gap. The label fades under them rather than showing through. */
+.tab-extras {
+  position: absolute;
+  top: 50%;
+  right: 34px;
+  transform: translateY(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+.tab-slot-command[data-pending='true'],
+.tab-extras:has([aria-expanded='true']) {
+  opacity: 1;
+  pointer-events: auto;
+}
+.tab-slot:has(> .tab-slot-command[data-pending='true']) > .tab-slot-signal { opacity: 0; }
+@media (hover: hover) {
+  [role='tab']:hover > .tab-slot > .tab-slot-command,
+  [role='tab']:has(:focus-visible) > .tab-slot > .tab-slot-command,
+  [role='tab']:hover > .tab-extras,
+  [role='tab']:has(:focus-visible) > .tab-extras {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  [role='tab']:hover > .tab-slot > .tab-slot-signal,
+  [role='tab']:has(:focus-visible) > .tab-slot > .tab-slot-signal { opacity: 0; }
+  [role='tab'][data-tab-extras]:hover > [data-testid='pane-tab-label'] {
+    -webkit-mask-image: linear-gradient(to left, transparent 20px, #000 32px);
+    mask-image: linear-gradient(to left, transparent 20px, #000 32px);
+  }
+}
+@media not (hover: hover) {
+  [role='tab'][data-active='true'] > .tab-slot > .tab-slot-command,
+  [role='tab'][data-active='true'] > .tab-extras {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  [role='tab'][data-active='true'] > .tab-slot > .tab-slot-signal { opacity: 0; }
+  [role='tab'][data-active='true'][data-tab-extras] > [data-testid='pane-tab-label'] {
+    -webkit-mask-image: linear-gradient(to left, transparent 20px, #000 32px);
+    mask-image: linear-gradient(to left, transparent 20px, #000 32px);
   }
 }
 

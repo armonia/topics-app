@@ -554,18 +554,22 @@ test.describe("Kanban board", () => {
 
     const tab = page.locator('[data-pane-id="__board__"]');
     await expect(tab).toBeVisible({ timeout: 10000 });
-    for (const status of ["review", "in_progress"]) {
-      const cue = tab.getByTestId(`tab-board-count-${status}`);
-      await expect(cue, `manca il conteggio ${status} sulla tab`).toBeVisible({ timeout: 10000 });
-      await expect.poll(async () => (await cue.innerText()).trim(), { timeout: 10000 })
-        .toBe(String(await atteso(status)));
-      // …e con una larghezza VERA: dentro una tab a larghezza fissa un
-      // contenitore che collassa lascia elementi «visibili» e larghi zero — è
-      // così che il raggruppamento della sidebar era già sparito una volta
-      // (BOARD-14). Il glifo da solo è 14px.
-      const box = await cue.boundingBox();
-      expect(Math.round(box?.width ?? 0), `il conteggio ${status} è largo zero`).toBeGreaterThanOrEqual(14);
-    }
+    // The tab has ONE slot (TABSLOT-02): the cards in review are the number
+    // that asks for you, the cards in progress the ring turning around it. The
+    // exact counts of both are in the slot's tooltip.
+    const review = tab.getByTestId("tab-board-count-review");
+    await expect(review, "manca il conteggio review sulla tab").toBeVisible({ timeout: 10000 });
+    await expect.poll(async () => (await review.innerText()).trim(), { timeout: 10000 })
+      .toBe(String(await atteso("review")));
+    const ring = tab.getByTestId("tab-board-count-in_progress");
+    await expect(ring, "manca l'anello del lavoro in corso").toBeVisible({ timeout: 10000 });
+    await expect.poll(async () => ring.getAttribute("data-count"), { timeout: 10000 })
+      .toBe(String(await atteso("in_progress")));
+    // …with a REAL width: inside a fixed-width tab a collapsing container
+    // leaves elements "visible" and zero wide (BOARD-14). The slot is 20px.
+    const box = await ring.boundingBox();
+    expect(Math.round(box?.width ?? 0), "l'anello è largo zero").toBeGreaterThanOrEqual(16);
+    await expect(ring).toHaveAttribute("title", new RegExp(`: ${await atteso("in_progress")}`));
   });
 
   /**
@@ -600,7 +604,7 @@ test.describe("Kanban board", () => {
     // `mio`, non `mio + altro`: con un task in corso su ciascun progetto i due
     // numeri sono diversi, quindi questa uguaglianza è anche il rosso che
     // scatta se la tab di progetto ricadesse sul totale globale.
-    await expect.poll(async () => (await cue.innerText()).trim(), { timeout: 10000 }).toBe(String(mio));
+    await expect.poll(async () => cue.getAttribute("data-count"), { timeout: 10000 }).toBe(String(mio));
   });
 
   test("BOARD-12: a persisted Board generale pane survives hydrate/render (persistence regression)", async ({ page }) => {

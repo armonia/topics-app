@@ -84,8 +84,7 @@ function SessionActivityText({ subjectId, onFill, className = '' }: SessionActiv
   // smontava e rimontava a ogni cambio di strumento, quindi l'intervallo da 1s
   // veniva azzerato PRIMA di scattare: un agente che cambia tool più di una
   // volta al secondo — cioè il caso normale — lasciava il contatore inchiodato
-  // sul valore iniziale. Il gemello a fondo file (`SessionElapsedTicking`) non
-  // ne soffriva perché legge il tick condiviso.
+  // sul valore iniziale. La soluzione e' il tick condiviso.
   const working = activity?.working ?? false;
   useEffect(() => {
     if (!working) return;
@@ -224,64 +223,6 @@ function TopicPreviewLine({ topicId, onFill, className = '' }: {
 }
 
 /**
- * SessionElapsed — la stessa voce di tempo di SessionActivity, ridotta al solo
- * numero, per le superfici che NON hanno una descrizione dello stato accanto a
- * cui metterla: le tab. Stessa regola (`deriveSubjectTime`), quindi una tab e la
- * riga di sidebar dello stesso soggetto non possono dire due tempi diversi.
- *
- * Si mostra solo dove il numero è un'informazione:
- *   · turno in corso e già lungo (oltre WORK_ELAPSED_AFTER_MS) → «12m»
- *   · turno finito che aspetta te (tier ≠ null)                → «5m»
- * Una tab ferma da tre giorni e già letta non prende nessun orologio: sarebbe
- * rumore su ogni tab aperta, che è esattamente ciò che la richiesta escludeva.
- */
-export function SessionElapsed({ subjectId, onFill, className = '' }: SessionActivityProps) {
-  const activity = useSessionActivity(subjectId);
-  // Gate PRIMA dell'orologio: senza sessione notevole non si sottoscrive il tick
-  // condiviso, così N tab inerti non si ri-renderizzano ogni 10s per non
-  // mostrare niente.
-  if (!activity || (!activity.working && activity.tier === null)) return null;
-  return <SessionElapsedTicking subjectId={subjectId} onFill={onFill} className={className} />;
-}
-
-function SessionElapsedTicking({ subjectId, onFill, className = '' }: SessionActivityProps) {
-  const tr = useT();
-  const activity = useSessionActivity(subjectId);
-  const lastActivityAt = useSubjectLastActivity(subjectId);
-  // Granularità al minuto: qui basta il tick condiviso da 10s. I secondi vivono
-  // nella sidebar, dove c'è spazio per la frase intera.
-  const now = useSharedNow();
-  const time = deriveSubjectTime(activity, lastActivityAt, now);
-  if (!time) return null;
-  // Un turno appena partito non merita una cifra che balla su una tab stretta.
-  if (time.kind === 'working' && time.ms < WORK_ELAPSED_AFTER_MS) return null;
-  const label = formatElapsedCompact(time.ms);
-  if (!label) return null;
-  // A tab has no sentence around the number, so the treatment IS the sentence:
-  // the shimmer travelling through the text ink while the turn runs, amber
-  // while it waits for you, a still quiet grey once it is only a receipt. See
-  // timeTone.
-  const voice = timeVoice(time.kind === 'working', activity?.tier === 'input');
-  const tone = timeToneClass(voice, onFill);
-  return (
-    <span
-      className={`ml-0.5 flex-shrink-0 text-micro leading-none tabular-nums ${
-        tone ?? (onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70')
-      } ${className}`}
-      data-time-voice={voice}
-      data-testid="tab-elapsed"
-      title={
-        time.kind === 'working'
-          ? tr('activity.runningFor', { label, approx: time.approx ? tr('activity.atLeast') : '' })
-          : `Ha finito ${label} fa`
-      }
-    >
-      {label}
-    </span>
-  );
-}
-
-/**
  * ProjectElapsed — the same time voice, for a FOLDER.
  *
  * A project has no session of its own: its number is the roll-up, "the oldest
@@ -299,7 +240,7 @@ export function ProjectElapsed({ projectPath, onFill, className = '' }: {
   onFill?: boolean;
   className?: string;
 }) {
-  // Gate BEFORE the clock, like SessionElapsed: a quiet project must not
+  // Gate BEFORE the clock: a quiet project must not
   // subscribe to the shared tick just to render nothing every 10s.
   const startedAt = useProjectWorkStart(projectPath);
   if (!startedAt) return null;

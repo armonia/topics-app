@@ -19,11 +19,11 @@ hermetic(test);
  * status glyph, with no name, no tooltip and no keyboard route. So the first
  * thing you could do to a working tab was kill it.
  *
- * Two commands now share the rail, and their ORDER is the point: stop, then
- * close. This spec measures the order in both places it can be wrong (the DOM,
- * which is what the keyboard and a screen reader walk, and the screen, which is
- * what the hand aims at), then plays the sequence through: stop really ends the
- * turn, and close still closes.
+ * ON A TAB they are now SUCCESSIVE STATES of one slot (CHROME-12 as modified by
+ * `tab-one-slot`): while the turn runs the slot is Stop, with no Close beside
+ * it; once stopped, the same slot is Close. The sidebar row keeps its rail with
+ * both commands in order, stop then archive, which the second test measures.
+ * The geometry of the tab's slot is measured in `tab-one-slot.spec.ts`.
  *
  * It is a BEHAVIOUR, not a layout: video on, the .webm is the evidence.
  *
@@ -113,42 +113,34 @@ test.describe.serial("Ferma prima di Chiudi", () => {
     await startHeldTurn(page, chatPage.messageInput);
     await expect(chatPage.streamingIndicator).toBeVisible({ timeout: 15_000 });
 
-    // THE SIGNAL IS LAST OF THE TRAIL. The loader is a signal again, so it sits
-    // at the end of the quiet rail, in the slot the commands take over.
+    // THE SIGNAL SITS IN THE SLOT, and the slot is the tab's last zone: the
+    // command that acts on it takes the same place.
     const loader = tab.locator("[data-loader-state]");
     await expect(loader).toBeVisible({ timeout: 10_000 });
-    const loaderIsLast = await loader.evaluate((el) => {
-      const trail = el.parentElement;
-      return !!trail && trail.lastElementChild === el;
+    const loaderInLastZone = await loader.evaluate((el) => {
+      const slot = el.closest('[data-testid="pane-tab-slot"]');
+      return !!slot && slot.parentElement?.lastElementChild === slot;
     });
-    expect(loaderIsLast, "the loader is the last of the quiet trail").toBe(true);
+    expect(loaderInLastZone, "the loader is in the slot, the tab's last zone").toBe(true);
 
-    // Under the pointer: two commands, in order.
+    // Under the pointer: Stop, and no Close beside it.
     await tab.hover();
     const stop = tab.locator('[data-testid="pane-tab-stop"]');
     const close = tab.locator('[data-testid="pane-tab-close"]');
     await expect(stop).toBeVisible({ timeout: 5_000 });
-    await expect(close).toBeVisible({ timeout: 5_000 });
-
-    // ORDER IN THE DOM — what the keyboard and a screen reader walk.
-    const stopComesFirst = await stop.evaluate(
-      (el, other) => !!(el.compareDocumentPosition(other as Node) & Node.DOCUMENT_POSITION_FOLLOWING),
-      await close.elementHandle(),
-    );
-    expect(stopComesFirst, "Ferma precede Chiudi nel DOM").toBe(true);
-
-    // ORDER ON SCREEN — what the hand aims at. Absolutely positioned rails have
-    // been known to draw in the opposite order to the DOM.
-    expect(await leftEdge(stop), "Ferma sta a sinistra di Chiudi").toBeLessThan(await leftEdge(close));
+    await expect(close, "never Stop and Close side by side").toHaveCount(0);
+    const stopLeft = await leftEdge(stop);
 
     // Stop really stops: same command the composer fires.
     await stop.click();
     await expect(chatPage.streamingIndicator).toBeHidden({ timeout: 10_000 });
     await expect(tab.locator("[data-loader-state]")).toHaveCount(0);
 
-    // …and the rail goes back to one command, which still closes the tab.
+    // …and the same slot is now Close, which still closes the tab.
     await tab.hover();
     await expect(tab.locator('[data-testid="pane-tab-stop"]')).toHaveCount(0);
+    await expect(close).toBeVisible({ timeout: 5_000 });
+    expect(await leftEdge(close), "Close takes the place Stop had").toBe(stopLeft);
     await close.click();
     await expect(page.locator(`[data-pane-id="${topicId}"]`)).toHaveCount(0, { timeout: 10_000 });
   });

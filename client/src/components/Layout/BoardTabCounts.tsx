@@ -1,30 +1,19 @@
 /**
- * I CONTEGGI PER STATO SULLA TAB «BOARD».
+ * HOW MUCH WORK SITS BEHIND A BOARD TAB, by status.
  *
- * Una tab della board portava icona + nome e basta: chiusa dentro un gruppo di
- * split, o semplicemente non selezionata, non diceva NIENTE del lavoro che c'è
- * dietro — mentre la riga «Board» della sidebar lo dice da sempre. Questa è la
- * stessa cosa, ridotta alla misura di una tab: il glifo di stato della kanban
- * più il numero, per gli stati che cambiano una decisione.
+ * A board tab used to say nothing about the work behind it while the sidebar
+ * "Board" row always did. The statuses are `SUMMARY_STATUSES`
+ * (`lib/boardTabCounts`, shared with the sidebar): review, which waits for you,
+ * and in progress, where agents are working. The numbers come from
+ * `boardTasksStore`, the same list the sidebar reads: tab bars are one per
+ * split group, so a fetch per reader would mean N fetches.
  *
- * Le tre scelte, tutte prese altrove e qui solo RILETTE:
- *  · QUALI stati — `SUMMARY_STATUSES` in `lib/boardTabCounts`, condiviso con la
- *    sidebar: review (aspetta te) e in corso (agenti al lavoro). Gli zeri non
- *    si disegnano, quindi una board senza lavoro aperto lascia la tab com'era.
- *  · QUALE glifo — `StatusIcon`, lo stesso che la board disegna sulle card e in
- *    cima alle colonne, alla sua misura standard (14px): stessa forma, stesso
- *    significato, nessun secondo codice da imparare.
- *  · DA DOVE i numeri — `boardTasksStore`, cioè la STESSA lista che alimenta la
- *    sidebar. Nessuna seconda fetch: le tab bar sono una per gruppo di split,
- *    quindi «una fetch per lettore» qui non voleva dire due, voleva dire N.
- *
- * Non è un badge di attenzione: non pulsa, non si spegne quando guardi la tab,
- * non compete con `NotificationBadge`. È il contenuto della board, detto in due
- * numeri.
+ * They are no longer drawn as a row of glyphs and numbers in the tab: that row
+ * took the label's width (TABSLOT-01). The tab's one slot carries them instead,
+ * review as the number and in progress as the ring (TABSLOT-02); the exact
+ * counts are in its tooltip.
  */
 import { useEffect, useMemo } from 'react';
-import { StatusIcon } from '../Board/atoms';
-import { STATUS_LABEL } from '../../lib/board';
 import { boardTabCounts, type StatusCount } from '../../lib/boardTabCounts';
 import { useBoardTasks, useBoardTasksLoaded } from '../../lib/boardTasksStore';
 import { useBoardProjects } from '../../lib/boardProjectsStore';
@@ -57,7 +46,11 @@ function rememberCounts(key: string, counts: StatusCount[]): void {
   } catch { /* storage denied: the trail simply arrives with the feed */ }
 }
 
-export function BoardTabCounts({ projectPath }: { projectPath?: string }) {
+/**
+ * The counts behind a board tab, for its slot (TABSLOT-02): the cards in
+ * review are the number that asks for you, the cards in progress are the ring.
+ */
+export function useBoardTabCounts(projectPath?: string): StatusCount[] {
   const tasks = useBoardTasks();
   // L'indice serve SOLO alla tab di progetto (per tradurre il percorso in
   // board id): sulla board generale non si sottoscrive nemmeno.
@@ -81,22 +74,5 @@ export function BoardTabCounts({ projectPath }: { projectPath?: string }) {
   const cacheKey = COUNTS_CACHE_PREFIX + (projectPath ? norm(projectPath) : 'all');
   const cached = useMemo(() => readCachedCounts(cacheKey), [cacheKey]);
   useEffect(() => { if (loaded) rememberCounts(cacheKey, live); }, [loaded, live, cacheKey]);
-  const counts = loaded ? live : cached;
-  if (counts.length === 0) return null;
-  return (
-    <>
-      {counts.map(({ status, n }) => (
-        <span
-          key={status}
-          data-testid={`tab-board-count-${status}`}
-          title={`${STATUS_LABEL[status]}: ${n}`}
-          aria-label={`${STATUS_LABEL[status]}: ${n}`}
-          className="flex items-center gap-0.5 tabular-nums text-mini leading-none text-app-text-secondary"
-        >
-          <StatusIcon status={status} />
-          {n}
-        </span>
-      ))}
-    </>
-  );
+  return loaded ? live : cached;
 }

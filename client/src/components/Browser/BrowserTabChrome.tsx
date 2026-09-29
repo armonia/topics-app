@@ -18,17 +18,18 @@
  *    at all on the default kind. It is where the three pills that used to float
  *    over the page ended up — see `TOPIC-BROWSER-03`.
  *  - `BrowserTabMenuButton`: the three dots, which OPEN THE TAB SHEET
- *    (`BrowserTabSheet`) where everything else lives in plain sight. They carry
- *    the console-error count as a badge, because an error nobody surfaces is an
- *    error nobody fixes.
+ *    (`BrowserTabSheet`) where everything else lives in plain sight, and the
+ *    downloads with it.
+ *  - `BrowserTabConsoleCue`: the favicon's corner mark when the page logs
+ *    errors, because an error nobody surfaces is an error nobody fixes.
  *
  * Both read the pane's live state from `state/browserPaneChrome`, which the
  * panel publishes. Both degrade to nothing when the panel has not mounted yet
  * (a restored tab whose pane is still cold): the tab keeps its favicon slot,
  * and the dots stay away until there is something behind them.
  */
-import { useCallback, useEffect, useState } from 'react';
-import { RotateCw, MoreVertical, AlertCircle, Download, MonitorSmartphone, Puzzle, WifiOff, WifiLow, Loader2, Bot, Gauge, CirclePause } from 'lucide-react';
+import { useCallback } from 'react';
+import { RotateCw, MoreVertical, MonitorSmartphone, Puzzle, WifiOff, WifiLow, Loader2, Bot, Gauge, CirclePause } from 'lucide-react';
 import { browserTabKind } from './browserTabKind';
 import { BrowserFavicon } from './BrowserFavicon';
 import { useBrowserPaneChrome } from '../../state/browserPaneChrome';
@@ -238,128 +239,53 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
 }
 
 /**
- * The quiet cue that says "this page is logging errors".
+ * "This page is logging errors", as a corner mark on the favicon (TABSLOT-03).
  *
- * It sits in the tab's quiet rail, with the pin and the cloud glyph, and not on
- * the three dots: the dots only exist under the pointer, and a notification you
- * have to hover to discover is not a notification. Red is spent deliberately
- * here (every other cue in that rail is muted) because this one is the only one
- * that reports something BROKEN.
+ * It used to sit in flow after the label, where every error that appeared took
+ * the label's width and moved it. A corner is zero width and is still drawn at
+ * rest, which is the part that matters: a notification you have to hover to
+ * find is not a notification. Red is spent deliberately, because this is the
+ * one mark that reports something BROKEN. The count is in its tooltip and the
+ * console is one click away in the sheet.
  */
-export function BrowserTabConsoleCue({ paneId, onFill }: { paneId: string; onFill?: boolean }) {
+export function BrowserTabConsoleCue({ paneId }: { paneId: string }) {
   const chrome = useBrowserPaneChrome(paneId);
   const t = useT();
   const errors = chrome?.consoleErrors ?? 0;
   if (errors <= 0) return null;
   return (
     <span
-      className={`flex items-center gap-0.5 tabular-nums text-micro font-medium ${onFill ? 'text-white' : DANGER_TEXT}`}
+      className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-600 dark:bg-red-500 ring-1 ring-app-bg pointer-events-auto"
       title={t('browser.tab.consoleErrors', { n: String(errors) })}
       aria-label={t('browser.tab.consoleErrors', { n: String(errors) })}
+      role="img"
       data-testid="browser-tab-console-cue"
-    >
-      <AlertCircle size={11} />
-      {errors > 1 && errors}
-    </span>
-  );
-}
-
-/**
- * The quiet cue that says "a file landed here", twin of the console one and
- * sitting right beside it.
- *
- * A DOWNLOAD MUST NOT OPEN ANYTHING BY ITSELF. The sheet covers the page and
- * freezes it, so a file arriving while you read would take the page away from
- * you to tell you about something you did not ask for at that instant. Before
- * the sheet existed the same event brought a 40px row back over the page, which
- * was the same interruption with a bigger footprint.
- *
- * So the announcement is PASSIVE and the opening is yours: the cue appears (and
- * pulses once, unless the OS says no animations) and a click on it opens the
- * sheet with the Downloads section already down. `downloadsStarted` only drives
- * the appearing and the pulse; the tally is the number of files held.
- *
- * IT IS DRAWN TWICE, and that is the tab's own idiom rather than a duplicate.
- * The quiet rail and the command rail TAKE TURNS: hover a tab and `.row-trail`
- * goes `opacity: 0; pointer-events: none` while `.row-actions` lights up
- * (`index.css`). So a cue that is only a signal cannot be clicked - the very
- * gesture that reaches for it is the one that switches its rail off. Measured:
- * Playwright reported the close ring intercepting every click aimed at it. The
- * copy in the quiet rail is therefore inert (`disabled`, out of the tab order)
- * and the copy in the command rail is the button, in the same spot - exactly
- * how the close ring already takes over from the notification badge.
- */
-export function BrowserTabDownloadsCue({ paneId, onFill, inRail }: {
-  paneId: string;
-  onFill?: boolean;
-  /** Drawn inside the tab's COMMAND rail rather than its quiet one. Same glyph,
-   *  same spot: the two rails take turns (`index.css`, `.row-trail` goes
-   *  `pointer-events: none` on hover), so the pressable copy lives here and the
-   *  one you read at rest lives there. */
-  inRail?: boolean;
-}) {
-  const chrome = useBrowserPaneChrome(paneId);
-  const t = useT();
-  const n = chrome?.downloads ?? 0;
-  const started = chrome?.downloadsStarted ?? 0;
-  const openDownloads = chrome?.commands.openDownloads;
-
-  // The pulse is tied to the LAST START, not to the count: dismissing one entry
-  // of three lowers the tally and must not look like a new file arriving.
-  const [seenStarted, setSeenStarted] = useState(started);
-  const [fresh, setFresh] = useState(false);
-  if (started !== seenStarted) {
-    setSeenStarted(started);
-    setFresh(started > seenStarted);
-  }
-  useEffect(() => {
-    if (!fresh) return;
-    const timer = setTimeout(() => setFresh(false), 1600);
-    return () => clearTimeout(timer);
-  }, [fresh]);
-
-  if (n <= 0) return null;
-  const label = t('browser.tab.downloadsCue', { n: String(n) });
-  return (
-    <button
-      type="button"
-      onClick={(e) => { swallow(e); openDownloads?.(); }}
-      onPointerDown={swallow}
-      onDoubleClick={swallow}
-      // In the quiet rail it is a SIGNAL and nothing else - that rail stops
-      // taking pointer events the instant you hover it, so a live handler there
-      // would only ever be a promise the CSS breaks.
-      disabled={!inRail || !openDownloads}
-      tabIndex={inRail ? undefined : -1}
-      className={`flex items-center gap-0.5 tabular-nums text-micro font-medium rounded-sm disabled:cursor-default ${
-        inRail
-          ? 'w-4 h-4 justify-center text-app-text-secondary hover:text-app-text hover:bg-app-hover'
-          : `px-0.5 -mx-0.5 ${onFill ? 'text-white' : 'text-app-text-faint/80'}`
-      } ${fresh && !prefersReducedMotion() ? 'animate-pulse' : ''}`}
-      title={label}
-      aria-label={label}
-      data-testid={inRail ? 'browser-tab-downloads-cue' : 'browser-tab-downloads-signal'}
-      data-fresh={fresh || undefined}
-    >
-      <Download size={11} />
-      {n > 1 && n}
-    </button>
+      data-console-errors={errors}
+    />
   );
 }
 
 /**
  * The three dots: the third door to the tab sheet.
  *
- * VISIBILITY. At rest they are invisible: on a 150px tab three permanent dots
- * would be three permanent pixels stolen from the label. They appear on hover,
- * on focus, and STAY when the page has console errors, because that badge is a
- * notification and a notification you have to hover to see is not one.
+ * VISIBILITY is the tab's business, not this button's: the dots ride in the
+ * tab's hover extras (`.tab-extras`), which cover the tail of the label instead
+ * of taking its width (TABSLOT-01). The console errors are announced at rest by
+ * the favicon's corner mark (`BrowserTabConsoleCue`).
+ *
+ * DOWNLOADS LIVE HERE TOO (TABSLOT-03). A file that lands gives the dots a
+ * count, and while there is one the dots open the sheet on its Downloads
+ * section, the list the count announces. A download never opens anything by
+ * itself: it would take the page away from you to report something you did
+ * not ask about at that instant.
  */
 export function BrowserTabMenuButton({ paneId }: { paneId: string }) {
   const chrome = useBrowserPaneChrome(paneId);
   const t = useT();
   const errors = chrome?.consoleErrors ?? 0;
+  const downloads = chrome?.downloads ?? 0;
   const editAddress = chrome?.commands.editAddress;
+  const openDownloads = chrome?.commands.openDownloads;
 
   // THE DOTS ARE NOT A MENU ANY MORE, they are the third way into the ONE
   // surface. A menu here would be a second place to look for the same commands,
@@ -369,8 +295,9 @@ export function BrowserTabMenuButton({ paneId }: { paneId: string }) {
   // from the tab's label, a few pixels to the left) answers.
   const openSheet = useCallback((e: React.MouseEvent) => {
     swallow(e);
-    editAddress?.();
-  }, [editAddress]);
+    if (downloads > 0 && openDownloads) openDownloads();
+    else editAddress?.();
+  }, [downloads, openDownloads, editAddress]);
 
   if (!chrome || !editAddress) return null;
 
@@ -380,23 +307,22 @@ export function BrowserTabMenuButton({ paneId }: { paneId: string }) {
       onClick={openSheet}
       onPointerDown={swallow}
       onDoubleClick={swallow}
-      className={`relative w-4 h-4 flex items-center justify-center rounded flex-shrink-0 text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-opacity ${
-        errors > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
-      }`}
-      title={t('browser.tab.menu')}
-      aria-label={t('browser.tab.menu')}
+      className="relative w-4 h-4 flex items-center justify-center rounded flex-shrink-0 text-app-text-secondary hover:text-app-text hover:bg-app-hover"
+      title={downloads > 0 ? `${t('browser.tab.menu')}\n${t('browser.tab.downloadsCue', { n: String(downloads) })}` : t('browser.tab.menu')}
+      aria-label={downloads > 0 ? `${t('browser.tab.menu')}, ${t('browser.tab.downloadsCue', { n: String(downloads) })}` : t('browser.tab.menu')}
       aria-haspopup="dialog"
       // A door of the sheet: pressed while it is open, it closes it.
       data-sheet-door=""
       data-testid="browser-tab-menu"
       data-console-errors={errors || undefined}
+      data-downloads={downloads || undefined}
     >
       <MoreVertical size={13} />
-      {errors > 0 && (
+      {(errors > 0 || downloads > 0) && (
         // The badge sits ON the dots, like an app icon's: it says "there is
         // something in here", which is precisely what it is.
         <span
-          className="absolute -top-0.5 -right-0.5 min-w-[8px] h-[8px] rounded-full bg-red-600 dark:bg-red-500 ring-1 ring-app-bg"
+          className={`absolute -top-0.5 -right-0.5 min-w-[8px] h-[8px] rounded-full ring-1 ring-app-bg ${errors > 0 ? 'bg-red-600 dark:bg-red-500' : 'bg-primary'}`}
           aria-hidden
         />
       )}

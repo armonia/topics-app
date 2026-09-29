@@ -107,7 +107,8 @@ async function settledRectangle(l: Locator, nome: string): Promise<Rett> {
  * `PendingActionRing`, che porta larghezza e altezza inline.
  */
 function comandoDi(card: Locator): Locator {
-  return card.locator(".row-actions button > span").first();
+  // On a tab the command lives in its slot (TABSLOT-02), not in `.row-actions`.
+  return card.locator(".row-actions button > span, .tab-slot-command button > span").first();
 }
 
 /** La riga della colonna per un topic, cioè la card che porta `.row-card`. */

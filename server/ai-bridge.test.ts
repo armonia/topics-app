@@ -26,12 +26,16 @@ function connect(): Promise<{
     const frames: any[] = [];
     const waiters: Array<{ pred: (m: any) => boolean; resolve: (m: any) => void }> = [];
     let buf = "";
+    // Arrival order, stamped on every frame: a frame matched late may have
+    // arrived early and waited in `frames`, and some assertions are about order.
+    let seq = 0;
     sock.on("data", (chunk) => {
       buf += chunk.toString();
       let nl;
       while ((nl = buf.indexOf("\n")) !== -1) {
         const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
         let m: any; try { m = JSON.parse(line); } catch { continue; }
+        m.__seq = ++seq;
         const wi = waiters.findIndex((w) => w.pred(m));
         if (wi >= 0) { const [w] = waiters.splice(wi, 1); w.resolve(m); }
         else frames.push(m);
@@ -209,7 +213,11 @@ describe("ai-bridge daemon", () => {
     const list = await c.next((m) => m.type === "list");
     expect(list.sessions.filter((s: any) => s.id === id && s.alive).map((s: any) => s.pid)).toEqual([second.pid]);
     // The old child's exit (143 from SIGTERM) must not be announced under this
-    // id: the client would route it to the NEW child's handler and end its turn.
+    // id once the new child is handed out: the client would route it to the NEW
+    // child's handler and end its turn. Before that it is the old child's own
+    // exit, and it happens whenever the kill and the spawn reach the daemon in
+    // two reads (seen on CI: the child died in between).
+    await c.next((m) => m.type === "exit" && m.id === id && m.__seq < second.__seq, 1).catch(() => null);
     await expect(c.next((m) => m.type === "exit" && m.id === id, 1500)).rejects.toThrow("frame timeout");
     // The new child's store survived the old one's teardown: an attach from 0
     // still replays what it said.

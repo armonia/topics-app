@@ -6,10 +6,10 @@ import { sharedTitle } from '../../lib/projectSharing';
 /**
  * The mark on a project tab that says «other people can read this».
  *
- * DISCREET BUT NOT HIDDEN, which is the whole brief: it sits at the trailing
- * edge of the tab, dimmed, and goes to full opacity on hover — but it is
- * always drawn, because a warning you have to hover to discover is a warning
- * that arrives after you have typed.
+ * DISCREET BUT NOT HIDDEN, which is the whole brief: it is a mark on the
+ * corner of the project's icon (TABSLOT-03), zero width, so it no longer costs
+ * the label anything - but it is always drawn, because a warning you have to
+ * hover to discover is a warning that arrives after you have typed.
  *
  * WHY IT IS NOT `ProjectFavicon`. That component renders NOTHING when a
  * project ships no icon file — a hard product decision: only a real shipped
@@ -40,7 +40,7 @@ export function SharedOrgBadge({ path, size = 12, className = '' }: { path: stri
       title={tooltip}
       aria-label={tooltip}
       role="img"
-      className={`flex items-center justify-center flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity ${className}`}
+      className={`flex items-center justify-center flex-shrink-0 ${className}`}
       style={{ width: size, height: size }}
     >
       {logo ? (
