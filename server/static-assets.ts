@@ -85,8 +85,10 @@ export function pickPrecompressed(
 /** Contenuto con nome versionato (hash Vite) o comunque stabile. */
 const IMMUTABLE_PREFIXES = ["/assets/", "/icons/"];
 
-/** Un solo segmento con un'estensione: `/boot.js`, `/sw.js`, `/manifest.json`. */
-const ROOT_FILE = /^\/[^/]+\.[^/]+$/;
+/** Un solo segmento con un'estensione: `/boot.js`, `/sw.js`, `/manifest.json`.
+ *  Never a dotfile: `public/.bundle-generations.json` is the build's own record
+ *  of the kept generations, not something a page asks for. */
+const ROOT_FILE = /^\/[^/.][^/]*\.[^/]+$/;
 
 /**
  * Il file (e la sua cache) per questo pathname, o `null` se non è una richiesta

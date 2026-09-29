@@ -62,6 +62,11 @@ describe("classifyStaticAsset — cosa NON si serve", () => {
     expect(classifyStaticAsset(encoded, PUBLIC)).toBeNull();
   });
 
+  test("a dotfile at the root is never served (the build's generation record)", () => {
+    expect(classifyStaticAsset("/.bundle-generations.json", PUBLIC)).toBeNull();
+    expect(classifyStaticAsset("/.env", PUBLIC)).toBeNull();
+  });
+
   test("niente traversata fuori dal bundle", () => {
     // `URL.pathname` normalizza i `..`, ma la guardia non deve dipenderne.
     expect(classifyStaticAsset("/assets/../../etc/passwd", PUBLIC)).toBeNull();

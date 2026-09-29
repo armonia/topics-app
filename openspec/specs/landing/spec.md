@@ -488,11 +488,21 @@ Gli avanzi del bundle precedente SHALL essere rimossi solo dopo, e solo quando
 sono abbastanza vecchi da non poter essere richiesti da una pagina ancora
 aperta.
 
-L'eta' SHALL essere la SOLA esenzione dello sweep: un asset che `index.html`
-non raggiunge e che ha passato la finestra di grazia SHALL essere rimosso anche
-se apparteneva al bundle appena sostituito. Un'esenzione in piu' lo faceva
-sopravvivere a ogni giro successivo, e un avanzo oltre la finestra spegne la
-misura di `total_assets` in `check:bundle`.
+Una finestra resta aperta per giorni, quindi lo sweep SHALL tenere gli asset
+delle GENERAZIONI che una finestra puo' ancora usare: quella servita, e quelle
+sostituite da meno di 3 giorni (`GENERATION_KEEP_MS`), al massimo 40 in tutto
+(`GENERATION_KEEP_COUNT`). Ogni pubblicazione scrive la sua generazione in
+`public/.bundle-generations.json` (riferimenti, elenco completo degli asset,
+`publishedAt`, `replacedAt`); l'orologio dei 3 giorni parte dalla sostituzione,
+non dalla pubblicazione. Un asset che nessuna generazione tenuta raggiunge e che
+ha passato la finestra di grazia SHALL essere rimosso. `check:bundle` SHALL
+leggere lo stesso registro, cosi' le generazioni tenute non spengono la misura
+di `total_assets`. Il registro NON SHALL essere servito dal server (un file che
+comincia con un punto alla radice non e' un asset).
+
+Il 29/09 lo sweep a 30 minuti aveva cancellato il pezzo del menu dei modelli
+che una finestra aperta da ore chiedeva ancora: il chip del modello non si
+apriva piu' («il selettore del modello non si apre proprio»).
 
 Raggiungibile SHALL voler dire raggiungibile lungo tutta la catena dei
 riferimenti (`import()` pigri, `modulepreload`, i font citati da un CSS), la
@@ -504,10 +514,15 @@ non toglie mai.
 - **GIVEN** un build interrotto dopo aver scritto in staging
 - **THEN** `public/` SHALL contenere ancora il bundle precedente, completo
 
-#### Scenario: tre build con la finestra scaduta fra un giro e l'altro
-- **GIVEN** tre pubblicazioni di fila, distanziate piu' della finestra di grazia
-- **THEN** `public/assets` SHALL non contenere nessun file irraggiungibile da
-  `index.html` e piu' vecchio della finestra
+#### Scenario: una finestra aperta da ore sopravvive a una pubblicazione
+- **GIVEN** una generazione pubblicata e sostituita 6 ore fa, i cui asset solo lei raggiunge
+- **WHEN** si pubblica una generazione nuova
+- **THEN** gli asset di quella generazione SHALL essere ancora in `public/assets`
+
+#### Scenario: una generazione oltre la ritenzione se ne va
+- **GIVEN** una generazione sostituita piu' di 3 giorni fa, oppure oltre le 40 piu' recenti
+- **WHEN** si pubblica una generazione nuova
+- **THEN** gli asset che solo lei raggiunge SHALL essere rimossi
 - **AND** `check:bundle` SHALL stampare un numero per `total_assets` senza
   nessuna pulizia a mano
 
