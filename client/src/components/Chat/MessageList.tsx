@@ -553,6 +553,30 @@ export function MessageList({
   }, [markerPartition]);
 
   /**
+   * The topic whose conversation this list has SHOWN EMPTY, composer centred.
+   *
+   * That list has no history to settle: its first rows are the ones just
+   * sent, written locally, and they arrive into a view already at rest. Two
+   * mechanisms built for opening a stored thread are wrong there, and both
+   * were measured on the first send of a new topic (chat-first-send-smooth):
+   *
+   *   - the curtain hid the user's own bubble behind a five-bubble skeleton
+   *     for its whole hard cap (1.2s), because a send keeps `currentLoading`
+   *     up for the entire turn and the curtain waits for it to drop;
+   *   - pointing Virtuoso at the LAST row made it mount the user's row, drop
+   *     it and mount it again 60-90ms later, 12px lower. Started from row 0,
+   *     it mounts once and stays.
+   *
+   * `composerCentered` is true only while the conversation has nothing in it
+   * (or during the hand-off from a promoted draft, where the rows already exist
+   * but the view is still the empty one), so any render that sees it marks the
+   * topic. Kept per topic id: a pane that switches to a stored thread opens it
+   * with the curtain as before.
+   */
+  const shownEmptyTopicRef = useRef<string | null>(null);
+  if (composerCentered) shownEmptyTopicRef.current = topic.id;
+  const grewFromEmpty = shownEmptyTopicRef.current === topic.id;
+  /**
    * L'indice da cui parte la lista. Si congela alla PRIMA lista non vuota, non
    * al primo render: al primo render i messaggi non ci sono ancora (la storia
    * arriva dopo), e congelare lì avrebbe significato montare Virtuoso sull'item
@@ -563,7 +587,9 @@ export function MessageList({
    */
   const initialTopMostIndexRef = useRef<number | null>(null);
   if (initialTopMostIndexRef.current === null && filteredMessages.length > 0) {
-    initialTopMostIndexRef.current = filteredMessages.length - 1;
+    // From the top, where a list that fits in the view already is: the pins
+    // below take it to the bottom once it outgrows the viewport.
+    initialTopMostIndexRef.current = grewFromEmpty ? 0 : filteredMessages.length - 1;
   }
   /**
    * …ma la PRIMA lista non è la storia: e' la CACHE.
@@ -1090,6 +1116,9 @@ export function MessageList({
    *  in una chat vuota). */
   const CURTAIN_ARM_WINDOW_MS = 1200;
   const [listSettled, setListSettled] = useState(false);
+  /** A list grown out of the empty state has nothing to settle behind a
+   *  curtain (see `shownEmptyTopicRef`): its rows are the ones just sent. */
+  const curtainUp = !listSettled && !grewFromEmpty;
   /** Quando questa chat si è aperta. Lo scrive l'effetto qui sotto, che gira
    *  al montaggio e a ogni cambio di topic — cioè in tutti e soli i momenti in
    *  cui «apertura» vuol dire qualcosa. */
@@ -1116,7 +1145,7 @@ export function MessageList({
   const currentLoadingRef = useRef(currentLoading);
   useEffect(() => { currentLoadingRef.current = currentLoading; }, [currentLoading]);
   useEffect(() => {
-    if (listSettled) return;
+    if (listSettled || grewFromEmpty) return;
     if (!scrollerEl || filteredMessages.length === 0) return;
     // Non è un'apertura: è la chat che stavi già guardando e a cui è arrivato
     // qualcosa. Niente sipario.
@@ -1158,7 +1187,7 @@ export function MessageList({
     };
     raf = requestAnimationFrame(guarda);
     return () => cancelAnimationFrame(raf);
-  }, [listSettled, scrollerEl, filteredMessages.length, topic.id]);
+  }, [listSettled, scrollerEl, filteredMessages.length, topic.id, grewFromEmpty]);
 
   // Scroll to bottom after messages load for a new topic.
   // Skipped while a palette jump target is pending (peekScrollToMessage): the
@@ -1188,7 +1217,10 @@ export function MessageList({
       // in cui vale la pena ri-puntare Virtuoso: l'indice congelato sulla cache
       // ora e' sbagliato di centinaia di item. Una volta sola (il ref lo
       // garantisce), altrimenti si torna alla lista che si strappa da sola.
-      if (!indexRefrozenRef.current) {
+      // Not for a list grown out of the empty state: it never held a cache to
+      // correct, and moving its index here makes Virtuoso re-apply it at the
+      // end of the first turn, under the reader's eyes.
+      if (!indexRefrozenRef.current && !grewFromEmpty) {
         indexRefrozenRef.current = true;
         initialTopMostIndexRef.current = filteredMessages.length - 1;
       }
@@ -1204,7 +1236,7 @@ export function MessageList({
         { viaVirtuoso: true, frames: 2, settleFrames: OPEN_SETTLE_FRAMES, force: true },
       );
     }
-  }, [currentLoading, filteredMessages.length, dispatchScroll, topic.id, OPEN_SETTLE_FRAMES]);
+  }, [currentLoading, filteredMessages.length, dispatchScroll, topic.id, OPEN_SETTLE_FRAMES, grewFromEmpty]);
 
   // ── Palette jump: scroll to a searched message ────────────────────────────
   // A ⌘K message hit registers a pending target (scrollToMessage.ts) before
@@ -1900,7 +1932,7 @@ export function MessageList({
         null
       ) : (
         <>
-        {!listSettled && <SkeletonChatMessages isMobile={isMobile} bottomInset={inputAreaHeight + CHAT_BOTTOM_GUTTER_PX} />}
+        {curtainUp && <SkeletonChatMessages isMobile={isMobile} bottomInset={inputAreaHeight + CHAT_BOTTOM_GUTTER_PX} />}
         <Virtuoso
           data-testid="chat-message-list"
           // What the list holds of the thread (`historyCompleteness`): the one
@@ -2156,7 +2188,7 @@ export function MessageList({
           // spegne l'inchiostro dietro l'input, questo tiene chiuso il sipario
           // finché la lista non si è assestata. Sono due cose diverse e
           // servono entrambe.
-          style={{ ...scrollerStyle, visibility: listSettled ? undefined : 'hidden' }}
+          style={{ ...scrollerStyle, visibility: curtainUp ? 'hidden' : undefined }}
         />
         </>
       )}

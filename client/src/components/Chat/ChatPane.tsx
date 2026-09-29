@@ -776,12 +776,18 @@ function ChatPaneComponent({
   const [historyProbed, setHistoryProbed] = useState(() => topic.id.startsWith('draft:'));
   useEffect(() => {
     let alive = true;
-    setHistoryProbed(topic.id.startsWith('draft:'));
+    setReplyingTo(null);
+    setAutoNameTriggered(false);
+    // A draft is not asked for its history either. The read found nothing, but
+    // it raised `currentLoading` for its round trip, and that alone un-centred
+    // the composer: measured on ⌘T, the new chat painted with the composer at
+    // the bottom and the loading skeleton, then slid up to the centre while its
+    // greeting faded out and back in (chat-first-send-smooth).
+    if (topic.id.startsWith('draft:')) { setHistoryProbed(true); return; }
+    setHistoryProbed(false);
     void loadHistory(topic.sessionKey)
       .catch(() => false)
       .finally(() => { if (alive) setHistoryProbed(true); });
-    setReplyingTo(null);
-    setAutoNameTriggered(false);
     return () => { alive = false; };
   }, [topic.sessionKey, topic.id, loadHistory]);
   // `preventScroll` perché il composer è ancorato in fondo alla pane ed è già
@@ -871,15 +877,21 @@ function ChatPaneComponent({
   // flusso (vedi `ChatEmptyState`): sparisce dal conto dell'altezza subito, e
   // la lista dei messaggi non si vede spingere in su e poi tornare giù.
   const [greetingLeaving, setGreetingLeaving] = useState(false);
-  const wasCenteredRef = useRef(composerCentered);
+  // The flag flips DURING the render that un-centres, not in an effect after
+  // it: set from an effect, that render had `showGreeting` false, React
+  // unmounted the block, and the effect mounted a new one already at opacity
+  // 0. The fade never played; the greeting vanished in one frame (measured on
+  // the first send of a new topic, chat-first-send-smooth).
+  const [wasCentered, setWasCentered] = useState(composerCentered);
+  if (wasCentered !== composerCentered) {
+    setWasCentered(composerCentered);
+    setGreetingLeaving(!composerCentered);
+  }
   useEffect(() => {
-    if (wasCenteredRef.current === composerCentered) return;
-    wasCenteredRef.current = composerCentered;
-    if (composerCentered) { setGreetingLeaving(false); return; }
-    setGreetingLeaving(true);
+    if (!greetingLeaving) return;
     const t = setTimeout(() => setGreetingLeaving(false), 220);
     return () => clearTimeout(t);
-  }, [composerCentered]);
+  }, [greetingLeaving]);
   const showGreeting = composerCentered || greetingLeaving;
   // L'invito compare e sparisce, quindi l'osservatore si riattacca: un RO su un
   // nodo smontato non riporta lo zero, riporta l'ultimo valore e basta — e
