@@ -43,3 +43,17 @@ export function readForkOrigin(db: Database, sessionKey: string): ForkOrigin | n
 export function consumeFork(db: Database, sessionKey: string): void {
   db.prepare(`UPDATE chat_forks SET parent_ref = NULL, parent_at = NULL WHERE session_key = ?`).run(sessionKey);
 }
+
+/**
+ * The Claude Code sessions minted for a branch whose fork has not run yet. They
+ * have no transcript on disk until the branch's first spawn, which can be days
+ * away: the boot sweep of orphaned transcripts must leave them alone, or the
+ * next spawn mints another uuid and the branch silently loses the original's
+ * memory (`forkStartFor` is bound to `branch_ref`).
+ */
+export function pendingForkSessions(db: Database): Set<string> {
+  const rows = db
+    .prepare(`SELECT branch_ref FROM chat_forks WHERE runtime = 'claude-cli' AND parent_ref IS NOT NULL AND branch_ref IS NOT NULL`)
+    .all() as Array<{ branch_ref: string }>;
+  return new Set(rows.map((row) => row.branch_ref));
+}

@@ -20,7 +20,7 @@ import { createForkRouter } from "../../server/routes/fork";
 import { ClaudeCodeProvider } from "../../server/providers/claude-code";
 import { nativeHistorySource } from "../../server/providers/native/history-source";
 import { claudeTranscriptCandidates } from "../../server/lib/claude-transcript-path";
-import { readForkOrigin } from "../../server/lib/chat-fork-store";
+import { consumeFork, pendingForkSessions, readForkOrigin } from "../../server/lib/chat-fork-store";
 import { registerProvider, removeProvider } from "../../server/providers";
 import { computeProfileStats } from "../../server/services/profile-stats";
 import { projectUsage } from "../../server/usage/project-usage";
@@ -274,6 +274,15 @@ describe("each runtime's memory", () => {
     const origin = readForkOrigin(ctx.db, branch.sessionKey)!;
     expect(origin).toMatchObject({ runtime: "claude-cli", parentRef: sessionOf(t.sessionKey)!.claude_session_id, parentAt: "uuid-of-answer-1" });
     expect(sessionOf(branch.sessionKey)).toEqual({ claude_session_id: origin.branchRef!, import_offset: null });
+  });
+
+  test("claude-cli, the minted branch session waits for its fork: the boot sweep of orphaned transcripts skips it until the fork is consumed", async () => {
+    const t = claudeParent(turns(2), "answer 1", "uuid-of-answer-1");
+    const branch = (await (await fork(t)).json()) as Topic;
+    const branchRef = readForkOrigin(ctx.db, branch.sessionKey)!.branchRef!;
+    expect(pendingForkSessions(ctx.db).has(branchRef)).toBe(true);
+    consumeFork(ctx.db, branch.sessionKey);
+    expect(pendingForkSessions(ctx.db).has(branchRef)).toBe(false);
   });
 
   test("claude-cli, a parent moved to another project after its turns: its transcript is found where it is, and the branch forks", async () => {

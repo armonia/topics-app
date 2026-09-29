@@ -206,6 +206,7 @@ import { isSseCommentOnly } from "./server/lib/sse-ping";
 import { currentRouteFault, applyRouteFault } from "./server/lib/route-fault";
 import { BUSY_SPINNER_PHASES } from "./server/lib/claude-session-state";
 import { claudeTranscriptPath, isTranscriptOrphaned } from "./server/lib/claude-transcript-path";
+import { pendingForkSessions } from "./server/lib/chat-fork-store";
 import { createProjectsRouter } from "./server/routes/projects";
 import { createWorktreeGcRunner } from "./server/services/worktree-gc-runner";
 import { createWorktreesRouter } from "./server/routes/worktrees";
@@ -5386,6 +5387,15 @@ function reconcileOrphanedTranscripts(): void {
     return;
   }
 
+  // A branch waiting for its first turn has no transcript yet, by design.
+  let pendingForks: Set<string>;
+  try {
+    pendingForks = pendingForkSessions(ctx.db);
+  } catch (err) {
+    console.warn("[orphan-transcript] pending fork query failed — skipping for safety:", err);
+    return;
+  }
+
   let rows: Array<{ sk: string; csid: string | null; updated_at: string | null }> = [];
   try {
     rows = ctx.db
@@ -5406,6 +5416,7 @@ function reconcileOrphanedTranscripts(): void {
   for (const row of rows) {
     if (!row.csid) continue;
     if (dispatcherClaimed.has(row.sk)) continue;
+    if (pendingForks.has(row.csid)) continue;
     const topic = ctx.getTopicBySessionKey(row.sk);
     const cwd = ctx.resolveTopicCwd(topic);
     if (
