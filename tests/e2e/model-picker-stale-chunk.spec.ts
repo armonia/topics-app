@@ -5,12 +5,12 @@ import { expect, test, type Page } from "@playwright/test";
 import { goToApp, openTopic } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { hermetic } from "./fixtures/hermetic";
+import { E2E_BASE } from "./helpers/test-server";
 
 hermetic(test);
 
 /**
- * "Sto su un topic e non mi va: il selettore del modello non si apre proprio"
- * (Attilio, 29/09).
+ * Attilio, 29/09: on a topic, the model selector does not open at all.
  *
  * The chip's menu is a chunk of its own, loaded on the first hover or click.
  * A window open across a rebuild keeps an index whose chunk name is gone from
@@ -36,6 +36,20 @@ async function failMenuChunk(page: Page): Promise<() => number> {
   return () => hits;
 }
 
+/** The chunk ARRIVES and throws while evaluating: a bug, not an old build. */
+async function breakMenuChunk(page: Page): Promise<() => number> {
+  let hits = 0;
+  await page.route(MENU_CHUNK, (route) => {
+    hits += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: "text/javascript",
+      body: "throw new Error('menu-chunk-eval-bug');\nexport const AiExecutionMenuOptions = null;\n",
+    });
+  });
+  return () => hits;
+}
+
 test.describe("model chip: a menu chunk that fails to load is never silent", () => {
   let topicId: string;
   let topicName: string;
@@ -43,6 +57,15 @@ test.describe("model chip: a menu chunk that fails to load is never silent", () 
   test.beforeAll(async ({ request }) => {
     topicName = "Stale chunk " + Date.now();
     topicId = (await createTopic(request, topicName)).id;
+    // A topic WITH a conversation, as in the report: the composer then sits at
+    // the bottom of the window, where a floating prompt would land on it. An
+    // empty topic centres the composer and hides that collision.
+    for (let i = 0; i < 25; i++) {
+      const seeded = await request.post(`${E2E_BASE}/api/topics/${topicId}/system-message`, {
+        data: { content: `line ${i} ` + "lorem ipsum ".repeat(20) },
+      });
+      expect(seeded.ok(), `system-message -> ${seeded.status()}`).toBe(true);
+    }
   });
 
   test.afterAll(async ({ request }) => {
@@ -116,6 +139,53 @@ test.describe("model chip: a menu chunk that fails to load is never silent", () 
     await expect.poll(menuRequests).toBeGreaterThan(0);
     await expect.soft(chip).toHaveAttribute("data-load-state", "failed");
     // Whole, not a sliver: the slot of a collapsed sidebar is off screen.
-    await expect(page.getByTestId("bundle-stale-toast")).toBeInViewport({ ratio: 1 });
+    const prompt = page.getByTestId("bundle-stale-toast");
+    await expect(prompt).toBeInViewport({ ratio: 1 });
+
+    // And on top of NOTHING: the composer is at the bottom (a conversation is
+    // there), and a card floating in the corner covered its voice and send
+    // buttons. Every composer control is still the element under its own
+    // centre, and the two boxes do not meet.
+    const composer = page.getByTestId("composer-card");
+    const [promptBox, composerBox] = [await prompt.boundingBox(), await composer.boundingBox()];
+    expect(promptBox && composerBox).toBeTruthy();
+    const overlap = !(
+      promptBox!.x >= composerBox!.x + composerBox!.width ||
+      promptBox!.x + promptBox!.width <= composerBox!.x ||
+      promptBox!.y >= composerBox!.y + composerBox!.height ||
+      promptBox!.y + promptBox!.height <= composerBox!.y
+    );
+    expect(overlap, `prompt ${JSON.stringify(promptBox)} vs composer ${JSON.stringify(composerBox)}`).toBe(false);
+    const covered = await composer.evaluate((card) =>
+      Array.from(card.querySelectorAll<HTMLElement>("button, textarea"))
+        .filter((control) => control.getBoundingClientRect().width > 0)
+        .filter((control) => {
+          const box = control.getBoundingClientRect();
+          const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+          return !hit || !control.contains(hit);
+        })
+        .map((control) => control.getAttribute("aria-label") ?? control.tagName),
+    );
+    expect(covered).toEqual([]);
+  });
+
+  test("a chunk that arrived and threw: logged, no reload prompt, the chip does not say reload", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "BUNDLE-TOAST-02" });
+    const logged: string[] = [];
+    page.on("console", (message) => { if (message.type() === "error") logged.push(message.text()); });
+
+    const menuRequests = await breakMenuChunk(page);
+    const chip = await openChat(page);
+    await chip.click();
+
+    await expect.poll(menuRequests).toBeGreaterThan(0);
+    // The chip answers the click, as a bug and not as a stale build.
+    await expect(chip).toHaveAttribute("data-load-state", "broken");
+    await expect(chip).not.toHaveAttribute("title", /reload|ricarica/i);
+    // The prompt is raised in the same pass as the rejection, before the chip
+    // records it: by now it would be there.
+    await expect(page.getByTestId("bundle-stale-toast")).toHaveCount(0);
+    await expect.poll(() => logged.some((line) => line.includes("failed to evaluate"))).toBe(true);
+    await expect(page.getByTestId("provider-model-popover")).toBeHidden();
   });
 });

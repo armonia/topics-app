@@ -43,6 +43,8 @@ import { ROW_INSET } from '@/lib/selectionStyles';
 import { useT } from '../../hooks/useT';
 
 const SLOT_SELECTOR = '[data-update-slot]';
+/** The in-flow slot under the panes, used while the sidebar is collapsed. */
+const MAIN_SLOT_SELECTOR = '[data-update-slot-main]';
 
 export type UpdateBannerKind = 'build' | 'release';
 
@@ -83,7 +85,7 @@ export function SidebarUpdateBanner({
   onDismiss?: () => void;
   testId?: string;
   /** False when the sidebar is collapsed: its slot is then off screen, so the
-   *  banner takes the corner as in a window with no sidebar. */
+   *  banner lands in the row under the panes (`data-update-slot-main`). */
   docked?: boolean;
 }) {
   const tr = useT();
@@ -122,13 +124,15 @@ export function SidebarUpdateBanner({
     </div>
   );
 
-  const slot = docked && typeof document !== 'undefined'
-    ? document.querySelector<HTMLElement>(SLOT_SELECTOR)
+  const slot = typeof document !== 'undefined'
+    ? document.querySelector<HTMLElement>(docked ? SLOT_SELECTOR : MAIN_SLOT_SELECTOR)
     : null;
 
   if (slot) {
     return createPortal(
-      <div role="status" aria-live="polite">{card}</div>,
+      // Under the panes the row is as wide as the window: the card keeps the
+      // width it has in the corner.
+      <div role="status" aria-live="polite" className={docked ? undefined : 'w-full max-w-xs'}>{card}</div>,
       slot,
     );
   }
@@ -136,7 +140,9 @@ export function SidebarUpdateBanner({
   // Nessuna sidebar in questa finestra: l'angolo, con lo stesso rientro.
   return (
     <div
-      className="fixed z-50 max-w-xs"
+      // Opaque under the card: its own tint is 5% black, and floating over
+      // content the text read on top of whatever was beneath it.
+      className="fixed z-50 max-w-xs rounded-lg bg-app-bg shadow-lg"
       style={{ right: ROW_INSET * 2, bottom: ROW_INSET * 2 }}
       role="status"
       aria-live="polite"

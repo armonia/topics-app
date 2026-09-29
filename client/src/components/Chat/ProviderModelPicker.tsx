@@ -4,6 +4,7 @@ import { useT } from '../../hooks/useT';
 import { useProvidersSnapshot } from '../../hooks/useProvidersSnapshot';
 import { Menu } from '../Shared/Menu';
 import { AiExecutionMenuOptions, aiExecutionMenuReady, loadAiExecutionMenu } from '../Shared/aiExecutionMenuLazy';
+import { isChunkLoadError } from '../../lib/chunkReloadGuard';
 import { resolveEffectiveProvider } from '../../lib/effortTiers';
 import { resolveTopicsRoutingTarget } from '../../lib/topicsRoutingGate';
 import { splitModelId, friendlyModelLabel } from '../../lib/modelLabel';
@@ -29,8 +30,11 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
   const tr = useT();
   const [open, setOpen] = useState(false);
   // Where the menu chunk stands, as far as this chip knows: a click that waits
-  // shows it is working, a load that failed shows it on the chip.
-  const [loadState, setLoadState] = useState<'idle' | 'loading' | 'failed'>('idle');
+  // shows it is working, a load that failed shows it on the chip. `failed` =
+  // the chunk did not arrive (a reload is the cure); `broken` = it arrived and
+  // threw, a bug a reload does not fix, so the chip does not offer one.
+  const [loadState, setLoadState] = useState<'idle' | 'loading' | 'failed' | 'broken'>('idle');
+  const onLoadError = (error: unknown) => setLoadState(isChunkLoadError(error) ? 'failed' : 'broken');
   const buttonRef = useRef<HTMLButtonElement>(null);
   const { snapshot } = useProvidersSnapshot();
   const entries = useMemo(() => snapshot?.providers ?? [], [snapshot]);
@@ -64,7 +68,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
   // chip only records it, so a hover that failed does not look like nothing.
   const prefetchMenu = () => {
     if (aiExecutionMenuReady()) return;
-    loadAiExecutionMenu().then(() => setLoadState('idle'), () => setLoadState('failed'));
+    loadAiExecutionMenu().then(() => setLoadState('idle'), onLoadError);
   };
   // The menu body is a chunk of its own (see `aiExecutionMenuLazy`). Opening
   // waits for it, so the panel is placed and focused with its rows already in
@@ -79,10 +83,13 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
     setLoadState('loading');
     loadAiExecutionMenu().then(
       () => { setLoadState('idle'); setOpen(true); },
-      () => setLoadState('failed'),
+      onLoadError,
     );
   };
-  const failed = loadState === 'failed';
+  const failed = loadState === 'failed' || loadState === 'broken';
+  const chipTitle = loadState === 'failed'
+    ? tr('chat.picker.menuFailed')
+    : loadState === 'broken' ? tr('chat.picker.menuBroken') : tr('chat.picker.title');
 
   return (
     <>
@@ -101,7 +108,7 @@ export function ProviderModelPicker({ override, defaultProviderLabel, onChange, 
         className={`inline-flex h-8 flex-shrink-0 items-center gap-1 rounded-lg px-2 text-mini font-medium transition-colors hover:bg-app-hover hover:text-app-text ${
           failed ? 'text-amber-600 dark:text-amber-400' : 'text-app-text-muted'
         }`}
-        title={failed ? tr('chat.picker.menuFailed') : tr('chat.picker.title')}
+        title={chipTitle}
       >
         <span className="max-w-[160px] truncate @max-[380px]:max-w-[70px]">
           {modelName ? friendlyModelLabel(modelName) : 'Model'}

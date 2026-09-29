@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { BUNDLE_STALE_EVENT } from './devBundleReload';
-import { CHUNK_FAILURE_REASON, findChunkHref, reimportChunk, reportLoadFailure } from './chunkReloadGuard';
+import { CHUNK_FAILURE_REASON, findChunkHref, initChunkReloadGuard, reimportChunk, reportLoadFailure } from './chunkReloadGuard';
 import { warm } from './lazyWarm';
 
 // The message WebKit gives a dynamic import that 404s (measured in Playwright
@@ -67,6 +67,31 @@ describe('reportLoadFailure', () => {
     expect(reasons).toEqual([]);
     expect(logged.length).toBe(1);
     expect(logged[0]).toContain(bug);
+  });
+});
+
+/** The event Vite's preload helper dispatches, `payload` = what rejected. */
+function preloadError(payload: unknown): Event {
+  return Object.assign(new Event('vite:preloadError', { cancelable: true }), { payload });
+}
+
+describe('initChunkReloadGuard: vite:preloadError', () => {
+  // Vite fires it for ANY rejection of the wrapped import, including a chunk
+  // that arrived and threw while evaluating. Only a chunk that did not arrive
+  // is an old build.
+  test('a chunk that did not arrive raises the prompt, one that threw does not', () => {
+    const stop = initChunkReloadGuard();
+    try {
+      const w = g.window as EventTarget;
+      w.dispatchEvent(preloadError(new Error('adv-eval-boom')));
+      w.dispatchEvent(preloadError(new TypeError("undefined is not an object (evaluating 'x.y')")));
+      expect(reasons).toEqual([]);
+      w.dispatchEvent(preloadError(WEBKIT_404));
+      w.dispatchEvent(preloadError(new Error('Unable to preload CSS for https://h/assets/Menu-abc.css')));
+      expect(reasons).toEqual([CHUNK_FAILURE_REASON, CHUNK_FAILURE_REASON]);
+    } finally {
+      stop();
+    }
   });
 });
 

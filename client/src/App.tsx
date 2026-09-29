@@ -2168,6 +2168,14 @@ function App() {
         </div>{/* /space-frame */}
         </ErrorBoundary>
         </div>{/* /content-flip-layer */}
+        {/* The version banner's second slot, for a collapsed sidebar (whose own
+            slot is slid off screen). IN FLOW, under the panes: the banner takes
+            a row of its own and the panes give it the height, instead of a
+            floating card over the composer's send and voice buttons (measured
+            2026-09-29, 1280x800: the corner card covered both). The bottom pad
+            keeps it off the home indicator on a phone. */}
+        <div data-update-slot-main className="flex flex-shrink-0 justify-end empty:hidden"
+          style={{ paddingInline: ROW_INSET, paddingTop: ROW_INSET, paddingBottom: `max(${ROW_INSET}px, env(safe-area-inset-bottom, 0px))` }} />
       </div>
 
       {/* Portal dropdowns (rendered outside sidebar to escape overflow-hidden) */}

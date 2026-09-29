@@ -727,9 +727,14 @@ Un caricamento lazy che fallisce perché il chunk non arriva (404 dopo una
 ricostruzione, server giù per un attimo) SHALL far comparire l'avviso di
 ricarica, in produzione come in sviluppo, anche quando chi lo ha chiesto ne
 ingoia l'errore. Un chunk arrivato che lancia un errore NON è un pacchetto
-vecchio: SHALL finire nel log, senza proporre la ricarica come cura.
+vecchio: SHALL finire nel log, senza proporre la ricarica come cura, né
+dall'avviso né dal chip. Vale anche per `vite:preloadError`, che Vite emette
+per QUALSIASI rifiuto dell'import: conta solo se il suo `payload` è un chunk
+che non è arrivato.
 
-L'avviso SHALL essere nel viewport anche con la sidebar chiusa.
+L'avviso SHALL essere nel viewport anche con la sidebar chiusa, e SHALL non
+coprire il composer: con la sidebar chiusa sta in una riga sua sotto le pane,
+non sopra di esse.
 
 Il selettore del modello SHALL rispondere al clic fallito (l'avviso, e il chip
 che segnala il fallimento), e il clic successivo, col chunk di nuovo
@@ -746,6 +751,16 @@ nuovo.
 - **GIVEN** un clic fallito
 - **WHEN** il chunk torna raggiungibile e si clicca di nuovo
 - **THEN** il menu SHALL aprirsi con le sue righe
+
+#### Scenario: sidebar chiusa su un topic con una conversazione
+- **GIVEN** la sidebar chiusa e il composer in fondo alla finestra
+- **WHEN** il chunk del menu risponde 404 e si clicca il chip
+- **THEN** l'avviso SHALL essere nel viewport e ogni controllo del composer SHALL restare l'elemento sotto il proprio centro
+
+#### Scenario: il chunk arriva e lancia un errore
+- **GIVEN** il chunk del menu che risponde 200 e lancia un errore mentre si valuta
+- **WHEN** si clicca il chip del modello
+- **THEN** l'errore SHALL finire nel log, l'avviso di ricarica SHALL NON comparire e il chip SHALL segnare l'errore senza proporre la ricarica
 
 ### Requirement: SWCACHE-01 — Un riavvio del server NON serve il guscio VECCHIO dalla cache
 

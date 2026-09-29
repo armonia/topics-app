@@ -17,8 +17,10 @@ import { BUNDLE_STALE_EVENT } from './devBundleReload';
  * We never auto-reload here either; the user (or the ErrorBoundary's reload
  * button) decides.
  */
+// "Unable to preload CSS" is Vite's own rejection for a stylesheet of the chunk
+// that did not arrive: the same stale bundle, one file type over.
 const CHUNK_ERROR_RX =
-  /(Importing a module script failed|Failed to fetch dynamically imported module|error loading dynamically imported module|dynamically imported module|ChunkLoadError|Loading chunk [\d]+ failed)/i;
+  /(Importing a module script failed|Unable to preload CSS|Failed to fetch dynamically imported module|error loading dynamically imported module|dynamically imported module|ChunkLoadError|Loading chunk [\d]+ failed)/i;
 
 /** True when an error/message looks like a stale-bundle dynamic-import failure. */
 export function isChunkLoadError(input: unknown): boolean {
@@ -96,9 +98,18 @@ export function initChunkReloadGuard(): () => void {
   const signalStale = signalChunkFailure;
 
   // Vite's dedicated hook — fired on the window when a preloaded/dynamic chunk
-  // fails to load. Most reliable signal; not preventing default keeps the
-  // normal rejection flowing to any ErrorBoundary too.
-  const onPreloadError = () => signalStale();
+  // fails. Not preventing default keeps the normal rejection flowing to any
+  // ErrorBoundary too.
+  //
+  // FILTERED ON THE PAYLOAD: Vite's preload helper wraps the import itself,
+  // `baseModule().catch(handlePreloadError)`, so the event also fires for a
+  // chunk that ARRIVED and threw while evaluating. That is a bug in the chunk,
+  // and a reload prompt announcing an old build would be a false diagnosis
+  // (measured 2026-09-29 in Playwright WebKit: a 200 chunk whose body throws
+  // raised "this window is on an old build", 4 runs out of 4).
+  const onPreloadError = (event: Event) => {
+    if (isChunkLoadError((event as Event & { payload?: unknown }).payload)) signalStale();
+  };
 
   // Belt: uncaught errors and unhandled rejections whose message matches a
   // dynamic-import failure (covers browsers/paths that don't emit
