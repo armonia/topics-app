@@ -1292,6 +1292,9 @@ const notificationNewSchema = z.looseObject({
     seenAt: z.nullable(z.string()),
   }),
   unseen: z.number(),
+  /** The unseen subjects themselves (group key, or row id for an ungrouped
+   *  row): the dock and the bell union them with the live signals. */
+  unseenKeys: z.optional(z.array(z.string())),
 });
 
 /**
@@ -1306,6 +1309,8 @@ const notificationNewSchema = z.looseObject({
 const notificationSeenSchema = z.looseObject({
   type: z.literal('notification:seen'),
   unseen: z.number(),
+  /** Same as on `notification:new`: what is still unseen, by subject. */
+  unseenKeys: z.optional(z.array(z.string())),
   /** The subjects (group keys: `topic:<id>`, `terminal:<id>`, `task:<id>`)
    *  this seen cleared. Each window drops its own in-memory marks for them. */
   subjects: z.optional(z.array(z.string())),

@@ -13,6 +13,7 @@ import {
 import { NOTIFICATION_MAX_ROWS, NOTIFICATION_PAGE_SIZE } from '../../../shared/notification-log';
 import { openDeepLinkInApp } from '../lib/deepLinkEntry';
 import { rowSeenByFrame } from '../lib/notify/seenFrame';
+import { unseenKeysOf, useUnseenNotificationsStore } from '../state/notificationUnseen';
 
 export interface NotificationHistoryState {
   rows: NotificationRow[];
@@ -56,7 +57,13 @@ export function useNotificationHistory(
   onWSMessage: (handler: (msg: WSMessage) => void) => () => void,
 ): NotificationHistoryState {
   const [rows, setRows] = useState<NotificationRow[]>([]);
-  const [unseen, setUnseen] = useState(0);
+  // The unseen SUBJECTS, not just their number: the global count unions them
+  // with the live signals (`chromeAttentionTotal`), so they are published below.
+  const [unseenKeys, setUnseenKeys] = useState<string[]>([]);
+  const unseen = unseenKeys.length;
+  const setUnseen = useCallback((snapshot: { unseen?: number; unseenKeys?: string[] }) => {
+    setUnseenKeys(unseenKeysOf(snapshot));
+  }, []);
   // Parte a `true`: al montaggio la lettura è già in volo, e mostrare «Nessuna
   // notifica» per un istante prima dell'elenco è una bugia breve ma è una bugia
   // — proprio sulla schermata che deve dire la verità sul registro vuoto.
@@ -118,7 +125,7 @@ export function useNotificationHistory(
           // MERGE, not replace: the newest page must not throw away the older
           // pages the reader asked for, nor the live rows arrived since.
           setRows((prev) => mergeNotificationPage(prev, page.rows));
-          setUnseen(page.unseen);
+          setUnseen(page);
         }
         // A full page back means the registry has more than a page. Read off
         // the page LENGTH and not off a total, because the route returns rows.
@@ -136,9 +143,13 @@ export function useNotificationHistory(
       });
     inFlight.current = next;
     return next;
-  }, []);
+  }, [setUnseen]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    useUnseenNotificationsStore.getState().setKeys(unseenKeys);
+  }, [unseenKeys]);
 
   useWSSubscription(onWSMessage, 'notification:new', (msg) => {
     const row = msg.row;
@@ -149,12 +160,12 @@ export function useNotificationHistory(
     // `unseen` è un numero vecchio e non deve toccare il contatore.
     const covered = !!seenUpTo.current && row.createdAt <= seenUpTo.current;
     setRows((prev) => mergeNotificationRow(prev, covered ? { ...row, seenAt: row.seenAt ?? seenUpTo.current } : row, NOTIFICATION_MAX_ROWS));
-    if (!covered) setUnseen(msg.unseen ?? 0);
+    if (!covered) setUnseen(msg);
   });
 
   useWSSubscription(onWSMessage, 'notification:seen', (msg) => {
     liveTick.current += 1;
-    setUnseen(msg.unseen ?? 0);
+    setUnseen(msg);
     // Le righe in pagina si spengono insieme al contatore: un pallino che resta
     // acceso su una riga mentre il totale dice zero è una contraddizione a
     // schermo.
@@ -195,17 +206,17 @@ export function useNotificationHistory(
         // questa lettura resta non vista, ed è giusto così.
         const upTo = (page?.rows ?? rowsRef.current)[0]?.createdAt;
         if (!upTo) return;
-        return markNotificationsSeen({ upTo }).then((n) => {
+        return markNotificationsSeen({ upTo }).then((snapshot) => {
           // Alzato solo a CONFERMA avvenuta: è ciò che il server dice di aver
           // segnato, non ciò che gli abbiamo chiesto.
           if (upTo > seenUpTo.current) seenUpTo.current = upTo;
-          setUnseen(n);
+          setUnseen(snapshot);
           const at = new Date().toISOString();
           setRows((prev) => prev.map((r) => (r.seenAt || r.createdAt > upTo ? r : { ...r, seenAt: at })));
         });
       })
       .catch(() => {});
-  }, [load, rowsRef]);
+  }, [load, rowsRef, setUnseen]);
 
   /**
    * The page BEFORE the oldest row in hand.
@@ -233,7 +244,7 @@ export function useNotificationHistory(
 
   const openRow = useCallback((row: NotificationRow): boolean => {
     void markNotificationsSeen({ ids: [row.id] })
-      .then((n) => setUnseen(n))
+      .then((snapshot) => setUnseen(snapshot))
       .catch(() => {});
     setRows((prev) => {
       const at = new Date().toISOString();
@@ -246,7 +257,7 @@ export function useNotificationHistory(
       );
     });
     return row.targetUrl ? openDeepLinkInApp(row.targetUrl) : false;
-  }, []);
+  }, [setUnseen]);
 
   return { rows, unseen, loading, hasMore, loadingMore, loadMore, openAndMarkSeen, openRow };
 }

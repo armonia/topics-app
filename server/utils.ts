@@ -1231,8 +1231,8 @@ export function createAppContext(baseDir: string): AppContext {
   // Il registro delle notifiche: come sopra, i due dati che gli mancano — dove
   // annunciare la riga nuova, e se il topic bersaglio è archiviato.
   configureNotificationRegistry({
-    announce: (row, unseen) => broadcastToAll({ type: "notification:new", row, unseen }),
-    announceSeen: (unseen, subjects) => broadcastToAll({ type: "notification:seen", unseen, subjects }),
+    announce: (row, snapshot) => broadcastToAll({ type: "notification:new", row, ...snapshot }),
+    announceSeen: (snapshot, subjects) => broadcastToAll({ type: "notification:seen", ...snapshot, subjects }),
     isTopicArchived: (topicId) => !!getTopicById(topicId)?.archived,
   });
 

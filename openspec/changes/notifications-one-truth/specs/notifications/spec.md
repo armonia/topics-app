@@ -33,19 +33,33 @@ i propri segni in memoria e i pallini delle sole righe nominate.
 
 #### Scenario: aprire una chat con il non-letto già a zero
 - **WHEN** si apre una chat che ha righe non viste e non-letto zero
-- **THEN** le sue righe SHALL essere segnate viste
+- **THEN** il client SHALL mandare il «visto» della chat anche senza non-letti, e le sue righe SHALL essere segnate viste
 
 ### Requirement: NOTIF-ONE-02 — I numeri globali contano soggetti, non messaggi
 
 Il numero globale (Dock, tray, badge PWA) e il numero della campanella SHALL
-contare i SOGGETTI in attesa: una chat vale 1 qualunque sia il numero dei suoi
-messaggi, un terminale finito 1, una pane con badge 1, una card in review 1. Due
-righe dello stesso gruppo sono una cosa sola. Le righe e le tab POSSONO
-continuare a mostrare il numero dei messaggi della chat.
+essere LO STESSO numero, calcolato da una funzione sola: i SOGGETTI in attesa
+(una chat vale 1 qualunque sia il numero dei suoi messaggi, un terminale finito
+1, una pane con badge 1, una card in review 1) uniti ai soggetti con una
+notifica non vista, ognuno una volta sola. Due righe dello stesso gruppo sono
+una cosa sola; una chat con non letti e con la sua notifica è una cosa sola. Le
+righe e le tab POSSONO continuare a mostrare il numero dei messaggi della chat.
+
+Il pannello SHALL elencare sotto «Aspettano te» ogni soggetto contato che la
+cronologia non mostra già con un pallino, e SHALL dire «Nessuna notifica» solo
+quando non c'è niente né lì né nella cronologia.
 
 #### Scenario: due chat, sei messaggi
 - **WHEN** una chat ha 4 non letti e un'altra 2, ognuna con la sua notifica
 - **THEN** il numero globale e la campanella SHALL dire 2
+
+#### Scenario: una card in review senza notifica
+- **WHEN** una card entra in review e nessuna riga del registro la nomina
+- **THEN** il numero globale e la campanella SHALL contarla 1, e aprendo il pannello la card SHALL comparire sotto «Aspettano te» e non SHALL comparire «Nessuna notifica»
+
+#### Scenario: una chat che ti aspetta, con le righe già viste
+- **WHEN** una chat è ferma in attesa di te e tutte le sue righe sono viste
+- **THEN** il numero globale e la campanella SHALL contarla 1, e il pannello SHALL elencarla sotto «Aspettano te»
 
 ## MODIFIED Requirements
 
@@ -62,11 +76,13 @@ che aspettano una decisione. Cose, non messaggi (NOTIF-ONE-02). Il lavoro che
 gira da solo non entra, e un topic ARCHIVIATO non entra mai.
 
 Il numero SHALL coincidere con il numero di righe di sidebar che mostrano un
-badge per gli stessi soggetti, e la parita' SHALL essere provata calcolando
-l'attesa dagli stessi aiutanti per-riga, non da un numero scritto a mano.
+badge per gli stessi soggetti, piu' le card in review, piu' i soggetti con una
+notifica non vista che non hanno gia' un badge; e la parita' SHALL essere provata
+calcolando l'attesa dagli stessi aiutanti per-riga, non da un numero scritto a
+mano.
 
 #### Scenario: le due superfici sullo stesso stato
-- **WHEN** un insieme di topic, terminali e card produce il conteggio del chrome
+- **WHEN** un insieme di topic, terminali e card, senza notifiche non viste, produce il conteggio del chrome
 - **THEN** quel numero SHALL essere uguale al numero di righe di sidebar con un badge per gli stessi soggetti, piu' le card in review
 
 #### Scenario: la chat letta

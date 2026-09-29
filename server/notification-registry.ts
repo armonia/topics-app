@@ -14,24 +14,24 @@
  */
 
 import { recordNotification } from "./db/notification-log";
-import { countUnseenNotifications, markTargetNotificationsSeen } from "./db/notification-log";
+import { markTargetNotificationsSeen, unseenSnapshot, type UnseenSnapshot } from "./db/notification-log";
 import type { NotificationRecordInput, NotificationRow } from "../shared/notification-log";
 import { defaultNotificationGroupKey } from "../shared/notification-log";
 
-let announce: ((row: NotificationRow, unseen: number) => void) | null = null;
-let announceSeen: ((unseen: number, subjects: string[]) => void) | null = null;
+let announce: ((row: NotificationRow, snapshot: UnseenSnapshot) => void) | null = null;
+let announceSeen: ((snapshot: UnseenSnapshot, subjects: string[]) => void) | null = null;
 let topicArchived: ((topicId: string) => boolean) | null = null;
 
 export function configureNotificationRegistry(opts: {
   /** Dillo a tutte le finestre: contatore live + ultima riga. */
-  announce: (row: NotificationRow, unseen: number) => void;
+  announce: (row: NotificationRow, snapshot: UnseenSnapshot) => void;
   /**
    * The same, the other way round: rows CLEARED, so the counter alone. It sits
    * next to `announce` on purpose - lighting the bell and clearing it are one
    * fact seen from two sides, and keeping them apart is how 400 unseen rows
    * accumulated against ten live signals.
    */
-  announceSeen: (unseen: number, subjects: string[]) => void;
+  announceSeen: (snapshot: UnseenSnapshot, subjects: string[]) => void;
   /**
    * Questo topic è archiviato? OBBLIGATORIO di proposito. Le sessioni dei topic
    * archiviati hanno già notificato per mesi dopo che la chat era sparita
@@ -67,7 +67,7 @@ export function recordAndAnnounce(input: NotificationRecordInput): NotificationR
   const row = recordNotification(input);
   if (!row) return null;
   try {
-    announce?.(row, countUnseenNotifications());
+    announce?.(row, unseenSnapshot());
   } catch (err) {
     console.warn("[notification-log] announce failed:", (err as Error)?.message || err);
   }
@@ -93,7 +93,7 @@ export function markTargetSeenAndAnnounce(targetKind: string, targetId: string):
     // in-memory mark for it (a terminal's "finished" lives in each window).
     // Same key composer as the clearing query, so the two cannot drift.
     const subject = defaultNotificationGroupKey(targetKind as NotificationRecordInput["targetKind"], targetId);
-    announceSeen?.(countUnseenNotifications(), subject ? [subject] : []);
+    announceSeen?.(unseenSnapshot(), subject ? [subject] : []);
   } catch (err) {
     console.warn("[notification-log] announce seen failed:", (err as Error)?.message || err);
   }

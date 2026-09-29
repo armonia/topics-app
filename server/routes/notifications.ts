@@ -1,5 +1,5 @@
 import type { AppContext, RouteHandler } from "../types";
-import { countUnseenNotifications, listNotifications } from "../db/notification-log";
+import { listNotifications, unseenSnapshot } from "../db/notification-log";
 import { markAllNotificationsSeen, markNotificationRowsSeen, markTopicSeen } from "../subject-seen";
 import { markTargetSeenAndAnnounce, recordAndAnnounce } from "../notification-registry";
 import { parseNotificationInput } from "../../shared/notification-log";
@@ -27,7 +27,7 @@ export function createNotificationsRouter(ctx: AppContext): RouteHandler {
     if (method === "GET" && pathname === "/api/notifications") {
       const limit = parseInt(url.searchParams.get("limit") || "0") || undefined;
       const before = url.searchParams.get("before") || undefined;
-      return json({ rows: listNotifications({ limit, before }), unseen: countUnseenNotifications() });
+      return json({ rows: listNotifications({ limit, before }), ...unseenSnapshot() });
     }
 
     if (method === "POST" && pathname === "/api/notifications") {
@@ -35,7 +35,7 @@ export function createNotificationsRouter(ctx: AppContext): RouteHandler {
       const input = parseNotificationInput(body);
       if (!input) return json({ error: "Invalid notification" }, 400);
       const row = recordAndAnnounce(input);
-      return json({ ok: true, recorded: !!row, row, unseen: countUnseenNotifications() });
+      return json({ ok: true, recorded: !!row, row, ...unseenSnapshot() });
     }
 
     if (method === "POST" && pathname === "/api/notifications/seen") {
@@ -55,7 +55,7 @@ export function createNotificationsRouter(ctx: AppContext): RouteHandler {
         // anything else announces by itself only if it cleared something.
         if (targetKind === "topic") markTopicSeen(seenDeps, targetId);
         else markTargetSeenAndAnnounce(targetKind, targetId);
-        return json({ ok: true, unseen: countUnseenNotifications() });
+        return json({ ok: true, ...unseenSnapshot() });
       }
       // Nessuno dei due → non è "segna tutto", è una chiamata malformata. Una
       // cronologia che si azzera per sbaglio è peggio di un errore 400.
@@ -63,10 +63,10 @@ export function createNotificationsRouter(ctx: AppContext): RouteHandler {
       // Both doors broadcast `notification:seen` to EVERY window, with the
       // subjects they cleared: whoever looked at the list here must see it
       // switch off there too (detached groups, a phone on the same network).
-      let unseen = countUnseenNotifications();
-      if (upTo) unseen = markAllNotificationsSeen(seenDeps, upTo);
-      if (ids?.length) unseen = markNotificationRowsSeen(seenDeps, ids);
-      return json({ ok: true, unseen });
+      let snapshot = unseenSnapshot();
+      if (upTo) snapshot = markAllNotificationsSeen(seenDeps, upTo);
+      if (ids?.length) snapshot = markNotificationRowsSeen(seenDeps, ids);
+      return json({ ok: true, ...snapshot });
     }
 
     return null;

@@ -1153,6 +1153,8 @@ export interface WSNotificationNewMessage {
   type: 'notification:new';
   row: NotificationRow;
   unseen: number;
+  /** The unseen subjects (group key, or row id when ungrouped). */
+  unseenKeys?: string[];
 }
 
 /** Il «visto» è stato applicato — il contatore vale ORA questo. Il «visto» è
@@ -1161,6 +1163,8 @@ export interface WSNotificationNewMessage {
 export interface WSNotificationSeenMessage {
   type: 'notification:seen';
   unseen: number;
+  /** The unseen subjects left (group key, or row id when ungrouped). */
+  unseenKeys?: string[];
   /** Group keys of the subjects this seen cleared (`topic:<id>`, `terminal:<id>`, ...). */
   subjects?: string[];
   /** Mark all: every subject was seen except these (rows still unseen). */

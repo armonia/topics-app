@@ -15,6 +15,8 @@ import { NOTIFICATION_MAX_ROWS } from '../../../../shared/notification-log';
 export interface NotificationHistoryPage {
   rows: NotificationRow[];
   unseen: number;
+  /** The unseen subjects (group key, or row id when ungrouped). */
+  unseenKeys?: string[];
 }
 
 /** Le ultime righe + quante non viste. */
@@ -26,7 +28,11 @@ export async function fetchNotificationHistory(opts: { limit?: number; before?: 
   const r = await fetch(`/api/notifications${qs ? `?${qs}` : ''}`);
   if (!r.ok) throw new Error(`GET /api/notifications ${r.status}`);
   const data = (await r.json()) as Partial<NotificationHistoryPage>;
-  return { rows: Array.isArray(data.rows) ? data.rows : [], unseen: data.unseen ?? 0 };
+  return {
+    rows: Array.isArray(data.rows) ? data.rows : [],
+    unseen: data.unseen ?? 0,
+    ...(Array.isArray(data.unseenKeys) ? { unseenKeys: data.unseenKeys } : {}),
+  };
 }
 
 /**
@@ -69,15 +75,17 @@ export function markTargetSeen(targetKind: string, targetId: string): void {
 }
 
 /** Segna viste: tutte fino a un istante, e/o alcune righe puntuali. */
-export async function markNotificationsSeen(body: { ids?: string[]; upTo?: string }): Promise<number> {
+export async function markNotificationsSeen(
+  body: { ids?: string[]; upTo?: string },
+): Promise<{ unseen: number; unseenKeys?: string[] }> {
   const r = await fetch('/api/notifications/seen', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(`POST /api/notifications/seen ${r.status}`);
-  const data = (await r.json()) as { unseen?: number };
-  return data.unseen ?? 0;
+  const data = (await r.json()) as { unseen?: number; unseenKeys?: string[] };
+  return { unseen: data.unseen ?? 0, ...(Array.isArray(data.unseenKeys) ? { unseenKeys: data.unseenKeys } : {}) };
 }
 
 // ── Decisioni pure ──────────────────────────────────────────────────────────

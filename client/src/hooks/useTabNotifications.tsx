@@ -1,7 +1,8 @@
 import { createContext, useContext, useCallback, useMemo, useState, useEffect, type ReactNode } from 'react';
 import type { UnreadData, WSMessage } from '../types';
 import { useAttentionSignals, rollupProjectAttention, topicAttentionCount, terminalAttentionCount, projectAttentionSubjects, describeProjectAttention } from '../state/signals';
-import { chromeAttentionTotal } from '../state/attentionTotal';
+import { chromeAttentionSubjects, type ChromeSubject } from '../state/attentionTotal';
+import { useUnseenNotificationsStore } from '../state/notificationUnseen';
 import { useTopics, useTerminalSessions } from '../contexts/TopicsContext';
 import { getTerminalSessionFromPaneId } from '../state/pane/adapters';
 import { useRefMirror } from './useRefMirror';
@@ -36,6 +37,9 @@ interface TabNotificationContextValue {
   extraCounts: ReadonlyMap<string, number>;
   /** Record that a topic just received a notification (for sidebar sort ordering) */
   touchTopic: (topicId: string) => void;
+  /** THE one number (dock, tray, PWA badge, bell) and the subjects behind it. */
+  attentionTotal: number;
+  attentionSubjects: readonly ChromeSubject[];
 }
 
 const TabNotificationContext = createContext<TabNotificationContextValue | null>(null);
@@ -177,6 +181,10 @@ export function TabNotificationProvider({
   // decided and tested in `shared/tray-board`. Here it is read and shipped.
   const boardTasks = useBoardTasks();
   const boardGroups = useMemo(() => trayBoardGroups(boardTasks), [boardTasks]);
+  // The tray shows the first rows of each group; the count needs every card in
+  // review by id, to union it with its own notification row.
+  const allBoardGroups = useMemo(() => trayBoardGroups(boardTasks, { rowsPerGroup: Number.MAX_SAFE_INTEGER }), [boardTasks]);
+  const unseenNotificationKeys = useUnseenNotificationsStore((s) => s.keys);
   // THE ONE OS NUMBER. Dock badge, menu-bar tray glyph and the PWA Badging API
   // below all read `chromeCount`, and `chromeCount` is `chromeAttentionTotal`:
   // the pure function whose rule ("how many things are asking a human for
@@ -184,14 +192,16 @@ export function TabNotificationProvider({
   // `attentionTotal.test.ts`. `extraCounts` is the window-local pane badge map
   // (fed by `notifyPane`); it lives only in this layer, which is why it is
   // handed in rather than read from a store. No-op off Tauri for the invoke.
-  const chromeCount = useMemo(() => chromeAttentionTotal({
+  const attentionSubjects = useMemo(() => chromeAttentionSubjects({
     topics,
     unread: unreadData,
     claudeAttentionTopics,
     terminalFinishedIds,
-    boardGroups,
+    boardGroups: allBoardGroups,
     paneCounts: extraCounts,
-  }), [topics, unreadData, claudeAttentionTopics, terminalFinishedIds, boardGroups, extraCounts]);
+    unseenNotificationKeys,
+  }), [topics, unreadData, claudeAttentionTopics, terminalFinishedIds, allBoardGroups, extraCounts, unseenNotificationKeys]);
+  const chromeCount = attentionSubjects.length;
   useEffect(() => {
     if (!isTauri) return;
     void tauriInvoke('set_app_status', {
@@ -239,7 +249,9 @@ export function TabNotificationProvider({
     lastNotifiedAt,
     extraCounts,
     touchTopic,
-  }), [getBadgeCount, getProjectBadgeCount, describeProjectBadge, notifyPane, clearPane, lastNotifiedAt, extraCounts, touchTopic]);
+    attentionTotal: chromeCount,
+    attentionSubjects,
+  }), [getBadgeCount, getProjectBadgeCount, describeProjectBadge, notifyPane, clearPane, lastNotifiedAt, extraCounts, touchTopic, chromeCount, attentionSubjects]);
 
   return (
     <TabNotificationContext.Provider value={value}>
@@ -262,6 +274,8 @@ export function useTabNotifications(): TabNotificationContextValue {
       lastNotifiedAt: new Map(),
       extraCounts: new Map(),
       touchTopic: () => {},
+      attentionTotal: 0,
+      attentionSubjects: [],
     };
   }
   return ctx;

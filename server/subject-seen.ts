@@ -25,11 +25,12 @@ import type { UnreadData } from "../shared/types";
 import type { OutboundMessage } from "../shared/ws-outbound";
 import { defaultNotificationGroupKey } from "../shared/notification-log";
 import {
-  countUnseenNotifications,
   groupKeysOfNotifications,
   markNotificationsSeen,
   markTargetNotificationsSeen,
   unseenNotificationGroupKeys,
+  unseenSnapshot,
+  type UnseenSnapshot,
 } from "./db/notification-log";
 
 export interface SubjectSeenDeps {
@@ -82,7 +83,7 @@ export function markTopicSeen(deps: SubjectSeenDeps, topicId: string): { unreadC
     const subject = defaultNotificationGroupKey("topic", topicId);
     deps.broadcastToAll({
       type: "notification:seen",
-      unseen: countUnseenNotifications(),
+      ...unseenSnapshot(),
       ...(subject ? { subjects: [subject] } : {}),
     } as OutboundMessage);
   }
@@ -94,14 +95,14 @@ export function markTopicSeen(deps: SubjectSeenDeps, topicId: string): { unreadC
  * them. A chat's notification seen here is the chat seen, so its unread goes
  * to zero with it.
  */
-export function markNotificationRowsSeen(deps: SubjectSeenDeps, ids: string[]): number {
+export function markNotificationRowsSeen(deps: SubjectSeenDeps, ids: string[]): UnseenSnapshot {
   const subjects = groupKeysOfNotifications(ids);
   markNotificationsSeen({ ids });
   const topicIds = subjects.map(topicIdOfGroupKey).filter((id): id is string => !!id);
   resetUnread(deps, () => topicIds);
-  const unseen = countUnseenNotifications();
-  deps.broadcastToAll({ type: "notification:seen", unseen, subjects } as OutboundMessage);
-  return unseen;
+  const snapshot = unseenSnapshot();
+  deps.broadcastToAll({ type: "notification:seen", ...snapshot, subjects } as OutboundMessage);
+  return snapshot;
 }
 
 /**
@@ -114,12 +115,12 @@ export function markNotificationRowsSeen(deps: SubjectSeenDeps, ids: string[]): 
  * is STILL unseen, i.e. newer than `upTo`: a notification that arrived after
  * the list was read has not been seen, and it keeps its chat lit with it.
  */
-export function markAllNotificationsSeen(deps: SubjectSeenDeps, upTo: string): number {
+export function markAllNotificationsSeen(deps: SubjectSeenDeps, upTo: string): UnseenSnapshot {
   markNotificationsSeen({ upTo });
   const stillUnseen = unseenNotificationGroupKeys();
   const spared = new Set(stillUnseen.map(topicIdOfGroupKey).filter((id): id is string => !!id));
   resetUnread(deps, (unread) => Object.keys(unread).filter((id) => !spared.has(id)));
-  const unseen = countUnseenNotifications();
-  deps.broadcastToAll({ type: "notification:seen", unseen, allExcept: stillUnseen } as OutboundMessage);
-  return unseen;
+  const snapshot = unseenSnapshot();
+  deps.broadcastToAll({ type: "notification:seen", ...snapshot, allExcept: stillUnseen } as OutboundMessage);
+  return snapshot;
 }

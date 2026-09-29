@@ -5,10 +5,12 @@ import { dispatchFrame, dispatchLifecycle } from '../lib/wsFrameBus';
 import { CLIENT_PROTOCOL_VERSION, CLIENT_CAPABILITIES, CLIENT_VERSION } from '../schemas/ws-handshake';
 import { validateInbound } from '../schemas/ws-inbound';
 import { serverWsBase } from '../lib/shell/net';
-import { applyUnreadUpdate, clearUnreadFor, hasUnread } from '../state/unread';
+import { applyUnreadUpdate, clearUnreadFor } from '../state/unread';
 import { setWsClientId } from '../state/wsIdentity';
 import { SEEN_DWELL_MS } from '../state/signals';
 import { isWindowAwake } from '../state/windowAwake';
+import { openingChatClearsSomething, useUnseenNotificationsStore } from '../state/notificationUnseen';
+import { defaultNotificationGroupKey } from '../../../shared/notification-log';
 
 interface UseWebSocketReturn {
   status: ConnectionStatus;
@@ -415,6 +417,13 @@ export function useWebSocket(): UseWebSocketReturn {
             topicsApi.markRead(tid).catch(() => {});
           }
         }
+        // Same for a notification of the chat being read: it is seen already.
+        if (
+          data.type === 'notification:new' && seenTopicRef.current && isWindowAwake()
+          && data.row?.groupKey === defaultNotificationGroupKey('topic', seenTopicRef.current)
+        ) {
+          topicsApi.markRead(seenTopicRef.current).catch(() => {});
+        }
 
         // Forward to all handlers
         for (const handler of handlersRef.current) {
@@ -545,7 +554,10 @@ export function useWebSocket(): UseWebSocketReturn {
           seenTopicRef.current = tid;
           // Letto PRIMA dello zero ottimistico: dopo, il conteggio sarebbe
           // sempre 0 e la POST non partirebbe mai.
-          const toReset = hasUnread(unreadRef.current, tid);
+          // Unread OR an unseen notification: a chat's notification can be born
+          // after its unread was cleared (another window, a push), and reading
+          // the unread alone skipped the POST that clears it.
+          const toReset = openingChatClearsSomething(unreadRef.current, useUnseenNotificationsStore.getState().keys, tid);
           applyUnread(prev => clearUnreadFor(prev, tid));
           // Niente da azzerare ⇒ niente round-trip. Era il costo per-switch più
           // caro: la POST fa riscrivere al server l'intera tabella unread e poi

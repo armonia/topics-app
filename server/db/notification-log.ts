@@ -294,6 +294,34 @@ export function groupKeysOfNotifications(ids: string[]): string[] {
   }
 }
 
+/**
+ * The unseen SUBJECTS themselves, not just how many: a row's group key, or the
+ * row id for a row with no group (it answers only for itself). Same set that
+ * `countUnseenNotifications` counts, so `unseenKeys.length === unseen`.
+ *
+ * The client needs the keys, not the number: the dock and the bell count the
+ * union of what is asking for something (a card in review, a chat waiting)
+ * and what has an unseen notification, and a chat that is both must count
+ * once. A number cannot be unioned.
+ */
+export interface UnseenSnapshot {
+  unseen: number;
+  unseenKeys: string[];
+}
+
+export function unseenSnapshot(): UnseenSnapshot {
+  try {
+    const rows = getDatabase()
+      .query("SELECT DISTINCT COALESCE(group_key, id) AS k FROM notification_log WHERE seen_at IS NULL")
+      .all() as Array<{ k: string }>;
+    const unseenKeys = rows.map((r) => r.k);
+    return { unseen: unseenKeys.length, unseenKeys };
+  } catch (err) {
+    console.warn("[notification-log] unseen snapshot failed:", (err as Error)?.message || err);
+    return { unseen: 0, unseenKeys: [] };
+  }
+}
+
 /** The subjects that still have an unseen row, by group key. */
 export function unseenNotificationGroupKeys(): string[] {
   try {

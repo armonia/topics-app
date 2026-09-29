@@ -2634,11 +2634,16 @@ const IT: Dict = {
   //    badge. Si possono riscrivere — restano solo ciò che dice uno screen
   //    reader.
   'notifications.historyTitle': 'Cronologia notifiche',
-  'notifications.historyUnseen': 'Cronologia notifiche. {n} non viste',
-  'notifications.badgeUnseen': '{n} notifiche non viste',
+  'notifications.historyUnseen': 'Cronologia notifiche. {n} da guardare',
+  'notifications.badgeUnseen': '{n} da guardare',
   'notifications.panelTitle': 'Notifiche',
   'notifications.settings': 'Impostazioni notifiche',
   'notifications.empty': 'Nessuna notifica',
+  'notifications.waitingTitle': 'Aspettano te',
+  'notifications.waitingChat': 'Chat che ti aspetta',
+  'notifications.waitingCard': 'Card in review',
+  'notifications.waitingTerminal': 'Terminale finito',
+  'notifications.waitingPane': 'Pannello con novità',
   'notifications.logStartsHere': 'Da qui in poi ogni notifica mandata lascia una riga.',
   'notifications.loadMore': 'Carica altre notifiche',
   'notifications.loadingMore': 'Carico…',

@@ -19,7 +19,7 @@
  */
 import { useCallback, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, Settings, Inbox } from 'lucide-react';
+import { Bell, Settings, Inbox, MessageSquare, SquareCheck, TerminalSquare, PanelTop } from 'lucide-react';
 import type { WSMessage } from '../../types';
 import { useNotificationHistory } from '../../hooks/useNotificationHistory';
 import { formatNotificationAge } from '../../lib/notify/history';
@@ -29,6 +29,12 @@ import { RAISED_CONTROL } from '../../lib/selectionStyles';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { useT } from '../../hooks/useT';
+import { useTabNotifications } from '../../hooks/useTabNotifications';
+import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
+import { useUnseenNotificationsStore } from '../../state/notificationUnseen';
+import { waitingSubjects, type ChromeSubject } from '../../state/attentionTotal';
+import { notificationTargetUrl } from '../../../../shared/notification-log';
+import { openDeepLinkInApp } from '../../lib/deepLinkEntry';
 
 const PANEL_W = 320;
 
@@ -53,8 +59,29 @@ export function NotificationHistoryButton({
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const { rows, unseen, loading, hasMore, loadingMore, loadMore, openAndMarkSeen, openRow } =
+  const { rows, loading, hasMore, loadingMore, loadMore, openAndMarkSeen, openRow } =
     useNotificationHistory(onWSMessage);
+  // The bell's number IS the dock's: the same subjects, each once
+  // (`chromeAttentionTotal`). What the history rows cannot explain (a card in
+  // review with no notification, a chat waiting for you) is listed on top.
+  const { attentionTotal: unseen, attentionSubjects } = useTabNotifications();
+  const unseenKeys = useUnseenNotificationsStore((s) => s.keys);
+  const waiting = waitingSubjects(attentionSubjects, unseenKeys);
+  const topics = useTopics();
+  const terminalSessions = useTerminalSessions();
+  const waitingLabel = (s: ChromeSubject): { title: string; detail: string; url: string | null } => {
+    switch (s.kind) {
+      case 'chat':
+        return { title: topics[s.id]?.name || tr('notifications.waitingChat'), detail: tr('notifications.waitingChat'), url: notificationTargetUrl('topic', s.id) };
+      case 'card':
+        return { title: s.title || tr('notifications.waitingCard'), detail: tr('notifications.waitingCard'), url: notificationTargetUrl('task', s.id) };
+      case 'terminal':
+        return { title: terminalSessions.find((t) => t.id === s.id)?.name || tr('notifications.waitingTerminal'), detail: tr('notifications.waitingTerminal'), url: null };
+      default:
+        return { title: tr('notifications.waitingPane'), detail: tr('notifications.waitingPane'), url: null };
+    }
+  };
+  const waitingIcon = { chat: MessageSquare, card: SquareCheck, terminal: TerminalSquare, pane: PanelTop, notification: Bell } as const;
 
   /** Reaching the bottom IS the request for the next page: the panel scrolls,
    *  so the gesture already exists and does not need a second name. The button
@@ -147,8 +174,42 @@ export function NotificationHistoryButton({
           </div>
 
           <div className="overflow-y-auto min-h-0" onScroll={onScroll} data-testid="notification-history-scroll">
+            {waiting.length > 0 && (
+              <div className="py-1 border-b border-app-border" data-testid="notification-waiting">
+                <div className="px-3 pt-1 pb-0.5 text-micro font-semibold uppercase tracking-wide text-app-text-muted">
+                  {tr('notifications.waitingTitle')}
+                </div>
+                <ul>
+                  {waiting.map((s) => {
+                    const { title, detail, url } = waitingLabel(s);
+                    const Icon = waitingIcon[s.kind];
+                    return (
+                      <li key={s.key}>
+                        <button
+                          onClick={() => { if (url && openDeepLinkInApp(url)) setOpen(false); }}
+                          disabled={!url}
+                          className={`w-full text-left px-3 py-2 flex gap-2 items-start transition-colors ${
+                            url ? 'hover:bg-app-hover cursor-pointer' : 'cursor-default'
+                          }`}
+                          data-testid="notification-waiting-row"
+                          data-subject={s.key}
+                        >
+                          <Icon size={13} className="mt-0.5 flex-shrink-0 text-app-text-secondary" aria-hidden="true" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-compact font-medium text-app-text truncate">{title}</span>
+                            <span className="block text-mini text-app-text-secondary">{detail}</span>
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
             {rows.length === 0 ? (
-              <div className="px-3 py-6 text-center" data-testid="notification-history-empty">
+              // "No notifications" only when there is truly nothing: with a
+              // subject waiting above, the empty line would contradict the bell.
+              waiting.length === 0 && <div className="px-3 py-6 text-center" data-testid="notification-history-empty">
                 <Inbox size={18} className="mx-auto mb-2 text-app-text-muted" aria-hidden="true" />
                 <div className="text-compact text-app-text-secondary">
                   {loading ? tr('common.loading') : tr('notifications.empty')}

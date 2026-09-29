@@ -11,7 +11,7 @@
  * @covers CHROME-COUNT-01, NOTIF-ONE-02
  */
 import { describe, test, expect } from "bun:test";
-import { chromeAttentionTotal, paneAttentionTotal } from "./attentionTotal";
+import { chromeAttentionSubjects, chromeAttentionTotal, paneAttentionTotal, waitingSubjects } from "./attentionTotal";
 import { topicAttentionCount, terminalAttentionCount } from "./signals";
 import { buildSidebarItems } from "../lib/buildSidebarItems";
 import { utilityPanelId } from "./pane/adapters/utilityPanelId";
@@ -204,5 +204,66 @@ describe("chromeAttentionTotal", () => {
       boardGroups: [],
       paneCounts: new Map(),
     })).toBe(0);
+  });
+});
+
+/**
+ * The bell and the dock count THE SAME subjects (NOTIF-ONE-02): the one number
+ * is the union of what is asking for something and what has an unseen
+ * notification, and the panel lists under "Waiting for you" every counted
+ * subject that its history does not already show with an unseen dot.
+ */
+describe("the one number unions the live signals with the unseen notifications", () => {
+  const none = {
+    topics: {} as Record<string, Topic>,
+    unread: {},
+    claudeAttentionTopics: new Set<string>(),
+    terminalFinishedIds: new Set<string>(),
+    boardGroups: [] as ReturnType<typeof trayBoardGroups>,
+    paneCounts: new Map<string, number>(),
+  };
+
+  test("a card in review with NO notification row counts 1, and the panel lists it", () => {
+    // The verifier's ATK-4: the dock at 1 over a panel saying "No notifications".
+    const input = { ...none, boardGroups: trayBoardGroups([card("r1", "review")]) };
+    expect(chromeAttentionTotal(input)).toBe(1);
+    const waiting = waitingSubjects(chromeAttentionSubjects(input), new Set());
+    expect(waiting.map((w) => [w.kind, w.id, w.key])).toEqual([["card", "r1", "task:r1"]]);
+  });
+
+  test("a chat waiting for you with every row already seen counts 1, and the panel lists it", () => {
+    const input = { ...none, topics: { w: topic("w") }, claudeAttentionTopics: new Set(["w"]) };
+    expect(chromeAttentionTotal(input)).toBe(1);
+    expect(waitingSubjects(chromeAttentionSubjects(input), new Set()).map((w) => w.key)).toEqual(["topic:w"]);
+  });
+
+  test("a chat with unread AND an unseen notification is ONE, shown by the history and not twice", () => {
+    const keys = new Set(["topic:a"]);
+    const input = { ...none, topics: { a: topic("a") }, unread: unread({ a: 4 }), unseenNotificationKeys: keys };
+    expect(chromeAttentionTotal(input)).toBe(1);
+    expect(waitingSubjects(chromeAttentionSubjects(input), keys)).toEqual([]);
+  });
+
+  test("a card in review with its own unseen review row is ONE", () => {
+    const keys = new Set(["task:r1"]);
+    const input = { ...none, boardGroups: trayBoardGroups([card("r1", "review")]), unseenNotificationKeys: keys };
+    expect(chromeAttentionTotal(input)).toBe(1);
+  });
+
+  test("an unseen notification of a subject that asks nothing still counts: the bell and the dock say 1", () => {
+    // A row with no target (keyed by its id), and a chat notification whose
+    // chat has no unread left: both are in the panel with a dot.
+    const keys = new Set(["row-uuid-1", "topic:read"]);
+    const input = { ...none, topics: { read: topic("read") }, unseenNotificationKeys: keys };
+    expect(chromeAttentionTotal(input)).toBe(2);
+    expect(waitingSubjects(chromeAttentionSubjects(input), keys)).toEqual([]);
+  });
+
+  test("a review group cut to its first rows still counts every card", () => {
+    const cards = Array.from({ length: 7 }, (_, i) => card(`r${i}`, "review"));
+    const cut = trayBoardGroups(cards, { rowsPerGroup: 2 });
+    expect(chromeAttentionTotal({ ...none, boardGroups: cut })).toBe(7);
+    // The anonymous rest is counted but not listed: it has nowhere to go.
+    expect(waitingSubjects(chromeAttentionSubjects({ ...none, boardGroups: cut }), new Set())).toHaveLength(2);
   });
 });

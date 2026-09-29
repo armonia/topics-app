@@ -46,7 +46,7 @@ beforeEach(() => {
   getDatabase().run("DELETE FROM notification_log");
 });
 
-type Frame = { type: string; topicId?: string; unreadCount?: number; unseen?: number; subjects?: string[]; allExcept?: string[] };
+type Frame = { type: string; topicId?: string; unreadCount?: number; unseen?: number; unseenKeys?: string[]; subjects?: string[]; allExcept?: string[] };
 
 function harness(counts: Record<string, number>) {
   let store: UnreadData = Object.fromEntries(
@@ -86,6 +86,18 @@ describe("topicIdOfGroupKey", () => {
   });
 });
 
+describe("the unseen snapshot (what the dock and the bell union with the live signals)", () => {
+  test("names each unseen subject once: a group by its key, an ungrouped row by its id", async () => {
+    const { unseenSnapshot } = await import("./db/notification-log");
+    chatRow("a", "a1");
+    chatRow("a", "a2");
+    const loose = recordNotification({ kind: "other", title: "loose", dedupeKey: "loose1" });
+    const snap = unseenSnapshot();
+    expect(snap.unseenKeys.sort()).toEqual([loose!.id, "topic:a"].sort());
+    expect(snap.unseen).toBe(countUnseenNotifications());
+  });
+});
+
 describe("markTopicSeen (opening a chat)", () => {
   test("resets unread AND the chat's rows, and announces both", () => {
     const h = harness({ a: 39, b: 2 });
@@ -98,7 +110,7 @@ describe("markTopicSeen (opening a chat)", () => {
     expect(unseenRowsOf("a")).toBe(0);
     expect(unseenRowsOf("b")).toBe(1);
     expect(h.frames).toContainEqual({ type: "unread:updated", topicId: "a", unreadCount: 0 });
-    expect(h.frames).toContainEqual({ type: "notification:seen", unseen: 1, subjects: ["topic:a"] });
+    expect(h.frames).toContainEqual({ type: "notification:seen", unseen: 1, unseenKeys: ["topic:b"], subjects: ["topic:a"] });
   });
 
   test("clears the rows even when the unread was already zero (the old early return did not)", () => {
@@ -121,12 +133,13 @@ describe("markNotificationRowsSeen (a row clicked in the panel)", () => {
     const h = harness({ a: 5, b: 1 });
     const row = chatRow("a", "a1");
     chatRow("b", "b1");
-    const unseen = markNotificationRowsSeen(h.deps, [row!.id]);
-    expect(unseen).toBe(1);
+    const b1 = "topic:b";
+    const snapshot = markNotificationRowsSeen(h.deps, [row!.id]);
+    expect(snapshot).toEqual({ unseen: 1, unseenKeys: [b1] });
     expect(h.unread("a")).toBe(0);
     expect(h.unread("b")).toBe(1);
     expect(h.frames).toContainEqual({ type: "unread:updated", topicId: "a", unreadCount: 0 });
-    expect(h.frames).toContainEqual({ type: "notification:seen", unseen: 1, subjects: ["topic:a"] });
+    expect(h.frames).toContainEqual({ type: "notification:seen", unseen: 1, unseenKeys: [b1], subjects: ["topic:a"] });
   });
 
   test("a terminal row names its terminal, so every window can drop its finished mark", () => {
@@ -134,7 +147,7 @@ describe("markNotificationRowsSeen (a row clicked in the panel)", () => {
     const row = recordNotification({ kind: "session", title: "done", dedupeKey: "t1", groupKey: "terminal:s1" });
     markNotificationRowsSeen(h.deps, [row!.id]);
     expect(h.unread("a")).toBe(5);
-    expect(h.frames).toEqual([{ type: "notification:seen", unseen: 0, subjects: ["terminal:s1"] }]);
+    expect(h.frames).toEqual([{ type: "notification:seen", unseen: 0, unseenKeys: [], subjects: ["terminal:s1"] }]);
   });
 });
 
@@ -145,14 +158,14 @@ describe("markAllNotificationsSeen (opening the panel = mark all)", () => {
     const h = harness({ a: 4, b: 1, stale: 22 });
     chatRow("a", "a1");
     const newest = chatRow("b", "b1");
-    const unseen = markAllNotificationsSeen(h.deps, newest!.createdAt);
-    expect(unseen).toBe(0);
+    const snapshot = markAllNotificationsSeen(h.deps, newest!.createdAt);
+    expect(snapshot).toEqual({ unseen: 0, unseenKeys: [] });
     expect(h.unread("a")).toBe(0);
     expect(h.unread("b")).toBe(0);
     expect(h.unread("stale")).toBe(0);
     expect(h.saves()).toBe(1);
     expect(h.frames.filter((f) => f.type === "unread:updated").map((f) => f.topicId).sort()).toEqual(["a", "b", "stale"]);
-    expect(h.frames).toContainEqual({ type: "notification:seen", unseen: 0, allExcept: [] });
+    expect(h.frames).toContainEqual({ type: "notification:seen", unseen: 0, unseenKeys: [], allExcept: [] });
   });
 
   test("spares a chat whose notification arrived AFTER the list was read", () => {
@@ -164,6 +177,6 @@ describe("markAllNotificationsSeen (opening the panel = mark all)", () => {
     expect(h.unread("a")).toBe(0);
     expect(h.unread("late")).toBe(1);
     expect(unseenRowsOf("late")).toBe(1);
-    expect(h.frames).toContainEqual({ type: "notification:seen", unseen: 1, allExcept: ["topic:late"] });
+    expect(h.frames).toContainEqual({ type: "notification:seen", unseen: 1, unseenKeys: ["topic:late"], allExcept: ["topic:late"] });
   });
 });

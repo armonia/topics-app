@@ -1662,7 +1662,17 @@ export function rollupGlobalAttention(
   claudeAttentionTopics: Set<string>,
   terminalFinishedIds: Set<string>,
 ): number {
-  let sum = 0;
+  return globalAttentionTopicIds(topics, unread, claudeAttentionTopics).length + terminalFinishedIds.size;
+}
+
+/** The chats `rollupGlobalAttention` counts, by id: the global number names its
+ *  subjects so it can union them with the unseen notifications. */
+export function globalAttentionTopicIds(
+  topics: Record<string, Topic>,
+  unread: Record<string, { unreadCount: number } | undefined>,
+  claudeAttentionTopics: Set<string>,
+): string[] {
+  const ids: string[] = [];
   for (const t of Object.values(topics)) {
     // Gli ARCHIVIATI fuori anche qui. Il commento di `rollupProjectAttention`
     // diceva che questo gemello «va guardato a parte»: guardato. Misurato sui
@@ -1672,7 +1682,7 @@ export function rollupGlobalAttention(
     // non si potevano azzerare da nessuna parte, perché non esiste una superficie
     // dove andare a spegnerle. Stesso gate di `visibleTopicSignalCount`.
     if (t.archived) continue;
-    if (topicAttentionCount(t.id, unread, claudeAttentionTopics) > 0) sum += 1;
+    if (topicAttentionCount(t.id, unread, claudeAttentionTopics) > 0) ids.push(t.id);
   }
-  return sum + terminalFinishedIds.size;
+  return ids;
 }

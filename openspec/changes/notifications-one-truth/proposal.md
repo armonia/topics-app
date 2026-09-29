@@ -7,11 +7,13 @@ Nessuna scelta aperta: decise da Jarvis su delega, dopo la segnalazione di Attil
 3. Il numero globale (Dock, tray, badge PWA) e quello della campanella contano SOGGETTI, non messaggi: una chat con 39 non letti vale 1. Riga e tab continuano a mostrare quanti messaggi.
 4. Il rollup del progetto (badge della riga di progetto) resta una somma di messaggi: è un badge di riga, e la decisione 3 riguarda solo i numeri globali.
 5. Nessuna migration: bastano le tabelle `unread` e `notification_log` che ci sono.
+6. La campanella mostra LO STESSO numero del Dock (non più le sole righe non viste): i soggetti che chiedono qualcosa uniti a quelli con una notifica non vista. Il pannello elenca in cima, sotto «Aspettano te», ciò che il numero conta e la cronologia non mostra (una card in review, una chat che ti aspetta). Senza questo il Dock restava acceso sopra un pannello che diceva «Nessuna notifica».
 
 | # | Dove cambiarla |
 |---|----------------|
 | 1, 2 | `NOTIF-ONE-01` (`server/subject-seen.ts`) |
 | 3 | `NOTIF-ONE-02`, `CHROME-COUNT-01` (`rollupGlobalAttention`, `countUnseenNotifications`) |
+| 6 | `NOTIF-ONE-02` (`chromeAttentionSubjects`, `waitingSubjects` in `client/src/state/attentionTotal.ts`) |
 | 4 | `rollupProjectAttention` in `client/src/state/signals.ts` |
 
 ---

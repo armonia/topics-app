@@ -7,3 +7,6 @@
 - [x] Numero globale e campanella contano soggetti (`rollupGlobalAttention`, `paneAttentionTotal`, `countUnseenNotifications`)
 - [x] Test unit: `server/subject-seen.test.ts`, `client/src/lib/notify/seenFrame.test.ts`, `attentionTotal.test.ts`, `attention.test.ts`, `notification-log.test.ts`, `topic-read-seen-propagation.test.ts`
 - [x] E2E WebKit con video: `tests/e2e/notifications-one-truth.spec.ts`, rosso sul comportamento di origin/main e verde dopo
+- [x] Campanella = Dock: un numero solo (`chromeAttentionSubjects`), unione dei soggetti in attesa e delle notifiche non viste (`unseenKeys` nei frame e nelle risposte del registro)
+- [x] Il pannello elenca «Aspettano te» (card in review, chat che ti aspetta) e non dice «Nessuna notifica» con il numero acceso
+- [x] Aprire una chat manda il «visto» anche a non-letto zero se la chat ha una notifica non vista (`openingChatClearsSomething`)

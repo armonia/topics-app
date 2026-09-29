@@ -211,6 +211,10 @@ test.describe("Mute gate + app badge", () => {
       nav.setAppBadge = (n?: number) => { w.__badge = n ?? 0; return Promise.resolve(); };
       nav.clearAppBadge = () => { w.__badge = 0; return Promise.resolve(); };
     });
+    // MUTE-01 leaves the loud chat's banner in the registry, unseen: that chat
+    // is then already one subject on the badge (NOTIF-ONE-02), and a fresh
+    // unread on it cannot move the number. Start from a registry seen up to now.
+    await page.request.post(`${BASE}/api/notifications/seen`, { data: { upTo: new Date().toISOString() } });
     await page.clock.install();
     const ws = await interceptWebSocket(page);
     const AGENTS = "__board__";
