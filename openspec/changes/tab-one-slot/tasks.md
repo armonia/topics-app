@@ -21,9 +21,12 @@
 - [x] 4.2 Segno d'angolo: organizzazione > marcatore di progetto; errori console sul favicon del browser
 - [x] 4.3 Download sui tre puntini, che li aprono; puntini in `.tab-extras` sopra la coda del nome
 - [x] 4.4 Tolti `PaneTabCommands`, `StopTurnButton`, `BrowserTabDownloadsCue`, `SessionElapsed`
+- [x] 4.5 Tipo del browser sull'angolo della favicon (`BrowserTabCornerMark`, precedenza in `browserCornerMark`), non piu' in fila
+- [x] 4.6 Numeri dello slot dentro i 20 px (`NotificationBadge compact`, «99+» al passo nano senza padding, dentro anche in DejaVu Sans); numero esatto nel nome accessibile
 
 ## 5. Prove
 - [x] 5.1 `tests/e2e/tab-one-slot.spec.ts` (a, b, c, d) verde su WebKit con video
 - [x] 5.2 Aggiornate al contratto: `tab-stop-before-close`, `tab-widget-geometry`, `board` (BOARD-15/16), `browser-ws-streaming` (download), `tab-focus-hierarchy` (CHROME-14), `swapFreezeSurfaces.test.tsx`
 - [x] 5.3 Rilanciate verdi su WebKit: `tab-notifications`, `project-tab-shared-org`, `project-folder-loader`
 - [ ] 5.4 `tab-close-ring-touch.spec.ts` gira solo su `chromium-touch-wide`: la prova e' della CI
+- [x] 5.5 `tab-one-slot.spec.ts` e) tipo del browser che va e viene, f) «99+» dentro lo slot

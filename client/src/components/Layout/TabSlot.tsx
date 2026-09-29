@@ -12,8 +12,9 @@
  * Where each of them went:
  *  · the SLOT (`TabSlot`): freeze, working, attention, by `tabSlotSignal`; on
  *    hover or keyboard focus it becomes the one command, by `tabSlotCommand`;
- *  · the CORNER of the lead icon (`ProjectTabLead`, the browser console cue):
- *    org sharing, console errors, the project marker, zero width;
+ *  · the CORNER of the lead icon (`ProjectTabLead`, `BrowserTabCornerMark`):
+ *    org sharing, a browser's kind or console errors, the project marker,
+ *    zero width;
  *  · the TOOLTIP and the accessible name: pin, elapsed time, spawned browser,
  *    cloud, the exact board counts.
  *
@@ -199,7 +200,9 @@ function SlotView({
             <span
               data-notification-count={display}
               data-testid={attentionTestId}
-              className={`relative text-micro font-semibold leading-none tabular-nums cap-box ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text'}`}
+              // "99+" at the micro step is 20.1px, a hair wider than the ring:
+              // three figures drop to nano, as they do in the badge.
+              className={`relative ${display.length > 2 ? 'text-nano tracking-tight' : 'text-micro'} font-semibold leading-none tabular-nums cap-box ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text'}`}
               aria-label={`${signal.count} unread`}
             >
               {display}
@@ -207,7 +210,7 @@ function SlotView({
           </div>
         )}
         {signal.kind === 'attention' && (
-          <NotificationBadge count={signal.count} variant={onFill ? 'onFill' : 'default'} title={attentionTitle} testId={attentionTestId} />
+          <NotificationBadge count={signal.count} variant={onFill ? 'onFill' : 'default'} title={attentionTitle} testId={attentionTestId} compact />
         )}
       </div>
       {command && (

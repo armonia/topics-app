@@ -104,8 +104,8 @@ export interface BrowserPaneChrome {
    *  the shared session and nothing to choose. */
   shareMode?: ShareMode;
   /**
-   * WHAT THIS PANE *IS*, for the one icon the tab draws between favicon and
-   * title (`BrowserTabTypeIcon`) and for the switches in the sheet's Session
+   * WHAT THIS PANE *IS*, for the one mark the tab draws on its favicon's
+   * corner (`BrowserTabCornerMark`) and for the switches in the sheet's Session
    * section. Until 2026-09-14 these three lived as pills PARKED OVER THE PAGE —
    * a connection dot top-right, an engine pill top-left, a render pill
    * bottom-left — which is what `TOPIC-BROWSER-03` forbids: no permanent DOM

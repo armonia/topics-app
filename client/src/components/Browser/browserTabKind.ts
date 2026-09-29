@@ -1,6 +1,6 @@
 /**
- * The ONE kind a browser tab shows between its favicon and its title, when
- * several are true at once. Order, first wins:
+ * The ONE kind a browser tab shows on its favicon's corner, when several are
+ * true at once. Order, first wins:
  *
  *   agent > disconnected > connecting > degraded > heavy-paused > heavy > chromium > shared
  *
@@ -44,4 +44,25 @@ export function browserTabKind(
   // streaming pane is genuinely the shared session.
   if (chrome.shared) return 'shared';
   return undefined;
+}
+
+/**
+ * WHICH MARK the favicon's corner carries (TABSLOT-03): one at a time, zero
+ * width, so the label never moves when one comes or goes.
+ *
+ * A STATE of the pane beats the console errors: the agent at the wheel, a link
+ * that is gone or limping, a heavy pane throttled or paused. Each one explains
+ * what the page is doing right now, and the agent's mark is also the
+ * take-control button. The errors beat the two FACTS (real Chromium, shared),
+ * which are true for the pane's whole life and say nothing new. The losing
+ * errors are not lost: the dots carry their badge and the sheet their list.
+ */
+export function browserCornerMark(
+  kind: BrowserTabKind | undefined,
+  consoleErrors: number,
+): 'kind' | 'errors' | undefined {
+  const isFact = kind === 'chromium' || kind === 'shared';
+  if (kind && !isFact) return 'kind';
+  if (consoleErrors > 0) return 'errors';
+  return kind ? 'kind' : undefined;
 }

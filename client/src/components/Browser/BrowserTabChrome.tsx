@@ -13,15 +13,14 @@
  *    the reload button IN ITS PLACE. Reload is the single most used browser
  *    command and it now costs no width at all: at rest the slot shows where you
  *    are, under the pointer it shows what you want to do to it.
- *  - `BrowserTabTypeIcon`: WHAT KIND of browser tab this is (shared, real
- *    Chromium, connection gone) between the favicon and the title, and nothing
- *    at all on the default kind. It is where the three pills that used to float
- *    over the page ended up — see `TOPIC-BROWSER-03`.
+ *  - `BrowserTabCornerMark`: the favicon's corner, zero width (TABSLOT-03).
+ *    It carries WHAT KIND of browser tab this is (shared, real Chromium,
+ *    connection gone; nothing on the default kind), which is where the three
+ *    pills that used to float over the page ended up (`TOPIC-BROWSER-03`), or
+ *    the console errors, one at a time by `browserCornerMark`.
  *  - `BrowserTabMenuButton`: the three dots, which OPEN THE TAB SHEET
  *    (`BrowserTabSheet`) where everything else lives in plain sight, and the
  *    downloads with it.
- *  - `BrowserTabConsoleCue`: the favicon's corner mark when the page logs
- *    errors, because an error nobody surfaces is an error nobody fixes.
  *
  * Both read the pane's live state from `state/browserPaneChrome`, which the
  * panel publishes. Both degrade to nothing when the panel has not mounted yet
@@ -30,9 +29,9 @@
  */
 import { useCallback } from 'react';
 import { RotateCw, MoreVertical, MonitorSmartphone, Puzzle, WifiOff, WifiLow, Loader2, Bot, Gauge, CirclePause } from 'lucide-react';
-import { browserTabKind } from './browserTabKind';
+import { browserCornerMark, browserTabKind, type BrowserTabKind } from './browserTabKind';
 import { BrowserFavicon } from './BrowserFavicon';
-import { useBrowserPaneChrome } from '../../state/browserPaneChrome';
+import { useBrowserPaneChrome, type BrowserPaneChrome } from '../../state/browserPaneChrome';
 import { DANGER_TEXT, WARNING_TEXT } from '../../lib/popoverStyles';
 import { prefersReducedMotion } from '../../lib/reducedMotion';
 import { useActiveLocale, useT } from '../../hooks/useT';
@@ -105,8 +104,28 @@ export function BrowserTabIcon({ paneId, url }: { paneId: string; url: string })
 }
 
 /**
- * WHAT KIND OF BROWSER TAB THIS IS — one icon, between the favicon and the
- * title, and only when the answer is not the default one.
+ * THE FAVICON'S CORNER (TABSLOT-03): one mark, zero width, so the label never
+ * moves when a mark comes or goes. Until 2026-09-29 the kind sat in flow
+ * between the favicon and the title, a fourth zone that pushed the label 20px
+ * to the right every time the agent took the wheel.
+ *
+ * Which mark wins when both are true is `browserCornerMark`: a state of the
+ * pane first, then the console errors, then the facts.
+ */
+export function BrowserTabCornerMark({ paneId }: { paneId: string }) {
+  const chrome = useBrowserPaneChrome(paneId);
+  if (!chrome) return null;
+  const kind = browserTabKind(chrome);
+  const errors = chrome.consoleErrors ?? 0;
+  const mark = browserCornerMark(kind, errors);
+  if (mark === 'kind' && kind) return <KindMark chrome={chrome} kind={kind} />;
+  if (mark === 'errors') return <ConsoleCue errors={errors} />;
+  return null;
+}
+
+/**
+ * WHAT KIND OF BROWSER TAB THIS IS — one glyph on the favicon's corner, and
+ * only when the answer is not the default one.
  *
  * THE DEFAULT KIND DRAWS NOTHING. A tab on its own device's view, not shared,
  * connected, on the server's bundled engine is what a browser tab simply *is*:
@@ -133,17 +152,13 @@ export function BrowserTabIcon({ paneId, url }: { paneId: string; url: string })
  * page and the difference is visible in the page itself, so it stays a switch in
  * the sheet without an icon of its own.
  */
-export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
-  const chrome = useBrowserPaneChrome(paneId);
+function KindMark({ chrome, kind }: { chrome: BrowserPaneChrome; kind: BrowserTabKind }) {
   const t = useT();
   const locale = useActiveLocale();
-  if (!chrome) return null;
 
   // The order of the kinds, and why the agent comes first, is in `browserTabKind`.
   // Until 2026-09-14 the agent was said by covering the page with a dark sheet:
   // the moment you most want to watch the page was the moment it was taken away.
-  const kind = browserTabKind(chrome);
-  if (!kind) return null;
 
   const Glyph =
     kind === 'agent' ? Bot
@@ -174,13 +189,13 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
   // THE LINK STATES KEEP THEIR COLOUR, the other two do not.
   //
   // The pill said "Polling" in yellow and "Connecting..." with a pulsing yellow
-  // dot; here the text is gone and only an 11px glyph is left, so in the muted
+  // dot; here the text is gone and only an 8px glyph is left, so in the muted
   // ink of a tab's quiet rail "the connection is degraded" would have been
   // legible exactly to whoever already knew. Red stays reserved for the state
-  // that is BROKEN (same rule as the console cue a few pixels to the right) and
+  // that is BROKEN (same rule as the console cue that shares its corner) and
   // amber carries the two that are WORKING BADLY - the measured pair in
-  // `popoverStyles`, not a hand-picked yellow, because 11px is normal-text
-  // contrast and `amber-400` alone misses it in the light theme.
+  // `popoverStyles`, not a hand-picked yellow, because a glyph this small is
+  // normal-text contrast and `amber-400` alone misses it in the light theme.
   //
   // Chromium and shared are facts, not faults: muted ink, no colour spent.
   const tone =
@@ -190,11 +205,11 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
     : 'text-app-text-faint';
 
   const glyph = (
-    <Glyph size={11} className={kind === 'connecting' && !prefersReducedMotion() ? 'animate-spin' : ''} />
+    <Glyph size={8} className={kind === 'connecting' && !prefersReducedMotion() ? 'animate-spin' : ''} />
   );
 
   // THE AGENT GLYPH IS A BUTTON, the other four are not. Every other kind
-  // reports a fact you cannot act on from a 11px box; this one names a state
+  // reports a fact you cannot act on from a corner; this one names a state
   // that the person may want to END, and the page underneath is now visible and
   // untouched, so the tab is the only place left holding a handle. It is also
   // the handle on the paths where the page itself cannot carry one (the native
@@ -205,7 +220,7 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
     return (
       <button
         type="button"
-        className={`flex items-center justify-center w-3 h-3 flex-shrink-0 ${tone} hover:opacity-70 transition-opacity`}
+        className={`tab-corner-mark bg-app-bg ring-1 ring-app-bg ${tone} hover:opacity-70 transition-opacity`}
         title={`${label} - ${t('browser.agent.takeControl')}`}
         aria-label={t('browser.agent.takeControl')}
         data-testid="browser-tab-type-icon"
@@ -222,7 +237,7 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
 
   return (
     <span
-      className={`flex items-center justify-center w-3 h-3 flex-shrink-0 ${tone}`}
+      className={`tab-corner-mark bg-app-bg ring-1 ring-app-bg ${tone}`}
       title={label}
       aria-label={label}
       data-testid="browser-tab-type-icon"
@@ -248,11 +263,8 @@ export function BrowserTabTypeIcon({ paneId }: { paneId: string }) {
  * one mark that reports something BROKEN. The count is in its tooltip and the
  * console is one click away in the sheet.
  */
-export function BrowserTabConsoleCue({ paneId }: { paneId: string }) {
-  const chrome = useBrowserPaneChrome(paneId);
+function ConsoleCue({ errors }: { errors: number }) {
   const t = useT();
-  const errors = chrome?.consoleErrors ?? 0;
-  if (errors <= 0) return null;
   return (
     <span
       className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-600 dark:bg-red-500 ring-1 ring-app-bg pointer-events-auto"
@@ -271,7 +283,7 @@ export function BrowserTabConsoleCue({ paneId }: { paneId: string }) {
  * VISIBILITY is the tab's business, not this button's: the dots ride in the
  * tab's hover extras (`.tab-extras`), which cover the tail of the label instead
  * of taking its width (TABSLOT-01). The console errors are announced at rest by
- * the favicon's corner mark (`BrowserTabConsoleCue`).
+ * the favicon's corner mark (`BrowserTabCornerMark`).
  *
  * DOWNLOADS LIVE HERE TOO (TABSLOT-03). A file that lands gives the dots a
  * count, and while there is one the dots open the sheet on its Downloads

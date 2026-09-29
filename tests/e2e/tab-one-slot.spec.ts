@@ -15,7 +15,12 @@
  *     keeps its label and its slot at the same x and the same width;
  *  c) on a streaming chat the slot is Stop with no Close beside it, and after
  *     Stop the same slot is Close;
- *  d) a project tab with a working child offers Close, never Stop.
+ *  d) a project tab with a working child offers Close, never Stop;
+ *  e) a browser tab whose kind comes and goes (the agent takes the wheel and
+ *     gives it back) keeps its label at the same x and width: the kind is a
+ *     corner mark on the favicon, not a fourth zone in flow;
+ *  f) a "99+" count stays inside the 20px slot, and the exact count is in the
+ *     tab's accessible name.
  *
  * It is a behaviour: video on, the .webm is the evidence.
  *
@@ -24,17 +29,21 @@
  * @covers TABSLOT-03
  * @covers CHROME-12
  */
-import { expect, type Locator, type Page } from "@playwright/test";
+import { expect, mergeTests, type Locator, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { test } from "./fixtures/chat.fixture";
+import { test as chatTest } from "./fixtures/chat.fixture";
+import { test as browserTest } from "./fixtures/browser-v2.fixture";
 import { goToApp, openTopic } from "./helpers";
-import { createTopic, deleteTopic, resetPaneStore, seedProjectInnerChats } from "./helpers/api-fixtures";
+import {
+  closeAllBrowserContexts, createTopic, deleteTopic, resetPaneStore, seedProjectInnerChats, waitForTopicVisible,
+} from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 import { interceptWebSocket } from "./helpers/ws-helpers";
 import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
 import { E2E_BASE } from "./helpers/test-server";
 import { hermetic } from "./fixtures/hermetic";
 
+const test = mergeTests(chatTest, browserTest);
 hermetic(test);
 test.use({ video: "on" });
 
@@ -56,6 +65,30 @@ async function zones(tab: Locator): Promise<{ label: Box; slot: Box }> {
   expect(label, "the label is rendered").not.toBeNull();
   expect(slot, "the slot is rendered").not.toBeNull();
   return { label: { x: label!.x, width: label!.width }, slot: { x: slot!.x, width: slot!.width } };
+}
+
+/** The box of `inner` lies inside the box of `outer`, within half a pixel. */
+async function expectInside(inner: Locator, outer: Locator, what: string) {
+  const i = (await inner.boundingBox())!;
+  const o = (await outer.boundingBox())!;
+  console.log(`[fit] ${what}: inner x=${i.x.toFixed(2)} w=${i.width.toFixed(2)} | box x=${o.x.toFixed(2)} w=${o.width.toFixed(2)}`);
+  expect(i.x, `${what}: left edge inside`).toBeGreaterThanOrEqual(o.x - SAME_PX);
+  expect(i.x + i.width, `${what}: right edge inside`).toBeLessThanOrEqual(o.x + o.width + SAME_PX);
+  expect(i.y, `${what}: top edge inside`).toBeGreaterThanOrEqual(o.y - SAME_PX);
+  expect(i.y + i.height, `${what}: bottom edge inside`).toBeLessThanOrEqual(o.y + o.height + SAME_PX);
+}
+
+/**
+ * Draw the slot's figures in the widest UI font a runner can resolve. The
+ * Linux CI falls back to DejaVu Sans, where "99+" at 9px is 19.39px against
+ * 17.59 with SF: a macOS run passed while the CI spilled out of the slot.
+ * Verdana, on every Mac, is wider still (19.94), so forcing it makes this
+ * machine fail wherever the CI would; DejaVu is the fallback on Linux.
+ */
+async function forceWideUiFont(page: Page) {
+  await page.addStyleTag({
+    content: '[data-testid="pane-tab-slot"] [data-notification-count] { font-family: Verdana, "DejaVu Sans", sans-serif !important; }',
+  });
 }
 
 /** Park the pointer where no tab is, so "rest" really is rest. */
@@ -224,6 +257,13 @@ test.describe.serial("Una tab, tre zone", () => {
     expect(Math.abs(mid(ring.number) - mid(ring.orbit)), "the number sits on the orbit's centre (x)").toBeLessThanOrEqual(SAME_PX);
     expect(Math.abs(midY(ring.number) - midY(ring.orbit)), "the number sits on the orbit's centre (y)").toBeLessThanOrEqual(SAME_PX);
     await projectTab.screenshot({ path: test.info().outputPath("project-tab-all-signals.png") });
+
+    // THREE FIGURES STILL FIT THE RING: "99+" around the orbit, inside its 20px.
+    ws.send({ type: "unread:updated", topicId: childId, unreadCount: 150 });
+    const ringNumber = slot.locator('[data-loader-state="working"] [data-notification-count]');
+    await expect(ringNumber).toHaveText("99+", { timeout: 10_000 });
+    await forceWideUiFont(page);
+    await expectInside(ringNumber, slot, "99+ in the ring");
   });
 
   test("d) CHROME-12: a project tab with a working child offers Close, never Stop", async ({ page, request }) => {
@@ -322,5 +362,85 @@ test.describe.serial("Una tab, tre zone", () => {
 
     await close.click();
     await expect(page.locator(`[data-pane-id="${chatA.id}"]`), "the tab closes").toHaveCount(0, { timeout: 10_000 });
+  });
+
+  test("e) TABSLOT-01/03: a browser tab whose kind comes and goes keeps its label where it was", async ({ page, request, browserProcessPageV2 }) => {
+    test.info().annotations.push({ type: "spec", description: "TABSLOT-01" });
+    test.info().annotations.push({ type: "spec", description: "TABSLOT-03" });
+    await resetPaneStore(request, []);
+    await browserProcessPageV2.mockBrowserWs({ framesPerSecond: 15 });
+    await browserProcessPageV2.mockBrowserContexts([]);
+    await browserProcessPageV2.mockRemoteBrowserPane({ connected: true, url: "https://example.com", title: "Example", hasScreenshot: true });
+    // THE DEFAULT KIND at rest: the page in this device's own <iframe>, no kind
+    // to report. The agent taking the wheel moves the pane to the server
+    // session and gives it a kind; handing it back takes the kind away.
+    await page.route(/\/api\/browsers\/framable/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ framable: true }) }));
+    const topic = await createTopic(request, `slot-browser-${TS}`);
+    try {
+      await goToApp(page);
+      await waitForTopicVisible(page, topic.id);
+      await page.evaluate((tid) => {
+        window.dispatchEvent(new CustomEvent("browser:open-and-navigate", { detail: { topicId: tid, url: "https://example.com" } }));
+      }, topic.id);
+      await expect(page.getByTestId("browser-iframe")).toBeVisible({ timeout: 15_000 });
+      const tab = page.locator('[role="tab"][data-pane-id^="browser:"]').first();
+      const kindMark = tab.getByTestId("browser-tab-type-icon");
+      await expect(kindMark, "the default kind carries no mark").toHaveCount(0);
+
+      const seen: Record<string, { label: Box; slot: Box }> = {};
+      await pointerAway(page);
+      seen.rest = await zones(tab);
+
+      await browserProcessPageV2.waitForWsConnected();
+      browserProcessPageV2.broadcastAgentActive(true, "Naviga su example.com");
+      await expect(kindMark).toHaveAttribute("data-kind", "agent", { timeout: 10_000 });
+      await pointerAway(page);
+      seen.agent = await zones(tab);
+      await tab.screenshot({ path: test.info().outputPath("browser-tab-kind-corner.png") });
+      const lead = (await tab.getByTestId("browser-tab-icon").boundingBox())!;
+      const mark = (await kindMark.boundingBox())!;
+
+      browserProcessPageV2.broadcastAgentActive(false);
+      await expect(kindMark).toHaveCount(0, { timeout: 10_000 });
+      await pointerAway(page);
+      seen.after = await zones(tab);
+
+      const tabBox = (await tab.boundingBox())!;
+      for (const [state, z] of Object.entries(seen)) {
+        console.log(`[e] ${state}: label x=${(z.label.x - tabBox.x).toFixed(2)} w=${z.label.width.toFixed(2)} | slot x=${(z.slot.x - tabBox.x).toFixed(2)} w=${z.slot.width.toFixed(2)}`);
+        expect(Math.abs(z.label.x - seen.rest.label.x), `label x in ${state}`).toBeLessThanOrEqual(SAME_PX);
+        expect(Math.abs(z.label.width - seen.rest.label.width), `label width in ${state}`).toBeLessThanOrEqual(SAME_PX);
+      }
+      // The mark sits on the favicon's corner: it starts inside the lead icon.
+      console.log(`[e] lead x=${lead.x - tabBox.x} w=${lead.width} | mark x=${mark.x - tabBox.x} w=${mark.width}`);
+      expect(mark.x, "the kind is a corner of the favicon, not a zone of its own").toBeLessThan(lead.x + lead.width);
+    } finally {
+      await deleteTopic(request, topic.id).catch(() => {});
+      await closeAllBrowserContexts(request);
+    }
+  });
+
+  test("f) TABSLOT-02: a 99+ count stays inside the slot, and the exact count is in the tab's name", async ({ page, request, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "TABSLOT-02" });
+    await resetPaneStore(request, [chatA.id, chatB.id]);
+    const ws = await interceptWebSocket(page);
+    await goToApp(page);
+    await page.keyboard.press("Escape");
+    await openTopic(page, new RegExp(chatB.name));
+    await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
+    const tab = page.locator(`[role="tab"][data-pane-id="${chatA.id}"]`);
+    const slot = tab.getByTestId("pane-tab-slot");
+    await expect(tab).toHaveAttribute("data-active", "false", { timeout: 15_000 });
+    const figure = slot.locator("[data-notification-count]");
+    await forceWideUiFont(page);
+
+    for (const [count, shown] of [[13, "13"], [150, "99+"]] as const) {
+      ws.send({ type: "unread:updated", topicId: chatA.id, unreadCount: count });
+      await pointerAway(page);
+      await expect(figure).toHaveText(shown, { timeout: 10_000 });
+      await expectInside(figure, slot, `badge ${shown}`);
+      await expect(tab, "the exact count is in the tab's accessible name").toHaveAttribute("aria-label", new RegExp(`\\b${count}\\b`));
+    }
+    await tab.screenshot({ path: test.info().outputPath("tab-99-plus.png") });
   });
 });
