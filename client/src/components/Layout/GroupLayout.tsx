@@ -10,6 +10,8 @@ import { DND_TYPES, dragMatchesScope } from '../../lib/dndTypes';
 import { paneCellBg, paneCellTopInset } from '../../lib/paneCellBg';
 import { CHROME_BAR, CHROME_BAR_CONSUMED, CHROME_BAR_H_VAR, CHROME_BAR_SUB, CHROME_BAR_SUB_H_CLASS } from '../../lib/selectionStyles';
 import { PaneKeepAlive } from './PaneKeepAlive';
+import { PaneEventLevel, PaneStage, StagedPane } from './PaneStage';
+import { PaneBody } from './PaneBody';
 import { paneShellOrder } from './paneShellOrder';
 import { useLayoutMobile } from '../../hooks/useMobile';
 import { usePaneResidency } from './hooks/usePaneResidency';
@@ -42,7 +44,6 @@ import { usePaneZoomChord } from './usePaneZoomChord';
 /** No cell revealed: the resting state, and a stable ref so the memo downstream
  *  does not invalidate on every render while there is no zoom. */
 const NO_ZOOM_CELLS: ReadonlySet<string> = new Set();
-
 
 interface GroupLayoutProps {
   panes: Pane[];
@@ -1087,9 +1088,9 @@ export function GroupLayout({
   }, [isZoomed]);
 
   // The same tree with the out-of-zoom cells at weight 0 (LAYOUT-35). It is
-  // WEIGHTS, not shape: node ids are untouched, `keyFor` keys leaves on
-  // `leaf:<id>` and splits on their INDEX among siblings, and neither depends on
-  // the weight — so entering and leaving remounts nothing. With no zoom it
+  // WEIGHTS, not shape: node ids are untouched, and `assignSplitKeys` keys
+  // leaves on `leaf:<id>` and splits on the leaves they carry, neither of which
+  // depends on the weight — so entering and leaving remounts nothing. With no zoom it
   // returns the identical tree, by ref, so this memo does not invalidate on a
   // no-op.
   const zoomedTree = useMemo(() => applyZoomWeights(treeRoot, zoomCellKeys), [treeRoot, zoomCellKeys]);
@@ -1290,6 +1291,13 @@ export function GroupLayout({
     // no-op — hide the entries instead of offering a silent failure
     // (handleSplitGroup used to just console.warn).
     const groupCanSplit = canSplitPane({ surface: 'project', groupSize: group.paneIds.length });
+    // Named once: on the element, and through its PaneEventLevel to the staged bodies.
+    const contentHandlers = {
+      onMouseDownCapture: () => { if (!isFocusedGroup && group.activePaneId) onActivatePane(gid, group.activePaneId); },
+      onDragOver: handleGroupContentDragOver(gid),
+      onDragLeave: handleGroupContentDragLeave(gid),
+      onDrop: handleGroupContentDrop(gid),
+    };
     return (
       <div data-split-card className={`relative flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${cardVar(rowIdx === 0).className}`} style={cardVar(rowIdx === 0).style}>
         {/* Per-group tab bar — h-10 to match the project sidebar header
@@ -1383,15 +1391,13 @@ export function GroupLayout({
             sopra, o si azzererebbe in gruppi che la riga non ce l'hanno. */}
         <div
           className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden relative ${belowSlot && gid === leadingGid ? CHROME_BAR_CONSUMED : ''}`}
-          onMouseDownCapture={() => {
-            if (!isFocusedGroup && group.activePaneId) {
-              onActivatePane(gid, group.activePaneId);
-            }
-          }}
-          onDragOver={handleGroupContentDragOver(gid)}
-          onDragLeave={handleGroupContentDragLeave(gid)}
-          onDrop={handleGroupContentDrop(gid)}
+          data-pane-content=""
+          onMouseDownCapture={contentHandlers.onMouseDownCapture}
+          onDragOver={contentHandlers.onDragOver}
+          onDragLeave={contentHandlers.onDragLeave}
+          onDrop={contentHandlers.onDrop}
         >
+          <PaneEventLevel selector="[data-pane-content]" handlers={contentHandlers}>
           {(() => {
             // Keep-alive render: every pane that has been visited
             // stays mounted; only the active one is visible. This
@@ -1442,13 +1448,14 @@ export function GroupLayout({
             // order: see paneShellOrder. Following the strip here would make a
             // reposition detach and re-attach live subtrees, which is a browser
             // pane reloading.
-            return (
-              <PaneAliveContext.Provider value={surfaceAlive && hasBox}>
-                {paneShellOrder(visiblePanes, stableKeyOf).map((pane) => {
-                  const isPaneActive = pane.id === group.activePaneId;
-                  return (
+            // STAGED (SPLITPERF-01): the body is mounted by the PaneStage and shown
+            // here; the Provider travels with it, the stage mounts it elsewhere.
+            return paneShellOrder(visiblePanes, stableKeyOf).map((pane) => {
+              const isPaneActive = pane.id === group.activePaneId;
+              return (
+                <StagedPane key={stableKeyOf(pane)} paneKey={stableKeyOf(pane)}>
+                  <PaneAliveContext.Provider value={surfaceAlive && hasBox}>
                     <PaneKeepAlive
-                      key={stableKeyOf(pane)}
                       paneKey={stableKeyOf(pane)}
                       isVisible={isPaneActive}
                       // Cell background tier (paneCellBg): `project`/`terminal`
@@ -1457,13 +1464,14 @@ export function GroupLayout({
                       // `bg-surface` so dense text stays crisp over the vibrancy.
                       className={`flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden ${paneCellBg(pane.type)} ${paneCellTopInset(pane.type)}`}
                     >
-                      {renderPane(pane, isFocusedGroup && isPaneActive, isPaneActive)}
+                      <PaneBody render={renderPane} pane={pane} focused={isFocusedGroup && isPaneActive} visible={isPaneActive} />
                     </PaneKeepAlive>
-                  );
-                })}
-              </PaneAliveContext.Provider>
-            );
+                  </PaneAliveContext.Provider>
+                </StagedPane>
+              );
+            });
           })()}
+          </PaneEventLevel>
 
           {/* Single-column split preview — a filled region the width of THIS
               column. On the bottom row (when full-width-row strips are live) its
@@ -1512,6 +1520,7 @@ export function GroupLayout({
     // mutates `rows` via onReorderRows, and the tree re-derives from `rows`, so the
     // reorder is structural, not a tree concern. Type-guarded (LAYOUT_ROW) inside
     // the handlers, so pane DnD passes straight through.
+    const rowHandlers = { onDragOver: handleRowDragOver(rowIdx), onDrop: handleRowDrop };
     const isDraggingRow = draggingRowIdx === rowIdx;
     const rowDropSide = rowDropTarget?.idx === rowIdx ? rowDropTarget.side : null;
     // THE THREE SIGNALS of an out-of-zoom cell, and they are three because none
@@ -1543,9 +1552,10 @@ export function GroupLayout({
         // index.css).
         data-drop-axis="y"
         data-drop-active={rowDropSide === 'top' ? 'before' : rowDropSide === 'bottom' ? 'after' : undefined}
-        onDragOver={handleRowDragOver(rowIdx)}
-        onDrop={handleRowDrop}
+        onDragOver={rowHandlers.onDragOver}
+        onDrop={rowHandlers.onDrop}
       >
+        <PaneEventLevel selector="[data-group-cell]" handlers={rowHandlers}>
         {onReorderRows && rows.length > 1 && groupIdx === 0 && (
           <div
             className="absolute left-0 top-0 w-3 h-full z-20 cursor-grab active:cursor-grabbing flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
@@ -1574,6 +1584,7 @@ export function GroupLayout({
             topInset={rowIdx === 0 && hasMultipleColumns ? TAB_BAR_H + FULL_ROW_GUTTER_PX : 0}
           />
         )}
+        </PaneEventLevel>
       </div>
     );
   };
@@ -1781,6 +1792,8 @@ export function GroupLayout({
         />
       )}
       <div className="pane-zoom-stage relative flex flex-col w-full h-full min-w-0 min-h-0">
+        {/* Every pane body of this surface is mounted here once (SPLITPERF-01). */}
+        <PaneStage>
         {isMobile
           ? renderMobile()
           : zoomedTree && (
@@ -1805,6 +1818,7 @@ export function GroupLayout({
               gutter={1}
             />
           )}
+        </PaneStage>
       </div>
     </div>
   );

@@ -71,8 +71,7 @@ The system SHALL support splitting the panel grid horizontally and vertically, r
 - **GIVEN** a browser pane is showing a loaded page inside a group
 - **WHEN** the user drags its tab out of that group and into another one
 - **THEN** the page is NOT reloaded: same document, same scroll, same session, and no loader is shown over it
-- **AND** the pane's own shell is still rebuilt, because it moves between two layouts — only the page is held outside them
-- **AND** panes of other types (terminal, editor) are not affected either way: a terminal reconnects to a process that never died, and an editor costs nothing to rebuild
+- **AND** the pane itself is not rebuilt either, and neither is any other pane: see SPLITPERF-01
 
 #### Scenario: Multi-row multi-column top-level grid
 - **GIVEN** the user has performed Split Down (creating 2 rows) and Split Right within one row
@@ -2733,6 +2732,59 @@ fatto fuori dai progetti.
 - **GIVEN** lo split appena fatto dentro il progetto
 - **WHEN** si ricarica l'applicazione
 - **THEN** la superficie del progetto SHALL avere di nuovo due foglie
+
+### Requirement: SPLITPERF-01 — Reorganising the splits rebuilds no pane, and a divider drag does not render per move
+
+Attilio, 29/09: "alla riorganizzazione degli split sia tutto perfettamente
+istantaneo performante e fluido". Measured on WebKit before this requirement,
+every gesture that changed WHERE a pane sits rebuilt it: the pane dragged into
+another group, into a new column, under a column or into a new row was mounted
+again from nothing (a terminal re-attaching, a chat re-reading its history, a
+browser pane reloading), and swapping two rows rebuilt every pane of both rows,
+because a row was keyed by its position. Every commit of the layout also
+re-rendered the body of every visible pane, for props that had not changed.
+
+The rule, on both tiling surfaces (the standalone grid and a project's grid):
+
+- A reorganisation (split by edge drop, split down, full-width row, move to
+  another split or group, swap of two rows or cells, close of a split, resize)
+  SHALL NOT mount again any pane that was open before it. Pane bodies are
+  mounted once per surface (`PaneStage`) and shown in the slot the layout draws
+  for them; a pane that changes place moves, it is not rebuilt.
+- The anonymous splits of the tree SHALL be keyed by the leaves they carry
+  (`splitKeys.ts`), never by their index, so inserting, removing or swapping a
+  row does not change the identity of the rows around it.
+- A cell SHALL keep the same structure with and without a vertical stack, so
+  splitting it down does not rebuild the group already in it.
+- The new tree SHALL be on screen by the second animation frame after the drop.
+- During a divider drag the layout SHALL commit a bounded number of times
+  (press and release), not once per pointer move, and no pane body SHALL render
+  while the divider moves: the drag writes the two flanking sizes to the DOM and
+  commits once on release.
+- A body SHALL render only when what it is rendered from changes (its pane, its
+  focus, its visibility, the host's renderer), not because the layout around it
+  did.
+
+The gate counts, it does not time: remounts (as React reports them and as the
+DOM shows them), commits and body renders do not depend on how loaded the
+machine is. Timings (pointer to next frame, frame gaps) are reported next to
+the load average.
+
+#### Scenario: Moving a pane keeps it and every other pane mounted
+- **GIVEN** a project grid with a chat holding a long transcript, a terminal, a browser pane, a files pane and a git pane, each visited once
+- **WHEN** the user splits right, splits down, moves a pane to another split, merges a pane into another group, adds a full-width row, swaps the two rows and closes a split
+- **THEN** after every gesture no pane that was open before it has been mounted again
+- **AND** the new tree is on screen by the second frame after the drop
+
+#### Scenario: The same on the standalone grid
+- **GIVEN** the standalone grid with two chats in the pool, a terminal and a browser pane in cells of their own
+- **WHEN** a chat tab is split right, moved into another cell, split down and merged back into the pool
+- **THEN** no pane that was open before a gesture has been mounted again after it
+
+#### Scenario: A divider drag does not render per move
+- **GIVEN** two columns side by side
+- **WHEN** the divider between them is dragged across 40 pointer moves and released
+- **THEN** the layout commits at most 4 times in total, and no pane body renders while the divider moves
 
 ### Requirement: LAYOUT-30 — L'aria a sinistra del nome di una riga si paga UNA VOLTA, non una per colonna riservata
 

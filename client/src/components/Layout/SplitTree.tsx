@@ -22,8 +22,11 @@
  * deleting it breaks all tiling.
  */
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { type LayoutNode, type SplitDir, isLeaf } from '../../state/layout/layoutTree';
+import { type LayoutNode, type SplitChild, type SplitDir, isLeaf } from '../../state/layout/layoutTree';
 import { gapHasDivider } from './splitDivider';
+import { assignSplitKeys, EMPTY_SPLIT_KEYS, type SplitKeyState } from './splitKeys';
+
+const NO_CHILDREN: readonly SplitChild[] = [];
 
 export interface SplitTreeProps {
   node: LayoutNode;
@@ -53,6 +56,23 @@ export interface SplitTreeProps {
 }
 
 export function SplitTree({ node, renderLeaf, gutter = 0, onResize, onEqualize, renderDivider, path = [] }: SplitTreeProps): React.ReactElement {
+  // Child keys that follow the CONTENT of each child across renders (see
+  // splitKeys.ts): a row inserted above, removed above or swapped with its
+  // neighbour keeps its key, so none of the panes under it is rebuilt. The
+  // previous assignment is state, updated during render when the children
+  // change (React's "information from previous renders" pattern): the keys have
+  // to be right in THIS render, an effect would be one commit too late.
+  const children = isLeaf(node) ? NO_CHILDREN : node.children;
+  const [tracked, setTracked] = useState<{ children: readonly SplitChild[]; keys: SplitKeyState }>(() => ({
+    children,
+    keys: assignSplitKeys(EMPTY_SPLIT_KEYS, children),
+  }));
+  let childKeys = tracked.keys;
+  if (tracked.children !== children) {
+    childKeys = assignSplitKeys(tracked.keys, children);
+    setTracked({ children, keys: childKeys });
+  }
+
   if (isLeaf(node)) {
     return (
       <div data-split-leaf={node.id} style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0 }}>
@@ -94,7 +114,7 @@ export function SplitTree({ node, renderLeaf, gutter = 0, onResize, onEqualize, 
         // map the gap back to its own model (e.g. legacy rowIdx/colIdx).
         const custom = showGap && renderDivider ? renderDivider({ path, dividerIdx: i - 1, dir: node.dir }) : null;
         return (
-          <React.Fragment key={keyFor(child.node, i)}>
+          <React.Fragment key={childKeys.keys[i]}>
             {showGap && (custom ?? (
               <Divider
                 dir={node.dir}
@@ -129,16 +149,6 @@ export function SplitTree({ node, renderLeaf, gutter = 0, onResize, onEqualize, 
       })}
     </div>
   );
-}
-
-/** A stable React key for a child slot. Leaves key on their opaque id (so a leaf
- *  that moves keeps its identity / DOM subtree). A split keys on its sibling
- *  INDEX alone — NOT its first-leaf id: in a 1:1-with-gridRows tree, closing the
- *  first column of a row would otherwise re-key that row (split:0:A → split:0:B)
- *  and remount every untouched sibling subtree (terminal PTY reset, native
- *  browser reload, lost chat draft). Index matches the legacy `key={rowIdx}`. */
-function keyFor(node: LayoutNode, index: number): string {
-  return isLeaf(node) ? `leaf:${node.id}` : `split:${index}`;
 }
 
 interface DividerProps {

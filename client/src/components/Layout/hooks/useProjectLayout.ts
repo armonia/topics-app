@@ -451,7 +451,11 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
       if (previewCloseTopicId) pendingPreviewCloseRef.current = previewCloseTopicId;
       return next;
     });
-  }, [panes, focusedGroupIdRef]);
+    // `groups` too, and not only `panes`: a group written by another path
+    // (the empty-project migration) can list a pane this pass already placed,
+    // and only a pass run AFTER that write can drop the duplicate. With nothing
+    // to do the pass returns `prev` itself, so this re-run renders nothing.
+  }, [panes, groups, focusedGroupIdRef]);
 
   // --- The second half of a postponed self-split ---
   // `handleSplitGroup` parks the gesture when the group holds a single pane and

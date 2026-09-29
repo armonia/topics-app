@@ -324,8 +324,8 @@ test.describe("Repositioning a tab keeps the pane alive", () => {
 
     // The tab leaves its group for the window strip above: a cross-group move,
     // the other half of "repositioning a tab". The pane that changes group is
-    // rebuilt - React has no way to re-parent a live subtree - but that is its
-    // own business: the panes that did not move must not notice anything.
+    // REORD-03's subject (since SPLITPERF-01 it is moved, not rebuilt); here the
+    // panes that did not move must not notice anything.
     const src = stripOf(page, `browser:${t1}`).locator(`[data-pane-id="browser:${t1}"]`).first();
     const target = page.locator('[role="main"] [data-testid="panel-tab-bar"]').first()
       .locator(`[data-pane-id="${t1}"]`).first();
@@ -352,11 +352,10 @@ test.describe("Repositioning a tab keeps the pane alive", () => {
 
   test("REORD-03: the BROWSER pane that changed group keeps its page", async ({ page }) => {
     test.info().annotations.push({ type: "spec", description: "LAYOUT-01" });
-    // The half REORD-02 deliberately leaves out. There the moved pane is allowed
-    // to be rebuilt ("React has no way to re-parent a live subtree") and only the
-    // bystanders are asserted on; here the moved pane IS the subject, because for
-    // an iframe a rebuild is not a remount, it is the page loading again and the
-    // user's scroll, form and session going with it.
+    // The half REORD-02 deliberately leaves out. There only the bystanders are
+    // asserted on; here the moved pane IS the subject, because for an iframe a
+    // rebuild is not a remount, it is the page loading again and the user's
+    // scroll, form and session going with it.
     //
     // Browser panes ONLY, and the scope is a decision, not an omission: a
     // terminal reconnects to a PTY that lives in another process and loses
@@ -399,24 +398,24 @@ test.describe("Repositioning a tab keeps the pane alive", () => {
     // the bar as "one iframe" and a reader should not have to infer it.
     const iframes = await page.locator('[data-testid="browser-iframe"]').count();
     const moved = forPane(probe, `browser:${t1}`);
-    // THE SHELL STILL DETACHES, AND THAT IS THE SHAPE OF THE ANSWER, not a
-    // shortfall hidden in a number. The pane really does move from one group's
-    // React tree to another, and nothing short of hosting EVERY pane outside the
-    // layout would stop that - which is the option card 0624e184 weighed and
-    // rejected, in favour of "only the browser". What option 2 owes is that the
-    // move costs the page nothing, and those are the three zeros below: the
-    // document is not reloaded, the frame is not rebuilt, no loader is painted.
+    // THE SHELL NO LONGER DETACHES. Card 0624e184 first held only the page
+    // outside the layout ("only the browser") and pinned this at 1: the pane's
+    // shell was rebuilt by React on every change of group. SPLITPERF-01 then
+    // hosted EVERY pane body outside the layout (`PaneStage`): the shell is
+    // mounted once per surface and its container is moved from the old slot to
+    // the new one, so React never removes the shell node and the probe, which
+    // counts removed `[data-pane-shell]` nodes, reads 0. The page was already
+    // safe, and still is: those are the three zeros above it.
     //
-    // Pinned at exactly 1 rather than waved through: 2 would mean the pane is
-    // being remounted twice, and 0 would mean the whole-pane host landed after
-    // all and this test should be read again.
+    // Pinned at exactly 0: 1 would mean the pane is rebuilt again when it
+    // changes group, which is the flash SPLITPERF-01 removed.
     expect({
       pageKept: { iframeLoads: moved.iframeLoads, iframeMounts: moved.iframeMounts, spinners: moved.spinners },
       shellDetaches: moved.shellDetaches,
       iframes,
     }).toEqual({
       pageKept: { iframeLoads: 0, iframeMounts: 0, spinners: 0 },
-      shellDetaches: 1,
+      shellDetaches: 0,
       iframes: 2,
     });
   });

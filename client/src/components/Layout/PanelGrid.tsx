@@ -53,6 +53,7 @@ import { recordSoloTombstones, restoreFromSoloTombstones, type SoloCellTombstone
 import { pushUndo } from '../../contexts/UndoContext';
 import { useRefMirror } from '../../hooks/useRefMirror';
 import { SplitTree } from './SplitTree';
+import { PaneEventLevel, PaneStage } from './PaneStage';
 import { usePaneZoomChord } from './usePaneZoomChord';
 import { type LayoutNode } from '../../state/layout/layoutTree';
 import { buildShallowGridTree } from '../../state/layout/legacyAdapters';
@@ -2821,9 +2822,9 @@ export function PanelGrid({
   );
 
   // The same tree with the out-of-zoom cells at weight 0. It is WEIGHTS, not
-  // shape: node ids are untouched, `keyFor` keys leaves on `leaf:<id>` and
-  // splits on the INDEX among siblings, and neither of the two depends on the
-  // weight — so entering and leaving remounts nothing. With no zoom it returns
+  // shape: node ids are untouched, and `assignSplitKeys` keys leaves on
+  // `leaf:<id>` and splits on the leaves they carry, neither of which depends
+  // on the weight — so entering and leaving remounts nothing. With no zoom it returns
   // the identical tree, by ref, and this memo never invalidates for a no-op.
   const zoomedTree = useMemo(
     () => applyZoomWeights(treeRoot, zoomCellKeys),
@@ -2886,12 +2887,17 @@ export function PanelGrid({
     // which goes all the way down to the panes.
     const cellHasBox = !isZoomed || zoomCellKeys.has(key);
     // D14: the centre-merge preview belongs to the SLOT a release would join.
-    // With no stack, `CellSubStack` renders the primary bare and the overlay
-    // anchors to the cell exactly as it did before; with one, it anchors to the
-    // slot, so a stacked pane's body finally says it is the target.
+    // With no stack the primary slot of `CellSubStack` fills the whole cell, so
+    // the overlay covers the cell exactly as it did before; with one, it
+    // anchors to the slot, so a stacked pane's body finally says it is the
+    // target.
     const centerLeafKey = isTabTarget && zone === 'center'
       ? (gridDropTarget!.leafKey ?? key)
       : null;
+    const cellHandlers = {
+      onDragOverCapture: handleGridItemDragOverCapture(rowIdx, colIdx),
+      onDropCapture: handleGridItemDropCapture,
+    };
     const primaryGroup = (
       <>
         {renderGroupForKey(item, key, rowIdx, colIdx, cellHasBox)}
@@ -2908,9 +2914,12 @@ export function PanelGrid({
             : undefined,
         }}
         data-panel-cell={`${rowIdx}-${colIdx}`}
-        onDragOverCapture={handleGridItemDragOverCapture(rowIdx, colIdx)}
-        onDropCapture={handleGridItemDropCapture}
+        onDragOverCapture={cellHandlers.onDragOverCapture}
+        onDropCapture={cellHandlers.onDropCapture}
       >
+        {/* The bodies inside are staged (PaneStage): their drags reach this
+            cell's capture handlers through the level. */}
+        <PaneEventLevel selector="[data-panel-cell]" handlers={cellHandlers}>
         {showSplitRegion && (
           <SplitRegion
             zone={zone as 'left' | 'right' | 'top' | 'bottom'}
@@ -2922,7 +2931,11 @@ export function PanelGrid({
             gutterInset={cellGutters(rowIdx).bottom}
           />
         )}
-        {stack ? (
+        {/* ALWAYS through CellSubStack, stack or not: it keeps the primary at
+            the same place in the tree either way, so splitting this cell
+            down (or closing its stack) does not rebuild the group that was
+            already here (SPLITPERF-01). */}
+        {(
           <CellSubStack
             stack={stack}
             primary={primaryGroup}
@@ -2940,7 +2953,8 @@ export function PanelGrid({
             onResize={(nextHeights) => handleCellStackResize(rowIdx, key, nextHeights)}
             isDragActive={isAnyDragActive}
           />
-        ) : primaryGroup}
+        )}
+        </PaneEventLevel>
       </div>
     );
   }, [itemMap, keyPos, effectiveGridRows, gridDropTarget, draggingGridKey, handleGridItemDragOverCapture, handleGridItemDropCapture, renderGroupForKey, handleCellStackResize, isAnyDragActive, isZoomed, zoomCellKeys, cellGutters]);
@@ -3139,6 +3153,10 @@ export function PanelGrid({
         // viewport the legacy path stacks columns vertically and equalizes them;
         // the tree has no mobile mode, so we keep the legacy branch below ONLY as
         // the mobile (<768px) renderer (matches isMobile in that branch).
+        // The stage of the grid: every pane body of every cell is mounted here
+        // once and shown in its cell, so moving a tab to another cell, splitting
+        // or swapping cells rebuilds none of them (SPLITPERF-01).
+        <PaneStage>
         <SplitTree
           node={zoomedTree}
           renderLeaf={renderTreeLeaf}
@@ -3158,6 +3176,7 @@ export function PanelGrid({
           onEqualize={isZoomed ? undefined : handleTreeEqualize}
           gutter={1}
         />
+        </PaneStage>
       ) : effectiveGridRows.map((row, rowIdx) => (
         <Fragment key={rowIdx}>
           <div

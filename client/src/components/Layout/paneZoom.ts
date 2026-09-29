@@ -7,8 +7,9 @@
  * set forced to 0. `SplitTree` sizes each child with `flex: <weight> 1 0%`, so a
  * single non-zero sibling takes the whole band, and `gapHasDivider` drops the
  * divider next to a zero-weight child on its own. Node ids are preserved
- * untouched, which is the reason nothing remounts: `keyFor` keys leaves on
- * `leaf:<id>` and splits on their sibling INDEX, both invariant to weight.
+ * untouched, which is the reason nothing remounts: `assignSplitKeys` keys
+ * leaves on `leaf:<id>` and splits on the leaves they carry, both invariant to
+ * weight.
  *
  * Everything here is pure: no store import, no React, no DOM. The surfaces
  * (PanelGrid, GroupLayout) inject their own rows and item map, so one behaviour

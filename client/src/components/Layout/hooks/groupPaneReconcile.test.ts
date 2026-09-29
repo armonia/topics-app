@@ -149,3 +149,28 @@ describe('reconcileGroupsWithPanes — anteprima', () => {
     expect(out.previewCloseTopicId).toBeNull();
   });
 });
+
+describe('reconcileGroupsWithPanes — one group per pane', () => {
+  test('a pane listed by two groups stays in the first, and the emptied second group goes', () => {
+    const panes = [chatPane('chat:a')];
+    const { groups } = reconcileGroupsWithPanes(
+      [group('g1', ['chat:a']), group('g2', ['chat:a'])],
+      panes,
+      null,
+    );
+    expect(groups.map((g) => [g.id, g.paneIds])).toEqual([['g1', ['chat:a']]]);
+  });
+
+  test('a later group keeps its other panes when it loses the duplicate', () => {
+    const panes = [chatPane('chat:a'), chatPane('chat:b')];
+    const { groups } = reconcileGroupsWithPanes(
+      [group('g1', ['chat:a']), group('g2', ['chat:a', 'chat:b'])],
+      panes,
+      null,
+    );
+    expect(groups.map((g) => [g.id, g.paneIds, g.activePaneId])).toEqual([
+      ['g1', ['chat:a'], 'chat:a'],
+      ['g2', ['chat:b'], 'chat:b'],
+    ]);
+  });
+});
