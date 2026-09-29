@@ -552,6 +552,45 @@ sbagliando verso il silenzio.
 - **GIVEN** un percorso simile ma diverso
 - **THEN** NON SHALL essere silenziato
 
+### Requirement: PUSH-05 — Il telefono si iscrive con un tocco, e ogni spinta lascia una riga
+
+Il service worker SHALL registrarsi su OGNI origine sicura fuori dal guscio
+desktop, non solo su `localhost`: il telefono non arriva mai come `localhost`, e
+senza worker non esiste nessuna iscrizione. Un worker assente NON SHALL tenere
+appeso il tocco su «Attiva»: il tocco SHALL registrarlo da sé, e una
+registrazione che fallisce SHALL essere DETTA nella card, con il rimedio, invece
+di sembrare «non iscritto».
+
+Il tocco su «Attiva su questo dispositivo» SHALL chiedere il permesso DENTRO il
+gesto, iscrivere il dispositivo e lasciare la riga sul server; la riga SHALL
+sopravvivere a un ricarico della app. Togliere l'iscrizione SHALL togliere
+quella riga e nessun'altra.
+
+Ogni spinta SHALL essere una richiesta FIRMATA (VAPID) e CIFRATA per quel solo
+dispositivo, con il suo momento-in-cui-aprire dentro. Il registro SHALL avere
+una riga per ogni consegna, per ogni rifiuto — con la ragione del servizio di
+consegna — e per ogni iscrizione scaduta, che SHALL sparire dalla tabella; e
+SHALL dire quando non c'è NESSUN dispositivo a cui mandare, invece di tacere.
+
+Una chat che ASPETTA te (una domanda, un piano da approvare, un permesso) SHALL
+mandare una spinta all'ENTRATA nell'attesa, col nome dell'argomento e la
+domanda, con le stesse regole di silenzio della fine risposta; la stessa attesa
+ripetuta NON SHALL mandarne una seconda. Una pagina iscritta NON SHALL
+aggiungere il proprio banner a quella spinta.
+
+#### Scenario: il telefono su un indirizzo che non è localhost
+- **GIVEN** la app aperta su un'origine sicura diversa da `localhost`
+- **WHEN** si tocca «Attiva su questo dispositivo» e si concede il permesso
+- **THEN** la riga SHALL comparire sul server, e dopo un ricarico il worker SHALL esserci ancora
+
+#### Scenario: nessun dispositivo iscritto
+- **GIVEN** zero iscrizioni consegnabili
+- **THEN** il registro SHALL dirlo con una riga, senza nessuna richiesta in uscita
+
+#### Scenario: la stessa attesa ritrasmessa
+- **GIVEN** una chat in attesa la cui fase viene ritrasmessa
+- **THEN** SHALL partire una spinta sola; una domanda NUOVA dopo la ripresa SHALL mandarne un'altra
+
 ### Requirement: SEEN-01
 
 Il pallino di attenzione su una card di GRUPPO SHALL spegnersi quando la chat

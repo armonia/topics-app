@@ -3,6 +3,7 @@
  * cui un dispositivo si iscrive davvero al push.
  *
  * @covers CMD-02
+ * @covers PUSH-05
  */
 import { describe, expect, test } from 'bun:test';
 import { inPageBannerAllowed, PUSH_COVERED_EVENTS, type NotifyEventKind } from './pushVoice';
@@ -26,5 +27,10 @@ describe('inPageBannerAllowed', () => {
     // push» li perderebbe senza che nessuno lo dica.
     expect(PUSH_COVERED_EVENTS.has('session:state')).toBe(false);
     expect(inPageBannerAllowed(true, 'session:state')).toBe(true);
+  });
+
+  test('a chat waiting on you is pushed by the server, so a subscribed page stays quiet on it (PUSH-05)', () => {
+    expect(inPageBannerAllowed(false, 'chat:waiting')).toBe(true);
+    expect(inPageBannerAllowed(true, 'chat:waiting')).toBe(false);
   });
 });

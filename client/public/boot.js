@@ -100,7 +100,7 @@
   } catch (e) {}
 })();
 
-// ---- Service Worker (PWA) — only on localhost or cloudflare tunnels ----
+// ---- Service Worker (PWA): on every secure origin outside the desktop shell ----
 // NEVER under the desktop shell: it serves the UI from tauri://localhost (hostname
 // is literally `localhost`), so an SW would precache the app shell and then serve
 // that STALE shell on every launch — bypassing embedded/disk-serve and pinning the
@@ -109,9 +109,14 @@
 // Under Tauri we fall into the else-branch below → any previously-registered SW is
 // unregistered, self-healing an app that was pinned by a stale SW.
 if ('serviceWorker' in navigator) {
-  var host = window.location.hostname;
   var isTauriShell = window.location.protocol === 'tauri:' || !!(window.__TAURI_INTERNALS__ || window.__TAURI__);
-  var shouldRegisterSW = !isTauriShell && (host === 'localhost' || host.endsWith('.trycloudflare.com'));
+  // Any SECURE origin, not a list of host names. The list was `localhost` and
+  // `*.trycloudflare.com`, and the phone reaches Topics by neither (the LAN
+  // name, the Tailscale address, the relay host): there the else-branch below
+  // unregistered the worker at every load, so no push subscription could ever
+  // exist and `push_subscriptions` stayed at 0 rows. The worker is
+  // network-first, so a registered one does not pin a stale shell.
+  var shouldRegisterSW = !isTauriShell && window.isSecureContext === true;
   window.addEventListener('load', function () {
     if (shouldRegisterSW) {
       navigator.serviceWorker.register('/sw.js')

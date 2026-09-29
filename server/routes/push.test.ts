@@ -202,6 +202,38 @@ describe("iscrizione — la porta che mancava", () => {
   });
 });
 
+describe("unsubscribe and the public key (PUSH-05)", () => {
+  // `initVapid` writes the key pair into the state dir: keep it out of the checkout.
+  const savedDataDir = process.env.TOPICS_DATA_DIR;
+  beforeAll(() => { process.env.TOPICS_DATA_DIR = tmpRoot; });
+  afterAll(() => {
+    if (savedDataDir === undefined) delete process.env.TOPICS_DATA_DIR;
+    else process.env.TOPICS_DATA_DIR = savedDataDir;
+  });
+
+  test("unsubscribe removes exactly that endpoint's row", async () => {
+    await subscribe("dev-iphone", "https://web.push.apple.com/abc", IPHONE_UA);
+    await subscribe("dev-mac", "https://updates.push.services.mozilla.com/xyz", MAC_UA);
+    const r = await call("POST", "/api/push/unsubscribe", { endpoint: "https://web.push.apple.com/abc" });
+    expect(r.status).toBe(200);
+    expect(rows().map((x) => x.device_id)).toEqual(["dev-mac"]);
+  });
+
+  test("unsubscribe without an endpoint is a 400 and touches nothing", async () => {
+    await subscribe("dev-iphone", "https://web.push.apple.com/abc", IPHONE_UA);
+    const r = await call("POST", "/api/push/unsubscribe", {});
+    expect(r.status).toBe(400);
+    expect(countSubscriptions()).toBe(1);
+  });
+
+  test("the VAPID public key the browser subscribes with is served as a string", async () => {
+    const r = await call("GET", "/api/push/vapid-public-key");
+    expect(r.status).toBe(200);
+    expect(typeof r.body.publicKey).toBe("string");
+    expect(r.body.publicKey.length).toBeGreaterThan(0);
+  });
+});
+
 describe("preferenze PER DISPOSITIVO", () => {
   test("spegnere il telefono non spegne il Mac — misurato sulle righe", async () => {
     await subscribe("dev-iphone", "https://web.push.apple.com/abc", IPHONE_UA);

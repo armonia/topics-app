@@ -70,12 +70,30 @@ export function pushCapable(): boolean {
     && 'PushManager' in window;
 }
 
-export function readPushEnvironment(subscribed: boolean): PushEnvironment {
+export function readPushEnvironment(subscribed: boolean, serviceWorkerFailed = false): PushEnvironment {
   return {
     capable: pushCapable(),
     permission: webNotificationPermission() as WebPermission,
     subscribed,
     nativeShell: shellKind === 'tauri',
     iosNeedsInstall: isIosWithoutInstall(),
+    serviceWorkerFailed,
   };
+}
+
+/**
+ * The service worker registration that carries the push subscription, made on
+ * demand when there is none.
+ *
+ * `navigator.serviceWorker.ready` never settles on a page without a
+ * registration: before this, a phone whose worker had not been registered by
+ * `boot.js` waited forever inside the "Enable" tap, with the button disabled and
+ * nothing written anywhere. Registering here makes the tap self-sufficient, and
+ * a registration that throws (an untrusted certificate, typically) surfaces as
+ * an error the caller can show.
+ */
+export async function ensurePushRegistration(): Promise<ServiceWorkerRegistration> {
+  const existing = await navigator.serviceWorker.getRegistration();
+  if (!existing) await navigator.serviceWorker.register('/sw.js');
+  return navigator.serviceWorker.ready;
 }

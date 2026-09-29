@@ -32,6 +32,9 @@ export interface PushEnvironment {
    *  l'API di push semplicemente NON esiste finché non aggiungi alla Home, e
    *  l'unico in cui «non supportato» ha un rimedio. */
   iosNeedsInstall: boolean;
+  /** The last attempt to register the service worker threw. Push rides on it,
+   *  and on a phone there is no console to read the reason in. */
+  serviceWorkerFailed?: boolean;
 }
 
 export type PushHealth = 'on' | 'off' | 'blocked' | 'unavailable';
@@ -41,10 +44,14 @@ export interface PushStatusView {
   health: PushHealth;
   /** Perché siamo in questo stato: `denied` e `unsupported` chiedono rimedi
    *  diversi e non vanno confusi in un unico «non funziona». */
-  reason: 'subscribed' | 'not-subscribed' | 'denied' | 'ios-needs-install' | 'unsupported' | 'native-shell';
+  reason: 'subscribed' | 'not-subscribed' | 'denied' | 'ios-needs-install' | 'unsupported' | 'native-shell' | 'service-worker-failed';
   headline: string;
   /** La riga che dice dove si rimedia. Vuota quando non c'è niente da fare. */
   hint: string;
+  /** i18n keys that, when present, replace `headline` / `hint`. New states
+   *  carry their copy in the catalogue instead of in this module. */
+  headlineKey?: string;
+  hintKey?: string;
   /** L'interruttore «iscrivi questo dispositivo» ha senso premerlo adesso? */
   canSubscribe: boolean;
 }
@@ -101,6 +108,21 @@ export function describePushState(env: PushEnvironment): PushStatusView {
       headline: 'Questo browser non supporta le notifiche a app chiusa',
       hint: '',
       canSubscribe: false,
+    };
+  }
+
+  // Before `subscribed`: a registration that throws means no subscription can
+  // exist here, whatever an earlier state said. The button stays: once the
+  // cause is fixed (usually the certificate of this address), a tap retries.
+  if (env.serviceWorkerFailed) {
+    return {
+      health: 'blocked',
+      reason: 'service-worker-failed',
+      headline: '',
+      hint: '',
+      headlineKey: 'notif.push.swFailed',
+      hintKey: 'notif.push.swFailedHint',
+      canSubscribe: true,
     };
   }
 

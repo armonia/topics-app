@@ -485,6 +485,87 @@ describe("maybeSendPush — turno morto (chat-error)", () => {
 });
 
 /**
+ * A chat BLOCKED on you (PUSH-05): the entry into `awaiting-approval` pushes
+ * once, named after the topic and carrying the question, with the same mute
+ * rules as the reply push. Re-broadcasts of the same wait stay quiet.
+ */
+describe("maybeSendPush: a chat waiting for you (session:state)", () => {
+  const sent: NotificationRecordInput[] = [];
+  const SESSION_TOPIC: Record<string, string> = {
+    "topic:tp1": "tp1",
+    "topic:zzz": "zzz",
+    "topic:arch": "arch",
+    "topic:quiet": "quiet",
+  };
+  beforeEach(() => {
+    pushCalls.length = 0;
+    sent.length = 0;
+    configurePushTriggers({
+      getTopicName: (id: string) => TOPICS[id]?.name ?? null,
+      isTopicSilenced: (id: string) => isTopicSilenced(TOPICS[id] ?? null, MUTED_PROJECTS),
+      recordNotification: (input) => { sent.push(input); },
+      topicIdForSessionKey: (sk: string) => SESSION_TOPIC[sk] ?? null,
+    });
+  });
+
+  const waiting = (sessionKey: string, requestedAt = 1000, prompt = "Quale schema uso, A o B?") => ({
+    type: "session:state",
+    sessionKey,
+    state: { claudeSessionId: "c1", phase: "awaiting-approval", rev: 3, phaseUpdatedAt: requestedAt, pendingApproval: { kind: "other", prompt, requestedAt } },
+  });
+  const running = (sessionKey: string) => ({
+    type: "session:state",
+    sessionKey,
+    state: { claudeSessionId: "c1", phase: "running", rev: 4, phaseUpdatedAt: 2000 },
+  });
+
+  test("the entry into the wait pushes once: topic name, the question, deep link to the topic, registry row", () => {
+    maybeSendPush(waiting("topic:tp1"));
+    expect(pushCalls).toHaveLength(1);
+    expect(pushCalls[0]).toEqual({
+      title: "❓ Rifai la migration",
+      body: "Quale schema uso, A o B?",
+      tag: "chat-wait-tp1",
+      url: "/topic/tp1",
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ kind: "session", targetKind: "topic", targetId: "tp1", dedupeKey: "session:tp1:awaiting-approval", source: "push" });
+  });
+
+  test("the same wait re-broadcast does not push again; a NEW question after resuming does", () => {
+    maybeSendPush(waiting("topic:tp1", 1000));
+    maybeSendPush(waiting("topic:tp1", 1000));
+    expect(pushCalls).toHaveLength(1);
+    maybeSendPush(running("topic:tp1"));
+    maybeSendPush(waiting("topic:tp1", 5000, "E adesso?"));
+    expect(pushCalls).toHaveLength(2);
+    expect(pushCalls[1].body).toBe("E adesso?");
+  });
+
+  test("without a question text, and without a topic name, it still pushes with generic copy", () => {
+    maybeSendPush(waiting("topic:zzz", 1000, ""));
+    expect(pushCalls).toHaveLength(1);
+    expect(pushCalls[0].title).toBe("❓ Claude ti sta aspettando");
+    expect(pushCalls[0].body.length).toBeGreaterThan(0);
+  });
+
+  test("quiet for an archived topic, a muted project, a session with no topic, and a terminal (no session key)", () => {
+    maybeSendPush(waiting("topic:arch"));
+    maybeSendPush(waiting("topic:quiet"));
+    maybeSendPush(waiting("topic:unknown"));
+    maybeSendPush({ ...waiting("x"), sessionKey: null });
+    expect(pushCalls).toHaveLength(0);
+  });
+
+  test("quiet for every other phase: the turn end has its own push (stream:end)", () => {
+    for (const phase of ["running", "tool-running", "awaiting-user", "completed", "error"]) {
+      maybeSendPush({ type: "session:state", sessionKey: "topic:tp1", state: { claudeSessionId: "c1", phase, rev: 1 } });
+    }
+    expect(pushCalls).toHaveLength(0);
+  });
+});
+
+/**
  * Il gate, da solo. `maybeSendPush` lo esercita attraverso l'iniezione; qui si
  * fissano i casi limite che in prod arrivano dal DB e da un JSON scritto dal
  * client — inclusi i due versi di sicurezza, che sono opposti apposta.

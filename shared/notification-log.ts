@@ -137,6 +137,13 @@ export function chatErrorNotificationKey(topicId: string): string {
   return `chat-error:${topicId}`;
 }
 
+/** A chat BLOCKED on you (a question, a plan to approve, a permission): the
+ *  page banner and the phone push announce the same wait, so one row. The
+ *  shape is the one the page banner already wrote before the push existed. */
+export function chatWaitingNotificationKey(topicId: string): string {
+  return `session:${topicId}:awaiting-approval`;
+}
+
 export function taskReviewNotificationKey(taskId: string): string {
   return `task-review:${taskId}`;
 }

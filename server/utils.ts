@@ -1226,6 +1226,8 @@ export function createAppContext(baseDir: string): AppContext {
     // cronologia avrebbe un buco proprio dove serve di più — quando torni al
     // computer e vuoi sapere cosa è successo mentre non c'eri.
     recordNotification: (input) => { recordAndAnnounce(input); },
+    // `session:state` names only the session: the waiting-for-you push needs the topic.
+    topicIdForSessionKey: (sessionKey) => getTopicBySessionKey(sessionKey)?.id ?? null,
   });
 
   // Il registro delle notifiche: come sopra, i due dati che gli mancano — dove

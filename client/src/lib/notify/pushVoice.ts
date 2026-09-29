@@ -26,6 +26,9 @@ export type NotifyEventKind =
   | 'task:parked'
   | 'message:new'
   | 'stream:end'
+  // A chat blocked on you (question, plan, permission): the server pushes it
+  // from the same `session:state` frame. Terminal sessions stay `session:state`.
+  | 'chat:waiting'
   | 'session:state';
 
 /**
@@ -41,6 +44,8 @@ export const PUSH_COVERED_EVENTS: ReadonlySet<NotifyEventKind> = new Set<NotifyE
   'message:new',
   // The clean end of a chat turn IS the server's reply push, the very same frame.
   'stream:end',
+  // A chat waiting on you: `maybeSendPush` announces its entry into awaiting-approval.
+  'chat:waiting',
 ]);
 
 /**
