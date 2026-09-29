@@ -1,5 +1,41 @@
 [
   {
+    "version": "2.2.413",
+    "date": "2026-09-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "The bundle keeps the chunks of the generations windows still run, for three days and forty builds",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A chunk that fails to load is never silent, and the model chip opens again once it is back",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The divider-drag budget measures the drag alone, and the matrix reads a preview by frames instead of racing React's commit",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A chunk that threw is not an old build, and the reload prompt no longer sits on the composer",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The build's generation record is never served, and LAND-11 keeps the generations a live window still runs",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.412",
     "date": "2026-09-29",
     "sections": {
@@ -8,7 +44,22 @@
       "perf": [],
       "internal": [
         {
+          "it": "Reorganising the splits rebuilds no pane: bodies are mounted once per surface and moved between slots, rows keep their key, a split-down keeps its cell",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The browser tab's kind in words lives in its own module, so the tab chrome exports components only",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The divider-drag budget counts the commits of the layout, and the row swap waits for its hover to land",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The split-reorg budget speaks English in its comments and names",
           "en": "",
           "scope": null
         }

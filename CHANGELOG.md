@@ -2,10 +2,22 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.413 — 2026-09-29
+
+### Sotto il cofano
+- The bundle keeps the chunks of the generations windows still run, for three days and forty builds
+- A chunk that fails to load is never silent, and the model chip opens again once it is back
+- The divider-drag budget measures the drag alone, and the matrix reads a preview by frames instead of racing React's commit
+- A chunk that threw is not an old build, and the reload prompt no longer sits on the composer
+- The build's generation record is never served, and LAND-11 keeps the generations a live window still runs
+
 ## 2.2.412 — 2026-09-29
 
 ### Sotto il cofano
+- Reorganising the splits rebuilds no pane: bodies are mounted once per surface and moved between slots, rows keep their key, a split-down keeps its cell
 - The browser tab's kind in words lives in its own module, so the tab chrome exports components only
+- The divider-drag budget counts the commits of the layout, and the row swap waits for its hover to land
+- The split-reorg budget speaks English in its comments and names
 
 ## 2.2.411 — 2026-09-29
 
