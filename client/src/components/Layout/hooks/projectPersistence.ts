@@ -140,6 +140,21 @@ export function withSessionOnlyPanes(projectPath: string, nonChatPanes: Pane[]):
   return missing.length > 0 ? [...nonChatPanes, ...missing] : nonChatPanes;
 }
 
+/**
+ * Forget everything this page keeps for a project window: its two
+ * localStorage keys and the session-only panes above. Archiving calls it, so
+ * un-archiving starts from a clean layout. Removing only the keys left the
+ * page memory behind, and a project archived, restored and reopened in the
+ * same page brought back the background preview tab it had before.
+ */
+export function forgetProjectPersistence(projectPath: string): void {
+  sessionOnlyPanes.delete(projectPath);
+  try {
+    localStorage.removeItem(storageKey(projectPath));
+    localStorage.removeItem(layoutStorageKey(projectPath));
+  } catch { /* private mode: nothing was stored */ }
+}
+
 /** Subscribe to async hydration of `projects[path]` from the pane reducer
  * (WS init, cross-device sync). Wraps `loadProjectLayout`'s callback param
  * with shape-detection so callers always receive a `PersistedTabState`,

@@ -7,8 +7,12 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
+  forgetProjectPersistence,
+  layoutStorageKey,
+  loadPersistedState,
   rememberSessionOnlyPanes,
   selectNonChatPanesToPersist,
+  storageKey,
   withSessionOnlyPanes,
 } from './projectPersistence';
 import { createPaneId } from '../../../state/pane/adapters';
@@ -122,5 +126,66 @@ describe('rememberSessionOnlyPanes / withSessionOnlyPanes', () => {
     const persisted = [git];
     rememberSessionOnlyPanes(PROJECT, [chat, wrapper, git], persisted);
     expect(withSessionOnlyPanes(PROJECT, persisted)).toBe(persisted);
+  });
+});
+
+// Archiving a project removes its snapshot so that un-archiving starts from a
+// clean layout (usePanelLifecycle, handleArchiveProject). The page memory above
+// is part of that state: left behind, a project archived, restored and reopened
+// in the same page brought back the background preview it had before.
+describe('forgetProjectPersistence (archive)', () => {
+  const ARCHIVED = '/tmp/archived-proj';
+
+  /** In-memory localStorage, removed afterwards: see the shim note in
+   *  `usePanelGridPersistence.test.ts` (putting back `undefined` is a leak). */
+  const withStorage = (fn: (store: Map<string, string>) => void) => {
+    const store = new Map<string, string>();
+    const had = 'localStorage' in globalThis;
+    const prev = (globalThis as { localStorage?: Storage }).localStorage;
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => void store.set(k, String(v)),
+      removeItem: (k: string) => void store.delete(k),
+      clear: () => store.clear(),
+      key: (i: number) => [...store.keys()][i] ?? null,
+      get length() { return store.size; },
+    };
+    try {
+      fn(store);
+    } finally {
+      if (had) (globalThis as { localStorage?: unknown }).localStorage = prev;
+      else delete (globalThis as { localStorage?: unknown }).localStorage;
+    }
+  };
+
+  test('an archived project mounts from nothing: no snapshot and no session-only pane', () => {
+    withStorage((store) => {
+      const term = pane('terminal:1', 'terminal', false);
+      const git = pane('git:1', 'git', true);
+      const groups = [group('g1', ['terminal:1', 'git:1'], 'terminal:1')];
+      const persisted = selectNonChatPanesToPersist([term, git], groups, ARCHIVED);
+      store.set(storageKey(ARCHIVED), JSON.stringify({ nonChatPanes: persisted }));
+      store.set(layoutStorageKey(ARCHIVED), JSON.stringify({ sidebarCollapsed: true }));
+      rememberSessionOnlyPanes(ARCHIVED, [term, git], persisted);
+      expect(loadPersistedState(ARCHIVED)?.nonChatPanes.map(p => p.id)).toEqual(['terminal:1', 'git:1']);
+
+      forgetProjectPersistence(ARCHIVED);
+
+      expect(store.has(storageKey(ARCHIVED))).toBe(false);
+      expect(store.has(layoutStorageKey(ARCHIVED))).toBe(false);
+      expect(loadPersistedState(ARCHIVED)).toBeNull();
+    });
+  });
+
+  test('only the archived project is forgotten', () => {
+    withStorage(() => {
+      const git = pane('git:1', 'git', true);
+      rememberSessionOnlyPanes(ARCHIVED, [git], []);
+      rememberSessionOnlyPanes(PROJECT, [git], []);
+      forgetProjectPersistence(ARCHIVED);
+      expect(withSessionOnlyPanes(ARCHIVED, []).map(p => p.id)).toEqual([]);
+      expect(withSessionOnlyPanes(PROJECT, []).map(p => p.id)).toEqual(['git:1']);
+      rememberSessionOnlyPanes(PROJECT, [], []);
+    });
   });
 });

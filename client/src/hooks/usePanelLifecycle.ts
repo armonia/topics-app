@@ -59,8 +59,6 @@ import {
   selectProjectBrowserReopen,
   type ClosedTabRecord,
   getProjectPathFromPaneId,
-  projectPanesLocalKey,
-  projectLayoutLocalKey,
   locateTerminalPane,
   browserProjectPanesStore,
   getPaneConfig,
@@ -91,6 +89,7 @@ import { useToast } from '../components/Shared/Toast';
 import { useT } from './useT';
 
 import { utilityPanelId } from '../components/Layout/UtilityPanel';
+import { forgetProjectPersistence } from '../components/Layout/hooks/projectPersistence';
 import { UTILITY_PANEL_TYPES, type UtilityPanelType } from '../state/pane/adapters/utilityPanelId';
 import type { SendMessageOptions } from '@/hooks/useChat';
 import { DEFAULT_TOPIC_ICON } from '../lib/topicIcons';
@@ -2460,10 +2459,8 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
       // removes them, so archived projects' layout/tab records accumulate
       // in localStorage forever. Un-archiving starts from a clean layout,
       // which matches the 2-state model (closed ⟺ archived).
-      try {
-        localStorage.removeItem(projectPanesLocalKey(projectPath));
-        localStorage.removeItem(projectLayoutLocalKey(projectPath));
-      } catch { /* private mode — ignore */ }
+      // The page memory of its session-only panes goes with them.
+      forgetProjectPersistence(projectPath);
     }
     return success;
   }, [archiveProject, handleCloseProject]);
