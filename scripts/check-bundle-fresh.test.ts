@@ -181,6 +181,20 @@ describe("splitOrphansByAge - deliberato o avanzo vero", () => {
     expect(got.stale).toEqual(["z-vecchio.js"]);
   });
 
+  it("older than the window but owned by a kept generation: kept, not stale", () => {
+    const got = splitOrphansByAge(
+      [
+        { name: "menu-MORNING.js", mtimeMs: NOW - 6 * 3_600_000 },
+        { name: "vecchio-X.js", mtimeMs: NOW - 6 * 3_600_000 },
+      ],
+      NOW,
+      WINDOW,
+      new Set(["menu-MORNING.js"]),
+    );
+    expect(got.kept).toEqual(["menu-MORNING.js"]);
+    expect(got.stale).toEqual(["vecchio-X.js"]);
+  });
+
   it("nessun orfano: nessuno dei due gruppi", () => {
     const got = splitOrphansByAge([], NOW, WINDOW);
     expect(got.kept).toEqual([]);
@@ -214,6 +228,10 @@ describe("totalAssetsRaw - il numero descrive QUESTA build", () => {
 describe("il cancello usa davvero l'eta'", () => {
   it("il budget total_assets scatta sugli avanzi VERI, non su un orfano qualunque", () => {
     expect(SRC).toContain('if (stale.length === 0) check("total_assets.raw"');
+  });
+
+  it("the gate reads the generations the sweep keeps", () => {
+    expect(SRC).toContain("retainedAssets(PUBLIC_DIR, now)");
   });
 
   it("il totale non conta gli avanzi tenuti apposta", () => {

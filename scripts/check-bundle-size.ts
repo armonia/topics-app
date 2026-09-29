@@ -31,7 +31,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { precompressedOrigin, unreachableAssets } from "../server/lib/client-bundle";
-import { SWEEP_MIN_AGE_MS } from "./build-client-publish";
+import { retainedAssets, SWEEP_MIN_AGE_MS } from "./build-client-publish";
 
 const PUBLIC_DIR = "public";
 const ASSETS_DIR = join(PUBLIC_DIR, "assets");
@@ -201,15 +201,20 @@ export function totalAssetsRaw(exclude: Set<string> = new Set(), dir = ASSETS_DI
  * Younger than the sweep window: kept on purpose, excluded from the total, the
  * budget still runs. Older: the sweep had its chance and the file is still
  * there, so it is a real leftover and the measure is worth nothing.
+ *
+ * Unless a kept generation owns it (`retained`, the same record the sweep
+ * reads): since 2026-09-29 the sweep spares, for up to three days, the
+ * bundles windows opened earlier may still be running, whatever their age.
  */
 export function splitOrphansByAge(
   orphans: { name: string; mtimeMs: number }[],
   now: number,
   minAgeMs: number = SWEEP_MIN_AGE_MS,
+  retained: ReadonlySet<string> = new Set(),
 ): { kept: string[]; stale: string[] } {
   const kept: string[] = [];
   const stale: string[] = [];
-  for (const o of orphans) (now - o.mtimeMs < minAgeMs ? kept : stale).push(o.name);
+  for (const o of orphans) (retained.has(o.name) || now - o.mtimeMs < minAgeMs ? kept : stale).push(o.name);
   return { kept: kept.sort(), stale: stale.sort() };
 }
 
@@ -287,9 +292,12 @@ if (!entry) {
 }
 
 const orphans = orphanAssets(critical);
+const now = Date.now();
 const { kept, stale } = splitOrphansByAge(
   orphans.map((name) => ({ name, mtimeMs: statSync(join(ASSETS_DIR, name)).mtimeMs })),
-  Date.now(),
+  now,
+  SWEEP_MIN_AGE_MS,
+  retainedAssets(PUBLIC_DIR, now),
 );
 
 const measured = {
@@ -318,8 +326,8 @@ if (stale.length > 0) {
   console.log(`total assets   raw ${fmt(measured.total_assets.raw)}   (baseline ${fmt(baseline.total_assets.raw)})`);
   if (kept.length > 0) {
     console.log(
-      `               esclusi ${kept.length} avanzi della build precedente, tenuti apposta\n` +
-        `               dallo sweep finche' non hanno ${sweepMin} min: ${kept.slice(0, 3).join(", ")}${kept.length > 3 ? ", ..." : ""}`,
+      `               esclusi ${kept.length} avanzi delle build precedenti, tenuti apposta\n` +
+        `               dallo sweep (meno di ${sweepMin} min, o di una generazione ancora tenuta): ${kept.slice(0, 3).join(", ")}${kept.length > 3 ? ", ..." : ""}`,
     );
   }
 }
