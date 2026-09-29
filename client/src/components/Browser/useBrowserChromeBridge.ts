@@ -135,8 +135,8 @@ export function useBrowserChromeBridge(
   // The sheet must NOT be that second mistake with a smaller footprint: it
   // covers the page and freezes it, so a file arriving while you read would
   // stop the reading to report something you did not ask for at that instant.
-  // The announcement is the cue in the tab's quiet rail
-  // (`BrowserTabDownloadsCue`) and the opening is the user's click on it.
+  // The announcement is the count on the tab's three dots
+  // (`BrowserTabMenuButton`) and the opening is the user's click on them.
   //
   // So `downloadsStarted` only travels; `openDownloads` is what opens, and it
   // is a SEPARATE counter from `addressEditRequest` because that one selects

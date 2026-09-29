@@ -17,9 +17,9 @@
  *
  * Three shapes, one source of words:
  *  - `full`: card and chat pane, the sentence plus the command;
- *  - `compact`: a tab, the glyph plus "pausa". One short word and not "in
- *    pausa": on a 150 px tab the title kept 78 px before this change and the
- *    two words left it 69 (WebKit, 24/09), one word leaves it more than before;
+ *  - `glyph`: a tab, the snowflake alone in the tab's one slot (TABSLOT-02).
+ *    Even the single word "pausa" took the label's width, and the slot is 20
+ *    px: the word and the sentence ride in the tooltip and the accessible name;
  *  - `line`: a sidebar row's second line, a short sentence in place of the
  *    preview, so the chat's NAME keeps all its room.
  */
@@ -30,7 +30,7 @@ import { FREEZE_MAX_MS } from '../../../../shared/swap-freeze';
 
 export interface SwapFreezeLabelProps {
   freeze: SwapFreezeView;
-  variant?: 'full' | 'compact' | 'line';
+  variant?: 'full' | 'glyph' | 'line';
   className?: string;
 }
 
@@ -65,16 +65,16 @@ export function SwapFreezeLabel({ freeze, variant = 'full', className = '' }: Sw
     <Snowflake size={12} className="shrink-0 text-sky-600 dark:text-sky-300" aria-hidden="true" />
   );
 
-  if (variant === 'compact') {
+  if (variant === 'glyph') {
     return (
       <span
-        data-testid="swap-freeze-compact"
-        className={`ml-0.5 inline-flex flex-shrink-0 items-center gap-0.5 text-micro leading-none font-medium text-sky-700 dark:text-sky-300 ${className}`}
-        title={`${sentence}\n${title}`}
+        data-testid="swap-freeze-glyph"
+        className={`inline-flex flex-shrink-0 items-center justify-center ${className}`}
+        title={`${tr('swapFreeze.short')}: ${sentence}\n${title}`}
         aria-label={sentence}
+        role="img"
       >
         {glyph}
-        <span>{tr('swapFreeze.short')}</span>
       </span>
     );
   }

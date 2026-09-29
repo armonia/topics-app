@@ -83,6 +83,7 @@ const IT: Dict = {
   'lightbox.image': 'Immagine',
   'activity.runningFor': 'In esecuzione da {label}{approx}',
   'activity.atLeast': " (almeno: il turno era già in corso all'ultimo riavvio del server)",
+  'activity.finishedAgo': 'Ha finito {label} fa',
 
   'board.settings.oneCmdPerLine': '(un comando per riga)',
   'board.settings.saveOnBlur': 'Salva uscendo dal campo (o ⌘↵).',
@@ -534,6 +535,9 @@ const IT: Dict = {
   'tab.project': 'Progetto',
   'tab.stopTurn': 'Ferma il turno',
   'tab.stopTurnOn': 'Ferma il turno su {name}',
+  'tab.close': 'Chiudi tab',
+  'tab.closeNamed': 'Chiudi tab {name}',
+  'tab.cancelClose': 'Annulla chiusura',
   'tab.menu.stopTurn': 'Ferma il turno',
   'tab.restartSession': 'Riavvia la sessione (Claude/codex riprendono via --resume)',
   'tab.restartSessionFailed': 'Riavvio non riuscito: il server ha rifiutato',

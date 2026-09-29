@@ -1301,7 +1301,7 @@ html, body {
   position: relative;
   isolation: isolate;
 }
-.swap-ice-host > :not(.swap-ice):not(.swap-ice-glints):not(.row-actions) {
+.swap-ice-host > :not(.swap-ice):not(.swap-ice-glints):not(.row-actions):not(.tab-extras) {
   position: relative;
   z-index: 1;
 }
@@ -2071,6 +2071,107 @@ input[type="range"]::-webkit-slider-thumb {
   .row-card:has(> .row-actions[data-pending='true']) > .row-trail {
     opacity: 0;
     pointer-events: none;
+  }
+}
+
+/* ── ONE TAB, THREE ZONES: the slot is where state lives (TABSLOT-01/02) ─────
+ *
+ * The tab's last zone is 20px, always reserved, and holds ONE signal at rest
+ * (`lib/tabSlot.ts`). On hover or keyboard focus the same box becomes the one
+ * command (CHROME-12): the command is centred on the slot and its larger box
+ * (`ROW_ACTION_BOX`) spills into the padding on the right and the gap on the
+ * left, never onto the label. Nothing moves, because nothing is in flow but
+ * the slot itself.
+ *
+ * Without hover (touch) there is no "passing over": the SELECTED tab shows the
+ * command, the others keep their signal, and tapping a tab selects it first.
+ * A running close countdown keeps its ring lit wherever the pointer is, so it
+ * stays cancellable. */
+.tab-slot {
+  position: relative;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tab-slot-signal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 100ms ease;
+}
+.tab-slot-command {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 20;
+  display: flex;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+/* A mark on the corner of the lead icon: zero width in the row (TABSLOT-03). */
+.tab-corner-mark {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 10px;
+  height: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+}
+/* The browser's extra commands (the dots) cover the label's tail, left of the
+ * slot, instead of taking its width. 36px = the tab's 8px padding + the 20px
+ * slot + the 8px gap. The label fades under them rather than showing through. */
+.tab-extras {
+  position: absolute;
+  top: 50%;
+  right: 36px;
+  transform: translateY(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+.tab-slot-command[data-pending='true'],
+.tab-extras:has([aria-expanded='true']) {
+  opacity: 1;
+  pointer-events: auto;
+}
+.tab-slot:has(> .tab-slot-command[data-pending='true']) > .tab-slot-signal { opacity: 0; }
+@media (hover: hover) {
+  [role='tab']:hover > .tab-slot > .tab-slot-command,
+  [role='tab']:has(:focus-visible) > .tab-slot > .tab-slot-command,
+  [role='tab']:hover > .tab-extras,
+  [role='tab']:has(:focus-visible) > .tab-extras {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  [role='tab']:hover > .tab-slot > .tab-slot-signal,
+  [role='tab']:has(:focus-visible) > .tab-slot > .tab-slot-signal { opacity: 0; }
+  [role='tab'][data-tab-extras]:hover > [data-testid='pane-tab-label'] {
+    -webkit-mask-image: linear-gradient(to left, transparent 20px, #000 32px);
+    mask-image: linear-gradient(to left, transparent 20px, #000 32px);
+  }
+}
+@media not (hover: hover) {
+  [role='tab'][data-active='true'] > .tab-slot > .tab-slot-command,
+  [role='tab'][data-active='true'] > .tab-extras {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  [role='tab'][data-active='true'] > .tab-slot > .tab-slot-signal { opacity: 0; }
+  [role='tab'][data-active='true'][data-tab-extras] > [data-testid='pane-tab-label'] {
+    -webkit-mask-image: linear-gradient(to left, transparent 20px, #000 32px);
+    mask-image: linear-gradient(to left, transparent 20px, #000 32px);
   }
 }
 

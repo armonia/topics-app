@@ -1,9 +1,8 @@
 import { markDraftTouched } from '../../state/draftPane';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ArrowUpRight, Square as SquareIcon, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, Cloud, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, UserRound, Link2, Maximize, Maximize2, Minimize2 } from 'lucide-react';
+import { X, ArrowUpRight, Square as SquareIcon, MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, ExternalLink, Edit3, Settings, BarChart3, Kanban, Columns2, Rows2, RotateCw, LayoutGrid, Combine, Layers, Plus, Check, ChevronRight, Pin, PinOff, Clock, UserRound, Link2, Maximize, Maximize2, Minimize2 } from 'lucide-react';
 import { usePanePendingStatus } from '../../contexts/PendingActionContext';
-import { PendingActionRing } from '../Shared/PendingActionRing';
 import { PendingActionProgressOverlay } from '../Shared/PendingActionProgressOverlay';
 import { PaneAddMenu } from '../Shared/PaneAddMenu';
 import type { Pane, PaneType, PaneGroupType, AttentionTier } from '../../types';
@@ -13,7 +12,6 @@ import { getProjectLabel } from '../../lib/buildSidebarItems';
 import { getBrowserPaneUrl, isRealUrl } from '../../state/pane/browserPaneUrl';
 import { useCopyTabLink } from '../../hooks/useCopyTabLink';
 import { signalsActions, useSignalsStore, projectAttentionTier, attentionFillFor, useSeenDwell, useTopicLoading } from '../../state/signals';
-import { rowCommandSequence } from '../../lib/rowCommandOrder';
 import { ClaudeIcon } from '../Shared/ClaudeIcon';
 import { CodexIcon } from '../Shared/CodexIcon';
 import { getFileIconDef } from '../../lib/fileIcons';
@@ -21,23 +19,19 @@ import { rememberDraggedPane } from '../../lib/dragPayload';
 import { startDragPreview, endDragPreview } from '../../lib/dragPreview';
 import { DND_TYPES, paneTabScopeType, dragMatchesScope, STANDALONE_SCOPE } from '../../lib/dndTypes';
 import { dragLeftHost } from '../../lib/dragLeave';
-import { BoardTabCounts } from './BoardTabCounts';
 import { EDGE_DROP_PX } from './constants';
 import { useMobile } from '../../hooks/useMobile';
 import { useSplitLayoutAvailable } from '../../hooks/useSplitLayoutAvailable';
 import type { ZoomScope } from './zoomScope';
 import { paneZoomActions } from '../../state/paneZoom';
 import { useLongPress } from '../../hooks/useLongPress';
-import { TopicStreamingSpinner, ProjectStreamingSpinner, TerminalStreamingSpinner, BrowserStreamingSpinner } from './StreamingIndicator';
 import { SwapIce } from '../Shared/SwapIce';
-import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
 import { pickSwapFreeze, useSwapFreezeViews } from '../../state/swapFreeze';
-import { NotificationBadge } from '../Shared/NotificationBadge';
-import { SessionElapsed, ProjectElapsed } from '../Shared/SessionActivity';
 import { useTabNotifications } from '../../hooks/useTabNotifications';
 import { useT } from '../../hooks/useT';
+import { TabSlot, TabLabel, ProjectTabLead } from './TabSlot';
 import { useSpawnedBrowserMap } from '../../state/browserSpawner';
-import { TAB_SELECTED_SURFACE, TAB_SELECTED_SURFACE_SOFT, TAB_RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_ACTION_BOX, ROW_ACTION_GLYPH, ROW_CARD, ROW_TRAIL, ROW_ACTIONS, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, attentionSurface, ON_FILL_TEXT_SOFT, TAB_LABEL } from '../../lib/selectionStyles';
+import { TAB_SELECTED_SURFACE, TAB_SELECTED_SURFACE_SOFT, TAB_RESTING_SURFACE, ROW_PX, ROW_GAP, CARD_H, ROW_CARD, CHROME_ROW_ACTION_INSET, CHROME_ROW_ACTION_RESERVE, CHROME_ROW_ACTION_RESERVE_LEFT, TAB_GAP_CLASS, attentionSurface, TAB_LABEL } from '../../lib/selectionStyles';
 import { POPOVER_SURFACE, Z_CONTEXT_MENU, POPOVER_MARGIN } from '@/lib/popoverStyles';
 import { computeMenuPosition, type AnchorRect } from '@/lib/popoverPosition';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
@@ -54,9 +48,7 @@ import {
   nextSpaceName,
 } from './spaceHelpers';
 import { useTopics, useTerminalSessions } from '../../contexts/TopicsContext';
-import { ProjectFavicon } from '../Shared/ProjectFavicon';
-import { SharedOrgBadge } from '../Shared/SharedOrgBadge';
-import { BrowserTabIcon, BrowserTabTypeIcon, BrowserTabMenuButton, BrowserTabConsoleCue, BrowserTabDownloadsCue } from '../Browser/BrowserTabChrome';
+import { BrowserTabIcon, BrowserTabTypeIcon, BrowserTabMenuButton, BrowserTabConsoleCue } from '../Browser/BrowserTabChrome';
 import { BrowserTabSheet } from '../Browser/BrowserTabSheet';
 import { prefetchBrowserTabSheet } from '../Browser/browserTabSheetLazy';
 import { getBrowserPaneChrome } from '../../state/browserPaneChrome';
@@ -114,10 +106,9 @@ const ICONS: Record<string, React.FC<{ size: number; className?: string; style?:
   MessageSquare, FolderTree, Globe, Terminal, GitBranch, Activity, BookOpen, Cpu, FileCode, BarChart3, Kanban, Clock, UserRound,
 };
 
-// Tab status reads as two orthogonal cues, both shared with the sidebar so the
-// surfaces can't drift: a StreamingSpinner ("working right now") and a
-// NotificationBadge ("needs you" — Claude awaiting/error, unread, finished
-// terminal turn, project rollup). There is no separate Claude phase dot.
+// Tab status lives in ONE slot at the end of the tab (`TabSlot`, TABSLOT-02):
+// the same loader and NotificationBadge the sidebar draws, one at a time, so
+// the label never moves when a state comes or goes.
 
 /**
  * Chi OSPITA questa barra di tab, per il permalink «Copia link».
@@ -351,7 +342,8 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // provider l'hook restituisce dei no-op, quindi non serve una guardia.
   const { describeProjectBadge } = useTabNotifications();
   // Spawner map (chat topicId | terminal paneId → browser contextId) so each
-  // tab can show a quiet "opened a browser" cue. One subscription, read per tab.
+  // tab can SAY it opened a browser in its accessible name. One subscription,
+  // read per tab.
   const spawnedBrowserMap = useSpawnedBrowserMap();
   // Resolve per-topic icon + colour for chat tabs so the tab bar reads in the
   // SAME visual language as the sidebar (which already shows the topic's own
@@ -1217,14 +1209,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
         const detailProject = pane.type === 'project' && pane.projectPath
           ? describeProjectBadge(pane.projectPath)
           : '';
+        // What left the tab's face for the label's sake (TABSLOT-03) is still
+        // said: the sidebar row shows it, and the tab's accessible name tells it.
+        const pinKey = isFissato ? pinKeyForPane(pane) : null;
+        const pinned = !!pinKey && !!isFissato?.(pinKey);
+        const spawnerKey = pane.type === 'chat' ? pane.topicId : pane.type === 'terminal' ? pane.id : undefined;
+        const spawnedBrowser = !!spawnerKey && !!spawnedBrowserMap[spawnerKey];
+        const cloud = pane.type === 'chat' && !!pane.topicId && topics[pane.topicId]?.provider === 'openclaw';
         const isDragged = draggedPaneId === pane.id;
         const hasDragSource = draggedPaneId || crossGroupDragActive;
         const isNotSelf = !draggedPaneId || draggedPaneId !== pane.id;
         const showLeftIndicator = dragOverIdx === paneIdx && hasDragSource && isNotSelf;
         const showRightIndicator = paneIdx === panes.length - 1 && dragOverIdx === panes.length && hasDragSource && isNotSelf;
-        // Streaming spinner: chat panes pulse during an LLM stream;
-        // Loading affordance is owned by the canonical widgets below —
-        // each reads from StreamingContext, no upstream prop needed.
         // Suppress the badge for the tab you're looking at — EXCEPT a project
         // tab. A project badge is a ROLLUP of its children (chats / terminals in
         // inner groups you may not be viewing), so selecting the project tab
@@ -1289,12 +1285,18 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             // title qui aprirebbe un tooltip sopra una tab il cui nome è già
             // scritto accanto, e duplicherebbe i title dei figli (spinner,
             // SessionActivity) che dicono la loro parte.
-            aria-label={[label, stateTab, detailProject].filter(Boolean).join(' · ')}
+            aria-label={[
+              label, stateTab, detailProject,
+              pinned && tr('sidebar.pinned'),
+              spawnedBrowser && tr('tab.openedBrowser'),
+              cloud && tr('tab.cloudSession'),
+            ].filter(Boolean).join(' · ')}
+            // A browser tab has extra commands that cover the label's tail on
+            // hover: the label fades under them (index.css, `.tab-extras`).
+            data-tab-extras={pane.type === 'browser' ? '' : undefined}
             style={{ width: tabWidth, minWidth: tabWidth, maxWidth: tabWidth, flexShrink: 0 }}
-            // overflow-hidden clips a tab whose trailing widgets (project git
-            // status + spinner + notification badge + close) would otherwise
-            // sum past the fixed 150px and spill into the next tab. The label
-            // already truncates; this guarantees the rest can't escape either.
+            // overflow-hidden clips the command box, which is larger than the
+            // slot it sits on, at the tab's own edge.
             // L'attenzione PRECEDE la selezione, come nella sidebar: `attentionTier`
             // è già passato per `attentionFillFor`, quindi se arriva qui vuol dire
             // che l'utente non ha ancora guardato questa tab — e va dipinto anche
@@ -1417,22 +1419,21 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
             <PaneTabPendingOverlay paneId={pane.id} />
             {/* "Awaiting feedback" is now the tab's own electric-blue background
                 (see isAwaiting + AWAITING_SURFACE above), not an overlay. */}
-            {/* Icon slot. Every branch that ALWAYS resolves to a glyph wraps it
-                in a fixed 14×14 box so labels line up across tabs. The project
-                branch deliberately does NOT: a project without a shipped
-                favicon renders nothing (fallback=null) and must reserve NO
-                empty box — otherwise every generic project tab showed a blank
-                gap where an icon would be. Claude Code uses the authoritative
-                `isClaudeCodeTab` so its tab never falls through to the generic
-                Terminal glyph. */}
+            {/* ZONE 1, THE LEAD ICON (TABSLOT-01): fixed per type. Every
+                branch wraps its glyph in a fixed box so labels line up across
+                tabs, and so a mark that appears on its corner costs no width.
+                Claude Code uses the authoritative `isClaudeCodeTab` so its tab
+                never falls through to the generic Terminal glyph. */}
             {pane.type === 'file' && pane.title ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">{(() => { const d = getFileIconDef(pane.title); const I = d.icon; return <I size={14} style={{ color: d.color }} />; })()}</span>
             ) : pane.type === 'browser' ? (
-              // The SITE's icon, the same one the address bar shows, from the
-              // same component: a browser tab that shows a generic globe is a
-              // browser tab you have to read to recognise. Under the pointer
-              // the same slot becomes Reload (see BrowserTabIcon).
-              <BrowserTabIcon paneId={pane.id} url={pane.url || getBrowserPaneUrl(pane.id) || ''} />
+              // The SITE's icon, the same one the address bar shows. Under the
+              // pointer it becomes Reload (see BrowserTabIcon); console errors
+              // are a mark on its corner.
+              <span className="relative flex flex-shrink-0">
+                <BrowserTabIcon paneId={pane.id} url={pane.url || getBrowserPaneUrl(pane.id) || ''} />
+                <BrowserTabConsoleCue paneId={pane.id} />
+              </span>
             ) : isClaudeCodeTab ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
                 <ClaudeIcon size={14} className="text-[#D97757]" />
@@ -1443,57 +1444,37 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                 <CodexIcon size={14} />
               </span>
             ) : pane.type === 'chat' ? (
-              // Topic chats carry NO leading glyph — name only. Only the actual
-              // agent sessions (Claude Code / Codex TERMINAL tabs, handled above
-              // via isClaudeCodeTab / isCodexTab) get a brand mark. Explicit
-              // null so a chat never falls through to the generic MessageSquare
-              // fallback below (same "no fake glyph" rule as an icon-less project).
+              // Topic chats carry NO leading glyph — name only. Explicit null so
+              // a chat never falls through to the generic MessageSquare below.
               null
             ) : pane.type === 'project' && pane.projectPath ? (
-              // Same real project favicon the sidebar shows (GET /api/projects/icon);
-              // projects WITHOUT a shipped favicon/manifest icon render nothing and
-              // reserve no space — zero footprint, no fake glyph, no monogram.
-              <ProjectFavicon path={pane.projectPath} size={14} className="flex-shrink-0" />
+              // The real project favicon, or the project-type glyph when it
+              // ships none, with the marker / org warning on its corner
+              // (CHROME-14, TABSLOT-03).
+              <ProjectTabLead path={pane.projectPath} onFill={onFill} />
             ) : Icon ? (
               <span className="flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
                 <Icon size={14} />
               </span>
             ) : null}
             {/* WHAT KIND of browser tab this is (shared, real Chromium, no
-                connection) — between the favicon and the title, and nothing at
-                all on the default kind. It replaces the three pills that used
-                to float over the page itself; see `BrowserTabTypeIcon`. */}
+                connection): between the favicon and the title, and nothing at
+                all on the default kind. See `BrowserTabTypeIcon`. */}
             {pane.type === 'browser' && <BrowserTabTypeIcon paneId={pane.id} />}
-            {/* Il consumo va QUI e non sulla tab: il contenitore usa apposta
-                `aria-label` e non `title` (vedi sopra), perché un title là
-                duplicherebbe il nome già scritto accanto e i title dei figli.
-                Questo span invece il title non ce l'aveva e il nome lo tronca,
-                quindi il tooltip serve già di suo — il consumo ci si appende
-                senza rubare il posto a nessuno. `onMouseEnter` aggiorna il dato
-                al momento giusto: un numero che nessuno guarda non vale una
-                richiesta ogni N secondi (e la fetch è condivisa fra tutte le
-                tab bar, vedi `paneUsage.ts`). */}
-            <span
-              // Ancora stabile per chi conta le tab da fuori. `.truncate.flex-1`
-              // non lo è: sono due utility di layout che oggi porta anche una
-              // riga dell'albero dei file e una riga di git — entrambe dentro
-              // `[role="main"]` — quindi un locator agganciato lì conta come
-              // «tab» cose che tab non sono. Il repo lo dichiara già altrove:
-              // «i locator dei test erano agganciati alle classi Tailwind, e
-              // rinominarne una li faceva passare a verde-vuoto senza che nulla
-              // fosse rotto. Un data-attribute è il vero appiglio».
-              data-testid="pane-tab-label"
-              // One of the doors of the browser sheet: pressed while the sheet
-              // is open, it closes it instead of opening it again.
-              data-sheet-door={pane.type === 'browser' ? '' : undefined}
-              className={`truncate flex-1 min-w-0 ${pane.preview ? 'italic' : ''} ${
+            {/* ZONE 2, THE LABEL: the only zone that flexes, never under 56px.
+                Usage and elapsed time ride in its tooltip (see TabLabel): the
+                container uses `aria-label` and not `title` on purpose. */}
+            <TabLabel
+              className={`truncate flex-1 min-w-[56px] ${pane.preview ? 'italic' : ''} ${
                 pane.type === 'browser' && isFullyActive ? 'cursor-text' : ''
               }`}
+              sheetDoor={pane.type === 'browser'}
+              subjectId={pane.type === 'chat' ? pane.topicId : termSid}
+              projectPath={pane.type === 'project' && !isSelected ? pane.projectPath : undefined}
               // CLICK THE LABEL AND THE TAB SHEET DROPS DOWN
               // (`BrowserTabSheet`). Only on the tab you are already looking
               // at: the first click on another tab still means "bring me
-              // there". The label itself is never replaced - the sheet opens
-              // under the tab, with the address selected at the top of it.
+              // there".
               onClick={pane.type === 'browser' && isFullyActive
                 ? (e) => {
                   const edit = getBrowserPaneChrome(pane.id)?.commands.editAddress;
@@ -1502,277 +1483,45 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
                   edit();
                 }
                 : undefined}
-              onMouseEnter={ensurePaneUsageFresh}
-              // A browser tab carries its hover card (name + address, see
-              // `browserHover`); every other tab carries its name alone.
               title={`${browserHover ?? label}${formatPaneUsageLine(
                 pane.type === 'terminal' ? termSid : null,
                 pane.type === 'terminal' || pane.type === 'browser',
-                // Le due sorgenti sono diverse: un terminale si cerca per
-                // sessione (il server tiene il pid di testa del suo albero PTY),
-                // una pane browser per label di webview (la shell sa quale
-                // WebContent la rende). Vedi `paneUsage.ts`.
+                // A terminal is looked up by session, a browser pane by webview
+                // label, a chat by its sessionKey (see `paneUsage.ts`).
                 pane.type === 'browser' ? pane.id : null,
-                // La chat non ha un processo, ma tiene i suoi MESSAGGI: la sua
-                // `sessionKey` e' l'unico modo di contarli. Un `paneId` non e'
-                // una sessionKey (per una chat il pane e' il TOPIC), quindi si
-                // passa da `sessionKeyForPaneId` invece di indovinare.
                 pane.type === 'chat' ? sessionKeyForPaneId(pane.id, topics) : null,
               )}`}
-            >{pane.type === 'browser' ? <BrowserTabSheet paneId={pane.id} label={label} /> : label}</span>
-            {/* Project tabs intentionally do NOT show git status numbers (changed
-                files / ahead-behind / running processes) — the sidebar project row
-                dropped them (cryptic numbers) and the two surfaces must read the
-                same: icon + name + notification badge + loading spinner. Git /
-                process status lives in the git & terminal panes where it's
-                actionable. */}
-            {/* LA CHIUSURA NON STA PIÙ QUI, ed è la correzione di una regola che
-                questo commento dichiarava: «sta PRIMA dei widget di caricamento
-                e stato, così spinner e badge sono le cose più in coda alla tab».
-                Era coerente con sé stessa e sbagliata dal lato dell'uso: il
-                comando finiva in mezzo ai glifi, e la sua x dipendeva da quanti
-                ce n'erano — una tab con lo spinner e una senza mettevano la X in
-                due punti diversi. «Il tasto chiusura deve essere sempre a fine
-                tab, andando in hover sulle icone invece inutili» (Attilio,
-                09/08). Adesso è l'ULTIMO elemento e sta fuori dal flusso: vedi
-                ROW_ACTIONS, in fondo alla tab. */}
-            {/* THE QUIET RAIL: the signals a command is allowed to cover, AND
-                NOW THE SPINNER TOO.
-
-                The spinner used to sit OUTSIDE it, above the rail, and the
-                reason written here held for as long as it was true: stopping a
-                turn and closing the tab are two different actions in the same
-                instant, and the only way to stop was to hover the spinner, so
-                the close command could not be allowed to cover it. Stopping is
-                a REAL command in the rail now, next to close (see
-                rowCommandSequence), so the spinner goes back to being what it
-                is, a signal, and it goes where signals go: last of the trail,
-                in the very slot the command takes over on hover.
-
-                The hand-written `ml-0.5` on each of them is gone: it was 2px on
-                top of the container's `gap`, i.e. 8 effective pixels between two
-                cues and 6 between the X and the spinner, two different steps in
-                one tab. The air is the container's job now, once. */}
-            <div className={`${ROW_TRAIL} flex items-center ${ROW_GAP} flex-shrink-0`}>
-            {/* Quanto lavoro c'è su questa board, per stato. Vale per le DUE
-                tab che aprono una kanban — quella generale (`board`) e quella
-                di un progetto (`kanban`) — e la seconda conta solo i suoi: il
-                progetto è quello della finestra, che questa barra conosce come
-                `dndScope` (per il main è `STANDALONE_SCOPE`, cioè nessuno).
-                Vedi BoardTabCounts per il perché di quali stati e da dove. */}
-            {(pane.type === 'board' || pane.type === 'kanban') && (
-              <BoardTabCounts
-                projectPath={
-                  pane.type === 'kanban'
-                    ? (pane.projectPath ?? (dndScope && dndScope !== STANDALONE_SCOPE ? dndScope : undefined))
-                    : undefined
-                }
-              />
-            )}
-            {/* Quiet cue, and the only one that is a WARNING: this project is
-                visible to an organisation with other people in it. It sits in
-                the quiet rail rather than next to the favicon because it is not
-                the project's identity — but unlike the three dots it is always
-                DRAWN, never hover-only, because the whole point is to be read
-                BEFORE typing rather than found afterwards. Who decides when it
-                shows — and why `org_id != null` is not the condition — is in
-                `lib/projectSharing.ts`, which also carries the request that
-                asked for it, verbatim. */}
-            {pane.type === 'project' && pane.projectPath && (
-              <SharedOrgBadge
-                path={pane.projectPath}
-                className={onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70'}
-              />
-            )}
-            {/* CHROME-14: "is this a project tab" — always drawn, unlike the icon above (no favicon = zero footprint) or the roll-ups below (gated off once selected). */}
-            {pane.type === 'project' && pane.projectPath && (
-              <span
-                className={`ml-0.5 flex items-center flex-shrink-0 ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70'}`}
-                title={tr('tab.project')} data-testid="tab-project-marker" aria-label={tr('tab.project')}
-              >
-                <FolderTree size={11} />
+            >{pane.type === 'browser' ? <BrowserTabSheet paneId={pane.id} label={label} /> : label}</TabLabel>
+            {/* The browser's extra command, on hover only and OVER the label's
+                tail (`.tab-extras`): the dots open the sheet, downloads and
+                console included. */}
+            {pane.type === 'browser' && (
+              <span className="tab-extras">
+                <BrowserTabMenuButton paneId={pane.id} />
               </span>
             )}
-            {/* Quiet cue: this chat/terminal tab opened a browser. A third,
-                independent signal — not attention (NotificationBadge) and not
-                loading (spinner) — so it stays muted. Keyed by topicId (chat)
-                or pane id (terminal); see browserSpawner registry. */}
-            {(() => {
-              const spawnerKey = pane.type === 'chat' ? pane.topicId : pane.type === 'terminal' ? pane.id : undefined;
-              if (!spawnerKey || !spawnedBrowserMap[spawnerKey]) return null;
-              return (
-                <span
-                  className={`ml-0.5 flex items-center ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70'}`}
-                  title={tr('tab.openedBrowser')}
-                  data-testid="tab-spawned-browser"
-                  aria-label="Ha aperto un browser"
-                >
-                  <Globe size={11} />
-                </span>
-              );
-            })()}
-            {/* Quiet cue: this page logged errors to its console. It belongs in
-                the quiet rail and NOT on the three dots, because the dots only
-                exist under the pointer: a notification you have to hover to
-                find is not a notification. The count and the console itself
-                are one click away, in the menu. */}
-            {pane.type === 'browser' && <BrowserTabConsoleCue paneId={pane.id} onFill={onFill} />}
-            {/* Its twin: a file landed in this pane. Same rail, same reason —
-                and this one is a BUTTON, because the list it announces is one
-                click away in the sheet. A download never opens that sheet by
-                itself: it would freeze the page to report something nobody
-                asked about at that instant. */}
-            {pane.type === 'browser' && <BrowserTabDownloadsCue paneId={pane.id} onFill={onFill} />}
-            {/* Quiet cue: this chat is backed by the cloud (OpenClaw) provider —
-                a cloud session, not a local one. Muted, like the browser cue. */}
-            {pane.type === 'chat' && pane.topicId && topics[pane.topicId]?.provider === 'openclaw' && (
-              <span
-                className={`ml-0.5 flex items-center ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70'}`}
-                title="Cloud (OpenClaw)"
-                data-testid="tab-cloud"
-                aria-label={tr('tab.cloudSession')}
-              >
-                <Cloud size={11} />
-              </span>
-            )}
-            <NotificationBadge
-              count={badgeCount}
-              variant={onFill ? 'onFill' : 'default'}
-              // Il numero di un PROGETTO è un aggregato: dice quanto, mai di chi.
-              // E i suoi figli possono benissimo non mostrare niente — quello
-              // selezionato non porta badge per contratto (TAB-BADGE-07), quello
-              // in un altro gruppo non è sott'occhio. Risultato osservato: la tab
-              // «Guido AI» con un 1 e nessuna tab dentro che lo rivendicasse. Il
-              // tooltip chiude il cerchio: il numero ha sempre un nome.
-              title={
-                pane.type === 'project' && pane.projectPath
-                  ? describeProjectBadge(pane.projectPath) || undefined
-                  : undefined
-              }
+            {/* ZONE 3, THE SLOT: one signal at rest, one command under the
+                pointer (TABSLOT-02, CHROME-12). Also a PINNED tab closes: the
+                pin is a shortcut that stays in Fissati, not a lock. */}
+            <TabSlot
+              paneId={pane.id}
+              type={pane.type}
+              label={label}
+              topicId={pane.type === 'chat' ? pane.topicId : undefined}
+              terminalSessionId={termSid}
+              projectPath={pane.projectPath}
+              boardProjectPath={pane.type === 'kanban'
+                ? (pane.projectPath ?? (dndScope && dndScope !== STANDALONE_SCOPE ? dndScope : undefined))
+                : undefined}
+              selected={isSelected}
+              freeze={tabFreeze}
+              attention={badgeCount}
+              attentionTitle={pane.type === 'project' && pane.projectPath ? describeProjectBadge(pane.projectPath) || undefined : undefined}
+              onFill={onFill}
+              closable={!nonClosablePaneIds?.has(pane.id)}
+              onClose={onClose}
+              onStop={pane.type === 'chat' && onStopStreaming ? () => onStopStreaming(pane.id) : undefined}
             />
-            {/* Pinned ("Fissato") cue — parity with the sidebar rows, which show
-                a Pin glyph on pinned chat/terminal/browser/project rows. Same
-                canonical pinKeyForPane the context menu uses, so every pinnable
-                type gets the indicator consistently. Only rendered when the host
-                wires isFissato (standalone tab bars; project tab bars don't). */}
-            {isFissato && (() => {
-              const pk = pinKeyForPane(pane);
-              if (!pk || !isFissato(pk)) return null;
-              return (
-                <span
-                  className={`ml-0.5 flex items-center ${onFill ? ON_FILL_TEXT_SOFT : 'text-app-text-faint/70'}`}
-                  title="Fissato"
-                  data-testid="tab-pinned"
-                  aria-label="Fissato"
-                >
-                  <Pin size={11} />
-                </span>
-              );
-            })()}
-            {/* Tempo: da quanto lavora, o quanto fa che ha finito. Stessa regola
-                della riga di sidebar (`deriveSubjectTime`), così le due superfici
-                non possono dire due numeri diversi per lo stesso soggetto. Si
-                auto-nasconde quando non c'è niente da dire — vedi SessionElapsed. */}
-            {(() => {
-              const subjectId = pane.type === 'chat'
-                ? pane.topicId
-                : pane.type === 'terminal'
-                  ? (pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id))
-                  : undefined;
-              return subjectId ? <SessionElapsed subjectId={subjectId} onFill={onFill} /> : null;
-            })()}
-            {/* The PROJECT's time, under the same rule as its loader: only
-                while the folder is shut, because open it is the children that
-                say it. It is a time that RUNS (the loader's motion, in the
-                normal text ink), never a receipt. */}
-            {pane.type === 'project' && pane.projectPath && !isSelected && (
-              <ProjectElapsed projectPath={pane.projectPath} onFill={onFill} />
-            )}
-            {/* The split position mini-map lives on the SIDEBAR topic cards
-                only (user preference), NOT on the top tab bar — see
-                Sidebar/TopicItem + SplitMiniMap (fed by SplitPositionContext).
-                The tab bar deliberately renders no split schematic. */}
-            {/* THE WORKING SIGNAL, LAST OF THE TRAIL — one canonical widget
-                per pane kind, all reading from StreamingContext and rendering
-                only when their signal is on. None of them is a button any more:
-                interrupting lives in the rail, where a command belongs.
-                Last of the trail = the same x the close ring lands on, so the
-                glyph that says "working" and the command that acts on it occupy
-                one slot instead of two. */}
-            {pane.type === 'chat' && pane.topicId && (
-              <TopicStreamingSpinner topicId={pane.topicId} onFill={onFill} />
-            )}
-            {/* A PROJECT TAB IS A FOLDER, and its roll-up only shows while the
-                folder is SHUT. Selected, the project window is the one on
-                screen: its own tab bar is right there with a loader and a clock
-                on every child that is working, so the parent's aggregate
-                repeats them one bar above and you cannot tell which is which.
-                Not selected, the children are behind it and the aggregate is
-                the only thing that can speak for them. Same rule as the sidebar
-                project row, where "shut" is the collapsed accordion. */}
-            {pane.type === 'project' && pane.projectPath && !isSelected && (
-              <ProjectStreamingSpinner projectPath={pane.projectPath} onFill={onFill} />
-            )}
-            {pane.type === 'terminal' && (() => {
-              // Terminal panes are created at several sites that don't set
-              // terminalSessionId; derive it from the pane id (`terminal:<id>`)
-              // so the tab's own spinner isn't gated out. Mirrors the rollup
-              // in ProjectWindow + useProjectLayout's terminal sync.
-              const sid = pane.terminalSessionId ?? getTerminalSessionFromPaneId(pane.id);
-              return sid ? <TerminalStreamingSpinner sessionId={sid} /> : null;
-            })()}
-            {pane.type === 'browser' && <BrowserStreamingSpinner paneId={pane.id} />}
-            {/* FROZEN: the snowflake and the word "pausa" instead of the
-                working glyph, because a command Topics has stopped is not
-                working and a glyph alone was read as decoration. The whole
-                sentence does not fit on a tab: the tooltip carries it, and the
-                card and the pane carry it in full. */}
-            {tabFreeze && <SwapFreezeLabel freeze={tabFreeze} variant="compact" />}
-            </div>
-            {/* IL COMANDO, ULTIMO NEL DOM E FUORI DAL FLUSSO.
-                Anche una tab FISSATA si chiude. Il fissaggio non è un
-                lucchetto: è una scorciatoia che resta — chiusa la tab, la
-                tessera nei Fissati rimane e riaprirla la riporta dov'era
-                (riaprendo si disarchivia). Il lucchetto restava solo finché non
-                toglievi il pin, cioè chiedeva di smontare la scorciatoia per
-                fare la cosa più comune che ci si fa. */}
-            {/* THE RAIL IS ONE, and the close ring is its LAST child (see
-                ROW_ACTIONS: "a new command goes in BEFORE the circle, never
-                after"). A second `.row-actions` sibling would be a second
-                absolute box on the same anchor, i.e. two commands stacked on
-                top of each other, so the browser's three dots ride inside this
-                one. A pane that cannot be closed still gets its menu.
-
-                AND NOW IT CARRIES TWO: while a turn is working, the stop goes in
-                BEFORE the ring (rowCommandSequence). The rail was always meant
-                to hold more than one command ("more than one can live in it;
-                the one that closes is always LAST") and this is the first time
-                a chat uses that. A chat that cannot be closed still opens the
-                rail while it streams, because stopping it is possible. */}
-            {(!nonClosablePaneIds?.has(pane.id) || pane.type === 'browser' || (pane.type === 'chat' && !!onStopStreaming)) && (
-              <PaneTabCommands
-                paneId={pane.id}
-                label={label}
-                onClose={onClose}
-                closable={!nonClosablePaneIds?.has(pane.id)}
-                topicId={pane.type === 'chat' ? pane.topicId : undefined}
-                onStop={onStopStreaming ? () => onStopStreaming(pane.id) : undefined}
-                before={pane.type === 'browser' ? (
-                  <>
-                    {/* THE CUE AGAIN, AS A COMMAND. At rest you see it in the
-                        quiet rail; the moment you hover to press it, that rail
-                        goes `pointer-events: none` by design (signals give way
-                        to commands, index.css `.row-trail`), so the version you
-                        can actually click has to be HERE - same glyph, same
-                        place, the way the close ring already takes over from
-                        the notification badge. Measured: Playwright reported
-                        the ring intercepting every click aimed at the cue. */}
-                    <BrowserTabDownloadsCue paneId={pane.id} inRail />
-                    <BrowserTabMenuButton paneId={pane.id} />
-                  </>
-                ) : undefined}
-              />
-            )}
           </div>
         );
       })}
@@ -2394,188 +2143,6 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
 }
 
 /**
- * THE TAB'S TRAILING RAIL: nothing on idle, and under the pointer the commands
- * that act on this tab: the stop (only while its turn is running) and then the
- * soft-close ring. The order is not written here: it comes from
- * `rowCommandSequence`, which the sidebar row reads too, so the two surfaces
- * cannot disagree about what "stop, then close" means.
- *
- * The grey ⌘N keyboard-index badge that used to occupy this slot when idle was
- * removed — it read as a cryptic indicator on the first nine tabs and earned
- * its keep nowhere; the Cmd/Ctrl+1-9 shortcut still works (owned by
- * useKeyboardShortcuts). Pulled out of the main render loop because it calls
- * hooks (`usePanePendingStatus`, `useTopicLoading`) — those can't run inside
- * `panes.map(...)`.
- */
-function PaneTabCommands({
-  paneId, label, onClose, before, closable = true, topicId, onStop,
-}: {
-  paneId: string;
-  /**
-   * THE HUMAN NAME OF THE TAB, the one written on the tab itself
-   * (`etichettaTab`).
-   *
-   * It feeds the accessible name of the X, which used to carry the INTERNAL ID:
-   * VoiceOver announced a destructive action as «Chiudi tab 7f3a1c22-4b9e-...», allow-italian: the exact string a screen reader used to speak
-   * i.e. it asked to destroy something that cannot be recognised. The twins in
-   * the sidebar (TopicItem, TopicTree) have always said the chat name.
-   */
-  label: string;
-  onClose: (id: string) => void;
-  /** Commands that ride in the same rail, BEFORE the close ring (the browser
-   *  tab's three dots). See the ROW_ACTIONS contract. */
-  before?: React.ReactNode;
-  /** false = the rail exists for `before` (and for the stop) only; this pane does
-   *  not close. */
-  closable?: boolean;
-  /** The chat this tab shows, when it is a chat: the rail asks it whether a
-   *  turn is running before it offers to stop one. */
-  topicId?: string;
-  /** Interrupt the running turn. The SAME command the chat composer fires
-   *  (`useChat.stopSession`, routed through the layout's stopStreaming), never
-   *  a second path to stop a turn. */
-  onStop?: () => void;
-}) {
-  // v3 sidebar↔topbar sync: usePanePendingStatus also picks up the
-  // sidebar-side keys (`archive-topic:<id>` for chat panes,
-  // `close-terminal:<id>` / `close-browser:<id>`) so the topbar tab shows
-  // the same countdown regardless of which surface kicked it off.
-  const pendingStatus = usePanePendingStatus(paneId);
-  // The same signal that draws the spinner at the end of the tab: the command
-  // and the glyph that justifies it cannot disagree, because they read one
-  // source.
-  const streaming = useTopicLoading(topicId);
-  const canStop = streaming && !!onStop;
-  const commands = rowCommandSequence(canStop, closable);
-  if (commands.length === 0 && !before) return null;
-
-  // La regola che stava qui — «chiudere una tab non ha un altro percorso col
-  // dito, quindi senza puntatore il cerchio si VEDE» — è ancora quella, ma non
-  // la implementa più un hook: la scrive il CSS del binario, una volta per tutte
-  // le superfici (`@media (hover: hover)` in index.css). Un `useHoverReveal` per
-  // superficie erano N copie della stessa domanda, e infatti rispondevano
-  // diversamente: qui `hasHover`, sulle righe di sidebar `isTouch`, sul progetto
-  // un `group-hover` che spegneva anche il conto alla rovescia.
-
-  // IL BERSAGLIO STA SUL BOTTONE, NON SULLO SPAN.
-  //
-  // Il glifo è 14px dentro uno span da 20, in una tab alta 36 su touch: sotto
-  // metà della soglia iOS, e infatti col dito si prende la tab invece della X.
-  // L'area sensibile si allarga con un `::after` (solo su `pointer: coarse`), e
-  // la classe va messa sull'elemento che il clic lo GESTISCE: sullo span esterno
-  // l'area allargata non apparterrebbe al bottone e il tocco cadrebbe sulla tab,
-  // cioè attiverebbe invece di chiudere.
-  //
-  // QUI C'ERA `tap-expand` (44×44), E IL CONTO NON TORNAVA. Rifatto per davvero,
-  // in px, sulla tab larga 150 FISSE con `px-2` e figli separati da `gap-1.5`
-  // (6px) — cioè 134px di contenuto:
-  //
-  //  · Tab chat SENZA widget in coda: icona 14 + etichetta + X 20, due gap → la
-  //    etichetta prende 88 e la X sta a 122→142, centro 132. I 44 centrati vanno
-  //    110→154: a destra sporgono 4px oltre il bordo della tab (150), e lì
-  //    `overflow-hidden` taglia sia il disegno sia l'hit-test — la tab vicina
-  //    resta intoccabile, quella parte del conto era giusta. A sinistra i 12px
-  //    cadono sulla coda dell'ETICHETTA, che è la tab stessa: attiva, non
-  //    chiude. Prezzo accettabile.
-  //  · Tab chat MENTRE STREAMA — ed è il caso che rompe. Dopo la X c'è il
-  //    LoaderSlot, che con `onStop` è un `<button>` vero da 16px. L'etichetta
-  //    scende a 66, la X sta a 100→120 (centro 110), i 44 vanno 88→132: dentro
-  //    la tab, quindi niente clipping, e i 12px di destra si mangiano i 6 di gap
-  //    PIÙ i primi 6 dei 16 dello Stop (il 37% del bottone). Lo span della X ha
-  //    `relative z-10` e lo Stop sta nel flusso normale senza z-index: il
-  //    pseudo-elemento VINCE l'hit-test. Col dito, il terzo sinistro di «Stop»
-  //    chiude la tab invece di fermare il turno.
-  //
-  // Quindi `tap-expand-y`: cresce SOLO in altezza, larghezza 100%, e non toglie
-  // un pixel a nessun vicino. Detto senza abbellirlo: i 44px di altezza li taglia
-  // comunque l'`overflow-hidden` della tab a 36.
-  //
-  // MA LA LARGHEZZA RESTAVA 14, ed è l'asse su cui il dito sbaglia di più. Il
-  // motivo è che `tap-expand-y` proietta `left:0; right:0`, cioè il 100% DEL
-  // BOTTONE — e il bottone era largo `size` (14) perché `PendingActionRing` la
-  // metteva in uno `style` inline, che nessuna classe scavalca. Lo span esterno
-  // ne riservava già 20 e 6 andavano sprecati: l'area sensibile non arrivava nemmeno
-  // al bordo dello slot che le era stato messo da parte.
-  //
-  // Adesso il box del bottone lo detta il chiamante (`boxClassName="w-full h-full"`
-  // riempie lo slot) e su touch lo slot passa da 20 a 28. Il conto, sulla tab larga
-  // 150 FISSE con `px-2` e `gap-1.5`, cioè 134px di contenuto:
-  //
-  //  · l'etichetta è l'unico `flex-1`, quindi gli 8px in più li paga solo lei:
-  //    88 → 80 (-9%) su un testo che tronca già di suo;
-  //  · il bersaglio passa da 14×36 a 28×36 — il DOPPIO dell'area, e in largo è
-  //    esattamente lo spazio che lo slot occupava e non usava;
-  //  · a 36 (`w-9`, la misura delle righe di sidebar) l'etichetta scenderebbe a
-  //    72 (-18%), e mentre la chat streama il vicino a destra è il bottone Stop
-  //    da 16px: è il conto che questo commento ha già litigato una volta. Qui i
-  //    44 di Apple non ci sono e non si possono avere senza rubarli allo Stop.
-  //
-  // 07/08: il GLIFO passa da 14 a 16 (`ROW_ACTION_GLYPH`, la stessa misura che
-  // ora hanno tutti i cerchi «fatto / chiudi» dell'app) e lo slot col mouse da
-  // 20 a 24, o un cerchio da 16 in un box da 20 tocca i bordi. Il conto qui
-  // sopra si sposta di 4px, non di 8: l'etichetta scende da 88 a 84 — meno di
-  // quanto era già costato allargare il bersaglio col dito, e il motivo è lo
-  // stesso: «il tasto per poter spuntare una tab e chiuderla è troppo piccolo».
-  // Stesso breakpoint della tab che lo contiene (`h-9 md:h-7`): con due
-  // meccanismi diversi uno slot da 28 finiva dentro una tab da 28, cioè a filo
-  // dei bordi, ogni volta che larghezza e touch non coincidevano.
-  //
-  // ── E TUTTO IL CONTO QUI SOPRA È DECADUTO, perché lo slot non è più in fila ─
-  //
-  // Ogni riga di quell'aritmetica pesava lo stesso pezzo: quanti px il comando
-  // toglie all'ETICHETTA dentro i 134 utili della tab. 14 → 20 → 24 → 28, e
-  // ogni volta l'etichetta scendeva (88 → 84 → 80) e ogni volta bisognava
-  // decidere se valeva. Il paragrafo che si chiude con «i 44 di Apple non ci
-  // sono e non si possono avere senza rubarli allo Stop» era vero: in una fila,
-  // allargare un bersaglio vuol dire stringerne un altro.
-  //
-  // Fuori dal flusso quel conto sparisce. Il binario è `absolute` (vedi
-  // ROW_ACTIONS), quindi il box può essere quello CONDIVISO — 36 col dito, 28
-  // col mouse, `ROW_ACTION_BOX` come ogni altro comando dell'app — e l'etichetta
-  // non paga niente: anzi, riprende i 24-28px che lo slot le toglieva. La
-  // docstring di `ROW_ACTION_BOX` dichiarava già «vale ANCHE nella barra delle
-  // tab», e per tre giri era stata l'unica superficie a non rispettarla, con
-  // 28/24 contro 36/28.
-  //
-  // Niente `useHoverReveal` e niente ternario sul pending: la visibilità la
-  // decide il CSS del binario, che è dove `hover: hover` si può chiedere bene —
-  // è una proprietà del dispositivo, non un booleano che React ricalcola. E
-  // `data-pending` tiene il cerchio acceso mentre il conto scorre, anche se il
-  // mouse se ne va.
-  return (
-    <span
-      // `w-auto` when the rail carries more than one command: ROW_ACTION_BOX
-      // sizes ONE box, and a two-command rail clipped its first child to the
-      // width of the second.
-      className={`${ROW_ACTIONS} ${before || commands.length > 1 ? 'h-7 md:h-7 w-auto' : ROW_ACTION_BOX}`}
-      data-pending={pendingStatus ? 'true' : undefined}
-    >
-      {before}
-      {commands.map((command) => command === 'stop' ? (
-        <StopTurnButton key="stop" label={label} onStop={onStop!} />
-      ) : (
-        <PendingActionRing
-          key="close"
-          status={pendingStatus}
-          size={ROW_ACTION_GLYPH}
-          boxClassName={ROW_ACTION_BOX}
-          className="tap-expand-y"
-          testId="pane-tab-close"
-          onIdleClick={() => onClose(paneId)}
-          idleTitle="Chiudi tab"
-          // The NAME, not the id: see the `label` prop. The prefix below stays
-          // first because test locators hook onto it and because in a spoken
-          // announcement the action has to come before its subject.
-          idleAriaLabel={`Chiudi tab ${label}`}
-          pendingTitle="Annulla chiusura"
-          pendingAriaLabel="Annulla chiusura"
-        />
-      ))}
-    </span>
-  );
-}
-
-/**
  * The tab menu's stop-the-turn row. A component and not an inline branch
  * because deciding whether to show it means asking `useTopicLoading`, and a
  * hook cannot run inside the menu's render expression.
@@ -2592,34 +2159,6 @@ function TabMenuStopItem({ topicId, onStop }: { topicId: string; onStop: () => v
     >
       <SquareIcon size={14} />
       <span className="flex-1 text-left">{tr('tab.menu.stopTurn')}</span>
-    </button>
-  );
-}
-
-/**
- * STOP THE TURN — the rail's first command while a chat is streaming.
- *
- * A filled square and not lucide's `Square`: at ROW_ACTION_GLYPH a hollow
- * outline reads as "another circle" next to the close ring, and the two would
- * be told apart only by their corners. Filled, it is the universal stop, and it
- * is the SAME glyph the loader used to swap to on hover — the affordance moved,
- * the sign did not.
- *
- * Its accessible name is deliberately NOT the composer's "Stop generating":
- * they fire the same command, but a spoken name has to say WHICH one you are
- * on, and the e2e suite has a dozen locators pointing at the composer's.
- */
-function StopTurnButton({ label, onStop }: { label: string; onStop: () => void }) {
-  const tr = useT();
-  return (
-    <button
-      onClick={(e) => { e.stopPropagation(); onStop(); }}
-      className={`${ROW_ACTION_BOX} tap-expand-y flex-shrink-0 inline-flex items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer`}
-      title={tr('tab.stopTurn')}
-      aria-label={tr('tab.stopTurnOn', { name: label })}
-      data-testid="pane-tab-stop"
-    >
-      <span className="bg-app-text rounded-[2px]" style={{ width: 8, height: 8 }} />
     </button>
   );
 }

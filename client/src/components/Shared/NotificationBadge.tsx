@@ -26,9 +26,10 @@ interface NotificationBadgeProps {
    *  translucent-white pill so it stays legible instead of the default
    *  primary-blue, which rendered blue-on-blue (invisible) on the awaiting fill. */
   variant?: 'default' | 'onFill';
+  testId?: string;
 }
 
-export function NotificationBadge({ count, className = '', ariaLabel, title, variant = 'default' }: NotificationBadgeProps) {
+export function NotificationBadge({ count, className = '', ariaLabel, title, variant = 'default', testId }: NotificationBadgeProps) {
   if (count <= 0) return null;
   const display = count > 99 ? '99+' : String(count);
   // `onFill`: a translucent-black pill + white text reads on BOTH attention
@@ -46,6 +47,7 @@ export function NotificationBadge({ count, className = '', ariaLabel, title, var
       // Questo attributo non parla nessuna lingua ed è il segnale su cui
       // agganciarsi.
       data-notification-count={display}
+      data-testid={testId}
       // `leading-4` e non `leading-none`, ed è la ragione per cui il numero non
       // stava al centro del pallino: con `leading-none` la riga di testo è alta
       // quanto il carattere (11px) dentro una pastiglia da 16, quindi nasce a

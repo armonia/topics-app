@@ -47,10 +47,11 @@ describe('the label says which command, how much, and why', () => {
     expect(html).toContain('Test in pausa');
   });
 
-  test('the compact form is the glyph and one word, with the sentence in the tooltip', () => {
-    const html = renderToStaticMarkup(<SwapFreezeLabel freeze={freeze} variant="compact" />);
+  test('the tab form is the glyph alone, with the word and the sentence in the tooltip', () => {
+    const html = renderToStaticMarkup(<SwapFreezeLabel freeze={freeze} variant="glyph" />);
     expect(html).not.toContain('data-testid="swap-freeze-label"');
-    expect(visibleText(html)).toContain('pausa');
+    expect(visibleText(html).trim()).toBe('');
+    expect(html).toContain('title="pausa: ');
     expect(html).toContain('bun batteria.ts');
     expect(html).toContain('<svg');
   });
