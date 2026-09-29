@@ -184,10 +184,14 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
     const stamp = Date.now();
     const nameA = `Marked Chat ${stamp}`;
     const nameO = `Other Chat ${stamp}`;
+    const nameC = `Sentinel Chat ${stamp}`;
     const topicA = await createTopic(request, nameA, { provider: "topics" });
     const topicO = await createTopic(request, nameO, { provider: "topics" });
+    const topicC = await createTopic(request, nameC, { provider: "topics" });
     const keyA = await sessionKeyOf(request, topicA.id);
-    await resetPaneStore(request, [topicA.id, topicO.id]);
+    const keyO = await sessionKeyOf(request, topicO.id);
+    const keyC = await sessionKeyOf(request, topicC.id);
+    await resetPaneStore(request, [topicA.id, topicO.id, topicC.id]);
 
     try {
       // The window is in FRONT of you here: the mark must not depend on the
@@ -196,6 +200,15 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
       const push = await routeStreamFrames(page);
       const finish = (messageId: string): void =>
         push({ type: "stream:end", sessionKey: keyA, topicId: topicA.id, messageId, completed: true, stopReason: "end_turn" });
+      // C is never the pane in front: its end always marks it, so once C is
+      // marked every frame sent before it has been applied. It replaces a
+      // clock in the two assertions that something did NOT happen.
+      const tabC = page.locator('[role="tab"][data-pane-id]', { hasText: nameC });
+      const sentinel = async (messageId: string): Promise<void> => {
+        push({ type: "stream:start", sessionKey: keyC, topicId: topicC.id, messageId: `${messageId}-start` });
+        push({ type: "stream:end", sessionKey: keyC, topicId: topicC.id, messageId, completed: true, stopReason: "end_turn" });
+        await expect(tabC, "the sentinel chat was not marked").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
+      };
 
       await goToApp(page);
       const tabA = page.locator('[role="tab"][data-pane-id]', { hasText: nameA });
@@ -217,8 +230,8 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
       await expect(page.getByRole("tab", { name: new RegExp(`${nameA}.*turno finito`) })).toBeVisible();
       // And the banner, in the same breath.
       await expect.poll(async () => (await bannerLog(page)).map((b) => b.title), { timeout: 10_000 }).toEqual([nameA]);
-      // It is a mark, not a flash: still there after the other surfaces settle.
-      await page.waitForTimeout(1_500);
+      // It is a mark, not a flash: still there once a later frame has been applied.
+      await sentinel("m-c1");
       await expect(tabA).toHaveAttribute("data-attention", "done");
 
       // Opening the chat is having seen it: the mark goes from both surfaces.
@@ -227,9 +240,12 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
       await expect(tabA).not.toHaveAttribute("data-attention", /done|input/, { timeout: 10_000 });
       await expect(rowA).not.toHaveAttribute("data-attention", /done|input/);
 
-      // A chat that finishes while you are looking at it gets no mark.
+      // A chat that finishes while you are looking at it gets no mark. The
+      // other chat's end, sent after it, is the sentinel: frames are applied in
+      // order, so once O is marked A's end has been handled too.
       finish("m-2");
-      await page.waitForTimeout(1_000);
+      push({ type: "stream:end", sessionKey: keyO, topicId: topicO.id, messageId: "m-o", completed: true, stopReason: "end_turn" });
+      await expect(tabO, "the sentinel chat was not marked").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
       await expect(tabA).not.toHaveAttribute("data-attention", /done|input/);
       await expect(rowA).not.toHaveAttribute("data-attention", /done|input/);
 
@@ -251,12 +267,13 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
       await page.reload();
       await expect(tabA).toBeVisible({ timeout: 15_000 });
       await expect(rowA).toBeVisible({ timeout: 15_000 });
-      await page.waitForTimeout(1_000);
+      await sentinel("m-c2");
       await expect(tabA).not.toHaveAttribute("data-attention", /done|input/);
       await expect(rowA).not.toHaveAttribute("data-attention", /done|input/);
     } finally {
       await deleteTopic(request, topicA.id);
       await deleteTopic(request, topicO.id);
+      await deleteTopic(request, topicC.id);
     }
   });
 
