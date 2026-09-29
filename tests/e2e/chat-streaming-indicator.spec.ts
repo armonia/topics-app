@@ -319,6 +319,15 @@ test.describe("Chat waiting on background work", () => {
     const body = (await res.json()) as { topics: Record<string, { sessionKey?: string }> };
     bgSessionKey = body.topics?.[bgTopicId]?.sessionKey ?? "";
     if (!bgSessionKey) throw new Error("the seeded topic has no sessionKey");
+    // A transcript, because background work is what a turn left running and the
+    // line is the transcript's last row: an empty chat has no turn and no list.
+    // Enough of it to scroll well past the 150px at-bottom band.
+    for (let i = 0; i < 40; i++) {
+      await request.post(`${BASE}/api/topics/${bgTopicId}/system-message`, {
+        data: { content: `#${i + 1} ${"A paragraph of the conversation that wraps over a couple of lines. ".repeat(3)}` },
+        ignoreHTTPSErrors: true,
+      });
+    }
   });
 
   test.afterAll(async ({ request }) => {
@@ -362,6 +371,106 @@ test.describe("Chat waiting on background work", () => {
     await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
   }
 
+  /** How far the chat scroller is from its true bottom, in px. */
+  async function distanceFromBottom(page: Page): Promise<number> {
+    return page.locator("[data-virtuoso-scroller]").first()
+      .evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+  }
+
+  /** The box of the whole block at the foot of the chat: the composer plus whatever strips sit in it. */
+  async function composerBox(page: Page) {
+    const box = await page.getByTestId("chat-input-area").boundingBox();
+    if (!box) throw new Error("the composer block has no box");
+    return box;
+  }
+
+  function expectSameBox(after: { y: number; height: number }, before: { y: number; height: number }) {
+    expect(Math.abs(after.y - before.y)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(after.height - before.height)).toBeLessThanOrEqual(0.5);
+  }
+
+  test("at the bottom the line comes and goes as the transcript's last row, and the composer does not move", async ({ page, chatPage }) => {
+    // Each change of the work waits for the next 15 s poll: two of them do not fit the default 30 s.
+    test.setTimeout(90_000);
+    test.info().annotations.push({ type: "spec", description: "BGVIS-04" });
+    const status = await armBackgroundStatus(page);
+    status.background = false;
+    await openBackgroundChat(page, chatPage);
+    const line = page.getByTestId("background-work-line");
+    await expect.poll(() => distanceFromBottom(page), { timeout: 15_000 }).toBeLessThanOrEqual(8);
+    const before = await composerBox(page);
+
+    // Work starts: the next poll (every 15 s) brings it.
+    status.background = true;
+    await expect(line).toBeVisible({ timeout: 20_000 });
+    await expect.poll(() => distanceFromBottom(page), { timeout: 5_000 }).toBeLessThanOrEqual(8);
+    const withLine = await composerBox(page);
+    expectSameBox(withLine, before);
+    // THE LAST ROW OF THE TRANSCRIPT: inside the scroller, under the last
+    // message, and above the composer rather than behind it.
+    await expect(page.locator("[data-virtuoso-scroller]").first().getByTestId("background-work-line")).toHaveCount(1);
+    const geometry = await line.evaluate((el) => {
+      const scroller = el.closest("[data-virtuoso-scroller]")!;
+      const rows = [...scroller.querySelectorAll<HTMLElement>("[data-index]")];
+      const lastRow = rows.reduce((a, b) => (Number(b.dataset.index) > Number(a.dataset.index) ? b : a));
+      return { lineTop: el.getBoundingClientRect().top, lineBottom: el.getBoundingClientRect().bottom, lastRowBottom: lastRow.getBoundingClientRect().bottom };
+    });
+    expect(geometry.lineTop).toBeGreaterThanOrEqual(geometry.lastRowBottom - 0.5);
+    expect(geometry.lineBottom).toBeLessThanOrEqual(withLine.y + 0.5);
+
+    // Work ends: the line goes, the composer stays put, the view stays at the bottom.
+    status.background = false;
+    await expect(line).toHaveCount(0, { timeout: 20_000 });
+    await expect.poll(() => distanceFromBottom(page), { timeout: 5_000 }).toBeLessThanOrEqual(8);
+    expectSameBox(await composerBox(page), before);
+  });
+
+  test("scrolled up reading, the line appearing does not move what is on screen", async ({ page, chatPage }) => {
+    // Each change of the work waits for the next 15 s poll: two of them do not fit the default 30 s.
+    test.setTimeout(90_000);
+    test.info().annotations.push({ type: "spec", description: "BGVIS-04" });
+    const status = await armBackgroundStatus(page);
+    status.background = false;
+    await openBackgroundChat(page, chatPage);
+    const scroller = page.locator("[data-virtuoso-scroller]").first();
+    await expect.poll(() => distanceFromBottom(page), { timeout: 15_000 }).toBeLessThanOrEqual(8);
+    // A wheel, not a `scrollTop` write: only a gesture hands the scroll to the reader.
+    await scroller.hover();
+    await page.mouse.wheel(0, -1500);
+    await expect.poll(() => distanceFromBottom(page), { timeout: 5_000 }).toBeGreaterThan(600);
+    // Watched in the page, frame by frame: the reference is the first message
+    // fully on screen in the LAST frame before the line lands, so a list still
+    // settling earlier is not blamed on the line; then thirty frames with the
+    // line in, so a late pin would be caught too.
+    status.background = true;
+    const { drift, index } = await scroller.evaluate((el) => new Promise<{ drift: number; index: string }>((done) => {
+      let ref = { index: "", top: NaN };
+      let worst = 0;
+      let framesWithLine = 0;
+      const firstOnScreen = () => {
+        const box = el.getBoundingClientRect();
+        const row = [...el.querySelectorAll<HTMLElement>("[data-index]")]
+          .filter((r) => r.getBoundingClientRect().top >= box.top && r.getBoundingClientRect().bottom <= box.bottom)
+          .sort((x, y) => x.getBoundingClientRect().top - y.getBoundingClientRect().top)[0];
+        return { index: row?.dataset.index ?? "", top: row?.getBoundingClientRect().top ?? NaN };
+      };
+      const tick = () => {
+        if (!document.querySelector('[data-testid="background-work-line"]')) {
+          ref = firstOnScreen();
+          requestAnimationFrame(tick);
+          return;
+        }
+        const row = el.querySelector<HTMLElement>(`[data-index="${ref.index}"]`);
+        worst = Math.max(worst, row ? Math.abs(row.getBoundingClientRect().top - ref.top) : Infinity);
+        if (++framesWithLine < 30) requestAnimationFrame(tick);
+        else done({ drift: worst, index: ref.index });
+      };
+      requestAnimationFrame(tick);
+    }));
+    expect(index).not.toBe("");
+    expect(drift).toBeLessThanOrEqual(0.5);
+  });
+
   test("the row, the tab and the line say what the chat waits on, and a message still goes out at once", async ({ page, chatPage }) => {
     for (const id of ["BGVIS-01", "BGVIS-02", "BGVIS-04"]) test.info().annotations.push({ type: "spec", description: id });
     await armBackgroundStatus(page);
@@ -384,7 +493,7 @@ test.describe("Chat waiting on background work", () => {
     await row.hover();
     await expect(row.getByTestId("topic-row-stop")).toHaveCount(0);
 
-    // THE LINE above the composer names both tasks.
+    // THE LINE at the end of the transcript names both tasks.
     const line = page.getByTestId("background-work-line");
     await expect(line).toBeVisible({ timeout: 10_000 });
     await expect(line).toContainText("Verifica build");

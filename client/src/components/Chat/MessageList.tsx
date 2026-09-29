@@ -39,6 +39,7 @@ import type { QueuedTurn } from '../../state/chatQueue';
 import { QueuedTurns } from './QueuedTurns';
 import { isMachineRow, lastConversationMessage } from './machineRow';
 import { ForkOriginDivider } from './ForkOriginDivider';
+import { BackgroundWorkLine } from './BackgroundWorkLine';
 
 /**
  * La LISTA di Virtuoso, cappata alla misura di lettura.
@@ -336,8 +337,12 @@ export function MessageList({
     // invece crescono attaccate all'ultima risposta, e la loro crescita passa
     // da `totalListHeightChanged`, cioè dall'aggancio che tiene la vista in
     // fondo.
+    // The background work line (`BackgroundWorkLine`) is the first row here,
+    // right under the last message: it is the tail of the turn that left the
+    // work running, and here its coming and going cannot move the composer.
     Footer: () => (
       <>
+        <BackgroundWorkLine topicId={topic.id} isMobile={isMobile} />
         <QueuedTurns
           turns={queued}
           isMobile={isMobile}
@@ -378,7 +383,7 @@ export function MessageList({
     // oggi nessuna, domani chissà — non si prende un buco per sbaglio.
     Header: () => <div data-testid="chat-top-gutter" style={{ height: 'var(--chat-gutter, 0px)' }} />,
     List: ChatList,
-  }), [inputAreaHeight, queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy]);
+  }), [inputAreaHeight, queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id]);
 
   /**
    * LA CODA VIVA SI SEPARA DAL RESTO — perché è l'unica cosa che cambia.
