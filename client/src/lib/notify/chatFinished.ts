@@ -109,11 +109,18 @@ export function turnEndClaimKey(end: { topicId: string; messageId?: string; late
  * `terminal:activity` does to the terminal one: a clean turn end raises it (the
  * same rule the banner and the server push read), a new turn drops it. Anything
  * else leaves it alone: an aborted or failed turn is not "finished, your turn".
+ *
+ * `inFront` says whether the person is looking at the chat right now
+ * (`isChatInFront`): a turn that ends there raises no mark, decided here and
+ * not by clearing it a commit later, which reached the Dock number.
  */
 export function chatFinishedEdge(
   frame: { type: string; topicId?: unknown } & ChatTurnEnd,
+  inFront: (topicId: string) => boolean = () => false,
 ): { op: 'mark' | 'clear'; topicId: string } | null {
-  if (frame.type === 'stream:end') return isCleanChatTurnEnd(frame) ? { op: 'mark', topicId: frame.topicId } : null;
+  if (frame.type === 'stream:end') {
+    return isCleanChatTurnEnd(frame) && !inFront(frame.topicId) ? { op: 'mark', topicId: frame.topicId } : null;
+  }
   if (frame.type === 'stream:start' && typeof frame.topicId === 'string' && frame.topicId) {
     return { op: 'clear', topicId: frame.topicId };
   }

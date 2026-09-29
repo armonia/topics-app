@@ -694,19 +694,7 @@ export const signalsActions = {
     useSignalsStore.getState().clearTerminalFinished(id);
     markTargetSeen(TERMINAL_TARGET_KIND, id);
   },
-  /**
-   * A chat's turn ended cleanly: raise its 'done' mark, UNLESS the person is
-   * looking at that chat right now (`isChatInFront`). Decided here, when the
-   * mark would be set, and not by clearing it afterwards: the mark raised and
-   * cleared one commit later still reached the provider's effects, which
-   * painted +1 on the Dock and the PWA badge and then took it back, at every
-   * turn end of the chat in front (setAppBadge history 0,1,0,1,...; in Tauri
-   * two `set_app_status` calls per turn).
-   */
-  markChatFinished: (topicId: string) => {
-    if (isChatInFront(topicId)) return;
-    useSignalsStore.getState().markChatFinished(topicId);
-  },
+  markChatFinished: (topicId: string) => useSignalsStore.getState().markChatFinished(topicId),
   clearChatFinished: (topicId: string) => useSignalsStore.getState().clearChatFinished(topicId),
   markTerminalReloading: (id: string) => useSignalsStore.getState().markTerminalReloading(id),
   clearTerminalReloading: (id: string) => useSignalsStore.getState().clearTerminalReloading(id),
@@ -1262,60 +1250,6 @@ export function useTerminalLoading(sessionId: string | undefined): boolean {
 /** A claude-code session finished a turn and the user hasn't looked yet. */
 export function useTerminalFinished(sessionId: string | undefined): boolean {
   return useSignalsStore((s) => !!sessionId && s.terminalFinishedIds.has(sessionId));
-}
-
-/**
- * The chats a mounted pane is showing as its focused tab, by topic id, with
- * how many panes do (two windows of one page, a remount overlapping). Written
- * by `useClearChatFinishedWhileViewed`, read synchronously by
- * `signalsActions.markChatFinished` when a turn ends.
- */
-const chatsInView = new Map<string, number>();
-
-/** Declare `topicId` shown as a focused chat until the returned release runs. */
-export function holdChatInView(topicId: string): () => void {
-  chatsInView.set(topicId, (chatsInView.get(topicId) ?? 0) + 1);
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    const n = (chatsInView.get(topicId) ?? 1) - 1;
-    if (n > 0) chatsInView.set(topicId, n);
-    else chatsInView.delete(topicId);
-  };
-}
-
-/** Is the person looking at this chat now: a pane shows it focused AND the
- *  window is awake (`isWindowAwake`, the predicate the seen dwell reads). A
- *  chat focused in a window behind another app is not in front of anyone. */
-export function isChatInFront(topicId: string): boolean {
-  return (chatsInView.get(topicId) ?? 0) > 0 && isWindowAwake();
-}
-
-/**
- * Viewing a chat clears its "finished" mark, the twin of the effect in
- * `SingleTerminalPane`. While it is viewed the chat is also declared in view,
- * so a turn that ends while the person looks at it raises no mark at all
- * (`signalsActions.markChatFinished`). The clear waits for an awake window,
- * the same rule: a chat that finished in a window behind another app keeps its
- * mark, and it goes when the window comes back to the front.
- */
-export function useClearChatFinishedWhileViewed(topicId: string, viewing: boolean): void {
-  const finished = useSignalsStore((s) => s.chatFinishedTopics.has(topicId));
-  useEffect(() => (viewing ? holdChatInView(topicId) : undefined), [viewing, topicId]);
-  useEffect(() => {
-    if (!viewing || !finished) return;
-    const clearIfAwake = () => { if (isWindowAwake()) signalsActions.clearChatFinished(topicId); };
-    clearIfAwake();
-    // Same three events as `useSeenDwell`: `isWindowAwake` reads visibility
-    // and focus, so both can bring the window back.
-    document.addEventListener('visibilitychange', clearIfAwake);
-    window.addEventListener('focus', clearIfAwake);
-    return () => {
-      document.removeEventListener('visibilitychange', clearIfAwake);
-      window.removeEventListener('focus', clearIfAwake);
-    };
-  }, [viewing, finished, topicId]);
 }
 
 /** A terminal session is restarting via "Ricarica", until it reconnects. */

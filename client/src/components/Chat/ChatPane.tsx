@@ -69,7 +69,7 @@ import { useSessionMessages } from '../../state/useSessionMessages';
 import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAttachments';
 import { useServedFromCache } from '../../state/historyFromCache';
 import { holdTopic } from '../../state/topicSubscriptions';
-import { useClearChatFinishedWhileViewed } from '../../state/signals';
+import { useClearChatFinishedWhileViewed } from '../../state/chatInView';
 
 /**
  * The text `/help` prints, DERIVED from the composer's own menu.

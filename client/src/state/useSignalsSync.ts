@@ -10,6 +10,7 @@ import { NOTABLE_CLAUDE_PHASES, deriveAwaitingFeedbackTopics, deriveAwaitingInpu
 import { readStreamingSnapshot, type StreamingRowInput } from './backgroundWork';
 import { chatFinishedEdge } from '../lib/notify/chatFinished';
 import { marksClearedBy, terminalSubject, topicSubject } from '../lib/notify/seenFrame';
+import { isChatInFront } from './chatInView';
 
 /** Insieme vuoto condiviso: identità stabile, così il primo giro non fa churn. */
 const EMPTY_TOPIC_SET: Set<string> = new Set();
@@ -154,8 +155,9 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
       if (msg.type === 'stream:start' || msg.type === 'stream:end') {
         // The chat "finished" mark, the twin of `terminal:activity` below: a
         // clean end raises it, a new turn drops it. Opening the chat drops it
-        // too (`useClearChatFinishedWhileViewed`, in the chat pane).
-        const edge = chatFinishedEdge(msg);
+        // too (`useClearChatFinishedWhileViewed`, in the chat pane), and a chat
+        // already in front of the person is never marked (`isChatInFront`).
+        const edge = chatFinishedEdge(msg, isChatInFront);
         if (edge?.op === 'mark') signalsActions.markChatFinished(edge.topicId);
         else if (edge?.op === 'clear') signalsActions.clearChatFinished(edge.topicId);
         // Turno finito ⇒ nessuna domanda può essergli sopravvissuta. Si spegne
