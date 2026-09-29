@@ -1,5 +1,26 @@
 [
   {
+    "version": "2.2.411",
+    "date": "2026-09-29",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "An archived project stays forgotten while its window is still mounted, so the reopen has no background preview",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The banner of the chat in front is recorded already seen, so the Dock does not move at its turn end with the default settings",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.410",
     "date": "2026-09-29",
     "sections": {
@@ -49,6 +70,31 @@
         },
         {
           "it": "Living specs carry the lanes' last edits, and a fork point compares both sides without their trailing MEDIA lines",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Archiving a project also forgets its session-only panes, so un-archiving starts from a clean layout",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The tray menu lists the chats its number counts, finished chats included",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A chat that finishes in front of you raises no 'done' mark, so the Dock number no longer flickers at each turn end",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "⌘J to a pinned chat whose tab lives in another group takes the window there, and so does its tile",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The chat-in-view registry lives in its own module, and the turn end reads it through chatFinishedEdge",
           "en": "",
           "scope": null
         }
