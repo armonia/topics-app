@@ -645,6 +645,15 @@ notifica non vista che non hanno gia' un badge; e la parita' SHALL essere provat
 calcolando l'attesa dagli stessi aiutanti per-riga, non da un numero scritto a
 mano.
 
+Il menu della tray SHALL elencare le chat che il suo numero conta
+(`trayChatItems`, dagli stessi soggetti): anche una chat finita e una chat che
+conta solo per una notifica non vista, fino a otto righe.
+
+#### Scenario: la tray elenca la chat finita che conta
+- **GIVEN** una chat con il segno «done», una non letta e una ferma su un permesso
+- **WHEN** si compone il menu della tray
+- **THEN** SHALL avere tre righe di chat, una per ciascuna, come il numero
+
 #### Scenario: le due superfici sullo stesso stato
 - **WHEN** un insieme di topic, terminali e card, senza notifiche non viste, produce il conteggio del chrome
 - **THEN** quel numero SHALL essere uguale al numero di righe di sidebar con un badge per gli stessi soggetti, piu' le card in review
@@ -706,13 +715,25 @@ esporlo come `data-attention="done"`.
 Il segno SHALL spegnersi quando la chat viene aperta (è la pane attiva col
 fuoco), quando si clicca la sua riga (anche se la chat la tiene un'altra
 finestra, dove il clic porta avanti quella finestra) o quando comincia un nuovo turno (`stream:start`). Se la chat è già
-davanti quando il turno finisce, il segno NON SHALL restare acceso. Come quello
+davanti quando il turno finisce (la pane a fuoco la mostra e la finestra è
+sveglia, `isWindowAwake`), il segno NON SHALL accendersi affatto: si decide
+dove il segno si accende, non spegnendolo un render dopo, perché anche un
+segno di un solo commit arriva al numero del Dock e del badge PWA. Una chat a
+fuoco in una finestra dietro un'altra app non è davanti a nessuno: il segno
+SHALL accendersi e contare, e SHALL spegnersi quando la finestra torna davanti. Come quello
 dei terminali, vive in memoria: un ricarico della pagina riparte senza.
 
 #### Scenario: chat senza hook che finisce dietro un'altra tab
 - **GIVEN** una chat senza hook aperta in una tab, e un'altra tab attiva
 - **WHEN** il suo turno finisce pulito
 - **THEN** la sua tab e la sua riga SHALL avere `data-attention="done"`
+
+#### Scenario: la chat davanti che finisce non muove il numero del Dock
+- **GIVEN** una chat senza hook a fuoco, in una finestra sveglia
+- **WHEN** finiscono cinque suoi turni
+- **THEN** la cronologia di `setAppBadge` NON SHALL cambiare
+- **WHEN** la finestra passa dietro un'altra app e un turno finisce
+- **THEN** il numero SHALL salire di uno, e SHALL tornare giù quando la finestra torna davanti
 
 #### Scenario: aprire la chat spegne il segno
 - **WHEN** la tab della chat segnata viene attivata

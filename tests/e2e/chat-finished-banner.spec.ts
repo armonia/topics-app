@@ -37,6 +37,8 @@ declare global {
   interface Window {
     __bannerLog?: { title: string; body: string }[];
     __shellCalls?: string[];
+    __awake?: boolean;
+    __badgeLog?: number[];
   }
 }
 
@@ -274,6 +276,74 @@ test.describe.serial("chat turn end → OS banner, whatever the runtime", () => 
       await deleteTopic(request, topicA.id);
       await deleteTopic(request, topicO.id);
       await deleteTopic(request, topicC.id);
+    }
+  });
+
+  test("a chat that finishes in front of you never moves the Dock number; behind another app it counts until you come back", async ({ page, request }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-DONE-01" });
+    const stamp = Date.now();
+    const nameA = `Front Chat ${stamp}`;
+    const nameS = `Sentinel Chat ${stamp}`;
+    const topicA = await createTopic(request, nameA, { provider: "topics" });
+    const topicS = await createTopic(request, nameS, { provider: "topics" });
+    const keyA = await sessionKeyOf(request, topicA.id);
+    const keyS = await sessionKeyOf(request, topicS.id);
+    await resetPaneStore(request, [topicA.id, topicS.id]);
+    // Earlier tests leave unseen rows in the registry: they count on the badge
+    // (NOTIF-ONE-02) and would land at an unknown moment after the load.
+    await request.post(`${E2E_BASE}/api/notifications/seen`, { data: { upTo: new Date().toISOString() } });
+
+    try {
+      // The window is in front, and a switch puts it behind another app the
+      // way macOS reports it to a WKWebView (visible, no focus). The Badging
+      // API records every value the app paints, in order.
+      await page.addInitScript(() => {
+        window.__awake = true;
+        window.__badgeLog = [];
+        Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+        Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+        document.hasFocus = () => window.__awake === true;
+        const nav = navigator as unknown as { setAppBadge: (n?: number) => Promise<void>; clearAppBadge: () => Promise<void> };
+        nav.setAppBadge = (n?: number) => { window.__badgeLog!.push(n ?? 0); return Promise.resolve(); };
+        nav.clearAppBadge = () => { window.__badgeLog!.push(0); return Promise.resolve(); };
+      });
+      const push = await routeStreamFrames(page);
+      const finish = (sessionKey: string, topicId: string, messageId: string): void =>
+        push({ type: "stream:end", sessionKey, topicId, messageId, completed: true, stopReason: "end_turn" });
+      // Consecutive repeats are the same paint: the history is the values it went through.
+      const badgeHistory = async (): Promise<number[]> =>
+        (await page.evaluate(() => window.__badgeLog ?? [])).filter((n, i, all) => i === 0 || n !== all[i - 1]);
+
+      await goToApp(page);
+      const tabA = page.locator('[role="tab"][data-pane-id]', { hasText: nameA });
+      const tabS = page.locator('[role="tab"][data-pane-id]', { hasText: nameS });
+      await expect(tabA).toBeVisible({ timeout: 15_000 });
+      await expect(tabS).toBeVisible({ timeout: 15_000 });
+      await tabA.click();
+      await expect(tabA).toHaveAttribute("data-active", "true");
+      await expect.poll(async () => (await badgeHistory()).length, { timeout: 10_000, message: "the badge was never painted" }).toBeGreaterThan(0);
+      const history0 = await badgeHistory();
+      const base = history0[history0.length - 1]!;
+
+      // Five turns end on the chat in front of you.
+      for (let i = 1; i <= 5; i++) finish(keyA, topicA.id, `front-${i}`);
+      // The sentinel: another chat's end, sent after them, lands in order, so
+      // once its mark is on its tab the five before it have been handled.
+      finish(keyS, topicS.id, "sentinel-1");
+      await expect(tabS, "the sentinel chat was not marked").toHaveAttribute("data-attention", "done", { timeout: 10_000 });
+      await expect.poll(badgeHistory, { timeout: 10_000 }).toEqual([...history0, base + 1]);
+      await expect(tabA).not.toHaveAttribute("data-attention", /done|input/);
+
+      // Behind another app nobody is looking: the same chat's end counts...
+      await page.evaluate(() => { window.__awake = false; window.dispatchEvent(new Event("blur")); });
+      finish(keyA, topicA.id, "behind-1");
+      await expect.poll(badgeHistory, { timeout: 10_000, message: "a chat finished while you were away does not count" }).toEqual([...history0, base + 1, base + 2]);
+      // ...until the window comes back to the front, which is having seen it.
+      await page.evaluate(() => { window.__awake = true; window.dispatchEvent(new Event("focus")); });
+      await expect.poll(badgeHistory, { timeout: 10_000 }).toEqual([...history0, base + 1, base + 2, base + 1]);
+    } finally {
+      await deleteTopic(request, topicA.id);
+      await deleteTopic(request, topicS.id);
     }
   });
 
