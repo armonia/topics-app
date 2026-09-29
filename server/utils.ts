@@ -642,8 +642,8 @@ export function createAppContext(baseDir: string): AppContext {
         // worktree_id (Phase A · migration 018). NULL = no binding; FK
         // ON DELETE SET NULL on the column ensures graceful degrade.
         $worktree_id: topic.worktreeId || null,
-        // initial_message (Phase C · migration 019). One-shot — the renderer
-        // PATCHes back to null after dispatching it.
+        // initial_message (Phase C · migration 019). Only PATCH writes it: a new
+        // chat's first message is sent at creation (POST /api/topics), never stored.
         $initial_message: topic.initialMessage || null,
         // standalone (migration 044). 1 = keep project_path (cwd) but present as
         // a standalone task workspace / loose tab, never a project node.
