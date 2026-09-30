@@ -2,6 +2,19 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.418 — 2026-09-30
+
+### Sotto il cofano
+- GET /api/files stats each folder's entries concurrently and tests gitignore rules as merged runs, returning the same tree about 7x faster.
+- An unread bump, a seen reset and an archive write only the unread rows they change, not the whole table.
+- init leaves out the zeroed unread rows of archived topics, shrinking the frame from 111 KB to 1.8 KB with the same badges.
+- ui-state:init no longer carries the dev probes' result keys, which only the single-key GET reads.
+- Every tmp + rename state-file write goes through one helper, writeFileAtomic, that keeps each caller's format and mode.
+- The scripts registry is saved by tmp + rename, and an unreadable scripts.json is logged and kept aside as scripts.json.corrupt-<ts>.
+- GET /api/files walks one entry at a time again, so the event loop turns between syscalls, and keeps the compiled ignore rules that were most of its time
+- FileNode is declared once in shared/file-tree.ts and re-exported by the server walk and the client types
+- Revert CS-05: opening a chat from the palette renders it in the input frame again, as the tab-switch contract requires
+
 ## 2.2.417 — 2026-09-30
 
 ### Sotto il cofano
@@ -13,16 +26,31 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - The spawn window closes only on the ack of the spawn in flight now, so an earlier spawn overtaken by a kill and a respawn cannot let its child's exit through
 - A Stop learned from a history answer holds the message queued before it, across a restart
 - An answer still owed at a restart is loaded again whatever the question's age, the row's state or the topic's archive flag
+- A message row that carries a machine mark is stored as plain text at any size, so LIKE readers never miss it.
+- MACHINE_ROW_SQL only runs its LIKEs on text blocks, so sidebar previews stop scanning compressed blobs.
+- The server keeps planner statistics on tasks (ANALYZE tasks a minute after boot, then daily), so card children and counts use their selective index.
 - The personal-address scan types its matches as strings, so an incremental tsc no longer infers never for them
 - An owed answer is keyed by chat and tool call, so a question answered in a chat and in its fork keeps both answers, and an unreadable row cannot stop the boot
 - server/utils.ts records 2877 lines in the bloat baseline: the turn ledger (queue) and the turn-end signal with the owed answers (questions) land together
 - The question bench's restart forgets the turn ledger too, as a new process does, so the chat route no longer refuses the next message with a 409
 - The skeleton gutter test reads the Footer as it is now: the composer's height property plus CHAT_BOTTOM_GUTTER_PX, and every write of that property goes with inputAreaHeight from the same h
+- A history page decompresses only the rows it ships: the first page stops at the row that breaks the byte budget, and the completion no longer reads the tail
+- The per-turn topic directory loads only the live topics instead of the whole store
 - The composer's descent starts on the first frame painted after Enter, never at the key, in the draft or in the pane that takes over from it
 - Skeleton gutter test: its new comment and name in English, as the language rails ask
 - A failed answer post waits before the next one, doubling up to a minute, and a disposed relay stops for good, so a failure that ends a turn no longer re-posts in a loop
+- Board drafts queued in the 800 ms debounce are sent at once, with keepalive, when the page hides.
+- The shared scripts poll publishes only a list that changed and stays at 15 s while any consumer holds the WS channel.
+- File tree rows are memoized and an unchanged /api/files listing keeps the tree on screen, so a refresh or a parent render re-renders no row.
+- The sidebar row FLIP measures every unit first and starts the animations after, so one pass costs one layout.
+- Opening a chat from the palette sends its history request in the Enter task, closes the palette in the input frame, and renders the pane after the paint.
 - The question bench closes every turn its tests opened, a disposed relay ignores a late first event, and the wiring test follows the reattach legs into reattachSurvivors
 - Dragging the floating browser window no longer selects the chat text under it
+- A card whose worktree the manager refuses parks as blocked with the refusal as its reason, instead of being retried as a flaky setup.
+- The release reuses the WebRTC bridge sidecar from a cache keyed on its sources, the build script, the OS and the rustc version.
+- The measuring CI job starts with the run instead of waiting for the unit suite, and a small check job holds the unit and gates verdicts.
+- CHIPS-03 reads the card's ink alone only after the machine's numbers are drawn again, as it already did in the populated state.
+- The pane-attach specs show the project's browser until its pane socket opens before backgrounding it, instead of relying on the restore order to have shown it.
 - The drag selection guard now holds through Escape and a lost window focus for as long as the bar's drag goes on
 - The drag spec re-selects the chat where the page says nothing covers the line, start and end, instead of at a fixed offset
 - The drag spec checks the guard's release the same way on every engine, and keeps the real re-selection stroke on WebKit
