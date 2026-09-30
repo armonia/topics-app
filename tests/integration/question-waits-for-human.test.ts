@@ -482,6 +482,8 @@ describe("an answer is bound to its own question, from the click to the model", 
     await server.relay().idle();
     expect(server.lateMessages).toHaveLength(1);
     expect(server.lateMessages[0]!.content).toContain(`> ${QUESTION}`);
+    // Sent once the model hears the turn that carries it.
+    await until(() => storedCall(rowA, "toolu_owed_A")?.answerRelay === "sent");
     expect(storedCall(rowA, "toolu_owed_A")?.answerRelay).toBe("sent");
     // The next boot owes nothing.
     expect(finalizeOrphanedRunningTools(ctx.db, new Set()).filter((o) => o.sessionKey === sk)).toEqual([]);

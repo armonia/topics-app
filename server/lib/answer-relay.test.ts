@@ -9,7 +9,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { createAnswerRelay, owedAnswerOf, type AnswerRelay, type OwedAnswer } from "./answer-relay";
-import { announceTurnEnded } from "./turn-ended";
+import { announceTurnEnded, turnEndedListenerCount } from "./turn-ended";
 
 let benchSeq = 0;
 
@@ -22,6 +22,8 @@ let benchSeq = 0;
 function bench(statuses: number[] = []) {
   const sessionKey = `topic:relay-${++benchSeq}`;
   let busy = false;
+  /** The turn the route starts fails before the model hears anything (a provider error). */
+  let modelFails = false;
   const posted: string[] = [];
   const sent: string[] = [];
   const settled: string[] = [];
@@ -38,9 +40,12 @@ function bench(statuses: number[] = []) {
       if (busy) return new Response(JSON.stringify({ code: "stream_in_flight" }), { status: 409 });
       const claimed = relay.claim(sessionKey, id);
       if (!claimed) return new Response(JSON.stringify({ code: "answer_not_owed" }), { status: 409 });
-      relay.markSent(claimed);
-      sent.push(id);
+      // The turn starts; the model hears it at once unless the test says it fails first.
+      claimed.turnStarted = true;
       busy = true;
+      if (modelFails) return new Response("data: [DONE]\n\n", { status: 200 });
+      relay.heard(claimed);
+      sent.push(id);
       return new Response("data: [DONE]\n\n", { status: 200 });
     },
     settle: (o) => { settled.push(o.toolCallId); },
@@ -54,7 +59,11 @@ function bench(statuses: number[] = []) {
     await new Promise((r) => setTimeout(r, 5));
     await relay.idle();
   };
-  return { sessionKey, relay, owed, posted, sent, settled, logs, endTurn, setBusy: (b: boolean) => { busy = b; } };
+  return {
+    sessionKey, relay, owed, posted, sent, settled, logs, endTurn,
+    setBusy: (b: boolean) => { busy = b; },
+    setModelFails: (f: boolean) => { modelFails = f; },
+  };
 }
 
 describe("answer relay", () => {
@@ -115,13 +124,80 @@ describe("answer relay", () => {
     b.setBusy(true);
     b.relay.enqueue(b.owed("toolu_x"));
     b.relay.enqueue(b.owed("toolu_y"));
-    expect(b.relay.takeOwed(b.sessionKey).map((o) => o.toolCallId)).toEqual(["toolu_x", "toolu_y"]);
-    expect(b.relay.takeOwed(b.sessionKey)).toEqual([]);
+    const carry = b.relay.takeOwed(b.sessionKey)!;
+    expect(carry.answers.map((o) => o.toolCallId)).toEqual(["toolu_x", "toolu_y"]);
+    expect(b.relay.takeOwed(b.sessionKey)).toBeNull();
     expect(b.relay.claim(b.sessionKey, "toolu_x")).toBeNull();
+    carry.turnStarted = true;
+    b.relay.heard(carry);
+    expect(b.settled).toEqual(["toolu_x", "toolu_y"]);
     await b.endTurn();
     await b.endTurn();
     expect(b.posted).toEqual([]);
     expect(b.sent).toEqual([]);
+  });
+
+  test("a turn that ended before the model heard anything gives the answer back, and it waits for the NEXT turn end, not a loop", async () => {
+    const b = bench();
+    b.setModelFails(true);
+    b.relay.enqueue(b.owed("toolu_f"));
+    await b.relay.idle();
+    expect(b.posted).toEqual(["toolu_f"]);
+    // The turn it started ends with nothing heard: owed again, not settled, not re-posted by that same end.
+    await b.endTurn();
+    expect(b.settled).toEqual([]);
+    expect(b.posted).toEqual(["toolu_f"]);
+    expect(b.logs.filter((l) => l.includes("toolu_f"))).toHaveLength(1);
+    expect(b.logs[0]).toContain("before the model heard anything");
+    // Somebody else's turn ends later: now it goes, and the model hears it.
+    b.setModelFails(false);
+    await b.endTurn();
+    expect(b.posted).toEqual(["toolu_f", "toolu_f"]);
+    expect(b.settled).toEqual(["toolu_f"]);
+  });
+
+  test("a message that took answers and never started its turn gives them back in order, ahead of what was queued since", () => {
+    const b = bench();
+    b.setBusy(true);
+    b.relay.enqueue(b.owed("toolu_1st"));
+    b.relay.enqueue(b.owed("toolu_2nd"));
+    const carry = b.relay.takeOwed(b.sessionKey)!;
+    b.relay.enqueue(b.owed("toolu_3rd"));
+    b.relay.notCarried(carry);
+    expect(b.settled).toEqual([]);
+    // A late event of that message cannot settle what it gave back.
+    b.relay.heard(carry);
+    expect(b.settled).toEqual([]);
+    expect(b.relay.takeOwed(b.sessionKey)!.answers.map((o) => o.toolCallId)).toEqual(["toolu_1st", "toolu_2nd", "toolu_3rd"]);
+  });
+
+  test("under a hold nothing is posted, a message can still take what is owed, and the release sends the rest", async () => {
+    const b = bench();
+    const release = b.relay.hold();
+    b.relay.enqueue(b.owed("toolu_h1"));
+    await b.relay.idle();
+    expect(b.posted).toEqual([]);
+    await b.endTurn();
+    expect(b.posted).toEqual([]);
+    // What the boot loaded is there for the first message, before any release.
+    expect(b.relay.takeOwed(b.sessionKey)!.answers.map((o) => o.toolCallId)).toEqual(["toolu_h1"]);
+    b.relay.enqueue(b.owed("toolu_h2"));
+    release();
+    await b.relay.idle();
+    expect(b.posted).toEqual(["toolu_h2"]);
+  });
+
+  test("a relay with nothing owed or carried holds no turn-end listener, so a router built and dropped leaks none", async () => {
+    const before = turnEndedListenerCount();
+    const relays = Array.from({ length: 5 }, () => bench());
+    expect(turnEndedListenerCount()).toBe(before);
+    const b = relays[0]!;
+    b.setBusy(true);
+    b.relay.enqueue(b.owed("toolu_l"));
+    expect(turnEndedListenerCount()).toBe(before + 1);
+    await b.endTurn();
+    expect(b.settled).toEqual(["toolu_l"]);
+    expect(turnEndedListenerCount()).toBe(before);
   });
 
   test("owedAnswerOf reads a queued answer off a stored call, and nothing else", () => {

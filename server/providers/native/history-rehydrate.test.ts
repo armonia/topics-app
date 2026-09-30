@@ -131,6 +131,19 @@ describe("historyFromPersistedThread — ricostruire la storia dopo un riavvio",
     ]);
   });
 
+  test("a message that spans rows (owed answers carried in front of it) leaves all of them out, and nothing before them", () => {
+    const out = historyFromPersistedThread([u("prima"), a("risposta"), u("answer A"), u("answer B"), u("the person's words")], 3);
+    expect(out).toEqual([
+      { role: "user", content: "prima" },
+      { role: "assistant", content: "risposta" },
+    ]);
+    // Never past the user rows: an assistant row is not part of the message.
+    expect(historyFromPersistedThread([u("prima"), a("risposta"), u("nuova")], 3)).toEqual([
+      { role: "user", content: "prima" },
+      { role: "assistant", content: "risposta" },
+    ]);
+  });
+
   test("un assistant in coda resta: la domanda nuova arriva dopo di lui", () => {
     const out = historyFromPersistedThread([u("domanda"), a("risposta")]);
     expect(out).toEqual([

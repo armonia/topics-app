@@ -416,7 +416,8 @@ export class NativeProvider implements AIProvider {
     return tolte;
   }
 
-  private sessionFor(sessionKey: string): NativeSession {
+  /** `messageRows`: how many of the thread's last user rows the message about to be sent is made of (see `sendChat`'s options). */
+  private sessionFor(sessionKey: string, messageRows = 1): NativeSession {
     const existing = this.sessions.get(sessionKey);
     if (existing) { existing.lastUsedAt = Date.now(); return existing; }
     // La radice: il progetto della topic, poi quella dichiarata a config.
@@ -449,7 +450,7 @@ export class NativeProvider implements AIProvider {
     // sopravvissuta è il DB. Si va a prenderla lì — una volta sola, quando la
     // sessione nasce, non a ogni turno.
     const fresh: NativeSession = {
-      history: rehydrateHistory(sessionKey),
+      history: rehydrateHistory(sessionKey, messageRows),
       workspace,
       lastUsedAt: Date.now(),
       calibration: { charsPerToken: DEFAULT_CHARS_PER_TOKEN },
@@ -462,13 +463,22 @@ export class NativeProvider implements AIProvider {
     sessionKey: string,
     message: string,
     handler: StreamHandler,
-    options?: { model?: string; history?: ChatMessage[]; systemPrompt?: string },
+    options?: {
+      model?: string; history?: ChatMessage[]; systemPrompt?: string;
+      /**
+       * How many of the thread's last user rows `message` is made of: 1, or
+       * more when the chat route put owed answers in front of the person's
+       * words, each as its own row (`lib/answer-relay.ts`). A session rebuilt
+       * from the rows leaves all of them out, or the model reads them twice.
+       */
+      messageRows?: number;
+    },
   ): Promise<{ runId?: string }> {
     if (this.hasGlobalCoordinatorRole(sessionKey)) {
       handler.onError("the global coordinator is Codex-only; reopen it from the Kanban");
       return {};
     }
-    const session = this.sessionFor(sessionKey);
+    const session = this.sessionFor(sessionKey, options?.messageRows);
     await this.supersedeLiveTurn(sessionKey, session);
 
     // La storia del CHIAMANTE vince su quella in memoria: è lui che sa cosa è

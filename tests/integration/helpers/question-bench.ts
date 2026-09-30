@@ -12,7 +12,7 @@ import { createChatRouter } from "../../../server/routes/chat";
 import { decodeCol } from "../../../shared/message-blob";
 import { createPermissionRouter } from "../../../server/routes/permission";
 import { _dropAskStateLikeARestart } from "../../../server/lib/ask-user-bridge";
-import type { AnswerRelay } from "../../../server/lib/answer-relay";
+import type { AnswerRelay, Carry } from "../../../server/lib/answer-relay";
 
 /** The app context of the running file, set by `useQuestionBench`. */
 export let ctx: AppContext;
@@ -22,7 +22,9 @@ export let ctx: AppContext;
  * a turn hands it and never answers (the turn is closed by hand). What
  * `sendChat` receives is exactly what the model would read.
  */
-export const modelReceived: Array<{ sessionKey: string; message: string }> = [];
+export const modelReceived: Array<{ sessionKey: string; message: string; options?: SendOptions }> = [];
+/** What the route hands the provider with the message (history, the rows the message spans...). */
+type SendOptions = Parameters<AIProvider["sendChat"]>[3];
 export const handlers: StreamHandler[] = [];
 const fakeModel = {
   name: "fake-model",
@@ -31,8 +33,8 @@ const fakeModel = {
   get connected() { return modelConnected; },
   registerStreamHandler: (_sk: string, _rid: string | undefined, h: StreamHandler) => { handlers.push(h); },
   unregisterStreamHandler: () => {},
-  sendChat: (sessionKey: string, message: string) => {
-    modelReceived.push({ sessionKey, message });
+  sendChat: (sessionKey: string, message: string, _h: StreamHandler, options?: SendOptions) => {
+    modelReceived.push({ sessionKey, message, ...(options ? { options } : {}) });
     return new Promise<{ runId?: string }>(() => {});
   },
   defaultModel: () => "fake-model",
@@ -44,6 +46,9 @@ const fakeModel = {
 /** Off: the provider is unavailable, and the chat route refuses before the gate. */
 let modelConnected = true;
 export function setModelConnected(on: boolean): void { modelConnected = on; }
+/** Set: the provider resolution throws it, as the routing switch does when it can no longer reach the pinned provider. */
+let providerRefusal: Error | null = null;
+export function setProviderRefusal(err: Error | null): void { providerRefusal = err; }
 /** Every `stream:end` the routes broadcast, so a test can drain like the composer. */
 export const streamEnds: Array<(sessionKey: string) => void> = [];
 
@@ -110,10 +115,11 @@ export function chatRouter(answerRelay?: () => AnswerRelay) {
       answerRelay: {
         claim: (sk: string, id: string) => answerRelay().claim(sk, id),
         takeOwed: (sk: string) => answerRelay().takeOwed(sk),
-        markSent: (o: Parameters<AnswerRelay["markSent"]>[0]) => answerRelay().markSent(o),
+        heard: (c: Carry) => answerRelay().heard(c),
+        notCarried: (c: Carry) => answerRelay().notCarried(c),
       },
     } : {}),
-    resolveProvider: () => fakeModel,
+    resolveProvider: () => { if (providerRefusal) throw providerRefusal; return fakeModel; },
     detectLocalhostAutoNav: () => {},
     bindTopicToProject: () => {},
     resolveProjectRef: () => null,
@@ -144,7 +150,7 @@ async function postChat(chat: ReturnType<typeof chatRouter>, sessionKey: string,
 }
 
 /** The server, as a process starts it: fresh routers over the same database. */
-export function bootServer() {
+export function bootServer(opts: { modelAnswersRelay?: boolean } = {}) {
   const lateMessages: Array<{ sessionKey: string; content: string }> = [];
   let relay: AnswerRelay | null = null;
   const chat = chatRouter(() => relay!);
@@ -156,7 +162,8 @@ export function bootServer() {
       const body = await req.clone().json() as { sessionKey: string; messages: Array<{ content: string }> };
       lateMessages.push({ sessionKey: body.sessionKey, content: body.messages[0]!.content });
       const resp = await chat(req, url, pathname, method);
-      if (resp?.ok) {
+      // `modelAnswersRelay: false`: the test drives that turn's handler itself.
+      if (resp?.ok && opts.modelAnswersRelay !== false) {
         const h = handlers[handlers.length - 1];
         setTimeout(() => { h?.onTextDelta("ok", "ok"); h?.onDone(); }, 0);
       }
@@ -215,6 +222,7 @@ export function useQuestionBench(name: string): void {
     _dropAskStateLikeARestart();
     streamEnds.length = 0;
     modelConnected = true;
+    providerRefusal = null;
   });
 }
 

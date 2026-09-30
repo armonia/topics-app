@@ -78,12 +78,13 @@ function harness(rows: Row[]) {
   const router = createTopicsRouter(ctx, undefined, undefined, {
     exposeAnswerRelay: (r) => { relay = r; },
     // The chat route the relay posts the answer to: recorded, and taken the
-    // way the real one takes it (claimed, then marked sent on its row).
+    // way the real one takes it (claimed, then settled on its row once the
+    // model hears the turn that carries it).
     answerRelayRoute: async (req) => {
       const body = await req.json() as { sessionKey: string; messages: Array<{ content: string }>; questionAnswer: { toolCallId: string } };
       sent.push({ sessionKey: body.sessionKey, content: body.messages[0]!.content });
       const claimed = relay!.claim(body.sessionKey, body.questionAnswer.toolCallId);
-      if (claimed) relay!.markSent(claimed);
+      if (claimed) { claimed.turnStarted = true; relay!.heard(claimed); }
       return new Response("{}", { status: 200 });
     },
   });

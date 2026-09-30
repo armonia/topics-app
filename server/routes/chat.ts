@@ -24,7 +24,7 @@ import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessag
 import { hasPendingAsk } from "../lib/ask-user-bridge";
 import { recentActiveRows } from "../lib/ask-answer-routing";
 import { askerStillThere, openQuestionsOnRows, sessionHasOpenQuestion } from "../lib/question-outlives-asker";
-import type { AnswerRelay, OwedAnswer } from "../lib/answer-relay";
+import { onFirstModelEvent, type AnswerRelay, type Carry } from "../lib/answer-relay";
 import { TopicsRoutingIncompatibleError } from "../providers/resolve-topic-provider";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { cartelloRisveglio } from "../providers/claude/woken-turn";
@@ -173,9 +173,11 @@ export interface ChatDeps {
    * The answers owed to the model by questions whose asker is gone
    * (`lib/answer-relay.ts`). This route is where they are taken: the relay's
    * own message claims its answer, a person's message takes every owed answer
-   * of the session and carries it in front of itself.
+   * of the session and carries it in front of itself. Taken is not sent: the
+   * turn that carries them settles them at the model's first event, or gives
+   * them back if it never gets there.
    */
-  answerRelay?: Pick<AnswerRelay, "claim" | "takeOwed" | "markSent">;
+  answerRelay?: Pick<AnswerRelay, "claim" | "takeOwed" | "heard" | "notCarried">;
 }
 
 /**
@@ -346,7 +348,26 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     resolveTab: (ref) => resolveTabRef(ref, tabDeps),
   };
 
-  return async function chatRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+  /**
+   * The owed answers a request took (`lib/answer-relay.ts`), by request. A
+   * request that ends without starting the turn that carries them (a refusal
+   * after the gate, a throw, a provider it could not reach) gives them back
+   * here, on every way out of the route, so none of them is lost to an exit
+   * nobody thought of. Once the turn has started, its first model event or its
+   * end decides instead.
+   */
+  const carries = new WeakMap<Request, Carry>();
+  async function chatRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+    try {
+      return await routeChat(req, url, pathname, method);
+    } finally {
+      const carry = carries.get(req);
+      if (carry && !carry.turnStarted) deps.answerRelay?.notCarried(carry);
+    }
+  }
+  return chatRouter;
+
+  async function routeChat(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
     // The goal loop resends through this very route: see `goalLoop`.
     goalLoop.useRoute(chatRouter);
     if (method === "POST" && pathname === "/api/chat") {
@@ -606,22 +627,25 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
        *     them as their own rows first, and the model reads them first, in
        *     the same turn. A slash command is left alone: its text is a command.
        */
-      let claimedAnswer: OwedAnswer | null = null;
+      /** The owed answers this message took: settled when its turn reaches the model (`carries`). */
+      let carry: Carry | null = null;
       /** The rows of the answers this message carries, and their text, oldest first. */
       const carried: Array<{ rowId: string; content: string }> = [];
       if (deps.answerRelay && lastUserMsg?.role === "user" && typeof lastUserMsg.content === "string" && lastUserMsg.content) {
         const claimedId = (body.questionAnswer as { toolCallId?: unknown } | undefined)?.toolCallId;
         if (typeof claimedId === "string") {
-          claimedAnswer = deps.answerRelay.claim(sessionKey, claimedId);
-          if (!claimedAnswer) return json({ error: "this answer has already reached the model", code: "answer_not_owed" }, 409);
+          carry = deps.answerRelay.claim(sessionKey, claimedId);
+          if (!carry) return json({ error: "this answer has already reached the model", code: "answer_not_owed" }, 409);
+          carries.set(req, carry);
         } else if (sentByPerson && !lastUserMsg.content.trim().startsWith("/")) {
-          for (const answer of deps.answerRelay.takeOwed(sessionKey)) {
+          carry = deps.answerRelay.takeOwed(sessionKey);
+          if (carry) carries.set(req, carry);
+          for (const answer of carry?.answers ?? []) {
             const stored = appendLocalMessage(
               sessionKey, "user", answer.content,
               autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
               userRowMarks({ repeats: repeatedRowMarks(ctx.db, sessionKey, answer.content) }),
             );
-            deps.answerRelay.markSent(answer);
             if (matchedTopic) {
               broadcastToAll({
                 type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user",
@@ -660,8 +684,6 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         // Non un istante prima: la riga è la prova, e finché non c'è, ripetere è
         // l'unica cosa giusta da fare.
         if (idempotencySlot) chatIdempotency.remember(idempotencySlot, storedUserMsg.id);
-        // The relay's own message is written: its question stops owing it.
-        if (claimedAnswer) deps.answerRelay?.markSent(claimedAnswer);
         // A resend of the resume sweep: this copy of the message leads the next
         // sweep back to its count, written in the same tick as the row.
         if (resumeAttempt > 0 && typeof body.resendOf === "string") noteResendCopy(ctx.db, sessionKey, body.resendOf, storedUserMsg.id);
@@ -1467,6 +1489,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // FIGLIO, cioè un provider che sa riadottare. Si chiede UNA volta, qui:
           // il provider di una sessione non cambia mentre il turno gira.
           startStream(sessionKey, partialMsg.id, externalAbort, providerSurvivesRestart(topicProvider));
+          // From here the turn's end decides for the answers it carries, not the route's exit.
+          if (carry) carry.turnStarted = true;
           // `reattached` dice al client: questa bolla la stai già vedendo piena,
           // e sto per ricostruirla da capo — svuotala PRIMA che arrivino le
           // delta, o il replay si somma a quello che c'è già e il testo esce
@@ -2630,7 +2654,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             }
           };
 
-          const handler: StreamHandler = guardFinalizedTurn({
+          // The owed answers this turn carries reach the model with it: its
+          // first event settles them (`lib/answer-relay.ts`).
+          const heardCarry = carry ? () => { if (carry) deps.answerRelay?.heard(carry); } : null;
+          const handler: StreamHandler = onFirstModelEvent(guardFinalizedTurn({
             onTextDelta: (text: string, _fullText: string) => {
               resetStreamTimer();
               // Il primo argomento È il pezzo nuovo, sempre: lo dice il contratto
@@ -3346,7 +3373,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
               finalizeStream("aborted", undefined, message?.turnEnd);
             },
-          }, () => streamState === "finalized", late);
+          }, () => streamState === "finalized", late), heardCarry);
 
           // Helper to extract text from final/aborted message
             /**
@@ -3601,8 +3628,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
             // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.
             topicProvider.registerStreamHandler?.(sessionKey, undefined, handler);
-            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; fastMode?: boolean; rowId?: string } = { rowId: partialMsg.id };
+            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; fastMode?: boolean; rowId?: string; messageRows?: number } = { rowId: partialMsg.id };
             if (overrideModel) sendOptions.model = overrideModel;
+            // The answers carried in front of the person's words are rows of
+            // their own, and part of THIS message: a provider that rebuilds its
+            // history from the rows leaves them out with it.
+            if (carried.length > 0) sendOptions.messageRows = carried.length + 1;
             // La richiesta di fast mode viaggia COME richiesta: decide il
             // provider, che la gira alla CLI solo se la CLI ha detto di poterla
             // servire. Qui non si sceglie nessun modello al posto suo.
@@ -3814,6 +3845,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Provider doesn't support streamHTTP — use complete() as fallback
             const result = await topicProvider.complete(finalMessages);
             clearTimeout(timeoutId);
+            if (carry) deps.answerRelay?.heard(carry);
             const content = result.content;
             const storedFallback = appendLocalMessage(sessionKey, "assistant", content);
             if (matchedTopic) {
@@ -3823,6 +3855,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             return new Response(ssePayload, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
           }
           clearTimeout(timeoutId);
+          if (resp.ok && carry) deps.answerRelay?.heard(carry);
 
           if (!resp.ok) {
             const text = await resp.text();
@@ -3978,5 +4011,5 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     }
 
     return null;
-  };
+  }
 }

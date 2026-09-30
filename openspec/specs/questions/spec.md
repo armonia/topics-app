@@ -744,7 +744,13 @@ dovuta e la manda. La coda riparte dalla FINE DEL TURNO della sessione, non da u
 orologio, e un rifiuto la lascia dovuta al turno successivo. Un messaggio che la
 persona scrive DOPO la risposta NON SHALL mai raggiungere il modello prima di
 lei: se arriva mentre la risposta e' ancora in coda, la porta davanti a se', nello
-stesso turno. Il pannello SHALL dire «risposto» solo quando la risposta e'
+stesso turno, e questo SHALL valere anche subito dopo un riavvio, prima che il
+server abbia riadottato i turni sopravvissuti. Presa non e' consegnata: la riga
+SHALL restare `queued` finche' il turno che la porta non e' davvero partito (il
+primo evento del modello), e un turno che non parte o che il fornitore chiude
+prima di quel primo evento SHALL lasciarla in coda, in testa, per la fine del
+turno successivo. Il modello SHALL leggerla una volta sola, anche quando il
+runtime nativo ricostruisce la sessione dalle righe. Il pannello SHALL dire «risposto» solo quando la risposta e'
 stata presa da chi ha chiesto o e' in quella coda, e SHALL dire che e' in
 arrivo finche' la coda non l'ha consegnata. Consegnata, NON SHALL chiudere le
 altre domande aperte della persona, e nemmeno un messaggio di un altro agente
@@ -788,6 +794,16 @@ su Codex.
 - **GIVEN** una risposta in coda dietro un turno della macchina in volo
 - **WHEN** la persona scrive un messaggio nuovo e il turno finisce
 - **THEN** il modello SHALL leggere la risposta prima del messaggio nuovo, una volta sola
+
+#### Scenario: la persona scrive subito dopo un riavvio
+- **GIVEN** una risposta in coda e un riavvio del server
+- **WHEN** il messaggio della persona arriva prima che i turni sopravvissuti siano riadottati
+- **THEN** il modello SHALL leggere la risposta prima del messaggio, una volta sola
+
+#### Scenario: il turno che porta la risposta non parte
+- **GIVEN** una risposta presa da un messaggio
+- **WHEN** la rotta lo rifiuta dopo averla presa, o il fornitore fallisce prima di un qualsiasi evento del modello
+- **THEN** la riga SHALL restare `queued` e la risposta SHALL arrivare col messaggio successivo, una volta sola
 
 #### Scenario: la vecchia domanda e quella nuova
 - **GIVEN** una domanda A il cui processo non c'e' piu', e un turno nuovo fermo sulla domanda B

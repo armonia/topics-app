@@ -844,7 +844,8 @@ const webrtcBridge = createWebrtcBridge();
 const paneAttachedTo = (contextId: string): boolean => hasAttachedPane(browserWsClients.get(contextId));
 // The user's `turn-end` hook reaches the chat route from here (HOOKS-02).
 let goalLoop: ChatGoalLoop | null = null;
-let answerRelay: AnswerRelay | null = null;
+// Set by the router below, synchronously: `as` keeps TS from reading it as always null.
+let answerRelay = null as AnswerRelay | null;
 const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo, {
   hooks: defaultLifecycleHooks(),
   exposeGoalLoop: (l) => { goalLoop = l; },
@@ -3150,6 +3151,18 @@ const liveBrokerChatSessions = new Set<string>();
   console.log(`[Startup] partial sweep: reset ${cleared}, kept ${kept} (mid-turn ${midTurnAtBoot.size}, broker-alive ${liveBrokerChatSessions.size}, listConfirmed=${listConfirmed})`);
 }
 
+// Tools a dead turn left 'running' are closed as interrupted (`lib/boot-orphan-tools.ts`).
+//
+// BEFORE THE SERVER LISTENS, because of the answers it finds still owed to the
+// model (`lib/answer-relay.ts`): they go into the relay's queue here, so the
+// first message a person sends after the restart already finds them and
+// carries them in front of itself. Loaded after `listen` (it was, until 30/09)
+// a message that got in first reached the model before an answer the person
+// gave before it. Their SENDING waits for the surviving turns to be adopted
+// (`releaseAnswersOwedAtBoot`, below): until then a session only looks free.
+const releaseAnswersOwedAtBoot = answerRelay?.hold();
+for (const owed of finalizeOrphanedRunningTools(db, liveBrokerChatSessions)) answerRelay?.enqueue(owed);
+
 const tlsCert = join(import.meta.dir, "certs", "fullchain.pem");
 const tlsKey = join(import.meta.dir, "certs", "key.pem");
 const useTls = !process.env.NO_TLS && await Bun.file(tlsCert).exists() && await Bun.file(tlsKey).exists();
@@ -4817,11 +4830,6 @@ if (serverTunnel) {
   console.log(`[Tunnel] porta dedicata su 127.0.0.1:${portaTunnel} — chi entra da qui NON e' locale`);
 }
 
-// Tools a dead turn left 'running' are closed as interrupted (`lib/boot-orphan-tools.ts`).
-// The answers it finds still owed to the model go out once the surviving turns
-// are adopted (below), so none is sent into a session that looks free mid-turn.
-const answersOwedAtBoot = finalizeOrphanedRunningTools(db, liveBrokerChatSessions);
-
 // Stale stream cleanup
 const STALE_STREAM_CHECK_INTERVAL_MS = 30_000;
 const STALE_STREAM_TIMEOUT_MS = 3 * 60 * 1000;
@@ -5615,7 +5623,7 @@ const survivingTurnsAdopted = reattachSurvivingChatTurns();
 // wakes would have waited for the next boot without a word in the log.
 void survivingTurnsAdopted
   .catch(() => { /* logged by the chain below */ })
-  .then(() => { for (const owed of answersOwedAtBoot) answerRelay?.enqueue(owed); });
+  .then(() => releaseAnswersOwedAtBoot?.());
 void survivingTurnsAdopted
   .catch(() => { /* logged by the chain below */ })
   .then(() => startProcessExitWakes({

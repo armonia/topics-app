@@ -105,6 +105,10 @@ export function configureNativeHistorySource(fn: PersistedThreadLoader | null): 
  *    del turno che sta per partire: la rotta lo scrive in DB *prima* di chiamare
  *    il provider, e `sendChat` lo rimette lui in fondo. Senza, il modello si
  *    vede la stessa domanda due volte e la seconda sembra un'insistenza.
+ *    (Exactly `messageRows` when the caller says the message spans more than
+ *    one row: the route writes the owed answers it carries in front of the
+ *    person's words as rows of their own, and they travel in the message too,
+ *    `lib/answer-relay.ts`. Kept, they were read twice on 30/09.)
  * 4. **I ruoli si alternano.** Due `assistant` di fila sono normali qui (una
  *    risposta più una nota di sistema) e non lo sono per l'API: si fondono in
  *    una riga sola, separate da una riga vuota.
@@ -142,7 +146,7 @@ export function configureNativeHistorySource(fn: PersistedThreadLoader | null): 
  *    Consegno", turn interrupted, a resume that did not know it had already
  *    delivered.
  */
-export function historyFromPersistedThread(thread: readonly PersistedTurn[]): RehydratedTurn[] {
+export function historyFromPersistedThread(thread: readonly PersistedTurn[], messageRows = 1): RehydratedTurn[] {
   // Rule 1 (+5): stumps and placeholders out; tool calls expand into pairs.
   const rows: RehydratedTurn[] = [];
   for (const row of thread) {
@@ -164,8 +168,11 @@ export function historyFromPersistedThread(thread: readonly PersistedTurn[]): Re
   // Rule 3: ONE row only, and only if it is the user's AND prose. A tail of
   // `tool_result` is not the question of the turn about to start: it is the
   // answer to the `tool_use` before it, and popping it would orphan them.
-  const last = fromUser[fromUser.length - 1];
-  if (last && last.role === "user" && typeof last.content === "string") fromUser.pop();
+  for (let i = 0; i < Math.max(1, messageRows); i++) {
+    const last = fromUser[fromUser.length - 1];
+    if (!last || last.role !== "user" || typeof last.content !== "string") break;
+    fromUser.pop();
+  }
   // Regola 4: alternanza, fondendo i vicini di pari ruolo.
   const merged: RehydratedTurn[] = [];
   for (const m of fromUser) {
@@ -294,10 +301,10 @@ function resultBlock(tc: ToolCall): Block {
  * saperlo. Non lancia mai: una riparazione che fallisce deve costare un turno
  * senza memoria, non un turno che non parte.
  */
-export function rehydrateHistory(sessionKey: string): RehydratedTurn[] {
+export function rehydrateHistory(sessionKey: string, messageRows = 1): RehydratedTurn[] {
   if (!loadThread) return [];
   try {
-    return historyFromPersistedThread(loadThread(sessionKey));
+    return historyFromPersistedThread(loadThread(sessionKey), messageRows);
   } catch {
     return [];
   }
