@@ -425,6 +425,8 @@ const streamStartSchema = z.looseObject({
    * resumed by pressing Retry is not this case, and never will be.
    */
   resumedBy: z.optional(z.literal('server')),
+  /** A woken turn's `woken` blocks: the bubble opens with them, as its row does. */
+  banners: z.optional(z.array(z.looseObject({ kind: z.literal('woken') }))),
 });
 
 const streamContentChunkSchema = z.looseObject({

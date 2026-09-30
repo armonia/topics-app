@@ -147,6 +147,18 @@ describe('mergeFetchedHistory — un turno solo, non due', () => {
     expect(tail.content).toBe('c-01 c-02 c-03 ');
   });
 
+  it('the bubble an end closed here keeps the banners only the server row has', () => {
+    // A woken turn is short: the answer read at its start came back after its
+    // end, and the closed bubble kept here had no banner, so the Monitor's
+    // event never showed until a reload (chat-monitor-visible.spec.ts, 01/10).
+    const existing = [utente('u1', 'vai'), msg('srv-live', 'c-01 c-02 ', { blocks: [{ kind: 'text', text: 'c-01 c-02 ' }] })];
+    const wakeBlock = { kind: 'woken', label: 'deploy log', source: 'monitor', text: 'error' };
+    const fetched = [utente('u1', 'vai'), msg('srv-live', 'c-01 ', { partial: true, blocks: [wakeBlock, { kind: 'text', text: 'c-01 ' }] as never })];
+    const tail = mergeFetchedHistory(existing, fetched, { endedMeanwhile: true }).at(-1)!;
+    expect(tail.content).toBe('c-01 c-02 ');
+    expect(tail.blocks).toEqual([wakeBlock, { kind: 'text', text: 'c-01 c-02 ' }] as never);
+  });
+
   it('a bubble closed with no end seen during the read gives way to the server partial row', () => {
     // Closed by the stream watchdog, say, while the server still streams.
     const existing = [utente('u1', 'vai'), msg('srv-live', 'c-01 ')];

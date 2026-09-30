@@ -1164,6 +1164,7 @@ The answer produced by a woken turn SHALL be written to the conversation as a ro
 - **WHEN** the message renders
 - **THEN** the banner SHALL say it is that Monitor's event (`woken.monitorEvent`), with the Monitor tool's icon, and SHALL show the event's text (`data-testid="woken-event"`)
 - **AND** a `source: "task"` block SHALL read as a background task's report (`woken.taskReport`), and a row with several `woken` blocks SHALL show one banner each
+- **AND** the banner SHALL show live, in every window, without a reload: `stream:start` of a woken turn carries its `woken` blocks as `banners` and the placeholder opens with them, and a history answer read before the turn ended here SHALL NOT drop them from the bubble the end closed (`withServerBanners`, `client/src/hooks/reconcileMessages.ts`). Measured 01/10 on `chat-monitor-visible.spec.ts`: without both, 3 runs of 5 had the row right in the database and no banner on screen until a reload
 
 #### Scenario: A banner with no label still declares the provenance
 - **GIVEN** a `woken` block with no label

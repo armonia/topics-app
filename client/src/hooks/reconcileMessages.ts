@@ -172,13 +172,22 @@ function localAheadOf(existing: ChatMessage[], serverTail: ChatMessage, endedMea
   if (!serverTail.id) return null;
   const local = existing.find((m) => m.id === serverTail.id);
   if (!local || local.role !== 'assistant') return null;
-  if (local.partial !== true) return endedMeanwhile ? local : null;
+  if (local.partial !== true) return endedMeanwhile ? withServerBanners(local, serverTail) : null;
   const mine = local.content ?? '';
   const theirs = serverTail.content ?? '';
   if (!(mine.length > theirs.length && mine.startsWith(theirs))) return null;
-  // The row's banners (a woken turn, a resumed one) are written by the server
-  // at the start of the timeline and no live frame carries them: the local copy
-  // may not have them, and keeping it must not drop them for the whole turn.
+  return withServerBanners(local, serverTail);
+}
+
+/**
+ * The row's banners (a woken turn, a resumed one) are written by the server at
+ * the start of the timeline and no live frame carries them: the local copy may
+ * not have them, and keeping it, still streaming or closed by an end seen here,
+ * must not drop them. A woken turn is short enough that the closed case is the
+ * common one: its answer came back after the end, and the Monitor's event
+ * stayed hidden until a reload.
+ */
+function withServerBanners(local: ChatMessage, serverTail: ChatMessage): ChatMessage {
   const localBlocks = local.blocks ?? [];
   const banners = (serverTail.blocks ?? []).filter(
     (b) => (b.kind === 'woken' || b.kind === 'ripreso') && !localBlocks.some((l) => l.kind === b.kind),

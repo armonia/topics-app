@@ -84,9 +84,9 @@ function readWakeNotifications(path: string, sinceMs: number): Array<WakeEvent &
     fd = openSync(path, "r");
     const size = fstatSync(fd).size;
     const len = Math.min(size, TAIL_BYTES);
-    const buf = Buffer.alloc(len);
-    readSync(fd, buf, 0, len, size - len);
-    text = buf.toString("utf8");
+    const tail = Buffer.alloc(len);
+    readSync(fd, tail, 0, len, size - len);
+    text = tail.toString("utf8");
     // The first line of a cut tail is partial.
     if (len < size) text = text.slice(text.indexOf("\n") + 1);
   } catch {

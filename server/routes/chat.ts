@@ -1513,6 +1513,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             type: "stream:start", sessionKey, topicId: matchedTopic?.id, messageId: partialMsg.id,
             ...(reusedRow ? { reattached: true as const } : {}),
             ...(resumeAttempt > 0 ? { resumedBy: "server" as const } : {}),
+            // A wake's banner rides the start: no live frame carries it, and a
+            // woken turn often ends before any history read brings it (BGVIS-06).
+            ...(isWoken ? { banners: blocks.filter((b) => b.kind === "woken") } : {}),
           });
 
           // Create SSE response for the HTTP client

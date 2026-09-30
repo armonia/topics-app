@@ -1351,6 +1351,10 @@ export function useChat() {
           const sessionMessages = prev[sessionKey] || [];
           const lastMsg = sessionMessages[sessionMessages.length - 1];
           if (lastMsg?.role === 'assistant' && lastMsg.partial) {
+            // A woken turn's banner reaches a bubble already opened by another frame.
+            if (event.banners?.length && lastMsg.id === event.messageId && !(lastMsg.blocks ?? []).some((b) => b.kind === 'woken')) {
+              return { ...prev, [sessionKey]: [...sessionMessages.slice(0, -1), { ...lastMsg, blocks: [...event.banners, ...(lastMsg.blocks ?? [])] }] };
+            }
             // Riadozione dopo un riavvio del server: la bolla c'è già ed è
             // PIENA di quello che il turno aveva scritto prima. Il replay sta
             // per ridettarlo tutto in delta, che qui si appendono: senza questo
@@ -1390,6 +1394,9 @@ export function useChat() {
               content: '',
               timestamp: new Date().toISOString(),
               partial: true,
+              // What woke this turn: no live frame carries it, and a short
+              // wake used to show its banner only after a reload (BGVIS-06).
+              ...(event.banners?.length ? { blocks: event.banners } : {}),
             }],
           };
         });

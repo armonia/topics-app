@@ -474,6 +474,8 @@ export interface WSStreamStartMessage {
    * offering Retry, which while a resend is running would buy a second turn.
    */
   resumedBy?: 'server';
+  /** A woken turn's banners (`woken` blocks): the placeholder opens with them, as the row does. */
+  banners?: ContentBlock[];
 }
 
 export interface WSStreamEndMessage {
