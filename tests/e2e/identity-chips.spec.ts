@@ -413,6 +413,11 @@ test.describe("the foot of the column", () => {
       await page.reload();
       await expect(page.getByTestId("identity-me-profile")).toBeVisible({ timeout: 20000 });
       await expect(page.getByTestId("friend-chips")).toHaveCount(0);
+      // The reload starts the card with no numbers: they are drawn when the
+      // first /api/system/status answers, which on a loaded runner came after
+      // the ink was read, and "not measured alone" failed a correct card. Same
+      // wait as the populated state above.
+      await expect(page.getByTestId("identity-me-profile").getByTestId("metrics-total")).toContainText(/MB|GB/, { timeout: 20000 });
       await read("alone");
 
       const violations = await runAxe(page);

@@ -113,13 +113,14 @@ resta il modo di vedere le spec toccate; sul Mac, senza `--list`, lo script esce
 **Anche la suite unit di una consegna la legge la CI della PR, se la board lo
 dichiara (dal 15/09/2026, risposta «test:unit alla consegna: dalla CI della PR»).**
 Una card dentro `test:unit:shards` teneva un albero da 2,4 a 11 GB sul Mac, e la
-stessa suite gira gia' nel job `check` di ogni pull request. La riga e'
+stessa suite gira gia' nei job `unit` di ogni pull request. La riga e'
 `github-ci:unit` (`UNIT_CI_CHECK`, nome `unit-ci`) e sostituisce `test:unit` fra
 i check della board. Il verdetto e' la conclusione del passo `Unit + integration
-tests` del job `check`, nella stessa run `pull_request` del commit consegnato che
+tests` del job `check` (dal 30/09 un job piccolo che tiene solo i verdetti dei
+job `unit` e `gates`, e non aspetta nient'altro), nella stessa run `pull_request` del commit consegnato che
 la riga e2e legge: verde solo con quel passo `success` su quello sha; rosso con
 `failure`, e il referto porta `gh run view --job <id> --log-failed`; passo saltato,
-annullato, assente, o job `check` finito prima del passo (preparazione rossa) e'
+annullato, assente, o job `check` finito prima del passo e'
 NON MISURATO, mai verde. Con entrambe le righe dichiarate c'e' UNA spinta, UNA PR
 in bozza e UN giro di sondaggi. L'envelope lo dice con la riga
 «UNIT TESTS RUN ON GITHUB CI, NEVER HERE»: niente `test:unit` o

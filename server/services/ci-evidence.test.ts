@@ -510,7 +510,7 @@ describe("contracts", () => {
     expect(ci.search(/^ {2}check:$/m)).toBeGreaterThan(0);
     // The step is the verdict of the `unit` jobs, red unless all passed (what they run: tests/unit/ci-unit-slices-cover-the-suite.test.ts).
     const step = check.slice(check.indexOf(`      - name: ${UNIT_STEP}\n`)).split(/\n {6}- name: /)[0]!;
-    expect(check).toMatch(/^ {4}needs: unit$/m);
+    expect(check).toMatch(/^ {4}needs: \[(?:[\w-]+, )*unit(?:, [\w-]+)*\]$/m);
     expect(step).toMatch(/UNIT_RESULT: \$\{\{ needs\.unit\.result \}\}[\s\S]*if \[ "\$UNIT_RESULT" != "success" \]; then[\s\S]*exit 1/);
   });
 

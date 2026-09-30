@@ -176,13 +176,33 @@ const projectTab = (page: Page, path: string) => page.locator(`[role="tab"][data
 const innerTab = (page: Page, paneId: string) => page.locator(`[role="tab"][data-pane-id="${paneId}"]`).first();
 
 /**
- * Show the project, then make its CHAT the active tab of the cell, so the
- * browser is a background tab there: the shape of the card. The browser was
- * visible once, so it stays mounted as long as its window does.
+ * Show the project, SHOW its browser until the pane has attached, then make
+ * its CHAT the active tab of the cell, so the browser is a background tab
+ * there: the shape of the card. The browser was visible once, so it stays
+ * mounted as long as its window does.
+ *
+ * "Visible once" is DONE here, not assumed. A background tab is mounted only
+ * after it has been shown (residency), and whether the restored window shows
+ * the browser first depends on what reaches the page first: with the saved
+ * layout already in the page it is the first pane and active for a moment;
+ * with the topic list first (a loaded runner) the chat is added alone, the
+ * browser joins as a background tab and is never mounted, and the pane socket
+ * never opens (CI run 36495378921: chat tab first, no "pane socket opened").
  */
-async function leaveBrowserInBackground(page: Page, path: string, topicId: string): Promise<void> {
+async function leaveBrowserInBackground(
+  page: Page,
+  path: string,
+  topicId: string,
+  watch: { opensSince: (since: number) => number },
+): Promise<void> {
   await projectTab(page, path).click();
-  await expect(innerTab(page, `browser:${topicId}`)).toBeVisible({ timeout: 15_000 });
+  const browser = innerTab(page, `browser:${topicId}`);
+  await expect(browser).toBeVisible({ timeout: 15_000 });
+  await browser.click();
+  await expect(browser).toHaveAttribute("data-active", "true");
+  await expect
+    .poll(() => watch.opensSince(0), { timeout: 15_000, message: "the browser, shown, mounts and attaches its pane socket" })
+    .toBeGreaterThan(0);
   await innerTab(page, `chat:${topicId}`).click();
   await expect(innerTab(page, `chat:${topicId}`)).toHaveAttribute("data-active", "true");
   await expect(innerTab(page, `browser:${topicId}`)).toHaveAttribute("data-active", "false");
@@ -303,7 +323,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
       }, [[loose.id]]);
       await goToApp(page);
       await expect(page.locator('[data-testid="panel-tab-bar"]').first()).toBeVisible({ timeout: 15_000 });
-      await leaveBrowserInBackground(page, owner, ctx);
+      await leaveBrowserInBackground(page, owner, ctx, watch);
 
       // After a reload the browser has not been shown in this page, so the
       // mounted window leaves it unmounted.
@@ -352,7 +372,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
     const watch = watchPage(page, ctx);
     try {
       await goToApp(page);
-      await leaveBrowserInBackground(page, owner, ctx);
+      await leaveBrowserInBackground(page, owner, ctx, watch);
       await projectTab(page, other).click();
       await expect(projectTab(page, other)).toHaveAttribute("data-active", "true");
 
@@ -399,7 +419,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
     const watch = watchPage(page, ctx);
     try {
       await goToApp(page);
-      await leaveBrowserInBackground(page, owner, ctx);
+      await leaveBrowserInBackground(page, owner, ctx, watch);
       await expect.poll(() => watch.opensSince(0), { timeout: 15_000 }).toBeGreaterThan(0);
       const visitsFrom = Date.now();
       for (const p of others) {
@@ -493,7 +513,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
     const watch = watchPage(page, ctx);
     try {
       await goToApp(page);
-      await leaveBrowserInBackground(page, owner, ctx);
+      await leaveBrowserInBackground(page, owner, ctx, watch);
       await expect.poll(() => watch.opensSince(0), { timeout: 15_000 }).toBeGreaterThan(0);
       const visitsFrom = Date.now();
       for (const p of others) {
@@ -530,7 +550,7 @@ test.describe("open_browser_pane attaches the project pane", () => {
     const watch = watchPage(page, ctx);
     try {
       await goToApp(page);
-      await leaveBrowserInBackground(page, owner, ctx);
+      await leaveBrowserInBackground(page, owner, ctx, watch);
       await projectTab(page, other).click();
       await expect(projectTab(page, other)).toHaveAttribute("data-active", "true");
       const reloadedAt = Date.now();

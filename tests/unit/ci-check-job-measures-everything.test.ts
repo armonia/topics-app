@@ -1,5 +1,7 @@
 /**
- * The `check` job must run EVERY measurement, even when one of them is red.
+ * The `gates` job must run EVERY measurement, even when one of them is red.
+ * (It was the `check` job until 30/09, when the unit verdict moved to a small
+ * job of that name: tests/unit/ci-check-job-waits-only-for-what-it-reads.test.ts.)
  *
  * WHY THIS TEST EXISTS. Until 2026-08-21 the job was 23 steps in a row with no
  * conditions, and `Unit + integration tests` was the fifteenth. Any red gate
@@ -49,8 +51,8 @@ function stepsOfJob(job: string): Step[] {
 
 const GUARD = /!cancelled\(\)\s*&&\s*steps\.setup\.outcome == 'success'/;
 
-describe("il job `check` misura tutto anche quando qualcosa e' rosso", () => {
-  const steps = stepsOfJob("check");
+describe("il job `gates` misura tutto anche quando qualcosa e' rosso", () => {
+  const steps = stepsOfJob("gates");
 
   it("ha uno step di preparazione marcato `id: setup`", () => {
     const setup = steps.filter((s) => /^\s*id: setup$/m.test(s.body));

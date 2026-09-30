@@ -91,7 +91,7 @@ jobs:
         with:
           node-version: 20
 
-      # Same three install steps as `check`, for the same reasons written there.
+      # Same three install steps as `gates`, for the same reasons written there.
       - name: Install server deps (root)
         run: bun install --frozen-lockfile --ignore-scripts
 
@@ -106,11 +106,11 @@ jobs:
         working-directory: client
 
       # server/browser-dom-cobrowse.test.ts launches a real Chromium (see the
-      # same step in `check`).
+      # same step in `gates`).
       - name: Install Playwright browsers (Chromium)
         run: npx playwright install --with-deps chromium
 
-      # `main` as a ref, like `check` has it before its own unit step (it
+      # `main` as a ref, like `gates` has it (it
       # fetches it for the migrations gate). tests/unit/migration-number-
       # collision.test.ts resolves `main`/`origin/main` and is red without it
       # (run 36491680424). The `+` for the same reason written on that step.
@@ -125,11 +125,16 @@ jobs:
           UNIT_ROOTS: ${{ matrix.roots }}
         run: bun run scripts/slot.ts test:unit -- "bun run scripts/test-unit-serial.ts $UNIT_ROOTS"
 
-  check:
-    # After the unit jobs, because the step the board reads is their verdict;
-    # and even when they are red, because this job measures everything.
-    needs: unit
-    if: ${{ !cancelled() }}
+  # EVERY MEASUREMENT THAT IS NOT THE UNIT SUITE, STARTED WITH THE UNIT JOBS.
+  #
+  # This job was `check` and waited for `unit` (`needs: unit`) although only its
+  # verdict step read the unit result: every other step here measures this
+  # checkout and nothing the unit jobs produce. Measured on 27 green runs: on a
+  # push the run ended 6.7 min (5.0-7.8) after every other job, because this
+  # job only started when `unit` ended at minute 14; on a pull request 2.6 min
+  # (1.2-4.6). The unit verdict moved to the small `check` job below, which
+  # keeps the job and step names the board reads.
+  gates:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -485,24 +490,6 @@ jobs:
           git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/main
           MIGRATION_BASE_REF=refs/remotes/origin/main bun run check:migrations
 
-      # THE STEP NAME IS A CONTRACT, AND THE TESTS NO LONGER RUN HERE. The board
-      # reads the unit verdict of a pull request from the step "Unit +
-      # integration tests" of job `check` (UNIT_JOB / UNIT_STEP in
-      # server/services/ci-evidence.ts), so the step stays, under that name, in
-      # this job. What it runs moved to the `unit` jobs above, and this step is
-      # their verdict: red unless every one of them concluded `success`. The
-      # names of the red tests are in the log of the red `unit (...)` job.
-      - name: Unit + integration tests
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        env:
-          UNIT_RESULT: ${{ needs.unit.result }}
-        run: |
-          echo "unit jobs of this run: $UNIT_RESULT"
-          if [ "$UNIT_RESULT" != "success" ]; then
-            echo "::error title=Unit + integration tests::the unit jobs of this run concluded '$UNIT_RESULT': the red tests are in the log of the red unit (...) job"
-            exit 1
-          fi
-
       # Guards a real production contract: the dev-only pane mutation log must
       # never reach the shipped bundle. The script has existed since phase 30
       # and, like typecheck:e2e, had never been wired to a workflow — so the
@@ -733,12 +720,53 @@ jobs:
           fi
           exit "$rc"
 
+  # THE VERDICT OF THE RUN'S TESTS AND GATES, IN THE JOB AND STEP THE BOARD READS.
+  #
+  # The board reads the unit verdict of a pull request from the step "Unit +
+  # integration tests" of job `check` (UNIT_JOB / UNIT_STEP in
+  # server/services/ci-evidence.ts), so the step lives here, under that name.
+  # It runs nothing: the suite runs in the `unit` jobs above, and this step is
+  # their verdict, red unless every one of them concluded `success`. The names
+  # of the red tests are in the log of the red `unit (...)` job.
+  #
+  # The second step carries the verdict of `gates`, so this job is red when any
+  # measurement is, as it was when those steps lived in it.
+  # `!cancelled()` and not `success()`: a red unit or gates job must still
+  # produce both verdicts, not a skipped job that the board reads as not
+  # measured. Needing `gates` costs nothing on the critical path, `gates` ends
+  # before `unit` does.
+  check:
+    needs: [unit, gates]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Unit + integration tests
+        env:
+          UNIT_RESULT: ${{ needs.unit.result }}
+        run: |
+          echo "unit jobs of this run: $UNIT_RESULT"
+          if [ "$UNIT_RESULT" != "success" ]; then
+            echo "::error title=Unit + integration tests::the unit jobs of this run concluded '$UNIT_RESULT': the red tests are in the log of the red unit (...) job"
+            exit 1
+          fi
+
+      - name: Gates (typecheck, lint, guard rails, budgets)
+        if: ${{ !cancelled() }}
+        env:
+          GATES_RESULT: ${{ needs.gates.result }}
+        run: |
+          echo "gates job of this run: $GATES_RESULT"
+          if [ "$GATES_RESULT" != "success" ]; then
+            echo "::error title=Gates::the gates job of this run concluded '$GATES_RESULT': the red step is in its log"
+            exit 1
+          fi
+
   # Runs the real E2E suite against the isolated server that globalSetup spawns
   # on :13334 (own SQLite DB under /tmp/topics-test-data) — no external
   # services or repo secrets needed: NO_TLS=1 and dummy GATEWAY_TOKEN/URL
   # values are set by global-setup.ts / start-test-server.sh themselves.
   # Previously this suite was only *collected* (`playwright test --list`) in
-  # the check job above, which parses every spec but runs none of them.
+  # the gates job above, which parses every spec but runs none of them.
 
   # Calcola il piano di sharding per durata UNA volta sola: `playwright test
   # --list` deve caricare e transpilare tutte le spec (~10s), farlo una volta
