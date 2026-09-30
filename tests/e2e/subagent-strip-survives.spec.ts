@@ -15,7 +15,7 @@
  * reached. The tripwire below refuses to go on if the PTY resolved any other
  * binary.
  *
- * @covers SUBSTRIP-01 SUBSTRIP-01b SUBSTRIP-01c SUBSTRIP-01d
+ * @covers SUBSTRIP-01 SUBSTRIP-01b SUBSTRIP-01c SUBSTRIP-01d SUBSTRIP-01e SUBSTRIP-01f
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
@@ -329,8 +329,8 @@ async function endFromItsPane(page: Page): Promise<void> {
   await expect(stripRow(page)).toHaveAttribute("data-state", "ended", { timeout: 15_000 });
 }
 
-test("SUBSTRIP-01c (project): inside a project, closing the tab of a LIVE sub-agent does not leave it behind as ended", async ({ page }) => {
-  test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01c" });
+test("SUBSTRIP-01e: inside a project, closing the tab of a LIVE sub-agent does not leave it behind as ended", async ({ page }) => {
+  test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01e" });
   // The project keeps a closed terminal's session for a minute (the undo
   // window) before retiring it, and the row must not come back then.
   test.setTimeout(180_000);
@@ -384,8 +384,8 @@ test("SUBSTRIP-01c (project): inside a project, closing the tab of a LIVE sub-ag
   removeTmpDir(projectDir);
 });
 
-test("SUBSTRIP-01b (Cmd+W): Cmd+W on the tab of an ENDED sub-agent takes its row away, for good", async ({ page }) => {
-  test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01b" });
+test("SUBSTRIP-01f: Cmd+W on the tab of an ENDED sub-agent takes its row away, for good", async ({ page }) => {
+  test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01f" });
   // Cmd+W is the desktop shell's shortcut (a browser keeps it for its own
   // tab), so the page runs as the shell, with its network sent home.
   await fakeTauriShell(page, () => () => null);

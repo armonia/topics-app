@@ -1488,11 +1488,6 @@ Closing the terminal tab of an ended sub-agent SHALL remove its row from the cha
 - **WHEN** the user closes that terminal tab from the tab bar
 - **THEN** the strip SHALL no longer show its row, also after a reload
 
-#### Scenario: The keyboard shortcut dismisses the ended row
-- **GIVEN** a chat whose sub-agent has ended and whose terminal tab is the focused one, in the desktop shell
-- **WHEN** the user presses Cmd+W
-- **THEN** the tab SHALL close and the strip SHALL no longer show its row, also after a reload
-
 ### Requirement: SUBSTRIP-01c — Closing a live sub-agent's tab does not leave an ended row
 
 Closing the terminal tab of a sub-agent that is still live SHALL remove its row, and the retirement of its session that follows SHALL NOT bring the row back marked ended. A dismissed sub-agent that is later resumed SHALL be listed again, and recorded as ended if it then ends.
@@ -1502,10 +1497,23 @@ Closing the terminal tab of a sub-agent that is still live SHALL remove its row,
 - **WHEN** the user closes that terminal tab and the server retires the session
 - **THEN** the strip SHALL not show a row for it, also after a reload
 
+### Requirement: SUBSTRIP-01e — A sub-agent's tab closed inside a project leaves no ended row
+
+The close of a terminal tab inside a project window SHALL dismiss the sub-agent's row like a top-level close does (SUBSTRIP-01c): the session the project retires after its undo window SHALL NOT bring the row back marked ended.
+
 #### Scenario: The tab closed inside a project, retired after the undo window
 - **GIVEN** a project's chat whose live sub-agent's terminal pane is open in the project window
 - **WHEN** the user closes that terminal tab from the project's tab bar and the session is retired once the undo window is over
 - **THEN** the strip SHALL not show a row for it, also after a reload
+
+### Requirement: SUBSTRIP-01f — Cmd+W on a sub-agent's tab takes its row away
+
+In the desktop shell, closing the focused terminal tab of an ended sub-agent with Cmd+W SHALL remove its row from the chat's strip, as the tab's close button does (SUBSTRIP-01b).
+
+#### Scenario: The keyboard shortcut dismisses the ended row
+- **GIVEN** a chat whose sub-agent has ended and whose terminal tab is the focused one, in the desktop shell
+- **WHEN** the user presses Cmd+W
+- **THEN** the tab SHALL close and the strip SHALL no longer show its row, also after a reload
 
 ### Requirement: SUBSTRIP-01d — A dismissal holds in every window of the browser
 
