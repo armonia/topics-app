@@ -69,6 +69,7 @@ import { EFFORT_TIERS } from "../../shared/effort";
 import { deliverAnswer, hasPendingAsk, cancelAsk, openAskIdentity, ASK_NOT_CURRENT_LINE } from "../lib/ask-user-bridge";
 import { storedToolCall, routeAnswer, liveQuestionCallId, questionTexts, answerAsNextMessage, sessionHasOpenQuestion, type StoredQuestionCall } from "../lib/question-outlives-asker";
 import { createAnswerRelay, type AnswerRelay } from "../lib/answer-relay";
+import { markAnswerNotOwed, markAnswerOwed } from "../lib/owed-answers";
 // "Waiting on you" is also read off the ROW: the panel's questions travel over
 // the MCP bridge, not the provider's native channel, and after a restart no
 // in-memory map remembers them. See lib/waiting-ask.ts.
@@ -917,7 +918,11 @@ export function createTopicsRouter(
     isBusy: (sk) => !!ctx.isStreaming(sk),
     route: extra.answerRelayRoute ?? (async (...a) => chatRouter(...a)),
     settle: (owed) => {
-      if (owed.rowId) updateToolCallFields(owed.sessionKey, owed.toolCallId, { answerRelay: 'sent' }, { rowId: owed.rowId });
+      // The mark and the index move together: `owed_answers` is what the boot loads.
+      ctx.db.transaction(() => {
+        if (owed.rowId) updateToolCallFields(owed.sessionKey, owed.toolCallId, { answerRelay: 'sent' }, { rowId: owed.rowId });
+        markAnswerNotOwed(ctx.db, owed.toolCallId);
+      })();
       broadcastToAll({
         type: 'stream:tool_update', sessionKey: owed.sessionKey,
         topicId: getTopicBySessionKey(owed.sessionKey)?.id, toolCallId: owed.toolCallId, answerRelay: 'sent',
@@ -2770,7 +2775,12 @@ export function createTopicsRouter(
         // No ask is ended here: an open one belongs to another question.
         const deliverAsMessage = (late: Record<string, string>) => {
           const queuedResponse = { ...normalised, answers: late };
-          patchToolRow({ status: 'success', userResponse: queuedResponse, answerRelay: 'queued' });
+          // With its entry in `owed_answers`, in one transaction: the boot
+          // loads owed answers from there, whatever the question's age.
+          ctx.db.transaction(() => {
+            patchToolRow({ status: 'success', userResponse: queuedResponse, answerRelay: 'queued' });
+            if (toolRowId) markAnswerOwed(ctx.db, { toolCallId, sessionKey, rowId: toolRowId });
+          })();
           broadcastToAll({
             type: 'stream:tool_update', sessionKey, topicId: topic?.id, toolCallId,
             status: 'success', userResponse: queuedResponse, answerRelay: 'queued',

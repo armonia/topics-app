@@ -2,6 +2,7 @@ import { configureApiCredentialRoot, readApiProviderKey } from "./server/service
 import { createLandingQueue } from "./server/services/landing-queue";
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanedRunningTools } from "./server/lib/boot-orphan-tools";
+import { loadOwedAnswers } from "./server/lib/owed-answers";
 import { announceTurnEnded } from "./server/lib/turn-ended";
 import type { AnswerRelay } from "./server/lib/answer-relay";
 import { wakeVerdict, runningTaskOwnsTopic } from "./server/lib/wake-adoption";
@@ -3160,8 +3161,15 @@ const liveBrokerChatSessions = new Set<string>();
 // a message that got in first reached the model before an answer the person
 // gave before it. Their SENDING waits for the surviving turns to be adopted
 // (`releaseAnswersOwedAtBoot`, below): until then a session only looks free.
+//
+// The owed answers come from `owed_answers` (`lib/owed-answers.ts`), any age,
+// any topic: the sweep only walks thirty days of finalized rows of topics not
+// archived, and a question never expires. The sweep indexes what it finds
+// first (the marks written before the index existed), so the index is read
+// after it; its own list is enqueued too, a no-op for every answer already in.
 const releaseAnswersOwedAtBoot = answerRelay?.hold();
-for (const owed of finalizeOrphanedRunningTools(db, liveBrokerChatSessions)) answerRelay?.enqueue(owed);
+const answersSweptAtBoot = finalizeOrphanedRunningTools(db, liveBrokerChatSessions);
+for (const owed of [...loadOwedAnswers(db), ...answersSweptAtBoot]) answerRelay?.enqueue(owed);
 
 const tlsCert = join(import.meta.dir, "certs", "fullchain.pem");
 const tlsKey = join(import.meta.dir, "certs", "key.pem");

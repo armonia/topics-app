@@ -48,6 +48,9 @@ import {
 
 useQuestionBench("question-waits");
 
+/** The `owed_answers` entry of a tool call: what the next boot loads (`lib/owed-answers.ts`). */
+const owedIndexRow = (toolCallId: string) => ctx.db.query("SELECT row_id FROM owed_answers WHERE tool_call_id = ?").get(toolCallId);
+
 describe("no clock ends a question", () => {
   test("an ask open for 25 hours is still answerable, and the answer is the tool's result", async () => {
     const sk = "topic:q-25h";
@@ -477,6 +480,8 @@ describe("an answer is bound to its own question, from the click to the model", 
     _dropAskStateLikeARestart();
     const owed = finalizeOrphanedRunningTools(ctx.db, new Set());
     expect(owed.filter((o) => o.sessionKey === sk).map((o) => o.toolCallId)).toEqual(["toolu_owed_A"]);
+    // A mark older than the index: the sweep puts it there, so a later boot finds it at any age.
+    expect(owedIndexRow("toolu_owed_A")).toEqual({ row_id: rowA });
     const server = bootServer();
     for (const o of owed) if (o.sessionKey === sk) server.relay().enqueue(o);
     await server.relay().idle();
@@ -487,6 +492,7 @@ describe("an answer is bound to its own question, from the click to the model", 
     expect(storedCall(rowA, "toolu_owed_A")?.answerRelay).toBe("sent");
     // The next boot owes nothing.
     expect(finalizeOrphanedRunningTools(ctx.db, new Set()).filter((o) => o.sessionKey === sk)).toEqual([]);
+    expect(owedIndexRow("toolu_owed_A")).toBeNull();
   });
 
   test("an answer buffered for a leg that never came is not lost to a restart", async () => {
@@ -503,6 +509,8 @@ describe("an answer is bound to its own question, from the click to the model", 
     _dropAskStateLikeARestart();
     const owed = finalizeOrphanedRunningTools(ctx.db, new Set());
     expect(storedCall(rowA, "toolu_buf_A")).toMatchObject({ status: "success", answerRelay: "queued" });
+    // Indexed with the mark, in the same write.
+    expect(owedIndexRow("toolu_buf_A")).toEqual({ row_id: rowA });
     const next = bootServer();
     for (const o of owed) if (o.sessionKey === sk) next.relay().enqueue(o);
     await next.relay().idle();

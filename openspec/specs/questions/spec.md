@@ -740,7 +740,10 @@ Una risposta a una domanda il cui processo non c'e' piu' SHALL essere messa in
 CODA sulla sua riga (`answerRelay: queued`) prima di partire, e SHALL raggiungere
 il modello come messaggio successivo appena la sessione e' libera: dietro un
 turno della macchina in volo aspetta, senza limite, e un riavvio la trova ancora
-dovuta e la manda. La coda riparte dalla FINE DEL TURNO della sessione, non da un
+dovuta e la manda, qualunque sia l'eta' della domanda, anche su una riga rimasta
+parziale o in un topic archiviato: il boot legge le risposte dovute da un indice
+(`owed_answers`) scritto e svuotato nella stessa transazione del segno, non da
+una scansione delle righe per eta'. La coda riparte dalla FINE DEL TURNO della sessione, non da un
 orologio, e un rifiuto la lascia dovuta al turno successivo. Un messaggio che la
 persona scrive DOPO la risposta NON SHALL mai raggiungere il modello prima di
 lei: se arriva mentre la risposta e' ancora in coda, la porta davanti a se', nello
@@ -749,8 +752,12 @@ server abbia riadottato i turni sopravvissuti. Presa non e' consegnata: la riga
 SHALL restare `queued` finche' il turno che la porta non e' davvero partito (il
 primo evento del modello), e un turno che non parte o che il fornitore chiude
 prima di quel primo evento SHALL lasciarla in coda, in testa, per la fine del
-turno successivo. Il modello SHALL leggerla una volta sola, anche quando il
-runtime nativo ricostruisce la sessione dalle righe. Il pannello SHALL dire «risposto» solo quando la risposta e'
+turno successivo. La consegna SHALL essere ALMENO UNA VOLTA: una risposta NON
+SHALL mai andare persa, e se il turno che la porta fallisce prima che il modello
+la legga SHALL essere portata di nuovo, anche se un fornitore che conserva la
+storia (o il runtime nativo) finisce per leggerla due volte. Su un turno che
+parte, il modello SHALL leggerla una volta sola, anche quando il runtime nativo
+ricostruisce la sessione dalle righe. Il pannello SHALL dire «risposto» solo quando la risposta e'
 stata presa da chi ha chiesto o e' in quella coda, e SHALL dire che e' in
 arrivo finche' la coda non l'ha consegnata. Consegnata, NON SHALL chiudere le
 altre domande aperte della persona, e nemmeno un messaggio di un altro agente
@@ -803,7 +810,18 @@ su Codex.
 #### Scenario: il turno che porta la risposta non parte
 - **GIVEN** una risposta presa da un messaggio
 - **WHEN** la rotta lo rifiuta dopo averla presa, o il fornitore fallisce prima di un qualsiasi evento del modello
-- **THEN** la riga SHALL restare `queued` e la risposta SHALL arrivare col messaggio successivo, una volta sola
+- **THEN** la riga SHALL restare `queued` e la risposta SHALL arrivare col messaggio successivo, davanti a lui
+
+#### Scenario: il turno che l'ha portata fallisce
+- **GIVEN** una risposta portata da un turno che il fornitore chiude con un errore prima che il modello risponda
+- **WHEN** la persona scrive il messaggio successivo
+- **THEN** la risposta SHALL arrivare di nuovo, davanti al messaggio: almeno una volta, mai persa
+- **AND** la riga SHALL passare a `sent` e l'indice delle risposte dovute NON SHALL piu' contenerla, anche se il modello la legge due volte
+
+#### Scenario: una risposta dovuta a una domanda di quaranta giorni
+- **GIVEN** una risposta in coda a una domanda posta quaranta giorni prima, e un riavvio del server
+- **WHEN** la persona scrive il messaggio successivo
+- **THEN** il modello SHALL leggere la risposta prima del messaggio, e la riga SHALL passare a `sent`
 
 #### Scenario: la vecchia domanda e quella nuova
 - **GIVEN** una domanda A il cui processo non c'e' piu', e un turno nuovo fermo sulla domanda B

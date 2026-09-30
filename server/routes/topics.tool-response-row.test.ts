@@ -51,13 +51,23 @@ interface Write { toolCallId: string; status: unknown; opts?: { rowId?: string }
 /** The route on a session whose recent rows (newest first) are `rows`. */
 function harness(rows: Row[]) {
   const writes: Write[] = [];
+  /** What `owed_answers` was told, in order: the index the boot loads (`lib/owed-answers.ts`). */
+  const index: string[] = [];
   const json = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
   const ctx = {
     OPENCLAW_DIR: tmpdir(),
     db: {
-      prepare: () => ({ get: () => undefined, all: () => rows }),
+      prepare: (sql: string) => ({
+        get: () => undefined,
+        all: () => rows,
+        run: (...args: unknown[]) => {
+          if (/INSERT INTO owed_answers/.test(sql)) index.push(`owed ${String(args[0])}`);
+          else if (/DELETE FROM owed_answers/.test(sql)) index.push(`not owed ${String(args[0])}`);
+        },
+      }),
       query: () => ({ get: () => null, all: () => [] }),
+      transaction: (fn: (...a: unknown[]) => unknown) => (...a: unknown[]) => fn(...a),
     },
     // Oldest first, as the active thread is: `rows` is given newest first.
     loadActiveThread: () => [...rows].reverse().map((r) => ({ id: r.id })),
@@ -96,7 +106,7 @@ function harness(rows: Row[]) {
       body: JSON.stringify({ sessionKey, toolCallId, response }),
     }), url, url.pathname, "POST") as Response;
   };
-  return { answer, writes, sent };
+  return { answer, writes, sent, index };
 }
 
 const PLAN_YES = { kind: "questions", answers: { [PLAN_APPROVAL_QUESTION]: PLAN_APPROVE_LABEL } };
@@ -119,6 +129,8 @@ describe("POST /api/chat/tool-response: the answer goes where the question is", 
       expect(h.writes.slice(1)).toEqual([{ toolCallId: "toolu_ask", status: undefined, opts: { rowId: "turn-row" } }]);
       expect(h.sent.map((m) => m.sessionKey)).toEqual([sk]);
       expect(h.sent[0]!.content).toContain("sito");
+      // Indexed with the `queued` mark, out of the index with the `sent` one.
+      expect(h.index).toEqual(["owed toolu_ask", "not owed toolu_ask"]);
     } finally {
       cancelAsk(sk);
     }

@@ -17,6 +17,7 @@ import { NOT_ARCHIVED_SQL } from "./archived-scope";
 import { finalizeOrphanTool } from "./orphan-tool-sweep";
 import { bonificaTurniMuti } from "./verdetto-turno-interrotto";
 import { owedAnswerOf, type OwedAnswer } from "./answer-relay";
+import { markAnswerOwed } from "./owed-answers";
 import type { StoredQuestionCall } from "./question-outlives-asker";
 
 const RUNNING_RE = /"status":"(running|pending|waiting_for_input|awaiting_permission)"|"answerRelay":"queued"/;
@@ -32,13 +33,23 @@ type OrphanRow = { id: string; session_key: string | null; content: string | nul
  * `lib/answer-relay.ts`): the ones a restart interrupted on their way, and the
  * ones this pass found answered but never collected. The walk decodes every
  * row of the window anyway, so they are read here and not by a second walk.
+ *
+ * Each one also goes into `owed_answers` (`lib/owed-answers.ts`), in the same
+ * transaction as the row: the boot loads owed answers from that index, and
+ * this walk is how the marks written before the index existed get into it.
  */
 export function finalizeOrphanedRunningTools(db: Database, liveSessions: ReadonlySet<string>): OwedAnswer[] {
   const owed: OwedAnswer[] = [];
   const owedIds = new Set<string>();
+  /** The owed answers of the row being walked, with when they were given. */
+  let rowOwed: Array<{ owed: OwedAnswer; at: number }> = [];
   const collectOwed = (tc: unknown, r: OrphanRow) => {
     const o = owedAnswerOf(tc as StoredQuestionCall, { sessionKey: r.session_key, rowId: r.id });
-    if (o && !owedIds.has(o.toolCallId)) { owedIds.add(o.toolCallId); owed.push(o); }
+    if (!o || owedIds.has(o.toolCallId)) return;
+    owedIds.add(o.toolCallId);
+    owed.push(o);
+    const at = Date.parse(String((tc as { userResponse?: { submittedAt?: unknown } }).userResponse?.submittedAt ?? ""));
+    rowOwed.push({ owed: o, at: Number.isFinite(at) ? at : Date.now() });
   };
   try {
     // A time window, not the whole history. Without `timestamp >=` this ran at
@@ -86,6 +97,7 @@ export function finalizeOrphanedRunningTools(db: Database, liveSessions: Readonl
       // no longer lists it.
       const alive = !!r.session_key && liveSessions.has(r.session_key);
       if (alive) spared++;
+      rowOwed = [];
       let changed = false;
       const tcDecoded = decodeCol(r.tool_calls);
       const blDecoded = decodeCol(r.blocks);
@@ -130,7 +142,13 @@ export function finalizeOrphanedRunningTools(db: Database, liveSessions: Readonl
         // send_chat_message as what the turn had written (card a57e6d4d).
         const hasProse = typeof r.content === "string" && r.content.trim().length > 0;
         const content = hasProse || alive || !closedAny || r.end_reason === "cut-by-restart" ? r.content : INTERRUPTED_MARKER;
-        updateRow.run(content, tcStr, blStr, r.id); msgs++;
+        db.transaction(() => {
+          updateRow.run(content, tcStr, blStr, r.id);
+          for (const { owed: o, at } of rowOwed) markAnswerOwed(db, { toolCallId: o.toolCallId, sessionKey: o.sessionKey, rowId: r.id }, at);
+        })();
+        msgs++;
+      } else {
+        for (const { owed: o, at } of rowOwed) markAnswerOwed(db, { toolCallId: o.toolCallId, sessionKey: o.sessionKey, rowId: r.id }, at);
       }
     }
     if (msgs > 0) console.log(`[boot] finalized ${tools} orphaned running tool(s) across ${msgs} message(s)`);

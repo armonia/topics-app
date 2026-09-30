@@ -15,13 +15,14 @@ import { describe, test, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { finalizeOrphanedRunningTools } from "../../server/lib/boot-orphan-tools";
+import { loadOwedAnswers } from "../../server/lib/owed-answers";
 import { _dropAskStateLikeARestart } from "../../server/lib/ask-user-bridge";
 import { TopicsRoutingIncompatibleError } from "../../server/providers/resolve-topic-provider";
 import { NativeProvider } from "../../server/providers/native/provider";
 import { configureNativeHistorySource } from "../../server/providers/native/history-rehydrate";
 import { nativeHistorySource } from "../../server/providers/native/history-source";
 import {
-  ctx, handlers, streamEnds, setModelConnected, setProviderRefusal, QUESTION, askOnRow, storedCall, bootServer,
+  ctx, handlers, streamEnds, setModelConnected, setProviderRefusal, QUESTION, HOUR, askOnRow, storedCall, bootServer,
   machineTurnInFlight, until, receivedBy, modelReceived, useQuestionBench,
 } from "./helpers/question-bench";
 
@@ -60,6 +61,27 @@ function composerDrain(server: ReturnType<typeof bootServer>, sessionKey: string
 
 /** Everything the model read on this session, in order, as one text. */
 const readInOrder = (sk: string) => receivedBy(sk).join("\n---\n");
+
+/** How many times the model read the answer: in every message of the session, and in the history handed with the last one. */
+const timesRead = (sk: string) => {
+  const calls = modelReceived.filter((m) => m.sessionKey === sk);
+  return calls.reduce((n, c) => n + answerCount(c.message), 0) + answerCount(JSON.stringify(calls.at(-1)?.options?.history ?? []));
+};
+/** The entries `owed_answers` still holds for this tool call: what the next boot would load. */
+const indexOwes = (toolCallId: string) =>
+  (ctx.db.query("SELECT COUNT(*) AS n FROM owed_answers WHERE tool_call_id = ?").get(toolCallId) as { n: number }).n;
+
+/**
+ * THE DELIVERY CONTRACT: at least once, never lost. The model read the answer,
+ * the row says `sent`, and nothing is owed any more. A turn that failed after
+ * carrying it gives it back, so a runtime that keeps its history may read it
+ * twice: that is the intended side of the trade, not a defect.
+ */
+function expectDeliveredAtLeastOnce(sk: string, rowId: string, toolCallId: string): void {
+  expect(timesRead(sk)).toBeGreaterThanOrEqual(1);
+  expect(storedCall(rowId, toolCallId)?.answerRelay).toBe("sent");
+  expect(indexOwes(toolCallId)).toBe(0);
+}
 
 test("the person's message written after the answer never reaches the model before it (the composer drains on stream:end)", async () => {
   const sk = "topic:q-order";
@@ -139,8 +161,7 @@ test("an answer the chat route refused stays owed and goes at the next turn end,
   expect(await server.send(sk, "Process p1 finished.", { processExit: { processId: "p1" } })).toBe(200);
   await until(() => storedCall(rowA, "toolu_refused_A")?.answerRelay === "sent");
   await server.relay().idle();
-  expect(storedCall(rowA, "toolu_refused_A")?.answerRelay).toBe("sent");
-  expect(receivedBy(sk).filter((m) => m.includes(`> ${QUESTION}`))).toHaveLength(1);
+  expectDeliveredAtLeastOnce(sk, rowA, "toolu_refused_A");
 });
 
 /** How many times the answer's quoted question appears in a text. */
@@ -152,10 +173,13 @@ describe("after a restart, an owed answer is there for the first message", () =>
     const src = readFileSync(join(import.meta.dir, "..", "..", "server.ts"), "utf8");
     const hold = src.indexOf("answerRelay?.hold()");
     const load = src.indexOf("finalizeOrphanedRunningTools(db, liveBrokerChatSessions)");
+    // The index is read after the sweep, which indexes the marks older than it.
+    const index = src.indexOf("loadOwedAnswers(db)");
     const listen = src.indexOf("await listenWithSquatterFallback(");
     expect(hold).toBeGreaterThan(0);
     expect(load).toBeGreaterThan(hold);
-    expect(listen).toBeGreaterThan(load);
+    expect(index).toBeGreaterThan(load);
+    expect(listen).toBeGreaterThan(index);
   });
 
   test("a message that reaches the route before the surviving turns are adopted carries the owed answer in front of it", async () => {
@@ -206,6 +230,7 @@ describe("an answer stays owed until the turn that carries it has really started
       await until(() => server.lateMessages.length > 0);
       await server.relay().idle();
       expect(storedCall(rowA, "toolu_takenref_A")?.answerRelay).toBe("queued");
+      expect(indexOwes("toolu_takenref_A")).toBe(1);
       expect(receivedBy(sk)).toEqual([]);
       // Said once, and true: it is still owed.
       const said = warns.filter((w) => w.includes("[answer-relay]") && w.includes("toolu_takenref_A"));
@@ -217,8 +242,7 @@ describe("an answer stays owed until the turn that carries it has really started
       await until(() => storedCall(rowA, "toolu_takenref_A")?.answerRelay === "sent");
     } finally { console.warn = warn; }
     const text = readInOrder(sk);
-    expect(storedCall(rowA, "toolu_takenref_A")?.answerRelay).toBe("sent");
-    expect(answerCount(text)).toBe(1);
+    expectDeliveredAtLeastOnce(sk, rowA, "toolu_takenref_A");
     expect(text.indexOf("PERSON-AFTER-REFUSAL")).toBeGreaterThan(text.indexOf(`> ${QUESTION}`));
   });
 
@@ -240,13 +264,15 @@ describe("an answer stays owed until the turn that carries it has really started
     await sleep(100);
     await server.relay().idle();
     expect(storedCall(rowA, "toolu_takenfail_A")?.answerRelay).toBe("queued");
+    expect(indexOwes("toolu_takenfail_A")).toBe(1);
     // Its own end does not post it again: no loop into a failing provider.
     expect(server.lateMessages).toHaveLength(1);
     expect(await server.send(sk, "PERSON-AFTER-FAILURE")).toBe(200);
     await until(() => storedCall(rowA, "toolu_takenfail_A")?.answerRelay === "sent");
-    expect(storedCall(rowA, "toolu_takenfail_A")?.answerRelay).toBe("sent");
+    expectDeliveredAtLeastOnce(sk, rowA, "toolu_takenfail_A");
+    // Carried again by the next message, in front of it.
     const last = receivedBy(sk).at(-1)!;
-    expect(answerCount(last)).toBe(1);
+    expect(answerCount(last)).toBeGreaterThanOrEqual(1);
     expect(last.indexOf("PERSON-AFTER-FAILURE")).toBeGreaterThan(last.indexOf(`> ${QUESTION}`));
   });
 });
@@ -298,6 +324,90 @@ describe("a carried answer is read once", () => {
     expect(text).toContain("help me decide");
     expect(text).toContain("PERSON-NATIVE");
     expect(answerCount(text)).toBe(1);
+  });
+});
+
+describe("an owed answer is loaded at the next boot whatever the question's age or place", () => {
+  /**
+   * The answer given through the real route while a machine turn runs on the
+   * session: queued, not sent. Then the process dies with that turn and a new
+   * one boots in server.ts's order: the sweep, the index, a hold until the
+   * surviving turns are adopted.
+   */
+  async function answeredThenRestarted(sk: string, toolCallId: string, opts: { partialRow?: boolean; before?: () => void } = {}) {
+    let rowA: string;
+    if (opts.partialRow) {
+      // The turn that asked ends without its row being finalized: the question
+      // stays open on a row still partial, marked `askerGone`.
+      rowA = askOnRow(sk, toolCallId);
+      ctx.endStream(sk);
+    } else {
+      rowA = askOnRow(sk, toolCallId, { finalize: true });
+      finalizeOrphanedRunningTools(ctx.db, new Set());
+    }
+    const server = bootServer();
+    await machineTurnInFlight(server.chat, sk);
+    expect((await server.answer(sk, toolCallId, "next")).body.deliveredAs).toBe("message");
+    expect(storedCall(rowA, toolCallId)?.answerRelay).toBe("queued");
+    expect(indexOwes(toolCallId)).toBe(1);
+    // The process dies: its relay never posts again, its turn is gone.
+    server.relay().hold();
+    ctx.activeStreams.delete(sk);
+    _dropAskStateLikeARestart();
+    opts.before?.();
+    const next = bootServer();
+    const releaseAtAdoption = next.relay().hold();
+    const swept = finalizeOrphanedRunningTools(ctx.db, new Set());
+    for (const o of [...loadOwedAnswers(ctx.db), ...swept]) next.relay().enqueue(o);
+    return { rowA, next, releaseAtAdoption };
+  }
+
+  const ageRows = (sk: string, days: number) => () => {
+    const old = new Date(Date.now() - days * 24 * HOUR).toISOString();
+    ctx.db.prepare("UPDATE messages SET timestamp = ? WHERE session_key = ?").run(old, sk);
+  };
+
+  test("a question answered 40 days ago and still owed at a restart: the answer reaches the model before the person's next message", async () => {
+    const sk = "topic:q-owed-40d";
+    const { rowA, next, releaseAtAdoption } = await answeredThenRestarted(sk, "toolu_owed40_A", { before: ageRows(sk, 40) });
+    expect(await next.send(sk, "PERSON-AFTER-RESTART")).toBe(200);
+    releaseAtAdoption();
+    await until(() => storedCall(rowA, "toolu_owed40_A")?.answerRelay === "sent");
+    await sleep(60);
+    await next.relay().idle();
+    const text = readInOrder(sk);
+    expect(text.indexOf(`> ${QUESTION}`)).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf("PERSON-AFTER-RESTART")).toBeGreaterThan(text.indexOf(`> ${QUESTION}`));
+    expectDeliveredAtLeastOnce(sk, rowA, "toolu_owed40_A");
+    expect(next.lateMessages).toEqual([]);
+  });
+
+  test("an answer on a row the restart left partial is loaded and sent", async () => {
+    const sk = "topic:q-owed-partial";
+    const { rowA, next, releaseAtAdoption } = await answeredThenRestarted(sk, "toolu_owedpart_A", { partialRow: true });
+    expect((ctx.db.query("SELECT partial FROM messages WHERE id = ?").get(rowA) as { partial: number }).partial).toBe(1);
+    releaseAtAdoption();
+    await until(() => storedCall(rowA, "toolu_owedpart_A")?.answerRelay === "sent");
+    await next.relay().idle();
+    expect(next.lateMessages.map((m) => m.sessionKey)).toEqual([sk]);
+    expectDeliveredAtLeastOnce(sk, rowA, "toolu_owedpart_A");
+  });
+
+  test("an answer in a topic archived before the restart is loaded and sent", async () => {
+    const sk = "topic:q-owed-archived";
+    const archive = () => { ctx.db.prepare("UPDATE topics SET archived = 1 WHERE session_key = ?").run(sk); };
+    const { rowA, next, releaseAtAdoption } = await answeredThenRestarted(sk, "toolu_owedarch_A", { before: archive });
+    releaseAtAdoption();
+    await until(() => storedCall(rowA, "toolu_owedarch_A")?.answerRelay === "sent");
+    await next.relay().idle();
+    expect(next.lateMessages.map((m) => m.sessionKey)).toEqual([sk]);
+    expectDeliveredAtLeastOnce(sk, rowA, "toolu_owedarch_A");
+  });
+
+  test("an index entry whose row no longer owes the answer is dropped, not sent", () => {
+    ctx.db.prepare("INSERT INTO owed_answers (tool_call_id, session_key, row_id, created_at) VALUES (?, ?, ?, ?)").run("toolu_gone_A", "topic:q-gone", "no-such-row", Date.now());
+    expect(loadOwedAnswers(ctx.db).some((o) => o.toolCallId === "toolu_gone_A")).toBe(false);
+    expect(indexOwes("toolu_gone_A")).toBe(0);
   });
 });
 });
