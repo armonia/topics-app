@@ -43,6 +43,8 @@ real columns (`boardGeometry.ts`), and the board SHALL replace it with its fade.
 ### Requirement: PANELOAD-03 — Drops and filters move nothing by layout
 
 The drop-redirect notice SHALL float over the columns instead of pushing them.
+It SHALL cover no column header and not the task composer, SHALL take no
+pointer input, and SHALL leave by itself after a few seconds.
 A filter that changes the Review column's width SHALL NOT animate a layout
 property: the columns it shifts SHALL glide with a transform. The sortable
 reflow of the cards under a drag SHALL run on `MOTION.base` with the standard
@@ -52,6 +54,7 @@ curve, and SHALL NOT run under reduced motion.
 - **GIVEN** a card dragged onto In progress and dropped
 - **WHEN** the notice appears and a filter empties Review
 - **THEN** the columns SHALL not move vertically, and no layout property SHALL animate
+- **AND** the notice SHALL overlap no column header and not the composer, and SHALL be gone without another gesture
 
 ### Requirement: PANELOAD-04 — The diff panel keeps its breadcrumb and its content while files are switched
 

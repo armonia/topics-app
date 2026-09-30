@@ -13,7 +13,8 @@
  *  - loading the board: a 16 px ring in an empty pane, then 197 cards in one
  *    commit (PANELOAD-02);
  *  - dropping and filtering: the drop notice band pushed every column 28 px
- *    down, the Review column animated `flex-basis` (a layout property) while
+ *    down (and its first floating fix hid the column headers until the next
+ *    drag), the Review column animated `flex-basis` (a layout property) while
  *    the cards ran their own FLIP, and dnd-kit's sortable transition ran at
  *    its default `200ms ease`, off the app's motion tokens and on even under
  *    reduced motion (PANELOAD-03).
@@ -254,6 +255,39 @@ test.describe("board motion contract", () => {
     await expect(page.locator(W.notice)).toBeVisible();
     await nextFrames(page, 30);
     await markFrame(page, "drop-end");
+
+    // 1b. Floating is not enough: the first floating band sat over the top of
+    // the columns and hid every header (label, status icon, count) until the
+    // next drag. The notice covers no column header, not the composer, takes no
+    // pointer input, and leaves by itself.
+    const cover = await page.evaluate(() => {
+      const notice = document.querySelector<HTMLElement>('[data-testid="board-drop-notice"]')!;
+      const n = notice.getBoundingClientRect();
+      const hit = (r: DOMRect) => r.width > 0 && r.height > 0 && n.left < r.right && r.left < n.right && n.top < r.bottom && r.top < n.bottom;
+      const headers = [...document.querySelectorAll<HTMLElement>('[data-testid^="kanban-column-count-"]')].flatMap((count) => {
+        const col = count.closest<HTMLElement>('[data-testid^="kanban-column-"]:not([data-testid^="kanban-column-count-"])');
+        if (!col) return [];
+        const c = col.getBoundingClientRect();
+        const b = count.getBoundingClientRect();
+        // The header band: from the column's top edge to the bottom of its count badge.
+        return [{ id: col.dataset.testid!, r: new DOMRect(c.left, c.top, c.width, b.bottom - c.top) }];
+      });
+      const composer = document.querySelector<HTMLElement>('[data-testid="board-task-composer"]');
+      const underCenter = document.elementFromPoint(n.left + n.width / 2, n.top + n.height / 2);
+      return {
+        notice: { top: n.top, bottom: n.bottom },
+        headers: headers.length,
+        covered: headers.filter((h) => hit(h.r)).map((h) => h.id),
+        composer: composer ? hit(composer.getBoundingClientRect()) : false,
+        catchesPointer: !!underCenter && notice.contains(underCenter),
+      };
+    });
+    console.log("[PANELOAD-03] notice cover", JSON.stringify(cover));
+    expect(cover.headers, "no column header found to check").toBeGreaterThan(0);
+    expect(cover.covered, "the drop notice covers column headers").toEqual([]);
+    expect(cover.composer, "the drop notice covers the task composer").toBe(false);
+    expect(cover.catchesPointer, "the drop notice swallows clicks meant for the cards under it").toBe(false);
+    await expect(page.locator(W.notice), "the drop notice never leaves by itself").toHaveCount(0, { timeout: 15_000 });
 
     // Filter on a word only the Todo cards carry: Review empties and narrows.
     await markFrame(page, "filter");

@@ -691,16 +691,18 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     setCardError((prev) => (message ? { taskId, message } : prev?.taskId === taskId ? null : prev));
   }, []);
   // A move that did NOT land where it was aimed says so here. Not an error
-  // (nothing failed) and not a toast (it belongs to the board it happened on):
-  // one line under the toolbar.
+  // (nothing failed) and not an app-wide toast (it belongs to the board it
+  // happened on): a pill over the bottom of this board's columns (`DropNotice`),
+  // which leaves by itself after a few seconds.
   //
-  // It is cleared when the NEXT gesture starts, not when the next one ends: a
+  // It is also cleared when the NEXT gesture starts, not when the next one ends: a
   // drag that gets cancelled, or lands on a card that vanished under the
   // fingers, used to leave the previous drop's blue line on screen explaining a
   // move that was no longer the last one. And it is cleared again if the write
   // fails, because by then the line claims a destination the card never
   // reached, right next to the red error saying so.
   const [dropNotice, setDropNotice] = useState<string | null>(null);
+  const clearDropNotice = useCallback(() => setDropNotice(null), []);
   // The drawer's task, and the deep-link target (from /task/<id> via
   // openTaskLink, or `topics:open-task`): the GLOBAL board owns it, that is
   // what the link opens. With it, the tab or diff file a targeted gesture
@@ -1935,7 +1937,6 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
       )}
       </div>
       {error && <div className="shrink-0 bg-rose-500/10 px-3 py-1.5 text-compact leading-4 text-rose-300">{error}</div>}
-      {dropNotice && <DropNotice text={dropNotice} />}
       {/* La striscia dice DUE cose, e la seconda è quella che mancava: dove sta
           il gesto. Un archivio in cui si guarda soltanto è il punto da cui
           siamo partiti. */}
@@ -2116,6 +2117,8 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
             onDraft={setDraft}
             paneSettings={settings}
           />
+          {/* Over the bottom of the columns area, above the composer: see `DropNotice`. */}
+          {dropNotice && <DropNotice text={dropNotice} onDone={clearDropNotice} />}
         </div>
         {orchestratorTopic && orchestrator && (
           <OrchestratorDrawer

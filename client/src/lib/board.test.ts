@@ -301,7 +301,11 @@ describe('taskDetailBump', () => {
   // the fact is structural, so the structure is read, as `kanbanTopbar.test.ts` does.
   test('the board hands the drawer this signal, not the bare updatedAt', () => {
     const pane = readFileSync(join(import.meta.dir, '../components/Board/KanbanBoardPane.tsx'), 'utf8');
-    expect(pane).toContain('bump={taskDetailBump(selected)}');
+    // The drawer renders `drawerTask`: `selected`, or the task still fading out
+    // after a close (`useDrawerPresence`). Same task, same signal.
+    expect(pane).toContain('bump={taskDetailBump(drawerTask)}');
+    expect(pane).toMatch(/\{ shown: drawerTask[^}]*\} = useDrawerPresence\(selected,/);
+    expect(pane).not.toMatch(/bump=\{[^}]*\.updatedAt\}/);
   });
 });
 
