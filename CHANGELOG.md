@@ -5,10 +5,28 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 ## 2.2.414 — 2026-09-30
 
 ### Sotto il cofano
+- A chat's sub-agent stays in its strip: the row opens its pane, and an ended one is marked instead of vanishing
 - The first-send spec judges the pane swap by mutation batch, not by the clock
+- chat-inline-command-run proposed — a shell block in a reply can be run where it stands, with its output readable in place
 - The first-send spec reads a moved pane as a move, on every engine
+- A tab switch is final on its first frame, and a group switch never shows an empty pane
+- Background work stays named in its chat while a new turn is open
+- A sub-agent's report is written at once again, and the outcome test passes the language gates
+- Closing a sub-agent's tab takes its row away, and a dismissal holds in every window
+- The sidebar and the phone drawer move instead of jumping, and boot stops claiming nothing is open
+- Menus, popovers and dialogs settle in and fade out, reduced motion stops everything, and the first ⌘K opens in 21ms
+- The phone drawer uncovers a tapped chat faster than the old slide, and CROSS-07 measures the drawer that exists now
+- Non-chat panes load as themselves and arrive without jumps (panes F6-F16)
+- Reduced motion no longer delays every style change, menus are placed on their real size, and a cold ⌘K keeps its query
 - **e2e** · aggiorna durate shard dal nightly del 2026-09-30 [skip ci]
+- The drop notice covers no column header and leaves by itself; board.test follows the drawer's task
+- The sub-agent transcript reader types its records instead of reading them as any
+- Revert "Merge branch 'ui/uipanes-0930' into integra/tornata2l-0930"
 - The client and the landing take the patched brace-expansion and fast-uri published on 29/09
+- The sub-agent lifecycle test imports claude-bin by name, so the dead-code check still sees its exports
+- The bundle baseline records tornata 2l, with what each piece of the lane put in the entry
+- Reduced motion keeps the board carousel's smooth scroll, so a card dropped on In Progress no longer lands in Done
+- The critical path baseline takes the CI number, the worse of the two, and the note names every module that entered the entry
 
 ## 2.2.413 — 2026-09-29
 
@@ -19,6 +37,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - A chunk that threw is not an old build, and the reload prompt no longer sits on the composer
 - The build's generation record is never served, and LAND-11 keeps the generations a live window still runs
 - The first send in a new topic no longer blinks, jumps or hides the message
+- propose subagent-tool-standard, spawn_agent at the level of Claude Code's Agent tool
+- chat-browser-open-marker proposed — the browser the agent opens leaves a mark in the turn that jumps to the page
+- every child end reaches the chat with a status, in the project, prompt typed once
 
 ## 2.2.412 — 2026-09-29
 

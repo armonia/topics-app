@@ -8,12 +8,68 @@
       "perf": [],
       "internal": [
         {
+          "it": "A chat's sub-agent stays in its strip: the row opens its pane, and an ended one is marked instead of vanishing",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The first-send spec judges the pane swap by mutation batch, not by the clock",
           "en": "",
           "scope": null
         },
         {
+          "it": "chat-inline-command-run proposed — a shell block in a reply can be run where it stands, with its output readable in place",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
           "it": "The first-send spec reads a moved pane as a move, on every engine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A tab switch is final on its first frame, and a group switch never shows an empty pane",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Background work stays named in its chat while a new turn is open",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A sub-agent's report is written at once again, and the outcome test passes the language gates",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Closing a sub-agent's tab takes its row away, and a dismissal holds in every window",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The sidebar and the phone drawer move instead of jumping, and boot stops claiming nothing is open",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Menus, popovers and dialogs settle in and fade out, reduced motion stops everything, and the first ⌘K opens in 21ms",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The phone drawer uncovers a tapped chat faster than the old slide, and CROSS-07 measures the drawer that exists now",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Non-chat panes load as themselves and arrive without jumps (panes F6-F16)",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Reduced motion no longer delays every style change, menus are placed on their real size, and a cold ⌘K keeps its query",
           "en": "",
           "scope": null
         },
@@ -24,7 +80,42 @@
           "breaking": false
         },
         {
+          "it": "The drop notice covers no column header and leaves by itself; board.test follows the drawer's task",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The sub-agent transcript reader types its records instead of reading them as any",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Revert \"Merge branch 'ui/uipanes-0930' into integra/tornata2l-0930\"",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The client and the landing take the patched brace-expansion and fast-uri published on 29/09",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The sub-agent lifecycle test imports claude-bin by name, so the dead-code check still sees its exports",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The bundle baseline records tornata 2l, with what each piece of the lane put in the entry",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "Reduced motion keeps the board carousel's smooth scroll, so a card dropped on In Progress no longer lands in Done",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The critical path baseline takes the CI number, the worse of the two, and the note names every module that entered the entry",
           "en": "",
           "scope": null
         }
@@ -68,6 +159,24 @@
           "it": "The first send in a new topic no longer blinks, jumps or hides the message",
           "en": "",
           "scope": null
+        },
+        {
+          "it": "propose subagent-tool-standard, spawn_agent at the level of Claude Code's Agent tool",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "chat-browser-open-marker proposed — the browser the agent opens leaves a mark in the turn that jumps to the page",
+          "en": "",
+          "scope": null,
+          "breaking": false
+        },
+        {
+          "it": "every child end reaches the chat with a status, in the project, prompt typed once",
+          "en": "",
+          "scope": null,
+          "breaking": false
         }
       ]
     }
