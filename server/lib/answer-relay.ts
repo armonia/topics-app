@@ -285,7 +285,7 @@ export function createAnswerRelay(deps: AnswerRelayDeps): AnswerRelay {
       return take(sessionKey, () => true);
     },
     heard(carry) {
-      if (!release(carry)) return;
+      if (disposed || !release(carry)) return;
       clearRetry(carry.sessionKey);
       for (const o of carry.answers) {
         delayLogged.delete(o.toolCallId);

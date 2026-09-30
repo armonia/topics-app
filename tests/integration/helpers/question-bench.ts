@@ -232,6 +232,16 @@ export function useQuestionBench(name: string): void {
   });
 
   afterEach(() => {
+    // A turn a test left open keeps the chat route's watchdog armed: 60 s later
+    // it fires in whatever file runs then, over this file's closed database
+    // (CI run 36731774291, three tests of other files failed on it). That
+    // includes a turn a simulated restart only forgot (`forgetStreamLikeARestart`):
+    // a real restart takes its timers with the process. Closed here the way the
+    // model closes a turn, before the relays go. Every handler of the test, not
+    // one per session: a restart's second turn on a session would hide the first.
+    for (const h of handlers.splice(0)) {
+      try { h.onDone(); } catch { /* the turn was already being torn down */ }
+    }
     for (const r of bootedRelays.splice(0)) r.dispose();
     setSystemTime();
     _dropAskStateLikeARestart();
