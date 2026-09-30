@@ -208,15 +208,37 @@ jobs:
       # Must run BEFORE tauri build so the externalBin (tauri.conf.json) resolves.
       # Windows compiles a no-op stub (the wire protocol is a Unix socket) just to
       # satisfy the per-target externalBin bundle; lib.rs never advertises it there.
+      #
+      # THE BINARY IS CACHED BY A HASH OF WHAT IT IS BUILT FROM. The crate changed
+      # last on 12/08 and every release since rebuilt it anyway: 180 s and 200 s
+      # of the macOS job (runs 36707071391, 36710886768), and that job is the
+      # critical path of the release (15.2 and 15.9 min against 10.5 and 10.4 on
+      # Windows). rust-cache does not save this: it restores the dependencies,
+      # and the fat-LTO link of the leaf crate still runs twice (two targets).
+      # The key names the inputs one by one and NOT `webrtc-bridge/**`: that
+      # glob would also hash the `target/` rust-cache just restored. The rustc
+      # version is in it because `@stable` moves under an unchanged source.
+      # tests/unit/release-webrtc-bridge-cache.test.ts holds the key to the
+      # files of the crate, so a new input (a build.rs) cannot be left out.
+      - name: Rust toolchain version (part of the WebRTC bridge cache key)
+        id: rustc
+        shell: bash
+        run: echo "version=$(rustc -V | tr -c 'A-Za-z0-9.-' '_')" >> "$GITHUB_OUTPUT"
+      - name: WebRTC bridge sidecar cache
+        id: webrtc-bridge-cache
+        uses: actions/cache@v4
+        with:
+          path: desktop-tauri/src-tauri/binaries/webrtc-bridge-*
+          key: webrtc-bridge-${{ runner.os }}-${{ steps.rustc.outputs.version }}-${{ hashFiles('desktop-tauri/webrtc-bridge/src/**', 'desktop-tauri/webrtc-bridge/Cargo.toml', 'desktop-tauri/webrtc-bridge/Cargo.lock', 'scripts/build-webrtc-bridge.sh') }}
       - name: Build WebRTC bridge sidecar (macOS universal)
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && steps.webrtc-bridge-cache.outputs.cache-hit != 'true'
         run: ./scripts/build-webrtc-bridge.sh macos
       - name: Build WebRTC bridge sidecar (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.webrtc-bridge-cache.outputs.cache-hit != 'true'
         shell: bash
         run: ./scripts/build-webrtc-bridge.sh windows
       - name: Build WebRTC bridge sidecar (Linux)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.webrtc-bridge-cache.outputs.cache-hit != 'true'
         run: ./scripts/build-webrtc-bridge.sh linux
 
       - name: Build client (Vite → public/, the Tauri frontendDist)
