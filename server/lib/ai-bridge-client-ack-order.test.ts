@@ -164,6 +164,33 @@ describe("ai-bridge client: a reply echoing a rid answers that request or nobody
     dispose();
   });
 
+  test("the ack of an earlier spawn, overtaken by a kill and a respawn, does not open the gate to its own child's exit", async () => {
+    const { client, sent, frame, dispose } = connectedClient();
+    const spawnOpts = { cliPath: "claude", args: [], cwd: "/", env: {} };
+    const first = client.spawn("topic:t", spawnOpts).catch(() => null);
+    await new Promise((r) => setTimeout(r, 0));
+    client.kill("topic:t");
+    const exits: Array<number | null> = [];
+    client.registerHandlers("topic:t", { onData() {}, onExit: (code) => exits.push(code) });
+    const second = client.spawn("topic:t", spawnOpts).catch(() => null);
+    await new Promise((r) => setTimeout(r, 0));
+    const [spawnA, , spawnB] = sent;
+    expect(sent.map((f) => f.type)).toEqual(["spawn", "kill", "spawn"]);
+
+    // The daemon read spawn A, then the kill: B had not reached it yet, so the
+    // killed child's exit goes out with no successor to hide it.
+    frame({ type: "spawned", id: "topic:t", pid: 1, rid: spawnA.rid });
+    frame({ type: "killed", id: "topic:t" });
+    frame({ type: "exit", id: "topic:t", exitCode: 143 });
+    expect(exits).toEqual([]);
+    frame({ type: "spawned", id: "topic:t", pid: 2, rid: spawnB.rid });
+    expect(await second).toEqual({ pid: 2, resumed: false });
+    expect(await first).toEqual({ pid: 1, resumed: false });
+    frame({ type: "exit", id: "topic:t", exitCode: 0 });
+    expect(exits).toEqual([0]);
+    dispose();
+  });
+
   test("an old daemon echoes no rid: requests still carry one each, and its acks still resolve oldest first", async () => {
     const { client, sent, frame } = connectedClient();
     const first = client.attach("topic:t", 0);

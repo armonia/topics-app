@@ -217,7 +217,7 @@ export class AiBridgeClient {
    * handed it to the NEW turn's handlers: "Process exited with code null" on a
    * message that had not even started.
    */
-  private readonly spawnsInFlight = new Map<string, object>();
+  private readonly spawnsInFlight = new Map<string, { rid: number }>();
   private readonly waiters: Waiter[] = [];
   /** Last request id handed out: every frame that can be answered gets a fresh one. */
   private ridSeq = 0;
@@ -434,7 +434,7 @@ export class AiBridgeClient {
       const [w] = this.waiters.splice(i, 1);
       clearTimeout(w.timer);
       if (w.pred(msg)) w.resolve(msg);
-      else w.reject(new Error(`ai-bridge: ${msg.type === "error" ? msg.error : `unexpected ${msg.type}`}`));
+      else w.reject(new Error(`ai-bridge: ${msg.type === "error" ? msg.error ?? "error" : `unexpected ${msg.type}`}`));
     }
     if (msg.type === "pong") {
       this.lastPongAt = Date.now();
@@ -445,10 +445,11 @@ export class AiBridgeClient {
     if (!id) return;
     // The ack closes the window at once, not when the spawn's promise settles:
     // the new child's own exit can sit right behind it in the same chunk, and
-    // it must reach the handlers. Only an ack that answered a waiter does: a
-    // `spawned` echoing the rid of a spawn that already gave up says nothing
-    // about the spawn in flight now, whose predecessor's exit may still come.
-    if (msg.type === "spawned" && (msg.rid == null || i >= 0)) this.spawnsInFlight.delete(id);
+    // it must reach the handlers. Only the ack of the spawn in flight NOW
+    // does: a `spawned` echoing the rid of an earlier spawn for this id (one
+    // that gave up, or one a kill + respawn overtook) says nothing about it,
+    // and the killed predecessor's exit may still be on its way.
+    if (msg.type === "spawned" && (msg.rid == null || this.spawnsInFlight.get(id)?.rid === msg.rid)) this.spawnsInFlight.delete(id);
     const h = this.handlers.get(id);
     if (!h) return;
     switch (msg.type) {
@@ -537,13 +538,14 @@ export class AiBridgeClient {
    * timeout. La fessura fra l'ensureConnected e il write è larga quanto un
    * hot-reload del server, cioè quanto capita ogni giorno.
    */
-  private async request(frame: object, pred: (m: any) => boolean, timeoutMs: number, what: string): Promise<any> {
+  private async request(frame: object, pred: (m: any) => boolean, timeoutMs: number, what: string, onAttempt?: (rid: number) => void): Promise<any> {
     let last: Error | null = null;
     for (let attempt = 0; attempt < REQUEST_ATTEMPTS; attempt++) {
       await this.ensureConnected();
       // A fresh rid per attempt: the previous attempt's ack, if it ever
       // arrives, must not answer this one.
       const rid = ++this.ridSeq;
+      onAttempt?.(rid);
       const w = this.arm(rid, pred, timeoutMs, what);
       if (!this.send({ ...frame, rid })) {
         w.cancel(new BridgeConnectionLost(`ai-bridge: ${what} non è partito (socket caduto)`));
@@ -638,7 +640,7 @@ export class AiBridgeClient {
 
   /** Spawn (or, if a live session for `id` already exists, resume) a child. */
   async spawn(id: string, opts: SpawnOpts): Promise<{ pid: number; resumed: boolean }> {
-    const token = {};
+    const token = { rid: 0 };
     this.spawnsInFlight.set(id, token);
     try {
       const m = await this.request(
@@ -646,6 +648,7 @@ export class AiBridgeClient {
         (f) => (f.type === "spawned" || f.type === "error") && f.id === id,
         SPAWN_ACK_TIMEOUT_MS,
         `spawn ${id}`,
+        (rid) => { token.rid = rid; },
       );
       if (m.type === "error") throw new Error(`ai-bridge spawn: ${m.error}`);
       return { pid: m.pid, resumed: m.resumed === true };
