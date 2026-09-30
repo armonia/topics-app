@@ -8,14 +8,18 @@
  * left two tasks behind, one of them without a description, and the row has to
  * name both and date the last news about them.
  *
- * @covers BGVIS-04
+ * And the work stays named while a later turn is open (BGVIS-05): on 29/09
+ * chat 33966f4e lost the line naming its Bash the moment a message reopened
+ * the chat, and the Bash ran six more minutes.
+ *
+ * @covers BGVIS-04, BGVIS-05
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { cleanupTestDataDir, setupTestDataDir, testTmpDir } from "../../tests/integration/helpers";
-import { backgroundStatusRows } from "./background-probes";
+import { backgroundStatusRows, withBackgroundWork, type TurnStatusRow } from "./background-probes";
 import { registerProvider, removeProvider } from "./index";
 import type { ClaudeCodeProvider } from "./claude-code";
-import { BACKGROUND_WORK_CAP_MS, WAKE_QUEUED_MS, newBackgroundWork } from "./claude/background-work";
+import { BACKGROUND_WORK_CAP_MS, WAKE_QUEUED_MS, newBackgroundWork, noteBackgroundLine } from "./claude/background-work";
 import { SidechainTracker } from "./claude/sidechain-tracker";
 
 const ROOT = testTmpDir("topics-background-probes");
@@ -88,5 +92,50 @@ describe("backgroundStatusRows", () => {
   test("a session with a turn open is the turn's row, not a background one", () => {
     childWithWork("topic:bg-open", [["d4", { type: "local_agent", description: "Monitor deploy" }]]);
     expect(backgroundStatusRows([{ sessionKey: "topic:bg-open" }], topicOf)).toEqual([]);
+  });
+});
+
+describe("withBackgroundWork", () => {
+  const job = { type: "local_bash", description: "npm run build" };
+  const turnRow = (sessionKey: string): TurnStatusRow => ({ topicId: `t-${sessionKey}`, sessionKey, state: "streaming" });
+  /** The lines the CLI prints, folded as the provider folds them. */
+  const fold = (background: ReturnType<typeof newBackgroundWork>, unattended: boolean, ...events: unknown[]) => {
+    for (const e of events) noteBackgroundLine(background, e, Date.now(), { unattended });
+  };
+  /** What names the job for the chat: its background row, or the background its turn row carries. */
+  const named = (rows: ReturnType<typeof withBackgroundWork>, sessionKey: string) => {
+    const mine = rows.filter((r) => r.sessionKey === sessionKey);
+    return mine.flatMap((r) => (r.state === "background" ? r.tasks : r.background?.tasks ?? [])).map((t) => t.description);
+  };
+
+  test("a job launched, a turn that ends, a message that opens a new turn: the job stays named until it ends", () => {
+    const sk = "topic:bg-keep";
+    const { background } = childWithWork(sk, []);
+    // The turn launches a background Bash and ends.
+    fold(background, false,
+      { type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "b1", task_type: job.type, description: job.description }] },
+      { type: "system", subtype: "task_started", task_id: "b1", tool_use_id: "toolu_b1", task_type: job.type, description: job.description, is_backgrounded: true },
+    );
+    const idle = withBackgroundWork([], topicOf);
+    expect(idle).toEqual([{ topicId: `t-${sk}`, sessionKey: sk, state: "background", tasks: [job], lastSignalAt: background.lastSignalAt }]);
+
+    // A message opens a turn: ONE row, the turn's, and it names the job.
+    const open = withBackgroundWork([turnRow(sk)], topicOf);
+    expect(open).toHaveLength(1);
+    expect(open[0].state).toBe("streaming");
+    expect(named(open, sk)).toEqual([job.description]);
+
+    // The job ends inside that turn: nothing named any more.
+    fold(background, false,
+      { type: "system", subtype: "background_tasks_changed", tasks: [] },
+      { type: "system", subtype: "task_notification", task_id: "b1", tool_use_id: "toolu_b1", status: "completed" },
+    );
+    const ended = withBackgroundWork([turnRow(sk)], topicOf);
+    expect(ended).toEqual([turnRow(sk)]);
+  });
+
+  test("a session with no background work keeps its turn row as it was", () => {
+    const row = { ...turnRow("topic:bg-none"), state: "waiting" as const, awaitingSince: 5 };
+    expect(withBackgroundWork([row], topicOf)).toEqual([row]);
   });
 });

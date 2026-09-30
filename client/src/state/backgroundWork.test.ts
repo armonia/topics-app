@@ -9,7 +9,10 @@
  * for the composer's Stop and per topic for the glyphs, the chat line and the
  * agent list, and the Stop that ends it clears both at once.
  *
- * @covers BGVIS-01, BGVIS-02
+ * A later turn does not end that work: the turn row names it, and the chat
+ * keeps it on the per-topic map while the composer's Stop stays the turn's.
+ *
+ * @covers BGVIS-01, BGVIS-02, BGVIS-05
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { mergeBackgroundWork, projectBackgroundCount, readStreamingSnapshot, type TopicBackgroundWork } from "./backgroundWork";
@@ -33,6 +36,20 @@ describe("readStreamingSnapshot", () => {
     expect([...snap.waitingTopics]).toEqual(["W"]);
     expect([...snap.backgroundSessions]).toEqual(["topic:T"]);
     expect(snap.backgroundTopics.get("T")).toEqual({ sessionKey: "topic:T", tasks: twoTasks, lastSignalAt: 1234 });
+  });
+
+  test("a turn row naming the work an earlier turn left running keeps it on the topic, not on the session", () => {
+    const snap = readStreamingSnapshot([
+      { topicId: "T", sessionKey: "topic:T", state: "streaming", background: { tasks: twoTasks, lastSignalAt: 77 } },
+      { topicId: "W", sessionKey: "topic:W", state: "waiting", background: { tasks: [], lastSignalAt: 5 } },
+    ]);
+    expect([...snap.streamingTopics]).toEqual(["T", "W"]);
+    expect([...snap.streamingSessions]).toEqual(["topic:T", "topic:W"]);
+    expect(snap.backgroundTopics.get("T")).toEqual({ sessionKey: "topic:T", tasks: twoTasks, lastSignalAt: 77 });
+    // No task named: nothing to show.
+    expect(snap.backgroundTopics.has("W")).toBe(false);
+    // With a turn open the composer's Stop is the turn's.
+    expect(snap.backgroundSessions.size).toBe(0);
   });
 
   test("a row from a server that does not name the tasks reads as none named", () => {

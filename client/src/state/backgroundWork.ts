@@ -11,6 +11,11 @@
  * So the reading rule lives here, in one pure function, and the background
  * rows go to a set (per session, for the composer's Stop) and a map (per
  * topic, for the glyphs, the chat line and the agent list) of their own.
+ *
+ * A NEW TURN DOES NOT END THE WORK. A turn row carries, as `background`, the
+ * work an earlier turn of the same session still runs: it enters the per-topic
+ * map, so the chat line keeps naming it, and not the per-session set, because
+ * with a turn open the composer's Stop is the turn's.
  */
 import type { BackgroundTaskSummary, BackgroundWorkDetail } from '../../../shared/background-work';
 import type { Topic } from '../types';
@@ -25,7 +30,19 @@ export type StreamingRowInput = {
   state?: string;
   tasks?: BackgroundTaskSummary[];
   lastSignalAt?: number;
+  /** On a turn row: the work an earlier turn left running, still going. */
+  background?: { tasks?: BackgroundTaskSummary[]; lastSignalAt?: number };
 };
+
+/** The per-topic entry of a row's work, as loosely as the row carries it. */
+function workOf(sessionKey: string, w: { tasks?: BackgroundTaskSummary[]; lastSignalAt?: number }): TopicBackgroundWork {
+  return {
+    sessionKey,
+    // A server older than the task list sends none: nothing is named.
+    tasks: Array.isArray(w.tasks) ? w.tasks : [],
+    lastSignalAt: typeof w.lastSignalAt === 'number' ? w.lastSignalAt : 0,
+  };
+}
 
 export interface StreamingSnapshot {
   /** Topics with a turn open, answering or parked on a question. */
@@ -57,17 +74,12 @@ export function readStreamingSnapshot(rows: ReadonlyArray<StreamingRowInput>): S
     if (s.state === 'background') {
       if (!s.sessionKey) continue;
       snap.backgroundSessions.add(s.sessionKey);
-      if (s.topicId) {
-        snap.backgroundTopics.set(s.topicId, {
-          sessionKey: s.sessionKey,
-          // A server older than the task list sends none: nothing is named.
-          tasks: Array.isArray(s.tasks) ? s.tasks : [],
-          lastSignalAt: typeof s.lastSignalAt === 'number' ? s.lastSignalAt : 0,
-        });
-      }
+      if (s.topicId) snap.backgroundTopics.set(s.topicId, workOf(s.sessionKey, s));
       continue;
     }
     if (s.state !== 'streaming' && s.state !== 'waiting') continue;
+    const work = s.background && s.sessionKey ? workOf(s.sessionKey, s.background) : null;
+    if (work && work.tasks.length > 0 && s.topicId) snap.backgroundTopics.set(s.topicId, work);
     if (s.topicId) snap.streamingTopics.add(s.topicId);
     if (s.sessionKey) snap.streamingSessions.add(s.sessionKey);
     if (s.state === 'waiting' && s.topicId) snap.waitingTopics.add(s.topicId);

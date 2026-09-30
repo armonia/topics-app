@@ -112,10 +112,15 @@ export function sessionBackgroundDetail(sessionKey: string): BackgroundWorkDetai
 /** A background row of `/api/topics/streaming`: no turn open, work still running, and what it is. */
 export type BackgroundStatusRow = { topicId: string; sessionKey: string; state: "background" } & BackgroundWorkDetail;
 
+/**
+ * A turn row of `/api/topics/streaming`: a reply in progress, or one waiting
+ * for the person. `background`: the work an earlier turn left running, still
+ * named while this turn is open.
+ */
+export type TurnStatusRow = { topicId: string; sessionKey: string; state: "streaming" | "waiting"; awaitingSince?: number; background?: BackgroundWorkDetail };
+
 /** A row of `/api/topics/streaming`: a reply in progress, one waiting for the person, or background work only. */
-export type StreamingStatusRow =
-  | { topicId: string; sessionKey: string; state: "streaming" | "waiting"; awaitingSince?: number }
-  | BackgroundStatusRow;
+export type StreamingStatusRow = TurnStatusRow | BackgroundStatusRow;
 
 /**
  * The `/api/topics/streaming` rows for the sessions with no turn open but work
@@ -130,5 +135,34 @@ export function backgroundStatusRows(
     const topic = listed.some((s) => s.sessionKey === sessionKey) ? null : topicOf(sessionKey);
     if (topic?.sessionKey) rows.push({ topicId: topic.id, sessionKey: topic.sessionKey, state: "background", ...sessionBackgroundDetail(sessionKey) });
   }
+  return rows;
+}
+
+/**
+ * The whole answer of `/api/topics/streaming`: the turn rows, each carrying the
+ * background work its session still runs, then a background row for every
+ * session with work and no turn open.
+ *
+ * A NEW TURN DOES NOT END THE WORK. On 29/09 chat 33966f4e left a Bash running
+ * at 20:57:54Z; a message at 21:17:15Z opened a turn, the session left the
+ * background rows for a turn row, and the chat's line naming the job went
+ * away while the job ran for six more minutes. The turn row stays the one row
+ * of its session (every reader finds the turn by session), and names the work
+ * beside it.
+ *
+ * Only named tasks ride along: with none listed the work has reported and a
+ * turn will answer it, which an open turn already says.
+ */
+export function withBackgroundWork(
+  turns: ReadonlyArray<TurnStatusRow>,
+  topicOf: (sessionKey: string) => { id: string; sessionKey?: string | null } | null | undefined,
+): StreamingStatusRow[] {
+  const busy = new Set(sessionsWithBackgroundWork());
+  const rows: StreamingStatusRow[] = turns.map((row) => {
+    if (!busy.has(row.sessionKey)) return row;
+    const detail = sessionBackgroundDetail(row.sessionKey);
+    return detail.tasks.length > 0 ? { ...row, background: detail } : row;
+  });
+  rows.push(...backgroundStatusRows(turns, topicOf));
   return rows;
 }

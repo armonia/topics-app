@@ -4500,7 +4500,8 @@ segnali (`client/src/state/signals.ts`). La risposta del poll
 (`client/src/state/useSignalsSync.ts:110-139`) SHALL scrivere, nello stesso
 giro, `backgroundWorkSessions` (per sessione, letto dal composer, invariato) e
 il lavoro per topic `{sessionKey, tasks, lastSignalAt}` letto dai glifi, dalla
-riga in chat e dagli agenti attivi. `dropBackgroundWork(sessionKey)`
+riga in chat e dagli agenti attivi (anche quello che una riga di turno porta in
+`background`, BGVIS-05; quello no nell'insieme per sessione). `dropBackgroundWork(sessionKey)`
 (`signals.ts:627`) SHALL svuotare entrambi.
 
 Una chat in background NON SHALL entrare in `liveStreamTopics` né in
@@ -4624,6 +4625,52 @@ leggono come due cose diverse.
 - **THEN** la riga di S ha `tasks` di lunghezza 2, e il task senza descrizione
   porta il suo `type` come nome
 - **AND** ha `lastSignalAt` numerico
+
+### Requirement: BGVIS-05 — Il lavoro in background resta nominato anche con un turno aperto
+
+Un turno nuovo NON chiude il lavoro che un turno precedente ha lasciato in
+background: la riga `background-work-line` di BGVIS-04 SHALL restare in chat,
+con il nome del lavoro, per tutta la vita del lavoro, anche mentre un turno
+nuovo della stessa chat è aperto (che risponda o che aspetti una risposta), e
+SHALL sparire solo quando il lavoro finisce.
+
+Il caso da cui nasce (29/09, chat `topic:33966f4e`): un Bash in background
+lanciato alle 20:57:54Z, il turno chiuso e la riga visibile; alle 21:17:15Z un
+«?» ha riaperto il turno e la riga è sparita, mentre il Bash girava fino alle
+21:23:29Z. `backgroundStatusRows` saltava ogni sessione che aveva già una riga di
+turno, e il client non trovava più niente da mostrare.
+
+- Il server (`withBackgroundWork`, `server/providers/background-probes.ts`) SHALL
+  lasciare UNA riga per sessione: la riga del turno (`streaming` o `waiting`)
+  porta il campo `background: {tasks, lastSignalAt}` quando la sessione ha
+  ancora task nominati; le sessioni senza turno aperto restano righe
+  `background` come in BGVIS-04. Con `tasks` vuoto (il lavoro ha risposto e un
+  turno lo sta per raccogliere) la riga del turno NON SHALL portare `background`:
+  un turno aperto lo dice già.
+- Il client (`readStreamingSnapshot`, `client/src/state/backgroundWork.ts`) SHALL
+  mettere quel lavoro nella mappa per topic (riga in chat, glifi, agenti attivi,
+  con la precedenza di BGVIS-01 e BGVIS-03: il turno vince) e NON nell'insieme
+  per sessione del composer: con un turno aperto lo Stop è quello del turno.
+- Con un turno aperto il tooltip della riga NON SHALL dire che la chat è libera.
+
+#### Scenario: il server tiene il lavoro sulla riga del turno
+- **GIVEN** una sessione S il cui turno ha lanciato un Bash in background ed è finito
+- **WHEN** si chiama `withBackgroundWork` senza turni aperti
+- **THEN** c'è una riga `background` di S che nomina il Bash
+- **WHEN** un messaggio apre un turno di S
+- **THEN** c'è UNA sola riga di S, `streaming`, e il suo `background.tasks` nomina il Bash
+- **WHEN** il Bash finisce (snapshot vuoto e `task_notification`)
+- **THEN** la riga di S non porta più `background`
+
+#### Scenario: la riga in chat attraversa il turno nuovo
+- **GIVEN** una chat su una CLI finta, un turno che lancia il lavoro «BGKEEP-JOB» e finisce
+- **WHEN** la riga `background-work-line` lo nomina e dal composer parte un
+  messaggio che apre un turno
+- **THEN** la riga resta, campionata ogni 50 ms nella pagina, per tutto il turno
+  e oltre un giro del poll di `/api/topics/streaming` che risponde il turno aperto
+- **AND** resta quando il turno finisce
+- **WHEN** il lavoro finisce
+- **THEN** la riga sparisce
 
 ### Requirement: CHAT-NTOOL-04 — Il `bash` nativo manda la coda del suo output mentre gira
 

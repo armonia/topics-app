@@ -31,10 +31,15 @@
  * label's line, and whatever does not fit beside them (the readout first,
  * then the names themselves) goes below at full width. The glyph and the label
  * are one piece, so the ring never sits alone on a line.
+ *
+ * A NEW TURN DOES NOT TAKE IT AWAY. The work of an earlier turn keeps running
+ * while the next one is open, and the line keeps naming it until it ends
+ * (BGVIS-05). Only the tooltip changes: with a turn open the chat is not free,
+ * and the composer's Stop is the turn's.
  */
 import { memo } from 'react';
 import { useT } from '../../hooks/useT';
-import { useTopicBackgroundWork } from '../../state/signals';
+import { useTopicBackgroundWork, useTopicLoading } from '../../state/signals';
 import type { TopicBackgroundWork } from '../../state/backgroundWork';
 import { useSharedNow } from '../../state/useSharedNow';
 import { deriveWorkLongevity, formatElapsedCompact } from '../../state/workLongevity';
@@ -43,15 +48,16 @@ import { OrbitLoader } from '../Layout/StreamingIndicator';
 
 export const BackgroundWorkLine = memo(function BackgroundWorkLine({ topicId, isMobile }: { topicId: string; isMobile: boolean }) {
   const work = useTopicBackgroundWork(topicId);
+  const turnOpen = useTopicLoading(topicId);
   // Mounted only while there is work, so the shared clock ticks only then.
   return work ? (
     <div className={`chat-measure pb-2 ${isMobile ? 'px-2' : 'px-4'}`}>
-      <Line work={work} />
+      <Line work={work} turnOpen={turnOpen} />
     </div>
   ) : null;
 });
 
-function Line({ work }: { work: TopicBackgroundWork }) {
+function Line({ work, turnOpen }: { work: TopicBackgroundWork; turnOpen: boolean }) {
   const tr = useT();
   const now = useSharedNow();
   const n = work.tasks.length;
@@ -63,7 +69,7 @@ function Line({ work }: { work: TopicBackgroundWork }) {
       data-testid="background-work-line"
       data-stale={isStale ? 'true' : undefined}
       className="rounded-lg border border-app-border/60 bg-app-hover/40 text-app-text"
-      title={[names, tr('chat.background.free')].filter(Boolean).join('\n')}
+      title={[names, turnOpen ? '' : tr('chat.background.free')].filter(Boolean).join('\n')}
     >
       <div className={`${CHAT_STRIP_ROW} flex-wrap gap-y-0.5`}>
         <span className="flex min-w-0 items-center gap-2">
