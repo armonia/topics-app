@@ -16,7 +16,15 @@ let subscriberCount = 0;
 let fetchingNow = false;
 let currentInterval = POLL_VISIBLE;
 let visibleCount = 0; // number of visible subscribers
-let wsConnected = false;
+/**
+ * How many mounted consumers hold the WS channel. A count, not a boolean: with
+ * a boolean the FIRST consumer to unmount (a project window leaving residency)
+ * set it to false while the others were still listening, and the shared poll
+ * dropped from 15 s to 3 s for the rest of the session.
+ */
+let wsSubscribers = 0;
+/** The serialized list last published: an identical answer publishes nothing. */
+let scriptsKey = JSON.stringify(scripts);
 
 function getSnapshot(): ScriptProcessInfo[] {
   return scripts;
@@ -26,13 +34,27 @@ function emit() {
   for (const l of listeners) l();
 }
 
+/**
+ * Adopt `next` and notify, unless it is the list already published. Every
+ * poll answers with a NEW array, and publishing it re-rendered every mounted
+ * project sidebar (and its file tree) every 3 s with nothing changed. The
+ * comparison covers every field, not just id/status/ports: watchers,
+ * exitCode and completedAt are rendered too.
+ */
+function publish(next: ScriptProcessInfo[]): void {
+  const key = JSON.stringify(next);
+  if (key === scriptsKey) return;
+  scripts = next;
+  scriptsKey = key;
+  emit();
+}
+
 async function fetchScripts() {
   if (fetchingNow) return;
   fetchingNow = true;
   try {
     const data = await scriptsApi.list();
-    scripts = data.scripts;
-    emit();
+    publish(data.scripts);
   } catch {
     // ignore errors
   } finally {
@@ -54,7 +76,7 @@ function updateInterval() {
     return;
   }
   const desired = visibleCount > 0
-    ? (wsConnected ? POLL_BACKGROUND : POLL_VISIBLE)
+    ? (wsSubscribers > 0 ? POLL_BACKGROUND : POLL_VISIBLE)
     : POLL_BACKGROUND;
   if (desired === currentInterval && pollTimer) return;
   currentInterval = desired;
@@ -85,8 +107,7 @@ function subscribe(listener: () => void) {
 
 // Called by WS handler when scripts:updated arrives
 function handleWSUpdate(incoming: ScriptProcessInfo[]) {
-  scripts = incoming;
-  emit();
+  publish(incoming);
   // The broadcast snapshot omits ports (broadcastScriptsUpdate skips the lsof
   // lookup to stay cheap), so a freshly-started server shows its running dot
   // instantly but its :port link would otherwise wait up to one poll interval
@@ -98,13 +119,14 @@ function handleWSUpdate(incoming: ScriptProcessInfo[]) {
   }
 }
 
-// Called by WS handler to set connection state
+// Called when a consumer attaches (true) or detaches (false) the WS channel.
 function setWSConnected(connected: boolean) {
-  const was = wsConnected;
-  wsConnected = connected;
-  if (was !== connected) updateInterval();
+  const was = wsSubscribers > 0;
+  wsSubscribers = connected ? wsSubscribers + 1 : Math.max(0, wsSubscribers - 1);
+  const now = wsSubscribers > 0;
+  if (was !== now) updateInterval();
   // On reconnect, fetch immediately to catch up
-  if (connected && !was) fetchScripts();
+  if (now && !was) fetchScripts();
 }
 
 function markVisible(visible: boolean) {
@@ -112,6 +134,17 @@ function markVisible(visible: boolean) {
   else visibleCount = Math.max(0, visibleCount - 1);
   updateInterval();
 }
+
+/** Test seam: the shared store, driven without React. */
+export const __scriptsStoreForTests = {
+  subscribe,
+  getSnapshot,
+  fetchScripts,
+  handleWSUpdate,
+  setWSConnected,
+  markVisible,
+  pollIntervalMs: () => (pollTimer ? currentInterval : null),
+};
 
 // ── Public hook ─────────────────────────────────────────────────────────────
 
