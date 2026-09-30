@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, forwardRef, type ComponentProps } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, forwardRef, type ComponentProps, type MutableRefObject } from 'react';
 import { Paperclip } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, CompactionMarker } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
@@ -41,6 +41,8 @@ import { QueuedTurns } from './QueuedTurns';
 import { isMachineRow, lastConversationMessage } from './machineRow';
 import { ForkOriginDivider } from './ForkOriginDivider';
 import { BackgroundWorkLine } from './BackgroundWorkLine';
+import { ROW_RESIZE_SLACK_MS, TranscriptRowResizeContext } from './transcriptRowResize';
+import { COMPOSER_HEIGHT_PROPERTY, type ComposerResizeHandler } from './useComposerDock';
 
 /**
  * La LISTA di Virtuoso, cappata alla misura di lettura.
@@ -133,12 +135,16 @@ interface MessageListProps {
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   onRetry?: () => void;
   inputAreaHeight?: number;
+  /** Filled here and called by the composer's observer, in the frame it changes height (`useComposerDock`). */
+  composerResizeRef?: MutableRefObject<ComposerResizeHandler | null>;
   /**
    * Vero quando il composer è al CENTRO della pane (chat vuota / handoff): lì
    * `inputAreaHeight` comprende anche l'invito, non è la fascia in fondo, e
    * spegnere l'inchiostro su quella misura cancellerebbe mezza pane.
    */
   composerCentered?: boolean;
+  /** Born from a promoted draft: this conversation was on screen EMPTY a moment ago (`composerHandoff.ts`). */
+  bornFromDraft?: boolean;
   /**
    * PANE-03 scroll restore (review I1). When set to a finite positive value
    * at mount, the scroller's scrollTop is restored to it (clamped to content
@@ -196,7 +202,9 @@ export function MessageList({
   onMessage,
   onRetry,
   inputAreaHeight = 0,
+  composerResizeRef,
   composerCentered = false,
+  bornFromDraft = false,
   initialScrollOffset,
   onScrollOffsetChange,
   queuedTurns,
@@ -353,7 +361,8 @@ export function MessageList({
           onSendNow={onSendQueueNow}
           busy={queueBusy}
         />
-        <div style={{ height: inputAreaHeight + CHAT_BOTTOM_GUTTER_PX }} />
+        {/* The composer's height as a CSS variable, written by its observer before the paint (panes:F15). */}
+        <div style={{ height: `calc(var(${COMPOSER_HEIGHT_PROPERTY}, 0px) + ${CHAT_BOTTOM_GUTTER_PX}px)` }} />
       </>
     ),
     // IL VARCO IN CIMA È IL GEMELLO DEL FOOTER, e nasce dallo stesso fatto: la
@@ -384,7 +393,7 @@ export function MessageList({
     // oggi nessuna, domani chissà — non si prende un buco per sbaglio.
     Header: () => <div data-testid="chat-top-gutter" style={{ height: 'var(--chat-gutter, 0px)' }} />,
     List: ChatList,
-  }), [inputAreaHeight, queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id]);
+  }), [queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id]);
 
   /**
    * LA CODA VIVA SI SEPARA DAL RESTO — perché è l'unica cosa che cambia.
@@ -568,14 +577,14 @@ export function MessageList({
    *     it and mount it again 60-90ms later, 12px lower. Started from row 0,
    *     it mounts once and stays.
    *
-   * `composerCentered` is true only while the conversation has nothing in it
-   * (or during the hand-off from a promoted draft, where the rows already exist
-   * but the view is still the empty one), so any render that sees it marks the
-   * topic. Kept per topic id: a pane that switches to a stored thread opens it
+   * `composerCentered` is true only while the conversation has nothing in it,
+   * and `bornFromDraft` for the pane that takes over from a promoted draft
+   * (its rows already exist, but the view is still the empty one), so any
+   * render that sees either marks the topic. Kept per topic id: a pane that switches to a stored thread opens it
    * with the curtain as before.
    */
   const shownEmptyTopicRef = useRef<string | null>(null);
-  if (composerCentered) shownEmptyTopicRef.current = topic.id;
+  if (composerCentered || bornFromDraft) shownEmptyTopicRef.current = topic.id;
   const grewFromEmpty = shownEmptyTopicRef.current === topic.id;
   /**
    * L'indice da cui parte la lista. Si congela alla PRIMA lista non vuota, non
@@ -691,8 +700,14 @@ export function MessageList({
    * e scrivere `scrollTop` da soli incolla a un `scrollHeight` che non contiene
    * ancora la coda; `scrollToIndex('LAST')` lo materializza, il rAF successivo
    * incolla sull'altezza vera. Chi decide resta sempre e solo `reduceScroll`.
+   *
+   * `now`: the first attempt runs in the caller's turn, for callers between a
+   * layout and its paint (layout effect, ResizeObserver): growth and pin land
+   * in the same frame. Live text is flushed inside a rAF (useChat), and a rAF
+   * requested from there is the NEXT frame: the bottom of a streamed reply
+   * dropped a line and came back (UI audit 2026-09-29, core:F03).
    */
-  const pinToBottom = useCallback((opts?: { viaVirtuoso?: boolean; frames?: 1 | 2; force?: boolean; settleFrames?: number }) => {
+  const pinToBottom = useCallback((opts?: { viaVirtuoso?: boolean; frames?: 1 | 2; force?: boolean; settleFrames?: number; now?: boolean }) => {
     if (!opts?.force && !shouldPin(authorityRef.current, { jumpPending: jumpPending() })) return;
     if (opts?.viaVirtuoso) virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end' });
     // Il fondo si raggiunge PER DAVVERO, non "quasi".
@@ -723,7 +738,8 @@ export function MessageList({
         requestAnimationFrame(run);
       }
     };
-    if (opts?.frames === 2) requestAnimationFrame(() => requestAnimationFrame(run));
+    if (opts?.now) run();
+    else if (opts?.frames === 2) requestAnimationFrame(() => requestAnimationFrame(run));
     else requestAnimationFrame(run);
   }, [jumpPending]);
 
@@ -1390,7 +1406,8 @@ export function MessageList({
    *  dritta nel ramo che ri-pinna al fondo. Cioè: un salto in fondo a ogni
    *  transizione di streaming, anche a chi era risalito a leggere. */
   const streamingRef = useRef(_currentStreaming);
-  useEffect(() => {
+  // A layout effect, so it still runs before the streaming pin below.
+  useLayoutEffect(() => {
     streamingRef.current = _currentStreaming;
     if (_currentStreaming && !prevStreamingRef.current) dispatchScroll({ type: 'stream-start' });
     prevStreamingRef.current = _currentStreaming;
@@ -1402,13 +1419,22 @@ export function MessageList({
   // bypassing Virtuoso's item-height measurement which may lag the actual layout.
   // Non decide niente: chiede a `shouldPin` (che include il veto del salto da
   // palette) e incolla. Il ri-controllo dentro il frame è dentro `pinToBottom`.
-  useEffect(() => {
+  // A LAYOUT effect pinning `now`: the new line and the pin share a frame (F03).
+  useLayoutEffect(() => {
     // Same guard as the "anonymous" growth below: if a token arrives inside
     // a gesture window (click on a tool-call row, dragging the scrollbar)
     // this pin scrolls the row out of Virtuoso's overscan, which unmounts
     // and remounts it collapsed. See `gestureUntilRef`.
-    if (_currentStreaming && Date.now() >= gestureUntilRef.current) pinToBottom();
+    if (_currentStreaming && Date.now() >= gestureUntilRef.current) pinToBottom({ now: true });
   }, [filteredMessages, _currentStreaming, pinToBottom]);
+  /** Until when a tool body animates its height (`transcriptRowResize.ts`):
+   *  its growth is pinned frame by frame even inside a gesture window, since a
+   *  pinned row growing at the bottom never leaves Virtuoso's overscan. */
+  const rowResizeUntilRef = useRef(0);
+  const onRowResize = useCallback((durationMs: number) => {
+    rowResizeUntilRef.current = Date.now() + durationMs + ROW_RESIZE_SLACK_MS;
+    pinToBottom({ now: true });
+  }, [pinToBottom]);
 
   // Detect a GENUINE user scroll-up so the streaming bottom-pin can yield to it.
   // A wheel-up is unambiguous; on touch (no wheel) a real DECREASE of scrollTop
@@ -1676,7 +1702,8 @@ export function MessageList({
       // — the tool-call collapse. Nothing is lost by waiting: once the
       // window ends, if the list is still at the bottom, this same observer
       // passes through here again.
-      if (Date.now() < gestureUntilRef.current) return;
+      // ...unless it is a tool body animating its height (`rowResizeUntilRef`).
+      if (Date.now() < gestureUntilRef.current && Date.now() >= rowResizeUntilRef.current) return;
       // NOTA sull'anello, per chi passerà di qui a «ottimizzare».
       //
       // A riposo questo pin si autoalimenta: incollare al fondo fa smontare a
@@ -1696,7 +1723,8 @@ export function MessageList({
       // scarto fermo che si vede, si sceglie il ballo. Se lo si vuole chiudere
       // davvero, la leva è la bistabilità della lista (`increaseViewportBy`),
       // non la soglia di questa regola.
-      pinToBottom();
+      // `now`: after layout, before paint, so pinned in the frame it shows (F03).
+      pinToBottom({ now: true });
     });
     ro.observe(el);
     // Anche il CONTENUTO, non solo il contenitore: lo scroller cambia dimensione
@@ -1777,33 +1805,22 @@ export function MessageList({
     dispatchScroll({ type: 'user-sent' }, { frames: 2 });
   }, [filteredMessages, dispatchScroll]);
 
-  // Re-pin the bottom when the COMPOSER changes height. Its height feeds the
-  // Virtuoso Footer — the ONLY bottom spacer — asynchronously via a
-  // ResizeObserver, so when the Stop button, TodoStrip or CheckpointTimeline
-  // appear/disappear mid-turn the newly reserved space lands a frame AFTER the
-  // send/streaming snap already ran. Without this, the freshly reserved gap
-  // pushes the live content — and the turn indicator that sits at the very
-  // bottom — under the composer ("il loader finisce sotto l'input"). Re-anchor
-  // on every height change, unless the user deliberately scrolled up or a
-  // palette jump owns the viewport.
-  //
-  // Due precisazioni, e sono quelle che rendono innocuo il box della CODA.
-  // Quel box sta fuori dallo scroller (è nel composer), ma la sua altezza
-  // rientra qui dentro: `inputAreaHeight` è il Footer di Virtuoso, cioè
-  // contenuto scrollato. Comparire e sparire, a ogni ciclo della coda, sono
-  // due cambi d'altezza — e prima ognuno era un pin.
-  //  • si pinna solo quando lo spazio CRESCE: è l'unico caso in cui qualcosa
-  //    rischia di finire sotto il composer. Uno shrink non nasconde niente;
-  //  • si confronta arrotondato, perché `contentRect.height` è un float e il
-  //    rumore subpixel bastava a far partire il giro.
-  const prevInputAreaHeightRef = useRef(Math.round(inputAreaHeight));
-  useEffect(() => {
-    const h = Math.round(inputAreaHeight);
-    const grew = h > prevInputAreaHeightRef.current;
-    prevInputAreaHeightRef.current = h;
-    if (!grew) return;
-    pinToBottom({ frames: 2 });
-  }, [inputAreaHeight, pinToBottom]);
+  // Re-pin the bottom when the COMPOSER grows. Its height is the Footer, the
+  // ONLY bottom spacer, so when the Stop button, TodoStrip, a new line or an
+  // attachment appear the newly reserved space would push the live content,
+  // and the turn indicator at the very bottom, under the composer.
+  // Called by the composer's own observer (`useComposerDock`), between layout
+  // and paint, right after it wrote the gutter: space and pin land in the SAME
+  // frame. From a React effect they landed one to three frames later, and on
+  // the phone the last message sat under the composer meanwhile (panes:F15).
+  // Only on GROWTH: a shrink hides nothing (and the queue box, which comes and
+  // goes with every cycle of the queue, would otherwise pin each time); and
+  // `shouldPin` still vetoes it for a reader who scrolled up or a palette jump.
+  useLayoutEffect(() => {
+    if (!composerResizeRef) return;
+    composerResizeRef.current = (grew) => { if (grew) pinToBottom({ now: true }); };
+    return () => { composerResizeRef.current = null; };
+  }, [composerResizeRef, pinToBottom]);
 
   // Detect new messages while scrolled up
   useEffect(() => {
@@ -1911,6 +1928,7 @@ export function MessageList({
   // [data-testid='chat-scroll-container']). The Virtuoso internal scroller is
   // targeted via scrollerElRef without a separate testid.
   return (
+    <TranscriptRowResizeContext.Provider value={onRowResize}>
     <div
       data-testid="chat-scroll-container"
       ref={chatContainerRef}
@@ -1937,10 +1955,13 @@ export function MessageList({
           ha ancora niente da mostrare (primo avvio vero, nessuna cache) e la
           lista che si sta ancora posando (il sipario, sopra). Erano due
           disegni diversi — tre bolle allineate IN CIMA con misure inventate —
-          e il passaggio dall'uno all'altra era esso stesso un salto. */}
-      {currentLoading && currentMessages.length === 0 ? (
+          e il passaggio dall'uno all'altra era esso stesso un salto. And ONE JSX
+          position: two positions remounted it 25-70 ms after its first paint
+          (UI audit 2026-09-29, core:F07). */}
+      {((currentLoading && currentMessages.length === 0) || (filteredMessages.length > 0 && curtainUp)) && (
         <SkeletonChatMessages isMobile={isMobile} bottomInset={inputAreaHeight + CHAT_BOTTOM_GUTTER_PX} />
-      ) : filteredMessages.length === 0 ? (
+      )}
+      {currentLoading && currentMessages.length === 0 ? null : filteredMessages.length === 0 ? (
         /* Niente. Il vuoto di una chat lo disegna `ChatEmptyState`, dentro il
            blocco del composer: i due si centrano insieme e scivolano insieme in
            fondo al primo messaggio. Stando qui — in cima al contenitore che
@@ -1949,7 +1970,6 @@ export function MessageList({
         null
       ) : (
         <>
-        {curtainUp && <SkeletonChatMessages isMobile={isMobile} bottomInset={inputAreaHeight + CHAT_BOTTOM_GUTTER_PX} />}
         <Virtuoso
           data-testid="chat-message-list"
           // What the list holds of the thread (`historyCompleteness`): the one
@@ -2049,7 +2069,7 @@ export function MessageList({
             // unmounts and remounts it collapsed: the same collapse that
             // `markGesture` closes off for the opening window must be
             // respected here too. See `gestureUntilRef`.
-            if (Date.now() < gestureUntilRef.current) return;
+            if (Date.now() < gestureUntilRef.current && Date.now() >= rowResizeUntilRef.current) return;
             const el = scrollerElRef.current;
             if (!el) return;
             const distanza = el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -2214,5 +2234,6 @@ export function MessageList({
       <div ref={messagesEndRef} />
       <ScrollToBottom show={isScrolledUp} newCount={newMsgCount} onClick={scrollToBottom} bottomOffset={inputAreaHeight} />
     </div>
+    </TranscriptRowResizeContext.Provider>
   );
 }

@@ -34,6 +34,7 @@ const read = (...p: string[]) => readFileSync(join(...p), 'utf8');
 
 const skeleton = read(SHARED, 'Skeleton.tsx');
 const messageList = read(CLIENT_SRC, 'components', 'Chat', 'MessageList.tsx');
+const composerDock = read(CLIENT_SRC, 'components', 'Chat', 'useComposerDock.ts');
 
 describe('scheletro della chat', () => {
   test('lascia in cima il varco della barra di chrome', () => {
@@ -63,7 +64,16 @@ describe('scheletro della chat', () => {
   test('il Footer vero e lo scheletro sommano lo stesso gutter', () => {
     // Se qualcuno cambia il Footer di Virtuoso e non questo, le due attese si
     // scollano di nuovo: il numero è uno solo e ha un nome.
-    expect(messageList).toContain('height: inputAreaHeight + CHAT_BOTTOM_GUTTER_PX');
+    //
+    // The Footer reads the composer's height from a CSS custom property, not
+    // from React state, so it follows a new line in the same frame (panes:F15).
+    // The skeleton adds `inputAreaHeight`: the two stay one measure only if
+    // every place that writes one writes the other, from the same `h`.
+    expect(messageList).toContain('height: `calc(var(${COMPOSER_HEIGHT_PROPERTY}, 0px) + ${CHAT_BOTTOM_GUTTER_PX}px)`');
+    const heightWrites = composerDock.match(/setInputAreaHeight\([^)]*\)/g) ?? [];
+    expect(heightWrites.length).toBeGreaterThan(0);
+    expect(heightWrites.every((w) => w === 'setInputAreaHeight(h)')).toBe(true);
+    expect(composerDock.match(/setProperty\(COMPOSER_HEIGHT_PROPERTY, `\$\{h\}px`\)/g)?.length).toBe(heightWrites.length);
   });
 });
 

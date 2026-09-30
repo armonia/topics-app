@@ -42,6 +42,8 @@ import { shortcut } from '../../lib/shortcutLabel';
 import { topicsRoutingBlocked } from '../../lib/topicsRoutingGate';
 import { IDLE as HISTORY_IDLE, historyEntries, onArrow, type PromptHistoryState } from './promptHistory';
 import { isMachineRow, lastConversationMessage, lastPersonText, messageToSpeak } from './machineRow';
+import { AttachmentStrip } from './AttachmentStrip';
+import { attachmentKey } from './attachmentKey';
 
 // Lazily loaded — the inspector pulls in memory/openclaw hooks; keep it out of
 // the composer's initial bundle and only fetch it the first time the popover opens.
@@ -1277,11 +1279,12 @@ export function ChatInput({
         ) : (
           <>
           <div className={COMPOSER_CARD} data-testid="composer-card">
-            {/* Row 0: Attachments preview (inside card) */}
+            {/* Row 0: Attachments preview (inside card), opening and closing over a few frames */}
+            <AttachmentStrip count={pendingImages.length + pendingFiles.length}>
             {hasAttachments && (
               <div className="px-3 pt-2.5 flex flex-wrap gap-1.5">
                 {pendingImages.map((img, index) => (
-                  <div key={`img-${index}`} data-testid="composer-attachment" className="relative inline-block">
+                  <div key={`img-${attachmentKey(img)}`} data-testid="composer-attachment" className="relative inline-block reveal-in">
                     <ZoomableImage src={img.dataUrl} alt={tr('chat.attachment.pastedImage')} className="h-[80px] max-w-[160px] object-cover rounded-lg border border-app-border-light" />
                     {/* 20x20 with no accessible name, sitting on the corner of
                         an image that OPENS THE LIGHTBOX when tapped: missing it
@@ -1300,7 +1303,7 @@ export function ChatInput({
                   </div>
                 ))}
                 {pendingFiles.map((file, index) => (
-                  <div key={`file-${index}`} data-testid="composer-attachment">
+                  <div key={`file-${attachmentKey(file)}`} data-testid="composer-attachment" className="reveal-in">
                     {isImageFile(file) ? (
                       <ImageThumbnail file={file} onRemove={() => removePendingFile(index)} />
                     ) : (
@@ -1325,6 +1328,7 @@ export function ChatInput({
                 ))}
               </div>
             )}
+            </AttachmentStrip>
 
             {/* Row 0a: Editing indicator (inside card) */}
             {editingMessage && (

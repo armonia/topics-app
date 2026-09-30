@@ -130,11 +130,20 @@ export function SkeletonRows({ count = 8, rowClassName, glyph = 14, indentStep =
  */
 const BUBBLE_LINES = [2, 5, 2, 3, 1];
 
+/** Enough bubbles to fill a tall pane (about 1,500 px); the box clips the rest. */
+const FILL_BUBBLES = 20;
+
 /**
  * La chat mentre la lista si monta.
  *
- * DAL BASSO, come la chat vera: una conversazione è ancorata al fondo, e uno
- * scheletro allineato in cima prometterebbe il contrario di ciò che arriva.
+ * FROM THE TOP, AND FULL. It used to be anchored at the bottom, "like a
+ * conversation". But the real list starts at the top: a short chat lands its
+ * few messages right under the chrome bar, and a long one fills the column
+ * whatever the anchor. A bottom-anchored skeleton therefore promised the wrong
+ * place to every short chat, and the messages arrived ~300 px higher than the
+ * bubbles that announced them (UI audit 2026-09-29, core:F07). Anchored at the
+ * top and filling the column, it is right for both: the first bubbles sit where
+ * the first messages land, and a long chat covers the rest.
  *
  * LE DUE FASCE CHE NON SONO SUE. Il contenitore del trascritto
  * (`.chat-under-chrome`) si prende TUTTA la cella: risale sotto la barra di
@@ -148,15 +157,15 @@ const BUBBLE_LINES = [2, 5, 2, 3, 1];
  * non ha mai avuto.
  *
  * Il rientro è sul BOX (`top`/`bottom`), non su un padding: `overflow-hidden`
- * taglia al bordo del padding, quindi con `justify-end` una pila di bolle più
- * alta dello spazio disponibile sarebbe rispuntata DENTRO il padding, sotto la
- * barra. Spostando i bordi il taglio cade dove deve.
+ * taglia al bordo del padding, quindi una pila di bolle più alta dello spazio
+ * disponibile sarebbe rispuntata DENTRO il padding, dietro il composer.
+ * Spostando i bordi il taglio cade dove deve.
  *
  * `chat-measure` e `px-4`/`px-2` sono le stesse dei messaggi: la colonna finta
  * cade esattamente dove cadrà quella vera, quindi non c'è un movimento
  * orizzontale al momento del cambio.
  */
-export function SkeletonChatMessages({ isMobile = false, count = BUBBLE_LINES.length, bottomInset = 24 }: {
+export function SkeletonChatMessages({ isMobile = false, count = FILL_BUBBLES, bottomInset = 24 }: {
   isMobile?: boolean;
   count?: number;
   /**
@@ -167,12 +176,12 @@ export function SkeletonChatMessages({ isMobile = false, count = BUBBLE_LINES.le
    */
   bottomInset?: number;
 }) {
-  const righe = BUBBLE_LINES.slice(-count);
+  const righe = Array.from({ length: count }, (_, i) => BUBBLE_LINES[i % BUBBLE_LINES.length]);
   return (
     <div
       aria-hidden="true"
       data-testid="chat-skeleton"
-      className={`absolute inset-x-0 flex flex-col justify-end overflow-hidden pointer-events-none ${isMobile ? 'px-2' : 'px-4'}`}
+      className={`absolute inset-x-0 flex flex-col justify-start overflow-hidden pointer-events-none ${isMobile ? 'px-2' : 'px-4'}`}
       style={{ top: 'var(--chat-gutter, 0px)', bottom: bottomInset }}
     >
       <div className="chat-measure space-y-3">
