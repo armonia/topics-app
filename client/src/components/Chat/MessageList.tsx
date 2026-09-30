@@ -1937,10 +1937,13 @@ export function MessageList({
           ha ancora niente da mostrare (primo avvio vero, nessuna cache) e la
           lista che si sta ancora posando (il sipario, sopra). Erano due
           disegni diversi — tre bolle allineate IN CIMA con misure inventate —
-          e il passaggio dall'uno all'altra era esso stesso un salto. */}
-      {currentLoading && currentMessages.length === 0 ? (
+          e il passaggio dall'uno all'altra era esso stesso un salto. And ONE JSX
+          position: two positions remounted it 25-70 ms after its first paint
+          (UI audit 2026-09-29, core:F07). */}
+      {((currentLoading && currentMessages.length === 0) || (filteredMessages.length > 0 && curtainUp)) && (
         <SkeletonChatMessages isMobile={isMobile} bottomInset={inputAreaHeight + CHAT_BOTTOM_GUTTER_PX} />
-      ) : filteredMessages.length === 0 ? (
+      )}
+      {currentLoading && currentMessages.length === 0 ? null : filteredMessages.length === 0 ? (
         /* Niente. Il vuoto di una chat lo disegna `ChatEmptyState`, dentro il
            blocco del composer: i due si centrano insieme e scivolano insieme in
            fondo al primo messaggio. Stando qui — in cima al contenitore che
@@ -1949,7 +1952,6 @@ export function MessageList({
         null
       ) : (
         <>
-        {curtainUp && <SkeletonChatMessages isMobile={isMobile} bottomInset={inputAreaHeight + CHAT_BOTTOM_GUTTER_PX} />}
         <Virtuoso
           data-testid="chat-message-list"
           // What the list holds of the thread (`historyCompleteness`): the one
