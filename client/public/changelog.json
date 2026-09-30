@@ -1,5 +1,66 @@
 [
   {
+    "version": "2.2.417",
+    "date": "2026-09-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "An error echoing a request's rid rejects that request, and only a spawned that answered a waiter closes the spawn window",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The spawn window closes only on the ack of the spawn in flight now, so an earlier spawn overtaken by a kill and a respawn cannot let its child's exit through",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A Stop learned from a history answer holds the message queued before it, across a restart",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "An answer still owed at a restart is loaded again whatever the question's age, the row's state or the topic's archive flag",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The personal-address scan types its matches as strings, so an incremental tsc no longer infers never for them",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "An owed answer is keyed by chat and tool call, so a question answered in a chat and in its fork keeps both answers, and an unreadable row cannot stop the boot",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "server/utils.ts records 2877 lines in the bloat baseline: the turn ledger (queue) and the turn-end signal with the owed answers (questions) land together",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The question bench's restart forgets the turn ledger too, as a new process does, so the chat route no longer refuses the next message with a 409",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A failed answer post waits before the next one, doubling up to a minute, and a disposed relay stops for good, so a failure that ends a turn no longer re-posts in a loop",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The question bench closes every turn its tests opened, a disposed relay ignores a late first event, and the wiring test follows the reattach legs into reattachSurvivors",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.416",
     "date": "2026-09-30",
     "sections": {
@@ -13,7 +74,27 @@
           "scope": null
         },
         {
+          "it": "An answer given first reaches the model first: the chat route takes owed answers, and the relay moves on the turn end",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The board and pane-loading lane comes back: the BOARD-18 red it was reverted for was the reduced-motion scroll override, fixed on main in d52d7a7aa",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A Stop heard before a server restart no longer holds, in the new boot, a message queued after it",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "An ai-bridge reply answers the request whose rid it echoes, so a late attach ack or a write's error no longer settles another request",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "An answer the person gave first reaches the model first after a restart too, and stays owed until the turn that carries it has really started",
           "en": "",
           "scope": null
         }
@@ -28,6 +109,11 @@
       "fixes": [],
       "perf": [],
       "internal": [
+        {
+          "it": "A Stop holds the queue in every window whenever it hears it, is lifted once for all, and ends a claude-code turn at once",
+          "en": "",
+          "scope": null
+        },
         {
           "it": "One ai-bridge ack answers one request, so a resync after a kill no longer reads an earlier attach's \"alive\"",
           "en": "",
@@ -61,7 +147,17 @@
           "breaking": false
         },
         {
+          "it": "A question's answer reaches a surviving child after a restart, once, and only a person supersedes it",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The first-send spec reads a moved pane as a move, on every engine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A queued message leaves only after the server says the turn is over, and nothing is written into a running turn",
           "en": "",
           "scope": null
         },
@@ -72,6 +168,11 @@
         },
         {
           "it": "Background work stays named in its chat while a new turn is open",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A Stop and a plan approval travel with the close of the turn, and a Stop reaches the CLI turn a message is parked behind",
           "en": "",
           "scope": null
         },
@@ -147,6 +248,11 @@
           "scope": null
         },
         {
+          "it": "An answer is bound to its own question from the click to the model, and one whose asker is gone is queued until it gets there",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "A card in hand holds the carousel snap, so the edge auto-scroll no longer drops it two columns away",
           "en": "",
           "scope": null
@@ -204,6 +310,11 @@
         },
         {
           "it": "The first send in a new topic no longer blinks, jumps or hides the message",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A question asked by a topic waits for its person, like it does in Claude Code",
           "en": "",
           "scope": null
         },
