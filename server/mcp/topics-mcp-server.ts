@@ -1480,7 +1480,9 @@ async function postChatReadSSE(
     resp = await fetchImpl(`${args.baseUrl}/api/chat`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ sessionKey: targetSessionKey, messages: [{ role: "user", content: message }] }),
+      // `fromAgent`: another agent's words in the person's role. They do not
+      // close the person's open questions as "you sent a new message instead".
+      body: JSON.stringify({ sessionKey: targetSessionKey, messages: [{ role: "user", content: message }], fromAgent: true }),
       // A socket of its own. On a reused keep-alive socket that the server closes
       // mid-response, Bun's fetch sends the POST again by itself and glues the
       // second answer onto this body: the message reached the chat twice.
@@ -2079,7 +2081,7 @@ export async function callUpdateTask(
  * 240 legs of 25 s are 100 minutes (15/09/2026): above the 60-minute deadline of
  * the pull request CI wait (`CI_E2E_DEADLINE_MS`, KANBAN-84) plus the slowest
  * local round measured between 08/09 and 15/09 (29.2 minutes), and below the
- * `MCP_TOOL_TIMEOUT` that `buildSafeEnv` gives the CLI (`ASK_TTL_MS` + 5 min), so
+ * `MCP_TOOL_TIMEOUT` that `buildSafeEnv` gives the CLI (`ASK_TRANSPORT_CEILING_MS`), so
  * the agent gets the bridge's "it completes by itself" message, not a transport error.
  */
 export const CHECKS_MAX_LEGS = 240;
@@ -2392,28 +2394,28 @@ export const ASK_LEG_MS = 25_000;
  * «lost contact with topics-app» — pur avendo un figlio vivo dall'altra parte
  * e un umano che stava ancora leggendo.
  *
- * Un budget a TEMPO invece che a colpi: 90 secondi coprono un riavvio lento con
- * margine, e non allungano la vita della domanda oltre il suo TTL (`beginAsk`),
- * che resta l'unico limite vero. Il rendez-vous si ricrea da solo alla prima
- * gamba che riesce, quindi ritentare è davvero tutto ciò che serve.
+ * A budget in TIME instead of attempts: 90 seconds cover a slow restart with
+ * margin. The rendez-vous recreates itself on the first leg that succeeds, so
+ * retrying is all it takes. The server's answer buffer (`ASK_BUFFER_TTL_MS`)
+ * waits longer than this plus one leg, so an answer given while the bridge was
+ * retrying is still here when it comes back (tested).
  */
-const ASK_TRANSPORT_GRACE_MS = 90_000;
+export const ASK_TRANSPORT_GRACE_MS = 90_000;
 /** Backoff fra un ritentativo e l'altro (ms). Cresce, poi si stabilizza. */
 const ASK_RETRY_BACKOFF_MS = [500, 1000, 2000, 4000, 5000];
 /**
- * Tetto ANTI-GIRO A VUOTO, non la vita della domanda.
+ * ANTI-SPIN ceiling, not the life of the question.
  *
- * Chi decide quando una domanda è finita è il SERVER: risponde `cancelled`, e
- * quella è l'unica fine legittima. Questo numero esiste solo perché un server
- * incastrato che risponde `pending` all'infinito non faccia girare qui dentro
- * un ciclo eterno. Deve quindi stare COMODAMENTE SOPRA
- * `ASK_TTL_MS / ASK_LEG_MS`, o sarebbe lui — e non il server — a decidere che
- * una domanda muore, con il messaggio sbagliato per giunta («gave up after N
- * poll legs»). A 500 gambe erano 3 h 28, sotto il TTL nuovo: adesso 5.000
- * gambe da 25 s fanno ~34 h contro le 24 h del TTL. L'invariante è provata in
- * `topics-mcp-server.test.ts`.
+ * Only the SERVER ends a question (it answers `cancelled`), and a question has
+ * no lifetime. This number exists only so a wedged loop cannot spin here
+ * forever, so it must sit ABOVE the CLI's own patience with this call
+ * (`MCP_TOOL_TIMEOUT` = `ASK_TRANSPORT_CEILING_MS`, 2^31 - 1 ms, ~24.8 days):
+ * below it, this loop would be what ends a question, with the wrong message
+ * ("gave up after N poll legs"). 100,000 legs of 25 s are ~29 days. It was
+ * 5,000 (~34 h) while the server still closed questions at 24 h. The invariant
+ * is tested in `topics-mcp-server.test.ts`.
  */
-export const ASK_MAX_LEGS = 5_000;
+export const ASK_MAX_LEGS = 100_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -2433,8 +2435,8 @@ interface AskLegResponse {
  * socket timeout kills — and it dies on THIS side, so the server can't save it.
  * That's not theory: the first live question died after minutes with a socket
  * connection error. So we send short legs; each returns `{pending:true}` while
- * the panel is still on screen and we come straight back. The ask's own TTL
- * lives server-side (`beginAsk`), so polling can't keep a dead question alive.
+ * the panel is still on screen and we come straight back. Whether the question
+ * is still open is decided server-side, so polling can't keep a dead one alive.
  *
  * Transport failures are retried with backoff rather than surfaced: a dropped
  * socket must not cancel a question the human is still looking at.

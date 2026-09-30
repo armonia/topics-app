@@ -257,6 +257,21 @@ export type ToolTrim = "chat" | "dispatched";
 export const TRIMMED_TOOLS_CHAT = ["Artifact", "ReportFindings", "ListAgents"] as const;
 export const TRIMMED_TOOLS_DISPATCHED = ["Workflow", ...TRIMMED_TOOLS_CHAT] as const;
 
+/**
+ * Built-in tools a headless Topics session must NEVER see, whatever the trim.
+ *
+ * `AskUserQuestion`: the CLI registers it under `--print` too (measured on CLI
+ * 2.1.285, 29/09, contrary to what the comments here used to say), and there
+ * it cannot work. It goes through the permission channel, and the moment the
+ * permission is granted (a free session grants it on its own) the CLI closes it
+ * with "The user did not answer the questions.": 9 built-in questions out of 9
+ * died that way between 08/08 and 29/09, and the model then wrote "you did not
+ * answer, I stop". Without it the model uses `mcp__topics__ask_user_question`,
+ * the bridge that waits for the person and survives a restart. Not part of
+ * `toolTrim`: that is a token saving with an off switch, this is correctness.
+ */
+export const HEADLESS_DISALLOWED_TOOLS = ["AskUserQuestion"] as const;
+
 /** La lista che corrisponde a un taglio. */
 export function trimmedTools(trim: ToolTrim): readonly string[] {
   return trim === "dispatched" ? TRIMMED_TOOLS_DISPATCHED : TRIMMED_TOOLS_CHAT;
@@ -327,7 +342,7 @@ export function buildClaudeArgs(opts: ClaudeSpawnArgsOptions): string[] {
     // danno lo stesso taglio (−11.742 contro −11.743): la virgola non è
     // ignorata in silenzio. Il perché dei quattro nomi sta accanto a
     // `toolTrim` in `ClaudeSpawnArgsOptions`.
-    ...(opts.toolTrim ? ["--disallowed-tools", trimmedTools(opts.toolTrim).join(",")] : []),
+    "--disallowed-tools", [...(opts.toolTrim ? trimmedTools(opts.toolTrim) : []), ...HEADLESS_DISALLOWED_TOOLS].join(","),
     // Gli schemi dei tool MCP viaggiano nel PREFISSO, cioè nella parte di prompt
     // che ogni richiesta del turno ripaga: un turno da 4 round-trip li paga 4
     // volte. Con il deferral la CLI manda i soli NOMI e carica lo schema quando

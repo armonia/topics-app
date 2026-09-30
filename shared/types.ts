@@ -845,7 +845,32 @@ export interface ToolCall {
   /** Persisted user answer; absent until submitted via
    *  `POST /api/chat/tool-response`. */
   userResponse?: ToolUserResponse;
+  /**
+   * The process that asked this question is gone (its turn ended, the server
+   * restarted under it, its child died) while the question stays OPEN: status
+   * is still `waiting_for_input`, the panel is still clickable, and an answer
+   * is delivered to the model as the next user message with the question
+   * quoted (`server/lib/question-outlives-asker.ts`). Only a question gets this mark; a
+   * clock never ends it.
+   */
+  askerGone?: boolean;
+  /**
+   * Why a question ended WITHOUT an answer, when a person did it: `cancelled`
+   * (they pressed Stop) or `superseded` (they sent a new message instead of
+   * answering). The panel says so in plain words (`chat.question.ended.*`).
+   */
+  askEnded?: AskEndReason;
+  /**
+   * An answer whose asker was gone, on its way to the model as the next user
+   * message: `queued` from the moment the person answered (it waits behind any
+   * turn in flight, and a restart finds it owed), `sent` once the chat route
+   * took it (`server/lib/answer-relay.ts`).
+   */
+  answerRelay?: 'queued' | 'sent';
 }
+
+/** The two ways a person ends a question without answering it. */
+export type AskEndReason = 'cancelled' | 'superseded';
 
 // User-input shapes (AskUserQuestionItem, UserInputSchema, ToolUserResponse)
 // live in `shared/types.ts` — single wire-contract source for both halves.

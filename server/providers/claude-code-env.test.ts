@@ -6,27 +6,27 @@
  *  - Non passa segreti. L'allowlist è la regola, il blocklist il controllo
  *    incrociato: un `*_TOKEN` che entrasse qui finirebbe nel processo di un
  *    agente che scrive file e apre socket.
- *  - `MCP_TOOL_TIMEOUT` deve stare SOPRA la vita massima di una domanda a
- *    schermo. Il default della CLI (30 min) è più corto dell'ask TTL (90 min),
- *    e una domanda lasciata lì mentre l'umano era a pranzo è morta con
- *    «nessuna risposta né progress per 1800s»: un pannello ucciso da un
- *    orologio che non sapeva niente di lui. Il ponte manda `notifications/
- *    progress` a ogni gamba (topics-mcp-server.ts) e quel timer si riazzera —
- *    questa è la cintura per un client che non le onori.
+ *  - `MCP_TOOL_TIMEOUT` is the largest delay a JS timer honours. A question
+ *    has no lifetime, and the CLI default (30 min) killed one under a human at
+ *    lunch with "no response and no progress for 1800s". One millisecond more
+ *    and the timer overflows to 1 ms, which would kill every call at once.
   * @covers CCLI-02
  */
 import { describe, expect, test } from "bun:test";
 import { buildSafeEnv } from "./claude-code";
-import { ASK_TTL_MS } from "../lib/ask-user-bridge";
+import { ASK_TRANSPORT_CEILING_MS } from "../lib/ask-user-bridge";
 
 describe("buildSafeEnv", () => {
-  test("dà alla CLI più pazienza di quanta ne possa consumare una domanda a schermo", () => {
+  test("gives the CLI the longest patience a timer can hold, and not a millisecond more", () => {
     const env = buildSafeEnv();
     const timeout = Number(env.MCP_TOOL_TIMEOUT);
-    expect(Number.isFinite(timeout)).toBe(true);
-    // Stretto: se qualcuno alza ASK_TTL_MS senza toccare questo, il test cade
-    // qui invece che in produzione dopo mezz'ora di attesa dell'umano.
-    expect(timeout).toBeGreaterThan(ASK_TTL_MS);
+    expect(timeout).toBe(ASK_TRANSPORT_CEILING_MS);
+    // Past 2^31 - 1 a Node/Bun timer fires after 1 ms: the "infinite" patience
+    // would become none at all.
+    expect(timeout).toBeLessThanOrEqual(2 ** 31 - 1);
+    // Days, not hours: nothing in the transport ends a question a person could
+    // still be about to answer.
+    expect(timeout).toBeGreaterThan(20 * 24 * 60 * 60 * 1000);
   });
 
   test("non porta segreti nel processo dell'agente", () => {

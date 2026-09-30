@@ -27,6 +27,14 @@ const parked = (rows: Parameters<typeof sessionsParkedOnQuestion>[0]) =>
   sessionsParkedOnQuestion(rows, { now: NOW, ttlMs: ASK_LIFETIME_MS });
 
 describe("sessionsParkedOnQuestion - chi sta aspettando una persona", () => {
+  test("a question whose asking process is gone parks nothing: a restart cannot hurt it", () => {
+    // It still waits for the person, on its row, and its answer goes out as
+    // the next message. Holding every reload for it would be a block with a
+    // nicer name, since no process is left for the reload to spare.
+    const gone = JSON.stringify([{ id: "toolu_1", name: "mcp__topics__ask_user_question", status: "waiting_for_input", startedAt: NOW - 60_000, askerGone: true }]);
+    expect(parked([{ sessionKey: "topic:gone", toolCalls: gone, blocks: null }])).toEqual([]);
+  });
+
   test("una domanda aperta parcheggia la sua sessione", () => {
     expect(parked([
       { sessionKey: "topic:4c935add", toolCalls: toolCalls("waiting_for_input", NOW - 60_000), blocks: null },

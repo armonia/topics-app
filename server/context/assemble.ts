@@ -151,6 +151,14 @@ export interface AssembleArgs {
   includeLastUserInHistory?: boolean;
 
   /**
+   * Rows written by this send whose text travels in `userMessage` too: an
+   * answer owed to the model that the chat route put in front of the person's
+   * message (`lib/answer-relay.ts`). Dropped from `history[]` for the same
+   * reason as the last user turn, or the model would read them twice.
+   */
+  alsoInUserMessage?: readonly string[];
+
+  /**
    * Override for `topic.disabledContextSources`. Useful for "what-if"
    * previews ("show me what the envelope would look like with X enabled").
    * Default: the topic's persisted list.
@@ -189,6 +197,7 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
     userMessageOverride,
     historyLimit = DEFAULT_HISTORY_LIMIT,
     includeLastUserInHistory = true,
+    alsoInUserMessage,
     disabledSources,
     planMode = false,
     fastMode = false,
@@ -326,7 +335,7 @@ export function assembleTopicContext(ctx: AppContext, args: AssembleArgs): Conte
   const stored = historyOverride ?? ctx.loadLocalMessages(sessionKey, { withBlocks: false, withToolCalls: false });
   const { history, historyEntries, droppedHistoryTurns } = buildHistoryWithDiagnostics(
     stored,
-    { historyLimit, includeLastUserInHistory },
+    { historyLimit, includeLastUserInHistory, alsoInUserMessage },
   );
 
   // ── User message (override or DB) ─────────────────────────────────────
@@ -1012,9 +1021,10 @@ interface BuildHistoryResult {
 
 function buildHistoryWithDiagnostics(
   stored: StoredMessage[],
-  opts: { historyLimit: number; includeLastUserInHistory: boolean },
+  opts: { historyLimit: number; includeLastUserInHistory: boolean; alsoInUserMessage?: readonly string[] },
 ): BuildHistoryResult {
   const { historyLimit, includeLastUserInHistory } = opts;
+  const inUserMessage = new Set(opts.alsoInUserMessage ?? []);
 
   // First pass — classify every stored message.
   const classified: { msg: StoredMessage; entry: HistoryEntryDiagnostic; stripped: string }[] = [];
@@ -1043,7 +1053,7 @@ function buildHistoryWithDiagnostics(
     if (m.partial) excludeReason = "partial";
     else if (original.startsWith(CHAT_CONTEXT_PREFIX)) excludeReason = "context-message";
     else if (stripped.length === 0) excludeReason = "empty-after-strip";
-    else if (i === lastUserIdx) excludeReason = "duplicate-last-user";
+    else if (i === lastUserIdx || inUserMessage.has(m.id)) excludeReason = "duplicate-last-user";
     // `limit` reason is applied in the second pass (after we know how many
     // candidates survived the per-message filters).
 

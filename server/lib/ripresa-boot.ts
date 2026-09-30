@@ -201,6 +201,14 @@ export interface RigaDaValutare {
    *  compaction marker is anchored on it (`compactionCarriedOut`). Read for a
    *  person's message only. */
   compacted?: boolean;
+  /**
+   * A question of this chat is still open, waiting for its person
+   * (`sessionHasOpenQuestion`). The turn that asked it was cut, but it is not
+   * a turn to resume: resent, the model asks the same question again in a
+   * second panel. It resumes when the person answers, through the answer
+   * itself (`lib/question-outlives-asker.ts`).
+   */
+  openQuestion?: boolean;
 }
 
 /** The person pressed Stop on this message's turn, or on a later one. A Stop
@@ -234,6 +242,8 @@ export type ResumeVerdict = "resend" | "capped" | "no" | "unanswered";
  * chain has already had its share, so the chat has to be told, once.
  */
 export function resumeVerdict(r: RigaDaValutare, oraMs: number): ResumeVerdict {
+  // Waiting for a person is not an interruption to repair.
+  if (r.openQuestion) return "no";
   if (r.ruolo === "user") {
     // The last word is the person's. Either they resumed by hand and a turn
     // is running, or the row is fresh and its answer is on the way - or nobody
@@ -391,6 +401,21 @@ import { lastApiAnswerMs, providerHold } from "./provider-hold";
 import { attemptsInChain, attemptsOnRow, chatHasCounts, recordResend, resendChainOf, type ResendChain } from "./resend-count";
 import { providerHoldKey } from "../../shared/provider-hold";
 import { MACHINE_ROW_SQL } from "../../shared/prompt-number";
+import { waitingAskStartedAt } from "./waiting-ask";
+
+/**
+ * Does one of the chat's last rows carry a question still waiting for its
+ * person? A few rows, not one: a boot notice or a background line is often
+ * written under the question's own row.
+ */
+export function sessionHasOpenQuestion(db: Pick<Database, "query">, sessionKey: string): boolean {
+  try {
+    const rows = db.query(
+      `SELECT tool_calls, blocks FROM messages WHERE session_key = ? ORDER BY rowid DESC LIMIT 6`,
+    ).all(sessionKey) as Array<{ tool_calls: unknown; blocks: unknown }>;
+    return rows.some((row) => waitingAskStartedAt(decodeCol(row.tool_calls), decodeCol(row.blocks), 0) !== null);
+  } catch { return false; }
+}
 
 /** A chat's last row, as the sweep reads it. */
 interface LastRow { sk: string; id: string; ruolo: string; blocks: unknown; ts: string }
@@ -802,6 +827,7 @@ export async function riprendiTurniInterrotti(
         // A /compact that ended leaves no answer row, and after a reload no
         // recorded end either: its marker is what says it was answered.
         compacted: r.ruolo === "user" && compactionCarriedOut(ctx.db, r.sk, r.id),
+        openQuestion: sessionHasOpenQuestion(ctx.db, r.sk),
       };
       if (!row.providerBusy) busyLogged.delete(r.sk);
       let verdict: ResumeVerdict = resumeVerdict(row, ora);

@@ -1463,6 +1463,7 @@ export function useChat() {
             // Server stamps the real-usage close on the result event;
             // durations render from endedAt - startedAt.
             endedAt: (typeof event.endedAt === 'number' ? event.endedAt : undefined) ?? oldTc.endedAt,
+            ...(event.askEnded === 'cancelled' || event.askEnded === 'superseded' ? { askEnded: event.askEnded } : {}), // how a person ended a question
           }));
         }
         break;

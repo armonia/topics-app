@@ -581,7 +581,7 @@ export interface AppContext {
   updateStreamContent: (sessionKey: string, content: string, thinking: string) => void;
   getStreamContent: (sessionKey: string) => { content: string; thinking: string; messageId: string } | null;
   /** `rowId`: end only the turn of that row, never another one on top of it. */
-  endStream: (sessionKey: string, opts?: { keepAwaiting?: readonly string[]; closedBecause?: string; rowId?: string }) => ToolCall[];
+  endStream: (sessionKey: string, opts?: { keepAwaiting?: readonly string[]; closedBecause?: string; rowId?: string; cancelQuestions?: boolean }) => ToolCall[];
   isStreaming: (sessionKey: string) => ActiveStream | undefined;
   readJSON: (req: Request) => Promise<any>;
   json: (data: any, status?: number) => Response;

@@ -11,8 +11,8 @@ import {
   endAsk,
   pendingAskAgeMs,
   pendingAskVerdict,
-  ASK_TTL_MS,
   AskWaitError,
+  bufferedAnswerFits,
 } from "./ask-user-bridge";
 
 // Each test uses a UNIQUE sessionKey so the module-level maps don't bleed
@@ -61,18 +61,17 @@ describe("ask-user-bridge — poll legs", () => {
     endAsk(k);
   });
 
-  test("beginAsk apre una volta sola e tiene il clock sulla domanda, non sulla gamba", () => {
-    // Se ogni gamba riaprisse la domanda, un poll ogni 25s la terrebbe viva per
-    // sempre e il TTL non scadrebbe mai.
+  test("beginAsk opens once and keeps the age on the question, not on the leg", () => {
+    // Later legs are no-ops: the age counts from when the question opened.
     const k = key();
     const t0 = 1_000_000;
-    expect(beginAsk(k, 60_000, t0)).toBe(true);
-    expect(beginAsk(k, 60_000, t0 + 30_000)).toBe(true);   // dentro il TTL
-    expect(beginAsk(k, 60_000, t0 + 59_999)).toBe(true);
-    expect(beginAsk(k, 60_000, t0 + 60_000)).toBe(false);  // scaduta
+    beginAsk(k, t0);
+    beginAsk(k, t0 + 30_000);
+    expect(pendingAskAgeMs(k, t0 + 60_000)).toBe(60_000);
     endAsk(k);
-    // Chiusa e riaperta: il clock riparte.
-    expect(beginAsk(k, 60_000, t0 + 60_000)).toBe(true);
+    // Closed and reopened: a new question, a new age.
+    beginAsk(k, t0 + 60_000);
+    expect(pendingAskAgeMs(k, t0 + 60_000)).toBe(0);
     endAsk(k);
   });
 
@@ -121,6 +120,29 @@ describe("ask-user-bridge — lifecycle edges", () => {
     await expect(waitForAnswer(k, { timeoutMs: 10 })).rejects.toThrow(/poll leg expired/i);
   });
 
+  test("an answer no leg ever claims is handed on, not dropped", async () => {
+    // The 30-second buffer used to expire in silence: the person had answered,
+    // the asker was gone, and the answer vanished.
+    const k = key();
+    const handed: Array<Record<string, string>> = [];
+    deliverAnswer(k, { Q: "late" }, { bufferTtlMs: 5, onUnclaimed: (a) => handed.push(a) });
+    const until = Date.now() + 2000;
+    while (handed.length === 0 && Date.now() < until) await new Promise((r) => setTimeout(r, 5));
+    expect(handed).toEqual([{ Q: "late" }]);
+  });
+
+  test("a claimed or cancelled answer is not handed on", async () => {
+    const k = key();
+    const handed: unknown[] = [];
+    deliverAnswer(k, { Q: "claimed" }, { bufferTtlMs: 20, onUnclaimed: (a) => handed.push(a) });
+    await expect(waitForAnswer(k, { timeoutMs: 1000 })).resolves.toEqual({ Q: "claimed" });
+    const k2 = key();
+    deliverAnswer(k2, { Q: "dropped" }, { bufferTtlMs: 20, onUnclaimed: (a) => handed.push(a) });
+    cancelAsk(k2, "stop");
+    await new Promise((r) => setTimeout(r, 60));
+    expect(handed).toEqual([]);
+  });
+
   test("deliverAnswer with no waiter always returns true (buffered)", () => {
     const k = key();
     expect(deliverAnswer(k, { Q: "A" })).toBe(true);
@@ -129,25 +151,18 @@ describe("ask-user-bridge — lifecycle edges", () => {
 });
 
 describe("ask-user-bridge — quanto aspetta", () => {
-  test("una domanda non scade nell'arco di una giornata di lavoro", () => {
-    // Il TTL è stato 10 minuti (morta prima che si tornasse da pranzo) e poi 90
-    // — non perché un'ora e mezza volesse dire qualcosa, ma perché doveva stare
-    // sotto il tetto di vita del figlio (2 h). Adesso quel tetto si riarma
-    // finché un pannello è a schermo (`armLifetime`, claude-code.ts), quindi il
-    // TTL non è più costretto: chiude una domanda un MOTIVO — risposta,
-    // interruzione, o il figlio morto sotto il pannello — non l'orologio.
-    // Quello che resta è solo un fondo contro le perdite.
+  test("a question never expires: open for 25 hours, a week, it is still open", () => {
+    // The TTL was 10 minutes, then 90, then 24 hours: each time a person who
+    // came back later found a panel closed by nobody. A question ends for a
+    // REASON (answer, Stop, a new message), never for time (29/09).
     const k = key();
     const t0 = 5_000_000;
     const h = 60 * 60 * 1000;
-    expect(beginAsk(k, undefined, t0)).toBe(true);
-    // Le tre ore che uccidevano: chi esce alle 18 e risponde alle 21.
-    expect(beginAsk(k, undefined, t0 + 3 * h)).toBe(true);
-    // La notte intera.
-    expect(beginAsk(k, undefined, t0 + 16 * h)).toBe(true);
-    // Il fondo c'è ancora: una voce persa non tiene in piedi per sempre le
-    // esenzioni che si appoggiano a `hasPendingAsk`.
-    expect(beginAsk(k, undefined, t0 + 25 * h)).toBe(false);
+    beginAsk(k, t0);
+    beginAsk(k, t0 + 25 * h);
+    beginAsk(k, t0 + 7 * 24 * h);
+    expect(hasPendingAsk(k)).toBe(true);
+    expect(pendingAskVerdict({ askAgeMs: 7 * 24 * h, childAlive: true })).toBe("defer");
     endAsk(k);
   });
 
@@ -185,8 +200,7 @@ describe("ask-user-bridge — il turno parcheggiato non è un turno morto", () =
 
   test("se il figlio muore sotto il pannello la domanda si chiude: nessuno la onorerà", () => {
     // È il ramo che impedisce all'esenzione di essere eterna. Con il figlio
-    // morto non arriva più nessuna gamba di poll, quindi il TTL — che vive
-    // sulle gambe — non scadrebbe mai da solo.
+    // morto non arriva più nessuna gamba di poll: nothing else would notice.
     expect(pendingAskVerdict({ askAgeMs: 1_000, childAlive: false })).toBe("close-ask");
   });
 
@@ -194,20 +208,46 @@ describe("ask-user-bridge — il turno parcheggiato non è un turno morto", () =
     expect(pendingAskVerdict({ askAgeMs: 1_000, childAlive: undefined })).toBe("defer");
   });
 
-  test("oltre il TTL la domanda si chiude anche con il figlio vivo", () => {
-    expect(pendingAskVerdict({ askAgeMs: ASK_TTL_MS - 1, childAlive: true })).toBe("defer");
-    expect(pendingAskVerdict({ askAgeMs: ASK_TTL_MS, childAlive: true })).toBe("close-ask");
+  test("age is never a reason: 25 hours on a live child still defers", () => {
+    expect(pendingAskVerdict({ askAgeMs: 25 * 60 * 60 * 1000, childAlive: true })).toBe("defer");
   });
 
   test("pendingAskAgeMs misura la domanda, non la gamba: le gambe successive non la ringiovaniscono", () => {
     const k = key();
     const t0 = 9_000_000;
     expect(pendingAskAgeMs(k, t0)).toBeNull();
-    beginAsk(k, undefined, t0);
+    beginAsk(k, t0);
     expect(pendingAskAgeMs(k, t0 + 60_000)).toBe(60_000);
-    beginAsk(k, undefined, t0 + 60_000); // una gamba più tardi
+    beginAsk(k, t0 + 60_000); // una gamba più tardi
     expect(pendingAskAgeMs(k, t0 + 120_000)).toBe(120_000);
     endAsk(k);
     expect(pendingAskAgeMs(k, t0 + 120_000)).toBeNull();
+  });
+});
+
+describe("ask-user-bridge — a buffered answer belongs to its question", () => {
+  test("bufferedAnswerFits: by panel when both name one, by texts otherwise, anything for an unbound answer", () => {
+    expect(bufferedAnswerFits({}, { questions: ["B?"] })).toBe(true);
+    expect(bufferedAnswerFits({ toolCallId: "a" }, { toolCallId: "a" })).toBe(true);
+    expect(bufferedAnswerFits({ toolCallId: "a" }, { toolCallId: "b" })).toBe(false);
+    expect(bufferedAnswerFits({ toolCallId: "a", questions: ["A?"] }, { questions: ["A?"] })).toBe(true);
+    expect(bufferedAnswerFits({ toolCallId: "a", questions: ["A?"] }, { questions: ["B?"] })).toBe(false);
+    expect(bufferedAnswerFits({ toolCallId: "a", questions: ["A?"] }, {})).toBe(true);
+  });
+
+  test("the leg of another question does not collect it; the leg of its own does", async () => {
+    const k = key();
+    deliverAnswer(k, { "A?": "yes" }, { toolCallId: "a", questions: ["A?"] });
+    await expect(waitForAnswer(k, { timeoutMs: 20, questions: ["B?"] })).rejects.toMatchObject({ code: "timeout" });
+    await expect(waitForAnswer(k, { timeoutMs: 20, questions: ["A?"] })).resolves.toEqual({ "A?": "yes" });
+  });
+
+  test("an answer displaced by an answer to another question is handed on, not overwritten", () => {
+    const k = key();
+    const handedOn: Array<Record<string, string>> = [];
+    deliverAnswer(k, { "A?": "yes" }, { toolCallId: "a", questions: ["A?"], onUnclaimed: (x) => handedOn.push(x) });
+    deliverAnswer(k, { "B?": "no" }, { toolCallId: "b", questions: ["B?"] });
+    expect(handedOn).toEqual([{ "A?": "yes" }]);
+    cancelAsk(k);
   });
 });

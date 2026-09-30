@@ -48,6 +48,16 @@ export interface ParkCandidate {
    * The freeze is bounded by its own ten minutes, so the park comes right after.
    */
   hasFrozenTree?: boolean;
+  /**
+   * A question or a permission prompt is open in this session's TUI
+   * (`pendingApproval` on its state). The state machine demotes
+   * `awaiting-approval` to `paused` after ten minutes and keeps the prompt, and
+   * `paused` is not an active phase: without this field the idle round killed
+   * the PTY under a question a person had not answered yet, and the revive
+   * with `--resume` no longer had it (29/09). A question waits for its person;
+   * parking it is exactly the clock that must not end it.
+   */
+  awaitingHuman?: boolean;
 }
 
 export type ParkDecision =
@@ -64,6 +74,7 @@ export type ParkRefusal =
   | "idle-unknown"
   | "frozen-tree"
   | "too-recent"
+  | "awaiting-human"
   // Deciso dal chiamante, non da `decidePark`: un sotto-agente lo governa il suo
   // orchestratore. Sta nell'union perche' finisce nella stessa lista di rifiuti,
   // e un motivo che non ha etichetta e' un motivo che il log stampa come
@@ -102,6 +113,7 @@ export function decidePark(c: ParkCandidate, idleThresholdMs: number): ParkDecis
   if (c.busy) return { park: false, reason: "busy" };
   if (c.attachedClients > 0) return { park: false, reason: "watched" };
   if (c.phase !== null && ACTIVE_PHASES.has(c.phase)) return { park: false, reason: "phase-active" };
+  if (c.awaitingHuman) return { park: false, reason: "awaiting-human" };
   if (c.idleMs === null) return { park: false, reason: "idle-unknown" };
   if (c.hasFrozenTree) return { park: false, reason: "frozen-tree" };
   if (c.idleMs < idleThresholdMs) return { park: false, reason: "too-recent" };
@@ -120,6 +132,7 @@ export function refusalLabel(reason: ParkRefusal): string {
     case "idle-unknown": return "inattivita' non misurata";
     case "frozen-tree": return "ha un comando congelato";
     case "too-recent": return "ferma da troppo poco";
+    case "awaiting-human": return "a question is waiting for its person";
     case "sub-agent": return "sotto-agente (lo governa l'orchestratore)";
   }
 }

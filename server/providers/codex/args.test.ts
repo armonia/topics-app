@@ -53,6 +53,13 @@ test('buildCodexResumeArgs forwards the bridge and reasoning effort exactly like
   expect(resumeArgs).toContain('-c');
   expect(resumeArgs).toContain('mcp_servers.topics.command="/usr/bin/topics-bridge"');
   expect(resumeArgs).toContain('mcp_servers.topics.args=["--stdio"]');
+  // A question blocks the bridge call for as long as the person takes: Codex's
+  // short default per-call timeout would end it (29/09). Days, and within what
+  // a timer can hold.
+  const timeout = resumeArgs.find((a) => a.startsWith('mcp_servers.topics.tool_timeout_sec='));
+  const seconds = Number(timeout?.split('=')[1]);
+  expect(seconds).toBeGreaterThan(20 * 24 * 60 * 60);
+  expect(seconds * 1000).toBeLessThanOrEqual(2 ** 31 - 1);
   expect(resumeArgs).toContain('model_reasoning_effort="high"');
 });
 

@@ -1,13 +1,15 @@
 /**
  * In-process rendez-vous for the `mcp__topics__ask_user_question` bridge tool.
  *
- * WHY this exists: the Claude Code CLI only registers its built-in
- * `AskUserQuestion` tool in INTERACTIVE mode. Topics spawns the CLI headless
- * (`--print` stream-json), where that tool is absent — so a native chat could
- * never render the clickable question panel the CLI users get. Topics re-exposes
- * the same contract as an MCP bridge tool. But an MCP tool call is executed by
- * the CLI against the bridge subprocess and the CLI blocks on the bridge's
- * JSON-RPC RESPONSE (not on stdin, unlike the built-in). So the bridge handler
+ * WHY this exists: Topics spawns the Claude Code CLI headless (`--print`
+ * stream-json). Its built-in `AskUserQuestion` IS registered there (measured on
+ * CLI 2.1.285, 29/09), but it goes through the permission channel and returns
+ * "The user did not answer the questions." the moment the permission is
+ * granted: 9 built-in questions out of 9 died that way between 08/08 and 29/09.
+ * So Topics disallows the built-in (`HEADLESS_DISALLOWED_TOOLS` in
+ * `providers/claude/args.ts`) and re-exposes the same contract as an MCP bridge
+ * tool. An MCP tool call is executed by the CLI against the bridge subprocess
+ * and the CLI blocks on the bridge's JSON-RPC RESPONSE, so the bridge handler
  * must itself block until the human answers, then return the answer as its tool
  * result. This module is the hand-off point between:
  *
@@ -21,6 +23,13 @@
  * the model calls the tool; the human answers seconds later — but a reload or a
  * fast test can invert that), so a short-lived answer BUFFER makes the rendez-
  * vous race-free in both directions.
+ *
+ * NO CLOCK ENDS A QUESTION. A question ends because the human answers it,
+ * cancels it (Stop), or sends a new message instead; never because time passed.
+ * This module is in memory and dies with the process, so it is NOT where a
+ * question lives: the row does (`waiting_for_input` on the tool call). When the
+ * process that asked is gone the answer is delivered as the next user message,
+ * with the question quoted (`lib/question-outlives-asker.ts`).
  */
 
 import { emitHumanHoldChange } from './human-hold-events';
@@ -31,13 +40,28 @@ export interface AskUserBridgeOptions {
   /** How long a delivered-but-unclaimed answer stays buffered (ms). */
   bufferTtlMs?: number;
   /**
+   * Called when a buffered answer outlives `bufferTtlMs` with no leg having
+   * claimed it: the process that asked is gone, and the caller delivers the
+   * answer another way (the next user message, `lib/question-outlives-asker.ts`) instead
+   * of letting it vanish. Not called when a leg claims it or a cancel drops it.
+   */
+  onUnclaimed?: (answers: Record<string, string>) => void;
+  /**
    * THE PANEL THIS WAIT IS ABOUT: the id of the `tool_use` row the question was
    * painted on. Declared by a caller that KNOWS it (the outbound gate paints the
    * panel itself, so it does); absent from a caller that does not, and then the
    * open wait answers for whatever panel the person clicked - see
-   * `openAskToolCallId`.
+   * `openAskIdentity`.
    */
   toolCallId?: string;
+  /**
+   * The question texts this wait (or this answer) is about, in order. The
+   * generic leg cannot name its row, but it knows what it asked: that is what
+   * binds a buffered answer to the leg that may collect it
+   * (`bufferedAnswerFits`), and what lets the answer route tell the open
+   * question from an older panel still on screen.
+   */
+  questions?: readonly string[];
 }
 
 /**
@@ -61,7 +85,7 @@ export class AskWaitError extends Error {
 // built to kill, and no server-side patience can save it, because the socket
 // dies on the CLIENT side. So the bridge polls: short legs that always come
 // back, re-armed immediately. 25s is comfortably under any default idle
-// timeout and cheap enough to repeat for an hour and a half.
+// timeout and cheap enough to repeat for as long as the human takes.
 const DEFAULT_TIMEOUT_MS = 25 * 1000;
 
 /**
@@ -71,36 +95,33 @@ const DEFAULT_TIMEOUT_MS = 25 * 1000;
  */
 export const ASK_LEG_MS = DEFAULT_TIMEOUT_MS;
 
-// IL TEMPO NON È UN MOTIVO PER CHIUDERE UNA DOMANDA.
-//
-// Questo numero è stato 10 minuti (una domanda fatta alle 12:55 era morta
-// prima che qualcuno tornasse da pranzo) e poi 90 minuti — scelto non perché
-// un'ora e mezza volesse dire qualcosa, ma perché doveva stare SOTTO il tetto
-// di vita del figlio CLI (MAX_LIFETIME_MS, 2 h). Era un limite ereditato da un
-// altro limite, e in mezzo c'è una persona: chi lascia il computer alle sei e
-// risponde la mattina dopo trovava il pannello morto e un turno chiuso da un
-// «cancelled» che non aveva scelto nessuno. Una domanda che scade non ha senso.
-//
-// Adesso il tetto di vita si RIARMA finché un pannello è a schermo
-// (`armTurnDeadline` in claude-code.ts), quindi questo numero non è più
-// costretto da niente. Una domanda finisce per un MOTIVO: qualcuno risponde, il
-// turno viene interrotto, o il figlio sotto il pannello muore — ed è
-// `pendingAskVerdict` (childAlive === false) a vederlo, non un orologio.
-//
-// Resta una cifra sola perché serve un fondo contro le PERDITE: se una voce di
-// `activeAsks` sopravvivesse a tutti i suoi guardiani, senza tetto terrebbe in
-// piedi per sempre le esenzioni che si appoggiano a `hasPendingAsk`. 24 ore
-// sono oltre qualunque attesa umana reale e chiudono comunque il cerchio.
-const DEFAULT_ASK_TTL_MS = 24 * 60 * 60 * 1000;
+/**
+ * THE LONGEST WAIT A JAVASCRIPT TIMER HONOURS (2^31 - 1 ms, about 24.8 days).
+ *
+ * Not a lifetime for the question: nothing in Topics closes a question on time
+ * (the 24-hour TTL that lived here was removed on 29/09, "a question that
+ * expires makes no sense"). It is the ceiling of the TRANSPORT that carries the
+ * wait: the CLI hands `MCP_TOOL_TIMEOUT` to a `setTimeout`, and a larger value
+ * overflows to 1 ms in Node and Bun, which would kill every call at once. So the
+ * CLI's patience with the bridge call is set to exactly this, and the bridge's
+ * own leg budget sits above it (`ASK_MAX_LEGS`). Even past it the question is
+ * not lost: the row keeps it, and the answer reaches the model as the next
+ * message (`lib/question-outlives-asker.ts`).
+ */
+export const ASK_TRANSPORT_CEILING_MS = 2_147_483_647;
 
 /**
- * The ask TTL, for callers that must reason about the SAME window from
- * outside — notably the stale-stream sweeper, which has to know how long a
- * silent-by-design turn is allowed to stay silent.
+ * How long a delivered-but-unclaimed answer waits for the bridge's next leg.
+ *
+ * It must outlast the longest gap the bridge can leave between two legs and
+ * still come back: its transport grace (`ASK_TRANSPORT_GRACE_MS`, 90 s, the
+ * window it keeps retrying through a server restart) plus one leg. Past that
+ * the asker is not coming back, and the answer is handed to `onUnclaimed`
+ * (delivery as the next message) instead of being dropped, which is what the 30-second
+ * buffer used to do in silence. The invariant is tested in
+ * `topics-mcp-server.test.ts`.
  */
-export const ASK_TTL_MS = DEFAULT_ASK_TTL_MS;
-
-const DEFAULT_BUFFER_TTL_MS = 30 * 1000; // answer that beat the waiter
+export const ASK_BUFFER_TTL_MS = 2 * 60 * 1000;
 
 interface Waiter {
   resolve: (answers: Record<string, string>) => void;
@@ -111,7 +132,14 @@ interface Waiter {
 interface BufferedAnswer {
   answers: Record<string, string>;
   timer: ReturnType<typeof setTimeout>;
+  /** The panel this answer was given on, when the route knew it. */
+  toolCallId?: string;
+  /** The questions this answer answers, when the route knew them. */
+  questions?: readonly string[];
+  /** Where the answer goes if no leg of its question ever collects it. */
+  onUnclaimed?: (answers: Record<string, string>) => void;
 }
+
 
 const waiters = new Map<string, Waiter>();
 const buffered = new Map<string, BufferedAnswer>();
@@ -121,44 +149,42 @@ const buffered = new Map<string, BufferedAnswer>();
  * are millisecond gaps between legs where no waiter is registered, and during
  * those gaps the ask is still very much pending. Anything reasoning about "is a
  * question on screen right now?" (the turn watchdog, the tool-response route)
- * must read THIS, not the waiter map. The value carries when the ask opened, so
- * the TTL spans the whole ask rather than restarting on every leg, and which
- * panel the current wait is about.
+ * must read THIS, not the waiter map. The value carries when the ask opened
+ * (the age the safety nets read, never a deadline) and which panel the current
+ * wait is about.
  */
 const activeAsks = new Map<string, OpenAsk>();
 
 interface OpenAsk {
-  /** When the ask opened, so the TTL spans the ask and not a single leg. */
+  /** When the ask opened, so its age spans the ask and not a single leg. */
   startedAt: number;
   /**
    * The tool row the panel of THIS question sits on, when the wait that owns the
-   * rendez-vous declared one. See `openAskToolCallId` for what reads it.
+   * rendez-vous declared one. See `openAskIdentity` for what reads it.
    */
   toolCallId?: string;
+  /** What the current wait asked, when it said so. See `AskUserBridgeOptions.questions`. */
+  questions?: readonly string[];
 }
 
 /**
  * Open an ask, or confirm the one already open. Called at the top of every poll
- * leg: the FIRST leg opens it (and stamps the TTL clock), later legs are no-ops
- * so a poll every 25 seconds can't keep an ask alive forever.
+ * leg: the FIRST leg opens it (and stamps when it opened), later legs are
+ * no-ops, so the age keeps counting from the question and not from the leg.
  *
- * Returns false when the ask has outlived `ttlMs` — the caller then cancels it
- * and reports a clean expiry instead of polling into the CLI child's death.
+ * There is no expiry: an ask open for a day, or a week, is still open. It ends
+ * when somebody answers, cancels, or sends a new message (see the header).
  */
-export function beginAsk(sessionKey: string, ttlMs = DEFAULT_ASK_TTL_MS, now = Date.now()): boolean {
-  const open = activeAsks.get(sessionKey);
-  if (open === undefined) {
-    activeAsks.set(sessionKey, { startedAt: now });
-    // Da qui in poi il turno è fermo su una persona. Chi guarda la BOARD non ha
-    // modo di accorgersene da sé: il task resterebbe `working` sotto un pannello
-    // aperto. Vedi human-hold-events.ts.
-    emitHumanHoldChange({ sessionKey, phase: "held", source: "ask" });
-    return true;
-  }
-  return now - open.startedAt < ttlMs;
+export function beginAsk(sessionKey: string, now = Date.now()): void {
+  if (activeAsks.has(sessionKey)) return;
+  activeAsks.set(sessionKey, { startedAt: now });
+  // From here the turn is parked on a person. Whoever watches the BOARD cannot
+  // tell by itself: the task would stay `working` under an open panel. See
+  // human-hold-events.ts.
+  emitHumanHoldChange({ sessionKey, phase: "held", source: "ask" });
 }
 
-/** Close an ask: answered, cancelled, or expired. Idempotent. */
+/** Close an ask: answered or cancelled. Idempotent. */
 export function endAsk(sessionKey: string): void {
   // Solo se c'era davvero un'attesa: un `released` a vuoto farebbe rimettere il
   // chip a «in corso» su una sessione che non ha mai smesso di esserlo.
@@ -182,9 +208,11 @@ export function waitForAnswer(
 ): Promise<Record<string, string>> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  // Answer already delivered before the waiter registered.
+  // Answer already delivered before the waiter registered, and given to THIS
+  // question. An answer bound to another question stays where it is: its TTL
+  // hands it on as a message, it never becomes this leg's result.
   const buf = buffered.get(sessionKey);
-  if (buf) {
+  if (buf && bufferedAnswerFits(buf, opts)) {
     clearTimeout(buf.timer);
     buffered.delete(sessionKey);
     return Promise.resolve(buf.answers);
@@ -215,6 +243,8 @@ export function waitForAnswer(
   if (open) {
     if (opts.toolCallId) open.toolCallId = opts.toolCallId;
     else delete open.toolCallId;
+    if (opts.questions && opts.questions.length > 0) open.questions = [...opts.questions];
+    else delete open.questions;
   }
 
   return new Promise<Record<string, string>>((resolve, reject) => {
@@ -227,29 +257,47 @@ export function waitForAnswer(
 }
 
 /**
- * WHICH PANEL THE OPEN QUESTION OF THIS SESSION IS, or `undefined` when nobody
- * has named one.
+ * What the open ask of this session is about: the panel its wait named and the
+ * questions it asked, or `undefined` when no ask is open. The answer route reads
+ * both to bind a click to ITS question (`routeAnswer` in
+ * `lib/question-outlives-asker.ts`).
  *
- * WHY IT EXISTS. The rendez-vous is keyed by SESSION, so "there is a question
- * waiting" and "this is the question being answered" were the same fact for the
- * chat road: `/api/chat/tool-response` carried the `toolCallId` of the panel the
- * person clicked and used it only to decide WHETHER the row is a bridge panel,
- * never FOR WHICH question. Measured with both real routes and no card: while a
- * send confirmation was waiting, the generic `ask_user_question` parked by the
- * gate still had ITS panel on screen (the stream detector paints it, not the ask
- * route), the person clicked that one, and the yes was delivered to the send -
- * which refused with "the answer that came back was not about this message"
- * while the generic question stayed unanswered. One click, two questions
- * damaged.
- *
- * The board road already had the rule (`answerTo`, `routes/tasks.ts`): the yes
- * belongs to THAT question. This is the same rule for the second channel.
- *
- * `undefined` means the answer is delivered to whoever is waiting, which is the
- * behaviour every caller had before: see the fallback branch in `waitForAnswer`.
+ * WHY. The rendez-vous is keyed by SESSION, and the click's `toolCallId` used
+ * to decide only WHETHER the row is a bridge panel, never FOR WHICH question:
+ * with a send confirmation waiting and the generic question's panel on screen,
+ * the yes given to the generic one went to the send, which refused it, and the
+ * generic question stayed unanswered. The board road has the same rule
+ * (`answerTo`, `routes/tasks.ts`): the yes belongs to THAT question.
  */
-export function openAskToolCallId(sessionKey: string): string | undefined {
-  return activeAsks.get(sessionKey)?.toolCallId;
+export function openAskIdentity(sessionKey: string): { toolCallId?: string; questions?: readonly string[] } | undefined {
+  const open = activeAsks.get(sessionKey);
+  return open ? { toolCallId: open.toolCallId, questions: open.questions } : undefined;
+}
+
+/** Same questions, same order, compared as the panel shows them (trimmed). */
+export function sameQuestions(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((q, i) => q.trim() === b[i]!.trim());
+}
+
+/**
+ * May a leg with this identity collect this buffered answer?
+ *
+ * An answer given with no identity (the board thread, an older caller) goes to
+ * whoever comes, as it always did. An answer bound to a panel goes only to the
+ * wait that names that panel or, for a wait that cannot name its row, to one
+ * that asked the same questions. Until 30/09 the buffer was per SESSION: an
+ * answer to an old question whose asker had gone became the tool result of the
+ * next question the same session asked within two minutes.
+ */
+export function bufferedAnswerFits(
+  buf: { toolCallId?: string; questions?: readonly string[] },
+  leg: { toolCallId?: string; questions?: readonly string[] },
+): boolean {
+  if (!buf.toolCallId && !buf.questions) return true;
+  if (leg.toolCallId && buf.toolCallId) return leg.toolCallId === buf.toolCallId;
+  if (leg.questions && buf.questions) return sameQuestions(leg.questions, buf.questions);
+  // One side cannot say: the legacy behaviour, a leg with no identity at all.
+  return !leg.toolCallId && !leg.questions;
 }
 
 /**
@@ -288,13 +336,50 @@ export function deliverAnswer(
   }
   // No waiter registered right now — the normal case in a polling bridge, which
   // spends a sliver of every cycle between legs. Buffer so the next leg (or a
-  // handler that registers a beat later) still gets it.
-  const ttl = opts.bufferTtlMs ?? DEFAULT_BUFFER_TTL_MS;
+  // handler that registers a beat later) still gets it. If no leg ever comes,
+  // the answer is handed to `onUnclaimed` rather than dropped: an answer that
+  // disappears is the one failure a person cannot see and cannot repair.
+  const ttl = opts.bufferTtlMs ?? ASK_BUFFER_TTL_MS;
   const prev = buffered.get(sessionKey);
-  if (prev) clearTimeout(prev.timer);
-  const timer = setTimeout(() => buffered.delete(sessionKey), ttl);
-  buffered.set(sessionKey, { answers, timer });
+  if (prev) {
+    clearTimeout(prev.timer);
+    // An answer to ANOTHER question waiting here is not overwritten into
+    // nothing: its asker never came for it, so it goes on its other way now.
+    const sameQuestion = bufferedAnswerFits(prev, { toolCallId: opts.toolCallId, questions: opts.questions })
+      && bufferedAnswerFits({ toolCallId: opts.toolCallId, questions: opts.questions }, prev);
+    if (!sameQuestion) prev.onUnclaimed?.(prev.answers);
+  }
+  const entry: BufferedAnswer = {
+    answers,
+    ...(opts.onUnclaimed ? { onUnclaimed: opts.onUnclaimed } : {}),
+    ...(opts.toolCallId ? { toolCallId: opts.toolCallId } : {}),
+    ...(opts.questions && opts.questions.length > 0 ? { questions: [...opts.questions] } : {}),
+    timer: setTimeout(() => {
+      if (buffered.get(sessionKey) !== entry) return;
+      buffered.delete(sessionKey);
+      opts.onUnclaimed?.(answers);
+    }, ttl),
+  };
+  buffered.set(sessionKey, entry);
   return true;
+}
+
+/**
+ * Drop the buffered answer of this session WITHOUT handing it on: a leg just
+ * collected the same answer another way (off the row, `routes/permission.ts`).
+ * Left armed, the buffer outlived that leg and, two minutes later, sent the
+ * answer to the model a second time as a message nobody typed.
+ */
+export function forgetBufferedAnswer(
+  sessionKey: string,
+  leg: { toolCallId?: string; questions?: readonly string[] } = {},
+): void {
+  const buf = buffered.get(sessionKey);
+  // Only the copy of the answer that leg collected: an answer to another
+  // question of the session stays owed.
+  if (!buf || !bufferedAnswerFits(buf, leg)) return;
+  clearTimeout(buf.timer);
+  buffered.delete(sessionKey);
 }
 
 /**
@@ -332,7 +417,8 @@ export function pendingAskKeys(): string[] {
  * because it's waiting on a human, but it must not be suppressed forever
  * either — if the CLI child dies while the panel is up, no further poll leg
  * ever arrives, so nothing inside this module would notice the ask is moot.
- * Bounding the exemption by this age gives the sweeper its teeth back.
+ * What gives the sweeper its teeth back is the child's liveness
+ * (`pendingAskVerdict`), never this age: the age is for display and logs.
  */
 export function pendingAskAgeMs(sessionKey: string, now = Date.now()): number | null {
   const open = activeAsks.get(sessionKey);
@@ -350,12 +436,16 @@ export function pendingAskAgeMs(sessionKey: string, now = Date.now()): number | 
  *                  forward instead of declaring the turn dead: the child is
  *                  blocked on the bridge's JSON-RPC response and produces
  *                  nothing by design until the human clicks.
- *   - `"close-ask"` the question can no longer be honoured — the child died
- *                  under it, or it has outlived its TTL. Cancel it (so anyone
- *                  blocked fails cleanly) and let the turn be finalized. This
- *                  is the branch that keeps `defer` from being permanent: with
- *                  a dead child no further poll leg arrives, so nothing else
- *                  in this module would ever notice the ask is moot.
+ *   - `"close-ask"` the WAIT can no longer be honoured: the child died under
+ *                  it. Cancel the in-memory ask and let the turn be finalized;
+ *                  the question itself survives on its row and its answer
+ *                  goes out as the next message (`lib/question-outlives-asker.ts`). This
+ *                  is the branch that keeps `defer` from being permanent:
+ *                  with a dead child no further poll leg arrives.
+ *
+ * The age is NOT a reason. A question open for 25 hours on a live child is
+ * deferred like one open for 25 seconds (29/09: "a question that expires makes
+ * no sense").
  *
  * `childAlive: undefined` means the provider can't say; that's treated as
  * alive, because killing a healthy parked turn is the failure we're fixing and
@@ -363,11 +453,9 @@ export function pendingAskAgeMs(sessionKey: string, now = Date.now()): number | 
  */
 export function pendingAskVerdict(opts: {
   askAgeMs: number | null;
-  askTtlMs?: number;
   childAlive?: boolean;
 }): "none" | "defer" | "close-ask" {
   if (opts.askAgeMs === null) return "none";
-  if (opts.askAgeMs >= (opts.askTtlMs ?? DEFAULT_ASK_TTL_MS)) return "close-ask";
   if (opts.childAlive === false) return "close-ask";
   return "defer";
 }
@@ -389,4 +477,18 @@ export function cancelAsk(sessionKey: string, reason = "cancelled"): void {
     clearTimeout(buf.timer);
     buffered.delete(sessionKey);
   }
+}
+
+/**
+ * What a process restart does to this module: every map emptied, no waiter
+ * told, nothing announced, no buffered answer handed on. For the tests that
+ * cross that boundary (a question must survive it on its row); production
+ * never calls it, a restart does it for real.
+ */
+export function _dropAskStateLikeARestart(): void {
+  for (const w of waiters.values()) clearTimeout(w.timer);
+  for (const b of buffered.values()) clearTimeout(b.timer);
+  waiters.clear();
+  buffered.clear();
+  activeAsks.clear();
 }

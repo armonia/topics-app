@@ -78,7 +78,7 @@ async function postChat(ctx: AppContext, sessionKey: string): Promise<number | "
 function sweep(ctx: AppContext, state: { rescued: Set<string>; silence: Map<string, SilenceMark> }, childAlive: boolean | ((sk: string) => boolean | undefined)) {
   const broadcasts: Array<Record<string, unknown>> = [];
   const outcomes: Map<string, SweepOutcome> = sweepStaleStreams({
-    now: () => Date.now(), timeoutMs: 3 * 60_000, askTtlMs: 10 * 60_000,
+    now: () => Date.now(), timeoutMs: 3 * 60_000,
     activeStreams: ctx.activeStreams as never, rescued: state.rescued, silence: state.silence,
     getMessageById: (id) => ctx.getMessageById(id) as never,
     humanHoldAgeMs: () => null,

@@ -21,6 +21,10 @@ import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "..
 import { repeatedRowMarks, userRowMarks } from "../lib/user-row-marks";
 import { startSsePing } from "../lib/sse-ping";
 import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
+import { hasPendingAsk } from "../lib/ask-user-bridge";
+import { recentActiveRows } from "../lib/ask-answer-routing";
+import { askerStillThere, openQuestionsOnRows, sessionHasOpenQuestion } from "../lib/question-outlives-asker";
+import { onFirstModelEvent, type AnswerRelay, type Carry } from "../lib/answer-relay";
 import { TopicsRoutingIncompatibleError } from "../providers/resolve-topic-provider";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { cartelloRisveglio } from "../providers/claude/woken-turn";
@@ -165,6 +169,15 @@ export interface ChatDeps {
    */
   hooks?: LifecycleHookRunner;
   goalLoop?: ChatGoalLoop; // when the caller holds it too (the Stop, the boot)
+  /**
+   * The answers owed to the model by questions whose asker is gone
+   * (`lib/answer-relay.ts`). This route is where they are taken: the relay's
+   * own message claims its answer, a person's message takes every owed answer
+   * of the session and carries it in front of itself. Taken is not sent: the
+   * turn that carries them settles them at the model's first event, or gives
+   * them back if it never gets there.
+   */
+  answerRelay?: Pick<AnswerRelay, "claim" | "takeOwed" | "heard" | "notCarried">;
 }
 
 /**
@@ -204,6 +217,39 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     startStream, updateStreamContent, updateStreamActivity, endStream, isStreaming,
     findNewMediaFiles, updateLastMessageWithMedia,
   } = ctx;
+
+  /**
+   * A NEW MESSAGE SUPERSEDES A QUESTION NOBODY IS WAITING ON ANY MORE.
+   *
+   * A question outlives the turn that asked it (`lib/question-outlives-asker.ts`), so it
+   * can still be on screen when the person writes something else instead of
+   * answering. That message is the person's choice, and the standard's third
+   * way to end a question: the panel is closed as `superseded`, and it says so
+   * in plain words instead of inviting a click that would now arrive AFTER a
+   * newer request. A question whose asker may still be there (a live ask, no
+   * `askerGone` mark) is left alone: the composer answers those.
+   *
+   * Only a message a PERSON sent: the caller skips the goal nudge, the
+   * dispatcher's envelope, a command's wake and a resume, which would
+   * otherwise close a person's question under the words "you sent a new
+   * message instead".
+   */
+  function supersedeOpenQuestions(sessionKey: string, topicId: string | undefined): void {
+    let open: ReturnType<typeof openQuestionsOnRows> = [];
+    try { open = openQuestionsOnRows(recentActiveRows(ctx, sessionKey), decodeCol); } catch { return; }
+    if (open.length === 0) return;
+    const pendingAsk = hasPendingAsk(sessionKey);
+    const endedAt = Date.now();
+    for (const { rowId, call } of open) {
+      if (askerStillThere({ pendingAsk, call })) continue;
+      const error = "Superseded: a new message was sent instead of an answer";
+      updateToolCallFields(sessionKey, call.id, { status: "error", askEnded: "superseded", error, endedAt }, { rowId });
+      broadcastToAll({
+        type: "stream:tool_result", sessionKey, topicId, toolCallId: call.id,
+        status: "error", error, endedAt, askEnded: "superseded",
+      });
+    }
+  }
   const {
     resolveProvider, resolveProviderByName = getProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
@@ -302,7 +348,26 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     resolveTab: (ref) => resolveTabRef(ref, tabDeps),
   };
 
-  return async function chatRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+  /**
+   * The owed answers a request took (`lib/answer-relay.ts`), by request. A
+   * request that ends without starting the turn that carries them (a refusal
+   * after the gate, a throw, a provider it could not reach) gives them back
+   * here, on every way out of the route, so none of them is lost to an exit
+   * nobody thought of. Once the turn has started, its first model event or its
+   * end decides instead.
+   */
+  const carries = new WeakMap<Request, Carry>();
+  async function chatRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
+    try {
+      return await routeChat(req, url, pathname, method);
+    } finally {
+      const carry = carries.get(req);
+      if (carry && !carry.turnStarted) deps.answerRelay?.notCarried(carry);
+    }
+  }
+  return chatRouter;
+
+  async function routeChat(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
     // The goal loop resends through this very route: see `goalLoop`.
     goalLoop.useRoute(chatRouter);
     if (method === "POST" && pathname === "/api/chat") {
@@ -502,6 +567,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
        */
       const isWoken = body.mode === "woken";
       const adottaTurnoVivo = isReattach || isWoken;
+      // Typed by a person, not produced by the machine (goal nudge, dispatch, wake, resume).
+      const sentByPerson = !isWoken && !isReattach && !dispatched && !body.goalNudge && !body.processExit && !resumeAttempt;
 
       if (!messages || !Array.isArray(messages) || (messages.length === 0 && !adottaTurnoVivo)) {
         return json({ error: "messages array required" }, 400);
@@ -557,6 +624,56 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       }
 
       const lastUserMsg = messages[messages.length - 1];
+      /**
+       * AN ANSWER THE PERSON GAVE EARLIER GOES FIRST.
+       *
+       * An answer to a question whose asker is gone is owed to the model as a
+       * message (`lib/answer-relay.ts`). The relay posts it here when the
+       * session's turn ends, but the composer drains what the person typed
+       * meanwhile on the same `stream:end`, and whichever reached this gate
+       * first won: measured 30/09, the model read "and after that deploy it"
+       * before the answer given before it. So the answers are TAKEN here, in
+       * the same synchronous stretch as the gate above and the row below:
+       *   - the relay's own message claims its answer, and is refused
+       *     (`answer_not_owed`) if a person's message carried it already;
+       *   - a person's message takes every answer the session owes and writes
+       *     them as their own rows first, and the model reads them first, in
+       *     the same turn. A slash command is left alone: its text is a command.
+       */
+      /** The owed answers this message took: settled when its turn reaches the model (`carries`). */
+      let carry: Carry | null = null;
+      /** The rows of the answers this message carries, and their text, oldest first. */
+      const carried: Array<{ rowId: string; content: string }> = [];
+      if (deps.answerRelay && lastUserMsg?.role === "user" && typeof lastUserMsg.content === "string" && lastUserMsg.content) {
+        const claimedId = (body.questionAnswer as { toolCallId?: unknown } | undefined)?.toolCallId;
+        if (typeof claimedId === "string") {
+          carry = deps.answerRelay.claim(sessionKey, claimedId);
+          if (!carry) return json({ error: "this answer has already reached the model", code: "answer_not_owed" }, 409);
+          carries.set(req, carry);
+        } else if (sentByPerson && !lastUserMsg.content.trim().startsWith("/")) {
+          carry = deps.answerRelay.takeOwed(sessionKey);
+          if (carry) carries.set(req, carry);
+          for (const answer of carry?.answers ?? []) {
+            const stored = appendLocalMessage(
+              sessionKey, "user", answer.content,
+              autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
+              userRowMarks({ repeats: repeatedRowMarks(ctx.db, sessionKey, answer.content) }),
+            );
+            if (matchedTopic) {
+              broadcastToAll({
+                type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user",
+                messageId: stored.id, content: answer.content, preview: answer.content.slice(0, 100),
+                ...(stored.blocks?.length ? { blocks: stored.blocks } : {}),
+              });
+            }
+            carried.push({ rowId: stored.id, content: answer.content });
+          }
+        }
+      }
+      // What the model reads for this turn: the carried answers first.
+      const turnUserContent: string = carried.length > 0
+        ? [...carried.map((c) => c.content), lastUserMsg.content].join("\n\n")
+        : lastUserMsg?.content ?? "";
       if (lastUserMsg?.role === "user" && lastUserMsg?.content) {
         // L'AUTORE si stampa QUI, ed è l'unico posto in cui un prompt umano
         // entra nel database: `appendLocalMessage` da qualunque altro
@@ -600,6 +717,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // for hours and still show its row from a day-old rename.
           bumpTopicActivity(matchedTopic);
         }
+        // The relayed answer to one question (`lib/answer-relay.ts`) is the
+        // person's words, but not a choice to skip their OTHER open questions;
+        // another agent's message (`send_chat_message`) is not the person's.
+        if (sentByPerson && !body.questionAnswer && !body.fromAgent) supersedeOpenQuestions(sessionKey, matchedTopic?.id);
 
         // THE AUTOMATIC CHECKPOINT, and this is the only moment it can be taken.
         //
@@ -736,8 +857,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             sessionKey,
             providerName: "(pending)",
             providerStrategy: "history-aware",
-            userMessageOverride: { content: lastUserMsg?.content ?? "", messageId: lastUserMsg?.id },
+            userMessageOverride: { content: turnUserContent, messageId: lastUserMsg?.id },
             includeLastUserInHistory: false,
+            ...(carried.length > 0 ? { alsoInUserMessage: carried.map((c) => c.rowId) } : {}),
             planMode,
             // Per-turn flag OR topic-persisted preference — either opts in.
             // Mirrors the resolution logic for `fastModeActive` further down
@@ -780,7 +902,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               .filter((m: any) => m.role === "user" || m.role === "assistant")
               .slice(0, -1)
               .map((m: any) => ({ role: m.role, content: m.content })),
-            userMessage: { content: lastUserMsg?.content ?? "" },
+            userMessage: { content: turnUserContent },
             diagnostics: {
               totalTokens: 0, budgetLimit: DEFAULT_CONTEXT_WINDOW, budgetPercent: 0,
               droppedHistoryTurns: 0, historyEntries: [],
@@ -1380,6 +1502,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // FIGLIO, cioè un provider che sa riadottare. Si chiede UNA volta, qui:
           // il provider di una sessione non cambia mentre il turno gira.
           startStream(sessionKey, partialMsg.id, externalAbort, providerSurvivesRestart(topicProvider));
+          // From here the turn's end decides for the answers it carries, not the route's exit.
+          if (carry) carry.turnStarted = true;
           // `reattached` dice al client: questa bolla la stai già vedendo piena,
           // e sto per ricostruirla da capo — svuotala PRIMA che arrivino le
           // delta, o il replay si somma a quello che c'è già e il testo esce
@@ -2419,9 +2543,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // A turn parked on a question is not a turn that decided to
                 // stop: `interrupted` carries the tools still awaiting a human,
                 // and the plan approval is kept out of it on purpose above.
-                pendingAsk: askingPlanApproval || interrupted.length > 0,
+                // A question this turn (or an earlier one) left open outlives
+                // the turn and is not in `interrupted`: the rows say it.
+                pendingAsk: askingPlanApproval || interrupted.length > 0 || sessionHasOpenQuestion(ctx, sessionKey, decodeCol),
                 ...backgroundOfTurn(topicProvider, sessionKey, commandWakeState(sessionKey, body.processExit?.processId)), // a wake's turn skips its own: see commandWakeState
-                fromHuman: !isWoken && !isReattach && !dispatched && !body.goalNudge && !body.processExit && !resumeAttempt,
+                fromHuman: sentByPerson,
                 woken: isWoken || !!body.processExit, // a command's wake is news, like the CLI's own
                 usedTools: toolsStartedThisTurn > 0,
                 lastAssistantText: fullContent,
@@ -2546,7 +2672,10 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             }
           };
 
-          const handler: StreamHandler = guardFinalizedTurn({
+          // The owed answers this turn carries reach the model with it: its
+          // first event settles them (`lib/answer-relay.ts`).
+          const heardCarry = carry ? () => { if (carry) deps.answerRelay?.heard(carry); } : null;
+          const handler: StreamHandler = onFirstModelEvent(guardFinalizedTurn({
             onTextDelta: (text: string, _fullText: string) => {
               resetStreamTimer();
               // Il primo argomento È il pezzo nuovo, sempre: lo dice il contratto
@@ -3262,7 +3391,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               }
               finalizeStream("aborted", undefined, message?.turnEnd);
             },
-          }, () => streamState === "finalized", late);
+          }, () => streamState === "finalized", late), heardCarry);
 
           // Helper to extract text from final/aborted message
             /**
@@ -3517,8 +3646,12 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Register handler BEFORE sendChat so tool events arriving during the await aren't lost.
             // Use undefined runId initially — the sentinel filter in gateway-ws.ts handles stale events.
             topicProvider.registerStreamHandler?.(sessionKey, undefined, handler);
-            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; fastMode?: boolean; rowId?: string } = { rowId: partialMsg.id };
+            const sendOptions: { model?: string; history?: ChatMessage[]; tools?: Tool[]; resetFallbackContent?: string; fastMode?: boolean; rowId?: string; messageRows?: number } = { rowId: partialMsg.id };
             if (overrideModel) sendOptions.model = overrideModel;
+            // The answers carried in front of the person's words are rows of
+            // their own, and part of THIS message: a provider that rebuilds its
+            // history from the rows leaves them out with it.
+            if (carried.length > 0) sendOptions.messageRows = carried.length + 1;
             // La richiesta di fast mode viaggia COME richiesta: decide il
             // provider, che la gira alla CLI solo se la CLI ha detto di poterla
             // servire. Qui non si sceglie nessun modello al posto suo.
@@ -3730,6 +3863,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             // Provider doesn't support streamHTTP — use complete() as fallback
             const result = await topicProvider.complete(finalMessages);
             clearTimeout(timeoutId);
+            if (carry) deps.answerRelay?.heard(carry);
             const content = result.content;
             const storedFallback = appendLocalMessage(sessionKey, "assistant", content);
             if (matchedTopic) {
@@ -3739,6 +3873,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             return new Response(ssePayload, { status: 200, headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" } });
           }
           clearTimeout(timeoutId);
+          if (resp.ok && carry) deps.answerRelay?.heard(carry);
 
           if (!resp.ok) {
             const text = await resp.text();
@@ -3894,5 +4029,5 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
     }
 
     return null;
-  };
+  }
 }

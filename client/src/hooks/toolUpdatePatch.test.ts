@@ -111,6 +111,13 @@ describe('a stale answer does not reopen a tool that returned', () => {
     expect(withToolUpdate(ask('waiting_for_input'), patch).status).toBe('running');
   });
 
+  test('a question a person ended carries how, so the panel can say it', () => {
+    const patch = toolUpdatePatch({ toolCallId: 'tu_ask', status: 'error', askEnded: 'superseded' })!;
+    expect(withToolUpdate(ask('waiting_for_input'), patch)).toMatchObject({ status: 'error', askEnded: 'superseded' });
+    // An unknown reason is refused, like an unknown status.
+    expect(toolUpdatePatch({ toolCallId: 'tu_ask', askEnded: 'bogus' })).toBeNull();
+  });
+
   test('the stream handler goes through the guard', () => {
     const src = readFileSync(join(import.meta.dir, 'useChat.ts'), 'utf8');
     expect(src).toContain('(tc) => withToolUpdate(tc, patch)');

@@ -38,7 +38,7 @@ describe("humanHoldAgeMs — si misura sull'attesa più LUNGA", () => {
   it("una richiesta appena aperta non rimette a zero l'orologio di una vecchia", () => {
     clean();
     const t0 = 5_000_000;
-    beginAsk(SK, 60_000, t0);
+    beginAsk(SK, t0);
     beginPermission(SK, "toolu_x", 60_000, t0 + 30_000);
     // Se prendesse il minimo, l'esenzione si riarmerebbe da sola all'infinito.
     expect(humanHoldAgeMs(SK, t0 + 40_000)).toBe(40_000);
@@ -101,7 +101,7 @@ describe("il permesso smette di essere un'attesa dopo il suo TTL", () => {
     // stesso tetto. Vedi la nota in testa a isHumanHold.
     clean();
     const t0 = 9_000_000;
-    beginAsk(SK, 24 * 60 * 60 * 1000, t0);
+    beginAsk(SK, t0);
     expect(isHumanHold(SK, t0 + PERMISSION_TTL_MS * 3)).toBe(true);
     clean();
   });

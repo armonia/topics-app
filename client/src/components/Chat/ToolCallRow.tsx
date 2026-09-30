@@ -188,11 +188,18 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
   // server/providers/ask-user-detector.ts, which matches the same three names.
   // For those the args and the form are the same content, so the row shows
   // the form alone; every other suspended tool keeps its card too.
-  const askIsTheWholeCall =
-    toolCall.userInputSchema?.kind === 'questions' &&
-    (toolCall.name === 'AskUserQuestion'
-      || toolCall.name === 'ask_user_question'
-      || toolCall.name.endsWith('__ask_user_question'));
+  const isQuestionTool = toolCall.name === 'AskUserQuestion'
+    || toolCall.name === 'ask_user_question'
+    || toolCall.name.endsWith('__ask_user_question');
+  const askIsTheWholeCall = toolCall.userInputSchema?.kind === 'questions' && isQuestionTool;
+  // A QUESTION THAT ENDED WITHOUT AN ANSWER says so in plain words, not as a
+  // red stack of "Error" text: the person needs to know the panel is closed
+  // and why, not what the bridge threw. The raw error stays on the tooltip.
+  const questionEnded = isError && isQuestionTool && !toolCall.userResponse;
+  const questionEndedText = !questionEnded ? null
+    : toolCall.askEnded === 'cancelled' ? tr('chat.question.ended.cancelled')
+      : toolCall.askEnded === 'superseded' ? tr('chat.question.ended.superseded')
+        : tr('chat.question.ended.other');
 
   // Auto-open rows that NEED to be open: sub-agent (action log is the
   // primary signal), waiting_for_input (the form is the row's whole
@@ -447,6 +454,24 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
           </span>
         </div>
       )}
+      {/* Outside the collapsible body: an ended question collapses like any
+          finished row, and the one line saying it is closed must still show. */}
+      {questionEndedText && (
+        <div
+          data-testid={`question-ended-${toolCall.id}`}
+          title={toolCall.error}
+          className="ml-5 mb-1 text-mini text-app-text-muted"
+        >
+          {questionEndedText}
+        </div>
+      )}
+      {/* An answer whose asker was gone, saved and waiting for the chat to be
+          free: the panel is closed, and it says the answer is on its way. */}
+      {isQuestionTool && toolCall.answerRelay === 'queued' && (
+        <div data-testid={`question-answer-queued-${toolCall.id}`} className="ml-5 mb-1 text-mini text-app-text-muted">
+          {tr('chat.question.answerQueued')}
+        </div>
+      )}
       {effectiveOpen && (
         <div className="ml-5 pb-1.5">
           {/* Pending input form takes precedence: when the agent is asking
@@ -520,7 +545,12 @@ export const ToolCallRow = memo(function ToolCallRow({ toolCall, label, sessionK
               </span>
             </div>
           )}
-          {toolCall.error && status === 'error' && detail.type !== 'shell' && (
+          {isWaiting && toolCall.askerGone && (
+            <div data-testid={`question-asker-gone-${toolCall.id}`} className="mt-1.5 text-mini text-app-text-muted">
+              {tr('chat.question.askerGone')}
+            </div>
+          )}
+          {toolCall.error && status === 'error' && detail.type !== 'shell' && !questionEndedText && (
             <div className="mt-1.5">
               <div className="text-mini uppercase tracking-wide text-red-500 mb-0.5">Error</div>
               <pre data-testid="tool-call-error" className="text-mini font-mono text-red-500 whitespace-pre-wrap overflow-auto max-h-40 bg-red-500/5 rounded px-2 py-1.5">

@@ -50,6 +50,30 @@ nessuna, l'età SHALL essere assente e non un numero fantasma.
 - **GIVEN** un permesso in attesa entro la scadenza
 - **THEN** SHALL contare come persona in mezzo
 
+Le reti di sicurezza che SHALL rispettare una domanda aperta sono TUTTE quelle che
+possono chiudere un turno, e nessuna SHALL usare l'età della domanda come motivo:
+il tetto di vita del figlio CLI, il reaper d'inattività, il watchdog del turno, il
+giudice di stallo, lo spazzino degli stream fermi, il parcheggio delle PTY
+inattive (anche quando la macchina a stati ha declassato l'attesa a `paused`), la
+scadenza dei lavori delegati (il tempo della persona SHALL essere sottratto) e il
+tetto del turno di Codex. Il trasporto che porta l'attesa (il timeout MCP della
+CLI, il timeout per chiamata di Codex) SHALL stare al massimo che un timer
+JavaScript regge, e oltre quello la domanda resta comunque sulla sua riga.
+
+#### Scenario: una domanda aperta da venticinque ore
+- **GIVEN** una domanda aperta da 25 ore su un figlio vivo
+- **THEN** nessuna delle reti di sicurezza SHALL chiudere il turno
+- **AND** la risposta SHALL arrivare al modello come risultato del tool
+
+#### Scenario: una PTY con la domanda declassata a `paused`
+- **GIVEN** una sessione terminale ferma su una domanda da più della soglia di parcheggio
+- **THEN** la PTY NON SHALL essere parcheggiata
+
+#### Scenario: un lavoro delegato che aspetta una persona
+- **GIVEN** un turno delegato con una domanda aperta oltre la sua scadenza
+- **THEN** il turno NON SHALL essere interrotto
+- **AND** la scadenza SHALL spostarsi del tempo passato ad aspettare
+
 #### Scenario: una domanda lasciata lì la sera
 - **GIVEN** una domanda aperta da molte ore
 - **THEN** SHALL contare ancora come attesa
@@ -157,9 +181,12 @@ processo: il registro in memoria si svuota a ogni riavvio, quindi da solo
 proteggerebbe la prima domanda e nessuna di quelle sopravvissute a un riavvio
 precedente.
 
-Il rinvio SHALL avere una fine: una domanda RISPOSTA, o più vecchia della finestra
-di vita di una domanda, NON SHALL trattenere più niente — altrimenti è un blocco,
-non un rinvio.
+Il rinvio SHALL avere una fine: una domanda RISPOSTA, o aperta da più della
+PAZIENZA DEL RIAVVIO (un giorno), NON SHALL trattenere più niente — altrimenti è un
+blocco, non un rinvio. Quella pazienza è del riavvio e NON è la vita della
+domanda: una domanda non scade, e sopravvive al riavvio sulla sua riga (ASK-11).
+Una domanda il cui processo richiedente è già finito NON SHALL trattenere il
+riavvio: nessun processo è fermo su di lei, e il riavvio non può toglierle niente.
 
 Quando più sorgenti trattengono insieme, SHALL essere nominata la più economica e
 più certa: il registro non deve costare più della decisione.
@@ -188,6 +215,11 @@ provider assente non promette niente.
 #### Scenario: una chat ferma su una domanda
 - **GIVEN** una sessione con una domanda aperta e nient'altro in volo
 - **THEN** il riavvio SHALL essere rinviato, non tagliato
+
+#### Scenario: una domanda senza più chi l'ha chiesta
+- **GIVEN** una domanda aperta il cui turno è già finito (`askerGone`)
+- **THEN** il riavvio NON SHALL essere trattenuto da quella domanda
+- **AND** la domanda SHALL restare aperta dopo il riavvio
 
 #### Scenario: la domanda è stata risposta
 - **GIVEN** una sessione la cui domanda è già stata risposta

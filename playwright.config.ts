@@ -582,6 +582,9 @@ export default defineConfig({
         // the wheel does not explain is a jerk (reported 24/09).
         "**/chat-scroll-down-jitter.spec.ts",
         "**/sender-sees-question.spec.ts",
+        // A question waits for its person across a reload and the death of its
+        // asker, and the answer reaches the model: read in the engine that ships.
+        "**/question-survives-reload.spec.ts",
         // A turn silent in a tool keeps its Stop in a viewer: a real server
         // turn from a fake CLI, filmed on the engine that ships.
         "**/chat-silent-tool-live.spec.ts",

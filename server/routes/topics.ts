@@ -67,7 +67,10 @@ import { autonomyForPermissionMode } from "../lib/autonomy-mode";
 import { EFFORT_TIERS } from "../../shared/effort";
 // Only the «delivery» side: the waiting legs (beginAsk/waitForAnswer) live in
 // the human channel, in ./permission.
-import { deliverAnswer, hasPendingAsk, cancelAsk, openAskToolCallId, ASK_NOT_CURRENT_LINE } from "../lib/ask-user-bridge";
+import { deliverAnswer, hasPendingAsk, cancelAsk, openAskIdentity, ASK_NOT_CURRENT_LINE } from "../lib/ask-user-bridge";
+import { storedToolCall, routeAnswer, liveQuestionCallId, questionTexts, answerAsNextMessage, sessionHasOpenQuestion, type StoredQuestionCall } from "../lib/question-outlives-asker";
+import { createAnswerRelay, type AnswerRelay } from "../lib/answer-relay";
+import { markAnswerNotOwed, markAnswerOwed } from "../lib/owed-answers";
 // "Waiting on you" is also read off the ROW: the panel's questions travel over
 // the MCP bridge, not the provider's native channel, and after a restart no
 // in-memory map remembers them. See lib/waiting-ask.ts.
@@ -474,7 +477,21 @@ export function createTopicsRouter(
   browserService?: BrowserService,
   paneAttachedTo: (contextId: string) => boolean = () => false,
   /** What the chat route needs from the outside and this closure does not own. */
-  extra: { hooks?: LifecycleHookRunner; exposeGoalLoop?: (loop: ChatGoalLoop) => void } = {},
+  extra: {
+    hooks?: LifecycleHookRunner;
+    exposeGoalLoop?: (loop: ChatGoalLoop) => void;
+    /**
+     * The queue that carries an answer whose asker is gone to the model
+     * (`lib/answer-relay.ts`), handed out so the boot can put back the answers
+     * a restart found still owed.
+     */
+    exposeAnswerRelay?: (relay: AnswerRelay) => void;
+    /**
+     * The chat route the relay posts to. This router's own by default; a test
+     * hands in one over a recording model, to see exactly what it receives.
+     */
+    answerRelayRoute?: (req: Request, url: URL, pathname: string, method: string) => Promise<Response | null>;
+  } = {},
 ): RouteHandler {
   const {
     GATEWAY_URL, GATEWAY_TOKEN, OPENCLAW_DIR,
@@ -890,13 +907,37 @@ export function createTopicsRouter(
   // The two doors that leave the machine (mail and Google): same treatment as
   // the human channel, because the confirmation they impose IS that channel.
   const outboundRouter = createOutboundRouter(ctx);
-  const goalLoop = goalContinuationForChatRoute({ ctx, resolveProvider, commandWakeState, log: (m) => console.log(`[goal] ${m}`) });
+  const goalLoop = goalContinuationForChatRoute({
+    ctx, resolveProvider, commandWakeState, log: (m) => console.log(`[goal] ${m}`),
+    hasOpenQuestion: (sk) => sessionHasOpenQuestion(ctx, sk, decodeCol),
+  });
   extra.exposeGoalLoop?.(goalLoop);
+  // An answer whose asker is gone, owed to the model until the chat route takes
+  // it (`lib/answer-relay.ts`). Settled on the question's own row, by id. The
+  // chat route below holds it too: it is where the answer is taken, so a
+  // message the person writes later never gets in front of it.
+  const answerRelay = createAnswerRelay({
+    isBusy: (sk) => !!ctx.isStreaming(sk),
+    route: extra.answerRelayRoute ?? (async (...a) => chatRouter(...a)),
+    settle: (owed) => {
+      // The mark and the index move together: `owed_answers` is what the boot loads.
+      ctx.db.transaction(() => {
+        if (owed.rowId) updateToolCallFields(owed.sessionKey, owed.toolCallId, { answerRelay: 'sent' }, { rowId: owed.rowId });
+        markAnswerNotOwed(ctx.db, owed.sessionKey, owed.toolCallId);
+      })();
+      broadcastToAll({
+        type: 'stream:tool_update', sessionKey: owed.sessionKey,
+        topicId: getTopicBySessionKey(owed.sessionKey)?.id, toolCallId: owed.toolCallId, answerRelay: 'sent',
+      });
+    },
+    log: (m) => console.warn(`[answer-relay] ${m}`),
+  });
+  extra.exposeAnswerRelay?.(answerRelay);
   const chatRouter = createChatRouter(ctx, {
     resolveProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR,
-    hooks: extra.hooks, goalLoop,
+    hooks: extra.hooks, goalLoop, answerRelay,
   }, browserService);
   goalLoop.useRoute(async (...a) => chatRouter(...a)); // now: a boot check-in may come before any request
 
@@ -928,6 +969,8 @@ export function createTopicsRouter(
       console.warn(`[topics] initial message of ${sessionKey} failed:`, err);
     }
   }
+  /** How far back an answer looks for its question when the short window misses it. */
+  const QUESTION_LOOKBACK_ROWS = 400;
   // Il ponte MCP del browser (le sei rotte `…/browser/*` in due forme
   // d'indirizzo) sta in `browser-bridge.ts` con i tre helper di risoluzione del
   // contesto che usava SOLO lui. `browserNavigatedTopics` è la stessa istanza
@@ -2560,10 +2603,13 @@ export function createTopicsRouter(
       // A machine's stop says so on them, not "Interrotto…", which the boot's
       // repair pass would take for a turn to resume.
       const closedBecause = isMachineStop(cause) ? machineStopToolError(cause) : undefined;
-      for (const tc of endStream(sessionKey, closedBecause ? { closedBecause } : undefined)) {
+      // A Stop ends the question on screen too: it is the one explicit cancel
+      // a person has, and the panel then says so (`askEnded: 'cancelled'`).
+      for (const tc of endStream(sessionKey, { ...(closedBecause ? { closedBecause } : {}), cancelQuestions: true })) {
         broadcastToAll({
           type: "stream:tool_result", sessionKey, topicId, toolCallId: tc.id, status: "error",
           result: tc.result, error: tc.error, endedAt: tc.endedAt,
+          ...(tc.askEnded ? { askEnded: tc.askEnded } : {}),
           ...(stream.messageId ? { messageId: stream.messageId } : {}),
         });
       }
@@ -2643,9 +2689,19 @@ export function createTopicsRouter(
       // `lib/ask-answer-routing.ts`. The window is short on purpose: the
       // question being answered belongs to this exchange, and a scan of the
       // whole session would cost a table walk per answer.
+      //
+      // A QUESTION IS NOT LOST TO THE WINDOW. It now outlives its turn, and the
+      // machine turns after it (a relaunch, a goal nudge, a command's wake) can
+      // push it past the last twenty rows: found nowhere, the answer went to
+      // the provider's stdin path and died there (503/404) while the row stayed
+      // `waiting_for_input`. Only when the short window misses it, the lookup
+      // looks further back.
       const recentRows = (() => {
-        try { return recentActiveRows(ctx, sessionKey); }
-        catch { return [] as AskHaystackRow[]; }
+        try {
+          const rows = recentActiveRows(ctx, sessionKey);
+          if (response.kind !== 'questions' || rowCarryingTool(rows, toolCallId, decodeCol)) return rows;
+          return recentActiveRows(ctx, sessionKey, QUESTION_LOOKBACK_ROWS);
+        } catch { return [] as AskHaystackRow[]; }
       })();
       const askRowId = response.kind === 'questions' ? rowCarryingAsk(recentRows, toolCallId, decodeCol) : null;
       // EVERY WRITE OF THIS ROUTE GOES ON THE ROW THAT CARRIES THE TOOL, by id,
@@ -2683,12 +2739,28 @@ export function createTopicsRouter(
         // generic leg, which only reaches the wait when no confirmation of this
         // session holds the gate's lock, so its question is the only one that
         // can be waiting.
-        const openFor = openAskToolCallId(sessionKey);
-        if (openFor && openFor !== toolCallId) {
+        //
+        // Since 30/09 the rule is total: the click is bound to the panel's id
+        // from here to the model (`routeAnswer`). A live leg takes it only if it
+        // is the leg of THAT question; an answer to a question whose asker is
+        // gone never goes to another question's leg (it went, and the model
+        // read the answer to A as the result of B), it is queued as a message.
+        const asked: StoredQuestionCall | null = askRowId ? storedToolCall(recentRows, toolCallId, decodeCol) : null;
+        const open = openAskIdentity(sessionKey);
+        const route = routeAnswer({
+          toolCallId,
+          clicked: asked,
+          open,
+          legCallId: open && !open.toolCallId ? liveQuestionCallId(recentRows, open.questions, decodeCol) : null,
+        });
+        if (route === 'not-current') {
           // Nothing delivered and NO wait killed: the live one stays live and
           // the person can still answer the right panel. The 409 reaches the
           // form as an inline error (`ToolInputForm` shows the ApiError
-          // message), which is the opposite of the silence it replaces.
+          // message), which is the opposite of the silence it replaces. The
+          // same for a panel already answered or ended (another window, a
+          // phone that reconnected): delivering it would reopen a closed row
+          // and hand the model an answer to nothing.
           return json({ error: ASK_NOT_CURRENT_LINE, code: "ask_not_current" }, 409);
         }
         const submittedAt = new Date().toISOString();
@@ -2700,9 +2772,45 @@ export function createTopicsRouter(
           submittedAt,
         };
         const topic = getTopicBySessionKey(sessionKey);
+        // THE ASKER IS GONE: the turn that asked ended, the server restarted
+        // under it, its child died. The question stayed open on purpose, and
+        // the answer reaches the model as the next user message with the
+        // question quoted (`lib/question-outlives-asker.ts`). The row says
+        // `queued` BEFORE anything is sent: the panel reads "answered, on its
+        // way", and a restart finds the answer owed (`lib/answer-relay.ts`).
+        // No ask is ended here: an open one belongs to another question.
+        const deliverAsMessage = (late: Record<string, string>) => {
+          const queuedResponse = { ...normalised, answers: late };
+          // With its entry in `owed_answers`, in one transaction: the boot
+          // loads owed answers from there, whatever the question's age.
+          ctx.db.transaction(() => {
+            patchToolRow({ status: 'success', userResponse: queuedResponse, answerRelay: 'queued' });
+            if (toolRowId) markAnswerOwed(ctx.db, { toolCallId, sessionKey, rowId: toolRowId });
+          })();
+          broadcastToAll({
+            type: 'stream:tool_update', sessionKey, topicId: topic?.id, toolCallId,
+            status: 'success', userResponse: queuedResponse, answerRelay: 'queued',
+          });
+          answerRelay.enqueue({
+            sessionKey, toolCallId, rowId: toolRowId,
+            content: answerAsNextMessage(questionTexts(asked), late),
+          });
+        };
+        if (route === 'message') {
+          deliverAsMessage(answers);
+          return json({ ok: true, submittedAt, deliveredAs: 'message' });
+        }
         // Unblock the bridge handler → it returns the answers as its tool
-        // result → the CLI resumes the turn.
-        deliverAnswer(sessionKey, answers);
+        // result → the CLI resumes the turn. Bound to this panel and its
+        // questions: only a leg of this question collects it from the buffer,
+        // and if none ever does (its asker died unmarked, or after the check
+        // above) the buffer hands it to the delivery as a message instead of
+        // dropping it.
+        deliverAnswer(sessionKey, answers, {
+          toolCallId,
+          ...(asked ? { questions: questionTexts(asked) } : {}),
+          onUnclaimed: deliverAsMessage,
+        });
         // Forget the provider's pending entry so a reattach REPLAY won't
         // re-open the panel for an already-answered question. We intentionally
         // do NOT call resumeWithToolResponse — the bridge return is the result.

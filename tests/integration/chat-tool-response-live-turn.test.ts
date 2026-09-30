@@ -218,7 +218,9 @@ describe("a second submission of a question already answered leaves the returned
   // The client expects it (useChat's tool-response: "404 = someone already
   // answered, the other window or the panel").
   for (const road of [
-    { name: "the bridge's ask (200, the answer is buffered)", tool: ASK_TOOL, second: 200 },
+    // The bridge's question is closed on its row: a second answer is refused
+    // (409) instead of being buffered for nobody (29/09).
+    { name: "the bridge's ask (409, the question is no longer open)", tool: ASK_TOOL, second: 409 },
     { name: "a tool paused on the provider (404, no pending input)", tool: "AskUserQuestion", second: 404 },
   ]) {
     test(road.name, async () => {

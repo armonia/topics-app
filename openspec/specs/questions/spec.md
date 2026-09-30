@@ -58,19 +58,23 @@ chiuso per inattività.
 Una sessione SHALL avere UNA domanda in volo: una seconda SHALL soppiantare la
 prima, e la prima SHALL essere rigettata invece di restare appesa.
 
-Il cronometro SHALL partire al PRIMO tratto e i successivi SHALL essere muti,
-altrimenti un sondaggio ogni pochi secondi terrebbe viva la domanda per sempre.
+L'età della domanda SHALL partire al PRIMO tratto e i successivi SHALL essere
+muti. L'età NON SHALL essere un motivo di chiusura: nessun orologio chiude una
+domanda (ASK-11). Serve solo a chi la mostra e a chi la registra.
 
 Lo stato «c'è una domanda in attesa» SHALL essere letto dalla domanda e NON dal
 tratto in corso: nei buchi fra un tratto e l'altro il turno sembrerebbe muto, e
 qualcuno lo chiuderebbe.
 
-La decisione se chiudere una domanda vecchia SHALL essere una funzione a tre
+La decisione se chiudere l'ATTESA di una domanda SHALL essere una funzione a tre
 esiti — niente, rimanda, chiudi — e SHALL sbagliare dal lato di NON uccidere:
-quando non si sa se il processo è vivo, SHALL rimandare.
+quando non si sa se il processo è vivo, SHALL rimandare. Chiudere SHALL avvenire
+solo quando il processo sotto il pannello è morto, e chiude l'attesa in memoria,
+non la domanda, che resta sulla sua riga (ASK-11).
 
-Una risposta che arriva quando nessuno sta più aspettando SHALL essere
-BUFFERIZZATA per una finestra breve, non persa.
+Una risposta che arriva quando nessuno sta ascoltando SHALL essere BUFFERIZZATA
+per più della grazia di trasporto del ponte più un tratto; se nessuno la ritira,
+SHALL essere consegnata come messaggio successivo (ASK-11), MAI scartata.
 
 Annullare una domanda SHALL produrre un errore dell'attrezzo, mai una risposta
 inventata.
@@ -86,6 +90,11 @@ inventata.
 #### Scenario: non si sa se il processo è vivo
 - **GIVEN** una domanda vecchia e nessuna informazione sul processo
 - **THEN** SHALL essere rimandata, non chiusa
+
+#### Scenario: una domanda di venticinque ore con il figlio vivo
+- **GIVEN** una domanda aperta da 25 ore e il processo vivo
+- **THEN** SHALL essere rimandata, non chiusa
+- **AND** un tratto successivo SHALL rispondere «in attesa», mai «scaduta»
 
 ### Requirement: ASK-03 — Se la sessione appartiene a un task, la domanda arriva sulla card
 
@@ -249,7 +258,7 @@ testo libero.
 Chi risponde a una domanda SCRIVENDO nel campo della chat SHALL vedere il proprio
 testo arrivare ALLA DOMANDA, non finire in coda: la coda si svuoterebbe solo dopo
 aver fatto la cosa che l'agente non sta facendo, e chi ha risposto resta fermo
-fino allo scadere dell'attesa — un'ora e mezza, col cronometro che scorre.
+per sempre, perché la domanda non scade.
 
 Con una domanda a schermo il campo SHALL DICHIARARLO — nell'invito e nel comando
 di invio — e NON SHALL comparire nessuna bolla in coda.
@@ -665,12 +674,17 @@ rispondere due volte. Lo stato deve arrivare dal server.
 
 ### Requirement: ASK-10 -- La fine del turno consegna quello che ha spento, e non spegne il pannello che nasce da lei
 
-Chiudere uno stream ANNULLA ogni strumento rimasto in attesa di un umano: il
-turno e' finito, e un clic non raggiungerebbe piu' nessuno. La chiusura SHALL
-percio' consegnare l'elenco di quel che ha annullato a chi la invoca, e quelle
-righe SHALL essere annunciate ai client vivi: e' l'unico evento capace di
-spegnere un pannello gia' a schermo, e scartarlo lasciava a schermo un pannello
-cliccabile sopra una riga che in archivio era gia' `error`.
+Chiudere uno stream ANNULLA ogni PERMESSO rimasto in attesa di un umano: il
+turno e' finito, e la sua decisione non sbloccherebbe piu' niente. La chiusura
+SHALL percio' consegnare l'elenco di quel che ha annullato a chi la invoca, e
+quelle righe SHALL essere annunciate ai client vivi: e' l'unico evento capace di
+spegnere un pannello gia' a schermo.
+
+Una DOMANDA invece NON SHALL essere annullata dalla fine del turno (29/09): SHALL
+restare `waiting_for_input`, segnata `askerGone`, cliccabile, e la sua risposta
+SHALL raggiungere il modello come messaggio successivo (ASK-11). La SOLA fine del
+turno che chiude la domanda SHALL essere lo Stop della persona, e allora la riga
+SHALL portare `askEnded: cancelled` ed essere annunciata.
 
 L'approvazione del piano SHALL essere l'eccezione, ed e' esente per la sua
 origine: quel pannello lo installa la fine del turno stessa, la sua risposta
@@ -682,11 +696,144 @@ L'esenzione SHALL valere per l'identificativo nominato e non per la regola:
 ogni altro strumento appeso accanto viene chiuso come sempre.
 
 #### Scenario: il pannello che il turno finito si lascia dietro
-- **GIVEN** una domanda ancora a schermo quando il turno si chiude
+- **GIVEN** una domanda ancora a schermo quando il turno si chiude da solo
 - **WHEN** lo stream finisce
-- **THEN** la riga SHALL essere annullata E annunciata, cosi' il pannello sparisce senza ricaricare
+- **THEN** la riga SHALL restare `waiting_for_input` con `askerGone`, e NON SHALL essere annunciata come chiusa
+
+#### Scenario: lo Stop sulla domanda
+- **GIVEN** una domanda a schermo
+- **WHEN** la persona preme Stop
+- **THEN** la riga SHALL essere annullata con `askEnded: cancelled` E annunciata, cosi' il pannello si spegne senza ricaricare
 
 #### Scenario: il piano sopravvive alla fine che lo ha creato
 - **GIVEN** un'approvazione di piano installata dalla chiusura del turno
 - **WHEN** la stessa chiusura annulla gli strumenti in attesa
 - **THEN** quel pannello SHALL restare `waiting_for_input`, cliccabile e onorato
+
+### Requirement: ASK-11 -- Una domanda aspetta la sua persona, e sopravvive a chi l'ha chiesta
+
+Una domanda posta da un topic SHALL aspettare la persona come in Claude Code:
+nessun orologio la chiude. SHALL finire SOLO per una di tre ragioni: una
+risposta, uno Stop della persona, o un messaggio nuovo della persona al posto
+della risposta.
+
+La domanda SHALL vivere sulla sua RIGA (`waiting_for_input`), non nella memoria
+del processo. Quando il processo che l'ha chiesta non c'e' piu' (il turno e'
+finito, il server si e' riavviato sotto un turno nativo, il figlio CLI e' morto)
+la riga SHALL restare aperta e segnata `askerGone`, e il pannello SHALL restare
+cliccabile, anche dopo un ricaricamento della pagina.
+
+Una risposta data quando chi ha chiesto non c'e' piu' SHALL raggiungere il
+modello come MESSAGGIO SUCCESSIVO dell'utente, con la domanda citata e la
+risposta sotto, e la riga SHALL passare a risposta. Una risposta data prima di un
+riavvio e non ancora ritirata SHALL essere ritirata DALLA RIGA dal tratto
+successivo del processo sopravvissuto. Una risposta NON SHALL mai essere persa
+in silenzio.
+
+Una risposta SHALL essere legata alla SUA domanda, cioe' all'id del pannello
+cliccato, dal clic fino al modello. Il tratto vivo di un'altra domanda della
+stessa sessione (anche la stessa domanda rifatta da un turno rilanciato) NON
+SHALL mai riceverla come proprio risultato, e una risposta messa da parte per il
+tratto successivo SHALL andare solo al tratto della sua domanda.
+
+Una risposta a una domanda il cui processo non c'e' piu' SHALL essere messa in
+CODA sulla sua riga (`answerRelay: queued`) prima di partire, e SHALL raggiungere
+il modello come messaggio successivo appena la sessione e' libera: dietro un
+turno della macchina in volo aspetta, senza limite, e un riavvio la trova ancora
+dovuta e la manda, qualunque sia l'eta' della domanda, anche su una riga rimasta
+parziale o in un topic archiviato: il boot legge le risposte dovute da un indice
+(`owed_answers`) scritto e svuotato nella stessa transazione del segno, non da
+una scansione delle righe per eta'. La coda riparte dalla FINE DEL TURNO della sessione, non da un
+orologio, e un rifiuto la lascia dovuta al turno successivo. Un messaggio che la
+persona scrive DOPO la risposta NON SHALL mai raggiungere il modello prima di
+lei: se arriva mentre la risposta e' ancora in coda, la porta davanti a se', nello
+stesso turno, e questo SHALL valere anche subito dopo un riavvio, prima che il
+server abbia riadottato i turni sopravvissuti. Presa non e' consegnata: la riga
+SHALL restare `queued` finche' il turno che la porta non e' davvero partito (il
+primo evento del modello), e un turno che non parte o che il fornitore chiude
+prima di quel primo evento SHALL lasciarla in coda, in testa, per la fine del
+turno successivo. La consegna SHALL essere ALMENO UNA VOLTA: una risposta NON
+SHALL mai andare persa, e se il turno che la porta fallisce prima che il modello
+la legga SHALL essere portata di nuovo, anche se un fornitore che conserva la
+storia (o il runtime nativo) finisce per leggerla due volte. Su un turno che
+parte, il modello SHALL leggerla una volta sola, anche quando il runtime nativo
+ricostruisce la sessione dalle righe. Il pannello SHALL dire «risposto» solo quando la risposta e'
+stata presa da chi ha chiesto o e' in quella coda, e SHALL dire che e' in
+arrivo finche' la coda non l'ha consegnata. Consegnata, NON SHALL chiudere le
+altre domande aperte della persona, e nemmeno un messaggio di un altro agente
+(`send_chat_message`) SHALL farlo.
+
+Un turno la cui domanda e' ancora aperta NON SHALL essere ripreso da solo al
+boot: rimandato, il modello rifarebbe la stessa domanda in un secondo pannello.
+Lo riprende la risposta. Per la stessa ragione il ciclo dell'obiettivo NON SHALL
+comprare un turno suo mentre una domanda della sessione aspetta la persona.
+
+Un messaggio nuovo della persona SHALL chiudere come `superseded` ogni domanda
+aperta che nessun processo sta piu' aspettando. Una domanda chiusa senza
+risposta SHALL dirlo a parole semplici (fermata, sostituita da un messaggio,
+chiusa) e NON SHALL sembrare cliccabile; un secondo clic su una domanda gia'
+chiusa SHALL essere rifiutato.
+
+L'attrezzo nativo `AskUserQuestion` NON SHALL essere offerto alla CLI senza
+interfaccia: li' viene chiuso come «non risposto» nell'istante in cui il permesso
+e' concesso. La domanda SHALL passare dal ponte di Topics, su ogni runtime che lo
+monta (Claude Code, nativo, Codex), e il ponte SHALL dipingere il pannello anche
+su Codex.
+
+#### Scenario: la risposta dopo un riavvio
+- **GIVEN** una domanda aperta su un turno nativo e un riavvio del server
+- **WHEN** la persona ricarica la pagina e risponde
+- **THEN** il pannello SHALL essere ancora li'
+- **AND** il modello SHALL ricevere un messaggio con la domanda citata e la risposta
+
+#### Scenario: la risposta data prima del riavvio
+- **GIVEN** una risposta data e non ancora ritirata, e un riavvio del server con il figlio CLI vivo
+- **WHEN** il figlio torna a chiedere
+- **THEN** SHALL ricevere la risposta dalla riga, come risultato del tool
+
+#### Scenario: la risposta mentre gira un turno della macchina
+- **GIVEN** una domanda il cui processo non c'e' piu', e un turno della macchina in volo sulla sessione
+- **WHEN** la persona risponde
+- **THEN** la riga SHALL passare a risposta con `answerRelay: queued`
+- **AND** il modello SHALL ricevere la domanda citata con la risposta appena il turno finisce, una volta sola
+
+#### Scenario: la persona scrive dopo aver risposto
+- **GIVEN** una risposta in coda dietro un turno della macchina in volo
+- **WHEN** la persona scrive un messaggio nuovo e il turno finisce
+- **THEN** il modello SHALL leggere la risposta prima del messaggio nuovo, una volta sola
+
+#### Scenario: la persona scrive subito dopo un riavvio
+- **GIVEN** una risposta in coda e un riavvio del server
+- **WHEN** il messaggio della persona arriva prima che i turni sopravvissuti siano riadottati
+- **THEN** il modello SHALL leggere la risposta prima del messaggio, una volta sola
+
+#### Scenario: il turno che porta la risposta non parte
+- **GIVEN** una risposta presa da un messaggio
+- **WHEN** la rotta lo rifiuta dopo averla presa, o il fornitore fallisce prima di un qualsiasi evento del modello
+- **THEN** la riga SHALL restare `queued` e la risposta SHALL arrivare col messaggio successivo, davanti a lui
+
+#### Scenario: il turno che l'ha portata fallisce
+- **GIVEN** una risposta portata da un turno che il fornitore chiude con un errore prima che il modello risponda
+- **WHEN** la persona scrive il messaggio successivo
+- **THEN** la risposta SHALL arrivare di nuovo, davanti al messaggio: almeno una volta, mai persa
+- **AND** la riga SHALL passare a `sent` e l'indice delle risposte dovute NON SHALL piu' contenerla, anche se il modello la legge due volte
+
+#### Scenario: una risposta dovuta a una domanda di quaranta giorni
+- **GIVEN** una risposta in coda a una domanda posta quaranta giorni prima, e un riavvio del server
+- **WHEN** la persona scrive il messaggio successivo
+- **THEN** il modello SHALL leggere la risposta prima del messaggio, e la riga SHALL passare a `sent`
+
+#### Scenario: la vecchia domanda e quella nuova
+- **GIVEN** una domanda A il cui processo non c'e' piu', e un turno nuovo fermo sulla domanda B
+- **WHEN** la persona risponde ad A
+- **THEN** il tratto di B NON SHALL ricevere la risposta ad A
+- **AND** la risposta ad A SHALL arrivare al modello come messaggio, dopo il turno di B
+
+#### Scenario: un messaggio al posto della risposta
+- **GIVEN** una domanda aperta il cui turno e' finito
+- **WHEN** la persona scrive un messaggio nuovo
+- **THEN** la domanda SHALL chiudersi come `superseded` e dirlo a parole semplici
+
+#### Scenario: l'attrezzo nativo senza interfaccia
+- **GIVEN** una sessione Claude Code senza interfaccia, in qualunque taglio di strumenti
+- **THEN** `AskUserQuestion` SHALL essere fra gli strumenti vietati

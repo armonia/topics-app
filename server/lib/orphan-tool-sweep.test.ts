@@ -6,7 +6,7 @@ import { ORPHAN_ERRORS, finalizeOrphanTool } from "./orphan-tool-sweep";
 
 const NOW = 1_700_000_000_000;
 
-describe("sessione MORTA: si chiude tutto ciò che era rimasto appeso", () => {
+describe("sessione MORTA: si chiude tutto ciò che era rimasto appeso, tranne la domanda", () => {
   it("un tool in corso", () => {
     const tc: Record<string, unknown> = { status: "running", startedAt: NOW - 5_000 };
     expect(finalizeOrphanTool(tc, { now: NOW })).toBe(true);
@@ -17,10 +17,16 @@ describe("sessione MORTA: si chiude tutto ciò che era rimasto appeso", () => {
     expect(tc.endedAt).toBe(NOW - 5_000);
   });
 
-  it("una domanda a schermo", () => {
+  it("a question on screen is NOT closed: it stays open with its asker marked gone", () => {
+    // A restart used to end a question nobody had cancelled. It now waits for
+    // its person on the row, and the answer goes out as the next message.
     const tc: Record<string, unknown> = { status: "waiting_for_input" };
     expect(finalizeOrphanTool(tc, { now: NOW })).toBe(true);
-    expect(tc.error).toBe(ORPHAN_ERRORS.question);
+    expect(tc.status).toBe("waiting_for_input");
+    expect(tc.askerGone).toBe(true);
+    expect(tc.error).toBeUndefined();
+    // Idempotent: the next boot finds nothing to change.
+    expect(finalizeOrphanTool(tc, { now: NOW })).toBe(false);
   });
 
   it("un permesso a schermo", () => {
@@ -79,5 +85,34 @@ describe("una spiegazione già scritta vince sulla nostra", () => {
     const tc: Record<string, unknown> = { status: "running", startedAt: 1, endedAt: 42 };
     finalizeOrphanTool(tc, { now: NOW });
     expect(tc.endedAt).toBe(42);
+  });
+});
+
+describe("an answer nobody collected is owed, not interrupted", () => {
+  const answered = () => ({
+    id: "toolu_q", name: "mcp__topics__ask_user_question", status: "running",
+    userResponse: { kind: "questions", answers: { "Which branch?": "next" } },
+  } as Record<string, unknown>);
+
+  it("a dead session: the answered question is queued for the model as a message", () => {
+    const tc = answered();
+    expect(finalizeOrphanTool(tc, { childAlive: false, now: 5 })).toBe(true);
+    expect(tc).toMatchObject({ status: "success", answerRelay: "queued", endedAt: 5 });
+    expect(tc.error).toBeUndefined();
+  });
+
+  it("a live session: left alone, its next leg collects the answer off the row", () => {
+    const tc = answered();
+    expect(finalizeOrphanTool(tc, { childAlive: true })).toBe(false);
+    expect(tc.status).toBe("running");
+  });
+
+  it("a running question with no answer, or another tool, is still interrupted", () => {
+    const bare: Record<string, unknown> = { ...answered(), userResponse: undefined };
+    finalizeOrphanTool(bare, { childAlive: false });
+    expect(bare.status).toBe("error");
+    const bash: Record<string, unknown> = { ...answered(), name: "Bash" };
+    finalizeOrphanTool(bash, { childAlive: false });
+    expect(bash.status).toBe("error");
   });
 });

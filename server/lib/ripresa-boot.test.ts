@@ -5,7 +5,7 @@
  * si può accendere: ogni ripresa sbagliata è un turno vero, a pagamento, e in
  * un ciclo sono tutti.
  *
- * @covers RESUME-01, RESUME-03
+ * @covers RESUME-01, RESUME-03, ASK-11
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
@@ -43,6 +43,14 @@ const base: RigaDaValutare = {
 describe("quale chat riprende da sola", () => {
   test("ultimo turno interrotto, poco fa: si riprende", () => {
     expect(chatDaRiprendere(base, ORA)).toBe(true);
+  });
+
+  test("a turn cut while its question is still open is NOT resent: it resumes with the answer", () => {
+    // Resent, the model asks the same question again in a second panel while
+    // the first one still waits (29/09). The answer to the open one is what
+    // resumes the chat, as the next message (`lib/question-outlives-asker.ts`).
+    expect(resumeVerdict({ ...base, openQuestion: true }, ORA)).toBe("no");
+    expect(resumeVerdict({ ...base, ruolo: "user", blocks: null, timestampMs: ORA - USER_TAIL_GRACE_MS - 1, openQuestion: true }, ORA)).toBe("no");
   });
 
   /**

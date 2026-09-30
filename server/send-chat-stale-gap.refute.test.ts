@@ -73,7 +73,7 @@ describe("stale gap on the real registry + routes", () => {
 
     // The sweeper at 181 s would NOT finalize: child alive + tool running -> it extends.
     const outcomes = sweepStaleStreams({
-      now: () => Date.now(), timeoutMs: 180_000, askTtlMs: 30 * 60_000,
+      now: () => Date.now(), timeoutMs: 180_000,
       activeStreams: ctx.activeStreams as never, rescued: new Set(), silence: new Map(),
       getMessageById: (id: string) => ctx.getMessageById(id) as never,
       humanHoldAgeMs: () => null, childAlive: () => true,

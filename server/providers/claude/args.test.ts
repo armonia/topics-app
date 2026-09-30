@@ -12,7 +12,7 @@
   * @covers CCLI-07, CHAT-FORK-02
  */
 import { describe, expect, test } from "bun:test";
-import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim, TRIMMED_TOOLS_CHAT, TRIMMED_TOOLS_DISPATCHED } from "./args";
+import { buildClaudeArgs, buildClaudeOneshotArgs, resolveToolTrim, TRIMMED_TOOLS_CHAT, TRIMMED_TOOLS_DISPATCHED, HEADLESS_DISALLOWED_TOOLS } from "./args";
 import { buildCodexArgs, buildCodexOneshotArgs } from "../codex/args";
 
 const BASE = {
@@ -109,7 +109,7 @@ describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca"
     expect(i).toBeGreaterThan(-1);
     // Il valore è UNA stringa sola. `--disallowed-tools A B C` è variadico e in
     // mezzo all'argv si mangerebbe la flag successiva.
-    expect(args[i + 1]).toBe("Workflow,Artifact,ReportFindings,ListAgents");
+    expect(args[i + 1]).toBe("Workflow,Artifact,ReportFindings,ListAgents,AskUserQuestion");
     expect(args[i + 2]).toStartWith("--");
   });
 
@@ -121,7 +121,7 @@ describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca"
     const args = buildClaudeArgs({ ...BASE, toolTrim: "chat" } as never);
     const i = args.indexOf("--disallowed-tools");
     expect(i).toBeGreaterThan(-1);
-    expect(args[i + 1]).toBe("Artifact,ReportFindings,ListAgents");
+    expect(args[i + 1]).toBe("Artifact,ReportFindings,ListAgents,AskUserQuestion");
     expect(args[i + 1]).not.toContain("Workflow");
     expect(args[i + 2]).toStartWith("--");
   });
@@ -138,9 +138,21 @@ describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca"
     expect(TRIMMED_TOOLS_CHAT).not.toContain("Workflow" as never);
   });
 
-  test("spento: nessuna deny, il registro resta intero", () => {
-    expect(buildClaudeArgs({ ...BASE })).not.toContain("--disallowed-tools");
-    expect(buildClaudeArgs({ ...BASE, toolTrim: null } as never)).not.toContain("--disallowed-tools");
+  test("trim off: the registry stays whole, except the built-in question that cannot work headless", () => {
+    for (const args of [buildClaudeArgs({ ...BASE }), buildClaudeArgs({ ...BASE, toolTrim: null } as never)]) {
+      expect(args[args.indexOf("--disallowed-tools") + 1]).toBe("AskUserQuestion");
+    }
+  });
+
+  test("the built-in AskUserQuestion is never offered headless: 9 out of 9 died unanswered", () => {
+    // CLI 2.1.285 registers it under `--print` and closes it with "The user
+    // did not answer the questions." the moment its permission is granted
+    // (topic 26826e4e, 29/09). The bridge tool waits for the person instead.
+    for (const toolTrim of ["chat", "dispatched", null]) {
+      const args = buildClaudeArgs({ ...BASE, toolTrim } as never);
+      expect(args[args.indexOf("--disallowed-tools") + 1]!.split(",")).toContain("AskUserQuestion");
+    }
+    expect([...HEADLESS_DISALLOWED_TOOLS]).toEqual(["AskUserQuestion"]);
   });
 
   test("chi decide il taglio: dispacciato → quattro, chat → tre, `off` → nessuno", () => {
@@ -163,11 +175,11 @@ describe("buildClaudeArgs — gli schemi dei tool che il differimento non tocca"
     // L'assertion che chiude il giro: la stessa funzione che lo spawn chiama,
     // infilata nella stessa funzione che costruisce l'argv.
     const chat = buildClaudeArgs({ ...BASE, toolTrim: resolveToolTrim({ dispatched: false, env: {} }) } as never);
-    expect(chat[chat.indexOf("--disallowed-tools") + 1]).toBe("Artifact,ReportFindings,ListAgents");
+    expect(chat[chat.indexOf("--disallowed-tools") + 1]).toBe("Artifact,ReportFindings,ListAgents,AskUserQuestion");
     const agente = buildClaudeArgs({ ...BASE, toolTrim: resolveToolTrim({ dispatched: true, env: {} }) } as never);
-    expect(agente[agente.indexOf("--disallowed-tools") + 1]).toBe("Workflow,Artifact,ReportFindings,ListAgents");
+    expect(agente[agente.indexOf("--disallowed-tools") + 1]).toBe("Workflow,Artifact,ReportFindings,ListAgents,AskUserQuestion");
     const spento = buildClaudeArgs({ ...BASE, toolTrim: resolveToolTrim({ dispatched: true, env: { TOPICS_TOOL_TRIM: "off" } }) } as never);
-    expect(spento).not.toContain("--disallowed-tools");
+    expect(spento[spento.indexOf("--disallowed-tools") + 1]).toBe("AskUserQuestion");
   });
 
   test("`Task` e `Read` NON sono in nessuna delle due liste: sono ciò che rende capace l'agente", () => {
@@ -268,6 +280,7 @@ describe("buildClaudeArgs — la fotografia", () => {
       "--mcp-config", "/tmp/topics-mcp/topic-7.json",
       "--strict-mcp-config",
       "--permission-prompt-tool", "mcp__topics__approval_prompt",
+      "--disallowed-tools", "AskUserQuestion",
       "--append-system-prompt", "<prompt di sistema>",
       "--input-format", "stream-json",
       "--output-format", "stream-json",
@@ -429,6 +442,7 @@ describe("buildCodexArgs — la fotografia", () => {
       "--sandbox", "workspace-write",
       "-c", `mcp_servers.topics.command="/usr/local/bin/bun"`,
       "-c", `mcp_servers.topics.args=["/srv/topics/mcp.ts","--session","topic:7"]`,
+      "-c", "mcp_servers.topics.tool_timeout_sec=2147483",
       "-c", `model_reasoning_effort="high"`,
     ]);
   });
@@ -463,7 +477,7 @@ describe("buildCodexArgs — la fotografia", () => {
     const args = buildCodexArgs({ bridge: { command: 'c:\\bun.exe', args: ['a "b"'] } });
     const cmd = args[args.indexOf("-c") + 1]!;
     expect(cmd).toBe('mcp_servers.topics.command="c:\\\\bun.exe"');
-    expect(args[args.lastIndexOf("-c") + 1]).toBe('mcp_servers.topics.args=["a \\"b\\""]');
+    expect(args[args.indexOf("-c", args.indexOf("-c") + 1) + 1]).toBe('mcp_servers.topics.args=["a \\"b\\""]');
   });
 
   test("one-shot: niente `--json`, qui si legge il testo", () => {

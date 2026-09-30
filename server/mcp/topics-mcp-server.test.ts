@@ -54,10 +54,11 @@ import {
   isToolAllowedForProfile,
   ASK_LEG_MS,
   ASK_MAX_LEGS,
+  ASK_TRANSPORT_GRACE_MS,
 } from "./topics-mcp-server";
 import { callRunCommand } from "./command-tools";
 import { CHECKS_LEG_MS } from "../services/checks-gate";
-import { ASK_TTL_MS } from "../lib/ask-user-bridge";
+import { ASK_TRANSPORT_CEILING_MS, ASK_BUFFER_TTL_MS } from "../lib/ask-user-bridge";
 
 // ---------------------------------------------------------------------------
 // parseArgs
@@ -2033,14 +2034,20 @@ describe("callAskUserQuestion", () => {
     expect(progress).toEqual([1, 2, 3]);
   });
 
-  test("il tetto delle gambe non decide mai la morte di una domanda: sta sopra il TTL del server", () => {
-    // Chi chiude una domanda è il SERVER (`cancelled`), non questo ciclo. Il
-    // tetto delle gambe è solo un anti-giro-a-vuoto, e se scende sotto il TTL
-    // diventa lui a uccidere il pannello — con il messaggio sbagliato («gave up
-    // after N poll legs») al posto di quello vero. È già successo: 500 gambe da
-    // 25 s = 3 h 28, che stava sopra il TTL di 90 minuti di allora e sotto
-    // quello di adesso. Il margine si prova, non si ricorda.
-    expect(ASK_MAX_LEGS * ASK_LEG_MS).toBeGreaterThan(ASK_TTL_MS);
+  test("the leg ceiling never decides a question's death: it sits above the transport ceiling", () => {
+    // Only the SERVER ends a question (`cancelled`), not this loop. The leg
+    // ceiling is an anti-spin guard, and below the CLI's own patience with the
+    // call it would become what kills the panel, with the wrong message ("gave
+    // up after N poll legs"). It already happened once: 500 legs of 25 s were
+    // 3 h 28. The margin is proven, not remembered.
+    expect(ASK_MAX_LEGS * ASK_LEG_MS).toBeGreaterThan(ASK_TRANSPORT_CEILING_MS);
+  });
+
+  test("an answer given while the bridge retries through a restart is still buffered when it comes back", () => {
+    // The bridge keeps retrying for its transport grace, then sends one more
+    // leg. An answer buffered in that window must outlive both, or it is handed
+    // to the late delivery while the asker is about to claim it.
+    expect(ASK_BUFFER_TTL_MS).toBeGreaterThan(ASK_TRANSPORT_GRACE_MS + ASK_LEG_MS);
   });
 });
 

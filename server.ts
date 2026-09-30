@@ -2,6 +2,9 @@ import { configureApiCredentialRoot, readApiProviderKey } from "./server/service
 import { createLandingQueue } from "./server/services/landing-queue";
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanedRunningTools } from "./server/lib/boot-orphan-tools";
+import { loadOwedAnswers } from "./server/lib/owed-answers";
+import { announceTurnEnded } from "./server/lib/turn-ended";
+import type { AnswerRelay } from "./server/lib/answer-relay";
 import { wakeVerdict, runningTaskOwnsTopic } from "./server/lib/wake-adoption";
 import { riprendiTurniInterrotti, type CtxRipresa } from "./server/lib/ripresa-boot";
 import { providerHold, holdUntilLabel, onProviderHold, configureProviderHoldStore, planUsage, onPlanUsage } from "./server/lib/provider-hold";
@@ -60,7 +63,7 @@ import { flushTurnBody } from "./server/lib/turn-body-flush";
 import { endReattachLeg, finalizeStaleRow } from "./server/lib/closed-outside";
 import { cardTurnsHoldingReload, chatsHolding, describeInFlight, dispatchDoor, sharedWait, unadoptableStreams, unfinishedStreams, quiescenceVerdict, reloadHeldNotice } from "./server/lib/quiescence";
 import { dispatchReconcileHeld } from "./server/lib/e2e-dispatch-hold";
-import { chatsParkedOnQuestion } from "./server/lib/parked-asks";
+import { chatsParkedOnQuestion, PARKED_ASK_HOLD_MS } from "./server/lib/parked-asks";
 import { touchReloadDeferred, clearReloadDeferred } from "./server/lib/reload-deferred";
 import { probePort, verdictMessage, realProbeDeps } from "./server/lib/port-squatter";
 import { giroIdleGc, IDLE_GC_EVERY_MS } from "./server/lib/idle-gc";
@@ -223,7 +226,7 @@ import { startBundleProbe } from "./server/lib/bundle-probe";
 // `pendingAskAgeMs`/`hasPendingAsk` non si importano più qui: chiedere della
 // sola domanda era il difetto. Restano il verdetto e il TTL, che valgono per
 // entrambi i silenzi.
-import { pendingAskVerdict, cancelAsk, pendingAskKeys, ASK_TTL_MS } from "./server/lib/ask-user-bridge";
+import { pendingAskVerdict, cancelAsk, pendingAskKeys } from "./server/lib/ask-user-bridge";
 // The stale-stream rule, pure so it can be tested without a server: the
 // finalize decision must never be reachable while the child process is alive.
 import { staleStreamVerdict } from "./server/lib/stale-stream-verdict";
@@ -848,7 +851,13 @@ const webrtcBridge = createWebrtcBridge();
 const paneAttachedTo = (contextId: string): boolean => hasAttachedPane(browserWsClients.get(contextId));
 // The user's `turn-end` hook reaches the chat route from here (HOOKS-02).
 let goalLoop: ChatGoalLoop | null = null;
-const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo, { hooks: defaultLifecycleHooks(), exposeGoalLoop: (l) => { goalLoop = l; } });
+// Set by the router below, synchronously: `as` keeps TS from reading it as always null.
+let answerRelay = null as AnswerRelay | null;
+const topicsRouter = createTopicsRouter(ctx, browserService, paneAttachedTo, {
+  hooks: defaultLifecycleHooks(),
+  exposeGoalLoop: (l) => { goalLoop = l; },
+  exposeAnswerRelay: (r) => { answerRelay = r; },
+});
 const orchestratorSessionsRouter = createOrchestratorSessionsRouter(ctx);
 const filesRouter = createFilesRouter(ctx);
 const voiceRouter = createVoiceRouter(ctx);
@@ -1004,6 +1013,7 @@ function streamCatchupFrames(wants: (topicId: string | undefined) => boolean): R
     if (!partial || partial.partial !== true) {
       activeStreams.delete(sessionKey);
       turnLedger.set(sessionKey, "route", false);
+      announceTurnEnded(sessionKey);
       continue;
     }
     frames.push(buildStreamCatchupFrame({ sessionKey, topicId, stream, partial }));
@@ -3164,6 +3174,25 @@ function releaseBootHold(sk: string): void {
   turnLedger.set(sk, "boot", false);
 }
 
+// Tools a dead turn left 'running' are closed as interrupted (`lib/boot-orphan-tools.ts`).
+//
+// BEFORE THE SERVER LISTENS, because of the answers it finds still owed to the
+// model (`lib/answer-relay.ts`): they go into the relay's queue here, so the
+// first message a person sends after the restart already finds them and
+// carries them in front of itself. Loaded after `listen` (it was, until 30/09)
+// a message that got in first reached the model before an answer the person
+// gave before it. Their SENDING waits for the surviving turns to be adopted
+// (`releaseAnswersOwedAtBoot`, below): until then a session only looks free.
+//
+// The owed answers come from `owed_answers` (`lib/owed-answers.ts`), any age,
+// any topic: the sweep only walks thirty days of finalized rows of topics not
+// archived, and a question never expires. The sweep indexes what it finds
+// first (the marks written before the index existed), so the index is read
+// after it; its own list is enqueued too, a no-op for every answer already in.
+const releaseAnswersOwedAtBoot = answerRelay?.hold();
+const answersSweptAtBoot = finalizeOrphanedRunningTools(db, liveBrokerChatSessions);
+for (const owed of [...loadOwedAnswers(db), ...answersSweptAtBoot]) answerRelay?.enqueue(owed);
+
 const tlsCert = join(import.meta.dir, "certs", "fullchain.pem");
 const tlsKey = join(import.meta.dir, "certs", "key.pem");
 const useTls = !process.env.NO_TLS && await Bun.file(tlsCert).exists() && await Bun.file(tlsKey).exists();
@@ -4835,9 +4864,6 @@ if (serverTunnel) {
   console.log(`[Tunnel] porta dedicata su 127.0.0.1:${portaTunnel} — chi entra da qui NON e' locale`);
 }
 
-// Tools a dead turn left 'running' are closed as interrupted (`lib/boot-orphan-tools.ts`).
-finalizeOrphanedRunningTools(db, liveBrokerChatSessions);
-
 // Stale stream cleanup
 const STALE_STREAM_CHECK_INTERVAL_MS = 30_000;
 const STALE_STREAM_TIMEOUT_MS = 3 * 60 * 1000;
@@ -4875,7 +4901,6 @@ const staleStreamTimer = setInterval(() => {
   const sweepOutcomes = sweepStaleStreams({
     now: () => Date.now(),
     timeoutMs: STALE_STREAM_TIMEOUT_MS,
-    askTtlMs: ASK_TTL_MS,
     activeStreams,
     rescued: staleStreamRescued,
     silence: staleStreamSilence,
@@ -5645,6 +5670,9 @@ const survivingTurnsAdopted = reattachSurvivingChatTurns();
 // wakes would have waited for the next boot without a word in the log.
 void survivingTurnsAdopted
   .catch(() => { /* logged by the chain below */ })
+  .then(() => releaseAnswersOwedAtBoot?.());
+void survivingTurnsAdopted
+  .catch(() => { /* logged by the chain below */ })
   .then(() => startProcessExitWakes({
     db: ctx.db, getTopicById: ctx.getTopicById, defaultProvider: getDefaultProviderName,
     ownedByRunningTask: (id) => runningTaskOwnsTopic(ctx.db, id),
@@ -6239,7 +6267,7 @@ async function whatIsStillWorking(): Promise<{ busy: string | null; cards: numbe
   if (cards === 0) {
     const now = Date.now();
     if (now - askProbeCache.at >= QUIESCENCE_BROKER_PROBE_MS) {
-      askProbeCache = { at: now, parked: chatsParkedOnQuestion(ctx.db, decodeCol, { now, ttlMs: ASK_TTL_MS, fastPathKeys: pendingAskKeys() }) };
+      askProbeCache = { at: now, parked: chatsParkedOnQuestion(ctx.db, decodeCol, { now, ttlMs: PARKED_ASK_HOLD_MS, fastPathKeys: pendingAskKeys() }) };
     }
     parked = askProbeCache.parked;
   }

@@ -21,6 +21,12 @@ export interface SeedToolCall {
    *  vedi la nota in shared/types.ts. */
   permissionRequest?: unknown;
   permissionOutcome?: unknown;
+  /** A question whose asking process is gone: its answer goes out as the next message. */
+  askerGone?: boolean;
+  /** An answer on its way to the model as a message (`queued`), or delivered (`sent`). */
+  answerRelay?: "queued" | "sent";
+  /** The answer the person gave, persisted verbatim. */
+  userResponse?: unknown;
   contentOffset?: number;
   /** Real-usage window bounds (epoch ms) — drive duration rendering. */
   startedAt?: number;

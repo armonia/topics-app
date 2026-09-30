@@ -568,6 +568,8 @@ export interface WSStreamToolResultMessage {
   detail?: ToolCall['detail'];
   /** Server-stamped close of the tool's real-usage window (epoch ms). */
   endedAt?: number;
+  /** A question a person ended without answering, and how (see `ToolCall.askEnded`). */
+  askEnded?: ToolCall['askEnded'];
 }
 export interface WSStreamToolUpdateMessage {
   type: 'stream:tool_update';
@@ -578,6 +580,10 @@ export interface WSStreamToolUpdateMessage {
   status?: ToolCall['status'];
   /** The answer that caused the transition, so the row can show it at once. */
   userResponse?: ToolUserResponse;
+  /** A question a person ended without answering, and how (see `ToolCall.askEnded`). */
+  askEnded?: ToolCall['askEnded'];
+  /** An answer on its way to the model as a message (see `ToolCall.answerRelay`). */
+  answerRelay?: ToolCall['answerRelay'];
 }
 export interface WSStreamToolDetailMessage {
   type: 'stream:tool_detail';

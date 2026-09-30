@@ -600,7 +600,7 @@ async function build(only?: string): Promise<void> {
         () => {
           const sk = "topic:probe-ask";
           must(!isHumanHold(sk), "partenza sporca: hold già attivo");
-          must(beginAsk(sk), "beginAsk ha rifiutato di aprire la domanda");
+          beginAsk(sk);
           must(hasPendingAsk(sk), "la domanda non risulta aperta");
           must(isHumanHold(sk), "una domanda aperta DEVE valere come attesa umana");
           const dayLater = Date.now() + 23 * 60 * 60 * 1000;
@@ -1085,7 +1085,7 @@ async function build(only?: string): Promise<void> {
           const sk = "topic:probe-hold";
           releaseHumanHold(sk, "reset probe");
           const t0 = Date.now();
-          must(beginAsk(sk, 24 * 60 * 60 * 1000, t0 - 600_000), "apertura domanda fallita");
+          beginAsk(sk, t0 - 600_000);
           must(beginPermission(sk, "tu-h", PERMISSION_TTL_MS, t0 - 60_000), "apertura permesso fallita");
           const age = humanHoldAgeMs(sk, t0);
           must(age !== null && age >= 590_000, `l'età deve essere quella della domanda (10min), non ${age}`);
@@ -1191,7 +1191,7 @@ async function build(only?: string): Promise<void> {
           const sk = "topic:probe-clock";
           releaseHumanHold(sk, "reset probe");
           must(!isHumanHold(sk), "partenza sporca");
-          must(beginAsk(sk), "apertura domanda fallita");
+          beginAsk(sk);
           must(isHumanHold(sk), "l'esenzione non si attiva");
           cancelAsk(sk, "probe");
           return `${sites} punti interrogano isHumanHold; deadline + reaper entrambi coperti`;

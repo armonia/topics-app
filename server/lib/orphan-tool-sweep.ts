@@ -3,8 +3,14 @@
  *
  * Un riavvio del server azzera `activeStreams`, quindi lo spazzino degli stream
  * fermi non arriva più alle righe di tool rimaste appese: un `running` che gira
- * per sempre, una domanda che invita un click, un permesso che aspetta una
- * decisione che nessuno può più consegnare. Al boot si chiudono.
+ * per sempre, un permesso che aspetta una decisione che nessuno può più
+ * consegnare. Al boot si chiudono.
+ *
+ * A QUESTION IS NOT CLOSED (29/09). A question outlives the process that asked
+ * it: on a dead child it stays `waiting_for_input`, marked `askerGone`, and its
+ * answer reaches the model as the next user message (`lib/question-outlives-asker.ts`).
+ * Closing it here is how a server restart used to end a question nobody had
+ * cancelled.
  *
  * ── Il risparmio, e la sua unica eccezione ──────────────────────────────────
  * Una sessione il cui figlio è ancora VIVO nel broker va lasciata stare: il suo
@@ -42,7 +48,6 @@ export interface OrphanSweepOptions {
 
 export const ORPHAN_ERRORS = {
   running: 'Interrotto: la sessione è terminata prima del risultato',
-  question: 'Interrotto: la sessione si è chiusa mentre la domanda era a schermo',
   permission: 'Interrotto: la sessione si è chiusa mentre il permesso era a schermo',
 } as const;
 
@@ -65,7 +70,32 @@ export function finalizeOrphanTool(tc: RawToolCall, opts: OrphanSweepOptions = {
   // L'unico ramo che gira anche su una sessione viva.
   if (tc.status === 'awaiting_permission') return close(ORPHAN_ERRORS.permission);
   if (alive) return false;
+  // AN ANSWER NOBODY COLLECTED IS STILL THE PERSON'S ANSWER. A question answered
+  // and still `running` (the answer sat in the in-memory buffer for a leg that
+  // never came) was closed here as "interrupted" and the answer was lost with
+  // the buffer. Its asker is gone, so it is owed to the model as the next
+  // message (`lib/answer-relay.ts`): the boot reads the mark and sends it.
+  if (tc.status === 'running' && isQuestionCall(tc) && answeredQuestions(tc.userResponse)) {
+    tc.status = 'success';
+    tc.answerRelay = 'queued';
+    if (tc.endedAt == null) tc.endedAt = now;
+    return true;
+  }
   if (tc.status === 'running' || tc.status === 'pending') return close(ORPHAN_ERRORS.running);
-  if (tc.status === 'waiting_for_input') return close(ORPHAN_ERRORS.question);
+  if (tc.status === 'waiting_for_input') {
+    if (tc.askerGone === true) return false;
+    tc.askerGone = true;
+    return true;
+  }
   return false;
+}
+
+function isQuestionCall(tc: Record<string, unknown>): boolean {
+  const name = tc.name;
+  return typeof name === 'string' && (name === 'ask_user_question' || name.endsWith('__ask_user_question'));
+}
+
+function answeredQuestions(response: unknown): boolean {
+  const r = response as { kind?: unknown; answers?: unknown } | null | undefined;
+  return r?.kind === 'questions' && !!r.answers && typeof r.answers === 'object';
 }

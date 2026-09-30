@@ -16,6 +16,7 @@
 import { staleStreamVerdict } from "./stale-stream-verdict";
 import type { TurnEndCause } from "../../shared/types";
 import { pendingAskVerdict } from "./ask-user-bridge";
+import { announceTurnEnded } from "./turn-ended";
 
 /** Il minimo di `ActiveStream` che questo giro legge. */
 export interface SweepableStream {
@@ -52,7 +53,6 @@ export interface SilenceMark {
 export interface StaleStreamSweepDeps {
   now: () => number;
   timeoutMs: number;
-  askTtlMs: number;
   /** I turni in trasmissione ADESSO. Il giro può cancellarne le voci. */
   activeStreams: Map<string, SweepableStream>;
   /** Chi ha già speso il suo unico resync. */
@@ -247,6 +247,7 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
     if (!partial || partial.partial !== true) {
       deps.activeStreams.delete(sessionKey);
       deps.silence.delete(sessionKey);
+      announceTurnEnded(sessionKey);
       outcomes.set(sessionKey, "dropped");
       continue;
     }
@@ -276,7 +277,6 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
     if (askAge !== null) {
       const verdict = pendingAskVerdict({
         askAgeMs: askAge,
-        askTtlMs: deps.askTtlMs,
         childAlive: deps.childAlive(sessionKey),
       });
       if (verdict === "defer") {
