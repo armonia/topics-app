@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense, type ComponentType } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, lazy, Suspense, type ComponentType, type ComponentProps } from 'react';
 import { sweepAskDrafts } from './components/Chat/askDraft';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Search } from 'lucide-react';
@@ -142,9 +142,35 @@ const GlobalSettings = lazy(() => import('./components/Settings/GlobalSettings')
 // Guardia: `bun run check:deadcode-blindspots`.
 const importCommandPalette = async () => {
   const { CommandPalette: Component } = await import('./components/Shared/CommandPalette');
+  loadedCommandPalette = Component;
   return { default: Component };
 };
 const CommandPalette = lazy(importCommandPalette);
+// THE FIRST ⌘K TOOK 320ms EVEN WITH THE CHUNK WARM. `lazy()` suspends on its
+// first render no matter what: the module promise settles a few microtasks
+// later, so React commits the `null` fallback, and React 19 holds the reveal
+// of a boundary that just showed a fallback for 300ms (FALLBACK_THROTTLE_MS).
+// Measured in WebKit, 4s after boot: 319/326ms from keydown to the palette in
+// the DOM, against 34-42ms when the same chunk was fetched on the keypress
+// itself. Once the idle warm-up has loaded the module, the palette renders it
+// directly: no Suspense, no fallback, no throttle.
+//
+// The branch is chosen ONCE, at mount. Read on every render, a palette opened
+// before the warm-up (Suspense path) switched to the direct path on the first
+// App re-render after the chunk landed: a different element type, so React
+// unmounted and remounted it and the query, the selection and the focus were
+// lost mid-typing. The host mounts only while the palette is open, so the
+// next open takes the direct path anyway.
+let loadedCommandPalette: ComponentType<ComponentProps<typeof CommandPalette>> | null = null;
+function CommandPaletteHost(props: ComponentProps<typeof CommandPalette>) {
+  const [Loaded] = useState(() => loadedCommandPalette);
+  if (Loaded) return <Loaded {...props} />;
+  return (
+    <Suspense fallback={null}>
+      <CommandPalette {...props} />
+    </Suspense>
+  );
+}
 const KeyboardShortcuts = lazy(() => import('./components/Shared/KeyboardShortcuts').then(m => ({ default: m.KeyboardShortcuts })));
 const FileSearch = lazy(() => import('./components/Project/FileSearch').then(m => ({ default: m.FileSearch })));
 // BrowserSidebarControl replaced by useBrowserContexts hook + unified TopicTree
@@ -2355,8 +2381,7 @@ function App() {
 
       {/* Command Palette (⌘K = everything, ⌘F = projects scope). */}
       {showSearch && (
-        <Suspense fallback={null}>
-          <CommandPalette
+          <CommandPaletteHost
             isOpen={showSearch}
             scope={searchScope}
             onClose={() => setShowSearch(false)}
@@ -2399,7 +2424,6 @@ function App() {
             onReopenClosedTab={handleReopenClosedTab}
             onOpenHistoryUrl={openHistoryUrl}
           />
-        </Suspense>
       )}
 
       {/* Keyboard Shortcuts (⌘?) */}

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ShieldCheck, ShieldOff, ClipboardList, Check } from 'lucide-react';
 import { useDismissable } from '@/hooks/useDismissable';
 import { POPOVER_PANEL, POPOVER_MARGIN, Z_POPOVER } from '@/lib/popoverStyles';
+import { useExitGhost } from '@/lib/exitGhost';
 import type { AutonomyLevel } from '../../types';
 
 /**
@@ -70,6 +71,8 @@ export function AutonomyPicker({ value, onChange }: {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   useDismissable({ open, onClose: () => setOpen(false), refs: [panelRef, triggerRef] });
+  // The panel exists once it is placed (`pos`), and that is when the exit arms.
+  useExitGhost(panelRef, open && pos !== null);
 
   // Un topic senza scelta AGISCE — è l'invariante che la migration 081 ha
   // rimesso in piedi; qui si limita a mostrarla per quello che è.

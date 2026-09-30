@@ -55,6 +55,7 @@ import { MODAL_BACKDROP, MODAL_PANEL, MODAL_LAYER } from '../../lib/modalStyles'
 import { POPOVER_ITEM, POPOVER_DIVIDER } from '../../lib/popoverStyles';
 import { GLYPH_KBD_PADDING, RAISED_CONTROL, ROW_ACTION_BOX } from '../../lib/selectionStyles';
 import { Menu } from './Menu';
+import { useExitGhost } from '../../lib/exitGhost';
 import { buildAddMenuItems, type AddMenuItem } from './addMenuItems';
 import { AddMenuIcon } from './AddMenuIcon';
 import type { PaneType } from '../../types';
@@ -298,6 +299,9 @@ export function PaneAddMenu({
   // questo hook — ce l'ha `Menu` dentro.
   const paletteIsOpen = open && !isMobile && presentation === 'palette';
   useDismissable({ open: paletteIsOpen, onClose: close, refs: [buttonRef, paletteRef] });
+  // The centred ⌘N palette leaves like the ⌘K one: veil and card fade together.
+  const paletteRootRef = useRef<HTMLDivElement>(null);
+  useExitGhost(paletteRootRef, paletteIsOpen, 'modal');
   // Frecce + lettera nuda anche nella palette: senza, l'unica superficie che
   // ⌘N apre sarebbe l'unica senza tastiera.
   const onPaletteKeyDown = useMenuKeyboard({ panelRef: paletteRef });
@@ -436,6 +440,7 @@ export function PaneAddMenu({
            (Z_POPOVER = 9999) e un dropdown già aperto si disegnava nitido
            sopra la palette e sopra il suo velo. */
         <div
+          ref={paletteRootRef}
           className={`fixed inset-0 ${MODAL_LAYER} flex items-start justify-center pt-[12vh]`}
           onClick={close}
           data-testid="pane-add-palette"

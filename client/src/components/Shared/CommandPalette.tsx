@@ -23,6 +23,7 @@ import {
 } from '../../lib/modalStyles';
 import { useMobile } from '../../hooks/useMobile';
 import { useModalDialog } from '../../hooks/useModalDialog';
+import { useExitGhost } from '../../lib/exitGhost';
 import { useT } from '../../hooks/useT';
 import { isDesktop } from '../../lib/shell';
 import { rankPaths } from '../../lib/fuzzyScore';
@@ -552,6 +553,10 @@ export function CommandPalette({
   // L'Escape stava sull'input (React onKeyDown): valeva solo col cursore lì
   // dentro, e il Tab usciva sulla pagina coperta.
   useModalDialog({ open: isOpen, onClose, panelRef, initialFocusRef: inputRef });
+  // App unmounts the palette on close; the veil and the card fade out as a
+  // copy (lib/exitGhost) instead of vanishing in one frame.
+  const rootRef = useRef<HTMLDivElement>(null);
+  useExitGhost(rootRef, isOpen, 'modal');
 
   // Keyboard navigation
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -613,6 +618,7 @@ export function CommandPalette({
 
   return (
     <div
+      ref={rootRef}
       data-testid="command-palette"
       // Which scope the palette was opened in, stated in the DOM. The only
       // other outward sign is the input placeholder, and that one is

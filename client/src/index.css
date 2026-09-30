@@ -1166,22 +1166,6 @@ html, body {
   background-color: var(--chrome-bg, #1a1a1a);
 }
 
-/* Animation for message appear */
-@keyframes messageAppear {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.message-appear {
-  animation: messageAppear 0.2s ease-out;
-}
-
 /* Palette jump: transient flash on the message row a ⌘K search hit landed on.
    Background-only (no transform) so Virtuoso's row measurements stay stable. */
 @keyframes msgJumpFlash {
@@ -2767,7 +2751,115 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
 }
 
 .command-palette-enter {
-  animation: commandPaletteIn 0.15s ease-out;
+  animation: commandPaletteIn var(--motion-fast) var(--ease-standard);
+}
+
+/* FLOATING SURFACES: one entrance, one exit, for every menu, dropdown,
+ * popover and context menu. The class rides on `POPOVER_SURFACE` and
+ * `POPOVER_PANEL` (lib/popoverStyles.ts), so a surface built from those gets
+ * it without naming it.
+ *
+ * `instant` (90ms) and not `fast`: a menu answers a click under the pointer,
+ * and anything slower than the press itself reads as lag. The exit copy moves
+ * `opacity` and the `scale` property: `scale` composes with the `translate` a
+ * Tailwind utility may use to centre a panel, where animating `transform`
+ * would drop it for the length of the exit. The first frame is already painted (the
+ * panel exists at opacity 0 on the frame after the click), so the entrance
+ * adds no latency: it replaces a pop with a 90ms settle.
+ *
+ * The entrance animates `opacity` ONLY. A `scale` on the way in shrinks the
+ * panel on the very frame `Menu` / `DropdownPortal` measure it with
+ * `getBoundingClientRect` to place it: the placement was computed on a 97% box
+ * and the panel then grew over its anchor (the profile menu covered the card
+ * it sits 6px above), and the viewport clamp was off by the same 1.5%. No
+ * ResizeObserver fires, since `scale` leaves the content box alone. The exit
+ * copy keeps the scale: nobody measures it. */
+@keyframes popoverIn {
+  from { opacity: 0; }
+}
+@keyframes popoverOut {
+  to { opacity: 0; scale: 0.97; }
+}
+.popover-enter {
+  animation: popoverIn var(--motion-instant) var(--ease-standard) both;
+}
+
+/* The modal veil fades in with its panel instead of landing at full opacity
+ * on the first frame. Rides on `MODAL_OVERLAY` and `MODAL_BACKDROP`. */
+@keyframes modalBackdropIn {
+  from { opacity: 0; }
+}
+@keyframes modalBackdropOut {
+  to { opacity: 0; }
+}
+.modal-backdrop-enter {
+  animation: modalBackdropIn var(--motion-fast) var(--ease-standard) both;
+}
+
+/* THE EXIT. A closed surface unmounts at once (React, focus and hit-testing
+ * see it gone in the same commit) and `lib/exitGhost.ts` leaves an inert,
+ * aria-hidden copy of its last frame in its place, which plays the exit and
+ * removes itself. The copy must not replay any entrance its classes carry,
+ * must not catch a click meant for what is underneath, and runs the exit
+ * curve (accelerating out) instead of the entrance one. */
+[data-exit-ghost],
+[data-exit-ghost] * {
+  animation: none !important;
+  transition: none !important;
+  pointer-events: none !important;
+}
+[data-exit-ghost="popover"] {
+  animation: popoverOut var(--motion-instant) var(--ease-exit) both !important;
+}
+[data-exit-ghost="modal"] {
+  animation: modalBackdropOut var(--motion-fast) var(--ease-exit) both !important;
+}
+[data-exit-ghost="modal"] .command-palette-enter {
+  animation: commandPaletteOut var(--motion-fast) var(--ease-exit) both !important;
+}
+
+/* REDUCED MOTION, ONCE FOR THE WHOLE APP.
+ *
+ * The per-feature blocks elsewhere in this file each switch off one thing, and
+ * every surface nobody remembered kept moving: measured with
+ * `reducedMotion: 'reduce'`, the sidebar slide, the message entrance, the
+ * palette and settings entrance, the skeleton pulse, the board's dnd-kit
+ * transforms (an inline `transition`, which only `!important` outranks) and
+ * the Review column's flex-basis. This rule covers them all and whatever is
+ * written next.
+ *
+ * ZERO, not 1ms. A transition only runs where its duration (plus delay) is
+ * above zero, and `transition-property` is `all` on every element by default:
+ * a 1ms duration set on EVERY element turned each style change anywhere
+ * (top/left, width, flex, visibility) into a 1ms transition, so the new value
+ * landed one frame late and any code that measured or focused right after the
+ * change read the old state. Measured under `reduce`: the profile submenu
+ * kept its `visibility: hidden` for that frame, `focus()` on its first item
+ * was refused and ArrowLeft stopped closing it, and the zoomed pane was
+ * measured on collapsed cells. With 0s nothing transitions, exactly like an
+ * element that never declared one. The code that listens for
+ * `transitionend` (the sidebar settle, the native pane re-measure) already
+ * lives without it: every per-feature rule before this one was
+ * `transition: none`. An animation of 0s still fires `animationstart` and
+ * `animationend` (CSS Animations 1) and lands on its end frame at once, with
+ * no frame spent on its `from` values. One iteration: a loop lands on its
+ * resting frame and stays. Delays are left alone, since a delay is a decision
+ * about WHEN, not motion.
+ *
+ * The exceptions carry state rather than decorate, and none of them travels:
+ * a spinner is how the user knows work is running (frozen, it reads as a
+ * hang), and the two opacity pulses mark a chat waiting for the user's input
+ * and one whose answer is still unread. Nothing in them moves across the screen. Smooth
+ * scrolling (`html`, the board columns) jumps instead. */
+@media (prefers-reduced-motion: reduce) {
+  :not(.animate-spin),
+  ::before,
+  :not(.animate-awaiting-pulse, .animate-awaiting-attention)::after {
+    animation-duration: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Context pill animations */
@@ -2808,8 +2900,10 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
   }
 }
 
+/* A second `.message-appear` (messageAppear, 8px, 0.2s) used to sit 1,600
+   lines above this one and lose the cascade to it: removed, this is the rule. */
 .message-appear {
-  animation: messageSlideIn 0.2s ease-out both;
+  animation: messageSlideIn var(--motion-fast) var(--ease-standard) both;
 }
 /* Motion off for whoever asked for less of it: the message is there, it does
    not need to slide in (UI audit 2026-09-29, panes:F3: the entrance still ran
@@ -3184,6 +3278,8 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
  * motion, so they join here rather than waiting for their own black rectangle.
  * `motion-entry-animations.test.ts` now fails when a fourth one appears. */
 .anims-paused .reveal-in,
+.anims-paused .popover-enter,
+.anims-paused .modal-backdrop-enter,
 .anims-paused .morph-char,
 .anims-paused .morph-block,
 /* The frost's glint is the same shape (one-shot, first frame at opacity 0) and
@@ -3191,14 +3287,6 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
    window nobody is looking at should cost. */
 .anims-paused .swap-ice-glint {
   animation: none !important;
-}
-
-/* Material easing curves as CSS custom properties so components can opt in
- * without re-deriving them. */
-:root {
-  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
-  --ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
-  --ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
 }
 
 /* `scrollbar-auto-hide` — desktop polish: scrollbars only paint on hover/focus */

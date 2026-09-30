@@ -25,6 +25,7 @@ import { useNotificationHistory } from '../../hooks/useNotificationHistory';
 import { formatNotificationAge } from '../../lib/notify/history';
 import { useDismissable } from '../../hooks/useDismissable';
 import { POPOVER_MARGIN, POPOVER_PANEL, Z_POPOVER } from '../../lib/popoverStyles';
+import { useExitGhost } from '../../lib/exitGhost';
 import { RAISED_CONTROL } from '../../lib/selectionStyles';
 import { NotificationBadge } from '../Shared/NotificationBadge';
 import { NO_DRAG_REGION } from '../../lib/shell/dragRegion';
@@ -92,6 +93,7 @@ export function NotificationHistoryButton({
   }, [loadMore]);
 
   useDismissable({ open, onClose: () => setOpen(false), refs: [triggerRef, panelRef] });
+  useExitGhost(panelRef, open);
 
   const toggle = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     if (open) { setOpen(false); return; }

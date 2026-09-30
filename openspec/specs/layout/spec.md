@@ -1308,6 +1308,69 @@ invisibile, perché al ritorno del fuoco riprendono da sole.
 - **GIVEN** una classe con `infinite` e primo fotogramma a `opacity: 0`
 - **THEN** NON SHALL essere richiesta nell'elenco
 
+### Requirement: MOTION-04 — A floating surface settles in and fades out, without costing a frame
+
+Every menu, dropdown, popover and context menu, the notification panel, the
+settings dialog and the command palette SHALL enter and leave through ONE shared
+mechanism: an entrance class on the shared surface styles and one exit
+primitive, never a per-component animation.
+
+The entrance SHALL animate only compositor properties (opacity, scale) on the
+motion-token curve `--ease-standard`, and SHALL last at most 120ms for a menu
+or popover and at most `--motion-fast` for a dialog's veil. A dialog's veil
+SHALL fade in with its panel instead of landing at full opacity on the first
+frame.
+
+A menu or popover's entrance SHALL NOT change its box: on the frame it is
+inserted, the surface SHALL measure at its final width and height. The menus
+place themselves by measuring the panel on that frame, and a scaled-down box
+places them wrong (over the anchor, or clamped short of the viewport edge).
+
+Under reduced motion a style change on an element that declares no transition
+SHALL land on the same frame: the rule that stops motion SHALL NOT give every
+element a transition of its own.
+
+The first ⌘K SHALL keep what the user typed when the palette's chunk arrives
+while it is open: the palette SHALL NOT remount on the switch from the lazy
+path to the loaded one.
+
+On close the surface SHALL leave the DOM in the same commit as before: focus,
+hit-testing and accessibility SHALL see it gone at once. What fades SHALL be an
+inert, aria-hidden copy without ids or test ids that never takes a click, on
+`--ease-exit`, within the same budgets, and SHALL remove itself. Under reduced
+motion, or with the window in the background, there SHALL be no copy.
+
+`--ease-standard` and every other motion token SHALL be declared exactly once
+in the stylesheet: a later declaration wins the cascade by source order.
+
+#### Scenario: a menu opens and closes
+- **GIVEN** the add menu, a sidebar context menu or the notification panel
+- **WHEN** it opens
+- **THEN** it SHALL be inserted with an entrance of at most 120ms on `--ease-standard`, at its final size on its first frame
+- **AND WHEN** Escape closes it, it SHALL leave the DOM and an inert copy SHALL fade out and remove itself
+
+#### Scenario: a dialog opens and closes
+- **GIVEN** settings or the command palette
+- **THEN** the veil SHALL fade in over at most `--motion-fast`, and on close veil and panel SHALL fade out together
+
+#### Scenario: the curve at runtime
+- **THEN** `--ease-standard` read from the document SHALL be the token of `lib/motion.ts`
+
+#### Scenario: the first ⌘K of a session
+- **GIVEN** the palette's chunk already loaded by the idle warm-up
+- **WHEN** ⌘K is pressed for the first time
+- **THEN** the palette SHALL NOT wait for a Suspense reveal: no fallback commit, no 300ms throttle
+
+#### Scenario: the first ⌘K before the warm-up
+- **GIVEN** ⌘K pressed before the palette's chunk has loaded
+- **WHEN** the chunk arrives, the user types, and the app re-renders
+- **THEN** the palette SHALL be the same element with the same query
+
+#### Scenario: reduced motion does not delay a style change
+- **GIVEN** the preference for reduced motion
+- **WHEN** an element with no declared transition changes width
+- **THEN** the new width SHALL be read back at once, and no transition SHALL run
+
 ### Requirement: EXTERNAL-01 — Aprire fuori una volta sola
 
 L'apertura di un indirizzo fuori dall'app SHALL avvenire UNA volta per gesto. Una

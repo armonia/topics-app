@@ -67,7 +67,7 @@ export const Z_MODAL = 10000;
  * Add positioning (absolute/fixed + coords), `min-w-*` and `z-*` per call site.
  */
 export const POPOVER_SURFACE =
-  'glass-surface border border-app-border rounded-lg shadow-lg py-1';
+  'glass-surface border border-app-border rounded-lg shadow-lg py-1 popover-enter';
 
 /**
  * Same surface WITHOUT the `py-1` list padding, for panels that manage their
@@ -75,6 +75,15 @@ export const POPOVER_SURFACE =
  * the console panel, the model picker, the slash-command menu, etc.
  */
 export const POPOVER_PANEL =
+  'glass-surface border border-app-border rounded-lg shadow-lg popover-enter';
+
+/**
+ * The popover card with NO entrance, for something that wears the look but is
+ * not a surface that opens: a card that sits in the page from the start.
+ * `popover-enter` (index.css) on `POPOVER_SURFACE` / `POPOVER_PANEL` is the
+ * shared 90ms entrance of everything that pops open.
+ */
+export const POPOVER_LOOK =
   'glass-surface border border-app-border rounded-lg shadow-lg';
 
 /**
