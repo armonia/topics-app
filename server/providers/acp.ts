@@ -113,6 +113,8 @@ const CLIENT_CAPABILITIES = {
 
 /** Tetto duro di un turno. Il watchdog dello stream è più fine; questo è la rete. */
 const PROMPT_TIMEOUT_MS = 30 * 60 * 1000;
+/** How long a new prompt waits for the agent to answer the cancel of the one before it. */
+const PREVIOUS_PROMPT_SETTLE_MS = 60_000;
 
 const KILL_GRACE_MS = 3_000;
 
@@ -143,6 +145,8 @@ interface AcpSessionState {
   /** Qualcuno ha chiesto lo stop: il `cancelled` che tornerà è nostro. */
   aborting?: AbortReason;
   promptInFlight: boolean;
+  /** The `session/prompt` request itself, until the agent answers it: a timeout or a Stop does not end it. */
+  prompt?: Promise<unknown>;
   /**
    * L'ultimo modello che abbiamo CHIESTO all'agente per questa sessione.
    *
@@ -205,6 +209,8 @@ export class AcpProvider implements AIProvider {
 
   /** sessionKey → stato. */
   private readonly sessions = new Map<string, AcpSessionState>();
+  /** The prompt waiting for the previous one of its session to end (`previousPromptSettled`), so a Stop reaches it. */
+  private readonly waitingSends = new Map<string, { cancelled: boolean; wake?: () => void }>();
   /** acpSessionId → sessionKey. Le notifiche arrivano con l'id dell'agente. */
   private readonly bySessionId = new Map<string, string>();
 
@@ -627,8 +633,22 @@ export class AcpProvider implements AIProvider {
     message: string,
     handler: StreamHandler,
     options?: { model?: string; history?: ChatMessage[] },
-  ): Promise<{ runId?: string }> {
+  ): Promise<{ runId?: string; notSent?: boolean }> {
     let state: AcpSessionState | undefined;
+    // ONE PROMPT PER SESSION AT A TIME. After a Stop or a timeout the prompt
+    // before this one is still running in the agent until it answers the
+    // cancel: sent now, the two ran together, and the old one's tail landed in
+    // this turn's row (`state.handler` is the new one). The new prompt waits
+    // for the old one's answer; stopped meanwhile, it sends nothing. Checked
+    // before any await, so a Stop pressed at once finds it.
+    const prior = this.sessions.get(sessionKey);
+    if (prior?.prompt) {
+      const ticket: { cancelled: boolean; wake?: () => void } = { cancelled: false };
+      this.waitingSends.set(sessionKey, ticket);
+      try { await this.previousPromptSettled(prior, ticket); }
+      finally { if (this.waitingSends.get(sessionKey) === ticket) this.waitingSends.delete(sessionKey); }
+      if (ticket.cancelled) return { notSent: true };
+    }
     try {
       const peer = await this.ensureConnection();
       state = await this.ensureSession(peer, sessionKey);
@@ -642,14 +662,15 @@ export class AcpProvider implements AIProvider {
       state.aborting = undefined;
       state.promptInFlight = true;
 
-      const stopReason = await withTimeout(
-        peer.request<Record<string, unknown>>("session/prompt", {
-          sessionId: state.acpSessionId,
-          prompt: [{ type: "text", text: message }],
-        }),
-        PROMPT_TIMEOUT_MS,
-        "ACP_PROMPT_TIMEOUT",
-      );
+      const request = peer.request<Record<string, unknown>>("session/prompt", {
+        sessionId: state.acpSessionId,
+        prompt: [{ type: "text", text: message }],
+      });
+      const owner = state;
+      const settled: Promise<unknown> = request.then(() => undefined, () => undefined)
+        .finally(() => { if (owner.prompt === settled) owner.prompt = undefined; });
+      state.prompt = settled;
+      const stopReason = await withTimeout(request, PROMPT_TIMEOUT_MS, "ACP_PROMPT_TIMEOUT");
 
       state.promptInFlight = false;
       const raw = stopReason?.stopReason;
@@ -674,7 +695,26 @@ export class AcpProvider implements AIProvider {
     return {};
   }
 
+  /** Asks the agent to cancel the prompt still running and waits for its answer, up to a bound. */
+  private async previousPromptSettled(state: AcpSessionState, ticket: { cancelled: boolean; wake?: () => void }): Promise<void> {
+    const previous = state.prompt;
+    if (!previous) return;
+    if (!state.aborting) {
+      state.aborting = "superseded";
+      this.peer?.notify("session/cancel", { sessionId: state.acpSessionId });
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      previous,
+      new Promise<void>((resolve) => { ticket.wake = resolve; timer = setTimeout(resolve, PREVIOUS_PROMPT_SETTLE_MS); }),
+    ]);
+    clearTimeout(timer);
+  }
+
   async abort(sessionKey: string, _runId: string | undefined, reason: AbortReason): Promise<void> {
+    // A prompt waiting for the one before it is the turn being stopped: it is never sent.
+    const waiting = this.waitingSends.get(sessionKey);
+    if (waiting) { waiting.cancelled = true; waiting.wake?.(); }
     const state = this.sessions.get(sessionKey);
     if (!state) return;
     state.aborting = reason;

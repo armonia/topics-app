@@ -303,21 +303,27 @@ describe("claude-code · il turno che nasce da solo", () => {
     expect(h.texts.join("")).toBe("a later Monitor delivering");
   });
 
-  test("a message sent while the declined turn still runs gets the merged result, not a hang", () => {
+  test("a message sent while the declined turn still runs waits for its end, and takes nothing of it", () => {
     // CLI 2.1.280, measured 24/09: a user message written during a spontaneous
-    // turn joins it, and ONE result answers both. What came before the message
-    // is dropped; what comes after belongs to the turn that asked.
+    // turn joins it, and ONE result answers both. That merge is what put a
+    // message in the middle of a turn nobody had asked for (CHAT-QUEUE-07):
+    // the handler of a message not written yet no longer takes over the
+    // running turn, and the send writes after that turn's result.
     const { provider, pp } = makeProviderWithStubProcess("topic:declined3");
     ClaudeCodeProvider.observeWokenTurns(() => false);
 
     emit(provider, pp, testo("OLD spontaneous text"));
     const h = makeHandler();
     provider.registerStreamHandler("topic:declined3", undefined, h.handler);
+    expect(pp.streamHandler).toBeNull();
     emit(provider, pp, testo("BETA"));
     emit(provider, pp, result("BETA"));
 
-    expect(h.texts.join("")).toBe("BETA");
-    expect(h.done).toBe("BETA");
+    expect(h.texts.join("")).toBe("");
+    expect(h.done).toBeNull();
+    // The declined turn is over: the session is free for the message.
+    provider.registerStreamHandler("topic:declined3", undefined, h.handler);
+    expect(pp.streamHandler).toBe(h.handler);
   });
 
   test("a wake the server accepted but could not adopt is dropped, not inherited", () => {

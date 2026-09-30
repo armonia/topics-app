@@ -558,6 +558,10 @@ export interface CtxRipresa {
    *  Absent: the notices reach the database only, and a window open on the
    *  chat shows them on its next history read. */
   broadcast?(msg: OutboundMessage): void;
+  /** Called once, with the sessions this sweep is about to resend: every other one is decided. */
+  decided?(resuming: string[]): void;
+  /** Called when a resend's route has answered (or will not): from then on the route holds the turn, or nothing does. */
+  resendStarted?(sessionKey: string): void;
 }
 
 /** The last interruption verdict of a row: the cut, with its cause and its text. */
@@ -893,8 +897,10 @@ export async function riprendiTurniInterrotti(
     }
   } catch (err) {
     console.warn("[ripresa] non riesco a cercare i turni interrotti:", err);
+    ctx.decided?.([]);
     return;
   }
+  ctx.decided?.(candidati.map((c) => c.sessionKey));
   if (candidati.length === 0) return;
   console.log(`[ripresa] ${candidati.length} turno/i interrotto/i da riprendere`);
   // ONE RESEND DOES NOT WAIT FOR THE ONE BEFORE IT.
@@ -962,6 +968,7 @@ export async function riprendiTurniInterrotti(
         )),
         responseCeilingMs,
       );
+      ctx.resendStarted?.(c.sessionKey);
       // THE ROUTE NEVER ANSWERED. This is the measured failure, and the only
       // thing that makes it survivable is that we say so and move on: the next
       // candidate still gets its resend, and the boot chain still finishes.
@@ -1023,6 +1030,7 @@ export async function riprendiTurniInterrotti(
     } catch (err) {
       console.warn(`[ripresa] ${c.sessionKey}: la ripresa non è riuscita:`, err);
     } finally {
+      ctx.resendStarted?.(c.sessionKey);
       // A resend with no answer has no end to reload the traced row; a fresh notice went out traced (card edf3c4db).
       const topic = !resumed && !c.fresh ? ctx.getTopicBySessionKey(c.sessionKey) : null;
       if (topic?.id) ctx.broadcast?.(threadChangedFrame({ ...topic, id: topic.id }, c.sessionKey));

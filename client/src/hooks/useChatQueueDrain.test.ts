@@ -25,7 +25,8 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:tes
 import * as React from 'react';
 import { mount } from '../test/reactHarness';
 import { useChat } from './useChat';
-import { __setQueueStorage, enqueueTurn, getQueue } from '../state/chatQueue';
+import { __setQueueStorage, enqueueTurn, getQueue, holdQueue, isHeld, releaseHold } from '../state/chatQueue';
+import { __resetServerTurns } from '../state/serverTurn';
 import type { WSMessage } from '../types';
 
 class MemStorage {
@@ -135,6 +136,8 @@ const FOLLOW_UP = 'e poi guarda anche i test';
 beforeEach(() => {
   sent = [];
   __setQueueStorage(null);
+  // The server's word is module state: a snapshot of one test is not the next one's.
+  __resetServerTurns();
   installFetch();
 });
 
@@ -210,5 +213,230 @@ describe('a queued turn is not stranded when the stream:end never reaches this w
       g.setTimeout = savedSetTimeout;
       g.clearTimeout = savedClearTimeout;
     }
+  });
+});
+
+describe('the close of a turn says how it ended, and the queue obeys it', () => {
+  // The server sends the ledger's close BEFORE the route's `stream:end`
+  // (`endStream` broadcasts it as it runs): whatever holds the queue must
+  // travel with the close itself.
+  const open = (sk: string, asOf: number) => ({ type: 'turn:state', sessionKey: sk, boot: 'b', asOf, turnId: asOf, open: true });
+  const closed = (sk: string, asOf: number, turnId: number, extra: Record<string, unknown> = {}) =>
+    ({ type: 'turn:state', sessionKey: sk, boot: 'b', asOf, turnId, open: false, ...extra });
+
+  test('a Stop pressed on another device: the close says so, and the queue here holds', async () => {
+    const d = drive();
+    d.ws(open(d.sk, 1));
+    d.ws({ type: 'stream:start', messageId: LIVE });
+    await d.chat.sendMessage(d.sk, FOLLOW_UP);
+    await settle();
+    expect(getQueue(d.sk)).toHaveLength(1);
+
+    // Wire order of the abort route: the close, then the `stream:end`.
+    d.ws(closed(d.sk, 2, 1, { stopped: true }));
+    await settle();
+    expect(sent).toHaveLength(0);
+    d.ws({ type: 'stream:end', messageId: LIVE, reason: 'user_abort' });
+    await settle();
+    expect(sent).toHaveLength(0);
+    expect(getQueue(d.sk)).toHaveLength(1);
+    d.unmount();
+  });
+
+  test('a plan approval left on screen by the turn: the queue waits for the answer, and leaves after it', async () => {
+    const d = drive();
+    d.ws(open(d.sk, 1));
+    await d.chat.sendMessage(d.sk, FOLLOW_UP);
+    await settle();
+    expect(getQueue(d.sk)).toHaveLength(1);
+
+    // This window's transcript does not show the question (a turn started
+    // elsewhere, a chat not loaded here): the server's word is enough.
+    d.ws(closed(d.sk, 2, 1, { awaitsHuman: true }));
+    await settle();
+    expect(sent).toHaveLength(0);
+    expect(getQueue(d.sk)).toHaveLength(1);
+
+    // The answer is a new turn; its plain close lets the queue go.
+    d.ws(open(d.sk, 3));
+    d.ws(closed(d.sk, 4, 3));
+    await settle();
+    expect(sent.map((s) => s.content)).toEqual([FOLLOW_UP]);
+    d.unmount();
+  });
+
+  test('Stop, then a message typed before the stopped turn has closed: it leaves at the close', async () => {
+    // claude-code: the stopped child held the session open until it exited
+    // (6-7 s under load). The message went to the queue behind this window's
+    // own hold, the close skipped nothing, and the drain answered "held" for good.
+    const d = drive();
+    d.ws(open(d.sk, 1));
+    d.ws({ type: 'stream:start', messageId: LIVE });
+    await d.chat.stopSession(d.sk);
+    await settle();
+    await d.chat.sendMessage(d.sk, FOLLOW_UP);
+    await settle();
+    expect(getQueue(d.sk)).toHaveLength(1);
+    expect(sent).toHaveLength(0);
+
+    d.ws(closed(d.sk, 2, 1, { stopped: true }));
+    await settle();
+    expect(sent.map((s) => s.content)).toEqual([FOLLOW_UP]);
+    expect(isHeld(d.sk)).toBe(false);
+    d.unmount();
+  });
+
+  test('two windows of one profile, «send now» in the other: the same close does not hold the queue again', async () => {
+    // This hook is window B. Window A stopped turn 1 and pressed «send now»
+    // (hold raised for turn 1, then lifted); only their shared storage reaches B.
+    const d = drive();
+    d.ws(open(d.sk, 1));
+    enqueueTurn(d.sk, 'Q', undefined, { boot: 'b', turnId: 1 });
+    holdQueue(d.sk, { boot: 'b', turnId: 1 });
+    releaseHold(d.sk);
+
+    // B reads the close that says `stopped` after A has let the queue go.
+    d.ws(closed(d.sk, 2, 1, { stopped: true }));
+    await settle();
+    expect(isHeld(d.sk)).toBe(false);
+    expect(sent.map((s) => s.content)).toEqual(['Q']);
+
+    // The next turn, and a message queued during it: it leaves at its close.
+    d.ws(open(d.sk, 3));
+    await d.chat.sendMessage(d.sk, 'R');
+    await settle();
+    expect(getQueue(d.sk)).toHaveLength(1);
+    d.ws(closed(d.sk, 4, 3));
+    await settle();
+    expect(sent.map((s) => s.content)).toEqual(['Q', 'R']);
+    d.unmount();
+  });
+
+  test('a Stop heard before a server restart: a message another window queues in the new boot leaves at its turn\'s end', async () => {
+    // This window heard a Stop pressed elsewhere, nothing queued; the server
+    // restarts; a window opened after it (its storage is all that is shared)
+    // queues during a turn. It used to stay held here, the old Stop's boot not
+    // being the boot the message waited in.
+    const d = drive();
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b1', asOf: 1, turnId: 1, open: true });
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b1', asOf: 2, turnId: 1, open: false, stopped: true, lastStop: 1 });
+    await settle();
+    d.ws({ type: 'turn:snapshot', boot: 'b2', asOf: 0, open: [], awaiting: [], stopped: [] });
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b2', asOf: 1, turnId: 1, open: true });
+    enqueueTurn(d.sk, 'FROM-OTHER-WINDOW', undefined, { boot: 'b2', turnId: 1 });
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b2', asOf: 2, turnId: 1, open: false });
+    await settle();
+    expect(sent.map((s) => s.content)).toEqual(['FROM-OTHER-WINDOW']);
+    expect(isHeld(d.sk)).toBe(false);
+    d.unmount();
+  });
+
+  test('a Stop heard before a server restart, and a Stop lifted in the new boot: this window\'s own queued messages leave at each turn\'s end', async () => {
+    // The lift named in b2 (a Stop pressed on a turn already closed, then a
+    // send) never covered the Stop of b1: every message queued here after it
+    // stayed held at the end of its turn, for the life of the window.
+    const d = drive();
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b1', asOf: 1, turnId: 1, open: true });
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b1', asOf: 2, turnId: 1, open: false, stopped: true, lastStop: 1 });
+    await settle();
+    d.ws({ type: 'turn:snapshot', boot: 'b2', asOf: 0, open: [], awaiting: [], stopped: [] });
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b2', asOf: 1, turnId: 1, open: true });
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b2', asOf: 2, turnId: 1, open: false });
+    holdQueue(d.sk, { boot: 'b2', turnId: 1 });
+    releaseHold(d.sk);
+    for (const [openAt, closeAt, tag] of [[3, 4, 'OWN-X'], [5, 6, 'OWN-Y']] as const) {
+      d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b2', asOf: openAt, turnId: openAt, open: true });
+      await d.chat.sendMessage(d.sk, tag);
+      await settle();
+      expect(getQueue(d.sk)).toHaveLength(1);
+      d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b2', asOf: closeAt, turnId: openAt, open: false });
+      await settle();
+      expect(sent.map((s) => s.content)).toContain(tag);
+      expect(isHeld(d.sk)).toBe(false);
+      expect(getQueue(d.sk)).toHaveLength(0);
+    }
+    d.unmount();
+  });
+
+  test('a Stop learned only from a history answer while another turn runs, then a restart: the message queued before it stays held', async () => {
+    // The close that says `stopped` never reached this window (socket down);
+    // the history read learns the Stop from `lastStop` while turn 4 runs, so
+    // no drain runs on it. The Stop lived only in memory, the restart forgot
+    // it, and the message written before the Stop left in the new boot.
+    const d = drive();
+    d.ws(open(d.sk, 1));
+    enqueueTurn(d.sk, 'BEFORE-HIST', undefined, { boot: 'b', turnId: 1 });
+    const history = { messages: [], isStreaming: true, turn: { boot: 'b', asOf: 4, turnId: 4, open: true, lastStop: 1 } };
+    const fallback = g.fetch as (input: unknown, init?: unknown) => Promise<Response>;
+    g.fetch = async (input: unknown, init?: unknown) => {
+      const url = typeof input === 'string' ? input : (input as { url: string }).url;
+      if (url.includes('/api/history/')) return new Response(JSON.stringify(history), { status: 200, headers: { 'content-type': 'application/json' } });
+      return fallback(input, init);
+    };
+    await d.chat.loadHistory(d.sk);
+    await settle();
+    expect(isHeld(d.sk)).toBe(true);
+
+    d.ws({ type: 'turn:snapshot', boot: 'b2', asOf: 0, open: [], awaiting: [], stopped: [] });
+    await settle();
+    expect(sent).toHaveLength(0);
+    expect(isHeld(d.sk)).toBe(true);
+    expect(getQueue(d.sk)).toHaveLength(1);
+    d.unmount();
+  });
+
+  test('an abort heard after the restart, while the session\'s last word is of the old boot: it holds nothing queued in the new boot', async () => {
+    // Another session's statement said the new boot first; this session's
+    // `user_abort` names the only turn this window knows of, one of the old
+    // server. Taken as a Stop, it held every message queued here after it.
+    const d = drive();
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b1', asOf: 1, turnId: 1, open: true });
+    d.ws({ type: 'turn:state', sessionKey: `${d.sk}-other`, boot: 'b2', asOf: 1, turnId: 1, open: true });
+    d.ws({ type: 'stream:start', messageId: LIVE });
+    d.ws({ type: 'stream:end', messageId: LIVE, reason: 'user_abort' });
+    await settle();
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b2', asOf: 2, turnId: 2, open: true });
+    enqueueTurn(d.sk, 'LATER', undefined, { boot: 'b2', turnId: 2 });
+    d.ws({ type: 'turn:state', sessionKey: d.sk, boot: 'b2', asOf: 3, turnId: 2, open: false });
+    await settle();
+    expect(sent.map((s) => s.content)).toEqual(['LATER']);
+    expect(isHeld(d.sk)).toBe(false);
+    d.unmount();
+  });
+
+  test('a Stop on another device while this socket was down: the reconnect holds the queue', async () => {
+    const d = drive();
+    d.ws(open(d.sk, 1));
+    await d.chat.sendMessage(d.sk, FOLLOW_UP);
+    await settle();
+    expect(getQueue(d.sk)).toHaveLength(1);
+
+    // The socket drops; the desktop stops turn 1; the socket comes back. The
+    // snapshot used to list only open turns: the session read as free.
+    const entry = { sessionKey: d.sk, boot: 'b', asOf: 2, turnId: 1, open: false, stopped: true, lastStop: 1 };
+    d.ws({ type: 'turn:snapshot', boot: 'b', asOf: 2, open: [], awaiting: [], stopped: [entry] });
+    await settle();
+    expect(sent).toHaveLength(0);
+    expect(isHeld(d.sk)).toBe(true);
+    expect(getQueue(d.sk)).toHaveLength(1);
+    d.unmount();
+  });
+
+  test('away for the Stop and for a plain turn after it: the reconnect still holds, and the person\'s next message sends both', async () => {
+    const d = drive();
+    d.ws(open(d.sk, 1));
+    await d.chat.sendMessage(d.sk, FOLLOW_UP);
+    await settle();
+
+    const entry = { sessionKey: d.sk, boot: 'b', asOf: 4, turnId: 3, open: false, lastStop: 1 };
+    d.ws({ type: 'turn:snapshot', boot: 'b', asOf: 4, open: [], awaiting: [], stopped: [entry] });
+    await settle();
+    expect(sent).toHaveLength(0);
+    expect(isHeld(d.sk)).toBe(true);
+
+    await d.chat.sendMessage(d.sk, 'and this');
+    await settle();
+    expect(sent.map((s) => s.content)).toEqual([`${FOLLOW_UP}\n\nand this`]);
+    d.unmount();
   });
 });

@@ -2398,6 +2398,8 @@ Un COMANDO NON SHALL essere accodato: agisce subito.
 
 Un rifiuto per «turno già in volo» SHALL mettere il messaggio in TESTA alla coda e
 farlo partire a fine turno, e NON SHALL lasciare a schermo una bolla fantasma.
+«Fine turno» è quella che dice il server (CHAT-QUEUE-07), non la fine di uno
+stream o lo stato di una finestra.
 
 #### Scenario: si preme ferma
 - **GIVEN** un messaggio in coda e il turno fermato
@@ -2482,6 +2484,133 @@ messaggio, ed era tagliato.
 #### Scenario: un messaggio di una chat chiusa
 - **GIVEN** un messaggio non inviato di una chat senza tab
 - **THEN** la fascia SHALL mostrarlo intero, senza sovrapporsi a nessuna chat
+
+### Requirement: CHAT-QUEUE-07 — A queued message leaves only after the REAL end of the turn, as the server decides it
+
+A message written while a turn runs SHALL reach the provider only after that
+turn has really ended: for claude-code the CLI's `result` (or its exit), for the
+other runtimes the end of their turn process or request. The decision SHALL be
+the server's: one ledger of open turns per session, holding a session open while
+the route streams a turn, while the CLI is between a turn's `system/init` and
+its `result` whoever started it (a background task's report, a cron fire, a
+Monitor), and, after a restart, while the boot has not yet decided about a
+session whose child may be mid-turn. Every open/close SHALL be broadcast to every
+window, and a window that (re)connects SHALL receive the open turns.
+
+The queue SHALL drain on that word and on nothing else: not on a `stream:end`,
+not on the window's own streaming flag, not on a history read, not on a 409's
+cleanup. A message written during a turn SHALL remember that turn, durably and
+for every window, and SHALL NOT leave before the server has said that turn is
+over. A Stop seen from another device SHALL hold that device's queue too. A
+question or a plan approval on screen SHALL keep the queue waiting for the
+person. Several queued messages SHALL still leave as ONE turn, in order, with
+their attachments; a batch refused with «turn in flight» SHALL go back whole,
+with the same ids, and SHALL wait for the refusing turn; the batch SHALL carry
+its head's id as idempotency key, so two windows that both claimed it send it
+once.
+
+The server SHALL be safe on its own. The 409 gate SHALL read the same ledger. A
+message that still reaches a provider while a turn of the same session runs
+SHALL be parked and released at that turn's end, and SHALL NEVER be written into
+the running turn: claude-code (direct child and broker alike) waits for the
+CLI's `result` before writing to stdin, and the CLI's own turn keeps its own
+row; Codex waits for the previous `codex exec` of the thread to exit; ACP waits
+for the previous `session/prompt` to be answered. A Stop pressed while a message
+is parked SHALL mean nothing is written, and SHALL still stop the turn the
+message was parked behind.
+
+How a turn ended SHALL travel with its close, because every window drains on
+the close and the route's `stream:end` comes after it: a person's Stop
+(`stopped`) and a question left for the person (`awaitsHuman`, the plan
+approval) SHALL be part of the closing `turn:state`, and a window that connects
+SHALL receive the sessions whose last turn ended waiting for a person, and the
+latest turn a person stopped on each session since the server started
+(`lastStop`), kept past the turns after it. What was queued before a Stop SHALL
+hold on it in every window, whenever that window hears it; the person's own
+send, «send now» or emptying the queue SHALL lift it for every window of the
+profile, and a later word of the same Stop SHALL NOT hold the queue again.
+A Stop of a server that has since restarted SHALL NOT hold a message queued
+after it: a window that stayed open through the restart SHALL know of that
+Stop only what a window opened after it knows, the holds it already raised.
+
+A Stop on claude-code SHALL close the session's turn at once: the stopped child
+takes no more input and its tail belongs to nobody, so waiting for its exit
+(seconds under load, forever if the SIGINT is lost) only kept a message typed
+after the Stop waiting.
+
+> **Why.** 29/09, Attilio: «assicuriamoci che i messaggi che sono da inviare in
+> coda effettivamente vengano gestiti come fa anche Claude Code, perché vedo che
+> a volte li invia anche prima che finisca il turno». Measured on production
+> (15-29/09): 7 messages reached the CLI in the middle of a turn, 4 of them
+> because the CLI had opened a turn by itself and Topics registered it only at
+> the model's first line (p50 4.7 s, p90 13.6 s later): the 409 gate was open
+> and the message was written into that turn (chat 33966f4e, 27/09 21:31 and
+> 21:42). Claude Code's interactive mode, by its documentation, hands queued
+> messages to the model at the next tool boundary of the running turn; Topics
+> keeps them for the end of the turn, which is the behaviour asked for here.
+
+#### Scenario: the CLI opens a turn by itself
+- **GIVEN** a claude-code chat whose CLI starts a turn on a background task's report
+- **WHEN** the person sends a message before the model has written anything
+- **THEN** the server SHALL refuse it as «turn in flight», and the window SHALL queue it for that turn
+- **AND** the CLI SHALL read the message only after that turn's `result`, once
+
+#### Scenario: a reconnect in the middle of a turn
+- **GIVEN** a queued message and a turn of several assistant messages and tool calls
+- **WHEN** the window's socket drops and reconnects mid-turn
+- **THEN** the message SHALL NOT leave before the turn's real end, and SHALL leave once after it
+
+#### Scenario: a message that slips past the gate
+- **GIVEN** a message that reaches the provider while the CLI is in a turn of its own
+- **THEN** nothing SHALL be written to stdin before that turn's `result`
+- **AND** a Stop pressed meanwhile SHALL leave stdin untouched
+
+#### Scenario: a Stop on another device
+- **GIVEN** a queued message on the phone and the turn stopped from the desktop
+- **THEN** the phone's queue SHALL hold, whatever the runtime and even when the child had not started its turn yet
+- **AND** a later turn that ends plainly SHALL NOT release it: only the person's own send does
+
+#### Scenario: a Stop on another device while the phone's socket is down
+- **GIVEN** a queued message on the phone, whose socket is closed (the app in the background)
+- **WHEN** the desktop stops the turn, and the phone reconnects after the close, or after a later turn
+- **THEN** the phone's queue SHALL hold on that Stop
+- **AND** the person's next message SHALL take it along, in one turn
+
+#### Scenario: Stop, then a message typed at once
+- **GIVEN** a claude-code turn stopped by the person, whose child takes seconds to exit
+- **WHEN** the person types a message right after the Stop
+- **THEN** it SHALL reach the CLI once, after the Stop, and SHALL NOT stay queued
+
+#### Scenario: two windows of one profile, «send now» in one
+- **GIVEN** a Stop lifted by «send now» in one window
+- **WHEN** the other window reads the close of the stopped turn after that
+- **THEN** it SHALL NOT hold the queue again, and a message queued in the next turn SHALL leave at its end
+
+#### Scenario: a Stop heard before a server restart
+- **GIVEN** a window that heard a Stop with nothing queued, and stayed open while the server restarted
+- **WHEN** another window of the profile queues a message during a turn of the new server
+- **THEN** the message SHALL leave at the end of that turn
+
+#### Scenario: a plan approval left by a turn started elsewhere
+- **GIVEN** a queued message and a turn, started from another device or the board, that ends on a plan approval
+- **THEN** the message SHALL wait while the approval is unanswered, even in a window whose transcript does not show it yet
+- **AND** SHALL leave with the person's answer
+
+#### Scenario: Stop on the CLI's own turn while a message is parked behind it
+- **GIVEN** a message parked behind a turn the CLI opened by itself (a cron, a report), adopted into the chat
+- **WHEN** the person presses Stop
+- **THEN** the CLI's turn SHALL be interrupted, and the parked message SHALL NOT be written
+
+#### Scenario: a cron fires right after the result
+- **GIVEN** a claude-code chat with an armed cron, whose fire the CLI holds until the turn's `result`
+- **WHEN** the queue leaves on that `result` and the CLI starts the cron's turn before its `system/init` is out
+- **THEN** the message SHALL wait for the cron turn's `result` before reaching stdin
+- **AND** a queued wake that opens no turn SHALL hold it no longer than the recorded gap (2 s)
+
+#### Scenario: the server restarts in the middle of a turn
+- **GIVEN** a queued message and a turn interrupted by a restart
+- **WHEN** the window reconnects before the boot has reattached or resumed that turn
+- **THEN** the session SHALL be open until the boot has decided about it, and the message SHALL leave after the resumed turn
 
 ### Requirement: CHAT-BUBBLE-01 — La bolla porta l'id del SERVER, e una riadozione non la raddoppia
 

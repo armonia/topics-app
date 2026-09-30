@@ -320,7 +320,8 @@ export function createEditRouter(ctx: AppContext, deps: EditDeps): RouteHandler 
           code: "orchestrator_topic_invariant",
         }, 403);
       }
-      if (isStreaming(sessionKey)) return json({ error: "a response is already streaming for this session" }, 409);
+      // The same gate as `/api/chat`: a turn the CLI opened by itself is a turn in flight too.
+      if (isStreaming(sessionKey) || ctx.turnLedger?.isOpen(sessionKey)) return json({ error: "a response is already streaming for this session" }, 409);
       const anchorId = msg.parentId;
       if (!anchorId) return json({ error: "message has no parent user message" }, 400);
       const anchor = getMessageById(anchorId);

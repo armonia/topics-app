@@ -184,7 +184,15 @@ async function handlePrompt(params: Record<string, unknown>): Promise<Record<str
       content: { type: "text", text: "slow:started" },
     });
     return new Promise<Record<string, unknown>>((resolve) => {
-      slowPrompts.set(sessionId, (stopReason) => resolve({ stopReason }));
+      slowPrompts.set(sessionId, (stopReason) => {
+        // `LINGER`: the agent keeps talking for a moment after the cancel, the
+        // way a real one finishes the chunk it was writing, then answers.
+        if (!text.includes("LINGER")) { resolve({ stopReason }); return; }
+        setTimeout(() => {
+          update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "linger:tail" } });
+          resolve({ stopReason });
+        }, 150);
+      });
     });
   }
 

@@ -12,8 +12,9 @@ import { describe, expect, test, beforeEach } from 'bun:test';
 import {
   __setQueueStorage, adoptLegacyQueue, claimBatch, clearQueue, decideSend, enqueueTurn,
   getQueue, holdQueue, isHeld, legacyQueueKey, mergeBatch, parseQueue, queueKey, releaseClaim,
-  releaseHold, removeTurn, requeueFront, updateTurn, BATCH_SEPARATOR, CLAIM_LEASE_MS,
+  liftedStop, releaseHold, removeTurn, requeueFront, updateTurn, BATCH_SEPARATOR, CLAIM_LEASE_MS,
 } from './chatQueue';
+import { __resetServerTurns, noteServerTurn } from './serverTurn';
 import type { QueueStorage } from '../hooks/outboundQueue';
 
 /** Uno storage finto e ISPEZIONABILE: due «finestre» ci scrivono sopra. */
@@ -221,6 +222,34 @@ describe('lo stop tiene', () => {
   });
 });
 
+describe('a Stop lifted once stays lifted, for every window of the profile', () => {
+  beforeEach(() => __resetServerTurns());
+
+  test('lifting the hold writes down the Stop it was raised for', () => {
+    holdQueue(SK, { boot: 'b1', turnId: 4 });
+    expect(liftedStop(SK)).toBeUndefined();
+    releaseHold(SK);
+    expect(isHeld(SK)).toBe(false);
+    // Another window reads it from the same storage.
+    __setQueueStorage(store);
+    expect(liftedStop(SK)).toEqual({ boot: 'b1', turnId: 4 });
+  });
+
+  test('a send with no hold up lifts the latest Stop this window has heard, and a lift never goes back', () => {
+    noteServerTurn(SK, { boot: 'b1', asOf: 7, turnId: 6, open: false, stopped: true });
+    releaseHold(SK);
+    expect(liftedStop(SK)).toEqual({ boot: 'b1', turnId: 6 });
+    holdQueue(SK, { boot: 'b1', turnId: 2 });
+    releaseHold(SK);
+    expect(liftedStop(SK)).toEqual({ boot: 'b1', turnId: 6 });
+  });
+
+  test('nothing heard, nothing held: no key is written', () => {
+    releaseHold(SK);
+    expect([...store.map.keys()]).toEqual([]);
+  });
+});
+
 describe('la testa estratta non si perde', () => {
   // `claimBatch` toglie la testa dallo storage DUREVOLE. Se l'invio poi fallisce
   // per un motivo che `performSend` non raccoglie da sé (il 409 sì, la rete
@@ -260,5 +289,34 @@ describe('decideSend', () => {
     // È il dopo-stop: chi scrive adesso NON deve scavalcare quello che aveva
     // scritto prima e che è rimasto lì a aspettare.
     expect(decideSend({ busy: false, queued: 2 })).toBe('queue-then-drain');
+  });
+});
+
+describe('the turn a message waits for (CHAT-QUEUE-07)', () => {
+  test('survives a reload, and every window reads the same one', () => {
+    enqueueTurn(SK, 'typed during turn 7', undefined, { boot: 'b1', turnId: 7 });
+    __setQueueStorage(store);
+    expect(getQueue(SK)[0]?.waitsFor).toEqual({ boot: 'b1', turnId: 7 });
+  });
+
+  test('a batch refused with 409 goes back whole, in order, with its ids, waiting for the refusing turn', () => {
+    enqueueTurn(SK, 'one', { fastMode: false });
+    enqueueTurn(SK, 'two', { fastMode: false });
+    enqueueTurn(SK, 'three', { fastMode: true });
+    const batch = claimBatch(SK, 'w1');
+    expect(batch.map((i) => i.content)).toEqual(['one', 'two']);
+    requeueFront(SK, batch, { boot: 'b1', turnId: 9 });
+    const back = getQueue(SK);
+    expect(back.map((i) => i.content)).toEqual(['one', 'two', 'three']);
+    expect(back.slice(0, 2).map((i) => i.id)).toEqual(batch.map((i) => i.id));
+    expect(back[0]?.waitsFor).toEqual({ boot: 'b1', turnId: 9 });
+    // The one not taken keeps what it had.
+    expect(back[2]?.waitsFor).toBeUndefined();
+  });
+
+  test('a malformed mark is dropped, the message is kept', () => {
+    store.setItem(queueKey(SK), JSON.stringify([{ id: 'x', content: 'kept', queuedAt: 't', waitsFor: { boot: 1 } }]));
+    __setQueueStorage(store);
+    expect(getQueue(SK)).toEqual([{ id: 'x', content: 'kept', options: undefined, queuedAt: 't' }]);
   });
 });

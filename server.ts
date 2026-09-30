@@ -381,6 +381,8 @@ if (!process.env.GATEWAY_TOKEN) {
 
 // Create app context (initializes SQLite database)
 const ctx = createAppContext(import.meta.dir);
+// Always built by `createAppContext`; optional on the type only for test contexts.
+const turnLedger = ctx.turnLedger!;
 
 // Da dove `browser_upload` può leggere. Prima da nessun posto in particolare:
 // prendeva il path della tool-call e apriva il file, punto — quindi una chiamata
@@ -799,6 +801,10 @@ const claudeSessionTracker = createClaudeSessionTracker({
 // ends the import cursor jumps past everything it wrote. Armed on the class,
 // like `observeWokenTurns`, because claude-code is not registered yet at boot.
 ClaudeCodeProvider.observeTurnReleased((sk) => { claudeSessionTracker.syncImportOffsetToEnd(sk); });
+// The CLI between a `system/init` and its `result`, whoever started the turn:
+// the ledger holds the session open for it (server/lib/turn-ledger.ts), so the
+// 409 gate and every window's queue see a turn the CLI opened by itself.
+ClaudeCodeProvider.observeCliTurns((sk, open) => { turnLedger.set(sk, "cli", open); });
 // A clock closed a CLI with background work still listed: the chat says what
 // died and why (server/lib/background-notice.ts), not only the log.
 ClaudeCodeProvider.observeBackgroundClosed((sessionKey, tasks, why, cron) => {
@@ -997,6 +1003,7 @@ function streamCatchupFrames(wants: (topicId: string | undefined) => boolean): R
     const partial = getMessageById(stream.messageId);
     if (!partial || partial.partial !== true) {
       activeStreams.delete(sessionKey);
+      turnLedger.set(sessionKey, "route", false);
       continue;
     }
     frames.push(buildStreamCatchupFrame({ sessionKey, topicId, stream, partial }));
@@ -3142,6 +3149,21 @@ const liveBrokerChatSessions = new Set<string>();
   console.log(`[Startup] partial sweep: reset ${cleared}, kept ${kept} (mid-turn ${midTurnAtBoot.size}, broker-alive ${liveBrokerChatSessions.size}, listConfirmed=${listConfirmed})`);
 }
 
+// A SESSION THAT MAY STILL BE MID-TURN IS NOT FREE UNTIL THE BOOT SAYS SO.
+// `Bun.serve` answers before the reattach below has registered a surviving
+// turn, and before the resume sweep has resent an interrupted one: a message
+// sent in that window reached a child in the middle of its turn, or jumped
+// ahead of the turn the sweep was about to resume. The ledger holds these
+// sessions open ("boot") until each one is decided; the resume sweep's own
+// resend passes the hold (`routes/chat.ts`).
+const brokerBootHolds = new Set(liveBrokerChatSessions);
+const resumeBootHolds = new Set([...midTurnAtBoot].filter((sk) => !liveBrokerChatSessions.has(sk)));
+for (const sk of [...brokerBootHolds, ...resumeBootHolds]) turnLedger.set(sk, "boot", true);
+function releaseBootHold(sk: string): void {
+  if (!brokerBootHolds.delete(sk) && !resumeBootHolds.delete(sk)) return;
+  turnLedger.set(sk, "boot", false);
+}
+
 const tlsCert = join(import.meta.dir, "certs", "fullchain.pem");
 const tlsKey = join(import.meta.dir, "certs", "key.pem");
 const useTls = !process.env.NO_TLS && await Bun.file(tlsCert).exists() && await Bun.file(tlsKey).exists();
@@ -4154,6 +4176,10 @@ const opzioniServer = {
         ? (topicId: string | undefined) => !!topicId && hasGrant(ctx.db, principaliDi(ws.data.deviceId!), "topic", topicId)
         : () => true;
       for (const frame of streamCatchupFrames(catchupWanted)) inviaIniziale(frame);
+      // Which sessions have a turn open right now: a window that reconnects
+      // learns here which turns ended while it was away, and its queue drains
+      // on this, not on a streaming flag the reconnect reset.
+      inviaIniziale({ type: "turn:snapshot", ...turnLedger.snapshot() });
     },
     message(ws, message) {
       ws.data.lastPong = Date.now();
@@ -4895,6 +4921,8 @@ const staleStreamTimer = setInterval(() => {
   // A cut just happened, and its notice says "riprende da solo entro pochi
   // minuti": the resume sweep must not wait for its five-minute tick.
   if ([...sweepOutcomes.values()].includes("finalized")) nudgeResumeSweep();
+  // A lingering entry the sweep dropped without `endStream`: the ledger follows the map.
+  for (const sk of sweepOutcomes.keys()) turnLedger.set(sk, "route", activeStreams.has(sk));
   sweepStaleChecksLights();
 }, STALE_STREAM_CHECK_INTERVAL_MS);
 
@@ -5173,6 +5201,13 @@ const dispatchTimer = setInterval(() => {
 // in_progress board tasks — those sessionKeys are left strictly alone so two
 // handlers never race over one child.
 async function reattachSurvivingChatTurns(): Promise<void> {
+  // An adopted turn keeps its hold until its leg ends (the route holds it from
+  // `startStream` on); every other broker session is decided when this returns.
+  const adopted = new Set<string>();
+  try { await reattachSurvivors(adopted); }
+  finally { for (const sk of [...brokerBootHolds]) if (!adopted.has(sk)) releaseBootHold(sk); }
+}
+async function reattachSurvivors(adopted: Set<string>): Promise<void> {
   if (!aiBridgeEnabled()) return;
   const client = getAiBridgeClient();
   let sessions: Awaited<ReturnType<typeof client.list>>;
@@ -5225,6 +5260,7 @@ async function reattachSurvivingChatTurns(): Promise<void> {
     if (adoptable && (midTurnAtBoot.has(s.id) || brokerSays === "open")) {
       const why = midTurnAtBoot.has(s.id) ? "partial in DB" : "store del broker aperto";
       console.log(`[chat-reattach] adopting surviving mid-turn broker session ${s.id} (${why})`);
+      adopted.add(s.id);
       runHeadlessReattach(s.id, { timeoutMs: 30 * 60_000 })
         // Il turno adottato finisce comunque: se non è finito bene, il log dice
         // PERCHÉ invece di tacere (0.4).
@@ -5237,7 +5273,7 @@ async function reattachSurvivingChatTurns(): Promise<void> {
         // reattaches to it lasts a moment. `endReattachLeg` asks the broker,
         // then lights the leg's row again, or closes what is still open,
         // explains it and tells the open windows.
-        .finally(() => endReattachLeg(ctx, s.id, tryGetProvider("claude-code")));
+        .finally(() => { releaseBootHold(s.id); return endReattachLeg(ctx, s.id, tryGetProvider("claude-code")); });
       continue;
     }
     // Idle / archived / deleted-topic session: reap. Guard against a send
@@ -5582,6 +5618,9 @@ adottaTurniRisvegliati();
 // times behind a send the watchdog had orphaned), and dates each row against
 // this boot so a notice blames a restart only when one happened.
 const resumeCtx: CtxRipresa = {
+  // The sessions held at boot for the resume are free once it has decided about them.
+  decided: (resuming) => { for (const sk of [...resumeBootHolds]) if (!resuming.includes(sk)) releaseBootHold(sk); },
+  resendStarted: (sk) => releaseBootHold(sk),
   db: ctx.db,
   getTopicBySessionKey: (sk) => ctx.getTopicBySessionKey(sk),
   defaultProvider: getDefaultProviderName,
@@ -5621,7 +5660,11 @@ survivingTurnsAdopted
   // `run_command` still owes a wake: their goals wait again.
   .then(() => goalLoop?.resumeAfterBoot([...new Set([...sessionsWithBackgroundWork(), ...sessionsAwaitingCommandWake()])]))
   .catch((err) => console.error("[chat-reattach] boot sweep failed", err))
-  .finally(() => resumeSweepClock.start());
+  .finally(() => {
+    // Whatever the chain decided or failed to: no session stays held past it.
+    for (const sk of [...brokerBootHolds, ...resumeBootHolds]) releaseBootHold(sk);
+    resumeSweepClock.start();
+  });
 
 // The periodic sweep and the early one after a cut (lib/resume-sweep-clock.ts).
 const resumeSweepClock = createResumeSweepClock(() => riprendiTurniInterrotti(resumeCtx, topicsRouter));

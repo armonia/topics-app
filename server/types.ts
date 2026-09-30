@@ -319,6 +319,8 @@ export interface ActiveStream {
    * from the first.
    */
   survivesRestart: boolean;
+  /** The entry of another row's turn this one took the slot from (see `startStream`): it comes back at this one's end. */
+  shadowed?: ActiveStream;
   /**
    * WHY NOTHING MOVES, for whoever connects mid-turn.
    *
@@ -401,6 +403,8 @@ export interface AppContext {
 
   // State
   activeStreams: Map<string, ActiveStream>;
+  /** Whether a turn is open on a session, from every source (`lib/turn-ledger.ts`). Optional for test contexts. */
+  turnLedger?: import("./lib/turn-ledger").TurnLedger;
   wsClients: Set<ServerWebSocket<WSData>>;
   /** Every open transport, exclusively for device revocation; never broadcast. */
   deviceSockets: Set<ServerWebSocket<WSData>>;
@@ -576,7 +580,8 @@ export interface AppContext {
   updateStreamActivity: (sessionKey: string, isThinking?: boolean) => void;
   updateStreamContent: (sessionKey: string, content: string, thinking: string) => void;
   getStreamContent: (sessionKey: string) => { content: string; thinking: string; messageId: string } | null;
-  endStream: (sessionKey: string, opts?: { keepAwaiting?: readonly string[]; closedBecause?: string }) => ToolCall[];
+  /** `rowId`: end only the turn of that row, never another one on top of it. */
+  endStream: (sessionKey: string, opts?: { keepAwaiting?: readonly string[]; closedBecause?: string; rowId?: string }) => ToolCall[];
   isStreaming: (sessionKey: string) => ActiveStream | undefined;
   readJSON: (req: Request) => Promise<any>;
   json: (data: any, status?: number) => Response;

@@ -241,6 +241,39 @@ describe("stop e morte", () => {
     expect(rec.aborted[0]!.turnEnd).toEqual({ end: "cancelled", cause: "user" });
   });
 
+  test("a prompt sent right after a Stop waits for the stopped one to answer, and takes nothing of its tail (CHAT-QUEUE-07)", async () => {
+    // The agent answers a cancel with the tail of what it was writing. Sent at
+    // once, the next prompt ran beside the stopped one and that tail landed in
+    // the new turn's row: `state.handler` was already the new one.
+    const provider = makeProvider();
+    const first = recorder();
+    const turn = provider.sendChat("topic:linger", "SLOW LINGER", first.handler);
+    await untilSlowStarted(first);
+    await provider.abort("topic:linger", undefined, "user");
+    const second = recorder();
+    await provider.sendChat("topic:linger", "next", second.handler);
+    await turn;
+    expect(second.full).not.toContain("linger:tail");
+    expect(second.full).toContain("next");
+    expect(first.full).toContain("linger:tail");
+    expect(first.aborted[0]!.turnEnd).toEqual({ end: "cancelled", cause: "user" });
+  });
+
+  test("a prompt waiting for the stopped one, stopped in turn, is never sent", async () => {
+    const provider = makeProvider();
+    const first = recorder();
+    const turn = provider.sendChat("topic:linger2", "SLOW LINGER", first.handler);
+    await untilSlowStarted(first);
+    await provider.abort("topic:linger2", undefined, "user");
+    const second = recorder();
+    const waiting = provider.sendChat("topic:linger2", "never", second.handler);
+    await provider.abort("topic:linger2", undefined, "user");
+    expect(await waiting).toEqual({ notSent: true });
+    await turn;
+    expect(second.full).toBe("");
+    expect(second.done).toEqual([]);
+  });
+
   test("uno stop del watchdog NON si traveste da stop umano", async () => {
     const provider = makeProvider();
     const rec = recorder();

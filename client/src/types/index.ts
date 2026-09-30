@@ -244,6 +244,23 @@ export interface HistoryResponse {
     startedAt: string;
     isThinking: boolean;
   } | null;
+  /** The server's ledger on this session's turn (`state/serverTurn.ts`): what the turn queue drains on. */
+  turn?: ServerTurnState;
+}
+
+/** Whether a session has a turn open, from the server's ledger (`server/lib/turn-ledger.ts`). */
+export interface ServerTurnState {
+  sessionKey?: string;
+  boot: string;
+  asOf: number;
+  turnId: number;
+  open: boolean;
+  /** Closed: a person stopped the turn (on any device). */
+  stopped?: true;
+  /** Closed: the turn ended waiting for a person (a plan approval). */
+  awaitsHuman?: true;
+  /** The latest turn of this boot a person stopped, said on every state after it. */
+  lastStop?: number;
 }
 
 export interface UploadResponse {
@@ -400,6 +417,24 @@ export interface WSPresenceWindowsMessage {
 }
 
 // --- Streaming / chat --------------------------------------------------------
+/** A turn opened or closed, from any source: the turn queue drains on the close. */
+export interface WSTurnStateMessage extends ServerTurnState {
+  type: 'turn:state';
+  sessionKey: string;
+}
+
+/** Every open turn when the socket opens: a session not listed has none. */
+export interface WSTurnSnapshotMessage {
+  type: 'turn:snapshot';
+  boot: string;
+  asOf: number;
+  open: Array<ServerTurnState & { sessionKey: string }>;
+  /** Sessions whose last turn ended waiting for a person: closed, and not free for the queue. */
+  awaiting?: Array<ServerTurnState & { sessionKey: string }>;
+  /** The other closed sessions with a person's Stop in this boot: a window that missed the close holds on it. */
+  stopped?: Array<ServerTurnState & { sessionKey: string }>;
+}
+
 export interface WSStreamStartMessage {
   type: 'stream:start';
   sessionKey: string;
@@ -1185,6 +1220,8 @@ export type WSMessage =
   | WSPresenceAnnounceMessage
   | WSSubscribeMessage
   | WSPresenceWindowsMessage
+  | WSTurnStateMessage
+  | WSTurnSnapshotMessage
   | WSStreamStartMessage
   | WSStreamEndMessage
   | WSStreamThinkingStartMessage

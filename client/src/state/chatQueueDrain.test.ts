@@ -1,0 +1,226 @@
+/**
+ * WHEN THE TURN QUEUE LEAVES: each signal that used to fire it early.
+ *
+ * The drain's only condition was this window's `streaming` flag (and its own
+ * send lock). Every case below is a path, found in the code and in the
+ * production log of 27-29/09, where that flag said "free" while the server
+ * still had the turn open. The rule now reads the server's ledger
+ * (`state/serverTurn.ts`) and the turn the message waits for; the local flag is
+ * not even an input. Each case states what the old condition did with it.
+ *
+ * @covers CHAT-QUEUE-07
+ */
+import { beforeEach, describe, expect, test } from 'bun:test';
+import { decideDrain, type QueuedTurn } from './chatQueue';
+import { __resetServerTurns, lastStopOf, noteServerTurn, noteStopHeard, noteTurnSnapshot, openTurnRef, serverTurnOf, type ServerTurn } from './serverTurn';
+
+const SK = 'topic:q';
+const open = (turnId: number, asOf = turnId): ServerTurn => ({ boot: 'b1', asOf, turnId, open: true });
+const closed = (turnId: number, asOf: number): ServerTurn => ({ boot: 'b1', asOf, turnId, open: false });
+
+/** The old condition, kept here only to show each case was an early send. */
+const oldDrains = (s: { held: boolean; queued: number; sendLocked: boolean; streaming: boolean }) =>
+  !s.held && s.queued > 0 && !(s.sendLocked || s.streaming);
+
+function verdict(over: Partial<Parameters<typeof decideDrain>[0]> = {}) {
+  return decideDrain({ held: false, queued: 1, sendLocked: false, pendingAsk: false, ...over });
+}
+
+beforeEach(() => __resetServerTurns());
+
+describe('early signals that no longer send', () => {
+  test('a history read cleared the streaming flag while the server turn is open', () => {
+    // loadHistory sets `streaming` false BEFORE asking the server.
+    expect(oldDrains({ held: false, queued: 1, sendLocked: false, streaming: false })).toBe(true);
+    expect(verdict({ serverTurn: open(7) })).toBe('wait-turn');
+  });
+
+  test('a 409 finally cleared the flag: the refusal named the open turn', () => {
+    noteServerTurn(SK, open(7));
+    const head: Pick<QueuedTurn, 'waitsFor'> = { waitsFor: openTurnRef(SK) };
+    expect(verdict({ serverTurn: serverTurnOf(SK), head })).toBe('wait-turn');
+  });
+
+  test('stream:end of the route while the CLI is still in its turn (the ledger stays open)', () => {
+    expect(verdict({ serverTurn: open(7) })).toBe('wait-turn');
+  });
+
+  test('the CLI opened a turn by itself, nobody adopted it yet: no stream:start ever came', () => {
+    // No local streaming at all: the old condition sent at once.
+    expect(oldDrains({ held: false, queued: 1, sendLocked: false, streaming: false })).toBe(true);
+    noteServerTurn(SK, open(12));
+    expect(verdict({ serverTurn: serverTurnOf(SK) })).toBe('wait-turn');
+  });
+
+  test('the silence watchdog or the orphan reconciler cleared the flag: the server still says open', () => {
+    expect(verdict({ serverTurn: open(3) })).toBe('wait-turn');
+  });
+
+  test("a reconnect: a history answer older than the turn's opening does not reopen the gate", () => {
+    noteServerTurn(SK, open(9));
+    // Left the server before turn 9 opened, arrives after.
+    expect(noteServerTurn(SK, closed(4, 8))).toBe(false);
+    expect(verdict({ serverTurn: serverTurnOf(SK) })).toBe('wait-turn');
+  });
+
+  test('a snapshot older than a turn:state already received does not close it', () => {
+    noteServerTurn(SK, open(9));
+    noteTurnSnapshot({ boot: 'b1', asOf: 8, open: [] });
+    expect(serverTurnOf(SK)?.open).toBe(true);
+  });
+
+  test('a window that missed the end of the turn another window queued behind', () => {
+    // This window's last word is "closed after turn 5"; the head, written in
+    // another window, waits for turn 7.
+    const head = { waitsFor: { boot: 'b1', turnId: 7 } };
+    expect(verdict({ serverTurn: closed(5, 6), head })).toBe('wait-turn');
+    // ...and a window that has heard nothing at all waits too.
+    expect(verdict({ serverTurn: undefined, head })).toBe('wait-turn');
+  });
+
+  test('a plan approval on screen: the person answers it first', () => {
+    expect(verdict({ serverTurn: closed(7, 8), pendingAsk: true })).toBe('hold');
+  });
+
+  test('a turn the server says ended on a question for a person: held, though this window shows no question', () => {
+    // The close reaches the window before its copy of the transcript shows the
+    // plan panel, or the chat is not loaded here at all (e2e 30/09: sent 26 ms
+    // after the plan approval was written).
+    noteServerTurn(SK, { ...closed(7, 8), awaitsHuman: true });
+    expect(verdict({ serverTurn: serverTurnOf(SK), pendingAsk: false })).toBe('hold');
+    // The answer is the next turn: its plain close is the word that frees it.
+    noteServerTurn(SK, open(9));
+    noteServerTurn(SK, closed(9, 10));
+    expect(verdict({ serverTurn: serverTurnOf(SK) })).toBe('drain');
+  });
+
+  test('a snapshot lists the sessions whose last turn ended on a question, and they stay held', () => {
+    noteServerTurn(SK, open(7));
+    noteTurnSnapshot({ boot: 'b1', asOf: 9, open: [], awaiting: [{ sessionKey: SK, boot: 'b1', asOf: 9, turnId: 7, open: false, awaitsHuman: true }] });
+    expect(serverTurnOf(SK)).toMatchObject({ open: false, awaitsHuman: true });
+    expect(verdict({ serverTurn: serverTurnOf(SK) })).toBe('hold');
+  });
+
+  test('stopped: nothing leaves on its own, whatever the server says', () => {
+    expect(verdict({ held: true, serverTurn: closed(7, 8) })).toBe('hold');
+  });
+
+  test("this window's own send is still streaming: try again in a moment", () => {
+    expect(verdict({ sendLocked: true, serverTurn: closed(7, 8) })).toBe('wait-own-send');
+  });
+});
+
+describe('the real end sends', () => {
+  test('the close of the turn waited for', () => {
+    const head = { waitsFor: { boot: 'b1', turnId: 7 } };
+    expect(verdict({ serverTurn: closed(7, 8), head })).toBe('drain');
+  });
+
+  test('a snapshot after a reload: the turn ended while the window was away', () => {
+    noteServerTurn(SK, open(7));
+    const closedNow = noteTurnSnapshot({ boot: 'b1', asOf: 20, open: [] });
+    expect(closedNow).toEqual([SK]);
+    expect(verdict({ serverTurn: serverTurnOf(SK), head: { waitsFor: { boot: 'b1', turnId: 7 } } })).toBe('drain');
+  });
+
+  test('a session the snapshot does not list, never seen before: closed as of the snapshot', () => {
+    noteTurnSnapshot({ boot: 'b1', asOf: 20, open: [] });
+    expect(verdict({ serverTurn: serverTurnOf('topic:other'), head: { waitsFor: { boot: 'b1', turnId: 7 } } })).toBe('drain');
+  });
+
+  test('a restarted server: the old turn is gone, the new word decides', () => {
+    const head = { waitsFor: { boot: 'b1', turnId: 7 } };
+    expect(verdict({ serverTurn: { boot: 'b2', asOf: 1, turnId: 0, open: false }, head })).toBe('drain');
+    // A turn the restart re-adopted is open under the new boot: still waits.
+    expect(verdict({ serverTurn: { boot: 'b2', asOf: 2, turnId: 2, open: true }, head })).toBe('wait-turn');
+  });
+
+  test('no word from the server and nothing waited for: the server\'s 409 decides', () => {
+    expect(verdict({ serverTurn: undefined })).toBe('drain');
+  });
+
+  test('an empty queue has nothing to drain', () => {
+    expect(verdict({ queued: 0, serverTurn: closed(7, 8) })).toBe('hold');
+  });
+});
+
+describe('the server word, kept in order', () => {
+  test('malformed statements are dropped', () => {
+    expect(noteServerTurn(SK, { open: true })).toBe(false);
+    expect(serverTurnOf(SK)).toBeUndefined();
+  });
+
+  test('the message typed during a turn waits for that turn', () => {
+    noteServerTurn(SK, open(11));
+    expect(openTurnRef(SK)).toEqual({ boot: 'b1', turnId: 11 });
+    noteServerTurn(SK, closed(11, 12));
+    expect(openTurnRef(SK)).toBeUndefined();
+  });
+});
+
+describe("a person's Stop, heard by a window however late", () => {
+  const ref = (turnId: number, boot = 'b1') => ({ boot, turnId });
+
+  test('a window that missed the close hears the Stop from the snapshot, and holds what it queued before it', () => {
+    // The phone queued during turn 7, then lost its socket; the desktop stopped 7.
+    noteServerTurn(SK, open(7));
+    const head = { waitsFor: openTurnRef(SK) };
+    const closedSessions = noteTurnSnapshot({ boot: 'b1', asOf: 8, open: [], awaiting: [], stopped: [{ sessionKey: SK, boot: 'b1', asOf: 8, turnId: 7, open: false, stopped: true, lastStop: 7 }] });
+    expect(closedSessions).toEqual([]);
+    expect(lastStopOf(SK)).toEqual(ref(7));
+    expect(verdict({ serverTurn: serverTurnOf(SK), head, stop: lastStopOf(SK) })).toBe('hold-stop');
+  });
+
+  test('a later turn closed plainly does not make the Stop untrue for a message queued before it', () => {
+    noteServerTurn(SK, open(7));
+    const head = { waitsFor: openTurnRef(SK) };
+    noteTurnSnapshot({ boot: 'b1', asOf: 10, open: [], stopped: [{ sessionKey: SK, boot: 'b1', asOf: 10, turnId: 9, open: false, lastStop: 7 }] });
+    expect(verdict({ serverTurn: serverTurnOf(SK), head, stop: lastStopOf(SK) })).toBe('hold-stop');
+    // A message written during that later turn came after the Stop: not its word.
+    expect(verdict({ serverTurn: serverTurnOf(SK), head: { waitsFor: ref(9) }, stop: lastStopOf(SK) })).toBe('drain');
+  });
+
+  test('a Stop the person already lifted, in any window of the profile, holds nothing', () => {
+    noteServerTurn(SK, closed(7, 8));
+    noteServerTurn(SK, { ...closed(7, 8), stopped: true });
+    expect(verdict({ serverTurn: serverTurnOf(SK), head: { waitsFor: ref(7) }, stop: ref(7), lifted: ref(7) })).toBe('drain');
+    // A lift of an older boot says nothing about this one.
+    expect(verdict({ serverTurn: serverTurnOf(SK), head: { waitsFor: ref(7) }, stop: ref(7), lifted: ref(9, 'b0') })).toBe('hold-stop');
+  });
+
+  test('a stale close still carries its Stop', () => {
+    noteServerTurn(SK, open(9));
+    expect(noteServerTurn(SK, { ...closed(7, 8), stopped: true })).toBe(false);
+    expect(lastStopOf(SK)).toEqual(ref(7));
+  });
+
+  test('a Stop heard before a server restart holds nothing queued in the new boot', () => {
+    // This window heard a Stop in b1 with nothing queued, and stayed open
+    // through the restart. Another window queues during a turn of b2.
+    noteServerTurn(SK, { ...closed(7, 8), stopped: true, lastStop: 7 });
+    expect(lastStopOf(SK)).toEqual(ref(7));
+    noteTurnSnapshot({ boot: 'b2', asOf: 0, open: [], awaiting: [], stopped: [] });
+    expect(lastStopOf(SK)).toBeUndefined();
+    noteServerTurn(SK, { boot: 'b2', asOf: 1, turnId: 1, open: true });
+    const head = { waitsFor: openTurnRef(SK) };
+    noteServerTurn(SK, { boot: 'b2', asOf: 2, turnId: 1, open: false });
+    expect(verdict({ serverTurn: serverTurnOf(SK), head, stop: lastStopOf(SK) })).toBe('drain');
+  });
+
+  test('the first word of the new boot forgets the old Stop, whatever carries it (a history answer before the snapshot)', () => {
+    noteServerTurn(SK, { ...closed(7, 8), stopped: true });
+    noteServerTurn('topic:other', { boot: 'b2', asOf: 3, turnId: 2, open: false });
+    expect(lastStopOf(SK)).toBeUndefined();
+    // A Stop the new boot says is kept.
+    noteServerTurn(SK, { boot: 'b2', asOf: 5, turnId: 4, open: false, stopped: true });
+    expect(lastStopOf(SK)).toEqual(ref(4, 'b2'));
+  });
+
+  test('a user_abort names the turn the server last spoke of', () => {
+    noteStopHeard(SK);
+    expect(lastStopOf(SK)).toBeUndefined();
+    noteServerTurn(SK, open(5));
+    noteStopHeard(SK);
+    expect(lastStopOf(SK)).toEqual(ref(5));
+  });
+});

@@ -1316,6 +1316,40 @@ const notificationSeenSchema = z.looseObject({
   subjects: z.optional(z.array(z.string())),
 });
 
+/**
+ * Whether a session has a turn open, from the server's ledger
+ * (`server/lib/turn-ledger.ts`). Sent on every open/close transition, from
+ * every source: a turn the route registered, a turn the CLI opened by itself,
+ * a session held while a restart decides about it. The turn queue drains on
+ * these, not on `stream:end` or on a window's own streaming flag.
+ */
+const turnStateEntry = {
+  sessionKey: z.string(),
+  boot: z.string(),
+  asOf: z.number(),
+  turnId: z.number(),
+  open: z.boolean(),
+  // On a close: a person stopped the turn / it ended waiting for a person.
+  stopped: z.optional(z.literal(true)),
+  awaitsHuman: z.optional(z.literal(true)),
+  // The latest turn of this boot a person stopped, said on every state after it.
+  lastStop: z.optional(z.number()),
+};
+const turnStateSchema = z.looseObject({ type: z.literal('turn:state'), ...turnStateEntry });
+/**
+ * Every open turn at the moment a socket opens: a session not listed has none.
+ * `awaiting`: sessions whose last turn ended waiting for a person, closed.
+ * `stopped`: the other closed sessions with a person's Stop in this boot.
+ */
+const turnSnapshotSchema = z.looseObject({
+  type: z.literal('turn:snapshot'),
+  boot: z.string(),
+  asOf: z.number(),
+  open: z.array(z.looseObject(turnStateEntry)),
+  awaiting: z.optional(z.array(z.looseObject(turnStateEntry))),
+  stopped: z.optional(z.array(z.looseObject(turnStateEntry))),
+});
+
 // ---- Registry --------------------------------------------------------------
 
 const OUTBOUND_SCHEMAS = {
@@ -1326,6 +1360,9 @@ const OUTBOUND_SCHEMAS = {
   'dashboard:updated': dashboardUpdatedSchema,
   'unread:init': unreadInitSchema,
   'unread:updated': unreadUpdatedSchema,
+  // Turn ledger
+  'turn:state': turnStateSchema,
+  'turn:snapshot': turnSnapshotSchema,
   // Stream
   'stream:end': streamEndSchema,
   'stream:catchup': streamCatchupSchema,

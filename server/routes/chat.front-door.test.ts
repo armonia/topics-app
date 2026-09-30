@@ -25,10 +25,11 @@
  * dal fatto che chiama `appendLocalMessage` — l'effetto immediatamente
  * successivo, e la ragione per cui il 409 deve stare PRIMA (altrimenti il
  * messaggio respinto resterebbe comunque scritto in chat).
-  * @covers CHAT-DOOR-01
+  * @covers CHAT-DOOR-01, CHAT-QUEUE-07
  */
 import { test, expect, describe } from "bun:test";
 import { createChatRouter } from "./chat";
+import { createTurnLedger, type TurnLedger } from "../lib/turn-ledger";
 import type { AppContext } from "../types";
 
 interface Harness {
@@ -51,7 +52,7 @@ interface Harness {
  * riattaccarsi da uno che non lo sa, e quella distinzione è l'unica cosa che
  * separa «adotto il turno vivo» da «fabbrico un turno che nessuno ha chiesto».
  */
-function harness(opts?: { provider?: Record<string, unknown>; appendSurvives?: boolean }): Harness {
+function harness(opts?: { provider?: Record<string, unknown>; appendSurvives?: boolean; turnLedger?: TurnLedger }): Harness {
   const appended: string[] = [];
   const streaming = new Map<string, { messageId: string }>();
 
@@ -61,6 +62,7 @@ function harness(opts?: { provider?: Record<string, unknown>; appendSurvives?: b
     readJSON: async (req: Request) => { try { return await req.json(); } catch { return null; } },
     getTopicBySessionKey: () => undefined,
     isStreaming: (sessionKey: string) => streaming.get(sessionKey),
+    turnLedger: opts?.turnLedger,
     appendLocalMessage: (sessionKey: string, _role: string, content: string) => {
       appended.push(`${sessionKey}:${content}`);
       // Di norma si ferma qui: alle prove sulla PORTA non serve altro.
@@ -121,6 +123,36 @@ describe("POST /api/chat — la porta d'ingresso", () => {
     // `appendLocalMessage`, il messaggio comparirebbe in chat come spedito e
     // poi ne partirebbe un secondo dalla coda — lo stesso testo due volte.
     expect(h.appended).toEqual([]);
+  });
+
+  test("the CLI in a turn of its own, not registered as a stream yet ⇒ 409 with that turn, nothing written", async () => {
+    // Chat 33966f4e, 27/09: the CLI opened a turn on a background report and
+    // the stream map had nothing until the model's first line, 9.8 s later.
+    // The message went through and into that turn. The ledger holds it.
+    const turnLedger = createTurnLedger({ boot: "b" });
+    turnLedger.set("topic:abc", "cli", true);
+    const h = harness({ turnLedger });
+
+    const resp = await h.post({ sessionKey: "topic:abc", messages: [{ role: "user", content: "ciao" }] });
+
+    expect(resp?.status).toBe(409);
+    const body = await resp!.json();
+    expect(body.code).toBe("stream_in_flight");
+    expect(body.turn).toMatchObject({ sessionKey: "topic:abc", boot: "b", open: true, turnId: 1 });
+    expect(h.appended).toEqual([]);
+  });
+
+  test("a session held at boot refuses a message, but lets the resume sweep's resend in", async () => {
+    const turnLedger = createTurnLedger({ boot: "b" });
+    turnLedger.set("topic:abc", "boot", true);
+    const h = harness({ turnLedger });
+
+    const refused = await h.post({ sessionKey: "topic:abc", messages: [{ role: "user", content: "ciao" }] });
+    expect(refused?.status).toBe(409);
+    expect(h.appended).toEqual([]);
+
+    await h.post({ sessionKey: "topic:abc", messages: [{ role: "user", content: "rimando" }], ripresa: 1, resendOf: "m1" }).catch(() => null);
+    expect(h.appended).toEqual(["topic:abc:rimando"]);
   });
 
   test("sessione libera ⇒ il turno passa il cancello (e il messaggio viene scritto)", async () => {

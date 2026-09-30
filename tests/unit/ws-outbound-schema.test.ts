@@ -263,6 +263,8 @@ describe('outbound registry contract', () => {
       'topic:switch:complete',
       'topic:updated',
       'topics:reordered',
+      'turn:snapshot',
+      'turn:state',
       'typing',
       'ui-state:init',
       'ui-state:patch',
@@ -379,8 +381,10 @@ describe('outbound registry contract', () => {
   // that missed one frame would keep a session frosted while it is running again.
   // 99 → 100: `stream:alive`, the stale-stream sweep asked a silent turn's child
   // and it answered: a window that had taken the turn for over lights it again.
-  test('all 100 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(100);
+  // 100 → 102: `turn:state` and `turn:snapshot`, the server's ledger of open
+  // turns (server/lib/turn-ledger.ts): the turn queue drains on these.
+  test('all 102 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(102);
   });
 });
 
