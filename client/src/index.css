@@ -1480,15 +1480,23 @@ html, body {
    linea, cancellarlo lascerebbe un rettangolo nero a schermo intero.
    `visibility` e non solo `opacity`: un velo a opacità zero resta un bersaglio
    per il dito e un nodo per chi legge lo schermo. Sta nella transizione così la
-   sparizione aspetta la dissolvenza invece di anticiparla. */
+   sparizione aspetta la dissolvenza invece di anticiparla.
+   `pointer-events` does NOT wait: a closing scrim is no longer a target.
+   `visibility` stays `visible` for the whole fade, and `--ease-spring` slows
+   down so much at the tail that the drawer is already off screen while the
+   scrim is still there at opacity 0.001. Measured on WebKit 375x812: on the
+   first frame with the drawer at `right=0` the scrim, not the new draft's
+   composer, was under the finger, and that tap was lost. */
 .sidebar-scrim {
   opacity: 0;
   visibility: hidden;
+  pointer-events: none;
   transition: opacity var(--motion-fast) var(--ease-spring), visibility var(--motion-fast);
 }
 .sidebar-scrim[data-open="true"] {
   opacity: 1;
   visibility: visible;
+  pointer-events: auto;
 }
 
 /* (Removed) The `html.sidebar-animating .xterm { content-visibility: hidden }` blank
