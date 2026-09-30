@@ -1791,7 +1791,17 @@ export function useChat() {
     // The server's word on which turns are open: the only signal the turn
     // queue leaves on (`state/serverTurn.ts`, `decideDrain`).
     if (event.type === 'turn:state') {
-      if (noteServerTurn(event.sessionKey, event) && !event.open) drainTurnQueueRef.current?.(event.sessionKey);
+      if (noteServerTurn(event.sessionKey, event) && !event.open) {
+        // A person's Stop, on this device or another, travels WITH the close:
+        // the server sends the close before its `stream:end`, and a queue
+        // drained on the close had already left when the `user_abort` came.
+        // This window's own Stop held it already (and a send typed right after
+        // it released it on purpose), as in the `stream:end` case above.
+        if (event.stopped && !stoppedByUserRef.current[event.sessionKey] && getTurnQueue(event.sessionKey).length > 0) {
+          holdQueue(event.sessionKey);
+        }
+        drainTurnQueueRef.current?.(event.sessionKey);
+      }
     } else if (event.type === 'turn:snapshot') {
       // A socket that (re)opens: every queue may have been waiting for a turn
       // that ended while this window was not listening, including queues of
@@ -1828,7 +1838,7 @@ export function useChat() {
     for (const handler of wsHandlersRef.current) {
       try { handler(event); } catch {}
     }
-  }, [handleStreamEvent]);
+  }, [handleStreamEvent, stoppedByUserRef]);
 
   /**
    * L'invio vero e proprio: apre la SSE, disegna le bolle, tiene il lock.

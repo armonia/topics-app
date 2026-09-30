@@ -212,3 +212,53 @@ describe('a queued turn is not stranded when the stream:end never reaches this w
     }
   });
 });
+
+describe('the close of a turn says how it ended, and the queue obeys it', () => {
+  // The server sends the ledger's close BEFORE the route's `stream:end`
+  // (`endStream` broadcasts it as it runs): whatever holds the queue must
+  // travel with the close itself.
+  const open = (sk: string, asOf: number) => ({ type: 'turn:state', sessionKey: sk, boot: 'b', asOf, turnId: asOf, open: true });
+  const closed = (sk: string, asOf: number, turnId: number, extra: Record<string, unknown> = {}) =>
+    ({ type: 'turn:state', sessionKey: sk, boot: 'b', asOf, turnId, open: false, ...extra });
+
+  test('a Stop pressed on another device: the close says so, and the queue here holds', async () => {
+    const d = drive();
+    d.ws(open(d.sk, 1));
+    d.ws({ type: 'stream:start', messageId: LIVE });
+    await d.chat.sendMessage(d.sk, FOLLOW_UP);
+    await settle();
+    expect(getQueue(d.sk)).toHaveLength(1);
+
+    // Wire order of the abort route: the close, then the `stream:end`.
+    d.ws(closed(d.sk, 2, 1, { stopped: true }));
+    await settle();
+    expect(sent).toHaveLength(0);
+    d.ws({ type: 'stream:end', messageId: LIVE, reason: 'user_abort' });
+    await settle();
+    expect(sent).toHaveLength(0);
+    expect(getQueue(d.sk)).toHaveLength(1);
+    d.unmount();
+  });
+
+  test('a plan approval left on screen by the turn: the queue waits for the answer, and leaves after it', async () => {
+    const d = drive();
+    d.ws(open(d.sk, 1));
+    await d.chat.sendMessage(d.sk, FOLLOW_UP);
+    await settle();
+    expect(getQueue(d.sk)).toHaveLength(1);
+
+    // This window's transcript does not show the question (a turn started
+    // elsewhere, a chat not loaded here): the server's word is enough.
+    d.ws(closed(d.sk, 2, 1, { awaitsHuman: true }));
+    await settle();
+    expect(sent).toHaveLength(0);
+    expect(getQueue(d.sk)).toHaveLength(1);
+
+    // The answer is a new turn; its plain close lets the queue go.
+    d.ws(open(d.sk, 3));
+    d.ws(closed(d.sk, 4, 3));
+    await settle();
+    expect(sent.map((s) => s.content)).toEqual([FOLLOW_UP]);
+    d.unmount();
+  });
+});

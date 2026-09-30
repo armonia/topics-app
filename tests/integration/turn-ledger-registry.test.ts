@@ -81,6 +81,16 @@ describe("turn ledger through createAppContext", () => {
     expect(ctx.turnLedger!.isOpen("topic:l3")).toBe(false);
   });
 
+  test("a turn that ends with a plan approval kept on screen says so with its close", () => {
+    const ctx = context();
+    const frames = listen(ctx);
+    ctx.startStream("topic:l5", "plan-row");
+    ctx.endStream("topic:l5", { rowId: "plan-row", keepAwaiting: ["toolu_plan"] });
+    const close = frames.filter((f) => f.type === "turn:state" && f.sessionKey === "topic:l5").at(-1);
+    expect(close).toMatchObject({ open: false, awaitsHuman: true });
+    expect(ctx.turnLedger!.snapshot().awaiting.map((t) => t.sessionKey)).toContain("topic:l5");
+  });
+
   test("the CLI's own turn keeps the session open past the route's end", () => {
     const ctx = context();
     ctx.turnLedger!.set("topic:l4", "cli", true);

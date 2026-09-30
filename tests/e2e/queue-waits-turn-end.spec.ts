@@ -16,6 +16,10 @@
  *   2. The CLI opens a turn by itself (a background task's report) and stays
  *      silent for a while before its first line, as the real one does; the
  *      person writes in that silence. Same verdict.
+ *   3. Another device presses Stop while the child is still starting (its
+ *      `system/init` not come yet): the message queued here stays queued.
+ *   4. A turn started elsewhere ends on a plan approval: the message queued
+ *      here waits for the person's answer, and leaves with it.
  *
  * Behaviour, not layout: video on, the .webm is the proof.
  *
@@ -68,6 +72,10 @@ function startTurn(sessionKey: string, content: string): Promise<void> {
 
 const queuedBubbles = (page: Page) => page.getByTestId("queued-bubble");
 
+/** Whether this window holds the queue of a session (`msgQueue:hold:`, `state/chatQueue.ts`). */
+const queueHeld = (page: Page, sessionKey: string) =>
+  page.evaluate((key) => localStorage.getItem(key) !== null, `msgQueue:hold:${sessionKey}`);
+
 /** The chat socket goes through here, so the test can drop it; every reconnect is proxied again. */
 async function socketThatDrops(page: Page): Promise<{ drop: () => Promise<void>; opened: () => number }> {
   const sockets: Array<{ close: () => Promise<void> }> = [];
@@ -86,29 +94,36 @@ async function socketThatDrops(page: Page): Promise<{ drop: () => Promise<void>;
 test.describe("the turn queue waits for the real end of the turn", () => {
   let uninstall: () => void = () => {};
   const topic = { id: "", name: `queue-turn-end-${Date.now()}`, sk: "" };
+  // Autonomy `ask`: a turn that ends on `ExitPlanMode` becomes a plan approval.
+  const planTopic = { id: "", name: `queue-plan-${Date.now()}`, sk: "" };
 
   test.beforeAll(async ({ request }) => {
     rmSync(LOG, { force: true });
     uninstall = installQueueTurnsCli(LOG);
     topic.id = (await createTopic(request, topic.name, { provider: "claude-code" })).id;
     topic.sk = await sessionKeyOf(request, topic.id);
+    planTopic.id = (await createTopic(request, planTopic.name, { provider: "claude-code" })).id;
+    planTopic.sk = await sessionKeyOf(request, planTopic.id);
+    expect((await request.patch(`${E2E_BASE}/api/topics/${planTopic.id}`, { data: { autonomyLevel: "ask" } })).ok()).toBe(true);
     // The first spawn of the CLI is the slow one: paid here.
     await startTurn(topic.sk, "warm up");
+    await startTurn(planTopic.sk, "warm up");
   });
 
   test.afterAll(async ({ request }) => {
     uninstall();
     await deleteTopic(request, topic.id).catch(() => {});
+    await deleteTopic(request, planTopic.id).catch(() => {});
   });
 
   test.beforeEach(async ({ request }) => {
-    await resetPaneStore(request, [topic.id]);
+    await resetPaneStore(request, [topic.id, planTopic.id]);
   });
 
-  async function openChat(page: Page, chatPage: { messageInput: import("@playwright/test").Locator }) {
+  async function openChat(page: Page, chatPage: { messageInput: import("@playwright/test").Locator }, name = topic.name) {
     await goToApp(page);
     await page.keyboard.press("Escape");
-    await openTopic(page, new RegExp(topic.name));
+    await openTopic(page, new RegExp(name));
     await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
   }
 
@@ -175,5 +190,72 @@ test.describe("the turn queue waits for the real end of the turn", () => {
     const chat = page.locator(`[data-testid="chat-panel"][data-chat-topic-id="${topic.id}"]`);
     await expect(chat.getByText("bgreport round 1.", { exact: false }).first()).toBeVisible({ timeout: 20_000 });
     await expect(chat.getByText(`got:`, { exact: false }).last()).toContainText(TAG, { timeout: 20_000 });
+  });
+
+  test("Stop pressed on another device while the child is still starting: the message queued here stays queued", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-07" });
+    await openChat(page, chatPage);
+
+    // Its `system/init` comes 9 s late: nothing but the route holds the turn
+    // open, as after every Stop, idle close or restart of the child.
+    const turn = startTurn(topic.sk, "SLOWINIT:9000:coldstop");
+    await expect.poll(() => !!turnEvent("turn-start", "coldstop"), { timeout: 20_000, message: "the CLI took the turn" }).toBe(true);
+
+    const TAG = "QUEUED-BEFORE-REMOTE-STOP";
+    await chatPage.messageInput.fill(TAG);
+    await chatPage.messageInput.press("Enter");
+    await expect(queuedBubbles(page)).toHaveCount(1, { timeout: 10_000 });
+
+    // The other device: POST /api/chat/abort from outside the page, the person's Stop.
+    const stop = await fetch(`${E2E_BASE}/api/chat/abort`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+      body: JSON.stringify({ sessionKey: topic.sk }),
+    });
+    expect(stop.status).toBe(200);
+    await turn;
+
+    // The window has taken the Stop (its hold is on) and the turn is over for
+    // it (the queue's button no longer promises to stop a turn): whatever the
+    // close of the turn was going to do with the queue, it has done.
+    await expect.poll(() => queueHeld(page, topic.sk), { timeout: 10_000, message: "the queue is held" }).toBe(true);
+    await expect(page.getByTestId("queue-send-now")).toHaveAttribute("data-queue-busy", "false", { timeout: 10_000 });
+    await expect(queuedBubbles(page)).toHaveCount(1);
+    expect(receivedWith(TAG)).toEqual([]);
+
+    // A whole turn later (started elsewhere, closed plainly), still held.
+    await startTurn(topic.sk, "AFTER-THE-STOP");
+    await expect.poll(() => receivedWith("AFTER-THE-STOP").length, { timeout: 30_000 }).toBe(1);
+    const chat = page.locator(`[data-testid="chat-panel"][data-chat-topic-id="${topic.id}"]`);
+    await expect(chat.getByText("got:", { exact: false }).last()).toContainText("AFTER-THE-STOP", { timeout: 20_000 });
+    await expect(queuedBubbles(page)).toHaveCount(1);
+    expect(receivedWith(TAG)).toEqual([]);
+  });
+
+  test("a turn started elsewhere ends on a plan approval: the message queued here waits for the answer and leaves with it", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-07" });
+    await openChat(page, chatPage, planTopic.name);
+
+    const turn = startTurn(planTopic.sk, "PLANTURN:4000:planq");
+    const chat = page.locator(`[data-testid="chat-panel"][data-chat-topic-id="${planTopic.id}"]`);
+    await expect(chat.getByText("planq planning.", { exact: false }).first()).toBeVisible({ timeout: 20_000 });
+
+    const TAG = "QUEUED-DURING-PLAN";
+    await chatPage.messageInput.fill(TAG);
+    await chatPage.messageInput.press("Enter");
+    await expect(queuedBubbles(page)).toHaveCount(1, { timeout: 10_000 });
+    await turn;
+
+    // The question is on screen and the turn is over for this window: the
+    // message has not left.
+    await expect(page.getByTestId("plan-approval-bar")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("queue-send-now")).toHaveAttribute("data-queue-busy", "false", { timeout: 10_000 });
+    await expect(queuedBubbles(page)).toHaveCount(1);
+    expect(receivedWith(TAG)).toEqual([]);
+
+    // The person answers: the queued message goes out with the answer, once.
+    await page.getByTestId("plan-reject").click();
+    await expect.poll(() => receivedWith(TAG).length, { timeout: 30_000, message: "the message reaches the CLI" }).toBe(1);
+    await expect(queuedBubbles(page)).toHaveCount(0, { timeout: 10_000 });
   });
 });

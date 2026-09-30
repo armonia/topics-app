@@ -943,7 +943,21 @@ function turnInFlight(pp: PersistentProcess): boolean {
  */
 function cliBusyForSend(pp: PersistentProcess, handler: StreamHandler, now = Date.now()): boolean {
   if (pp.streamHandler === handler) return false;
-  return pp.cliTurnOpen === true || pp.wokenBuffer != null || pp.declinedTurn === true || wakeAboutToStart(pp, now);
+  return cliInOwnTurn(pp) || wakeAboutToStart(pp, now);
+}
+
+/** The CLI is running a turn nobody's send wrote: opened by itself, held for its adopter, or declined and still going. */
+function cliInOwnTurn(pp: PersistentProcess): boolean {
+  return pp.cliTurnOpen === true || pp.wokenBuffer != null || pp.declinedTurn === true;
+}
+
+/** A send with no child to write to yet (`processForTurn`), or parked behind the CLI's own turn (`waitOutCliTurn`). */
+interface WaitingSend {
+  handler: StreamHandler;
+  cancelled: boolean;
+  wake?: () => void;
+  /** Parked behind a turn the CLI is running: a Stop stops that turn too. */
+  behindCliTurn?: boolean;
 }
 
 /**
@@ -1324,7 +1338,7 @@ export class ClaudeCodeProvider implements AIProvider {
    * the child already dying, the wait ended, and the stopped send was written
    * to a fresh child anyway (and stole the handler of the message after it).
    */
-  private waitingSends = new Map<string, { handler: StreamHandler; cancelled: boolean; wake?: () => void }>();
+  private waitingSends = new Map<string, WaitingSend>();
   /**
    * The sends parked on `await prev` in `sendChat`, behind another turn of the
    * same session. A send there has no child and no handler installed anywhere,
@@ -2293,7 +2307,14 @@ export class ClaudeCodeProvider implements AIProvider {
       waiting.wake?.();
       try { waiting.handler.onAborted?.({ turnEnd: cancelled(reason) }); }
       catch (err) { console.warn(`[claude-code] onAborted threw for the waiting send on ${sessionKey}:`, err); }
-      return;
+      // A send waiting for a dying child: that child is already stopped.
+      // A send parked behind the CLI's own turn (a cron, a report): that turn
+      // is what the chat shows running, and what the person meant to stop.
+      // Returning here left it running, adopted again into a new row, while
+      // the message was dropped (before the park it went to stdin and the
+      // SIGINT below stopped both).
+      const parkedOn = this.processes.get(sessionKey);
+      if (!waiting.behindCliTurn || !parkedOn?.alive || !cliInOwnTurn(parkedOn)) return;
     }
     const pp = this.processes.get(sessionKey);
     if (!pp || !pp.alive) return;
@@ -2495,7 +2516,7 @@ export class ClaudeCodeProvider implements AIProvider {
    */
   private async waitOutCliTurn(sessionKey: string, pp: PersistentProcess, handler: StreamHandler): Promise<PersistentProcess | null> {
     if (!cliBusyForSend(pp, handler)) return pp;
-    const waiting: { handler: StreamHandler; cancelled: boolean; wake?: () => void } = { handler, cancelled: false };
+    const waiting: WaitingSend = { handler, cancelled: false, behindCliTurn: true };
     this.waitingSends.set(sessionKey, waiting);
     console.log(`[claude-code] ${sessionKey}: the CLI is in a turn of its own, the message waits for its end`);
     try {

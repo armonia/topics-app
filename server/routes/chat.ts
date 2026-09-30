@@ -2047,6 +2047,11 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             const finalizeError = outcome.error;
             const finalizeEndedAt = Date.now();
             for (const tcId of trackedToolCallIds) {
+              // The plan just put to the person (above) is not a fire-and-forget
+              // tool: marked `success` here, its panel vanished a moment after
+              // it appeared, the plan read as approved, and the queue behind it
+              // had nothing left to wait for (an `ExitPlanMode` with no result).
+              if (askingPlanApproval && pendingPlan?.toolCallId === tcId) continue;
               if (finalizeStatus === 'error') {
                 // updateToolCallResult sets status='error' when error is provided.
                 updateToolCallResult(sessionKey, tcId, '', finalizeError, { endedAt: finalizeEndedAt }, ownMirrored);

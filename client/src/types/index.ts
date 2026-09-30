@@ -255,6 +255,10 @@ export interface ServerTurnState {
   asOf: number;
   turnId: number;
   open: boolean;
+  /** Closed: a person stopped the turn (on any device). */
+  stopped?: true;
+  /** Closed: the turn ended waiting for a person (a plan approval). */
+  awaitsHuman?: true;
 }
 
 export interface UploadResponse {
@@ -423,6 +427,8 @@ export interface WSTurnSnapshotMessage {
   boot: string;
   asOf: number;
   open: Array<ServerTurnState & { sessionKey: string }>;
+  /** Sessions whose last turn ended waiting for a person: closed, and not free for the queue. */
+  awaiting?: Array<ServerTurnState & { sessionKey: string }>;
 }
 
 export interface WSStreamStartMessage {

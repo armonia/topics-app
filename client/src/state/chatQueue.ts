@@ -463,6 +463,8 @@ export type DrainVerdict = 'drain' | 'wait-own-send' | 'wait-turn' | 'hold';
  * opened by itself before anyone adopted it. When the server has said nothing
  * yet (no socket), the head leaves unless it waits for a known turn: the
  * server's 409 is the last word, and it answers with the turn to wait for.
+ * A turn that ended on a question for the person (`awaitsHuman`) holds like
+ * the question on screen: the answer is a new turn, and its close is the next word.
  */
 export function decideDrain(input: {
   held: boolean;
@@ -474,9 +476,12 @@ export function decideDrain(input: {
   /** A question or a plan approval is on screen: the person answers it first. */
   pendingAsk: boolean;
 }): DrainVerdict {
-  if (input.held || input.queued === 0 || input.pendingAsk) return 'hold';
-  if (input.sendLocked) return 'wait-own-send';
   const t = input.serverTurn;
+  // The server's word that the turn ended on a question for a person counts as
+  // the question on screen: this window's copy of the transcript may not show
+  // it yet when the close arrives, and a window with the chat closed has none.
+  if (input.held || input.queued === 0 || input.pendingAsk || t?.awaitsHuman) return 'hold';
+  if (input.sendLocked) return 'wait-own-send';
   if (t?.open) return 'wait-turn';
   const w = input.head?.waitsFor;
   if (w) {

@@ -73,6 +73,39 @@ describe("turn ledger", () => {
     expect(l.isOpen("topic:a", { ignore: ["boot"] })).toBe(true);
   });
 
+  test("a Stop is said with the close, whichever source closes last, and forgotten by the next turn", () => {
+    const { l, changes } = ledger();
+    l.set("topic:a", "route", true);
+    l.set("topic:a", "cli", true);
+    l.noteEnd("topic:a", { stopped: true });
+    l.set("topic:a", "route", false);
+    l.set("topic:a", "cli", false);
+    expect(changes.at(-1)).toMatchObject({ open: false, stopped: true });
+    expect(l.stateOf("topic:a").stopped).toBe(true);
+    l.set("topic:a", "route", true);
+    l.set("topic:a", "route", false);
+    expect(changes.at(-1)!.stopped).toBeUndefined();
+  });
+
+  test("an end noted with no turn open says nothing", () => {
+    const { l, changes } = ledger();
+    l.noteEnd("topic:a", { stopped: true, awaitsHuman: true });
+    l.set("topic:a", "route", true);
+    l.set("topic:a", "route", false);
+    expect(changes.at(-1)).toEqual({ sessionKey: "topic:a", boot: "b1", asOf: 2, turnId: 1, open: false });
+  });
+
+  test("a turn that ended on a question for a person is listed in the snapshot, closed", () => {
+    const { l, changes } = ledger();
+    l.set("topic:a", "route", true);
+    l.noteEnd("topic:a", { awaitsHuman: true });
+    l.set("topic:a", "route", false);
+    expect(changes.at(-1)).toMatchObject({ open: false, awaitsHuman: true });
+    const snap = l.snapshot();
+    expect(snap.open).toEqual([]);
+    expect(snap.awaiting).toEqual([{ sessionKey: "topic:a", boot: "b1", asOf: 2, turnId: 1, open: false, awaitsHuman: true }]);
+  });
+
   test("a session never seen is closed with turn 0", () => {
     const { l } = ledger();
     expect(l.stateOf("topic:z")).toEqual({ sessionKey: "topic:z", boot: "b1", asOf: 0, turnId: 0, open: false });

@@ -22,6 +22,13 @@
  *                      report does (task_notification, init, rounds, result),
  *                      and like the real one it is silent for <ms> between its
  *                      init and its first line (measured p50 4.7 s).
+ *   "SLOWINIT:<ms>:<tag>"  a turn whose `system/init` comes <ms> late, as a
+ *                      child spawned cold does, then a line every 700 ms until
+ *                      the CLI is stopped (SIGINT, logged as "sigint").
+ *   "PLANTURN:<ms>:<tag>"  a turn that, <ms> after its first line, ends on an
+ *                      `ExitPlanMode` with no result:
+ *                      in a topic with autonomy `ask`, Topics turns it into a
+ *                      plan approval for the person.
  *   anything else      "got: <text>", at once.
  *
  * Like the real CLI it never answers two turns at once: a line received during
@@ -120,6 +127,35 @@ if (flag("--output-format") === "json") {
       if (asked === null) continue;
       // The whole message, context preamble included: the test looks for its tag.
       note({ event: "received", text: asked.slice(-400), busy });
+      const slow = /SLOWINIT:(\d+):([A-Za-z0-9]+)/.exec(asked);
+      const plan = /PLANTURN:(\d+):([A-Za-z0-9]+)/.exec(asked);
+      if (slow) {
+        const ms = slow[1]!;
+        const tag = slow[2]!;
+        enqueue(async () => {
+          busy = true;
+          note({ event: "turn-start", tag });
+          await sleep(Number(ms));
+          init();
+          for (let i = 1; i <= 200; i++) { text(`${tag} tick ${i}. `); await sleep(700); }
+          note({ event: "turn-end", tag });
+          busy = false;
+          result(`${tag} END.`);
+        });
+        continue;
+      }
+      if (plan) {
+        const ms = plan[1]!;
+        const tag = plan[2]!;
+        enqueue(() => turn(tag, async () => {
+          text(`${tag} planning. `);
+          await sleep(Number(ms));
+          out({ type: "assistant", message: { id: `msg_${++seq}`, role: "assistant", model: "claude-finto", content: [{ type: "tool_use", id: `toolu_plan_${++seq}`, name: "ExitPlanMode", input: { plan: "# Plan\n\n1. Read the files\n2. Write the code" } }], usage: { input_tokens: 10, output_tokens: 4 } } });
+          await sleep(200);
+          return `${tag} planning. `;
+        }));
+        continue;
+      }
       const long = /LONGTURN:(\d+):(\d+):([A-Za-z0-9]+)/.exec(asked);
       const wake = /WAKE:(\d+):(\d+):(\d+):([A-Za-z0-9]+)/.exec(asked);
       if (long) {
@@ -139,4 +175,6 @@ if (flag("--output-format") === "json") {
   });
   process.stdin.on("end", () => { void queue.then(() => process.exit(0)); });
   process.on("SIGTERM", () => process.exit(0));
+  // Like the real one in stream-json mode: a SIGINT ends the turn and the child.
+  process.on("SIGINT", () => { note({ event: "sigint", busy }); setTimeout(() => process.exit(0), 300); });
 }

@@ -2175,6 +2175,9 @@ export function createAppContext(baseDir: string): AppContext {
         }
       } catch {}
     }
+    // A tool kept awaiting a person (the plan approval) is said with the close:
+    // every window holds its queue on it, whatever its transcript shows yet.
+    if (stream && keepAwaiting.size > 0) turnLedger.noteEnd(sessionKey, { awaitsHuman: true });
     if (stream?.shadowed) activeStreams.set(sessionKey, stream.shadowed);
     else activeStreams.delete(sessionKey);
     turnLedger.set(sessionKey, "route", activeStreams.has(sessionKey));

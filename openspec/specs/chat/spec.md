@@ -2457,7 +2457,14 @@ the running turn: claude-code (direct child and broker alike) waits for the
 CLI's `result` before writing to stdin, and the CLI's own turn keeps its own
 row; Codex waits for the previous `codex exec` of the thread to exit; ACP waits
 for the previous `session/prompt` to be answered. A Stop pressed while a message
-is parked SHALL mean nothing is written.
+is parked SHALL mean nothing is written, and SHALL still stop the turn the
+message was parked behind.
+
+How a turn ended SHALL travel with its close, because every window drains on
+the close and the route's `stream:end` comes after it: a person's Stop
+(`stopped`) and a question left for the person (`awaitsHuman`, the plan
+approval) SHALL be part of the closing `turn:state`, and a window that connects
+SHALL receive the sessions whose last turn ended waiting for a person.
 
 > **Why.** 29/09, Attilio: «assicuriamoci che i messaggi che sono da inviare in
 > coda effettivamente vengano gestiti come fa anche Claude Code, perché vedo che
@@ -2488,7 +2495,18 @@ is parked SHALL mean nothing is written.
 
 #### Scenario: a Stop on another device
 - **GIVEN** a queued message on the phone and the turn stopped from the desktop
-- **THEN** the phone's queue SHALL hold
+- **THEN** the phone's queue SHALL hold, whatever the runtime and even when the child had not started its turn yet
+- **AND** a later turn that ends plainly SHALL NOT release it: only the person's own send does
+
+#### Scenario: a plan approval left by a turn started elsewhere
+- **GIVEN** a queued message and a turn, started from another device or the board, that ends on a plan approval
+- **THEN** the message SHALL wait while the approval is unanswered, even in a window whose transcript does not show it yet
+- **AND** SHALL leave with the person's answer
+
+#### Scenario: Stop on the CLI's own turn while a message is parked behind it
+- **GIVEN** a message parked behind a turn the CLI opened by itself (a cron, a report), adopted into the chat
+- **WHEN** the person presses Stop
+- **THEN** the CLI's turn SHALL be interrupted, and the parked message SHALL NOT be written
 
 #### Scenario: a cron fires right after the result
 - **GIVEN** a claude-code chat with an armed cron, whose fire the CLI holds until the turn's `result`

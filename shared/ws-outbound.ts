@@ -1329,14 +1329,21 @@ const turnStateEntry = {
   asOf: z.number(),
   turnId: z.number(),
   open: z.boolean(),
+  // On a close: a person stopped the turn / it ended waiting for a person.
+  stopped: z.optional(z.literal(true)),
+  awaitsHuman: z.optional(z.literal(true)),
 };
 const turnStateSchema = z.looseObject({ type: z.literal('turn:state'), ...turnStateEntry });
-/** Every open turn at the moment a socket opens: a session not listed has none. */
+/**
+ * Every open turn at the moment a socket opens: a session not listed has none.
+ * `awaiting`: sessions whose last turn ended waiting for a person, closed.
+ */
 const turnSnapshotSchema = z.looseObject({
   type: z.literal('turn:snapshot'),
   boot: z.string(),
   asOf: z.number(),
   open: z.array(z.looseObject(turnStateEntry)),
+  awaiting: z.optional(z.array(z.looseObject(turnStateEntry))),
 });
 
 // ---- Registry --------------------------------------------------------------

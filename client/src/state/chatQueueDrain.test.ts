@@ -82,6 +82,25 @@ describe('early signals that no longer send', () => {
     expect(verdict({ serverTurn: closed(7, 8), pendingAsk: true })).toBe('hold');
   });
 
+  test('a turn the server says ended on a question for a person: held, though this window shows no question', () => {
+    // The close reaches the window before its copy of the transcript shows the
+    // plan panel, or the chat is not loaded here at all (e2e 30/09: sent 26 ms
+    // after the plan approval was written).
+    noteServerTurn(SK, { ...closed(7, 8), awaitsHuman: true });
+    expect(verdict({ serverTurn: serverTurnOf(SK), pendingAsk: false })).toBe('hold');
+    // The answer is the next turn: its plain close is the word that frees it.
+    noteServerTurn(SK, open(9));
+    noteServerTurn(SK, closed(9, 10));
+    expect(verdict({ serverTurn: serverTurnOf(SK) })).toBe('drain');
+  });
+
+  test('a snapshot lists the sessions whose last turn ended on a question, and they stay held', () => {
+    noteServerTurn(SK, open(7));
+    noteTurnSnapshot({ boot: 'b1', asOf: 9, open: [], awaiting: [{ sessionKey: SK, boot: 'b1', asOf: 9, turnId: 7, open: false, awaitsHuman: true }] });
+    expect(serverTurnOf(SK)).toMatchObject({ open: false, awaitsHuman: true });
+    expect(verdict({ serverTurn: serverTurnOf(SK) })).toBe('hold');
+  });
+
   test('stopped: nothing leaves on its own, whatever the server says', () => {
     expect(verdict({ held: true, serverTurn: closed(7, 8) })).toBe('hold');
   });

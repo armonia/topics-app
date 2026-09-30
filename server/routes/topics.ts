@@ -2483,6 +2483,11 @@ export function createTopicsRouter(
       // stall judge, the board, the dispatcher's clocks) name theirs.
       const cause = stopCauseOf(req, body?.cause);
       recordTurnEnd(sessionKey, cancelled(cause, "POST /api/chat/abort"));
+      // Said BEFORE anything below can close the turn: the close of the ledger
+      // (`endStream` here, the provider's own finalize, the CLI's exit) reaches
+      // every window before this route's `stream:end`, and must itself say that
+      // a person stopped it, or another device drains its queue into the Stop.
+      if (cause === "user") ctx.turnLedger?.noteEnd(sessionKey, { stopped: true });
       // The registry above is memory, and the server reloads on every save: the
       // durable trace is what keeps the resume sweep from resending a stopped
       // message after the next restart (topic c5d57a41, 24/09). A person's

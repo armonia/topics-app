@@ -205,7 +205,10 @@ describe("claude-code: a send waits for the turn the CLI opened by itself", () =
     expect(sent.done).toBe("after");
   });
 
-  test("stopped while it waits: nothing is written, and the CLI's own turn is not interrupted", async () => {
+  test("stopped while it waits: nothing is written, and the Stop reaches the CLI's own turn it waited behind", async () => {
+    // Before the park the message went to stdin and the Stop's SIGINT ended
+    // both. Parked, the Stop found only the parked send and returned: the
+    // CLI's turn, the one on screen, went on.
     const { provider, pp, writes, signals } = setup("topic:park-stop");
     const adopter = handler();
     ClaudeCodeProvider.observeWokenTurns((sk) => { provider.adoptWokenTurn(sk, adopter.h); return true; });
@@ -217,11 +220,48 @@ describe("claude-code: a send waits for the turn the CLI opened by itself", () =
     await provider.abort("topic:park-stop", undefined, "user");
     expect(await send).toEqual({ runId: undefined, notSent: true });
     expect(sent.aborted).toBe(true);
-    expect(signals).toEqual([]);
-    emit(provider, pp, result("working done"));
-    await settle();
+    expect(signals).toEqual(["SIGINT"]);
+    expect(adopter.aborted).toBe(true);
     expect(userLines(writes)).toEqual([]);
-    expect(adopter.done).toBe("working done");
+  });
+
+  test("a cron fired right after a result, adopted through the route, then Stop: the CLI is interrupted and not adopted again", async () => {
+    // The scenario of the spec: the queue leaves on the result, the send parks
+    // behind the cron's wake, the CLI opens the cron's turn and the chat
+    // adopts it. The Stop route calls abort and then drops the handler.
+    const sk = "topic:cron-stop";
+    const { provider, pp, writes, signals } = setup(sk);
+    const adopters: ReturnType<typeof handler>[] = [];
+    ClaudeCodeProvider.observeWokenTurns((s) => { const a = handler(); adopters.push(a); provider.adoptWokenTurn(s, a.h); return true; });
+    emit(provider, pp, { type: "command_lifecycle", state: "started", command_uuid: "cron-x" });
+    const sent = handler();
+    provider.registerStreamHandler(sk, undefined, sent.h);
+    const send = provider.sendChat(sk, "queued message", sent.h);
+    await settle();
+    emit(provider, pp, INIT);
+    emit(provider, pp, text("cron turn working"));
+    expect(adopters).toHaveLength(1);
+    await provider.abort(sk, undefined, "user");
+    provider.unregisterStreamHandler(sk);
+    expect(await send).toEqual({ runId: undefined, notSent: true });
+    expect(signals).toEqual(["SIGINT"]);
+    expect(adopters[0]!.aborted).toBe(true);
+    // The CLI dies on the SIGINT; a line it still prints is nobody's new turn.
+    emit(provider, pp, text("cron turn still working after Stop"));
+    expect(adopters).toHaveLength(1);
+    expect(userLines(writes)).toEqual([]);
+  });
+
+  test("stopped while parked only behind a wake that has not opened a turn: the send is dropped, the idle CLI is not signalled", async () => {
+    const { provider, pp, writes, signals } = setup("topic:park-stop-idle");
+    emit(provider, pp, { type: "command_lifecycle", state: "started", command_uuid: "cron-3" });
+    const sent = handler();
+    const send = provider.sendChat("topic:park-stop-idle", "msg", sent.h);
+    await settle();
+    await provider.abort("topic:park-stop-idle", undefined, "user");
+    expect(await send).toEqual({ runId: undefined, notSent: true });
+    expect(signals).toEqual([]);
+    expect(userLines(writes)).toEqual([]);
   });
 
   test("a cron fired right after a result, its init not come yet: the send waits for that turn too", async () => {

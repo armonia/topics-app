@@ -40,18 +40,41 @@ export interface TurnState {
   /** The open turn, or the last one the session had (0 = none since boot). */
   turnId: number;
   open: boolean;
+  /** Closed: a person stopped that turn. Every window holds its queue on it, not only the one whose Stop it was. */
+  stopped?: true;
+  /** Closed: the turn ended waiting for a person (a plan approval). The queue waits for the answer. */
+  awaitsHuman?: true;
 }
 
-/** Every open turn, as of one revision: a session not listed has none. */
+/** How a turn ended, said with its close (`TurnLedger.noteEnd`). */
+export interface TurnEnd {
+  stopped?: boolean;
+  awaitsHuman?: boolean;
+}
+
+/**
+ * Every open turn, as of one revision: a session not listed has none. Plus the
+ * sessions whose last turn ended waiting for a person, listed closed: a window
+ * that connects now must not take that for a free session.
+ */
 export interface TurnSnapshot {
   boot: string;
   asOf: number;
   open: TurnState[];
+  awaiting: TurnState[];
 }
 
 export interface TurnLedger {
   /** Marks `source` as holding (or no longer holding) the session open. */
   set(sessionKey: string, source: TurnSource, on: boolean): void;
+  /**
+   * How the open turn is ending, said with its close whichever source closes
+   * it last. Before this the close said only "over", and the reason travelled
+   * in a later `stream:end`: a window read the close first and sent its queue
+   * into a Stop, or under a plan approval. Ignored when no turn is open; the
+   * next open forgets it.
+   */
+  noteEnd(sessionKey: string, end: TurnEnd): void;
   isOpen(sessionKey: string, opts?: { ignore?: readonly TurnSource[] }): boolean;
   stateOf(sessionKey: string): TurnState;
   snapshot(): TurnSnapshot;
@@ -59,7 +82,7 @@ export interface TurnLedger {
   sourcesOf(sessionKey: string): TurnSource[];
 }
 
-interface Entry { sources: Set<TurnSource>; turnId: number }
+interface Entry { sources: Set<TurnSource>; turnId: number; end: TurnEnd }
 
 export function createTurnLedger(opts: { boot?: string; onChange?: (state: TurnState) => void } = {}): TurnLedger {
   const boot = opts.boot ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -68,7 +91,12 @@ export function createTurnLedger(opts: { boot?: string; onChange?: (state: TurnS
 
   function stateAt(sessionKey: string, asOf: number): TurnState {
     const e = entries.get(sessionKey);
-    return { sessionKey, boot, asOf, turnId: e?.turnId ?? 0, open: !!e && e.sources.size > 0 };
+    const open = !!e && e.sources.size > 0;
+    return {
+      sessionKey, boot, asOf, turnId: e?.turnId ?? 0, open,
+      ...(!open && e?.end.stopped ? { stopped: true as const } : {}),
+      ...(!open && e?.end.awaitsHuman ? { awaitsHuman: true as const } : {}),
+    };
   }
 
   return {
@@ -76,7 +104,7 @@ export function createTurnLedger(opts: { boot?: string; onChange?: (state: TurnS
       let e = entries.get(sessionKey);
       const wasOpen = !!e && e.sources.size > 0;
       if (on) {
-        if (!e) { e = { sources: new Set(), turnId: 0 }; entries.set(sessionKey, e); }
+        if (!e) { e = { sources: new Set(), turnId: 0, end: {} }; entries.set(sessionKey, e); }
         if (e.sources.has(source)) return;
         e.sources.add(source);
       } else {
@@ -87,9 +115,15 @@ export function createTurnLedger(opts: { boot?: string; onChange?: (state: TurnS
       if (nowOpen === wasOpen) return;
       rev++;
       // A turn is named by the revision that opened it: unique and increasing within a boot.
-      if (nowOpen) e.turnId = rev;
+      if (nowOpen) { e.turnId = rev; e.end = {}; }
       try { opts.onChange?.(stateAt(sessionKey, rev)); }
       catch (err) { console.warn(`[turn-ledger] change listener failed for ${sessionKey}:`, err); }
+    },
+    noteEnd(sessionKey, end) {
+      const e = entries.get(sessionKey);
+      if (!e || e.sources.size === 0) return;
+      if (end.stopped) e.end.stopped = true;
+      if (end.awaitsHuman) e.end.awaitsHuman = true;
     },
     isOpen(sessionKey, o) {
       const e = entries.get(sessionKey);
@@ -102,8 +136,12 @@ export function createTurnLedger(opts: { boot?: string; onChange?: (state: TurnS
     },
     snapshot() {
       const open: TurnState[] = [];
-      for (const [sessionKey, e] of entries) if (e.sources.size > 0) open.push(stateAt(sessionKey, rev));
-      return { boot, asOf: rev, open };
+      const awaiting: TurnState[] = [];
+      for (const [sessionKey, e] of entries) {
+        if (e.sources.size > 0) open.push(stateAt(sessionKey, rev));
+        else if (e.end.awaitsHuman) awaiting.push(stateAt(sessionKey, rev));
+      }
+      return { boot, asOf: rev, open, awaiting };
     },
     sourcesOf(sessionKey) {
       return [...(entries.get(sessionKey)?.sources ?? [])];
