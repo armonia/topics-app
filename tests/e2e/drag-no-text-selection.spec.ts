@@ -16,8 +16,8 @@ hermetic(test);
 /**
  * DRAGGING A FLOATING BROWSER WINDOW MUST NOT SELECT THE CHAT UNDER IT.
  *
- * Reported 30/09: "mentre faccio dnd di un tab browser floating, mi seleziona
- * il testo del topic sotto". The floating window of a topic is moved by a raw
+ * Reported 30/09: dragging a floating browser tab selected the topic's text
+ * underneath. The floating window of a topic is moved by a raw
  * pointer drag on its bar (`TopicBrowserWindow.startMove`), not by HTML5 DnD,
  * so nothing stops the engine's own default for a pressed, moving mouse: a
  * text selection that follows the pointer over the transcript.
@@ -53,58 +53,70 @@ test.describe("TOPIC-BROWSER-01 la finestra browser flottante si trascina senza 
     await resetPaneStore(request, []);
   });
 
-  test("TOPIC-BROWSER-01s: trascinando la barra sopra il testo della chat non si seleziona niente, durante e dopo", async ({ page, request }) => {
+  /**
+   * A topic with a transcript long enough to sweep, and its floating window
+   * minimized in the bottom-right corner. Returns the grip (the bar's own empty
+   * space, right of the sheet, where a hand grabs a window) and the transcript
+   * line the drag sweeps across.
+   */
+  async function dragScene(page: Page, request: APIRequestContext) {
     const topic = await createTopic(request, `E2E-DragNoSelect-${Date.now()}`);
+    const sessionKey = await sessionKeyOf(request, topic.id);
+    for (let i = 0; i < 6; i++) {
+      await seedMessage(request, { sessionKey, role: i % 2 ? "assistant" : "user", content: `Messaggio ${i + 1}: ${LINE} ${LINE}` });
+    }
+    const put = await request.put(`${BASE}/api/ui-state/topic-browser:${topic.id}`, {
+      data: {
+        mode: "min",
+        minPos: { right: 40, bottom: 140 },
+        expandedWidth: null,
+        tabs: [{ contextId: "dns-1", url: "https://example.com", title: "Example", openedBy: "user" }],
+        activeContextId: "dns-1",
+        promoted: [],
+      },
+      ignoreHTTPSErrors: true,
+    });
+    expect(put.ok()).toBeTruthy();
+
+    await goToApp(page);
+    await waitForTopicVisible(page, topic.id);
+    await page.locator(`[data-pane-id="${topic.id}"], [data-topic-id="${topic.id}"]`).first().click();
+    await expect(page.getByText(`Messaggio 1: ${LINE}`)).toBeVisible({ timeout: 15000 });
+    const windowEl = page.locator('[data-testid="topic-browser-window"]');
+    await expect(windowEl).toBeVisible({ timeout: 10000 });
+    await expect(windowEl).toHaveAttribute("data-mode", "min");
+    await page.evaluate(() => window.getSelection()?.removeAllRanges());
+
+    const text = (await page.getByText(`Messaggio 1: ${LINE}`).boundingBox())!;
+    const bar = (await page.locator('[data-testid="topic-browser-bar"]').boundingBox())!;
+    const tab = (await page.locator('[data-testid="topic-browser-tab"]').first().boundingBox())!;
+    const grip = { x: Math.min(tab.x + tab.width + 40, bar.x + bar.width - 60), y: bar.y + bar.height / 2 };
+    const target = { x: text.x + text.width / 2, y: text.y + text.height / 2 };
+    return { topic, windowEl, bar, grip, target };
+  }
+
+  /**
+   * Big legs on purpose: the window follows the pointer one render late, and a
+   * hand moving fast is ahead of it, over the transcript, for that render. Tiny
+   * steps keep the pointer on the bar and hide the defect. The selection is read
+   * after every leg, DURING the drag.
+   */
+  async function sweep(page: Page, from: { x: number; y: number }, to: { x: number; y: number }): Promise<string[]> {
+    const samples: string[] = [];
+    const legs = 4;
+    for (let leg = 1; leg <= legs; leg++) {
+      await page.mouse.move(from.x + ((to.x - from.x) * leg) / legs, from.y + ((to.y - from.y) * leg) / legs, { steps: 2 });
+      samples.push(await selectionText(page));
+    }
+    return samples;
+  }
+
+  test("TOPIC-BROWSER-01s: trascinando la barra sopra il testo della chat non si seleziona niente, durante e dopo", async ({ page, request }) => {
+    const { topic, windowEl, bar, grip, target } = await dragScene(page, request);
     try {
-      const sessionKey = await sessionKeyOf(request, topic.id);
-      for (let i = 0; i < 6; i++) {
-        await seedMessage(request, { sessionKey, role: i % 2 ? "assistant" : "user", content: `Messaggio ${i + 1}: ${LINE} ${LINE}` });
-      }
-      const put = await request.put(`${BASE}/api/ui-state/topic-browser:${topic.id}`, {
-        data: {
-          mode: "min",
-          minPos: { right: 40, bottom: 140 },
-          expandedWidth: null,
-          tabs: [{ contextId: "dns-1", url: "https://example.com", title: "Example", openedBy: "user" }],
-          activeContextId: "dns-1",
-          promoted: [],
-        },
-        ignoreHTTPSErrors: true,
-      });
-      expect(put.ok()).toBeTruthy();
-
-      await goToApp(page);
-      await waitForTopicVisible(page, topic.id);
-      await page.locator(`[data-pane-id="${topic.id}"], [data-topic-id="${topic.id}"]`).first().click();
-      await expect(page.getByText(`Messaggio 1: ${LINE}`)).toBeVisible({ timeout: 15000 });
-      const windowEl = page.locator('[data-testid="topic-browser-window"]');
-      await expect(windowEl).toBeVisible({ timeout: 10000 });
-      await expect(windowEl).toHaveAttribute("data-mode", "min");
-      await page.evaluate(() => window.getSelection()?.removeAllRanges());
-
-      // The transcript line the drag will sweep across, and the grip: the bar's
-      // own empty space, right of the sheet, where a hand grabs a window.
-      const text = (await page.getByText(`Messaggio 1: ${LINE}`).boundingBox())!;
-      const bar = (await page.locator('[data-testid="topic-browser-bar"]').boundingBox())!;
-      const tab = (await page.locator('[data-testid="topic-browser-tab"]').first().boundingBox())!;
-      const grip = { x: Math.min(tab.x + tab.width + 40, bar.x + bar.width - 60), y: bar.y + bar.height / 2 };
-      const target = { x: text.x + text.width / 2, y: text.y + text.height / 2 };
-
       await page.mouse.move(grip.x, grip.y);
       await page.mouse.down();
-      const samples: string[] = [];
-      // Big legs on purpose: the window follows the pointer one render late,
-      // and a hand moving fast is ahead of it, over the transcript, for that
-      // render. Tiny steps keep the pointer on the bar and hide the defect.
-      const legs = 4;
-      for (let leg = 1; leg <= legs; leg++) {
-        await page.mouse.move(
-          grip.x + ((target.x - grip.x) * leg) / legs,
-          grip.y + ((target.y - grip.y) * leg) / legs,
-          { steps: 2 },
-        );
-        samples.push(await selectionText(page));
-      }
+      const samples = await sweep(page, grip, target);
       // The window really is being dragged: the gesture under test is a drag,
       // not a press that went nowhere.
       const during = (await windowEl.boundingBox())!;
@@ -128,4 +140,30 @@ test.describe("TOPIC-BROWSER-01 la finestra browser flottante si trascina senza 
       await deleteTopic(request, topic.id).catch(() => {});
     }
   });
+
+  // The bar's drag ends on the button coming up and on nothing else: Escape
+  // and a lost focus leave the window following the pointer. The guard must
+  // hold for as long as the drag does, not end on doors the drag does not have.
+  for (const door of ["Escape", "blur"] as const) {
+    test(`TOPIC-BROWSER-01t: ${door} a metà trascinamento non riaccende la selezione finché la finestra si muove`, async ({ page, request }) => {
+      const { topic, windowEl, bar, grip, target } = await dragScene(page, request);
+      try {
+        await page.mouse.move(grip.x, grip.y);
+        await page.mouse.down();
+        const mid = { x: grip.x - 30, y: grip.y - 10 };
+        await page.mouse.move(mid.x, mid.y, { steps: 3 });
+        if (door === "Escape") await page.keyboard.press("Escape");
+        else await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+        const samples = await sweep(page, mid, target);
+        const during = (await windowEl.boundingBox())!;
+        expect(during.y, "the window is still being dragged").toBeLessThan(bar.y - 20);
+        expect(samples, `text selected while the window was being dragged after ${door}`).toEqual(["", "", "", ""]);
+        await page.mouse.up();
+        expect(await selectionText(page), "text selected after the drop").toBe("");
+        await expect(page.locator("html")).not.toHaveClass(/drag-no-select/);
+      } finally {
+        await deleteTopic(request, topic.id).catch(() => {});
+      }
+    });
+  }
 });

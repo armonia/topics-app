@@ -7,8 +7,8 @@
  * where the press landed and extended to wherever the pointer is. The dragged
  * surface follows the pointer one render late, so a fast hand gets ahead of it
  * and the selection runs from the window (portaled at the end of the body)
- * across the whole transcript under it. Reported 30/09, "mentre faccio dnd di
- * un tab browser floating, mi seleziona il testo del topic sotto".
+ * across the whole transcript under it. Reported 30/09: dragging a floating
+ * browser tab selected the topic's text underneath.
  *
  * HTML5 drags (tabs, pinned tiles) and dnd-kit (board cards) are not affected:
  * the native drag session selects nothing, and dnd-kit clears the selection on
@@ -24,11 +24,16 @@
  *  - any selection there is at the start is dropped, as a native press on a
  *    non-text surface would do anyway.
  *
- * It lets go by itself on every door a gesture can end through: `pointerup`,
- * `mouseup`, `pointercancel`, window `blur`, Escape, and the first `pointermove`
- * with no button held (a release the page never saw, e.g. over a native view).
- * The owner releases it too, on its own drop and on unmount; a release is
- * idempotent, and a stale one can never end a newer drag's hold.
+ * It lets go by itself only where the button comes up, because that is the
+ * only place the drags that use it end: `pointerup`, `mouseup`, `pointercancel`,
+ * and the first `pointermove` with no button held (a release the page never
+ * saw, e.g. over a native view or in another app after a lost focus). Escape
+ * and window `blur` are NOT doors: the bar's move goes on following the pointer
+ * through both, and a guard that let go there handed the transcript back to
+ * the engine mid-drag. A leak through them is not possible either: once the
+ * button is up, the next move over the page carries `buttons === 0` and ends
+ * the hold. The owner releases it too, on its own drop and on unmount; a
+ * release is idempotent, and a stale one can never end a newer drag's hold.
  *
  * Seams are injectable so this is testable without a DOM (no jsdom/happy-dom in
  * this project, see `Board/ThreadRuns.test.tsx`).
@@ -67,15 +72,12 @@ function engage(env: DragSelectionEnv): () => void {
   env.clearSelection();
   const cancel = (e: Event): void => { e.preventDefault(); };
   const end = (): void => { releaseAll(); };
-  const onKey = (e: Event): void => { if ((e as KeyboardEvent).key === 'Escape') releaseAll(); };
   const onMove = (e: Event): void => { if (((e as PointerEvent).buttons & 1) === 0) releaseAll(); };
   const t = env.target;
   t.addEventListener('selectstart', cancel, true);
   t.addEventListener('pointerup', end, true);
   t.addEventListener('mouseup', end, true);
   t.addEventListener('pointercancel', end, true);
-  t.addEventListener('blur', end);
-  t.addEventListener('keydown', onKey, true);
   t.addEventListener('pointermove', onMove, true);
   return () => {
     env.root.classList.remove(DRAG_NO_SELECT_CLASS);
@@ -83,8 +85,6 @@ function engage(env: DragSelectionEnv): () => void {
     t.removeEventListener('pointerup', end, true);
     t.removeEventListener('mouseup', end, true);
     t.removeEventListener('pointercancel', end, true);
-    t.removeEventListener('blur', end);
-    t.removeEventListener('keydown', onKey, true);
     t.removeEventListener('pointermove', onMove, true);
   };
 }

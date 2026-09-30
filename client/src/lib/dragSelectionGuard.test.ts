@@ -61,8 +61,6 @@ describe('suppressTextSelection', () => {
     ['pointerup', {}],
     ['mouseup', {}],
     ['pointercancel', {}],
-    ['blur', {}],
-    ['keydown', { key: 'Escape' }],
     ['pointermove', { buttons: 0 }],
   ] as const) {
     it(`lets go by itself on ${door}`, () => {
@@ -76,20 +74,35 @@ describe('suppressTextSelection', () => {
     });
   }
 
-  it('holds through a move with the button down and through other keys', () => {
+  it('holds through a move with the button down, Escape and a lost focus', () => {
+    // The floating window's bar keeps dragging through Escape and a window
+    // blur (it ends on the button only), so the guard must too: letting go
+    // there turned the transcript blue under a window still in flight.
     const f = fakeEnv();
     const release = suppressTextSelection(f.env);
     f.fire('pointermove', { buttons: 1 });
-    f.fire('keydown', { key: 'Shift' });
+    f.fire('keydown', { key: 'Escape' });
+    f.fire('blur');
+    f.fire('pointermove', { buttons: 1 });
     expect(f.locked()).toBe(true);
+    expect(f.fire('selectstart')).toBe(true);
     release();
     expect(f.locked()).toBe(false);
+  });
+
+  it('a lost focus with the button released elsewhere ends on the next buttonless move', () => {
+    const f = fakeEnv();
+    suppressTextSelection(f.env);
+    f.fire('blur');
+    f.fire('pointermove', { buttons: 0 });
+    expect(f.locked()).toBe(false);
+    expect(f.listeners()).toBe(0);
   });
 
   it('a stale release does not end a newer drag', () => {
     const f = fakeEnv();
     const first = suppressTextSelection(f.env);
-    f.fire('blur');
+    f.fire('pointerup');
     const second = suppressTextSelection(f.env);
     first();
     expect(f.locked()).toBe(true);
