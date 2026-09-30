@@ -2,6 +2,14 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.414 — 2026-09-30
+
+### Sotto il cofano
+- The first-send spec judges the pane swap by mutation batch, not by the clock
+- The first-send spec reads a moved pane as a move, on every engine
+- **e2e** · aggiorna durate shard dal nightly del 2026-09-30 [skip ci]
+- The client and the landing take the patched brace-expansion and fast-uri published on 29/09
+
 ## 2.2.413 — 2026-09-29
 
 ### Sotto il cofano
@@ -10,6 +18,7 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - The divider-drag budget measures the drag alone, and the matrix reads a preview by frames instead of racing React's commit
 - A chunk that threw is not an old build, and the reload prompt no longer sits on the composer
 - The build's generation record is never served, and LAND-11 keeps the generations a live window still runs
+- The first send in a new topic no longer blinks, jumps or hides the message
 
 ## 2.2.412 — 2026-09-29
 
