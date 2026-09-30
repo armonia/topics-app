@@ -39,6 +39,29 @@ async function sessionKeyOf(request: APIRequestContext, topicId: string): Promis
 
 const LINE = "Il testo della chat che sta sotto la finestra e non va selezionato trascinando.";
 
+/**
+ * A horizontal stroke of `width` px over a chat line that nothing covers at
+ * either end: the element under both points is that line's own text.
+ */
+async function uncoveredStroke(page: Page, width: number): Promise<{ x0: number; x1: number; y: number } | null> {
+  return page.evaluate((w) => {
+    // Only the transcript's own bubbles: the sidebar shows the same words as a
+    // preview, and its rows do not select by design.
+    const lines = [...document.querySelectorAll("[data-message-id] *")].filter(
+      (el) => el.childElementCount === 0 && /^Messaggio \d+:/.test(el.textContent ?? ""),
+    );
+    for (const el of lines) {
+      const r = el.getBoundingClientRect();
+      if (r.width < w + 8 || r.height === 0) continue;
+      const y = r.top + r.height / 2;
+      const x0 = r.left + 2;
+      const x1 = x0 + w;
+      if (el.contains(document.elementFromPoint(x0, y)) && el.contains(document.elementFromPoint(x1, y))) return { x0, x1, y };
+    }
+    return null;
+  }, width);
+}
+
 async function selectionText(page: Page): Promise<string> {
   return page.evaluate(() => window.getSelection()?.toString() ?? "");
 }
@@ -127,13 +150,16 @@ test.describe("TOPIC-BROWSER-01 la finestra browser flottante si trascina senza 
       expect(await selectionText(page), "text selected after the drop").toBe("");
 
       // The guard is gone with the gesture: the transcript selects again. The
-      // stroke stays on the left of the line, which the moved window (now over
-      // the middle of the transcript) does not cover.
+      // stroke goes where nothing covers the line, start AND end, as the page
+      // itself says (elementFromPoint): where the dropped window lands depends
+      // on the engine's text metrics, and on Chromium it covered the stroke a
+      // fixed offset picked (CI run 36737336902).
       await expect(page.locator("html")).not.toHaveClass(/drag-no-select/);
-      const after = (await page.getByText(`Messaggio 2: ${LINE}`).boundingBox())!;
-      await page.mouse.move(after.x + 2, after.y + after.height / 2);
+      const stroke = await uncoveredStroke(page, 60);
+      expect(stroke, "no chat line left uncovered by the dropped window").not.toBeNull();
+      await page.mouse.move(stroke!.x0, stroke!.y);
       await page.mouse.down();
-      await page.mouse.move(after.x + 60, after.y + after.height / 2, { steps: 5 });
+      await page.mouse.move(stroke!.x1, stroke!.y, { steps: 5 });
       await page.mouse.up();
       expect((await selectionText(page)).length, "the chat can no longer be selected after a drag").toBeGreaterThan(0);
     } finally {
