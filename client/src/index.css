@@ -2820,8 +2820,15 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
  * The exceptions carry state rather than decorate, and none of them travels:
  * a spinner is how the user knows work is running (frozen, it reads as a
  * hang), and the two opacity pulses mark a chat waiting for the user's input
- * and one whose answer is still unread. Nothing in them moves across the screen. Smooth
- * scrolling (`html`, the board columns) jumps instead. */
+ * and one whose answer is still unread. Nothing in them moves across the screen.
+ *
+ * Smooth scrolling (`html`) jumps instead, with ONE exception that is a
+ * guard, not decoration: the wide board carousel (`data-keeps-smooth-scroll`,
+ * KanbanBoardPane). dnd-kit scrolls that row while a card nears its edge, and
+ * with `snap-mandatory` an instant scroll moves a whole column under a pointer
+ * that has not moved. Forced to `auto` here, a card dropped on In Progress
+ * landed in Done on Chromium, three runs out of three (BOARD-18, CI of
+ * tornata 2l). */
 @media (prefers-reduced-motion: reduce) {
   :not(.animate-spin),
   ::before,
@@ -2829,6 +2836,8 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
     animation-duration: 0s !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0s !important;
+  }
+  :not([data-keeps-smooth-scroll]) {
     scroll-behavior: auto !important;
   }
 }

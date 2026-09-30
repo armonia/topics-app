@@ -2004,11 +2004,14 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                 and an INSTANT mandatory snap moves a whole column under a
                 pointer that has not moved. Measured on 2026-09-08: a card
                 dropped on In Progress landed in Review, three times out of
-                three (BOARD-18), from the moment `scroll-smooth` left. */}
+                three (BOARD-18), from the moment `scroll-smooth` left.
+                `data-keeps-smooth-scroll` keeps it under reduced motion too,
+                where the global rule in index.css turns every other smooth
+                scroll into a jump. */}
             {/* List: one column scrolling vertically (sections capped at a
                 48rem reading width, centred), no
                 snap-carousel (there's nothing to peek at off to the side). */}
-            <div ref={columnsScrollRef} className={boardLayout === 'list'
+            <div ref={columnsScrollRef} data-keeps-smooth-scroll="" className={boardLayout === 'list'
               ? 'flex h-full min-w-0 flex-col gap-2 overflow-y-auto px-2 pt-3 pb-36 scrollbar-standard sm:px-3'
               : 'flex h-full min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto px-2 py-3 sm:scroll-smooth sm:gap-3 sm:px-3'}>
               {TASK_STATUSES.map((status) => (
