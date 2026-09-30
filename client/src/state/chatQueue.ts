@@ -468,7 +468,15 @@ export function isHeld(sessionKey: string): boolean {
  */
 function holdForStop(sessionKey: string, stop: TurnRef): void {
   const head = getQueue(sessionKey)[0];
-  if (head && stopHolds(stop, liftedStop(sessionKey), head)) holdQueue(sessionKey, stop);
+  if (!head || !stopHolds(stop, liftedStop(sessionKey), head)) return;
+  // The hold keeps the newest Stop of the boot. The one this window pressed is
+  // written by `stopSession` before the server has said it, so `stop` (this
+  // window's latest word) can be OLDER: rewriting the hold with it made the
+  // lift cover only the older Stop, and the word of the newer one then held
+  // the queue again after the person had sent.
+  const held = heldStop(sessionKey);
+  if (held && held.boot === stop.boot && held.turnId >= stop.turnId) return;
+  holdQueue(sessionKey, stop);
 }
 onStopHeard(holdForStop);
 
