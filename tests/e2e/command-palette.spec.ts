@@ -1,6 +1,6 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures/command-palette.fixture";
-import { createTopic, cleanupAll, deleteTopic, patchTopic, resetPaneStore } from "./helpers/api-fixtures";
+import { createTopic, cleanupAll, deleteTopic, patchTopic, resetPaneStore, unarchiveTopic } from "./helpers/api-fixtures";
 import { seedMessage } from "./helpers/seed-messages";
 import { ensureTopicVisible, goToApp } from "./helpers";
 import { E2E_BASE } from "./helpers/test-server";
@@ -790,4 +790,67 @@ test.describe("Command Palette", () => {
 
     await commandPalettePage.close();
   });
+  test("PALETTE-17: Enter on a chat that has to mount paints the palette away first, with the history already asked for", async ({
+    commandPalettePage,
+    page,
+    request,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
+    // CS-05 (client-speed audit 2026-09-30): the row's action opened the chat
+    // inside the keydown, so the whole render of the new pane ran in the input
+    // task (a 150-190 ms frame with the palette frozen on screen), and its
+    // history request only left from the pane's mount effect, after that
+    // render. A chat already mounted keeps opening in the input task: that
+    // case is TABSWITCH-01 (tab-switch-instant.spec.ts).
+    const name = `E2E-PalCold-${TS}`;
+    const cold = await createTopic(request, name);
+    topicIds.push(cold.id);
+    const topics = ((await (await request.get(`${E2E_BASE}/api/topics`)).json()) as { topics: Record<string, { id: string; sessionKey: string }> }).topics;
+    const sessionKey = Object.values(topics).find((x) => x.id === cold.id)!.sessionKey;
+    for (let i = 0; i < 60; i++) {
+      await seedMessage(request, { sessionKey, role: i % 2 ? "assistant" : "user", content: i === 59 ? "PAL-COLD-END final line" : `Row ${i}. ${"Lorem ipsum dolor sit amet. ".repeat(6)}` });
+    }
+    await unarchiveTopic(request, cold.id);
+
+    await page.addInitScript((target) => {
+      const w = window as unknown as { __pal: Record<string, unknown> };
+      w.__pal = {};
+      const shell = () => !!document.querySelector(`[data-pane-shell="${CSS.escape(target.id)}"]`);
+      const realFetch = window.fetch.bind(window);
+      window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (w.__pal.enterAt !== undefined && w.__pal.historyAt === undefined && decodeURIComponent(url).includes(`/history/${target.sessionKey}`)) {
+          w.__pal.historyAt = performance.now();
+          w.__pal.shellAtHistory = shell();
+        }
+        return realFetch(input, init);
+      };
+      window.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" || !document.querySelector('[data-testid="command-palette"]')) return;
+        w.__pal.enterAt = performance.now();
+        requestAnimationFrame(() => {
+          w.__pal.frameAt = performance.now();
+          w.__pal.shellAtFrame = shell();
+          w.__pal.paletteAtFrame = !!document.querySelector('[data-testid="command-palette"]');
+        });
+      }, true);
+    }, { id: cold.id, sessionKey });
+
+    await goToApp(page);
+    await commandPalettePage.search(name);
+    await expect(commandPalettePage.overlay.getByRole("option", { name: new RegExp(name) })).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(page.locator(`[data-pane-shell="${cold.id}"] [data-testid="chat-message"]`).filter({ hasText: "PAL-COLD-END" })).toBeVisible({ timeout: 20_000 });
+
+    const r = (await page.evaluate(() => (window as unknown as { __pal: Record<string, number | boolean> }).__pal)) as {
+      enterAt: number; frameAt: number; historyAt?: number; shellAtFrame: boolean; shellAtHistory?: boolean; paletteAtFrame: boolean;
+    };
+    const ms = (t?: number) => (t === undefined ? "never" : `${Math.round(t - r.enterAt)}ms`);
+    test.info().annotations.push({ type: "Enter to first frame / to history request", description: `${ms(r.frameAt)} / ${ms(r.historyAt)}` });
+    expect(r.paletteAtFrame, "the palette is gone on the first frame after Enter").toBe(false);
+    expect(r.shellAtFrame, `the first frame after Enter is not held by the chat's render (frame at ${ms(r.frameAt)})`).toBe(false);
+    expect(r.historyAt, "the chat's history was asked for").toBeDefined();
+    expect(r.shellAtHistory, `the history request leaves before the pane renders, not from its mount effect (at ${ms(r.historyAt)})`).toBe(false);
+  });
+
 });
