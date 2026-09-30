@@ -3,7 +3,7 @@
  */
 /** The explorer tree: the concurrent walk must give the same tree, in the same
  *  order, that the one-entry-at-a-time walk gave. */
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -52,4 +52,27 @@ test("a file that cannot be stat-ed still comes out, without a size, next to its
   const tree = await walkFileTree(root, 3);
   const locked = tree.find(n => n.name === "locked")!;
   expect(locked.children!.map(n => [n.name, n.size])).toEqual([["one.txt", undefined], ["two.txt", undefined]]);
+});
+
+describe("walkFileTree hands the event loop back while it walks", () => {
+  test("the loop turns between the entries of a walk, not once at its end", async () => {
+    // 12 folders x 20 files. Counted in loop turns, not milliseconds, so a busy
+    // machine cannot make it pass or fail: a walk that stats a folder's entries
+    // concurrently resolves them back to back and the loop turns a handful of
+    // times; one entry at a time, it turns at least once per stat.
+    const root = mkdtempSync(join(tmpdir(), "walk-yield-"));
+    for (let d = 0; d < 12; d++) {
+      mkdirSync(join(root, `dir${d}`));
+      for (let f = 0; f < 20; f++) writeFileSync(join(root, `dir${d}`, `file${f}.txt`), "x");
+    }
+    let turns = 0;
+    let on = true;
+    const spin = (): void => { turns++; if (on) setImmediate(spin); };
+    setImmediate(spin);
+    const tree = await walkFileTree(root, 2);
+    on = false;
+    rmSync(root, { recursive: true, force: true });
+    expect(tree).toHaveLength(12);
+    expect(turns).toBeGreaterThanOrEqual(120);
+  });
 });

@@ -50,17 +50,23 @@ export async function walkFileTree(root: string, depth: number): Promise<FileNod
   // Async walk (fs.promises): the old readdirSync + per-entry statSync ran
   // inside the request handler and stalled Bun's single event loop for the
   // whole scan — a large directory (monorepo folder) queued every other
-  // client's requests and WS traffic behind it. The entries of a folder are
-  // stat-ed and descended into concurrently: one await per entry in a row made
-  // the walk as slow as the sum of its syscalls. `Promise.all` over a map keeps
-  // the sorted order, and every entry keeps its own catch, so a file that
-  // vanishes between readdir and stat still comes out without a size instead
-  // of emptying its folder.
+  // client's requests and WS traffic behind it.
+  //
+  // ONE ENTRY AT A TIME, on purpose: each await hands the loop back between
+  // syscalls. Stat-ing a folder's entries concurrently made the walk faster
+  // but ran the whole tree's completions back to back: on this repo at depth 3
+  // the loop did not turn for the walk's 17-20 ms, and a ping answered in
+  // 11-14 ms instead of 0.2 (100 ms on ~/Projects), with the tree refetched at
+  // every `files:changed`. The time the walk used to spend was the ignore
+  // rules, 59 of 77 ms, and those are compiled once now (`lib/gitignore.ts`).
+  // Every entry keeps its own catch, so a file that vanishes between readdir
+  // and stat still comes out without a size instead of emptying its folder.
   async function readDirRecursive(dir: string, currentDepth: number, relBase: string, ignore: IgnoreSet): Promise<FileNode[]> {
     try {
       const entries = await readdirAsync(dir, { withFileTypes: true });
       entries.sort((a, b) => { if (a.isDirectory() && !b.isDirectory()) return -1; if (!a.isDirectory() && b.isDirectory()) return 1; return a.name.localeCompare(b.name); });
-      const nodes = await Promise.all(entries.map(async (entry): Promise<FileNode | null> => {
+      const nodes: Array<FileNode | null> = [];
+      for (const entry of entries) nodes.push(await (async (): Promise<FileNode | null> => {
         const rel = relBase ? `${relBase}/${entry.name}` : entry.name;
         if (DEFAULT_EXCLUDES.has(entry.name) || isTopicsSecretPath(entry.name)) return null;
         if (entry.isDirectory() && HEAVY_DIRS.has(entry.name)) return null;
@@ -77,7 +83,7 @@ export async function walkFileTree(root: string, depth: number): Promise<FileNod
         }
         if (!entry.isFile()) return null;
         try { const stats = await statAsync(fullPath); return { name: entry.name, type: "file", path: fullPath, size: stats.size, modified: stats.mtime.toISOString() }; } catch { return { name: entry.name, type: "file", path: fullPath }; }
-      }));
+      })());
       return nodes.filter((n): n is FileNode => n !== null);
     } catch {
       return [];
