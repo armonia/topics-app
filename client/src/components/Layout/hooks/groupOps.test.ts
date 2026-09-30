@@ -10,6 +10,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { PaneGroup } from '../../../types';
 import {
+  fallbackFocusedGroupId,
   detachPaneFromGroups,
   movePaneBetweenGroups,
   nextActivePaneId,
@@ -110,5 +111,19 @@ describe('movePaneBetweenGroups', () => {
     expect(movePaneBetweenGroups(groups, 'g1', 'assente', 'p1', 0)).toBe(groups);
     expect(movePaneBetweenGroups(groups, 'assente', 'g2', 'p1', 0)).toBe(groups);
     expect(movePaneBetweenGroups(groups, 'g1', 'g2', 'p2', 0)).toBe(groups);
+  });
+});
+
+describe('fallbackFocusedGroupId', () => {
+  const g = (id: string, type: PaneGroup['type']): PaneGroup => ({ id, paneIds: [`p-${id}`], activePaneId: `p-${id}`, type });
+  test('the focused group keeps the focus while it exists', () => {
+    expect(fallbackFocusedGroupId('b', [g('a', 'chat'), g('b', 'utility')])).toBe('b');
+  });
+  test('a focused group that is gone hands it to the first chat group, else the first group', () => {
+    expect(fallbackFocusedGroupId('gone', [g('a', 'utility'), g('b', 'chat')])).toBe('b');
+    expect(fallbackFocusedGroupId(null, [g('a', 'utility'), g('b', 'file')])).toBe('a');
+  });
+  test('with no group left the focus does not move', () => {
+    expect(fallbackFocusedGroupId('gone', [])).toBe('gone');
   });
 });
