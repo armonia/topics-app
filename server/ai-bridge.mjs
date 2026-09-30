@@ -35,7 +35,10 @@ function realHome() {
 // 3: a `write` with a `mark` (the row it answers) leaves `{"type":"topics_delivered",
 //    "mark":…}` in the store, at a line boundary, before the data reaches stdin
 //    (server/providers/claude/row-turn.ts). An older daemon ignores the field.
-const PROTOCOL = 3;
+// 4: every reply to a request echoes the request's `rid`, so the client pairs an
+//    ack with the request it answers instead of with the oldest one of its shape
+//    (server/lib/ai-bridge-client.ts, handleFrame). Broadcasts carry none.
+const PROTOCOL = 4;
 
 // --- Configuration ---
 function argOf(flag) {
@@ -91,6 +94,10 @@ function broadcast(msg) {
 }
 function sendTo(client, msg) {
   try { client.write(JSON.stringify(msg) + '\n'); } catch { /* dead socket */ }
+}
+/** A reply to `req` (protocol 4): echoes its `rid`, when it has one. */
+function replyTo(client, req, msg) {
+  sendTo(client, req?.rid != null ? { ...msg, rid: req.rid } : msg);
 }
 
 function storePathFor(id) {
@@ -237,7 +244,7 @@ function handleMessage(msg, client) {
       // explicitly with `attach` (that is what reattach's SCAN pass does).
       if (existing && existing.alive) {
         replayTo(existing, client, existing.endOffset);
-        sendTo(client, { type: 'spawned', id, pid: existing.pid, resumed: true });
+        replyTo(client, msg, { type: 'spawned', id, pid: existing.pid, resumed: true });
         break;
       }
       // A dead session lingering for late-attach → replace it (fresh child = fresh store).
@@ -246,14 +253,14 @@ function handleMessage(msg, client) {
       const storePath = storePathFor(id);
       let storeFd;
       try { storeFd = fs.openSync(storePath, 'w'); } // truncate: a new child = a fresh output stream
-      catch (e) { sendTo(client, { type: 'error', id, error: `store open failed: ${e.message}` }); break; }
+      catch (e) { replyTo(client, msg, { type: 'error', id, error: `store open failed: ${e.message}` }); break; }
 
       let child;
       try {
         child = spawn(cliPath, args || [], { cwd: cwd || realHome(), stdio: ['pipe', 'pipe', 'pipe'], env: buildEnv(env) });
       } catch (e) {
         try { fs.closeSync(storeFd); } catch {}
-        sendTo(client, { type: 'error', id, error: `spawn failed: ${e.message}` });
+        replyTo(client, msg, { type: 'error', id, error: `spawn failed: ${e.message}` });
         break;
       }
 
@@ -298,25 +305,25 @@ function handleMessage(msg, client) {
       // The spawning client is implicitly attached from offset 0 (it wants the
       // live stream of the turn it just started).
       replayTo(session, client, 0);
-      sendTo(client, { type: 'spawned', id, pid: child.pid });
+      replyTo(client, msg, { type: 'spawned', id, pid: child.pid });
       break;
     }
     case 'write': {
       const s = sessions.get(msg.id);
-      if (!s || !s.alive) { sendTo(client, { type: 'error', id: msg.id, error: 'no live session' }); break; }
+      if (!s || !s.alive) { replyTo(client, msg, { type: 'error', id: msg.id, error: 'no live session' }); break; }
       // Protocol 3: where this message reached the child, for the row it answers.
       if (typeof msg.mark === 'string') {
         const mark = Buffer.from(JSON.stringify({ type: 'topics_delivered', mark: msg.mark }) + '\n');
         if (s.midLine) (s.pendingMarks ??= []).push(mark); else emit(s, mark);
       }
-      try { s.child.stdin.write(msg.data); } catch (e) { sendTo(client, { type: 'error', id: msg.id, error: e.message }); }
+      try { s.child.stdin.write(msg.data); } catch (e) { replyTo(client, msg, { type: 'error', id: msg.id, error: e.message }); }
       break;
     }
     case 'attach': {
       const s = sessions.get(msg.id);
-      if (!s) { sendTo(client, { type: 'attached', id: msg.id, endOffset: 0, alive: false, exitCode: null, missing: true, protocol: PROTOCOL }); break; }
+      if (!s) { replyTo(client, msg, { type: 'attached', id: msg.id, endOffset: 0, alive: false, exitCode: null, missing: true, protocol: PROTOCOL }); break; }
       replayTo(s, client, msg.fromOffset || 0);
-      sendTo(client, { type: 'attached', id: msg.id, endOffset: s.endOffset, alive: s.alive, exitCode: s.exitCode, lastDataAt: s.lastDataAt ?? null, protocol: PROTOCOL });
+      replyTo(client, msg, { type: 'attached', id: msg.id, endOffset: s.endOffset, alive: s.alive, exitCode: s.exitCode, lastDataAt: s.lastDataAt ?? null, protocol: PROTOCOL });
       break;
     }
     case 'detach': {
@@ -363,17 +370,17 @@ function handleMessage(msg, client) {
     case 'list': {
       const list = [];
       for (const [id, s] of sessions) list.push({ id, pid: s.pid, alive: s.alive, exitCode: s.exitCode, endOffset: s.endOffset, createdAt: s.createdAt });
-      sendTo(client, { type: 'list', sessions: list, protocol: PROTOCOL });
+      replyTo(client, msg, { type: 'list', sessions: list, protocol: PROTOCOL });
       break;
     }
     case 'ping': {
       if (Number.isInteger(msg.pid) && msg.pid > 0) serverPids.set(client, msg.pid);
       // Our pid: a client tells a new daemon from this one by it.
-      sendTo(client, { type: 'pong', pid: process.pid });
+      replyTo(client, msg, { type: 'pong', pid: process.pid });
       break;
     }
     default:
-      sendTo(client, { type: 'error', id: msg.id, error: `unknown type: ${msg.type}` });
+      replyTo(client, msg, { type: 'error', id: msg.id, error: `unknown type: ${msg.type}` });
   }
 }
 
@@ -556,7 +563,7 @@ async function start() {
         let parsed = null;
         try { parsed = JSON.parse(line); } catch (e) { sendTo(socket, { type: 'error', error: e.message }); continue; }
         try { handleMessage(parsed, socket); }
-        catch (e) { sendTo(socket, { type: 'error', error: e.message, id: parsed?.id }); }
+        catch (e) { replyTo(socket, parsed, { type: 'error', error: e.message, id: parsed?.id }); }
       }
     });
     const drop = () => { clients.delete(socket); connectedAt.delete(socket); serverPids.delete(socket); for (const s of sessions.values()) s.attached.delete(socket); };

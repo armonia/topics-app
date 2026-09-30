@@ -113,7 +113,8 @@ describe("deadline sul silenzio, non sul totale", () => {
 
   test("un ponte MUTO rigetta — ma solo dopo aver rimandato il frame", async () => {
     let receivedList = 0;
-    const c = await scena((frame) => { if (frame.type === "list") receivedList++; });
+    const rids: unknown[] = [];
+    const c = await scena((frame: { type?: string; rid?: unknown }) => { if (frame.type === "list") { receivedList++; rids.push(frame.rid); } });
 
     let errore: unknown = null;
     try { await c.list(); } catch (e) { errore = e; }
@@ -124,6 +125,9 @@ describe("deadline sul silenzio, non sul totale", () => {
     // REQUEST_ATTEMPTS = 3: prima si moriva al primo colpo. `list` è
     // idempotente, quindi rimandarlo è sicuro per costruzione.
     expect(receivedList).toBe(3);
+    // Each attempt has its own rid: the late ack of the previous one cannot answer it.
+    expect(rids.every((r) => typeof r === "number")).toBe(true);
+    expect(new Set(rids).size).toBe(3);
   }, 20_000);
 });
 

@@ -188,6 +188,8 @@ export function shouldRecycleSocket(now: number, lastPongAt: number, lastByteAt:
 }
 
 type Waiter = {
+  /** The request id this waiter's frame went out with (protocol 4 echoes it). */
+  rid: number;
   pred: (m: any) => boolean;
   resolve: (m: any) => void;
   reject: (e: Error) => void;
@@ -215,8 +217,10 @@ export class AiBridgeClient {
    * handed it to the NEW turn's handlers: "Process exited with code null" on a
    * message that had not even started.
    */
-  private readonly spawnsInFlight = new Map<string, object>();
+  private readonly spawnsInFlight = new Map<string, { rid: number }>();
   private readonly waiters: Waiter[] = [];
+  /** Last request id handed out: every frame that can be answered gets a fresh one. */
+  private ridSeq = 0;
   private readonly reconnectCbs = new Set<() => void>();
   private watchdog: ReturnType<typeof setInterval> | null = null;
   private lastPongAt = 0;
@@ -344,7 +348,7 @@ export class AiBridgeClient {
         this.startWatchdog();
         // Right away, not at the first watchdog beat: the pid is what lets an
         // orphaned daemon adopt this server (see the monitor in ai-bridge.mjs).
-        this.send({ type: "ping", pid: process.pid });
+        this.send({ type: "ping", pid: process.pid, rid: ++this.ridSeq });
         console.log("[AI Bridge] Connected to daemon");
         res(true);
       });
@@ -404,18 +408,33 @@ export class AiBridgeClient {
   }
 
   private handleFrame(msg: any): void {
-    // One ack answers ONE request: the OLDEST waiter it matches. Acks carry
-    // only type and id, so two requests of the same kind for the same id wait
-    // on identical predicates; handing the frame to all of them gave a resync
-    // sent after a `kill` the "alive" answer of an attach sent before it, and
-    // a killed child was reported alive (CI run 36703298057). The daemon reads
-    // a socket's lines in order and answers each in the same tick, and waiters
-    // are armed in send order, so wire order is the correlation.
-    const i = this.waiters.findIndex((w) => w.pred(msg));
+    // One ack answers ONE request. Two requests of the same kind for the same
+    // id wait on identical predicates; handing the frame to all of them gave a
+    // resync sent after a `kill` the "alive" answer of an attach sent before
+    // it, and a killed child was reported alive (CI run 36703298057).
+    //
+    // RID FIRST. A protocol-4 daemon echoes the `rid` of the request a reply
+    // answers, and such a frame goes to that waiter or to nobody: a late ack
+    // for a waiter that already gave up (the 90 s cap rejects without dropping
+    // the socket) no longer lands on the next request of the same shape, and a
+    // failed `write`'s error no longer rejects a spawn in flight for that id.
+    //
+    // FIFO FALLBACK for a frame without `rid`: a daemon older than protocol 4
+    // (it outlives deploys) or a broadcast. The daemon reads a socket's lines
+    // in order and answers each in the same tick, and waiters are armed in
+    // send order, so wire order is the correlation: the OLDEST waiter it matches.
+    //
+    // A frame that echoes a waiter's rid but is not the answer it waits for
+    // (an `error` to an attach or a list) REJECTS it: settling it with that
+    // frame would read an error as "not alive" or as an empty list.
+    const i = msg.rid != null
+      ? this.waiters.findIndex((w) => w.rid === msg.rid)
+      : this.waiters.findIndex((w) => w.pred(msg));
     if (i >= 0) {
       const [w] = this.waiters.splice(i, 1);
       clearTimeout(w.timer);
-      w.resolve(msg);
+      if (w.pred(msg)) w.resolve(msg);
+      else w.reject(new Error(`ai-bridge: ${msg.type === "error" ? msg.error ?? "error" : `unexpected ${msg.type}`}`));
     }
     if (msg.type === "pong") {
       this.lastPongAt = Date.now();
@@ -426,8 +445,11 @@ export class AiBridgeClient {
     if (!id) return;
     // The ack closes the window at once, not when the spawn's promise settles:
     // the new child's own exit can sit right behind it in the same chunk, and
-    // it must reach the handlers.
-    if (msg.type === "spawned") this.spawnsInFlight.delete(id);
+    // it must reach the handlers. Only the ack of the spawn in flight NOW
+    // does: a `spawned` echoing the rid of an earlier spawn for this id (one
+    // that gave up, or one a kill + respawn overtook) says nothing about it,
+    // and the killed predecessor's exit may still be on its way.
+    if (msg.type === "spawned" && (msg.rid == null || this.spawnsInFlight.get(id)?.rid === msg.rid)) this.spawnsInFlight.delete(id);
     const h = this.handlers.get(id);
     if (!h) return;
     switch (msg.type) {
@@ -455,7 +477,7 @@ export class AiBridgeClient {
    * davvero per `timeoutMs` il waiter rigetta — e rigetta con un errore
    * RITENTABILE, non più con una `Error` nuda che uccideva il turno.
    */
-  private arm(pred: (m: any) => boolean, timeoutMs: number, what: string): { promise: Promise<any>; cancel: (e: Error) => void } {
+  private arm(rid: number, pred: (m: any) => boolean, timeoutMs: number, what: string): { promise: Promise<any>; cancel: (e: Error) => void } {
     let entry!: Waiter;
     const promise = new Promise<any>((res, rej) => {
       const armedAt = Date.now();
@@ -474,7 +496,7 @@ export class AiBridgeClient {
         const why = muto ? `muto da ${Math.round(mute / 1000)}s` : `tetto ${Math.round((hardDeadline - armedAt) / 1000)}s`;
         rej(new BridgeAckStalled(`ai-bridge: ack timeout (${what}, ${why})`, muto));
       };
-      entry = { pred, resolve: res, reject: rej, timer: setTimeout(tick, STALL_TICK_MS), silentSince: armedAt };
+      entry = { rid, pred, resolve: res, reject: rej, timer: setTimeout(tick, STALL_TICK_MS), silentSince: armedAt };
       this.waiters.push(entry);
     });
     return {
@@ -516,12 +538,16 @@ export class AiBridgeClient {
    * timeout. La fessura fra l'ensureConnected e il write è larga quanto un
    * hot-reload del server, cioè quanto capita ogni giorno.
    */
-  private async request(frame: object, pred: (m: any) => boolean, timeoutMs: number, what: string): Promise<any> {
+  private async request(frame: object, pred: (m: any) => boolean, timeoutMs: number, what: string, onAttempt?: (rid: number) => void): Promise<any> {
     let last: Error | null = null;
     for (let attempt = 0; attempt < REQUEST_ATTEMPTS; attempt++) {
       await this.ensureConnected();
-      const w = this.arm(pred, timeoutMs, what);
-      if (!this.send(frame)) {
+      // A fresh rid per attempt: the previous attempt's ack, if it ever
+      // arrives, must not answer this one.
+      const rid = ++this.ridSeq;
+      onAttempt?.(rid);
+      const w = this.arm(rid, pred, timeoutMs, what);
+      if (!this.send({ ...frame, rid })) {
         w.cancel(new BridgeConnectionLost(`ai-bridge: ${what} non è partito (socket caduto)`));
       }
       try {
@@ -602,7 +628,7 @@ export class AiBridgeClient {
         try { this.socket?.destroy(); } catch { /* 'close' handles reconnect */ }
         return;
       }
-      this.send({ type: "ping", pid: process.pid });
+      this.send({ type: "ping", pid: process.pid, rid: ++this.ridSeq });
     }, WATCHDOG_EVERY_MS);
     this.watchdog.unref?.();
   }
@@ -614,7 +640,7 @@ export class AiBridgeClient {
 
   /** Spawn (or, if a live session for `id` already exists, resume) a child. */
   async spawn(id: string, opts: SpawnOpts): Promise<{ pid: number; resumed: boolean }> {
-    const token = {};
+    const token = { rid: 0 };
     this.spawnsInFlight.set(id, token);
     try {
       const m = await this.request(
@@ -622,6 +648,7 @@ export class AiBridgeClient {
         (f) => (f.type === "spawned" || f.type === "error") && f.id === id,
         SPAWN_ACK_TIMEOUT_MS,
         `spawn ${id}`,
+        (rid) => { token.rid = rid; },
       );
       if (m.type === "error") throw new Error(`ai-bridge spawn: ${m.error}`);
       return { pid: m.pid, resumed: m.resumed === true };
@@ -677,8 +704,9 @@ export class AiBridgeClient {
    * Ora tornano un booleano onesto e `throwOnDrop` lo trasforma in eccezione per
    * chi ha una rete pronta a riceverla.
    */
-  /** `mark`: the row this message answers, left in the store by a protocol-3 daemon (claude/row-turn.ts). */
-  write(id: string, data: string, mark?: string): void { this.throwOnDrop(this.send({ type: "write", id, data, ...(mark ? { mark } : {}) }), `write ${id}`); }
+  /** `mark`: the row this message answers, left in the store by a protocol-3 daemon (claude/row-turn.ts).
+   *  The `rid` arms nothing: the daemon's error for a failed write echoes it, so no spawn waiter can take it. */
+  write(id: string, data: string, mark?: string): void { this.throwOnDrop(this.send({ type: "write", id, data, rid: ++this.ridSeq, ...(mark ? { mark } : {}) }), `write ${id}`); }
   detach(id: string): void { this.send({ type: "detach", id }); }
   signal(id: string, sig: string): void { this.throwOnDrop(this.send({ type: "signal", id, signal: sig }), `signal ${sig} ${id}`); }
 
