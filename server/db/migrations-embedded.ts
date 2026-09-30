@@ -175,6 +175,7 @@ import m20260927091818_message_end_reason from "./migrations/20260927091818-mess
 import m20260928170113_resend_counts from "./migrations/20260928170113-resend-counts.sql" with { type: "text" };
 import m20260928203249_chat_forks from "./migrations/20260928203249-chat-forks.sql" with { type: "text" };
 import m20260930131539_owed_answers from "./migrations/20260930131539-owed-answers.sql" with { type: "text" };
+import m20260930195818_tasks_done_recency_index from "./migrations/20260930195818-tasks-done-recency-index.sql" with { type: "text" };
 
 export interface EmbeddedMigration {
   version: number;
@@ -354,4 +355,5 @@ export const EMBEDDED_MIGRATIONS: EmbeddedMigration[] = [
   { version: 20260928170113, name: "20260928170113-resend-counts.sql", sql: m20260928170113_resend_counts },
   { version: 20260928203249, name: "20260928203249-chat-forks.sql", sql: m20260928203249_chat_forks },
   { version: 20260930131539, name: "20260930131539-owed-answers.sql", sql: m20260930131539_owed_answers },
+  { version: 20260930195818, name: "20260930195818-tasks-done-recency-index.sql", sql: m20260930195818_tasks_done_recency_index },
 ];
