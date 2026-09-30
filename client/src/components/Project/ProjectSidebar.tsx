@@ -15,7 +15,8 @@ import { hasGitStateToShow } from '../../lib/gitVisibility';
 import { DRAG_SLOP_PX } from '../../hooks/useGridResize';
 import type { WSMessage } from '../../types';
 import { useHoverReveal } from '../../hooks/useHoverReveal';
-import { lazyWarm } from '../../lib/lazyWarm';
+import { lazyWarm, warm } from '../../lib/lazyWarm';
+import { GitSectionSkeleton } from './GitSectionSkeleton';
 import { loadGitChanges } from '../../state/pane/panePreload';
 
 // Git is heavy (diff rendering) — keep lazy, and `lazyWarm` so that a window
@@ -359,9 +360,14 @@ function GitSectionRow({
     // outside this IS the git section: a test opens it by clicking the `Git`
     // label inside `git-changes`, and it must find it whether or not the panel
     // has been mounted yet.
-    <div data-testid="git-changes" className="flex flex-col">
+    <div data-testid="git-changes" className={`flex flex-col ${loading && expanded ? 'h-full min-h-0' : ''}`}>
       <div
         onClick={onToggle}
+        // The panel's chunk is asked for as soon as the pointer is on the row:
+        // by the click it is usually there, and the section opens with its rows
+        // in one step instead of growing twice (fluidity audit panes:F11).
+        onPointerEnter={warmGitPanel}
+        onFocus={warmGitPanel}
         data-testid="project-sidebar-git"
         role="button"
         aria-expanded={expanded}
@@ -398,8 +404,14 @@ function GitSectionRow({
           </span>
         </div>
       </div>
+      {loading && expanded && <GitSectionSkeleton fileCount={git?.fileCount ?? 0} />}
     </div>
   );
+}
+
+/** Ask for the Git panel's chunk ahead of the click (see `GitSectionRow`). */
+function warmGitPanel(): void {
+  warm(loadGitChanges).catch(() => {});
 }
 
 export function ProjectSidebar({

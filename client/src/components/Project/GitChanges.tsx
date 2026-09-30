@@ -14,6 +14,7 @@ import { ChangedFileCounts, ChangedFileMark, ChangedFilePath } from '../Git/Chan
 import { rowFromGitFile } from '../Git/changedFiles';
 import { CommitHistory } from '../Git/CommitHistory';
 import { HunkActions } from '../Git/HunkActions';
+import { GitSectionSkeleton } from './GitSectionSkeleton';
 import { DiffViewer } from '../Editor/DiffViewer';
 import { useAutoResize } from '../../hooks/useAutoResize';
 import { useAnchoredPopover } from '../../hooks/useAnchoredPopover';
@@ -922,6 +923,9 @@ export function GitChanges({ projectPath, compact = false, expanded = true, onTo
             </button>
           </div>
         )}
+        {/* No status yet: the rows that are coming, not an empty floor under a
+            header spinner that then grows a second time (panes:F11). */}
+        {expanded && !hasData && !notGit && !error && <GitSectionSkeleton fileCount={3} />}
         {expanded && error && !notGit && (
           <div className="px-3 py-1">
             <p className="text-red-500 text-mini">{error}</p>

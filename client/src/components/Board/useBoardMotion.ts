@@ -40,6 +40,12 @@ const PREFIX_COLUMN = 'kanban-column-body-';
 interface Istantanea {
   spots: Map<string, CardSpot>;
   columns: Map<string, ColumnBox>;
+  /**
+   * Where each whole column sits inside the row, in row content coordinates
+   * (scroll included). A filter that empties Review narrows it, and the columns
+   * after it shift; this is what lets them glide there instead of snapping.
+   */
+  lanes: Map<string, { left: number; top: number }>;
 }
 
 /**
@@ -50,9 +56,16 @@ interface Istantanea {
 function misura(root: HTMLElement): Istantanea {
   const spots = new Map<string, CardSpot>();
   const columns = new Map<string, ColumnBox>();
+  const lanes = new Map<string, { left: number; top: number }>();
+  const rootBox = root.getBoundingClientRect();
   for (const body of root.querySelectorAll<HTMLElement>(`[data-testid^="${PREFIX_COLUMN}"]`)) {
     const status = (body.dataset.testid ?? '').slice(PREFIX_COLUMN.length);
     if (!status) continue;
+    const lane = body.closest<HTMLElement>(`[data-testid="kanban-column-${CSS.escape(status)}"]`);
+    if (lane) {
+      const l = lane.getBoundingClientRect();
+      lanes.set(status, { left: l.left - rootBox.left + root.scrollLeft, top: l.top - rootBox.top + root.scrollTop });
+    }
     const box = body.getBoundingClientRect();
     columns.set(status, { left: box.left, top: box.top, scrollLeft: body.scrollLeft, scrollTop: body.scrollTop });
     for (const card of body.querySelectorAll<HTMLElement>('[data-task-card]')) {
@@ -67,7 +80,7 @@ function misura(root: HTMLElement): Istantanea {
       });
     }
   }
-  return { spots, columns };
+  return { spots, columns, lanes };
 }
 
 /** Lo spostamento DENTRO una colonna: lo fa il nodo vero, non serve nessuna copia. */
@@ -141,6 +154,27 @@ function vola(el: HTMLElement, m: BoardMove): void {
   window.addEventListener('resize', interrompi);
 }
 
+/**
+ * The columns that SHIFTED because a neighbour changed width (a filter that
+ * empties Review narrows it). The width itself changes in one layout pass, on
+ * purpose: animating `flex-basis` was a layout animation, run on the main
+ * thread for 200 ms while the card FLIP measured a target still moving. Here
+ * the layout lands at once and the shifted columns travel the difference with
+ * a transform, on the same token as the cards.
+ */
+function slideLanes(root: HTMLElement, before: Istantanea['lanes'], after: Istantanea['lanes']): void {
+  for (const [status, now] of after) {
+    const was = before.get(status);
+    if (!was) continue;
+    const dx = was.left - now.left;
+    const dy = was.top - now.top;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+    const lane = root.querySelector<HTMLElement>(`[data-testid="kanban-column-${CSS.escape(status)}"]`);
+    if (!lane) continue;
+    animateEl(lane, [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: MOTION.base, easing: EASE.standard });
+  }
+}
+
 function gioca(root: HTMLElement, moves: BoardMove[]): void {
   for (const m of moves) {
     const el = root.querySelector<HTMLElement>(`[data-task-card="${CSS.escape(m.id)}"]`);
@@ -165,20 +199,23 @@ export function useBoardMotion(
   signature: string,
   enabled: boolean,
 ): (id: string) => void {
-  const prima = useRef<Map<string, CardSpot> | null>(null);
+  const prima = useRef<Istantanea | null>(null);
   const toSkip = useRef<Set<string>>(new Set());
 
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    const { spots, columns } = misura(root);
-    const before = prima.current;
-    prima.current = spots;
+    const now = misura(root);
+    const { spots, columns } = now;
+    const previous = prima.current;
+    prima.current = now;
+    const before = previous?.spots ?? null;
     const skip = toSkip.current;
     toSkip.current = new Set();
     // Il primo giro non ha un "prima": la board non e' arrivata da nessuna
     // parte, c'era gia'.
-    if (!before || !enabled || prefersReducedMotion()) return;
+    if (!previous || !before || !enabled || prefersReducedMotion()) return;
+    slideLanes(root, previous.lanes, now.lanes);
     gioca(root, planBoardMoves({ before, after: spots, columns, skip }));
   }, [rootRef, signature, enabled]);
 

@@ -6,6 +6,7 @@ import { ConfirmDialog } from '../Shared/ConfirmDialog';
 import { createPortal } from 'react-dom';
 import type { GitHunkSummary } from '../../types';
 import { useHoverReveal } from '../../hooks/useHoverReveal';
+import type { HunkSeed } from './hunkSeed';
 import { useT } from '../../hooks/useT';
 
 /**
@@ -51,16 +52,26 @@ export interface HunkActionsProps {
   /** Da rialzare quando lo stato git cambia, così la lista si rilegge. */
   reloadKey?: unknown;
   onApplied?: () => void;
+  /**
+   * The hunks already read by whoever mounts the strip (`FilePane` reads them
+   * together with the diff, so both land in ONE commit). When present the strip
+   * does not fetch and never shows its own loading row: that row, 25 px tall,
+   * appeared and then vanished for a single-hunk file, and the diff under it
+   * moved down and back up (fluidity audit panes:F9).
+   */
+  seed?: HunkSeed;
 }
 
-export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onApplied }: HunkActionsProps) {
+export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onApplied, seed }: HunkActionsProps) {
   const t = useT();
   // Stage/scarta di un singolo blocco non hanno un altro percorso col dito (non
   // c'e' un menu di riga sugli hunk), quindi senza puntatore i comandi si
   // VEDONO invece di restare bersagli invisibili: `touch: 'shown'`.
   const hunkReveal = useHoverReveal('hunk', { touch: 'shown' });
-  const [hunks, setHunks] = useState<GitHunkSummary[]>([]);
-  const [side, setSide] = useState<'staged' | 'unstaged'>('unstaged');
+  const [ownHunks, setHunks] = useState<GitHunkSummary[]>([]);
+  const [ownSide, setSide] = useState<'staged' | 'unstaged'>('unstaged');
+  const hunks = seed ? seed.hunks : ownHunks;
+  const side = seed ? seed.side : ownSide;
   const [loading, setLoading] = useState(false);
   const [inCorso, setInCorso] = useState<number | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
@@ -73,6 +84,7 @@ export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onAp
   // guarda dentro, così un file completamente staged mostra comunque i suoi
   // blocchi da togliere invece di sparire.
   useEffect(() => {
+    if (seed) return;
     let vivo = true;
     setLoading(true);
     setErrore(null);
@@ -102,7 +114,7 @@ export function HunkActions({ projectPath, file, side: sideProp, reloadKey, onAp
       }
     })();
     return () => { vivo = false; };
-  }, [projectPath, file, sideProp, reloadKey]);
+  }, [projectPath, file, sideProp, reloadKey, seed]);
 
   const applica = useCallback(async (index: number, action: 'stage' | 'unstage' | 'discard') => {
     setInCorso(index);
