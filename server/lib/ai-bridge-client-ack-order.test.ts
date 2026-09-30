@@ -136,6 +136,34 @@ describe("ai-bridge client: a reply echoing a rid answers that request or nobody
     dispose();
   });
 
+  test("an error echoing an attach's rid rejects that attach instead of reading as a dead session", async () => {
+    const { client, sent, frame } = connectedClient();
+    let err: unknown = null;
+    const attaching = client.attach("topic:t", 0).catch((e) => { err = e; return null; });
+    await new Promise((r) => setTimeout(r, 0));
+    frame({ type: "error", id: "topic:t", error: "store open failed", rid: sent[0].rid });
+    expect(await attaching).toBeNull();
+    expect(String((err as Error)?.message)).toContain("store open failed");
+  });
+
+  test("a spawned echoing the rid of a spawn that gave up does not open the gate to the new spawn's predecessor exit", async () => {
+    const { client, sent, frame, dispose } = connectedClient();
+    const exits: Array<number | null> = [];
+    client.registerHandlers("topic:t", { onData() {}, onExit: (code) => exits.push(code) });
+    const spawning = client.spawn("topic:t", { cliPath: "claude", args: [], cwd: "/", env: {} }).catch(() => null);
+    await new Promise((r) => setTimeout(r, 0));
+    // An ack for a spawn whose waiter is gone (the 90 s cap), then the killed
+    // predecessor's exit: it must not reach the handlers of the turn starting now.
+    frame({ type: "spawned", id: "topic:t", pid: 1, rid: sent[0].rid + 1000 });
+    frame({ type: "exit", id: "topic:t", exitCode: 143 });
+    expect(exits).toEqual([]);
+    frame({ type: "spawned", id: "topic:t", pid: 2, rid: sent[0].rid });
+    expect(await spawning).toEqual({ pid: 2, resumed: false });
+    frame({ type: "exit", id: "topic:t", exitCode: 0 });
+    expect(exits).toEqual([0]);
+    dispose();
+  });
+
   test("an old daemon echoes no rid: requests still carry one each, and its acks still resolve oldest first", async () => {
     const { client, sent, frame } = connectedClient();
     const first = client.attach("topic:t", 0);

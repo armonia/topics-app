@@ -125,7 +125,7 @@ describe("deadline sul silenzio, non sul totale", () => {
     // REQUEST_ATTEMPTS = 3: prima si moriva al primo colpo. `list` è
     // idempotente, quindi rimandarlo è sicuro per costruzione.
     expect(receivedList).toBe(3);
-    // Ogni tentativo ha il suo rid: l'ack tardivo di quello prima non risponde a questo.
+    // Each attempt has its own rid: the late ack of the previous one cannot answer it.
     expect(rids.every((r) => typeof r === "number")).toBe(true);
     expect(new Set(rids).size).toBe(3);
   }, 20_000);

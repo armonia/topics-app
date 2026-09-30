@@ -423,13 +423,18 @@ export class AiBridgeClient {
     // (it outlives deploys) or a broadcast. The daemon reads a socket's lines
     // in order and answers each in the same tick, and waiters are armed in
     // send order, so wire order is the correlation: the OLDEST waiter it matches.
+    //
+    // A frame that echoes a waiter's rid but is not the answer it waits for
+    // (an `error` to an attach or a list) REJECTS it: settling it with that
+    // frame would read an error as "not alive" or as an empty list.
     const i = msg.rid != null
       ? this.waiters.findIndex((w) => w.rid === msg.rid)
       : this.waiters.findIndex((w) => w.pred(msg));
     if (i >= 0) {
       const [w] = this.waiters.splice(i, 1);
       clearTimeout(w.timer);
-      w.resolve(msg);
+      if (w.pred(msg)) w.resolve(msg);
+      else w.reject(new Error(`ai-bridge: ${msg.type === "error" ? msg.error : `unexpected ${msg.type}`}`));
     }
     if (msg.type === "pong") {
       this.lastPongAt = Date.now();
@@ -440,8 +445,10 @@ export class AiBridgeClient {
     if (!id) return;
     // The ack closes the window at once, not when the spawn's promise settles:
     // the new child's own exit can sit right behind it in the same chunk, and
-    // it must reach the handlers.
-    if (msg.type === "spawned") this.spawnsInFlight.delete(id);
+    // it must reach the handlers. Only an ack that answered a waiter does: a
+    // `spawned` echoing the rid of a spawn that already gave up says nothing
+    // about the spawn in flight now, whose predecessor's exit may still come.
+    if (msg.type === "spawned" && (msg.rid == null || i >= 0)) this.spawnsInFlight.delete(id);
     const h = this.handlers.get(id);
     if (!h) return;
     switch (msg.type) {
