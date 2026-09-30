@@ -13,8 +13,8 @@
   * @covers MOTION-01
  */
 import { describe, test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 
 import { MOTION, EASE, animateEl } from './motion';
 import { resetReducedMotionCache } from './reducedMotion';
@@ -59,6 +59,39 @@ describe('i token del movimento', () => {
     expect(MOTION.instant).toBeLessThan(MOTION.fast);
     expect(MOTION.fast).toBeLessThan(MOTION.base);
     expect(MOTION.base).toBeLessThan(MOTION.slow);
+  });
+});
+
+// A Tailwind `duration-150` in a component is a copy of a motion number that
+// no token governs: change `--motion-fast` and that element keeps its old
+// speed. The duration utilities read the tokens instead (`duration-fast`,
+// index.css `@theme inline`); this walks the client sources and names every
+// numeric or arbitrary-value duration class left.
+describe('component durations', () => {
+  const SRC = join(import.meta.dir, '..');
+  const HARD_CODED = /(?<![\w-])duration-(?:\d+|\[[^\]]*\])(?![\w-])/g;
+  function sources(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const path = join(dir, e.name);
+      if (e.isDirectory()) return e.name === 'node_modules' ? [] : sources(path);
+      return /\.(tsx?|jsx?)$/.test(e.name) && !/\.test\.[jt]sx?$/.test(e.name) ? [path] : [];
+    });
+  }
+
+  test('no component carries a hard-coded duration class: they use the motion tokens', () => {
+    const found: string[] = [];
+    for (const file of sources(SRC)) {
+      readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
+        for (const m of line.matchAll(HARD_CODED)) found.push(`${relative(SRC, file)}:${i + 1} ${m[0]}`);
+      });
+    }
+    expect(found).toEqual([]);
+  });
+
+  test('the four duration utilities are declared on the tokens', () => {
+    for (const name of Object.keys(MOTION)) {
+      expect(tokenCss(`transition-duration-${name}`)).toBe(`var(--motion-${name})`);
+    }
   });
 });
 

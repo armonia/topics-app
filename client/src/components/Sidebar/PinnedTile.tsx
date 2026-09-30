@@ -57,7 +57,7 @@ function ExpandChevron({ expanded }: { expanded: boolean }) {
       size={ROW_CHEVRON}
       aria-hidden="true"
       data-testid="pinned-expand-hint"
-      className={`flex-shrink-0 text-app-text-tertiary transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
+      className={`flex-shrink-0 text-app-text-tertiary transition-transform duration-fast ${expanded ? 'rotate-90' : ''}`}
     />
   );
 }
@@ -418,7 +418,7 @@ export function PinnedTile({
         // under it. Symmetric, so the centre stays the centre (see
         // PINNED_GRID_CLEAR_CLASS).
         expandable && !isRow ? PINNED_GRID_CLEAR_CLASS : '',
-        'transition-colors duration-100',
+        'transition-colors duration-instant',
         // Il filo neutro resta SEMPRE: la cornice accesa gli si sovrappone da
         // selezionata, e a riposo la tessera torna sobria come una qualsiasi.
         //
@@ -470,7 +470,7 @@ export function PinnedTile({
         // `::before` è il PRIMO figlio dell'albero di scatole, quindi fra due
         // elementi posizionati senza z-index vince questo, che viene dopo. La
         // cornice accesa copre il filo neutro, che è l'ordine giusto.
-        className={`pointer-events-none absolute inset-0 rounded-lg transition-opacity duration-200 ${rimLit} ${
+        className={`pointer-events-none absolute inset-0 rounded-lg transition-opacity duration-fast ${rimLit} ${
           projection ? '' : 'bg-black/[0.18] dark:bg-white/[0.22]'
         }`}
         style={{

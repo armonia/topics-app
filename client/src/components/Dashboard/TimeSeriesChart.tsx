@@ -171,7 +171,7 @@ export function TimeSeriesChart({ points, metric, height = 200 }: TimeSeriesChar
             fill="var(--color-primary, #3b82f6)"
             stroke={hoverIdx === i ? 'white' : 'none'}
             strokeWidth={hoverIdx === i ? 1.5 : 0}
-            className="transition-all duration-100"
+            className="transition-all duration-instant"
           />
         ))}
 
