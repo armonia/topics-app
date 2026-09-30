@@ -1463,6 +1463,49 @@ The exit report is persisted and broadcast as an ordinary new message at once, w
 - **THEN** the report's row SHALL be in the database before the turn closes
 - **AND** when the turn ends, the report's row SHALL keep its content and the turn's row SHALL hold the turn's text
 
+### Requirement: SUBSTRIP-01 — A chat's sub-agent stays in its strip while it runs, and is marked ended when it ends
+
+A sub-agent spawned by a chat (a terminal session whose `parentSessionKey` is that chat's sessionKey) SHALL keep its row in the chat's sub-agent strip for as long as its session is live, whatever is sent in the parent chat or typed into the sub-agent's terminal pane. When its session leaves the live roster (the process exits, is stopped or crashes) the row SHALL stay, marked ended with the "done" check, until the user dismisses it, closes its terminal tab, or the parent chat is archived; it SHALL survive a reload. A sub-agent resumed from its pane SHALL be listed live again.
+
+#### Scenario: A message in the parent chat does not take the sub-agent away
+- **GIVEN** a chat with a live sub-agent listed in its strip and its terminal pane open
+- **WHEN** the user sends a message in the chat
+- **THEN** the strip row and the terminal pane SHALL still be there
+
+#### Scenario: The sub-agent ends and is marked, not lost
+- **GIVEN** a chat whose only sub-agent is live
+- **WHEN** the sub-agent's process ends
+- **THEN** the strip SHALL still show its row, marked ended
+- **AND** the sub-agent's terminal pane SHALL stay open
+- **AND** after a reload the ended row SHALL still be there, until the user dismisses it
+
+### Requirement: SUBSTRIP-01b — Closing an ended sub-agent's tab takes its row away
+
+Closing the terminal tab of an ended sub-agent SHALL remove its row from the chat's strip, by any close gesture (the tab's close button, the keyboard shortcut, the context menu, the sidebar, a tab inside a project), and the row SHALL NOT come back after a reload.
+
+#### Scenario: The tab bar's close button dismisses the ended row
+- **GIVEN** a chat whose sub-agent has ended and whose terminal pane is still open
+- **WHEN** the user closes that terminal tab from the tab bar
+- **THEN** the strip SHALL no longer show its row, also after a reload
+
+### Requirement: SUBSTRIP-01c — Closing a live sub-agent's tab does not leave an ended row
+
+Closing the terminal tab of a sub-agent that is still live SHALL remove its row, and the retirement of its session that follows SHALL NOT bring the row back marked ended. A dismissed sub-agent that is later resumed SHALL be listed again, and recorded as ended if it then ends.
+
+#### Scenario: The retired session is not recorded as ended
+- **GIVEN** a chat with a live sub-agent whose terminal pane is open
+- **WHEN** the user closes that terminal tab and the server retires the session
+- **THEN** the strip SHALL not show a row for it, also after a reload
+
+### Requirement: SUBSTRIP-01d — A dismissal holds in every window of the browser
+
+The ended rows and the dismissals SHALL be shared by every window of the same browser: a row dismissed in one window SHALL disappear from the others, and no window SHALL bring it back by writing its own older copy.
+
+#### Scenario: Two windows dismiss one row each
+- **GIVEN** two windows of the same browser showing the chat's ended sub-agents
+- **WHEN** one window dismisses a row and the other then dismisses another
+- **THEN** the first row SHALL disappear from the other window too, and neither row SHALL come back after a reload
+
 ### Requirement: TODO-01 — The session's latest todo list is the plan pinned above the composer
 
 The system SHALL keep the most recent todo list written by the agent

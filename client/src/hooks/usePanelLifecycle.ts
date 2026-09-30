@@ -55,6 +55,7 @@ import {
   isTaskWorkspacePath,
   isTerminalPaneId,
   isUUIDLike,
+  getTerminalSessionFromPaneId,
   reopenClosedTab,
   selectProjectBrowserReopen,
   type ClosedTabRecord,
@@ -104,6 +105,7 @@ import { markTabPermanent, markTabRestored, restoreSlot, insertAtRestoreSlot } f
 import { pushUndo } from '../contexts/UndoContext';
 import { subscribeLifecycle } from '../lib/wsFrameBus';
 import { useRefMirror } from './useRefMirror';
+import { dismissSubAgent } from '../state/endedSubAgents';
 import { useReconnectCatchUp } from './useReconnectCatchUp';
 import { shouldFillFromBroadcast } from './liveTurn';
 import { tabAckReleasesIntent } from '../lib/tabLink';
@@ -1698,6 +1700,15 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
         addBrowserTombstone(bctx);
         if (isTauri) void tauriInvoke('browser_close', { id: bctx }).catch(() => {});
       }
+    }
+    // A terminal tab closed here (the X, the shortcut, the context menu) is
+    // the user done with that session: if it is a chat's sub-agent, its row in
+    // the chat's strip goes, and the server retiring the session right after
+    // does not bring it back as ended. Only the sidebar's close reached this
+    // before, and an ended sub-agent has no sidebar row.
+    if (isTerminalPaneId(topicId)) {
+      const sessionId = getTerminalSessionFromPaneId(topicId);
+      if (sessionId) dismissSubAgent(sessionId);
     }
     const closingTopic = topicsRef.current[topicId];
     // 2-state model: a USER-closed chat tab archives the topic (closed ⟺

@@ -1,7 +1,8 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { useT } from '../../hooks/useT';
-import { Bot, Loader2 } from 'lucide-react';
+import { Bot, CircleCheck, Loader2, X } from 'lucide-react';
 import { useTerminalSessions } from '../../contexts/TopicsContext';
+import { dismissSubAgent, subAgentRowsFor, useEndedSubAgents, type SubAgentRow as Row } from '../../state/endedSubAgents';
 
 /**
  * In-chat strip listing the sub-agents this topic spawned (via the MCP
@@ -15,38 +16,80 @@ import { useTerminalSessions } from '../../contexts/TopicsContext';
  * so this leaf component doesn't need `handleTerminalClick` threaded down three
  * layout layers — the same handler the sidebar rows use, landing on the exact
  * (now non-blank) terminal pane.
+ *
+ * The row's click stops at the row: see the comment on it for why.
+ *
+ * A sub-agent that ENDS keeps its row, marked ended with the calm "done" check,
+ * until the user dismisses it or the chat is archived: before, the row (and a
+ * one-row strip with it) vanished the moment the process left the live roster,
+ * which read as "the sub-agent disappeared". See state/endedSubAgents.ts.
  */
-function SubAgentRow({ id, name, busy }: { id: string; name: string; busy: boolean }) {
+function SubAgentRow({ row }: { row: Row }) {
   const tr = useT();
+  const { id, name, state } = row;
+  const title = state === 'busy' ? tr('subagent.busy', { name })
+    : state === 'ended' ? tr('subagent.ended', { name })
+    : tr('subagent.open', { name });
   return (
-    <button
-      type="button"
-      onClick={() => window.dispatchEvent(new CustomEvent('topics:open-terminal-pane', { detail: { sessionId: id, name } }))}
-      title={busy ? tr('subagent.busy', { name }) : tr('subagent.open', { name })}
-      className="flex items-center gap-1.5 rounded-full border border-app-border bg-app-surface/60 px-2.5 py-1 text-mini text-app-text hover:bg-app-surface transition-colors max-w-[200px]"
+    <span
+      data-testid="subagent-row"
+      data-subagent-id={id}
+      data-state={state}
+      className={`flex items-center rounded-full border border-app-border bg-app-surface/60 text-mini max-w-[220px] ${state === 'ended' ? 'text-app-text-muted' : 'text-app-text'}`}
     >
-      {busy
-        ? <Loader2 size={11} className="animate-spin text-blue-500 flex-shrink-0" />
-        : <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500/80 flex-shrink-0" />}
-      <span className="truncate">{name}</span>
-    </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          // The chat panel around the strip focuses ITSELF on click
+          // (`ChatPanel` onClick={onFocus}). Left to bubble, that focus landed
+          // after the terminal's and took the front back: the row opened a tab
+          // the user never got to see.
+          e.stopPropagation();
+          window.dispatchEvent(new CustomEvent('topics:open-terminal-pane', { detail: { sessionId: id, name } }));
+        }}
+        title={title}
+        aria-label={title}
+        className={`flex min-w-0 items-center gap-1.5 rounded-full py-1 hover:bg-app-surface transition-colors ${state === 'ended' ? 'pl-2.5 pr-1' : 'px-2.5'}`}
+      >
+        {state === 'busy'
+          ? <Loader2 size={11} className="animate-spin text-blue-500 flex-shrink-0" />
+          : state === 'ended'
+            ? <CircleCheck size={11} aria-hidden="true" className="text-blue-500 flex-shrink-0" />
+            : <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500/80 flex-shrink-0" />}
+        <span className="truncate">{name}</span>
+      </button>
+      {state === 'ended' && (
+        <button
+          type="button"
+          data-testid="subagent-dismiss"
+          onClick={() => dismissSubAgent(id)}
+          title={tr('subagent.dismiss', { name })}
+          aria-label={tr('subagent.dismiss', { name })}
+          className="flex-shrink-0 rounded-full p-1 mr-0.5 hover:bg-app-surface hover:text-app-text transition-colors"
+        >
+          <X size={11} aria-hidden="true" />
+        </button>
+      )}
+    </span>
   );
 }
 
 export const SubAgentsStrip = memo(function SubAgentsStrip({ topicSessionKey }: { topicSessionKey: string }) {
+  const tr = useT();
   const terminals = useTerminalSessions();
-  const subAgents = terminals.filter((s) => s.parentSessionKey === topicSessionKey);
-  if (subAgents.length === 0) return null;
+  const ended = useEndedSubAgents();
+  const rows = useMemo(() => subAgentRowsFor(topicSessionKey, terminals, ended), [topicSessionKey, terminals, ended]);
+  if (rows.length === 0) return null;
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 border-t border-app-border bg-app-bg/40 overflow-x-auto">
+    <div data-testid="subagents-strip" className="flex items-center gap-2 px-3 py-1.5 border-t border-app-border bg-app-bg/40 overflow-x-auto">
       <span className="flex items-center gap-1 text-mini text-app-text-muted flex-shrink-0">
         <Bot size={12} />
-        <span>Sotto-agenti</span>
+        <span>{tr('subagent.strip')}</span>
       </span>
       <div className="flex items-center gap-1.5 flex-shrink-0">
-        {subAgents.map((s) => (
-          <SubAgentRow key={s.id} id={s.id} name={s.name} busy={!!s.busy} />
+        {rows.map((row) => (
+          <SubAgentRow key={row.id} row={row} />
         ))}
       </div>
     </div>

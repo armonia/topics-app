@@ -92,6 +92,7 @@ import { reconcileRowsWithGroups } from './rowLayoutReconcile';
 import { popOutTopic } from '../../../lib/popOutTopic';
 import { createTerminalSession } from '../../../lib/terminalActions';
 import { deleteTerminalSession } from '../../../lib/terminalRosterRetry';
+import { dismissSubAgent } from '../../../state/endedSubAgents';
 import { useToast } from '../../Shared/Toast';
 import { useT } from '../../../hooks/useT';
 import { tracePaneAttach } from '../../../lib/paneAttachTrace';
@@ -681,6 +682,10 @@ export function useProjectLayout(args: UseProjectLayoutArgs): UseProjectLayoutRe
         if (pane.type === 'terminal') {
           const sessionId = getTerminalSessionFromPaneId(paneId);
           if (sessionId) {
+            // The user closed this session's tab: a chat's sub-agent leaves
+            // the chat's strip now, not when the cleanup below retires it
+            // (see state/endedSubAgents.ts).
+            dismissSubAgent(sessionId);
             // Tombstone the session id IMMEDIATELY (persisted in
             // localStorage). The mount-time terminal-sync effect skips
             // tombstoned ids, so a reload before the cleanup timer fires

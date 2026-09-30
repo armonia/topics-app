@@ -17,6 +17,7 @@ import { BOOT_READ_TTL_MS, coalescedFetch } from '../lib/coalesceFetch';
 import { decideRosterTrust } from './rosterTrust';
 import { ROSTER_RECONCILED_HEADER } from '../../../shared/terminal-messages';
 import { useRefMirror } from './useRefMirror';
+import { dismissSubAgent, noteTerminalRosterReplaced } from '../state/endedSubAgents';
 
 export interface UseTerminalLifecycleArgs {
   wsStatus: 'connecting' | 'connected' | 'reconnecting' | 'offline';
@@ -163,6 +164,11 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
       setRosterAuthoritative(true);
     }
     if (!d.accept) return false;
+    // A sub-agent that left the roster ENDED: its chat's strip keeps it as an
+    // ended row instead of losing it (see state/endedSubAgents.ts). Only a
+    // reconciled roster says who is gone: one read during the boot window may
+    // still be filling in, and would mark live sub-agents as ended.
+    if (reconciled === true) noteTerminalRosterReplaced(sessionsRef.current, merged);
     setSessions(merged);
     if (d.cache) {
       try { localStorage.setItem('terminal-sessions-cache', JSON.stringify(merged)); } catch {}
@@ -248,6 +254,9 @@ export function useTerminalLifecycle(args: UseTerminalLifecycleArgs): UseTermina
   }, []);
 
   const removeSession = useCallback((sessionId: string) => {
+    // Closing the tab is the user's own dismissal: an ended sub-agent row for
+    // it would only say something the user just did.
+    dismissSubAgent(sessionId);
     setSessions(prev => prev.filter(s => s.id !== sessionId));
   }, []);
 
