@@ -2731,14 +2731,22 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
  * it without naming it.
  *
  * `instant` (90ms) and not `fast`: a menu answers a click under the pointer,
- * and anything slower than the press itself reads as lag. Only `opacity` and
- * the `scale` property move: `scale` composes with the `translate` a Tailwind
- * utility may use to centre a panel, where animating `transform` would drop it
- * for the length of the entrance. The first frame is already painted (the
+ * and anything slower than the press itself reads as lag. The exit copy moves
+ * `opacity` and the `scale` property: `scale` composes with the `translate` a
+ * Tailwind utility may use to centre a panel, where animating `transform`
+ * would drop it for the length of the exit. The first frame is already painted (the
  * panel exists at opacity 0 on the frame after the click), so the entrance
- * adds no latency: it replaces a pop with a 90ms settle. */
+ * adds no latency: it replaces a pop with a 90ms settle.
+ *
+ * The entrance animates `opacity` ONLY. A `scale` on the way in shrinks the
+ * panel on the very frame `Menu` / `DropdownPortal` measure it with
+ * `getBoundingClientRect` to place it: the placement was computed on a 97% box
+ * and the panel then grew over its anchor (the profile menu covered the card
+ * it sits 6px above), and the viewport clamp was off by the same 1.5%. No
+ * ResizeObserver fires, since `scale` leaves the content box alone. The exit
+ * copy keeps the scale: nobody measures it. */
 @keyframes popoverIn {
-  from { opacity: 0; scale: 0.97; }
+  from { opacity: 0; }
 }
 @keyframes popoverOut {
   to { opacity: 0; scale: 0.97; }
@@ -2791,10 +2799,23 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
  * the Review column's flex-basis. This rule covers them all and whatever is
  * written next.
  *
- * 1ms and not `none`: `animationend` / `transitionend` still fire, and there
- * is code that waits for them (the sidebar settle, the native pane
- * re-measure). One iteration: a loop lands on its resting frame and stays.
- * Delays are left alone, since a delay is a decision about WHEN, not motion.
+ * ZERO, not 1ms. A transition only runs where its duration (plus delay) is
+ * above zero, and `transition-property` is `all` on every element by default:
+ * a 1ms duration set on EVERY element turned each style change anywhere
+ * (top/left, width, flex, visibility) into a 1ms transition, so the new value
+ * landed one frame late and any code that measured or focused right after the
+ * change read the old state. Measured under `reduce`: the profile submenu
+ * kept its `visibility: hidden` for that frame, `focus()` on its first item
+ * was refused and ArrowLeft stopped closing it, and the zoomed pane was
+ * measured on collapsed cells. With 0s nothing transitions, exactly like an
+ * element that never declared one. The code that listens for
+ * `transitionend` (the sidebar settle, the native pane re-measure) already
+ * lives without it: every per-feature rule before this one was
+ * `transition: none`. An animation of 0s still fires `animationstart` and
+ * `animationend` (CSS Animations 1) and lands on its end frame at once, with
+ * no frame spent on its `from` values. One iteration: a loop lands on its
+ * resting frame and stays. Delays are left alone, since a delay is a decision
+ * about WHEN, not motion.
  *
  * The exceptions carry state rather than decorate, and none of them travels:
  * a spinner is how the user knows work is running (frozen, it reads as a
@@ -2805,9 +2826,9 @@ html.native-frost.dark :is(.raised-control-overlay .raised-control:hover, .raise
   :not(.animate-spin),
   ::before,
   :not(.animate-awaiting-pulse, .animate-awaiting-attention)::after {
-    animation-duration: 1ms !important;
+    animation-duration: 0s !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 1ms !important;
+    transition-duration: 0s !important;
     scroll-behavior: auto !important;
   }
 }

@@ -154,9 +154,16 @@ const CommandPalette = lazy(importCommandPalette);
 // the DOM, against 34-42ms when the same chunk was fetched on the keypress
 // itself. Once the idle warm-up has loaded the module, the palette renders it
 // directly: no Suspense, no fallback, no throttle.
+//
+// The branch is chosen ONCE, at mount. Read on every render, a palette opened
+// before the warm-up (Suspense path) switched to the direct path on the first
+// App re-render after the chunk landed: a different element type, so React
+// unmounted and remounted it and the query, the selection and the focus were
+// lost mid-typing. The host mounts only while the palette is open, so the
+// next open takes the direct path anyway.
 let loadedCommandPalette: ComponentType<ComponentProps<typeof CommandPalette>> | null = null;
 function CommandPaletteHost(props: ComponentProps<typeof CommandPalette>) {
-  const Loaded = loadedCommandPalette;
+  const [Loaded] = useState(() => loadedCommandPalette);
   if (Loaded) return <Loaded {...props} />;
   return (
     <Suspense fallback={null}>

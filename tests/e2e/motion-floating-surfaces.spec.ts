@@ -48,6 +48,8 @@ type SurfaceRecord = {
   pointerEvents: string;
   timing: string;
   animations: AnimationInfo[];
+  /** Painted box (`getBoundingClientRect`, transforms and `scale` included) against the layout box. */
+  box: { painted: [number, number]; layout: [number, number] } | null;
   t: number;
 };
 
@@ -88,6 +90,12 @@ function installRecorder(page: Page) {
         pointerEvents: cs.pointerEvents,
         timing: cs.animationTimingFunction,
         animations,
+        box: el instanceof HTMLElement
+          ? {
+              painted: [el.getBoundingClientRect().width, el.getBoundingClientRect().height],
+              layout: [el.offsetWidth, el.offsetHeight],
+            }
+          : null,
         t: performance.now(),
       });
     };
@@ -139,6 +147,18 @@ async function expectEntrance(page: Page, label: string, maxMs: number, props: s
     for (const p of a.props) expect(props, `${label}: ${a.name} animates only ${props.join("/")}`).toContain(p);
   }
   expect(enter.timing, `${label}: entrance on --ease-standard`).toContain(EASE_STANDARD);
+  // The menus place themselves by measuring the panel on this very frame
+  // (Menu.tsx, DropdownPortal): a box scaled down by the entrance is placed
+  // over its anchor and clamped short of the viewport edge. Read in the same
+  // task the surface was inserted in, the painted box is the layout box.
+  expect(enter.box, `${label}: the inserted surface is an HTML element`).not.toBeNull();
+  const { painted, layout } = enter.box!;
+  for (const i of [0, 1]) {
+    expect(
+      Math.abs(painted[i] - layout[i]),
+      `${label}: on its first frame the surface measures at its final ${i ? "height" : "width"} (painted ${painted[i]}, layout ${layout[i]})`,
+    ).toBeLessThanOrEqual(1);
+  }
 }
 
 /** The exit: the surface is gone at once, and an inert copy of it fades. */
@@ -303,6 +323,52 @@ test.describe("The first ⌘K", () => {
   });
 });
 
+test.describe("The first ⌘K before the warm-up", () => {
+  test.describe.configure({ timeout: 90_000 });
+  let created: string | null = null;
+  test.afterAll(async ({ request }) => {
+    if (created) await deleteTopic(request, created);
+  });
+
+  test("MOTION-04i: the palette opened before its chunk loaded keeps its query when the chunk lands", async ({ page, request }) => {
+    // Opened before the idle warm-up, the palette mounts through <Suspense>
+    // <lazy/>. When the chunk lands the direct path becomes available; read on
+    // every render, the host switched to it on the next App re-render, a
+    // different element type, and React remounted the palette: the query,
+    // the selection and the focus were gone. The chunk is held at the network
+    // until ⌘K has been pressed, so the order is the cold one on every run.
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let requested = false;
+    await page.route(/\/assets\/CommandPalette-[^/]*\.js(\?.*)?$/, async (route) => {
+      requested = true;
+      await held;
+      await route.continue();
+    });
+    await goToApp(page);
+    await page.keyboard.press("Meta+k");
+    await expect.poll(() => requested, { message: "the palette chunk was asked for" }).toBe(true);
+    await expect(page.getByTestId("command-palette"), "no palette while its chunk is held").toHaveCount(0);
+    release();
+
+    const input = page.getByTestId("command-palette").locator("input").first();
+    await expect(input).toBeVisible({ timeout: 15_000 });
+    await input.fill("zz-probe-query");
+    await input.evaluate((el) => { (el as HTMLInputElement & { __probe?: boolean }).__probe = true; });
+
+    // A topic created from outside re-renders App, which is what swapped the branch.
+    const topic = await createTopic(request, `E2E-Motion-Cold-${Date.now()}`);
+    created = topic.id;
+    await waitForTopicVisible(page, topic.id, { timeout: 15_000 });
+
+    const after = await page.getByTestId("command-palette").locator("input").first().evaluate((el) => ({
+      sameNode: (el as HTMLInputElement & { __probe?: boolean }).__probe === true,
+      value: (el as HTMLInputElement).value,
+    }));
+    expect(after, "the palette was not remounted: same input, same query").toEqual({ sameNode: true, value: "zz-probe-query" });
+  });
+});
+
 test.describe("Reduced motion, everywhere", () => {
   test.use({ contextOptions: { reducedMotion: "reduce" } });
   test.describe.configure({ timeout: 90_000 });
@@ -313,6 +379,36 @@ test.describe("Reduced motion, everywhere", () => {
   });
   test.afterAll(async ({ request }) => {
     if (topic) await deleteTopic(request, topic.id);
+  });
+
+  test("MOTION-04j: a style change on an element that declares no transition lands on the same frame", async ({ page }) => {
+    // The global rule once set a 1ms `transition-duration` on EVERY element,
+    // and `transition-property` is `all` by default: every style change became
+    // a 1ms transition and the new value landed a frame late. Code that measured
+    // or focused right after the change read the old state (the profile
+    // submenu stayed `visibility: hidden` for that frame and refused focus).
+    await goToApp(page);
+    const probe = await page.evaluate(async () => {
+      const el = document.createElement("div");
+      el.style.width = "10px";
+      el.style.height = "10px";
+      document.body.appendChild(el);
+      let runs = 0;
+      el.addEventListener("transitionrun", () => { runs += 1; });
+      void el.getBoundingClientRect().width;
+      el.style.width = "200px";
+      const computed = getComputedStyle(el).width;
+      const painted = el.getBoundingClientRect().width;
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      el.remove();
+      return { computed, painted, runs, duration: getComputedStyle(document.body).transitionDuration };
+    });
+    expect(probe, "the new width is there at once and nothing transitioned").toEqual({
+      computed: "200px",
+      painted: 200,
+      runs: 0,
+      duration: "0s",
+    });
   });
 
   test("MOTION-01: nothing that starts while the user walks the app lasts longer than 1ms", async ({ page }) => {
