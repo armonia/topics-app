@@ -45,6 +45,7 @@ import { PaneKeepAlive } from './PaneKeepAlive';
 import { PaneEventLevel, StagedPane } from './PaneStage';
 import type { ZoomScope } from './zoomScope';
 import { paneShellOrder } from './paneShellOrder';
+import { conversationViewKey } from '../../state/composerHandoff';
 import { DRAG_REGION, NO_DRAG_REGION } from '../../lib/shell/dragRegion';
 import { isTauri } from '../../lib/shell';
 import { currentWindowLabel } from '../../lib/shell/tauri';
@@ -374,6 +375,10 @@ export function StandaloneChatGroup({
         id,
         type: 'chat' as PaneType,
         topicId: id,
+        // A chat promoted from a draft keeps the draft's key: its shell, and the
+        // body mounted in it, are the ones already on screen, and the first
+        // send must not rebuild them (`composerHandoff.ts`).
+        stableKey: conversationViewKey(id),
         // One placeholder for an as-yet-unnamed chat everywhere ("New Chat" —
         // the server's own default topic name), so a loading/draft tab never
         // flips between "Chat" and "New Chat" across surfaces.

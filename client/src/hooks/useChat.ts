@@ -188,6 +188,12 @@ export interface SendMessageOptions {
    * da qui sono indistinguibili, e che chiedono l'opposto l'uno dall'altro.
    */
   clientMessageId?: string;
+  /**
+   * The id of the user's bubble when it is already on screen: a draft's first
+   * send stages it at the key, before the topic exists (`state/firstSend.ts`).
+   * The send then adds no second row: the one on screen is this message.
+   */
+  userMessageId?: string;
 }
 
 export type { QueuedMessage };
@@ -1920,7 +1926,10 @@ export function useChat() {
       setError(prev => (prev[sessionKey] == null ? prev : { ...prev, [sessionKey]: null }));
       setLoading(prev => ({ ...prev, [sessionKey]: true }));
 
+      // With `userMessageId` the bubble is already in the session (a draft's
+      // first send): same id, so `addMessage` keeps the row that is there.
       addMessage(sessionKey, {
+        id: options?.userMessageId,
         role: 'user',
         content,
         timestamp: new Date().toISOString(),

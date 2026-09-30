@@ -158,6 +158,11 @@ export function useComposerDock({ topicId, paneRootRef, inputAreaRef, greetingRe
   const offsetRef = useRef(composerOffset);
   const topicIdRef = useRef(topicId);
   useLayoutEffect(() => {
+    // The draft promoted IN PLACE (the pane keeps its body, `composerHandoff.ts`):
+    // its descent is already playing here, so the entry the remap moved to the
+    // topic's id is nobody's to claim. Left there, another pane opening this
+    // topic within the handoff window would slide its composer down again.
+    if (topicIdRef.current !== topicId) claimDescent(topicId);
     offsetRef.current = composerOffset;
     topicIdRef.current = topicId;
   }, [composerOffset, topicId]);
@@ -248,11 +253,21 @@ export function useComposerDock({ topicId, paneRootRef, inputAreaRef, greetingRe
     const played = playDescent(area, greetingRef.current, offset, null, 'forwards', (time) => { descent.at = time; });
     descentRef.current = { draftId: topicId, played };
   }, [topicId, inputAreaRef, greetingRef]);
-  /** After the send: the same draft still on screen was not promoted, so its composer goes back to the centre. */
+  /**
+   * After the send. The same draft still on screen was not promoted, so its
+   * composer goes back to the centre. Promoted in place, the slide has long
+   * landed where the docked composer sits anyway: its held last frame is let
+   * go, or a chat emptied later could not centre its composer again.
+   */
   const settleDescent = useCallback(() => {
     const d = descentRef.current;
     descentRef.current = null;
-    if (!d || !inputAreaRef.current || topicIdRef.current !== d.draftId) return;
+    if (!d || !inputAreaRef.current) return;
+    if (topicIdRef.current !== d.draftId) {
+      const slide = d.played.find((a) => a.effect instanceof KeyframeEffect && a.effect.target === inputAreaRef.current);
+      if (slide) void slide.finished.then(() => slide.cancel(), () => {});
+      return;
+    }
     cancelDescent(d.draftId);
     for (const a of d.played) a.cancel();
   }, [inputAreaRef]);

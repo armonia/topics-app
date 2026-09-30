@@ -38,3 +38,29 @@ export function reconcilePaneOrder(orderedIds: string[], openIds: Iterable<strin
   // dropped/collapsed id can only SHRINK the list) → return the original ref.
   return out.length === orderedIds.length ? orderedIds : out;
 }
+
+/**
+ * A draft promoted to a topic keeps its PLACE in the order, under the topic's id.
+ *
+ * The promotion swaps `draft:<x>` for the topic's id in the open set, and the
+ * local order learned the new id only from an effect a render later: that
+ * render had neither id (the draft was no longer open, the topic not yet in the
+ * order), so the pane dropped out of the strip and its staged body was parked
+ * and put back under the user's first bubble; and the effect then appended the
+ * topic at the END, moving a draft opened between two tabs. `promotedTo` names
+ * the topic a draft became (`composerHandoff.ts`). Same array back when no id
+ * was renamed.
+ */
+export function renamePromotedDrafts(
+  orderedIds: string[],
+  openIds: readonly string[],
+  promotedTo: (id: string) => string | undefined,
+): string[] {
+  let out: string[] | null = null;
+  orderedIds.forEach((id, i) => {
+    if (openIds.includes(id)) return;
+    const to = promotedTo(id);
+    if (to !== undefined && openIds.includes(to)) (out ??= [...orderedIds])[i] = to;
+  });
+  return out ?? orderedIds;
+}

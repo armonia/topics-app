@@ -44,6 +44,14 @@ export type Descent = { at: number | null; offset: number | null; born: number }
 /** Keyed by pane id: the draft's until the remap, the topic's after it. */
 const descents = new Map<string, Descent>();
 
+/**
+ * Topic id -> the draft id it was promoted from. Never shrinks: one entry per
+ * first send in this window's life, a few bytes each (and the same below).
+ */
+const promotedFrom = new Map<string, string>();
+/** Draft id -> the topic it became: the reverse of `promotedFrom`. */
+const draftPromotedTo = new Map<string, string>();
+
 // Capability, not existence: under bun:test some files install a partial fake
 // `window` on globalThis (and do not always remove it), so `typeof window !==
 // 'undefined'` can be true while the method about to be called is missing.
@@ -56,6 +64,7 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
     // pane) still lands docked and slides from the centre, starting now.
     const started = from ? descents.get(from) : undefined;
     if (from) descents.delete(from);
+    if (from) notePromotion(from, to);
     descents.set(to, started ?? { at: null, offset: null, born: performance.now() });
   });
 }
@@ -82,3 +91,31 @@ export function claimDescent(topicId: string): Descent | null {
   descents.delete(topicId);
   return performance.now() - d.born < HANDOFF_TTL_MS ? d : null;
 }
+
+/**
+ * Record that `to` is the topic the draft `from` became. `promoteDraft` calls it
+ * BEFORE it remaps anything: a render can land between the pane store's remap
+ * and the window event (measured, two of them), and a render that saw the new
+ * id without its lineage gave the pane a new key, then the old one back: the
+ * body parked and put back twice under the user's bubble.
+ */
+export function notePromotion(from: string, to: string): void {
+  promotedFrom.set(to, promotedFrom.get(from) ?? from);
+  draftPromotedTo.set(from, to);
+}
+
+/** The topic id the draft `draftId` was promoted to, if it was. */
+export function promotedTo(draftId: string): string | undefined {
+  return draftPromotedTo.get(draftId);
+}
+
+/**
+ * The identity of the CONVERSATION a pane shows, as opposed to the id of its
+ * topic: a topic promoted from a draft keeps the draft's id here. The pane that
+ * showed the draft is the pane that shows the topic (its shell key, its list),
+ * so the first send renames what is on screen instead of rebuilding it.
+ */
+export function conversationViewKey(id: string): string {
+  return promotedFrom.get(id) ?? id;
+}
+

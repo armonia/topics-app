@@ -628,10 +628,25 @@ test.describe("First send in a new topic", () => {
 
   // Once as the machine goes, once with the send's own task 50 ms longer: the
   // descent's start must not depend on how fast the frame after the key comes
-  // (verifier, 30/09: green on a quiet Mac, red under load, same build).
-  for (const sendBusyMs of [0, 50]) test(sendBusyMs ? `first send in a new topic is smooth with the send path ${sendBusyMs} ms slower` : "first send in a new topic is smooth", async ({ page, request }, testInfo) => {
+  // (verifier, 30/09: green on a quiet Mac, red under load, same build). And
+  // once with the topic's creation answering 400 ms late, as a loaded server
+  // does: the bubble must not wait for it (client-speed audit CS-06, 30/09).
+  const variants = [
+    { sendBusyMs: 0, createDelayMs: 0, title: "first send in a new topic is smooth" },
+    { sendBusyMs: 50, createDelayMs: 0, title: "first send in a new topic is smooth with the send path 50 ms slower" },
+    { sendBusyMs: 0, createDelayMs: 400, title: "first send in a new topic is smooth with the topic created 400 ms late" },
+  ];
+  for (const { sendBusyMs, createDelayMs, title } of variants) test(title, async ({ page, request }, testInfo) => {
     await resetPaneStore(request, [hostId]);
     await installProbe(page);
+    if (createDelayMs) {
+      // The creation of the topic only: the chat request and the reads after
+      // it go as usual.
+      await page.route("**/api/topics", async (route) => {
+        if (route.request().method() === "POST") await new Promise((r) => setTimeout(r, createDelayMs));
+        await route.fallback();
+      });
+    }
     await goToApp(page);
     await page.keyboard.press("Escape");
     await ensureTopicVisible(page, new RegExp(hostName));
@@ -706,6 +721,15 @@ test.describe("First send in a new topic", () => {
     console.log(`[first-send] descent visible ${moved < 0 ? "never" : `on frame ${moved + 1} after Enter, +${Math.round(afterKey[moved]!.f.t - enterAt!)}ms`}`);
     expect(moved, "the descent starts on the first or second frame after Enter").toBeGreaterThanOrEqual(0);
     expect(moved, "the descent starts on the first or second frame after Enter").toBeLessThanOrEqual(1);
+    // The user's bubble answers the key too, measured on the painted frames:
+    // drawn (in the box, not hidden, not transparent) on the first or second
+    // frame after Enter, whatever the server takes to create the topic. On the
+    // base it waited for the creation and the promotion's renders: 192-341 ms
+    // on a copy of a real workspace, 400 ms and more here with a slow creation.
+    const painted = afterKey.findIndex(({ f }) => f.bubble !== null && f.bubble.v && f.bubble.o > 0 && f.bubble.h > 0 && !!f.scroller?.v);
+    console.log(`[first-send] bubble painted ${painted < 0 ? "never" : `on frame ${painted + 1} after Enter, +${Math.round(afterKey[painted]!.f.t - enterAt!)}ms`}`);
+    expect(painted, "the user's bubble is painted on the first or second frame after Enter").toBeGreaterThanOrEqual(0);
+    expect(painted, "the user's bubble is painted on the first or second frame after Enter").toBeLessThanOrEqual(1);
     // `analyse` starts on the last frame at rest, so the step from it to the
     // first frame after the key is judged too.
     expect([

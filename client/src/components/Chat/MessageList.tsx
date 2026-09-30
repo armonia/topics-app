@@ -43,6 +43,7 @@ import { ForkOriginDivider } from './ForkOriginDivider';
 import { BackgroundWorkLine } from './BackgroundWorkLine';
 import { ROW_RESIZE_SLACK_MS, TranscriptRowResizeContext } from './transcriptRowResize';
 import { COMPOSER_HEIGHT_PROPERTY, type ComposerResizeHandler } from './useComposerDock';
+import { conversationViewKey } from '../../state/composerHandoff';
 
 /**
  * La LISTA di Virtuoso, cappata alla misura di lettura.
@@ -278,7 +279,15 @@ export function MessageList({
   const [newMsgCount, setNewMsgCount] = useState(0);
   const [showNewBanner, setShowNewBanner] = useState(false);
   const prevMsgCountRef = useRef(currentMessages.length);
-  const prevTopicIdRef = useRef(topic.id);
+  /**
+   * Which CONVERSATION this list shows: the topic id, except for a topic promoted
+   * from a draft, which keeps the draft's (`composerHandoff.ts`). Everything that
+   * means "a different chat is on screen now" (the list's key, the opening pin,
+   * the curtain, the entrance, the scroll reset) reads this, so the first send
+   * of a draft renames the list instead of opening it again.
+   */
+  const viewKey = conversationViewKey(topic.id);
+  const prevTopicIdRef = useRef(viewKey);
   const needsScrollRef = useRef(false);
   const prevLoadingRef = useRef(false);
   // Read settings into state instead of calling loadSettings() in the render
@@ -584,8 +593,8 @@ export function MessageList({
    * with the curtain as before.
    */
   const shownEmptyTopicRef = useRef<string | null>(null);
-  if (composerCentered || bornFromDraft) shownEmptyTopicRef.current = topic.id;
-  const grewFromEmpty = shownEmptyTopicRef.current === topic.id;
+  if (composerCentered || bornFromDraft) shownEmptyTopicRef.current = viewKey;
+  const grewFromEmpty = shownEmptyTopicRef.current === viewKey;
   /**
    * L'indice da cui parte la lista. Si congela alla PRIMA lista non vuota, non
    * al primo render: al primo render i messaggi non ci sono ancora (la storia
@@ -801,8 +810,8 @@ export function MessageList({
 
   // Reset scroll state on topic switch
   useEffect(() => {
-    if (prevTopicIdRef.current !== topic.id) {
-      prevTopicIdRef.current = topic.id;
+    if (prevTopicIdRef.current !== viewKey) {
+      prevTopicIdRef.current = viewKey;
       needsScrollRef.current = true;
       lastScrollTopRef.current = 0;
       sawLoadCompleteRef.current = false;
@@ -840,7 +849,7 @@ export function MessageList({
       // tutta. Il pin vero lo fa l'effetto che aspetta il caricamento.
       dispatchScroll({ type: 'topic-switch' });
     }
-  }, [topic.id, dispatchScroll, filteredMessages.length]);
+  }, [viewKey, dispatchScroll, filteredMessages.length]);
 
   /**
    * Il pin di APERTURA: la prima volta che questa chat ha dei messaggi a
@@ -889,17 +898,17 @@ export function MessageList({
    *  (`totalListHeightChanged`, the general ResizeObserver). */
   const gestureUntilRef = useRef(0);
   useEffect(() => {
-    if (openPinnedForRef.current === topic.id) return;
+    if (openPinnedForRef.current === viewKey) return;
     if (!scrollerEl || filteredMessages.length === 0) return;
     // Chi ha una posizione da ripristinare (undo di una pane chiusa) o un salto
     // da palette in canna possiede la viewport: il fondo non è più lo stato di
     // riposo di questa apertura.
     if (initialScrollOffset != null && Number.isFinite(initialScrollOffset)) {
-      openPinnedForRef.current = topic.id;
+      openPinnedForRef.current = viewKey;
       return;
     }
     if (peekScrollToMessage(topic.id)) return;
-    openPinnedForRef.current = topic.id;
+    openPinnedForRef.current = viewKey;
     userTouchedRef.current = false;
     openingUntilRef.current = Date.now() + OPEN_WINDOW_MS;
     openingHardStopRef.current = Date.now() + OPEN_HARD_STOP_MS;
@@ -938,7 +947,7 @@ export function MessageList({
     // effetto ri-gira a ogni messaggio nuovo (`filteredMessages.length` è fra
     // le dipendenze) e una cleanup li spegnerebbe al primo messaggio che
     // arriva durante l'apertura — cioè proprio quando servono.
-    const apertura = topic.id;
+    const apertura = viewKey;
     for (const ritardo of OPEN_VERIFY_MS) {
       openVerifyTimersRef.current.push(window.setTimeout(() => {
         if (userTouchedRef.current) return;
@@ -957,7 +966,7 @@ export function MessageList({
         pinToBottom({ force: true, settleFrames: OPEN_SETTLE_FRAMES });
       }, ritardo));
     }
-  }, [topic.id, scrollerEl, filteredMessages.length, initialScrollOffset, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES, OPEN_VERIFY_MS]);
+  }, [topic.id, viewKey, scrollerEl, filteredMessages.length, initialScrollOffset, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES, OPEN_VERIFY_MS]);
 
   // Smontando la pane i timer dell'apertura devono morire con lei: pinnano con
   // `force`, e uno rimasto in volo scrive su uno scroller che non è più suo.
@@ -1155,7 +1164,7 @@ export function MessageList({
     // Se i messaggi sono gia' presenti, il floor del sipario e' 0.
     hadCacheAtOpenRef.current = filteredMessages.length > 0;
     setListSettled(false);
-  }, [topic.id]); // eslint-disable-line react-hooks/exhaustive-deps -- filteredMessages.length letto in modo ref-safe
+  }, [viewKey]); // eslint-disable-line react-hooks/exhaustive-deps -- filteredMessages.length letto in modo ref-safe
   /** Which rows play the entrance: only messages that arrived after the list
    *  settled (see `messageEntrance.ts`). Noted during render, before the rows
    *  of this render are drawn. */
@@ -1163,8 +1172,8 @@ export function MessageList({
   if (entranceRef.current === null) entranceRef.current = new MessageEntrance();
   const entrance = entranceRef.current;
   useMemo(() => {
-    entrance.note(topic.id, filteredMessages.map((m) => m.id), listSettled, performance.now());
-  }, [entrance, topic.id, filteredMessages, listSettled]);
+    entrance.note(viewKey, filteredMessages.map((m) => m.id), listSettled, performance.now());
+  }, [entrance, viewKey, filteredMessages, listSettled]);
   /** Mirror of `currentLoading` for the frame loop below: the loop is one
    *  closure per opening, and re-creating it on every loading flip would reset
    *  the frame count it is in the middle of. */
@@ -1213,7 +1222,7 @@ export function MessageList({
     };
     raf = requestAnimationFrame(guarda);
     return () => cancelAnimationFrame(raf);
-  }, [listSettled, scrollerEl, filteredMessages.length, topic.id, grewFromEmpty]);
+  }, [listSettled, scrollerEl, filteredMessages.length, viewKey, grewFromEmpty]);
 
   // Scroll to bottom after messages load for a new topic.
   // Skipped while a palette jump target is pending (peekScrollToMessage): the
@@ -1759,7 +1768,7 @@ export function MessageList({
     // presenti qui invece di restare una closure stantia che misura la freccia
     // sulla geometria sbagliata. Se quel giorno arriva, la cura è stabilizzarla
     // di nuovo (ref), non toglierla da questa lista.
-  }, [scrollerEl, topic.id, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES, syncArrow]);
+  }, [scrollerEl, viewKey, dispatchScroll, pinToBottom, OPEN_SETTLE_FRAMES, syncArrow]);
 
   // Auto-scroll to bottom when a NEW message is APPENDED while streaming is
   // NOT active — an inbound system message, or a peer's message in a shared
@@ -1845,7 +1854,7 @@ export function MessageList({
   // anchored behavior.
   const restoredForTopicRef = useRef<string | null>(null);
   useEffect(() => {
-    if (restoredForTopicRef.current === topic.id) return;
+    if (restoredForTopicRef.current === viewKey) return;
     if (typeof initialScrollOffset !== 'number' || initialScrollOffset <= 0) return;
     const raf1 = requestAnimationFrame(() => {
       const raf2 = requestAnimationFrame(() => {
@@ -1865,7 +1874,7 @@ export function MessageList({
             distanceFromBottom: el.scrollHeight - target - el.clientHeight,
           });
         }
-        restoredForTopicRef.current = topic.id;
+        restoredForTopicRef.current = viewKey;
       });
       return () => cancelAnimationFrame(raf2);
     });
@@ -1873,7 +1882,7 @@ export function MessageList({
     // Intentionally not depending on initialScrollOffset — we only want the
     // value as captured at mount (undo time). Subsequent prop churn is ignored.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topic.id]);
+  }, [viewKey]);
 
   // Throttled scroll tracker — keeps pane.scrollOffset fresh on the store so
   // a future CLOSE_PANE captures the real position (review I1 PANE-03 wiring).
@@ -1905,7 +1914,7 @@ export function MessageList({
       }
     };
     // Re-bind when the scroller element changes (topic swap remounts Virtuoso).
-  }, [topic.id, onScrollOffsetChange]);
+  }, [viewKey, onScrollOffsetChange]);
 
   const scrollToBottom = useCallback(() => {
     // `force`: è l'utente che chiede il fondo. Un eventuale salto da palette in
@@ -1976,7 +1985,7 @@ export function MessageList({
           // observable of a merge made while the pane is hidden, where no row
           // is rendered to look at. Read by `chat-tail-first.spec.ts`.
           data-history={completeness.state}
-          key={topic.id}
+          key={viewKey}
           ref={virtuosoRef}
           scrollerRef={scrollerRef}
           data={filteredMessages}
@@ -1990,6 +1999,10 @@ export function MessageList({
           // quindi il valore congelato è sempre quello giusto per la chat che
           // stai guardando.
           initialTopMostItemIndex={initialTopMostItemIndex}
+          // A list born from the empty state (a first send) draws its first row
+          // in the commit that mounts it. Left to Virtuoso, the row waits for
+          // the viewport's measure and lands two frames after the key.
+          initialItemCount={grewFromEmpty ? 1 : undefined}
           // Callback form so a pending palette jump can veto the auto-follow:
           // the load that the jump rides in replaces 0 → N messages, and with
           // zero items Virtuoso considers itself trivially "at bottom" — the
