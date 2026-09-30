@@ -1,6 +1,6 @@
 {
   "$schema": "identifier-language-baseline-v1",
-  "generated": "2026-09-29",
+  "generated": "2026-09-30",
   "files": {
     "client/src/App.tsx": [
       "BOOT_TAB_PERMALINK",
@@ -1832,8 +1832,7 @@
       "unshiftTurn"
     ],
     "client/src/state/composerHandoff.ts": [
-      "HANDOFF_TTL_MS",
-      "claimCenteredHandoff"
+      "HANDOFF_TTL_MS"
     ],
     "client/src/state/layout/goldenGeometry.test.ts": [
       "EPS"

@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, forwardRef, type ComponentProps } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, forwardRef, type ComponentProps, type MutableRefObject } from 'react';
 import { Paperclip } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, CompactionMarker } from '../../types';
 import type { PlanDecisionHandler } from './planDetection';
@@ -42,6 +42,7 @@ import { isMachineRow, lastConversationMessage } from './machineRow';
 import { ForkOriginDivider } from './ForkOriginDivider';
 import { BackgroundWorkLine } from './BackgroundWorkLine';
 import { ROW_RESIZE_SLACK_MS, TranscriptRowResizeContext } from './transcriptRowResize';
+import { COMPOSER_H_VAR, type ComposerResizeHandler } from './useComposerDock';
 
 /**
  * La LISTA di Virtuoso, cappata alla misura di lettura.
@@ -134,12 +135,16 @@ interface MessageListProps {
   onMessage?: (handler: (msg: WSMessage) => void) => () => void;
   onRetry?: () => void;
   inputAreaHeight?: number;
+  /** Filled here and called by the composer's observer, in the frame it changes height (`useComposerDock`). */
+  composerResizeRef?: MutableRefObject<ComposerResizeHandler | null>;
   /**
    * Vero quando il composer è al CENTRO della pane (chat vuota / handoff): lì
    * `inputAreaHeight` comprende anche l'invito, non è la fascia in fondo, e
    * spegnere l'inchiostro su quella misura cancellerebbe mezza pane.
    */
   composerCentered?: boolean;
+  /** Born from a promoted draft: this conversation was on screen EMPTY a moment ago (`composerHandoff.ts`). */
+  bornFromDraft?: boolean;
   /**
    * PANE-03 scroll restore (review I1). When set to a finite positive value
    * at mount, the scroller's scrollTop is restored to it (clamped to content
@@ -197,7 +202,9 @@ export function MessageList({
   onMessage,
   onRetry,
   inputAreaHeight = 0,
+  composerResizeRef,
   composerCentered = false,
+  bornFromDraft = false,
   initialScrollOffset,
   onScrollOffsetChange,
   queuedTurns,
@@ -354,7 +361,8 @@ export function MessageList({
           onSendNow={onSendQueueNow}
           busy={queueBusy}
         />
-        <div style={{ height: inputAreaHeight + CHAT_BOTTOM_GUTTER_PX }} />
+        {/* The composer's height as a CSS variable, written by its observer before the paint (panes:F15). */}
+        <div style={{ height: `calc(var(${COMPOSER_H_VAR}, 0px) + ${CHAT_BOTTOM_GUTTER_PX}px)` }} />
       </>
     ),
     // IL VARCO IN CIMA È IL GEMELLO DEL FOOTER, e nasce dallo stesso fatto: la
@@ -385,7 +393,7 @@ export function MessageList({
     // oggi nessuna, domani chissà — non si prende un buco per sbaglio.
     Header: () => <div data-testid="chat-top-gutter" style={{ height: 'var(--chat-gutter, 0px)' }} />,
     List: ChatList,
-  }), [inputAreaHeight, queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id]);
+  }), [queued, isMobile, onUpdateQueued, onRemoveQueued, onClearQueue, onSendQueueNow, queueBusy, topic.id]);
 
   /**
    * LA CODA VIVA SI SEPARA DAL RESTO — perché è l'unica cosa che cambia.
@@ -569,14 +577,14 @@ export function MessageList({
    *     it and mount it again 60-90ms later, 12px lower. Started from row 0,
    *     it mounts once and stays.
    *
-   * `composerCentered` is true only while the conversation has nothing in it
-   * (or during the hand-off from a promoted draft, where the rows already exist
-   * but the view is still the empty one), so any render that sees it marks the
-   * topic. Kept per topic id: a pane that switches to a stored thread opens it
+   * `composerCentered` is true only while the conversation has nothing in it,
+   * and `bornFromDraft` for the pane that takes over from a promoted draft
+   * (its rows already exist, but the view is still the empty one), so any
+   * render that sees either marks the topic. Kept per topic id: a pane that switches to a stored thread opens it
    * with the curtain as before.
    */
   const shownEmptyTopicRef = useRef<string | null>(null);
-  if (composerCentered) shownEmptyTopicRef.current = topic.id;
+  if (composerCentered || bornFromDraft) shownEmptyTopicRef.current = topic.id;
   const grewFromEmpty = shownEmptyTopicRef.current === topic.id;
   /**
    * L'indice da cui parte la lista. Si congela alla PRIMA lista non vuota, non
@@ -1797,33 +1805,22 @@ export function MessageList({
     dispatchScroll({ type: 'user-sent' }, { frames: 2 });
   }, [filteredMessages, dispatchScroll]);
 
-  // Re-pin the bottom when the COMPOSER changes height. Its height feeds the
-  // Virtuoso Footer — the ONLY bottom spacer — asynchronously via a
-  // ResizeObserver, so when the Stop button, TodoStrip or CheckpointTimeline
-  // appear/disappear mid-turn the newly reserved space lands a frame AFTER the
-  // send/streaming snap already ran. Without this, the freshly reserved gap
-  // pushes the live content — and the turn indicator that sits at the very
-  // bottom — under the composer ("il loader finisce sotto l'input"). Re-anchor
-  // on every height change, unless the user deliberately scrolled up or a
-  // palette jump owns the viewport.
-  //
-  // Due precisazioni, e sono quelle che rendono innocuo il box della CODA.
-  // Quel box sta fuori dallo scroller (è nel composer), ma la sua altezza
-  // rientra qui dentro: `inputAreaHeight` è il Footer di Virtuoso, cioè
-  // contenuto scrollato. Comparire e sparire, a ogni ciclo della coda, sono
-  // due cambi d'altezza — e prima ognuno era un pin.
-  //  • si pinna solo quando lo spazio CRESCE: è l'unico caso in cui qualcosa
-  //    rischia di finire sotto il composer. Uno shrink non nasconde niente;
-  //  • si confronta arrotondato, perché `contentRect.height` è un float e il
-  //    rumore subpixel bastava a far partire il giro.
-  const prevInputAreaHeightRef = useRef(Math.round(inputAreaHeight));
-  useEffect(() => {
-    const h = Math.round(inputAreaHeight);
-    const grew = h > prevInputAreaHeightRef.current;
-    prevInputAreaHeightRef.current = h;
-    if (!grew) return;
-    pinToBottom({ frames: 2 });
-  }, [inputAreaHeight, pinToBottom]);
+  // Re-pin the bottom when the COMPOSER grows. Its height is the Footer, the
+  // ONLY bottom spacer, so when the Stop button, TodoStrip, a new line or an
+  // attachment appear the newly reserved space would push the live content,
+  // and the turn indicator at the very bottom, under the composer.
+  // Called by the composer's own observer (`useComposerDock`), between layout
+  // and paint, right after it wrote the gutter: space and pin land in the SAME
+  // frame. From a React effect they landed one to three frames later, and on
+  // the phone the last message sat under the composer meanwhile (panes:F15).
+  // Only on GROWTH: a shrink hides nothing (and the queue box, which comes and
+  // goes with every cycle of the queue, would otherwise pin each time); and
+  // `shouldPin` still vetoes it for a reader who scrolled up or a palette jump.
+  useLayoutEffect(() => {
+    if (!composerResizeRef) return;
+    composerResizeRef.current = (grew) => { if (grew) pinToBottom({ now: true }); };
+    return () => { composerResizeRef.current = null; };
+  }, [composerResizeRef, pinToBottom]);
 
   // Detect new messages while scrolled up
   useEffect(() => {

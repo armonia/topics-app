@@ -83,7 +83,7 @@ type Frame = {
  * Chromium) splits one swap into two instants.
  */
 type Mutation = { t: number; batch: number; op: "add" | "remove"; testId: string; id: number; role?: string; mid?: string };
-type Probe = { frames: Frame[]; mutations: Mutation[]; running: boolean; nodeId: (el: Element) => number };
+type Probe = { frames: Frame[]; mutations: Mutation[]; running: boolean; nodeId: (el: Element) => number; enterAt?: number };
 
 async function installProbe(page: Page) {
   await page.addInitScript(() => {
@@ -121,6 +121,10 @@ async function installProbe(page: Page) {
       if (p.running) p.mutations.push({ t: performance.now(), batch: 0, op: "add", testId: `fetch ${method} ${url.replace(location.origin, "")}`, id: 0 });
       return origFetch(input, init);
     }, { preconnect: window.fetch.preconnect });
+    // The key itself, on the page's clock: the descent is measured from here.
+    document.addEventListener("keydown", (e) => {
+      if (p.running && e.key === "Enter" && p.enterAt === undefined) p.enterAt = performance.now();
+    }, true);
     new MutationObserver((records) => {
       if (!p.running) return;
       // One clock read and one batch number for the whole callback.
@@ -314,8 +318,11 @@ function analyse(frames: Frame[], mutations: Mutation[], draftTabId: string, t0:
   // out, so no frame is painted without a chat. The old one may leave later
   // (PaneStage parks it hidden first, then drops it): every frame sampled
   // while both are in the DOM shows exactly one chat pane, with the composer
-  // and the greeting on the pixels of the last frame before the swap. The
-  // checks above prove the same pixels across the swap itself.
+  // and the greeting where the last frame before the swap had them, or further
+  // along the descent: it starts on the key, in the draft, and continues in the
+  // promoted pane (30/09), so the composer may only have gone on DOWN and the
+  // greeting only have faded further. The checks above prove the same across
+  // the swap itself.
   const newPanes = new Set(paneMounts.map((m) => m.id));
   const oldPanes = new Set(paneUnmounts.map((m) => m.id));
   if (newPanes.size > 1 || oldPanes.size > 1) out.push(`pane: remounted ${Math.max(newPanes.size, oldPanes.size)} times, the promotion allows one`);
@@ -328,7 +335,10 @@ function analyse(frames: Frame[], mutations: Mutation[], draftTabId: string, t0:
       if (f.panes !== 1) out.push(`${at(i)} pane: ${f.panes} chat panes on screen while the old one was leaving`);
       for (const key of ["card", "empty"] as const) {
         const a = ref?.[key] ?? null, b = f[key];
-        const same = !a || !b ? a === b : Math.abs(a.x - b.x) <= TOL && Math.abs(a.y - b.y) <= TOL && Math.abs(a.h - b.h) <= TOL && Math.abs(a.o - b.o) < 0.01;
+        const box = !!a && !!b && Math.abs(a.x - b.x) <= TOL && Math.abs(a.h - b.h) <= TOL && b.y >= a.y - TOL;
+        const same = !a || !b
+          ? a === b || (key === "empty" && !!a && a.o <= 0.05)
+          : box && (key === "card" ? Math.abs(a.o - b.o) < 0.01 : b.o <= a.o + 0.01);
         if (!same) out.push(`${at(i)} pane: ${key} changed while the old pane was leaving (${a ? `${a.x},${a.y}/${a.h}@${a.o}` : "none"} -> ${b ? `${b.x},${b.y}/${b.h}@${b.o}` : "none"})`);
       }
     }
@@ -490,8 +500,9 @@ test("the pane swap is judged by mutation batch, not by timestamp", () => {
   expect(swapRules(ciLog, [frame(1050, 4, 1), frame(1071, 5, 2), frame(1095, 6, 1)]), "both panes on screen at once").toEqual([
     "f1 +71ms pane: 2 chat panes on screen while the old one was leaving",
   ]);
-  expect(swapRules(ciLog, [frame(1050, 4, 1), frame(1071, 5, 1, 390), frame(1095, 6, 1)]), "the composer moving before the old pane leaves").toEqual([
-    "f1 +71ms pane: card changed while the old pane was leaving (0,378/46@1 -> 0,390/46@1)",
+  expect(swapRules(ciLog, [frame(1050, 4, 1), frame(1071, 5, 1, 390), frame(1095, 6, 1)]), "the descent going on while the old pane leaves").toEqual([]);
+  expect(swapRules(ciLog, [frame(1050, 4, 1), frame(1071, 5, 1, 366), frame(1095, 6, 1)]), "the composer moving back up before the old pane leaves").toEqual([
+    "f1 +71ms pane: card changed while the old pane was leaving (0,378/46@1 -> 0,366/46@1)",
   ]);
 });
 
@@ -563,10 +574,10 @@ test.describe("First send in a new topic", () => {
     const n = await page.evaluate(() => (window as unknown as { __firstSend: Probe }).__firstSend.frames.length);
     await page.waitForFunction((k) => (window as unknown as { __firstSend: Probe }).__firstSend.frames.length >= k + 60, n);
 
-    const { frames, mutations } = await page.evaluate(() => {
+    const { frames, mutations, enterAt } = await page.evaluate(() => {
       const p = (window as unknown as { __firstSend: Probe }).__firstSend;
       p.running = false;
-      return JSON.parse(JSON.stringify({ frames: p.frames, mutations: p.mutations })) as { frames: Frame[]; mutations: Mutation[] };
+      return JSON.parse(JSON.stringify({ frames: p.frames, mutations: p.mutations, enterAt: p.enterAt })) as { frames: Frame[]; mutations: Mutation[]; enterAt?: number };
     });
     promotedId = frames[frames.length - 1]?.tabs.find((x) => x.id !== hostId && !x.id.startsWith("draft:"))?.id ?? "";
     const t0 = sendT;
@@ -579,6 +590,16 @@ test.describe("First send in a new topic", () => {
     }
 
     expect(frames.length, "the probe sampled the gesture").toBeGreaterThan(60);
+    // The composer answers the key: its descent shows on the first or second
+    // frame painted after Enter. Measured on the base: 100-140 ms of stillness
+    // (the topic's creation on the server plus the remount) before it moved.
+    expect(enterAt, "the Enter keydown was seen").toBeDefined();
+    const restY = frames[sendAt - 1]?.card?.y ?? 0;
+    const afterKey = frames.map((f, i) => ({ f, i })).filter(({ f }) => f.t > enterAt!);
+    const moved = afterKey.findIndex(({ f }) => f.card !== null && f.card.y - restY > 0.5);
+    console.log(`[first-send] descent visible ${moved < 0 ? "never" : `on frame ${moved + 1} after Enter, +${Math.round(afterKey[moved]!.f.t - enterAt!)}ms`}`);
+    expect(moved, "the descent starts on the first or second frame after Enter").toBeGreaterThanOrEqual(0);
+    expect(moved, "the descent starts on the first or second frame after Enter").toBeLessThanOrEqual(1);
     expect([
       ...analyseOpening(frames.slice(0, sendAt)),
       ...analyse(frames.slice(sendAt), mutations.filter((m) => m.t >= sendT), draftTabId, sendT),

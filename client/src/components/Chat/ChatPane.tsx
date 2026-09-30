@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo, Suspense } from 'react';
 import { useT } from '../../hooks/useT';
 import { SwapFreezeLabel } from '../Shared/SwapFreezeLabel';
 import { useSwapFreeze } from '../../state/swapFreeze';
@@ -10,7 +10,7 @@ import { X } from 'lucide-react';
 import type { Topic, ChatMessage, WSMessage, UpdateTopicRequest, CompactionMarker } from '../../types';
 import type { SendMessageOptions } from '../../hooks/useChat';
 import { uploadApi, filesApi, autoNameApi, commandApi, memoryApi, contextAnalysisApi, topicsApi, chatApi, apiErrorCode } from '../../lib/api';
-import { claimCenteredHandoff } from '../../state/composerHandoff';
+import { useComposerDock } from './useComposerDock';
 import { markDraftTouched, setDraftDirty } from '../../state/draftPane';
 import { ChatEmptyState } from './ChatEmptyState';
 import { findPendingPlan, planApprovalMessage } from './planDetection';
@@ -69,7 +69,6 @@ import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAtt
 import { useServedFromCache } from '../../state/historyFromCache';
 import { holdTopic } from '../../state/topicSubscriptions';
 import { useClearChatFinishedWhileViewed } from '../../state/chatInView';
-import { hasNoBox } from '../../lib/hiddenBox';
 
 /**
  * The text `/help` prints, DERIVED from the composer's own menu.
@@ -361,9 +360,7 @@ function ChatPaneComponent({
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputAreaRef = useRef<HTMLDivElement>(null);
-  const [inputAreaHeight, setInputAreaHeight] = useState(0);
   const paneRootRef = useRef<HTMLDivElement>(null);
-  const [paneHeight, setPaneHeight] = useState(0);
   // The topic's browser window, when no `ChatPanel` above is already drawing
   // it. Expanded it takes width away from this pane ALONE: the padding lives
   // inside the pane, so the grid keeps tiling the columns it always tiled, and
@@ -386,7 +383,6 @@ function ChatPaneComponent({
   // L'invito della chat vuota sta DENTRO il blocco misurato, ma non deve
   // contare nella centratura: si misura a parte per poterlo scalare.
   const greetingRef = useRef<HTMLDivElement>(null);
-  const [greetingHeight, setGreetingHeight] = useState(0);
 
   // Persist the caret/selection of the chat composer so a hot reload (bundle-rev
   // or dev HMR) restores it exactly, not just the draft text. Listeners live here
@@ -449,53 +445,6 @@ function ChatPaneComponent({
   const handleScrollOffsetChange = useCallback((top: number) => {
     usePaneStore.getState().setPaneScrollOffset(paneId, top);
   }, [paneId]);
-
-  // Track input area height dynamically (adapts to multiline, file attachments, etc.)
-  useEffect(() => {
-    const el = inputAreaRef.current;
-    if (!el) return;
-    // Only a new HEIGHT reaches React: dragging a divider narrows or widens
-    // the pane on every frame, and each of those notifications would otherwise
-    // hand React a setState to bail out of (SPLITPERF-01).
-    let last: number | null = null;
-    const observer = new ResizeObserver(([entry]) => {
-      // A pane hidden behind another tab (`display: none`) reports a 0x0 box.
-      // That is not the composer's height, it is the absence of a box: taking
-      // it shrank the list's footer while hidden, re-rendered the whole hidden
-      // chat, and on the way back the first frame painted the list 107 px too
-      // low before the footer grew again (tab-switch audit 2026-09-29, PERF-01).
-      if (hasNoBox(entry.contentRect)) return;
-      const h = entry.contentRect.height;
-      if (h === last) return;
-      last = h;
-      setInputAreaHeight(h);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  // L'altezza della pane: serve a centrare il composer quando la chat è vuota
-  // (`(altezzaPane − altezzaBlocco) / 2`) e a decidere quanto del blocco vuoto
-  // ci sta. Un solo ResizeObserver, sulla radice; il blocco di fondo è
-  // posizionato rispetto a lei, quindi è la misura giusta — non quella del
-  // contenitore che scorre, che può avere sopra di sé strisce ed esiti di
-  // comandi.
-  useEffect(() => {
-    const el = paneRootRef.current;
-    if (!el) return;
-    // Height only, as above: a divider drag changes the width of the pane.
-    let last: number | null = null;
-    const observer = new ResizeObserver(([entry]) => {
-      // Same rule as the composer above: a hidden pane has no height to report.
-      if (hasNoBox(entry.contentRect)) return;
-      const h = entry.contentRect.height;
-      if (h === last) return;
-      last = h;
-      setPaneHeight(h);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
 
   // Iscrizione a QUESTA sessione. Prima bastava chiamare `getSessionMessages`
   // perche' i messaggi erano stato di `App`, quindi ogni token ri-renderizzava
@@ -830,109 +779,11 @@ function ChatPaneComponent({
     return () => clearTimeout(t);
   }, [isFocused]);
 
-  // ── Il composer di una chat VUOTA sta al centro ────────────────────────
-  //
-  // Una chat senza messaggi non ha niente da leggere: tenere il campo di testo
-  // incollato in fondo, con mezzo schermo di vuoto sopra, metteva l'unica cosa
-  // da fare il più lontano possibile dagli occhi. Da vuota il blocco si centra;
-  // al primo messaggio scende in fondo, dove resta per sempre.
-  //
-  // Il movimento è una `translateY` e basta: nessun layout, nessuna rimisura
-  // della lista virtualizzata, il compositore fa tutto da sé.
-  const [handoffCentered, setHandoffCentered] = useState(() => claimCenteredHandoff(topic.id));
-  // Le transizioni si accendono un frame DOPO il montaggio: al primo paint la
-  // posizione va assunta, non raggiunta scivolando (una chat aperta da zero non
-  // deve vedere il composer arrivare da fuori).
-  const [transitionsOn, setTransitionsOn] = useState(false);
-  useEffect(() => {
-    const raf = requestAnimationFrame(() => setTransitionsOn(true));
-    return () => cancelAnimationFrame(raf);
-  }, []);
-  // Misura SINCRONA al montaggio: i due ResizeObserver più sopra riportano solo
-  // dal frame dopo, e una bozza deve nascere già centrata — non centrarsi un
-  // frame dopo essere apparsa in fondo.
-  useLayoutEffect(() => {
-    const root = paneRootRef.current;
-    const block = inputAreaRef.current;
-    if (root) setPaneHeight(root.getBoundingClientRect().height);
-    if (block) setInputAreaHeight(block.getBoundingClientRect().height);
-  }, []);
-  // La consegna dalla bozza dura due frame: il primo accende le transizioni, il
-  // secondo lascia scendere il composer. In un frame solo il browser vedrebbe
-  // cambiare la proprietà e la sua transizione nello stesso ricalcolo, e
-  // l'animazione potrebbe non partire affatto.
-  useEffect(() => {
-    if (!handoffCentered) return;
-    let second = 0;
-    const first = requestAnimationFrame(() => {
-      second = requestAnimationFrame(() => setHandoffCentered(false));
-    });
-    return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); };
-  }, [handoffCentered]);
-
-  const chatIsEmpty = historyProbed && !currentLoading && currentMessages.length === 0;
-  const composerCentered = chatIsEmpty || handoffCentered;
-  // A centrarsi è LA BARRA, non il blocco. Centrando l'insieme — invito più
-  // composer — la barra finiva sotto la metà di quanto pesa l'invito, e si
-  // vedeva: «non è ben centrata verticalmente rispetto alla pagina, non deve
-  // pesare l'intro». L'invito resta sopra come sporgenza e non entra nel conto:
-  // si toglie la sua altezza da quella del blocco e si centra il resto.
-  const barHeight = Math.max(0, inputAreaHeight - greetingHeight);
-  const composerOffset = composerCentered && paneHeight > 0 && barHeight > 0
-    ? Math.max(0, Math.round((paneHeight - barHeight) / 2))
-    : 0;
-
-  // Il blocco vuoto resta montato per la durata della dissolvenza, ma FUORI dal
-  // flusso (vedi `ChatEmptyState`): sparisce dal conto dell'altezza subito, e
-  // la lista dei messaggi non si vede spingere in su e poi tornare giù.
-  const [greetingLeaving, setGreetingLeaving] = useState(false);
-  // The flag flips DURING the render that un-centres, not in an effect after
-  // it: set from an effect, that render had `showGreeting` false, React
-  // unmounted the block, and the effect mounted a new one already at opacity
-  // 0. The fade never played; the greeting vanished in one frame (measured on
-  // the first send of a new topic, chat-first-send-smooth).
-  const [wasCentered, setWasCentered] = useState(composerCentered);
-  if (wasCentered !== composerCentered) {
-    setWasCentered(composerCentered);
-    setGreetingLeaving(!composerCentered);
-  }
-  useEffect(() => {
-    if (!greetingLeaving) return;
-    const t = setTimeout(() => setGreetingLeaving(false), 220);
-    return () => clearTimeout(t);
-  }, [greetingLeaving]);
-  const showGreeting = composerCentered || greetingLeaving;
-  // L'invito compare e sparisce, quindi l'osservatore si riattacca: un RO su un
-  // nodo smontato non riporta lo zero, riporta l'ultimo valore e basta — e
-  // quello, sottratto per sempre, terrebbe la barra troppo in basso.
-  useLayoutEffect(() => {
-    const el = greetingRef.current;
-    if (!el) { setGreetingHeight(0); return; }
-    setGreetingHeight(el.getBoundingClientRect().height);
-    // Height only: a divider drag changes the width of the pane on every frame.
-    let last: number | null = null;
-    const ro = new ResizeObserver(([entry]) => {
-      const h = entry.contentRect.height;
-      if (h === last) return;
-      last = h;
-      setGreetingHeight(h);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [showGreeting]);
-
-  // Una chat NUOVA nasce per essere scritta, e il fuoco al campo di testo non è
-  // un furto: in una chat vuota non c'è nient'altro in questa pane su cui
-  // l'utente possa averlo messo apposta. La guardia qui sopra — «procedi solo
-  // se nessuno ha preso il fuoco nel frattempo» — protegge il picker del
-  // modello e faceva cadere proprio questo caso: il menu che ha creato la chat
-  // restituisce il fuoco al suo trigger mentre il timer da 50 ms è in volo, la
-  // fotografia non torna più e il campo restava spento.
-  useEffect(() => {
-    if (!isFocused || !composerCentered) return;
-    const raf = requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
-    return () => cancelAnimationFrame(raf);
-  }, [isFocused, composerCentered]);
+  // Where the composer sits (centred when the chat is empty) and how it moves:
+  // `useComposerDock`.
+  const { inputAreaHeight, paneHeight, composerCentered, composerOffset, showGreeting, composerResizeRef, startDescent, settleDescent, bornFromDraft } = useComposerDock({
+    topicId: topic.id, paneRootRef, inputAreaRef, greetingRef, textareaRef, isFocused, historyProbed, loading: currentLoading, messageCount: currentMessages.length,
+  });
   // Mark topic as read when this chat pane gains focus (covers ProjectWindow usage)
   // Solo il ping di focus: l'azzeramento locale e la POST di lettura li fa
   // `sendWS`, e solo quando c'è davvero qualcosa di non letto.
@@ -1623,7 +1474,9 @@ function ChatPaneComponent({
     }
 
     if (finalMessage) {
+      if (isDraft) startDescent();
       await sendMessage(topic.sessionKey, finalMessage, currentSendOptions());
+      if (isDraft) settleDescent();
     }
   };
 
@@ -1850,7 +1703,7 @@ function ChatPaneComponent({
       )}
       <PinnedMessages show={showPinned} pinnedMessages={pinnedMessages} />
       <TaskWorkFoldContext.Provider value={foldTaskWork}>
-      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={isGlobalOrchestrator ? undefined : handleRememberMessage} onEdit={!isGlobalOrchestrator && editMessage ? handleEditMessage : undefined} onRegenerate={!isGlobalOrchestrator && regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onFork={canFork ? handleFork : undefined} onDeleteMessage={!isGlobalOrchestrator && deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={!isGlobalOrchestrator && switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerCentered={composerCentered} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} />
+      <MessageList isMobile={isMobile} topic={topic} currentMessages={currentMessages} compactionMarkers={currentMarkers} currentLoading={currentLoading} currentStreaming={currentStreaming} copiedMsgId={copiedMsgId} fileDragOver={fileDragOver} chatContainerRef={chatContainerRef} messagesEndRef={messagesEndRef} onReply={setReplyingTo} onCopy={handleCopyMessage} onTogglePin={handleTogglePin} onFileDragOver={handleFileDragOver} onFileDragLeave={handleFileDragLeave} onFileDrop={handleFileDrop} onPlanDecision={handlePlanDecision} onRemember={isGlobalOrchestrator ? undefined : handleRememberMessage} onEdit={!isGlobalOrchestrator && editMessage ? handleEditMessage : undefined} onRegenerate={!isGlobalOrchestrator && regenerateMessage && !currentStreaming ? handleRegenerateMessage : undefined} onFork={canFork ? handleFork : undefined} onDeleteMessage={!isGlobalOrchestrator && deleteMessage && !currentStreaming ? handleDeleteMessage : undefined} onSwitchBranch={!isGlobalOrchestrator && switchBranch ? handleSwitchBranch : undefined} onMessage={onWSMessage} onRetry={handleRetry} inputAreaHeight={inputAreaHeight} composerResizeRef={composerResizeRef} composerCentered={composerCentered} bornFromDraft={bornFromDraft} initialScrollOffset={initialScrollOffset} onScrollOffsetChange={handleScrollOffsetChange} queuedTurns={messageQueue} onUpdateQueued={handleUpdateQueueItem} onRemoveQueued={handleRemoveQueueItem} onClearQueue={handleClearQueue} onSendQueueNow={handleSendQueueNow} queueBusy={currentStreaming} />
       </TaskWorkFoldContext.Provider>
       {/* The composer docks at the bottom with only its natural margin — no
           home-indicator reservation (the user wants minimal bottom space), so it
@@ -1867,7 +1720,7 @@ function ChatPaneComponent({
         ref={inputAreaRef}
         data-testid="chat-input-area"
         data-composer-centered={composerCentered ? 'true' : 'false'}
-        className={`absolute bottom-0 left-0 right-0 chat-measure${transitionsOn ? ' composer-dock-slide' : ''}`}
+        className={`absolute bottom-0 left-0 right-0 chat-measure${composerCentered ? '' : ' composer-dock-slide'}`}
         style={{
           ...(composerOffset ? { transform: `translateY(-${composerOffset}px)` } : null),
           // The root pads ITSELF, but an absolutely positioned child is laid
