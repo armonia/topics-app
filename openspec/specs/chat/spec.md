@@ -1488,6 +1488,11 @@ Closing the terminal tab of an ended sub-agent SHALL remove its row from the cha
 - **WHEN** the user closes that terminal tab from the tab bar
 - **THEN** the strip SHALL no longer show its row, also after a reload
 
+#### Scenario: The keyboard shortcut dismisses the ended row
+- **GIVEN** a chat whose sub-agent has ended and whose terminal tab is the focused one, in the desktop shell
+- **WHEN** the user presses Cmd+W
+- **THEN** the tab SHALL close and the strip SHALL no longer show its row, also after a reload
+
 ### Requirement: SUBSTRIP-01c — Closing a live sub-agent's tab does not leave an ended row
 
 Closing the terminal tab of a sub-agent that is still live SHALL remove its row, and the retirement of its session that follows SHALL NOT bring the row back marked ended. A dismissed sub-agent that is later resumed SHALL be listed again, and recorded as ended if it then ends.
@@ -1495,6 +1500,11 @@ Closing the terminal tab of a sub-agent that is still live SHALL remove its row,
 #### Scenario: The retired session is not recorded as ended
 - **GIVEN** a chat with a live sub-agent whose terminal pane is open
 - **WHEN** the user closes that terminal tab and the server retires the session
+- **THEN** the strip SHALL not show a row for it, also after a reload
+
+#### Scenario: The tab closed inside a project, retired after the undo window
+- **GIVEN** a project's chat whose live sub-agent's terminal pane is open in the project window
+- **WHEN** the user closes that terminal tab from the project's tab bar and the session is retired once the undo window is over
 - **THEN** the strip SHALL not show a row for it, also after a reload
 
 ### Requirement: SUBSTRIP-01d — A dismissal holds in every window of the browser

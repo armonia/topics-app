@@ -18,12 +18,18 @@
  * @covers SUBSTRIP-01 SUBSTRIP-01b SUBSTRIP-01c SUBSTRIP-01d
  */
 import { execFileSync } from "node:child_process";
+import { mkdirSync } from "node:fs";
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import { test } from "./fixtures/chat.fixture";
 import { hermetic } from "./fixtures/hermetic";
-import { createTopic, deleteAllTerminalSessions, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
+import {
+  createTopic, deleteAllTerminalSessions, deleteTopic, resetPaneStore, resetProjectPanes, seedProjectPane,
+} from "./helpers/api-fixtures";
+import { projectPanesKey } from "../../shared/project-keys";
 import { E2E_BASE } from "./helpers/test-server";
 import { closeTabViaCommand } from "./helpers/layout";
+import { canonicalTmpDir, removeTmpDir } from "./helpers/file-project";
+import { fakeTauriShell } from "./helpers/fake-tauri-shell";
 
 hermetic(test);
 
@@ -117,9 +123,15 @@ test.afterEach(async ({ request }) => {
  * vanishes, not on a selector that did not exist yet.
  */
 function stripButton(page: Page) {
-  return page
-    .locator(`[data-testid="chat-panel"][data-chat-topic-id="${topicId}"]`)
-    .getByRole("button", { name: new RegExp(`^${AGENT_NAME}`) });
+  return chatScope(page).getByRole("button", { name: new RegExp(`^${AGENT_NAME}`) });
+}
+
+/**
+ * The chat's own subtree. A top-level chat panel and a chat inside a project
+ * window both carry the topic's id; the outermost one is the scope.
+ */
+function chatScope(page: Page) {
+  return page.locator(`[data-chat-topic-id="${topicId}"]`).first();
 }
 
 /** The row wrapper, which carries the state the fix adds. */
@@ -140,7 +152,7 @@ async function openChat(page: Page): Promise<void> {
   await page.goto("/");
   await page.waitForSelector('[aria-label="Topics sidebar"]', { state: "visible", timeout: 20_000 });
   await page.getByRole("treeitem", { name: new RegExp(TOPIC_NAME) }).first().click();
-  await expect(page.locator(`[data-testid="chat-panel"][data-chat-topic-id="${topicId}"]`)).toBeVisible({ timeout: 20_000 });
+  await expect(chatScope(page)).toBeVisible({ timeout: 20_000 });
 }
 
 async function reloadToChat(page: Page): Promise<void> {
@@ -170,7 +182,8 @@ async function openPaneFromStrip(page: Page): Promise<void> {
 }
 
 async function showChat(page: Page): Promise<void> {
-  await page.locator(`[role="tab"][data-pane-id="${topicId}"]`).first().click();
+  // A chat inside a project is the project window's `chat:<id>` tab.
+  await page.locator(`[role="tab"][data-pane-id="${topicId}"], [role="tab"][data-pane-id="chat:${topicId}"]`).first().click();
 }
 
 test("SUBSTRIP-01: the sub-agent stays through a message, and ends marked instead of vanishing", async ({ page, chatPage }) => {
@@ -305,4 +318,91 @@ test("SUBSTRIP-01d: a row dismissed in one window stays dismissed in the other, 
   await expect(stripRow(page)).toHaveCount(0);
   await expect(stripRow(page, betaId)).toHaveCount(0);
   await other.close();
+});
+
+/** Ctrl+C in the sub-agent's own pane, then wait until its row says ended. */
+async function endFromItsPane(page: Page): Promise<void> {
+  await page.locator(".xterm-screen:visible").first().click();
+  await page.keyboard.press("Control+c");
+  await expect.poll(() => serverLists(page.request, agentId), { timeout: 30_000 }).toBe(false);
+  await showChat(page);
+  await expect(stripRow(page)).toHaveAttribute("data-state", "ended", { timeout: 15_000 });
+}
+
+test("SUBSTRIP-01c (project): inside a project, closing the tab of a LIVE sub-agent does not leave it behind as ended", async ({ page }) => {
+  test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01c" });
+  // The project keeps a closed terminal's session for a minute (the undo
+  // window) before retiring it, and the row must not come back then.
+  test.setTimeout(180_000);
+  // The chat of a PROJECT, with its sub-agent's pane moved into the project
+  // window: a close there runs the project's own close, not the one of the
+  // top-level tabs that the test above covers.
+  // The standalone chat of beforeEach goes first: its sub-agent would be a
+  // second row with the same name in the sidebar.
+  await deleteTopic(page.request, topicId);
+  await deleteAllTerminalSessions(page.request);
+  const projectDir = canonicalTmpDir("e2e-substrip-project");
+  mkdirSync(projectDir, { recursive: true });
+  topicId = (await createTopic(page.request, `${TOPIC_NAME} in project`, { projectPath: projectDir })).id;
+  const list = await page.request.get(`${E2E_BASE}/api/topics`, { ignoreHTTPSErrors: true });
+  const { topics } = (await list.json()) as { topics: Record<string, { sessionKey: string; projectPath?: string }> };
+  sessionKey = topics[topicId]?.sessionKey ?? "";
+  expect(topics[topicId]?.projectPath, "the chat belongs to a project").toBeTruthy();
+  agentId = await spawnSubAgent(page.request, AGENT_NAME);
+  const sentinelId = await spawnSubAgent(page.request, `E2E sentinel ${STAMP}`);
+
+  await resetPaneStore(page.request, []);
+  await seedProjectPane(page.request, projectDir);
+  await page.request.put(`${E2E_BASE}/api/ui-state/${projectPanesKey(projectDir)}`, {
+    data: {
+      nonChatPanes: [{ id: `terminal:${agentId}`, type: "terminal", title: AGENT_NAME, terminalSessionId: agentId }],
+      openChatTopicIds: [topicId],
+      activeChatTopicId: topicId,
+    },
+  });
+  await page.goto("/");
+  const inProject = page.locator(`[data-testid="project-window"] [role="tab"][data-pane-id="terminal:${agentId}"]`);
+  await expect(inProject.first()).toBeVisible({ timeout: 20_000 });
+  await inProject.first().click();
+  await expect(page.locator('[data-testid="single-terminal-pane"]:visible')).toBeVisible({ timeout: 20_000 });
+
+  await closeTabViaCommand(inProject.first());
+  await expect(terminalTab(page)).toHaveCount(0, { timeout: 15_000 });
+  // The session is retired once the project's undo window is over...
+  await expect.poll(() => serverLists(page.request, agentId), { timeout: 100_000, intervals: [2_000] }).toBe(false);
+  // ...and this page has taken the roster without it: without the dismissal
+  // at the close, that roster is what records the closed tab as ended.
+  await expect.poll(() => clientDropped(page, agentId), { timeout: 30_000 }).toBe(true);
+  await showChat(page);
+  await expect(stripRow(page, sentinelId)).toBeVisible({ timeout: 15_000 });
+  await expect(stripRow(page)).toHaveCount(0, { timeout: 15_000 });
+
+  await reloadToChat(page);
+  await expect(stripRow(page, sentinelId)).toBeVisible({ timeout: 20_000 });
+  await expect(stripRow(page)).toHaveCount(0);
+  await resetProjectPanes(page.request, projectDir).catch(() => {});
+  removeTmpDir(projectDir);
+});
+
+test("SUBSTRIP-01b (Cmd+W): Cmd+W on the tab of an ENDED sub-agent takes its row away, for good", async ({ page }) => {
+  test.info().annotations.push({ type: "spec", description: "SUBSTRIP-01b" });
+  // Cmd+W is the desktop shell's shortcut (a browser keeps it for its own
+  // tab), so the page runs as the shell, with its network sent home.
+  await fakeTauriShell(page, () => () => null);
+  const sentinelId = await spawnSubAgent(page.request, `E2E sentinel ${STAMP}`);
+
+  await openChat(page);
+  await openPaneFromStrip(page);
+  await endFromItsPane(page);
+
+  await terminalTab(page).click();
+  await page.keyboard.press("Meta+w");
+  await expect(terminalTab(page)).toHaveCount(0, { timeout: 15_000 });
+  await showChat(page);
+  await expect(stripRow(page, sentinelId)).toBeVisible({ timeout: 15_000 });
+  await expect(stripRow(page)).toHaveCount(0, { timeout: 15_000 });
+
+  await reloadToChat(page);
+  await expect(stripRow(page, sentinelId)).toBeVisible({ timeout: 20_000 });
+  await expect(stripRow(page)).toHaveCount(0);
 });
