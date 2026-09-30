@@ -71,6 +71,7 @@ import {
 } from '../../state/pane/adapters/paneConfig';
 import { OPEN_TAB_EVENT, type OpenTabDetail } from '../../lib/openLink';
 import { tauriInvoke } from '../../lib/shell/tauri';
+import { suppressTextSelection } from '../../lib/dragSelectionGuard';
 import { DEFAULT_EXPANDED_WIDTH, expandedInsetFor, canExpandInArea } from './topicBrowserWindowLazy';
 /** A promotion younger than this is not yet expected to have a pane on screen,
  *  so the reconciler must not read its absence as "the tab was closed". */
@@ -245,6 +246,10 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
   // a drag is one write instead of one per frame.
   const [dragPos, setDragPos] = useState<{ right: number; bottom: number } | null>(null);
   const [dragWidth, setDragWidth] = useState<number | null>(null);
+  // The selection guard of the drag in flight, released if the window unmounts
+  // mid-gesture (the guard also lets go by itself when the gesture ends).
+  const dragCleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => { dragCleanup.current?.(); }, []);
 
   const panes = usePaneStore((s) => s.panes);
   // A project window keeps its panes outside the pane store: it publishes them.
@@ -346,6 +351,11 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     // Anything the bar holds that answers a click of its own keeps its click:
     // the drag is what is left of the bar, which is most of it.
     if ((e.target as HTMLElement | null)?.closest('button, a, input, [role="menu"]')) return;
+    // Armed on the press, not at the threshold: by the first real move the
+    // engine has already anchored a selection that would follow the pointer
+    // across the transcript under the window.
+    const unlockSelection = suppressTextSelection();
+    dragCleanup.current = unlockSelection;
     const start = resolveMinRect(state, { width: area.width, height: area.height, composer: band ?? undefined }, MIN_WINDOW_SIZE);
     const originX = e.clientX;
     const originY = e.clientY;
@@ -371,16 +381,21 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     const onUp = (): void => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      unlockSelection();
       setDragPos(null);
       topicBrowserWindow.move(topicId, latest);
       release?.();
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   }, [state, area, topicId, band]);
 
   const startResize = useCallback((e: React.PointerEvent) => {
     if (state.mode !== 'exp' || !area) return;
+    const unlockSelection = suppressTextSelection();
+    dragCleanup.current = unlockSelection;
     const originX = e.clientX;
     const startWidth = expandedWidth;
     let release: (() => void) | null = null;
@@ -397,12 +412,15 @@ export function TopicBrowserWindow({ topicId, areaRef, projectPath }: TopicBrows
     const onUp = (): void => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      unlockSelection();
       setDragWidth(null);
       topicBrowserWindow.setWidth(topicId, latest);
       release?.();
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   }, [state.mode, area, expandedWidth, topicId]);
 
   /** Hand the active sheet to the layout, with the same contextId. */
