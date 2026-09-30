@@ -36,6 +36,7 @@ import { POPOVER_SURFACE, Z_CONTEXT_MENU, POPOVER_MARGIN } from '@/lib/popoverSt
 import { computeMenuPosition, type AnchorRect } from '@/lib/popoverPosition';
 import { ensurePaneUsageFresh, formatPaneUsageLine, subscribePaneUsage, getPaneUsageVersion } from '@/lib/paneUsage';
 import { useDismissable } from '@/hooks/useDismissable';
+import { useExitGhost } from '@/lib/exitGhost';
 import { usePaneStore } from '../../state/pane/store';
 import { resolvePaneSpace, liveSpaceCount } from '../../state/pane/reducers/spaces';
 import { DEFAULT_SPACE_ID, SPACES_MAX } from '../../state/pane/types';
@@ -464,6 +465,9 @@ export function PaneTabBar({ panes, activePaneId, onActivate, onClose, onCloseIm
   // misurato: il pannello è renderizzato ma invisibile (vedi lo stile in fondo).
   const [ctxPos, setCtxPos] = useState<{ top: number; left: number } | null>(null);
   const ctxMenuRef = useRef<HTMLDivElement>(null);
+  // The menu leaves the DOM on close as before; an inert copy fades out
+  // (lib/exitGhost, MOTION-04) instead of it vanishing in one frame.
+  useExitGhost(ctxMenuRef, ctxMenu !== null);
   // "Sposta nello Spazio →" inline submenu (expanded space list inside the
   // context menu). Collapses whenever the menu re-opens on another tab.
   const [spaceSubmenuOpen, setSpaceSubmenuOpen] = useState(false);

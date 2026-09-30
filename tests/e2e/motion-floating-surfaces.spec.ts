@@ -246,6 +246,36 @@ test.describe("Floating surfaces enter and leave", () => {
     await expectExit(page, "context menu", "popover", POPOVER_MAX_MS);
   });
 
+  test("MOTION-04k: a pane tab's context menu", async ({ page }) => {
+    await ready(page);
+    await page.getByRole("treeitem", { name: topic!.name }).first().click();
+    const tab = page.locator(`[data-testid="panel-tab-bar"] [data-pane-id="${topic!.id}"]`).first();
+    await expect(tab).toBeVisible({ timeout: 10_000 });
+    await watch(page, '[role="menu"]');
+    await tab.click({ button: "right" });
+    await expect(page.getByRole("menu")).toBeVisible();
+    await expectEntrance(page, "tab context menu", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expectExit(page, "tab context menu", "popover", POPOVER_MAX_MS);
+  });
+
+  test("MOTION-04l: the composer's slash menu", async ({ page }) => {
+    await ready(page);
+    await page.getByRole("treeitem", { name: topic!.name }).first().click();
+    const composer = page.locator(`[data-pane-shell="${topic!.id}"] [data-testid="composer-card"] textarea`).first();
+    await expect(composer).toBeVisible({ timeout: 10_000 });
+    await composer.click();
+    const slashMenu = `[data-pane-shell="${topic!.id}"] form [role="listbox"]`;
+    await watch(page, slashMenu);
+    await page.keyboard.type("/");
+    await expect(page.locator(slashMenu)).toBeVisible();
+    await expectEntrance(page, "slash menu", POPOVER_MAX_MS, COMPOSITOR_PROPS);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(slashMenu)).toHaveCount(0);
+    await expectExit(page, "slash menu", "popover", POPOVER_MAX_MS);
+  });
+
   test("MOTION-04d: the notification panel", async ({ page }) => {
     await ready(page);
     await watch(page, '[data-testid="notification-history-panel"]');
