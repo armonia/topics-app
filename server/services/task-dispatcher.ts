@@ -53,6 +53,7 @@ import {
   type TurnEndInfo,
 } from "../providers/stop-reason";
 import { createRemoteNodeLane, isNodeSessionKey, type NodeDeps, type NodeSlot } from "./task-dispatcher-remote-node";
+import { WorktreeRefusalError } from "./worktree-manager";
 import { providerHold, holdAsksAPerson, holdUntilLabel, planUsage } from "../lib/provider-hold";
 import { PLAN_DISPATCH_HOLD_AT, providerHoldKey, providerHoldLabel } from "../../shared/provider-hold";
 import { languageDirective } from "../lib/topics-agent-prompt";
@@ -1721,6 +1722,21 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       : null;
   }
 
+  /**
+   * A failure requeuing cannot fix, as the reason the card parks with: a hard
+   * routing block, or a worktree the manager REFUSED to create (the project
+   * path is not a git repository, is itself a worktree, or a hook said no).
+   * Retrying the refusal repeats it until the cap, then parks the card with a
+   * generic "launch failed" that hides the cause. A WorktreeOperationError
+   * (git itself failed) is not here: that one can be flaky and keeps the retry.
+   */
+  function permanentSetupBlock(error: unknown): string | null {
+    if (error instanceof WorktreeRefusalError) {
+      return `${error.message}. Disattiva 'worktree isolato' nelle impostazioni del board per eseguire in-place.`;
+    }
+    return hardRoutingBlock(error);
+  }
+
   function deferPendingProvider(taskId: string, reason: string): void {
     const queued = releaseAndEmit({ taskId, requeue: true, rollbackAttempt: true, reason });
     markPlanWait(queued, reason);
@@ -3243,12 +3259,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
         if (worktreeId) await cleanupWorktree(worktreeId, { preserveWork: true });
         return;
       }
-      if (!attemptId && err instanceof Error && 'code' in err
-        && (err.code === 'task_model_unavailable' || err.code === 'topics_routing_unavailable')) {
-        // A non-routable ON target is a permanent mismatch, not a flaky setup:
-        // requeuing would just re-throw the same error forever. Park with the
-        // exact reason instead — AICTRL-01's hard gate, never a silent retry.
-        releaseAndEmit({ taskId, requeue: false, rollbackAttempt: true, parkState: CHIP_BLOCKED, reason: err.message });
+      const permanent = attemptId ? null : permanentSetupBlock(err);
+      if (permanent) {
+        // A non-routable ON target, or a refused worktree, is a permanent
+        // mismatch, not a flaky setup: requeuing would just re-throw the same
+        // error forever. Park with the exact reason instead — AICTRL-01's hard
+        // gate, never a silent retry.
+        releaseAndEmit({ taskId, requeue: false, rollbackAttempt: true, parkState: CHIP_BLOCKED, reason: permanent });
         if (worktreeId) await cleanupWorktree(worktreeId, { preserveWork: true });
         return;
       }
@@ -3424,7 +3441,7 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // card col motivo. Sepolta qui — `failed` e `return undefined`, cioè
       // "è partito davvero" per chi legge i risultati — la card tornava in
       // giro senza che nessuno avesse mai detto perché.
-      const blocked = hardRoutingBlock(err);
+      const blocked = permanentSetupBlock(err);
       if (blocked && !sessionKey) {
         // La riga si chiude PRIMA di risalire: un tentativo eternamente
         // `running` viene contato da `runningCount` e il cancello del fan-out
@@ -3667,13 +3684,13 @@ export function createTaskDispatcher(deps: DispatcherDeps): TaskDispatcher {
       // fratello è arrivato a girare: dove c'è lavoro vero, il fan-out si
       // chiude normalmente e il motivo resta sulla riga del tentativo.
       const blocked = results.find(
-        (result): result is PromiseRejectedResult => result.status === "rejected" && !!hardRoutingBlock(result.reason),
+        (result): result is PromiseRejectedResult => result.status === "rejected" && !!permanentSetupBlock(result.reason),
       );
       const started = results.some(result => result.status === "fulfilled" && result.value === undefined);
       if (blocked && !started) {
         releaseAndEmit({
           taskId, requeue: false, rollbackAttempt: true,
-          parkState: CHIP_BLOCKED, reason: hardRoutingBlock(blocked.reason)!,
+          parkState: CHIP_BLOCKED, reason: permanentSetupBlock(blocked.reason)!,
         });
         await reapAttempts(taskId, { keepSelected: false });
         return;
