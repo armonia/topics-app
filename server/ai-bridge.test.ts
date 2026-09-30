@@ -138,7 +138,7 @@ describe("ai-bridge daemon", () => {
     c2.send({ type: "attach", id, fromOffset: 0 });
     const replay = await c2.next((m) => m.type === "data" && m.id === id);
     expect(b64(replay.chunk)).toBe(`abcdef\n${markLine("R1")}xyz\n${markLine("R2")}q\n`);
-    expect((await c2.next((m) => m.type === "attached" && m.id === id)).protocol).toBe(3);
+    expect((await c2.next((m) => m.type === "attached" && m.id === id)).protocol).toBe(4);
     c.close(); c2.close();
   });
 
@@ -269,6 +269,54 @@ describe("ai-bridge daemon", () => {
     c.send({ type: "list" });
     const list2 = await c.next((m) => m.type === "list");
     expect(list2.sessions.some((s: any) => s.id === id)).toBe(false);
+    c.close();
+  });
+
+  test("protocol 4: every reply echoes its request's rid, broadcasts carry none", async () => {
+    // The client pairs an ack with its request by `rid` (ai-bridge-client.ts,
+    // handleFrame). A reply without it falls back to "oldest waiter of the same
+    // shape", which a late ack or a write's error can mislead.
+    const c = await connect();
+    const id = "topic:rid1";
+    c.send({ type: "spawn", id, cliPath: "cat", args: [], cwd: storeDir, env: {}, rid: 11 });
+    const spawned = await c.next((m) => m.type === "spawned" && m.id === id);
+    expect(spawned.rid).toBe(11);
+
+    c.send({ type: "attach", id, fromOffset: 0, rid: 12 });
+    const attached = await c.next((m) => m.type === "attached" && m.id === id);
+    expect(attached).toMatchObject({ rid: 12, alive: true, protocol: 4 });
+
+    c.send({ type: "attach", id: "topic:rid-none", fromOffset: 0, rid: 13 });
+    expect(await c.next((m) => m.type === "attached" && m.id === "topic:rid-none")).toMatchObject({ rid: 13, missing: true });
+
+    c.send({ type: "list", rid: 14 });
+    expect((await c.next((m) => m.type === "list")).rid).toBe(14);
+
+    c.send({ type: "ping", pid: process.pid, rid: 15 });
+    expect((await c.next((m) => m.type === "pong")).rid).toBe(15);
+
+    // A spawn the daemon cannot start: `spawn()` throws on a non-string file.
+    c.send({ type: "spawn", id: "topic:rid-bad", cliPath: 42, args: [], cwd: storeDir, env: {}, rid: 16 });
+    const bad = await c.next((m) => m.type === "error" && m.id === "topic:rid-bad");
+    expect(bad.error).toContain("spawn failed");
+    expect(bad.rid).toBe(16);
+
+    c.send({ type: "write", id: "topic:rid-none", data: "x\n", rid: 17 });
+    expect(await c.next((m) => m.type === "error" && m.id === "topic:rid-none")).toMatchObject({ rid: 17, error: "no live session" });
+
+    c.send({ type: "bogus", id, rid: 18 });
+    expect((await c.next((m) => m.type === "error" && /unknown type/.test(m.error))).rid).toBe(18);
+
+    // A request without rid (an older client) gets a reply without one.
+    c.send({ type: "list" });
+    expect("rid" in (await c.next((m) => m.type === "list"))).toBe(false);
+
+    // Output and teardown are broadcasts: no request of this socket to answer.
+    c.send({ type: "write", id, data: "hi\n", rid: 19 });
+    expect("rid" in (await c.next((m) => m.type === "data" && m.id === id))).toBe(false);
+    c.send({ type: "kill", id, rid: 20 });
+    expect("rid" in (await c.next((m) => m.type === "killed" && m.id === id))).toBe(false);
+    expect("rid" in (await c.next((m) => m.type === "exit" && m.id === id))).toBe(false);
     c.close();
   });
 
