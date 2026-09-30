@@ -1,5 +1,37 @@
 [
   {
+    "version": "2.2.414",
+    "date": "2026-09-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "The first-send spec judges the pane swap by mutation batch, not by the clock",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The first-send spec reads a moved pane as a move, on every engine",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "aggiorna durate shard dal nightly del 2026-09-30 [skip ci]",
+          "en": "",
+          "scope": "e2e",
+          "breaking": false
+        },
+        {
+          "it": "The client and the landing take the patched brace-expansion and fast-uri published on 29/09",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.413",
     "date": "2026-09-29",
     "sections": {
@@ -29,6 +61,11 @@
         },
         {
           "it": "The build's generation record is never served, and LAND-11 keeps the generations a live window still runs",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The first send in a new topic no longer blinks, jumps or hides the message",
           "en": "",
           "scope": null
         }
