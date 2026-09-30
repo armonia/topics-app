@@ -53,8 +53,8 @@ const stops = new Map<string, TurnRef>();
  * keeps `lastStop` per boot), so a window that stayed open must not either:
  * it held, in the new boot, a message another window queued after the Stop,
  * and every one after it, for the life of the window. What an old Stop still
- * holds is already written down: the durable hold (`holdQueue`), raised by the
- * drain the moment the Stop was heard with a queue written before it.
+ * holds is already written down: the durable hold, raised by `noteStop` the
+ * moment the Stop is heard, whatever carried it, for a queue written before it.
  */
 let currentBoot: string | null = null;
 
@@ -64,12 +64,29 @@ function enterBoot(boot: string): void {
   for (const [sessionKey, stop] of stops) if (stop.boot !== boot) stops.delete(sessionKey);
 }
 
+/**
+ * Writes down what a Stop holds (`state/chatQueue.ts` sets it: the queue and
+ * its durable hold live there, and it reads this module).
+ */
+let raiseStopHold: ((sessionKey: string, stop: TurnRef) => void) | null = null;
+
+export function onStopHeard(raise: (sessionKey: string, stop: TurnRef) => void): void {
+  raiseStopHold = raise;
+}
+
+/**
+ * Every path a Stop is heard by ends here: the close that says `stopped`, a
+ * later state's `lastStop` (live, snapshot, history answer, 409), a
+ * `user_abort`. So the durable hold is raised here, once for all of them: a
+ * history answer heard while another turn runs drains nothing, and its Stop
+ * lived only in `stops` until the next restart forgot it.
+ */
 function noteStop(sessionKey: string, stop: TurnRef): void {
   // A Stop of a boot other than the one heard last is from the server before the restart.
   if (currentBoot !== null && stop.boot !== currentBoot) return;
   const held = stops.get(sessionKey);
-  if (held && held.boot === stop.boot && held.turnId >= stop.turnId) return;
-  stops.set(sessionKey, stop);
+  if (!held || held.boot !== stop.boot || held.turnId < stop.turnId) stops.set(sessionKey, stop);
+  raiseStopHold?.(sessionKey, stops.get(sessionKey)!);
 }
 /** The last snapshot: a session it did not list had no open turn as of it. */
 let baseline: { boot: string; asOf: number } | null = null;

@@ -54,7 +54,7 @@
 import { useSyncExternalStore } from 'react';
 import type { SendMessageOptions } from '../hooks/useChat';
 import type { QueueStorage } from '../hooks/outboundQueue';
-import { lastStopOf, serverTurnOf, type ServerTurn, type TurnRef } from './serverTurn';
+import { lastStopOf, onStopHeard, serverTurnOf, type ServerTurn, type TurnRef } from './serverTurn';
 
 /** Un messaggio in attesa del suo turno, con le opzioni con cui è stato SCRITTO. */
 export interface QueuedTurn {
@@ -460,6 +460,18 @@ export function isHeld(sessionKey: string): boolean {
   return storage.getItem(HOLD_PREFIX + sessionKey) !== null;
 }
 
+/**
+ * A Stop heard by any path (`serverTurn`'s `noteStop`): the queue written
+ * before it is held durably, for every window and across a restart, until the
+ * person sends or lifts it. A Stop already lifted, or a head written after it,
+ * holds nothing (`stopHolds`).
+ */
+function holdForStop(sessionKey: string, stop: TurnRef): void {
+  const head = getQueue(sessionKey)[0];
+  if (head && stopHolds(stop, liftedStop(sessionKey), head)) holdQueue(sessionKey, stop);
+}
+onStopHeard(holdForStop);
+
 // ---------------------------------------------------------------------------
 // La decisione
 // ---------------------------------------------------------------------------
@@ -519,10 +531,9 @@ export function stopHolds(stop: TurnRef | undefined, lifted: TurnRef | undefined
  * A turn that ended on a question for the person (`awaitsHuman`) holds like
  * the question on screen: the answer is a new turn, and its close is the next word.
  * A person's Stop heard after the head was written, and not lifted since
- * (`stopHolds`), is `hold-stop`: the caller raises the durable hold for it.
- * It is decided here, on every drain, not only by the live close that says
- * `stopped`: a window that missed that close (socket down, reload) hears the
- * Stop from the reconnect's snapshot, and drained into it before.
+ * (`stopHolds`), is `hold-stop`. The durable hold for it is raised where the
+ * Stop is heard (`holdForStop`); here it also keeps a head that another window
+ * wrote before hearing the Stop, until that window hears it and holds it.
  */
 export function decideDrain(input: {
   held: boolean;

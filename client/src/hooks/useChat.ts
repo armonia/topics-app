@@ -2358,12 +2358,10 @@ export function useChat() {
       stop,
       lifted: liftedStop(sessionKey),
     });
-    // A Stop this queue was written before: held durably, for every window,
-    // until the person sends or lifts it.
-    if (verdict === 'hold-stop') {
-      holdQueue(sessionKey, stop);
-      return;
-    }
+    // A Stop this queue was written before: the durable hold was raised when
+    // the Stop was heard (`noteStop`); a head another window wrote without
+    // having heard it yet waits here, and that window holds it when it hears.
+    if (verdict === 'hold-stop') return;
     if (verdict === 'wait-own-send') {
       if (attempt >= TURN_DRAIN_MAX_ATTEMPTS) return;
       setTimeout(() => drainTurnQueueRef.current?.(sessionKey, attempt + 1), TURN_DRAIN_RETRY_MS);
