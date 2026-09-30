@@ -24,6 +24,7 @@ import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessag
 import { hasPendingAsk } from "../lib/ask-user-bridge";
 import { recentActiveRows } from "../lib/ask-answer-routing";
 import { askerStillThere, openQuestionsOnRows, sessionHasOpenQuestion } from "../lib/question-outlives-asker";
+import type { AnswerRelay, OwedAnswer } from "../lib/answer-relay";
 import { TopicsRoutingIncompatibleError } from "../providers/resolve-topic-provider";
 import { deriveToolDetail } from "../providers/claude/tool-detail";
 import { cartelloRisveglio } from "../providers/claude/woken-turn";
@@ -168,6 +169,13 @@ export interface ChatDeps {
    */
   hooks?: LifecycleHookRunner;
   goalLoop?: ChatGoalLoop; // when the caller holds it too (the Stop, the boot)
+  /**
+   * The answers owed to the model by questions whose asker is gone
+   * (`lib/answer-relay.ts`). This route is where they are taken: the relay's
+   * own message claims its answer, a person's message takes every owed answer
+   * of the session and carries it in front of itself.
+   */
+  answerRelay?: Pick<AnswerRelay, "claim" | "takeOwed" | "markSent">;
 }
 
 /**
@@ -582,6 +590,53 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
       }
 
       const lastUserMsg = messages[messages.length - 1];
+      /**
+       * AN ANSWER THE PERSON GAVE EARLIER GOES FIRST.
+       *
+       * An answer to a question whose asker is gone is owed to the model as a
+       * message (`lib/answer-relay.ts`). The relay posts it here when the
+       * session's turn ends, but the composer drains what the person typed
+       * meanwhile on the same `stream:end`, and whichever reached this gate
+       * first won: measured 30/09, the model read "and after that deploy it"
+       * before the answer given before it. So the answers are TAKEN here, in
+       * the same synchronous stretch as the gate above and the row below:
+       *   - the relay's own message claims its answer, and is refused
+       *     (`answer_not_owed`) if a person's message carried it already;
+       *   - a person's message takes every answer the session owes and writes
+       *     them as their own rows first, and the model reads them first, in
+       *     the same turn. A slash command is left alone: its text is a command.
+       */
+      let claimedAnswer: OwedAnswer | null = null;
+      /** The rows of the answers this message carries, and their text, oldest first. */
+      const carried: Array<{ rowId: string; content: string }> = [];
+      if (deps.answerRelay && lastUserMsg?.role === "user" && typeof lastUserMsg.content === "string" && lastUserMsg.content) {
+        const claimedId = (body.questionAnswer as { toolCallId?: unknown } | undefined)?.toolCallId;
+        if (typeof claimedId === "string") {
+          claimedAnswer = deps.answerRelay.claim(sessionKey, claimedId);
+          if (!claimedAnswer) return json({ error: "this answer has already reached the model", code: "answer_not_owed" }, 409);
+        } else if (sentByPerson && !lastUserMsg.content.trim().startsWith("/")) {
+          for (const answer of deps.answerRelay.takeOwed(sessionKey)) {
+            const stored = appendLocalMessage(
+              sessionKey, "user", answer.content,
+              autoreDaIdentita(ctx.db as never, ctx.requestIdentity?.(req) ?? null),
+              userRowMarks({ repeats: repeatedRowMarks(ctx.db, sessionKey, answer.content) }),
+            );
+            deps.answerRelay.markSent(answer);
+            if (matchedTopic) {
+              broadcastToAll({
+                type: "message:new", topicId: matchedTopic.id, sessionKey, role: "user",
+                messageId: stored.id, content: answer.content, preview: answer.content.slice(0, 100),
+                ...(stored.blocks?.length ? { blocks: stored.blocks } : {}),
+              });
+            }
+            carried.push({ rowId: stored.id, content: answer.content });
+          }
+        }
+      }
+      // What the model reads for this turn: the carried answers first.
+      const turnUserContent: string = carried.length > 0
+        ? [...carried.map((c) => c.content), lastUserMsg.content].join("\n\n")
+        : lastUserMsg?.content ?? "";
       if (lastUserMsg?.role === "user" && lastUserMsg?.content) {
         // L'AUTORE si stampa QUI, ed è l'unico posto in cui un prompt umano
         // entra nel database: `appendLocalMessage` da qualunque altro
@@ -605,6 +660,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
         // Non un istante prima: la riga è la prova, e finché non c'è, ripetere è
         // l'unica cosa giusta da fare.
         if (idempotencySlot) chatIdempotency.remember(idempotencySlot, storedUserMsg.id);
+        // The relay's own message is written: its question stops owing it.
+        if (claimedAnswer) deps.answerRelay?.markSent(claimedAnswer);
         // A resend of the resume sweep: this copy of the message leads the next
         // sweep back to its count, written in the same tick as the row.
         if (resumeAttempt > 0 && typeof body.resendOf === "string") noteResendCopy(ctx.db, sessionKey, body.resendOf, storedUserMsg.id);
@@ -765,8 +822,9 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
             sessionKey,
             providerName: "(pending)",
             providerStrategy: "history-aware",
-            userMessageOverride: { content: lastUserMsg?.content ?? "", messageId: lastUserMsg?.id },
+            userMessageOverride: { content: turnUserContent, messageId: lastUserMsg?.id },
             includeLastUserInHistory: false,
+            ...(carried.length > 0 ? { alsoInUserMessage: carried.map((c) => c.rowId) } : {}),
             planMode,
             // Per-turn flag OR topic-persisted preference — either opts in.
             // Mirrors the resolution logic for `fastModeActive` further down
@@ -809,7 +867,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
               .filter((m: any) => m.role === "user" || m.role === "assistant")
               .slice(0, -1)
               .map((m: any) => ({ role: m.role, content: m.content })),
-            userMessage: { content: lastUserMsg?.content ?? "" },
+            userMessage: { content: turnUserContent },
             diagnostics: {
               totalTokens: 0, budgetLimit: DEFAULT_CONTEXT_WINDOW, budgetPercent: 0,
               droppedHistoryTurns: 0, historyEntries: [],

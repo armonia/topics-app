@@ -1,71 +1,127 @@
 /**
  * The queue that carries an answer whose asker is gone to the model: it waits
- * behind a turn in flight instead of dropping the answer, sends each answer
- * once, in order, and leaves a refused one owed to the next boot.
+ * behind a turn in flight instead of dropping the answer, moves at the
+ * session's turn end (not on a clock), sends each answer once and in order,
+ * gives way to a person's message that carries the answer itself, and keeps a
+ * refused answer owed to the next turn end.
  *
  * @covers ASK-11
  */
 import { describe, expect, test } from "bun:test";
-import { createAnswerRelay, owedAnswerOf, type OwedAnswer } from "./answer-relay";
+import { createAnswerRelay, owedAnswerOf, type AnswerRelay, type OwedAnswer } from "./answer-relay";
+import { announceTurnEnded } from "./turn-ended";
 
-const owed = (toolCallId: string, sessionKey = "topic:relay"): OwedAnswer => ({ sessionKey, toolCallId, rowId: "row-1", content: `answer of ${toolCallId}` });
+let benchSeq = 0;
 
-function bench(statuses: number[]) {
+/**
+ * The relay over a fake chat route that behaves like the real gate: a busy
+ * session answers 409 `stream_in_flight`, a free one claims the answer (or
+ * refuses it as `answer_not_owed`) and starts a turn. `statuses` forces a
+ * refusal before the gate, as a disconnected provider does.
+ */
+function bench(statuses: number[] = []) {
+  const sessionKey = `topic:relay-${++benchSeq}`;
   let busy = false;
-  const posted: Array<{ content: string; questionAnswer: unknown }> = [];
+  const posted: string[] = [];
+  const sent: string[] = [];
   const settled: string[] = [];
   const logs: string[] = [];
-  const relay = createAnswerRelay({
+  let relay!: AnswerRelay;
+  relay = createAnswerRelay({
     isBusy: () => busy,
     route: async (req) => {
-      const body = await req.json() as { messages: Array<{ content: string }>; questionAnswer: unknown };
-      posted.push({ content: body.messages[0]!.content, questionAnswer: body.questionAnswer });
-      const status = statuses.shift() ?? 200;
-      return new Response(JSON.stringify(status === 409 ? { code: "stream_in_flight" } : {}), { status });
+      const body = await req.json() as { questionAnswer: { toolCallId: string } };
+      const id = body.questionAnswer.toolCallId;
+      posted.push(id);
+      const forced = statuses.shift();
+      if (forced !== undefined && forced !== 200) return new Response("{}", { status: forced });
+      if (busy) return new Response(JSON.stringify({ code: "stream_in_flight" }), { status: 409 });
+      const claimed = relay.claim(sessionKey, id);
+      if (!claimed) return new Response(JSON.stringify({ code: "answer_not_owed" }), { status: 409 });
+      relay.markSent(claimed);
+      sent.push(id);
+      busy = true;
+      return new Response("data: [DONE]\n\n", { status: 200 });
     },
     settle: (o) => { settled.push(o.toolCallId); },
     log: (m) => { logs.push(m); },
-    pollMs: 5,
   });
-  return { relay, posted, settled, logs, setBusy: (b: boolean) => { busy = b; } };
+  const owed = (toolCallId: string): OwedAnswer => ({ sessionKey, toolCallId, rowId: "row-1", content: `answer of ${toolCallId}` });
+  /** The turn in flight ends, as `endStream` says it. */
+  const endTurn = async () => {
+    busy = false;
+    announceTurnEnded(sessionKey);
+    await new Promise((r) => setTimeout(r, 5));
+    await relay.idle();
+  };
+  return { sessionKey, relay, owed, posted, sent, settled, logs, endTurn, setBusy: (b: boolean) => { busy = b; } };
 }
 
 describe("answer relay", () => {
-  test("waits while the session is busy, then sends once, marked as the answer to its question", async () => {
-    const b = bench([]);
+  test("waits while the session is busy, with no clock, and sends at the turn end, once", async () => {
+    const b = bench();
     b.setBusy(true);
-    b.relay.enqueue(owed("toolu_1"));
-    await new Promise((r) => setTimeout(r, 40));
+    b.relay.enqueue(b.owed("toolu_1"));
+    await new Promise((r) => setTimeout(r, 60));
+    await b.relay.idle();
     expect(b.posted).toEqual([]);
-    b.setBusy(false);
-    await b.relay.idle();
-    expect(b.posted).toEqual([{ content: "answer of toolu_1", questionAnswer: { toolCallId: "toolu_1" } }]);
+    await b.endTurn();
+    expect(b.sent).toEqual(["toolu_1"]);
     expect(b.settled).toEqual(["toolu_1"]);
+    await b.endTurn();
+    expect(b.posted).toEqual(["toolu_1"]);
   });
 
-  test("a 409 stream_in_flight puts it back to wait, with no cap", async () => {
-    const b = bench([409, 409, 409, 200]);
-    b.relay.enqueue(owed("toolu_2"));
+  test("a 409 stream_in_flight leaves it owed to the next turn end, with no cap", async () => {
+    const b = bench([409, 409]);
+    b.relay.enqueue(b.owed("toolu_2"));
     await b.relay.idle();
-    expect(b.posted).toHaveLength(4);
-    expect(b.settled).toEqual(["toolu_2"]);
+    expect(b.sent).toEqual([]);
+    await b.endTurn();
+    expect(b.sent).toEqual([]);
+    await b.endTurn();
+    expect(b.sent).toEqual(["toolu_2"]);
+    expect(b.posted).toHaveLength(3);
   });
 
-  test("the same answer queued twice goes once; two answers of a session go in order", async () => {
-    const b = bench([]);
-    b.relay.enqueue(owed("toolu_a"));
-    b.relay.enqueue(owed("toolu_a"));
-    b.relay.enqueue(owed("toolu_b"));
+  test("the same answer queued twice goes once; two answers of a session go in order, one turn each", async () => {
+    const b = bench();
+    b.relay.enqueue(b.owed("toolu_a"));
+    b.relay.enqueue(b.owed("toolu_a"));
+    b.relay.enqueue(b.owed("toolu_b"));
     await b.relay.idle();
-    expect(b.posted.map((p) => p.content)).toEqual(["answer of toolu_a", "answer of toolu_b"]);
+    expect(b.sent).toEqual(["toolu_a"]);
+    await b.endTurn();
+    expect(b.sent).toEqual(["toolu_a", "toolu_b"]);
+    await b.endTurn();
+    expect(b.posted).toEqual(["toolu_a", "toolu_b"]);
   });
 
-  test("any other refusal leaves it owed (not settled) and says so", async () => {
-    const b = bench([503]);
-    b.relay.enqueue(owed("toolu_3"));
+  test("any other refusal leaves it owed, says so once, and the next turn end sends it", async () => {
+    const b = bench([503, 503]);
+    b.relay.enqueue(b.owed("toolu_3"));
     await b.relay.idle();
     expect(b.settled).toEqual([]);
-    expect(b.logs.join("\n")).toContain("owed to the next boot");
+    await b.endTurn();
+    expect(b.settled).toEqual([]);
+    expect(b.logs.filter((l) => l.includes("toolu_3"))).toHaveLength(1);
+    expect(b.logs[0]).toContain("owed to the next turn end");
+    await b.endTurn();
+    expect(b.settled).toEqual(["toolu_3"]);
+  });
+
+  test("a person's message takes every owed answer in order, and the relay then has nothing left to post", async () => {
+    const b = bench();
+    b.setBusy(true);
+    b.relay.enqueue(b.owed("toolu_x"));
+    b.relay.enqueue(b.owed("toolu_y"));
+    expect(b.relay.takeOwed(b.sessionKey).map((o) => o.toolCallId)).toEqual(["toolu_x", "toolu_y"]);
+    expect(b.relay.takeOwed(b.sessionKey)).toEqual([]);
+    expect(b.relay.claim(b.sessionKey, "toolu_x")).toBeNull();
+    await b.endTurn();
+    await b.endTurn();
+    expect(b.posted).toEqual([]);
+    expect(b.sent).toEqual([]);
   });
 
   test("owedAnswerOf reads a queued answer off a stored call, and nothing else", () => {

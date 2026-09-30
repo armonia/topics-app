@@ -2,6 +2,7 @@ import { configureApiCredentialRoot, readApiProviderKey } from "./server/service
 import { createLandingQueue } from "./server/services/landing-queue";
 import { basename, join, resolve, sep } from "path";
 import { finalizeOrphanedRunningTools } from "./server/lib/boot-orphan-tools";
+import { announceTurnEnded } from "./server/lib/turn-ended";
 import type { AnswerRelay } from "./server/lib/answer-relay";
 import { wakeVerdict, runningTaskOwnsTopic } from "./server/lib/wake-adoption";
 import { riprendiTurniInterrotti, type CtxRipresa } from "./server/lib/ripresa-boot";
@@ -1003,6 +1004,7 @@ function streamCatchupFrames(wants: (topicId: string | undefined) => boolean): R
     const partial = getMessageById(stream.messageId);
     if (!partial || partial.partial !== true) {
       activeStreams.delete(sessionKey);
+      announceTurnEnded(sessionKey);
       continue;
     }
     frames.push(buildStreamCatchupFrame({ sessionKey, topicId, stream, partial }));

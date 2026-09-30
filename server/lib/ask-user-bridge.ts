@@ -51,7 +51,7 @@ export interface AskUserBridgeOptions {
    * painted on. Declared by a caller that KNOWS it (the outbound gate paints the
    * panel itself, so it does); absent from a caller that does not, and then the
    * open wait answers for whatever panel the person clicked - see
-   * `openAskToolCallId`.
+   * `openAskIdentity`.
    */
   toolCallId?: string;
   /**
@@ -160,7 +160,7 @@ interface OpenAsk {
   startedAt: number;
   /**
    * The tool row the panel of THIS question sits on, when the wait that owns the
-   * rendez-vous declared one. See `openAskToolCallId` for what reads it.
+   * rendez-vous declared one. See `openAskIdentity` for what reads it.
    */
   toolCallId?: string;
   /** What the current wait asked, when it said so. See `AskUserBridgeOptions.questions`. */
@@ -257,36 +257,17 @@ export function waitForAnswer(
 }
 
 /**
- * WHICH PANEL THE OPEN QUESTION OF THIS SESSION IS, or `undefined` when nobody
- * has named one.
- *
- * WHY IT EXISTS. The rendez-vous is keyed by SESSION, so "there is a question
- * waiting" and "this is the question being answered" were the same fact for the
- * chat road: `/api/chat/tool-response` carried the `toolCallId` of the panel the
- * person clicked and used it only to decide WHETHER the row is a bridge panel,
- * never FOR WHICH question. Measured with both real routes and no card: while a
- * send confirmation was waiting, the generic `ask_user_question` parked by the
- * gate still had ITS panel on screen (the stream detector paints it, not the ask
- * route), the person clicked that one, and the yes was delivered to the send -
- * which refused with "the answer that came back was not about this message"
- * while the generic question stayed unanswered. One click, two questions
- * damaged.
- *
- * The board road already had the rule (`answerTo`, `routes/tasks.ts`): the yes
- * belongs to THAT question. This is the same rule for the second channel.
- *
- * `undefined` means the answer is delivered to whoever is waiting, which is the
- * behaviour every caller had before: see the fallback branch in `waitForAnswer`.
- */
-export function openAskToolCallId(sessionKey: string): string | undefined {
-  return activeAsks.get(sessionKey)?.toolCallId;
-}
-
-/**
  * What the open ask of this session is about: the panel its wait named and the
  * questions it asked, or `undefined` when no ask is open. The answer route reads
  * both to bind a click to ITS question (`routeAnswer` in
  * `lib/question-outlives-asker.ts`).
+ *
+ * WHY. The rendez-vous is keyed by SESSION, and the click's `toolCallId` used
+ * to decide only WHETHER the row is a bridge panel, never FOR WHICH question:
+ * with a send confirmation waiting and the generic question's panel on screen,
+ * the yes given to the generic one went to the send, which refused it, and the
+ * generic question stayed unanswered. The board road has the same rule
+ * (`answerTo`, `routes/tasks.ts`): the yes belongs to THAT question.
  */
 export function openAskIdentity(sessionKey: string): { toolCallId?: string; questions?: readonly string[] } | undefined {
   const open = activeAsks.get(sessionKey);

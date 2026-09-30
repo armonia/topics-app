@@ -21,6 +21,7 @@ import { createTopicsRouter } from "./topics";
 import { beginAsk, cancelAsk } from "../lib/ask-user-bridge";
 import { registerProvider, removeProvider } from "../providers";
 import { PLAN_APPROVAL_QUESTION, PLAN_APPROVE_LABEL } from "../../shared/plan-decision";
+import type { AnswerRelay } from "../lib/answer-relay";
 
 // A REAL provider in the registry, as the route resolves it (`topic.provider`).
 // Its two answers to a resume are switched per test on the instance, so no
@@ -73,11 +74,16 @@ function harness(rows: Row[]) {
     },
   } as any;
   const sent: Array<{ sessionKey: string; content: string }> = [];
+  let relay: AnswerRelay | null = null;
   const router = createTopicsRouter(ctx, undefined, undefined, {
-    // The chat route the relay posts the answer to: recorded, and taken.
+    exposeAnswerRelay: (r) => { relay = r; },
+    // The chat route the relay posts the answer to: recorded, and taken the
+    // way the real one takes it (claimed, then marked sent on its row).
     answerRelayRoute: async (req) => {
-      const body = await req.json() as { sessionKey: string; messages: Array<{ content: string }> };
+      const body = await req.json() as { sessionKey: string; messages: Array<{ content: string }>; questionAnswer: { toolCallId: string } };
       sent.push({ sessionKey: body.sessionKey, content: body.messages[0]!.content });
+      const claimed = relay!.claim(body.sessionKey, body.questionAnswer.toolCallId);
+      if (claimed) relay!.markSent(claimed);
       return new Response("{}", { status: 200 });
     },
   });

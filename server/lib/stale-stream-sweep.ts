@@ -16,6 +16,7 @@
 import { staleStreamVerdict } from "./stale-stream-verdict";
 import type { TurnEndCause } from "../../shared/types";
 import { pendingAskVerdict } from "./ask-user-bridge";
+import { announceTurnEnded } from "./turn-ended";
 
 /** Il minimo di `ActiveStream` che questo giro legge. */
 export interface SweepableStream {
@@ -246,6 +247,7 @@ export function sweepStaleStreams(deps: StaleStreamSweepDeps): Map<string, Sweep
     if (!partial || partial.partial !== true) {
       deps.activeStreams.delete(sessionKey);
       deps.silence.delete(sessionKey);
+      announceTurnEnded(sessionKey);
       outcomes.set(sessionKey, "dropped");
       continue;
     }

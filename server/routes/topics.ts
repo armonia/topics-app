@@ -484,8 +484,6 @@ export function createTopicsRouter(
      * a restart found still owed.
      */
     exposeAnswerRelay?: (relay: AnswerRelay) => void;
-    /** How often the relay looks again at a busy session. Tests shorten it. */
-    answerRelayPollMs?: number;
     /**
      * The chat route the relay posts to. This router's own by default; a test
      * hands in one over a recording model, to see exactly what it receives.
@@ -911,11 +909,28 @@ export function createTopicsRouter(
     hasOpenQuestion: (sk) => sessionHasOpenQuestion(ctx, sk, decodeCol),
   });
   extra.exposeGoalLoop?.(goalLoop);
+  // An answer whose asker is gone, owed to the model until the chat route takes
+  // it (`lib/answer-relay.ts`). Settled on the question's own row, by id. The
+  // chat route below holds it too: it is where the answer is taken, so a
+  // message the person writes later never gets in front of it.
+  const answerRelay = createAnswerRelay({
+    isBusy: (sk) => !!ctx.isStreaming(sk),
+    route: extra.answerRelayRoute ?? (async (...a) => chatRouter(...a)),
+    settle: (owed) => {
+      if (owed.rowId) updateToolCallFields(owed.sessionKey, owed.toolCallId, { answerRelay: 'sent' }, { rowId: owed.rowId });
+      broadcastToAll({
+        type: 'stream:tool_update', sessionKey: owed.sessionKey,
+        topicId: getTopicBySessionKey(owed.sessionKey)?.id, toolCallId: owed.toolCallId, answerRelay: 'sent',
+      });
+    },
+    log: (m) => console.warn(`[answer-relay] ${m}`),
+  });
+  extra.exposeAnswerRelay?.(answerRelay);
   const chatRouter = createChatRouter(ctx, {
     resolveProvider, detectLocalhostAutoNav, bindTopicToProject, resolveProjectRef,
     getProjectIdForTopic, getWorkspaceProjects, autoBindProject,
     watchSessionForSubagents, updateUnreadCount, browserNavigatedTopics, WORKSPACE_DIR,
-    hooks: extra.hooks, goalLoop,
+    hooks: extra.hooks, goalLoop, answerRelay,
   }, browserService);
   goalLoop.useRoute(async (...a) => chatRouter(...a)); // now: a boot check-in may come before any request
 
@@ -947,22 +962,6 @@ export function createTopicsRouter(
       console.warn(`[topics] initial message of ${sessionKey} failed:`, err);
     }
   }
-  // An answer whose asker is gone, owed to the model until the chat route takes
-  // it (`lib/answer-relay.ts`). Settled on the question's own row, by id.
-  const answerRelay = createAnswerRelay({
-    isBusy: (sk) => !!ctx.isStreaming(sk),
-    route: extra.answerRelayRoute ?? (async (...a) => chatRouter(...a)),
-    settle: (owed) => {
-      if (owed.rowId) updateToolCallFields(owed.sessionKey, owed.toolCallId, { answerRelay: 'sent' }, { rowId: owed.rowId });
-      broadcastToAll({
-        type: 'stream:tool_update', sessionKey: owed.sessionKey,
-        topicId: getTopicBySessionKey(owed.sessionKey)?.id, toolCallId: owed.toolCallId, answerRelay: 'sent',
-      });
-    },
-    log: (m) => console.warn(`[answer-relay] ${m}`),
-    ...(extra.answerRelayPollMs !== undefined ? { pollMs: extra.answerRelayPollMs } : {}),
-  });
-  extra.exposeAnswerRelay?.(answerRelay);
   /** How far back an answer looks for its question when the short window misses it. */
   const QUESTION_LOOKBACK_ROWS = 400;
   // Il ponte MCP del browser (le sei rotte `…/browser/*` in due forme

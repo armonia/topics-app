@@ -17,7 +17,8 @@
  *   5. a new message supersedes a question nobody is waiting on, and says so;
  *   6. an answer is bound to ITS question from the click to the model: never
  *      the result of another question's leg, never dropped behind a machine
- *      turn, never lost to a restart or to the window of recent rows.
+ *      turn, never lost to a restart or to the window of recent rows (its
+ *      order against the person's next message: `question-answer-order.test.ts`).
  *
  * The restart is simulated at the boundary the design has: the in-memory
  * rendez-vous is dropped (`_dropAskStateLikeARestart`), the routers are built
@@ -26,14 +27,9 @@
  * @covers ASK-11
  * @covers HOLD-01
  */
-import { describe, test, expect, beforeAll, afterAll, afterEach, setSystemTime, jest } from "bun:test";
-import { cleanupTestDataDir, setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
-import type { AppContext, Topic, ToolCall } from "../../server/types";
-import type { AIProvider, StreamHandler } from "../../server/providers/types";
-import { createTopicsRouter } from "../../server/routes/topics";
-import { createChatRouter } from "../../server/routes/chat";
+import { describe, test, expect, setSystemTime, jest } from "bun:test";
+import type { ToolCall } from "../../server/types";
 import { decodeCol } from "../../shared/message-blob";
-import { createPermissionRouter } from "../../server/routes/permission";
 import {
   beginAsk, endAsk, hasPendingAsk, pendingAskVerdict, _dropAskStateLikeARestart, ASK_BUFFER_TTL_MS,
 } from "../../server/lib/ask-user-bridge";
@@ -45,187 +41,12 @@ import { decidePark } from "../../server/lib/terminal-idle-park";
 import { runWithDelegatedDeadline } from "../../server/services/task-dispatcher-delegated";
 import { armCodexTurnTimeout } from "../../server/providers/codex";
 import { sessionHasOpenQuestion } from "../../server/lib/question-outlives-asker";
-import type { AnswerRelay } from "../../server/lib/answer-relay";
+import {
+  ctx, modelReceived, HOUR, QUESTION, QUESTIONS, askOnRow, storedCall, bootServer, machineTurnInFlight, until, receivedBy,
+  useQuestionBench,
+} from "./helpers/question-bench";
 
-const TEST_DATA = testTmpDir("question-waits");
-let ctx: AppContext;
-
-/**
- * THE MODEL, as far as this bench goes: a provider that records every message
- * a turn hands it and never answers (the turn is closed by hand). What
- * `sendChat` receives is exactly what the model would read.
- */
-const modelReceived: Array<{ sessionKey: string; message: string }> = [];
-const handlers: StreamHandler[] = [];
-const fakeModel = {
-  name: "fake-model",
-  capabilities: new Set(["streaming"]),
-  contextStrategy: "history-aware",
-  get connected() { return true; },
-  registerStreamHandler: (_sk: string, _rid: string | undefined, h: StreamHandler) => { handlers.push(h); },
-  unregisterStreamHandler: () => {},
-  sendChat: (sessionKey: string, message: string) => {
-    modelReceived.push({ sessionKey, message });
-    return new Promise<{ runId?: string }>(() => {});
-  },
-  defaultModel: () => "fake-model",
-  abort: async () => {},
-  start: () => {}, stop: () => {},
-  complete: async () => ({ content: "ok" }),
-} as unknown as AIProvider;
-
-const HOUR = 60 * 60 * 1000;
-const QUESTION = "Which branch do we ship?";
-const QUESTIONS = [{ question: QUESTION, header: "Branch", options: [{ label: "main" }, { label: "next" }], multiSelect: false }];
-let seq = 0;
-
-function seedTopic(sessionKey: string): void {
-  const now = new Date().toISOString();
-  const topic: Topic = {
-    id: `qwait-${++seq}-aaaa-bbbb-cccc-000000000001`,
-    name: `Question ${seq}`,
-    slug: `question-${seq}`,
-    parentId: null,
-    links: [],
-    sessionKey,
-    color: "#aabbcc",
-    icon: "chat",
-    createdAt: now,
-    updatedAt: now,
-    archived: false,
-  };
-  ctx.saveSingleTopic(topic);
-}
-
-/** A turn that asked the bridge question: the row the panel is painted on. */
-function askOnRow(sessionKey: string, toolCallId: string, opts: { finalize?: boolean } = {}): string {
-  seedTopic(sessionKey);
-  ctx.appendLocalMessage(sessionKey, "user", "help me decide");
-  const msg = ctx.createPartialMessage(sessionKey, "assistant");
-  ctx.startStream(sessionKey, msg.id);
-  const call: ToolCall = {
-    id: toolCallId,
-    name: "mcp__topics__ask_user_question",
-    args: { questions: QUESTIONS },
-    status: "waiting_for_input",
-    startedAt: Date.now(),
-    userInputSchema: { kind: "questions", questions: QUESTIONS },
-  };
-  ctx.addToolCallToLastMessage(sessionKey, call);
-  if (opts.finalize) {
-    // The row as a crash leaves it once the boot's partial sweep has run: final,
-    // with the question still `waiting_for_input` and no stream in memory.
-    ctx.updateLastMessage(sessionKey, { partial: undefined, streamedAt: undefined }, { rowId: msg.id });
-    ctx.activeStreams.delete(sessionKey);
-  }
-  return msg.id;
-}
-
-/** The tool call as stored: the timeline copy first, the column as fallback. */
-function storedCall(rowId: string, toolCallId: string): ToolCall | undefined {
-  const row = ctx.db.query("SELECT tool_calls, blocks FROM messages WHERE id = ?").get(rowId) as { tool_calls: unknown; blocks: unknown } | null;
-  const blocks = JSON.parse(decodeCol(row?.blocks) ?? "[]") as Array<{ kind: string; toolCall?: ToolCall }>;
-  const calls = JSON.parse(decodeCol(row?.tool_calls) ?? "[]") as ToolCall[];
-  return blocks.find((b) => b.kind === "tool" && b.toolCall?.id === toolCallId)?.toolCall
-    ?? calls.find((t) => t.id === toolCallId);
-}
-
-function chatRouter() {
-  return createChatRouter(ctx, {
-    resolveProvider: () => fakeModel,
-    detectLocalhostAutoNav: () => {},
-    bindTopicToProject: () => {},
-    resolveProjectRef: () => null,
-    getProjectIdForTopic: () => null,
-    getWorkspaceProjects: () => [],
-    autoBindProject: () => {},
-    watchSessionForSubagents: () => {},
-    updateUnreadCount: () => {},
-    browserNavigatedTopics: new Set<string>(),
-    WORKSPACE_DIR: testTmpDir("question-waits-ws"),
-  } as never);
-}
-
-/** A message into the real chat route, the way the composer (or the server) sends one. */
-async function postChat(chat: ReturnType<typeof chatRouter>, sessionKey: string, content: string, extra: Record<string, unknown> = {}): Promise<number> {
-  const url = new URL("http://topics.test/api/chat");
-  const resp = await chat(new Request(url.toString(), {
-    method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }], ...extra }),
-  }), url, "/api/chat", "POST");
-  resp?.body?.cancel().catch(() => {});
-  // Close the turn the way the model would, so the next send is not a 409.
-  const h = handlers[handlers.length - 1];
-  h?.onTextDelta("ok", "ok");
-  h?.onDone();
-  await new Promise((r) => setTimeout(r, 60));
-  return resp?.status ?? 0;
-}
-
-/** The server, as a process starts it: fresh routers over the same database. */
-function bootServer() {
-  const lateMessages: Array<{ sessionKey: string; content: string }> = [];
-  const chat = chatRouter();
-  let relay: AnswerRelay | null = null;
-  const topics = createTopicsRouter(ctx, undefined, undefined, {
-    exposeAnswerRelay: (r) => { relay = r; },
-    // The answer goes through the REAL chat route to the model, and the model
-    // closes that turn at once, as `postChat` does for a typed message.
-    answerRelayRoute: async (req, url, pathname, method) => {
-      const body = await req.clone().json() as { sessionKey: string; messages: Array<{ content: string }> };
-      lateMessages.push({ sessionKey: body.sessionKey, content: body.messages[0]!.content });
-      const resp = await chat(req, url, pathname, method);
-      if (resp?.ok) {
-        const h = handlers[handlers.length - 1];
-        setTimeout(() => { h?.onTextDelta("ok", "ok"); h?.onDone(); }, 0);
-      }
-      return resp;
-    },
-    answerRelayPollMs: 20,
-  });
-  const permission = createPermissionRouter(ctx);
-  const call = async (router: typeof topics, path: string, body: unknown) => {
-    const url = new URL(`http://topics.test${path}`);
-    const resp = await router(new Request(url.toString(), {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
-    }), url, url.pathname, "POST");
-    return { status: resp!.status, body: await resp!.json() as Record<string, unknown> };
-  };
-  return {
-    lateMessages,
-    chat,
-    /** The queue that carries an answer whose asker is gone (`lib/answer-relay.ts`). */
-    relay: () => relay!,
-    /** One poll leg of the bridge, as `callAskUserQuestion` sends it. */
-    leg: (sessionKey: string) => call(permission, `/api/sessions/${encodeURIComponent(sessionKey)}/ask-user`, { questions: QUESTIONS, legMs: 100 }),
-    /** A leg of another question, held open for `legMs`. */
-    legFor: (sessionKey: string, questions: unknown[], legMs: number) =>
-      call(permission, `/api/sessions/${encodeURIComponent(sessionKey)}/ask-user`, { questions, legMs }),
-    /** The panel's Send button. */
-    answer: (sessionKey: string, toolCallId: string, choice: string) => call(topics, "/api/chat/tool-response", {
-      sessionKey, toolCallId, response: { kind: "questions", answers: { [QUESTION]: choice } },
-    }),
-    /** A message typed in the composer, or (with `extra`) one the machine sends. */
-    send: (sessionKey: string, content: string, extra?: Record<string, unknown>) => postChat(chat, sessionKey, content, extra),
-  };
-}
-
-beforeAll(async () => {
-  setupTestDataDir(TEST_DATA);
-  ctx = await createTestAppContext();
-  (ctx as { broadcastToTopicSubscribers: (id: string, m: unknown) => void }).broadcastToTopicSubscribers = () => {};
-});
-
-afterAll(async () => {
-  setSystemTime();
-  _dropAskStateLikeARestart();
-  await cleanupTestDataDir(TEST_DATA);
-});
-
-afterEach(() => {
-  setSystemTime();
-  _dropAskStateLikeARestart();
-});
+useQuestionBench("question-waits");
 
 describe("no clock ends a question", () => {
   test("an ask open for 25 hours is still answerable, and the answer is the tool's result", async () => {
@@ -562,25 +383,6 @@ describe("an answer is bound to its own question, from the click to the model", 
     } as ToolCall);
     return msg.id;
   }
-
-  /** A turn the machine starts and leaves in flight (the dispatcher relaunching a card). */
-  async function machineTurnInFlight(chat: ReturnType<typeof chatRouter>, sessionKey: string): Promise<StreamHandler> {
-    const url = new URL("http://topics.test/api/chat");
-    const resp = await chat(new Request(url.toString(), {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sessionKey, messages: [{ role: "user", content: "Your previous turn was interrupted: carry on." }], dispatched: true }),
-    }), url, "/api/chat", "POST");
-    expect(resp?.status).toBe(200);
-    resp?.body?.cancel().catch(() => {});
-    return handlers[handlers.length - 1]!;
-  }
-
-  async function until(cond: () => boolean, ms = 3000): Promise<void> {
-    const end = Date.now() + ms;
-    while (!cond() && Date.now() < end) await new Promise((r) => setTimeout(r, 10));
-  }
-
-  const receivedBy = (sk: string) => modelReceived.filter((m) => m.sessionKey === sk).map((m) => m.message);
 
   test("an answer to a question whose asker is gone is never the result of the question a new turn asked", async () => {
     const sk = "topic:q-cross";

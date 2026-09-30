@@ -165,7 +165,7 @@ const CHAT_IT: Dict = {
   'chat.question.ended.superseded': 'Domanda chiusa senza risposta: hai mandato un nuovo messaggio al suo posto.',
   'chat.question.ended.other': 'Domanda chiusa senza risposta.',
   'chat.question.askerGone': 'Il turno che l\'ha chiesta si è fermato. La tua risposta gli arriverà come nuovo messaggio.',
-  'chat.question.answerQueued': 'Risposta salvata. Arriva all\'agente come nuovo messaggio appena la chat è libera.',
+  'chat.question.answerQueued': 'Risposta salvata. Arriva all\'agente come nuovo messaggio appena la chat è libera, prima di quello che scrivi dopo.',
   'chat.tool.detailLoading': "Carico l'output completo…",
   'chat.tool.detailFailed': "Non sono riuscito a caricare l'output completo.",
   'toolgroup.jumpToFailure': 'Apri il gruppo sulla prima azione fallita',

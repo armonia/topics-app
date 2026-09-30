@@ -740,7 +740,11 @@ Una risposta a una domanda il cui processo non c'e' piu' SHALL essere messa in
 CODA sulla sua riga (`answerRelay: queued`) prima di partire, e SHALL raggiungere
 il modello come messaggio successivo appena la sessione e' libera: dietro un
 turno della macchina in volo aspetta, senza limite, e un riavvio la trova ancora
-dovuta e la manda. Il pannello SHALL dire «risposto» solo quando la risposta e'
+dovuta e la manda. La coda riparte dalla FINE DEL TURNO della sessione, non da un
+orologio, e un rifiuto la lascia dovuta al turno successivo. Un messaggio che la
+persona scrive DOPO la risposta NON SHALL mai raggiungere il modello prima di
+lei: se arriva mentre la risposta e' ancora in coda, la porta davanti a se', nello
+stesso turno. Il pannello SHALL dire «risposto» solo quando la risposta e'
 stata presa da chi ha chiesto o e' in quella coda, e SHALL dire che e' in
 arrivo finche' la coda non l'ha consegnata. Consegnata, NON SHALL chiudere le
 altre domande aperte della persona, e nemmeno un messaggio di un altro agente
@@ -779,6 +783,11 @@ su Codex.
 - **WHEN** la persona risponde
 - **THEN** la riga SHALL passare a risposta con `answerRelay: queued`
 - **AND** il modello SHALL ricevere la domanda citata con la risposta appena il turno finisce, una volta sola
+
+#### Scenario: la persona scrive dopo aver risposto
+- **GIVEN** una risposta in coda dietro un turno della macchina in volo
+- **WHEN** la persona scrive un messaggio nuovo e il turno finisce
+- **THEN** il modello SHALL leggere la risposta prima del messaggio nuovo, una volta sola
 
 #### Scenario: la vecchia domanda e quella nuova
 - **GIVEN** una domanda A il cui processo non c'e' piu', e un turno nuovo fermo sulla domanda B
