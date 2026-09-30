@@ -96,6 +96,9 @@ function openTopicFromPalette(topic: Topic, onOpenTopic: (id: string) => void, o
   afterNextPaint(() => onOpenTopic(topic.id));
 }
 
+/** The palette's height on desktop, whatever it shows: see the panel below. */
+const PALETTE_HEIGHT = 'min(76vh, 600px)';
+
 function getProjectDescription(projectPath: string): string {
   const parts = projectPath.split('/').filter(Boolean);
   if (parts.length === 0) return projectPath;
@@ -627,11 +630,13 @@ export function CommandPalette({
     if (!isMobile) inputRef.current?.focus();
   }, [isMobile]);
 
-  // Scroll selected into view
+  // Keep the selected row in view. On the list too, not only on the index: a
+  // keystroke resets the selection to 0, and when it already was 0 a column
+  // scrolled down with the trackpad kept the selected row out of sight.
   useEffect(() => {
     const el = listRef.current?.querySelector(`[data-cmd-idx="${selectedIndex}"]`);
     el?.scrollIntoView({ block: 'nearest' });
-  }, [selectedIndex]);
+  }, [selectedIndex, allItems]);
 
   if (!isOpen) return null;
 
@@ -680,7 +685,11 @@ export function CommandPalette({
           ? MODAL_PAGE_PANEL
           : `relative w-full max-w-4xl mx-4 flex flex-col ${MODAL_PANEL}`}
         onClick={e => e.stopPropagation()}
-        style={isMobile ? MODAL_PAGE_INSET : { maxHeight: '76vh' }}
+        // A FIXED height, not a ceiling: sized by its content, the card grew
+        // and shrank on every keystroke as the results changed, and the footer
+        // and the rows under the pointer jumped with it. Fixed-size palettes
+        // (Raycast, Linear) keep the box still and scroll the results inside.
+        style={isMobile ? MODAL_PAGE_INSET : { height: PALETTE_HEIGHT }}
       >
         {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-app-border flex-shrink-0">

@@ -853,4 +853,60 @@ test.describe("Command Palette", () => {
     expect(r.shellAtHistory, `the history request leaves before the pane renders, not from its mount effect (at ${ms(r.historyAt)})`).toBe(false);
   });
 
+  test("PALETTE-18: the palette keeps one size while typing, and the selected row stays in view", async ({
+    commandPalettePage,
+    page,
+    request,
+  }) => {
+    test.info().annotations.push({ type: "spec", description: "CMD-01" });
+    // The card was sized by its content up to 76vh: every keystroke that
+    // changed the results resized it, and the footer and the rows under the
+    // pointer jumped with it. A fixed box scrolls its results inside.
+    const prefix = `E2E-PalBox-${TS}`;
+    for (let i = 0; i < 24; i++) {
+      const t = await createTopic(request, `${prefix}-${String(i).padStart(2, "0")}${i < 3 ? "x" : ""}`);
+      topicIds.push(t.id);
+    }
+    await goToApp(page);
+    await commandPalettePage.open();
+    // The card: the dialog's second child, after the veil.
+    const panel = commandPalettePage.overlay.locator(":scope > div").nth(1);
+    const height = () => panel.evaluate((el) => new Promise<number>((res) => requestAnimationFrame(() => res(Math.round(el.getBoundingClientRect().height)))));
+    const heights: Record<string, number> = { "": await height() };
+    // Empty query, then more and more of the name: from the two empty-state
+    // columns to 24 results, to 3, to 1, to none.
+    for (const q of ["E2E-Pal", prefix, `${prefix}-0`, `${prefix}-00`, `${prefix}-00x`, `${prefix}-00xq`]) {
+      await commandPalettePage.searchInput.fill(q);
+      await expect(commandPalettePage.searchInput).toHaveValue(q);
+      heights[q] = await height();
+    }
+    expect(new Set(Object.values(heights)).size, `one height for every query: ${JSON.stringify(heights)}`).toBe(1);
+
+    // Down past the fold: the selected row follows into view.
+    await commandPalettePage.searchInput.fill(prefix);
+    const selected = commandPalettePage.overlay.locator('[role="option"][aria-selected="true"]');
+    await expect(selected).toContainText(`${prefix}-`);
+    const inView = () => selected.evaluate((el) => {
+      let box: Element | null = el.parentElement;
+      while (box && !/(auto|scroll)/.test(getComputedStyle(box).overflowY)) box = box.parentElement;
+      const r = el.getBoundingClientRect();
+      const b = (box ?? document.documentElement).getBoundingClientRect();
+      return r.top >= b.top - 1 && r.bottom <= b.bottom + 1;
+    });
+    for (let i = 0; i < 20; i++) await page.keyboard.press("ArrowDown");
+    await expect(selected).toHaveAttribute("data-cmd-idx", "20");
+    expect(await inView(), "after 20 x ArrowDown the selected row is in view").toBe(true);
+
+    // Back on the first row, the results scrolled down by the trackpad (the
+    // pointer has not moved, so it takes no selection), then one keystroke:
+    // the selection is the first row, and the first row is on screen.
+    for (let i = 0; i < 20; i++) await page.keyboard.press("ArrowUp");
+    await expect(selected).toHaveAttribute("data-cmd-idx", "0");
+    await commandPalettePage.overlay.locator('section[role="listbox"]').evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    expect(await inView(), "scrolled down, the first row is out of view").toBe(false);
+    await page.keyboard.type("-");
+    await expect(commandPalettePage.searchInput).toHaveValue(`${prefix}-`);
+    await expect(selected).toHaveAttribute("data-cmd-idx", "0");
+    await expect.poll(inView, { message: "after a keystroke the selected first row is in view" }).toBe(true);
+  });
 });
