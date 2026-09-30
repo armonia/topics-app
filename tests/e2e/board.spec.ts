@@ -925,6 +925,21 @@ test.describe("Kanban board", () => {
     await expect(backlog.getByText(testo)).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("board-drop-notice")).toHaveCount(0);
 
+    // The wide carousel scrolls SMOOTHLY even under reduced motion, which this
+    // suite always asks for. dnd-kit scrolls the row while a card nears its
+    // edge, and with `snap-mandatory` an instant scroll moves a whole column
+    // under a pointer that has not moved: the drop below landed in Done on
+    // Chromium when a global reduced-motion rule forced `scroll-behavior:
+    // auto` on every element. WebKit's drop survives the instant scroll, so
+    // the property is read here too, where every engine sees it.
+    expect(
+      await page.evaluate(() => {
+        const row = document.querySelector<HTMLElement>(".snap-x.overflow-x-auto");
+        return row ? getComputedStyle(row).scrollBehavior : "no carousel";
+      }),
+      "the board carousel keeps its smooth scroll under reduced motion",
+    ).toBe("smooth");
+
     await dragCard(page, task.id, '[data-testid="kanban-column-body-in_progress"]');
 
     // 1) The card is in Todo, not in In Progress. The server is the source.
