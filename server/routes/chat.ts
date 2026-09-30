@@ -20,7 +20,7 @@ import { join } from "path";
 import type { AppContext, ContentBlock, RouteHandler, ToolCall, Topic } from "../types";
 import { repeatedRowMarks, userRowMarks } from "../lib/user-row-marks";
 import { startSsePing } from "../lib/sse-ping";
-import { getProvider, resolveTurnAlive, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
+import { getProvider, type AIProvider, type ChatMessage, type ProviderDoneMessage, type ProviderUsage, type StreamHandler } from "../providers";
 import { hasPendingAsk } from "../lib/ask-user-bridge";
 import { recentActiveRows } from "../lib/ask-answer-routing";
 import { askerStillThere, openQuestionsOnRows } from "../lib/question-outlives-asker";
@@ -216,18 +216,22 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
    * answering. That message is the person's choice, and the standard's third
    * way to end a question: the panel is closed as `superseded`, and it says so
    * in plain words instead of inviting a click that would now arrive AFTER a
-   * newer request. A question whose asker is still there (a live ask, a child
-   * still running) is left alone: the composer answers those.
+   * newer request. A question whose asker may still be there (a live ask, no
+   * `askerGone` mark) is left alone: the composer answers those.
+   *
+   * Only a message a PERSON sent: the caller skips the goal nudge, the
+   * dispatcher's envelope, a command's wake and a resume, which would
+   * otherwise close a person's question under the words "you sent a new
+   * message instead".
    */
   function supersedeOpenQuestions(sessionKey: string, topicId: string | undefined): void {
     let open: ReturnType<typeof openQuestionsOnRows> = [];
     try { open = openQuestionsOnRows(recentActiveRows(ctx, sessionKey), decodeCol); } catch { return; }
     if (open.length === 0) return;
-    const turnAlive = resolveTurnAlive(sessionKey);
     const pendingAsk = hasPendingAsk(sessionKey);
     const endedAt = Date.now();
     for (const { rowId, call } of open) {
-      if (askerStillThere({ pendingAsk, call, streaming: false, turnAlive })) continue;
+      if (askerStillThere({ pendingAsk, call })) continue;
       const error = "Superseded: a new message was sent instead of an answer";
       updateToolCallFields(sessionKey, call.id, { status: "error", askEnded: "superseded", error, endedAt }, { rowId });
       broadcastToAll({
@@ -534,6 +538,8 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
        */
       const isWoken = body.mode === "woken";
       const adottaTurnoVivo = isReattach || isWoken;
+      // Typed by a person, not produced by the machine (goal nudge, dispatch, wake, resume).
+      const sentByPerson = !isWoken && !isReattach && !dispatched && !body.goalNudge && !body.processExit && !resumeAttempt;
 
       if (!messages || !Array.isArray(messages) || (messages.length === 0 && !adottaTurnoVivo)) {
         return json({ error: "messages array required" }, 400);
@@ -619,7 +625,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // for hours and still show its row from a day-old rename.
           bumpTopicActivity(matchedTopic);
         }
-        supersedeOpenQuestions(sessionKey, matchedTopic?.id);
+        if (sentByPerson) supersedeOpenQuestions(sessionKey, matchedTopic?.id);
 
         // THE AUTOMATIC CHECKPOINT, and this is the only moment it can be taken.
         //
@@ -2436,7 +2442,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
                 // and the plan approval is kept out of it on purpose above.
                 pendingAsk: askingPlanApproval || interrupted.length > 0,
                 ...backgroundOfTurn(topicProvider, sessionKey, commandWakeState(sessionKey, body.processExit?.processId)), // a wake's turn skips its own: see commandWakeState
-                fromHuman: !isWoken && !isReattach && !dispatched && !body.goalNudge && !body.processExit && !resumeAttempt,
+                fromHuman: sentByPerson,
                 woken: isWoken || !!body.processExit, // a command's wake is news, like the CLI's own
                 usedTools: toolsStartedThisTurn > 0,
                 lastAssistantText: fullContent,

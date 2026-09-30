@@ -1,10 +1,10 @@
 /**
  * A QUESTION WAITS FOR ITS HUMAN, like it does in Claude Code (29/09).
  *
- * "Vedi anche la gestione delle domande da parte di un topic, perché sembra
- * possa scadere. Non ha senso." A question asked by a topic used to end on a
- * clock (the 24-hour TTL of the rendez-vous), with the process that asked it
- * (a restart, a dead child: the row was closed as "Interrotto"), and with
+ * "Look at how a topic handles questions too: it looks like one can expire.
+ * That makes no sense." A question asked by a topic used to end on a clock
+ * (the 24-hour TTL of the rendez-vous), with the process that asked it (a
+ * restart, a dead child: the row was closed as interrupted), and with
  * whatever killer ran over its turn. Here each of those, against the real
  * routes on a real database:
  *
@@ -23,7 +23,7 @@
  * @covers ASK-11
  * @covers HOLD-01
  */
-import { describe, test, expect, beforeAll, afterAll, afterEach, setSystemTime } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, afterEach, setSystemTime, jest } from "bun:test";
 import { cleanupTestDataDir, setupTestDataDir, createTestAppContext, testTmpDir } from "./helpers";
 import type { AppContext, Topic, ToolCall } from "../../server/types";
 import type { AIProvider, StreamHandler } from "../../server/providers/types";
@@ -32,7 +32,7 @@ import { createChatRouter } from "../../server/routes/chat";
 import { decodeCol } from "../../shared/message-blob";
 import { createPermissionRouter } from "../../server/routes/permission";
 import {
-  beginAsk, endAsk, hasPendingAsk, pendingAskVerdict, _dropAskStateLikeARestart,
+  beginAsk, endAsk, hasPendingAsk, pendingAskVerdict, _dropAskStateLikeARestart, ASK_BUFFER_TTL_MS,
 } from "../../server/lib/ask-user-bridge";
 import { isHumanHold } from "../../server/lib/human-hold";
 import { finalizeOrphanedRunningTools } from "../../server/lib/boot-orphan-tools";
@@ -142,11 +142,11 @@ function chatRouter() {
 }
 
 /** A message into the real chat route, the way the composer (or the server) sends one. */
-async function postChat(chat: ReturnType<typeof chatRouter>, sessionKey: string, content: string): Promise<number> {
+async function postChat(chat: ReturnType<typeof chatRouter>, sessionKey: string, content: string, extra: Record<string, unknown> = {}): Promise<number> {
   const url = new URL("http://topics.test/api/chat");
   const resp = await chat(new Request(url.toString(), {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }] }),
+    body: JSON.stringify({ sessionKey, messages: [{ role: "user", content }], ...extra }),
   }), url, "/api/chat", "POST");
   resp?.body?.cancel().catch(() => {});
   // Close the turn the way the model would, so the next send is not a 409.
@@ -184,8 +184,8 @@ function bootServer() {
     answer: (sessionKey: string, toolCallId: string, choice: string) => call(topics, "/api/chat/tool-response", {
       sessionKey, toolCallId, response: { kind: "questions", answers: { [QUESTION]: choice } },
     }),
-    /** A message typed in the composer. */
-    send: (sessionKey: string, content: string) => postChat(chat, sessionKey, content),
+    /** A message typed in the composer, or (with `extra`) one the machine sends. */
+    send: (sessionKey: string, content: string, extra?: Record<string, unknown>) => postChat(chat, sessionKey, content, extra),
   };
 }
 
@@ -259,7 +259,7 @@ describe("a question survives the process that asked it", () => {
     expect(received).toHaveLength(1);
     expect(received[0]!.message).toContain(`> ${QUESTION}`);
     expect(received[0]!.message).toContain("main");
-    // And the panel shows it answered, not "Interrotto".
+    // And the panel shows it answered, not interrupted.
     const after = storedCall(rowId, toolCallId);
     expect(after?.status).toBe("success");
     expect(after?.userResponse).toMatchObject({ kind: "questions", answers: { [QUESTION]: "main" } });
@@ -284,6 +284,61 @@ describe("a question survives the process that asked it", () => {
     const after = bootServer();
     expect((await after.leg(sk)).body).toEqual({ answers: { [QUESTION]: "next" } });
     expect(after.lateMessages).toEqual([]);
+  });
+
+  test("restart with the asker alive: an answer given before the child's first leg after boot is its tool result", async () => {
+    const sk = "topic:q-restart-window";
+    const toolCallId = "toolu_q_window";
+    const rowId = askOnRow(sk, toolCallId);
+    const before = bootServer();
+    expect((await before.leg(sk)).body).toEqual({ pending: true });
+
+    // THE RESTART with the child alive in the broker: the rendez-vous AND the
+    // stream map are empty (the reattach has not run yet), and the boot spares
+    // the live session, so nothing marks the question gone.
+    _dropAskStateLikeARestart();
+    ctx.activeStreams.delete(sk);
+    finalizeOrphanedRunningTools(ctx.db, new Set([sk]));
+    const after = bootServer();
+    expect(storedCall(rowId, toolCallId)?.askerGone).toBeUndefined();
+
+    // The person clicks inside the bridge's backoff, before the next leg. It
+    // used to be read as "asker gone": the answer went out as a message, the
+    // row was closed, and every later leg of the live child got
+    // `{pending:true}` forever.
+    jest.useFakeTimers();
+    try {
+      const answered = await after.answer(sk, toolCallId, "next");
+      expect(answered.status).toBe(200);
+      expect(answered.body.deliveredAs).toBeUndefined();
+      expect((await after.leg(sk)).body).toEqual({ answers: { [QUESTION]: "next" } });
+      jest.advanceTimersByTime(ASK_BUFFER_TTL_MS + 1000);
+    } finally {
+      jest.useRealTimers();
+    }
+    expect(after.lateMessages).toEqual([]);
+    expect(hasPendingAsk(sk)).toBe(false);
+  });
+
+  test("an answer a leg collects off the row is not sent again when the buffer's TTL runs out", async () => {
+    const sk = "topic:q-no-duplicate";
+    const toolCallId = "toolu_q_no_dup";
+    askOnRow(sk, toolCallId);
+    const server = bootServer();
+    expect((await server.leg(sk)).body).toEqual({ pending: true });
+    // Answered between two legs (no waiter registered): buffered AND recorded
+    // on the row. The next leg collects it from the row; the buffer used to
+    // stay armed and, two minutes later, sent the same answer to the model as
+    // a message the person never typed.
+    jest.useFakeTimers();
+    try {
+      expect((await server.answer(sk, toolCallId, "next")).body.deliveredAs).toBeUndefined();
+      expect((await server.leg(sk)).body).toEqual({ answers: { [QUESTION]: "next" } });
+      jest.advanceTimersByTime(ASK_BUFFER_TTL_MS + 1000);
+    } finally {
+      jest.useRealTimers();
+    }
+    expect(server.lateMessages).toEqual([]);
   });
 });
 
@@ -452,5 +507,20 @@ describe("a question ends only because of a person, and says why", () => {
     const ended = storedCall(rowId, toolCallId);
     expect(ended?.status).toBe("error");
     expect(ended?.askEnded).toBe("superseded");
+  });
+
+  test("a message the machine sends does not supersede a person's question", async () => {
+    const sk = "topic:q-machine-message";
+    const toolCallId = "toolu_q_machine";
+    const rowId = askOnRow(sk, toolCallId, { finalize: true });
+    finalizeOrphanedRunningTools(ctx.db, new Set());
+    const server = bootServer();
+    // The goal loop's nudge, and the dispatcher relaunching an agent after a
+    // restart: neither is the person choosing not to answer.
+    expect(await server.send(sk, "Objective still open: carry on.", { goalNudge: 1 })).toBe(200);
+    expect(await server.send(sk, "Resume the task.", { dispatched: true })).toBe(200);
+    const kept = storedCall(rowId, toolCallId);
+    expect(kept?.status).toBe("waiting_for_input");
+    expect(kept?.askEnded).toBeUndefined();
   });
 });

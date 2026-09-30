@@ -1,5 +1,5 @@
 import type { AppContext, RouteHandler } from "../types";
-import { waitForAnswer, beginAsk, endAsk, deliverAnswer, AskWaitError, ASK_LEG_MS } from "../lib/ask-user-bridge";
+import { waitForAnswer, beginAsk, endAsk, deliverAnswer, forgetBufferedAnswer, AskWaitError, ASK_LEG_MS } from "../lib/ask-user-bridge";
 import { answerRecordedOnRow } from "../lib/question-outlives-asker";
 import { createTaskService } from "../services/tasks";
 import { routeAskToTaskThread, clearRoutedAsk, closeRoutedAsk, ENDED_LINE } from "../services/board-ask-routing";
@@ -169,6 +169,10 @@ export function createPermissionRouter(ctx: AppContext, options: PermissionRoute
           try { rows = recentActiveRows(ctx, sk); } catch { /* no rows readable: wait as usual */ }
           const recorded = answerRecordedOnRow(rows, body.questions as unknown[], decodeCol);
           if (recorded) {
+            // The same answer may also sit in the buffer (given between two
+            // legs, no restart): this leg is its delivery, so the buffer must
+            // not hand it on again once its TTL runs out.
+            forgetBufferedAnswer(sk);
             endAsk(sk);
             return json({ answers: recorded });
           }

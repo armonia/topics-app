@@ -10,7 +10,7 @@ hermetic(test);
 
 /**
  * A QUESTION WAITS FOR ITS PERSON, across a reload and across the death of the
- * process that asked it (29/09: "sembra possa scadere. Non ha senso").
+ * process that asked it (29/09: "it looks like it can expire. That makes no sense").
  *
  * Two ways the answer reaches the model, both driven through the real server:
  *

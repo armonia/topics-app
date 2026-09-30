@@ -39,15 +39,15 @@ describe("answerAsNextMessage", () => {
 });
 
 describe("askerStillThere", () => {
-  test("an open ask is the asker; a call marked gone is nobody, whatever runs on the session", () => {
-    expect(askerStillThere({ pendingAsk: true, call: null, streaming: false, turnAlive: null })).toBe(true);
-    expect(askerStillThere({ pendingAsk: false, call: { askerGone: true }, streaming: true, turnAlive: true })).toBe(false);
+  test("an open ask is the asker; a call marked gone is nobody", () => {
+    expect(askerStillThere({ pendingAsk: true, call: null })).toBe(true);
+    expect(askerStillThere({ pendingAsk: true, call: { askerGone: true } })).toBe(true);
+    expect(askerStillThere({ pendingAsk: false, call: { askerGone: true } })).toBe(false);
   });
 
-  test("a live turn is given the benefit of the doubt: its child polls again after a restart", () => {
-    expect(askerStillThere({ pendingAsk: false, call: {}, streaming: false, turnAlive: true })).toBe(true);
-    expect(askerStillThere({ pendingAsk: false, call: {}, streaming: true, turnAlive: null })).toBe(true);
-    expect(askerStillThere({ pendingAsk: false, call: {}, streaming: false, turnAlive: null })).toBe(false);
+  test("with no mark the asker may still come back: a child that survived a restart polls again", () => {
+    expect(askerStillThere({ pendingAsk: false, call: {} })).toBe(true);
+    expect(askerStillThere({ pendingAsk: false, call: null })).toBe(true);
   });
 });
 

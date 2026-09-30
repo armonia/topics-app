@@ -317,6 +317,19 @@ export function deliverAnswer(
 }
 
 /**
+ * Drop the buffered answer of this session WITHOUT handing it on: a leg just
+ * collected the same answer another way (off the row, `routes/permission.ts`).
+ * Left armed, the buffer outlived that leg and, two minutes later, sent the
+ * answer to the model a second time as a message nobody typed.
+ */
+export function forgetBufferedAnswer(sessionKey: string): void {
+  const buf = buffered.get(sessionKey);
+  if (!buf) return;
+  clearTimeout(buf.timer);
+  buffered.delete(sessionKey);
+}
+
+/**
  * True when a question is ON SCREEN for this session and still unanswered.
  *
  * Deliberately reads `activeAsks`, not `waiters`: a polling bridge has no

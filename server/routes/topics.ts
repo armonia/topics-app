@@ -7,7 +7,7 @@ import { join, resolve, dirname } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
 import type { AppContext, RouteHandler, Topic, ToolCall } from "../types";
-import { getProvider, getDefaultProvider, getDefaultProviderName, resolveTurnAlive, type AIProvider } from "../providers";
+import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
 import { backgroundStatusRows, stopBackgroundOnly, type StreamingStatusRow } from "../providers/background-probes";
 import { createTopicProviderResolver } from "../providers/topic-provider-resolver";
 import { getSnapshotManager } from "../providers/snapshot-manager";
@@ -2742,20 +2742,15 @@ export function createTopicsRouter(
           });
           void sendAnswerAsMessage(sessionKey, answerAsNextMessage(questionTexts(asked), late));
         };
-        const askerThere = askerStillThere({
-          pendingAsk: liveAsk,
-          call: asked,
-          streaming: Boolean(ctx.isStreaming?.(sessionKey)),
-          turnAlive: resolveTurnAlive(sessionKey),
-        });
-        if (!askerThere) {
+        if (!askerStillThere({ pendingAsk: liveAsk, call: asked })) {
           deliverAsMessage(answers);
           return json({ ok: true, submittedAt, deliveredAs: 'message' });
         }
         // Unblock the bridge handler → it returns the answers as its tool
         // result → the CLI resumes the turn. If no leg ever claims it (the
-        // asker died between the check above and now), the buffer hands it to
-        // the delivery as a message instead of dropping it.
+        // asker is gone and nobody marked it, or died after the check above),
+        // the buffer hands it to the delivery as a message instead of
+        // dropping it.
         deliverAnswer(sessionKey, answers, { onUnclaimed: deliverAsMessage });
         // Forget the provider's pending entry so a reattach REPLAY won't
         // re-open the panel for an already-answered question. We intentionally

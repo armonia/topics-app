@@ -39,10 +39,10 @@ type Row = { id: string; tool_calls: string | null; blocks: string | null };
 /** The resume sweep's notice: written after the turn, carries no tool. */
 const NOTICE: Row = { id: "notice-row", tool_calls: null, blocks: JSON.stringify([{ kind: "error", text: "Ripresa automatica sospesa" }]) };
 
-const toolRow = (toolCallId: string, name: string): Row => ({
+const toolRow = (toolCallId: string, name: string, extra: Record<string, unknown> = {}): Row => ({
   id: "turn-row",
   tool_calls: null,
-  blocks: JSON.stringify([{ kind: "tool", toolCall: { id: toolCallId, name, status: "waiting_for_input" } }]),
+  blocks: JSON.stringify([{ kind: "tool", toolCall: { id: toolCallId, name, status: "waiting_for_input", ...extra } }]),
 });
 
 interface Write { toolCallId: string; status: unknown; opts?: { rowId?: string } }
@@ -91,11 +91,11 @@ const NATIVE_ANSWER = { kind: "questions", answers: { "Quale ramo?": "sito" } };
 
 describe("POST /api/chat/tool-response: the answer goes where the question is", () => {
   test("a question under a newer notice gets its answer on its own row, not on the notice", async () => {
-    // The turn that asked was closed by the watchdog: nobody polls for this
-    // question any more, so the answer is recorded on the question's row and
-    // goes to the model as the next message.
+    // The turn that asked was closed by the watchdog, which marked the question
+    // `askerGone`: nobody polls for it any more, so the answer is recorded on
+    // the question's row and goes to the model as the next message.
     const sk = "topic:answer-row";
-    const h = harness([NOTICE, toolRow("toolu_ask", "mcp__topics__ask_user_question")]);
+    const h = harness([NOTICE, toolRow("toolu_ask", "mcp__topics__ask_user_question", { askerGone: true })]);
     try {
       const resp = await h.answer(sk, "toolu_ask", NATIVE_ANSWER);
       expect(resp.status).toBe(200);

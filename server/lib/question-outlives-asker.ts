@@ -5,7 +5,7 @@
  * the process that asked it. That process can go away while the person is still
  * reading: the server restarts under a native turn (which runs inside it), a
  * CLI child dies, the turn is closed by a sweep. Until 29/09 each of those
- * ended the question too: the panel turned into "Interrotto" or, worse, stayed
+ * ended the question too: the panel turned into "interrupted" or, worse, stayed
  * clickable and swallowed the click (the answer was buffered for 30 seconds for
  * a leg that never came, and then dropped).
  *
@@ -67,26 +67,25 @@ function parseArray(json: string | null | undefined): unknown[] {
 }
 
 /**
- * Is anybody still blocked on this question, able to take the answer as its
- * tool result?
+ * May the asker still take the answer as its tool result?
  *
- *   - an open ask in the rendez-vous: a leg is (or was a moment ago) waiting;
- *   - otherwise, a live turn for the session that has not been declared gone
- *     for this question: a CLI child that survived a server restart polls again
- *     within one leg, and its answer is buffered for it.
+ * Only a question marked `askerGone` has nobody: that mark is written by
+ * whoever SAW the asker end (endStream, the boot sweep, the stale sweep on a
+ * dead child), so it holds whatever else runs on the session. An open ask in
+ * the rendez-vous outranks it: a leg is (or was a moment ago) waiting.
  *
- * A question marked `askerGone` has nobody by definition, whatever else is
- * running on the session: that mark is written by whoever saw the asker end.
+ * Everything else is answered through the buffer, including the case nobody in
+ * memory can vouch for: a restart left a CLI child alive in the broker, its
+ * next leg has not landed yet (the bridge backs off up to 5 s) and the reattach
+ * has not reopened the stream. Reading "no stream, no live turn" there as
+ * "gone" sent the answer as a message, closed the row, and left the surviving
+ * child polling `{pending:true}` forever. The buffer's TTL still hands the
+ * answer on as a message if no leg ever comes, so a real absence costs a
+ * delay, never the answer.
  */
-export function askerStillThere(opts: {
-  pendingAsk: boolean;
-  call: StoredQuestionCall | null;
-  streaming: boolean;
-  turnAlive: boolean | null;
-}): boolean {
+export function askerStillThere(opts: { pendingAsk: boolean; call: StoredQuestionCall | null }): boolean {
   if (opts.pendingAsk) return true;
-  if (opts.call?.askerGone === true) return false;
-  return opts.streaming || opts.turnAlive === true;
+  return opts.call?.askerGone !== true;
 }
 
 /**
