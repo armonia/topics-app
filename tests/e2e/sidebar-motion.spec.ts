@@ -391,18 +391,38 @@ test.describe("Sidebar motion contract", () => {
     test("Add, then Chat, with the list showing: the drawer gets out of the way", async ({ page }) => {
       await openPhone(page);
       await page.getByRole("button", { name: /^(Aggiungi|Add)$/ }).first().tap();
+      // Judged on the FIRST frame the drawer is off screen, sampled in the page:
+      // that is the moment the user sees the draft and reaches for it. A poll
+      // from the test lands on whichever frame it happens to hit, and the scrim
+      // used to stay a tap target for the last frames of its fade, after the
+      // drawer had gone: a poll landing there failed, one landing later passed.
+      await page.evaluate(() => {
+        const w = window as unknown as { __drawerGone: string | null };
+        w.__drawerGone = null;
+        const t0 = performance.now();
+        const tick = () => {
+          const nav = document.querySelector('[aria-label="Topics sidebar"]') as HTMLElement;
+          if (Math.round(nav.getBoundingClientRect().right) <= 0) {
+            const composer = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="chat-input-area"] textarea'))
+              .find((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+            if (!composer) { w.__drawerGone = "no composer on screen"; return; }
+            const r = composer.getBoundingClientRect();
+            const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+            w.__drawerGone = hit === composer ? "composer"
+              : hit ? `${hit.tagName.toLowerCase()}${hit.hasAttribute("data-sidebar-scrim") ? "[data-sidebar-scrim]" : ""}.${String(hit.className).slice(0, 60)}` : "nothing";
+            return;
+          }
+          if (performance.now() - t0 < 10_000) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
       await page.getByTestId("pane-add-menu-new-chat").first().tap();
-      await expect.poll(
-        () => page.locator(SIDEBAR).evaluate((el) => Math.round(el.getBoundingClientRect().right)),
-        { message: "the drawer closes over the new draft", timeout: 5_000 },
-      ).toBeLessThanOrEqual(0);
+      const drawerGone = () => page.evaluate(() => (window as unknown as { __drawerGone: string | null }).__drawerGone);
+      await expect.poll(drawerGone, { message: "the drawer closes over the new draft", timeout: 5_000 }).not.toBeNull();
+      const underFinger = await drawerGone();
+      expect(underFinger, "the draft's composer is the thing under the finger as soon as the drawer is gone").toBe("composer");
       const textarea = page.locator('[data-testid="chat-input-area"] textarea').filter({ visible: true }).first();
       await expect(textarea).toBeVisible();
-      const onTop = await textarea.evaluate((el) => {
-        const r = el.getBoundingClientRect();
-        return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === el;
-      });
-      expect(onTop, "the draft's composer is the thing under the finger").toBe(true);
       await textarea.tap();
     });
   });
