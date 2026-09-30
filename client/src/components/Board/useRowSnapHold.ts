@@ -20,11 +20,16 @@
  *
  * With the snap held, a width change keeps `scrollLeft` and the auto-scroll
  * moves the row by the pixels it asks for. The snap comes back at the next
- * SCROLL gesture on the row (wheel or touch), where a re-snap is the carousel
- * doing its job under a hand that is already scrolling. A drop never gives it
- * back: re-enabling it there would re-snap the row under the card that just
- * landed, and a click never does, because a re-snap under a pointer that is
- * about to press a card would move the card.
+ * SCROLL gesture on the row (a wheel, or a finger that MOVES on it), where a
+ * re-snap is the carousel doing its job under a hand that is already
+ * scrolling. A drop never gives it back: re-enabling it there would re-snap
+ * the row under the card that just landed, and a click never does, because a
+ * re-snap under a pointer that is about to press a card would move the card.
+ *
+ * A tap is a click too, which is why the finger counts at `touchmove` and not
+ * at `touchstart`: every tap starts with a `touchstart`, and releasing there
+ * re-snapped the row under the finger on the first tap after a drag (measured
+ * on the WebKit phone viewport: held at 343, one tap, the row jumped to 253).
  */
 import { useCallback, useEffect, useState, type RefObject } from 'react';
 
@@ -44,10 +49,10 @@ export function useRowSnapHold(rowRef: RefObject<HTMLElement | null>): RowSnapHo
     if (!held || !row) return;
     const release = () => setHeld(false);
     row.addEventListener('wheel', release, { passive: true, once: true });
-    row.addEventListener('touchstart', release, { passive: true, once: true });
+    row.addEventListener('touchmove', release, { passive: true, once: true });
     return () => {
       row.removeEventListener('wheel', release);
-      row.removeEventListener('touchstart', release);
+      row.removeEventListener('touchmove', release);
     };
   }, [held, rowRef]);
 

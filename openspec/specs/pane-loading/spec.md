@@ -51,7 +51,16 @@ reflow of the cards under a drag SHALL run on `MOTION.base` with the standard
 curve, and SHALL NOT run under reduced motion.
 While a card is in hand the columns row SHALL NOT snap: the auto-scroll near its
 edge SHALL move the row by pixels, never a column at a time, and the drop SHALL
-land on the column under the pointer.
+land on the column under the pointer. The snap SHALL come back at the next
+scroll gesture on the row, and a tap SHALL NOT count as one: on the phone every
+tap begins with a touch, and a row re-snapping under that finger moves the card
+it is about to press.
+
+#### Scenario: the first tap after a drag on the phone does not move the row
+- **GIVEN** the phone's columns carousel, its snap held by a drag that left the row between two columns
+- **WHEN** a finger taps the row without moving
+- **THEN** the row SHALL stay where it is
+- **AND** when a finger then moves on the row, the snap SHALL come back
 
 #### Scenario: a card held over In progress at the row's edge
 - **GIVEN** a Todo card in hand, resting over In progress inside the auto-scroll band at the row's right edge, under reduced motion and with the row's scroll instant
