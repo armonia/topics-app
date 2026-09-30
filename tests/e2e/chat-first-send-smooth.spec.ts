@@ -255,6 +255,18 @@ function easeAt(bezier: string, x: number): number {
   return b((lo + hi) / 2, y1, y2);
 }
 
+/**
+ * Did this frame's rendering begin after the key? Read on the frame's own
+ * timeline time, not on its sample's: the sample is a task posted from the
+ * frame, and a long task queued before it (the key's own handler, under load)
+ * delays it past the key, so a frame painted BEFORE the key was counted as the
+ * first one after it, with the key's DOM changes read into it (measured 30/09:
+ * a frame begun at 980 ms sampled at 1021 ms, the key between the two).
+ */
+function startedAfter(f: Frame, enterAt: number): boolean {
+  return (f.ft ?? f.t) > enterAt;
+}
+
 /** Clock rounding the start rule forgives (see `aheadOfTheKey`). */
 const CLOCK_SLACK_MS = 5;
 
@@ -280,7 +292,7 @@ const CLOCK_SLACK_MS = 5;
 function aheadOfTheKey(frames: Frame[], restAt: number, enterAt: number, sendT: number): string[] {
   const out: string[] = [];
   const rest = frames[restAt];
-  const first = frames.findIndex((f, i) => i > restAt && f.t > enterAt);
+  const first = frames.findIndex((f, i) => i > restAt && startedAfter(f, enterAt));
   const finalY = [...frames].reverse().find((f) => f.card)?.card?.y;
   if (!rest?.card || first < 0 || finalY === undefined || frames[first]!.ft === undefined) return ["descent: no frame to judge it on"];
   const ft0 = frames[first]!.ft!;
@@ -716,7 +728,7 @@ test.describe("First send in a new topic", () => {
     // (the topic's creation on the server plus the remount) before it moved.
     expect(enterAt, "the Enter keydown was seen").toBeDefined();
     const restY = frames[sendAt - 1]?.card?.y ?? 0;
-    const afterKey = frames.map((f, i) => ({ f, i })).filter(({ f }) => f.t > enterAt!);
+    const afterKey = frames.map((f, i) => ({ f, i })).filter(({ f }) => startedAfter(f, enterAt!));
     const moved = afterKey.findIndex(({ f }) => f.card !== null && f.card.y - restY > 0.5);
     console.log(`[first-send] descent visible ${moved < 0 ? "never" : `on frame ${moved + 1} after Enter, +${Math.round(afterKey[moved]!.f.t - enterAt!)}ms`}`);
     expect(moved, "the descent starts on the first or second frame after Enter").toBeGreaterThanOrEqual(0);
