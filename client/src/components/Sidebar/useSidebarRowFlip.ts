@@ -106,6 +106,13 @@ function flipPass(column: HTMLElement, state: FlipState, animate: boolean): HTML
       .catch(() => {});
   };
 
+  // TWO PHASES: every read first, then every write. Starting or cancelling an
+  // animation invalidates layout, so interleaving them with the reads (as this
+  // loop used to) forced one full layout of the column PER UNIT: with archived
+  // chats shown (262 rows, ~4500 nodes) one accordion toggle spent 520-590 ms
+  // in getBoundingClientRect. Reading everything against the same, untouched
+  // layout is also what the frame-relative arithmetic below assumes.
+  const moves: { el: HTMLElement; before: Spot | undefined; top: number; ty: number }[] = [];
   for (const el of units) {
     const r = rectOf(el);
     if (r.width === 0 && r.height === 0) continue; // not laid out (display:none)
@@ -119,8 +126,10 @@ function flipPass(column: HTMLElement, state: FlipState, animate: boolean): HTML
       : r.top - origin.top + scrollTop - ty;
     const before = state.spots.get(el);
     state.spots.set(el, { top });
-    if (!animate) continue;
+    if (animate) moves.push({ el, before, top, ty });
+  }
 
+  for (const { el, before, top, ty } of moves) {
     if (!before) {
       // Appeared: fade in on the spot.
       state.running.get(el)?.cancel();
