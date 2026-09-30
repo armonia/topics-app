@@ -34,10 +34,14 @@ function block(opener: string, closer: string): string {
 
 describe("server.ts closes and relights turn rows only through the helpers", () => {
   test("the end of a reattach leg is endReattachLeg on the leg's own chain, with the server's context and the claude-code provider as the broker", () => {
-    const body = block("async function reattachSurvivingChatTurns(", "\n}\n");
+    // The legs are run by `reattachSurvivors`; `reattachSurvivingChatTurns` wraps
+    // it to release the boot holds of the sessions it did not adopt.
+    const body = block("async function reattachSurvivors(", "\n}\n");
     const leg = body.indexOf("runHeadlessReattach(s.id");
     expect(leg, "the reattach leg is gone").toBeGreaterThan(-1);
-    const end = body.indexOf('.finally(() => endReattachLeg(ctx, s.id, tryGetProvider("claude-code")))', leg);
+    const chainEnd = body.indexOf(".finally(", leg);
+    const end = body.indexOf('endReattachLeg(ctx, s.id, tryGetProvider("claude-code"))', chainEnd);
+    expect(chainEnd, "the leg's chain has no finally").toBeGreaterThan(-1);
     expect(end, "the leg's end does not call endReattachLeg(ctx, s.id, the claude-code provider)").toBeGreaterThan(-1);
     expect(end, "endReattachLeg is not on the leg's own chain").toBeLessThan(body.indexOf("continue;", leg));
   });
