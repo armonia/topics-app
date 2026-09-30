@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, renameSync } from "fs";
-import { readdir as readdirAsync, stat as statAsync } from "fs/promises";
+import { readdir as readdirAsync } from "fs/promises";
 import { join, resolve, relative } from "path";
 import type { AppContext, RouteHandler } from "../types";
 import { watchGitDir } from "../git-watcher";
@@ -10,13 +10,12 @@ import { STATUS_ARGS, gitRead, parsePorcelainZ, repoPrefixOf } from "../lib/git-
 import { moveToTrash } from "../lib/trash";
 import { isInsideDir } from "../lib/path-containment";
 import { realPathForNewEntry } from "../lib/real-path";
-import { isTopicsSecretPath } from "../lib/topics-secret-path";
 import { detectScripts, MANIFESTS } from "../lib/project-scripts";
 import { NAME_STATUS_ARGS, SHOW_NUMSTAT_ARGS, COMMIT_META_ARGS, mergeCommitFiles, scopeCommitFiles } from "../lib/git-show";
 import { parseUnifiedDiff, buildPatch, summarizeHunks } from "../lib/git-hunks";
 import { stagedEntries, buildSystemPrompt, buildUserPrompt, rulesFallback, usableMessage } from "../lib/commit-message";
 import { getProvider } from "../providers";
-import { IgnoreSet } from "../lib/gitignore";
+import { HEAVY_DIRS, walkFileTree } from "../lib/file-tree";
 // La cache dello stato git vive in `lib/` e non qui: la riempie questa route,
 // ma a invalidarla è `git-watcher`, e finché la funzione stava in questo file
 // il watcher doveva importare una ROUTE — chiudendo il ciclo
@@ -175,21 +174,6 @@ async function runNetworkGit(
   }
 }
 
-/**
- * Le cartelle che nessuna ricerca deve attraversare: artefatti di build e
- * cache, tutte rigenerabili e tutte enormi.
- *
- * Stava dentro il ramo dell'ALBERO dei file, che la lezione l'aveva imparata;
- * il `grep` di `/api/files/search` no, e su questo repo la differenza è
- * misurata: 198,9 s contro 16,6 s, perche' `desktop-tauri/src-tauri/target/`
- * da solo pesa 10 GB (gitignorati) e vale il 91,6% del tempo. Una lista sola,
- * quindi, e non due che divergono.
- */
-const HEAVY_DIRS = new Set([
-  "node_modules", ".next", "dist", "build", "__pycache__", ".cache", ".turbo",
-  ".vercel", ".output", "coverage", ".nyc_output", ".parcel-cache", "target",
-]);
-
 /** Tetto di durata per una ricerca nei file. Oltre, si tronca e lo si DICE. */
 const SEARCH_TIMEOUT_MS = 15_000;
 
@@ -213,58 +197,10 @@ export function createFilesRouter(ctx: AppContext): RouteHandler {
       if (!existsSync(resolvedPath)) return json({ error: "directory not found" }, 404);
       try { const s = statSync(resolvedPath); if (!s.isDirectory()) return json({ error: "path is not a directory" }, 400); } catch { return json({ error: "cannot stat directory" }, 500); }
 
-      // Le esclusioni «di sempre», indipendenti dal .gitignore: cartelle che
-      // nessuno vuole vedere nell'albero e che costano care da attraversare.
-      const DEFAULT_EXCLUDES = new Set([".git", ".DS_Store"]);
-      const HEAVY_EXCLUDES = HEAVY_DIRS;
-      // Il .gitignore della radice. Le regole vere — ancoraggio, negazioni,
-      // wildcard, match sul path relativo — stanno in `lib/gitignore.ts`.
-      function readIgnore(dir: string, base: string, parent?: IgnoreSet): IgnoreSet {
-        const set = parent ? parent.clone() : new IgnoreSet();
-        try {
-          const f = join(dir, ".gitignore");
-          if (existsSync(f)) set.addFile(readFileSync(f, "utf-8"), base);
-        } catch {}
-        return set;
-      }
-      const rootIgnore = readIgnore(resolvedPath, "");
       // Idempotente, come `watchGitDir` da `/api/git/status`: chiedere l'albero
       // è anche il momento in cui si comincia a osservarlo.
       watchProjectFiles(resolvedPath, ctx);
-
-      interface FileNode { name: string; type: "file" | "dir"; path: string; size?: number; modified?: string; children?: FileNode[]; }
-      // Async walk (fs.promises): the old readdirSync + per-entry statSync ran
-      // inside the request handler and stalled Bun's single event loop for the
-      // whole scan — a large directory (monorepo folder) queued every other
-      // client's requests and WS traffic behind it. Sequential awaits keep the
-      // ordering identical while yielding the loop between syscalls.
-      async function readDirRecursive(dir: string, currentDepth: number, relBase: string, ignore: IgnoreSet): Promise<FileNode[]> {
-        const result: FileNode[] = [];
-        try {
-          const entries = await readdirAsync(dir, { withFileTypes: true });
-          entries.sort((a, b) => { if (a.isDirectory() && !b.isDirectory()) return -1; if (!a.isDirectory() && b.isDirectory()) return 1; return a.name.localeCompare(b.name); });
-          for (const entry of entries) {
-            const rel = relBase ? `${relBase}/${entry.name}` : entry.name;
-            if (DEFAULT_EXCLUDES.has(entry.name) || isTopicsSecretPath(entry.name)) continue;
-            if (entry.isDirectory() && HEAVY_EXCLUDES.has(entry.name)) continue;
-            if (ignore.ignores(rel, entry.isDirectory())) continue;
-            const fullPath = join(dir, entry.name);
-            if (entry.isDirectory()) {
-              const node: FileNode = { name: entry.name, type: "dir", path: fullPath };
-              if (currentDepth < depth) {
-                // Il .gitignore di questa cartella si somma a quelli sopra e
-                // vale solo da qui in giù — come in git.
-                node.children = await readDirRecursive(fullPath, currentDepth + 1, rel, readIgnore(fullPath, rel, ignore));
-              }
-              result.push(node);
-            } else if (entry.isFile()) {
-              try { const stats = await statAsync(fullPath); result.push({ name: entry.name, type: "file", path: fullPath, size: stats.size, modified: stats.mtime.toISOString() }); } catch { result.push({ name: entry.name, type: "file", path: fullPath }); }
-            }
-          }
-        } catch {}
-        return result;
-      }
-      return json(await readDirRecursive(resolvedPath, 1, "", rootIgnore));
+      return json(await walkFileTree(resolvedPath, depth));
     }
 
     // --- File search (grep) ---
