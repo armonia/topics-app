@@ -94,9 +94,20 @@ export function askOnRow(sessionKey: string, toolCallId: string, opts: { finaliz
     // The row as a crash leaves it once the boot's partial sweep has run: final,
     // with the question still `waiting_for_input` and no stream in memory.
     ctx.updateLastMessage(sessionKey, { partial: undefined, streamedAt: undefined }, { rowId: msg.id });
-    ctx.activeStreams.delete(sessionKey);
+    forgetStreamLikeARestart(sessionKey);
   }
   return msg.id;
+}
+
+/**
+ * The turn's stream as a dead process leaves it: gone. A restart starts with an
+ * empty stream map AND an empty turn ledger (`lib/turn-ledger.ts`), so both go:
+ * a ledger still saying "route" would hold the session open for a turn that no
+ * longer exists, and the chat route would refuse the next message with a 409.
+ */
+export function forgetStreamLikeARestart(sessionKey: string): void {
+  ctx.activeStreams.delete(sessionKey);
+  ctx.turnLedger?.set(sessionKey, "route", false);
 }
 
 /** The tool call as stored: the timeline copy first, the column as fallback. */

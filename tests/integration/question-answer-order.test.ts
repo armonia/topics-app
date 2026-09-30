@@ -23,7 +23,7 @@ import { configureNativeHistorySource } from "../../server/providers/native/hist
 import { nativeHistorySource } from "../../server/providers/native/history-source";
 import {
   ctx, handlers, streamEnds, setModelConnected, setProviderRefusal, QUESTION, HOUR, askOnRow, storedCall, bootServer,
-  machineTurnInFlight, until, receivedBy, modelReceived, useQuestionBench,
+  machineTurnInFlight, until, receivedBy, modelReceived, useQuestionBench, forgetStreamLikeARestart,
 } from "./helpers/question-bench";
 
 useQuestionBench("question-answer-order");
@@ -352,7 +352,7 @@ describe("an owed answer is loaded at the next boot whatever the question's age 
     expect(indexOwes(toolCallId)).toBe(1);
     // The process dies: its relay never posts again, its turn is gone.
     server.relay().hold();
-    ctx.activeStreams.delete(sk);
+    forgetStreamLikeARestart(sk);
     _dropAskStateLikeARestart();
     opts.before?.();
     const next = bootServer();

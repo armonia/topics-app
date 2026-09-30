@@ -43,7 +43,7 @@ import { armCodexTurnTimeout } from "../../server/providers/codex";
 import { sessionHasOpenQuestion } from "../../server/lib/question-outlives-asker";
 import {
   ctx, modelReceived, HOUR, QUESTION, QUESTIONS, askOnRow, storedCall, bootServer, machineTurnInFlight, until, receivedBy,
-  useQuestionBench,
+  useQuestionBench, forgetStreamLikeARestart,
 } from "./helpers/question-bench";
 
 useQuestionBench("question-waits");
@@ -142,7 +142,7 @@ describe("a question survives the process that asked it", () => {
     // stream map are empty (the reattach has not run yet), and the boot spares
     // the live session, so nothing marks the question gone.
     _dropAskStateLikeARestart();
-    ctx.activeStreams.delete(sk);
+    forgetStreamLikeARestart(sk);
     finalizeOrphanedRunningTools(ctx.db, new Set([sk]));
     const after = bootServer();
     expect(storedCall(rowId, toolCallId)?.askerGone).toBeUndefined();
@@ -549,7 +549,7 @@ describe("an answer is bound to its own question, from the click to the model", 
     const rowA = askOnRow(sk, "toolu_two_A", { finalize: true });
     const rowB = askOnNewRow(sk, "toolu_two_B", QUESTIONS_B);
     ctx.updateLastMessage(sk, { partial: undefined, streamedAt: undefined }, { rowId: rowB });
-    ctx.activeStreams.delete(sk);
+    forgetStreamLikeARestart(sk);
     finalizeOrphanedRunningTools(ctx.db, new Set());
     const server = bootServer();
     expect(sessionHasOpenQuestion(ctx, sk, decodeCol)).toBe(true);
