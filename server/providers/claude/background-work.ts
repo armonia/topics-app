@@ -75,11 +75,23 @@ interface TaskFacts {
   listed: boolean;
   /** Launched by the Monitor tool: its events wake the CLI with no task line. */
   monitor?: boolean;
+  /** When the tracker first saw it, listed or started: what "running for" counts from. */
+  startedAt?: number;
+  /** Its name as the CLI last gave it: the snapshot drops a task before its `task_notification` names it again. */
+  description?: string;
+}
+
+/** The last background task that reported, as the wake answering it names its source. */
+interface TaskReport {
+  description: string;
+  monitor: boolean;
+  /** The line's arrival, to tell a report of this wake from one an earlier turn already answered. */
+  at: number;
 }
 
 export interface BackgroundWork {
-  /** The last snapshot the CLI printed, `ambient` tasks left out: task id to what it is. */
-  tasks: Map<string, { type: string; description: string }>;
+  /** The last snapshot the CLI printed, `ambient` tasks left out: task id to what it is and since when. */
+  tasks: Map<string, { type: string; description: string; startedAt?: number }>;
   /** When the CLI last printed something about that work. */
   lastSignalAt: number;
   /** Tasks seen starting or listed, until their `task_notification`. */
@@ -98,10 +110,21 @@ export interface BackgroundWork {
   fired: Set<string>;
   /** The CLI started a command (a cron's fire, a peer's message): the next init opens its turn, and is no Monitor's event. */
   commandStarted: boolean;
+  /** The last `task_notification` of the model's own work (`TaskReport`). */
+  lastReport?: TaskReport;
+  /** When the last turn ended (`result`): the wake that follows is answered from here on. */
+  turnEndedAt: number;
+  /** When the CLI last opened a turn (`system/init`). */
+  initAt: number;
+  /** The cwd and session id the CLI reported at its last init: where its own transcript is filed. */
+  cliCwd?: string;
+  cliSessionId?: string;
+  /** The transcript time of the last notification a wake was named after (`wake-source.ts`): the next wake reads past it. */
+  wakeReadUpTo: number;
 }
 
 export function newBackgroundWork(): BackgroundWork {
-  return { tasks: new Map(), lastSignalAt: 0, facts: new Map(), wakeQueuedAt: null, monitorCalls: new Set(), cronCalls: new Set(), crons: new Map(), commands: new Set(), fired: new Set(), commandStarted: false };
+  return { tasks: new Map(), lastSignalAt: 0, facts: new Map(), wakeQueuedAt: null, monitorCalls: new Set(), cronCalls: new Set(), crons: new Map(), commands: new Set(), fired: new Set(), commandStarted: false, turnEndedAt: 0, initAt: 0, wakeReadUpTo: 0 };
 }
 
 /**
@@ -131,10 +154,14 @@ export function noteBackgroundLine(
       // The CLI's own schema: "hosts should exclude them from activity
       // indicators" (dream, auto_mode_scan, fork workers, live watchers).
       if (t.ambient) continue;
-      work.tasks.set(t.id, { type: t.type, description: t.description });
       const f = work.facts.get(t.id);
-      if (f) f.listed = true;
-      else work.facts.set(t.id, { subagent: false, listed: true });
+      // Counted from the first time the task was seen: the CLI re-emits the
+      // whole set on every change, and a Monitor must not restart its clock
+      // each time an agent next to it comes or goes.
+      const startedAt = before.get(t.id)?.startedAt ?? f?.startedAt ?? now;
+      work.tasks.set(t.id, { type: t.type, description: t.description, startedAt });
+      if (f) { f.listed = true; f.startedAt ??= startedAt; if (t.description) f.description = t.description; }
+      else work.facts.set(t.id, { subagent: false, listed: true, startedAt, ...(t.description ? { description: t.description } : {}) });
     }
     // News only when OUR set changed: the CLI also re-emits the snapshot when
     // an ambient entry comes, goes or flips, and that says nothing about a lost
@@ -165,11 +192,16 @@ export function noteBackgroundLine(
   // visible: the fire has just disarmed its one-shot, and a clock ticking in
   // between kills the CLI as it starts the fire (review of 27/09).
   if (e?.type === "command_lifecycle" && e.state === "started" && opts.unattended) work.wakeQueuedAt = now;
+  if (e?.type === "result" && (e as { result?: unknown }).result !== "waiting for message") work.turnEndedAt = now;
   if (e?.type === "system" && typeof e.subtype === "string") {
     const id = typeof e.task_id === "string" ? e.task_id : null;
     if (e.subtype === "init") {
       // A turn of the model starts: whatever was queued is being answered.
       work.wakeQueuedAt = null;
+      work.initAt = now;
+      const init = e as { cwd?: unknown; session_id?: unknown };
+      if (typeof init.cwd === "string" && init.cwd) work.cliCwd = init.cwd;
+      if (typeof init.session_id === "string" && init.session_id) work.cliSessionId = init.session_id;
       const command = work.commandStarted;
       work.commandStarted = false;
       // A wake is news of a listed MONITOR, the one task whose events wake the
@@ -186,14 +218,22 @@ export function noteBackgroundLine(
       const f = work.facts.get(id);
       const toolUseId = typeof e.tool_use_id === "string" ? e.tool_use_id : f?.toolUseId;
       const monitor = !!toolUseId && work.monitorCalls.delete(toolUseId);
-      work.facts.set(id, { toolUseId, subagent: e.owned_by_subagent === true, listed: f?.listed ?? false, monitor: monitor || f?.monitor });
+      const description = typeof (e as { description?: unknown }).description === "string" && (e as { description: string }).description ? (e as { description: string }).description : f?.description;
+      work.facts.set(id, { toolUseId, subagent: e.owned_by_subagent === true, listed: f?.listed ?? false, monitor: monitor || f?.monitor, startedAt: f?.startedAt ?? work.tasks.get(id)?.startedAt ?? now, ...(description ? { description } : {}) });
     }
     if (e.subtype === "task_notification") {
       const f = work.facts.get(id);
       work.facts.delete(id);
       // The model's own background task reported: the CLI wakes to answer it.
       // A foreground Bash reports too, and a subagent's task wakes the subagent.
-      if (f?.listed && !f.subagent) work.wakeQueuedAt = now;
+      if (f?.listed && !f.subagent) {
+        work.wakeQueuedAt = now;
+        // What the wake answering it is about: a Monitor's end (expired, or
+        // its stream closed) is reported here, by name, like a Bash or an Agent.
+        const summary = typeof (e as { summary?: unknown }).summary === "string" ? (e as { summary: string }).summary : "";
+        const description = f.description || work.tasks.get(id)?.description || summary;
+        if (description) work.lastReport = { description, monitor: f.monitor === true, at: now };
+      }
     }
     if (work.tasks.has(id)) work.lastSignalAt = now;
     return;
@@ -263,6 +303,11 @@ function noteCronFired(work: BackgroundWork, command: unknown, state: "queued" |
  */
 export function datedByLastWrite(work: BackgroundWork, lastDataAt: number): void {
   if (lastDataAt < work.lastSignalAt) work.lastSignalAt = lastDataAt;
+  // A task found by the replay started no later than the child's last write.
+  // Earlier is unknowable from stdout (its lines carry no time), so after a
+  // restart "running for" counts from there: short, never longer than true.
+  for (const t of work.tasks.values()) if (t.startedAt && lastDataAt < t.startedAt) t.startedAt = lastDataAt;
+  for (const f of work.facts.values()) if (f.startedAt && lastDataAt < f.startedAt) f.startedAt = lastDataAt;
   if (work.wakeQueuedAt !== null && lastDataAt < work.wakeQueuedAt) work.wakeQueuedAt = lastDataAt;
 }
 
@@ -327,14 +372,29 @@ export function closedWork<Why extends string>(work: BackgroundWork | undefined,
  * or a chat holding only a cron would read as silent since its last task.
  */
 export function describeBackgroundWork(work: BackgroundWork | undefined, now: number): BackgroundWorkDetail {
+  // A Monitor is `local_bash` to the CLI; the chat names it for what it is.
   const tasks = work && hasLiveTasks(work, now)
-    ? [...work.tasks.values()].map((t) => ({ type: t.type, description: t.description || t.type }))
+    ? [...work.tasks].map(([id, t]) => ({
+      type: work.facts.get(id)?.monitor ? "monitor" : t.type,
+      description: t.description || t.type,
+      ...(t.startedAt ? { startedAt: t.startedAt } : {}),
+    }))
     : [];
   const crons = armedCrons(work, now);
   return {
     tasks: [...tasks, ...crons.map((c) => ({ type: "cron", description: `${c.schedule} (cron)` }))],
     lastSignalAt: Math.max(work?.lastSignalAt ?? 0, ...crons.map((c) => c.armedAt)),
   };
+}
+
+/**
+ * The named set as a string, to tell when it changed: a task listed or gone,
+ * or a Monitor recognised. The chat polls the work every 15 s; a Monitor armed
+ * mid-turn stayed unnamed until then, so the provider says each change at once.
+ */
+export function backgroundWorkKey(work: BackgroundWork | undefined): string {
+  if (!work) return "";
+  return [...work.tasks.keys()].map((id) => (work.facts.get(id)?.monitor ? `m:${id}` : id)).join(",") + `|${work.crons.size}`;
 }
 
 /** Is there background work alive, or a wake about to answer it, as of `now`? */

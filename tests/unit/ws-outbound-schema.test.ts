@@ -174,6 +174,7 @@ describe('outbound registry contract', () => {
       'auth:pair-requested',
       'auth:pair-resolved',
       'auth:shares-changed',
+      'background:changed',
       'board:dispatch',
       'board:global-cap',
       'board:settings',
@@ -383,8 +384,10 @@ describe('outbound registry contract', () => {
   // and it answered: a window that had taken the turn for over lights it again.
   // 100 → 102: `turn:state` and `turn:snapshot`, the server's ledger of open
   // turns (server/lib/turn-ledger.ts): the turn queue drains on these.
-  test('all 102 v3 outbound types are present', () => {
-    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(102);
+  // 102 → 103: `background:changed`, a session's named background work changed
+  // and every window refetches the status route instead of waiting its poll.
+  test('all 103 v3 outbound types are present', () => {
+    expect(REGISTERED_OUTBOUND_TYPES.length).toBe(103);
   });
 });
 

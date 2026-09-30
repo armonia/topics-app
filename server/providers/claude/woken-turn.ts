@@ -18,6 +18,7 @@
 
 import type { StreamLineKind } from "./events";
 import type { ContentBlock } from "../../types";
+import type { WakeEvent } from "../../../shared/types";
 
 /**
  * Questa riga apre un turno che nessuno ha chiesto?
@@ -122,9 +123,6 @@ export interface WokenSlot {
   /** Where the line being processed starts in the broker store (`createLineFolder`). */
   lineStartOffset?: number;
   streamHandler: unknown;
-  /** La `description` dell'ultimo Monitor armato: viaggia con la sveglia
-   *  perché è la sola cosa che risponde a «arrivato COSA». */
-  ultimoMonitor?: string;
   /** The spontaneous turn in flight was declined: its content is dropped
    *  until its own `result`, so it can neither wake twice nor reach the next
    *  turn somebody asks for. */
@@ -141,7 +139,7 @@ export interface WokenSlot {
  * Anything else = an adoption is on its way; if it fails later, `abandon`
  * turns the held turn into a declined one.
  */
-export type WakeObserver = (sessionKey: string, label: string | undefined, abandon: () => void) => boolean | void;
+export type WakeObserver = (sessionKey: string, source: WakeEvent[], abandon: () => void) => boolean | void;
 
 /**
  * A wake that will never be adopted: drop what is held, and drop the rest of
@@ -216,6 +214,8 @@ export function bufferWoken(
   sveglia: WakeObserver | null,
   /** The store offset where this line starts, if the child is a broker session. */
   at?: number,
+  /** What woke the CLI (`wake-source.ts`), asked once, when the wake opens. */
+  source: () => WakeEvent[] = () => [],
 ): boolean {
   if (slot.wokenBuffer == null) {
     const held: HeldEvent[] = [];
@@ -225,7 +225,10 @@ export function bufferWoken(
     slot.wokenFrom = at;
     let answer: boolean | void = sveglia ? undefined : false;
     try {
-      if (sveglia) answer = sveglia(slot.sessionKey, slot.ultimoMonitor, () => {
+      let events: WakeEvent[] = [];
+      // A source that cannot be read leaves the wake unnamed, never unadopted.
+      try { events = source(); } catch (err) { console.warn(`[claude-code] wake source unreadable on ${slot.sessionKey}:`, err); }
+      if (sveglia) answer = sveglia(slot.sessionKey, events, () => {
         if (slot.wokenBuffer === held) abandonHeldTurn(slot);
       });
     } catch (err) {
@@ -252,39 +255,30 @@ export function bufferWoken(
 }
 
 /**
- * Si ricorda COSA sorveglia un `Monitor` appena armato.
+ * The BANNER on top of an answer born from a wake.
  *
- * La sua `description` è l'unica cosa che risponde a «arrivato COSA» quando il
- * risveglio consegna — minuti dopo, sotto un messaggio che non c'entra, quando
- * il `tool_use` che l'ha armato è passato da un pezzo. Si tiene ORA, che è
- * l'unico momento in cui la si vede.
+ * Such an answer arrives minutes later, under a message it has nothing to do
+ * with. The banner says what woke it: one block per notification the wake
+ * answers (`wake-source.ts`), a Monitor's event with its text or a background
+ * task's report. An unknown source leaves one block with no label: better
+ * unnamed than named after the wrong watch, which is what guessing "the
+ * Monitor armed last" did on seven wakes of nine (chat 33966f4e, 30/09).
  *
- * L'ultimo vince: fra due Monitor armati, il più recente è quasi sempre quello
- * che sveglierà per primo, e una descrizione plausibile vale più di nessuna.
+ * A plain string is the label of a caller older than the source (and of the
+ * route's own tests): it is kept as it was.
  */
-export function ricordaMonitor(
-  slot: { ultimoMonitor?: string },
-  toolName: string,
-  input: unknown,
-): void {
-  if (toolName !== "Monitor") return;
-  const d = (input as Record<string, unknown> | undefined)?.description;
-  if (typeof d === "string" && d.trim()) slot.ultimoMonitor = d.trim();
-}
-
-/**
- * Il CARTELLO in cima a una risposta nata da un risveglio.
- *
- * Una risposta così arriva minuti dopo, sotto un messaggio che non c'entra, e
- * senza niente che dica da dove viene: in chat era indistinguibile da una
- * risposta qualunque. Il blocco porta la `description` che l'agente aveva dato
- * al Monitor — «arrivato COSA» — e il client la rende come intestazione.
- *
- * Un'etichetta vuota o assente lascia il cartello senza `label`: meglio muto
- * che con un'etichetta inventata.
- */
-export function cartelloRisveglio(isWoken: boolean, label: unknown): ContentBlock[] {
+export function cartelloRisveglio(isWoken: boolean, source: unknown): ContentBlock[] {
   if (!isWoken) return [];
-  const l = typeof label === "string" ? label.trim() : "";
+  if (Array.isArray(source)) {
+    const blocks: ContentBlock[] = [];
+    for (const raw of source) {
+      const ev = raw as Partial<WakeEvent> | null;
+      if (!ev || (ev.source !== "monitor" && ev.source !== "task") || typeof ev.label !== "string" || !ev.label.trim()) continue;
+      blocks.push({ kind: "woken", label: ev.label.trim(), source: ev.source, ...(typeof ev.text === "string" && ev.text ? { text: ev.text } : {}) });
+    }
+    if (blocks.length > 0) return blocks;
+    return [{ kind: "woken" }];
+  }
+  const l = typeof source === "string" ? source.trim() : "";
   return [{ kind: "woken", ...(l ? { label: l } : {}) }];
 }

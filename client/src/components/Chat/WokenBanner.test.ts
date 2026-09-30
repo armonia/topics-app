@@ -52,4 +52,26 @@ describe('il cartello del risveglio', () => {
     const html = render([{ kind: 'woken', label: 'esito build' }, { kind: 'text', text: 'ok' }]);
     expect(html.split('esito build').length - 1).toBe(1);
   });
+
+  test("a Monitor's event names that Monitor and shows the event's own text", () => {
+    // From 30/09 the server reads the source off the CLI's notification: the
+    // guess "the Monitor armed last" named the wrong one on 7 wakes of 9.
+    const html = render([{ kind: 'woken', label: 'batch 4 results', source: 'monitor', text: 'v133 ok in 229s' }, { kind: 'text', text: 'ok' }]);
+    expect(html).toContain('data-source="monitor"');
+    expect(html).toMatch(/(Monitor event|Evento del monitor): batch 4 results/);
+    expect(html).toContain('data-testid="woken-event"');
+    expect(html).toContain('v133 ok in 229s');
+  });
+
+  test("a background task's report is named as a report, and a wake answering two notifications shows both", () => {
+    const html = render([
+      { kind: 'woken', label: 'Agent "Verify v131" finished', source: 'task' },
+      { kind: 'woken', label: 'deploy log', source: 'monitor', text: 'error' },
+      { kind: 'text', text: 'ok' },
+    ]);
+    expect(html.split('data-testid="woken-banner"').length - 1).toBe(2);
+    expect(html).toContain('data-source="task"');
+    expect(html).toMatch(/(Background task reported|Un lavoro in background ha risposto): Agent &quot;Verify v131&quot; finished/);
+    expect(html).not.toContain('woken-event">Agent');
+  });
 });

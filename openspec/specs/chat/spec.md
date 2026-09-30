@@ -1151,6 +1151,20 @@ The answer produced by a woken turn SHALL be written to the conversation as a ro
 - **THEN** a woken banner SHALL be shown carrying that label
 - **AND** the body of the answer SHALL render below it
 
+#### Scenario: The source is the CLI's own notification, never the Monitor armed last
+- **GIVEN** a turn the CLI opened by itself, whose stdout names no source (a Monitor's event prints no line: 0 of 7 events of chat 33966f4e on 30/09, CLI 2.1.285)
+- **WHEN** the wake is adopted
+- **THEN** its source SHALL be read from the `<task-notification>` lines the CLI wrote to its own transcript since the previous turn ended (`server/providers/claude/wake-source.ts`, the transcript found from the cwd and session id of the CLI's last `system/init`), one `woken` block per notification: a Monitor's event as `{source: "monitor", label: <its description>, text: <the event>}`, a background task's report as `{source: "task", label: <its summary>}`
+- **AND** with no transcript line, the source SHALL be the task whose `task_notification` stdout printed before the wake, if any; otherwise the banner SHALL carry no label
+- **AND** the source SHALL NOT be the description of the Monitor armed last: that guess named the wrong source on 7 wakes of 9 in the replay of 33966f4e (`server/providers/claude-code-monitor-visibility.test.ts`)
+- **AND** a source SHALL name one wake only: a report or a notification already used is not read again for the next wake
+
+#### Scenario: A Monitor's event reads as that Monitor's event
+- **GIVEN** a `woken` block with `source: "monitor"`, a label and an event text
+- **WHEN** the message renders
+- **THEN** the banner SHALL say it is that Monitor's event (`woken.monitorEvent`), with the Monitor tool's icon, and SHALL show the event's text (`data-testid="woken-event"`)
+- **AND** a `source: "task"` block SHALL read as a background task's report (`woken.taskReport`), and a row with several `woken` blocks SHALL show one banner each
+
 #### Scenario: A banner with no label still declares the provenance
 - **GIVEN** a `woken` block with no label
 - **WHEN** the message renders
@@ -4858,6 +4872,64 @@ turno, e il client non trovava più niente da mostrare.
   e oltre un giro del poll di `/api/topics/streaming` che risponde il turno aperto
 - **AND** resta quando il turno finisce
 - **WHEN** il lavoro finisce
+- **THEN** la riga sparisce
+
+### Requirement: BGVIS-06 — Un Monitor in corso si vede come Monitor, con da quanto gira, da subito
+
+Il lavoro in background SHALL essere visibile per tutta la sua vita come in
+Claude Code: ogni task nominato con la sua descrizione e da quanto gira, un
+Monitor riconoscibile come tale, anche mentre il turno che l'ha armato è ancora
+aperto, e SHALL sparire quando il lavoro finisce o scade.
+
+Il caso da cui nasce (30/09, chat `topic:33966f4e`, CLI 2.1.285): il Monitor
+«batch 4 results», armato alle 20:53:52Z e scaduto alle 21:13:53Z, restava nella
+riga di BGVIS-04/05 come un generico «lavoro in background» (la CLI lo elenca
+come `local_bash`), senza tempo, e compariva solo al poll successivo (15 s).
+
+- Il tracker (`server/providers/claude/background-work.ts`) SHALL datare ogni
+  task alla prima volta che lo vede (snapshot o `task_started`) e tenere quella
+  data finché il task vive: lo snapshot che la CLI ristampa a ogni cambio NON
+  SHALL azzerarla. Un task il cui `task_started` porta il `tool_use_id` di una
+  chiamata `Monitor` SHALL uscire come `type: "monitor"`. Dopo un riavvio la
+  data SHALL non essere più recente dell'ultima scrittura del figlio
+  (`datedByLastWrite`): stdout non data le sue righe, e un tempo più corto del
+  vero è meglio di uno più lungo.
+- `BackgroundTaskSummary` (`shared/background-work.ts`) SHALL portare
+  `startedAt` (epoch ms, facoltativo: un server più vecchio non lo manda).
+- Ogni volta che l'insieme nominato cambia (un task entra o esce, un Monitor è
+  riconosciuto) il server SHALL mandare `background:changed {topicId,
+  sessionKey}` a tutte le finestre, e il client SHALL rileggere
+  `/api/topics/streaming` subito invece di aspettare il giro dei 15 s.
+- La riga `background-work-line` SHALL rendere ogni task come
+  `data-testid="background-work-task"` con `data-type`: il Monitor con l'icona
+  lucide `Activity` del tool Monitor (etichetta i18n `chat.background.monitor`),
+  e accanto a ogni task con `startedAt` il tempo di corsa
+  (`data-testid="background-work-running"`: secondi sotto il minuto, poi
+  `formatElapsedCompact`). Stesso posto (ultima riga del trascritto), stesso aspetto.
+- Nessuno Stop per singolo task: la CLI 2.1.286 ha la richiesta di controllo
+  `stop_task` nel protocollo stream-json, ma che risponda in modalità `--print`
+  non è verificato; lo Stop resta quello del composer.
+
+#### Scenario: una chat vera, ripassata dal provider
+- **GIVEN** lo stdout di 33966f4e fra le 20:53 e le 21:14Z, anonimizzato
+  (`tests/fixtures/claude-cli-2.1.285-monitor-wakes.ndjson`), fatto passare da
+  `handleStreamEvent` con le sveglie adottate
+- **WHEN** la CLI stampa il `task_started` del Monitor, a turno aperto
+- **THEN** `backgroundWorkDetail` lo nomina `{type: "monitor", description,
+  startedAt}` con la data dello snapshot che l'ha elencato
+- **AND** lo nomina uguale, stessa data, a turno chiuso, attraverso ogni sveglia
+  e ogni turno aperto dopo, fino alla scadenza
+- **WHEN** lo snapshot si svuota e il task riferisce (scadenza)
+- **THEN** non nomina più niente
+
+#### Scenario: la riga lo mostra durante il turno che l'ha armato, dopo, e lo toglie alla fine
+- **GIVEN** una chat su una CLI finta (`helpers/fake-claude-monitor.ts`) un cui
+  turno arma il Monitor «MONWATCH-JOB» e resta aperto
+- **THEN** entro 5 s, con lo Stop del turno ancora visibile, la riga ha un
+  `background-work-task` con `data-type="monitor"`, l'icona «Monitor» e un tempo
+- **WHEN** il turno finisce
+- **THEN** la riga lo nomina ancora
+- **WHEN** il Monitor finisce
 - **THEN** la riga sparisce
 
 ### Requirement: CHAT-NTOOL-04 — Il `bash` nativo manda la coda del suo output mentre gira

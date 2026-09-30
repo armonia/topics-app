@@ -87,6 +87,7 @@ const CHAT_IT: Dict = {
   'chat.background.resuming': 'Il lavoro in background ha risposto: la chat sta per riprendere',
   'chat.background.stale': 'nessuna notizia da {t}',
   'chat.background.free': 'La chat è libera, puoi scrivere. Per fermare il lavoro c\'è lo Stop del composer, a campo vuoto',
+  'chat.background.monitor': 'Monitor',
   'chat.send.queueTitle': 'Metti in coda (Invio)',
   'chat.send.sendTitle': 'Invia (Invio)',
   'chat.send.queue': 'Metti il messaggio in coda',

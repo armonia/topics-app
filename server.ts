@@ -27,6 +27,7 @@ import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync, rmSync, r
 import { timingSafeEqual } from "crypto";
 import type { ServerWebSocket, Server } from "bun";
 import type { WSData } from "./server/types";
+import type { WakeEvent } from "./shared/types";
 import { createAppContext } from "./server/utils";
 import { closeDatabase, refreshPlannerStats } from "./server/db";
 import { shouldServeSpaFallback } from "./server/spa-fallback";
@@ -814,6 +815,12 @@ ClaudeCodeProvider.observeBackgroundClosed((sessionKey, tasks, why, cron) => {
   const topic = ctx.getTopicBySessionKey(sessionKey);
   if (topic) postBackgroundNotice(ctx, { sessionKey, topicId: topic.id }, { kind: "background-notice", event: "closed", tasks, why, cron });
 });
+// A task listed or gone, a Monitor recognised: every window refetches the
+// status route now instead of at its next 15 s poll (BGVIS-06).
+ClaudeCodeProvider.observeBackgroundChanged((sessionKey) => {
+  const topic = ctx.getTopicBySessionKey(sessionKey);
+  if (topic) ctx.broadcastToAll({ type: "background:changed", topicId: topic.id, sessionKey });
+});
 ClaudeCodeProvider.observeConfigOwed((sessionKey, changes) => {
   const topic = ctx.getTopicBySessionKey(sessionKey);
   if (topic) noticeOwedChanges(ctx, topic, "deferred-background", Object.fromEntries(changes.map((c) => [c, true])));
@@ -1363,14 +1370,15 @@ async function runHeadlessReattach(sessionKey: string, opts: { timeoutMs: number
  * comunque (watchdog d'inattività del provider, sweeper StaleStream) sono le
  * stesse di ogni altro turno di chat.
  */
-async function runHeadlessWoken(sessionKey: string, label?: string): Promise<TurnEndInfo> {
+async function runHeadlessWoken(sessionKey: string, source: WakeEvent[] = []): Promise<TurnEndInfo> {
   const url = new URL("http://localhost/api/chat");
   // Il provider si DICHIARA, per la stessa ragione del riattacco: senza, si
   // cade sul default della macchina e la sveglia di claude-code finirebbe a
   // bussare a un provider che non possiede quel figlio.
-  // `wokenLabel`: COSA stava sorvegliando il Monitor. Viaggia fino alla riga in
-  // chat, che senza di essa mostrerebbe una risposta senza provenienza.
-  const body = JSON.stringify({ sessionKey, messages: [], mode: "woken", provider: "claude-code", ...(label ? { wokenLabel: label } : {}) });
+  // `wokenSource`: what woke the CLI, a Monitor's event or a task's report
+  // (`claude/wake-source.ts`). It travels to the chat row, which without it
+  // shows an answer with no provenance.
+  const body = JSON.stringify({ sessionKey, messages: [], mode: "woken", provider: "claude-code", ...(source.length > 0 ? { wokenSource: source } : {}) });
   // Stesso patto degli altri due: residuo via prima di iniziare.
   takeTurnEnd(sessionKey);
   const resp = await topicsRouter(
@@ -5599,7 +5607,7 @@ function adottaTurniRisvegliati(): void {
   // quella a sondare il PATH e a registrarlo — quindi un `tryGetProvider` qui
   // troverebbe `undefined` e uscirebbe zitto: la sveglia sarebbe cablata e mai
   // collegata. Vedi `ClaudeCodeProvider.observeWokenTurns`.
-  ClaudeCodeProvider.observeWokenTurns((sessionKey, label, abandon) => {
+  ClaudeCodeProvider.observeWokenTurns((sessionKey, source, abandon) => {
     const topic = ctx.getTopicBySessionKey(sessionKey);
     // A task agent's topic is born archived yet is alive while its task runs:
     // the rule, and the 8 wakes it used to drop, in `lib/wake-adoption.ts`.
@@ -5627,7 +5635,7 @@ function adottaTurniRisvegliati(): void {
     // it. After a real adoption the buffer is already drained and `abandon`
     // does nothing; when the route refused before adopting (a 4xx/5xx, a
     // throw) it drops the turn instead of leaving it for the next sender.
-    void runHeadlessWoken(sessionKey, label)
+    void runHeadlessWoken(sessionKey, source)
       .then((end) => {
         if (end.end !== "end_turn") console.warn(`[woken] ${sessionKey}: ${describeTurnEnd(end)}`);
       })

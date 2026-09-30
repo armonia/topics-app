@@ -1350,6 +1350,17 @@ const turnSnapshotSchema = z.looseObject({
   stopped: z.optional(z.array(z.looseObject(turnStateEntry))),
 });
 
+/**
+ * A session's named background work changed (a task listed or gone, a Monitor
+ * recognised): windows refetch `GET /api/topics/streaming` now rather than at
+ * the next 15 s poll. It carries no list: the route stays the one source.
+ */
+const backgroundChangedSchema = z.looseObject({
+  type: z.literal('background:changed'),
+  topicId: z.string(),
+  sessionKey: z.string(),
+});
+
 // ---- Registry --------------------------------------------------------------
 
 const OUTBOUND_SCHEMAS = {
@@ -1376,6 +1387,7 @@ const OUTBOUND_SCHEMAS = {
   'topic:switch': topicSwitchSchema,
   'topic:created': topicCreatedSchema,
   'topic:updated': topicUpdatedSchema,
+  'background:changed': backgroundChangedSchema,
   'topic:archived': topicArchivedSchema,
   'topic:switch:complete': topicSwitchCompleteSchema,
   // Task / board

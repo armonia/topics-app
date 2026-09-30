@@ -311,6 +311,13 @@ export interface WSGatewayStatusMessage {
 }
 
 // --- Topics ------------------------------------------------------------------
+/** A session's named background work changed: refetch the status route now (BGVIS-06). */
+export interface WSBackgroundChangedMessage {
+  type: 'background:changed';
+  topicId: string;
+  sessionKey: string;
+}
+
 export interface WSTopicUpdatedMessage {
   type: 'topic:updated' | 'topic:created' | 'topic:archived';
   topic: Topic;
@@ -1218,6 +1225,7 @@ export type WSMessage =
   | WSGoalUpdatedMessage
   | WSGatewayStatusMessage
   | WSTopicUpdatedMessage
+  | WSBackgroundChangedMessage
   | WSTopicsReorderedMessage
   | WSTopicSwitchCompleteMessage
   | WSTopicSwitchMessage

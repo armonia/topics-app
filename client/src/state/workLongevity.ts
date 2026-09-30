@@ -61,6 +61,16 @@ export function formatElapsedCompact(ms: number): string {
   return `${h}h ${String(totalM % 60).padStart(2, '0')}m`;
 }
 
+/**
+ * How long a background task has run, for the chat's background line: seconds
+ * under a minute (a Monitor armed a moment ago is not "1m" old), then the
+ * compact minutes of the other readouts.
+ */
+export function formatRunningFor(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  return ms < 60_000 ? `${Math.floor(ms / 1000)}s` : formatElapsedCompact(ms);
+}
+
 // ─── Quale tempo mostrare accanto allo stato ──────────────────────────────────
 //
 // Sidebar e tab mostravano tempi diversi, calcolati in posti diversi, e a volte

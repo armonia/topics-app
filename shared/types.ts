@@ -904,6 +904,9 @@ export type TurnEndCause = (typeof STOP_CAUSES)[number];
  */
 export type MachineStopCause = 'superseded' | 'wall-clock' | 'stall';
 
+/** One notification that opened a turn the CLI started by itself: a Monitor's event, or a background task's report. */
+export type WakeEvent = { source: 'monitor' | 'task'; label: string; text?: string };
+
 export type ContentBlock =
   | { kind: 'text'; text: string }
   | { kind: 'thinking'; text: string }
@@ -963,8 +966,15 @@ export type ContentBlock =
    * già ciò che il client rende, che si persiste e che torna dopo un
    * ricaricamento. Una colonna nuova avrebbe voluto una migration per portare
    * lo stesso dato nello stesso posto.
+   *
+   * `source` and `text` (from 30/09): what actually woke the turn, read off the
+   * CLI's own notification (`server/providers/claude/wake-source.ts`) instead
+   * of guessed from the Monitor armed last. `source: "monitor"` names a
+   * Monitor's event, with the event's text; `"task"` a background Agent or
+   * Bash that reported. A wake answering several notifications carries one
+   * block each. Rows written before carry `label` alone.
    */
-  | { kind: 'woken'; label?: string }
+  | { kind: 'woken'; label?: string; source?: WakeEvent['source']; text?: string }
   /**
    * QUESTO TURNO L'HA RIPRESO IL SERVER, non tu.
    *

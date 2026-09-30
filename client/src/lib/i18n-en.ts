@@ -128,6 +128,8 @@ const EN = {
   'ctxInspector.removeSource': 'Remove the source from the context',
   'woken.arrived': 'Landed while you were away: an answer from a background watch.',
   'woken.arrivedFor': 'Landed: {what}',
+  'woken.monitorEvent': 'Monitor event: {what}',
+  'woken.taskReport': 'Background task reported: {what}',
   'ripreso.banner': 'The server restarted and picked this up on its own: this is the redone answer.',
   'monitor.armed': 'listening',
   'monitor.armed.blurb': 'The agent is not sitting idle: when the event lands, its answer shows up here as a new message.',

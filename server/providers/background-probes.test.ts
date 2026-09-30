@@ -117,7 +117,8 @@ describe("withBackgroundWork", () => {
       { type: "system", subtype: "task_started", task_id: "b1", tool_use_id: "toolu_b1", task_type: job.type, description: job.description, is_backgrounded: true },
     );
     const idle = withBackgroundWork([], topicOf);
-    expect(idle).toEqual([{ topicId: `t-${sk}`, sessionKey: sk, state: "background", tasks: [job], lastSignalAt: background.lastSignalAt }]);
+    // Named with the moment it was first seen, which the chat counts its running time from (BGVIS-06).
+    expect(idle).toEqual([{ topicId: `t-${sk}`, sessionKey: sk, state: "background", tasks: [{ ...job, startedAt: expect.any(Number) }], lastSignalAt: background.lastSignalAt }]);
 
     // A message opens a turn: ONE row, the turn's, and it names the job.
     const open = withBackgroundWork([turnRow(sk)], topicOf);

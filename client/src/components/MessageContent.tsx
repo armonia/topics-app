@@ -5,7 +5,7 @@ import { copyText } from '../lib/clipboard';
 import { type Components } from 'react-markdown';
 import { ChatMarkdown } from './ChatMarkdown';
 import { highlightCode, subscribeHighlighter, highlighterReady } from '../lib/syntaxHighlight';
-import { Copy, Check, CheckCheck, Download, Layers, ChevronRight, ImageOff, MicOff, Music, Bell, X } from 'lucide-react';
+import { Copy, Check, CheckCheck, Download, Layers, ChevronRight, ImageOff, MicOff, Music, Bell, Activity, X } from 'lucide-react';
 import { splitCompactionSummary } from '../lib/compactionSummary';
 import { CompactionHoistContext } from './Chat/compactionHoist';
 import type { PlanDecisionHandler } from './Chat/planDetection';
@@ -985,16 +985,32 @@ type BlockGroup =
  * non nella cronologia), colore diverso. Blu e non ambra perché non è un
  * problema: è una consegna, ed è la cosa che si stava aspettando.
  */
-function WokenBanner({ label }: { label?: string }) {
+type WakeBlock = { kind: 'woken'; label?: string; source?: 'monitor' | 'task'; text?: string };
+
+/**
+ * With a known source (rows from 30/09 on) the banner names it as Claude Code
+ * does: a Monitor's event with the Monitor's description and the event's own
+ * text, or a background task's report. An older row carries only a label.
+ */
+function WokenBanner({ woken }: { woken: WakeBlock }) {
   const tr = useT();
+  const { label, source, text } = woken;
+  const title = !label ? tr('woken.arrived')
+    : source === 'monitor' ? tr('woken.monitorEvent', { what: label })
+      : source === 'task' ? tr('woken.taskReport', { what: label })
+        : tr('woken.arrivedFor', { what: label });
   return (
     <div
       data-testid="woken-banner"
+      data-source={source}
       className="mb-1.5 flex items-start gap-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/25 px-2.5 py-1.5 text-compact leading-snug text-blue-900 dark:text-blue-200"
     >
-      <span aria-hidden className="flex-shrink-0 leading-snug"><Bell className="w-4 h-4" /></span>
+      <span aria-hidden className="flex-shrink-0 leading-snug">{source === 'monitor' ? <Activity className="w-4 h-4" /> : <Bell className="w-4 h-4" />}</span>
       <span className="min-w-0 break-words">
-        {label ? tr('woken.arrivedFor', { what: label }) : tr('woken.arrived')}
+        {title}
+        {text && (
+          <span data-testid="woken-event" className="mt-0.5 block max-h-24 overflow-y-auto whitespace-pre-wrap font-mono text-micro text-blue-900/80 dark:text-blue-200/80">{text}</span>
+        )}
       </span>
     </div>
   );
@@ -1043,8 +1059,9 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
   const isLegacyErrorOnlyText = turnError !== null && rawCleanText.trim().startsWith(LEGACY_ERROR_PREFIX);
   // Il cartello del risveglio: c'è solo se questo turno è nato da un Monitor.
   const ripreso = useMemo(() => isRedoneAnswer(blocks), [blocks]);
+  // One per notification the wake answered; old rows hold one at most.
   const woken = useMemo(
-    () => blocks?.find((b) => b.kind === 'woken') as { kind: 'woken'; label?: string } | undefined,
+    () => (blocks?.filter((b) => b.kind === 'woken') ?? []) as WakeBlock[],
     [blocks],
   );
 
@@ -1295,7 +1312,7 @@ export const MessageContent = memo(function MessageContent({ content, role, thin
     return (
       <div data-testid="message-content-assistant">
         {ripreso && <RipresoBanner />}
-        {woken && <WokenBanner label={woken.label} />}
+        {woken.map((w, i) => <WokenBanner key={i} woken={w} />)}
         {turnError && <TurnErrorBanner text={turnError} />}
         {turnFold ? (
           <>

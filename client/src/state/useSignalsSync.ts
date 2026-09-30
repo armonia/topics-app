@@ -152,6 +152,9 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
       setTimeout(() => { pending = false; refresh(); }, 400);
     };
     const unsub = onWSMessage((msg) => {
+      // A task listed or gone, a Monitor armed mid-turn: the line names it now,
+      // not at the next 15 s poll (BGVIS-06).
+      if (msg.type === 'background:changed') { schedule(); return; }
       if (msg.type === 'stream:start' || msg.type === 'stream:end') {
         // The chat "finished" mark, the twin of `terminal:activity` below: a
         // clean end raises it, a new turn drops it. Opening the chat drops it

@@ -1256,7 +1256,7 @@ export function createChatRouter(ctx: AppContext, deps: ChatDeps, browserService
           // new block. Persisted on finalize so reload preserves ordering.
           // See `server/types.ts:ContentBlock` — same shape lives on
           // `StoredMessage.blocks` and (mirror-typed) on the client.
-          const blocks: ContentBlock[] = cartelloRisveglio(isWoken, body.wokenLabel);
+          const blocks: ContentBlock[] = cartelloRisveglio(isWoken, body.wokenSource ?? body.wokenLabel);
           // Il cartello della RIPRESA (`lib/ripresa-boot.ts`): senza, sembrerebbe
           // che l'agente abbia risposto due volte alla stessa domanda.
           // It carries the resend number in the chain: if this turn too dies

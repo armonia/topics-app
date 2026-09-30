@@ -91,7 +91,7 @@ function sameWork(a: TopicBackgroundWork, b: TopicBackgroundWork): boolean {
   return a.sessionKey === b.sessionKey
     && a.lastSignalAt === b.lastSignalAt
     && a.tasks.length === b.tasks.length
-    && a.tasks.every((t, i) => t.type === b.tasks[i].type && t.description === b.tasks[i].description);
+    && a.tasks.every((t, i) => t.type === b.tasks[i].type && t.description === b.tasks[i].description && t.startedAt === b.tasks[i].startedAt);
 }
 
 /**

@@ -54,8 +54,9 @@ import {
   type AssistantBlock,
   type CallUsage,
 } from "./claude/events";
-import { isWokenTurnLine, bufferWoken, drainWoken, ricordaMonitor, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
-import { closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
+import { isWokenTurnLine, bufferWoken, drainWoken, unattendedLineFate, type WakeObserver, type HeldEvent } from "./claude/woken-turn";
+import { resolveWakeSource } from "./claude/wake-source";
+import { backgroundWorkKey, closedWork, type ClosedWork, datedByLastWrite, describeBackgroundWork, hasArmedCron, hasLiveTasks, hasTaskWork, isBackgroundWorkAlive, isWakeQueued, newBackgroundWork, noteBackgroundLine, type BackgroundWork, type BackgroundWorkDetail } from "./claude/background-work";
 import { observePlanUsage } from "./native/usage-window";
 import { noteApiHealth, silentTurnEnd, type ApiRetryMark } from "./claude/api-outage";
 import { readFastMode, fastModeCommand, fastModeMultiplier, sameFastMode, type FastModeInfo, type FastModeStatus } from "./fast-mode";
@@ -1104,8 +1105,6 @@ interface PersistentProcess {
   /** See `WokenSlot` in `claude/woken-turn.ts`. */
   declinedTurn?: boolean;
   bufferedTurnEnded?: boolean;
-  /** `description` dell'ultimo `Monitor`: il «COSA» del risveglio. */
-  ultimoMonitor?: string;
   wokenFrom?: number; // see `WokenSlot`
   /** Pending promise resolvers for sendChat */
   pendingResolve: ((result: { runId: string }) => void) | null;
@@ -1447,6 +1446,13 @@ export class ClaudeCodeProvider implements AIProvider {
     ClaudeCodeProvider.onBackgroundClosed = fn;
   }
   private static onBackgroundClosed: BackgroundClosedObserver | null = null;
+
+  /** Who tells the chats that a session's named background work changed: the status poll is 15 s apart. */
+  static observeBackgroundChanged(fn: (sessionKey: string) => void): void { ClaudeCodeProvider.onBackgroundChanged = fn; }
+  private static onBackgroundChanged: ((sessionKey: string) => void) | null = null;
+  private sayBackgroundChanged(sessionKey: string): void {
+    try { ClaudeCodeProvider.onBackgroundChanged?.(sessionKey); } catch (err) { console.warn(`[claude-code] background observer failed for ${sessionKey}:`, err); }
+  }
 
   /** Who says in the chat that a change owed by a turn in flight now waits for the work that turn started (second review of 25/09, R1). */
   static observeConfigOwed(fn: (sessionKey: string, changes: OwedChange[]) => void): void {
@@ -3592,6 +3598,7 @@ export class ClaudeCodeProvider implements AIProvider {
   private onSessionClosed(pp: PersistentProcess, code: number | null): void {
     pp.alive = false;
     this.noteCliTurn(pp, false);
+    if (pp.background?.tasks.size) this.sayBackgroundChanged(pp.sessionKey);
     pp.background = undefined; // the child took its background work with it
     pp.stoppedExit?.resolve();
     // Il CLI è morto: il suo pid non è più un'ancora valida (il sistema può
@@ -3719,7 +3726,9 @@ export class ClaudeCodeProvider implements AIProvider {
 
     // Background work first, in every mode: the reattach scan rebuilds it from
     // the store the same way live traffic keeps it (`claude/background-work.ts`).
+    const workBefore = backgroundWorkKey(pp.background);
     noteBackgroundLine(pp.background ??= newBackgroundWork(), event, Date.now(), { unattended: !pp.streamHandler });
+    if (!pp.replayMute && !pp.replaySilent && backgroundWorkKey(pp.background) !== workBefore) this.sayBackgroundChanged(pp.sessionKey);
     this.sayConfigOwed(pp);
 
     // THE CLI ENTERS AND LEAVES A TURN, whoever started it. Read before anything
@@ -3762,7 +3771,7 @@ export class ClaudeCodeProvider implements AIProvider {
       this.noteCliTurn(pp, true);
       // Tenuto da parte finché qualcuno non adotta: `bufferWoken` apre il
       // buffer, chiama la sveglia e dice se fermarsi qui.
-      if (bufferWoken(pp, event, ClaudeCodeProvider.onWokenTurn, pp.lineStartOffset)) return;
+      if (bufferWoken(pp, event, ClaudeCodeProvider.onWokenTurn, pp.lineStartOffset, () => resolveWakeSource(pp.background))) return;
       // Adozione sincrona riuscita: da qui in giù vale il nuovo handler.
       handler = pp.streamHandler;
     }
@@ -4128,7 +4137,6 @@ export class ClaudeCodeProvider implements AIProvider {
             const skillName = (block.input as Record<string, unknown> | undefined)?.skill;
             (pp.skillToolNames ??= new Map()).set(toolId, typeof skillName === "string" ? skillName : "");
           }
-          ricordaMonitor(pp, toolName, block.input); // il «COSA» del prossimo risveglio
           const input = block.input as Record<string, unknown> | undefined;
           if (pp.activeToolCalls.has(toolId)) {
             // Already announced EARLY by handlePartialStreamEvent (args were
