@@ -89,3 +89,26 @@ describe("unread, one row at a time", () => {
     for (const id of ids) if (id !== ids[2]) expect(after[id]).toEqual(before[id]);
   });
 });
+
+describe("unread:init payload", () => {
+  test("leaves out the zeroed rows of archived topics and nothing else", () => {
+    const archivedZero = "a0000000-0000-0000-0000-000000000001";
+    const archivedLit = "a0000000-0000-0000-0000-000000000002";
+    ctx.saveSingleTopic({ ...topic(archivedZero), archived: true });
+    ctx.saveSingleTopic({ ...topic(archivedLit), archived: true });
+    ctx.saveUnreadEntries({
+      [archivedZero]: { lastReadAt: OLD, unreadCount: 0 },
+      // Should one ever exist, a lit badge on an archived topic still ships:
+      // the filter drops only rows that cannot draw anything.
+      [archivedLit]: { lastReadAt: OLD, unreadCount: 3 },
+      [ids[3]]: { lastReadAt: OLD, unreadCount: 0 },
+    });
+    const all = ctx.loadUnread();
+    const init = ctx.loadUnreadForInit();
+    expect(all[archivedZero]).toBeDefined();
+    expect(init[archivedZero]).toBeUndefined();
+    const { [archivedZero]: _dropped, ...rest } = all;
+    expect(init).toEqual(rest);
+  });
+});
+

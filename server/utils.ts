@@ -288,10 +288,12 @@ export function createAppContext(baseDir: string): AppContext {
     insertTopicDisabledSource: db.prepare(`INSERT OR IGNORE INTO topic_disabled_sources (topic_id, source_id) VALUES (?, ?)`),
     // Unread
     getAllUnread: db.prepare(`SELECT topic_id, last_read_at, unread_count FROM unread`),
+    // All but the zeroed rows of archived topics (1,128 of 1,146 on prod).
+    getUnreadForInit: db.prepare(`SELECT topic_id, last_read_at, unread_count FROM unread u
+      WHERE u.unread_count > 0 OR NOT EXISTS (SELECT 1 FROM topics t WHERE t.id = u.topic_id AND t.archived = 1)`),
     upsertUnread: db.prepare(`INSERT OR REPLACE INTO unread (topic_id, last_read_at, unread_count) VALUES (?, ?, ?)`),
     deleteUnread: db.prepare(`DELETE FROM unread WHERE topic_id = ?`),
-    // One row, never the table: a bump that does not know the row yet starts
-    // it at 1 with `last_read_at` = now, one that does leaves `last_read_at`.
+    // A new row starts at 1 stamped now; an existing one keeps `last_read_at`.
     bumpUnread: db.prepare(`INSERT INTO unread (topic_id, last_read_at, unread_count) VALUES (?, ?, 1)
       ON CONFLICT(topic_id) DO UPDATE SET unread_count = unread_count + 1 RETURNING unread_count`),
     setUnreadEntry: db.prepare(`INSERT INTO unread (topic_id, last_read_at, unread_count) VALUES (?, ?, ?)
@@ -1276,14 +1278,18 @@ export function createAppContext(baseDir: string): AppContext {
   }
 
   // --- Unread (SQLite-backed) ---
-  function loadUnread(): UnreadData {
-    const rows = stmts.getAllUnread.all() as any[];
+  function unreadFromRows(rows: any[]): UnreadData {
     const result: UnreadData = {};
-    for (const row of rows) {
-      result[row.topic_id] = { lastReadAt: row.last_read_at, unreadCount: row.unread_count };
-    }
+    for (const row of rows) result[row.topic_id] = { lastReadAt: row.last_read_at, unreadCount: row.unread_count };
     return result;
   }
+  function loadUnread(): UnreadData { return unreadFromRows(stmts.getAllUnread.all() as any[]); }
+  /**
+   * The `unread:init` rows: an archived topic's zeroed row draws no badge (a
+   * missing row reads as 0), a non-zero one still ships. Never feed this to
+   * `saveUnread`, which deletes the rows it does not see.
+   */
+  function loadUnreadForInit(): UnreadData { return unreadFromRows(stmts.getUnreadForInit.all() as any[]); }
 
   function saveUnread(data: UnreadData): void {
     db.transaction(() => {
@@ -1303,11 +1309,7 @@ export function createAppContext(baseDir: string): AppContext {
     })();
   }
 
-  /**
-   * +1 on one topic's unread, returning the new count. `saveUnread` rewrote
-   * every row of the table to change one (3 ms and 161 KB of WAL per finished
-   * turn on the prod table of 1,145 rows, against 0.1 ms and 4 KB here).
-   */
+  /** +1 on one row, returns the new count: `saveUnread` rewrote all 1,146 rows (3 ms, 161 KB of WAL). */
   function bumpUnread(topicId: string): number {
     const row = stmts.bumpUnread.get(topicId, new Date().toISOString()) as { unread_count: number };
     return row.unread_count;
@@ -2828,7 +2830,7 @@ export function createAppContext(baseDir: string): AppContext {
     broadcast, broadcastToAll, broadcastProject, broadcastToTopic, broadcastToTopicSubscribers, sendToDevice, closeDeviceSockets, setGuestBroadcastFilter,
     loadTopics, saveTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey, setTopicBrowserState, touchTopicActivity,
-    loadUnread, saveUnread, bumpUnread, saveUnreadEntries,
+    loadUnread, loadUnreadForInit, saveUnread, bumpUnread, saveUnreadEntries,
     loadLocalMessages, hydrateMessageBodies, countMessagesBySession, saveLocalMessages, appendLocalMessage, appendImportedMessages,
     createPartialMessage, reuseOrCreatePartialForReattach, reuseHeadstoneOrCreate, updateLastMessage, appendToLastMessage,
     finalizeLastMessage, addToolCallToLastMessage, updateToolCallResult, updateToolCallFields,
