@@ -404,13 +404,18 @@ export class AiBridgeClient {
   }
 
   private handleFrame(msg: any): void {
-    // Satisfy any ack waiter first (spawned/attached/list/error/pong).
-    for (let i = this.waiters.length - 1; i >= 0; i--) {
-      if (this.waiters[i].pred(msg)) {
-        const [w] = this.waiters.splice(i, 1);
-        clearTimeout(w.timer);
-        w.resolve(msg);
-      }
+    // One ack answers ONE request: the OLDEST waiter it matches. Acks carry
+    // only type and id, so two requests of the same kind for the same id wait
+    // on identical predicates; handing the frame to all of them gave a resync
+    // sent after a `kill` the "alive" answer of an attach sent before it, and
+    // a killed child was reported alive (CI run 36703298057). The daemon reads
+    // a socket's lines in order and answers each in the same tick, and waiters
+    // are armed in send order, so wire order is the correlation.
+    const i = this.waiters.findIndex((w) => w.pred(msg));
+    if (i >= 0) {
+      const [w] = this.waiters.splice(i, 1);
+      clearTimeout(w.timer);
+      w.resolve(msg);
     }
     if (msg.type === "pong") {
       this.lastPongAt = Date.now();
