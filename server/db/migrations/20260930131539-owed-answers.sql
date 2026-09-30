@@ -20,8 +20,11 @@
 -- this table, not the messages: what it costs follows what is owed, not the
 -- history.
 --
---   tool_call_id  the question's tool call: the answer's identity.
 --   session_key   the chat the answer goes to.
+--   tool_call_id  the question's tool call. With the session, the answer's
+--                 identity: a fork copies the rows with new ids but keeps the
+--                 tool call ids (`lib/chat-fork.ts`), so one question can be
+--                 answered, and owed, in the chat and in its fork at once.
 --   row_id        the message row carrying the tool call, where the mark and
 --                 the answer are read back (`owedAnswerOf`).
 --   created_at    epoch ms of the answer: the order a session's answers go in.
@@ -32,8 +35,9 @@
 -- Nothing to backfill here: the marks written before this table sit inside
 -- compressed blobs SQL cannot read. The boot sweep indexes the ones it finds.
 CREATE TABLE IF NOT EXISTS owed_answers (
-  tool_call_id TEXT PRIMARY KEY,
   session_key  TEXT NOT NULL,
+  tool_call_id TEXT NOT NULL,
   row_id       TEXT NOT NULL,
-  created_at   INTEGER NOT NULL
+  created_at   INTEGER NOT NULL,
+  PRIMARY KEY (session_key, tool_call_id)
 );

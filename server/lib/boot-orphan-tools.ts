@@ -45,8 +45,11 @@ export function finalizeOrphanedRunningTools(db: Database, liveSessions: Readonl
   let rowOwed: Array<{ owed: OwedAnswer; at: number }> = [];
   const collectOwed = (tc: unknown, r: OrphanRow) => {
     const o = owedAnswerOf(tc as StoredQuestionCall, { sessionKey: r.session_key, rowId: r.id });
-    if (!o || owedIds.has(o.toolCallId)) return;
-    owedIds.add(o.toolCallId);
+    if (!o) return;
+    // By chat AND tool call: a fork keeps the tool call ids of the chat it came from.
+    const key = `${o.sessionKey}\0${o.toolCallId}`;
+    if (owedIds.has(key)) return;
+    owedIds.add(key);
     owed.push(o);
     const at = Date.parse(String((tc as { userResponse?: { submittedAt?: unknown } }).userResponse?.submittedAt ?? ""));
     rowOwed.push({ owed: o, at: Number.isFinite(at) ? at : Date.now() });

@@ -921,7 +921,7 @@ export function createTopicsRouter(
       // The mark and the index move together: `owed_answers` is what the boot loads.
       ctx.db.transaction(() => {
         if (owed.rowId) updateToolCallFields(owed.sessionKey, owed.toolCallId, { answerRelay: 'sent' }, { rowId: owed.rowId });
-        markAnswerNotOwed(ctx.db, owed.toolCallId);
+        markAnswerNotOwed(ctx.db, owed.sessionKey, owed.toolCallId);
       })();
       broadcastToAll({
         type: 'stream:tool_update', sessionKey: owed.sessionKey,

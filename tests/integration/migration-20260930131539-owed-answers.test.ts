@@ -75,6 +75,32 @@ describe("migration 20260930131539: owed_answers", () => {
     db.close();
   });
 
+  test("a fork keeps the tool call id: the chat and its fork each owe their own answer", () => {
+    const db = dbBefore();
+    db.run(MIGRATION_SQL);
+    rowWithAnswer(db, "r-chat", "topic:chat", "t-same", "queued");
+    rowWithAnswer(db, "r-fork", "topic:fork", "t-same", "queued");
+    markAnswerOwed(db, { toolCallId: "t-same", sessionKey: "topic:chat", rowId: "r-chat" }, 100);
+    markAnswerOwed(db, { toolCallId: "t-same", sessionKey: "topic:fork", rowId: "r-fork" }, 200);
+    expect(loadOwedAnswers(db).map((o) => o.sessionKey)).toEqual(["topic:chat", "topic:fork"]);
+    markAnswerNotOwed(db, "topic:fork", "t-same");
+    expect(loadOwedAnswers(db).map((o) => o.sessionKey)).toEqual(["topic:chat"]);
+    db.close();
+  });
+
+  test("a row whose blob cannot be read costs its answer a log line, not the boot, and stays in the index", () => {
+    const db = dbBefore();
+    db.run(MIGRATION_SQL);
+    rowWithAnswer(db, "r-ok", "topic:a", "t-ok", "queued");
+    db.prepare(`INSERT INTO messages (id, session_key, role, content, tool_calls, timestamp) VALUES ('r-bad', 'topic:a', 'assistant', '', ?, '2026-08-20')`)
+      .run(new Uint8Array([0x28, 0xb5, 0x2f, 0xfd, 1, 2, 3, 4, 5]) as never);
+    markAnswerOwed(db, { toolCallId: "t-bad", sessionKey: "topic:a", rowId: "r-bad" }, 100);
+    markAnswerOwed(db, { toolCallId: "t-ok", sessionKey: "topic:a", rowId: "r-ok" }, 200);
+    expect(loadOwedAnswers(db).map((o) => o.toolCallId)).toEqual(["t-ok"]);
+    expect((entries(db) as Array<{ tool_call_id: string }>).map((e) => e.tool_call_id)).toEqual(["t-bad", "t-ok"]);
+    db.close();
+  });
+
   test("sent, the entry goes; a row gone or no longer queued drops its entry at the next load", () => {
     const db = dbBefore();
     db.run(MIGRATION_SQL);
@@ -83,7 +109,7 @@ describe("migration 20260930131539: owed_answers", () => {
     markAnswerOwed(db, { toolCallId: "t-sent", sessionKey: "topic:a", rowId: "r1" });
     markAnswerOwed(db, { toolCallId: "t-marked-sent", sessionKey: "topic:a", rowId: "r2" });
     markAnswerOwed(db, { toolCallId: "t-row-gone", sessionKey: "topic:a", rowId: "r-deleted" });
-    markAnswerNotOwed(db, "t-sent");
+    markAnswerNotOwed(db, "topic:a", "t-sent");
     expect(loadOwedAnswers(db)).toEqual([]);
     expect(entries(db)).toEqual([]);
     db.close();

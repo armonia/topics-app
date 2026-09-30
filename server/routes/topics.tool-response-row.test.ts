@@ -62,8 +62,8 @@ function harness(rows: Row[]) {
         get: () => undefined,
         all: () => rows,
         run: (...args: unknown[]) => {
-          if (/INSERT INTO owed_answers/.test(sql)) index.push(`owed ${String(args[0])}`);
-          else if (/DELETE FROM owed_answers/.test(sql)) index.push(`not owed ${String(args[0])}`);
+          if (/INSERT INTO owed_answers/.test(sql)) index.push(`owed ${String(args[1])}`);
+          else if (/DELETE FROM owed_answers/.test(sql)) index.push(`not owed ${String(args[1])}`);
         },
       }),
       query: () => ({ get: () => null, all: () => [] }),

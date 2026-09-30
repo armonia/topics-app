@@ -22,14 +22,14 @@ export function markAnswerOwed(
 ): void {
   // A second answer to the same panel keeps the first one's place in the order.
   db.prepare(
-    `INSERT INTO owed_answers (tool_call_id, session_key, row_id, created_at) VALUES (?, ?, ?, ?)
-     ON CONFLICT(tool_call_id) DO UPDATE SET session_key = excluded.session_key, row_id = excluded.row_id`,
-  ).run(owed.toolCallId, owed.sessionKey, owed.rowId, createdAt);
+    `INSERT INTO owed_answers (session_key, tool_call_id, row_id, created_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(session_key, tool_call_id) DO UPDATE SET row_id = excluded.row_id`,
+  ).run(owed.sessionKey, owed.toolCallId, owed.rowId, createdAt);
 }
 
-/** The answer to this tool call is no longer owed: its row says `sent`. */
-export function markAnswerNotOwed(db: Database, toolCallId: string): void {
-  db.prepare(`DELETE FROM owed_answers WHERE tool_call_id = ?`).run(toolCallId);
+/** The answer to this tool call in this chat is no longer owed: its row says `sent`. */
+export function markAnswerNotOwed(db: Database, sessionKey: string, toolCallId: string): void {
+  db.prepare(`DELETE FROM owed_answers WHERE session_key = ? AND tool_call_id = ?`).run(sessionKey, toolCallId);
 }
 
 /**
@@ -45,13 +45,22 @@ export function loadOwedAnswers(db: Database): OwedAnswer[] {
       ORDER BY o.created_at, o.rowid`,
   ).all() as Array<{ tool_call_id: string; session_key: string; row_id: string; tool_calls: unknown; blocks: unknown }>;
   const owed: OwedAnswer[] = [];
-  const gone: string[] = [];
+  const gone: Array<[string, string]> = [];
   for (const e of entries) {
-    const call = storedToolCall([e], e.tool_call_id, decodeCol);
-    const o = call ? owedAnswerOf(call, { sessionKey: e.session_key, rowId: e.row_id }) : null;
-    if (o) owed.push(o); else gone.push(e.tool_call_id);
+    // This runs before the server listens: a row it cannot read (a corrupt
+    // blob) costs that one answer a log line, not the boot. The entry stays,
+    // so the answer is not forgotten either.
+    let o: OwedAnswer | null;
+    try {
+      const call = storedToolCall([e], e.tool_call_id, decodeCol);
+      o = call ? owedAnswerOf(call, { sessionKey: e.session_key, rowId: e.row_id }) : null;
+    } catch (err) {
+      console.warn(`[boot] owed answer ${e.session_key} ${e.tool_call_id} unreadable, kept in the index: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    if (o) owed.push(o); else gone.push([e.session_key, e.tool_call_id]);
   }
-  for (const id of gone) markAnswerNotOwed(db, id);
+  for (const [sessionKey, toolCallId] of gone) markAnswerNotOwed(db, sessionKey, toolCallId);
   if (gone.length > 0) console.log(`[boot] ${gone.length} owed answer(s) whose row no longer owes them dropped from the index`);
   return owed;
 }
