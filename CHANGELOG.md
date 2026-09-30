@@ -2,6 +2,17 @@
 
 _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non modificare a mano._
 
+## 2.2.416 — 2026-09-30
+
+### Sotto il cofano
+- A card held over In Progress at the row's edge must land there: the edge test now tells the snap hold apart
+- The board and pane-loading lane comes back: the BOARD-18 red it was reverted for was the reduced-motion scroll override, fixed on main in d52d7a7aa
+
+## 2.2.415 — 2026-09-30
+
+### Sotto il cofano
+- One ai-bridge ack answers one request, so a resync after a kill no longer reads an earlier attach's "alive"
+
 ## 2.2.414 — 2026-09-30
 
 ### Sotto il cofano
@@ -23,7 +34,9 @@ _Generato da `bun run changelog` a partire dalla cronologia git su `main`. Non m
 - The sub-agent transcript reader types its records instead of reading them as any
 - Revert "Merge branch 'ui/uipanes-0930' into integra/tornata2l-0930"
 - The client and the landing take the patched brace-expansion and fast-uri published on 29/09
+- A closing phone scrim stops catching taps at once, and the Add -> Chat test judges the first frame the drawer is gone
 - The sub-agent lifecycle test imports claude-bin by name, so the dead-code check still sees its exports
+- A card in hand holds the carousel snap, so the edge auto-scroll no longer drops it two columns away
 - The bundle baseline records tornata 2l, with what each piece of the lane put in the entry
 - Reduced motion keeps the board carousel's smooth scroll, so a card dropped on In Progress no longer lands in Done
 - The critical path baseline takes the CI number, the worse of the two, and the note names every module that entered the entry

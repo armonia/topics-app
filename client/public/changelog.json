@@ -1,5 +1,42 @@
 [
   {
+    "version": "2.2.416",
+    "date": "2026-09-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "A card held over In Progress at the row's edge must land there: the edge test now tells the snap hold apart",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "The board and pane-loading lane comes back: the BOARD-18 red it was reverted for was the reduced-motion scroll override, fixed on main in d52d7a7aa",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
+    "version": "2.2.415",
+    "date": "2026-09-30",
+    "sections": {
+      "new": [],
+      "fixes": [],
+      "perf": [],
+      "internal": [
+        {
+          "it": "One ai-bridge ack answers one request, so a resync after a kill no longer reads an earlier attach's \"alive\"",
+          "en": "",
+          "scope": null
+        }
+      ]
+    }
+  },
+  {
     "version": "2.2.414",
     "date": "2026-09-30",
     "sections": {
@@ -100,7 +137,17 @@
           "scope": null
         },
         {
+          "it": "A closing phone scrim stops catching taps at once, and the Add -> Chat test judges the first frame the drawer is gone",
+          "en": "",
+          "scope": null
+        },
+        {
           "it": "The sub-agent lifecycle test imports claude-bin by name, so the dead-code check still sees its exports",
+          "en": "",
+          "scope": null
+        },
+        {
+          "it": "A card in hand holds the carousel snap, so the edge auto-scroll no longer drops it two columns away",
           "en": "",
           "scope": null
         },
