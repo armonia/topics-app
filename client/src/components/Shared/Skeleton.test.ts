@@ -6,7 +6,9 @@
  *    (margine negativo di `.chat-under-chrome:first-child`) e continua sotto il
  *    composer, che gli sta sopra in `absolute bottom-0`. Il contenuto vero non
  *    ci finisce dentro perché Virtuoso apre un Header alto `--chat-gutter` e un
- *    Footer alto `inputAreaHeight + CHAT_BOTTOM_GUTTER_PX`. Lo scheletro è un
+ *    Footer alto quanto il composer più `CHAT_BOTTOM_GUTTER_PX` (l'altezza
+ *    arriva dalla custom property `COMPOSER_HEIGHT_PROPERTY`, scritta insieme a
+ *    `inputAreaHeight` dallo stesso osservatore). Lo scheletro è un
  *    fratello `absolute` dello scroller: quei due varchi non li eredita, e con
  *    `inset-0` nasceva mezzo sotto il vetro con le bolle basse dietro al
  *    composer. Il primo frame di contenuto vero le rimetteva a posto: cioè
@@ -34,6 +36,7 @@ const read = (...p: string[]) => readFileSync(join(...p), 'utf8');
 
 const skeleton = read(SHARED, 'Skeleton.tsx');
 const messageList = read(CLIENT_SRC, 'components', 'Chat', 'MessageList.tsx');
+const composerDock = read(CLIENT_SRC, 'components', 'Chat', 'useComposerDock.ts');
 
 describe('scheletro della chat', () => {
   test('lascia in cima il varco della barra di chrome', () => {
@@ -63,7 +66,16 @@ describe('scheletro della chat', () => {
   test('il Footer vero e lo scheletro sommano lo stesso gutter', () => {
     // Se qualcuno cambia il Footer di Virtuoso e non questo, le due attese si
     // scollano di nuovo: il numero è uno solo e ha un nome.
-    expect(messageList).toContain('height: inputAreaHeight + CHAT_BOTTOM_GUTTER_PX');
+    //
+    // Il Footer legge l'altezza del composer da una custom property, non dallo
+    // stato React: così segue una riga nuova nello stesso frame (panes:F15).
+    // Lo scheletro somma `inputAreaHeight`: le due restano la stessa misura
+    // solo se ogni punto che scrive l'una scrive anche l'altra, dallo stesso `h`.
+    expect(messageList).toContain('height: `calc(var(${COMPOSER_HEIGHT_PROPERTY}, 0px) + ${CHAT_BOTTOM_GUTTER_PX}px)`');
+    const scritture = composerDock.match(/setInputAreaHeight\([^)]*\)/g) ?? [];
+    expect(scritture.length).toBeGreaterThan(0);
+    expect(scritture.every((w) => w === 'setInputAreaHeight(h)')).toBe(true);
+    expect(composerDock.match(/setProperty\(COMPOSER_HEIGHT_PROPERTY, `\$\{h\}px`\)/g)?.length).toBe(scritture.length);
   });
 });
 
