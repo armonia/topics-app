@@ -65,6 +65,7 @@ import {
 } from '../../lib/composerMemory';
 import { usePaneHold } from '../../state/pane/residency/holds';
 import { useSessionMessages } from '../../state/useSessionMessages';
+import { useSessionFlagValue } from '../../state/sessionFlags';
 import { loadDraftAttachments, saveDraftAttachments } from '../../state/draftAttachments';
 import { useServedFromCache } from '../../state/historyFromCache';
 import { holdTopic } from '../../state/topicSubscriptions';
@@ -497,9 +498,11 @@ function ChatPaneComponent({
       setCommandResult(null);
     }
   }, [currentMarkers]);
-  const currentLoading = isSessionLoading(topic.sessionKey);
-  const currentStreaming = isSessionStreaming(topic.sessionKey);
-  const currentStoppedByUser = wasSessionStopped(topic.sessionKey);
+  // Subscribed to THIS session's flags: a turn starting or ending in another
+  // chat no longer reaches this pane, nor `App` above it (`sessionFlags.ts`).
+  const currentLoading = useSessionFlagValue(topic.sessionKey, isSessionLoading);
+  const currentStreaming = useSessionFlagValue(topic.sessionKey, isSessionStreaming);
+  const currentStoppedByUser = useSessionFlagValue(topic.sessionKey, wasSessionStopped);
 
   // Picker keeps a simple local override per pane. On first paint we seed it
   // from the topic's persisted `provider`/`model` (set previously via PATCH);
@@ -1809,13 +1812,11 @@ function ChatPaneComponent({
  * (getSessionMessages caches by source-array identity), so:
  *   - a chunk in another pane leaves THIS pane's resolved array untouched → skip;
  *   - a chunk in THIS pane's own session changes its array → re-render.
- * `isSessionLoading`/`isSessionStreaming` are the SAME trap: they're
- * `useCallback(_, [loading])`/`[streaming]` over the whole-app
- * `Record<sessionKey, boolean>`, so their identity rebinds whenever ANY
- * session toggles — a shallow compare on the function would re-render every
- * open pane on every other pane's turn boundary. We resolve them for THIS
- * pane's sessionKey (the only key the component reads — lines 236-237) and
- * compare the boolean, exactly like getSessionMessages.
+ * `isSessionLoading`/`isSessionStreaming`/`wasSessionStopped` are stable
+ * readers of the flag store now (`state/sessionFlags.ts`), and the pane
+ * subscribes to its own session's flags; they are still resolved for THIS
+ * pane's sessionKey and compared as booleans, so a caller that hands in a
+ * wrapper per render does not defeat the memo.
  *
  * Any genuine prop change (topic rename, focus, chatError, ProjectWindow's
  * per-render wrappedSendMessage for preview panes) fails the shallow pass →

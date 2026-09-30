@@ -88,6 +88,23 @@ import {
   type QueueStorage,
   type QueuedMessage,
 } from './outboundQueue';
+import { flagMapRef, flagSetter, getSessionFlag } from '../state/sessionFlags';
+
+// The turn flags' setters, readers and live refs: module constants, so every
+// callback that uses them stays stable (see `state/sessionFlags.ts`).
+const setLoading = flagSetter('loading');
+const setStreaming = flagSetter('streaming');
+const setThinking = flagSetter('thinking');
+const setStoppedByUser = flagSetter('stopped');
+const loadingRef = flagMapRef('loading');
+const streamingRef = flagMapRef('streaming');
+const thinkingRef = flagMapRef('thinking');
+const stoppedByUserRef = flagMapRef('stopped');
+const isSessionLoading = (sessionKey: string): boolean => getSessionFlag('loading', sessionKey);
+const isSessionStreaming = (sessionKey: string): boolean => getSessionFlag('streaming', sessionKey);
+const isSessionThinking = (sessionKey: string): boolean => getSessionFlag('thinking', sessionKey);
+/** Vero se il turno di questa sessione l'ha fermato l'umano e non ne è ancora partito un altro. */
+const wasSessionStopped = (sessionKey: string): boolean => getSessionFlag('stopped', sessionKey);
 
 // --- Message cache helpers (localStorage) ---
 const CACHE_PREFIX = 'messages-cache-';
@@ -570,9 +587,11 @@ export function useChat() {
       return { ...prev, [sessionKey]: [...list, marker] };
     });
   }, []);
-  const [loading, setLoading] = useState<Record<string, boolean>>({});
-  const [streaming, setStreaming] = useState<Record<string, boolean>>({});
-  const [thinking, setThinking] = useState<Record<string, boolean>>({});
+  // The turn flags (loading, streaming, thinking, stopped) live in
+  // `state/sessionFlags.ts`, not in this hook's state: `App` calls `useChat`,
+  // so a `useState` here re-rendered the whole app on a `stream:start` of a
+  // topic nobody was looking at. Their setters, keeping the `useState` updater
+  // shape, and their readers are module constants at the top of this file.
   /**
    * Sessioni fermate a mano, finché non riparte un turno.
    *
@@ -583,7 +602,6 @@ export function useChat() {
    * (`dropEmptyTurn`) e lascia in pagina esattamente la stessa forma di un
    * turno mai arrivato.
    */
-  const [stoppedByUser, setStoppedByUser] = useState<Record<string, boolean>>({});
   // Keyed by sessionKey like `streaming`/`loading`/`thinking`: `useChat` is
   // mounted ONCE for the whole app, so a single string here was painted under
   // EVERY composer on screen and cleared by whichever session sent next.
@@ -708,7 +726,6 @@ export function useChat() {
 
   // Live mirror of the streaming map so the server-reconciler (below) reads the
   // freshest flags without being re-created on every streaming change.
-  const streamingRef = useRefMirror(streaming);
   // Per-session count of consecutive polls where the server said "not streaming"
   // while we still showed it streaming. Drives the orphan-clear threshold.
   const streamMissRef = useRef<Map<string, number>>(new Map());
@@ -786,7 +803,6 @@ export function useChat() {
   // l'helper che questo file usa già per lo stesso scopo.
   const resetStreamTimeoutRef = useRefMirror(resetStreamTimeout);
 
-  const stoppedByUserRef = useRefMirror(stoppedByUser);
   /**
    * A live frame of a turn this window had already settled lights it again.
    *
@@ -801,7 +817,7 @@ export function useChat() {
     beginStreaming(sessionKey);
     resetStreamTimeout(sessionKey);
     if (messageId) streamMessageIdRef.current.begin(sessionKey, messageId);
-  }, [beginStreaming, resetStreamTimeout, streamingRef, stoppedByUserRef]);
+  }, [beginStreaming, resetStreamTimeout]);
 
   const clearStreamTimeout = useCallback((sessionKey: string) => {
     if (streamingTimeoutRef.current[sessionKey]) {
@@ -890,7 +906,7 @@ export function useChat() {
     setLoading(prev => { const next = { ...prev }; for (const sk of orphans) next[sk] = false; return next; });
     setThinking(prev => { const next = { ...prev }; for (const sk of orphans) next[sk] = false; return next; });
     for (const sk of orphans) settleTurn(sk);
-  }, [clearStreamTimeout, streamingRef, settleTurn]);
+  }, [clearStreamTimeout, settleTurn]);
 
   const addMessage = useCallback((sessionKey: string, message: Omit<ChatMessage, 'id'> & { id?: string }) => {
     const newMessage: ChatMessage = {
@@ -2485,22 +2501,10 @@ export function useChat() {
     return compactionMarkers[sessionKey] || EMPTY_MARKERS;
   }, [compactionMarkers, EMPTY_MARKERS]);
 
-  const isSessionLoading = useCallback((sessionKey: string): boolean => {
-    return loading[sessionKey] || false;
-  }, [loading]);
-
-  const isSessionStreaming = useCallback((sessionKey: string): boolean => {
-    return streaming[sessionKey] || false;
-  }, [streaming]);
-
-  const isSessionThinking = useCallback((sessionKey: string): boolean => {
-    return thinking[sessionKey] || false;
-  }, [thinking]);
-
-  /** Vero se il turno di questa sessione l'ha fermato l'umano e non ne è ancora partito un altro. */
-  const wasSessionStopped = useCallback((sessionKey: string): boolean => {
-    return stoppedByUser[sessionKey] || false;
-  }, [stoppedByUser]);
+  // `isSessionLoading`, `isSessionStreaming`, `isSessionThinking` and
+  // `wasSessionStopped` are module constants: they read the flag store, and a
+  // component that renders from one subscribes to its session
+  // (`useSessionFlagValue`).
 
   /**
    * Ferma lo stream. Risolve a `true` SOLO se il server ha davvero buttato via
@@ -3153,8 +3157,6 @@ export function useChat() {
    * fine stream. Sfrattare una di quelle non ricaricherebbe il lavoro: lo
    * perderebbe.
    */
-  const loadingRef = useRefMirror(loading);
-  const thinkingRef = useRefMirror(thinking);
   const pendingQueueRef = useRefMirror(pendingQueue);
   useEffect(() => {
     const sweep = (overrides?: Partial<Omit<MessageResidencyInput, 'sessions' | 'now'>>): string[] => {
@@ -3224,7 +3226,7 @@ export function useChat() {
       clearInterval(t);
       delete (window as unknown as { __topicsMessageSweep?: typeof sweep }).__topicsMessageSweep;
     };
-  }, [forgetSessionCaches, streamingRef, loadingRef, thinkingRef, pendingQueueRef]);
+  }, [forgetSessionCaches, pendingQueueRef]);
 
   // Ritentativo del drain per gli item rinviati (sessione occupata). Un solo
   // timer alla volta; si autospegne quando la coda non rinvia più nulla.

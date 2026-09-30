@@ -11,6 +11,7 @@ import { readStreamingSnapshot, type StreamingRowInput } from './backgroundWork'
 import { chatFinishedEdge } from '../lib/notify/chatFinished';
 import { marksClearedBy, terminalSubject, topicSubject } from '../lib/notify/seenFrame';
 import { isChatInFront } from './chatInView';
+import { subscribeAllSessionFlags } from './sessionFlags';
 
 /** Insieme vuoto condiviso: identità stabile, così il primo giro non fa churn. */
 const EMPTY_TOPIC_SET: Set<string> = new Set();
@@ -105,13 +106,20 @@ export function useSignalsSync({ topics, claudeSessions, terminalSessions, isSes
     signalsActions.setSessionLastActivity(deriveSessionLastActivity(topics, terminalSessions, claudeSessions));
   }, [topics, terminalSessions, claudeSessions]);
 
-  // Live chat streams (useChat) → by topic.
+  // Live chat streams (useChat) → by topic. Subscribed to the flag store from
+  // here, not read in a render: this hook runs inside `App`, and a turn
+  // starting in a background chat must not re-render `App` to reach the
+  // sidebar row (`state/sessionFlags.ts`).
   useEffect(() => {
-    const ids = new Set<string>();
-    for (const t of Object.values(topics)) {
-      if (t.sessionKey && isSessionStreaming(t.sessionKey)) ids.add(t.id);
-    }
-    signalsActions.setLiveStreamTopics(ids);
+    const publish = () => {
+      const ids = new Set<string>();
+      for (const t of Object.values(topics)) {
+        if (t.sessionKey && isSessionStreaming(t.sessionKey)) ids.add(t.id);
+      }
+      signalsActions.setLiveStreamTopics(ids);
+    };
+    publish();
+    return subscribeAllSessionFlags(publish);
   }, [topics, isSessionStreaming]);
 
   // Hydrated "mid-reply" baseline — covers sessions already streaming at load
