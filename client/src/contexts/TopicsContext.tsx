@@ -31,12 +31,19 @@ interface TopicsContextValue {
    *  `workspaceProjects` on the topics index endpoint. Optional because
    *  some older callers never hydrate it. */
   workspaceProjects?: string[];
+  /**
+   * The topics list has not answered yet (first load, nothing cached). While
+   * true an empty surface is NOT "no chats": it is "not known yet", and an
+   * empty state saying otherwise is a false statement for a second.
+   */
+  topicsPending: boolean;
 }
 
 const EMPTY_VALUE: TopicsContextValue = {
   topics: {},
   terminalSessions: [],
   terminalRosterAuthoritative: false,
+  topicsPending: false,
 };
 
 const Ctx = createContext<TopicsContextValue>(EMPTY_VALUE);
@@ -46,10 +53,11 @@ interface ProviderProps {
   terminalSessions: TerminalSessionInfo[];
   terminalRosterAuthoritative?: boolean;
   workspaceProjects?: string[];
+  topicsPending?: boolean;
   children: ReactNode;
 }
 
-export function TopicsProvider({ topics, terminalSessions, terminalRosterAuthoritative = false, workspaceProjects, children }: ProviderProps) {
+export function TopicsProvider({ topics, terminalSessions, terminalRosterAuthoritative = false, workspaceProjects, topicsPending = false, children }: ProviderProps) {
   // Memoised wrapper so the context value identity changes only when an
   // input actually changes — prevents cascade re-renders across every
   // consumer when an unrelated piece of App state updates.
@@ -58,7 +66,8 @@ export function TopicsProvider({ topics, terminalSessions, terminalRosterAuthori
     terminalSessions,
     terminalRosterAuthoritative,
     workspaceProjects,
-  }), [topics, terminalSessions, terminalRosterAuthoritative, workspaceProjects]);
+    topicsPending,
+  }), [topics, terminalSessions, terminalRosterAuthoritative, workspaceProjects, topicsPending]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -84,4 +93,10 @@ export function useTerminalSessions(): TerminalSessionInfo[] {
 // eslint-disable-next-line react-refresh/only-export-components -- idiomatic Provider+hook colocation; the consumer hook belongs with its context
 export function useTerminalRosterAuthoritative(): boolean {
   return useContext(Ctx).terminalRosterAuthoritative;
+}
+
+/** See `topicsPending`: true only until the first topics list arrives. */
+// eslint-disable-next-line react-refresh/only-export-components -- idiomatic Provider+hook colocation; the consumer hook belongs with its context
+export function useTopicsPending(): boolean {
+  return useContext(Ctx).topicsPending;
 }

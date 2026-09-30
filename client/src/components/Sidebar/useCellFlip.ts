@@ -87,6 +87,7 @@ export function liveTranslate(el: Element): { x: number; y: number } {
 export function useCellFlip(root: RefObject<HTMLElement | null>): void {
   const prima = useRef(new Map<string, Riquadro>());
   const inVolo = useRef(new Map<string, Animation>());
+  const measured = useRef(false);
 
   useLayoutEffect(() => {
     const radice = root.current;
@@ -124,7 +125,15 @@ export function useCellFlip(root: RefObject<HTMLElement | null>): void {
       dopo.set(chiave, fine);
 
       const p = prima.current.get(chiave);
-      if (!p || ridotto || typeof cella.animate !== 'function') continue;
+      if (ridotto || typeof cella.animate !== 'function') continue;
+      if (!p) {
+        // A tile that was just pinned fades in where it lands instead of
+        // popping in; on the first pass every tile is already there.
+        if (measured.current) {
+          cella.animate([{ opacity: 0 }, { opacity: 1 }], { duration: DURATA_MS, easing: CURVA });
+        }
+        continue;
+      }
       if (Math.abs(p.width - fine.width) > 0.5) continue;
 
       const dx = p.left - fine.left + tx;
@@ -147,6 +156,7 @@ export function useCellFlip(root: RefObject<HTMLElement | null>): void {
     }
 
     prima.current = dopo;
+    measured.current = true;
     for (const chiave of [...inVolo.current.keys()]) {
       if (!dopo.has(chiave)) inVolo.current.delete(chiave);
     }

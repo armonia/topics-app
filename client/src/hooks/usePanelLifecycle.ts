@@ -2102,6 +2102,10 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     // rimasto in giro deve poter riportare la scena altrove mentre la chat
     // nasce (la creazione muta lo store, e ogni mutazione risveglia Effect A).
     releaseFocusIntents();
+    // On the phone the drawer covers the whole screen: every other open path
+    // closes it, and this one left the new draft mounted, and untappable,
+    // behind the list.
+    if (isMobile) setSidebarCollapsed(true);
     if (projectPath) {
       const topic = await createTopic({
         name: 'New Chat',
@@ -2140,7 +2144,7 @@ export function usePanelLifecycle(args: UsePanelLifecycleArgs): UsePanelLifecycl
     setDraftMeta(prev => ({ ...prev, [draftId]: { createdAt: new Date().toISOString() } }));
     openPanel(draftId, 'permanent', true);
     return draftId;
-  }, [createTopic, openPanel, visiblePanelsRef, releaseFocusIntents]);
+  }, [createTopic, openPanel, visiblePanelsRef, releaseFocusIntents, isMobile, setSidebarCollapsed]);
 
   // ── «Aperta ma non aperta»: la bozza vuota se ne va da sé ────────────────
   //

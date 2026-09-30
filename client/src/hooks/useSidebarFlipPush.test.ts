@@ -143,12 +143,28 @@ describe("useSidebarFlipPush — the strip the transform uncovers", () => {
     h.aggiorna({ collapsed: false });
     const afterFirst = layer.style.width;
 
-    // Closing: positive delta, no extra to add — and the previous pass's width
-    // must NOT survive.
+    // Closing: positive delta. The previous pass's +255px must NOT survive into
+    // it: the hide writes its own compensation, and only that one.
     h.aggiorna({ collapsed: true });
 
     expect(afterFirst, "the first pass did not widen the layer").toBe("calc(100% + 255px)");
-    expect(layer.style.width, "the previous pass's width survived").toBe("");
+    expect(layer.style.width, "the previous pass's width survived").toBe("calc(100% - 255px)");
+  });
+
+  test("hiding the sidebar NARROWS the layer, so centred content never moves right", () => {
+    // The hide: the pad goes 255 -> 0 and the layer is shifted +255px. Left at
+    // its final (wider) box, anything centred in it would sit 127.5px to the
+    // right of where it was in the first frame, and then slide left. With the
+    // old box kept (`100% - 255px`) the right edge stays put and the centre
+    // only moves left.
+    const content = fakeContent();
+    const layer = layerLegatoAlPad(content);
+    const h = mountHook(layer, content, { collapsed: false, expandedPad: 255 });
+    h.aggiorna({ collapsed: true });
+
+    expect(layer.style.transform).toBe("translateX(255px)");
+    expect(layer.style.width, "THE DEFECT: shifted at the final width = centred content jumps right")
+      .toBe("calc(100% - 255px)");
   });
 
   test("a RESIZE (collapsed unchanged) does not animate: it settles at once", () => {

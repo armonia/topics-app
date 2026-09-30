@@ -121,13 +121,24 @@ export function useSidebarFlipPush(
     // translateX(-256px) the uncovered strip is 256px, and with `calc(100% +
     // 256px)` it is 0 — measured at three offsets, exact every time.
     //
-    // Only when the shift is NEGATIVE. A positive delta moves the layer right, so
-    // its right edge already overhangs the window and extra width would just push
-    // more content out to be clipped: the opposite mistake.
-    const extra = delta < 0 ? -delta : 0;
+    // AND ON THE HIDE, NARROW IT BY THE SAME AMOUNT (the mirror case).
+    //
+    // A positive delta (the sidebar going away) moves the layer right while it
+    // is already at its final, wider box. Its left edge was compensated, but
+    // anything CENTRED inside it (the chat column, max-width and mx-auto) sat at
+    // the centre of the wide box, i.e. delta/2 to the right of where it was, and
+    // then slid left: measured at 1440x900, +128px right in the first frame, then
+    // -256px, on every hide. Keeping the old box (`100% - delta`) for the first
+    // frame and letting it grow with the slide keeps the right edge on the
+    // window edge, as the reveal does, and the centred content only ever moves
+    // left.
+    //
+    // So the width always compensates the shift: `100% - delta`, wider on the
+    // reveal (delta < 0), narrower on the hide (delta > 0).
+    const extra = -delta;
     layer.style.willChange = 'transform';
     layer.style.transform = `translateX(${delta}px)`;
-    if (extra) layer.style.width = `calc(100% + ${extra}px)`;
+    layer.style.width = extra > 0 ? `calc(100% + ${extra}px)` : `calc(100% - ${-extra}px)`;
     void layer.getBoundingClientRect(); // flush the inverted transform before arming Play
 
     // (5) Play — next frame, slide translateX → 0 on the compositor, matching the sidebar's
@@ -145,7 +156,7 @@ export function useSidebarFlipPush(
       // covered anything. A transition needs two values; `''` is not one of them.
       l.style.transition = `transform ${SLIDE_MS}ms ease, width ${SLIDE_MS}ms ease`;
       l.style.transform = 'translateX(0)';
-      if (extra) l.style.width = '100%';
+      l.style.width = '100%';
     });
 
     // Drop will-change after the slide — never pin a GPU layer (all N terminal canvases)
