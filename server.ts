@@ -1476,7 +1476,7 @@ const retirementConsequences: ReconcileDeps = {
       getTopicById: ctx.getTopicById,
       saveSingleTopic: ctx.saveSingleTopic,
       loadUnread: ctx.loadUnread,
-      saveUnread: ctx.saveUnread,
+      saveUnreadEntries: ctx.saveUnreadEntries,
       broadcastToAll: ctx.broadcastToAll,
       purgeFromUiState: (id) =>
         purgeTopicFromUiState(ctx.db, ctx.broadcastToAll, id, (c) => browserService.destroyContext(c)),

@@ -21,7 +21,7 @@ export function createNotificationsRouter(ctx: AppContext): RouteHandler {
   const { json, readJSON } = ctx;
   // The seen door needs the unread store: a chat's notification seen here is
   // the chat seen, exactly as if it had been opened.
-  const seenDeps = { loadUnread: ctx.loadUnread, saveUnread: ctx.saveUnread, broadcastToAll: ctx.broadcastToAll };
+  const seenDeps = { loadUnread: ctx.loadUnread, saveUnreadEntries: ctx.saveUnreadEntries, broadcastToAll: ctx.broadcastToAll };
 
   return async function notificationsRouter(req: Request, url: URL, pathname: string, method: string): Promise<Response | null> {
     if (method === "GET" && pathname === "/api/notifications") {

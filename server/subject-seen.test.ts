@@ -56,7 +56,7 @@ function harness(counts: Record<string, number>) {
   let saves = 0;
   const deps: SubjectSeenDeps = {
     loadUnread: () => structuredClone(store),
-    saveUnread: (d) => { store = d; saves++; },
+    saveUnreadEntries: (d) => { store = { ...store, ...d }; saves++; },
     broadcastToAll: (m) => { frames.push(m as unknown as Frame); },
   };
   return {

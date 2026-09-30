@@ -16,8 +16,10 @@ function harness(initial: UnreadData = {}, archived: string[] = []) {
   let store: UnreadData = structuredClone(initial);
   const broadcasts: Array<Record<string, unknown>> = [];
   const deps: UnreadDeps = {
-    loadUnread: () => store,
-    saveUnread: (d) => { store = d; },
+    bumpUnread: (id) => {
+      store[id] ??= { lastReadAt: new Date().toISOString(), unreadCount: 0 };
+      return ++store[id].unreadCount;
+    },
     broadcastToAll: (m) => { broadcasts.push(m as unknown as Record<string, unknown>); },
     isArchived: (id) => archived.includes(id),
   };
@@ -103,8 +105,7 @@ describe("bumpUnreadCount", () => {
   it("un errore di persistenza non propaga: il badge è accessorio, il messaggio no", () => {
     const broadcasts: Array<Record<string, unknown>> = [];
     const deps: UnreadDeps = {
-      loadUnread: () => { throw new Error("db locked"); },
-      saveUnread: () => {},
+      bumpUnread: () => { throw new Error("db locked"); },
       broadcastToAll: (m) => { broadcasts.push(m as unknown as Record<string, unknown>); },
       isArchived: () => false,
     };

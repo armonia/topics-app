@@ -51,7 +51,7 @@ function harness(opts: { topic?: Topic | null; purgeFails?: string } = {}): Harn
       getTopicById: (id) => (topic && topic.id === id ? topic : null),
       saveSingleTopic: (t) => { saved.push(t); },
       loadUnread: () => unread,
-      saveUnread: (d) => { Object.assign(unread, d); },
+      saveUnreadEntries: (d) => { Object.assign(unread, d); },
       broadcastToAll: (m) => { broadcasts.push(m as never); },
       purgeFromUiState: (id) => {
         purged.push(id);

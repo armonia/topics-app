@@ -527,7 +527,12 @@ export interface AppContext {
    */
   touchTopicActivity: (topicId: string, updatedAt: string) => Topic | null;
   loadUnread: () => UnreadData;
+  /** Rewrites the WHOLE table and deletes the rows missing from `data`: boot cleanup only. */
   saveUnread: (data: UnreadData) => void;
+  /** +1 on one topic's unread (creating the row at 1), returns the new count. */
+  bumpUnread: (topicId: string) => number;
+  /** Upserts only the given rows. */
+  saveUnreadEntries: (entries: UnreadData) => void;
   loadLocalMessages: (sessionKey: string, opts?: ThreadLoadOpts) => StoredMessage[];
   /** Fills `blocks`/`tool_calls` back into messages loaded lean. */
   hydrateMessageBodies: (msgs: StoredMessage[]) => StoredMessage[];

@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSy
 import { join, resolve, dirname } from "path";
 import { detectProjectPath } from "../lib/detect-project-path";
 import { homedir } from "os";
-import type { AppContext, RouteHandler, Topic, ToolCall } from "../types";
+import type { AppContext, RouteHandler, Topic, ToolCall, UnreadData } from "../types";
 import { getProvider, getDefaultProvider, getDefaultProviderName, type AIProvider } from "../providers";
 import { withBackgroundWork, stopBackgroundOnly, type TurnStatusRow } from "../providers/background-probes";
 import { createTopicProviderResolver } from "../providers/topic-provider-resolver";
@@ -481,7 +481,7 @@ export function createTopicsRouter(
     broadcastToAll,
     loadTopics, saveSingleTopic,
     getTopicById, getTopicBySessionKey,
-    loadUnread, saveUnread,
+    loadUnread,
     loadLocalMessages, countMessagesBySession, saveLocalMessages, appendLocalMessage,
     updateLastMessage, updateToolCallFields, discardIfEmptyTurn,
     endStream,
@@ -593,7 +593,7 @@ export function createTopicsRouter(
   /** Politica di lettura e incremento: `server/lib/unread-count.ts`. */
   function updateUnreadCount(topicId: string) {
     bumpUnreadCount(
-      { loadUnread, saveUnread, broadcastToAll, isArchived: (id) => getTopicById(id)?.archived === true },
+      { bumpUnread: ctx.bumpUnread, broadcastToAll, isArchived: (id) => getTopicById(id)?.archived === true },
       topicId,
     );
   }
@@ -1763,7 +1763,7 @@ export function createTopicsRouter(
           // + purge da ui_state. Lo stesso servizio che usa il dispatcher, così
           // i due percorsi non possono più divergere (services/archive-topic.ts).
           const res = archiveTopicFully({
-            getTopicById, saveSingleTopic, loadUnread, saveUnread, broadcastToAll,
+            getTopicById, saveSingleTopic, loadUnread, saveUnreadEntries: ctx.saveUnreadEntries, broadcastToAll,
             purgeFromUiState: (id) =>
               purgeTopicFromUiState(ctx.db, broadcastToAll, id, (c) => browserService?.destroyContext(c)),
             parkClaudeSession: parkTopicSession,
@@ -1812,7 +1812,7 @@ export function createTopicsRouter(
       }
       const { projectPath, archived } = body;
       const data = loadTopics();
-      const unread = loadUnread();
+      const unread: UnreadData = {};
       const updatedTopics: Topic[] = [];
       const now = new Date().toISOString();
       for (const topic of Object.values(data.topics)) {
@@ -1832,12 +1832,12 @@ export function createTopicsRouter(
       if (updatedTopics.length === 0) return json({ error: "no topics found for projectPath" }, 404);
       // Targeted writes wrapped in one transaction — only the topics we just
       // modified are written (no trampling of unrelated rows) AND a crash
-      // mid-archive can't leave half the project archived. saveUnread for
-      // the archive path is included so the unread reset commits with the
-      // archive flip.
+      // mid-archive can't leave half the project archived. The unread reset
+      // of the archived topics is included so it commits with the archive
+      // flip; only their rows are written, not the whole table.
       ctx.db.transaction(() => {
         for (const topic of updatedTopics) saveSingleTopic(topic);
-        if (archived) saveUnread(unread);
+        if (archived) ctx.saveUnreadEntries(unread);
       })();
       const purgeFailures: { topicId: string; error: string }[] = [];
       for (const topic of updatedTopics) {
@@ -1968,7 +1968,7 @@ export function createTopicsRouter(
         // it changed. The panel's seen goes through the same function, so the
         // bell and the badges cannot tell two different stories.
         const body = (await readJSON(req)) as { doneMark?: unknown } | null;
-        markTopicSeen({ loadUnread, saveUnread, broadcastToAll }, params.id, { doneMark: body?.doneMark === true });
+        markTopicSeen({ loadUnread, saveUnreadEntries: ctx.saveUnreadEntries, broadcastToAll }, params.id, { doneMark: body?.doneMark === true });
         return json({ ok: true });
       }
     }

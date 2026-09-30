@@ -22,12 +22,11 @@
  * con quella topic focussata perché NESSUNO ricevesse il badge. Da quando il
  * client marca letto sulla soglia, quel gate era ridondante E dannoso.
  */
-import type { UnreadData } from "../../shared/types";
 import type { OutboundMessage } from "../../shared/ws-outbound";
 
 export interface UnreadDeps {
-  loadUnread: () => UnreadData;
-  saveUnread: (data: UnreadData) => void;
+  /** +1 on this topic's row (created at 1 when missing), returns the new count. */
+  bumpUnread: (topicId: string) => number;
   broadcastToAll: (message: OutboundMessage) => void;
   /**
    * Whether this topic is archived. REQUIRED, and deliberately not optional:
@@ -63,14 +62,11 @@ export function bumpUnreadCount(deps: UnreadDeps, topicId: string): void {
     // wrong edge.
     if (deps.isArchived(topicId)) return;
 
-    const unread = deps.loadUnread();
-    if (!unread[topicId]) unread[topicId] = { lastReadAt: new Date().toISOString(), unreadCount: 0 };
-    unread[topicId].unreadCount += 1;
-    deps.saveUnread(unread);
+    const unreadCount = deps.bumpUnread(topicId);
     deps.broadcastToAll({
       type: "unread:updated",
       topicId,
-      unreadCount: unread[topicId].unreadCount,
+      unreadCount,
     } as OutboundMessage);
   } catch (err) {
     console.warn(`[topics] updateUnreadCount failed for ${topicId}:`, err);
