@@ -13,8 +13,16 @@
  * plus the remount, 100-140 ms measured) left the composer standing still
  * after the key, which reads as lag. The draft records here WHEN the descent
  * began and from how high; the promoted pane claims that once at mount and
- * plays the same animation with a negative delay, so it continues from the
- * very frame the draft had reached (`useComposerDock`).
+ * plays the same animation from that instant, so it continues from the very
+ * frame the draft had reached (`useComposerDock`).
+ *
+ * WHEN is the instant the draft's animation was first PAINTED, never the key:
+ * the send keeps the main thread busy for 60-120 ms before the next frame, and
+ * the promotion can land inside that window. A promoted pane that took the key
+ * as its start painted its first frame already 47-86% down, with the greeting
+ * losing up to 0.8 of its opacity in that one frame (verifier, 30/09). Until
+ * the draft has painted, `at` is null and the promoted pane starts on its own
+ * first frame, from the top.
  *
  * `claim` and not `peek`: the entry is consumed by reading it. A second mount
  * of the same topic (a tab switch, a reopen) must not find the composer
@@ -25,11 +33,13 @@
 const HANDOFF_TTL_MS = 3000;
 
 /**
- * A descent in flight: when it began (document timeline time) and its height,
- * if known. `at` is corrected by the draft once its animation really starts
- * (the next frame after the key): the object is moved, not copied, by the remap.
+ * A descent in flight: the document-timeline time of its first painted frame
+ * (null until the draft has painted one) and its height, if known. `at` is set
+ * by the draft when its animation really starts: the object is moved, not
+ * copied, by the remap, so a pane promoted afterwards still sees it. `born`
+ * (performance clock) only ages the entry.
  */
-export type Descent = { at: number; offset: number | null };
+export type Descent = { at: number | null; offset: number | null; born: number };
 
 /** Keyed by pane id: the draft's until the remap, the topic's after it. */
 const descents = new Map<string, Descent>();
@@ -46,13 +56,13 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
     // pane) still lands docked and slides from the centre, starting now.
     const started = from ? descents.get(from) : undefined;
     if (from) descents.delete(from);
-    descents.set(to, started ?? { at: performance.now(), offset: null });
+    descents.set(to, started ?? { at: null, offset: null, born: performance.now() });
   });
 }
 
-/** The draft `paneId` starts its descent about `at`, from `offset` px above the bottom. */
-export function beginDescent(paneId: string, at: number, offset: number): Descent {
-  const d = { at, offset };
+/** The draft `paneId` starts its descent from `offset` px above the bottom; its start time comes with its first frame. */
+export function beginDescent(paneId: string, offset: number): Descent {
+  const d: Descent = { at: null, offset, born: performance.now() };
   descents.set(paneId, d);
   return d;
 }
@@ -70,5 +80,5 @@ export function claimDescent(topicId: string): Descent | null {
   const d = descents.get(topicId);
   if (d === undefined) return null;
   descents.delete(topicId);
-  return performance.now() - d.at < HANDOFF_TTL_MS ? d : null;
+  return performance.now() - d.born < HANDOFF_TTL_MS ? d : null;
 }

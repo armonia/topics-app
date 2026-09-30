@@ -4,6 +4,7 @@ import { goToApp, ensureTopicVisible } from "./helpers";
 import { createTopic, deleteTopic, resetPaneStore } from "./helpers/api-fixtures";
 import { installSlowTurnCli } from "./helpers/fake-claude-cli";
 import { hermetic } from "./fixtures/hermetic";
+import { EASE, MOTION } from "../../client/src/lib/motion";
 
 hermetic(test);
 
@@ -28,6 +29,10 @@ hermetic(test);
  *   - opening (⌘T): the draft is painted centred, greeting drawn, no
  *     skeleton, and nothing moves until the send;
  *   - the composer moves only downwards, and once landed it stays (0.5px);
+ *   - the descent starts ON A PAINTED FRAME: no frame shows the composer
+ *     further down, or the greeting more faded, than a descent that began on
+ *     the first frame painted after Enter could have got by then. The first
+ *     frame after the key is therefore still at rest;
  *   - the user bubble, once painted, never moves inside the transcript
  *     (0.5px) and its node is never removed or re-added;
  *   - nothing flashes: no opacity or visibility dip and back, no skeleton
@@ -56,6 +61,8 @@ const TOL = 0.5;
 type Box = { x: number; y: number; w: number; h: number; o: number; v: boolean; id: number } | null;
 type Frame = {
   t: number;
+  /** The frame's own time (`document.timeline.currentTime`, read in its rAF): the clock animations advance on. */
+  ft?: number;
   /** The number of the last mutation callback delivered before this sample: the DOM it measured has every batch up to this one and none after. */
   batch: number;
   /** Chat panes on screen: composers with a box that `checkVisibility()` passes. */
@@ -83,7 +90,7 @@ type Frame = {
  * Chromium) splits one swap into two instants.
  */
 type Mutation = { t: number; batch: number; op: "add" | "remove"; testId: string; id: number; role?: string; mid?: string };
-type Probe = { frames: Frame[]; mutations: Mutation[]; running: boolean; nodeId: (el: Element) => number; enterAt?: number };
+type Probe = { frames: Frame[]; mutations: Mutation[]; running: boolean; nodeId: (el: Element) => number; enterAt?: number; sendBusyMs?: number };
 
 async function installProbe(page: Page) {
   await page.addInitScript(() => {
@@ -125,6 +132,14 @@ async function installProbe(page: Page) {
     document.addEventListener("keydown", (e) => {
       if (p.running && e.key === "Enter" && p.enterAt === undefined) p.enterAt = performance.now();
     }, true);
+    // A busy machine: the send's own task takes `sendBusyMs` longer, after the
+    // app's handler (a window listener in the bubble phase runs after React's
+    // root one). The frame after the key comes that much later.
+    window.addEventListener("keydown", (e) => {
+      if (!p.running || e.key !== "Enter" || !p.sendBusyMs) return;
+      const until = performance.now() + p.sendBusyMs;
+      while (performance.now() < until) { /* the busy send path */ }
+    });
     new MutationObserver((records) => {
       if (!p.running) return;
       // One clock read and one batch number for the whole callback.
@@ -158,7 +173,9 @@ async function installProbe(page: Page) {
     // of the next one: there a token already committed but not yet pinned would
     // read as a gap no one ever saw.
     const channel = new MessageChannel();
-    const tick = () => channel.port2.postMessage(null);
+    let frameTime = 0;
+    // The document timeline's time in this frame: the clock animations advance on.
+    const tick = () => { frameTime = Number(document.timeline.currentTime ?? performance.now()); channel.port2.postMessage(null); };
     channel.port1.onmessage = () => {
       if (p.running) {
         const onScreen = visiblePanes();
@@ -180,6 +197,7 @@ async function installProbe(page: Page) {
           });
         p.frames.push({
           t: performance.now(),
+          ft: frameTime,
           batch: batchSeq,
           panes: onScreen.length,
           card: box(root?.querySelector('[data-testid="composer-card"]')),
@@ -224,6 +242,67 @@ function netChanges(mutations: Mutation[], testId: string) {
     mounted: [...added].filter((id) => !removed.has(id)),
     unmounted: [...removed].filter((id) => !added.has(id)),
   }));
+}
+
+/** A CSS `cubic-bezier(...)` easing, evaluated at `x` in [0, 1]. */
+function easeAt(bezier: string, x: number): number {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const [x1, y1, x2, y2] = bezier.match(/-?[\d.]+/g)!.map(Number) as [number, number, number, number];
+  const b = (u: number, p1: number, p2: number) => 3 * (1 - u) ** 2 * u * p1 + 3 * (1 - u) * u ** 2 * p2 + u ** 3;
+  let lo = 0, hi = 1;
+  for (let k = 0; k < 40; k++) { const mid = (lo + hi) / 2; if (b(mid, x1, x2) < x) lo = mid; else hi = mid; }
+  return b((lo + hi) / 2, y1, y2);
+}
+
+/** Clock rounding the start rule forgives (see `aheadOfTheKey`). */
+const CLOCK_SLACK_MS = 5;
+
+/**
+ * The descent never runs ahead of the key. The latest it may have started is
+ * the first frame painted after Enter (`useComposerDock` starts it there, in
+ * the draft or, if the promotion lands first, in the promoted pane), so on
+ * every later frame the composer is at most `EASE.spring` of the time since
+ * then over `MOTION.slow` of the way down, and the greeting has lost at most
+ * `EASE.exit` of `MOTION.fast`. The start is the document timeline's time of
+ * that frame, the clock `startTime` is set on; the time a frame's position may
+ * have reached is counted up to its SAMPLE, taken after the paint: WebKit
+ * resolves an animation at the live time of the style update, which trails the
+ * frame's timeline time by a few ms (measured +3-4 ms on a quiet run, ~15 under
+ * load). Plus {@link CLOCK_SLACK_MS}: WebKit hands out its clocks rounded to
+ * the millisecond, and one frame in forty was measured 2 ms past its own
+ * sample. A start taken at the key is 60-120 ms early, not 5.
+ *
+ * Measured on the build this pins (30/09): a promoted pane that took the key's
+ * instant as its start painted its first frame 47-86% of the way down, the
+ * greeting from 1 to 0.19-0.61.
+ */
+function aheadOfTheKey(frames: Frame[], restAt: number, enterAt: number, sendT: number): string[] {
+  const out: string[] = [];
+  const rest = frames[restAt];
+  const first = frames.findIndex((f, i) => i > restAt && f.t > enterAt);
+  const finalY = [...frames].reverse().find((f) => f.card)?.card?.y;
+  if (!rest?.card || first < 0 || finalY === undefined || frames[first]!.ft === undefined) return ["descent: no frame to judge it on"];
+  const ft0 = frames[first]!.ft!;
+  const descent = finalY - rest.card.y;
+  // The first frame ahead, per element, and how many followed: the rest of a
+  // descent that started early is ahead on every frame, one line says it.
+  const ahead = { composer: [] as string[], "empty state": [] as string[] };
+  for (let i = first; i < frames.length; i++) {
+    const f = frames[i]!;
+    const at = `f${i - restAt} +${Math.round(f.t - sendT)}ms`;
+    const elapsed = f.t - ft0 + CLOCK_SLACK_MS;
+    if (f.card) {
+      const allowed = rest.card.y + descent * easeAt(EASE.spring, elapsed / MOTION.slow);
+      if (f.card.y > allowed + 1) ahead.composer.push(`${at} composer: ${(f.card.y - rest.card.y).toFixed(1)}px down ${Math.round(f.t - ft0)}ms after the first frame past the key (a descent started there reaches ${(allowed - rest.card.y).toFixed(1)})`);
+    }
+    if (f.empty && rest.empty) {
+      const floor = rest.empty.o * (1 - easeAt(EASE.exit, elapsed / MOTION.fast));
+      if (f.empty.o < floor - 0.02) ahead["empty state"].push(`${at} empty state: opacity ${f.empty.o} ${Math.round(f.t - ft0)}ms after the first frame past the key (a fade started there is at ${floor.toFixed(2)})`);
+    }
+  }
+  for (const lines of Object.values(ahead)) if (lines.length) out.push(lines.length > 1 ? `${lines[0]}, and ${lines.length - 1} frames after it` : lines[0]!);
+  return out;
 }
 
 /** Every departure from the rules in the header, one line each, with its frame. */
@@ -506,6 +585,28 @@ test("the pane swap is judged by mutation batch, not by timestamp", () => {
   ]);
 });
 
+// The start of the descent, pinned on the frames the verifier measured on a
+// loaded Mac (30/09): the first frame after Enter, 118 ms after the key, had the
+// card from 378 to 660.4 and the greeting from 1 to 0.225. A descent started on
+// that frame shows neither; one frame later it may have moved as far as its
+// easing goes in the time up to that frame's sample.
+test("the descent may not run ahead of the first frame after the key", () => {
+  const box = (y: number, o = 1): Box => ({ x: 0, y, w: 600, h: 46, o, v: true, id: 1 });
+  const frame = (t: number, ft: number, cardY: number, emptyO: number): Frame => ({
+    t, ft, batch: 1, panes: 1, card: box(cardY), empty: box(194, emptyO),
+    bubble: null, bubbleContentY: null, indicator: null, bg: null, skeleton: null, assistant: null,
+    assistantHasText: false, scroller: null, tabs: [],
+  });
+  const enterAt = 1010;
+  const settled = [frame(1600, 1598, 704, 0)];
+  expect(aheadOfTheKey([frame(1002, 1000, 378, 1), frame(1130, 1128, 660.4, 0.225), frame(1147, 1145, 690, 0), ...settled], 0, enterAt, 1000)).toEqual([
+    "f1 +130ms composer: 282.4px down 2ms after the first frame past the key (a descent started there reaches 13.2), and 1 frames after it",
+    "f1 +130ms empty state: opacity 0.225 2ms after the first frame past the key (a fade started there is at 1.00), and 1 frames after it",
+  ]);
+  // Started on that frame: at rest on it, then on the easing.
+  expect(aheadOfTheKey([frame(1002, 1000, 378, 1), frame(1130, 1128, 378, 1), frame(1147, 1145, 400, 0.99), ...settled], 0, enterAt, 1000)).toEqual([]);
+});
+
 test.describe("First send in a new topic", () => {
   let hostId = "";
   const hostName = `First Send Host ${Date.now()}`;
@@ -516,16 +617,19 @@ test.describe("First send in a new topic", () => {
     removeCli = installSlowTurnCli();
   });
 
-  let promotedId = "";
+  const promotedIds: string[] = [];
 
   test.afterAll(async ({ request }) => {
     removeCli?.();
     if (hostId) await deleteTopic(request, hostId);
-    // The promoted draft is a real topic now: it goes with the host.
-    if (promotedId) await deleteTopic(request, promotedId);
+    // The promoted drafts are real topics now: they go with the host.
+    for (const id of promotedIds) await deleteTopic(request, id);
   });
 
-  test("first send in a new topic is smooth", async ({ page, request }, testInfo) => {
+  // Once as the machine goes, once with the send's own task 50 ms longer: the
+  // descent's start must not depend on how fast the frame after the key comes
+  // (verifier, 30/09: green on a quiet Mac, red under load, same build).
+  for (const sendBusyMs of [0, 50]) test(sendBusyMs ? `first send in a new topic is smooth with the send path ${sendBusyMs} ms slower` : "first send in a new topic is smooth", async ({ page, request }, testInfo) => {
     await resetPaneStore(request, [hostId]);
     await installProbe(page);
     await goToApp(page);
@@ -540,6 +644,7 @@ test.describe("First send in a new topic", () => {
       const p = (window as unknown as { __firstSend: Probe }).__firstSend;
       p.frames = []; p.mutations = []; p.running = true;
     });
+    await page.evaluate((ms) => { (window as unknown as { __firstSend: Probe }).__firstSend.sendBusyMs = ms; }, sendBusyMs);
     await page.keyboard.press("Meta+t");
     const composer = page.getByRole("textbox", { name: /Campo del messaggio per New Chat/ });
     await expect(composer).toBeFocused({ timeout: 10_000 });
@@ -579,7 +684,8 @@ test.describe("First send in a new topic", () => {
       p.running = false;
       return JSON.parse(JSON.stringify({ frames: p.frames, mutations: p.mutations, enterAt: p.enterAt })) as { frames: Frame[]; mutations: Mutation[]; enterAt?: number };
     });
-    promotedId = frames[frames.length - 1]?.tabs.find((x) => x.id !== hostId && !x.id.startsWith("draft:"))?.id ?? "";
+    const promotedId = frames[frames.length - 1]?.tabs.find((x) => x.id !== hostId && !x.id.startsWith("draft:"))?.id;
+    if (promotedId) promotedIds.push(promotedId);
     const t0 = sendT;
     const mutationLog = mutations.map((m) => `+${Math.round(m.t - t0)}ms b${m.batch} ${m.op} ${m.testId}${m.role ? `[${m.role}]` : ""}${m.mid ? ` ${m.mid}` : ""} #${m.id}`).join("\n");
     // On disk next to the video, so the table survives a red run whole.
@@ -600,9 +706,12 @@ test.describe("First send in a new topic", () => {
     console.log(`[first-send] descent visible ${moved < 0 ? "never" : `on frame ${moved + 1} after Enter, +${Math.round(afterKey[moved]!.f.t - enterAt!)}ms`}`);
     expect(moved, "the descent starts on the first or second frame after Enter").toBeGreaterThanOrEqual(0);
     expect(moved, "the descent starts on the first or second frame after Enter").toBeLessThanOrEqual(1);
+    // `analyse` starts on the last frame at rest, so the step from it to the
+    // first frame after the key is judged too.
     expect([
       ...analyseOpening(frames.slice(0, sendAt)),
-      ...analyse(frames.slice(sendAt), mutations.filter((m) => m.t >= sendT), draftTabId, sendT),
+      ...aheadOfTheKey(frames, sendAt - 1, enterAt!, sendT),
+      ...analyse(frames.slice(sendAt - 1), mutations.filter((m) => m.t >= sendT), draftTabId, sendT),
     ]).toEqual([]);
   });
 });

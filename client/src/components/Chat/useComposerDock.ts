@@ -47,17 +47,36 @@ function timelineNow(): number {
 /**
  * The descent: the block from `offset` px up to its docked place, the greeting
  * fading out as it goes. A `startTime` pins both to one absolute instant, so the
- * promoted pane's copy continues the draft's frame for frame; without one they
- * start together on the next frame, however long the send keeps this one busy
- * (measured: the first frame after Enter lands 60-90 ms later, and a start
- * taken at the key had the greeting lose half its opacity in that one frame).
+ * promoted pane's copy continues the draft's frame for frame. Without one they
+ * are HELD at their first keyframe and started by hand on the next frame, with
+ * that frame's own time, reported to `onStart`.
+ *
+ * Not left to the browser: WebKit resolves a pending animation's start to the
+ * timeline time of the LAST frame, which is the one before the key, and the
+ * send keeps the main thread busy for 60-120 ms before the next. The first
+ * frame painted after Enter already had the composer 15-200 px down and the
+ * greeting losing up to 0.8 of its opacity in that one frame (30/09).
  */
-function playDescent(area: HTMLElement, greeting: HTMLElement | null, offset: number, startTime: number | null, fill: FillMode): Animation[] {
+function playDescent(area: HTMLElement, greeting: HTMLElement | null, offset: number, startTime: number | null, fill: FillMode, onStart?: (time: number) => void): Animation[] {
   const slide = animateEl(area, [{ transform: `translateY(-${offset}px)` }, { transform: 'translateY(0px)' }], { duration: MOTION.slow, easing: EASE.spring, fill });
   const face = greeting?.firstElementChild;
   const fade = face ? animateEl(face, [{ opacity: 1 }, { opacity: 0 }], { duration: MOTION.fast, easing: EASE.exit, fill }) : null;
   const played = [slide, fade].filter((a): a is Animation => a !== null);
-  if (startTime !== null) for (const a of played) a.startTime = startTime;
+  if (played.length === 0) return played;
+  if (startTime !== null) {
+    for (const a of played) a.startTime = startTime;
+    return played;
+  }
+  for (const a of played) a.pause();
+  requestAnimationFrame(() => {
+    // Cancelled before its first frame (the draft was not promoted): stays put.
+    if (played.some((a) => a.playState === 'idle')) return;
+    // The timeline's time, not the callback's argument: on WebKit the two
+    // differ, and only the first is the clock `startTime` is read against.
+    const frameTime = timelineNow();
+    for (const a of played) a.startTime = frameTime;
+    onStart?.(frameTime);
+  });
   return played;
 }
 
@@ -146,7 +165,7 @@ export function useComposerDock({ topicId, paneRootRef, inputAreaRef, greetingRe
   // The greeting stays mounted for its fade, OUT of the flow (`ChatEmptyState`).
   // The flag flips DURING the render that un-centres: set from an effect, that
   // render unmounted the block and the fade never played (chat-first-send-smooth).
-  const [greetingLeaving, setGreetingLeaving] = useState(() => claimed !== null && timelineNow() - claimed.at < MOTION.fast);
+  const [greetingLeaving, setGreetingLeaving] = useState(() => claimed !== null && (claimed.at === null || timelineNow() - claimed.at < MOTION.fast));
   const [wasCentered, setWasCentered] = useState(composerCentered);
   if (wasCentered !== composerCentered) {
     setWasCentered(composerCentered);
@@ -194,7 +213,9 @@ export function useComposerDock({ topicId, paneRootRef, inputAreaRef, greetingRe
   }, [showGreeting, greetingRef]);
 
   // A pane born of a promoted draft continues the draft's descent from the
-  // frame it had reached, before its own first paint.
+  // frame it had reached, before its own first paint. A draft that never
+  // painted its descent (the promotion landed first) hands over no start time:
+  // this pane's first frame is then the descent's first frame.
   useLayoutEffect(() => {
     const area = inputAreaRef.current;
     const root = paneRootRef.current;
@@ -221,10 +242,10 @@ export function useComposerDock({ topicId, paneRootRef, inputAreaRef, greetingRe
     const area = inputAreaRef.current;
     const offset = offsetRef.current;
     if (!area || offset <= 0) return;
-    const descent = beginDescent(topicId, timelineNow(), offset);
-    const played = playDescent(area, greetingRef.current, offset, null, 'forwards');
-    // The instant it really started is the one the promoted pane continues from.
-    played[0]?.ready.then((a) => { if (typeof a.startTime === 'number') descent.at = a.startTime; }, () => {});
+    const descent = beginDescent(topicId, offset);
+    // The instant of its first frame is the one the promoted pane continues
+    // from. Not the key's: the frame after it comes 60-120 ms later.
+    const played = playDescent(area, greetingRef.current, offset, null, 'forwards', (time) => { descent.at = time; });
     descentRef.current = { draftId: topicId, played };
   }, [topicId, inputAreaRef, greetingRef]);
   /** After the send: the same draft still on screen was not promoted, so its composer goes back to the centre. */
