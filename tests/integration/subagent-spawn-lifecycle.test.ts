@@ -187,7 +187,7 @@ beforeAll(async () => {
   process.env.GATEWAY_TOKEN = TOKEN;
   // A path that exists: the bridge is fake, so nothing ever runs it.
   process.env.CLAUDE_BIN = "/bin/echo";
-  (await import("../../server/lib/claude-bin"))._resetClaudeBinCache();
+  { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }
   bridge = await startFakeBridge();
   ctx = await createTestAppContext();
   const now = new Date().toISOString();
@@ -212,7 +212,7 @@ afterAll(async () => {
   await bridge?.close();
   delete process.env.CLAUDE_BIN;
   delete process.env.GATEWAY_TOKEN;
-  (await import("../../server/lib/claude-bin"))._resetClaudeBinCache();
+  { const { _resetClaudeBinCache } = await import("../../server/lib/claude-bin"); _resetClaudeBinCache(); }
   for (const dir of createdTranscriptDirs) fs.rmSync(dir, { recursive: true, force: true });
   await cleanupTestDataDir(ROOT);
 });
