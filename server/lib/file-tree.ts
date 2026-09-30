@@ -3,6 +3,7 @@ import { readdir as readdirAsync, stat as statAsync } from "fs/promises";
 import { join } from "path";
 import { IgnoreSet } from "./gitignore";
 import { isTopicsSecretPath } from "./topics-secret-path";
+import type { FileNode } from "../../shared/file-tree";
 
 /**
  * The folders no walk or search should enter: build output and caches, all
@@ -22,7 +23,7 @@ export const HEAVY_DIRS = new Set([
 // Always left out, whatever the .gitignore says.
 const DEFAULT_EXCLUDES = new Set([".git", ".DS_Store"]);
 
-export interface FileNode { name: string; type: "file" | "dir"; path: string; size?: number; modified?: string; children?: FileNode[]; }
+export type { FileNode };
 
 // A folder's .gitignore added to the ones above it; the matching rules live in
 // `lib/gitignore.ts`.

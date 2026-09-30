@@ -1258,14 +1258,7 @@ export interface TopicTemplate {
   description: string;
 }
 
-export interface FileNode {
-  name: string;
-  type: 'file' | 'dir';
-  path: string;
-  size?: number;
-  modified?: string;
-  children?: FileNode[];
-}
+export type { FileNode } from '../../../shared/file-tree';
 
 
 
