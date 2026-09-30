@@ -106,6 +106,23 @@ describe("turn ledger", () => {
     expect(snap.awaiting).toEqual([{ sessionKey: "topic:a", boot: "b1", asOf: 2, turnId: 1, open: false, awaitsHuman: true }]);
   });
 
+  test("a Stop outlives its close: a window that was away learns it from the snapshot, even after a later turn", () => {
+    // The phone in the background has no socket when the close says `stopped`:
+    // the reconnect's snapshot is the only word it gets.
+    const { l } = ledger();
+    l.set("topic:a", "route", true);
+    l.noteEnd("topic:a", { stopped: true });
+    l.set("topic:a", "route", false);
+    expect(l.snapshot().stopped).toEqual([{ sessionKey: "topic:a", boot: "b1", asOf: 2, turnId: 1, open: false, stopped: true, lastStop: 1 }]);
+    // A whole turn later, closed plainly: the Stop is still the session's latest.
+    l.set("topic:a", "route", true);
+    expect(l.stateOf("topic:a")).toMatchObject({ open: true, turnId: 3, lastStop: 1 });
+    l.set("topic:a", "route", false);
+    const snap = l.snapshot();
+    expect(snap.stopped).toEqual([{ sessionKey: "topic:a", boot: "b1", asOf: 4, turnId: 3, open: false, lastStop: 1 }]);
+    expect(snap.open).toEqual([]);
+  });
+
   test("a session never seen is closed with turn 0", () => {
     const { l } = ledger();
     expect(l.stateOf("topic:z")).toEqual({ sessionKey: "topic:z", boot: "b1", asOf: 0, turnId: 0, open: false });

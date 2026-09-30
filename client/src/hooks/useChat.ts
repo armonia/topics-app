@@ -38,6 +38,7 @@ import {
   getQueue as getTurnQueue,
   isHeld as isQueueHeld,
   holdQueue,
+  liftedStop,
   mergeBatch,
   releaseClaim,
   releaseHold,
@@ -45,7 +46,7 @@ import {
   storedQueueSessions,
   unshiftTurn,
 } from '../state/chatQueue';
-import { noteServerTurn, noteTurnSnapshot, openTurnRef, serverTurnOf, type TurnRef } from '../state/serverTurn';
+import { lastStopOf, noteServerTurn, noteStopHeard, noteTurnSnapshot, openTurnRef, serverTurnOf, type TurnRef } from '../state/serverTurn';
 import { registerFeatureWeight, roughBytes } from '../lib/featureWeight';
 import {
   evictSessions,
@@ -1715,11 +1716,10 @@ export function useChat() {
         // A Stop pressed on ANOTHER device (or a window of another profile)
         // stops this queue too: the hold is local storage, and that window's
         // hold never reached this one, which read the stop as a plain end and
-        // sent what was queued. This window's own Stop already held it.
-        if ((event.reason === 'user_abort' || event.stopCause === 'user')
-          && !stoppedByUserRef.current[sessionKey] && getTurnQueue(sessionKey).length > 0) {
-          holdQueue(sessionKey);
-        }
+        // sent what was queued. The close of the turn says it as well
+        // (`stopped`); either word goes through the drain's own rule
+        // (`decideDrain`, `hold-stop`), which knows a Stop already lifted.
+        if (event.reason === 'user_abort' || event.stopCause === 'user') noteStopHeard(sessionKey);
         settleTurn(sessionKey);
         break;
 
@@ -1774,7 +1774,7 @@ export function useChat() {
         }
         break;
     }
-  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn, stoppedByUserRef]);
+  }, [addToolCallToLastMessage, updateLastMessage, dropEmptyTurn, resetStreamTimeout, clearStreamTimeout, scheduleSSEFailsafe, bufferLiveDelta, flushLiveDeltas, bufferToolUpdate, flushToolUpdates, applyToolPatch, upsertMarker, beginStreaming, settleTurn, relightSettledTurn]);
 
   // Register WebSocket handler
   const registerWSHandler = useCallback((handler: (event: WSMessage) => void) => {
@@ -1791,17 +1791,14 @@ export function useChat() {
     // The server's word on which turns are open: the only signal the turn
     // queue leaves on (`state/serverTurn.ts`, `decideDrain`).
     if (event.type === 'turn:state') {
-      if (noteServerTurn(event.sessionKey, event) && !event.open) {
-        // A person's Stop, on this device or another, travels WITH the close:
-        // the server sends the close before its `stream:end`, and a queue
-        // drained on the close had already left when the `user_abort` came.
-        // This window's own Stop held it already (and a send typed right after
-        // it released it on purpose), as in the `stream:end` case above.
-        if (event.stopped && !stoppedByUserRef.current[event.sessionKey] && getTurnQueue(event.sessionKey).length > 0) {
-          holdQueue(event.sessionKey);
-        }
-        drainTurnQueueRef.current?.(event.sessionKey);
-      }
+      // A person's Stop, on this device or another, travels WITH the close
+      // (`stopped`): the server sends the close before its `stream:end`, and a
+      // queue drained on the close had already left when the `user_abort`
+      // came. The drain holds on it (`hold-stop`), unless the person has
+      // already lifted that Stop in some window of this profile: a second
+      // window used to hold again on the same close after the first had sent,
+      // and the next queued message stayed there for good.
+      if (noteServerTurn(event.sessionKey, event) && !event.open) drainTurnQueueRef.current?.(event.sessionKey);
     } else if (event.type === 'turn:snapshot') {
       // A socket that (re)opens: every queue may have been waiting for a turn
       // that ended while this window was not listening, including queues of
@@ -1838,7 +1835,7 @@ export function useChat() {
     for (const handler of wsHandlersRef.current) {
       try { handler(event); } catch {}
     }
-  }, [handleStreamEvent, stoppedByUserRef]);
+  }, [handleStreamEvent]);
 
   /**
    * L'invio vero e proprio: apre la SSE, disegna le bolle, tiene il lock.
@@ -2350,6 +2347,7 @@ export function useChat() {
     // turn, never this window's `streaming` flag (see its header for the paths
     // that reset that flag in the middle of a turn).
     const queue = getTurnQueue(sessionKey);
+    const stop = lastStopOf(sessionKey);
     const verdict = decideDrain({
       held: isQueueHeld(sessionKey),
       queued: queue.length,
@@ -2357,7 +2355,15 @@ export function useChat() {
       serverTurn: serverTurnOf(sessionKey),
       head: queue[0],
       pendingAsk: !!findPendingAsk(messagesRef.current[sessionKey]),
+      stop,
+      lifted: liftedStop(sessionKey),
     });
+    // A Stop this queue was written before: held durably, for every window,
+    // until the person sends or lifts it.
+    if (verdict === 'hold-stop') {
+      holdQueue(sessionKey, stop);
+      return;
+    }
     if (verdict === 'wait-own-send') {
       if (attempt >= TURN_DRAIN_MAX_ATTEMPTS) return;
       setTimeout(() => drainTurnQueueRef.current?.(sessionKey, attempt + 1), TURN_DRAIN_RETRY_MS);
@@ -2429,6 +2435,12 @@ export function useChat() {
     const decision = decideSend({ busy, queued: getTurnQueue(sessionKey).length });
 
     if (decision === 'queue') {
+      // The person writing again is the person's own send: it lifts a Stop's
+      // hold, and what was held leaves with this message at the end of the
+      // turn. Without this, a message typed right after a Stop, while the
+      // stopped turn had not closed yet, waited behind the hold for good:
+      // the close found the queue held, and nothing else asks again.
+      if (content.trim()) releaseHold(sessionKey);
       enqueueTurn(sessionKey, content, options, waitsFor);
       return true;
     }
@@ -2513,7 +2525,10 @@ export function useChat() {
     // messaggio successivo. La coda resta dov'è, visibile come bolle «da
     // inviare» nel trascritto: si corregge sul posto, si butta, riparte subito
     // con «invia subito» o scrivendo il messaggio dopo.
-    holdQueue(sessionKey);
+    // Named after the turn it stops, so that lifting it later lifts that Stop
+    // for every window, whenever its close reaches them.
+    const stopped = serverTurnOf(sessionKey);
+    holdQueue(sessionKey, stopped && stopped.turnId > 0 ? { boot: stopped.boot, turnId: stopped.turnId } : undefined);
     // Chi ha fermato il turno lo sa solo questa riga: da qui in poi la pagina è
     // indistinguibile da una risposta mai arrivata, e il composer accusava la
     // connessione al posto tuo.

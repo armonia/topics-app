@@ -111,6 +111,23 @@ describe("claude-code: the CLI's own turn holds the session", () => {
     expect(provider.isCliTurnOpen("topic:cli-sentinel")).toBe(true);
   });
 
+  test("a Stop ends it at once, not at the child's exit", async () => {
+    // Before: the stopped child's `result` was dropped with the rest of its
+    // tail, so the session stayed open until the exit (6-7 s under load, for
+    // good if the SIGINT got lost) and a message typed after the Stop waited
+    // for it, refused by the 409 gate.
+    const { provider, pp, cli, signals } = setup("topic:cli-stop");
+    emit(provider, pp, INIT);
+    emit(provider, pp, text("working"));
+    await provider.abort("topic:cli-stop", undefined, "user");
+    expect(signals).toEqual(["SIGINT"]);
+    expect(cli).toEqual(["open", "closed"]);
+    expect(provider.isCliTurnOpen("topic:cli-stop")).toBe(false);
+    // The dying child's tail opens nothing.
+    emit(provider, pp, INIT);
+    expect(cli).toEqual(["open", "closed"]);
+  });
+
   test("the child's exit ends it", () => {
     const { provider, pp, cli } = setup("topic:cli-exit");
     emit(provider, pp, INIT);

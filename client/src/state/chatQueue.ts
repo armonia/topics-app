@@ -54,7 +54,7 @@
 import { useSyncExternalStore } from 'react';
 import type { SendMessageOptions } from '../hooks/useChat';
 import type { QueueStorage } from '../hooks/outboundQueue';
-import type { ServerTurn, TurnRef } from './serverTurn';
+import { lastStopOf, serverTurnOf, type ServerTurn, type TurnRef } from './serverTurn';
 
 /** Un messaggio in attesa del suo turno, con le opzioni con cui è stato SCRITTO. */
 export interface QueuedTurn {
@@ -80,6 +80,8 @@ export interface QueuedTurn {
 export const QUEUE_PREFIX = 'msgQueue:v2:';
 export const CLAIM_PREFIX = 'msgQueue:claim:';
 export const HOLD_PREFIX = 'msgQueue:hold:';
+/** The latest Stop a person has already lifted on a session (`releaseHold`), shared by every window of the profile. */
+export const LIFT_PREFIX = 'msgQueue:lift:';
 
 /** Chiave della coda di una sessione. */
 export const queueKey = (sessionKey: string): string => QUEUE_PREFIX + sessionKey;
@@ -406,12 +408,52 @@ export function releaseClaim(sessionKey: string, clientId: string): void {
  * trascritto: la si può correggere sul posto, buttare, far ripartire subito
  * («invia subito») o scrivendo il messaggio dopo.
  */
-export function holdQueue(sessionKey: string): void {
-  storage.setItem(HOLD_PREFIX + sessionKey, String(Date.now()));
+export function holdQueue(sessionKey: string, stop?: TurnRef): void {
+  storage.setItem(HOLD_PREFIX + sessionKey, JSON.stringify({ at: Date.now(), ...(stop ? { stop } : {}) }));
 }
 
+function readRef(raw: string | null, field?: string): TurnRef | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown> | null;
+    const v = (field ? parsed?.[field] : parsed) as Partial<TurnRef> | undefined;
+    return v && typeof v.boot === 'string' && typeof v.turnId === 'number' ? { boot: v.boot, turnId: v.turnId } : undefined;
+  } catch { return undefined; }
+}
+
+/** The Stop a hold was raised for, when it was said (a hold of an older build is a bare timestamp). */
+function heldStop(sessionKey: string): TurnRef | undefined {
+  return readRef(storage.getItem(HOLD_PREFIX + sessionKey), 'stop');
+}
+
+/** The latest Stop a person has lifted on this session, in any window of the profile. */
+export function liftedStop(sessionKey: string): TurnRef | undefined {
+  return readRef(storage.getItem(LIFT_PREFIX + sessionKey));
+}
+
+/** Whether `lift` already covers `stop`: same server boot, and not older. */
+export function stopLifted(stop: TurnRef, lift: TurnRef | undefined): boolean {
+  return !!lift && lift.boot === stop.boot && lift.turnId >= stop.turnId;
+}
+
+/**
+ * Lifts the hold: the person's own send, «send now», an emptied queue. The
+ * Stops it lifts are written down for every window of the profile, because
+ * the word of a Stop keeps coming after it: the close that says `stopped`
+ * reaches each window on its own clock (a second window read it after the
+ * first had already sent, and held the queue again for good), and a socket
+ * that reopens gets it again in the snapshot. Lifted is the Stop the hold was
+ * raised for, or the latest one this window has heard of, whichever is newer.
+ */
 export function releaseHold(sessionKey: string): void {
+  const candidates = [heldStop(sessionKey), lastStopOf(sessionKey), liftedStop(sessionKey)].filter((r): r is TurnRef => !!r);
   storage.removeItem(HOLD_PREFIX + sessionKey);
+  if (candidates.length === 0) return;
+  // The server's current boot first: a Stop of an older boot says nothing about this one's turns.
+  const boot = serverTurnOf(sessionKey)?.boot ?? candidates[0]!.boot;
+  const sameBoot = candidates.filter((r) => r.boot === boot);
+  const lift = sameBoot.length ? sameBoot.reduce((a, b) => (b.turnId > a.turnId ? b : a)) : candidates[0]!;
+  storage.setItem(LIFT_PREFIX + sessionKey, JSON.stringify(lift));
 }
 
 export function isHeld(sessionKey: string): boolean {
@@ -450,7 +492,18 @@ export function decideSend(input: { busy: boolean; queued: number }): SendDecisi
  * (stopped by the person, nothing queued, or a question on screen that the
  * person answers first).
  */
-export type DrainVerdict = 'drain' | 'wait-own-send' | 'wait-turn' | 'hold';
+export type DrainVerdict = 'drain' | 'wait-own-send' | 'wait-turn' | 'hold' | 'hold-stop';
+
+/**
+ * Whether a person's Stop holds the queue whose head is `head`: a Stop not yet
+ * lifted, heard after the head was written. A head written during a later
+ * turn than the stopped one came after the Stop, and the Stop is not its word.
+ */
+export function stopHolds(stop: TurnRef | undefined, lifted: TurnRef | undefined, head?: Pick<QueuedTurn, 'waitsFor'>): boolean {
+  if (!stop || stopLifted(stop, lifted)) return false;
+  const w = head?.waitsFor;
+  return !(w && w.boot === stop.boot && w.turnId > stop.turnId);
+}
 
 /**
  * WHEN THE QUEUE LEAVES: after the server says the turn is over, and only then.
@@ -465,6 +518,11 @@ export type DrainVerdict = 'drain' | 'wait-own-send' | 'wait-turn' | 'hold';
  * server's 409 is the last word, and it answers with the turn to wait for.
  * A turn that ended on a question for the person (`awaitsHuman`) holds like
  * the question on screen: the answer is a new turn, and its close is the next word.
+ * A person's Stop heard after the head was written, and not lifted since
+ * (`stopHolds`), is `hold-stop`: the caller raises the durable hold for it.
+ * It is decided here, on every drain, not only by the live close that says
+ * `stopped`: a window that missed that close (socket down, reload) hears the
+ * Stop from the reconnect's snapshot, and drained into it before.
  */
 export function decideDrain(input: {
   held: boolean;
@@ -475,12 +533,17 @@ export function decideDrain(input: {
   head?: Pick<QueuedTurn, 'waitsFor'>;
   /** A question or a plan approval is on screen: the person answers it first. */
   pendingAsk: boolean;
+  /** The latest Stop by a person heard on the session (`lastStopOf`). */
+  stop?: TurnRef;
+  /** The latest Stop the person has lifted (`liftedStop`). */
+  lifted?: TurnRef;
 }): DrainVerdict {
   const t = input.serverTurn;
   // The server's word that the turn ended on a question for a person counts as
   // the question on screen: this window's copy of the transcript may not show
   // it yet when the close arrives, and a window with the chat closed has none.
   if (input.held || input.queued === 0 || input.pendingAsk || t?.awaitsHuman) return 'hold';
+  if (stopHolds(input.stop, input.lifted, input.head)) return 'hold-stop';
   if (input.sendLocked) return 'wait-own-send';
   if (t?.open) return 'wait-turn';
   const w = input.head?.waitsFor;

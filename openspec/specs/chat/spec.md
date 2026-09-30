@@ -2464,7 +2464,17 @@ How a turn ended SHALL travel with its close, because every window drains on
 the close and the route's `stream:end` comes after it: a person's Stop
 (`stopped`) and a question left for the person (`awaitsHuman`, the plan
 approval) SHALL be part of the closing `turn:state`, and a window that connects
-SHALL receive the sessions whose last turn ended waiting for a person.
+SHALL receive the sessions whose last turn ended waiting for a person, and the
+latest turn a person stopped on each session since the server started
+(`lastStop`), kept past the turns after it. What was queued before a Stop SHALL
+hold on it in every window, whenever that window hears it; the person's own
+send, «send now» or emptying the queue SHALL lift it for every window of the
+profile, and a later word of the same Stop SHALL NOT hold the queue again.
+
+A Stop on claude-code SHALL close the session's turn at once: the stopped child
+takes no more input and its tail belongs to nobody, so waiting for its exit
+(seconds under load, forever if the SIGINT is lost) only kept a message typed
+after the Stop waiting.
 
 > **Why.** 29/09, Attilio: «assicuriamoci che i messaggi che sono da inviare in
 > coda effettivamente vengano gestiti come fa anche Claude Code, perché vedo che
@@ -2497,6 +2507,22 @@ SHALL receive the sessions whose last turn ended waiting for a person.
 - **GIVEN** a queued message on the phone and the turn stopped from the desktop
 - **THEN** the phone's queue SHALL hold, whatever the runtime and even when the child had not started its turn yet
 - **AND** a later turn that ends plainly SHALL NOT release it: only the person's own send does
+
+#### Scenario: a Stop on another device while the phone's socket is down
+- **GIVEN** a queued message on the phone, whose socket is closed (the app in the background)
+- **WHEN** the desktop stops the turn, and the phone reconnects after the close, or after a later turn
+- **THEN** the phone's queue SHALL hold on that Stop
+- **AND** the person's next message SHALL take it along, in one turn
+
+#### Scenario: Stop, then a message typed at once
+- **GIVEN** a claude-code turn stopped by the person, whose child takes seconds to exit
+- **WHEN** the person types a message right after the Stop
+- **THEN** it SHALL reach the CLI once, after the Stop, and SHALL NOT stay queued
+
+#### Scenario: two windows of one profile, «send now» in one
+- **GIVEN** a Stop lifted by «send now» in one window
+- **WHEN** the other window reads the close of the stopped turn after that
+- **THEN** it SHALL NOT hold the queue again, and a message queued in the next turn SHALL leave at its end
 
 #### Scenario: a plan approval left by a turn started elsewhere
 - **GIVEN** a queued message and a turn, started from another device or the board, that ends on a plan approval

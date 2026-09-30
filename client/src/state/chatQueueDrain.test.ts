@@ -12,7 +12,7 @@
  */
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { decideDrain, type QueuedTurn } from './chatQueue';
-import { __resetServerTurns, noteServerTurn, noteTurnSnapshot, openTurnRef, serverTurnOf, type ServerTurn } from './serverTurn';
+import { __resetServerTurns, lastStopOf, noteServerTurn, noteStopHeard, noteTurnSnapshot, openTurnRef, serverTurnOf, type ServerTurn } from './serverTurn';
 
 const SK = 'topic:q';
 const open = (turnId: number, asOf = turnId): ServerTurn => ({ boot: 'b1', asOf, turnId, open: true });
@@ -155,5 +155,50 @@ describe('the server word, kept in order', () => {
     expect(openTurnRef(SK)).toEqual({ boot: 'b1', turnId: 11 });
     noteServerTurn(SK, closed(11, 12));
     expect(openTurnRef(SK)).toBeUndefined();
+  });
+});
+
+describe("a person's Stop, heard by a window however late", () => {
+  const ref = (turnId: number, boot = 'b1') => ({ boot, turnId });
+
+  test('a window that missed the close hears the Stop from the snapshot, and holds what it queued before it', () => {
+    // The phone queued during turn 7, then lost its socket; the desktop stopped 7.
+    noteServerTurn(SK, open(7));
+    const head = { waitsFor: openTurnRef(SK) };
+    const closedSessions = noteTurnSnapshot({ boot: 'b1', asOf: 8, open: [], awaiting: [], stopped: [{ sessionKey: SK, boot: 'b1', asOf: 8, turnId: 7, open: false, stopped: true, lastStop: 7 }] });
+    expect(closedSessions).toEqual([]);
+    expect(lastStopOf(SK)).toEqual(ref(7));
+    expect(verdict({ serverTurn: serverTurnOf(SK), head, stop: lastStopOf(SK) })).toBe('hold-stop');
+  });
+
+  test('a later turn closed plainly does not make the Stop untrue for a message queued before it', () => {
+    noteServerTurn(SK, open(7));
+    const head = { waitsFor: openTurnRef(SK) };
+    noteTurnSnapshot({ boot: 'b1', asOf: 10, open: [], stopped: [{ sessionKey: SK, boot: 'b1', asOf: 10, turnId: 9, open: false, lastStop: 7 }] });
+    expect(verdict({ serverTurn: serverTurnOf(SK), head, stop: lastStopOf(SK) })).toBe('hold-stop');
+    // A message written during that later turn came after the Stop: not its word.
+    expect(verdict({ serverTurn: serverTurnOf(SK), head: { waitsFor: ref(9) }, stop: lastStopOf(SK) })).toBe('drain');
+  });
+
+  test('a Stop the person already lifted, in any window of the profile, holds nothing', () => {
+    noteServerTurn(SK, closed(7, 8));
+    noteServerTurn(SK, { ...closed(7, 8), stopped: true });
+    expect(verdict({ serverTurn: serverTurnOf(SK), head: { waitsFor: ref(7) }, stop: ref(7), lifted: ref(7) })).toBe('drain');
+    // A lift of an older boot says nothing about this one.
+    expect(verdict({ serverTurn: serverTurnOf(SK), head: { waitsFor: ref(7) }, stop: ref(7), lifted: ref(9, 'b0') })).toBe('hold-stop');
+  });
+
+  test('a stale close still carries its Stop', () => {
+    noteServerTurn(SK, open(9));
+    expect(noteServerTurn(SK, { ...closed(7, 8), stopped: true })).toBe(false);
+    expect(lastStopOf(SK)).toEqual(ref(7));
+  });
+
+  test('a user_abort names the turn the server last spoke of', () => {
+    noteStopHeard(SK);
+    expect(lastStopOf(SK)).toBeUndefined();
+    noteServerTurn(SK, open(5));
+    noteStopHeard(SK);
+    expect(lastStopOf(SK)).toEqual(ref(5));
   });
 });

@@ -29,6 +29,9 @@
  *                      `ExitPlanMode` with no result:
  *                      in a topic with autonomy `ask`, Topics turns it into a
  *                      plan approval for the person.
+ *   "SIGINTEXIT:<ms>"  anywhere in a message: from then on the child exits
+ *                      <ms> after a SIGINT instead of 300 ms (the real one took
+ *                      6-7 s under load, production 29/09).
  *   anything else      "got: <text>", at once.
  *
  * Like the real CLI it never answers two turns at once: a line received during
@@ -67,6 +70,7 @@ if (flag("--output-format") === "json") {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   let seq = 0;
   let busy = false;
+  let interruptExitMs = 300;
 
   const init = () => out({ type: "system", subtype: "init", model: "claude-finto", tools: [], fast_mode_state: "off", cwd: process.cwd() });
   const text = (value: string) =>
@@ -127,6 +131,8 @@ if (flag("--output-format") === "json") {
       if (asked === null) continue;
       // The whole message, context preamble included: the test looks for its tag.
       note({ event: "received", text: asked.slice(-400), busy });
+      const exitAfter = /SIGINTEXIT:(\d+)/.exec(asked);
+      if (exitAfter) interruptExitMs = Number(exitAfter[1]);
       const slow = /SLOWINIT:(\d+):([A-Za-z0-9]+)/.exec(asked);
       const plan = /PLANTURN:(\d+):([A-Za-z0-9]+)/.exec(asked);
       if (slow) {
@@ -176,5 +182,5 @@ if (flag("--output-format") === "json") {
   process.stdin.on("end", () => { void queue.then(() => process.exit(0)); });
   process.on("SIGTERM", () => process.exit(0));
   // Like the real one in stream-json mode: a SIGINT ends the turn and the child.
-  process.on("SIGINT", () => { note({ event: "sigint", busy }); setTimeout(() => process.exit(0), 300); });
+  process.on("SIGINT", () => { note({ event: "sigint", busy }); setTimeout(() => process.exit(0), interruptExitMs); });
 }

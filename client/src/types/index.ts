@@ -259,6 +259,8 @@ export interface ServerTurnState {
   stopped?: true;
   /** Closed: the turn ended waiting for a person (a plan approval). */
   awaitsHuman?: true;
+  /** The latest turn of this boot a person stopped, said on every state after it. */
+  lastStop?: number;
 }
 
 export interface UploadResponse {
@@ -429,6 +431,8 @@ export interface WSTurnSnapshotMessage {
   open: Array<ServerTurnState & { sessionKey: string }>;
   /** Sessions whose last turn ended waiting for a person: closed, and not free for the queue. */
   awaiting?: Array<ServerTurnState & { sessionKey: string }>;
+  /** The other closed sessions with a person's Stop in this boot: a window that missed the close holds on it. */
+  stopped?: Array<ServerTurnState & { sessionKey: string }>;
 }
 
 export interface WSStreamStartMessage {

@@ -20,6 +20,15 @@
  *      `system/init` not come yet): the message queued here stays queued.
  *   4. A turn started elsewhere ends on a plan approval: the message queued
  *      here waits for the person's answer, and leaves with it.
+ *   5. Stop, then a message typed at once, while the stopped child is still
+ *      dying: it reaches the CLI once, after the Stop (it used to stay queued
+ *      behind the Stop's hold for good).
+ *   6. Another device stops the turn while this window's socket is down (a
+ *      phone in the background): on its return the queue holds, and the
+ *      person's next message takes it along.
+ *   7. Two windows of one profile, «send now» in one: the message queued in
+ *      the next turn still leaves at its end (the other window used to hold
+ *      the queue again on the same close, for good).
  *
  * Behaviour, not layout: video on, the .webm is the proof.
  *
@@ -75,6 +84,33 @@ const queuedBubbles = (page: Page) => page.getByTestId("queued-bubble");
 /** Whether this window holds the queue of a session (`msgQueue:hold:`, `state/chatQueue.ts`). */
 const queueHeld = (page: Page, sessionKey: string) =>
   page.evaluate((key) => localStorage.getItem(key) !== null, `msgQueue:hold:${sessionKey}`);
+
+/** POST /api/chat/abort from outside the page: the person's Stop on another device. */
+const remoteStop = (sessionKey: string) => fetch(`${E2E_BASE}/api/chat/abort`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", "X-Gateway-Token": TOKEN },
+  body: JSON.stringify({ sessionKey }),
+});
+
+/** A socket the test can cut and keep cut (a phone in the background), then let back. */
+async function socketThatStaysDown(page: Page): Promise<{ suspend: () => Promise<void>; resume: () => void; opened: () => number }> {
+  let blocked = false;
+  let opened = 0;
+  const live: Array<{ close: () => Promise<void> }> = [];
+  await page.routeWebSocket(/\/ws(\?|$)/, (ws) => {
+    if (blocked) { void ws.close(); return; }
+    opened++;
+    const server = ws.connectToServer();
+    ws.onMessage((m) => server.send(m));
+    server.onMessage((m) => ws.send(m));
+    live.push(ws);
+  });
+  return {
+    suspend: async () => { blocked = true; for (const s of live.splice(0)) await s.close().catch(() => {}); },
+    resume: () => { blocked = false; },
+    opened: () => opened,
+  };
+}
 
 /** The chat socket goes through here, so the test can drop it; every reconnect is proxied again. */
 async function socketThatDrops(page: Page): Promise<{ drop: () => Promise<void>; opened: () => number }> {
@@ -257,5 +293,113 @@ test.describe("the turn queue waits for the real end of the turn", () => {
     await page.getByTestId("plan-reject").click();
     await expect.poll(() => receivedWith(TAG).length, { timeout: 30_000, message: "the message reaches the CLI" }).toBe(1);
     await expect(queuedBubbles(page)).toHaveCount(0, { timeout: 10_000 });
+  });
+
+  test("Stop, then a message typed at once while the stopped child is still dying: it reaches the CLI once, after the Stop", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-07" });
+    await openChat(page, chatPage);
+    // The child takes 3 s to exit after the SIGINT (6-7 s in production under load).
+    const turn = startTurn(topic.sk, "SLOWINIT:300:stopthensend SIGINTEXIT:3000");
+    const chat = page.locator(`[data-testid="chat-panel"][data-chat-topic-id="${topic.id}"]`);
+    await expect(chat.getByText("stopthensend tick 2.", { exact: false }).first()).toBeVisible({ timeout: 20_000 });
+
+    await page.locator('[data-composer-action="stop"]').click();
+    const TAG = "TYPED-RIGHT-AFTER-STOP";
+    await chatPage.messageInput.fill(TAG);
+    await chatPage.messageInput.press("Enter");
+    await turn;
+
+    await expect.poll(() => receivedWith(TAG).length, { timeout: 30_000, message: "the message typed after the Stop reaches the CLI" }).toBe(1);
+    const interrupted = readLog().find((l) => l.event === "sigint")!;
+    const [got] = receivedWith(TAG);
+    expect(got!.at).toBeGreaterThanOrEqual(interrupted.at);
+    expect(got!.busy, "the stopped turn did not take it").toBe(false);
+    await expect(queuedBubbles(page)).toHaveCount(0, { timeout: 10_000 });
+    expect(await queueHeld(page, topic.sk)).toBe(false);
+    await expect(chat.getByText("got:", { exact: false }).last()).toContainText(TAG, { timeout: 20_000 });
+    expect(receivedWith(TAG)).toHaveLength(1);
+  });
+
+  test("Stop on another device while this window's socket is down: on its return the queue holds, and the next message takes it along", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-07" });
+    const socket = await socketThatStaysDown(page);
+    await openChat(page, chatPage);
+    const turn = startTurn(topic.sk, "SLOWINIT:300:awaystop");
+    const chat = page.locator(`[data-testid="chat-panel"][data-chat-topic-id="${topic.id}"]`);
+    await expect(chat.getByText("awaystop tick 2.", { exact: false }).first()).toBeVisible({ timeout: 20_000 });
+
+    const TAG = "QUEUED-ON-THE-PHONE";
+    await chatPage.messageInput.fill(TAG);
+    await chatPage.messageInput.press("Enter");
+    await expect(queuedBubbles(page)).toHaveCount(1, { timeout: 10_000 });
+
+    // The phone goes to the background; the desktop stops the turn; the
+    // server closes it while the phone is away.
+    await socket.suspend();
+    expect((await remoteStop(topic.sk)).status).toBe(200);
+    await turn;
+    await expect.poll(async () => {
+      const res = await fetch(`${E2E_BASE}/api/history/${encodeURIComponent(topic.sk)}?limit=1`, { headers: { "X-Gateway-Token": TOKEN } });
+      return ((await res.json()) as { turn?: { open: boolean } }).turn?.open;
+    }, { timeout: 15_000, message: "the server closes the turn while the phone is away" }).toBe(false);
+
+    // The phone comes back: the reconnect's snapshot says the Stop, and the queue holds.
+    const before = socket.opened();
+    socket.resume();
+    await page.evaluate(() => { window.dispatchEvent(new Event("focus")); document.dispatchEvent(new Event("visibilitychange")); });
+    await expect.poll(() => socket.opened(), { timeout: 40_000, message: "the phone reconnects" }).toBeGreaterThan(before);
+    await expect.poll(() => queueHeld(page, topic.sk), { timeout: 15_000, message: "the queue is held on the Stop it missed" }).toBe(true);
+    await expect(queuedBubbles(page)).toHaveCount(1);
+    expect(receivedWith(TAG)).toEqual([]);
+
+    // The person writes again: both leave together, once.
+    const NEXT = "AND-THIS-TOO";
+    await chatPage.messageInput.fill(NEXT);
+    await chatPage.messageInput.press("Enter");
+    await expect.poll(() => receivedWith(NEXT).length, { timeout: 30_000, message: "the person's own send reaches the CLI" }).toBe(1);
+    expect(receivedWith(TAG)).toHaveLength(1);
+    expect(receivedWith(TAG)[0]!.text).toContain(NEXT);
+    await expect(queuedBubbles(page)).toHaveCount(0, { timeout: 10_000 });
+  });
+
+  test("two windows of one profile, «send now» in one: the message queued in the next turn still leaves at its end", async ({ page, chatPage }) => {
+    test.info().annotations.push({ type: "spec", description: "CHAT-QUEUE-07" });
+    await openChat(page, chatPage);
+    const other = await page.context().newPage();
+    try {
+      await goToApp(other);
+      await other.keyboard.press("Escape");
+      await openTopic(other, new RegExp(topic.name));
+      const otherChat = other.locator(`[data-testid="chat-panel"][data-chat-topic-id="${topic.id}"]`);
+
+      const turn = startTurn(topic.sk, "SLOWINIT:300:twowin SIGINTEXIT:1200");
+      const chat = page.locator(`[data-testid="chat-panel"][data-chat-topic-id="${topic.id}"]`);
+      await expect(chat.getByText("twowin tick 2.", { exact: false }).first()).toBeVisible({ timeout: 20_000 });
+      await expect(otherChat.getByText("twowin tick 2.", { exact: false }).first()).toBeVisible({ timeout: 20_000 });
+
+      // Queued here, then sent at once: the Stop and the send go together.
+      await chatPage.messageInput.fill("LONGTURN:2:1500:qturn");
+      await chatPage.messageInput.press("Enter");
+      await expect(queuedBubbles(page)).toHaveCount(1, { timeout: 10_000 });
+      await page.getByTestId("queue-send-now").click();
+      await turn;
+      await expect.poll(() => !!turnEvent("turn-start", "qturn"), { timeout: 30_000, message: "the queued turn started" }).toBe(true);
+
+      // Written during that turn, in the window that did not press anything.
+      const TAG = "QUEUED-DURING-QTURN";
+      await other.getByRole("textbox", { name: /Campo del messaggio|Message input for/ }).fill(TAG);
+      await other.getByRole("textbox", { name: /Campo del messaggio|Message input for/ }).press("Enter");
+      await expect(queuedBubbles(other)).toHaveCount(1, { timeout: 10_000 });
+
+      await expect.poll(() => receivedWith(TAG).length, { timeout: 60_000, message: "the message reaches the CLI after that turn" }).toBe(1);
+      const end = turnEvent("turn-end", "qturn")!;
+      const [got] = receivedWith(TAG);
+      expect(got!.busy).toBe(false);
+      expect(got!.at).toBeGreaterThanOrEqual(end.at);
+      expect(await queueHeld(page, topic.sk)).toBe(false);
+      await expect(queuedBubbles(other)).toHaveCount(0, { timeout: 10_000 });
+    } finally {
+      await other.close();
+    }
   });
 });

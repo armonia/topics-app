@@ -1332,11 +1332,14 @@ const turnStateEntry = {
   // On a close: a person stopped the turn / it ended waiting for a person.
   stopped: z.optional(z.literal(true)),
   awaitsHuman: z.optional(z.literal(true)),
+  // The latest turn of this boot a person stopped, said on every state after it.
+  lastStop: z.optional(z.number()),
 };
 const turnStateSchema = z.looseObject({ type: z.literal('turn:state'), ...turnStateEntry });
 /**
  * Every open turn at the moment a socket opens: a session not listed has none.
  * `awaiting`: sessions whose last turn ended waiting for a person, closed.
+ * `stopped`: the other closed sessions with a person's Stop in this boot.
  */
 const turnSnapshotSchema = z.looseObject({
   type: z.literal('turn:snapshot'),
@@ -1344,6 +1347,7 @@ const turnSnapshotSchema = z.looseObject({
   asOf: z.number(),
   open: z.array(z.looseObject(turnStateEntry)),
   awaiting: z.optional(z.array(z.looseObject(turnStateEntry))),
+  stopped: z.optional(z.array(z.looseObject(turnStateEntry))),
 });
 
 // ---- Registry --------------------------------------------------------------

@@ -27,6 +27,8 @@ export interface ServerTurn {
   stopped?: true;
   /** Closed: the turn ended waiting for a person (a plan approval). */
   awaitsHuman?: true;
+  /** The latest turn of this boot a person stopped, said on every state after it. */
+  lastStop?: number;
 }
 
 /** The turn a queued message waits for: it may leave only once THAT turn is over. */
@@ -36,6 +38,19 @@ export interface TurnRef {
 }
 
 const turns = new Map<string, ServerTurn>();
+/**
+ * The latest Stop heard per session, whatever carried it: the close that says
+ * `stopped`, any later state's `lastStop`, a snapshot, a `user_abort`. Kept
+ * apart from `turns` because a newer statement about the session (the next
+ * turn's open) does not make the Stop untrue: what was queued before it holds.
+ */
+const stops = new Map<string, TurnRef>();
+
+function noteStop(sessionKey: string, stop: TurnRef): void {
+  const held = stops.get(sessionKey);
+  if (held && held.boot === stop.boot && held.turnId >= stop.turnId) return;
+  stops.set(sessionKey, stop);
+}
 /** The last snapshot: a session it did not list had no open turn as of it. */
 let baseline: { boot: string; asOf: number } | null = null;
 
@@ -57,6 +72,9 @@ export function serverTurnOf(sessionKey: string): ServerTurn | undefined {
  */
 export function noteServerTurn(sessionKey: string, next: unknown): boolean {
   if (!isServerTurn(next)) return false;
+  // A Stop is a fact whatever the order it arrives in: taken even from a stale statement.
+  if (typeof next.lastStop === 'number') noteStop(sessionKey, { boot: next.boot, turnId: next.lastStop });
+  if (!next.open && next.stopped === true) noteStop(sessionKey, { boot: next.boot, turnId: next.turnId });
   const held = serverTurnOf(sessionKey);
   if (held && held.boot === next.boot && next.asOf < held.asOf) return false;
   turns.set(sessionKey, {
@@ -73,13 +91,16 @@ export function noteServerTurn(sessionKey: string, next: unknown): boolean {
  * that are closed now, for the caller to try their queues.
  */
 export function noteTurnSnapshot(snapshot: unknown): string[] {
-  const s = snapshot as { boot?: unknown; asOf?: unknown; open?: unknown; awaiting?: unknown } | null;
+  const s = snapshot as { boot?: unknown; asOf?: unknown; open?: unknown; awaiting?: unknown; stopped?: unknown } | null;
   if (!s || typeof s.boot !== 'string' || typeof s.asOf !== 'number' || !Array.isArray(s.open)) return [];
   const listed = new Map<string, ServerTurn>();
   // The sessions whose last turn ended on a question for a person are listed
   // too: closed, but not free (`decideDrain` holds on `awaitsHuman`).
   const awaiting: unknown[] = Array.isArray(s.awaiting) ? s.awaiting : [];
-  for (const entry of [...s.open, ...awaiting]) {
+  // And the closed sessions with a person's Stop in this boot: a window that
+  // was not listening when the close said `stopped` learns it here.
+  const stopped: unknown[] = Array.isArray(s.stopped) ? s.stopped : [];
+  for (const entry of [...s.open, ...awaiting, ...stopped]) {
     const e = entry as Partial<ServerTurn> & { sessionKey?: unknown };
     const sessionKey = e.sessionKey;
     if (typeof sessionKey === 'string' && isServerTurn(e)) listed.set(sessionKey, e);
@@ -102,8 +123,23 @@ export function openTurnRef(sessionKey: string): TurnRef | undefined {
   return t?.open ? { boot: t.boot, turnId: t.turnId } : undefined;
 }
 
+/** The latest Stop by a person this window has heard of on a session. */
+export function lastStopOf(sessionKey: string): TurnRef | undefined {
+  return stops.get(sessionKey);
+}
+
+/**
+ * A `user_abort` heard on a session: the Stop of the turn the server last spoke
+ * of. Only a fallback: the close of the turn says it too (`stopped`).
+ */
+export function noteStopHeard(sessionKey: string): void {
+  const t = turns.get(sessionKey);
+  if (t && t.turnId > 0) noteStop(sessionKey, { boot: t.boot, turnId: t.turnId });
+}
+
 /** Only for tests: forget everything. */
 export function __resetServerTurns(): void {
   turns.clear();
+  stops.clear();
   baseline = null;
 }

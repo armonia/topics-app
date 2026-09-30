@@ -25,7 +25,8 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from 'bun:tes
 import * as React from 'react';
 import { mount } from '../test/reactHarness';
 import { useChat } from './useChat';
-import { __setQueueStorage, enqueueTurn, getQueue } from '../state/chatQueue';
+import { __setQueueStorage, enqueueTurn, getQueue, holdQueue, isHeld, releaseHold } from '../state/chatQueue';
+import { __resetServerTurns } from '../state/serverTurn';
 import type { WSMessage } from '../types';
 
 class MemStorage {
@@ -135,6 +136,8 @@ const FOLLOW_UP = 'e poi guarda anche i test';
 beforeEach(() => {
   sent = [];
   __setQueueStorage(null);
+  // The server's word is module state: a snapshot of one test is not the next one's.
+  __resetServerTurns();
   installFetch();
 });
 
@@ -259,6 +262,89 @@ describe('the close of a turn says how it ended, and the queue obeys it', () => 
     d.ws(closed(d.sk, 4, 3));
     await settle();
     expect(sent.map((s) => s.content)).toEqual([FOLLOW_UP]);
+    d.unmount();
+  });
+
+  test('Stop, then a message typed before the stopped turn has closed: it leaves at the close', async () => {
+    // claude-code: the stopped child held the session open until it exited
+    // (6-7 s under load). The message went to the queue behind this window's
+    // own hold, the close skipped nothing, and the drain answered "held" for good.
+    const d = drive();
+    d.ws(open(d.sk, 1));
+    d.ws({ type: 'stream:start', messageId: LIVE });
+    await d.chat.stopSession(d.sk);
+    await settle();
+    await d.chat.sendMessage(d.sk, FOLLOW_UP);
+    await settle();
+    expect(getQueue(d.sk)).toHaveLength(1);
+    expect(sent).toHaveLength(0);
+
+    d.ws(closed(d.sk, 2, 1, { stopped: true }));
+    await settle();
+    expect(sent.map((s) => s.content)).toEqual([FOLLOW_UP]);
+    expect(isHeld(d.sk)).toBe(false);
+    d.unmount();
+  });
+
+  test('two windows of one profile, «send now» in the other: the same close does not hold the queue again', async () => {
+    // This hook is window B. Window A stopped turn 1 and pressed «send now»
+    // (hold raised for turn 1, then lifted); only their shared storage reaches B.
+    const d = drive();
+    d.ws(open(d.sk, 1));
+    enqueueTurn(d.sk, 'Q', undefined, { boot: 'b', turnId: 1 });
+    holdQueue(d.sk, { boot: 'b', turnId: 1 });
+    releaseHold(d.sk);
+
+    // B reads the close that says `stopped` after A has let the queue go.
+    d.ws(closed(d.sk, 2, 1, { stopped: true }));
+    await settle();
+    expect(isHeld(d.sk)).toBe(false);
+    expect(sent.map((s) => s.content)).toEqual(['Q']);
+
+    // The next turn, and a message queued during it: it leaves at its close.
+    d.ws(open(d.sk, 3));
+    await d.chat.sendMessage(d.sk, 'R');
+    await settle();
+    expect(getQueue(d.sk)).toHaveLength(1);
+    d.ws(closed(d.sk, 4, 3));
+    await settle();
+    expect(sent.map((s) => s.content)).toEqual(['Q', 'R']);
+    d.unmount();
+  });
+
+  test('a Stop on another device while this socket was down: the reconnect holds the queue', async () => {
+    const d = drive();
+    d.ws(open(d.sk, 1));
+    await d.chat.sendMessage(d.sk, FOLLOW_UP);
+    await settle();
+    expect(getQueue(d.sk)).toHaveLength(1);
+
+    // The socket drops; the desktop stops turn 1; the socket comes back. The
+    // snapshot used to list only open turns: the session read as free.
+    const entry = { sessionKey: d.sk, boot: 'b', asOf: 2, turnId: 1, open: false, stopped: true, lastStop: 1 };
+    d.ws({ type: 'turn:snapshot', boot: 'b', asOf: 2, open: [], awaiting: [], stopped: [entry] });
+    await settle();
+    expect(sent).toHaveLength(0);
+    expect(isHeld(d.sk)).toBe(true);
+    expect(getQueue(d.sk)).toHaveLength(1);
+    d.unmount();
+  });
+
+  test('away for the Stop and for a plain turn after it: the reconnect still holds, and the person\'s next message sends both', async () => {
+    const d = drive();
+    d.ws(open(d.sk, 1));
+    await d.chat.sendMessage(d.sk, FOLLOW_UP);
+    await settle();
+
+    const entry = { sessionKey: d.sk, boot: 'b', asOf: 4, turnId: 3, open: false, lastStop: 1 };
+    d.ws({ type: 'turn:snapshot', boot: 'b', asOf: 4, open: [], awaiting: [], stopped: [entry] });
+    await settle();
+    expect(sent).toHaveLength(0);
+    expect(isHeld(d.sk)).toBe(true);
+
+    await d.chat.sendMessage(d.sk, 'and this');
+    await settle();
+    expect(sent.map((s) => s.content)).toEqual([`${FOLLOW_UP}\n\nand this`]);
     d.unmount();
   });
 });

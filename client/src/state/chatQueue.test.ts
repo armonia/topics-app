@@ -12,8 +12,9 @@ import { describe, expect, test, beforeEach } from 'bun:test';
 import {
   __setQueueStorage, adoptLegacyQueue, claimBatch, clearQueue, decideSend, enqueueTurn,
   getQueue, holdQueue, isHeld, legacyQueueKey, mergeBatch, parseQueue, queueKey, releaseClaim,
-  releaseHold, removeTurn, requeueFront, updateTurn, BATCH_SEPARATOR, CLAIM_LEASE_MS,
+  liftedStop, releaseHold, removeTurn, requeueFront, updateTurn, BATCH_SEPARATOR, CLAIM_LEASE_MS,
 } from './chatQueue';
+import { __resetServerTurns, noteServerTurn } from './serverTurn';
 import type { QueueStorage } from '../hooks/outboundQueue';
 
 /** Uno storage finto e ISPEZIONABILE: due «finestre» ci scrivono sopra. */
@@ -218,6 +219,34 @@ describe('lo stop tiene', () => {
     expect(isHeld(SK)).toBe(true); // ne resta una: il freno serve ancora
     removeTurn(SK, b.id);
     expect(isHeld(SK)).toBe(false);
+  });
+});
+
+describe('a Stop lifted once stays lifted, for every window of the profile', () => {
+  beforeEach(() => __resetServerTurns());
+
+  test('lifting the hold writes down the Stop it was raised for', () => {
+    holdQueue(SK, { boot: 'b1', turnId: 4 });
+    expect(liftedStop(SK)).toBeUndefined();
+    releaseHold(SK);
+    expect(isHeld(SK)).toBe(false);
+    // Another window reads it from the same storage.
+    __setQueueStorage(store);
+    expect(liftedStop(SK)).toEqual({ boot: 'b1', turnId: 4 });
+  });
+
+  test('a send with no hold up lifts the latest Stop this window has heard, and a lift never goes back', () => {
+    noteServerTurn(SK, { boot: 'b1', asOf: 7, turnId: 6, open: false, stopped: true });
+    releaseHold(SK);
+    expect(liftedStop(SK)).toEqual({ boot: 'b1', turnId: 6 });
+    holdQueue(SK, { boot: 'b1', turnId: 2 });
+    releaseHold(SK);
+    expect(liftedStop(SK)).toEqual({ boot: 'b1', turnId: 6 });
+  });
+
+  test('nothing heard, nothing held: no key is written', () => {
+    releaseHold(SK);
+    expect([...store.map.keys()]).toEqual([]);
   });
 });
 

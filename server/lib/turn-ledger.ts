@@ -44,6 +44,13 @@ export interface TurnState {
   stopped?: true;
   /** Closed: the turn ended waiting for a person (a plan approval). The queue waits for the answer. */
   awaitsHuman?: true;
+  /**
+   * The latest turn of this boot a person stopped, kept past the turns that
+   * follow it. `stopped` is said once, with that close; a window that was not
+   * listening then (a phone in the background, a reload) learns the Stop from
+   * this, and holds what it had queued before it.
+   */
+  lastStop?: number;
 }
 
 /** How a turn ended, said with its close (`TurnLedger.noteEnd`). */
@@ -55,13 +62,16 @@ export interface TurnEnd {
 /**
  * Every open turn, as of one revision: a session not listed has none. Plus the
  * sessions whose last turn ended waiting for a person, listed closed: a window
- * that connects now must not take that for a free session.
+ * that connects now must not take that for a free session. Plus every other
+ * closed session a person stopped a turn of in this boot (`stopped`, with its
+ * `lastStop`): a window that missed the close must still hold on that Stop.
  */
 export interface TurnSnapshot {
   boot: string;
   asOf: number;
   open: TurnState[];
   awaiting: TurnState[];
+  stopped: TurnState[];
 }
 
 export interface TurnLedger {
@@ -82,7 +92,7 @@ export interface TurnLedger {
   sourcesOf(sessionKey: string): TurnSource[];
 }
 
-interface Entry { sources: Set<TurnSource>; turnId: number; end: TurnEnd }
+interface Entry { sources: Set<TurnSource>; turnId: number; end: TurnEnd; lastStop?: number }
 
 export function createTurnLedger(opts: { boot?: string; onChange?: (state: TurnState) => void } = {}): TurnLedger {
   const boot = opts.boot ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -96,6 +106,7 @@ export function createTurnLedger(opts: { boot?: string; onChange?: (state: TurnS
       sessionKey, boot, asOf, turnId: e?.turnId ?? 0, open,
       ...(!open && e?.end.stopped ? { stopped: true as const } : {}),
       ...(!open && e?.end.awaitsHuman ? { awaitsHuman: true as const } : {}),
+      ...(e?.lastStop !== undefined ? { lastStop: e.lastStop } : {}),
     };
   }
 
@@ -116,6 +127,7 @@ export function createTurnLedger(opts: { boot?: string; onChange?: (state: TurnS
       rev++;
       // A turn is named by the revision that opened it: unique and increasing within a boot.
       if (nowOpen) { e.turnId = rev; e.end = {}; }
+      else if (e.end.stopped) e.lastStop = e.turnId;
       try { opts.onChange?.(stateAt(sessionKey, rev)); }
       catch (err) { console.warn(`[turn-ledger] change listener failed for ${sessionKey}:`, err); }
     },
@@ -137,11 +149,13 @@ export function createTurnLedger(opts: { boot?: string; onChange?: (state: TurnS
     snapshot() {
       const open: TurnState[] = [];
       const awaiting: TurnState[] = [];
+      const stopped: TurnState[] = [];
       for (const [sessionKey, e] of entries) {
         if (e.sources.size > 0) open.push(stateAt(sessionKey, rev));
         else if (e.end.awaitsHuman) awaiting.push(stateAt(sessionKey, rev));
+        else if (e.lastStop !== undefined) stopped.push(stateAt(sessionKey, rev));
       }
-      return { boot, asOf: rev, open, awaiting };
+      return { boot, asOf: rev, open, awaiting, stopped };
     },
     sourcesOf(sessionKey) {
       return [...(entries.get(sessionKey)?.sources ?? [])];

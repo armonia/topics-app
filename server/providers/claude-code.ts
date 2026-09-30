@@ -2346,6 +2346,15 @@ export class ClaudeCodeProvider implements AIProvider {
       // the user asked to abort and silently didn't get it. Observe (throttled).
       warnThrottled("claudeCode:abort:sigint", `[ClaudeCode] SIGINT on abort failed for ${sessionKey}:`, err);
     }
+    // The stopped child's turn is over for the session here, not at its exit.
+    // Nothing is written to it again (`processForTurn` waits for its exit, and
+    // kills it past `STOPPED_CHILD_EXIT_WAIT_MS`) and its tail is dropped
+    // (`stoppedExit` in `handleStreamEvent`), so its `result` never reached
+    // the ledger: the session stayed open until the exit, 6-7 s under load in
+    // production (29/09, topic 33966f4e) and for good when the SIGINT got
+    // lost. A message typed right after the Stop waited behind that, and the
+    // 409 gate refused every send meanwhile.
+    this.noteCliTurn(pp, false);
 
     // The aborted turn may have had outstanding human-input requests. Drop
     // them so a stale `POST /api/chat/tool-response` can't write a tool
