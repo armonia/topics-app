@@ -51,22 +51,36 @@ function tag(text: string, name: string): string | undefined {
 }
 
 /**
+ * How the CLI words a Monitor's end in a notification's summary (CLI 2.1.286,
+ * the function that words a task's end): `Monitor "<description>" ` then
+ * `stream ended`, `script failed` or `ended without producing output` (each
+ * possibly with ` (exit N)`), or `stopped`. The Monitor's last event travels
+ * in that same notification.
+ */
+const MONITOR_END = /^Monitor "([\s\S]*)" (stream ended|stopped|script failed(?: \(exit -?\d+\))?|ended without producing output(?: \(exit -?\d+\))?)$/;
+
+/** The Monitor and how it ended, when `summary` is a Monitor's end as the CLI words it. */
+export function readMonitorEnd(summary: string): { label: string; end: string } | null {
+  const m = summary.match(MONITOR_END);
+  return m ? { label: m[1], end: m[2] } : null;
+}
+
+/**
  * One `<task-notification>` as the chat names it, or null when the text is not
- * one. A Monitor's summary is `Monitor event: "<description>"`; any other task
- * (an Agent, a background Bash) is named by its summary as the CLI wrote it.
+ * one. A Monitor's summary is `Monitor event: "<description>"`, or one of its
+ * endings (`readMonitorEnd`), both named as that Monitor with the event text;
+ * any other task (an Agent, a background Bash) is named by its summary as the
+ * CLI wrote it.
  */
 function parseTaskNotification(text: string): WakeEvent | null {
   if (!text.includes("<task-notification>")) return null;
   const summary = tag(text, "summary") ?? "";
+  const event = tag(text, "event");
+  const eventText = event ? { text: event.length > EVENT_TEXT_MAX ? `${event.slice(0, EVENT_TEXT_MAX)}…` : event } : {};
   const monitor = summary.match(/^Monitor event:\s*"([\s\S]*)"$/);
-  if (monitor) {
-    const event = tag(text, "event");
-    return {
-      source: "monitor",
-      label: monitor[1],
-      ...(event ? { text: event.length > EVENT_TEXT_MAX ? `${event.slice(0, EVENT_TEXT_MAX)}…` : event } : {}),
-    };
-  }
+  if (monitor) return { source: "monitor", label: monitor[1], ...eventText };
+  const ended = readMonitorEnd(summary);
+  if (ended) return { source: "monitor", label: ended.label, end: ended.end, ...eventText };
   if (!summary) return null;
   return { source: "task", label: summary };
 }
@@ -125,6 +139,6 @@ export function resolveWakeSource(work: BackgroundWork | undefined): WakeEvent[]
       return read.map(({ at: _at, ...ev }) => ev);
     }
   }
-  if (report && report.at >= since) return [{ source: report.monitor ? "monitor" : "task", label: report.description }];
+  if (report && report.at >= since) return [{ source: report.monitor ? "monitor" : "task", label: report.description, ...(report.end ? { end: report.end } : {}) }];
   return [];
 }

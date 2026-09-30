@@ -259,8 +259,8 @@ export function bufferWoken(
  *
  * Such an answer arrives minutes later, under a message it has nothing to do
  * with. The banner says what woke it: one block per notification the wake
- * answers (`wake-source.ts`), a Monitor's event with its text or a background
- * task's report. An unknown source leaves one block with no label: better
+ * answers (`wake-source.ts`), a Monitor's event with its text, a Monitor's end
+ * with how it ended and its last event, or a background task's report. An unknown source leaves one block with no label: better
  * unnamed than named after the wrong watch, which is what guessing "the
  * Monitor armed last" did on seven wakes of nine (chat 33966f4e, 30/09).
  *
@@ -274,7 +274,11 @@ export function cartelloRisveglio(isWoken: boolean, source: unknown): ContentBlo
     for (const raw of source) {
       const ev = raw as Partial<WakeEvent> | null;
       if (!ev || (ev.source !== "monitor" && ev.source !== "task") || typeof ev.label !== "string" || !ev.label.trim()) continue;
-      blocks.push({ kind: "woken", label: ev.label.trim(), source: ev.source, ...(typeof ev.text === "string" && ev.text ? { text: ev.text } : {}) });
+      blocks.push({
+        kind: "woken", label: ev.label.trim(), source: ev.source,
+        ...(ev.source === "monitor" && typeof ev.end === "string" && ev.end ? { end: ev.end } : {}),
+        ...(typeof ev.text === "string" && ev.text ? { text: ev.text } : {}),
+      });
     }
     if (blocks.length > 0) return blocks;
     return [{ kind: "woken" }];

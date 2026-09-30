@@ -129,6 +129,7 @@ const EN = {
   'woken.arrived': 'Landed while you were away: an answer from a background watch.',
   'woken.arrivedFor': 'Landed: {what}',
   'woken.monitorEvent': 'Monitor event: {what}',
+  'woken.monitorEnded': 'Monitor ended: {what} ({how})',
   'woken.taskReport': 'Background task reported: {what}',
   'ripreso.banner': 'The server restarted and picked this up on its own: this is the redone answer.',
   'monitor.armed': 'listening',

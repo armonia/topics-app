@@ -130,6 +130,7 @@ const IT: Dict = {
   'woken.arrived': 'Arrivato mentre eri via: risposta di un controllo in ascolto.',
   'woken.arrivedFor': 'Arrivato: {what}',
   'woken.monitorEvent': 'Evento del monitor: {what}',
+  'woken.monitorEnded': 'Monitor terminato: {what} ({how})',
   'woken.taskReport': 'Un lavoro in background ha risposto: {what}',
   'ripreso.banner': 'Il server si è riavviato e ha ripreso da solo: questa è la risposta rifatta.',
   'monitor.armed': 'in ascolto',

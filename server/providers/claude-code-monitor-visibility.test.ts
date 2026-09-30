@@ -124,6 +124,8 @@ beforeAll(() => {
   process.env.HOME = home;
 });
 afterAll(() => {
+  // bun caches `homedir()`, so the transcript may sit under the real home: its folder goes too.
+  rmSync(dirname(claudeTranscriptPath("/work/project", "00000000-0000-4000-8000-0000000000a1")), { recursive: true, force: true });
   process.env.HOME = realHome;
   rmSync(home, { recursive: true, force: true });
 });

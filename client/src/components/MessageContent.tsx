@@ -985,20 +985,22 @@ type BlockGroup =
  * non nella cronologia), colore diverso. Blu e non ambra perché non è un
  * problema: è una consegna, ed è la cosa che si stava aspettando.
  */
-type WakeBlock = { kind: 'woken'; label?: string; source?: 'monitor' | 'task'; text?: string };
+type WakeBlock = { kind: 'woken'; label?: string; source?: 'monitor' | 'task'; text?: string; end?: string };
 
 /**
  * With a known source (rows from 30/09 on) the banner names it as Claude Code
  * does: a Monitor's event with the Monitor's description and the event's own
- * text, or a background task's report. An older row carries only a label.
+ * text, a Monitor's end with how it ended (the CLI's words) and its last event,
+ * or a background task's report. An older row carries only a label.
  */
 function WokenBanner({ woken }: { woken: WakeBlock }) {
   const tr = useT();
-  const { label, source, text } = woken;
+  const { label, source, text, end } = woken;
   const title = !label ? tr('woken.arrived')
-    : source === 'monitor' ? tr('woken.monitorEvent', { what: label })
-      : source === 'task' ? tr('woken.taskReport', { what: label })
-        : tr('woken.arrivedFor', { what: label });
+    : source === 'monitor' && end ? tr('woken.monitorEnded', { what: label, how: end })
+      : source === 'monitor' ? tr('woken.monitorEvent', { what: label })
+        : source === 'task' ? tr('woken.taskReport', { what: label })
+          : tr('woken.arrivedFor', { what: label });
   return (
     <div
       data-testid="woken-banner"

@@ -904,8 +904,9 @@ export type TurnEndCause = (typeof STOP_CAUSES)[number];
  */
 export type MachineStopCause = 'superseded' | 'wall-clock' | 'stall';
 
-/** One notification that opened a turn the CLI started by itself: a Monitor's event, or a background task's report. */
-export type WakeEvent = { source: 'monitor' | 'task'; label: string; text?: string };
+/** One notification that opened a turn the CLI started by itself: a Monitor's event, a Monitor's
+ *  end (`end`: `stream ended`, `stopped`, `script failed (exit 1)`, ...) with its last event, or a task's report. */
+export type WakeEvent = { source: 'monitor' | 'task'; label: string; text?: string; end?: string };
 
 export type ContentBlock =
   | { kind: 'text'; text: string }
@@ -974,7 +975,7 @@ export type ContentBlock =
    * Bash that reported. A wake answering several notifications carries one
    * block each. Rows written before carry `label` alone.
    */
-  | { kind: 'woken'; label?: string; source?: WakeEvent['source']; text?: string }
+  | { kind: 'woken'; label?: string; source?: WakeEvent['source']; text?: string; end?: string }
   /**
    * QUESTO TURNO L'HA RIPRESO IL SERVER, non tu.
    *

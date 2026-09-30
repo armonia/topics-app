@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { isWokenTurnLine } from "./woken-turn";
+import { cartelloRisveglio, isWokenTurnLine } from "./woken-turn";
 
 /** Il caso base: la CLI ha ricominciato a parlare e nessuno ascolta. */
 const risveglio = {
@@ -66,5 +66,17 @@ describe("isWokenTurnLine", () => {
     // A real wake is held for its adopter and the agent speaks in the middle:
     // that line belongs to the held turn, in order.
     expect(isWokenTurnLine({ ...risveglio, subagent: true, wakeHeld: true })).toBe(true);
+  });
+});
+
+describe("the woken block of a Monitor's end", () => {
+  test("keeps how the Monitor ended next to its last event", () => {
+    // Without `end` the row would read as an event of a Monitor that is gone.
+    expect(cartelloRisveglio(true, [{ source: "monitor", label: "probe-mon", end: "stream ended", text: "EVT-TWO" }])).toEqual([
+      { kind: "woken", label: "probe-mon", source: "monitor", end: "stream ended", text: "EVT-TWO" },
+    ]);
+    expect(cartelloRisveglio(true, [{ source: "monitor", label: "probe-mon", text: "EVT-ONE" }])).toEqual([
+      { kind: "woken", label: "probe-mon", source: "monitor", text: "EVT-ONE" },
+    ]);
   });
 });

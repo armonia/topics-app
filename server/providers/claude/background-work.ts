@@ -34,6 +34,7 @@
 
 import { readBackgroundTasks, readParentToolUseId } from "./events";
 import type { BackgroundWorkDetail } from "../../../shared/background-work";
+import { readMonitorEnd } from "./wake-source";
 
 export type { BackgroundWorkDetail };
 
@@ -85,6 +86,8 @@ interface TaskFacts {
 interface TaskReport {
   description: string;
   monitor: boolean;
+  /** A Monitor's end as the CLI worded it (`stream ended`, `stopped`, ...): the wake is that end, not an event. */
+  end?: string;
   /** The line's arrival, to tell a report of this wake from one an earlier turn already answered. */
   at: number;
 }
@@ -232,7 +235,8 @@ export function noteBackgroundLine(
         // its stream closed) is reported here, by name, like a Bash or an Agent.
         const summary = typeof (e as { summary?: unknown }).summary === "string" ? (e as { summary: string }).summary : "";
         const description = f.description || work.tasks.get(id)?.description || summary;
-        if (description) work.lastReport = { description, monitor: f.monitor === true, at: now };
+        const end = f.monitor ? readMonitorEnd(summary)?.end : undefined;
+        if (description) work.lastReport = { description, monitor: f.monitor === true, at: now, ...(end ? { end } : {}) };
       }
     }
     if (work.tasks.has(id)) work.lastSignalAt = now;

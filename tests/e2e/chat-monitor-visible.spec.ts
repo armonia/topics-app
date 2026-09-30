@@ -7,7 +7,12 @@
  * while that turn is open, well before the status poll's 15 s; the turn ends
  * and the line stays; the Monitor delivers an event (on the CLI's transcript
  * only, as the real CLI does) and the answer carries a banner naming that
- * Monitor and the event's text; the Monitor ends and the line goes.
+ * Monitor and the event's text; the Monitor's stream ends, the answer to that
+ * end says so with the Monitor's last event, and the line goes.
+ *
+ * The Monitor is armed mid-turn right after a status poll went out, so the
+ * next poll is ~15 s away and the refresh `stream:start` triggers is long
+ * done: only the `background:changed` push can name it within 5 s.
  */
 import { execSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -67,14 +72,22 @@ test.describe("a Monitor in the chat", () => {
       await openTopic(page, new RegExp(topic.name));
       await chatPage.messageInput.waitFor({ state: "visible", timeout: 15_000 });
 
-      // The turn arms the Monitor and stays open.
+      // The turn opens and holds. Two status reads go out after the send: the
+      // refresh its `stream:start` triggers (400 ms) and a 15 s poll, in either
+      // order. After both, the next poll is at least ~14.5 s away, and nothing
+      // but a push reads the status again: the Monitor is armed now.
+      let statusReads = 0;
+      page.on("request", (r) => { if (r.url().includes("/api/topics/streaming")) statusReads++; });
       await chatPage.sendMessage("monwatch-start");
-      await expect(page.getByText("ARMED").first()).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText("HOLDING").first()).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(STOP).first()).toBeVisible({ timeout: 10_000 });
+      await expect.poll(() => statusReads, { timeout: 20_000 }).toBeGreaterThanOrEqual(2);
+      writeFileSync(join(dir, "arm"), "");
       const line = page.locator(LINE);
       const monitor = line.locator('[data-testid="background-work-task"][data-type="monitor"]');
       // Named as a Monitor, while its turn is open, sooner than the 15 s poll.
       await expect(monitor).toContainText("MONWATCH-JOB", { timeout: 5_000 });
+      await expect(page.getByText("ARMED").first()).toBeVisible({ timeout: 30_000 });
       await expect(monitor.getByRole("img", { name: /Monitor/ })).toHaveCount(1);
       await expect(monitor.getByTestId("background-work-running")).toHaveText(/^\s*\d+(s|m)$/);
       await expect(page.locator(STOP).first()).toBeVisible();
@@ -94,9 +107,14 @@ test.describe("a Monitor in the chat", () => {
       await expect(banner.getByTestId("woken-event")).toHaveText("EVT-LINE-42 build step 3 ok");
       await expect(monitor).toContainText("MONWATCH-JOB");
 
-      // The Monitor ends: the line goes.
+      // The Monitor's stream ends: the answer says that Monitor ended, how, with its last event; the line goes.
       writeFileSync(join(dir, "end"), "");
       await expect(page.getByText("MON-ENDED").first()).toBeVisible({ timeout: 30_000 });
+      const ended = page.locator('[data-testid="woken-banner"][data-source="monitor"]').filter({ hasText: "stream ended" });
+      await expect(ended).toHaveCount(1, { timeout: 15_000 });
+      await expect(ended).toContainText("MONWATCH-JOB");
+      await expect(ended.getByTestId("woken-event")).toHaveText("EVT-LAST build done");
+      await expect(banner).toHaveCount(2);
       await expect(line).toHaveCount(0, { timeout: 20_000 });
     } finally {
       await deleteTopic(request, topic.id).catch(() => {});

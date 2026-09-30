@@ -74,4 +74,16 @@ describe('il cartello del risveglio', () => {
     expect(html).toMatch(/(Background task reported|Un lavoro in background ha risposto): Agent &quot;Verify v131&quot; finished/);
     expect(html).not.toContain('woken-event">Agent');
   });
+
+  test("a Monitor's end names that Monitor, says how it ended, and shows its last event", () => {
+    // The CLI closes a Monitor with one notification carrying the last event
+    // (recorded with CLI 2.1.285: `Monitor "probe-mon" stream ended` + EVT-TWO).
+    // Read as an event, or as a generic task, it said something false.
+    const html = render([{ kind: 'woken', label: 'probe-mon', source: 'monitor', end: 'stream ended', text: 'EVT-TWO' } as ContentBlock, { kind: 'text', text: 'ok' }]);
+    expect(html).toContain('data-source="monitor"');
+    expect(html).toMatch(/(Monitor ended|Monitor terminato): probe-mon \(stream ended\)/);
+    expect(html).not.toMatch(/Monitor event|Evento del monitor/);
+    expect(html).toContain('data-testid="woken-event"');
+    expect(html).toContain('EVT-TWO');
+  });
 });

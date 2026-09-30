@@ -1154,7 +1154,8 @@ The answer produced by a woken turn SHALL be written to the conversation as a ro
 #### Scenario: The source is the CLI's own notification, never the Monitor armed last
 - **GIVEN** a turn the CLI opened by itself, whose stdout names no source (a Monitor's event prints no line: 0 of 7 events of chat 33966f4e on 30/09, CLI 2.1.285)
 - **WHEN** the wake is adopted
-- **THEN** its source SHALL be read from the `<task-notification>` lines the CLI wrote to its own transcript since the previous turn ended (`server/providers/claude/wake-source.ts`, the transcript found from the cwd and session id of the CLI's last `system/init`), one `woken` block per notification: a Monitor's event as `{source: "monitor", label: <its description>, text: <the event>}`, a background task's report as `{source: "task", label: <its summary>}`
+- **THEN** its source SHALL be read from the `<task-notification>` lines the CLI wrote to its own transcript since the previous turn ended (`server/providers/claude/wake-source.ts`, the transcript found from the cwd and session id of the CLI's last `system/init`), one `woken` block per notification: a Monitor's event as `{source: "monitor", label: <its description>, text: <the event>}`, a Monitor's end as `{source: "monitor", label: <its description>, end: <how it ended>, text: <its last event>}`, a background task's report as `{source: "task", label: <its summary>}`
+- **AND** a Monitor's end SHALL be recognised by the four summaries the CLI writes for it (`Monitor "<description>" stream ended`, `... script failed` and `... ended without producing output`, each possibly followed by ` (exit N)`, and `... stopped`; CLI 2.1.286), not read as a task's report: recorded with the real CLI 2.1.285, the end of a Monitor carries its last event in that same notification (`<summary>Monitor "probe-mon" stream ended</summary>` + `<event>EVT-TWO</event>`), and 7 Monitor notifications of 43 in a real chat had that shape (`server/providers/claude/wake-source.test.ts`). The stdout fallback SHALL name such an end the same way, without an event
 - **AND** with no transcript line, the source SHALL be the task whose `task_notification` stdout printed before the wake, if any; otherwise the banner SHALL carry no label
 - **AND** the source SHALL NOT be the description of the Monitor armed last: that guess named the wrong source on 7 wakes of 9 in the replay of 33966f4e (`server/providers/claude-code-monitor-visibility.test.ts`)
 - **AND** a source SHALL name one wake only: a report or a notification already used is not read again for the next wake
@@ -1163,6 +1164,7 @@ The answer produced by a woken turn SHALL be written to the conversation as a ro
 - **GIVEN** a `woken` block with `source: "monitor"`, a label and an event text
 - **WHEN** the message renders
 - **THEN** the banner SHALL say it is that Monitor's event (`woken.monitorEvent`), with the Monitor tool's icon, and SHALL show the event's text (`data-testid="woken-event"`)
+- **AND** a `source: "monitor"` block with an `end` SHALL say that Monitor ended and how (`woken.monitorEnded`), with its last event's text
 - **AND** a `source: "task"` block SHALL read as a background task's report (`woken.taskReport`), and a row with several `woken` blocks SHALL show one banner each
 - **AND** the banner SHALL show live, in every window, without a reload: `stream:start` of a woken turn carries its `woken` blocks as `banners` and the placeholder opens with them, and a history answer read before the turn ended here SHALL NOT drop them from the bubble the end closed (`withServerBanners`, `client/src/hooks/reconcileMessages.ts`). Measured 01/10 on `chat-monitor-visible.spec.ts`: without both, 3 runs of 5 had the row right in the database and no banner on screen until a reload
 
@@ -4925,13 +4927,16 @@ come `local_bash`), senza tempo, e compariva solo al poll successivo (15 s).
 
 #### Scenario: la riga lo mostra durante il turno che l'ha armato, dopo, e lo toglie alla fine
 - **GIVEN** una chat su una CLI finta (`helpers/fake-claude-monitor.ts`) un cui
-  turno arma il Monitor «MONWATCH-JOB» e resta aperto
+  turno resta aperto e arma il Monitor «MONWATCH-JOB» subito dopo un poll di
+  stato, a refresh di `stream:start` già passato: il poll dopo è a ~15 s, quindi
+  solo il push `background:changed` può nominarlo in tempo
 - **THEN** entro 5 s, con lo Stop del turno ancora visibile, la riga ha un
   `background-work-task` con `data-type="monitor"`, l'icona «Monitor» e un tempo
 - **WHEN** il turno finisce
 - **THEN** la riga lo nomina ancora
-- **WHEN** il Monitor finisce
-- **THEN** la riga sparisce
+- **WHEN** il Monitor finisce (`stream ended`, con l'ultimo evento nella notifica)
+- **THEN** la risposta ha un banner `source: "monitor"` che dice che quel Monitor
+  è finito e come, con l'ultimo evento, e la riga sparisce
 
 ### Requirement: CHAT-NTOOL-04 — Il `bash` nativo manda la coda del suo output mentre gira
 
