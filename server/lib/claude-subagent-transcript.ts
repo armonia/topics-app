@@ -80,23 +80,42 @@ function readEarlyLines(file: string, maxBytes = 131072): string[] {
   }
 }
 
+/** One JSONL record of a claude transcript, as far as this module reads it. */
+interface TranscriptEvent {
+  type?: unknown;
+  isMeta?: unknown;
+  isApiErrorMessage?: unknown;
+  cwd?: unknown;
+  message?: { content?: unknown; stop_reason?: unknown };
+}
+
+/** The record on this line, or null when the line is not a JSON object. */
+function parseEvent(line: string): TranscriptEvent | null {
+  try {
+    const ev: unknown = JSON.parse(line);
+    return ev && typeof ev === 'object' ? (ev as TranscriptEvent) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The text blocks of a message's content, joined; a string content as is. */
+function contentText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((c): c is { type: 'text'; text: string } => !!c && typeof c === 'object' && c.type === 'text' && typeof c.text === 'string')
+    .map((c) => c.text)
+    .join('');
+}
+
 /** cwd + text of the FIRST `type:"user"` record in a claude transcript, or null.
  *  Handles both string content and the `[{type:'text',text}]` array shape. */
 function firstUserRecord(lines: string[]): { cwd: string | null; text: string } | null {
   for (const line of lines) {
-    let ev: any;
-    try { ev = JSON.parse(line); } catch { continue; }
+    const ev = parseEvent(line);
     if (!ev || ev.type !== 'user') continue;
-    const content = ev?.message?.content;
-    let text = '';
-    if (typeof content === 'string') text = content;
-    else if (Array.isArray(content)) {
-      text = content
-        .filter((c: any) => c && c.type === 'text' && typeof c.text === 'string')
-        .map((c: any) => c.text)
-        .join('');
-    }
-    return { cwd: typeof ev.cwd === 'string' ? ev.cwd : null, text };
+    return { cwd: typeof ev.cwd === 'string' ? ev.cwd : null, text: contentText(ev.message?.content) };
   }
   return null;
 }
@@ -164,18 +183,11 @@ export function discoverClaudeSubAgentSessionId(opts: {
 
 /** A `type:"user"` record that is a PROMPT: typed text, not a tool result, not a
  *  meta line the CLI injects, not the marker of an Escape. */
-function promptText(ev: any): string | null {
+function promptText(ev: TranscriptEvent | null): string | null {
   if (!ev || ev.type !== 'user' || ev.isMeta) return null;
-  const content = ev?.message?.content;
-  let text = '';
-  if (typeof content === 'string') text = content;
-  else if (Array.isArray(content)) {
-    if (content.some((c: any) => c?.type === 'tool_result')) return null;
-    text = content
-      .filter((c: any) => c && c.type === 'text' && typeof c.text === 'string')
-      .map((c: any) => c.text)
-      .join('');
-  }
+  const content = ev.message?.content;
+  if (Array.isArray(content) && content.some((c) => !!c && typeof c === 'object' && c.type === 'tool_result')) return null;
+  const text = contentText(content);
   if (!text.trim() || text.startsWith('[Request interrupted by user')) return null;
   return text;
 }
@@ -193,9 +205,7 @@ function promptText(ev: any): string | null {
 export function transcriptHasPrompt(lines: string[], promptSnippet: string): boolean {
   const snippet = normalizeForMatch(promptSnippet);
   for (const line of lines) {
-    let ev: any;
-    try { ev = JSON.parse(line); } catch { continue; }
-    const text = promptText(ev);
+    const text = promptText(parseEvent(line));
     if (text !== null && (!snippet || normalizeForMatch(text).includes(snippet))) return true;
   }
   return false;
@@ -269,9 +279,9 @@ export function classifySubAgentTranscript(
   let turnText = '';
   let errorText = '';
   for (const line of lines) {
-    let ev: any;
-    try { ev = JSON.parse(line); } catch { continue; }
-    if (ev?.type === 'user') {
+    const ev = parseEvent(line);
+    if (!ev) continue;
+    if (ev.type === 'user') {
       if (promptText(ev) !== null) {
         prompted = true;
         state = 'waiting';
@@ -282,15 +292,15 @@ export function classifySubAgentTranscript(
       }
       continue;
     }
-    if (ev?.type !== 'assistant') continue;
-    const text = assistantText(ev).trim();
+    if (ev.type !== 'assistant') continue;
+    const text = contentText(ev.message?.content).trim();
     if (ev.isApiErrorMessage) {
       state = 'api-error';
       errorText = text;
       continue;
     }
     if (text) turnText = text;
-    state = ev?.message?.stop_reason === 'end_turn' ? 'done' : 'working';
+    state = ev.message?.stop_reason === 'end_turn' ? 'done' : 'working';
   }
 
   if (!prompted) return { status: 'undelivered', partial: false, text: '', reason: { code: 'no-prompt' } };
@@ -301,12 +311,3 @@ export function classifySubAgentTranscript(
   return cut(turnText);
 }
 
-function assistantText(ev: any): string {
-  const content = ev?.message?.content;
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((c: any) => c && c.type === 'text' && typeof c.text === 'string')
-    .map((c: any) => c.text)
-    .join('');
-}
