@@ -31,6 +31,7 @@ import {
 import { coalesceToolRuns, itemHolds, type CoalescedMessage } from './coalesceToolRun';
 import { SkeletonChatMessages } from '../Shared/Skeleton';
 import { listPaintedAndWhole } from './listPaintedAndWhole';
+import { useListStateCache } from './listStateCache';
 import { MessageEntrance } from './messageEntrance';
 import { decideHistoryCompletion } from './historyCompletionDecision';
 import { isHistoryIncomplete, requestHistoryCompletion, useHistoryCompleteness } from '../../state/historyCompleteness';
@@ -639,6 +640,9 @@ export function MessageList({
   // congelamento dell'indice esiste per chiudere (la lista che si strappava al
   // fondo da sola).
   const initialTopMostItemIndex = initialIndex;
+  // Mounted from what it measured the last time, when that still describes it
+  // (`listStateCache`): 6-8 skeleton frames instead of 14 after a group switch.
+  const restoreFrom = useListStateCache(topic.id, filteredMessages.length, virtuosoRef, lastDistanceFromBottomRef);
 
 
   // ── I due soli verbi dello scroll ─────────────────────────────────────────
@@ -2001,7 +2005,8 @@ export function MessageList({
           // La lista si rimonta a ogni cambio di topic (`key={topic.id}`),
           // quindi il valore congelato è sempre quello giusto per la chat che
           // stai guardando.
-          initialTopMostItemIndex={initialTopMostItemIndex}
+          initialTopMostItemIndex={restoreFrom ? undefined : initialTopMostItemIndex}
+          restoreStateFrom={restoreFrom}
           // Callback form so a pending palette jump can veto the auto-follow:
           // the load that the jump rides in replaces 0 → N messages, and with
           // zero items Virtuoso considers itself trivially "at bottom" — the

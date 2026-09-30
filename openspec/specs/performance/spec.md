@@ -1030,6 +1030,12 @@ skeleton and the content; and SHALL NOT move the content once it is there.
 - **WHEN** the user switches group and back
 - **THEN** each chat shows its skeleton or its content on the first frame, then its content with no empty frame in between and no jump
 
+#### Scenario: back to a chat rebuilt by a group switch
+- **GIVEN** a chat seen at rest at the bottom, whose pane a group switch (or the residency cap) unmounted
+- **WHEN** the user comes back to it
+- **THEN** its list mounts from the sizes and offset it measured before, kept as data (a few hundred bytes), not as a mounted pane
+- **AND** the skeleton lasts at most 10 frames (14 without them, 6-8 with them, measured 2026-10-01)
+
 #### Scenario: back to a terminal the residency cap evicted
 - **GIVEN** a terminal with a screen of output, pushed out of the page by the residency cap
 - **WHEN** the user comes back to its tab

@@ -51,6 +51,14 @@ const TAIL_FRAMES = 12;
  */
 const RESIDENT_COMMIT_CAP = 14;
 
+/**
+ * Skeleton frames of a chat mounted again after a group switch, from the sizes
+ * it measured before (listStateCache): 6-8 measured, 14 without them. A frame
+ * count, not a time: the steps are Virtuoso's viewport measure, its render, and
+ * the curtain's two still frames, which load does not add to.
+ */
+const REMOUNT_SKELETON_CAP = 10;
+
 const tab = (paneId: string) => `[data-testid="panel-tab-bar"] [data-pane-id="${paneId}"]`;
 
 interface FrameReport {
@@ -437,6 +445,11 @@ test.describe("a tab switch is instant", () => {
       expect(r.jumpPx, `${label}: no jump once the content is there. ${detail}`).toBe(0);
       expect(r.entrances, `${label}: no history row replays the entrance. ${detail}`).toBe(0);
     }
+    // The first group's chat was seen at rest at the bottom before the switch:
+    // it mounts again from the sizes it measured (listStateCache). Measured 14
+    // skeleton frames without them (both runs), 6-8 with them.
+    const backSkeleton = back.report.seq.match(/^S*/)![0].length;
+    expect(backSkeleton, `back to the first group: the chat mounts from what it measured. seq=${back.report.seq}`).toBeLessThanOrEqual(REMOUNT_SKELETON_CAP);
   });
 
   test("a terminal evicted by the residency cap shows its last screen or its skeleton from the first frame, never an empty pane", async ({ page, request }) => {
