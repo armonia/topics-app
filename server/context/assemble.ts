@@ -1135,7 +1135,11 @@ function buildWarnings(
 }
 
 function buildTopicDirectory(ctx: AppContext, currentTopicId: string): string {
-  const data = ctx.loadTopics();
+  // The live half only, on its index: every topic built and then skipped was
+  // 1,848 archived rows of 1,870 per turn on 2026-09-30 (2.35-2.44 ms against
+  // 0.05-0.06). The `archived` check below stays for a store that ignores the
+  // filter. Gate: assemble.test.ts "topic switch directory".
+  const data = ctx.loadTopics({ archived: false });
   const lines: string[] = [];
   for (const t of Object.values(data.topics)) {
     if (t.id === currentTopicId || t.archived) continue;
