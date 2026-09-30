@@ -21,7 +21,7 @@ import { useEffect, useState } from 'react';
 import { useT } from '../hooks/useT';
 import { RefreshCw } from 'lucide-react';
 import { BUNDLE_STALE_EVENT, reloadForNewBundle } from '@/lib/devBundleReload';
-import { CHUNK_FAILURE_REASON } from '@/lib/chunkReloadGuard';
+import { CHUNK_FAILURE_REASON, CHUNK_RECOVERED_EVENT } from '@/lib/chunkReloadGuard';
 import { SidebarUpdateBanner } from './Shared/SidebarUpdateBanner';
 
 /**
@@ -49,6 +49,14 @@ export function DevBundleToast({ docked = true }: { docked?: boolean }) {
     window.addEventListener(BUNDLE_STALE_EVENT, onStale);
     return () => window.removeEventListener(BUNDLE_STALE_EVENT, onStale);
   }, []);
+
+  // The failed chunk loaded on a retry: a prompt that says a part of the app
+  // did not load is now false. A prompt for a newer build stays.
+  useEffect(() => {
+    const onRecovered = () => { if (chunkFailed) setStale(false); };
+    window.addEventListener(CHUNK_RECOVERED_EVENT, onRecovered);
+    return () => window.removeEventListener(CHUNK_RECOVERED_EVENT, onRecovered);
+  }, [chunkFailed]);
 
   if (!stale || dismissed) return null;
 

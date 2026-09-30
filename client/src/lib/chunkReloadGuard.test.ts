@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { BUNDLE_STALE_EVENT } from './devBundleReload';
-import { CHUNK_FAILURE_REASON, findChunkHref, initChunkReloadGuard, reimportChunk, reportLoadFailure } from './chunkReloadGuard';
+import { CHUNK_FAILURE_REASON, CHUNK_RECOVERED_EVENT, findChunkHref, initChunkReloadGuard, reimportChunk, reportLoadFailure } from './chunkReloadGuard';
 import { warm } from './lazyWarm';
 
 // The message WebKit gives a dynamic import that 404s (measured in Playwright
@@ -125,7 +125,10 @@ describe('reimportChunk', () => {
   });
 
   test('a chunk with no known URL rethrows the original failure', async () => {
+    let recovered = 0;
+    (g.window as EventTarget).addEventListener(CHUNK_RECOVERED_EVENT, () => { recovered += 1; });
     await expect(reimportChunk('Menu', WEBKIT_404)).rejects.toBe(WEBKIT_404);
+    expect(recovered).toBe(0);
   });
 
   test('a failed chunk is imported again under a fresh URL', async () => {
@@ -134,7 +137,11 @@ describe('reimportChunk', () => {
     writeFileSync(file, 'export const value = 42;\n');
     const href = pathToFileURL(file).href;
     g.document = docWith([href]);
+    let recovered = 0;
+    (g.window as EventTarget).addEventListener(CHUNK_RECOVERED_EVENT, () => { recovered += 1; });
     const module = await reimportChunk<{ value: number }>('Menu', WEBKIT_404);
     expect(module.value).toBe(42);
+    // The prompt raised for the failure can go: that part of the app is back.
+    expect(recovered).toBe(1);
   });
 });

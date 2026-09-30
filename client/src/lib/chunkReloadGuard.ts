@@ -36,9 +36,18 @@ export function isChunkLoadError(input: unknown): boolean {
 /** Why the reload prompt is up: a chunk of THIS window failed to load. */
 export const CHUNK_FAILURE_REASON = 'chunk';
 
-function signalChunkFailure(): void {
+/** Raise the reload prompt for a chunk of this window that failed to load. */
+export function signalChunkFailure(): void {
   window.dispatchEvent(new CustomEvent(BUNDLE_STALE_EVENT, { detail: { reason: CHUNK_FAILURE_REASON } }));
 }
+
+/**
+ * A chunk that had failed loaded under its fresh URL (`reimportChunk`): the
+ * part of the app it carries is back, so a prompt raised for a failed chunk no
+ * longer says anything true. Another chunk still missing raises it again on
+ * its own next use.
+ */
+export const CHUNK_RECOVERED_EVENT = 'topics:chunk-recovered';
 
 /**
  * The catch of every lazy load that is not awaited by a component: `warm`, the
@@ -91,7 +100,9 @@ export async function reimportChunk<M>(chunkName: string, cause: unknown): Promi
   if (!href) throw cause;
   const url = new URL(href, window.location.href);
   url.searchParams.set('retry', String(Date.now()));
-  return (await import(/* @vite-ignore */ url.href)) as M;
+  const module = (await import(/* @vite-ignore */ url.href)) as M;
+  window.dispatchEvent(new CustomEvent(CHUNK_RECOVERED_EVENT));
+  return module;
 }
 
 export function initChunkReloadGuard(): () => void {
