@@ -17,13 +17,12 @@
  *    immediate (`animateEl` returns null).
  *  - Holds the carousel snap from the moment the drawer's presence changes the
  *    row's width. With the snap held the width change keeps `scrollLeft`, so
- *    nothing moves. The snap comes back at the next SCROLL gesture on the row
- *    (wheel or touch), where a re-snap is the carousel doing its job under a
- *    hand that is already scrolling; a click never re-enables it, because a
- *    re-snap under a pointer that is about to press a card would move the card.
+ *    nothing moves. The hold, and when it is given back, belong to the row
+ *    (`useRowSnapHold`): a card in hand holds the same snap.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { animateEl, EASE, MOTION } from '../../lib/motion';
+import type { RowSnapHold } from './useRowSnapHold';
 
 const DRAWER_SELECTOR = '[data-testid="task-detail-drawer"]';
 const ENTER_OFFSET_PX = 16;
@@ -33,26 +32,24 @@ export interface DrawerPresence<T> {
   shown: T | null;
   /** True while `shown` is on its way out. */
   leaving: boolean;
-  /** True while the columns row must not snap (see the header). */
-  snapHeld: boolean;
 }
 
 export function useDrawerPresence<T extends { id: string }>(
   selected: T | null,
   hostRef: RefObject<HTMLElement | null>,
-  rowRef: RefObject<HTMLElement | null>,
+  snap: RowSnapHold,
 ): DrawerPresence<T> {
   const [drawer, setDrawer] = useState<{ task: T; leaving: boolean } | null>(
     selected ? { task: selected, leaving: false } : null,
   );
-  const [snapHeld, setSnapHeld] = useState(false);
+  const { held: snapHeld, hold: holdSnap } = snap;
 
   // Derived during render (React's "state from the previous render" pattern),
   // so the leaving drawer and the held snap land in the SAME commit as the
   // selection change: an effect would paint one frame of the old layout first.
   if (selected) {
     if (!drawer || drawer.leaving || drawer.task !== selected) {
-      if (!drawer && !snapHeld) setSnapHeld(true);
+      if (!drawer && !snapHeld) holdSnap();
       setDrawer({ task: selected, leaving: false });
     }
   } else if (drawer && !drawer.leaving) {
@@ -67,9 +64,9 @@ export function useDrawerPresence<T extends { id: string }>(
 
   const finishExit = useCallback((gen: number) => {
     if (generation.current !== gen) return;
-    setSnapHeld(true);
+    holdSnap();
     setDrawer((d) => (d && d.leaving ? null : d));
-  }, []);
+  }, [holdSnap]);
 
   useLayoutEffect(() => {
     const gen = ++generation.current;
@@ -106,18 +103,5 @@ export function useDrawerPresence<T extends { id: string }>(
     wasOpen.current = true;
   }, [shownId, leaving, hostRef, finishExit]);
 
-  // The snap comes back with the next scroll gesture on the row.
-  useEffect(() => {
-    const row = rowRef.current;
-    if (!snapHeld || !row) return;
-    const release = () => setSnapHeld(false);
-    row.addEventListener('wheel', release, { passive: true, once: true });
-    row.addEventListener('touchstart', release, { passive: true, once: true });
-    return () => {
-      row.removeEventListener('wheel', release);
-      row.removeEventListener('touchstart', release);
-    };
-  }, [snapHeld, rowRef]);
-
-  return { shown: drawer?.task ?? null, leaving, snapHeld };
+  return { shown: drawer?.task ?? null, leaving };
 }

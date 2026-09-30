@@ -347,4 +347,67 @@ test.describe("board motion contract", () => {
     const moving = drag.animations.filter((a) => a.props.includes("transform") && a.kind === "CSSTransition" && a.duration > 0);
     expect(moving, "reduced motion: the sortable reflow still transitions").toHaveLength(0);
   });
+
+  test("a card carried to the row's edge scrolls it without snapping, and lands where the pointer is", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "PANELOAD-03" });
+    // BOARD-18 went red on Chromium with the card dropped on Done while the
+    // hand was on In progress: dnd-kit auto-scrolls the row near its edge, a
+    // few pixels every 5 ms, and the carousel's mandatory snap turned each
+    // nudge into a jump to the next column (measured 0, 56, 768, 936 in three
+    // frames once the scroll was instant). Reduced motion is the instant case.
+    await openBoard(page, "reduce");
+    const row = page.locator(W.colTodo).locator("xpath=..");
+    await row.evaluate((el) => { el.scrollLeft = 0; });
+    await nextFrames(page, 3);
+    const card = page.locator(`[data-testid="kanban-column-body-todo"] [data-task-card]`).first();
+    const cardId = (await card.getAttribute("data-task-card"))!;
+    const c = (await card.boundingBox())!;
+    const r = (await row.boundingBox())!;
+    // 40 px inside the right edge: deep in dnd-kit's auto-scroll band.
+    const edge = { x: r.x + r.width - 40, y: c.y + 12 };
+
+    await page.mouse.move(c.x + c.width / 2, c.y + 12);
+    await page.mouse.down();
+    await page.mouse.move(c.x + c.width / 2 + 8, c.y + 20, { steps: 4 });
+    await page.mouse.move(edge.x, edge.y, { steps: 12 });
+    // Sample the row once per frame while the pointer rests in the band.
+    const held = await row.evaluate((el) => new Promise<{ snap: string; lefts: number[] }>((done) => {
+      const lefts: number[] = [];
+      const snap = getComputedStyle(el).scrollSnapType;
+      const step = () => {
+        lefts.push(el.scrollLeft);
+        if (lefts.length >= 40) done({ snap, lefts });
+        else requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    }));
+    // Carried on until Done, the column that was off screen when the drag
+    // began, has come into the row: the card goes where the pointer is.
+    await row.evaluate((el) => new Promise<void>((done) => {
+      const target = el.querySelector<HTMLElement>('[data-testid="kanban-column-done"]')!;
+      const step = () => {
+        const t = target.getBoundingClientRect();
+        if (t.left + t.width / 2 < el.getBoundingClientRect().right - 16) done();
+        else requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    }));
+    const doneBox = (await page.getByTestId("kanban-column-body-done").boundingBox())!;
+    await page.mouse.move(doneBox.x + doneBox.width / 2, edge.y, { steps: 4 });
+    await nextFrames(page, 3);
+    await page.mouse.up();
+
+    // The snap itself is the contract, not a pixels-per-frame bound: headless
+    // frames arrive unevenly (two samples 1 ms apart, then 70 ms of scroll in
+    // one), so a rate read from rAF flaps, while a row that does not snap
+    // cannot jump to a snap point.
+    console.log("[PANELOAD-03] edge auto-scroll", JSON.stringify({ snap: held.snap, lefts: held.lefts }));
+    expect(held.snap, "the row still snaps while a card is in hand").toMatch(/^none/);
+    expect(held.lefts.at(-1)!, "the row never auto-scrolled towards the edge the card was carried to").toBeGreaterThan(held.lefts[0]);
+
+    await expect.poll(async () => {
+      const res = await page.request.get(`${BASE}/api/boards/${BOARD_ID}/tasks/${cardId}`);
+      return ((await res.json()) as { task: { status: string } }).task.status;
+    }, { timeout: 10_000 }).toBe("done");
+  });
 });

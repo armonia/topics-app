@@ -39,6 +39,7 @@ import { applyPendingWrites, groupByStatus, manualStatusTarget, planDrop, type D
 import { COLUMN_FLASH_MS, landedInColumn, statusSnapshot } from '../../lib/columnFlash';
 import { useBoardMotion } from './useBoardMotion';
 import { useDrawerPresence } from './useDrawerPresence';
+import { useRowSnapHold } from './useRowSnapHold';
 import { BoardSkeleton } from './BoardSkeleton';
 import { DropNotice } from './DropNotice';
 import { BOARD_LAYOUT_STORAGE_KEY, COLUMNS_ROW_GRID, COLUMNS_ROW_LIST } from './boardGeometry';
@@ -753,6 +754,10 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // will land in; the others see nothing.
   const [draft, setDraft] = useState<DraftPreview | null>(null);
   const columnsScrollRef = useRef<HTMLDivElement>(null);
+  // The carousel snap, held while the drawer resizes the row or a card is in
+  // hand (see `useRowSnapHold`).
+  const columnsSnap = useRowSnapHold(columnsScrollRef);
+  const holdColumnsSnap = columnsSnap.hold;
   // Mobile-only affordance: the toolbar strip below scrolls horizontally with
   // a hidden scrollbar, so without a visible cue the actions past the right
   // edge are only discoverable by swiping blind. Tracks live scroll position
@@ -1530,12 +1535,16 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
     // è in mano nessuna rilettura (di questa pane o dello store condiviso) può
     // rifare le colonne sotto il puntatore.
     beginDrag();
+    // No snap while the card is in hand: dnd-kit's auto-scroll near the row's
+    // edge would otherwise jump whole columns under a pointer that has not
+    // moved, and the drop would land on a column nobody aimed at.
+    holdColumnsSnap();
     setActiveId(String(e.active.id));
     // A new gesture retires the previous one's explanation, whatever this drag
     // turns out to do (including being cancelled, or ending on a card that is
     // no longer in the list).
     setDropNotice(null);
-  }, [beginDrag]);
+  }, [beginDrag, holdColumnsSnap]);
   // Cosa produce un drop sta in `lib/boardOrder` — puro e testato (bun:test):
   // qui resta solo il raccordo fra dnd-kit e la PATCH.
   const onDragEnd = useCallback((e: DragEndEvent) => {
@@ -1642,7 +1651,7 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
   // change it causes (see `useDrawerPresence`). `drawerTask` is `selected`, or
   // the task still fading out after a close.
   const drawerHostRef = useRef<HTMLDivElement>(null);
-  const { shown: drawerTask, snapHeld } = useDrawerPresence(selected, drawerHostRef, columnsScrollRef);
+  const { shown: drawerTask } = useDrawerPresence(selected, drawerHostRef, columnsSnap);
 
   // The drawer judges a card (its routing switch, the model the dispatcher
   // runs on Auto) with its own board's defaults. In the all-boards view that
@@ -2010,13 +2019,17 @@ export function KanbanBoardPane({ projectPath, global = false, onMessage, loadHi
                 and an INSTANT mandatory snap moves a whole column under a
                 pointer that has not moved. Measured on 2026-09-08: a card
                 dropped on In Progress landed in Review, three times out of
-                three (BOARD-18), from the moment `scroll-smooth` left. */}
+                three (BOARD-18), from the moment `scroll-smooth` left. The
+                smoothing only slowed the jump down, and under reduced motion
+                the scroll is instant again (Done, this time): the trap is now
+                closed at its source, the snap is HELD while a card is in hand
+                (`useRowSnapHold`, from `onDragStart`). */}
             {/* List: one column scrolling vertically (sections capped at a
                 48rem reading width, centred), no
                 snap-carousel (there's nothing to peek at off to the side). */}
             <div ref={columnsScrollRef} className={boardLayout === 'list'
               ? COLUMNS_ROW_LIST
-              : `${COLUMNS_ROW_GRID} ${snapHeld ? '' : 'snap-x snap-mandatory'} sm:scroll-smooth`}>
+              : `${COLUMNS_ROW_GRID} ${columnsSnap.held ? '' : 'snap-x snap-mandatory'} sm:scroll-smooth`}>
               {TASK_STATUSES.map((status) => (
                 <Column
                   key={status}
