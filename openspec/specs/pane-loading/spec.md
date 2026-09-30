@@ -49,6 +49,15 @@ A filter that changes the Review column's width SHALL NOT animate a layout
 property: the columns it shifts SHALL glide with a transform. The sortable
 reflow of the cards under a drag SHALL run on `MOTION.base` with the standard
 curve, and SHALL NOT run under reduced motion.
+While a card is in hand the columns row SHALL NOT snap: the auto-scroll near its
+edge SHALL move the row by pixels, never a column at a time, and the drop SHALL
+land on the column under the pointer.
+
+#### Scenario: a card held over In progress at the row's edge
+- **GIVEN** a Todo card in hand, resting over In progress inside the auto-scroll band at the row's right edge, under reduced motion and with the row's scroll instant
+- **WHEN** it is held there for two frames and dropped
+- **THEN** the drop SHALL land on In progress, the column under the pointer: the redirect notice appears and the card stays in Todo, not on a column the row scrolled in
+- **AND** the row SHALL carry no scroll snap while the card is in hand
 
 #### Scenario: a redirected drop, then a filter that empties Review
 - **GIVEN** a card dragged onto In progress and dropped

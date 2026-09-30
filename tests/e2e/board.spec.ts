@@ -994,11 +994,17 @@ async function dragCard(page: Page, from: string, to: string) {
   // condition is "`scrollLeft` stops changing"; a `waitForTimeout` would be the
   // sleep `check:sleeps` forbids, and rightly (on a loaded machine it would not
   // be enough, on an idle one it would be wasted).
+  //
+  // The row is found by its test id, not by `.snap-x`: a card in hand holds the
+  // snap until the next wheel/touch on the row (`useRowSnapHold`), so after the
+  // first drag of a page the class is gone, the lookup found nothing and this
+  // wait passed at once for every later drag.
   const scrollSettled = async () => {
     await page.waitForFunction(
       () => {
-        const row = document.querySelector<HTMLElement>(".snap-x.overflow-x-auto");
-        if (!row) return true;
+        const row = document.querySelector<HTMLElement>('[data-testid="kanban-columns-row"]');
+        // No row is a broken lookup, not a row at rest.
+        if (!row) throw new Error("dragCard: the columns row is not in the page");
         const w = window as unknown as { __lastScrollLeft?: number; __stillFor?: number };
         const cur = row.scrollLeft;
         if (w.__lastScrollLeft === cur) {

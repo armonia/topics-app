@@ -347,4 +347,68 @@ test.describe("board motion contract", () => {
     const moving = drag.animations.filter((a) => a.props.includes("transform") && a.kind === "CSSTransition" && a.duration > 0);
     expect(moving, "reduced motion: the sortable reflow still transitions").toHaveLength(0);
   });
+
+  test("a card held over In progress at the row's edge lands on In progress, not on a column the snap scrolled in", async ({ page }) => {
+    test.info().annotations.push({ type: "spec", description: "PANELOAD-03" });
+    // BOARD-18 went red on Chromium with the card dropped on Done while the
+    // hand was on In progress: dnd-kit auto-scrolls the row near its edge, a
+    // few pixels every 5 ms, and the carousel's mandatory snap turned each
+    // nudge into a jump to the next column (measured 0, 56, 768, 936 in three
+    // frames once the scroll was instant).
+    //
+    // The row's scroll is made instant here, under the reduced motion the
+    // suite runs in. Its `sm:scroll-smooth` only slows a snap jump into an
+    // animation, and a reduced-motion rule that reaches the row makes it
+    // instant again: the snap hold has to keep the drop under the pointer on
+    // its own. With the smoothing left on, the snap drags a nudged row back
+    // and the drop lands on In progress with or without the hold, so the test
+    // could not tell them apart.
+    //
+    // At 1280 the right part of In progress sits inside the auto-scroll band
+    // (the row's last 20%, dnd-kit's default threshold, measured from the
+    // pointer). The hand rests there for two frames and lets go. Measured on
+    // WebKit: without the hold the row is at 760 after those two frames and
+    // the card lands on Done (3 out of 3); with it the row has moved 6 to 22 px
+    // (holding 2 and 4 frames) and the drop lands on In progress, which
+    // redirects to Todo and says so (5 out of 5).
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openBoard(page, "reduce");
+    const row = page.getByTestId("kanban-columns-row");
+    await row.evaluate((el) => { el.style.scrollBehavior = "auto"; el.scrollLeft = 0; });
+    await nextFrames(page, 3);
+    const card = page.locator(`[data-testid="kanban-column-body-todo"] [data-task-card]`).first();
+    const cardId = (await card.getAttribute("data-task-card"))!;
+    const c = (await card.boundingBox())!;
+    const r = (await row.boundingBox())!;
+    const target = (await page.getByTestId("kanban-column-body-in_progress").boundingBox())!;
+    const band = { from: Math.max(r.x + r.width * 0.8, target.x), to: Math.min(r.x + r.width, target.x + target.width) };
+    // A little past the middle of the stretch of In progress inside the band:
+    // deep enough that every auto-scroll tick moves the row, and ~35 px from
+    // Review, room for a row that moves by pixels during the hold. If the
+    // layout ever takes In progress out of the band, the test says so instead
+    // of measuring a gesture that never auto-scrolls.
+    expect(band.to - band.from, "In progress is not under the row's auto-scroll band at this viewport").toBeGreaterThan(48);
+    const aim = { x: band.from + (band.to - band.from) * 0.55, y: c.y + 12 };
+    console.log("[PANELOAD-03] edge aim", JSON.stringify({ aim, row: [r.x, r.x + r.width], inProgress: [target.x, target.x + target.width], band }));
+
+    await page.mouse.move(c.x + c.width / 2, c.y + 12);
+    await page.mouse.down();
+    await page.mouse.move(c.x + c.width / 2 + 8, c.y + 20, { steps: 4 });
+    await page.mouse.move(aim.x, aim.y, { steps: 12 });
+    await nextFrames(page, 2);
+    const held = await row.evaluate((el) => ({ snap: getComputedStyle(el).scrollSnapType, left: el.scrollLeft }));
+    await page.mouse.up();
+    console.log("[PANELOAD-03] edge hold", JSON.stringify(held));
+
+    // Landed on In progress: the redirect notice is up and the card is still
+    // in Todo. A drop on Done says nothing, so the notice tells the two apart
+    // before any PATCH could land.
+    await expect(page.getByTestId("board-drop-notice"), "the drop did not land on In progress, the column under the pointer").toBeVisible({ timeout: 5_000 });
+    await expect.poll(async () => {
+      const res = await page.request.get(`${BASE}/api/boards/${BOARD_ID}/tasks/${cardId}`);
+      return ((await res.json()) as { task: { status: string } }).task.status;
+    }, { timeout: 10_000 }).toBe("todo");
+    // The mechanism, read while the card was in hand.
+    expect(held.snap, "the row still snaps while a card is in hand").toMatch(/^none/);
+  });
 });
