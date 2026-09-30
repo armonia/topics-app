@@ -13,20 +13,29 @@ import { decodeCol } from "../../shared/message-blob";
 import { flushTurnBody } from "../lib/turn-body-flush";
 
 /**
- * Keep the TAIL of `msgs` that fits in `budget` serialized bytes, never fewer
- * than one message. Only the rows that survive are serialized twice (once here
- * to weigh them, once by the JSON answer) plus the first one that does not fit.
+ * Keep the TAIL of `rows` that fits in `budget` serialized bytes, never fewer
+ * than one row, turning each row into its wire form with `toWire` on the way.
+ *
+ * Walking from the tail and stopping at the first row that breaks the budget
+ * is what makes `toWire` pay only for what ships: it hydrates a row's `blocks`
+ * (zstd + JSON.parse of every tool output inside) before stripping them, and
+ * forty rows hydrated up front to keep eight was 1.74 MB decompressed for a
+ * 230 KB page on topic:0299ac2d (2026-09-30). Now the rows before the one that
+ * broke the budget are never read. Gate: history-decode-cost.test.ts.
  */
-function capByBytes<T>(msgs: readonly T[], budget: number): readonly T[] {
+function tailWithinBudget<T, W>(rows: readonly T[], budget: number, toWire: (row: T) => W): W[] {
+  const kept: W[] = [];
   let sum = 0;
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    sum += JSON.stringify(msgs[i]).length;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const wire = toWire(rows[i]!);
+    sum += JSON.stringify(wire).length;
     if (sum > budget) {
-      const kept = msgs.length - 1 - i;
-      return kept > 0 ? msgs.slice(i + 1) : msgs.slice(i);
+      if (kept.length === 0) kept.push(wire);
+      break;
     }
+    kept.push(wire);
   }
-  return msgs;
+  return kept.reverse();
 }
 
 export interface HistoryDeps {
@@ -107,11 +116,15 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
     // even requested - and `hydrateMessageBodies` fetches them for the rows
     // that actually go out, after the slice.
     //
-    // A request for the WHOLE thread (`limit:0`, what the chat pane sends)
-    // keeps the single fat read: it needs every row hydrated anyway, and a
-    // second pass by id would only add work.
-    // Gate: tests/integration/history-limit-cost.test.ts.
-    const cappedRead = !wantsAll;
+    // A request for the WHOLE thread (`limit:0` without `before`) keeps the
+    // single fat read: it needs every row hydrated anyway, and a second pass by
+    // id would only add work. With `before` it does not: the rows from the
+    // cursor on - the tail the first page already shipped - are dropped, and a
+    // fat read decompressed them for nothing (1.91 MB of 9.10 MB on
+    // topic:6b9605e5, 2026-09-30).
+    // Gates: tests/integration/history-limit-cost.test.ts,
+    // tests/integration/history-decode-cost.test.ts.
+    const cappedRead = !wantsAll || before !== null;
     // The row of a turn in flight is WRITTEN before it is read. Its `blocks`,
     // the timeline the bubble draws, go through a throttle that can be 15 s
     // behind the stream, while `content` is overlaid from memory below: a chat
@@ -202,7 +215,6 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
       const pool = beforeAt >= 0 ? completeMsgs.slice(0, beforeAt) : completeMsgs;
       const sliced = offset > 0 ? pool.slice(0, Math.max(0, pool.length - offset)) : pool;
       const capped = wantsAll ? sliced : sliced.slice(-limit);
-      const hydrated = cappedRead ? hydrateMessageBodies(capped) : capped;
       // «This is my 50th prompt»: numbered on the WHOLE thread, since the page
       // may be its tail. The lean read left `blocks` in the table, so the rows
       // the machine wrote are asked of SQLite by their marks (a few bytes of
@@ -211,45 +223,47 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
         `SELECT id FROM messages WHERE session_key = ? AND role = 'user' AND ${MACHINE_ROW_SQL}`,
       ).all(sessionKey) as Array<{ id: string }>).map((r) => r.id));
       const numbers = promptNumbers(completeMsgs, machineIds);
-      const result = hydrated.map((m) => {
-        const n = numbers.get(m.id);
-        return n ? { ...m, promptNumber: n } : m;
-      });
       const currentStream = isStreaming(sessionKey);
+      // In-memory stream content, overlaid onto the last message of the page
+      // when that is the assistant row still streaming.
+      const streamContent = currentStream ? getStreamContent(sessionKey) : null;
+      const pageLast = capped[capped.length - 1];
 
-      // Overlay in-memory stream content onto the last assistant message
-      if (currentStream) {
-        const streamContent = getStreamContent(sessionKey);
-        if (streamContent && result.length > 0) {
-          const last = result[result.length - 1];
-          if (last.role === 'assistant' && last.partial) {
-            last.content = streamContent.content;
-            if (streamContent.thinking) last.thinking = streamContent.thinking;
-          }
+      // One row, from its lean read to its wire form.
+      // - hydrated: `blocks` / `tool_calls` read back for this row only.
+      // - Drop the copies the client never reads: `toolCalls` alongside
+      //   `blocks`, and `result` inside a toolCall whose `detail` already
+      //   carries that same text. On a long working topic (118 messages,
+      //   measured 2026-08-14) that is 8.20 MB down to 5.42 MB, and on a PWA
+      //   over the LAN the difference is seconds of empty screen. The rule
+      //   lives in `shared/lean-tool-call.ts`, together with the reason for
+      //   each half and the reason partial messages are left alone, because
+      //   `/api/topics/:id/messages` has to apply it too.
+      //   Gate: tests/integration/history-payload-weight.test.ts.
+      // - A tool call carries only what its CLOSED row draws: the three text
+      //   blobs of `detail` (output, content, result) go blank, and every other
+      //   string of `detail` or `args` longer than WIRE_STRING_PREVIEW_CHARS
+      //   travels as its head. `detailBytes` / `argsBytes` on the call say how
+      //   much was cut; the client fetches the whole thing on first expand via
+      //   GET /api/messages/:msgId/tool/:toolCallId/detail. plan.text is
+      //   intentionally left - it drives the closed-row summary label.
+      //   Gates: tests/integration/history-payload-weight.test.ts and
+      //   tests/integration/history-args-weight.test.ts.
+      // `m` must already carry its bodies; `hydrateMessageBodies` fills them
+      // in place, so `m === pageLast` still recognises the page's last row.
+      const shapeForWire = (m: StoredMessage) => {
+        const n = numbers.get(m.id);
+        const out = n ? { ...m, promptNumber: n } : m;
+        if (streamContent && m === pageLast && out.role === 'assistant' && out.partial) {
+          out.content = streamContent.content;
+          if (streamContent.thinking) out.thinking = streamContent.thinking;
         }
-      }
+        return leanMessagesForHistory(leanMessagesForWire([out]))[0]!;
+      };
+      const hydrateOne = (m: StoredMessage) => (cappedRead ? hydrateMessageBodies([m])[0]! : m);
 
       const lastMsg = completeMsgs[completeMsgs.length - 1];
       const hasOrphanedMessage = lastMsg?.role === 'user';
-      // Drop the copies the client never reads: `toolCalls` alongside `blocks`,
-      // and `result` inside a toolCall whose `detail` already carries that same
-      // text. On a long working topic (118 messages, measured 2026-08-14) that
-      // is 8.20 MB down to 5.42 MB, and on a PWA over the LAN the difference is
-      // seconds of empty screen. The rule lives in `shared/lean-tool-call.ts`,
-      // together with the reason for each half and the reason partial messages
-      // are left alone, because `/api/topics/:id/messages` has to apply it too.
-      // Gate: tests/integration/history-payload-weight.test.ts.
-      const lean = leanMessagesForWire(result);
-      // A tool call carries only what its CLOSED row draws: the three text
-      // blobs of `detail` (output, content, result) go blank, and every other
-      // string of `detail` or `args` longer than WIRE_STRING_PREVIEW_CHARS
-      // travels as its head. `detailBytes` / `argsBytes` on the call say how
-      // much was cut; the client fetches the whole thing on first expand via
-      // GET /api/messages/:msgId/tool/:toolCallId/detail. plan.text is
-      // intentionally left — it drives the closed-row summary label.
-      // Gates: tests/integration/history-payload-weight.test.ts and
-      // tests/integration/history-args-weight.test.ts.
-      const strippedAll = leanMessagesForHistory(lean);
       // BYTE BUDGET of the first page. `limit` bounds the COUNT, and a count is
       // not a size: forty messages of an agentic topic were measured at 0.66 to
       // 1.33 MB of lean rows on 2026-09-07, against the "few tens of KB" the
@@ -257,9 +271,12 @@ export function createHistoryRouter(ctx: AppContext, deps: HistoryDeps): RouteHa
       // on the wire, and drop the head once the sum passes the budget - keeping
       // at least one message, however fat it is. `total` is untouched, which is
       // exactly how the client learns the page is partial and completes it with
-      // `before`. A caller that asked for the whole thread is never capped.
+      // `before`. A caller that asked for the whole thread is never capped, and
+      // its rows are hydrated in one pass rather than one query each.
       // Gate: tests/integration/history-page-bytes.test.ts.
-      const stripped = wantsAll ? strippedAll : capByBytes(strippedAll, HISTORY_PAGE_MAX_BYTES);
+      const stripped = wantsAll
+        ? (cappedRead ? hydrateMessageBodies(capped) : capped).map(shapeForWire)
+        : tailWithinBudget(capped, HISTORY_PAGE_MAX_BYTES, (m) => shapeForWire(hydrateOne(m)));
       // Compaction dividers (CHAT-COMPACT-01) — display-only, folded into the
       // timeline client-side by `afterMessageId`. Cheap query; empty for the
       // vast majority of sessions.

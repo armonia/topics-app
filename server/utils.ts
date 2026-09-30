@@ -330,7 +330,7 @@ export function createAppContext(baseDir: string): AppContext {
               plan_status, timestamp, sort_order, parent_id, branch_index, latency_ms,
               usage_prompt_tokens, usage_completion_tokens, cost_cents, cache_read_tokens,
               cache_creation_tokens, cache_creation_1h_tokens, model, author_person_id,
-              author_device_id
+              author_device_id, end_reason
        FROM messages WHERE session_key = ? ORDER BY sort_order ASC`,
     ),
     getLastMessage: db.prepare(`SELECT * FROM messages WHERE session_key = ? ORDER BY sort_order DESC LIMIT 1`),
@@ -765,6 +765,16 @@ export function createAppContext(baseDir: string): AppContext {
     }
   }
 
+  /** `toolCalls` rebuilt from the tool blocks when the column left it empty (see rowToMessage). */
+  function restoreToolCallsFromBlocks(msg: StoredMessage): void {
+    if (!msg.toolCalls?.length && msg.blocks?.length) {
+      const fromBlocks = msg.blocks
+        .filter((b: any) => b && b.kind === 'tool' && b.toolCall)
+        .map((b: any) => b.toolCall);
+      if (fromBlocks.length > 0) msg.toolCalls = fromBlocks;
+    }
+  }
+
   function rowToMessage(row: any, opts?: { withBlocks?: boolean; withToolCalls?: boolean }): StoredMessage {
     const msg: StoredMessage = {
       id: row.id,
@@ -789,12 +799,7 @@ export function createAppContext(baseDir: string): AppContext {
     // `msg.toolCalls` as the evidence of the turn it is replacing
     // (routes/edit.ts). No copy: the toolCall objects are the ones already
     // hydrated in the blocks, so the array costs one reference per tool.
-    if (!msg.toolCalls?.length && msg.blocks?.length) {
-      const fromBlocks = msg.blocks
-        .filter((b: any) => b && b.kind === 'tool' && b.toolCall)
-        .map((b: any) => b.toolCall);
-      if (fromBlocks.length > 0) msg.toolCalls = fromBlocks;
-    }
+    restoreToolCallsFromBlocks(msg);
     if (row.media) {
       try { msg.media = JSON.parse(row.media); } catch (err) {
         // Corrupt media JSON → message hydrates without attachments.
@@ -1468,6 +1473,13 @@ export function createAppContext(baseDir: string): AppContext {
         const parsed = parseBlocksCol(row.blocks, m.id);
         if (parsed !== undefined) m.blocks = parsed;
       }
+      // A closed row comes out as a fat read builds it: without this a row
+      // whose column holds `[]` next to its tool blocks shipped
+      // `toolCalls: []`, which `leanMessageForWire` does not drop, where the
+      // fat read shipped nothing. A partial row is left as the lean read always
+      // shipped it: the wire keeps it whole, and a rebuilt copy would double
+      // the in-flight turn on the first page.
+      if (!m.partial) restoreToolCallsFromBlocks(m);
     }
     return msgs;
   }

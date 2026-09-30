@@ -17,7 +17,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import type { AppContext, StoredMessage, Topic, TopicsData } from "../types";
+import type { AppContext, StoredMessage, Topic, TopicsData, TopicsFilter } from "../types";
 import { assembleTopicContext } from "./assemble";
 import { replaceSteps, setGoal } from "../services/goals";
 import { initDatabase, closeDatabase } from "../db";
@@ -263,6 +263,55 @@ describe("assembleTopicContext — minimal topic", () => {
   it("provider strategy is propagated", () => {
     expect(env.providerStrategy).toBe("history-aware");
     expect(env.providerName).toBe("claude");
+  });
+});
+
+describe("assembleTopicContext — topic switch directory", () => {
+  // Every turn of a provider with control tools rebuilds this directory, and
+  // it lists the LIVE topics only. It used to get there by loading every topic
+  // of the store, archived ones included (1,848 of 1,870 on this machine,
+  // 2026-09-30, ~2.5 ms a turn), and skipping them in JS. The store has the
+  // live half on an index: the directory asks for that.
+  const baseDir = join(ROOT, "directory", "base");
+  const openclawDir = join(ROOT, "directory", "openclaw");
+  mkdirSync(join(baseDir, "memory"), { recursive: true });
+  mkdirSync(join(openclawDir, "workspace"), { recursive: true });
+
+  const topic = makeTopic({ id: "live-current", name: "Current" });
+  const all: Record<string, Topic> = { [topic.id]: topic };
+  for (let i = 0; i < 2; i++) {
+    all[`live-${i}`] = makeTopic({ id: `live-${i}`, name: `Live ${i}`, sessionKey: `topic:live${i}`, projectPath: i ? "/repos/alpha" : undefined });
+  }
+  for (let i = 0; i < 200; i++) {
+    all[`arch-${i}`] = makeTopic({ id: `arch-${i}`, name: `Archived ${i}`, sessionKey: `topic:arch${i}`, archived: true });
+  }
+  // The real store's contract: no filter = every topic, `{ archived }` = one half.
+  const loadedCounts: number[] = [];
+  const ctx = {
+    ...makeMockCtx({ baseDir, openclawDir, topic, messages: [] }),
+    loadTopics: (filter?: TopicsFilter): TopicsData => {
+      const rows = Object.values(all).filter((t) => filter?.archived === undefined || !!t.archived === filter.archived);
+      loadedCounts.push(rows.length);
+      return { topics: Object.fromEntries(rows.map((t) => [t.id, t])) };
+    },
+  } as AppContext;
+
+  const env = assembleTopicContext(ctx, {
+    sessionKey: topic.sessionKey,
+    providerName: "claude",
+    providerStrategy: "history-aware",
+  });
+  const directory = env.systemBlocks.find((b) => b.id === "synthetic:topic-switch-directory")?.content ?? "";
+
+  it("lists every live topic but the current one, and no archived one", () => {
+    expect(directory).toContain("- [id:live-0] Live 0\n- [id:live-1] Live 1 (project: alpha)");
+    expect(directory).not.toContain("[id:live-current]");
+    expect(directory).not.toContain("[id:arch-");
+  });
+
+  it("does not load the archived topics to build it", () => {
+    expect(loadedCounts.length).toBeGreaterThan(0);
+    expect(Math.max(...loadedCounts)).toBe(3);
   });
 });
 
