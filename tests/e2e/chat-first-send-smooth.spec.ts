@@ -56,6 +56,10 @@ const TOL = 0.5;
 type Box = { x: number; y: number; w: number; h: number; o: number; v: boolean; id: number } | null;
 type Frame = {
   t: number;
+  /** The number of the last mutation callback delivered before this sample: the DOM it measured has every batch up to this one and none after. */
+  batch: number;
+  /** Chat panes on screen: composers with a box that `checkVisibility()` passes. */
+  panes: number;
   card: Box;
   bubble: Box;
   /** The user bubble's top in CONTENT coordinates: screen top - scroller top + scrollTop. */
@@ -128,14 +132,12 @@ async function installProbe(page: Page) {
       }
     }).observe(document, { childList: true, subtree: true });
 
-    /** The one chat pane on screen: the visible composer's pane. */
-    const pane = (): Element | null => {
-      for (const area of document.querySelectorAll('[data-testid="chat-input-area"]')) {
+    /** The chat panes on screen: the visible composers' panes, in DOM order. */
+    const visiblePanes = (): Element[] =>
+      [...document.querySelectorAll('[data-testid="chat-input-area"]')].flatMap((area) => {
         const r = area.getBoundingClientRect();
-        if (r.width > 0 && r.height > 0 && area.checkVisibility()) return area.parentElement;
-      }
-      return null;
-    };
+        return r.width > 0 && r.height > 0 && area.checkVisibility() && area.parentElement ? [area.parentElement] : [];
+      });
     const opacityOf = (el: Element) => {
       let o = 1;
       for (let n: Element | null = el; n; n = n.parentElement) o *= Number(getComputedStyle(n).opacity);
@@ -155,7 +157,8 @@ async function installProbe(page: Page) {
     const tick = () => channel.port2.postMessage(null);
     channel.port1.onmessage = () => {
       if (p.running) {
-        const root = pane();
+        const onScreen = visiblePanes();
+        const root = onScreen[0] ?? null;
         const scrollerEl = root?.querySelector<HTMLElement>("[data-virtuoso-scroller]") ?? null;
         // The bubble's ROW, not its wrapper: the entrance animation
         // (`.message-appear`) lives on the row, and the wrapper would read as
@@ -173,6 +176,8 @@ async function installProbe(page: Page) {
           });
         p.frames.push({
           t: performance.now(),
+          batch: batchSeq,
+          panes: onScreen.length,
           card: box(root?.querySelector('[data-testid="composer-card"]')),
           bubble,
           bubbleContentY: bubble && scrollerEl && sr ? Math.round((bubble.y - sr.y + scrollerEl.scrollTop) * 10) / 10 : null,
@@ -192,6 +197,29 @@ async function installProbe(page: Page) {
     };
     requestAnimationFrame(tick);
   });
+}
+
+/**
+ * What one testId's nodes really did, callback by callback. A node removed and
+ * re-added in the same callback was MOVED, never out of the document at a
+ * paint: PaneStage parks a released pane body with `moveBefore` on Chromium and
+ * with `appendChild` on WebKit, and both are logged as a remove plus an add of
+ * the same node. A node shows up once per added ancestor, hence the sets.
+ */
+function netChanges(mutations: Mutation[], testId: string) {
+  const byBatch = new Map<number, { t: number; added: Set<number>; removed: Set<number> }>();
+  for (const m of mutations) {
+    if (m.testId !== testId) continue;
+    const b = byBatch.get(m.batch) ?? { t: m.t, added: new Set<number>(), removed: new Set<number>() };
+    byBatch.set(m.batch, b);
+    (m.op === "add" ? b.added : b.removed).add(m.id);
+  }
+  return [...byBatch.entries()].sort(([a], [b]) => a - b).map(([batch, { t, added, removed }]) => ({
+    batch,
+    t,
+    mounted: [...added].filter((id) => !removed.has(id)),
+    unmounted: [...removed].filter((id) => !added.has(id)),
+  }));
 }
 
 /** Every departure from the rules in the header, one line each, with its frame. */
@@ -241,10 +269,14 @@ function analyse(frames: Frame[], mutations: Mutation[], draftTabId: string, t0:
   const seenSkeleton = frames.findIndex((f) => f.skeleton);
   if (seenSkeleton >= 0) out.push(`${at(seenSkeleton)} skeleton: shown after the send (${frames.filter((f) => f.skeleton).length} frames)`);
   // The greeting leaves by FADING: never replaced by a new node outside the
-  // pane swap, never more than half its opacity in one frame.
-  const swapBatches = new Set(mutations.filter((m) => m.testId === "chat-scroll-container").map((m) => m.batch));
-  for (const m of mutations) {
-    if (m.testId === "chat-empty-state" && m.op === "add" && !swapBatches.has(m.batch)) out.push(`+${Math.round(m.t - t0)}ms empty state: replaced by a new node #${m.id}`);
+  // callback that mounts the promoted pane, never more than half its opacity
+  // in one frame.
+  const paneChanges = netChanges(mutations, "chat-scroll-container");
+  const paneMounts = paneChanges.flatMap((c) => c.mounted.map((id) => ({ id, batch: c.batch, t: c.t })));
+  const paneUnmounts = paneChanges.flatMap((c) => c.unmounted.map((id) => ({ id, batch: c.batch, t: c.t })));
+  const mountBatches = new Set(paneMounts.map((m) => m.batch));
+  for (const c of netChanges(mutations, "chat-empty-state")) {
+    for (const id of c.mounted) if (!mountBatches.has(c.batch)) out.push(`+${Math.round(c.t - t0)}ms empty state: replaced by a new node #${id}`);
   }
   for (let i = 1; i < frames.length; i++) {
     const a = frames[i - 1]!.empty, b = frames[i]!.empty;
@@ -277,15 +309,29 @@ function analyse(frames: Frame[], mutations: Mutation[], draftTabId: string, t0:
     }
   }
   // The ONE intended remount: the promoted draft's pane (see
-  // `composerHandoff.ts`). It has to be a swap, not a gap: the old pane leaves
-  // and the new one arrives in the same DOM mutation, so no frame is painted
-  // without a chat, and the checks above already prove the composer and the
-  // greeting are on the same pixels on both sides of it. Exactly once.
-  const paneRemoves = mutations.filter((m) => m.testId === "chat-scroll-container" && m.op === "remove");
-  const paneAdds = mutations.filter((m) => m.testId === "chat-scroll-container" && m.op === "add");
-  if (paneRemoves.length > 1 || paneAdds.length > 1) out.push(`pane: remounted ${paneRemoves.length} times, the promotion allows one`);
-  for (const r of paneRemoves) {
-    if (!paneAdds.some((a) => a.batch === r.batch)) out.push(`+${Math.round(r.t - t0)}ms pane: removed without a new one in the same mutation`);
+  // `composerHandoff.ts`), mounted once. It has to be a swap, not a gap: the
+  // new pane is in the DOM no later than the callback that takes the old one
+  // out, so no frame is painted without a chat. The old one may leave later
+  // (PaneStage parks it hidden first, then drops it): every frame sampled
+  // while both are in the DOM shows exactly one chat pane, with the composer
+  // and the greeting on the pixels of the last frame before the swap. The
+  // checks above prove the same pixels across the swap itself.
+  const newPanes = new Set(paneMounts.map((m) => m.id));
+  const oldPanes = new Set(paneUnmounts.map((m) => m.id));
+  if (newPanes.size > 1 || oldPanes.size > 1) out.push(`pane: remounted ${Math.max(newPanes.size, oldPanes.size)} times, the promotion allows one`);
+  for (const gone of paneUnmounts) {
+    const successor = paneMounts.find((m) => m.id !== gone.id && m.batch <= gone.batch);
+    if (!successor) { out.push(`+${Math.round(gone.t - t0)}ms pane: removed before a new one was mounted`); continue; }
+    const between = frames.map((f, i) => ({ f, i })).filter(({ f }) => f.batch >= successor.batch && f.batch < gone.batch);
+    const ref = [...frames].reverse().find((f) => f.batch < successor.batch) ?? between[0]?.f;
+    for (const { f, i } of between) {
+      if (f.panes !== 1) out.push(`${at(i)} pane: ${f.panes} chat panes on screen while the old one was leaving`);
+      for (const key of ["card", "empty"] as const) {
+        const a = ref?.[key] ?? null, b = f[key];
+        const same = !a || !b ? a === b : Math.abs(a.x - b.x) <= TOL && Math.abs(a.y - b.y) <= TOL && Math.abs(a.h - b.h) <= TOL && Math.abs(a.o - b.o) < 0.01;
+        if (!same) out.push(`${at(i)} pane: ${key} changed while the old pane was leaving (${a ? `${a.x},${a.y}/${a.h}@${a.o}` : "none"} -> ${b ? `${b.x},${b.y}/${b.h}@${b.o}` : "none"})`);
+      }
+    }
   }
 
   // ── Loading between send and first token: one stable element ──────────
@@ -388,10 +434,16 @@ function frameTable(frames: Frame[], t0: number): string {
 // time it was reported as "removed without a new one" and "empty state:
 // replaced", 1 run in 6. And the other way round: two callbacks at the same
 // instant are two mutations, and a frame can be painted between them.
+//
+// And on the log of a red Chromium run in CI (30/09): PaneStage parks the old
+// pane with `moveBefore`, logged as a remove plus an add of the SAME nodes in
+// the callback that mounts the new pane, and drops it one callback later. Read
+// as raw adds and removes that was "remounted 2 times" and "removed without a
+// new one", while no frame ever showed anything but one pane.
 test("the pane swap is judged by mutation batch, not by timestamp", () => {
   const m = (t: number, batch: number, op: "add" | "remove", testId: string, id: number): Mutation => ({ t, batch, op, testId, id });
-  const swapRules = (mutations: Mutation[]) =>
-    analyse([], mutations, "draft:x", 1000).filter((l) => /pane:|empty state: replaced/.test(l));
+  const swapRules = (mutations: Mutation[], frames: Frame[] = []) =>
+    analyse(frames, mutations, "draft:x", 1000).filter((l) => /pane:|empty state: replaced/.test(l));
   expect(swapRules([
     m(1119, 7, "remove", "chat-empty-state", 3),
     m(1119, 7, "remove", "chat-scroll-container", 4),
@@ -405,7 +457,41 @@ test("the pane swap is judged by mutation batch, not by timestamp", () => {
     m(1119, 9, "add", "chat-empty-state", 12),
   ]), "two callbacks at the same instant are not one swap").toEqual([
     "+119ms empty state: replaced by a new node #12",
-    "+119ms pane: removed without a new one in the same mutation",
+    "+119ms pane: removed before a new one was mounted",
+  ]);
+
+  // The CI Chromium log, verbatim (the pane's nodes only).
+  const ciLog = [
+    ...["remove", "add"].flatMap((op) => [1, 2, 3, 4].map((id) => [68, 5, op, id])),
+    ...[0, 1, 2].flatMap(() => [5, 6, 7, 8].map((id) => [68, 5, "add", id])),
+    ...[1, 2, 3, 4].map((id) => [75, 6, "remove", id]),
+  ].map(([ms, batch, op, id]) => {
+    const testId = ["chat-scroll-container", "chat-input-area", "chat-empty-state", "composer-card"][((id as number) - 1) % 4]!;
+    return m(1000 + (ms as number), batch as number, op as "add" | "remove", testId, id as number);
+  });
+  const box = (y: number, h: number, id: number): Box => ({ x: 0, y, w: 600, h, o: 1, v: true, id });
+  const frame = (t: number, batch: number, panes: number, cardY = 378): Frame => ({
+    t, batch, panes,
+    card: panes ? box(cardY, 46, batch < 5 ? 4 : 8) : null,
+    empty: panes ? box(194, 172, batch < 5 ? 3 : 7) : null,
+    bubble: null, bubbleContentY: null, indicator: null, bg: null, skeleton: null, assistant: null,
+    assistantHasText: false, scroller: null, tabs: [],
+  });
+  const ciFrames = [frame(1050, 4, 1), frame(1071, 5, 1), frame(1095, 6, 1)];
+  expect(swapRules(ciLog, ciFrames), "a pane parked by a move and dropped later, one pane on screen throughout").toEqual([]);
+  expect(swapRules([...ciLog, m(1090, 7, "add", "chat-scroll-container", 13)], ciFrames), "two distinct new panes are a double mount").toEqual([
+    "pane: remounted 2 times, the promotion allows one",
+  ]);
+  expect(swapRules(ciLog, [frame(1050, 4, 1), frame(1071, 5, 0), frame(1095, 6, 1)]), "a frame with no chat pane before the old one leaves").toEqual([
+    "f1 +71ms pane: 0 chat panes on screen while the old one was leaving",
+    "f1 +71ms pane: card changed while the old pane was leaving (0,378/46@1 -> none)",
+    "f1 +71ms pane: empty changed while the old pane was leaving (0,194/172@1 -> none)",
+  ]);
+  expect(swapRules(ciLog, [frame(1050, 4, 1), frame(1071, 5, 2), frame(1095, 6, 1)]), "both panes on screen at once").toEqual([
+    "f1 +71ms pane: 2 chat panes on screen while the old one was leaving",
+  ]);
+  expect(swapRules(ciLog, [frame(1050, 4, 1), frame(1071, 5, 1, 390), frame(1095, 6, 1)]), "the composer moving before the old pane leaves").toEqual([
+    "f1 +71ms pane: card changed while the old pane was leaving (0,378/46@1 -> 0,390/46@1)",
   ]);
 });
 
