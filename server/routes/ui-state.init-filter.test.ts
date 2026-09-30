@@ -47,6 +47,16 @@ beforeEach(() => {
 });
 
 describe("loadAllUiState (frame ui-state:init)", () => {
+  test("a dev probe's result stays out of the snapshot, its armed flag stays in", () => {
+    putRow("dev-heap-probe", { armed: false }, 7);
+    putRow("dev-heap-probe-result", { samples: 60, series: Array(600).fill(1) }, 8);
+    putRow("dev-layout-probe-result", { runs: [] }, 9);
+    putRow("dev-storage-probe-result", { runs: [] }, 10);
+    const { data, meta } = loadAllUiState(db);
+    expect(Object.keys(data).sort()).toEqual(["dev-heap-probe", "pane-store-v2", "theme"]);
+    expect(Object.keys(meta).sort()).toEqual(["dev-heap-probe", "pane-store-v2", "theme"]);
+  });
+
   test("esclude task-browser-tabs:* e task-browser-layout:*, tiene tutto il resto", () => {
     const { data, meta } = loadAllUiState(db);
     expect(Object.keys(data).sort()).toEqual(["pane-store-v2", "theme"]);
