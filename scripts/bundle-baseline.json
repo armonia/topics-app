@@ -605,16 +605,21 @@
     "    panePreload +86, App +356 (CommandPaletteHost), ChatPane +124,",
     "    useChat +66, hiddenBox +48, main.tsx +42;",
     "  · background work during a turn: backgroundWork +178,",
-    "    BackgroundWorkLine +35; i18n-it +123; the rest under 50 each.",
+    "    BackgroundWorkLine +35; i18n-it +123; PanelGrid +88, usePanelLifecycle -83;",
+    "    the rest under 50 each.",
     "node_modules inside the entry did not move and no lazy import turned static:",
-    "the four modules new to the entry are the lane's own code, each one used on",
+    "the six modules new to the entry (endedSubAgents, useSidebarRowFlip, exitGhost,",
+    "messageEntrance, hiddenBox, and motion, which main had only in the lazy board",
+    "chunk) are the lane's own code, each one used on",
     "first paint or on the first roster. Lazy-loading any of them saves at most",
     "2.400 raw of a 6.633 overage and loses what it records or animates before",
     "it lands. Not tried further.",
-    "Critical path +40.260 raw / +11.755 gz: the same entry bytes plus the motion",
-    "CSS (index.css, +1.458 raw / +228 gz); it was 698 gz under its ceiling.",
+    "Critical path +40.260 raw / +11.755 gz: the entry bytes, the motion CSS and",
+    "main's own index.css and icons growth since 09-28 (+2.773 raw); on CI it was",
+    "42 gz under its ceiling.",
     "Written below: entry raw 1.505.812 / gz 475.103, critical path raw 2.119.442 /",
-    "gz 634.391, 5 files (Mac). Total assets unchanged (8.424.467, inside 2%)."
+    "gz 635.047 (the worse of CI and Mac), 5 files. Total assets baseline unchanged",
+    "(8.377.807); measured 8.424.467, inside 2%."
   ],
   "updated": "2026-09-30",
   "tolerance_pct": 2,
@@ -624,7 +629,7 @@
   },
   "critical_path": {
     "raw": 2119442,
-    "gz": 634391,
+    "gz": 635047,
     "files": 5
   },
   "total_assets": {
